@@ -1,0 +1,162 @@
+/* Estilos mínimos de la app de gestión. El grueso viene de @flota/ui/base.css
+   y los tokens de @flota/ui/styles/tokens.css. */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: var(--color-app-bg, #f4f6f9);
+  color: var(--color-text, #1f2a37);
+}
+
+a {
+  color: inherit;
+}
+
+.app-shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.85rem 1.5rem;
+  background: #0f2e4a;
+  color: #fff;
+}
+
+.app-header nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.app-header nav a {
+  color: #cfe0f0;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 0.25rem 0;
+  border-bottom: 2px solid transparent;
+}
+
+.app-header nav a.active {
+  color: #fff;
+  border-bottom-color: #4a90d9;
+}
+
+.app-header .spacer {
+  flex: 1;
+}
+
+.app-user {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.app-main {
+  flex: 1;
+  padding: 1.5rem;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.login-wrap {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: #fff;
+  border-radius: 14px;
+  padding: 2rem;
+  box-shadow: 0 12px 40px rgba(15, 46, 74, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.login-card h1 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.login-card .sub {
+  margin: 0;
+  color: #5f748c;
+  font-size: 0.9rem;
+}
+
+.form-error {
+  color: #b3261e;
+  font-size: 0.88rem;
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(15, 46, 74, 0.06);
+}
+
+table.data th,
+table.data td {
+  text-align: left;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid #eceff3;
+  font-size: 0.9rem;
+}
+
+table.data th {
+  background: #f7f9fc;
+  font-weight: 700;
+  color: #34495e;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.badge.active {
+  background: #e3f4e8;
+  color: #1e7e45;
+}
+.badge.maintenance {
+  background: #fdf0d5;
+  color: #a9791c;
+}
+.badge.retired {
+  background: #f0e3e3;
+  color: #a13a2f;
+}
+
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.2rem;
+}
+.page-head h2 {
+  margin: 0;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}

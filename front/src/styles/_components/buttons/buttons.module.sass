@@ -1,0 +1,288 @@
+// [ES] Relacionado con: src/components/buttons/Button.tsx, src/components/buttons/ButtonGroup.tsx
+// Resumen: estilos base de botones de texto, variantes visuales, tamanos y layout de grupos.
+// [EN] Related to: src/components/buttons/Button.tsx, src/components/buttons/ButtonGroup.tsx
+// Summary: base text-button styles, visual variants, sizes and button-group layout.
+@use '../../_colors/_colors-corp' as app
+
+.button
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  gap: .4rem
+  min-height: var(--btn-min-height, 34px)
+  border-radius: var(--btn-radius, 8px)
+  border: 1px solid transparent
+  font-weight: 600
+  line-height: 1
+  cursor: pointer
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease, transform .06s ease, color .15s ease
+
+  &:focus-visible
+    outline: 2px solid app.$primary-app
+    outline-offset: 2px
+
+  &:disabled
+    opacity: .58
+    filter: saturate(.55)
+    cursor: not-allowed
+    box-shadow: none
+    transform: none
+
+.withCounter
+  justify-content: space-between
+  gap: .45rem
+
+.buttonLabel
+  display: inline-flex
+  align-items: center
+  justify-content: center
+
+.counterBadge
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  min-width: 1.28rem
+  height: 1.05rem
+  padding: 0 .38rem
+  border-radius: 999px
+  border: 1px solid transparent
+  font-size: .68rem
+  font-weight: 700
+  line-height: 1
+  color: app.$ink-app
+  background: app.$surface-soft-app
+  border-color: app.$border-strong-app
+  box-shadow: 0 1px 2px rgba(app.$ink-app, .12)
+
+.buttonPrimary
+  background: app.$teal-corp
+  border-color: app.$teal-corp
+  color: app.$white-app
+  box-shadow: 0 8px 18px rgba(app.$teal-corp, .24)
+  letter-spacing: .01em
+
+  .counterBadge
+    color: app.$white-app
+    background: #067977
+    border-color: rgba(app.$white-app, .2)
+    box-shadow: inset 0 1px 0 rgba(app.$white-app, .1)
+
+  &:not(:disabled):hover
+    background: #0b8f8d
+    border-color: #0b8f8d
+    box-shadow: 0 10px 22px rgba(app.$teal-corp, .28)
+    transform: translateY(-1px)
+
+  &:not(:disabled):active
+    transform: translateY(1px)
+    background: #087e7c
+    border-color: #087e7c
+    box-shadow: inset 0 2px 8px rgba(app.$ink-app, .22), 0 4px 10px rgba(app.$teal-corp, .2)
+
+.buttonSecondary
+  background: app.$white-app
+  border-color: app.$border-strong-app
+  color: app.$ink-app
+  box-shadow: 0 2px 6px rgba(app.$ink-app, .05)
+
+  .counterBadge
+    color: #1e40af
+    background: #dbeafe
+    border-color: #bfdbfe
+    box-shadow: none
+
+  &:not(:disabled):hover
+    background: app.$surface-soft-app
+    border-color: #94a3b8
+    box-shadow: 0 6px 12px rgba(app.$ink-app, .08)
+    transform: translateY(-1px)
+
+  &:not(:disabled):active
+    transform: translateY(1px)
+    background: #e2e8f0
+    border-color: #94a3b8
+    box-shadow: inset 0 2px 6px rgba(app.$ink-app, .12)
+
+.buttonNavy
+  background: #111a34
+  border-color: #0d1428
+  color: app.$white-app
+  box-shadow: 0 3px 8px rgba(#0b1225, .3)
+  font-weight: 700
+  letter-spacing: .01em
+
+  .counterBadge
+    color: app.$white-app
+    background: #2b4f8f
+    border-color: rgba(#8eb8ff, .45)
+    box-shadow: none
+
+  &:not(:disabled):hover
+    background: #172447
+    border-color: #101b35
+    box-shadow: 0 5px 12px rgba(#0b1225, .35)
+    transform: translateY(-1px)
+
+  &:not(:disabled):active
+    transform: translateY(1px)
+    background: #0e162c
+    border-color: #0a1121
+    box-shadow: inset 0 2px 8px rgba(#060c18, .45)
+
+.buttonDanger
+  background: app.$danger-bg-app
+  border-color: app.$danger-soft-app
+  color: app.$danger-app
+  box-shadow: 0 4px 10px rgba(app.$danger-app, .12)
+
+  .counterBadge
+    color: app.$white-app
+    background: #ef4444
+    border-color: #f87171
+    box-shadow: none
+
+  &:not(:disabled):hover
+    background: #fee2e2
+    border-color: #fca5a5
+    box-shadow: 0 6px 12px rgba(app.$danger-app, .16)
+
+  &:not(:disabled):active
+    transform: translateY(1px)
+    background: app.$danger-app
+    border-color: app.$danger-app
+    color: app.$white-app
+    box-shadow: inset 0 2px 8px rgba(app.$ink-app, .2)
+
+.buttonWarning
+  border-color: #f5d07a
+  color: #9a5f0a
+  background: #fffaf0
+  box-shadow: 0 4px 10px rgba(#f59e0b, .12)
+
+  .counterBadge
+    background: #e59f12
+    color: app.$white-app
+    box-shadow: none
+
+  &:not(:disabled):hover
+    background: #fff3d9
+    border-color: #e8b957
+    color: #8a4d03
+    box-shadow: 0 6px 12px rgba(#d97706, .18)
+
+  &:not(:disabled):active
+    transform: translateY(1px)
+    background: #f59e0b
+    border-color: #f59e0b
+    color: app.$white-app
+    box-shadow: inset 0 2px 8px rgba(app.$ink-app, .2)
+
+.buttonDefault
+  --btn-radius: 4px
+  background: #e6e6e6
+  border-color: #8b8b8b
+  color: #0f172a
+  box-shadow: inset 0 1px 0 rgba(#ffffff, .86)
+  font-weight: 500
+  letter-spacing: 0
+
+  &:not(:disabled):hover
+    background: #efefef
+    border-color: #767676
+    box-shadow: inset 0 1px 0 rgba(#ffffff, .94), 0 1px 2px rgba(app.$ink-app, .08)
+
+  &:not(:disabled):active
+    transform: translateY(1px)
+    background: #dadada
+    border-color: #707070
+    box-shadow: inset 0 1px 3px rgba(app.$ink-app, .2)
+
+  .counterBadge
+    color: app.$white-app
+    background: #64748b
+    border-color: #475569
+
+.sizeSm
+  --btn-min-height: 28px
+  --btn-radius: 7px
+  padding: .28rem .72rem
+  font-size: .78rem
+
+.sizeXs
+  --btn-min-height: 24px
+  --btn-radius: 6px
+  padding: .2rem .58rem
+  font-size: .72rem
+
+.sizeMd
+  --btn-min-height: 34px
+  --btn-radius: 8px
+  padding: .45rem .95rem
+  font-size: .88rem
+
+.sizeLg
+  --btn-min-height: 38px
+  --btn-radius: 8px
+  padding: .65rem 1.4rem
+  font-size: .95rem
+
+.fullWidth
+  width: 100%
+
+.buttonGroup
+  display: inline-flex
+  align-items: center
+  gap: .5rem
+  flex-wrap: wrap
+
+.buttonGroupEqual
+  > *
+    width: var(--btn-group-item-width, 168px)
+    min-width: var(--btn-group-item-width, 168px)
+    flex: 0 0 var(--btn-group-item-width, 168px)
+
+@media (max-width: 700px)
+  .buttonGroupEqual
+    width: 100%
+
+    > *
+      width: 100%
+      min-width: 0
+      flex: 1 1 0
+
+// --- Superconjunto: prop flat + variante success (portado de travel_expenses) ---
+.flat
+  box-shadow: none !important
+
+  &:not(:disabled):hover
+    box-shadow: none !important
+    transform: none
+
+  &:not(:disabled):active
+    box-shadow: none !important
+
+.buttonSuccess
+  background: app.$success-app
+  border-color: app.$success-app
+  color: app.$white-app
+  box-shadow: 0 8px 18px rgba(app.$success-app, .24)
+  letter-spacing: .01em
+
+  .counterBadge
+    color: app.$white-app
+    background: darken(app.$success-app, 10%)
+    border-color: rgba(app.$white-app, .2)
+    box-shadow: inset 0 1px 0 rgba(app.$white-app, .1)
+
+  &:not(:disabled):hover
+    background: lighten(app.$success-app, 5%)
+    border-color: lighten(app.$success-app, 5%)
+    box-shadow: 0 10px 22px rgba(app.$success-app, .28)
+    transform: translateY(-1px)
+
+  &:not(:disabled):active
+    transform: translateY(1px)
+    background: darken(app.$success-app, 5%)
+    border-color: darken(app.$success-app, 5%)
+    box-shadow: inset 0 2px 8px rgba(app.$ink-app, .22), 0 4px 10px rgba(app.$success-app, .2)
+

@@ -1,0 +1,119 @@
+// [ES] Relacionado con: src/components/buttons/StatusIconButtons.tsx
+// Resumen: estilos de iconos de estado circulares (listado, nube, warning, usuario) y badge numerico.
+// [EN] Related to: src/components/buttons/StatusIconButtons.tsx
+// Summary: circular status icon styles (list, cloud, warning, user) and numeric badge.
+@use '../../_colors/_colors-corp' as app
+
+.statusIconButtons
+  display: inline-flex
+  align-items: center
+  gap: .4rem
+
+.iconButton
+  position: relative
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  width: 1.72rem
+  height: 1.72rem
+  border-radius: 999px
+  border: 1px solid #c9d4e2
+  background: #f4f7fb
+  color: #627389
+  cursor: pointer
+  transition: background .14s ease, border-color .14s ease, color .14s ease, box-shadow .14s ease, transform .08s ease
+
+  &:focus-visible
+    outline: 2px solid app.$primary-app
+    outline-offset: 2px
+
+  &:not(:disabled):hover
+    transform: translateY(-1px)
+    box-shadow: 0 4px 10px rgba(#334155, .16)
+
+  &:not(:disabled):active
+    transform: translateY(1px)
+
+  &:disabled
+    opacity: .6
+    filter: saturate(.6)
+    cursor: not-allowed
+
+.icon
+  width: .88rem
+  height: .88rem
+  stroke-width: 2
+
+.variantList
+  border-color: #93c5fd
+  background: #eaf3ff
+  color: #2563eb
+
+  &.isActive
+    border-color: #2563eb
+    background: #3b82f6
+    color: app.$white-app
+    box-shadow: 0 3px 8px rgba(#2563eb, .32)
+
+.variantCloud
+  border-color: #86efac
+  background: #ecfdf3
+  color: #15803d
+
+  &.isActive
+    border-color: #0f9f62
+    background: #10b981
+    color: app.$white-app
+    box-shadow: 0 3px 8px rgba(#10b981, .32)
+
+.variantWarning
+  border-color: #f6cf8f
+  background: #fff6e6
+  color: #b25a00
+
+  &.isActive
+    border-color: #d97706
+    background: #f59e0b
+    color: app.$white-app
+    box-shadow: 0 3px 8px rgba(#f59e0b, .34)
+
+.variantTest
+  border-color: #d8b4fe
+  background: #f7f0ff
+  color: #7e22ce
+
+  &.isActive
+    border-color: #9333ea
+    background: #9333ea
+    color: app.$white-app
+    box-shadow: 0 3px 8px rgba(#9333ea, .34)
+
+.variantUser
+  border-color: #d3d8e0
+  background: #f4f6f8
+  color: #6b7280
+
+  &.isActive
+    border-color: #64748b
+    background: #64748b
+    color: app.$white-app
+    box-shadow: 0 3px 8px rgba(#475569, .3)
+
+.badge
+  position: absolute
+  top: -.34rem
+  right: -.36rem
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  min-width: 1.1rem
+  height: .86rem
+  padding: 0 .24rem
+  border-radius: 999px
+  border: 1px solid app.$white-app
+  background: #ef4444
+  color: app.$white-app
+  font-size: .62rem
+  font-weight: 700
+  line-height: 1
+  box-shadow: 0 2px 4px rgba(#991b1b, .28)

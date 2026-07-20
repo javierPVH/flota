@@ -1,0 +1,936 @@
+@use 'sass:color'
+@use '../../_colors/_colors-corp' as app
+
+.tableShell
+  position: relative
+  display: flex
+  flex-direction: column
+  border: 1px solid #d8dee6
+  border-radius: 12px
+  background: app.$white-app
+  overflow: visible
+
+.tableShellFillAvailable
+  flex: 1 1 auto
+  min-height: 0
+
+.tableControlsRow
+  position: relative
+  padding: .8rem .65rem 0
+  background: color.mix(app.$white-app, app.$surface-soft-app, 94%)
+
+.columnsOptionsContainer
+  position: relative
+  display: flex
+  align-items: flex-start
+  justify-content: space-between
+  column-gap: .55rem
+  row-gap: 0
+  flex-wrap: wrap
+  margin-bottom: 0
+
+.columnsOptionsGroup
+  display: inline-flex
+  align-items: center
+  gap: .4rem
+
+.columnsOptionsLeft
+  flex: 0 0 auto
+
+.columnsOptionsRight
+  flex: 0 0 auto
+  gap: 0
+  border: 1px solid #d3d9e1
+  border-bottom: 1px solid #d3d9e1
+  border-radius: 12px 12px 0 0
+  background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%)
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset
+  overflow: hidden
+
+.columnsOptionsRightOpen
+  border-bottom-color: transparent
+
+.columnsOptionsSummary
+  display: inline-flex
+  align-items: center
+  min-height: 40px
+  padding: 0 .95rem
+  border: 1px solid #d3d9e1
+  border-bottom: none
+  border-radius: 12px 12px 0 0
+  background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%)
+  color: #6b7280
+  font-size: .8rem
+  line-height: 1.25
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .75) inset
+
+.toolbarButton
+  border: none
+  border-radius: 0
+  min-height: 40px
+  height: 40px
+  padding: .25rem 1rem
+  background: transparent
+  color: #1f2937
+  font-size: .82rem
+  font-weight: 700
+  line-height: 1
+  box-shadow: none
+  cursor: pointer
+  transition: background .14s ease, border-color .14s ease, box-shadow .14s ease
+
+  &:hover
+    background: #f5f7fa
+    box-shadow: none
+
+.createButton
+  border-right: 1px solid #e1e6ec
+
+.columnsOptionsToggle
+  border: none
+  background: transparent
+  color: #1f2937
+  min-height: 40px
+  height: 40px
+  border-radius: 0
+  padding: .3rem 1rem
+  font-size: .82rem
+  font-weight: 700
+  display: inline-flex
+  align-items: center
+  gap: .42rem
+  cursor: pointer
+  transition: background .14s ease, border-color .14s ease, box-shadow .14s ease
+
+  &:hover
+    background: #f5f7fa
+
+.toggleIcon
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  width: .9rem
+  color: #6b7280
+
+.columnsOptionsPanel
+  order: 3
+  width: calc(100% + 1.3rem)
+  margin-left: -.65rem
+  margin-right: -.65rem
+  margin-top: -1px
+  border: 1px solid #d3d9e1
+  border-bottom: none
+  border-radius: 0
+  background: #f3f5f8
+  padding: .8rem .65rem
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .58)
+
+.columnsOptionsPanelOpen
+  display: block
+
+.columnsPanelHeader
+  display: flex
+  align-items: center
+  gap: .7rem
+  flex-wrap: wrap
+
+.columnsToggleWrapper
+  position: relative
+  display: inline-flex
+  align-items: center
+  min-height: 32px
+
+.columnsToggleBtn
+  min-height: 32px
+  height: 32px
+  border: 1px solid #d1d5db
+  border-radius: 8px
+  background: #ffffff
+  color: #1f2937
+  padding: .2rem .55rem
+  font-size: .8rem
+  font-weight: 700
+  box-shadow: none
+  cursor: pointer
+
+  &:hover
+    border-color: #b8c4d3
+    background: #f8fafc
+
+.columnsPanel
+  position: absolute
+  top: calc(100% + 7px)
+  left: 0
+  min-width: 248px
+  max-width: min(420px, 90vw)
+  border: 1px solid #d1d5db
+  border-radius: 10px
+  background: #ffffff
+  box-shadow: 0 14px 28px rgba(15, 23, 42, .16)
+  padding: .65rem
+  z-index: var(--z-index-floating-panel)
+
+.columnsList
+  display: grid
+  grid-template-columns: minmax(0, 1fr)
+  gap: .32rem
+  margin: 0 0 .55rem
+
+.columnListItem
+  display: flex
+  align-items: center
+  justify-content: space-between
+  gap: .5rem
+
+.columnListLabel
+  display: inline-flex
+  align-items: center
+  gap: .35rem
+  color: #334155
+  font-size: .82rem
+  line-height: 1.2
+
+.columnSortTools
+  display: inline-flex
+  align-items: center
+  gap: .15rem
+
+.columnSortButton
+  width: 22px
+  min-width: 22px
+  height: 22px
+  border: 1px solid #d1d5db
+  border-radius: 6px
+  background: #ffffff
+  color: #1f2937
+  font-size: .7rem
+  font-weight: 700
+  box-shadow: none
+  cursor: pointer
+  transition: background .14s ease, border-color .14s ease
+
+  &:hover:not(:disabled)
+    border-color: #94a3b8
+    background: #f8fafc
+
+  &:disabled
+    opacity: .45
+    cursor: not-allowed
+
+.linkButton
+  border: 1px solid #bfdbfe
+  border-radius: 8px
+  background: #eff6ff
+  color: #1e3a8a
+  min-height: 30px
+  height: 30px
+  padding: .15rem .55rem
+  font-size: .78rem
+  font-weight: 700
+  box-shadow: none
+  cursor: pointer
+
+  &:hover
+    background: #dbeafe
+
+.columnsDivider
+  width: 1px
+  height: 30px
+  background: #d1d5db
+  flex: 0 0 auto
+
+.searchGroup
+  display: inline-flex
+  align-items: stretch
+  min-height: 32px
+  border: 1px solid #d1d5db
+  border-radius: 8px
+  overflow: hidden
+  background: #ffffff
+
+  &:hover
+    border-color: #b8c4d3
+
+  input
+    min-width: 220px
+    border: none
+    outline: none
+    padding: 0 .55rem
+    font-size: .8rem
+    color: #111827
+    background: transparent
+
+.iconGhostButton
+  width: 30px
+  min-width: 30px
+  height: 100%
+  min-height: 30px
+  border: none
+  border-left: 1px solid #e5e7eb
+  border-radius: 0
+  background: #ffffff
+  color: #4b5563
+  font-size: .72rem
+  font-weight: 700
+  box-shadow: none
+  cursor: pointer
+  transition: background .14s ease, color .14s ease
+
+  &:hover
+    background: #f3f4f6
+    color: #111827
+
+.dateFilterSection
+  display: inline-flex
+  align-items: flex-end
+  gap: .55rem
+  flex-wrap: wrap
+
+.dateColumnSelect
+  min-height: 39px
+  padding: 0 .68rem
+  border: 1px solid #d1d5db
+  border-radius: 10px
+  background: #ffffff
+  color: #1f2937
+  font-size: .8rem
+  outline: none
+
+  &:hover
+    border-color: #b8c4d3
+
+.monthSortSegment
+  display: inline-flex
+  align-items: stretch
+  min-height: 32px
+  border: 1px solid #cbd5e1
+  border-radius: 9px
+  overflow: hidden
+  background: #ffffff
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .72)
+
+.monthSortSegmentButton
+  min-height: 32px
+  height: 32px
+  border: none
+  border-radius: 0
+  box-shadow: none
+  padding: .22rem .7rem
+  font-size: .77rem
+  font-weight: 700
+
+  &:not(:last-child)
+    border-right: 1px solid #dbe2ea
+
+  &:hover
+    box-shadow: none
+
+.monthSortSegmentButtonActive
+  box-shadow: none
+
+.tableScroll
+  overflow-x: auto
+  overflow-y: auto
+  width: 100%
+  min-height: 280px
+
+.tableScrollFillAvailable
+  flex: 1 1 auto
+  min-height: 0
+
+.tableScrollFixedHeight
+  height: var(--table-fixed-height, 400px)
+  min-height: 0
+
+.tableScrollFillViewport
+  max-height: max(220px, calc(100dvh - var(--table-viewport-offset, 320px)))
+  min-height: clamp(220px, calc(100dvh - var(--table-viewport-offset, 320px)), 280px)
+
+.dataTable
+  width: 100%
+  border-collapse: collapse
+  font-size: .84rem
+  table-layout: fixed
+  min-width: 860px
+
+  th,
+  td
+    border-bottom: 1px solid #e5e7eb
+    padding: .5rem .55rem
+    white-space: nowrap
+    overflow: hidden
+    text-overflow: ellipsis
+
+  th
+    position: sticky
+    top: 0
+    z-index: var(--z-index-sticky)
+    background: #edf0f4
+    color: #374151
+    font-weight: 700
+    font-size: .78rem
+    text-align: left
+    letter-spacing: .02em
+    text-transform: uppercase
+    border-bottom: 2px solid #98aabb
+    border-right: 1px solid #b0bfcf
+
+    &:last-child
+      border-right: none
+
+  td
+    background: #ffffff
+    color: #10233a
+    border-right: 1px solid #e8ecf0
+
+    &:last-child
+      border-right: none
+
+  tbody tr:nth-child(even) td
+    background: #fafbfc
+
+.thContent
+  display: flex
+  align-items: center
+  justify-content: flex-start
+  gap: .3rem
+  width: 100%
+
+.thLabel
+  flex: 1 1 auto
+  min-width: 0
+  overflow: hidden
+  text-overflow: ellipsis
+  white-space: nowrap
+
+.thMiniTools
+  flex: 0 0 auto
+  opacity: .55
+  transition: opacity .15s ease
+
+  th:hover &
+    opacity: 1
+
+.resizeHandle
+  position: absolute
+  top: 0
+  right: -3px
+  width: 12px
+  height: 100%
+  cursor: col-resize
+  user-select: none
+  touch-action: none
+  z-index: 8
+
+  &::after
+    content: ''
+    position: absolute
+    top: 20%
+    bottom: 20%
+    left: 50%
+    width: 2px
+    background: #c3cdd8
+    transform: translateX(-50%)
+    transition: background .14s ease
+
+  &:hover::after
+    background: #3b82f6
+
+.resizeHandleProportional
+  &::after
+    background: #c17a11
+
+  &:hover::after
+    background: #c63434
+
+.thDivider
+  border-right: 2px solid #8a9fb8 !important
+
+.tdDivider
+  border-right: 2px solid #8a9fb8 !important
+
+.expandCellTrigger
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  border: none
+  border-radius: 6px
+  background: transparent
+  cursor: pointer
+  padding: 0
+  line-height: inherit
+  font-size: inherit
+  color: inherit
+  max-width: 100%
+  overflow: hidden
+
+.expandCellSingle
+  text-overflow: ellipsis
+  white-space: nowrap
+  width: 100%
+  justify-content: flex-start
+
+.expandBadge
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  min-width: 1.5rem
+  height: 1.5rem
+  padding: 0 .35rem
+  border-radius: 999px
+  background: #334155
+  color: #ffffff
+  font-size: .72rem
+  font-weight: 800
+  line-height: 1
+
+.balloonBackdrop
+  position: fixed
+  inset: 0
+  z-index: var(--z-index-floating-panel)
+
+.balloon
+  position: fixed
+  z-index: calc(var(--z-index-floating-panel) + 1)
+  max-width: 360px
+  padding: .6rem .8rem
+  border-radius: 9px
+  background: #1e293b
+  color: #f1f5f9
+  font-size: .84rem
+  line-height: 1.5
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .28)
+  white-space: pre-wrap
+  word-break: break-word
+
+  &::before
+    content: ''
+    position: absolute
+    top: -6px
+    left: 14px
+    width: 12px
+    height: 12px
+    background: #1e293b
+    transform: rotate(45deg)
+    border-radius: 2px
+
+.panelBackdrop
+  position: fixed
+  inset: 0
+  z-index: var(--z-index-floating-panel)
+  background: rgba(15, 23, 42, .32)
+
+.panelDrawer
+  position: fixed
+  top: 0
+  right: 0
+  bottom: 0
+  width: min(480px, 92vw)
+  background: #ffffff
+  box-shadow: -4px 0 24px rgba(15, 23, 42, .18)
+  display: flex
+  flex-direction: column
+  animation: panelSlideIn .18s ease-out
+
+@keyframes panelSlideIn
+  from
+    transform: translateX(100%)
+  to
+    transform: translateX(0)
+
+.panelDrawerHeader
+  display: flex
+  align-items: center
+  gap: .5rem
+  padding: .9rem 1rem .75rem
+  border-bottom: 1px solid #e5e7eb
+  flex: 0 0 auto
+
+.panelDrawerTitle
+  flex: 1 1 auto
+  margin: 0
+  font-size: .95rem
+  font-weight: 800
+  color: #10233a
+  min-width: 0
+  overflow: hidden
+  text-overflow: ellipsis
+  white-space: nowrap
+
+.panelDrawerCount
+  flex: 0 0 auto
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  min-width: 1.6rem
+  height: 1.6rem
+  padding: 0 .4rem
+  border-radius: 999px
+  background: #f1f5f9
+  border: 1px solid #d1d5db
+  color: #374151
+  font-size: .75rem
+  font-weight: 800
+
+.panelDrawerClose
+  flex: 0 0 auto
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  width: 28px
+  height: 28px
+  border: 1px solid #e5e7eb
+  border-radius: 8px
+  background: #f8fafc
+  color: #6b7280
+  cursor: pointer
+  transition: background .12s ease, color .12s ease, border-color .12s ease
+
+  &:hover
+    background: #fee2e2
+    border-color: #fca5a5
+    color: #dc2626
+
+.panelSearchBar
+  flex: 0 0 auto
+  position: relative
+  display: flex
+  align-items: center
+  padding: .5rem .8rem
+  border-bottom: 1px solid #e5e7eb
+  background: #f8fafc
+
+.panelSearchInput
+  width: 100%
+  min-height: 32px
+  border: 1px solid #d1d5db
+  border-radius: 8px
+  background: #ffffff
+  padding: 0 2rem 0 .6rem
+  font-size: .82rem
+  color: #111827
+  outline: none
+
+  &:focus
+    border-color: #94a3b8
+
+.panelSearchClear
+  position: absolute
+  right: 1.1rem
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  width: 20px
+  height: 20px
+  border: none
+  border-radius: 4px
+  background: transparent
+  color: #9ca3af
+  cursor: pointer
+  padding: 0
+
+  &:hover
+    color: #374151
+
+.panelNoResults
+  padding: .6rem .2rem
+  font-size: .82rem
+  color: #9ca3af
+  text-align: center
+
+.panelDrawerBody
+  flex: 1 1 auto
+  overflow-y: auto
+  padding: .65rem .85rem
+  display: flex
+  flex-direction: column
+  gap: .45rem
+
+.accordionItem
+  flex-shrink: 0
+  border: 1px solid #dde3ec
+  border-radius: 10px
+  overflow: hidden
+  box-shadow: 0 1px 3px rgba(15, 40, 80, .05)
+
+.accordionHeader
+  display: flex
+  align-items: center
+  justify-content: space-between
+  gap: .5rem
+  width: 100%
+  min-height: 38px
+  padding: .5rem .85rem
+  background: #f0f4f9
+  border: none
+  cursor: pointer
+  text-align: left
+  transition: background .12s ease
+
+  &:hover
+    background: #e8edf5
+
+.accordionHeaderStatic
+  cursor: default
+
+  &:hover
+    background: #f0f4f9
+
+.accordionHeaderText
+  flex: 1 1 auto
+  min-width: 0
+  overflow: hidden
+  text-overflow: ellipsis
+  white-space: nowrap
+  font-size: .88rem
+  font-weight: 600
+  color: #1a3050
+  line-height: 1.4
+
+.accordionChevron
+  flex: 0 0 auto
+  display: inline-flex
+  color: #6b7280
+  transition: transform .18s ease
+
+.accordionChevronOpen
+  transform: rotate(180deg)
+
+.accordionBody
+  border-top: 1px solid #e5e7eb
+  background: #ffffff
+  overflow: hidden
+
+.accordionLoading
+  padding: .5rem .6rem
+  font-size: .8rem
+  color: #6b7280
+
+.accordionError
+  padding: .5rem .6rem
+  font-size: .8rem
+  color: #dc2626
+
+.accordionSection
+  &:not(:first-child)
+    border-top: 1px solid #e2e8f0
+
+.accordionSectionTitle
+  display: flex
+  align-items: center
+  padding: .38rem .85rem
+  background: linear-gradient(90deg, #1e3a5f 0%, #2d4f7a 100%)
+  color: #cbd8ea
+  font-size: .7rem
+  font-weight: 700
+  text-transform: uppercase
+  letter-spacing: .07em
+  border-bottom: 1px solid rgba(255, 255, 255, .07)
+
+.accordionFieldGrid
+  display: grid
+  grid-template-columns: minmax(7rem, 38%) 1fr
+
+.accordionFieldLabel
+  padding: .38rem .75rem .38rem .85rem
+  background: #f6f8fb
+  border-bottom: 1px solid #edf0f5
+  font-size: .7rem
+  font-weight: 700
+  color: #7a8fa6
+  text-transform: uppercase
+  letter-spacing: .04em
+  white-space: nowrap
+  display: flex
+  align-items: center
+
+.accordionFieldValue
+  padding: .38rem .85rem .38rem .75rem
+  background: #ffffff
+  border-bottom: 1px solid #edf0f5
+  font-size: .84rem
+  color: #10233a
+  word-break: break-word
+  display: flex
+  align-items: center
+  min-width: 0
+
+.miniChartWrap
+  padding: .6rem .85rem .5rem
+  background: #f6f8fb
+  border-bottom: 1px solid #e8ecf2
+
+.miniChartSvg
+  display: block
+  overflow: visible
+
+.miniChartBar
+  fill: #2563eb
+  opacity: .7
+
+.miniChartLabel
+  font-size: 8px
+  fill: #94a3b8
+  font-family: inherit
+
+.monthDividerRow
+  td
+    position: sticky
+    top: 0
+    z-index: calc(var(--z-index-sticky) + 1)
+    background: #334155 !important
+    color: #ffffff !important
+    padding: .55rem .72rem
+    font-weight: 800
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .14)
+
+.monthDividerContent
+  display: flex
+  align-items: center
+  justify-content: space-between
+  gap: .75rem
+
+.monthDividerTitle
+  flex: 1 1 auto
+  text-transform: capitalize
+  text-align: center
+
+.monthDividerCount
+  flex: 0 0 auto
+  font-weight: 800
+
+.emptyCell
+  text-align: center
+  padding: .82rem !important
+  color: #6b7280
+
+.paginationRow
+  display: flex
+  align-items: center
+  justify-content: space-between
+  gap: .75rem
+  flex-wrap: wrap
+  padding: .7rem .8rem
+  border-top: 1px solid #e5e7eb
+  background: color.mix(app.$white-app, app.$surface-soft-app, 96%)
+
+.paginationMeta,
+.paginationControls
+  display: inline-flex
+  align-items: center
+  gap: .65rem
+  flex-wrap: wrap
+
+.paginationInfo
+  color: #4b5563
+  font-size: .8rem
+  font-weight: 600
+
+.pageSizeGroup
+  display: inline-flex
+  align-items: center
+  gap: .45rem
+  color: #374151
+  font-size: .8rem
+
+  select
+    min-width: 78px
+    min-height: 31px
+    border: 1px solid #d1d5db
+    border-radius: 8px
+    background: #ffffff
+    color: #111827
+    padding: 0 .55rem
+    font-size: .8rem
+    outline: none
+
+.paginationButtons
+  display: inline-flex
+  align-items: center
+  gap: .25rem
+
+.paginationIconBtn
+  width: 28px
+  min-width: 28px
+  height: 28px
+  border: 1px solid #d1d5db
+  border-radius: 7px
+  background: #ffffff
+  color: #374151
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  box-shadow: none
+  cursor: pointer
+  transition: background .14s ease, border-color .14s ease
+
+  &:hover:not(:disabled)
+    background: #f3f4f6
+    border-color: #b8c4d3
+
+  &:disabled
+    opacity: .4
+    cursor: not-allowed
+
+.paginationPageIndicator
+  color: #374151
+  font-size: .8rem
+  font-weight: 700
+  padding: 0 .3rem
+  white-space: nowrap
+
+@media (max-width: 960px)
+  .columnsOptionsContainer
+    flex-direction: column
+    align-items: stretch
+
+  .columnsOptionsGroup
+    width: 100%
+    justify-content: flex-start
+
+  .columnsOptionsSummary
+    width: 100%
+
+  .columnsOptionsRight
+    width: 100%
+
+  .toolbarButton,
+  .columnsOptionsToggle
+    flex: 1 1 0
+    justify-content: center
+
+  .searchGroup
+    width: 100%
+
+    input
+      min-width: 0
+      width: 100%
+
+  .dateFilterSection
+    width: 100%
+    align-items: stretch
+
+  .dateColumnSelect
+    width: 100%
+
+  .monthSortSegment
+    width: 100%
+
+  .monthSortSegmentButton
+    flex: 1 1 0
+    justify-content: center
+
+  .columnsDivider
+    display: none
+
+  .paginationRow
+    flex-direction: column
+    align-items: stretch
+
+  .paginationMeta,
+  .paginationControls
+    width: 100%
+    justify-content: space-between
+
+  .paginationButtons
+    justify-content: flex-start

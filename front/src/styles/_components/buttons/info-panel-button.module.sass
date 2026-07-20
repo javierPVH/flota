@@ -1,0 +1,165 @@
+// [ES] Relacionado con: src/components/buttons/InfoPanelButton.tsx
+// Resumen: estilos del boton tipo panel con icono/imagen, titulo y subtitulo para accesos destacados.
+// [EN] Related to: src/components/buttons/InfoPanelButton.tsx
+// Summary: panel-like button styles with icon/image, title and subtitle for highlighted entries.
+@use 'sass:color'
+@use '../../_colors/_colors-corp' as app
+
+.infoPanelButton
+  width: 100%
+  display: inline-flex
+  align-items: center
+  gap: .72rem
+  padding: .62rem .88rem
+  border-radius: 12px
+  border: 1px solid #ccd4de
+  background: #f3f5f7
+  color: app.$ink-app
+  text-align: left
+  cursor: pointer
+  transition: background .16s ease, border-color .16s ease, box-shadow .16s ease, transform .08s ease
+
+  &:focus-visible
+    outline: 2px solid app.$primary-app
+    outline-offset: 2px
+
+  &:not(:disabled):hover
+    background: app.$white-app
+    border-color: app.$teal-corp
+    box-shadow: 0 4px 12px rgba(#0f172a, .08)
+
+  &:not(:disabled):active
+    transform: translateY(1px)
+
+  &:disabled
+    opacity: .62
+    filter: saturate(.55)
+    cursor: not-allowed
+    box-shadow: none
+
+.visualWrap
+  width: 1.92rem
+  height: 1.92rem
+  border-radius: 999px
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  flex: 0 0 1.92rem
+
+.imageWrap
+  background: #101a34
+
+.iconWrap
+  color: app.$white-app
+
+.iconWrapDefault
+  color: app.$white-app
+
+.iconWrapNav
+  width: var(--info-panel-nav-wrap-size, 1.34rem)
+  height: var(--info-panel-nav-wrap-size, 1.34rem)
+  flex: 0 0 var(--info-panel-nav-wrap-size, 1.34rem)
+  border-radius: var(--info-panel-nav-wrap-radius, 7px)
+  border: 1px solid #d4dce6
+  background: #eef3f9
+  color: #315070
+
+.toneNavy
+  background: #111a34
+
+.toneTeal
+  background: app.$teal-corp
+
+.toneBlue
+  background: #2563eb
+
+.tonePurple
+  background: #7c3aed
+
+.toneOrange
+  background: #f59e0b
+
+.toneGreen
+  background: #059669
+
+.toneSlate
+  background: #475569
+
+.toneNavHome
+  background: app.$info-soft-app
+  border-color: app.$info-border-app
+  color: app.$info-app
+
+.toneNavConfig
+  background: app.$info-soft-app
+  border-color: app.$info-border-app
+  color: app.$info-app
+
+.toneNavUsers
+  background: color.mix(app.$primary-soft-app, app.$danger-bg-app, 70%)
+  border-color: color.mix(app.$info-border-app, app.$danger-soft-app, 62%)
+  color: color.mix(app.$primary-app, app.$danger-app, 50%)
+
+.toneNavEmployees
+  background: app.$primary-soft-app
+  border-color: app.$info-border-app
+  color: app.$primary-app
+
+.toneNavCostCenters
+  background: app.$success-soft-app
+  border-color: app.$success-border-app
+  color: app.$success-app
+
+.toneNavExpenses
+  background: app.$danger-bg-app
+  border-color: app.$danger-soft-app
+  color: app.$danger-app
+
+.toneNavReports
+  background: app.$warning-soft-app
+  border-color: app.$warning-border-app
+  color: app.$warning-app
+
+.toneNavSystem
+  background: color.mix(app.$info-soft-app, app.$warning-soft-app, 35%)
+  border-color: color.mix(app.$info-border-app, app.$warning-border-app, 40%)
+  color: color.mix(app.$info-app, app.$warning-app, 40%)
+
+.image
+  width: 1rem
+  height: 1rem
+  object-fit: contain
+
+.icon
+  display: inline-flex
+  align-items: center
+  justify-content: center
+
+  svg
+    width: 1rem
+    height: 1rem
+    stroke-width: 2.1
+
+.iconWrapNav .icon svg
+  width: var(--info-panel-nav-icon-size, .76rem)
+  height: var(--info-panel-nav-icon-size, .76rem)
+  stroke-width: 2.2
+
+.copyWrap
+  display: inline-flex
+  flex-direction: column
+  gap: .1rem
+  min-width: 0
+
+.title
+  margin: 0
+  font-size: 1.02rem
+  line-height: 1.15
+  font-weight: 700
+  color: #24364a
+
+.subtitle
+  margin: 0
+  font-size: .84rem
+  line-height: 1.2
+  color: #5e7083

@@ -1,0 +1,12 @@
+/* Estilos globales de la app de arranque (playground). No forman parte de la librería. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #fafafa;
+  color: #1a1a1a;
+}

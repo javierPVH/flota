@@ -1,0 +1,28 @@
+{
+  "name": "front-gestion",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Front de GESTIÓN de flota (acceso solo por VPN). Roles: administrador y administrador de flota.",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --port 5173",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "dependencies": {
+    "@flota/ui": "*",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^1.7.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.14.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.4"
+  }
+}

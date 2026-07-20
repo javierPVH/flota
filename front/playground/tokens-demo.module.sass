@@ -1,0 +1,75 @@
+// Demo de la Fase 1: consume los design tokens de la librería vía @use.
+// Valida que las partials SASS (_colors, _typography) compilan y son consumibles.
+@use '@/styles/_colors/_colors-app' as app
+@use '@/styles/_colors/_colors-corp' as corp
+@use '@/styles/_typography/_type-scale' as type
+
+.title
+  +type.title
+  margin: 0
+
+.subtitle
+  +type.subtitle
+  color: app.$muted-text-app
+  margin: 0
+
+.sectionLabel
+  +type.subsubtitle
+  color: app.$muted-text-app
+  margin: 1.5rem 0 .5rem
+
+.grid
+  display: grid
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))
+  gap: .5rem
+
+.swatch
+  border: 1px solid app.$border-app
+  border-radius: 8px
+  overflow: hidden
+  font-size: .72rem
+
+.swatchChip
+  height: 44px
+
+.swatchBody
+  padding: .35rem .5rem
+  background: app.$white-app
+
+.swatchName
+  color: app.$text-app
+  font-weight: 600
+
+.swatchValue
+  color: app.$muted-text-app
+  font-family: ui-monospace, monospace
+
+// Estados semánticos
+.primary
+  background: app.$primary-app
+.primarySoft
+  background: app.$primary-soft-app
+.danger
+  background: app.$danger-app
+.success
+  background: app.$success-app
+.warning
+  background: app.$warning-app
+.info
+  background: app.$info-app
+
+// Marca corporativa
+.corpBlack
+  background: corp.$black-corp
+.corpRed
+  background: corp.$red-corp
+.corpOrange
+  background: corp.$orange-corp
+.corpBlue
+  background: corp.$blue-corp
+.corpNavy
+  background: corp.$navy-corp
+.corpLightBlue
+  background: corp.$light-blue-corp
+.corpTeal
+  background: corp.$teal-corp

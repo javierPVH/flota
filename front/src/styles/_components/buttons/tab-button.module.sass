@@ -1,0 +1,252 @@
+// [ES] Relacionado con: src/components/buttons/TabButton.tsx
+// Resumen: estilos de pestanas base y de estado (tones), con soporte para activo, loading y contador.
+// [EN] Related to: src/components/buttons/TabButton.tsx
+// Summary: base and status tab styles (tones), with active, loading and badge support.
+@use '../../_colors/_colors-corp' as app
+
+.tabButton
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  gap: .42rem
+  border: none
+  border-radius: 10px 10px 0 0
+  font-weight: 600
+  cursor: pointer
+  transition: background .2s ease, border-color .2s ease, box-shadow .2s ease, color .2s ease, transform .08s ease
+
+  &:focus-visible
+    outline: 2px solid app.$primary-app
+    outline-offset: 2px
+
+.withCounter
+  justify-content: space-between
+  gap: .48rem
+
+.tabLabel
+  display: inline-flex
+  align-items: center
+
+.counterBadge
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  min-width: 1.45rem
+  height: 1rem
+  padding: 0 .38rem
+  border-radius: 999px
+  border: 1px solid transparent
+  font-size: .68rem
+  line-height: 1
+  font-weight: 700
+
+.variantDefault
+  border: 1px solid #bcc8d8
+  border-bottom-color: #aebdd0
+  background: #e6edf5
+  color: app.$ink-app
+  padding: .65rem 1rem
+  box-shadow: inset 0 1px 0 rgba(#ffffff, .45)
+
+  .counterBadge
+    background: #8497b2
+    color: app.$white-app
+    border-color: #6f829d
+
+  &:hover
+    background: #dde6f0
+    border-color: #a5b5ca
+
+  &:active
+    transform: translateY(1px)
+    background: #d6e0ec
+
+  &.isActive
+    background: app.$teal-corp
+    border-color: app.$teal-corp
+    color: app.$white-app
+    box-shadow: 0 2px 8px rgba(app.$teal-corp, .22), inset 0 1px 0 rgba(#ffffff, .1)
+
+    .counterBadge
+      background: rgba(app.$white-app, .22)
+      color: app.$white-app
+      border-color: rgba(app.$white-app, .22)
+
+    &:hover
+      background: #007f7d
+
+.variantStatus
+  min-height: 34px
+  padding: .5rem .86rem
+  border: 1px solid #d7dde6
+  border-bottom-color: #c6d0dc
+  background: #edf2f7
+  color: #2e3d52
+  box-shadow: inset 0 1px 0 rgba(#ffffff, .68)
+
+  &:hover
+    transform: translateY(-1px)
+    box-shadow: 0 4px 10px rgba(#334155, .1), inset 0 1px 0 rgba(#ffffff, .72)
+
+  &:active
+    transform: translateY(1px)
+    box-shadow: inset 0 2px 7px rgba(#0f172a, .16)
+
+  .counterBadge
+    background: #c8d9ea
+    color: #24425d
+    border-color: #b5cbe0
+
+.variantStatus.toneNeutral
+  background: #e8eef6
+  color: #2e3d52
+  border-color: #d0d9e4
+  border-bottom-color: #c1ccd9
+
+  &:hover
+    background: #dde7f2
+    border-color: #c3cfdd
+
+  &:active
+    background: #d4e0ee
+
+  .counterBadge
+    background: #bcd3e9
+    color: #234260
+    border-color: #a7c2dd
+
+.variantStatus.toneSuccess
+  background: #e7f6ee
+  color: #166534
+  border-color: #bfe3cd
+  border-bottom-color: #aad8bc
+
+  &:hover
+    background: #daf1e4
+    border-color: #a8d5b8
+
+  &:active
+    background: #cdebd9
+
+  .counterBadge
+    background: #b8e5c5
+    color: #12512b
+    border-color: #98d8ac
+
+.variantStatus.toneWarning
+  background: #f8f0e6
+  color: #8f461f
+  border-color: #e9d7c2
+  border-bottom-color: #dcc7ac
+
+  &:hover
+    background: #f5e7d5
+    border-color: #dec6a4
+
+  &:active
+    background: #f1ddc3
+
+  .counterBadge
+    background: #efceaa
+    color: #924716
+    border-color: #e2ba90
+
+.variantStatus.toneDanger
+  background: #fbeceb
+  color: #a12f2f
+  border-color: #efcbcf
+  border-bottom-color: #e8b7bd
+
+  &:hover
+    background: #f9dfe1
+    border-color: #e8b3b8
+
+  &:active
+    background: #f4d2d5
+
+  .counterBadge
+    background: #f2b9bf
+    color: #8e2029
+    border-color: #e8a1aa
+
+.variantStatus.isActive
+  color: app.$white-app
+  box-shadow: 0 6px 14px rgba(#0f172a, .2), inset 0 1px 0 rgba(#ffffff, .14)
+
+  .counterBadge
+    color: app.$white-app
+    border-color: rgba(#ffffff, .24)
+
+.variantStatus.toneNeutral.isActive
+  background: #2563eb
+  border-color: #1d4ed8
+
+  &:hover
+    background: #1d4ed8
+    border-color: #1e40af
+
+  &:active
+    background: #1e40af
+
+  .counterBadge
+    background: #1e40af
+
+.variantStatus.toneSuccess.isActive
+  background: #1f9f5c
+  border-color: #18834b
+
+  &:hover
+    background: #1b8f52
+    border-color: #167646
+
+  &:active
+    background: #167646
+
+  .counterBadge
+    background: #147040
+
+.variantStatus.toneWarning.isActive
+  background: #d97706
+  border-color: #b96405
+
+  &:hover
+    background: #c86d06
+    border-color: #aa5e04
+
+  &:active
+    background: #a85d04
+
+  .counterBadge
+    background: #a85d04
+
+.variantStatus.toneDanger.isActive
+  background: #dc2626
+  border-color: #b91c1c
+
+  &:hover
+    background: #c92424
+    border-color: #a91d1d
+
+  &:active
+    background: #a91d1d
+
+  .counterBadge
+    background: #991b1b
+
+.isLoading
+  border: 1px solid app.$teal-corp
+  animation: tabLoadBorder 1s linear infinite, tabLoadText 1s ease-in-out infinite
+
+@keyframes tabLoadBorder
+  0%
+    box-shadow: inset 0 0 0 0 app.$teal-corp
+  50%
+    box-shadow: inset 0 -2px 0 0 app.$teal-corp
+  100%
+    box-shadow: inset 0 0 0 0 app.$teal-corp
+
+@keyframes tabLoadText
+  0%, 100%
+    color: app.$ink-app
+  50%
+    color: app.$teal-corp

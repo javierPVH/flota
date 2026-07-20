@@ -1,0 +1,20 @@
+# Backend base (@gs/base back) — Django + DRF. Rangos acotados para
+# reproducibilidad razonable sin lockfile.
+Django>=5.2,<5.3
+djangorestframework>=3.16,<3.17
+django-cors-headers>=4.6,<5.0
+python-dotenv>=1.0,<2.0
+# OpenAPI generado (docs solo en dev/staging).
+drf-spectacular>=0.27,<0.31
+# Verificación de ID tokens de Google (login con Google, AUTH_GOOGLE_ENABLED).
+google-auth>=2.35,<3.0
+# Servidor WSGI de producción.
+gunicorn>=23.0,<24.0
+
+# --- Opcionales (descomentar según necesidad) ----------------------------
+# PostgreSQL (activa con DB_ENGINE=postgres):
+# psycopg[binary]>=3.2,<4.0
+# Cache/rate-limit exactos entre workers (activa con REDIS_URL):
+# redis>=5.0,<6.0
+# Cobertura de tests en CI:
+# coverage>=7.5,<8.0

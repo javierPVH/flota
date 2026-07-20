@@ -1,0 +1,20 @@
+# --- Node / front ---
+node_modules/
+dist/
+dist-app/
+*.local
+.vite/
+
+# --- Python / back ---
+.venv/
+__pycache__/
+*.py[cod]
+db.sqlite3
+staticfiles/
+.env
+
+# --- Editores / SO ---
+.DS_Store
+.idea/
+.vscode/
+*.log

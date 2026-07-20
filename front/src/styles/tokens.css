@@ -1,0 +1,29 @@
+/*
+ * Tokens globales de @gs/base (variables CSS + reset mínimo).
+ * Impórtalo UNA vez en el entry de la app consumidora: `import '@gs/base/styles/tokens.css'`.
+ *
+ * Escala de z-index canónica y coherente (menús por encima del header). Los .module.sass
+ * de los componentes referencian estas variables por NOMBRE, no por valor.
+ */
+:root {
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  color-scheme: light dark;
+
+  --z-index-sticky: 10;
+  --z-index-floating-panel: 20;
+  --z-index-header: 100;
+  --z-index-header-menu: 110;
+  --z-index-header-menu-priority: 120;
+  --z-index-modal: 200;
+  --z-index-modal-priority: 300;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  min-height: 100dvh;
+  padding: 0;
+}

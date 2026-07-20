@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-app
+*.local
+.env
+.env.*
+!.env.example
+.DS_Store
+node_modules/.tmp
+coverage
+*.tgz

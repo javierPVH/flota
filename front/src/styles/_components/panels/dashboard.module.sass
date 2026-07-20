@@ -1,0 +1,226 @@
+@use 'sass:color'
+@use '../../_colors/_colors-corp' as corp
+@use '../../_colors/_colors-app' as app
+
+// ── Breadcrumb / page heading ────────────────────────────────────────────
+.breadcrumb
+  display: flex
+  align-items: center
+  gap: .4rem
+  font-size: .8rem
+  color: app.$muted-text-app
+  margin-bottom: .5rem
+
+.breadcrumbLink
+  background: none
+  border: none
+  color: app.$primary-app
+  cursor: pointer
+  padding: 0
+  font: inherit
+
+.pageHead
+  display: flex
+  align-items: flex-end
+  justify-content: space-between
+  gap: 1rem
+  flex-wrap: wrap
+  margin-bottom: 1rem
+
+.pageTitle
+  margin: 0
+  font-size: clamp(1.2rem, 1.6vw, 1.7rem)
+  font-weight: 800
+  color: app.$ink-app
+  line-height: 1.15
+
+.pageSubtitle
+  margin: .2rem 0 0
+  font-size: .85rem
+  color: app.$muted-text-app
+
+.headActions
+  display: flex
+  gap: .5rem
+  flex-wrap: wrap
+
+.feedbackError
+  margin-bottom: 1rem
+  padding: .6rem .85rem
+  border-radius: 8px
+  background: app.$danger-bg-app
+  border: 1px solid app.$danger-soft-app
+  color: app.$danger-app
+  font-size: .85rem
+
+// ── KPI / stat cards row ─────────────────────────────────────────────────
+.statRow
+  display: grid
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr))
+  gap: 1rem
+  margin-bottom: 1.25rem
+
+.statCard
+  position: relative
+  display: flex
+  flex-direction: column
+  gap: .35rem
+  padding: .9rem 1.05rem
+  background: app.$white-app
+  border: 1px solid app.$border-app
+  border-radius: 14px
+  box-shadow: 0 1px 2px rgba(16, 35, 58, .05)
+  border-left-width: 4px
+
+.statLabel
+  font-size: .64rem
+  font-weight: 800
+  letter-spacing: .07em
+  text-transform: uppercase
+  color: app.$muted-text-app
+
+.statValue
+  font-size: 1.55rem
+  font-weight: 800
+  line-height: 1.05
+  font-variant-numeric: tabular-nums
+  color: app.$ink-app
+
+.statSub
+  font-size: .76rem
+  color: app.$muted-text-app
+
+.statIcon
+  position: absolute
+  top: .85rem
+  right: .9rem
+  opacity: .35
+
+// accent variants (left border + value tint)
+.accentPrimary
+  border-left-color: app.$primary-app
+.accentInfo
+  border-left-color: app.$info-app
+.accentSuccess
+  border-left-color: app.$success-app
+.accentWarning
+  border-left-color: app.$warning-app
+.accentDanger
+  border-left-color: app.$danger-app
+.accentNavy
+  border-left-color: corp.$navy-corp
+.accentTeal
+  border-left-color: corp.$teal-corp
+
+// ── Panel ────────────────────────────────────────────────────────────────
+.panel
+  display: flex
+  flex-direction: column
+  background: app.$white-app
+  border: 1px solid app.$border-app
+  border-radius: 16px
+  overflow: hidden
+
+.panelHead
+  display: flex
+  align-items: center
+  gap: .6rem
+  padding: .7rem 1rem
+  border-bottom: 1px solid app.$border-app
+  background: color.mix(app.$surface-app, #fff, 40%)
+
+.panelTitleWrap
+  display: flex
+  align-items: center
+  gap: .5rem
+  min-width: 0
+
+.panelIcon
+  display: grid
+  place-items: center
+  width: 30px
+  height: 30px
+  border-radius: 8px
+  background: app.$primary-soft-app
+  color: app.$primary-app
+  flex-shrink: 0
+
+.panelTitle
+  margin: 0
+  font-size: .95rem
+  font-weight: 800
+  color: app.$ink-app
+  white-space: nowrap
+
+.panelBadge
+  display: inline-grid
+  place-items: center
+  min-width: 22px
+  height: 20px
+  padding: 0 .4rem
+  border-radius: 999px
+  background: corp.$navy-corp
+  color: #fff
+  font-size: .68rem
+  font-weight: 800
+
+.panelTools
+  display: flex
+  align-items: center
+  gap: .4rem
+  margin-left: auto
+
+.panelBody
+  padding: .85rem 1rem 1rem
+
+.panelBodyFlush
+  padding: 0
+
+// ── Accordion section (group rows, CAP-style) ────────────────────────────
+.accRow
+  display: flex
+  align-items: center
+  gap: .75rem
+  padding: .65rem .85rem
+  border-top: 1px solid app.$surface-soft-app
+  cursor: pointer
+
+.accRow:first-child
+  border-top: none
+
+.accRow:hover
+  background: app.$surface-app
+
+.accChevron
+  display: inline-flex
+  color: app.$muted-text-app
+  transition: transform .15s ease
+
+.accChevronOpen
+  transform: rotate(90deg)
+
+.accBadge
+  font-size: .6rem
+  font-weight: 800
+  letter-spacing: .04em
+  text-transform: uppercase
+  color: app.$primary-app
+  background: app.$primary-soft-app
+  border-radius: 6px
+  padding: .12rem .4rem
+  flex-shrink: 0
+
+.accLabel
+  font-weight: 700
+  color: app.$ink-app
+  font-size: .9rem
+
+.accMeta
+  margin-left: auto
+  font-size: .8rem
+  color: app.$muted-text-app
+  font-variant-numeric: tabular-nums
+
+.accChildren
+  background: #f8fafc
+  padding: .25rem .5rem .5rem 2.4rem

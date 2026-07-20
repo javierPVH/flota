@@ -1,0 +1,66 @@
+@use '../../_colors/_colors-corp' as app
+
+.statList
+  list-style: none
+  padding: 0
+  margin: 0
+  display: flex
+  flex-direction: column
+  gap: .35rem
+
+.statItem
+  display: flex
+  align-items: center
+  justify-content: space-between
+  gap: .8rem
+  padding: .4rem .55rem
+  background: rgba(255, 255, 255, .55)
+  border: 1px solid rgba(app.$ink-app, .06)
+  border-radius: 8px
+
+.statLabel
+  font-size: .8rem
+  color: app.$ink-app
+  flex: 1
+  min-width: 0
+
+.statValue
+  font-size: 1rem
+  font-weight: 800
+  font-variant-numeric: tabular-nums
+  letter-spacing: .02em
+  flex: 0 0 auto
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  min-width: 2.4rem
+  padding: .15rem .55rem
+  border-radius: 999px
+
+// ── Tones for the value badge ───────────────────────────────
+.toneNeutral
+  background: rgba(app.$ink-app, .08)
+  color: app.$ink-app
+
+.toneDanger
+  background: app.$danger-bg-app
+  color: app.$danger-app
+
+.toneWarning
+  background: #fff8eb
+  color: #b9740d
+
+.toneInfo
+  background: #eff5fd
+  color: #2451a4
+
+.toneSuccess
+  background: #effaf3
+  color: #1f7a47
+
+// ── Empty state ─────────────────────────────────────────────
+.empty
+  font-size: .8rem
+  color: app.$muted-text-app
+  text-align: center
+  padding: .5rem 0

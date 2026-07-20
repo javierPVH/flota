@@ -1,0 +1,439 @@
+// [ES] Relacionado con: src/components/fields/*.tsx
+// Resumen: estilos base de campos (input, textarea, select y rango de fechas), tamanos del contenedor y estados.
+// [EN] Related to: src/components/fields/*.tsx
+// Summary: base field styles (input, textarea, select and date range), container sizes and states.
+@use 'sass:color'
+@use '../../_colors/_colors-corp' as app
+
+$field-border: #b6c3d2
+$field-border-hover: #7f95ae
+$field-border-focus: app.$teal-corp
+$field-bg: app.$white-app
+$field-bg-disabled: #eef2f6
+$field-text-disabled: #8ea0b3
+$field-warning-border: app.$danger-app
+$field-warning-bg: app.$danger-bg-app
+$field-warning-soft: app.$danger-soft-app
+
+.fieldShell
+  position: relative
+  display: flex
+  flex-direction: column
+  gap: .34rem
+  min-width: 20%
+
+.sizeFill
+  width: 100%
+
+.sizeXl
+  width: 92%
+
+.sizeLg
+  width: 78%
+
+.sizeMd
+  width: 64%
+
+.sizeSm
+  width: 46%
+
+.size20
+  width: 20%
+
+.size30
+  width: 30%
+
+.size40
+  width: 40%
+
+.size50
+  width: 50%
+
+.size60
+  width: 60%
+
+.size70
+  width: 70%
+
+.size80
+  width: 80%
+
+.size90
+  width: 90%
+
+.size100
+  width: 100%
+
+.fieldLabel
+  color: app.$ink-app
+  font-size: .79rem
+  font-weight: 700
+  line-height: 1.2
+
+.fieldLabelRow
+  display: inline-flex
+  align-items: center
+  gap: .42rem
+  min-height: 1rem
+
+.fieldRequiredBadge
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  border: 1px solid rgba(app.$warning-app, .32)
+  border-radius: 999px
+  padding: .08rem .42rem
+  background: app.$warning-soft-app
+  color: app.$warning-app
+  font-size: .66rem
+  line-height: 1
+  font-weight: 700
+  letter-spacing: .01em
+
+.fieldWarningBubble
+  position: absolute
+  top: 0
+  right: 0
+  transform: translateY(-100%)
+  z-index: 5
+  display: inline-flex
+  align-items: center
+  gap: .42rem
+  max-width: min(100%, 360px)
+  width: fit-content
+  border: 1px solid $field-warning-soft
+  background: $field-warning-bg
+  color: $field-warning-border
+  border-radius: 8px
+  padding: .36rem .52rem
+  font-size: .74rem
+  line-height: 1.2
+  box-shadow: 0 3px 10px rgba($field-warning-border, .12)
+
+  &::after
+    content: ''
+    position: absolute
+    right: .9rem
+    bottom: -6px
+    width: 10px
+    height: 10px
+    background: $field-warning-bg
+    border-right: 1px solid $field-warning-soft
+    border-bottom: 1px solid $field-warning-soft
+    transform: rotate(45deg)
+
+.hasLabelRow
+  .fieldWarningBubble
+    // 1rem (label row min-height) + .34rem (fieldShell gap)
+    top: calc(1rem + .34rem)
+
+.fieldWarningClose
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  width: 1rem
+  height: 1rem
+  border: 1px solid rgba($field-warning-border, .35)
+  border-radius: 999px
+  background: app.$white-app
+  color: $field-warning-border
+  font-size: .78rem
+  line-height: 1
+  cursor: pointer
+  padding: 0
+  transition: background-color .14s ease, border-color .14s ease, transform .08s ease
+
+  &:hover
+    background: color.mix(app.$white-app, $field-warning-bg, 75%)
+    border-color: rgba($field-warning-border, .5)
+
+  &:active
+    transform: translateY(1px)
+
+.fieldControlWrap
+  width: 100%
+  min-width: 0
+  overflow: hidden
+  padding-bottom: .2rem
+
+.fieldSelectLayout
+  display: flex
+  flex-direction: column
+  gap: .3rem
+  width: 100%
+
+.fieldSelectSearchBar
+  display: flex
+  align-items: center
+  gap: .35rem
+  width: 100%
+
+.fieldSelectRow
+  display: flex
+  align-items: center
+  gap: .35rem
+  width: 100%
+
+.fieldSearchToggleButton
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  flex: 0 0 auto
+  width: 34px
+  height: 34px
+  border: 1px solid $field-border
+  border-radius: 9px
+  background: $field-bg
+  color: app.$ink-app
+  cursor: pointer
+  transition: border-color .2s ease, box-shadow .2s ease, background-color .16s ease
+
+  &:hover:not(:disabled)
+    border-color: $field-border-hover
+    box-shadow: inset 0 0 0 2px rgba($field-border-hover, .24)
+
+  &:focus-visible
+    outline: none
+    border-color: $field-border-focus
+    box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+
+  &:disabled
+    cursor: not-allowed
+    color: $field-text-disabled
+    background-color: $field-bg-disabled
+    border-color: #c7d2de
+    box-shadow: none
+
+.fieldSelectWithSearch
+  flex: 1 1 auto
+  min-width: 0
+
+.fieldSearchInput
+  width: 100%
+  min-width: 0
+  border: 1px solid $field-border
+  border-radius: 9px
+  background-color: $field-bg
+  color: app.$ink-app
+  font: inherit
+  font-size: .84rem
+  line-height: 1.2
+  padding: .42rem .55rem
+  transition: border-color .2s ease, box-shadow .2s ease, background-color .16s ease
+
+  &::placeholder
+    color: app.$muted-text-app
+
+  &:hover:not(:disabled)
+    border-color: $field-border-hover
+    box-shadow: inset 0 0 0 2px rgba($field-border-hover, .24)
+
+  &:focus,
+  &:focus-visible
+    outline: none
+    border-color: $field-border-focus
+    box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+
+  &:disabled
+    cursor: not-allowed
+    color: $field-text-disabled
+    background-color: $field-bg-disabled
+    border-color: #c7d2de
+    box-shadow: none
+
+.fieldSearchResultBubble
+  flex: 0 0 auto
+  min-width: 28px
+  height: 24px
+  padding: 0 .42rem
+  border: 1px solid app.$info-border-app
+  border-radius: 999px
+  background: app.$info-soft-app
+  color: app.$info-app
+  font-size: .72rem
+  font-weight: 700
+  line-height: 1
+  display: inline-flex
+  align-items: center
+  justify-content: center
+
+.fieldInput,
+.fieldTextarea,
+.fieldSelect,
+.dateInput
+  width: 100%
+  max-width: 100%
+  box-sizing: border-box
+  border: 1px solid $field-border
+  border-radius: 9px
+  background-color: $field-bg
+  color: app.$ink-app
+  font: inherit
+  font-size: .88rem
+  line-height: 1.2
+  transition: border-color .2s ease, box-shadow .2s ease, background-color .16s ease
+
+  &::placeholder
+    color: app.$muted-text-app
+
+  &:not(:disabled):not(:focus):not(:focus-visible):hover
+    border-color: $field-border-hover
+    box-shadow: inset 0 0 0 2px rgba($field-border-hover, .26)
+
+  &:not(:disabled):active
+    border-color: $field-border-focus
+    box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+
+  &:focus
+    outline: none
+    border-color: $field-border-focus
+    box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+
+  &:focus-visible
+    outline: none
+    border-color: $field-border-focus
+    box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+
+  &:disabled
+    cursor: not-allowed
+    color: $field-text-disabled
+    background-color: $field-bg-disabled
+    border-color: #c7d2de
+    box-shadow: none
+    transform: none
+
+.fieldInput,
+.fieldSelect,
+.dateInput
+  --field-v-padding: 10px
+  padding-top: var(--field-v-padding)
+  padding-bottom: var(--field-v-padding)
+  padding-left: 6px
+  padding-right: 0
+  white-space: nowrap
+  overflow: hidden
+  text-overflow: ellipsis
+
+input.fieldInput[type='date']
+  width: auto
+  min-width: 11ch
+
+.inputPad5
+  --field-v-padding: 5px
+
+.inputPad10
+  --field-v-padding: 10px
+
+.fieldTextarea
+  min-height: 108px
+  padding: .58rem .72rem
+  resize: vertical
+
+.fieldSelect
+  cursor: pointer
+  appearance: none
+  background-image: linear-gradient(45deg, transparent 50%, #617488 50%), linear-gradient(135deg, #617488 50%, transparent 50%)
+  background-position: right 16px center, right 11px center
+  background-size: 5px 5px, 5px 5px
+  background-repeat: no-repeat
+
+  &:disabled
+    cursor: not-allowed
+
+.selectDivider
+  color: #9aa8b8
+
+.hasWarning
+  .fieldInput,
+  .fieldTextarea,
+  .fieldSelect,
+  .fieldSearchInput,
+  .dateInput
+    border-color: $field-warning-border
+    box-shadow: inset 0 0 0 1px rgba($field-warning-border, .2)
+
+    &:not(:disabled):not(:focus):not(:focus-visible):hover
+      border-color: $field-warning-border
+      box-shadow: inset 0 0 0 2px rgba($field-warning-border, .24)
+
+    &:focus,
+    &:focus-visible
+      border-color: $field-warning-border
+      box-shadow: inset 0 0 0 2px rgba($field-warning-border, .3)
+
+.isRequired:not(.hasWarning)
+  .fieldInput,
+  .fieldSearchInput,
+  .fieldSelect
+    border-color: app.$warning-border-app
+    background-color: color.mix(app.$white-app, app.$warning-soft-app, 88%)
+    box-shadow: inset 0 0 0 1px rgba(app.$warning-app, .16)
+
+    &:not(:disabled):not(:focus):not(:focus-visible):hover
+      border-color: app.$warning-app
+      box-shadow: inset 0 0 0 2px rgba(app.$warning-app, .18)
+
+    &:not(:disabled):active
+      border-color: $field-border-focus
+      box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+
+    &:focus,
+    &:focus-visible
+      border-color: $field-border-focus
+      box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+
+.dateRange
+  display: inline-flex
+  align-items: center
+  gap: .42rem
+  width: auto
+  max-width: 100%
+  flex-wrap: nowrap
+  overflow-x: auto
+  overflow-y: hidden
+
+.dateInputWrap
+  flex: 0 0 auto
+  min-width: 0
+
+.dateInput
+  width: auto
+  min-width: 11ch
+  max-width: none
+
+.rangeArrow
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  min-width: 1rem
+  color: app.$muted-text-app
+  font-size: .95rem
+  font-weight: 700
+  user-select: none
+  pointer-events: none
+
+.isDisabled
+  .fieldLabel
+    color: $field-text-disabled
+
+@media (max-width: 700px)
+  .sizeXl,
+  .sizeLg,
+  .sizeMd,
+  .sizeSm,
+  .size20,
+  .size30,
+  .size40,
+  .size50,
+  .size60,
+  .size70,
+  .size80,
+  .size90,
+  .size100
+    width: 100%
+
+  .dateRange
+    gap: .3rem
+
+  .rangeArrow
+    min-width: 1rem

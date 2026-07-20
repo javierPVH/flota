@@ -1,0 +1,20 @@
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
+
+import '@flota/ui/styles/tokens.css'
+import '@flota/ui/base.css'
+import './styles.css'
+
+import App from './App.tsx'
+import { AuthProvider, bootstrap, onLogout } from './auth.ts'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <BrowserRouter>
+      <AuthProvider bootstrap={bootstrap} onLogout={onLogout}>
+        <App />
+      </AuthProvider>
+    </BrowserRouter>
+  </StrictMode>,
+)

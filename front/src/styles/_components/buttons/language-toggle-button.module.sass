@@ -1,0 +1,55 @@
+// [ES] Relacionado con: src/components/buttons/LanguageToggleButton.tsx
+// Resumen: estilos del selector de idioma ES/EN (estado activo, hover y estado deshabilitado).
+// [EN] Related to: src/components/buttons/LanguageToggleButton.tsx
+// Summary: ES/EN language switcher styles (active state, hover and disabled state).
+@use '../../_colors/_colors-corp' as app
+
+.languageToggle
+  display: inline-flex
+  align-items: center
+  gap: .16rem
+  padding: .14rem
+  border-radius: 999px
+  border: 1px solid app.$border-app
+  background: #eceff3
+  box-shadow: inset 0 1px 0 rgba(#ffffff, .85)
+
+.toggleOption
+  min-width: 2.45rem
+  height: 1.45rem
+  padding: 0 .62rem
+  border: 1px solid transparent
+  border-radius: 999px
+  background: transparent
+  color: app.$muted-text-app
+  font-size: .72rem
+  font-weight: 600
+  line-height: 1
+  cursor: pointer
+  transition: background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease
+
+  &:focus-visible
+    outline: 2px solid app.$primary-app
+    outline-offset: 2px
+
+  &:not(:disabled):hover
+    background: rgba(app.$white-app, .78)
+    color: app.$ink-app
+
+  &:disabled
+    cursor: not-allowed
+
+.isActive
+  background: app.$teal-corp
+  border-color: app.$teal-corp
+  color: app.$white-app
+  box-shadow: 0 2px 6px rgba(app.$teal-corp, .3)
+
+  &:not(:disabled):hover
+    background: #0a8c89
+    border-color: #0a8c89
+    color: app.$white-app
+
+.isDisabled
+  opacity: .62
+  filter: saturate(.6)

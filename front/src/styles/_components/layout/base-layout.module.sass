@@ -1,0 +1,554 @@
+@use 'sass:color'
+@use '../../_colors/_colors-corp' as app
+@use '../../_typography/_type-scale' as type
+
+.page
+  position: relative
+  isolation: isolate
+  overflow: hidden
+  box-sizing: border-box
+  min-height: 100dvh
+  display: flex
+  justify-content: center
+  align-items: center
+  padding: 1rem
+  background: app.$surface-app
+
+  &::before
+    content: ''
+    position: absolute
+    inset: -1.6rem
+    // Fondo neutro de la base. El wallpaper de marca es específico de cada app;
+    // sobrescribe esta capa en la app consumidora si quieres una imagen.
+    background: linear-gradient(160deg, app.$navy-corp, app.$blue-corp) center top/cover no-repeat
+    filter: saturate(.92) contrast(1.03) brightness(.84)
+    transform: scale(1.02)
+    z-index: -2
+
+  &::after
+    content: ''
+    position: absolute
+    inset: 0
+    background: rgba(244, 248, 252, .78)
+    z-index: -1
+
+.frame
+  width: 94vw
+  min-width: 94vw
+  height: 90dvh
+  display: flex
+  flex-direction: column
+  background: app.$white-app
+  border: 1px solid app.$border-app
+  border-radius: 26px
+  overflow: hidden
+  box-shadow: 0 14px 30px color.adjust(app.$ink-app, $alpha: -.88)
+
+.header
+  position: relative
+  min-height: 72px
+  display: flex
+  flex-direction: column
+  align-items: stretch
+  justify-content: center
+  padding: .45rem 1rem
+  flex: 0 0 auto
+  background: app.$white-app
+  z-index: var(--z-index-header)
+
+  &::after
+    content: ''
+    position: absolute
+    left: 50%
+    bottom: 0
+    width: 95%
+    border-bottom: 1px solid app.$border-app
+    transform: translateX(-50%)
+
+.headerBar
+  display: flex
+  align-items: center
+  justify-content: space-between
+  gap: 1rem
+  width: 100%
+
+.brandBlock
+  display: flex
+  align-items: center
+  gap: .78rem
+  min-width: 0
+
+.brandLogo
+  width: 112px
+  max-width: 28vw
+  height: auto
+  object-fit: contain
+  filter: drop-shadow(0 1px 2px rgba(16, 35, 58, .08))
+
+.brandText
+  display: flex
+  flex-direction: column
+  gap: .1rem
+  min-width: 0
+
+.brandLabel
+  font-size: .72rem
+  letter-spacing: .08em
+  text-transform: uppercase
+  color: #7d8ca2
+  line-height: 1
+
+.brandTitle
+  margin: 0
+  color: #10233a
+  font-size: 1.03rem
+  font-weight: 800
+  line-height: 1.22
+  white-space: nowrap
+
+.headerTools
+  position: relative
+  display: inline-flex
+  align-items: center
+  justify-content: flex-end
+  gap: .78rem
+  margin-left: auto
+
+.statusTools
+  margin-right: .2rem
+
+.toolsDivider
+  width: 1px
+  height: 1.35rem
+  background: app.$border-app
+  margin: 0 .18rem
+
+.userPill
+  display: inline-flex
+  align-items: center
+  gap: .5rem
+  min-height: 2.1rem
+  padding: .36rem .78rem
+  border: 1px solid #d8dee6
+  border-radius: 999px
+  background: #f8fafd
+  color: #1f2e43
+  font-weight: 700
+  cursor: pointer
+  transition: border-color .14s ease, box-shadow .14s ease
+
+  &:focus-visible
+    outline: 2px solid app.$primary-app
+    outline-offset: 2px
+
+  &:hover
+    border-color: #c4d0de
+    box-shadow: 0 3px 10px rgba(17, 24, 39, .08)
+
+.userPillIcon
+  width: 1.02rem
+  height: 1.02rem
+  color: #5a6d84
+
+.userPillName
+  font-size: .99rem
+  max-width: 13rem
+  overflow: hidden
+  text-overflow: ellipsis
+  white-space: nowrap
+
+// ── Projects switcher ───────────────────────────────
+.projectsSwitcher
+  position: relative
+  display: inline-flex
+  align-items: center
+
+.projectsToggle
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  width: 2.2rem
+  height: 2.2rem
+  border: 1px solid app.$border-app
+  border-radius: 10px
+  background: app.$white-app
+  color: #5a6d84
+  cursor: pointer
+  transition: background .14s ease, border-color .14s ease, color .14s ease, box-shadow .14s ease
+
+  &:hover
+    background: #f0f4f8
+    border-color: app.$border-strong-app
+    color: app.$ink-app
+
+  &:focus-visible
+    outline: 2px solid app.$primary-app
+    outline-offset: 2px
+
+.projectsToggleActive
+  background: #edf1f6
+  border-color: app.$border-strong-app
+  color: app.$primary-app
+
+.projectsToggleIcon
+  width: 1.08rem
+  height: 1.08rem
+  stroke-width: 2.2
+
+.projectsPopover
+  position: absolute
+  top: calc(100% + .18rem)
+  right: 0
+  width: min(21rem, calc(100vw - 3rem))
+  max-height: calc(100dvh - 1rem)
+  overflow-x: hidden
+  overflow-y: auto
+  border: 1px solid #d7e0eb
+  border-radius: 12px
+  background: app.$white-app
+  box-shadow: 0 12px 28px rgba(15, 23, 42, .16)
+  padding: .58rem
+  z-index: 9999
+  animation: projectsPanelIn .14s ease-out
+
+  &::before
+    content: ''
+    position: absolute
+    top: -8px
+    right: .95rem
+    width: 14px
+    height: 14px
+    background: app.$white-app
+    border-left: 1px solid #d7e0eb
+    border-top: 1px solid #d7e0eb
+    transform: rotate(45deg)
+
+@keyframes projectsPanelIn
+  from
+    opacity: 0
+    transform: translateY(-4px)
+  to
+    opacity: 1
+    transform: translateY(0)
+
+.projectNavCopy
+  display: flex
+  flex-direction: column
+  gap: .04rem
+  min-width: 0
+
+.projectNavSub
+  font-size: .72rem
+  font-weight: 500
+  color: #8a97aa
+  line-height: 1.2
+  white-space: nowrap
+  overflow: hidden
+  text-overflow: ellipsis
+
+.navToggleButton
+  flex: 0 0 auto
+  margin-right: 10px
+
+.userMenuPopover
+  position: absolute
+  top: calc(100% + .18rem + 10px)
+  right: calc(34px + .78rem + 10px)
+  width: min(15rem, calc(100vw - 2rem))
+  max-height: calc(100dvh - 1rem)
+  overflow-x: hidden
+  overflow-y: auto
+  border: 1px solid #d5dfea
+  border-radius: 13px
+  background: app.$white-app
+  box-shadow: 0 14px 28px rgba(15, 23, 42, .14)
+  padding: .62rem
+  z-index: var(--z-index-header-menu-priority)
+  animation: userMenuIn .14s ease-out
+
+  &::before
+    content: ''
+    position: absolute
+    top: -8px
+    right: 1.95rem
+    width: 14px
+    height: 14px
+    background: app.$white-app
+    border-left: 1px solid #d5dfea
+    border-top: 1px solid #d5dfea
+    transform: rotate(45deg)
+
+@keyframes userMenuIn
+  from
+    opacity: 0
+    transform: translateY(-4px)
+  to
+    opacity: 1
+    transform: translateY(0)
+
+.navPopover
+  position: absolute
+  top: calc(100% + .18rem)
+  right: 10px
+  width: min(21rem, calc(100vw - 3rem))
+  max-height: calc(100dvh - 1rem)
+  overflow-x: hidden
+  overflow-y: auto
+  border: 1px solid #d7e0eb
+  border-radius: 12px
+  background: app.$white-app
+  box-shadow: 0 12px 28px rgba(15, 23, 42, .16)
+  padding: .58rem
+  z-index: var(--z-index-header-menu)
+
+  &::before
+    content: ''
+    position: absolute
+    top: -8px
+    right: .95rem
+    width: 14px
+    height: 14px
+    background: app.$white-app
+    border-left: 1px solid #d7e0eb
+    border-top: 1px solid #d7e0eb
+    transform: rotate(45deg)
+
+.navSection
+  padding: .1rem 0
+
+.navSectionDivider
+  border: 0
+  border-top: 1px solid #dde5ef
+  margin: .34rem 0 .5rem
+
+.navSectionTitle
+  margin: 0 0 .2rem
+  padding: 0 .25rem
+  font-size: .72rem
+  letter-spacing: .08em
+  text-transform: uppercase
+  color: #8a97aa
+  line-height: 1.25
+
+.navItems
+  list-style: none
+  margin: 0
+  padding: 0
+  display: flex
+  flex-direction: column
+  gap: .08rem
+
+.navItem
+  width: 100%
+  display: flex
+  align-items: center
+  gap: .5rem
+  padding: .33rem .4rem
+  border: 0
+  border-radius: 10px
+  background: transparent
+  color: #13253f
+  text-align: left
+  cursor: pointer
+  transition: background .12s ease, transform .08s ease
+
+  &:hover
+    background: #eef3f8
+
+  &:active
+    transform: translateY(1px)
+
+.navItemActive
+  background: #edf1f6
+  color: #7f8a9a
+  cursor: default
+
+.navItemIconWrap
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  width: 1.34rem
+  min-width: 1.34rem
+  height: 1.34rem
+  border-radius: 7px
+  border: 1px solid #d4dce6
+  background: #eef3f9
+  color: #315070
+
+.navItemIcon
+  width: .76rem
+  height: .76rem
+  stroke-width: 2.2
+
+.navItemText
+  font-size: .85rem
+  font-weight: 700
+  line-height: 1.2
+
+.navToneHome
+  background: app.$info-soft-app
+  border-color: app.$info-border-app
+  color: app.$info-app
+
+.navToneConfig
+  background: app.$info-soft-app
+  border-color: app.$info-border-app
+  color: app.$info-app
+
+.navToneUsers
+  background: color.mix(app.$primary-soft-app, app.$danger-bg-app, 70%)
+  border-color: color.mix(app.$info-border-app, app.$danger-soft-app, 62%)
+  color: color.mix(app.$primary-app, app.$danger-app, 50%)
+
+.navToneEmployees
+  background: app.$primary-soft-app
+  border-color: app.$info-border-app
+  color: app.$primary-app
+
+.navToneCostCenters
+  background: app.$success-soft-app
+  border-color: app.$success-border-app
+  color: app.$success-app
+
+.navToneExpenses
+  background: app.$danger-bg-app
+  border-color: app.$danger-soft-app
+  color: app.$danger-app
+
+.navToneReports
+  background: app.$warning-soft-app
+  border-color: app.$warning-border-app
+  color: app.$warning-app
+
+.navToneSystem
+  background: color.mix(app.$info-soft-app, app.$warning-soft-app, 35%)
+  border-color: color.mix(app.$info-border-app, app.$warning-border-app, 40%)
+  color: color.mix(app.$info-app, app.$warning-app, 40%)
+
+.section
+  flex: 1 1 auto
+  min-height: 0
+  padding: 50px
+  box-sizing: border-box
+  background: app.$white-app
+  overflow-y: auto
+
+.sectionNoScroll
+  overflow: hidden
+  display: flex
+  flex-direction: column
+
+.sectionInnerFill
+  flex: 1 1 auto
+  min-height: 0
+
+.sectionInner
+  min-height: 100%
+  display: flex
+  flex-direction: column
+  gap: 1rem
+
+.sectionHeading
+  display: flex
+  flex-direction: column
+  align-items: flex-start
+  gap: .34rem
+  padding: .1rem 0 .2rem
+
+.sectionContent
+  width: 100%
+  display: flex
+  flex-direction: column
+  flex: 1 1 auto
+  min-height: 0
+  gap: .75rem
+
+.sectionTitle
+  margin: 0
+  +type.title
+  color: #13253f
+
+.sectionSubtitle
+  margin: 0
+  max-width: 82ch
+  color: #44586f
+  font-weight: 500
+  +type.subtitle
+
+.footer
+  position: relative
+  min-height: 44px
+  flex: 0 0 auto
+  background: app.$white-app
+  display: flex
+  align-items: center
+  justify-content: center
+  padding: .35rem .9rem
+
+  &::before
+    content: ''
+    position: absolute
+    left: 50%
+    top: 0
+    width: 95%
+    border-top: 1px solid app.$border-app
+    transform: translateX(-50%)
+
+.footerContent
+  display: flex
+  align-items: center
+  justify-content: center
+  gap: .55rem
+  flex-wrap: wrap
+  color: #5a6472
+  font-size: .86rem
+  text-align: center
+
+.footerCopy
+  font-weight: 600
+
+.footerContact
+  color: #4f5a68
+
+.footerSep
+  color: #c1c7d0
+
+@media (max-width: 760px)
+  .page
+    padding: .7rem
+
+  .frame
+    width: 94vw
+    min-width: 94vw
+
+  .header
+    min-height: 64px
+    padding: .4rem .7rem
+
+  .section
+    padding: 20px
+
+  .brandLogo
+    width: 100px
+    max-width: 42vw
+
+  .brandTitle
+    font-size: .91rem
+    white-space: normal
+
+  .navPopover
+    right: 6px
+    width: min(20.4rem, calc(100vw - 2rem))
+
+    &::before
+      right: .8rem
+
+  .userMenuPopover
+    right: calc(34px + .6rem + 10px)
+    width: min(15rem, calc(100vw - 1.4rem))
+
+    &::before
+      right: 1.35rem
+
+  .footer
+    min-height: 40px

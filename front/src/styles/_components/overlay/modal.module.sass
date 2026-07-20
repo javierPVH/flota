@@ -1,0 +1,187 @@
+@use '../../_colors/_colors-app' as app
+
+.overlay
+  position: fixed
+  inset: 0
+  z-index: var(--z-index-modal)
+  display: grid
+  place-items: center
+  padding: 1.25rem
+  background: rgba(16, 35, 58, 0.45)
+
+.card
+  width: 100%
+  max-width: 460px
+  max-height: 88dvh
+  display: flex
+  flex-direction: column
+  background: app.$white-app
+  border-radius: 14px
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.3)
+  overflow: hidden
+
+.cardWide
+  max-width: 640px
+
+.cardXl
+  max-width: 960px
+
+.head
+  display: flex
+  align-items: center
+  justify-content: space-between
+  gap: 1rem
+  padding: 1rem 1.25rem
+  border-bottom: 1px solid app.$border-app
+
+.title
+  margin: 0
+  font-size: 1.02rem
+  font-weight: 800
+  color: app.$ink-app
+
+.close
+  display: grid
+  place-items: center
+  width: 30px
+  height: 30px
+  border-radius: 7px
+  border: none
+  background: app.$surface-app
+  color: app.$muted-text-app
+  cursor: pointer
+
+.close:hover
+  background: app.$surface-soft-app
+  color: app.$text-app
+
+.body
+  flex: 1
+  min-height: 0
+  padding: 1.15rem 1.25rem
+  overflow: auto
+  display: flex
+  flex-direction: column
+  gap: 0.9rem
+
+.footer
+  display: flex
+  justify-content: flex-end
+  gap: 0.5rem
+  padding: 0.85rem 1.25rem
+  border-top: 1px solid app.$border-app
+  background: app.$surface-app
+
+// ── Selector de tipo de columna (rejilla compacta con hover) ──
+.typeGrid
+  display: grid
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr))
+  gap: 5px
+
+.typeCard
+  display: flex
+  flex-direction: column
+  align-items: center
+  gap: 3px
+  padding: 6px 3px
+  border-radius: 7px
+  border: 1.5px solid #dbe4ee
+  background: #fff
+  color: #41617f
+  cursor: pointer
+  font-size: 0.63rem
+  font-weight: 700
+  line-height: 1.05
+  text-align: center
+  transition: background 0.13s, border-color 0.13s, color 0.13s, transform 0.13s
+
+.typeCard:hover
+  border-color: #9fd3d0
+  background: #f2fafa
+  color: #0b6b68
+  transform: translateY(-1px)
+
+.typeCardActive
+  border-color: #0e8a87
+  background: #e6f4f3
+  color: #0b6b68
+
+.typeCardActive:hover
+  border-color: #0e8a87
+  background: #dcefee
+  transform: none
+
+// ── Selector/filtro de campos (multi-selección desplegable) ──
+.fieldFilter
+  position: relative
+
+.fieldFilterSummary
+  display: flex
+  align-items: center
+  gap: 7px
+  padding: 7px 10px
+  border: 1px solid #cfdae6
+  border-radius: 8px
+  background: #fff
+  color: #41617f
+  font-size: 0.82rem
+  font-weight: 600
+  cursor: pointer
+  list-style: none
+  user-select: none
+
+.fieldFilterSummary::-webkit-details-marker
+  display: none
+
+.fieldFilterSummary:hover
+  border-color: #9fd3d0
+  background: #f2fafa
+
+.fieldFilterPanel
+  position: absolute
+  z-index: 5
+  top: calc(100% + 4px)
+  left: 0
+  right: 0
+  max-height: 260px
+  overflow-y: auto
+  display: flex
+  flex-direction: column
+  gap: 2px
+  padding: 6px
+  border: 1px solid #cfdae6
+  border-radius: 8px
+  background: #fff
+  box-shadow: 0 12px 30px rgba(16, 35, 58, 0.16)
+
+.fieldFilterClear
+  align-self: flex-start
+  margin-bottom: 2px
+  padding: 3px 8px
+  border: none
+  border-radius: 6px
+  background: #eef4fa
+  color: #0b6b68
+  font-size: 0.76rem
+  font-weight: 700
+  cursor: pointer
+
+.fieldFilterClear:hover
+  background: #dcefee
+
+.fieldFilterItem
+  display: flex
+  align-items: center
+  gap: 7px
+  padding: 5px 7px
+  border-radius: 6px
+  font-size: 0.83rem
+  color: #10233a
+  cursor: pointer
+
+.fieldFilterItem:hover
+  background: #f2fafa
+
+.fieldFilterItem input
+  accent-color: #0e8a87
+  cursor: pointer

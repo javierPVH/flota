@@ -1,0 +1,111 @@
+@use '../../_colors/_colors-corp' as app
+
+.dateMiniFilterBlock
+  display: inline-flex
+  flex-direction: column
+  align-items: flex-start
+  gap: .34rem
+  width: fit-content
+  max-width: 100%
+
+.dateMiniFilterLabel
+  color: app.$ink-app
+  font-size: .79rem
+  line-height: 1.2
+  font-weight: 700
+
+.dateMiniFilterWrap
+  display: inline-flex
+  align-items: center
+  width: fit-content
+  max-width: 100%
+  border: 1px solid app.$border-strong-app
+  border-radius: 10px
+  background: app.$white-app
+  overflow: hidden
+
+.dateMiniInputBlock
+  display: inline-flex
+  align-items: center
+  gap: .3rem
+  min-width: 0
+  flex: 1 1 auto
+  padding: 0 .45rem
+  border-right: 1px solid app.$border-app
+
+.dateMiniInlineLabel
+  color: app.$muted-text-app
+  font-size: .72rem
+  line-height: 1
+  font-weight: 700
+  white-space: nowrap
+
+.dateMiniField
+  width: auto
+  min-width: 0
+  flex: 1 1 auto
+  border: none
+  background: transparent
+  color: app.$text-app
+  font: inherit
+  font-size: .79rem
+  line-height: 1.2
+  padding: .54rem 0
+  white-space: nowrap
+
+  &::-webkit-calendar-picker-indicator
+    cursor: pointer
+
+  &:focus-visible
+    outline: none
+
+.dateMiniTools
+  display: inline-flex
+  align-items: center
+  padding: 0 .18rem
+
+.dateMiniToolsButtons
+  gap: .05rem !important
+
+.dateMiniPreset
+  border: none
+  border-left: 1px solid app.$border-app
+  background: transparent
+  color: app.$text-app
+  font: inherit
+  font-size: .76rem
+  font-weight: 700
+  line-height: 1
+  white-space: nowrap
+  padding: .6rem .65rem
+  cursor: pointer
+  transition: background .14s ease, color .14s ease
+
+  &:hover:not(:disabled)
+    background: app.$surface-soft-app
+    color: app.$ink-app
+
+  &:disabled
+    opacity: .55
+    cursor: not-allowed
+
+@media (max-width: 760px)
+  .dateMiniFilterBlock
+    width: 100%
+
+  .dateMiniFilterWrap
+    width: 100%
+    flex-wrap: wrap
+
+  .dateMiniInputBlock
+    min-width: 0
+    flex: 1 1 100%
+
+  .dateMiniTools
+    padding: .18rem
+
+  .dateMiniPreset
+    width: 100%
+    border-left: none
+    border-top: 1px solid app.$border-app
+    text-align: center

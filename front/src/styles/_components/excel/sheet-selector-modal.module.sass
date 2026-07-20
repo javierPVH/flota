@@ -1,0 +1,100 @@
+@use '../../_colors/_colors-corp' as app
+
+.overlay
+  position: fixed
+  inset: 0
+  z-index: 1800
+  background: rgba(15, 23, 42, .45)
+  display: flex
+  align-items: center
+  justify-content: center
+  padding: 1rem
+
+.card
+  position: relative
+  width: min(460px, 92vw)
+  background: app.$white-app
+  border: 1px solid app.$border-app
+  border-radius: 16px
+  box-shadow: 0 20px 50px rgba(15, 23, 42, .22)
+  display: flex
+  flex-direction: column
+  overflow: hidden
+
+.header
+  display: flex
+  align-items: center
+  justify-content: space-between
+  padding: .7rem 1rem
+  border-bottom: 1px solid app.$border-app
+
+.headerTitle
+  margin: 0
+  font-size: .88rem
+  font-weight: 700
+  color: app.$ink-app
+
+.closeButton
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  width: 1.8rem
+  height: 1.8rem
+  border: 1px solid app.$border-app
+  border-radius: 8px
+  background: app.$surface-soft-app
+  color: app.$muted-text-app
+  font-size: 1rem
+  cursor: pointer
+  transition: background .12s ease, color .12s ease
+
+  &:hover
+    background: app.$danger-bg-app
+    color: app.$danger-app
+    border-color: app.$danger-soft-app
+
+.body
+  padding: 1rem
+  display: flex
+  flex-direction: column
+  gap: .6rem
+
+.fileName
+  margin: 0
+  font-size: .78rem
+  color: app.$muted-text-app
+  font-weight: 600
+
+.sheetList
+  list-style: none
+  margin: 0
+  padding: 0
+  display: flex
+  flex-direction: column
+  gap: .35rem
+  max-height: 300px
+  overflow-y: auto
+
+.sheetItem
+  display: flex
+  align-items: center
+  justify-content: space-between
+  padding: .55rem .8rem
+  border: 1.5px solid app.$border-app
+  border-radius: 10px
+  background: app.$white-app
+  cursor: pointer
+  transition: border-color .12s ease, background .12s ease
+
+  &:hover
+    border-color: app.$success-app
+    background: app.$success-soft-app
+
+.sheetName
+  font-size: .82rem
+  font-weight: 600
+  color: app.$text-app
+
+.sheetRows
+  font-size: .72rem
+  color: app.$muted-text-app
