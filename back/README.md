@@ -3,9 +3,10 @@
 Backend de la app de flota: **Django 5.2 + Django REST Framework**. Parte del
 backend base de `@gs/base` (**auth por sesión + CSRF**, CORS con credenciales,
 config por `.env` con defaults seguros, paginación/throttling, health, OpenAPI en
-dev) y añade el dominio de flota: **usuario con rol** (admin / admin_flota /
-conductor), **permisos por rol** y la app **`fleet`** (vehículos + asignación de
-conductor). Ver los roles y el split VPN/internet en el [README raíz](../README.md).
+dev) y añade el dominio de flota: **usuario multi-rol** (admin / supervisor /
+driver vía `UserRole`), **permisos por rol** y la app **`fleet`** (vehículos,
+contratos, asignaciones, eventos, facturas y catálogos). Ver los roles y el split
+VPN/internet en el [README raíz](../README.md).
 
 ## Requisitos
 
@@ -46,11 +47,13 @@ back/
 │   ├── pagination.py  # StandardResultsPagination (?page_size=N, tope 1000)
 │   ├── exceptions.py  # handler de error uniforme {"detail", "errors"}
 │   └── views.py       # /api/health/ (con chequeo de BD)
-├── accounts/          # usuario con ROL + API de auth (sesión/CSRF)
-│   ├── models.py      # User.role: admin | admin_flota | conductor
-│   ├── permissions.py # IsAdmin / IsManagement / IsDriver / ...ReadOnly
+├── accounts/          # persona (=driver) + roles + API de auth (sesión/CSRF)
+│   ├── models.py      # User (mapea `drivers`) + UserRole (mapea `driver_roles`)
+│   ├── permissions.py # IsAdmin / IsSupervisor / IsManagement / IsDriver / ...ReadOnly
 │   └── views.py       # csrf, login (rate-limit), logout, me, drivers
-└── fleet/             # dominio: Vehicle (CRUD gestión, lectura conductor)
+└── fleet/             # dominio de flota (modelos + admin)
+    ├── enums.py       # todos los *_enum del DBML
+    └── models/        # catalogs, vehicle, contract, assignment, event, invoice
 ```
 
 ## API
@@ -64,14 +67,33 @@ back/
 | POST   | `/api/auth/register/` | —    | Alta de usuario propio *(si registration ON)*      |
 | POST   | `/api/auth/google/`   | —    | Login con Google (ID token) *(si google ON)*       |
 | POST   | `/api/auth/logout/`   | ✔    | Cierra la sesión                                   |
-| GET    | `/api/auth/me/`       | ✔    | Usuario autenticado (incluye `role`)               |
+| GET    | `/api/auth/me/`       | ✔    | Usuario autenticado (incluye `roles` y `fuel_card`)|
 | GET    | `/api/auth/drivers/`  | gestión | Conductores para el desplegable de asignación   |
 | CRUD   | `/api/vehicles/`      | ✔*   | Vehículos. Gestión: CRUD. Conductor: solo lectura de los suyos |
 | GET    | `/api/docs/`          | dev  | Swagger UI (solo con `OPENAPI_DOCS_ENABLED`/DEBUG) |
 
-*El acceso a `/api/vehicles/` depende del rol: `admin`/`admin_flota` escriben toda
-la flota; `conductor` solo lee sus vehículos asignados (permisos en
+*El acceso a `/api/vehicles/` depende del rol: `admin`/`supervisor` escriben toda
+la flota; `driver` solo lee sus vehículos asignados (permisos en
 `accounts/permissions.py` + queryset acotado en `fleet/views.py`).
+
+## Gestión de roles
+
+- **Una persona = un `User`** (mapea `drivers`; `AbstractUser` aporta nombre y
+  email, y se añade `fuel_card`). Todas las personas inician sesión.
+- **Roles multi-valor** en `UserRole` (mapea `driver_roles`), únicos por
+  `(user, role)`. Valores: `admin`, `supervisor`, `driver`. Una persona puede
+  tener varios (p. ej. supervisor que además conduce).
+- **Helpers** en `User`: `role_values`, `has_role()`, `is_admin`,
+  `is_supervisor`, `is_driver`, `is_management` (=admin o supervisor). Un
+  superusuario de Django cuenta como `admin`.
+- **Permisos DRF** (`accounts/permissions.py`): `IsAdmin`, `IsSupervisor`,
+  `IsManagement`, `IsDriver`, `IsManagementOrDriverReadOnly`. Se combinan con un
+  `get_queryset` que acota lo que ve cada rol.
+- **Aprovisionamiento**: desde `/admin/` (roles inline en el usuario). El
+  self-registro público, si se habilita, crea siempre un `driver`.
+- **Enrutado a fronts**: `admin`/`supervisor` → gestión (VPN); `driver` →
+  conductores (internet). El backend lo impone por permisos; los fronts, además,
+  filtran en el login/bootstrap.
 
 ## Métodos de autenticación (por variable de entorno)
 

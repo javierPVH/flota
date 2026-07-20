@@ -1,20 +1,30 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import User
+from .models import User, UserRole
+
+
+class UserRoleInline(admin.TabularInline):
+    """Roles del usuario, editables inline (admin/supervisor/driver)."""
+
+    model = UserRole
+    extra = 1
 
 
 @admin.register(User)
 class FlotaUserAdmin(UserAdmin):
-    """Admin de usuario con el rol de flota visible y editable.
+    """Admin de usuario (=persona/driver) con sus roles inline y `fuel_card`.
 
-    Los usuarios de gestión (administrador / administrador de flota) se
-    aprovisionan desde aquí; el self-registro del front público crea siempre
-    conductores (rol por defecto del modelo).
+    Aquí se aprovisionan los usuarios de gestión (dándoles rol admin/supervisor);
+    el self-registro del front público crea siempre conductores.
     """
 
-    list_display = ("username", "email", "role", "is_staff", "is_active")
-    list_filter = ("role", "is_staff", "is_superuser", "is_active")
-    # Añade la sección de rol a los fieldsets heredados de UserAdmin.
-    fieldsets = UserAdmin.fieldsets + (("Flota", {"fields": ("role",)}),)
-    add_fieldsets = UserAdmin.add_fieldsets + (("Flota", {"fields": ("role",)}),)
+    inlines = [UserRoleInline]
+    list_display = ("username", "email", "roles_display", "fuel_card", "is_active")
+    list_filter = ("roles__role", "is_staff", "is_superuser", "is_active", "fuel_card")
+    fieldsets = UserAdmin.fieldsets + (("Flota", {"fields": ("fuel_card",)}),)
+    add_fieldsets = UserAdmin.add_fieldsets + (("Flota", {"fields": ("fuel_card",)}),)
+
+    @admin.display(description="Roles")
+    def roles_display(self, obj) -> str:
+        return ", ".join(sorted(obj.roles.values_list("role", flat=True))) or "—"

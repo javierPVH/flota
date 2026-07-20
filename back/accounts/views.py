@@ -27,6 +27,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .google import GoogleAuthError, verify_google_id_token
+from .models import Role
 from .permissions import IsManagement
 from .serializers import DriverSerializer, RegisterSerializer, UserSerializer
 
@@ -199,8 +200,10 @@ class DriversView(APIView):
     permission_classes = [IsManagement]
 
     def get(self, request):
-        drivers = User.objects.filter(role=User.Role.DRIVER, is_active=True).order_by(
-            "first_name", "username"
+        drivers = (
+            User.objects.filter(roles__role=Role.DRIVER, is_active=True)
+            .distinct()
+            .order_by("first_name", "username")
         )
         return Response(DriverSerializer(drivers, many=True).data)
 

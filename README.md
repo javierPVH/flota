@@ -15,17 +15,23 @@ flota/
 
 ## Roles y accesos
 
-| Rol                     | Front            | Red      | Puede |
-|-------------------------|------------------|----------|-------|
-| `admin`                 | gestión          | **VPN**  | CRUD completo de la flota, aprovisionar usuarios |
-| `admin_flota`           | gestión          | **VPN**  | CRUD completo de la flota |
-| `conductor`             | conductores      | internet | Ver **solo** su(s) vehículo(s) asignado(s) (lectura) |
+| Rol          | Front        | Red      | Puede |
+|--------------|--------------|----------|-------|
+| `admin`      | gestión      | **VPN**  | CRUD completo de la flota, aprovisionar usuarios y roles |
+| `supervisor` | gestión      | **VPN**  | Gestión de la flota (vehículos, asignaciones, reparto de uso) |
+| `driver`     | conductores  | internet | Ver **solo** su(s) vehículo(s) asignado(s) (lectura) |
+
+Los roles son **multi-rol**: una persona puede acumular varios (p. ej.
+supervisor que además conduce). Se modelan en `accounts.UserRole` (mapea la tabla
+`driver_roles` del DBML) y una persona = un `User` (mapea `drivers`). `admin` o
+`supervisor` ⇒ acceso al front de gestión; `driver` ⇒ front de conductores.
 
 La separación por red la impone el despliegue (nginx/firewall/VPN), pero el
 **backend no se fía de la red**: cada endpoint está protegido por rol
-(`accounts/permissions.py`) y el queryset del conductor está acotado a lo suyo.
-Además, cada front rechaza en el login a quien no le corresponde y su `bootstrap`
-de sesión trata como anónimo a un rol ajeno.
+(`accounts/permissions.py` → `IsAdmin`/`IsSupervisor`/`IsManagement`/`IsDriver`)
+y el queryset del conductor está acotado a lo suyo. Además, cada front rechaza en
+el login a quien no le corresponde y su `bootstrap` de sesión trata como anónimo
+a un rol ajeno.
 
 ## Arranque en desarrollo
 
@@ -41,20 +47,23 @@ python manage.py createsuperuser                     # crea un admin
 python manage.py runserver
 ```
 
-Crear usuarios de prueba rápido (uno por rol):
+Crear usuarios de prueba rápido (uno por rol; los roles son multi-rol):
 
 ```bash
 python manage.py shell -c "
-from accounts.models import User
-User.objects.create_superuser(username='admin', email='a@x.com', password='pass12345', role=User.Role.ADMIN)
-User.objects.create_user(username='gestor', password='pass12345', role=User.Role.FLEET_MANAGER)
-User.objects.create_user(username='carlos', password='pass12345', role=User.Role.DRIVER)
+from accounts.models import User, UserRole, Role
+admin = User.objects.create_superuser(username='admin', email='a@x.com', password='pass12345')
+sup = User.objects.create_user(username='sup', password='pass12345', first_name='Sara')
+UserRole.objects.create(user=sup, role=Role.SUPERVISOR)
+drv = User.objects.create_user(username='carlos', password='pass12345', first_name='Carlos')
+UserRole.objects.create(user=drv, role=Role.DRIVER)
 "
 ```
 
-Los `conductor` y `admin_flota` se aprovisionan desde el admin de Django
-(`/admin/`) o por shell: el **registro público está desactivado** por defecto
+Los usuarios y sus roles se aprovisionan desde el admin de Django (`/admin/`,
+roles inline) o por shell: el **registro público está desactivado** por defecto
 (`AUTH_REGISTRATION_ENABLED=False`) porque el front de conductores da a internet.
+El self-registro, si se activa, crea siempre un `driver`.
 
 **2) Fronts** (desde la raíz `flota/`, workspaces npm)
 
@@ -82,17 +91,36 @@ distintos, cada uno tras su propio nginx/host:
   `CSRF_COOKIE_SECURE`, `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`,
   `CSRF_TRUSTED_ORIGINS`, `SECURE_HSTS_SECONDS`.
 
-## Módulo de dominio actual
+## Modelo de dominio (app `fleet`)
 
-Primer recurso end-to-end: **Vehículos** (`fleet.Vehicle`) con matrícula, marca,
-modelo, año, estado (activo/mantenimiento/retirado), observaciones y **conductor
-asignado**. La gestión hace el CRUD; el conductor consulta su asignación. Punto
-de partida para ir copiando más lógica de negocio.
+Modelado completo del esquema (DBML) en `back/fleet/` (`models/` por áreas +
+`enums.py`):
+
+- **Vehículo** (`Vehicle`): matrícula, marca/modelo/versión/año, estado,
+  combustible, tipo, tamaño, segmento, uso, propiedad, supervisor, sustitución…
+- **Catálogos**: `Country`, `BusinessUnit`, `Project`, `Pep` (CECO), `Renting`.
+- **Contratos y km**: `Contract`, `KmReading`.
+- **Asignación y uso**: `Assignment` (conductor↔vehículo, con estado
+  propuesta→aceptada/rechazada→finalizada), `VehicleUsage` (reparto %),
+  `VehicleLink` (principal↔sustituto).
+- **Eventos**: `Event` + subtipos 1-a-1 (`EventPenalty`, `EventFeeChange`,
+  `EventItv`, `EventProjectChange`, `EventLocationChange`, `EventPepChange`,
+  `EventDriverChange`).
+- **Facturación**: `Invoice`, `InvoiceAllocation` (imputación a proyecto/PEP).
+
+Todo es administrable desde `/admin/`. Por ahora solo `Vehicle` tiene API REST
+(`/api/vehicles/`); el resto son modelos + admin, a la espera de exponer
+endpoints según se vaya necesitando.
+
+> **Nota:** los dos fronts (`front-gestion`/`front-conductores`) todavía usan el
+> contrato anterior (rol único, `assigned_driver`). Con el nuevo esquema el `/me`
+> devuelve `roles` (lista) y el vehículo ya no lleva conductor directo (va por
+> `Assignment`). Actualizar los fronts a este contrato es el siguiente paso.
 
 ## Tests
 
 ```bash
-cd back && .venv/bin/python manage.py test      # 29 tests
+cd back && .venv/bin/python manage.py test      # 30 tests
 npm run typecheck                                # typecheck de ambos fronts
 npm run build                                    # build DS + ambos fronts
 ```

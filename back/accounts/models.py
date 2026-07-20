@@ -2,46 +2,70 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 
+class Role(models.TextChoices):
+    """Roles funcionales (DBML `role_enum`). Multi-rol: una persona puede tener
+    varios (p. ej. supervisor que además conduce)."""
+
+    ADMIN = "admin", "Administrador"
+    SUPERVISOR = "supervisor", "Supervisor"
+    DRIVER = "driver", "Conductor"
+
+
 class User(AbstractUser):
-    """Usuario del proyecto flota.
+    """Persona del sistema de flota (mapea la tabla `drivers` del DBML).
 
-    Extiende `AbstractUser` con un campo `role` que decide qué puede hacer el
-    usuario y, en la práctica, desde qué front entra:
-
-    - ``ADMIN`` / ``FLEET_MANAGER`` → front de gestión (accesible solo por VPN).
-    - ``DRIVER`` → front de conductores (accesible desde internet).
-
-    Tener un modelo de usuario propio desde el inicio es la práctica recomendada:
-    permite añadir campos más adelante sin la costosa migración de sustitución
-    del modelo de usuario, que Django no soporta con comodidad una vez hay datos.
+    Toda persona —administrador, supervisor o conductor— es un usuario que puede
+    iniciar sesión. `AbstractUser` ya aporta `first_name`/`last_name` (=`name`) y
+    `email`; aquí solo se añade `fuel_card`. Los roles NO son un campo único: van
+    en `UserRole` (relación 1-a-N), de modo que un usuario puede acumular varios.
     """
 
-    class Role(models.TextChoices):
-        ADMIN = "admin", "Administrador"
-        FLEET_MANAGER = "admin_flota", "Administrador de flota"
-        DRIVER = "conductor", "Conductor"
-
-    role = models.CharField(
-        max_length=20,
-        choices=Role.choices,
-        default=Role.DRIVER,
-        help_text="Rol funcional del usuario. Decide permisos y front de acceso.",
+    fuel_card = models.BooleanField(
+        "Tarjeta de combustible",
+        default=False,
+        help_text="¿La persona dispone de tarjeta de combustible?",
     )
 
-    # --- Helpers de rol (usados por permisos y serializers) ---------------
+    # --- Roles ------------------------------------------------------------
     @property
-    def is_admin(self) -> bool:
-        return self.role == self.Role.ADMIN
+    def role_values(self) -> set[str]:
+        """Conjunto de roles del usuario. Un superusuario de Django es admin."""
+        values = set(self.roles.values_list("role", flat=True))
+        if self.is_superuser:
+            values.add(Role.ADMIN)
+        return values
+
+    def has_role(self, role: str) -> bool:
+        return role in self.role_values
 
     @property
-    def is_fleet_manager(self) -> bool:
-        return self.role == self.Role.FLEET_MANAGER
+    def is_admin(self) -> bool:
+        return Role.ADMIN in self.role_values
+
+    @property
+    def is_supervisor(self) -> bool:
+        return Role.SUPERVISOR in self.role_values
 
     @property
     def is_driver(self) -> bool:
-        return self.role == self.Role.DRIVER
+        return Role.DRIVER in self.role_values
 
     @property
     def is_management(self) -> bool:
-        """¿Pertenece al front de gestión (VPN)? Admin o admin de flota."""
-        return self.role in {self.Role.ADMIN, self.Role.FLEET_MANAGER}
+        """Acceso al front de gestión (VPN): administrador o supervisor."""
+        return bool(self.role_values & {Role.ADMIN, Role.SUPERVISOR})
+
+
+class UserRole(models.Model):
+    """Rol asignado a un usuario (DBML `driver_roles`). Único por (usuario, rol)."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="roles")
+    role = models.CharField(max_length=20, choices=Role.choices)
+
+    class Meta:
+        unique_together = [("user", "role")]
+        verbose_name = "rol de usuario"
+        verbose_name_plural = "roles de usuario"
+
+    def __str__(self) -> str:
+        return f"{self.user} · {self.get_role_display()}"
