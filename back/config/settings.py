@@ -181,6 +181,14 @@ CORS_ALLOWED_ORIGINS = env_list(
 LOGIN_RATE_LIMIT_ATTEMPTS = max(1, env_int("LOGIN_RATE_LIMIT_ATTEMPTS", 10))
 LOGIN_RATE_LIMIT_WINDOW_SECONDS = max(60, env_int("LOGIN_RATE_LIMIT_WINDOW_SECONDS", 900))
 LOGIN_RATE_LIMIT_BLOCK_SECONDS = max(60, env_int("LOGIN_RATE_LIMIT_BLOCK_SECONDS", 300))
+# Límite adicional POR CUENTA (además del de IP): frena la fuerza bruta contra un
+# mismo usuario repartida entre muchas IPs. Suele ser mayor que el de IP.
+LOGIN_RATE_LIMIT_ACCOUNT_ATTEMPTS = max(1, env_int("LOGIN_RATE_LIMIT_ACCOUNT_ATTEMPTS", 20))
+
+# Nº de proxies de confianza delante de la app (nginx, LB…). Con 0 se ignora
+# `X-Forwarded-For` y se usa `REMOTE_ADDR` (evita que el cliente falsee la IP y
+# burle el rate-limit). Con N, se toma la IP N posiciones desde la derecha del XFF.
+TRUSTED_PROXY_COUNT = max(0, env_int("TRUSTED_PROXY_COUNT", 0))
 
 # --- Métodos de autenticación (flags independientes) ----------------------
 # Cada despliegue activa los que necesite. Casos soportados:
@@ -238,6 +246,10 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "user": env_str("THROTTLE_USER_RATE", "2000/hour"),
         "anon": env_str("THROTTLE_ANON_RATE", "100/hour"),
+        # Endpoints sensibles sin autenticar (ScopedRateThrottle por vista):
+        # alta de usuarios y verificación de token de Google (coste CPU/red).
+        "register": env_str("THROTTLE_REGISTER_RATE", "5/hour"),
+        "google": env_str("THROTTLE_GOOGLE_RATE", "30/min"),
     },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",

@@ -108,9 +108,13 @@ Cada hallazgo indica **dónde** está, el **riesgo** y la **propuesta**.
 
 Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
 
-- **Fase S1 — Ganancias rápidas de seguridad (🔴, bajo esfuerzo).**
-  IP real tras proxy + rate-limit por cuenta; throttle en `register`/`google`;
-  `mask_fields=["dni","phone"]` en auditoría; validar rol `driver` en asignación.
+- **Fase S1 — Ganancias rápidas de seguridad (🔴, bajo esfuerzo): ✅ IMPLEMENTADA.**
+  IP real tras proxy (`TRUSTED_PROXY_COUNT`, ignora `X-Forwarded-For` sin proxy de
+  confianza) + rate-limit **por cuenta** (`LOGIN_RATE_LIMIT_ACCOUNT_ATTEMPTS`,
+  frena fuerza bruta distribuida); `ScopedRateThrottle` en `register` (5/hora) y
+  `google` (30/min); `mask_fields=["dni","phone"]` en la auditoría de `User`;
+  validación de rol `driver` en `AssignmentSerializer`. 8 tests nuevos (114 en
+  total, verdes).
 - **Fase S2 — *Hardening* de producción (🔴/🟡).**
   Checklist de prod (HTTPS/HSTS/cabeceras), proxy headers por flag, cookies
   `SameSite` por entorno, secretos fuera de `.env`, test de "settings de prod".

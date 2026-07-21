@@ -158,6 +158,12 @@ class AssignmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "No se puede asignar un conductor a un vehículo en baja."
             )
+        # El usuario asignado debe tener rol de conductor (HU-2.1).
+        driver = attrs.get("driver", getattr(self.instance, "driver", None))
+        if driver is not None and not driver.is_driver:
+            raise serializers.ValidationError(
+                {"driver": "El usuario asignado no tiene rol de conductor."}
+            )
         return attrs
 
 

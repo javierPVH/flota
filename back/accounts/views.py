@@ -24,6 +24,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .google import GoogleAuthError, verify_google_id_token
@@ -38,45 +39,77 @@ security_logger = logging.getLogger("accounts.security")
 # --- Helpers de rate limit ------------------------------------------------
 
 def _client_ip(request) -> str:
-    xff = str(request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
-    if xff:
-        return xff.split(",")[0].strip() or "unknown"
+    """IP del cliente respetando `TRUSTED_PROXY_COUNT`.
+
+    Con 0 proxies de confianza se ignora `X-Forwarded-For` (falsificable por el
+    cliente) y se usa `REMOTE_ADDR`. Con N, se toma la IP N posiciones desde la
+    derecha del XFF (la que insertó el proxy más externo de confianza).
+    """
+    num_proxies = getattr(settings, "TRUSTED_PROXY_COUNT", 0)
+    if num_proxies > 0:
+        xff = str(request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if len(parts) >= num_proxies:
+            return parts[-num_proxies] or "unknown"
     return str(request.META.get("REMOTE_ADDR") or "unknown").strip() or "unknown"
 
 
-def _rate_key(prefix: str, request, identifier: str) -> str:
+def _digest(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _ip_key(prefix: str, request, identifier: str) -> str:
     fingerprint = f"{_client_ip(request)}|{str(identifier or '').strip().lower()}"
-    digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
-    return f"auth_login:{prefix}:{digest}"
+    return f"auth_login:{prefix}:ip:{_digest(fingerprint)}"
+
+
+def _account_key(prefix: str, identifier: str) -> str:
+    return f"auth_login:{prefix}:acct:{_digest(str(identifier or '').strip().lower())}"
 
 
 def _is_blocked(request, identifier: str) -> tuple[bool, int]:
-    blocked_until = cache.get(_rate_key("block", request, identifier))
-    if not blocked_until:
-        return False, 0
-    remaining = int(blocked_until) - int(time.time())
-    if remaining <= 0:
-        cache.delete(_rate_key("block", request, identifier))
-        return False, 0
-    return True, remaining
+    """¿Bloqueado por IP+cuenta o por cuenta (distribuido)? Devuelve el mayor restante."""
+    now = int(time.time())
+    remaining = 0
+    for key in (_ip_key("block", request, identifier), _account_key("block", identifier)):
+        blocked_until = cache.get(key)
+        if not blocked_until:
+            continue
+        left = int(blocked_until) - now
+        if left <= 0:
+            cache.delete(key)
+        else:
+            remaining = max(remaining, left)
+    return (remaining > 0), remaining
+
+
+def _bump(fail_key: str, block_key: str, threshold: int) -> None:
+    attempts = int(cache.get(fail_key) or 0) + 1
+    cache.set(fail_key, attempts, timeout=settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS)
+    if attempts >= threshold:
+        blocked_until = int(time.time()) + settings.LOGIN_RATE_LIMIT_BLOCK_SECONDS
+        cache.set(block_key, blocked_until, timeout=settings.LOGIN_RATE_LIMIT_BLOCK_SECONDS)
 
 
 def _register_failure(request, identifier: str) -> None:
-    fail_key = _rate_key("fail", request, identifier)
-    attempts = int(cache.get(fail_key) or 0) + 1
-    cache.set(fail_key, attempts, timeout=settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS)
-    if attempts >= settings.LOGIN_RATE_LIMIT_ATTEMPTS:
-        blocked_until = int(time.time()) + settings.LOGIN_RATE_LIMIT_BLOCK_SECONDS
-        cache.set(
-            _rate_key("block", request, identifier),
-            blocked_until,
-            timeout=settings.LOGIN_RATE_LIMIT_BLOCK_SECONDS,
-        )
+    # Contador por (IP + cuenta) y contador por cuenta (fuerza bruta distribuida).
+    _bump(
+        _ip_key("fail", request, identifier),
+        _ip_key("block", request, identifier),
+        settings.LOGIN_RATE_LIMIT_ATTEMPTS,
+    )
+    _bump(
+        _account_key("fail", identifier),
+        _account_key("block", identifier),
+        settings.LOGIN_RATE_LIMIT_ACCOUNT_ATTEMPTS,
+    )
 
 
 def _reset_failures(request, identifier: str) -> None:
-    cache.delete(_rate_key("fail", request, identifier))
-    cache.delete(_rate_key("block", request, identifier))
+    cache.delete(_ip_key("fail", request, identifier))
+    cache.delete(_ip_key("block", request, identifier))
+    cache.delete(_account_key("fail", identifier))
+    cache.delete(_account_key("block", identifier))
 
 
 def _authenticate(request, identifier: str, password: str):
@@ -213,6 +246,8 @@ class RegisterView(APIView):
 
     authentication_classes: list = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "register"
 
     def post(self, request):
         if not settings.AUTH_REGISTRATION_ENABLED:
@@ -248,6 +283,8 @@ class GoogleLoginView(APIView):
 
     authentication_classes: list = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "google"
 
     def post(self, request):
         if not settings.AUTH_GOOGLE_ENABLED:

@@ -26,6 +26,24 @@ class ResourceScopeTests(APITestCase):
             vehicle=self.my_vehicle, driver=self.driver, start_date=date(2026, 1, 1)
         )
 
+    # --- Asignación: el usuario debe tener rol de conductor (HU-2.1) --
+    def test_cannot_assign_non_driver_user(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            reverse("assignment-list"),
+            {"vehicle": self.foreign.pk, "driver": self.supervisor.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("driver", resp.data.get("errors", resp.data))
+
+    def test_can_assign_driver_user(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            reverse("assignment-list"),
+            {"vehicle": self.foreign.pk, "driver": self.driver.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
     # --- Km: el conductor registra los de su vehículo (HU-3.1) --------
     def test_driver_can_register_km_of_own_vehicle(self):
         self.client.force_authenticate(self.driver)
