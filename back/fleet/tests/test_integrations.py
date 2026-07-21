@@ -1,10 +1,11 @@
 """Tests de integraciones (Fase F.2/F.3): archivado y solicitudes/Jira."""
+
 import tempfile
 
+from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
-from django.test import TestCase
 
 from accounts.models import Role
 from fleet.models import Assignment, Document, Vehicle, VehicleRequest
@@ -35,8 +36,10 @@ class ArchiverTests(TestCase):
 
     def test_existing_drive_url_marks_valid(self):
         doc = Document.objects.create(
-            vehicle=self.vehicle, type="seguro",
-            drive_url="https://drive.example/doc", status=DocumentStatus.PENDING_ARCHIVE,
+            vehicle=self.vehicle,
+            type="seguro",
+            drive_url="https://drive.example/doc",
+            status=DocumentStatus.PENDING_ARCHIVE,
         )
         archiver.archive_document(doc, archiver=archiver.NullArchiver())
         self.assertEqual(doc.status, DocumentStatus.VALID)
@@ -58,9 +61,7 @@ class DocumentArchiveOnUploadTests(APITestCase):
         vehicle = Vehicle.objects.create(plate="UP1", brand="a", model="b")
         Assignment.objects.create(vehicle=vehicle, driver=driver, start_date="2026-01-01")
         self.client.force_authenticate(driver)
-        resp = self.client.post(
-            reverse("document-list"), {"vehicle": vehicle.pk, "type": "seguro"}
-        )
+        resp = self.client.post(reverse("document-list"), {"vehicle": vehicle.pk, "type": "seguro"})
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["status"], DocumentStatus.PENDING_ARCHIVE)
 
@@ -75,10 +76,12 @@ class _FakeJira(jira.BaseJiraClient):
 
 class JiraImportTests(TestCase):
     def test_import_is_idempotent(self):
-        client = _FakeJira([
-            {"jira_key": "FLT-1", "requested_type": "turismo"},
-            {"jira_key": "FLT-2"},
-        ])
+        client = _FakeJira(
+            [
+                {"jira_key": "FLT-1", "requested_type": "turismo"},
+                {"jira_key": "FLT-2"},
+            ]
+        )
         self.assertEqual(jira.import_requests(client), 2)
         self.assertEqual(jira.import_requests(client), 0)  # no duplica por jira_key
         self.assertEqual(VehicleRequest.objects.count(), 2)
@@ -113,6 +116,8 @@ class VehicleRequestApiTests(APITestCase):
 
     def test_management_creates_request(self):
         self.client.force_authenticate(self.admin)
-        resp = self.client.post(self.list_url, {"jira_key": "FLT-200", "requested_type": "furgoneta"})
+        resp = self.client.post(
+            self.list_url, {"jira_key": "FLT-200", "requested_type": "furgoneta"}
+        )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["status"], VehicleRequestStatus.APPROVED)

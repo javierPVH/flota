@@ -112,6 +112,7 @@ class VehicleSerializer(serializers.ModelSerializer):
 
 # --- Recursos que cuelgan del vehículo -----------------------------------
 
+
 class ContractSerializer(serializers.ModelSerializer):
     class Meta:
         model = Contract
@@ -136,7 +137,11 @@ class KmReadingSerializer(serializers.ModelSerializer):
             previous = qs.order_by("-reading_date", "-id").first()
             if previous and km < previous.km_reading:
                 raise serializers.ValidationError(
-                    {"km_reading": f"El odómetro no puede retroceder (última: {previous.km_reading} km)."}
+                    {
+                        "km_reading": (
+                            f"El odómetro no puede retroceder (última: {previous.km_reading} km)."
+                        )
+                    }
                 )
         return attrs
 
@@ -206,6 +211,7 @@ class InvoiceAllocationSerializer(serializers.ModelSerializer):
 
 # --- Documentación e incidencias (Épica 4 / 6) ---------------------------
 
+
 class IncidentSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source="get_type_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
@@ -235,6 +241,7 @@ class DocumentSerializer(serializers.ModelSerializer):
 
 
 # --- Alertas (Épicas 3/5/10) ---------------------------------------------
+
 
 class AlertSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source="get_type_display", read_only=True)
@@ -266,6 +273,7 @@ class AlertSerializer(serializers.ModelSerializer):
 
 # --- Solicitudes de vehículo (Épica 8) -----------------------------------
 
+
 class VehicleRequestSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     requester_name = serializers.SerializerMethodField()
@@ -283,6 +291,7 @@ class VehicleRequestSerializer(serializers.ModelSerializer):
 
 
 # --- Catálogos ------------------------------------------------------------
+
 
 class CountrySerializer(serializers.ModelSerializer):
     class Meta:

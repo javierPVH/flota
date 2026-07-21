@@ -1,4 +1,5 @@
 """Enumerados de asignaciones y vínculos de sustitución."""
+
 from django.db import models
 
 

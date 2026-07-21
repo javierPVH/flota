@@ -5,7 +5,6 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-
 from fleet.models import Assignment, Vehicle
 
 from .helpers import make_user
@@ -53,17 +52,23 @@ class VehicleAccessTests(APITestCase):
 
     def test_admin_can_create(self):
         self.client.force_authenticate(self.admin)
-        resp = self.client.post(self.list_url, {"plate": "AAA111", "brand": "Seat", "model": "León"})
+        resp = self.client.post(
+            self.list_url, {"plate": "AAA111", "brand": "Seat", "model": "León"}
+        )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
     def test_supervisor_cannot_create(self):
         self.client.force_authenticate(self.supervisor)
-        resp = self.client.post(self.list_url, {"plate": "BBB222", "brand": "Seat", "model": "León"})
+        resp = self.client.post(
+            self.list_url, {"plate": "BBB222", "brand": "Seat", "model": "León"}
+        )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_driver_cannot_create(self):
         self.client.force_authenticate(self.driver)
-        resp = self.client.post(self.list_url, {"plate": "CCC333", "brand": "Seat", "model": "León"})
+        resp = self.client.post(
+            self.list_url, {"plate": "CCC333", "brand": "Seat", "model": "León"}
+        )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_anonymous_denied(self):

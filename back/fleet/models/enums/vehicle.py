@@ -3,6 +3,7 @@
 Valores ASCII estables (persisten en BD) con etiquetas legibles en español. No
 cambies los valores sin una migración de datos.
 """
+
 from django.db import models
 
 

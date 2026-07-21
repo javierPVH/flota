@@ -1,4 +1,5 @@
 """Enumerado de tipos de evento."""
+
 from django.db import models
 
 

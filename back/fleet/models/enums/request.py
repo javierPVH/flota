@@ -1,4 +1,5 @@
 """Enumerado de solicitudes de vehículo (Épica 8)."""
+
 from django.db import models
 
 

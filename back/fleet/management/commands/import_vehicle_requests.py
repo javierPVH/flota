@@ -5,6 +5,7 @@ Uso:
 
     python manage.py import_vehicle_requests
 """
+
 from django.core.management.base import BaseCommand
 
 from fleet.services import jira

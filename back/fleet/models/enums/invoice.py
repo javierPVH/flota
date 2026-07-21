@@ -1,4 +1,5 @@
 """Enumerado de imputación de facturas."""
+
 from django.db import models
 
 

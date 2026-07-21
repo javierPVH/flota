@@ -4,6 +4,7 @@ Ejecución diaria. Uso:
 
     python manage.py check_no_driver
 """
+
 from django.core.management.base import BaseCommand
 
 from fleet.services import alerts

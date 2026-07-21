@@ -1,4 +1,5 @@
 """Enumerados de incidencias / mantenimiento (Épica 6)."""
+
 from django.db import models
 
 

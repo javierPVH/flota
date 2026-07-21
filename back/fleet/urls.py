@@ -3,7 +3,6 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     AlertViewSet,
-    ReportsView,
     AssignmentViewSet,
     BusinessUnitViewSet,
     ContractViewSet,
@@ -17,6 +16,7 @@ from .views import (
     PepViewSet,
     ProjectViewSet,
     RentingViewSet,
+    ReportsView,
     VehicleLinkViewSet,
     VehicleRequestViewSet,
     VehicleUsageViewSet,

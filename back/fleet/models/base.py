@@ -1,4 +1,5 @@
 """Modelo base reutilizable del dominio."""
+
 from django.db import models
 
 

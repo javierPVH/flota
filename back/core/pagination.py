@@ -5,6 +5,7 @@ cliente pueda pedir páginas mayores con `?page_size=N` (con un tope), útil cua
 el front itera hasta agotar páginas (`fetchAllPages`). `PAGE_SIZE` global sigue
 definido en `REST_FRAMEWORK`.
 """
+
 from rest_framework.pagination import PageNumberPagination
 
 

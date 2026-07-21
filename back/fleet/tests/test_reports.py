@@ -1,4 +1,5 @@
 """Tests de informes/exportación (Fase F.1)."""
+
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -41,8 +42,8 @@ class ReportsApiTests(APITestCase):
         self.client.force_authenticate(self.supervisor)
         resp = self.client.get(self.url, {"kind": "fleet", "fmt": "csv"})
         body = resp.content.decode("utf-8-sig")
-        self.assertIn("MINE111", body)       # su grupo
-        self.assertNotIn("OTHER22", body)    # fuera de su grupo
+        self.assertIn("MINE111", body)  # su grupo
+        self.assertNotIn("OTHER22", body)  # fuera de su grupo
 
     def test_unknown_kind_returns_400(self):
         self.client.force_authenticate(self.admin)

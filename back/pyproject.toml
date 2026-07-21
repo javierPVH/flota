@@ -1,0 +1,44 @@
+# Configuración de tooling del backend (ruff + coverage).
+# No declara build: el proyecto se ejecuta con Django/requirements.txt.
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["migrations", ".venv", "staticfiles"]
+
+[tool.ruff.lint]
+# E/W pycodestyle · F pyflakes · I isort · UP pyupgrade · B bugbear · C4 comprensiones.
+select = ["E", "W", "F", "I", "UP", "B", "C4"]
+ignore = [
+    "B008",  # llamadas en defaults de argumentos (habitual en DRF/Django).
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Los settings reexportan/usan nombres dinámicos; los tests permiten asserts largos.
+"config/settings.py" = ["E501"]
+"**/tests/**" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["accounts", "core", "fleet", "config"]
+
+[tool.coverage.run]
+branch = true
+source = ["accounts", "core", "fleet"]
+omit = [
+    "*/migrations/*",
+    "*/tests/*",
+    "*/tests.py",
+    "*/apps.py",
+    "manage.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+# Umbral mínimo de cobertura; súbelo conforme crezcan los tests.
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

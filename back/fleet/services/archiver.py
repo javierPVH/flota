@@ -15,6 +15,7 @@ Flujo (ver `archive_document`): si el documento ya trae `drive_url` (el front
 subió a un destino externo), se marca `vigente`; si no, se delega en el backend;
 si el backend no puede archivar, queda `pendiente_archivar` para reintentar.
 """
+
 from __future__ import annotations
 
 import logging
@@ -128,7 +129,9 @@ def archive_pending(archiver: BaseArchiver | None = None) -> int:
     """Reintenta el archivado de los documentos `pendiente_archivar`. Devuelve cuántos archivó."""
     archiver = archiver or get_archiver()
     archived = 0
-    pending = Document.objects.filter(status=DocumentStatus.PENDING_ARCHIVE).select_related("vehicle")
+    pending = Document.objects.filter(status=DocumentStatus.PENDING_ARCHIVE).select_related(
+        "vehicle"
+    )
     for document in pending:
         archive_document(document, archiver=archiver)
         if document.status == DocumentStatus.VALID:

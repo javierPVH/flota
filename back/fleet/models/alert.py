@@ -6,6 +6,7 @@ conductor) que los trabajos programados crean de forma **idempotente**: cada
 alerta lleva una `dedup_key` única, de modo que re-ejecutar el job no duplica
 avisos ya abiertos. La gestión la resuelve o la descarta desde la bandeja.
 """
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone

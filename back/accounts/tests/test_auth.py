@@ -1,4 +1,5 @@
 """Tests de la API de autenticación (sesión + CSRF + rate limit + flags)."""
+
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -160,7 +161,9 @@ class RegistrationTests(TestCase):
         self.assertEqual(resp.status_code, 403)
 
 
-@override_settings(AUTH_GOOGLE_ENABLED=True, GOOGLE_OAUTH_CLIENT_ID="cid.apps.googleusercontent.com")
+@override_settings(
+    AUTH_GOOGLE_ENABLED=True, GOOGLE_OAUTH_CLIENT_ID="cid.apps.googleusercontent.com"
+)
 class GoogleLoginTests(TestCase):
     FAKE = {
         "iss": "https://accounts.google.com",
@@ -212,9 +215,7 @@ class GoogleLoginTests(TestCase):
         self.assertEqual(resp.status_code, 403)
 
     def test_google_missing_credential(self):
-        resp = self.client.post(
-            reverse("google-login"), {}, content_type="application/json"
-        )
+        resp = self.client.post(reverse("google-login"), {}, content_type="application/json")
         self.assertEqual(resp.status_code, 400)
 
     @override_settings(AUTH_GOOGLE_ENABLED=False)

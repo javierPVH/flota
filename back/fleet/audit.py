@@ -8,6 +8,7 @@ No se auditan aquí (a propósito):
   - `Event` y sus subtipos: ya SON el histórico de negocio del vehículo.
   - Catálogos (`Country`, `Project`…): edición poco frecuente y de bajo valor.
 """
+
 from auditlog.registry import auditlog
 
 from .models import (

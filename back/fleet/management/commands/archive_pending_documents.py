@@ -5,6 +5,7 @@ estar disponible, archiva lo que quedó pendiente. Idempotente. Uso:
 
     python manage.py archive_pending_documents
 """
+
 from django.core.management.base import BaseCommand
 
 from fleet.services import archiver

@@ -2,6 +2,7 @@
 
 Recurso al que se ligan documentos (acta, parte, fotos) — ver `Document`.
 """
+
 from django.db import models
 
 from .base import TimeStampedModel
@@ -11,9 +12,7 @@ from .enums import IncidentStatus, IncidentType
 class Incident(TimeStampedModel):
     """Incidencia o mantenimiento de un vehículo."""
 
-    vehicle = models.ForeignKey(
-        "fleet.Vehicle", on_delete=models.CASCADE, related_name="incidents"
-    )
+    vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="incidents")
     type = models.CharField("Tipo", max_length=20, choices=IncidentType.choices)
     date = models.DateField("Fecha", null=True, blank=True)
     description = models.TextField("Descripción", blank=True)

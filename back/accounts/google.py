@@ -10,6 +10,7 @@ Flujo (sin redirecciones, encaja con la SPA + sesión):
 Solo depende de `google-auth` (ligera). Si Google está deshabilitado, este módulo
 no se importa en caliente salvo que se llame a la vista.
 """
+
 from django.conf import settings
 
 

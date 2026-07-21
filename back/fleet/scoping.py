@@ -4,6 +4,7 @@
 - Supervisor: solo los vehículos de su grupo (`supervisor=user`).
 - Conductor: solo los vehículos con asignación en curso a su nombre.
 """
+
 from .models import Vehicle
 
 
@@ -15,7 +16,5 @@ def vehicles_for(user):
     if user.is_supervisor:
         return qs.filter(supervisor=user)
     if user.is_driver:
-        return qs.filter(
-            assignments__driver=user, assignments__end_date__isnull=True
-        ).distinct()
+        return qs.filter(assignments__driver=user, assignments__end_date__isnull=True).distinct()
     return qs.none()

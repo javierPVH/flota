@@ -4,6 +4,14 @@ Las listas cerradas de las que "beben" los modelos (DBML `*_enum`). Se agrupan
 aquí, dentro de `models/`, y se reexportan para poder importar cualquiera con
 `from fleet.models.enums import ...`.
 """
+
+from .alert import AlertLevel, AlertStatus, AlertType
+from .document import DocumentStatus, DocumentType
+from .event import EventType
+from .incident import IncidentStatus, IncidentType
+from .invoice import AllocationTarget
+from .operations import AssignmentStatus, LinkReason
+from .request import VehicleRequestStatus
 from .vehicle import (
     Fuel,
     MarketSegment,
@@ -14,13 +22,6 @@ from .vehicle import (
     VehicleType,
     VehUse,
 )
-from .operations import AssignmentStatus, LinkReason
-from .event import EventType
-from .invoice import AllocationTarget
-from .document import DocumentStatus, DocumentType
-from .incident import IncidentStatus, IncidentType
-from .alert import AlertLevel, AlertStatus, AlertType
-from .request import VehicleRequestStatus
 
 __all__ = [
     "VehicleState",

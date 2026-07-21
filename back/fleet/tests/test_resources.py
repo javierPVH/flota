@@ -5,7 +5,6 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-
 from fleet.models import Assignment, Vehicle
 
 from .helpers import make_user

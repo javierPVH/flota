@@ -12,6 +12,7 @@ la cabecera `X-CSRFToken` con el valor de la cookie.
 Login sencillo pero con protección anti fuerza bruta por (IP + identificador),
 usando el cache de Django (LocMemCache por defecto; Redis si se define REDIS_URL).
 """
+
 import hashlib
 import logging
 import time
@@ -37,6 +38,7 @@ security_logger = logging.getLogger("accounts.security")
 
 
 # --- Helpers de rate limit ------------------------------------------------
+
 
 def _client_ip(request) -> str:
     """IP del cliente respetando `TRUSTED_PROXY_COUNT`.
@@ -124,6 +126,7 @@ def _authenticate(request, identifier: str, password: str):
 
 
 # --- Vistas ---------------------------------------------------------------
+
 
 @method_decorator(ensure_csrf_cookie, name="get")
 class CsrfView(APIView):
@@ -327,9 +330,7 @@ class GoogleLoginView(APIView):
             security_logger.info("google login: usuario creado user=%s", user.pk)
 
         if not user.is_active:
-            return Response(
-                {"detail": "Cuenta deshabilitada."}, status=status.HTTP_403_FORBIDDEN
-            )
+            return Response({"detail": "Cuenta deshabilitada."}, status=status.HTTP_403_FORBIDDEN)
 
         login(request, user)
         security_logger.info("google login ok user=%s", user.pk)

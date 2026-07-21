@@ -4,6 +4,7 @@ Ejecución diaria (ver cron en `back/README.md`). Uso:
 
     python manage.py check_itv
 """
+
 from django.core.management.base import BaseCommand
 
 from fleet.services import alerts

@@ -40,8 +40,6 @@ from .models import (
 )
 from .models.enums import AlertStatus, VehicleState
 from .scoping import vehicles_for
-from .services import reports
-from .services.archiver import archive_document
 from .serializers import (
     AlertSerializer,
     AssignmentSerializer,
@@ -63,11 +61,13 @@ from .serializers import (
     VehicleSerializer,
     VehicleUsageSerializer,
 )
+from .services import reports
+from .services.archiver import archive_document
 
 
 def _json_safe(value):
     """Valor serializable para el diff de preview (FKs → pk)."""
-    if value is None or isinstance(value, (bool, int, float, str)):
+    if value is None or isinstance(value, bool | int | float | str):
         return value
     if hasattr(value, "pk"):
         return value.pk
@@ -75,6 +75,7 @@ def _json_safe(value):
 
 
 # --- Scoping por rol ------------------------------------------------------
+
 
 class ScopedByVehicleMixin:
     """Acota el queryset (y la escritura) a la flota visible por el usuario.
@@ -109,6 +110,7 @@ class ScopedByVehicleMixin:
 
 
 # --- Vehículos ------------------------------------------------------------
+
 
 class VehicleFilter(filters.FilterSet):
     """Filtros del listado de flota (HU-1.1)."""
@@ -145,16 +147,21 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     queryset = Vehicle.objects.all()
     filterset_class = VehicleFilter
     search_fields = [
-        "plate", "brand", "model",
-        "assignments__driver__first_name", "assignments__driver__last_name",
+        "plate",
+        "brand",
+        "model",
+        "assignments__driver__first_name",
+        "assignments__driver__last_name",
         "assignments__driver__username",
     ]
     ordering_fields = ["plate", "state", "year", "created_at"]
     ordering = ["plate"]
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related(
-            "supervisor", "business_unit", "project", "cost_center"
+        qs = (
+            super()
+            .get_queryset()
+            .select_related("supervisor", "business_unit", "project", "cost_center")
         )
         params = self.request.query_params
         include_baja = params.get("include_baja") in ("1", "true", "True")
@@ -187,6 +194,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
 
 # --- Recursos que cuelgan del vehículo -----------------------------------
+
 
 class ContractViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     serializer_class = ContractSerializer
@@ -261,6 +269,7 @@ class InvoiceAllocationViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
 # --- Documentación e incidencias (Épica 4 / 6) ---------------------------
 
+
 class DocumentPermission(BasePermission):
     """Lee/crea gestión o conductor; edita/borra solo gestión.
 
@@ -310,6 +319,7 @@ class DocumentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
 # --- Alertas (Épicas 3/5/10) ---------------------------------------------
 
+
 class AlertViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
     """Bandeja de alertas. Solo lectura + acciones de cierre.
 
@@ -342,6 +352,7 @@ class AlertViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
 
 # --- Solicitudes de vehículo (Épica 8) -----------------------------------
 
+
 class VehicleRequestViewSet(viewsets.ModelViewSet):
     """Solicitudes de vehículo. Gestión (front VPN).
 
@@ -360,6 +371,7 @@ class VehicleRequestViewSet(viewsets.ModelViewSet):
 
 # --- Informes / exportación (Épica 10) -----------------------------------
 
+
 class ReportsView(APIView):
     """GET /api/reports/?kind=&fmt= — descarga un informe (Excel/CSV).
 
@@ -374,8 +386,9 @@ class ReportsView(APIView):
         kind = request.query_params.get("kind", "fleet")
         fmt = request.query_params.get("fmt", "xlsx")
         if kind not in reports.REPORT_KINDS:
+            valid = ", ".join(reports.REPORT_KINDS)
             return Response(
-                {"detail": f"Informe desconocido: {kind}. Válidos: {', '.join(reports.REPORT_KINDS)}."},
+                {"detail": f"Informe desconocido: {kind}. Válidos: {valid}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if fmt not in reports.FORMATS:
@@ -390,6 +403,7 @@ class ReportsView(APIView):
 
 
 # --- Catálogos (lectura gestión, escritura admin) ------------------------
+
 
 class CountryViewSet(viewsets.ModelViewSet):
     queryset = Country.objects.all()

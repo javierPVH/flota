@@ -1,4 +1,5 @@
 """Facturas e imputaciones (DBML `invoices`, `invoice_allocations`)."""
+
 from django.db import models
 
 from .base import TimeStampedModel
@@ -9,13 +10,9 @@ class Invoice(TimeStampedModel):
     """DBML `invoices` — factura asociada a un vehículo."""
 
     code = models.CharField("Código", max_length=60, blank=True)
-    vehicle = models.ForeignKey(
-        "fleet.Vehicle", on_delete=models.CASCADE, related_name="invoices"
-    )
+    vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="invoices")
     date = models.DateField("Fecha", null=True, blank=True)
-    amount = models.DecimalField(
-        "Importe", max_digits=12, decimal_places=2, null=True, blank=True
-    )
+    amount = models.DecimalField("Importe", max_digits=12, decimal_places=2, null=True, blank=True)
     file = models.CharField(
         "Documento", max_length=500, blank=True, help_text="Ruta o URL al PDF de la factura."
     )
@@ -39,9 +36,7 @@ class InvoiceAllocation(TimeStampedModel):
     invoice = models.ForeignKey(
         "fleet.Invoice", on_delete=models.CASCADE, related_name="allocations"
     )
-    target_type = models.CharField(
-        "Destino", max_length=20, choices=AllocationTarget.choices
-    )
+    target_type = models.CharField("Destino", max_length=20, choices=AllocationTarget.choices)
     project = models.ForeignKey(
         "fleet.Project",
         on_delete=models.SET_NULL,

@@ -1,4 +1,5 @@
 """Contratos y lecturas de kilómetros (DBML `contracts`, `kms`)."""
+
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -8,9 +9,7 @@ from .base import TimeStampedModel
 class Contract(TimeStampedModel):
     """DBML `contracts` — contrato (renting/propiedad) asociado a un vehículo."""
 
-    vehicle = models.ForeignKey(
-        "fleet.Vehicle", on_delete=models.CASCADE, related_name="contracts"
-    )
+    vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="contracts")
     contract_number = models.CharField("Nº de contrato", max_length=60, blank=True)
     contract_time = models.PositiveIntegerField("Duración (meses)", null=True, blank=True)
     contract_km = models.PositiveIntegerField("Km contratados", null=True, blank=True)

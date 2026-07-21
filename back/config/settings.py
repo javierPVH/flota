@@ -9,6 +9,7 @@ token/reauth, cifrado en reposo, auditoría): eso vive en cada proyecto.
 Por defecto arranca con SQLite (cero configuración). Define `DB_ENGINE=postgres`
 y las variables `DB_*` para usar PostgreSQL en producción.
 """
+
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured

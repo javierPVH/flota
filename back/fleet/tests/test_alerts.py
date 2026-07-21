@@ -1,12 +1,12 @@
 """Tests de la Fase E: trabajos programados + alertas."""
-from datetime import date, timedelta
-from decimal import Decimal
 
+from datetime import date, timedelta
+
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
-from django.test import TestCase
 
 from accounts.models import Role
 from fleet.models import (
@@ -84,8 +84,11 @@ class ItvAlertTests(TestCase):
 
     def test_baja_excluded(self):
         Vehicle.objects.create(
-            plate="BAJA1", brand="a", model="b",
-            state=VehicleState.BAJA, next_itv_date=self.today + timedelta(days=3),
+            plate="BAJA1",
+            brand="a",
+            model="b",
+            state=VehicleState.BAJA,
+            next_itv_date=self.today + timedelta(days=3),
         )
         self.assertEqual(alerts.check_itv(self.today), 0)
 
@@ -131,15 +134,18 @@ class NoDriverAlertTests(TestCase):
     def test_no_alert_with_current_driver(self):
         vehicle = Vehicle.objects.create(plate="ND2", brand="a", model="b")
         Assignment.objects.create(
-            vehicle=vehicle, driver=self.driver,
-            start_date=self.today, status=AssignmentStatus.ACCEPTED,
+            vehicle=vehicle,
+            driver=self.driver,
+            start_date=self.today,
+            status=AssignmentStatus.ACCEPTED,
         )
         self.assertEqual(alerts.check_no_driver(self.today), 0)
 
     def test_no_alert_within_grace_period(self):
         vehicle = Vehicle.objects.create(plate="ND3", brand="a", model="b")
         Assignment.objects.create(
-            vehicle=vehicle, driver=self.driver,
+            vehicle=vehicle,
+            driver=self.driver,
             start_date=self.today - timedelta(days=40),
             end_date=self.today - timedelta(days=2),  # terminó hace 2 días
             status=AssignmentStatus.ACCEPTED,

@@ -1,4 +1,5 @@
 """Vehículo — entidad central del dominio (DBML `vehicles`)."""
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -32,9 +33,7 @@ class Vehicle(TimeStampedModel):
         related_name="vehicles",
         verbose_name="Unidad de negocio",
     )
-    state = models.CharField(
-        "Estado", max_length=20, choices=VehicleState.choices, blank=True
-    )
+    state = models.CharField("Estado", max_length=20, choices=VehicleState.choices, blank=True)
     supervisor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -44,9 +43,7 @@ class Vehicle(TimeStampedModel):
         verbose_name="Supervisor",
         help_text="Opcional: responsable del vehículo.",
     )
-    is_substitute = models.BooleanField(
-        "¿Es vehículo de sustitución?", default=False
-    )
+    is_substitute = models.BooleanField("¿Es vehículo de sustitución?", default=False)
     brand = models.CharField("Marca", max_length=50)
     model = models.CharField("Modelo", max_length=50)
     year = models.PositiveIntegerField("Año", null=True, blank=True)

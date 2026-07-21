@@ -4,6 +4,7 @@ Ejecución mensual (p. ej. el día 1). Uso:
 
     python manage.py remind_km_readings
 """
+
 from django.core.management.base import BaseCommand
 
 from fleet.services import alerts

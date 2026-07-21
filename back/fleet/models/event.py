@@ -4,6 +4,7 @@ Patrón: `Event` guarda lo común (vehículo, tipo, fecha) y cada subtipo es una
 extensión 1-a-1 con la clave primaria compartida (los detalles propios de ese
 tipo de evento). Así un evento `penalty` tiene su `EventPenalty`, etc.
 """
+
 from django.conf import settings
 from django.db import models
 
@@ -14,9 +15,7 @@ from .enums import EventType
 class Event(TimeStampedModel):
     """DBML `events` — evento en la vida de un vehículo."""
 
-    vehicle = models.ForeignKey(
-        "fleet.Vehicle", on_delete=models.CASCADE, related_name="events"
-    )
+    vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="events")
     event_type = models.CharField("Tipo de evento", max_length=30, choices=EventType.choices)
     event_date = models.DateField("Fecha", null=True, blank=True)
     notes = models.TextField(
@@ -54,8 +53,12 @@ class EventFeeChange(models.Model):
     event = models.OneToOneField(
         Event, on_delete=models.CASCADE, primary_key=True, related_name="fee_change"
     )
-    old_fee = models.DecimalField("Cuota anterior", max_digits=10, decimal_places=2, null=True, blank=True)
-    new_fee = models.DecimalField("Cuota nueva", max_digits=10, decimal_places=2, null=True, blank=True)
+    old_fee = models.DecimalField(
+        "Cuota anterior", max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    new_fee = models.DecimalField(
+        "Cuota nueva", max_digits=10, decimal_places=2, null=True, blank=True
+    )
 
     class Meta:
         verbose_name = "cambio de cuota"
@@ -68,7 +71,9 @@ class EventItv(models.Model):
     event = models.OneToOneField(
         Event, on_delete=models.CASCADE, primary_key=True, related_name="itv"
     )
-    result = models.CharField("Resultado", max_length=50, blank=True, help_text="p. ej. 'done' / 'not done'.")
+    result = models.CharField(
+        "Resultado", max_length=50, blank=True, help_text="p. ej. 'done' / 'not done'."
+    )
     next_due = models.DateField("Próxima ITV", null=True, blank=True)
 
     class Meta:

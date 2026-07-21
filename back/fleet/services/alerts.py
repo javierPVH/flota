@@ -9,6 +9,7 @@ Umbrales configurables en `settings` (ver `MEJORAS.md` §2, "parámetros
 configurables"): `FLEET_ITV_ALERT_DAYS`, `FLEET_NO_DRIVER_ALERT_DAYS`,
 `FLEET_KM_OVERAGE_MARGIN`.
 """
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -92,6 +93,7 @@ def upsert_alert(
 
 # --- Refresco del denormalizado next_itv_date -----------------------------
 
+
 def refresh_next_itv_dates() -> int:
     """Recalcula `Vehicle.next_itv_date` desde el último `EventItv.next_due`.
 
@@ -114,6 +116,7 @@ def refresh_next_itv_dates() -> int:
 
 
 # --- Chequeos que generan alertas -----------------------------------------
+
 
 def _itv_level(bucket: int, thresholds: list[int]) -> str:
     """El umbral más ajustado → crítico; el más holgado → informativo."""
@@ -198,9 +201,7 @@ def check_no_driver(today: date | None = None) -> int:
         if has_current:
             continue
         # Periodo de gracia: si una asignación terminó hace poco, aún no se avisa.
-        recently_assigned = Assignment.objects.filter(
-            vehicle=vehicle, end_date__gt=cutoff
-        ).exists()
+        recently_assigned = Assignment.objects.filter(vehicle=vehicle, end_date__gt=cutoff).exists()
         if recently_assigned:
             continue
         created += upsert_alert(

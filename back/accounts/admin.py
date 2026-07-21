@@ -21,7 +21,14 @@ class FlotaUserAdmin(UserAdmin):
 
     inlines = [UserRoleInline]
     list_display = ("username", "email", "roles_display", "license_type", "fuel_card", "is_active")
-    list_filter = ("roles__role", "license_type", "is_staff", "is_superuser", "is_active", "fuel_card")
+    list_filter = (
+        "roles__role",
+        "license_type",
+        "is_staff",
+        "is_superuser",
+        "is_active",
+        "fuel_card",
+    )
     fieldsets = UserAdmin.fieldsets + (
         ("Flota", {"fields": ("dni", "phone", "license_type", "fuel_card")}),
     )

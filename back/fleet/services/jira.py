@@ -13,6 +13,7 @@ backends intercambiables (`FLEET_JIRA_ENABLED`):
 `import_requests` mapea cada issue a un `VehicleRequest` de forma idempotente por
 `jira_key` (una solicitud por issue).
 """
+
 from __future__ import annotations
 
 import logging

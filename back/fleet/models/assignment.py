@@ -2,6 +2,7 @@
 
 DBML `assignments`, `vehicle_usage`, `vehicle_links`.
 """
+
 from decimal import Decimal
 
 from django.conf import settings
@@ -26,9 +27,7 @@ class Assignment(TimeStampedModel):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="assignments"
     )
     start_date = models.DateField("Inicio", null=True, blank=True)
-    end_date = models.DateField(
-        "Fin", null=True, blank=True, help_text="NULL = en curso."
-    )
+    end_date = models.DateField("Fin", null=True, blank=True, help_text="NULL = en curso.")
     status = models.CharField(
         "Estado",
         max_length=20,
@@ -48,9 +47,7 @@ class Assignment(TimeStampedModel):
             # (Las propuestas pueden coexistir con la vigente.)
             models.UniqueConstraint(
                 fields=["vehicle"],
-                condition=models.Q(
-                    status=AssignmentStatus.ACCEPTED, end_date__isnull=True
-                ),
+                condition=models.Q(status=AssignmentStatus.ACCEPTED, end_date__isnull=True),
                 name="unique_active_assignment_per_vehicle",
             )
         ]
@@ -61,9 +58,7 @@ class Assignment(TimeStampedModel):
     def clean(self):
         # HU-2.1: no se puede asignar un conductor a un vehículo en baja.
         if self.vehicle_id and self.vehicle.state == VehicleState.BAJA:
-            raise ValidationError(
-                "No se puede asignar un conductor a un vehículo en baja."
-            )
+            raise ValidationError("No se puede asignar un conductor a un vehículo en baja.")
 
 
 class VehicleUsage(TimeStampedModel):
@@ -73,9 +68,7 @@ class VehicleUsage(TimeStampedModel):
     edición del reparto, no fila a fila). Lo fija admin o supervisor.
     """
 
-    vehicle = models.ForeignKey(
-        "fleet.Vehicle", on_delete=models.CASCADE, related_name="usages"
-    )
+    vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="usages")
     driver = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="vehicle_usages"
     )
@@ -118,9 +111,7 @@ class VehicleLink(TimeStampedModel):
     )
     reason = models.CharField("Motivo", max_length=20, choices=LinkReason.choices)
     start_date = models.DateField("Inicio")
-    end_date = models.DateField(
-        "Fin", null=True, blank=True, help_text="NULL = vínculo activo."
-    )
+    end_date = models.DateField("Fin", null=True, blank=True, help_text="NULL = vínculo activo.")
 
     class Meta:
         verbose_name = "vínculo de sustitución"

@@ -8,7 +8,6 @@ from .models import (
     Country,
     Document,
     Event,
-    Incident,
     EventDriverChange,
     EventFeeChange,
     EventItv,
@@ -16,6 +15,7 @@ from .models import (
     EventPenalty,
     EventPepChange,
     EventProjectChange,
+    Incident,
     Invoice,
     InvoiceAllocation,
     KmReading,
@@ -27,6 +27,7 @@ from .models import (
     VehicleRequest,
     VehicleUsage,
 )
+
 
 # --- Catálogos ------------------------------------------------------------
 @admin.register(Country)

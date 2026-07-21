@@ -1,4 +1,5 @@
 """Tests de las correcciones de seguridad (Fase S1)."""
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import RequestFactory, TestCase, override_settings
@@ -22,9 +23,7 @@ class ClientIpTests(TestCase):
 
     @override_settings(TRUSTED_PROXY_COUNT=1)
     def test_xff_last_hop_used_with_one_proxy(self):
-        req = self.rf.post(
-            "/", HTTP_X_FORWARDED_FOR="1.2.3.4, 5.6.7.8", REMOTE_ADDR="10.0.0.1"
-        )
+        req = self.rf.post("/", HTTP_X_FORWARDED_FOR="1.2.3.4, 5.6.7.8", REMOTE_ADDR="10.0.0.1")
         self.assertEqual(views._client_ip(req), "5.6.7.8")
 
 

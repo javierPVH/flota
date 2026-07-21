@@ -4,6 +4,7 @@ Conviene ejecutarlo antes de `check_itv` (lo hace `run_fleet_jobs`). Uso:
 
     python manage.py refresh_next_itv
 """
+
 from django.core.management.base import BaseCommand
 
 from fleet.services import alerts
@@ -14,4 +15,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         updated = alerts.refresh_next_itv_dates()
-        self.stdout.write(self.style.SUCCESS(f"next_itv_date actualizado en {updated} vehículo(s)."))
+        self.stdout.write(
+            self.style.SUCCESS(f"next_itv_date actualizado en {updated} vehículo(s).")
+        )

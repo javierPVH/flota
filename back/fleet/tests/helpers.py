@@ -1,4 +1,5 @@
 """Utilidades compartidas por los tests de fleet."""
+
 from django.contrib.auth import get_user_model
 
 from accounts.models import UserRole

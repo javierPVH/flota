@@ -1,4 +1,5 @@
 """Catálogos maestros (tablas de referencia del DBML)."""
+
 from django.db import models
 
 from .base import TimeStampedModel

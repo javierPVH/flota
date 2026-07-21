@@ -4,6 +4,7 @@ Se excluyen datos ruidosos/sensibles (`password`, `last_login`) y se **enmascara
 el PII (`dni`, `phone`) para que no quede en claro en el histórico de `LogEntry`
 (privacidad/GDPR). Importado desde `AccountsConfig.ready()`.
 """
+
 from auditlog.registry import auditlog
 
 from .models import User, UserRole

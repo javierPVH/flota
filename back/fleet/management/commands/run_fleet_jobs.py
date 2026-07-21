@@ -5,6 +5,7 @@ conductor, exceso de km). Útil para un único cron diario o para pruebas. Uso:
 
     python manage.py run_fleet_jobs
 """
+
 from django.core.management.base import BaseCommand
 
 from fleet.services import alerts

@@ -5,6 +5,7 @@ conductores en internet, el backend NO se fía de la red. Cada endpoint declara
 qué rol lo puede tocar; un conductor autenticado no alcanza los endpoints de
 gestión aunque llegara a ellos por red.
 """
+
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 
@@ -23,9 +24,7 @@ class IsSupervisor(BasePermission):
     message = "Requiere rol de supervisor."
 
     def has_permission(self, request, view) -> bool:
-        return bool(
-            request.user and request.user.is_authenticated and request.user.is_supervisor
-        )
+        return bool(request.user and request.user.is_authenticated and request.user.is_supervisor)
 
 
 class IsManagement(BasePermission):
@@ -34,9 +33,7 @@ class IsManagement(BasePermission):
     message = "Requiere rol de administrador o supervisor."
 
     def has_permission(self, request, view) -> bool:
-        return bool(
-            request.user and request.user.is_authenticated and request.user.is_management
-        )
+        return bool(request.user and request.user.is_authenticated and request.user.is_management)
 
 
 class IsDriver(BasePermission):

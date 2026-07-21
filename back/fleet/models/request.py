@@ -4,6 +4,7 @@ La aprobación ocurre **fuera** de la aplicación (en Jira): la solicitud entra 
 sistema ya aprobada. `jira_key` da idempotencia a la importación (una solicitud
 por issue de Jira). La gestión le asigna un vehículo (`status` → `assigned`).
 """
+
 from django.conf import settings
 from django.db import models
 
@@ -34,11 +35,15 @@ class VehicleRequest(TimeStampedModel):
     start_date = models.DateField("Inicio", null=True, blank=True)
     end_date = models.DateField("Fin", null=True, blank=True)
     jira_key = models.CharField(
-        "Clave de Jira", max_length=40, blank=True,
+        "Clave de Jira",
+        max_length=40,
+        blank=True,
         help_text="Issue de Jira de la solicitud (aprobación externa).",
     )
     status = models.CharField(
-        "Estado", max_length=15, choices=VehicleRequestStatus.choices,
+        "Estado",
+        max_length=15,
+        choices=VehicleRequestStatus.choices,
         default=VehicleRequestStatus.APPROVED,
     )
     notes = models.TextField("Notas", blank=True)

@@ -3,6 +3,7 @@
 Puro Python (sin imports de Django) para poder usarse desde `config/settings.py`
 en tiempo de carga. Convención: los booleanos aceptan 1/true/yes/on.
 """
+
 import os
 
 

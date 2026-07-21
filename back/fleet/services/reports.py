@@ -8,6 +8,7 @@ toda la flota, el supervisor solo su grupo. Cada informe es una o varias tablas
 Patrón tomado de `travel_expenses/gastos/informes/services_reports_export.py`,
 simplificado para el dominio de flota.
 """
+
 from __future__ import annotations
 
 import csv
@@ -23,9 +24,7 @@ from fleet.models import Alert, Assignment, Invoice
 from fleet.models.enums import AlertStatus, AssignmentStatus
 from fleet.scoping import vehicles_for
 
-XLSX_CONTENT_TYPE = (
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 REPORT_KINDS = ("fleet", "alerts", "costs")
 FORMATS = ("xlsx", "csv")
@@ -35,6 +34,7 @@ Table = tuple[str, list[str], list[list]]
 
 
 # --- Helpers de formato ---------------------------------------------------
+
 
 def _name(user) -> str:
     if not user:
@@ -59,16 +59,29 @@ def _current_driver_name(vehicle) -> str:
 
 # --- Construcción de cada informe -----------------------------------------
 
+
 def _fleet_table(user) -> Table:
     vehicles = vehicles_for(user).select_related("supervisor").order_by("plate")
     headers = [
-        "Matrícula", "Marca", "Modelo", "Estado", "Supervisor",
-        "Uso", "Próxima ITV", "Conductor actual",
+        "Matrícula",
+        "Marca",
+        "Modelo",
+        "Estado",
+        "Supervisor",
+        "Uso",
+        "Próxima ITV",
+        "Conductor actual",
     ]
     rows = [
         [
-            v.plate, v.brand, v.model, v.get_state_display(), _name(v.supervisor),
-            v.get_business_use_display(), _d(v.next_itv_date), _current_driver_name(v),
+            v.plate,
+            v.brand,
+            v.model,
+            v.get_state_display(),
+            _name(v.supervisor),
+            v.get_business_use_display(),
+            _d(v.next_itv_date),
+            _current_driver_name(v),
         ]
         for v in vehicles
     ]
@@ -86,8 +99,11 @@ def _alerts_table(user) -> Table:
     rows = [
         [
             a.vehicle.plate if a.vehicle_id else "",
-            a.get_type_display(), a.get_level_display(), a.message,
-            _d(a.due_date), _d(a.created_at.date()),
+            a.get_type_display(),
+            a.get_level_display(),
+            a.message,
+            _d(a.due_date),
+            _d(a.created_at.date()),
         ]
         for a in alerts
     ]
@@ -120,11 +136,12 @@ def build_report(kind: str, user) -> list[Table]:
     """Devuelve las tablas del informe `kind` acotadas al ámbito de `user`."""
     try:
         return [_BUILDERS[kind](user)]
-    except KeyError:
-        raise ValueError(f"Informe desconocido: {kind}.")
+    except KeyError as exc:
+        raise ValueError(f"Informe desconocido: {kind}.") from exc
 
 
 # --- Serialización --------------------------------------------------------
+
 
 def _autosize(ws, headers, rows) -> None:
     for col, header in enumerate(headers, start=1):

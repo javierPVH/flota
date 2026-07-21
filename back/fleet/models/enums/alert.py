@@ -4,6 +4,7 @@ Tipos de alerta, nivel de severidad y ciclo de vida. Las alertas las generan los
 trabajos programados (`fleet/management/commands`) sobre datos derivados
 (próxima ITV, lecturas de km, proyección, vehículo sin conductor).
 """
+
 from django.db import models
 
 

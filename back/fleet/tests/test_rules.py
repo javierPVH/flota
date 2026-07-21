@@ -70,13 +70,17 @@ class VehicleLinkRuleTests(TestCase):
         s1 = Vehicle.objects.create(plate="S-1", brand="a", model="b")
         s2 = Vehicle.objects.create(plate="S-2", brand="a", model="b")
         VehicleLink.objects.create(
-            main_vehicle=main, substitute_vehicle=s1, reason=LinkReason.BREAKDOWN,
+            main_vehicle=main,
+            substitute_vehicle=s1,
+            reason=LinkReason.BREAKDOWN,
             start_date=date(2026, 1, 1),
         )
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 VehicleLink.objects.create(
-                    main_vehicle=main, substitute_vehicle=s2, reason=LinkReason.ITV,
+                    main_vehicle=main,
+                    substitute_vehicle=s2,
+                    reason=LinkReason.ITV,
                     start_date=date(2026, 2, 1),
                 )
 
@@ -103,7 +107,12 @@ class VehicleProjectRuleTests(APITestCase):
         self.client.force_authenticate(self.manager)
         resp = self.client.post(
             self.url,
-            {"plate": "P-3", "brand": "a", "model": "b", "business_use": "on_project",
-             "project": project.pk},
+            {
+                "plate": "P-3",
+                "brand": "a",
+                "model": "b",
+                "business_use": "on_project",
+                "project": project.pk,
+            },
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)

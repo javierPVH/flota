@@ -1,4 +1,5 @@
 """Enumerados de documentación (Épica 4)."""
+
 from django.db import models
 
 

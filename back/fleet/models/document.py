@@ -4,6 +4,7 @@ Documentos generales del vehículo (permiso, ficha técnica, seguro, contrato…
 ligados a una incidencia (acta, parte, fotos). Se archivan en Drive y se guarda
 la URL; el archivado real es una integración (Épica 9, ver MEJORAS.md).
 """
+
 from django.conf import settings
 from django.db import models
 
@@ -14,9 +15,7 @@ from .enums import DocumentStatus, DocumentType
 class Document(TimeStampedModel):
     """Documento asociado a un vehículo (y opcionalmente a una incidencia)."""
 
-    vehicle = models.ForeignKey(
-        "fleet.Vehicle", on_delete=models.CASCADE, related_name="documents"
-    )
+    vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="documents")
     type = models.CharField("Tipo", max_length=30, choices=DocumentType.choices)
     incident = models.ForeignKey(
         "fleet.Incident",
@@ -38,7 +37,9 @@ class Document(TimeStampedModel):
         verbose_name="Subido por",
     )
     expiry_date = models.DateField(
-        "Fecha de caducidad", null=True, blank=True,
+        "Fecha de caducidad",
+        null=True,
+        blank=True,
         help_text="Para seguro, permiso, ITV…",
     )
     status = models.CharField(

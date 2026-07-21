@@ -6,6 +6,7 @@ de modo que el front pueda tratar los errores de forma homogénea. Los 500 no
 capturados se registran y se devuelven como un mensaje genérico (sin filtrar
 trazas al cliente).
 """
+
 import logging
 
 from rest_framework.views import exception_handler as drf_exception_handler

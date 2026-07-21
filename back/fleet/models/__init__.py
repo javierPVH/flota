@@ -3,10 +3,12 @@
 Organizados por área en submódulos; se reexportan aquí para que Django los
 descubra y para poder importar `from fleet.models import Vehicle, ...`.
 """
-from .catalogs import BusinessUnit, Country, Pep, Project, Renting
-from .vehicle import Vehicle
-from .contract import Contract, KmReading
+
+from .alert import Alert
 from .assignment import Assignment, VehicleLink, VehicleUsage
+from .catalogs import BusinessUnit, Country, Pep, Project, Renting
+from .contract import Contract, KmReading
+from .document import Document
 from .event import (
     Event,
     EventDriverChange,
@@ -17,11 +19,10 @@ from .event import (
     EventPepChange,
     EventProjectChange,
 )
-from .invoice import Invoice, InvoiceAllocation
 from .incident import Incident
-from .document import Document
-from .alert import Alert
+from .invoice import Invoice, InvoiceAllocation
 from .request import VehicleRequest
+from .vehicle import Vehicle
 
 __all__ = [
     "BusinessUnit",
