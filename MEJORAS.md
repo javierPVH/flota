@@ -247,9 +247,12 @@ Plan incremental; cada fase es entregable y verificable por sí sola.
   validaciones (odómetro no retrocede, sustituto/asignación únicos activos, no
   asignar en baja, proyecto obligatorio si uso=proyecto). Migraciones + 10 tests
   nuevos (40 en total, verdes).
-- **Fase B — Auditoría de campos:** integrar `django-auditlog` según las fases
-  detalladas en [§3.5](#35-fases-de-implementación-opción-a--django-auditlog)
-  (A.1 config → A.2 registro → A.3 API histórico → A.4 preview → A.5 ficha → A.6 tests).
+- **Fase B — Auditoría de campos: ✅ IMPLEMENTADA** (`django-auditlog`). A.1
+  config (middleware tras auth) · A.2 registro de modelos en `ready()`
+  (`fleet/audit.py`, `accounts/audit.py`, `User` sin `password`/`last_login`) ·
+  A.3 `GET /api/vehicles/{id}/history/` (solo gestión) · A.4
+  `POST /api/vehicles/{id}/preview/` (diff sin guardar, HU-1.4) · A.6 tests (6).
+  Pendiente A.5 (fusión con `Event` en la ficha = front).
 - **Fase C — API + acceso por rol:** scoping del supervisor a su grupo (HU-2.8),
   filtrado/búsqueda/paginación del listado (HU-1.1) y API REST del resto de
   recursos con permisos por rol.

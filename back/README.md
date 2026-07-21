@@ -53,10 +53,17 @@ back/
 │   ├── views.py       # csrf, login (rate-limit), logout, me, drivers
 │   └── tests/         # tests de auth (paquete)
 └── fleet/             # dominio de flota (modelos + admin)
+    ├── audit.py       # registro de modelos en la auditoría (django-auditlog)
     ├── models/        # catalogs, vehicle, contract, assignment, event, invoice
+    │   ├── base.py    # TimeStampedModel (created_at/updated_at)
     │   └── enums/     # las listas cerradas (*_enum) de las que beben los modelos
-    └── tests/         # tests de roles, vehículos y drivers (paquete)
+    └── tests/         # roles, vehículos, drivers, reglas y auditoría (paquete)
 ```
+
+**Auditoría de campos** (`django-auditlog`): cada mutación de los modelos de
+dominio y de usuario deja un `LogEntry` con `{campo:[viejo,nuevo]}` y el actor de
+la petición (middleware). Registro en `fleet/audit.py` y `accounts/audit.py`. Ver
+diseño y fases en [`../MEJORAS.md`](../MEJORAS.md) §3.
 
 ## API
 
@@ -72,6 +79,8 @@ back/
 | GET    | `/api/auth/me/`       | ✔    | Usuario autenticado (incluye `roles` y `fuel_card`)|
 | GET    | `/api/auth/drivers/`  | gestión | Conductores para el desplegable de asignación   |
 | CRUD   | `/api/vehicles/`      | ✔*   | Vehículos. Gestión: CRUD. Conductor: solo lectura de los suyos |
+| GET    | `/api/vehicles/{id}/history/` | gestión | Auditoría de campos del vehículo (quién cambió qué y cuándo) |
+| POST   | `/api/vehicles/{id}/preview/` | gestión | Diff de los cambios propuestos sin guardar (HU-1.4) |
 | GET    | `/api/docs/`          | dev  | Swagger UI (solo con `OPENAPI_DOCS_ENABLED`/DEBUG) |
 
 *El acceso a `/api/vehicles/` depende del rol: `admin`/`supervisor` escriben toda

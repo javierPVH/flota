@@ -1,7 +1,31 @@
+from auditlog.models import LogEntry
 from rest_framework import serializers
 
 from .models import Vehicle
 from .models.enums import UseType
+
+
+class LogEntrySerializer(serializers.ModelSerializer):
+    """Entrada de auditoría de campos (django-auditlog) para el histórico."""
+
+    action = serializers.CharField(source="get_action_display", read_only=True)
+    actor = serializers.SerializerMethodField()
+    changes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LogEntry
+        fields = ["id", "action", "actor", "changes", "timestamp"]
+        read_only_fields = fields
+
+    def get_actor(self, obj) -> str:
+        actor = obj.actor
+        if not actor:
+            return ""
+        return actor.get_full_name() or actor.get_username()
+
+    def get_changes(self, obj) -> dict:
+        # En auditlog 3.x `changes` ya es dict; defensivo por si viniera como texto.
+        return obj.changes if isinstance(obj.changes, dict) else obj.changes_dict
 
 
 class VehicleSerializer(serializers.ModelSerializer):
