@@ -4,6 +4,7 @@ from django_filters.widgets import BooleanWidget
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 
 from accounts.permissions import (
@@ -19,7 +20,9 @@ from .models import (
     BusinessUnit,
     Contract,
     Country,
+    Document,
     Event,
+    Incident,
     Invoice,
     InvoiceAllocation,
     KmReading,
@@ -37,7 +40,9 @@ from .serializers import (
     BusinessUnitSerializer,
     ContractSerializer,
     CountrySerializer,
+    DocumentSerializer,
     EventSerializer,
+    IncidentSerializer,
     InvoiceAllocationSerializer,
     InvoiceSerializer,
     KmReadingSerializer,
@@ -87,7 +92,11 @@ class ScopedByVehicleMixin:
             vehicle = serializer.validated_data.get("vehicle")
             if vehicle is not None and not vehicles_for(user).filter(pk=vehicle.pk).exists():
                 raise PermissionDenied("El vehículo está fuera de tu ámbito.")
-        serializer.save()
+        serializer.save(**self.extra_create_kwargs())
+
+    def extra_create_kwargs(self) -> dict:
+        """Kwargs extra al crear (p. ej. fijar el autor). Sobrescríbelo si hace falta."""
+        return {}
 
 
 # --- Vehículos ------------------------------------------------------------
@@ -239,6 +248,49 @@ class InvoiceAllocationViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     queryset = InvoiceAllocation.objects.select_related("invoice", "project", "cost_center")
     vehicle_lookup = "invoice__vehicle"
     filterset_fields = ["invoice", "target_type"]
+
+
+# --- Documentación e incidencias (Épica 4 / 6) ---------------------------
+
+class DocumentPermission(BasePermission):
+    """Lee/crea gestión o conductor; edita/borra solo gestión.
+
+    El conductor sube documentos de su vehículo (HU-4.1); la gestión los
+    administra (HU-4.4). El scoping por vehículo lo aplica el queryset.
+    """
+
+    message = "No tienes permiso para esta operación sobre documentos."
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        if request.method in SAFE_METHODS or request.method == "POST":
+            return user.is_management or user.is_driver
+        return user.is_management  # PUT / PATCH / DELETE
+
+
+class IncidentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
+    """Incidencias / mantenimiento. Gestión (admin toda; supervisor su grupo)."""
+
+    serializer_class = IncidentSerializer
+    permission_classes = [ManagementReadWrite]
+    queryset = Incident.objects.select_related("vehicle")
+    filterset_fields = ["vehicle", "type", "status"]
+    ordering_fields = ["date", "created_at"]
+
+
+class DocumentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
+    """Documentos del vehículo. El conductor sube los de su vehículo (HU-4.1)."""
+
+    serializer_class = DocumentSerializer
+    permission_classes = [DocumentPermission]
+    queryset = Document.objects.select_related("vehicle", "incident", "uploaded_by")
+    filterset_fields = ["vehicle", "type", "status", "incident"]
+    ordering_fields = ["created_at", "expiry_date"]
+
+    def extra_create_kwargs(self) -> dict:
+        return {"uploaded_by": self.request.user}
 
 
 # --- Catálogos (lectura gestión, escritura admin) ------------------------

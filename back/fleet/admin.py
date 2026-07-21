@@ -5,7 +5,9 @@ from .models import (
     BusinessUnit,
     Contract,
     Country,
+    Document,
     Event,
+    Incident,
     EventDriverChange,
     EventFeeChange,
     EventItv,
@@ -143,3 +145,20 @@ class InvoiceAdmin(admin.ModelAdmin):
     search_fields = ("code",)
     autocomplete_fields = ("vehicle",)
     inlines = [InvoiceAllocationInline]
+
+
+# --- Incidencias y documentos --------------------------------------------
+@admin.register(Incident)
+class IncidentAdmin(admin.ModelAdmin):
+    list_display = ("vehicle", "type", "status", "date", "cost")
+    list_filter = ("type", "status")
+    search_fields = ("vehicle__plate", "description")
+    autocomplete_fields = ("vehicle",)
+
+
+@admin.register(Document)
+class DocumentAdmin(admin.ModelAdmin):
+    list_display = ("vehicle", "type", "status", "expiry_date", "uploaded_by")
+    list_filter = ("type", "status")
+    search_fields = ("vehicle__plate",)
+    autocomplete_fields = ("vehicle", "incident", "uploaded_by", "replaces")

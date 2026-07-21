@@ -18,6 +18,8 @@ from .event import (
     EventProjectChange,
 )
 from .invoice import Invoice, InvoiceAllocation
+from .incident import Incident
+from .document import Document
 
 __all__ = [
     "BusinessUnit",
@@ -41,4 +43,6 @@ __all__ = [
     "EventDriverChange",
     "Invoice",
     "InvoiceAllocation",
+    "Incident",
+    "Document",
 ]

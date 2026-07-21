@@ -13,6 +13,8 @@ from auditlog.registry import auditlog
 from .models import (
     Assignment,
     Contract,
+    Document,
+    Incident,
     Invoice,
     InvoiceAllocation,
     KmReading,
@@ -30,6 +32,8 @@ AUDITED_MODELS = (
     VehicleLink,
     Invoice,
     InvoiceAllocation,
+    Incident,
+    Document,
 )
 
 for _model in AUDITED_MODELS:

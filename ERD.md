@@ -27,6 +27,10 @@ erDiagram
     VEHICLE ||--o{ VEHICLE_LINK : "sustituto"
     VEHICLE ||--o{ EVENT : "genera"
     VEHICLE ||--o{ INVOICE : "factura"
+    VEHICLE ||--o{ INCIDENT : "sufre"
+    VEHICLE ||--o{ DOCUMENT : "documenta"
+    INCIDENT ||--o{ DOCUMENT : "adjunta"
+    USER ||--o{ DOCUMENT : "sube"
 
     EVENT ||--o| EVENT_PENALTY : "detalle"
     EVENT ||--o| EVENT_FEE_CHANGE : "detalle"
@@ -223,6 +227,27 @@ erDiagram
         decimal amount
         datetime created_at
     }
+    INCIDENT {
+        int id PK
+        int vehicle_id FK
+        enum type "incident_type"
+        date date
+        string description
+        enum status "incident_status"
+        decimal cost
+    }
+    DOCUMENT {
+        int id PK
+        int vehicle_id FK
+        enum type "document_type"
+        int incident_id FK
+        string drive_url
+        int uploaded_by_id FK "USER"
+        date expiry_date
+        enum status "document_status"
+        int replaces_id FK "DOCUMENT (versión anterior)"
+        string notes
+    }
 ```
 
 ## Notas del modelo
@@ -257,5 +282,9 @@ erDiagram
 | `status` (asignación) | `propuesta`, `aceptada`, `rechazada`, `finalizada` |
 | `link_reason_enum` | `averia`, `mantenimiento`, `itv`, `accidente` |
 | `allocation_target_enum` | `proyecto`, `pep` |
+| `document_type` | `permiso_circulacion`, `ficha_tecnica`, `seguro`, `contrato`, `acta_entrega`, `acta_devolucion`, `parte_accidente`, `fotos_danos`, `otro` |
+| `document_status` | `vigente`, `caducado`, `pendiente_archivar` |
+| `incident_type` | `averia`, `mantenimiento`, `accidente`, `itv` |
+| `incident_status` | `abierta`, `en_curso`, `cerrada` |
 | `events_enum` | `creation`, `activation`, `deactivation`, `invoice`, `immobilization`, `reactivation`, `insurance_renewal`, `penalty`, `location_change`, `project_change`, `breakdown`, `km_reading`, `contract_change`, `fee_change`, `ceco_change`, `itv`, `maintenance`, `driver_change` |
 | `fuel_enum` | `CNG`, `Gasoline_E5/E10/E85/E100`, `Diesel_B/B7/B10/B20/B30`, `B100`, `LPG`, `Fueloleo`, `Queroseno`, `Gasolina_aviacion`, `GLP`, `Adblue`, `Biometanol`, `Gasoleo_marino`, `Biogas`, `Nafta`, `Biopropano`, `Vehiculo_electrico_bateria`, `Vehiculo_hibrido_enchufable`, `Queroseno_aviacion_renovable`, `Biometano` |

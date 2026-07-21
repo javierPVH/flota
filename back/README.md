@@ -83,6 +83,8 @@ diseño y fases en [`../MEJORAS.md`](../MEJORAS.md) §3.
 | POST   | `/api/vehicles/{id}/preview/` | gestión | Diff de los cambios propuestos sin guardar (HU-1.4) |
 | CRUD   | `/api/{contracts,km-readings,assignments,vehicle-usages,vehicle-links,invoices,invoice-allocations}/` | ✔ᵃ | Recursos de dominio (acotados por rol) |
 | GET    | `/api/events/`        | ✔ᵃ | Histórico de eventos (solo lectura) |
+| CRUD   | `/api/incidents/`     | gestiónᵃ | Incidencias / mantenimiento (Épica 6) |
+| CRUD   | `/api/documents/`     | ✔ᵃ | Documentos del vehículo. Conductor sube los suyos; borra solo gestión (Épica 4) |
 | CRUD   | `/api/{countries,business-units,projects,peps,rentings}/` | gestión / admin | Catálogos (lectura gestión, escritura admin) |
 
 ᵃ **Acotado por rol** (`fleet/scoping.py` + `accounts/permissions.py`): el admin

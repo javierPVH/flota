@@ -260,8 +260,12 @@ Plan incremental; cada fase es entregable y verificable por sí sola.
   (`accounts/permissions.py`) y API REST de contratos, km, asignaciones, reparto
   de uso, vínculos, eventos, facturas e imputaciones + catálogos. 14 tests nuevos
   (60 en total, verdes).
-- **Fase D — Documentación e incidencias:** `Document` (+ `DocumentType`),
-  `Incident` (+ `IncidentType`), admin, migraciones, tests. (Habilita Épica 4.)
+- **Fase D — Documentación e incidencias: ✅ IMPLEMENTADA.** `Incident`
+  (+ `IncidentType`/`IncidentStatus`) y `Document` (+ `DocumentType`/`DocumentStatus`,
+  con `incident`, `uploaded_by`, `expiry_date`, `replaces`, `status`); API
+  `/api/incidents/` y `/api/documents/` (conductor sube los de su vehículo, borra
+  solo gestión), scoping por rol, admin, auditoría y migración additiva `0002`.
+  9 tests nuevos (69 en total, verdes). Habilita la Épica 4.
 - **Fase E — Trabajos programados + alertas:** `management commands` + cron para
   ITV diaria (30/15/7), recordatorio mensual de km, proyección y "sin conductor";
   `next_itv_date` denormalizado; umbrales configurables.

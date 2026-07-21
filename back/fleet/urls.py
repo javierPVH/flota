@@ -5,7 +5,9 @@ from .views import (
     BusinessUnitViewSet,
     ContractViewSet,
     CountryViewSet,
+    DocumentViewSet,
     EventViewSet,
+    IncidentViewSet,
     InvoiceAllocationViewSet,
     InvoiceViewSet,
     KmReadingViewSet,
@@ -27,6 +29,8 @@ router.register("vehicle-links", VehicleLinkViewSet, basename="vehiclelink")
 router.register("events", EventViewSet, basename="event")
 router.register("invoices", InvoiceViewSet, basename="invoice")
 router.register("invoice-allocations", InvoiceAllocationViewSet, basename="invoiceallocation")
+router.register("incidents", IncidentViewSet, basename="incident")
+router.register("documents", DocumentViewSet, basename="document")
 # Catálogos
 router.register("countries", CountryViewSet, basename="country")
 router.register("business-units", BusinessUnitViewSet, basename="businessunit")

@@ -6,7 +6,9 @@ from .models import (
     BusinessUnit,
     Contract,
     Country,
+    Document,
     Event,
+    Incident,
     Invoice,
     InvoiceAllocation,
     KmReading,
@@ -190,6 +192,36 @@ class InvoiceAllocationSerializer(serializers.ModelSerializer):
         model = InvoiceAllocation
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
+
+
+# --- Documentación e incidencias (Épica 4 / 6) ---------------------------
+
+class IncidentSerializer(serializers.ModelSerializer):
+    type_display = serializers.CharField(source="get_type_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+        model = Incident
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class DocumentSerializer(serializers.ModelSerializer):
+    type_display = serializers.CharField(source="get_type_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    uploaded_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Document
+        fields = "__all__"
+        # uploaded_by lo fija el servidor (el usuario de la petición).
+        read_only_fields = ["id", "uploaded_by", "created_at", "updated_at"]
+
+    def get_uploaded_by_name(self, obj) -> str:
+        user = obj.uploaded_by
+        if not user:
+            return ""
+        return user.get_full_name() or user.get_username()
 
 
 # --- Catálogos ------------------------------------------------------------

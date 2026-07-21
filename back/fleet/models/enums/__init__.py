@@ -17,6 +17,8 @@ from .vehicle import (
 from .operations import AssignmentStatus, LinkReason
 from .event import EventType
 from .invoice import AllocationTarget
+from .document import DocumentStatus, DocumentType
+from .incident import IncidentStatus, IncidentType
 
 __all__ = [
     "VehicleState",
@@ -31,4 +33,8 @@ __all__ = [
     "LinkReason",
     "EventType",
     "AllocationTarget",
+    "DocumentType",
+    "DocumentStatus",
+    "IncidentType",
+    "IncidentStatus",
 ]
