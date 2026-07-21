@@ -1,7 +1,22 @@
 from auditlog.models import LogEntry
 from rest_framework import serializers
 
-from .models import Vehicle
+from .models import (
+    Assignment,
+    BusinessUnit,
+    Contract,
+    Country,
+    Event,
+    Invoice,
+    InvoiceAllocation,
+    KmReading,
+    Pep,
+    Project,
+    Renting,
+    Vehicle,
+    VehicleLink,
+    VehicleUsage,
+)
 from .models.enums import UseType
 
 
@@ -87,3 +102,123 @@ class VehicleSerializer(serializers.ModelSerializer):
                 {"project": "El proyecto es obligatorio cuando el uso es 'Proyecto'."}
             )
         return attrs
+
+
+# --- Recursos que cuelgan del vehículo -----------------------------------
+
+class ContractSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Contract
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class KmReadingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = KmReading
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        # HU-3.1: el odómetro no puede retroceder (valida contra la última lectura).
+        vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
+        km = attrs.get("km_reading", getattr(self.instance, "km_reading", None))
+        if vehicle is not None and km is not None:
+            qs = KmReading.objects.filter(vehicle=vehicle, km_reading__isnull=False)
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+            previous = qs.order_by("-reading_date", "-id").first()
+            if previous and km < previous.km_reading:
+                raise serializers.ValidationError(
+                    {"km_reading": f"El odómetro no puede retroceder (última: {previous.km_reading} km)."}
+                )
+        return attrs
+
+
+class AssignmentSerializer(serializers.ModelSerializer):
+    driver_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Assignment
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_driver_name(self, obj) -> str:
+        return obj.driver.get_full_name() or obj.driver.get_username()
+
+    def validate(self, attrs):
+        vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
+        if vehicle is not None and vehicle.state == "baja":
+            raise serializers.ValidationError(
+                "No se puede asignar un conductor a un vehículo en baja."
+            )
+        return attrs
+
+
+class VehicleUsageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VehicleUsage
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class VehicleLinkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VehicleLink
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class EventSerializer(serializers.ModelSerializer):
+    event_type_display = serializers.CharField(source="get_event_type_display", read_only=True)
+
+    class Meta:
+        model = Event
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class InvoiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Invoice
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class InvoiceAllocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvoiceAllocation
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+# --- Catálogos ------------------------------------------------------------
+
+class CountrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Country
+        fields = ["id", "name"]
+
+
+class BusinessUnitSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BusinessUnit
+        fields = ["id", "code", "name"]
+
+
+class ProjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Project
+        fields = ["id", "project_name"]
+
+
+class PepSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Pep
+        fields = ["id", "code", "name"]
+
+
+class RentingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Renting
+        fields = ["id", "name"]

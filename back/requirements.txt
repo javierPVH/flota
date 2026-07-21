@@ -10,6 +10,8 @@ drf-spectacular>=0.27,<0.31
 google-auth>=2.35,<3.0
 # Auditoría de campos (quién cambió qué y cuándo) — ver MEJORAS.md §3.
 django-auditlog>=3,<4
+# Filtrado/búsqueda declarativos para la API (listados de la Épica 1).
+django-filter>=24,<26
 # Servidor WSGI de producción.
 gunicorn>=23.0,<24.0
 

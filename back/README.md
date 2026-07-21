@@ -81,6 +81,17 @@ diseño y fases en [`../MEJORAS.md`](../MEJORAS.md) §3.
 | CRUD   | `/api/vehicles/`      | ✔*   | Vehículos. Gestión: CRUD. Conductor: solo lectura de los suyos |
 | GET    | `/api/vehicles/{id}/history/` | gestión | Auditoría de campos del vehículo (quién cambió qué y cuándo) |
 | POST   | `/api/vehicles/{id}/preview/` | gestión | Diff de los cambios propuestos sin guardar (HU-1.4) |
+| CRUD   | `/api/{contracts,km-readings,assignments,vehicle-usages,vehicle-links,invoices,invoice-allocations}/` | ✔ᵃ | Recursos de dominio (acotados por rol) |
+| GET    | `/api/events/`        | ✔ᵃ | Histórico de eventos (solo lectura) |
+| CRUD   | `/api/{countries,business-units,projects,peps,rentings}/` | gestión / admin | Catálogos (lectura gestión, escritura admin) |
+
+ᵃ **Acotado por rol** (`fleet/scoping.py` + `accounts/permissions.py`): el admin
+ve/gestiona toda la flota; el **supervisor** solo su grupo (`Vehicle.supervisor`);
+el **conductor** solo sus vehículos asignados. Escritura de vehículos y
+asignaciones = solo admin; reparto de uso = admin o supervisor de su grupo;
+lecturas de km = también el conductor de su vehículo. El listado de vehículos
+soporta búsqueda (`?search=`), filtros (`?state=&business_use=&assigned=`) y orden
+(`?ordering=`); los vehículos en `baja` se ocultan salvo `?include_baja=1`.
 | GET    | `/api/docs/`          | dev  | Swagger UI (solo con `OPENAPI_DOCS_ENABLED`/DEBUG) |
 
 *El acceso a `/api/vehicles/` depende del rol: `admin`/`supervisor` escriben toda

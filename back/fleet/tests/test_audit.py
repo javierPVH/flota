@@ -36,7 +36,7 @@ class AuditLoggingTests(TestCase):
 
 class AuditApiTests(APITestCase):
     def setUp(self):
-        self.manager = make_user("sup", Role.SUPERVISOR)
+        self.manager = make_user("admin", Role.ADMIN)
         self.driver = make_user("drv", Role.DRIVER)
         self.vehicle = Vehicle.objects.create(plate="1234ABC", brand="Renault", model="Kangoo")
         self.detail_url = reverse("vehicle-detail", args=[self.vehicle.pk])

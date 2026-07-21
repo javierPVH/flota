@@ -253,9 +253,13 @@ Plan incremental; cada fase es entregable y verificable por sí sola.
   A.3 `GET /api/vehicles/{id}/history/` (solo gestión) · A.4
   `POST /api/vehicles/{id}/preview/` (diff sin guardar, HU-1.4) · A.6 tests (6).
   Pendiente A.5 (fusión con `Event` en la ficha = front).
-- **Fase C — API + acceso por rol:** scoping del supervisor a su grupo (HU-2.8),
-  filtrado/búsqueda/paginación del listado (HU-1.1) y API REST del resto de
-  recursos con permisos por rol.
+- **Fase C — API + acceso por rol: ✅ IMPLEMENTADA.** Scoping por rol
+  (`fleet/scoping.py`: admin=toda la flota, supervisor=su grupo, conductor=sus
+  asignados — HU-2.8); filtrado/búsqueda/orden del listado + ocultar `baja`
+  (HU-1.1, `django-filter`); permisos declarativos por recurso
+  (`accounts/permissions.py`) y API REST de contratos, km, asignaciones, reparto
+  de uso, vínculos, eventos, facturas e imputaciones + catálogos. 14 tests nuevos
+  (60 en total, verdes).
 - **Fase D — Documentación e incidencias:** `Document` (+ `DocumentType`),
   `Incident` (+ `IncidentType`), admin, migraciones, tests. (Habilita Épica 4.)
 - **Fase E — Trabajos programados + alertas:** `management commands` + cron para

@@ -83,7 +83,7 @@ class VehicleLinkRuleTests(TestCase):
 
 class VehicleProjectRuleTests(APITestCase):
     def setUp(self):
-        self.manager = make_user("sup", Role.SUPERVISOR)
+        self.manager = make_user("admin", Role.ADMIN)  # el alta de vehículo es solo admin
         self.url = reverse("vehicle-list")
 
     def test_on_project_requires_project_model(self):

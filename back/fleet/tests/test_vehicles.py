@@ -18,20 +18,28 @@ class VehicleAccessTests(APITestCase):
         self.driver = make_user("driver", Role.DRIVER)
         self.other_driver = make_user("driver2", Role.DRIVER)
 
+        # Vehículo asignado al conductor.
         self.assigned = Vehicle.objects.create(plate="1234ABC", brand="Renault", model="Kangoo")
-        self.unassigned = Vehicle.objects.create(plate="5678XYZ", brand="Ford", model="Transit")
+        # Vehículo del grupo del supervisor.
+        self.supervised = Vehicle.objects.create(
+            plate="5678XYZ", brand="Ford", model="Transit", supervisor=self.supervisor
+        )
+        # Vehículo sin supervisor ni asignación.
+        self.orphan = Vehicle.objects.create(plate="0000ZZZ", brand="Seat", model="Ibiza")
         Assignment.objects.create(
             vehicle=self.assigned, driver=self.driver, start_date=date(2026, 1, 1)
-        )  # end_date NULL = en curso
+        )
         self.list_url = reverse("vehicle-list")
 
     def test_admin_sees_all(self):
         self.client.force_authenticate(self.admin)
-        self.assertEqual(self.client.get(self.list_url).data["count"], 2)
+        self.assertEqual(self.client.get(self.list_url).data["count"], 3)
 
-    def test_supervisor_sees_all(self):
+    def test_supervisor_sees_only_group(self):
         self.client.force_authenticate(self.supervisor)
-        self.assertEqual(self.client.get(self.list_url).data["count"], 2)
+        resp = self.client.get(self.list_url)
+        self.assertEqual(resp.data["count"], 1)
+        self.assertEqual(resp.data["results"][0]["plate"], "5678XYZ")
 
     def test_driver_sees_only_assigned(self):
         self.client.force_authenticate(self.driver)
@@ -43,16 +51,43 @@ class VehicleAccessTests(APITestCase):
         self.client.force_authenticate(self.other_driver)
         self.assertEqual(self.client.get(self.list_url).data["count"], 0)
 
-    def test_supervisor_can_create(self):
-        self.client.force_authenticate(self.supervisor)
-        resp = self.client.post(self.list_url, {"plate": "0000AAA", "brand": "Seat", "model": "León"})
+    def test_admin_can_create(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(self.list_url, {"plate": "AAA111", "brand": "Seat", "model": "León"})
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+    def test_supervisor_cannot_create(self):
+        self.client.force_authenticate(self.supervisor)
+        resp = self.client.post(self.list_url, {"plate": "BBB222", "brand": "Seat", "model": "León"})
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_driver_cannot_create(self):
         self.client.force_authenticate(self.driver)
-        resp = self.client.post(self.list_url, {"plate": "9999ZZZ", "brand": "Seat", "model": "León"})
+        resp = self.client.post(self.list_url, {"plate": "CCC333", "brand": "Seat", "model": "León"})
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_anonymous_denied(self):
         resp = self.client.get(self.list_url)
         self.assertIn(resp.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+
+    # --- Filtrado / búsqueda (HU-1.1) ---------------------------------
+    def test_search_by_plate(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(self.list_url, {"search": "5678"})
+        plates = [v["plate"] for v in resp.data["results"]]
+        self.assertEqual(plates, ["5678XYZ"])
+
+    def test_filter_assigned(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(self.list_url, {"assigned": "true"})
+        plates = [v["plate"] for v in resp.data["results"]]
+        self.assertEqual(plates, ["1234ABC"])
+
+    def test_baja_hidden_by_default(self):
+        self.orphan.state = "baja"
+        self.orphan.save()
+        self.client.force_authenticate(self.admin)
+        default = self.client.get(self.list_url)
+        self.assertNotIn("0000ZZZ", [v["plate"] for v in default.data["results"]])
+        with_baja = self.client.get(self.list_url, {"include_baja": "1"})
+        self.assertIn("0000ZZZ", [v["plate"] for v in with_baja.data["results"]])

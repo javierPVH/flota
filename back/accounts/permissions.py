@@ -65,10 +65,67 @@ class IsManagementOrDriverReadOnly(BasePermission):
         return request.method in SAFE_METHODS and user.is_driver
 
 
+class RoleReadWritePermission(BasePermission):
+    """Base declarativa: qué roles pueden LEER y qué roles pueden ESCRIBIR.
+
+    Las subclases fijan `read_roles`/`write_roles` con nombres de propiedades de
+    rol del usuario (`is_admin`, `is_supervisor`, `is_driver`, `is_management`).
+    El *scoping* por grupo/propiedad se hace además en el queryset de cada vista.
+    """
+
+    read_roles: tuple = ()
+    write_roles: tuple = ()
+    message = "No tienes permiso para esta operación."
+
+    @staticmethod
+    def _any(user, roles) -> bool:
+        return any(getattr(user, role, False) for role in roles)
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        roles = self.read_roles if request.method in SAFE_METHODS else self.write_roles
+        return self._any(user, roles)
+
+
+class AdminWriteManagementRead(RoleReadWritePermission):
+    """Lee gestión (admin/supervisor); escribe solo admin."""
+
+    read_roles = ("is_management",)
+    write_roles = ("is_admin",)
+
+
+class AdminWriteManagementOrDriverRead(RoleReadWritePermission):
+    """Lee gestión o conductor; escribe solo admin."""
+
+    read_roles = ("is_management", "is_driver")
+    write_roles = ("is_admin",)
+
+
+class ManagementReadWrite(RoleReadWritePermission):
+    """Lee y escribe gestión (admin/supervisor). El scope acota al supervisor."""
+
+    read_roles = ("is_management",)
+    write_roles = ("is_management",)
+
+
+class ManagementOrDriverReadWrite(RoleReadWritePermission):
+    """Lee y escribe gestión o conductor (p. ej. lecturas de km). El scope acota."""
+
+    read_roles = ("is_management", "is_driver")
+    write_roles = ("is_management", "is_driver")
+
+
 __all__ = [
     "IsAdmin",
     "IsSupervisor",
     "IsManagement",
     "IsDriver",
     "IsManagementOrDriverReadOnly",
+    "RoleReadWritePermission",
+    "AdminWriteManagementRead",
+    "AdminWriteManagementOrDriverRead",
+    "ManagementReadWrite",
+    "ManagementOrDriverReadWrite",
 ]
