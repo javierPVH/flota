@@ -81,6 +81,16 @@ back/
     └── tests/         # roles, reglas, auditoría, docs, alertas, informes… (paquete)
 ```
 
+**Integridad y eventos de negocio** (Fase B1). Las operaciones compuestas van en
+`transaction.atomic` (alta de vehículo, lectura de km, asignación, alta+archivado
+de documento). Los cambios relevantes emiten un `Event` de negocio
+(`fleet/services/events.py`: alta, cambio de estado —con `change_reason`—, cambio
+de conductor, lectura de km), que convive con la auditoría de campos. Registrar
+una ITV (`EventItv`) refresca `next_itv_date` y **cierra** las alertas de ITV
+abiertas del vehículo (`fleet/signals.py`, HU-5.1). La edición de la ficha admite
+**bloqueo optimista** opt-in: enviar `expected_updated_at` en el `PATCH`; si no
+coincide con el actual, responde `409 Conflict`.
+
 **Trabajos programados y alertas** (Fase E). El motor de alertas vive en
 `fleet/services/alerts.py` (testeable sin la capa de comandos) y se dispara desde
 `management commands` idempotentes:

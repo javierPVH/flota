@@ -89,9 +89,12 @@ class VehicleSerializer(serializers.ModelSerializer):
             "km_start",
             "km_end",
             "next_itv_date",
+            "created_at",
+            "updated_at",
         ]
         # next_itv_date lo mantiene el job refresh_next_itv (denormalizado).
-        read_only_fields = ["id", "next_itv_date"]
+        # updated_at se expone para el bloqueo optimista (expected_updated_at).
+        read_only_fields = ["id", "next_itv_date", "created_at", "updated_at"]
 
     def get_supervisor_name(self, obj: Vehicle) -> str:
         sup = obj.supervisor

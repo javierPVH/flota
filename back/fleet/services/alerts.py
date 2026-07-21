@@ -23,12 +23,7 @@ from fleet.models.enums import (
     AlertStatus,
     AlertType,
     AssignmentStatus,
-    VehicleState,
 )
-
-# Estados en los que un vehículo se considera "activo" para efectos de alertas
-# (se excluyen los terminales: baja).
-_INACTIVE_STATES = {VehicleState.BAJA}
 
 
 def _today(today: date | None) -> date:
@@ -36,7 +31,8 @@ def _today(today: date | None) -> date:
 
 
 def _active_vehicles():
-    return Vehicle.objects.exclude(state__in=_INACTIVE_STATES)
+    # `active()` excluye los vehículos de baja (soft-delete).
+    return Vehicle.objects.active()
 
 
 def _current_driver(vehicle: Vehicle):

@@ -94,11 +94,22 @@ class ItvAlertTests(TestCase):
 
 
 class RefreshNextItvTests(TestCase):
-    def test_refresh_from_latest_event_itv(self):
+    def test_signal_sets_next_itv_on_event(self):
+        # Al registrar la ITV, la señal ya refresca next_itv_date (B1.3).
         vehicle = Vehicle.objects.create(plate="REF1", brand="a", model="b")
         due = timezone.localdate() + timedelta(days=90)
         event = Event.objects.create(vehicle=vehicle, event_type=EventType.ITV)
         EventItv.objects.create(event=event, next_due=due)
+        vehicle.refresh_from_db()
+        self.assertEqual(vehicle.next_itv_date, due)
+
+    def test_refresh_restores_desynced_value(self):
+        vehicle = Vehicle.objects.create(plate="REF2", brand="a", model="b")
+        due = timezone.localdate() + timedelta(days=90)
+        event = Event.objects.create(vehicle=vehicle, event_type=EventType.ITV)
+        EventItv.objects.create(event=event, next_due=due)
+        # Simula desincronización y comprueba que el job la corrige.
+        Vehicle.objects.filter(pk=vehicle.pk).update(next_itv_date=None)
         updated = alerts.refresh_next_itv_dates()
         vehicle.refresh_from_db()
         self.assertEqual(updated, 1)

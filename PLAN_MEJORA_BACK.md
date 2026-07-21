@@ -125,9 +125,15 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
   ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml): lint + formato +
   `check` + `makemigrations --check` + tests con cobertura + `pip-audit`);
   hooks de [`pre-commit`](./.pre-commit-config.yaml).
-- **Fase B1 — Integridad y capa de servicios (🔴/🟡).**
-  `transaction.atomic` en operaciones compuestas, emisión de `Event`, auto-cierre
-  de alertas de ITV, bloqueo optimista, manager de *soft-delete*.
+- **Fase B1 — Integridad y capa de servicios (🔴/🟡): ✅ IMPLEMENTADA.**
+  `transaction.atomic` en las operaciones compuestas (alta de vehículo, lectura de
+  km, asignación, alta+archivado de documento); **emisión de `Event`** de negocio
+  ([`fleet/services/events.py`](./back/fleet/services/events.py): alta, cambio de
+  estado con motivo, cambio de conductor, lectura de km); **auto-cierre de alertas
+  de ITV** + refresco de `next_itv_date` vía señal
+  ([`fleet/signals.py`](./back/fleet/signals.py), HU-5.1); **bloqueo optimista**
+  opt-in en la ficha (`expected_updated_at` → 409); helper de *soft-delete*
+  `Vehicle.objects.active()`. 10 tests nuevos (124 en total, verdes; cobertura 89%).
 - **Fase P1 — Rendimiento (🟡).**
   Cache de `role_values`, resolver N+1 en informes/alertas, índices.
 - **Fase O1 — API y observabilidad (🟡/🔵).**

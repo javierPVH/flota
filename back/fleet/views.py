@@ -1,10 +1,12 @@
 from auditlog.models import LogEntry
+from django.db import transaction
 from django.http import HttpResponse
+from django.utils.dateparse import parse_datetime
 from django_filters import rest_framework as filters
 from django_filters.widgets import BooleanWidget
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -61,8 +63,16 @@ from .serializers import (
     VehicleSerializer,
     VehicleUsageSerializer,
 )
-from .services import reports
+from .services import events, reports
 from .services.archiver import archive_document
+
+
+class Conflict(APIException):
+    """409: el registro cambió desde que se cargó (bloqueo optimista)."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "El registro ha cambiado desde que lo cargaste. Recarga y reintenta."
+    default_code = "conflict"
 
 
 def _json_safe(value):
@@ -169,6 +179,34 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             qs = qs.exclude(state=VehicleState.BAJA)
         return qs
 
+    def perform_create(self, serializer):
+        # Alta + evento de negocio en una transacción (HU-1.3).
+        with transaction.atomic():
+            super().perform_create(serializer)
+            events.emit_vehicle_created(serializer.instance)
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        # Bloqueo optimista (opt-in): si el cliente envía `expected_updated_at`
+        # y no coincide con el actual, la ficha cambió entre medias → 409.
+        expected = self.request.data.get("expected_updated_at")
+        if expected:
+            parsed = parse_datetime(str(expected))
+            if parsed is None or parsed != instance.updated_at:
+                raise Conflict()
+        old_state = instance.state
+        with transaction.atomic():
+            super().perform_update(serializer)
+            updated = serializer.instance
+            if updated.state != old_state:
+                # Cambio de estado → evento (HU-1.5/1.6), con motivo opcional.
+                events.emit_vehicle_state_change(
+                    updated,
+                    old_state,
+                    updated.state,
+                    reason=str(self.request.data.get("change_reason", "")),
+                )
+
     @action(detail=True, methods=["get"], permission_classes=[IsManagement])
     def history(self, request, pk=None):
         """GET /api/vehicles/{id}/history/ — auditoría de campos del vehículo."""
@@ -213,6 +251,12 @@ class KmReadingViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     filterset_fields = ["vehicle"]
     ordering_fields = ["reading_date", "km_reading"]
 
+    def perform_create(self, serializer):
+        # Lectura + evento de negocio (HU-3.1) en una transacción.
+        with transaction.atomic():
+            super().perform_create(serializer)
+            events.emit_km_reading(serializer.instance)
+
 
 class AssignmentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     """Asignaciones. Escritura solo admin; conductor lee las suyas."""
@@ -222,6 +266,15 @@ class AssignmentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     queryset = Assignment.objects.select_related("vehicle", "driver")
     filterset_fields = ["vehicle", "driver", "status"]
     ordering_fields = ["start_date", "created_at"]
+
+    def perform_create(self, serializer):
+        # Nueva asignación + evento de cambio de conductor (HU-2.1), atómico.
+        with transaction.atomic():
+            super().perform_create(serializer)
+            assignment = serializer.instance
+            events.emit_driver_change(
+                assignment.vehicle, old_driver=None, new_driver=assignment.driver
+            )
 
 
 class VehicleUsageViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
@@ -311,10 +364,12 @@ class DocumentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         return {"uploaded_by": self.request.user}
 
     def perform_create(self, serializer):
-        # Alta normal (con scoping) y luego archivado automático (HU-4.2). Si el
-        # backend no puede archivar, el documento queda `pendiente_archivar`.
-        super().perform_create(serializer)
-        archive_document(serializer.instance)
+        # Alta + archivado automático (HU-4.2) en una transacción: o quedan
+        # ambos (documento y su estado/URL), o ninguno. Si el backend no puede
+        # archivar, el documento queda `pendiente_archivar` para el reintento.
+        with transaction.atomic():
+            super().perform_create(serializer)
+            archive_document(serializer.instance)
 
 
 # --- Alertas (Épicas 3/5/10) ---------------------------------------------

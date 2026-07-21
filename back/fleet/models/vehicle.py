@@ -17,12 +17,24 @@ from .enums import (
 )
 
 
+class VehicleQuerySet(models.QuerySet):
+    """QuerySet de vehículos con helper de *soft-delete*."""
+
+    def active(self):
+        """Excluye los vehículos dados de baja (estado terminal)."""
+        return self.exclude(state=VehicleState.BAJA)
+
+
 class Vehicle(TimeStampedModel):
     """Vehículo de la flota.
 
     El conductor se relaciona a través de `Assignment` / `VehicleUsage` (no hay
     un campo de conductor directo). `supervisor` es el responsable opcional.
     """
+
+    # Manager por defecto: sigue devolviendo TODA la flota (el scoping y el
+    # filtro de `baja` se aplican donde corresponde). `active()` excluye baja.
+    objects = VehicleQuerySet.as_manager()
 
     plate = models.CharField("Matrícula", max_length=15, unique=True)
     business_unit = models.ForeignKey(
