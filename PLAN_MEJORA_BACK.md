@@ -147,9 +147,15 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
   índices de consulta (`Assignment(vehicle,end_date,status)` y `(driver,end_date)`,
   `KmReading(vehicle,reading_date)`, `Document(vehicle,status)`, `Vehicle(state)`)
   en la migración `0005`. 3 tests nuevos (126 en total; cobertura 89%).
-- **Fase O1 — API y observabilidad (🟡/🔵).**
-  Versionado `/api/v1/`, throttling por scope, Sentry + logs estructurados +
-  request-id, readiness/liveness, *lockfile* de dependencias.
+- **Fase O1 — API y observabilidad (🟡/🔵): ✅ IMPLEMENTADA.**
+  Versionado `/api/v1/` (auth en `/api/v1/auth/`; sondas sin versión);
+  **liveness** `/api/health/` + **readiness** `/api/ready/` (BD + cache);
+  `request_id` por petición (cabecera `X-Request-ID` + en todos los logs) y logs
+  **JSON** opt-in (`LOG_JSON`) — [`core/observability.py`](./back/core/observability.py);
+  **Sentry** guarded (solo si `SENTRY_DSN` + paquete); throttle por scope
+  `public_write` en la escritura del front público (km/documentos) —
+  [`core/throttling.py`](./back/core/throttling.py). 8 tests nuevos (137 en total;
+  cobertura 89%). *Lockfile* de dependencias queda como mejora futura (🔵).
 
 ---
 

@@ -112,7 +112,7 @@ cron en [`deploy/crontab.example`](./deploy/crontab.example).
 
 **Informes e integraciones** (Fase F).
 
-- **Informes/exportación** (`fleet/services/reports.py`): `GET /api/reports/?kind=&fmt=`
+- **Informes/exportación** (`fleet/services/reports.py`): `GET /api/v1/reports/?kind=&fmt=`
   descarga Excel (`xlsx`) o CSV de la flota, las alertas abiertas o los costes,
   re-consultando la BD y **acotado por rol** (el supervisor solo su grupo). Se usa
   `fmt` (no `format`, reservado por DRF). Requiere `openpyxl`.
@@ -123,7 +123,7 @@ cron en [`deploy/crontab.example`](./deploy/crontab.example).
   stub que se activa con credenciales de Drive (ver nota abajo).
 - **Solicitudes de vehículo / Jira** (`fleet/services/jira.py`, Épica 8): la
   aprobación ocurre en Jira; `import_vehicle_requests` importa las aprobadas de
-  forma idempotente (`jira_key`). `GET/POST /api/vehicle-requests/` (gestión).
+  forma idempotente (`jira_key`). `GET/POST /api/v1/vehicle-requests/` (gestión).
 
 > **Google Drive / Jira** necesitan credenciales que este entorno no tiene
 > autorizadas. La arquitectura queda lista (interfaz + fallback local + reintento
@@ -138,29 +138,37 @@ diseño y fases en [`../MEJORAS.md`](../MEJORAS.md) §3.
 
 ## API
 
+La API de negocio va **versionada** bajo `/api/v1/` (auth en `/api/v1/auth/`);
+así se puede evolucionar sin romper clientes (futuro `/api/v2/`). Las sondas de
+salud (`/api/health/`, `/api/ready/`) van sin versión (infra). Cada respuesta
+lleva la cabecera `X-Request-ID` (se reutiliza la del proxy si viene) y todos los
+logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
+`SENTRY_DSN` (y `sentry-sdk` está instalado), los errores se envían a Sentry.
+
 | Método | Ruta                  | Auth | Descripción                                        |
 |--------|-----------------------|------|----------------------------------------------------|
-| GET    | `/api/health/`        | —    | Liveness + chequeo de BD                           |
-| GET    | `/api/auth/config/`   | —    | Métodos de login activos (para pintar la UI)       |
-| GET    | `/api/auth/csrf/`     | —    | Fija la cookie `csrftoken`                          |
-| POST   | `/api/auth/login/`    | —    | Login usuario/email + contraseña *(si password ON)*|
-| POST   | `/api/auth/register/` | —    | Alta de usuario propio *(si registration ON)*      |
-| POST   | `/api/auth/google/`   | —    | Login con Google (ID token) *(si google ON)*       |
-| POST   | `/api/auth/logout/`   | ✔    | Cierra la sesión                                   |
-| GET    | `/api/auth/me/`       | ✔    | Usuario autenticado (incluye `roles` y `fuel_card`)|
-| GET    | `/api/auth/drivers/`  | gestión | Conductores para el desplegable de asignación   |
-| CRUD   | `/api/vehicles/`      | ✔*   | Vehículos. Gestión: CRUD. Conductor: solo lectura de los suyos |
-| GET    | `/api/vehicles/{id}/history/` | gestión | Auditoría de campos del vehículo (quién cambió qué y cuándo) |
-| POST   | `/api/vehicles/{id}/preview/` | gestión | Diff de los cambios propuestos sin guardar (HU-1.4) |
-| CRUD   | `/api/{contracts,km-readings,assignments,vehicle-usages,vehicle-links,invoices,invoice-allocations}/` | ✔ᵃ | Recursos de dominio (acotados por rol) |
-| GET    | `/api/events/`        | ✔ᵃ | Histórico de eventos (solo lectura) |
-| CRUD   | `/api/incidents/`     | gestiónᵃ | Incidencias / mantenimiento (Épica 6) |
-| CRUD   | `/api/documents/`     | ✔ᵃ | Documentos del vehículo. Conductor sube los suyos; borra solo gestión (Épica 4) |
-| GET    | `/api/alerts/`        | ✔ᵃ | Bandeja de alertas (ITV, km, sin conductor). Solo lectura (los jobs las crean) |
-| POST   | `/api/alerts/{id}/{resolve,dismiss}/` | gestión | Cierra la alerta (resuelta/descartada) |
-| CRUD   | `/api/vehicle-requests/` | gestión | Solicitudes de vehículo (entran aprobadas de Jira) — Épica 8 |
-| GET    | `/api/reports/?kind=&fmt=` | gestión | Descarga informe Excel/CSV (flota/alertas/costes), acotado por rol — Épica 10 |
-| CRUD   | `/api/{countries,business-units,projects,peps,rentings}/` | gestión / admin | Catálogos (lectura gestión, escritura admin) |
+| GET    | `/api/health/`        | —    | Liveness (proceso vivo, sin dependencias)          |
+| GET    | `/api/ready/`         | —    | Readiness: chequeo de BD y cache (503 si degradado)|
+| GET    | `/api/v1/auth/config/`   | —    | Métodos de login activos (para pintar la UI)       |
+| GET    | `/api/v1/auth/csrf/`     | —    | Fija la cookie `csrftoken`                          |
+| POST   | `/api/v1/auth/login/`    | —    | Login usuario/email + contraseña *(si password ON)*|
+| POST   | `/api/v1/auth/register/` | —    | Alta de usuario propio *(si registration ON)*      |
+| POST   | `/api/v1/auth/google/`   | —    | Login con Google (ID token) *(si google ON)*       |
+| POST   | `/api/v1/auth/logout/`   | ✔    | Cierra la sesión                                   |
+| GET    | `/api/v1/auth/me/`       | ✔    | Usuario autenticado (incluye `roles` y `fuel_card`)|
+| GET    | `/api/v1/auth/drivers/`  | gestión | Conductores para el desplegable de asignación   |
+| CRUD   | `/api/v1/vehicles/`      | ✔*   | Vehículos. Gestión: CRUD. Conductor: solo lectura de los suyos |
+| GET    | `/api/v1/vehicles/{id}/history/` | gestión | Auditoría de campos del vehículo (quién cambió qué y cuándo) |
+| POST   | `/api/v1/vehicles/{id}/preview/` | gestión | Diff de los cambios propuestos sin guardar (HU-1.4) |
+| CRUD   | `/api/v1/{contracts,km-readings,assignments,vehicle-usages,vehicle-links,invoices,invoice-allocations}/` | ✔ᵃ | Recursos de dominio (acotados por rol) |
+| GET    | `/api/v1/events/`        | ✔ᵃ | Histórico de eventos (solo lectura) |
+| CRUD   | `/api/v1/incidents/`     | gestiónᵃ | Incidencias / mantenimiento (Épica 6) |
+| CRUD   | `/api/v1/documents/`     | ✔ᵃ | Documentos del vehículo. Conductor sube los suyos; borra solo gestión (Épica 4) |
+| GET    | `/api/v1/alerts/`        | ✔ᵃ | Bandeja de alertas (ITV, km, sin conductor). Solo lectura (los jobs las crean) |
+| POST   | `/api/v1/alerts/{id}/{resolve,dismiss}/` | gestión | Cierra la alerta (resuelta/descartada) |
+| CRUD   | `/api/v1/vehicle-requests/` | gestión | Solicitudes de vehículo (entran aprobadas de Jira) — Épica 8 |
+| GET    | `/api/v1/reports/?kind=&fmt=` | gestión | Descarga informe Excel/CSV (flota/alertas/costes), acotado por rol — Épica 10 |
+| CRUD   | `/api/v1/{countries,business-units,projects,peps,rentings}/` | gestión / admin | Catálogos (lectura gestión, escritura admin) |
 
 ᵃ **Acotado por rol** (`fleet/scoping.py` + `accounts/permissions.py`): el admin
 ve/gestiona toda la flota; el **supervisor** solo su grupo (`Vehicle.supervisor`);
@@ -171,7 +179,7 @@ soporta búsqueda (`?search=`), filtros (`?state=&business_use=&assigned=`) y or
 (`?ordering=`); los vehículos en `baja` se ocultan salvo `?include_baja=1`.
 | GET    | `/api/docs/`          | dev  | Swagger UI (solo con `OPENAPI_DOCS_ENABLED`/DEBUG) |
 
-*El acceso a `/api/vehicles/` depende del rol: `admin`/`supervisor` escriben toda
+*El acceso a `/api/v1/vehicles/` depende del rol: `admin`/`supervisor` escriben toda
 la flota; `driver` solo lee sus vehículos asignados (permisos en
 `accounts/permissions.py` + queryset acotado en `fleet/views.py`).
 
@@ -212,10 +220,10 @@ Casos cubiertos:
 - **Ambos a la vez:** los dos a `True`.
 
 Un endpoint deshabilitado responde `403` con un mensaje claro. El front consulta
-`GET /api/auth/config/` al arrancar y pinta solo los botones disponibles:
+`GET /api/v1/auth/config/` al arrancar y pinta solo los botones disponibles:
 
 ```jsonc
-// GET /api/auth/config/
+// GET /api/v1/auth/config/
 { "password_enabled": true, "registration_enabled": true,
   "google_enabled": true, "google_client_id": "xxxx.apps.googleusercontent.com" }
 ```
@@ -225,8 +233,8 @@ Un endpoint deshabilitado responde `403` con un mensaje claro. El front consulta
 1. En Google Cloud Console crea un **OAuth Client ID (tipo Web)** y ponlo en
    `GOOGLE_OAUTH_CLIENT_ID` (con `AUTH_GOOGLE_ENABLED=True`).
 2. El front usa Google Identity Services con ese Client ID (que lee de
-   `/api/auth/config/`) y obtiene un `credential` (ID token JWT).
-3. Lo envía a `POST /api/auth/google/` con `{"credential": "<jwt>"}`. El backend
+   `/api/v1/auth/config/`) y obtiene un `credential` (ID token JWT).
+3. Lo envía a `POST /api/v1/auth/google/` con `{"credential": "<jwt>"}`. El backend
    verifica la firma y el `audience`, comprueba dominio (`GOOGLE_ALLOWED_DOMAINS`)
    y email verificado, y crea/reutiliza el usuario por email (crea con contraseña
    inutilizable: solo entra por Google).
@@ -239,10 +247,10 @@ Restricciones útiles: `GOOGLE_ALLOWED_DOMAINS` (limita a dominios de Workspace)
 Encaja con el `http-client` del front (`@gs/base/http`): peticiones con
 `credentials: 'include'` y, en métodos no seguros, cabecera `X-CSRFToken`.
 
-1. `GET /api/auth/csrf/` → fija la cookie `csrftoken`.
-2. `POST /api/auth/login/` con `X-CSRFToken` → crea la sesión (cookie httpOnly).
-3. `GET /api/auth/me/` → datos del usuario.
-4. `POST /api/auth/logout/` → destruye la sesión.
+1. `GET /api/v1/auth/csrf/` → fija la cookie `csrftoken`.
+2. `POST /api/v1/auth/login/` con `X-CSRFToken` → crea la sesión (cookie httpOnly).
+3. `GET /api/v1/auth/me/` → datos del usuario.
+4. `POST /api/v1/auth/logout/` → destruye la sesión.
 
 ## Añadir un recurso de dominio
 

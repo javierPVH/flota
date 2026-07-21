@@ -9,6 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
 from accounts.permissions import (
@@ -19,6 +20,7 @@ from accounts.permissions import (
     ManagementOrDriverReadWrite,
     ManagementReadWrite,
 )
+from core.throttling import PublicWriteThrottle
 
 from .models import (
     Alert,
@@ -247,6 +249,9 @@ class KmReadingViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
     serializer_class = KmReadingSerializer
     permission_classes = [ManagementOrDriverReadWrite]
+    # Front público (internet): acota las escrituras del conductor.
+    throttle_classes = [UserRateThrottle, PublicWriteThrottle]
+    throttle_scope = "public_write"
     queryset = KmReading.objects.select_related("vehicle")
     filterset_fields = ["vehicle"]
     ordering_fields = ["reading_date", "km_reading"]
@@ -356,6 +361,9 @@ class DocumentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
     serializer_class = DocumentSerializer
     permission_classes = [DocumentPermission]
+    # Front público (internet): acota la subida de documentos del conductor.
+    throttle_classes = [UserRateThrottle, PublicWriteThrottle]
+    throttle_scope = "public_write"
     queryset = Document.objects.select_related("vehicle", "incident", "uploaded_by")
     filterset_fields = ["vehicle", "type", "status", "incident"]
     ordering_fields = ["created_at", "expiry_date"]

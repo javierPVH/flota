@@ -68,6 +68,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # Asigna un request_id lo antes posible para que TODO log lo lleve.
+    "core.observability.RequestIDMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -270,6 +272,9 @@ REST_FRAMEWORK = {
         # alta de usuarios y verificación de token de Google (coste CPU/red).
         "register": env_str("THROTTLE_REGISTER_RATE", "5/hour"),
         "google": env_str("THROTTLE_GOOGLE_RATE", "30/min"),
+        # Escritura desde el front público (internet): subida de documentos y
+        # lecturas de km del conductor. Solo limita métodos no seguros.
+        "public_write": env_str("THROTTLE_PUBLIC_WRITE_RATE", "60/min"),
     },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
@@ -324,14 +329,26 @@ else:
     CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
 # --- Logging --------------------------------------------------------------
+# Con LOG_JSON=True los logs salen como JSON (una línea por evento) para
+# agregadores; en dev, texto legible. Todos llevan `request_id` (ver
+# core.observability) para correlacionar los logs de una misma petición.
+LOG_JSON = env_bool("LOG_JSON", False)
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        "request_id": {"()": "core.observability.RequestIDFilter"},
+    },
     "formatters": {
-        "simple": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"},
+        "simple": {"format": "%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s"},
+        "json": {"()": "core.observability.JsonFormatter"},
     },
     "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": "simple"},
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "json" if LOG_JSON else "simple",
+            "filters": ["request_id"],
+        },
     },
     "root": {"handlers": ["console"], "level": env_str("LOG_LEVEL", "WARNING")},
     "loggers": {
@@ -339,3 +356,22 @@ LOGGING = {
         "accounts.security": {"level": "INFO", "propagate": True},
     },
 }
+
+# --- Sentry (opcional): captura de errores en producción ------------------
+# Solo se activa si SENTRY_DSN está definido y `sentry-sdk` instalado (así el
+# arranque no depende del paquete). Ver requirements-dev / producción.
+SENTRY_DSN = env_str("SENTRY_DSN", "")
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.django import DjangoIntegration
+
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[DjangoIntegration()],
+            traces_sample_rate=float(env_str("SENTRY_TRACES_SAMPLE_RATE", "0.0")),
+            send_default_pii=False,  # no enviar PII (DNI, emails…) a Sentry
+            environment=env_str("SENTRY_ENVIRONMENT", "production"),
+        )
+    except ImportError:
+        pass

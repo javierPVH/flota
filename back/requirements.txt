@@ -24,3 +24,5 @@ gunicorn>=23.0,<24.0
 # redis>=5.0,<6.0
 # Cobertura de tests en CI:
 # coverage>=7.5,<8.0
+# Captura de errores en producción (activa con SENTRY_DSN):
+# sentry-sdk[django]>=2.0,<3.0

@@ -8,9 +8,11 @@ admin.site.index_title = "Operación y soporte"
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/", include("core.urls")),  # /api/health/
-    path("api/auth/", include("accounts.urls")),  # /api/auth/{csrf,login,logout,me}/
-    path("api/", include("fleet.urls")),  # /api/vehicles/
+    # Infra (sin versión): sondas de salud para orquestador/balanceador.
+    path("api/", include("core.urls")),  # /api/health/, /api/ready/
+    # API de negocio versionada: evolucionar sin romper clientes (futuro /api/v2/).
+    path("api/v1/auth/", include("accounts.urls")),  # /api/v1/auth/{csrf,login,me,…}/
+    path("api/v1/", include("fleet.urls")),  # /api/v1/vehicles/, …
 ]
 
 # Documentación OpenAPI SOLO en dev/staging (nunca superficie extra en prod).
