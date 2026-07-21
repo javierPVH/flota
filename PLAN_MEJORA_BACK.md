@@ -115,9 +115,15 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
   `google` (30/min); `mask_fields=["dni","phone"]` en la auditoría de `User`;
   validación de rol `driver` en `AssignmentSerializer`. 8 tests nuevos (114 en
   total, verdes).
-- **Fase S2 — *Hardening* de producción (🔴/🟡).**
-  Checklist de prod (HTTPS/HSTS/cabeceras), proxy headers por flag, cookies
-  `SameSite` por entorno, secretos fuera de `.env`, test de "settings de prod".
+- **Fase S2 — *Hardening* de producción (🔴/🟡): ✅ IMPLEMENTADA.**
+  Con `DEBUG=False` los defaults son estrictos: `SECURE_SSL_REDIRECT`, HSTS 1 año
+  (+subdominios/preload), `SECURE_CONTENT_TYPE_NOSNIFF`, `Referrer-Policy`
+  same-origin, `X-Frame-Options` DENY; cookies `Secure` ya automáticas.
+  **Proxy-headers por flag** (`SECURE_BEHIND_PROXY`: sin él no se confía en
+  `X-Forwarded-Proto/Host`, falsificables). Cookies `SameSite` documentadas por
+  entorno; `security.W017` silenciado (CSRF cookie legible por la SPA, a
+  propósito). `check --deploy` sin avisos de seguridad. 3 tests nuevos (subproceso
+  con settings de prod; 129 en total, verdes).
 - **Fase Q1 — Tooling y CI (🔴): ✅ IMPLEMENTADA.**
   `ruff` (lint + formato) con [`back/pyproject.toml`](./back/pyproject.toml) y
   código formateado; `coverage` con umbral (80%; actual **88%**);

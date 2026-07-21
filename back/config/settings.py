@@ -145,8 +145,13 @@ STATIC_ROOT = env_str("DJANGO_STATIC_ROOT", str(BASE_DIR / "staticfiles"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- Proxy inverso (nginx con TLS terminado upstream) ---------------------
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-USE_X_FORWARDED_HOST = True
+# Solo confiar en las cabeceras del proxy si REALMENTE hay uno delante; si no,
+# un cliente podría falsear el esquema (`X-Forwarded-Proto`) o el host. Actívalo
+# con SECURE_BEHIND_PROXY=True en el despliegue tras nginx/LB.
+SECURE_BEHIND_PROXY = env_bool("SECURE_BEHIND_PROXY", False)
+if SECURE_BEHIND_PROXY:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
 
 # --- Cookies / CSRF / sesión ---------------------------------------------
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
@@ -162,13 +167,27 @@ CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
 # El front lee la cookie CSRF y la reenvía como cabecera X-CSRFToken ⇒ NO httponly.
 CSRF_COOKIE_HTTPONLY = env_bool("CSRF_COOKIE_HTTPONLY", False)
 CSRF_COOKIE_SAMESITE = env_str("CSRF_COOKIE_SAMESITE", "Lax")
+# SameSite: con front y back en el MISMO dominio (o subdominios) → "Lax". Si van
+# en dominios DISTINTOS y la SPA usa cookies, hace falta "None" (+ Secure, que ya
+# es automático fuera de dev). Configúralo por entorno con *_COOKIE_SAMESITE.
 
-SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", False)
-_hsts = env_int("SECURE_HSTS_SECONDS", 0)
-if _hsts:
-    SECURE_HSTS_SECONDS = _hsts
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+# --- Hardening HTTPS / cabeceras de seguridad -----------------------------
+# En producción (DEBUG=False) los valores por defecto son ESTRICTOS; en dev se
+# relajan para no estorbar. Todos se pueden sobreescribir por entorno.
+SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", not DEBUG)
+# HSTS: 1 año por defecto en producción (0 en dev). Requiere servir siempre HTTPS.
+SECURE_HSTS_SECONDS = env_int("SECURE_HSTS_SECONDS", 0 if DEBUG else 31_536_000)
+if SECURE_HSTS_SECONDS:
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", True)
+    SECURE_HSTS_PRELOAD = env_bool("SECURE_HSTS_PRELOAD", True)
+# Cabeceras defensivas (independientes del entorno).
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = env_str("SECURE_REFERRER_POLICY", "same-origin")
+X_FRAME_OPTIONS = "DENY"
+
+# La cookie CSRF NO es httponly a propósito (la SPA la lee para X-CSRFToken), así
+# que silenciamos ese aviso de `check --deploy`; es una decisión de diseño.
+SILENCED_SYSTEM_CHECKS = ["security.W017"]
 
 # --- CORS -----------------------------------------------------------------
 # El front (SPA) va en otro origen en dev y usa cookies ⇒ credentials + orígenes.

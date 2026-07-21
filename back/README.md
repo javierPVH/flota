@@ -263,3 +263,11 @@ seguros: `DEBUG=False`, `SECRET_KEY`/`ALLOWED_HOSTS` obligatorios en producción
 cookies `Secure` automáticas fuera de dev, `ALLOWED_HOSTS` nunca `'*'`. SQLite por
 defecto; `DB_ENGINE=postgres` para PostgreSQL; `REDIS_URL` para rate-limit/throttle
 exactos entre workers.
+
+**Hardening de producción** (Fase S2). Con `DEBUG=False`, por defecto: redirección
+a HTTPS, HSTS (1 año, subdominios+preload), `nosniff`, `Referrer-Policy`
+`same-origin`, `X-Frame-Options` `DENY` y cookies `Secure`. Las cabeceras del proxy
+(`X-Forwarded-Proto/Host`) solo se confían con `SECURE_BEHIND_PROXY=True` (tras un
+proxy de confianza; si no, son falsificables). Ajusta `*_COOKIE_SAMESITE` según si
+front y back comparten dominio (`Lax`) o no (`None`). `python manage.py check
+--deploy` no reporta avisos de seguridad.
