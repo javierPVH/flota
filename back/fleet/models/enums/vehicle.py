@@ -1,7 +1,7 @@
-"""Enumerados del dominio de flota (DBML `*_enum`).
+"""Enumerados del vehículo (DBML `*_enum`).
 
-Se usan valores ASCII estables (los que persisten en BD) con etiquetas legibles
-en español. No cambies los valores sin una migración de datos.
+Valores ASCII estables (persisten en BD) con etiquetas legibles en español. No
+cambies los valores sin una migración de datos.
 """
 from django.db import models
 
@@ -70,35 +70,6 @@ class UseType(models.TextChoices):
     WORKS = "works", "Obras"
 
 
-class AssignmentStatus(models.TextChoices):
-    """Estado de la asignación.
-
-    El DBML referencia `asignacion_estado_enum` pero no lo define; se asume este
-    ciclo de vida: se propone → se acepta o se rechaza → termina.
-    """
-
-    PROPOSED = "propuesta", "Propuesta"
-    ACCEPTED = "aceptada", "Aceptada"
-    REJECTED = "rechazada", "Rechazada"
-    FINISHED = "finalizada", "Finalizada"
-
-
-class LinkReason(models.TextChoices):
-    """DBML `link_reason_enum` (motivo de vínculo de sustitución)."""
-
-    BREAKDOWN = "averia", "Avería"
-    MAINTENANCE = "mantenimiento", "Mantenimiento"
-    ITV = "itv", "ITV"
-    ACCIDENT = "accidente", "Accidente"
-
-
-class AllocationTarget(models.TextChoices):
-    """DBML `allocation_target_enum` (destino de imputación de una factura)."""
-
-    PROJECT = "proyecto", "Proyecto"
-    PEP = "pep", "PEP / CECO"
-
-
 class Fuel(models.TextChoices):
     """DBML `fuel_enum`. Lista amplia de combustibles / vectores energéticos."""
 
@@ -128,26 +99,3 @@ class Fuel(models.TextChoices):
     PLUGIN_HYBRID = "Vehiculo_hibrido_enchufable", "Híbrido enchufable"
     RENEWABLE_AVIATION_KEROSENE = "Queroseno_aviacion_renovable", "Queroseno de aviación renovable"
     BIOMETHANE = "Biometano", "Biometano"
-
-
-class EventType(models.TextChoices):
-    """DBML `events_enum` (tipo de evento en la vida del vehículo)."""
-
-    CREATION = "creation", "Alta"
-    ACTIVATION = "activation", "Activación"
-    DEACTIVATION = "deactivation", "Desactivación"
-    INVOICE = "invoice", "Factura"
-    IMMOBILIZATION = "immobilization", "Inmovilización"
-    REACTIVATION = "reactivation", "Reactivación"
-    INSURANCE_RENEWAL = "insurance_renewal", "Renovación de seguro"
-    PENALTY = "penalty", "Sanción"
-    LOCATION_CHANGE = "location_change", "Cambio de ubicación"
-    PROJECT_CHANGE = "project_change", "Cambio de proyecto"
-    BREAKDOWN = "breakdown", "Avería"
-    KM_READING = "km_reading", "Lectura de km"
-    CONTRACT_CHANGE = "contract_change", "Cambio de contrato"
-    FEE_CHANGE = "fee_change", "Cambio de cuota"
-    CECO_CHANGE = "ceco_change", "Cambio de CECO"
-    ITV = "itv", "ITV"
-    MAINTENANCE = "maintenance", "Mantenimiento"
-    DRIVER_CHANGE = "driver_change", "Cambio de conductor"

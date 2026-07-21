@@ -50,10 +50,12 @@ back/
 ├── accounts/          # persona (=driver) + roles + API de auth (sesión/CSRF)
 │   ├── models.py      # User (mapea `drivers`) + UserRole (mapea `driver_roles`)
 │   ├── permissions.py # IsAdmin / IsSupervisor / IsManagement / IsDriver / ...ReadOnly
-│   └── views.py       # csrf, login (rate-limit), logout, me, drivers
+│   ├── views.py       # csrf, login (rate-limit), logout, me, drivers
+│   └── tests/         # tests de auth (paquete)
 └── fleet/             # dominio de flota (modelos + admin)
-    ├── enums.py       # todos los *_enum del DBML
-    └── models/        # catalogs, vehicle, contract, assignment, event, invoice
+    ├── models/        # catalogs, vehicle, contract, assignment, event, invoice
+    │   └── enums/     # las listas cerradas (*_enum) de las que beben los modelos
+    └── tests/         # tests de roles, vehículos y drivers (paquete)
 ```
 
 ## API

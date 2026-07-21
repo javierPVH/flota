@@ -7,7 +7,7 @@ tipo de evento). Así un evento `penalty` tiene su `EventPenalty`, etc.
 from django.conf import settings
 from django.db import models
 
-from fleet.enums import EventType
+from .enums import EventType
 
 
 class Event(models.Model):

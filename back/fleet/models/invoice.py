@@ -1,7 +1,7 @@
 """Facturas e imputaciones (DBML `invoices`, `invoice_allocations`)."""
 from django.db import models
 
-from fleet.enums import AllocationTarget
+from .enums import AllocationTarget
 
 
 class Invoice(models.Model):

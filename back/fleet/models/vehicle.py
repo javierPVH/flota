@@ -2,7 +2,7 @@
 from django.conf import settings
 from django.db import models
 
-from fleet.enums import (
+from .enums import (
     Fuel,
     MarketSegment,
     PropertyType,

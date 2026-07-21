@@ -5,7 +5,7 @@ DBML `assignments`, `vehicle_usage`, `vehicle_links`.
 from django.conf import settings
 from django.db import models
 
-from fleet.enums import AssignmentStatus, LinkReason
+from .enums import AssignmentStatus, LinkReason
 
 
 class Assignment(models.Model):
