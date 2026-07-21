@@ -12,6 +12,8 @@ google-auth>=2.35,<3.0
 django-auditlog>=3,<4
 # Filtrado/búsqueda declarativos para la API (listados de la Épica 1).
 django-filter>=24,<26
+# Exportación de informes a Excel (Épica 10).
+openpyxl>=3.1,<4.0
 # Servidor WSGI de producción.
 gunicorn>=23.0,<24.0
 

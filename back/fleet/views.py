@@ -1,11 +1,13 @@
 from auditlog.models import LogEntry
+from django.http import HttpResponse
 from django_filters import rest_framework as filters
 from django_filters.widgets import BooleanWidget
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from accounts.permissions import (
     AdminWriteManagementOrDriverRead,
@@ -33,10 +35,13 @@ from .models import (
     Renting,
     Vehicle,
     VehicleLink,
+    VehicleRequest,
     VehicleUsage,
 )
 from .models.enums import AlertStatus, VehicleState
 from .scoping import vehicles_for
+from .services import reports
+from .services.archiver import archive_document
 from .serializers import (
     AlertSerializer,
     AssignmentSerializer,
@@ -54,6 +59,7 @@ from .serializers import (
     ProjectSerializer,
     RentingSerializer,
     VehicleLinkSerializer,
+    VehicleRequestSerializer,
     VehicleSerializer,
     VehicleUsageSerializer,
 )
@@ -295,6 +301,12 @@ class DocumentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     def extra_create_kwargs(self) -> dict:
         return {"uploaded_by": self.request.user}
 
+    def perform_create(self, serializer):
+        # Alta normal (con scoping) y luego archivado automático (HU-4.2). Si el
+        # backend no puede archivar, el documento queda `pendiente_archivar`.
+        super().perform_create(serializer)
+        archive_document(serializer.instance)
+
 
 # --- Alertas (Épicas 3/5/10) ---------------------------------------------
 
@@ -326,6 +338,55 @@ class AlertViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
         alert = self.get_object()
         alert.close(status=AlertStatus.DISMISSED, by=request.user)
         return Response(self.get_serializer(alert).data)
+
+
+# --- Solicitudes de vehículo (Épica 8) -----------------------------------
+
+class VehicleRequestViewSet(viewsets.ModelViewSet):
+    """Solicitudes de vehículo. Gestión (front VPN).
+
+    Entran aprobadas desde Jira (`import_vehicle_requests`) o se dan de alta a
+    mano; la gestión les asigna un vehículo. No van acotadas por vehículo (una
+    solicitud puede no tenerlo aún).
+    """
+
+    serializer_class = VehicleRequestSerializer
+    permission_classes = [ManagementReadWrite]
+    queryset = VehicleRequest.objects.select_related("requester", "vehicle")
+    filterset_fields = ["status", "requester", "vehicle", "requested_type"]
+    search_fields = ["jira_key", "notes"]
+    ordering_fields = ["created_at", "start_date"]
+
+
+# --- Informes / exportación (Épica 10) -----------------------------------
+
+class ReportsView(APIView):
+    """GET /api/reports/?kind=&fmt= — descarga un informe (Excel/CSV).
+
+    `kind` ∈ {fleet, alerts, costs}; `fmt` ∈ {xlsx, csv}. (Se usa `fmt` y no
+    `format`, que DRF reserva para la negociación de contenido.) Acotado por rol:
+    el admin exporta toda la flota; el supervisor solo su grupo.
+    """
+
+    permission_classes = [IsManagement]
+
+    def get(self, request):
+        kind = request.query_params.get("kind", "fleet")
+        fmt = request.query_params.get("fmt", "xlsx")
+        if kind not in reports.REPORT_KINDS:
+            return Response(
+                {"detail": f"Informe desconocido: {kind}. Válidos: {', '.join(reports.REPORT_KINDS)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if fmt not in reports.FORMATS:
+            return Response(
+                {"detail": f"Formato no soportado: {fmt}. Válidos: {', '.join(reports.FORMATS)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        filename, content_type, payload = reports.render(kind, request.user, fmt)
+        response = HttpResponse(payload, content_type=content_type)
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
 
 # --- Catálogos (lectura gestión, escritura admin) ------------------------

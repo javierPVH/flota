@@ -20,6 +20,7 @@ from .invoice import AllocationTarget
 from .document import DocumentStatus, DocumentType
 from .incident import IncidentStatus, IncidentType
 from .alert import AlertLevel, AlertStatus, AlertType
+from .request import VehicleRequestStatus
 
 __all__ = [
     "VehicleState",
@@ -41,4 +42,5 @@ __all__ = [
     "AlertType",
     "AlertLevel",
     "AlertStatus",
+    "VehicleRequestStatus",
 ]

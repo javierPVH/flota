@@ -20,6 +20,7 @@ from .models import (
     KmReading,
     Vehicle,
     VehicleLink,
+    VehicleRequest,
     VehicleUsage,
 )
 
@@ -34,6 +35,7 @@ AUDITED_MODELS = (
     InvoiceAllocation,
     Incident,
     Document,
+    VehicleRequest,
 )
 
 for _model in AUDITED_MODELS:

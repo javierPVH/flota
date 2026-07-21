@@ -107,6 +107,12 @@ class Vehicle(TimeStampedModel):
             "`refresh_next_itv` y alimenta la alerta de ITV escalonada (HU-5.1)."
         ),
     )
+    drive_folder_url = models.URLField(
+        "Carpeta de Drive",
+        blank=True,
+        help_text="Carpeta del vehículo en el repositorio documental (HU-4.2). "
+        "La crea el archivador la primera vez que se archiva un documento.",
+    )
 
     class Meta:
         verbose_name = "vehículo"

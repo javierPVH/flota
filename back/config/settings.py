@@ -256,6 +256,20 @@ FLEET_NO_DRIVER_ALERT_DAYS = max(0, env_int("FLEET_NO_DRIVER_ALERT_DAYS", 30))
 # Margen sobre los km contratados a partir del cual la proyección alerta (0.05 = 5%).
 FLEET_KM_OVERAGE_MARGIN = max(0.0, float(env_str("FLEET_KM_OVERAGE_MARGIN", "0.05")))
 
+# --- Flota: integraciones (Épica 9) ---------------------------------------
+# Archivado de documentos (HU-4.2). Backends: none | local | gdrive.
+#   · none  → los documentos quedan "pendiente_archivar" (reintentar con el job).
+#   · local → fallback sin dependencias; crea carpetas por vehículo en disco.
+#   · gdrive→ Google Drive (requiere credenciales; ver README).
+FLEET_ARCHIVE_BACKEND = env_str("FLEET_ARCHIVE_BACKEND", "none")
+FLEET_ARCHIVE_LOCAL_DIR = env_str("FLEET_ARCHIVE_LOCAL_DIR", str(BASE_DIR / "archive"))
+GOOGLE_DRIVE_ENABLED = env_bool("GOOGLE_DRIVE_ENABLED", False)
+
+# Importación de solicitudes de vehículo desde Jira (Épica 8).
+FLEET_JIRA_ENABLED = env_bool("FLEET_JIRA_ENABLED", False)
+FLEET_JIRA_URL = env_str("FLEET_JIRA_URL", "")
+FLEET_JIRA_TOKEN = env_str("FLEET_JIRA_TOKEN", "")
+
 # --- OpenAPI (drf-spectacular): solo dev/staging --------------------------
 OPENAPI_DOCS_ENABLED = DEBUG or env_bool("OPENAPI_DOCS_ENABLED", False)
 SPECTACULAR_SETTINGS = {

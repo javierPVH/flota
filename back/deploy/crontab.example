@@ -16,3 +16,10 @@ PYTHON=/srv/flota/back/.venv/bin/python
 
 # Alternativa: un único job diario que ejecuta TODO (ITV + km + sin conductor + proyección).
 # 0 6 * * *   cd $PROJECT && $PYTHON manage.py run_fleet_jobs
+
+# --- Integraciones (Fase F) ----------------------------------------------
+# Cada 15 min — reintenta archivar en Drive los documentos pendientes (HU-4.2).
+*/15 * * * *   cd $PROJECT && $PYTHON manage.py archive_pending_documents
+
+# Cada hora — importa de Jira las solicitudes de vehículo aprobadas (Épica 8).
+0 * * * *   cd $PROJECT && $PYTHON manage.py import_vehicle_requests

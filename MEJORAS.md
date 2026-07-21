@@ -277,8 +277,19 @@ Plan incremental; cada fase es entregable y verificable por sí sola.
   API `GET /api/alerts/` (gestión toda; conductor las de sus vehículos) +
   `resolve`/`dismiss` (gestión). Migración additiva `0003`. 20 tests nuevos (89 en
   total, verdes).
-- **Fase F — Integraciones e informes:** Google Drive (archivado + reintento),
-  Jira (solicitudes) y exportación/informes (Excel/CSV).
+- **Fase F — Integraciones e informes: ✅ IMPLEMENTADA.**
+  · **Informes/exportación** (Épica 10): `fleet/services/reports.py` (Excel vía
+  `openpyxl` / CSV) + `GET /api/reports/?kind=&fmt=` (flota/alertas/costes),
+  re-consulta la BD y acota por rol (supervisor = su grupo). ·
+  **Archivado de documentos** (HU-4.2): `fleet/services/archiver.py` con interfaz
+  `BaseArchiver` + backends `none`/`local`/`gdrive` (stub), `Vehicle.drive_folder_url`,
+  archivado en el alta y **reintento** (`archive_pending_documents`). ·
+  **Solicitudes/Jira** (Épica 8): modelo `VehicleRequest` (entra aprobada, dedup por
+  `jira_key`) + `fleet/services/jira.py` (interfaz + import idempotente) +
+  `import_vehicle_requests` + API `/api/vehicle-requests/`. Migración additiva `0004`,
+  config (`FLEET_ARCHIVE_BACKEND`/`FLEET_JIRA_*`), 17 tests nuevos (106 en total,
+  verdes). **Nota:** los backends reales de Drive/Jira requieren credenciales no
+  disponibles en este entorno; la arquitectura queda lista y se activan por config.
 
 ---
 

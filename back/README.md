@@ -57,10 +57,11 @@ back/
     ├── models/        # catalogs, vehicle, contract, assignment, event, invoice, alert
     │   ├── base.py    # TimeStampedModel (created_at/updated_at)
     │   └── enums/     # las listas cerradas (*_enum) de las que beben los modelos
-    ├── services/      # lógica de negocio reutilizable (motor de alertas)
+    ├── services/      # lógica de negocio (alerts, reports, archiver, jira)
     ├── management/
-    │   └── commands/  # trabajos programados (check_itv, remind_km_readings, …)
-    └── tests/         # roles, vehículos, reglas, auditoría, docs y alertas (paquete)
+    │   └── commands/  # trabajos programados (check_itv, archive_pending_documents, …)
+    ├── deploy/        # crontab.example (trabajos programados)
+    └── tests/         # roles, reglas, auditoría, docs, alertas, informes… (paquete)
 ```
 
 **Trabajos programados y alertas** (Fase E). El motor de alertas vive en
@@ -81,6 +82,27 @@ alertas ya abiertas (escalar la ITV 30→15→7 sí crea avisos nuevos). Los umb
 son configurables por entorno: `FLEET_ITV_ALERT_DAYS` (`30,15,7`),
 `FLEET_NO_DRIVER_ALERT_DAYS` (`30`), `FLEET_KM_OVERAGE_MARGIN` (`0.05`). Ejemplo de
 cron en [`deploy/crontab.example`](./deploy/crontab.example).
+
+**Informes e integraciones** (Fase F).
+
+- **Informes/exportación** (`fleet/services/reports.py`): `GET /api/reports/?kind=&fmt=`
+  descarga Excel (`xlsx`) o CSV de la flota, las alertas abiertas o los costes,
+  re-consultando la BD y **acotado por rol** (el supervisor solo su grupo). Se usa
+  `fmt` (no `format`, reservado por DRF). Requiere `openpyxl`.
+- **Archivado de documentos** (`fleet/services/archiver.py`, HU-4.2): interfaz con
+  backends intercambiables (`FLEET_ARCHIVE_BACKEND` = `none`|`local`|`gdrive`). Al
+  subir un documento se archiva; si el backend no puede, queda `pendiente_archivar`
+  y el job `archive_pending_documents` lo **reintenta**. El backend `gdrive` es un
+  stub que se activa con credenciales de Drive (ver nota abajo).
+- **Solicitudes de vehículo / Jira** (`fleet/services/jira.py`, Épica 8): la
+  aprobación ocurre en Jira; `import_vehicle_requests` importa las aprobadas de
+  forma idempotente (`jira_key`). `GET/POST /api/vehicle-requests/` (gestión).
+
+> **Google Drive / Jira** necesitan credenciales que este entorno no tiene
+> autorizadas. La arquitectura queda lista (interfaz + fallback local + reintento
+> + stubs documentados); activar el backend real es cuestión de configurar
+> `FLEET_ARCHIVE_BACKEND=gdrive` (+ credenciales de Drive) y `FLEET_JIRA_ENABLED=1`
+> (+ `FLEET_JIRA_URL`/`FLEET_JIRA_TOKEN`).
 
 **Auditoría de campos** (`django-auditlog`): cada mutación de los modelos de
 dominio y de usuario deja un `LogEntry` con `{campo:[viejo,nuevo]}` y el actor de
@@ -109,6 +131,8 @@ diseño y fases en [`../MEJORAS.md`](../MEJORAS.md) §3.
 | CRUD   | `/api/documents/`     | ✔ᵃ | Documentos del vehículo. Conductor sube los suyos; borra solo gestión (Épica 4) |
 | GET    | `/api/alerts/`        | ✔ᵃ | Bandeja de alertas (ITV, km, sin conductor). Solo lectura (los jobs las crean) |
 | POST   | `/api/alerts/{id}/{resolve,dismiss}/` | gestión | Cierra la alerta (resuelta/descartada) |
+| CRUD   | `/api/vehicle-requests/` | gestión | Solicitudes de vehículo (entran aprobadas de Jira) — Épica 8 |
+| GET    | `/api/reports/?kind=&fmt=` | gestión | Descarga informe Excel/CSV (flota/alertas/costes), acotado por rol — Épica 10 |
 | CRUD   | `/api/{countries,business-units,projects,peps,rentings}/` | gestión / admin | Catálogos (lectura gestión, escritura admin) |
 
 ᵃ **Acotado por rol** (`fleet/scoping.py` + `accounts/permissions.py`): el admin

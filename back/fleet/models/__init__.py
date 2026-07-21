@@ -21,6 +21,7 @@ from .invoice import Invoice, InvoiceAllocation
 from .incident import Incident
 from .document import Document
 from .alert import Alert
+from .request import VehicleRequest
 
 __all__ = [
     "BusinessUnit",
@@ -47,4 +48,5 @@ __all__ = [
     "Incident",
     "Document",
     "Alert",
+    "VehicleRequest",
 ]

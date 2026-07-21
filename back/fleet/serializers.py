@@ -18,6 +18,7 @@ from .models import (
     Renting,
     Vehicle,
     VehicleLink,
+    VehicleRequest,
     VehicleUsage,
 )
 from .models.enums import UseType
@@ -255,6 +256,24 @@ class AlertSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+# --- Solicitudes de vehículo (Épica 8) -----------------------------------
+
+class VehicleRequestSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    requester_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VehicleRequest
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_requester_name(self, obj) -> str:
+        user = obj.requester
+        if not user:
+            return ""
+        return user.get_full_name() or user.get_username()
 
 
 # --- Catálogos ------------------------------------------------------------

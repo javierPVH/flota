@@ -24,6 +24,7 @@ from .models import (
     Renting,
     Vehicle,
     VehicleLink,
+    VehicleRequest,
     VehicleUsage,
 )
 
@@ -163,6 +164,15 @@ class DocumentAdmin(admin.ModelAdmin):
     list_filter = ("type", "status")
     search_fields = ("vehicle__plate",)
     autocomplete_fields = ("vehicle", "incident", "uploaded_by", "replaces")
+
+
+# --- Solicitudes de vehículo ----------------------------------------------
+@admin.register(VehicleRequest)
+class VehicleRequestAdmin(admin.ModelAdmin):
+    list_display = ("jira_key", "requester", "requested_type", "status", "vehicle", "start_date")
+    list_filter = ("status", "requested_type")
+    search_fields = ("jira_key", "notes")
+    autocomplete_fields = ("requester", "vehicle")
 
 
 # --- Alertas --------------------------------------------------------------

@@ -33,6 +33,8 @@ erDiagram
     USER ||--o{ DOCUMENT : "sube"
     VEHICLE ||--o{ ALERT : "genera"
     USER ||--o{ ALERT : "destinatario"
+    USER ||--o{ VEHICLE_REQUEST : "solicita"
+    VEHICLE ||--o{ VEHICLE_REQUEST : "asignado a"
 
     EVENT ||--o| EVENT_PENALTY : "detalle"
     EVENT ||--o| EVENT_FEE_CHANGE : "detalle"
@@ -118,6 +120,7 @@ erDiagram
         int km_start
         int km_end
         date next_itv_date "denormalizado del último EventItv"
+        string drive_folder_url "carpeta documental (HU-4.2)"
     }
 
     CONTRACT {
@@ -264,6 +267,17 @@ erDiagram
         datetime resolved_at
         int resolved_by_id FK "USER"
     }
+    VEHICLE_REQUEST {
+        int id PK
+        int requester_id FK "USER"
+        int vehicle_id FK "asignado (opcional)"
+        enum requested_type "type_enum"
+        date start_date
+        date end_date
+        string jira_key UK "issue de Jira (parcial)"
+        enum status "vehicle_request_status"
+        string notes
+    }
 ```
 
 ## Notas del modelo
@@ -283,6 +297,9 @@ erDiagram
   lectura de km pendiente, exceso de km, sin conductor) que generan los trabajos
   programados de forma idempotente (`dedup_key` única). No es negocio: es la capa
   de notificación sobre datos derivados.
+- **Solicitudes:** `VEHICLE_REQUEST` entra **ya aprobada** (la aprobación es en
+  Jira); `jira_key` la deduplica en la importación. La gestión le asigna un
+  vehículo (`status` → `assigned`).
 - **Timestamps:** todas las tablas de dominio (`fleet.*`) tienen `created_at` y
   `updated_at` (vía `TimeStampedModel`); se omiten en el diagrama por brevedad.
 
@@ -309,5 +326,6 @@ erDiagram
 | `alert_type` | `itv_due`, `km_reading_pending`, `km_overage`, `no_driver` |
 | `alert_level` | `info`, `warning`, `critical` |
 | `alert_status` | `open`, `resolved`, `dismissed` |
+| `vehicle_request_status` | `approved`, `assigned`, `rejected`, `closed` |
 | `events_enum` | `creation`, `activation`, `deactivation`, `invoice`, `immobilization`, `reactivation`, `insurance_renewal`, `penalty`, `location_change`, `project_change`, `breakdown`, `km_reading`, `contract_change`, `fee_change`, `ceco_change`, `itv`, `maintenance`, `driver_change` |
 | `fuel_enum` | `CNG`, `Gasoline_E5/E10/E85/E100`, `Diesel_B/B7/B10/B20/B30`, `B100`, `LPG`, `Fueloleo`, `Queroseno`, `Gasolina_aviacion`, `GLP`, `Adblue`, `Biometanol`, `Gasoleo_marino`, `Biogas`, `Nafta`, `Biopropano`, `Vehiculo_electrico_bateria`, `Vehiculo_hibrido_enchufable`, `Queroseno_aviacion_renovable`, `Biometano` |

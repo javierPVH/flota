@@ -1,7 +1,9 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
     AlertViewSet,
+    ReportsView,
     AssignmentViewSet,
     BusinessUnitViewSet,
     ContractViewSet,
@@ -16,6 +18,7 @@ from .views import (
     ProjectViewSet,
     RentingViewSet,
     VehicleLinkViewSet,
+    VehicleRequestViewSet,
     VehicleUsageViewSet,
     VehicleViewSet,
 )
@@ -33,6 +36,7 @@ router.register("invoice-allocations", InvoiceAllocationViewSet, basename="invoi
 router.register("incidents", IncidentViewSet, basename="incident")
 router.register("documents", DocumentViewSet, basename="document")
 router.register("alerts", AlertViewSet, basename="alert")
+router.register("vehicle-requests", VehicleRequestViewSet, basename="vehiclerequest")
 # Catálogos
 router.register("countries", CountryViewSet, basename="country")
 router.register("business-units", BusinessUnitViewSet, basename="businessunit")
@@ -40,4 +44,7 @@ router.register("projects", ProjectViewSet, basename="project")
 router.register("peps", PepViewSet, basename="pep")
 router.register("rentings", RentingViewSet, basename="renting")
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("reports/", ReportsView.as_view(), name="reports"),
+    *router.urls,
+]
