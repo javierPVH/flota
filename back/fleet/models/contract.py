@@ -1,8 +1,11 @@
 """Contratos y lecturas de kilómetros (DBML `contracts`, `kms`)."""
+from django.core.exceptions import ValidationError
 from django.db import models
 
+from .base import TimeStampedModel
 
-class Contract(models.Model):
+
+class Contract(TimeStampedModel):
     """DBML `contracts` — contrato (renting/propiedad) asociado a un vehículo."""
 
     vehicle = models.ForeignKey(
@@ -37,14 +40,14 @@ class Contract(models.Model):
         return f"{self.contract_number or 'Contrato'} · {self.vehicle.plate}"
 
 
-class KmReading(models.Model):
-    """DBML `kms` — lectura de kilómetros de un vehículo en una fecha."""
+class KmReading(TimeStampedModel):
+    """DBML `kms` — lectura del odómetro acumulado de un vehículo en una fecha."""
 
     vehicle = models.ForeignKey(
         "fleet.Vehicle", on_delete=models.CASCADE, related_name="km_readings"
     )
     reading_date = models.DateField("Fecha de lectura", null=True, blank=True)
-    km_reading = models.PositiveIntegerField("Kilómetros", null=True, blank=True)
+    km_reading = models.PositiveIntegerField("Odómetro (km acumulados)", null=True, blank=True)
 
     class Meta:
         verbose_name = "lectura de km"
@@ -53,3 +56,23 @@ class KmReading(models.Model):
 
     def __str__(self) -> str:
         return f"{self.vehicle.plate}: {self.km_reading} km ({self.reading_date})"
+
+    def clean(self):
+        # HU-3.1: el odómetro no puede retroceder respecto a la última lectura.
+        if self.km_reading is None:
+            return
+        previous = (
+            KmReading.objects.filter(vehicle_id=self.vehicle_id, km_reading__isnull=False)
+            .exclude(pk=self.pk)
+            .order_by("-reading_date", "-id")
+            .first()
+        )
+        if previous and self.km_reading < previous.km_reading:
+            raise ValidationError(
+                {
+                    "km_reading": (
+                        f"El odómetro no puede retroceder: la última lectura fue "
+                        f"{previous.km_reading} km."
+                    )
+                }
+            )

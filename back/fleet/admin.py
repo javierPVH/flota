@@ -72,7 +72,7 @@ class VehicleAdmin(admin.ModelAdmin):
     list_display = ("plate", "brand", "model", "state", "is_substitute", "supervisor")
     list_filter = ("state", "is_substitute", "type", "fuel", "property", "business_use")
     search_fields = ("plate", "brand", "model")
-    autocomplete_fields = ("supervisor", "business_unit", "country", "project")
+    autocomplete_fields = ("supervisor", "business_unit", "country", "project", "cost_center")
     inlines = [ContractInline, AssignmentInline]
 
 

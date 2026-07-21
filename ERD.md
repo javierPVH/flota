@@ -51,6 +51,9 @@ erDiagram
         string first_name
         string last_name
         bool fuel_card
+        string dni UK
+        string phone
+        enum license_type
         bool is_active
     }
     USER_ROLE {
@@ -89,12 +92,15 @@ erDiagram
         string model
         string version
         int year
+        string vin
+        date registration_date
         enum state "state_enum"
         bool is_substitute
         int supervisor_id FK "USER"
         int business_unit_id FK
         int country_id FK
         int project_id FK
+        int cost_center_id FK "PEP (CECO)"
         enum fuel "fuel_enum"
         enum type "type_enum"
         enum size "size_enum"
@@ -161,6 +167,7 @@ erDiagram
         int vehicle_id FK
         enum event_type "events_enum"
         date event_date
+        string notes
     }
     EVENT_PENALTY {
         int event_id PK "FK EVENT"
@@ -231,13 +238,16 @@ erDiagram
   extensión 1-a-1 con la PK compartida (solo existe la que aplica al tipo).
 - **Facturas:** `INVOICE_ALLOCATION` imputa cada factura a un `PROJECT` o a un
   `PEP`/CECO; la suma de porcentajes por factura = 100.
+- **Timestamps:** todas las tablas de dominio (`fleet.*`) tienen `created_at` y
+  `updated_at` (vía `TimeStampedModel`); se omiten en el diagrama por brevedad.
 
 ## Enumerados
 
 | Enum | Valores |
 |------|---------|
 | `role` | `admin`, `supervisor`, `driver` |
-| `state_enum` | `active`, `maintenance`, `non_active`, `itv`, `broken`, `accidente` |
+| `state_enum` | `active`, `maintenance`, `itv`, `broken`, `baja`, `non_active`, `accidente` |
+| `license_type` | `B`, `C1`, `C`, `C+E`, `D1`, `D` |
 | `type_enum` | `turismo`, `furgoneta`, `camion`, `motocicleta` |
 | `size_enum` | `pequeno`, `mediano`, `grande` |
 | `market_segment_enum` | `mini`, `supermini`, `mediano_inferior`, `mediano_superior`, `ejecutivo`, `lujo`, `deportivo`, `4x4_dual`, `MPV` |

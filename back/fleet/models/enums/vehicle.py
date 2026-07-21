@@ -7,13 +7,19 @@ from django.db import models
 
 
 class VehicleState(models.TextChoices):
-    """DBML `state_enum`."""
+    """Estado técnico del vehículo.
+
+    Lista cerrada de `flota.md` (HU-1.6): activo, mantenimiento, ITV, averiado,
+    baja. Se conservan además `non_active`/`accidente` heredados del DBML por
+    compatibilidad; revisar si deben retirarse.
+    """
 
     ACTIVE = "active", "Activo"
     MAINTENANCE = "maintenance", "En mantenimiento"
-    NON_ACTIVE = "non_active", "No activo"
     ITV = "itv", "En ITV"
     BROKEN = "broken", "Averiado"
+    BAJA = "baja", "Baja"
+    NON_ACTIVE = "non_active", "No activo"
     ACCIDENT = "accidente", "Accidentado"
 
 

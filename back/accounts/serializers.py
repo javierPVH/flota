@@ -23,6 +23,9 @@ class UserSerializer(serializers.ModelSerializer):
             "last_name",
             "roles",
             "fuel_card",
+            "dni",
+            "phone",
+            "license_type",
             "is_staff",
             "is_superuser",
         ]

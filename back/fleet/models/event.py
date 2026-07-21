@@ -7,10 +7,11 @@ tipo de evento). Así un evento `penalty` tiene su `EventPenalty`, etc.
 from django.conf import settings
 from django.db import models
 
+from .base import TimeStampedModel
 from .enums import EventType
 
 
-class Event(models.Model):
+class Event(TimeStampedModel):
     """DBML `events` — evento en la vida de un vehículo."""
 
     vehicle = models.ForeignKey(
@@ -18,6 +19,11 @@ class Event(models.Model):
     )
     event_type = models.CharField("Tipo de evento", max_length=30, choices=EventType.choices)
     event_date = models.DateField("Fecha", null=True, blank=True)
+    notes = models.TextField(
+        "Notas / motivo",
+        blank=True,
+        help_text="Motivo o detalle del evento (p. ej. motivo de la baja).",
+    )
 
     class Meta:
         verbose_name = "evento"

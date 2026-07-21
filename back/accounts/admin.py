@@ -20,10 +20,14 @@ class FlotaUserAdmin(UserAdmin):
     """
 
     inlines = [UserRoleInline]
-    list_display = ("username", "email", "roles_display", "fuel_card", "is_active")
-    list_filter = ("roles__role", "is_staff", "is_superuser", "is_active", "fuel_card")
-    fieldsets = UserAdmin.fieldsets + (("Flota", {"fields": ("fuel_card",)}),)
-    add_fieldsets = UserAdmin.add_fieldsets + (("Flota", {"fields": ("fuel_card",)}),)
+    list_display = ("username", "email", "roles_display", "license_type", "fuel_card", "is_active")
+    list_filter = ("roles__role", "license_type", "is_staff", "is_superuser", "is_active", "fuel_card")
+    fieldsets = UserAdmin.fieldsets + (
+        ("Flota", {"fields": ("dni", "phone", "license_type", "fuel_card")}),
+    )
+    add_fieldsets = UserAdmin.add_fieldsets + (
+        ("Flota", {"fields": ("dni", "phone", "license_type", "fuel_card")}),
+    )
 
     @admin.display(description="Roles")
     def roles_display(self, obj) -> str:

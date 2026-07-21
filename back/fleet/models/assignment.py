@@ -2,13 +2,17 @@
 
 DBML `assignments`, `vehicle_usage`, `vehicle_links`.
 """
+from decimal import Decimal
+
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
-from .enums import AssignmentStatus, LinkReason
+from .base import TimeStampedModel
+from .enums import AssignmentStatus, LinkReason, VehicleState
 
 
-class Assignment(models.Model):
+class Assignment(TimeStampedModel):
     """DBML `assignments` — conductor asignado a un vehículo en un periodo.
 
     `end_date` NULL = asignación en curso. `status` sigue el ciclo
@@ -34,21 +38,39 @@ class Assignment(models.Model):
     usage_percent = models.DecimalField(
         "% de uso", max_digits=5, decimal_places=2, null=True, blank=True
     )
-    created_at = models.DateTimeField("Creado", auto_now_add=True)
 
     class Meta:
         verbose_name = "asignación"
         verbose_name_plural = "asignaciones"
         ordering = ["-created_at"]
+        constraints = [
+            # HU-2.1/2.2: una sola asignación ACEPTADA en curso por vehículo.
+            # (Las propuestas pueden coexistir con la vigente.)
+            models.UniqueConstraint(
+                fields=["vehicle"],
+                condition=models.Q(
+                    status=AssignmentStatus.ACCEPTED, end_date__isnull=True
+                ),
+                name="unique_active_assignment_per_vehicle",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.vehicle.plate} → {self.driver} ({self.get_status_display()})"
 
+    def clean(self):
+        # HU-2.1: no se puede asignar un conductor a un vehículo en baja.
+        if self.vehicle_id and self.vehicle.state == VehicleState.BAJA:
+            raise ValidationError(
+                "No se puede asignar un conductor a un vehículo en baja."
+            )
 
-class VehicleUsage(models.Model):
+
+class VehicleUsage(TimeStampedModel):
     """DBML `vehicle_usage` — reparto de uso por porcentaje.
 
-    La suma por vehículo y periodo debería ser 100. Lo fija admin o supervisor.
+    La suma por vehículo y periodo debería ser 100 (se valida en el endpoint de
+    edición del reparto, no fila a fila). Lo fija admin o supervisor.
     """
 
     vehicle = models.ForeignKey(
@@ -71,8 +93,15 @@ class VehicleUsage(models.Model):
     def __str__(self) -> str:
         return f"{self.vehicle.plate} · {self.driver}: {self.usage_percent}%"
 
+    def clean(self):
+        # HU-2.5: cada porcentaje individual está entre 0 y 100.
+        if self.usage_percent is not None and not (
+            Decimal("0") <= self.usage_percent <= Decimal("100")
+        ):
+            raise ValidationError({"usage_percent": "El porcentaje debe estar entre 0 y 100."})
 
-class VehicleLink(models.Model):
+
+class VehicleLink(TimeStampedModel):
     """DBML `vehicle_links` — vínculo entre vehículo principal y su sustituto."""
 
     main_vehicle = models.ForeignKey(
@@ -92,12 +121,19 @@ class VehicleLink(models.Model):
     end_date = models.DateField(
         "Fin", null=True, blank=True, help_text="NULL = vínculo activo."
     )
-    created_at = models.DateTimeField("Creado", auto_now_add=True)
 
     class Meta:
         verbose_name = "vínculo de sustitución"
         verbose_name_plural = "vínculos de sustitución"
         ordering = ["-start_date"]
+        constraints = [
+            # HU-1.8: un principal solo tiene un sustituto activo a la vez.
+            models.UniqueConstraint(
+                fields=["main_vehicle"],
+                condition=models.Q(end_date__isnull=True),
+                name="unique_active_substitute_per_main",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.main_vehicle.plate} ← {self.substitute_vehicle.plate}"

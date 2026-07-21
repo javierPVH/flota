@@ -11,6 +11,17 @@ class Role(models.TextChoices):
     DRIVER = "driver", "Conductor"
 
 
+class LicenseType(models.TextChoices):
+    """Tipo de permiso de conducir (HU-2.6)."""
+
+    B = "B", "B (turismos)"
+    C1 = "C1", "C1"
+    C = "C", "C (camiones)"
+    CE = "C+E", "C+E (camión con remolque)"
+    D1 = "D1", "D1"
+    D = "D", "D (autobuses)"
+
+
 class User(AbstractUser):
     """Persona del sistema de flota (mapea la tabla `drivers` del DBML).
 
@@ -24,6 +35,11 @@ class User(AbstractUser):
         "Tarjeta de combustible",
         default=False,
         help_text="¿La persona dispone de tarjeta de combustible?",
+    )
+    dni = models.CharField("DNI", max_length=20, null=True, blank=True, unique=True)
+    phone = models.CharField("Teléfono", max_length=30, blank=True)
+    license_type = models.CharField(
+        "Tipo de permiso", max_length=5, choices=LicenseType.choices, blank=True
     )
 
     # --- Roles ------------------------------------------------------------

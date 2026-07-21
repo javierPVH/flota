@@ -1,7 +1,9 @@
 """Vehículo — entidad central del dominio (DBML `vehicles`)."""
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
+from .base import TimeStampedModel
 from .enums import (
     Fuel,
     MarketSegment,
@@ -14,7 +16,7 @@ from .enums import (
 )
 
 
-class Vehicle(models.Model):
+class Vehicle(TimeStampedModel):
     """Vehículo de la flota.
 
     El conductor se relaciona a través de `Assignment` / `VehicleUsage` (no hay
@@ -48,6 +50,8 @@ class Vehicle(models.Model):
     brand = models.CharField("Marca", max_length=50)
     model = models.CharField("Modelo", max_length=50)
     year = models.PositiveIntegerField("Año", null=True, blank=True)
+    vin = models.CharField("Bastidor (VIN)", max_length=32, blank=True)
+    registration_date = models.DateField("Fecha de matriculación", null=True, blank=True)
     country = models.ForeignKey(
         "fleet.Country",
         on_delete=models.SET_NULL,
@@ -84,6 +88,15 @@ class Vehicle(models.Model):
         verbose_name="Proyecto",
         help_text="Obligatorio si el uso empresarial es 'Proyecto'.",
     )
+    cost_center = models.ForeignKey(
+        "fleet.Pep",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="vehicles",
+        verbose_name="CECO de imputación",
+        help_text="Centro de coste (PEP) al que se imputa el vehículo.",
+    )
 
     class Meta:
         verbose_name = "vehículo"
@@ -92,3 +105,11 @@ class Vehicle(models.Model):
 
     def __str__(self) -> str:
         return f"{self.plate} — {self.brand} {self.model}"
+
+    def clean(self):
+        # HU-1.3: si el uso empresarial es "proyecto", el proyecto es obligatorio.
+        # (⚠️ confirmar terminología obra/proyecto — ver MEJORAS.md §1.4.)
+        if self.business_use == UseType.ON_PROJECT and self.project_id is None:
+            raise ValidationError(
+                {"project": "El proyecto es obligatorio cuando el uso es 'Proyecto'."}
+            )

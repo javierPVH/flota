@@ -1,8 +1,10 @@
 """Catálogos maestros (tablas de referencia del DBML)."""
 from django.db import models
 
+from .base import TimeStampedModel
 
-class Country(models.Model):
+
+class Country(TimeStampedModel):
     """DBML `country`."""
 
     name = models.CharField("Nombre", max_length=100)
@@ -16,7 +18,7 @@ class Country(models.Model):
         return self.name
 
 
-class BusinessUnit(models.Model):
+class BusinessUnit(TimeStampedModel):
     """DBML `business_unit` (unidad de negocio)."""
 
     code = models.CharField("Código", max_length=30, blank=True)
@@ -31,7 +33,7 @@ class BusinessUnit(models.Model):
         return f"{self.code} · {self.name}" if self.code else self.name
 
 
-class Project(models.Model):
+class Project(TimeStampedModel):
     """DBML `projects`."""
 
     project_name = models.CharField("Nombre del proyecto", max_length=150)
@@ -45,7 +47,7 @@ class Project(models.Model):
         return self.project_name
 
 
-class Pep(models.Model):
+class Pep(TimeStampedModel):
     """DBML `pep` (elemento PEP / centro de coste — CECO)."""
 
     code = models.CharField("Código", max_length=30, blank=True)
@@ -60,7 +62,7 @@ class Pep(models.Model):
         return f"{self.code} · {self.name}" if self.code else self.name
 
 
-class Renting(models.Model):
+class Renting(TimeStampedModel):
     """DBML `renting` (compañía / producto de renting)."""
 
     name = models.CharField("Nombre", max_length=150)

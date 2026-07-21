@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import Vehicle
+from .models.enums import UseType
 
 
 class VehicleSerializer(serializers.ModelSerializer):
@@ -22,6 +23,8 @@ class VehicleSerializer(serializers.ModelSerializer):
             "brand",
             "model",
             "year",
+            "vin",
+            "registration_date",
             "version",
             "state",
             "state_display",
@@ -31,6 +34,7 @@ class VehicleSerializer(serializers.ModelSerializer):
             "business_unit",
             "country",
             "project",
+            "cost_center",
             "fuel",
             "type",
             "size",
@@ -49,3 +53,13 @@ class VehicleSerializer(serializers.ModelSerializer):
         if not sup:
             return ""
         return sup.get_full_name() or sup.get_username()
+
+    def validate(self, attrs):
+        # HU-1.3: proyecto obligatorio cuando el uso empresarial es "proyecto".
+        business_use = attrs.get("business_use", getattr(self.instance, "business_use", ""))
+        project = attrs.get("project", getattr(self.instance, "project", None))
+        if business_use == UseType.ON_PROJECT and project is None:
+            raise serializers.ValidationError(
+                {"project": "El proyecto es obligatorio cuando el uso es 'Proyecto'."}
+            )
+        return attrs
