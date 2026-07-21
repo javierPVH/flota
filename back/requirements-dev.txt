@@ -1,0 +1,9 @@
+# Dependencias de desarrollo/CI (no se instalan en producción).
+-r requirements.txt
+
+# Linter + formateador.
+ruff>=0.6,<0.13
+# Cobertura de tests.
+coverage>=7.5,<8.0
+# Escaneo de vulnerabilidades de dependencias (supply-chain).
+pip-audit>=2.7,<3.0

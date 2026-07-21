@@ -1,0 +1,23 @@
+# Hooks locales antes del commit. Instalar con:
+#   pip install pre-commit && pre-commit install
+# La config de ruff vive en back/pyproject.toml.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.12
+    hooks:
+      - id: ruff
+        name: ruff (lint + autofix)
+        args: [--fix]
+        files: ^back/
+      - id: ruff-format
+        name: ruff (format)
+        files: ^back/
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: detect-private-key

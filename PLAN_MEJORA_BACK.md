@@ -118,9 +118,13 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
 - **Fase S2 — *Hardening* de producción (🔴/🟡).**
   Checklist de prod (HTTPS/HSTS/cabeceras), proxy headers por flag, cookies
   `SameSite` por entorno, secretos fuera de `.env`, test de "settings de prod".
-- **Fase Q1 — Tooling y CI (🔴).**
-  `ruff` + `pyproject.toml`, GitHub Actions (`check`/`migrate --check`/tests/
-  `pip-audit`), cobertura con umbral, `pre-commit`.
+- **Fase Q1 — Tooling y CI (🔴): ✅ IMPLEMENTADA.**
+  `ruff` (lint + formato) con [`back/pyproject.toml`](./back/pyproject.toml) y
+  código formateado; `coverage` con umbral (80%; actual **88%**);
+  `requirements-dev.txt` (ruff/coverage/pip-audit); **GitHub Actions**
+  ([`.github/workflows/ci.yml`](./.github/workflows/ci.yml): lint + formato +
+  `check` + `makemigrations --check` + tests con cobertura + `pip-audit`);
+  hooks de [`pre-commit`](./.pre-commit-config.yaml).
 - **Fase B1 — Integridad y capa de servicios (🔴/🟡).**
   `transaction.atomic` en operaciones compuestas, emisión de `Event`, auto-cierre
   de alertas de ITV, bloqueo optimista, manager de *soft-delete*.

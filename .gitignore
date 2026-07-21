@@ -12,6 +12,11 @@ __pycache__/
 db.sqlite3
 staticfiles/
 .env
+# Cobertura de tests
+.coverage
+htmlcov/
+# Archivado local de documentos (backend=local)
+back/archive/
 
 # --- Editores / SO ---
 .DS_Store

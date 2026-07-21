@@ -34,6 +34,23 @@ python manage.py collectstatic # producción
 gunicorn config.wsgi:application --bind 0.0.0.0:8000   # producción
 ```
 
+## Calidad (lint, formato, tests, CI)
+
+Herramientas de desarrollo en [`requirements-dev.txt`](./requirements-dev.txt);
+config de `ruff` y `coverage` en [`pyproject.toml`](./pyproject.toml).
+
+```bash
+pip install -r requirements-dev.txt
+ruff check . && ruff format --check .   # lint + formato
+coverage run manage.py test && coverage report   # tests + cobertura (umbral 80%)
+pip-audit -r requirements.txt           # vulnerabilidades de dependencias
+```
+
+La **CI** ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) ejecuta en cada
+push/PR: `ruff` (lint + formato), `manage.py check`, `makemigrations --check`,
+tests con cobertura y `pip-audit`. Hay hooks de [`pre-commit`](../.pre-commit-config.yaml)
+(`pre-commit install`) para lint/formato antes de cada commit.
+
 ## Estructura
 
 ```
