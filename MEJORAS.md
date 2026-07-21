@@ -266,9 +266,17 @@ Plan incremental; cada fase es entregable y verificable por sí sola.
   `/api/incidents/` y `/api/documents/` (conductor sube los de su vehículo, borra
   solo gestión), scoping por rol, admin, auditoría y migración additiva `0002`.
   9 tests nuevos (69 en total, verdes). Habilita la Épica 4.
-- **Fase E — Trabajos programados + alertas:** `management commands` + cron para
-  ITV diaria (30/15/7), recordatorio mensual de km, proyección y "sin conductor";
-  `next_itv_date` denormalizado; umbrales configurables.
+- **Fase E — Trabajos programados + alertas: ✅ IMPLEMENTADA.** Modelo `Alert`
+  (bandeja idempotente vía `dedup_key`; + `AlertType`/`AlertLevel`/`AlertStatus`) y
+  `Vehicle.next_itv_date` denormalizado. Motor en `fleet/services/alerts.py`
+  (`refresh_next_itv_dates`, `check_itv` escalonada 30/15/7 + vencida, `check_km_readings`,
+  `check_no_driver`, `check_km_overage` con proyección lineal) + `management commands`
+  (`refresh_next_itv`, `check_itv`, `remind_km_readings`, `check_no_driver`,
+  `check_km_overage`, `run_fleet_jobs`) y `deploy/crontab.example`. Umbrales
+  configurables (`FLEET_ITV_ALERT_DAYS`/`FLEET_NO_DRIVER_ALERT_DAYS`/`FLEET_KM_OVERAGE_MARGIN`).
+  API `GET /api/alerts/` (gestión toda; conductor las de sus vehículos) +
+  `resolve`/`dismiss` (gestión). Migración additiva `0003`. 20 tests nuevos (89 en
+  total, verdes).
 - **Fase F — Integraciones e informes:** Google Drive (archivado + reintento),
   Jira (solicitudes) y exportación/informes (Excel/CSV).
 

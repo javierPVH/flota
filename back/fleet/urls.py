@@ -1,6 +1,7 @@
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    AlertViewSet,
     AssignmentViewSet,
     BusinessUnitViewSet,
     ContractViewSet,
@@ -31,6 +32,7 @@ router.register("invoices", InvoiceViewSet, basename="invoice")
 router.register("invoice-allocations", InvoiceAllocationViewSet, basename="invoiceallocation")
 router.register("incidents", IncidentViewSet, basename="incident")
 router.register("documents", DocumentViewSet, basename="document")
+router.register("alerts", AlertViewSet, basename="alert")
 # Catálogos
 router.register("countries", CountryViewSet, basename="country")
 router.register("business-units", BusinessUnitViewSet, basename="businessunit")

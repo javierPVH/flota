@@ -20,6 +20,7 @@ from .event import (
 from .invoice import Invoice, InvoiceAllocation
 from .incident import Incident
 from .document import Document
+from .alert import Alert
 
 __all__ = [
     "BusinessUnit",
@@ -45,4 +46,5 @@ __all__ = [
     "InvoiceAllocation",
     "Incident",
     "Document",
+    "Alert",
 ]

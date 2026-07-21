@@ -31,6 +31,8 @@ erDiagram
     VEHICLE ||--o{ DOCUMENT : "documenta"
     INCIDENT ||--o{ DOCUMENT : "adjunta"
     USER ||--o{ DOCUMENT : "sube"
+    VEHICLE ||--o{ ALERT : "genera"
+    USER ||--o{ ALERT : "destinatario"
 
     EVENT ||--o| EVENT_PENALTY : "detalle"
     EVENT ||--o| EVENT_FEE_CHANGE : "detalle"
@@ -115,6 +117,7 @@ erDiagram
         int consumption
         int km_start
         int km_end
+        date next_itv_date "denormalizado del último EventItv"
     }
 
     CONTRACT {
@@ -248,6 +251,19 @@ erDiagram
         int replaces_id FK "DOCUMENT (versión anterior)"
         string notes
     }
+    ALERT {
+        int id PK
+        enum type "alert_type"
+        enum level "alert_level"
+        enum status "alert_status"
+        int vehicle_id FK
+        int user_id FK "USER (destinatario)"
+        string message
+        date due_date
+        string dedup_key UK "idempotencia de los jobs"
+        datetime resolved_at
+        int resolved_by_id FK "USER"
+    }
 ```
 
 ## Notas del modelo
@@ -263,6 +279,10 @@ erDiagram
   extensión 1-a-1 con la PK compartida (solo existe la que aplica al tipo).
 - **Facturas:** `INVOICE_ALLOCATION` imputa cada factura a un `PROJECT` o a un
   `PEP`/CECO; la suma de porcentajes por factura = 100.
+- **Alertas:** `ALERT` es una bandeja de avisos derivados (ITV escalonada,
+  lectura de km pendiente, exceso de km, sin conductor) que generan los trabajos
+  programados de forma idempotente (`dedup_key` única). No es negocio: es la capa
+  de notificación sobre datos derivados.
 - **Timestamps:** todas las tablas de dominio (`fleet.*`) tienen `created_at` y
   `updated_at` (vía `TimeStampedModel`); se omiten en el diagrama por brevedad.
 
@@ -286,5 +306,8 @@ erDiagram
 | `document_status` | `vigente`, `caducado`, `pendiente_archivar` |
 | `incident_type` | `averia`, `mantenimiento`, `accidente`, `itv` |
 | `incident_status` | `abierta`, `en_curso`, `cerrada` |
+| `alert_type` | `itv_due`, `km_reading_pending`, `km_overage`, `no_driver` |
+| `alert_level` | `info`, `warning`, `critical` |
+| `alert_status` | `open`, `resolved`, `dismissed` |
 | `events_enum` | `creation`, `activation`, `deactivation`, `invoice`, `immobilization`, `reactivation`, `insurance_renewal`, `penalty`, `location_change`, `project_change`, `breakdown`, `km_reading`, `contract_change`, `fee_change`, `ceco_change`, `itv`, `maintenance`, `driver_change` |
 | `fuel_enum` | `CNG`, `Gasoline_E5/E10/E85/E100`, `Diesel_B/B7/B10/B20/B30`, `B100`, `LPG`, `Fueloleo`, `Queroseno`, `Gasolina_aviacion`, `GLP`, `Adblue`, `Biometanol`, `Gasoleo_marino`, `Biogas`, `Nafta`, `Biopropano`, `Vehiculo_electrico_bateria`, `Vehiculo_hibrido_enchufable`, `Queroseno_aviacion_renovable`, `Biometano` |

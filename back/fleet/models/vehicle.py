@@ -97,6 +97,16 @@ class Vehicle(TimeStampedModel):
         verbose_name="CECO de imputación",
         help_text="Centro de coste (PEP) al que se imputa el vehículo.",
     )
+    next_itv_date = models.DateField(
+        "Próxima ITV",
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Denormalizado del último `EventItv.next_due`; lo refresca el job "
+            "`refresh_next_itv` y alimenta la alerta de ITV escalonada (HU-5.1)."
+        ),
+    )
 
     class Meta:
         verbose_name = "vehículo"

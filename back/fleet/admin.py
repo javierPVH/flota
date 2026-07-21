@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    Alert,
     Assignment,
     BusinessUnit,
     Contract,
@@ -162,3 +163,13 @@ class DocumentAdmin(admin.ModelAdmin):
     list_filter = ("type", "status")
     search_fields = ("vehicle__plate",)
     autocomplete_fields = ("vehicle", "incident", "uploaded_by", "replaces")
+
+
+# --- Alertas --------------------------------------------------------------
+@admin.register(Alert)
+class AlertAdmin(admin.ModelAdmin):
+    list_display = ("type", "level", "status", "vehicle", "due_date", "created_at")
+    list_filter = ("type", "level", "status")
+    search_fields = ("vehicle__plate", "message", "dedup_key")
+    autocomplete_fields = ("vehicle", "user", "resolved_by")
+    readonly_fields = ("dedup_key", "created_at", "updated_at", "resolved_at")

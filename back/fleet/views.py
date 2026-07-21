@@ -11,11 +11,13 @@ from accounts.permissions import (
     AdminWriteManagementOrDriverRead,
     AdminWriteManagementRead,
     IsManagement,
+    IsManagementOrDriverReadOnly,
     ManagementOrDriverReadWrite,
     ManagementReadWrite,
 )
 
 from .models import (
+    Alert,
     Assignment,
     BusinessUnit,
     Contract,
@@ -33,9 +35,10 @@ from .models import (
     VehicleLink,
     VehicleUsage,
 )
-from .models.enums import VehicleState
+from .models.enums import AlertStatus, VehicleState
 from .scoping import vehicles_for
 from .serializers import (
+    AlertSerializer,
     AssignmentSerializer,
     BusinessUnitSerializer,
     ContractSerializer,
@@ -291,6 +294,38 @@ class DocumentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
     def extra_create_kwargs(self) -> dict:
         return {"uploaded_by": self.request.user}
+
+
+# --- Alertas (Épicas 3/5/10) ---------------------------------------------
+
+class AlertViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
+    """Bandeja de alertas. Solo lectura + acciones de cierre.
+
+    Las alertas las generan los trabajos programados (`fleet/services/alerts.py`);
+    por API no se crean ni editan, solo se **resuelven/descartan** (gestión). El
+    conductor ve las de sus vehículos (p. ej. la lectura de km pendiente).
+    """
+
+    serializer_class = AlertSerializer
+    permission_classes = [IsManagementOrDriverReadOnly]
+    queryset = Alert.objects.select_related("vehicle", "user")
+    filterset_fields = ["vehicle", "type", "level", "status"]
+    ordering_fields = ["created_at", "due_date", "level"]
+    ordering = ["-created_at"]
+
+    @action(detail=True, methods=["post"], permission_classes=[IsManagement])
+    def resolve(self, request, pk=None):
+        """POST /api/alerts/{id}/resolve/ — marca la alerta como resuelta."""
+        alert = self.get_object()
+        alert.close(status=AlertStatus.RESOLVED, by=request.user)
+        return Response(self.get_serializer(alert).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsManagement])
+    def dismiss(self, request, pk=None):
+        """POST /api/alerts/{id}/dismiss/ — descarta la alerta sin acción."""
+        alert = self.get_object()
+        alert.close(status=AlertStatus.DISMISSED, by=request.user)
+        return Response(self.get_serializer(alert).data)
 
 
 # --- Catálogos (lectura gestión, escritura admin) ------------------------

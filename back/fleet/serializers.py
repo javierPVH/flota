@@ -2,6 +2,7 @@ from auditlog.models import LogEntry
 from rest_framework import serializers
 
 from .models import (
+    Alert,
     Assignment,
     BusinessUnit,
     Contract,
@@ -86,8 +87,10 @@ class VehicleSerializer(serializers.ModelSerializer):
             "consumption",
             "km_start",
             "km_end",
+            "next_itv_date",
         ]
-        read_only_fields = ["id"]
+        # next_itv_date lo mantiene el job refresh_next_itv (denormalizado).
+        read_only_fields = ["id", "next_itv_date"]
 
     def get_supervisor_name(self, obj: Vehicle) -> str:
         sup = obj.supervisor
@@ -222,6 +225,36 @@ class DocumentSerializer(serializers.ModelSerializer):
         if not user:
             return ""
         return user.get_full_name() or user.get_username()
+
+
+# --- Alertas (Épicas 3/5/10) ---------------------------------------------
+
+class AlertSerializer(serializers.ModelSerializer):
+    type_display = serializers.CharField(source="get_type_display", read_only=True)
+    level_display = serializers.CharField(source="get_level_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True, default="")
+
+    class Meta:
+        model = Alert
+        fields = "__all__"
+        # Las alertas las generan los trabajos programados; por API solo se
+        # cambian de estado (resolver/descartar) vía acciones dedicadas.
+        read_only_fields = [
+            "id",
+            "type",
+            "level",
+            "vehicle",
+            "user",
+            "message",
+            "due_date",
+            "dedup_key",
+            "status",
+            "resolved_at",
+            "resolved_by",
+            "created_at",
+            "updated_at",
+        ]
 
 
 # --- Catálogos ------------------------------------------------------------

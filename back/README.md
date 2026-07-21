@@ -54,11 +54,33 @@ back/
 │   └── tests/         # tests de auth (paquete)
 └── fleet/             # dominio de flota (modelos + admin)
     ├── audit.py       # registro de modelos en la auditoría (django-auditlog)
-    ├── models/        # catalogs, vehicle, contract, assignment, event, invoice
+    ├── models/        # catalogs, vehicle, contract, assignment, event, invoice, alert
     │   ├── base.py    # TimeStampedModel (created_at/updated_at)
     │   └── enums/     # las listas cerradas (*_enum) de las que beben los modelos
-    └── tests/         # roles, vehículos, drivers, reglas y auditoría (paquete)
+    ├── services/      # lógica de negocio reutilizable (motor de alertas)
+    ├── management/
+    │   └── commands/  # trabajos programados (check_itv, remind_km_readings, …)
+    └── tests/         # roles, vehículos, reglas, auditoría, docs y alertas (paquete)
 ```
+
+**Trabajos programados y alertas** (Fase E). El motor de alertas vive en
+`fleet/services/alerts.py` (testeable sin la capa de comandos) y se dispara desde
+`management commands` idempotentes:
+
+| Comando | Cadencia | Qué hace |
+|---------|----------|----------|
+| `refresh_next_itv` | diaria | Recalcula `Vehicle.next_itv_date` desde el último `EventItv`. |
+| `check_itv` | diaria | Alerta de ITV escalonada (30/15/7 días y vencida) — HU-5.1. |
+| `check_no_driver` | diaria | Vehículo activo sin conductor > N días — HU-1.7. |
+| `remind_km_readings` | mensual | Vehículo activo sin lectura de km este mes — HU-3.2. |
+| `check_km_overage` | mensual | Proyección de km sobre los contratados — HU-3.4. |
+| `run_fleet_jobs` | — | Ejecuta el refresco + los cuatro chequeos de una vez. |
+
+Cada aviso lleva una `dedup_key` única, así que re-ejecutar un job **no duplica**
+alertas ya abiertas (escalar la ITV 30→15→7 sí crea avisos nuevos). Los umbrales
+son configurables por entorno: `FLEET_ITV_ALERT_DAYS` (`30,15,7`),
+`FLEET_NO_DRIVER_ALERT_DAYS` (`30`), `FLEET_KM_OVERAGE_MARGIN` (`0.05`). Ejemplo de
+cron en [`deploy/crontab.example`](./deploy/crontab.example).
 
 **Auditoría de campos** (`django-auditlog`): cada mutación de los modelos de
 dominio y de usuario deja un `LogEntry` con `{campo:[viejo,nuevo]}` y el actor de
@@ -85,6 +107,8 @@ diseño y fases en [`../MEJORAS.md`](../MEJORAS.md) §3.
 | GET    | `/api/events/`        | ✔ᵃ | Histórico de eventos (solo lectura) |
 | CRUD   | `/api/incidents/`     | gestiónᵃ | Incidencias / mantenimiento (Épica 6) |
 | CRUD   | `/api/documents/`     | ✔ᵃ | Documentos del vehículo. Conductor sube los suyos; borra solo gestión (Épica 4) |
+| GET    | `/api/alerts/`        | ✔ᵃ | Bandeja de alertas (ITV, km, sin conductor). Solo lectura (los jobs las crean) |
+| POST   | `/api/alerts/{id}/{resolve,dismiss}/` | gestión | Cierra la alerta (resuelta/descartada) |
 | CRUD   | `/api/{countries,business-units,projects,peps,rentings}/` | gestión / admin | Catálogos (lectura gestión, escritura admin) |
 
 ᵃ **Acotado por rol** (`fleet/scoping.py` + `accounts/permissions.py`): el admin

@@ -243,6 +243,19 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
 }
 
+# --- Flota: umbrales de alertas / trabajos programados --------------------
+# Configurables por entorno (MEJORAS.md §2, "parámetros configurables"): los días
+# de aviso de ITV y el periodo "sin conductor" no van fijos en código.
+# Días antes de la ITV en los que se avisa (escalonado). Se ordenan solos.
+FLEET_ITV_ALERT_DAYS = sorted(
+    {int(x) for x in env_list("FLEET_ITV_ALERT_DAYS", ["30", "15", "7"]) if x.isdigit()},
+    reverse=True,
+) or [30, 15, 7]
+# Días que un vehículo activo puede estar sin conductor antes de avisar.
+FLEET_NO_DRIVER_ALERT_DAYS = max(0, env_int("FLEET_NO_DRIVER_ALERT_DAYS", 30))
+# Margen sobre los km contratados a partir del cual la proyección alerta (0.05 = 5%).
+FLEET_KM_OVERAGE_MARGIN = max(0.0, float(env_str("FLEET_KM_OVERAGE_MARGIN", "0.05")))
+
 # --- OpenAPI (drf-spectacular): solo dev/staging --------------------------
 OPENAPI_DOCS_ENABLED = DEBUG or env_bool("OPENAPI_DOCS_ENABLED", False)
 SPECTACULAR_SETTINGS = {
