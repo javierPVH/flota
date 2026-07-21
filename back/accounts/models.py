@@ -1,3 +1,5 @@
+from functools import cached_property
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
@@ -43,9 +45,16 @@ class User(AbstractUser):
     )
 
     # --- Roles ------------------------------------------------------------
-    @property
+    @cached_property
     def role_values(self) -> set[str]:
-        """Conjunto de roles del usuario. Un superusuario de Django es admin."""
+        """Conjunto de roles del usuario. Un superusuario de Django es admin.
+
+        Cacheado por instancia (`cached_property`): `is_admin`/`is_management`… se
+        consultan muchas veces por request (permisos + serializers) y así hacen
+        UNA query en lugar de N. El instance de `request.user` vive lo que dura la
+        petición; si se cambian los roles del usuario en memoria, refrescar la
+        instancia (o borrar `role_values` del `__dict__`) para recomputar.
+        """
         values = set(self.roles.values_list("role", flat=True))
         if self.is_superuser:
             values.add(Role.ADMIN)

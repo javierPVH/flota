@@ -134,8 +134,13 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
   ([`fleet/signals.py`](./back/fleet/signals.py), HU-5.1); **bloqueo optimista**
   opt-in en la ficha (`expected_updated_at` → 409); helper de *soft-delete*
   `Vehicle.objects.active()`. 10 tests nuevos (124 en total, verdes; cobertura 89%).
-- **Fase P1 — Rendimiento (🟡).**
-  Cache de `role_values`, resolver N+1 en informes/alertas, índices.
+- **Fase P1 — Rendimiento (🟡): ✅ IMPLEMENTADA.**
+  `User.role_values` cacheado por instancia (`cached_property`: 1 query en vez de
+  N por request); N+1 resuelto en el informe de flota y en `check_km_readings`/
+  `check_no_driver` (consultas en bloque vía [`fleet/selectors.py`](./back/fleet/selectors.py));
+  índices de consulta (`Assignment(vehicle,end_date,status)` y `(driver,end_date)`,
+  `KmReading(vehicle,reading_date)`, `Document(vehicle,status)`, `Vehicle(state)`)
+  en la migración `0005`. 3 tests nuevos (126 en total; cobertura 89%).
 - **Fase O1 — API y observabilidad (🟡/🔵).**
   Versionado `/api/v1/`, throttling por scope, Sentry + logs estructurados +
   request-id, readiness/liveness, *lockfile* de dependencias.

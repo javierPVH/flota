@@ -20,9 +20,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-from fleet.models import Alert, Assignment, Invoice
-from fleet.models.enums import AlertStatus, AssignmentStatus
+from fleet.models import Alert, Invoice
+from fleet.models.enums import AlertStatus
 from fleet.scoping import vehicles_for
+from fleet.selectors import current_driver_map
 
 XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -46,22 +47,13 @@ def _d(value: date | None) -> str:
     return value.isoformat() if value else ""
 
 
-def _current_driver_name(vehicle) -> str:
-    assignment = (
-        Assignment.objects.filter(
-            vehicle=vehicle, end_date__isnull=True, status=AssignmentStatus.ACCEPTED
-        )
-        .select_related("driver")
-        .first()
-    )
-    return _name(assignment.driver) if assignment else ""
-
-
 # --- Construcción de cada informe -----------------------------------------
 
 
 def _fleet_table(user) -> Table:
-    vehicles = vehicles_for(user).select_related("supervisor").order_by("plate")
+    vehicles = list(vehicles_for(user).select_related("supervisor").order_by("plate"))
+    # Conductores en curso en UNA query (evita N+1 al pintar la columna).
+    drivers = current_driver_map([v.id for v in vehicles])
     headers = [
         "Matrícula",
         "Marca",
@@ -81,7 +73,7 @@ def _fleet_table(user) -> Table:
             _name(v.supervisor),
             v.get_business_use_display(),
             _d(v.next_itv_date),
-            _current_driver_name(v),
+            _name(drivers.get(v.id)),
         ]
         for v in vehicles
     ]

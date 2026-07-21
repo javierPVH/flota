@@ -127,6 +127,10 @@ class Vehicle(TimeStampedModel):
         verbose_name = "vehículo"
         verbose_name_plural = "vehículos"
         ordering = ["plate"]
+        indexes = [
+            # `state` se filtra/excluye en casi todos los listados (baja, activos…).
+            models.Index(fields=["state"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.plate} — {self.brand} {self.model}"

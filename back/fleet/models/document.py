@@ -60,6 +60,10 @@ class Document(TimeStampedModel):
         verbose_name = "documento"
         verbose_name_plural = "documentos"
         ordering = ["-created_at"]
+        indexes = [
+            # Filtro de documentos por vehículo y estado (p. ej. pendiente_archivar).
+            models.Index(fields=["vehicle", "status"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.vehicle.plate} · {self.get_type_display()}"

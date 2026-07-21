@@ -42,6 +42,11 @@ class Assignment(TimeStampedModel):
         verbose_name = "asignación"
         verbose_name_plural = "asignaciones"
         ordering = ["-created_at"]
+        indexes = [
+            # Búsqueda del conductor en curso (end_date NULL, status) por vehículo.
+            models.Index(fields=["vehicle", "end_date", "status"]),
+            models.Index(fields=["driver", "end_date"]),
+        ]
         constraints = [
             # HU-2.1/2.2: una sola asignación ACEPTADA en curso por vehículo.
             # (Las propuestas pueden coexistir con la vigente.)

@@ -24,6 +24,7 @@ from fleet.models.enums import (
     AlertType,
     AssignmentStatus,
 )
+from fleet.selectors import current_driver_map
 
 
 def _today(today: date | None) -> date:
@@ -33,20 +34,6 @@ def _today(today: date | None) -> date:
 def _active_vehicles():
     # `active()` excluye los vehículos de baja (soft-delete).
     return Vehicle.objects.active()
-
-
-def _current_driver(vehicle: Vehicle):
-    """Conductor con asignación aceptada en curso, o None."""
-    assignment = (
-        Assignment.objects.filter(
-            vehicle=vehicle,
-            end_date__isnull=True,
-            status=AssignmentStatus.ACCEPTED,
-        )
-        .select_related("driver")
-        .first()
-    )
-    return assignment.driver if assignment else None
 
 
 def upsert_alert(
@@ -161,22 +148,27 @@ def check_km_readings(today: date | None = None) -> int:
     """Recordatorio mensual de km (HU-3.2): vehículo activo sin lectura este mes."""
     today = _today(today)
     period = f"{today.year:04d}-{today.month:02d}"
-    created = 0
-    for vehicle in _active_vehicles():
-        has_reading = KmReading.objects.filter(
-            vehicle=vehicle,
+    vehicles = list(_active_vehicles())
+    ids = [v.id for v in vehicles]
+    # Bulk (evita N+1): vehículos con lectura este mes y conductores en curso.
+    with_reading = set(
+        KmReading.objects.filter(
+            vehicle_id__in=ids,
             reading_date__year=today.year,
             reading_date__month=today.month,
-        ).exists()
-        if has_reading:
-            continue
+        ).values_list("vehicle_id", flat=True)
+    )
+    missing = [v for v in vehicles if v.id not in with_reading]
+    drivers = current_driver_map([v.id for v in missing])
+    created = 0
+    for vehicle in missing:
         created += upsert_alert(
             dedup_key=f"km_pending:{vehicle.pk}:{period}",
             type=AlertType.KM_READING_PENDING,
             level=AlertLevel.WARNING,
             message=f"Falta la lectura de km de {period}.",
             vehicle=vehicle,
-            user=_current_driver(vehicle),
+            user=drivers.get(vehicle.id),
         )
     return created
 
@@ -186,19 +178,22 @@ def check_no_driver(today: date | None = None) -> int:
     today = _today(today)
     grace_days = settings.FLEET_NO_DRIVER_ALERT_DAYS
     cutoff = today - timedelta(days=grace_days)
+    vehicles = list(_active_vehicles().filter(is_substitute=False))
+    ids = [v.id for v in vehicles]
+    # Bulk (evita N+1): con conductor en curso y con asignación reciente (gracia).
+    has_current = set(
+        Assignment.objects.filter(
+            vehicle_id__in=ids, end_date__isnull=True, status=AssignmentStatus.ACCEPTED
+        ).values_list("vehicle_id", flat=True)
+    )
+    recently_assigned = set(
+        Assignment.objects.filter(vehicle_id__in=ids, end_date__gt=cutoff).values_list(
+            "vehicle_id", flat=True
+        )
+    )
     created = 0
-    qs = _active_vehicles().filter(is_substitute=False)
-    for vehicle in qs:
-        has_current = Assignment.objects.filter(
-            vehicle=vehicle,
-            end_date__isnull=True,
-            status=AssignmentStatus.ACCEPTED,
-        ).exists()
-        if has_current:
-            continue
-        # Periodo de gracia: si una asignación terminó hace poco, aún no se avisa.
-        recently_assigned = Assignment.objects.filter(vehicle=vehicle, end_date__gt=cutoff).exists()
-        if recently_assigned:
+    for vehicle in vehicles:
+        if vehicle.id in has_current or vehicle.id in recently_assigned:
             continue
         created += upsert_alert(
             dedup_key=f"no_driver:{vehicle.pk}",

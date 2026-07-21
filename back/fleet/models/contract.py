@@ -52,6 +52,10 @@ class KmReading(TimeStampedModel):
         verbose_name = "lectura de km"
         verbose_name_plural = "lecturas de km"
         ordering = ["-reading_date"]
+        indexes = [
+            # Última lectura / lecturas por periodo de un vehículo.
+            models.Index(fields=["vehicle", "reading_date"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.vehicle.plate}: {self.km_reading} km ({self.reading_date})"
