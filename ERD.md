@@ -4,6 +4,11 @@ Diagrama Entidad-Relación de la app (generado a partir de los modelos de
 `back/accounts` y `back/fleet`). Se renderiza automáticamente en GitHub y en el
 preview de Markdown de VS Code (Mermaid).
 
+> **Montarlo en dbdiagram.io:** el mismo esquema en **DBML** está en
+> [`schema.dbml`](./schema.dbml) — pégalo en <https://dbdiagram.io> (o usa
+> `dbml2sql` para generar el DDL). Este documento es la vista; `schema.dbml` es
+> la fuente "de plataforma".
+
 **Leyenda de cardinalidad:** `||` = uno · `o{` = cero o muchos · `o|` = cero o uno.
 `PK` clave primaria · `FK` clave foránea. Los campos `*_enum` se detallan al final.
 
@@ -302,6 +307,29 @@ erDiagram
   vehículo (`status` → `assigned`).
 - **Timestamps:** todas las tablas de dominio (`fleet.*`) tienen `created_at` y
   `updated_at` (vía `TimeStampedModel`); se omiten en el diagrama por brevedad.
+
+## Restricciones e índices
+
+Reglas de integridad a nivel de BD (más allá de las FK), tal y como las declaran
+los modelos. Los *constraints parciales* (con condición) los soporta PostgreSQL;
+en SQLite Django los emula donde puede.
+
+| Tabla | Restricción | Regla |
+|-------|-------------|-------|
+| `driver_roles` | **único** `(user, role)` | una persona no repite rol |
+| `vehicles` | **único** `plate` · índices `state`, `next_itv_date` | matrícula única; filtros frecuentes |
+| `assignments` | **único parcial** `(vehicle)` con `status=aceptada ∧ end_date NULL` | un solo conductor vigente por vehículo (HU-2.1/2.2) |
+| `assignments` | índices `(vehicle,end_date,status)`, `(driver,end_date)` | conductor en curso / histórico |
+| `vehicle_links` | **único parcial** `(main_vehicle)` con `end_date NULL` | un solo sustituto activo por principal (HU-1.8) |
+| `kms` | índice `(vehicle, reading_date)` | última lectura / periodo |
+| `documents` | índice `(vehicle, status)` | filtro `pendiente_archivar` |
+| `alerts` | **único** `dedup_key` · índices `(type,status)`, `(vehicle,status)` | idempotencia de los jobs |
+| `vehicle_requests` | **único parcial** `jira_key` (cuando ≠ '') | una solicitud por issue de Jira |
+
+Reglas de negocio validadas en `clean()`/serializer (no en la BD): el odómetro no
+retrocede (`kms`), no asignar conductor a un vehículo en `baja` (`assignments`),
+`% de uso` entre 0 y 100 y suma = 100 por periodo (`vehicle_usage`), proyecto
+obligatorio si `business_use=on_project` (`vehicles`).
 
 ## Enumerados
 

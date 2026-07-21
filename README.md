@@ -9,22 +9,29 @@ React 19 + Vite + SASS). El código del DS se ha **copiado** a `front/` (paquete
 flota/
 ├── back/               # API Django + DRF (auth sesión/CSRF, roles, app fleet)
 ├── front/              # @flota/ui — copia del DS de @gs/base (React 19)
-├── front-gestion/      # SPA de GESTIÓN     → solo VPN     (admin + admin_flota)
-└── front-conductores/  # SPA de CONDUCTORES → internet     (conductor)
+├── front-gestion/      # SPA de GESTIÓN     → solo VPN     (admin)
+└── front-conductores/  # SPA de CAMPO       → internet     (supervisor + driver)
 ```
+
+El esquema de datos está en [`ERD.md`](./ERD.md) (diagrama Mermaid) y en
+[`schema.dbml`](./schema.dbml) (DBML para dbdiagram.io). El plan de cada front en
+[`PLAN_FRONT_GESTION.md`](./PLAN_FRONT_GESTION.md) y
+[`PLAN_FRONT_CONDUCTORES.md`](./PLAN_FRONT_CONDUCTORES.md); el del backend en
+[`PLAN_MEJORA_BACK.md`](./PLAN_MEJORA_BACK.md).
 
 ## Roles y accesos
 
 | Rol          | Front        | Red      | Puede |
 |--------------|--------------|----------|-------|
 | `admin`      | gestión      | **VPN**  | CRUD completo de la flota, aprovisionar usuarios y roles |
-| `supervisor` | gestión      | **VPN**  | Gestión de la flota (vehículos, asignaciones, reparto de uso) |
-| `driver`     | conductores  | internet | Ver **solo** su(s) vehículo(s) asignado(s) (lectura) |
+| `supervisor` | campo (móvil)| internet | Su **grupo** de vehículos: km, ITV, reparto de uso, incidencias, alertas |
+| `driver`     | campo (móvil)| internet | Ver/aportar sobre su(s) vehículo(s): km, propuestas de fechas, ITV, documentos |
 
 Los roles son **multi-rol**: una persona puede acumular varios (p. ej.
 supervisor que además conduce). Se modelan en `accounts.UserRole` (mapea la tabla
-`driver_roles` del DBML) y una persona = un `User` (mapea `drivers`). `admin` o
-`supervisor` ⇒ acceso al front de gestión; `driver` ⇒ front de conductores.
+`driver_roles` del DBML) y una persona = un `User` (mapea `drivers`). El front de
+**gestión** (VPN, escritorio) es **solo para `admin`**; el front de **campo**
+(internet, móvil) es para **`supervisor` y `driver`**.
 
 La separación por red la impone el despliegue (nginx/firewall/VPN), pero el
 **backend no se fía de la red**: cada endpoint está protegido por rol
@@ -108,19 +115,24 @@ Modelado completo del esquema (DBML) en `back/fleet/` (`models/` por áreas +
   `EventDriverChange`).
 - **Facturación**: `Invoice`, `InvoiceAllocation` (imputación a proyecto/PEP).
 
-Todo es administrable desde `/admin/`. Por ahora solo `Vehicle` tiene API REST
-(`/api/vehicles/`); el resto son modelos + admin, a la espera de exponer
-endpoints según se vaya necesitando.
+Añade además: **alertas** (`Alert`, bandeja idempotente de avisos derivados),
+**incidencias/mantenimiento** (`Incident`), **documentación** (`Document`, con
+archivado y versiones) y **solicitudes** (`VehicleRequest`, entran aprobadas de
+Jira). Todo es administrable desde `/admin/` y expuesto por **API REST
+versionada** bajo `/api/v1/` (acotada por rol); ver la tabla de endpoints y los
+trabajos programados en [`back/README.md`](./back/README.md). El esquema completo
+en [`ERD.md`](./ERD.md) / [`schema.dbml`](./schema.dbml).
 
 > **Nota:** los dos fronts (`front-gestion`/`front-conductores`) todavía usan el
-> contrato anterior (rol único, `assigned_driver`). Con el nuevo esquema el `/me`
-> devuelve `roles` (lista) y el vehículo ya no lleva conductor directo (va por
-> `Assignment`). Actualizar los fronts a este contrato es el siguiente paso.
+> contrato anterior (base `/api/…`, rol único, `assigned_driver`). El backend ya
+> está en `/api/v1/`, `/me` devuelve `roles` (lista) y el vehículo ya no lleva
+> conductor directo (va por `Assignment`). Reconectarlos es la Fase G0/M0 de los
+> planes de front.
 
 ## Tests
 
 ```bash
-cd back && .venv/bin/python manage.py test      # 30 tests
+cd back && .venv/bin/python manage.py test      # 137 tests (roles, reglas, alertas, informes…)
 npm run typecheck                                # typecheck de ambos fronts
 npm run build                                    # build DS + ambos fronts
 ```

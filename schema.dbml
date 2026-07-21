@@ -1,0 +1,523 @@
+// =============================================================================
+// Flota — esquema de base de datos en DBML (dbdiagram.io / dbml.dbdiagram.io)
+// -----------------------------------------------------------------------------
+// Pseudocódigo para montar el esquema en la plataforma: pégalo en
+// https://dbdiagram.io  (o `dbml2sql` para generar el DDL). Generado a partir de
+// los modelos reales de `back/accounts` y `back/fleet`. La vista Mermaid vive en
+// ERD.md; este fichero es la fuente "de plataforma".
+//
+// Convenciones:
+//   - Nombres de tabla = los del DBML original (drivers, driver_roles, kms…),
+//     que en Django mapean a User, UserRole, KmReading… (ver nota en cada tabla).
+//   - Todas las tablas de dominio (fleet.*) llevan created_at/updated_at
+//     (TimeStampedModel); se incluyen solo donde el modelo los expone en la API.
+//   - Los enums replican las TextChoices de `back/**/enums`.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+Enum role_enum {
+  admin
+  supervisor
+  driver
+}
+
+Enum license_type_enum {
+  B
+  C1
+  C
+  "C+E"
+  D1
+  D
+}
+
+Enum state_enum {
+  active
+  maintenance
+  itv
+  broken
+  baja
+  non_active   // heredado del DBML; revisar retirada
+  accidente    // heredado del DBML; revisar retirada
+}
+
+Enum type_enum {
+  turismo
+  furgoneta
+  camion
+  motocicleta
+}
+
+Enum size_enum {
+  pequeno
+  mediano
+  grande
+}
+
+Enum market_segment_enum {
+  mini
+  supermini
+  mediano_inferior
+  mediano_superior
+  ejecutivo
+  lujo
+  deportivo
+  "4x4_dual"
+  MPV
+}
+
+Enum veh_use_enum {
+  pasajeros
+  mercancia
+}
+
+Enum property_type_enum {
+  propio
+  renting
+}
+
+Enum use_type_enum {
+  on_project
+  personal
+  works
+}
+
+Enum assignment_status_enum {
+  propuesta
+  aceptada
+  rechazada
+  finalizada
+}
+
+Enum link_reason_enum {
+  averia
+  mantenimiento
+  itv
+  accidente
+}
+
+Enum events_enum {
+  creation
+  activation
+  deactivation
+  invoice
+  immobilization
+  reactivation
+  insurance_renewal
+  penalty
+  location_change
+  project_change
+  breakdown
+  km_reading
+  contract_change
+  fee_change
+  ceco_change
+  itv
+  maintenance
+  driver_change
+}
+
+Enum allocation_target_enum {
+  proyecto
+  pep
+}
+
+Enum document_type_enum {
+  permiso_circulacion
+  ficha_tecnica
+  seguro
+  contrato
+  acta_entrega
+  acta_devolucion
+  parte_accidente
+  fotos_danos
+  otro
+}
+
+Enum document_status_enum {
+  vigente
+  caducado
+  pendiente_archivar
+}
+
+Enum incident_type_enum {
+  averia
+  mantenimiento
+  accidente
+  itv
+}
+
+Enum incident_status_enum {
+  abierta
+  en_curso
+  cerrada
+}
+
+Enum alert_type_enum {
+  itv_due
+  km_reading_pending
+  km_overage
+  no_driver
+}
+
+Enum alert_level_enum {
+  info
+  warning
+  critical
+}
+
+Enum alert_status_enum {
+  open
+  resolved
+  dismissed
+}
+
+Enum vehicle_request_status_enum {
+  approved
+  assigned
+  rejected
+  closed
+}
+
+Enum fuel_enum {
+  CNG
+  Gasoline_E5
+  Gasoline_E10
+  Gasoline_E85
+  Gasoline_E100
+  Diesel_B
+  Diesel_B7
+  Diesel_B10
+  Diesel_B20
+  Diesel_B30
+  B100
+  LPG
+  Fueloleo
+  Queroseno
+  Gasolina_aviacion
+  GLP
+  Adblue
+  Biometanol
+  Gasoleo_marino
+  Biogas
+  Nafta
+  Biopropano
+  Vehiculo_electrico_bateria
+  Vehiculo_hibrido_enchufable
+  Queroseno_aviacion_renovable
+  Biometano
+}
+
+// ---------------------------------------------------------------------------
+// Personas y roles
+// ---------------------------------------------------------------------------
+Table drivers {
+  id int [pk, increment]
+  username varchar [not null, unique]
+  email varchar
+  first_name varchar
+  last_name varchar
+  is_active boolean [not null, default: true]
+  fuel_card boolean [not null, default: false]
+  dni varchar [unique, note: 'nullable']
+  phone varchar
+  license_type license_type_enum
+
+  Note: 'Django User (AbstractUser). Toda persona inicia sesión; el rol va en driver_roles. Omitidos: password, is_staff, is_superuser, last_login, date_joined.'
+}
+
+Table driver_roles {
+  id int [pk, increment]
+  user_id int [not null, ref: > drivers.id]
+  role role_enum [not null]
+
+  indexes {
+    (user_id, role) [unique, name: 'uq_user_role']
+  }
+  Note: 'Django UserRole. Multi-rol: una persona puede acumular varios (p. ej. supervisor que además conduce).'
+}
+
+// ---------------------------------------------------------------------------
+// Catálogos maestros
+// ---------------------------------------------------------------------------
+Table country {
+  id int [pk, increment]
+  name varchar [not null]
+}
+
+Table business_unit {
+  id int [pk, increment]
+  code varchar
+  name varchar [not null]
+}
+
+Table projects {
+  id int [pk, increment]
+  project_name varchar [not null]
+}
+
+Table pep {
+  id int [pk, increment]
+  code varchar
+  name varchar [not null]
+  Note: 'Elemento PEP / centro de coste (CECO).'
+}
+
+Table renting {
+  id int [pk, increment]
+  name varchar [not null]
+}
+
+// ---------------------------------------------------------------------------
+// Vehículo (entidad central)
+// ---------------------------------------------------------------------------
+Table vehicles {
+  id int [pk, increment]
+  plate varchar [not null, unique]
+  brand varchar [not null]
+  model varchar [not null]
+  version varchar
+  year int
+  vin varchar
+  registration_date date
+  state state_enum
+  is_substitute boolean [not null, default: false]
+  supervisor_id int [ref: > drivers.id, note: 'responsable opcional']
+  business_unit_id int [ref: > business_unit.id]
+  country_id int [ref: > country.id]
+  project_id int [ref: > projects.id, note: 'obligatorio si business_use=on_project']
+  cost_center_id int [ref: > pep.id, note: 'CECO de imputación']
+  fuel fuel_enum
+  type type_enum
+  size size_enum
+  market_segment market_segment_enum
+  veh_use veh_use_enum
+  property property_type_enum
+  business_use use_type_enum
+  consumption int
+  km_start int
+  km_end int
+  next_itv_date date [note: 'denormalizado del último event_itvs.next_due; lo refresca un job']
+  drive_folder_url varchar [note: 'carpeta documental en Drive (HU-4.2)']
+
+  indexes {
+    state
+    next_itv_date
+  }
+  Note: 'El conductor NO es un campo directo: va por assignments. supervisor_id es el responsable (opcional).'
+}
+
+// ---------------------------------------------------------------------------
+// Contrato y kilometraje
+// ---------------------------------------------------------------------------
+Table contracts {
+  id int [pk, increment]
+  vehicle_id int [not null, ref: > vehicles.id]
+  renting_id int [ref: > renting.id]
+  contract_number varchar
+  contract_time int [note: 'duración en meses']
+  contract_km int
+  client varchar
+  cif varchar
+  start_date date [not null]
+  planned_end_date date [not null]
+  end_date date
+  month_fee decimal
+}
+
+Table kms {
+  id int [pk, increment]
+  vehicle_id int [not null, ref: > vehicles.id]
+  reading_date date
+  km_reading int [note: 'odómetro acumulado; no puede retroceder (HU-3.1)']
+
+  indexes {
+    (vehicle_id, reading_date)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Asignación, reparto de uso y vínculos de sustitución
+// ---------------------------------------------------------------------------
+Table assignments {
+  id int [pk, increment]
+  vehicle_id int [not null, ref: > vehicles.id]
+  driver_id int [not null, ref: > drivers.id]
+  start_date date
+  end_date date [note: 'NULL = en curso']
+  status assignment_status_enum [not null, default: 'propuesta']
+  usage_percent decimal
+  created_at datetime
+
+  indexes {
+    (vehicle_id, end_date, status)
+    (driver_id, end_date)
+  }
+  Note: 'Constraint parcial (Django): una sola asignación status=aceptada con end_date NULL por vehículo.'
+}
+
+Table vehicle_usage {
+  id int [pk, increment]
+  vehicle_id int [not null, ref: > vehicles.id]
+  driver_id int [not null, ref: > drivers.id]
+  usage_percent decimal [note: 'la suma por vehículo y periodo = 100 (HU-2.5)']
+  start_date date
+  end_date date
+}
+
+Table vehicle_links {
+  id int [pk, increment]
+  main_vehicle_id int [not null, ref: > vehicles.id]
+  substitute_vehicle_id int [not null, ref: > vehicles.id]
+  reason link_reason_enum [not null]
+  start_date date [not null]
+  end_date date [note: 'NULL = vínculo activo']
+  created_at datetime
+
+  Note: 'Constraint parcial (Django): un principal solo tiene un sustituto activo (end_date NULL) a la vez (HU-1.8).'
+}
+
+// ---------------------------------------------------------------------------
+// Eventos (Event + subtipos 1-a-1 con PK compartida)
+// ---------------------------------------------------------------------------
+Table events {
+  id int [pk, increment]
+  vehicle_id int [not null, ref: > vehicles.id]
+  event_type events_enum [not null]
+  event_date date
+  notes text
+}
+
+Table event_penalties {
+  event_id int [pk, ref: - events.id]
+  amount decimal
+  paid boolean [not null, default: false]
+}
+
+Table event_fee_changes {
+  event_id int [pk, ref: - events.id]
+  old_fee decimal
+  new_fee decimal
+}
+
+Table event_itvs {
+  event_id int [pk, ref: - events.id]
+  result varchar [note: "'done' / 'not done'"]
+  next_due date [note: 'al registrarse cierra las alertas de ITV del vehículo (HU-5.1)']
+}
+
+Table event_project_changes {
+  event_id int [pk, ref: - events.id]
+  old_project_id int [ref: > projects.id]
+  new_project_id int [ref: > projects.id]
+}
+
+Table event_location_changes {
+  event_id int [pk, ref: - events.id]
+  old_location varchar
+  new_location varchar
+}
+
+Table event_pep_changes {
+  event_id int [pk, ref: - events.id]
+  old_pep_id int [ref: > pep.id]
+  new_pep_id int [ref: > pep.id]
+}
+
+Table event_driver_changes {
+  event_id int [pk, ref: - events.id]
+  old_driver_id int [ref: > drivers.id]
+  new_driver_id int [ref: > drivers.id]
+}
+
+// ---------------------------------------------------------------------------
+// Facturación
+// ---------------------------------------------------------------------------
+Table invoices {
+  id int [pk, increment]
+  code varchar
+  vehicle_id int [not null, ref: > vehicles.id]
+  date date
+  amount decimal
+  file varchar [note: 'ruta o URL al PDF']
+}
+
+Table invoice_allocations {
+  id int [pk, increment]
+  invoice_id int [not null, ref: > invoices.id]
+  target_type allocation_target_enum [not null]
+  project_id int [ref: > projects.id, note: 'si target_type=proyecto']
+  cost_center_id int [ref: > pep.id, note: 'PEP/CECO si target_type=pep']
+  percentage decimal [not null, note: 'la suma por factura = 100']
+  amount decimal [not null]
+  created_at datetime
+}
+
+// ---------------------------------------------------------------------------
+// Incidencias y documentación (Épicas 6 y 4)
+// ---------------------------------------------------------------------------
+Table incidents {
+  id int [pk, increment]
+  vehicle_id int [not null, ref: > vehicles.id]
+  type incident_type_enum [not null]
+  date date
+  description text
+  status incident_status_enum [not null, default: 'abierta']
+  cost decimal
+}
+
+Table documents {
+  id int [pk, increment]
+  vehicle_id int [not null, ref: > vehicles.id]
+  type document_type_enum [not null]
+  incident_id int [ref: > incidents.id, note: 'documento ligado a incidencia (acta/parte/fotos)']
+  drive_url varchar
+  uploaded_by_id int [ref: > drivers.id]
+  expiry_date date [note: 'seguro, permiso, ITV…']
+  status document_status_enum [not null, default: 'vigente']
+  replaces_id int [ref: > documents.id, note: 'versión anterior sustituida (HU-4.4)']
+  notes text
+
+  indexes {
+    (vehicle_id, status)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Alertas (bandeja de avisos derivados — Épica 10)
+// ---------------------------------------------------------------------------
+Table alerts {
+  id int [pk, increment]
+  type alert_type_enum [not null]
+  level alert_level_enum [not null, default: 'info']
+  status alert_status_enum [not null, default: 'open']
+  vehicle_id int [ref: > vehicles.id]
+  user_id int [ref: > drivers.id, note: 'destinatario/sujeto (p. ej. el conductor)']
+  message varchar
+  due_date date
+  dedup_key varchar [not null, unique, note: 'idempotencia de los jobs: no duplica avisos abiertos']
+  resolved_at datetime
+  resolved_by_id int [ref: > drivers.id]
+
+  indexes {
+    (type, status)
+    (vehicle_id, status)
+  }
+  Note: 'Las crean los trabajos programados (ITV escalonada, km pendiente, exceso de km, sin conductor). No es negocio: es la capa de notificación.'
+}
+
+// ---------------------------------------------------------------------------
+// Solicitud de vehículo (Épica 8 — entra ya aprobada de Jira)
+// ---------------------------------------------------------------------------
+Table vehicle_requests {
+  id int [pk, increment]
+  requester_id int [ref: > drivers.id]
+  vehicle_id int [ref: > vehicles.id, note: 'vehículo asignado (opcional)']
+  requested_type type_enum
+  start_date date
+  end_date date
+  jira_key varchar [note: 'issue de Jira; único cuando no está vacío (partial unique)']
+  status vehicle_request_status_enum [not null, default: 'approved']
+  notes text
+}
