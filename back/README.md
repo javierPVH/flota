@@ -34,6 +34,13 @@ python manage.py collectstatic # producción
 gunicorn config.wsgi:application --bind 0.0.0.0:8000   # producción
 ```
 
+**Datos de prueba en desarrollo** — ver [`SEED_DEV.md`](./SEED_DEV.md). Con
+`FLEET_SEED_DATA=True` (+`DEBUG=True`) en `.env`, cada `runserver` **borra y
+siembra** un juego completo de datos (usuarios `admin`/`sara`/`carlos`/`lucia`/
+`david`/`nuevo`, contraseña `flota-dev-2026`, vehículos, alertas…) y habilita el
+**login de desarrollo** (`/api/v1/auth/dev-login/`, selector de usuarios sin
+Google). 🔴 Destructivo: jamás fuera de desarrollo.
+
 ## Calidad (lint, formato, tests, CI)
 
 Herramientas de desarrollo en [`requirements-dev.txt`](./requirements-dev.txt);
@@ -168,6 +175,7 @@ logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
 | POST   | `/api/v1/auth/logout/`   | ✔    | Cierra la sesión                                   |
 | GET    | `/api/v1/auth/me/`       | ✔    | Usuario autenticado (incluye `roles` y `fuel_card`)|
 | GET    | `/api/v1/auth/drivers/`  | gestión | Conductores para el desplegable de asignación   |
+| GET/POST | `/api/v1/auth/dev-login/` | — (404 fuera de dev) | **Solo desarrollo** (`DEBUG`+`FLEET_SEED_DATA`): selector de usuarios de prueba e inicio de sesión sin Google — [SEED_DEV.md](./SEED_DEV.md) |
 | CRUD   | `/api/v1/auth/users/`    | admin | Gestión de usuarios/conductores: roles multi-valor, DNI/permiso/tarjeta; `DELETE` **desactiva** (HU-2.6) — Fase A1 |
 | CRUD   | `/api/v1/vehicles/`      | ✔*   | Vehículos. Gestión: CRUD. Conductor: solo lectura de los suyos |
 | GET    | `/api/v1/vehicles/{id}/history/` | gestión | Auditoría de campos del vehículo (quién cambió qué y cuándo) |

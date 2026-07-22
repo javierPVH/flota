@@ -153,6 +153,11 @@ bottom-nav muestra 3 pestañas al conductor y 4 al supervisor:
   táctiles del DS, tema claro de alto contraste. Las pestañas varían según rol.
 - **Login** (página) según `/auth/config/`; un `admin` autenticado ve **403 "sin
   acceso"** con enlace a gestión (no un login en bucle).
+- **Login de DESARROLLO** (solo si `config.dev_login_enabled`): en vez de
+  Google, un **selector de usuarios de prueba** (`GET /auth/dev-login/`) con
+  entrada en un toque (`POST {"username"}`); permite cambiar de usuario (admin /
+  sara / carlos / david / nuevo…) para probar cada rol y el portón sin
+  credenciales. Ver [`back/SEED_DEV.md`](./back/SEED_DEV.md).
 - **Portón de acceso por solicitud** (Fase A2 del back): tras el login, si el
   usuario **no tiene vehículo** (o no tiene rol — recién creado por Google), no
   entra a la app: ve la pantalla **"Solicita tu vehículo"** que (1) le invita a

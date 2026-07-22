@@ -160,6 +160,10 @@ class AuthConfigView(APIView):
                 "google_client_id": (
                     settings.GOOGLE_OAUTH_CLIENT_ID if settings.AUTH_GOOGLE_ENABLED else ""
                 ),
+                # Login de desarrollo (selector de usuarios de prueba, sin
+                # Google). Solo con DEBUG + FLEET_SEED_DATA; el front pinta el
+                # selector únicamente si viene a True.
+                "dev_login_enabled": getattr(settings, "FLEET_SEED_DATA", False),
             }
         )
 
@@ -376,3 +380,56 @@ class UserViewSet(viewsets.ModelViewSet):
             user.save(update_fields=["is_active"])
             security_logger.info("usuario desactivado user=%s por=%s", user.pk, request.user.pk)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# --- Login de DESARROLLO (selector de usuarios de prueba) ------------------
+
+
+class DevLoginView(APIView):
+    """GET/POST /api/v1/auth/dev-login/ — SOLO desarrollo (ver SEED_DEV.md).
+
+    Permite probar los fronts sin pasar por Google, cambiando de usuario con un
+    selector. Doble candado: `DEBUG=True` **y** `FLEET_SEED_DATA=True` (el flag
+    ya exige DEBUG en settings); si no, responde 404 como si no existiera.
+
+    - `GET`: usuarios activos disponibles (username, nombre, roles).
+    - `POST {"username": ...}`: inicia sesión como ese usuario, sin contraseña.
+    """
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+
+    def _guard(self):
+        if not (settings.DEBUG and getattr(settings, "FLEET_SEED_DATA", False)):
+            # 404 (no 403): fuera de desarrollo este endpoint "no existe".
+            from rest_framework.exceptions import NotFound
+
+            raise NotFound()
+
+    def get(self, request):
+        self._guard()
+        users = User.objects.filter(is_active=True).prefetch_related("roles").order_by("username")
+        return Response(
+            [
+                {
+                    "username": user.get_username(),
+                    "name": user.get_full_name() or user.get_username(),
+                    "roles": sorted(user.role_values),
+                }
+                for user in users
+            ]
+        )
+
+    def post(self, request):
+        self._guard()
+        username = str(request.data.get("username", "")).strip()
+        user = User.objects.filter(username__iexact=username, is_active=True).first()
+        if user is None:
+            return Response(
+                {"detail": f"Usuario de prueba desconocido: {username!r}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Backend explícito: con varios backends de auth, login() lo exige.
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        security_logger.warning("dev-login como user=%s (SOLO desarrollo)", user.pk)
+        return Response(UserSerializer(user).data)

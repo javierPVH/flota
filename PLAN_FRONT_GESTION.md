@@ -150,7 +150,8 @@ Inventario completo de vistas de la app — si no está aquí, no existe:
 - `auth.ts`: `bootstrap` acepta al usuario **solo si `roles.includes('admin')`**.
 - **Login** (página): password y/o Google según `GET /auth/config/`; un usuario
   autenticado **sin rol admin** ve una pantalla **403 "sin acceso"** con logout
-  (no un login en bucle).
+  (no un login en bucle). En desarrollo (`config.dev_login_enabled`), selector
+  de usuarios de prueba vía `/auth/dev-login/` ([SEED_DEV.md](./back/SEED_DEV.md)).
 - **Shell**: `Base.tsx` + header al estilo `ConsoleLayout` de list (logo flota,
   bloque de usuario, menú hamburguesa con las secciones del mapa de vistas,
   `LanguageToggleButton`, salir) + rutas 404/error.

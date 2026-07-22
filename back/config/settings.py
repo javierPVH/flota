@@ -299,6 +299,14 @@ FLEET_NO_DRIVER_ALERT_DAYS = max(0, env_int("FLEET_NO_DRIVER_ALERT_DAYS", 30))
 FLEET_KM_OVERAGE_MARGIN = max(0.0, float(env_str("FLEET_KM_OVERAGE_MARGIN", "0.05")))
 # Umbral "a vigilar" de la proyección (0.95 = 95% del límite) — nivel intermedio.
 FLEET_KM_WATCH_PCT = max(0.0, float(env_str("FLEET_KM_WATCH_PCT", "0.95")))
+
+# --- Flota: datos de PRUEBA en desarrollo (seeding) ------------------------
+# 🔴 DESTRUCTIVO: con FLEET_SEED_DATA=True cada arranque de `runserver` BORRA
+# los datos y los vuelve a crear (wipe & recreate). Solo tiene efecto con
+# DEBUG=True — en producción se ignora aunque esté a True. Activa también el
+# login de desarrollo (selector de usuarios sin Google) en /auth/dev-login/.
+# Ver back/SEED_DEV.md.
+FLEET_SEED_DATA = DEBUG and env_bool("FLEET_SEED_DATA", False)
 # Subida de documentos (HU-4.1): tamaño máximo del fichero en MB.
 FLEET_DOCUMENT_MAX_MB = max(1, env_int("FLEET_DOCUMENT_MAX_MB", 10))
 

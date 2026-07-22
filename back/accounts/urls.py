@@ -4,6 +4,7 @@ from rest_framework.routers import SimpleRouter
 from .views import (
     AuthConfigView,
     CsrfView,
+    DevLoginView,
     DriversView,
     GoogleLoginView,
     LoginView,
@@ -26,5 +27,7 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("me/", MeView.as_view(), name="me"),
     path("drivers/", DriversView.as_view(), name="drivers"),
+    # SOLO desarrollo (DEBUG + FLEET_SEED_DATA); fuera de eso responde 404.
+    path("dev-login/", DevLoginView.as_view(), name="dev-login"),
     *router.urls,
 ]
