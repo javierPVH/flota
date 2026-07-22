@@ -55,6 +55,21 @@ Recursos del DS (`@flota/ui`): `http` (`getJson/postJson/patchJson/deleteJson`),
 
 ---
 
+## Visuales de referencia (PDF) y regla de estilo
+
+Las visuales de [`Gestión de flotas Visuales Administrador.pdf`](./Gestión%20de%20flotas%20Visuales%20Administrador.pdf)
+son del front de **gestión**, pero varios patrones se **heredan aquí adaptados a
+móvil**: el **semáforo de ITV** (naranja = próxima, rojo = vencida) en tarjetas y
+listas, los badges de estado con color, las tarjetas de alerta con matrícula +
+contexto, la **barra de progreso de km** (consumidos/contratados) y los **tres
+niveles de proyección** (`Dentro` / `A vigilar` / `Riesgo exceso`), y el
+histórico en timeline. ⚠️ **El estilo NO se copia del PDF**: se construye con
+los **tokens y componentes del DS `@flota/ui`** (`front/src/styles/tokens.css` +
+`ui/`: `StatCard`, `Panel`, `TabButton`, `fields/*`, `Modal`) — el tema
+oscuro/verde del PDF es solo maqueta.
+
+---
+
 ## Conceptos de `flota.md` que la UI móvil debe respetar
 
 - **Odómetro acumulado, NO km del mes** (HU-3.1): el conductor introduce la
@@ -109,13 +124,15 @@ Recursos del DS (`@flota/ui`): `http` (`getJson/postJson/patchJson/deleteJson`),
 - **Supervisor:** los vehículos de su grupo (`?supervisor=me`) — **no** toda la
   flota (HU-2.8).
 - Presentación en **tarjetas** (no tabla): matrícula grande, **estado con color**,
-  próxima ITV, km actual, indicador de "lectura pendiente". Buscador simple.
+  **próxima ITV con semáforo** (naranja = próxima, rojo = vencida), km actual,
+  indicador de "lectura pendiente". Buscador simple.
 - **Aceptación:** cada rol ve **solo lo suyo**, en cards cómodas de tocar.
 
 ### M2 — Ficha de campo del vehículo · HU-1.2 (lectura), 4.1, 4.3 🔴
-- **Ficha en solo lectura** orientada a campo: matrícula/modelo, **estado / rol
-  sustitución / situación de asignación** diferenciados, próxima ITV, km actual,
-  conductor (HU-1.2 en modo consulta).
+- **Ficha en solo lectura** orientada a campo: cabecera con matrícula grande +
+  badge de estado; mini-KPIs (`StatCard`): km actual (con fecha de última
+  lectura), próxima ITV con semáforo; **estado / rol sustitución / situación de
+  asignación** diferenciados; conductor (HU-1.2 en modo consulta).
 - **Documentos del vehículo** (HU-4.1/4.3): lista con tipo/fecha y **estado de
   archivado** (`pendiente_archivar`/`vigente`); abrir el archivo (Drive).
 - **Subir documento desde el móvil** (HU-4.1): **cámara/galería**, tipo (seguro,
@@ -166,9 +183,10 @@ Recursos del DS (`@flota/ui`): `http` (`getJson/postJson/patchJson/deleteJson`),
   su grupo.
 - **Reparto de uso** (HU-2.5): añadir personas con % (**suma exactamente 100**),
   periodo de vigencia; base de refacturación; **solo sobre su grupo**; histórico.
-- **Proyección e histórico de km del grupo** (HU-3.4/3.6): consumidos/contratados/
-  restantes, media mensual, proyección **verde/rojo**, gráfica de evolución —
-  **limitado a su grupo**.
+- **Proyección e histórico de km del grupo** (HU-3.4/3.6): por vehículo, **barra
+  de progreso** consumidos/contratados y proyección a fin con los **tres
+  niveles** de gestión (`Dentro` verde · `A vigilar` naranja · `Riesgo exceso`
+  rojo), media mensual, gráfica de evolución — **limitado a su grupo**.
 - **Incidencias** (Épica 6): crear desde el móvil (avería/accidente con **fotos**),
   ver estado; ligar documentos.
 - **Aceptación:** el supervisor opera su grupo (reparto, proyección, incidencias)

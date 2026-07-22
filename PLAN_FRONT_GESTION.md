@@ -37,6 +37,25 @@ Recursos del DS (`@flota/ui`): `http` (`getJson/postJson/patchJson/deleteJson`),
 
 ---
 
+## Visuales de referencia (PDF) y regla de estilo
+
+Las pantallas de [`Gestión de flotas Visuales Administrador.pdf`](./Gestión%20de%20flotas%20Visuales%20Administrador.pdf)
+definen la **estructura y funcionalidad** de este front. ⚠️ **El estilo NO se
+copia del PDF**: se construye con los **tokens y componentes del DS `@flota/ui`**
+(`front/src/styles/tokens.css` + `ui/`) — el tema oscuro/verde del PDF es solo
+maqueta.
+
+| Pantalla del PDF | Fase | Componentes del DS |
+|------------------|------|--------------------|
+| Vista general (KPIs + alertas + listado) | G1 | `StatCard`, `Panel`, `TableWithPanel`, `TabButton` (chips) |
+| Creación de vehículos (form seccionado) | G3 | `Section`, `fields/*` (`TextInputField`, `SelectField`, `DateRangeField`), `FieldShell` |
+| Detalle vehículo (ficha) | G2 | `StatCard`, `Panel`, `StatList`, `ActionButtons` |
+| Proyección de km (tabla + simulador) | G6 | `Panel`, `TableWithPanel`, `StatCard` |
+| Edición vehículos (badges histórico/bloqueado) | G3 | `fields/*`, `FieldShell`, `Modal` (confirmación) |
+| Refacturación (líneas de reparto) | G10 | `Panel`, `SelectField`, `ButtonGroup`, `Modal` |
+
+---
+
 ## Conceptos de `flota.md` que la UI debe respetar
 
 - **Tres atributos independientes y diferenciados** (no mezclarlos en la UI):
@@ -81,42 +100,76 @@ Recursos del DS (`@flota/ui`): `http` (`getJson/postJson/patchJson/deleteJson`),
 - **Aceptación:** el admin entra; supervisor/conductor se tratan como anónimos;
   `/me` pinta los roles.
 
-### G1 — Listado de la flota · HU-1.1, 1.6, 1.7 🔴
-- Columnas: **matrícula, marca/modelo, estado (con color), uso, conductor
-  asignado, próxima ITV** (HU-1.1).
-- **Búsqueda** por matrícula/marca/nombre de conductor (`?search=`).
-- **Filtros**: uso (personal/obra), estado técnico, **situación de asignación**
-  (`?assigned=`) — los tres atributos como filtros independientes (HU-1.7).
+### G1 — Vista general: dashboard + listado · HU-1.1, 1.6, 1.7 🔴
+*(pantalla "Vista general" del PDF: la home reúne KPIs, alertas destacadas y el
+listado en una sola vista)*
+- **Fila de KPIs** (`StatCard`): total de vehículos (activos/taller), uso
+  personal vs obra (nº y % de la flota), **coste mensual** (con tendencia vs mes
+  anterior) e **ITV próximas** (nº en 30 días). *(Ver dependencias de backend.)*
+- **Bloque "Alertas que requieren atención"**: las más urgentes (ITV vencida,
+  exceso de km, sin conductor, lecturas pendientes) como tarjetas con matrícula y
+  contexto + enlace "Ver todas" → panel de alertas (G8).
+- Botón primario **"+ Añadir vehículo"** → alta (G3).
+- **Listado** (`TableWithPanel`): matrícula + marca/modelo, uso (badge), estado
+  (badge con color), conductor asignado, **próx. ITV con semáforo** (naranja =
+  próxima, rojo = vencida) y acceso a ficha por fila (HU-1.1).
+- **Búsqueda** por matrícula/marca/nombre de conductor (`?search=`) y **chips de
+  filtro rápido** (Todos · Uso personal · Uso obra · Activos · En taller · ITV
+  próxima) + filtros por los tres atributos independientes (`?state=`,
+  `?business_use=`, `?assigned=`) (HU-1.7).
 - Ocultar `baja` por defecto + conmutador para verlos (`?include_baja=1`).
-- Orden y paginación; cada fila abre la **ficha** (HU-1.1).
-- **Aceptación:** el listado refleja los filtros del back y distingue estado /
-  sustitución / asignación.
+- Orden y paginación.
+- **Aceptación:** la home da la foto de la flota (KPIs + alertas) y el listado
+  refleja los filtros del back distinguiendo estado / sustitución / asignación.
 
 ### G2 — Ficha del vehículo · HU-1.2, 1.6, 1.8, 3.4, 3.6, 4.3 🔴
-- Secciones: **datos técnicos, contrato, kilometraje, documentos, histórico**.
-- **Métricas clave** (HU-1.2): **coste mensual**, **km actual**, **próxima ITV**.
+*(pantalla "Detalle vehículo" del PDF)*
+- **Cabecera**: matrícula grande + badge de estado + resumen en subtítulo
+  (marca/modelo/versión · tipo · combustible · proyecto).
+- **Fila de KPIs** (`StatCard`, HU-1.2): **coste mensual** (cuota + costes),
+  **kilometraje** (con fecha de la última lectura), **próxima ITV** ("en X
+  meses") y **fin de contrato** (con duración del renting).
+- Secciones (`Panel`): **datos técnicos**, **contrato** (propiedad, compañía,
+  cuota, inicio/fin, **penalización €/km**), kilometraje, documentos, histórico.
 - **Tres atributos diferenciados** (estado técnico / rol sustitución / situación
   de asignación) con estilos distintos (HU-1.2/1.6).
 - **Vínculo** principal ↔ sustitución activo visible desde ambos lados (HU-1.8).
-- **Proyección de km** en la ficha (consumidos/contratados/restantes, verde/rojo)
-  y **evolución** del kilometraje (gráfica) — HU-3.4/3.6.
+- **Panel "Kilómetros contratados"** (HU-3.4): **barra de progreso**
+  consumidos/contratados (% y restantes) + tiles de **media mensual**, **ritmo
+  contratado** y **proyección a fin** (verde/rojo); si hay exceso previsto,
+  aviso con la **penalización estimada en €** (exceso × €/km del contrato).
+- **Evolución** del kilometraje (gráfica) — HU-3.6.
+- **Panel "Conductor asignado"**: avatar + nombre, desde cuándo, **permiso(s)**,
+  tarjeta de combustible, unidad de negocio (HU-1.2/2.6).
 - **Documentos** del vehículo con tipo/fecha/autor/caducidad (HU-4.3).
-- **Histórico** fusionado: `Event` (`/events/`) + auditoría (`/vehicles/{id}/history/`).
-- **Accesos directos** (HU-1.2): editar · registrar km · **refacturar** · cambiar
-  conductor.
+- **Histórico** en timeline (icono/color por tipo, últimos N + "Ver histórico
+  completo"): `Event` (`/events/`) fusionado con la auditoría
+  (`/vehicles/{id}/history/`).
+- **Barra de acciones** (HU-1.2): editar · registrar km · **refacturar** ·
+  cambiar conductor.
 - **Aceptación:** la ficha reúne toda la información y las acciones en un sitio.
 
 ### G3 — Alta y edición del vehículo · HU-1.3, 1.4, 2.7 🔴
-- **Alta transaccional** (HU-1.3): datos técnicos + tipo de uso + **CECO** + datos
-  de contrato + primera lectura de km; **uso "obra" → proyecto obligatorio**; se
-  crea con estado "alta" y "sin asignar" (o con conductor si se indica). Un fallo
-  no crea nada.
-- **Edición** (HU-1.4): campos de gestión (uso, proyecto, CECO, conductor,
-  **supervisor** — HU-2.7); **preview de cambios** antes de guardar
-  (`/vehicles/{id}/preview/`); **bloqueo optimista** (`expected_updated_at` → 409);
-  no permitir vaciar obligatorios.
-- **Aceptación:** alta atómica y edición segura con preview y control de
-  concurrencia.
+*(pantallas "Creación vehículos" y "Edición vehículos" del PDF)*
+- **Alta transaccional** (HU-1.3) en formulario **seccionado** (`Section`):
+  **Identificación** (matrícula*, VIN, marca*, modelo*, versión, año) ·
+  **Características técnicas** (combustible*, tipo*, tamaño, segmento, uso
+  pasajeros/mercancía, **odómetro inicial** → primera lectura de km) · **Uso y
+  asignación** (tipo de uso*, proyecto — **deshabilitado salvo uso "obra"**,
+  conductor "Sin asignar" por defecto, unidad de negocio, **CECO**) · **Propiedad
+  y contrato** (propiedad*, compañía de renting — solo si renting, nº contrato,
+  duración, km contratados, cuota, fechas). Obligatorios marcados con `*`. Un
+  fallo no crea nada.
+- **Edición** (HU-1.4): mismos paneles, con **badges por campo**: `histórico` en
+  los que generan evento (tipo de uso, proyecto, CECO, cuota…) y `bloqueado` en
+  los que tienen flujo propio — **kilometraje** (se actualiza por lecturas) y
+  **conductor** (va por "Cambiar conductor"). Banner que explica ambos badges.
+- Pie con estado ("Sin cambios todavía") y **guardar deshabilitado** hasta que
+  haya cambios; **preview de cambios** antes de guardar
+  (`/vehicles/{id}/preview/`); **bloqueo optimista** (`expected_updated_at` →
+  409); no permitir vaciar obligatorios. Incluye **supervisor** (HU-2.7).
+- **Aceptación:** alta atómica seccionada y edición segura con badges, preview y
+  control de concurrencia.
 
 ### G4 — Estados, baja y vinculación · HU-1.5, 1.6, 1.8 🔴
 - **Cambio de estado** (HU-1.6): selector con la lista cerrada, color distintivo,
@@ -150,13 +203,21 @@ Recursos del DS (`@flota/ui`): `http` (`getJson/postJson/patchJson/deleteJson`),
   operativo. *(Ver dependencias de backend para HU-2.6.)*
 
 ### G6 — Kilometraje: pendientes, proyección e histórico · HU-3.3, 3.4, 3.5, 3.6 🟡
+*(pantalla "Proyección de km" del PDF)*
 - **Lectura pendiente** (HU-3.3): listado/alerta de vehículos sin km del mes,
   filtrable por supervisor/grupo, con "desde cuándo" pendiente y acceso a ficha.
-- **Proyección** (HU-3.4/3.5): consumidos/contratados/restantes, media mensual,
-  proyección a fin de contrato (verde/rojo) y alerta de exceso.
+- **Proyección por vehículo** (HU-3.4/3.5): tabla con contratados, **barra de
+  proyección a fin** (± km) y estado en **tres niveles**: `Dentro` (verde) ·
+  `A vigilar` (naranja, cerca del límite, p. ej. >95%) · `Riesgo exceso` (rojo).
+  Media mensual y ritmo contratado por vehículo; alerta de exceso.
+- **Simulador** de ritmo: slider de **km/mes estimados** sobre un vehículo →
+  recalcula la proyección a fin de contrato y el % del límite en vivo, con
+  mensaje según nivel (se calcula en el front: odómetro + meses restantes +
+  contratados).
 - **Histórico** (HU-3.6): todas las lecturas con fecha y km del periodo (derivados
   de diferencias) + gráfica de evolución.
-- **Aceptación:** el admin ve pendientes, proyección y evolución por vehículo/grupo.
+- **Aceptación:** el admin ve pendientes, proyección (3 niveles), simulador y
+  evolución por vehículo/grupo.
 
 ### G7 — Documentación e incidencias · HU-4.3, 4.4 + Épica 6 🟡
 - **Consultar documentos** (HU-4.3): por vehículo, con tipo/fecha, **quién subió**,
@@ -188,9 +249,17 @@ Recursos del DS (`@flota/ui`): `http` (`getJson/postJson/patchJson/deleteJson`),
 - **Aceptación:** flujo de solicitudes visible y accionable.
 
 ### G10 — Costes y facturación · Épica 7 🔵
-- Facturas (`/invoices/`) e **imputaciones** (`/invoice-allocations/`); **refacturar**
-  desde la ficha usando el reparto de uso (suma % = 100 por proyecto/CECO).
-- **Aceptación:** alta/consulta de facturas y su imputación.
+*(pantalla "Refacturación vehículos" del PDF)*
+- Facturas (`/invoices/`) e **imputaciones** (`/invoice-allocations/`).
+- **Editor de refacturación** desde la ficha: cabecera con la factura (código,
+  proveedor, vehículo, periodo, **importe total**) y **líneas de reparto**
+  añadibles/borrables — cada línea elige destino (**Proyecto** o **Centro de
+  coste/CECO**) + `%` ⇄ `importe €` (**rellenar uno calcula el otro**).
+- **Validación de cuadre en vivo**: banner "cuadra / no cuadra" con el % y el €
+  acumulados; guardar solo si el reparto **suma el 100%** de la factura.
+  Prellenar con el reparto de uso vigente (HU-2.5) como propuesta.
+- **Aceptación:** alta/consulta de facturas y refacturación por líneas que
+  siempre cuadra al 100%.
 
 ### G11 — Pulido (escritorio) 🟡
 - Layout de escritorio (sidebar + tablas densas), atajos de teclado, estados de
@@ -210,6 +279,8 @@ abrirlos (o decidir alternativa) antes/junto a su fase:
 | **2.6** | CRUD de conductores/usuarios (alta/editar/**desactivar**, DNI/permiso/tarjeta) y "vehículos que ha tenido" | Solo `/auth/drivers/` (lectura) + `register` (self-signup driver). No hay CRUD de usuarios por API | Añadir API de usuarios (gestión) o, temporal, usar el admin de Django |
 | **5.1** | **Registrar ITV** (resultado + próxima fecha) que cree `Event`+`EventItv` y dispare el auto-cierre | `Event`/`EventItv` son **solo lectura** en la API | Endpoint de registro de ITV (y, en general, de eventos manuales: ubicación, cuota…) |
 | **1.2 / 3.4** | Métricas de ficha: **coste mensual**, km consumidos/contratados/restantes y **proyección** | El back calcula la proyección en el job de alertas pero no la **expone por vehículo** | Endpoint de *summary/métricas* por vehículo (o calcular en el front desde km + contrato) |
+| **G1 (dashboard)** | KPIs de flota: totales por estado/uso, **coste mensual agregado con tendencia** vs mes anterior, ITV en 30 días | No hay endpoint de agregados de flota | Endpoint de *summary* de flota (o derivar en el front de los listados — costoso) |
+| **G2 / G6** | **Penalización por km** (€/km) del contrato, para la penalización estimada del exceso | `Contract` **no tiene** campo de penalización | Añadir `penalty_per_km` a `Contract` (migración + serializer) |
 | **1.4** | Eventos por cambio de **cuota/ubicación** | Hay subtipos de `Event` pero sin endpoint de alta | Igual que 5.1: alta de eventos manuales |
 | **1.5** | Aviso previo a baja si hay conductor/vínculos activos | El back impide operar en baja, pero el aviso es del front | Front consulta asignación/vínculos antes de confirmar |
 
@@ -220,6 +291,9 @@ abrirlos (o decidir alternativa) antes/junto a su fase:
 ---
 
 ## Transversal
+- **Estilo:** siempre los tokens/componentes de `@flota/ui`; el PDF aporta
+  estructura y flujo, **nunca** colores/tipografías (ver "Visuales de
+  referencia").
 - **Auth:** sesión + CSRF (`credentials:'include'`), `RequireAuth`, expiración →
   login.
 - **Escritorio primero:** este front NO prioriza móvil (esa es la otra app).
