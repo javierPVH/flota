@@ -85,6 +85,46 @@ class VehicleLinkRuleTests(TestCase):
                 )
 
 
+class VehicleLinkApiRuleTests(APITestCase):
+    """G4: la API devuelve 400 legible (no IntegrityError→500) — HU-1.8."""
+
+    def setUp(self):
+        from accounts.models import Role
+
+        from .helpers import make_user
+
+        self.admin = make_user("admin", Role.ADMIN)
+        self.client.force_authenticate(self.admin)
+        self.main = Vehicle.objects.create(plate="M-9", brand="a", model="b")
+        self.sub = Vehicle.objects.create(plate="S-9", brand="a", model="b")
+        self.url = "/api/v1/vehicle-links/"
+
+    def _payload(self, **extra):
+        return {
+            "main_vehicle": self.main.pk,
+            "substitute_vehicle": self.sub.pk,
+            "reason": "breakdown",
+            "start_date": "2026-07-01",
+            **extra,
+        }
+
+    def test_second_active_link_rejected_with_400(self):
+        self.assertEqual(self.client.post(self.url, self._payload()).status_code, 201)
+        other = Vehicle.objects.create(plate="S-10", brand="a", model="b")
+        resp = self.client.post(self.url, self._payload(substitute_vehicle=other.pk))
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_self_link_rejected(self):
+        resp = self.client.post(self.url, self._payload(substitute_vehicle=self.main.pk))
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_closing_then_new_link_ok(self):
+        created = self.client.post(self.url, self._payload()).data
+        self.client.patch(f"{self.url}{created['id']}/", {"end_date": "2026-07-10"})
+        resp = self.client.post(self.url, self._payload(start_date="2026-07-11"))
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+
 class VehicleProjectRuleTests(APITestCase):
     def setUp(self):
         self.manager = make_user("admin", Role.ADMIN)  # el alta de vehículo es solo admin

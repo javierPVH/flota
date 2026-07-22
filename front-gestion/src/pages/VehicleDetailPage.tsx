@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Button, Modal, Panel, StatCard, TextInputField } from '@flota/ui/ui'
+import { Button, Modal, Panel, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
+  closeVehicleLink,
   createKmReading,
+  createVehicleLink,
   fetchManagedUser,
   fetchVehicle,
   fetchVehicleHistory,
@@ -13,6 +15,8 @@ import {
   listEvents,
   listKmReadings,
   listVehicleLinks,
+  listVehicles,
+  updateVehicleFields,
 } from '../api.ts'
 import { DocumentsPanel } from '../components/DocumentsPanel.tsx'
 import type {
@@ -22,8 +26,28 @@ import type {
   KmReading,
   ManagedUser,
   Vehicle,
+  VehicleLinkRow,
   VehicleSummary,
 } from '../types.ts'
+
+// Estados operables a mano (HU-1.6). La baja tiene su propio flujo (HU-1.5) y
+// algunos estados los dispara el back (p. ej. avería desde incidencias).
+const STATE_OPTIONS = [
+  { value: 'active', label: 'Activo' },
+  { value: 'maintenance', label: 'En mantenimiento' },
+  { value: 'itv', label: 'En ITV' },
+  { value: 'broken', label: 'Averiado' },
+]
+
+const LINK_REASON_OPTIONS = [
+  { value: 'breakdown', label: 'Avería' },
+  { value: 'maintenance', label: 'Mantenimiento' },
+  { value: 'inspection', label: 'ITV' },
+  { value: 'accident', label: 'Accidente' },
+]
+const LINK_REASON_LABEL = Object.fromEntries(LINK_REASON_OPTIONS.map((o) => [o.value, o.label]))
+
+const today = () => new Date().toISOString().slice(0, 10)
 
 const USE_LABEL: Record<string, string> = {
   on_project: 'Proyecto',
@@ -146,8 +170,24 @@ export function VehicleDetailPage() {
   const [assignment, setAssignment] = useState<AssignmentRow | null>(null)
   const [driverDetail, setDriverDetail] = useState<ManagedUser | null>(null)
   const [linkInfo, setLinkInfo] = useState<{ role: 'main' | 'substitute'; plate: string; otherId: number; since: string } | null>(null)
+  const [allLinks, setAllLinks] = useState<VehicleLinkRow[]>([])
+  const [activeLink, setActiveLink] = useState<VehicleLinkRow | null>(null)
   const [error, setError] = useState('')
   const [showAllHistory, setShowAllHistory] = useState(false)
+
+  // Operaciones G4 (estado / baja / vinculación)
+  const [opsModal, setOpsModal] = useState<'state' | 'baja' | 'link' | null>(null)
+  const [opsError, setOpsError] = useState('')
+  const [opsSaving, setOpsSaving] = useState(false)
+  const [stateValue, setStateValue] = useState('active')
+  const [stateReason, setStateReason] = useState('')
+  const [bajaDate, setBajaDate] = useState(today())
+  const [bajaReason, setBajaReason] = useState('')
+  const [linkSubstitute, setLinkSubstitute] = useState('')
+  const [linkReason, setLinkReason] = useState('breakdown')
+  const [linkStart, setLinkStart] = useState(today())
+  const [candidates, setCandidates] = useState<Vehicle[]>([])
+  const [plateMap, setPlateMap] = useState<Record<number, string>>({})
 
   const [kmModal, setKmModal] = useState(false)
   const [kmValue, setKmValue] = useState('')
@@ -181,15 +221,19 @@ export function VehicleDetailPage() {
         }
       })
       .catch(() => setAssignment(null))
-    // Vínculo activo (HU-1.8), visible desde ambos lados.
+    // Vínculos (HU-1.8): el activo se banneriza desde ambos lados y el
+    // histórico completo alimenta el modal de vinculación.
     Promise.all([
       listVehicleLinks({ main_vehicle: vehicleId }),
       listVehicleLinks({ substitute_vehicle: vehicleId }),
     ])
       .then(async ([asMain, asSubstitute]) => {
+        const merged = [...asMain.results, ...asSubstitute.results]
+        setAllLinks(merged)
         const activeMain = asMain.results.find((l) => l.end_date === null)
         const activeSub = asSubstitute.results.find((l) => l.end_date === null)
-        const link = activeMain ?? activeSub
+        const link = activeMain ?? activeSub ?? null
+        setActiveLink(link)
         if (!link) {
           setLinkInfo(null)
           return
@@ -209,6 +253,111 @@ export function VehicleDetailPage() {
   useEffect(load, [load])
 
   const timeline = useMemo(() => buildTimeline(events, audit), [events, audit])
+
+  function openOps(kind: 'state' | 'baja' | 'link') {
+    setOpsError('')
+    if (kind === 'state' && vehicle) {
+      setStateValue(STATE_OPTIONS.some((o) => o.value === vehicle.state) ? vehicle.state : 'active')
+      setStateReason('')
+    }
+    if (kind === 'baja') {
+      setBajaDate(today())
+      setBajaReason('')
+    }
+    if (kind === 'link') {
+      setLinkSubstitute('')
+      setLinkReason('breakdown')
+      setLinkStart(today())
+      // Candidatos a sustituto + mapa de matrículas para el histórico.
+      listVehicles()
+        .then((page) => {
+          setCandidates(page.results.filter((v) => v.id !== vehicleId))
+          setPlateMap(Object.fromEntries(page.results.map((v) => [v.id, v.plate])))
+        })
+        .catch(() => setCandidates([]))
+    }
+    setOpsModal(kind)
+  }
+
+  async function submitState(event: FormEvent) {
+    event.preventDefault()
+    if (!vehicle) return
+    setOpsSaving(true)
+    setOpsError('')
+    try {
+      // El PATCH con change_reason emite el evento de cambio de estado (HU-1.6).
+      await updateVehicleFields(vehicle.id, {
+        state: stateValue,
+        change_reason: stateReason,
+        expected_updated_at: vehicle.updated_at,
+      })
+      setOpsModal(null)
+      load()
+    } catch (err) {
+      setOpsError(asErrorMessage(err, 'No se pudo cambiar el estado.'))
+    } finally {
+      setOpsSaving(false)
+    }
+  }
+
+  async function submitBaja(event: FormEvent) {
+    event.preventDefault()
+    if (!vehicle) return
+    setOpsSaving(true)
+    setOpsError('')
+    try {
+      await updateVehicleFields(vehicle.id, {
+        state: 'retired',
+        change_reason: `Baja el ${bajaDate}: ${bajaReason}`,
+        expected_updated_at: vehicle.updated_at,
+      })
+      setOpsModal(null)
+      load()
+    } catch (err) {
+      setOpsError(asErrorMessage(err, 'No se pudo dar de baja.'))
+    } finally {
+      setOpsSaving(false)
+    }
+  }
+
+  async function submitLink(event: FormEvent) {
+    event.preventDefault()
+    if (!linkSubstitute) {
+      setOpsError('Elige el vehículo de sustitución.')
+      return
+    }
+    setOpsSaving(true)
+    setOpsError('')
+    try {
+      await createVehicleLink({
+        main_vehicle: vehicleId,
+        substitute_vehicle: Number(linkSubstitute),
+        reason: linkReason,
+        start_date: linkStart,
+      })
+      setOpsModal(null)
+      load()
+    } catch (err) {
+      setOpsError(asErrorMessage(err, 'No se pudo crear el vínculo (¿ya hay un sustituto activo?).'))
+    } finally {
+      setOpsSaving(false)
+    }
+  }
+
+  async function handleCloseLink() {
+    if (!activeLink) return
+    if (!window.confirm('¿Cerrar el vínculo de sustitución con fecha de hoy?')) return
+    setOpsSaving(true)
+    try {
+      await closeVehicleLink(activeLink.id, today())
+      setOpsModal(null)
+      load()
+    } catch (err) {
+      setOpsError(asErrorMessage(err, 'No se pudo cerrar el vínculo.'))
+    } finally {
+      setOpsSaving(false)
+    }
+  }
 
   async function handleKmSubmit(event: FormEvent) {
     event.preventDefault()
@@ -274,6 +423,19 @@ export function VehicleDetailPage() {
           <Button variant="secondary" onClick={() => navigate(`/vehiculos/${vehicleId}/editar`)}>
             Editar
           </Button>
+          {vehicle.state !== 'retired' && (
+            <>
+              <Button variant="secondary" onClick={() => openOps('state')}>
+                Cambiar estado
+              </Button>
+              <Button variant="secondary" onClick={() => openOps('link')}>
+                Sustitución
+              </Button>
+              <Button variant="danger" onClick={() => openOps('baja')}>
+                Dar de baja
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -476,6 +638,165 @@ export function VehicleDetailPage() {
           </ul>
         )}
       </Panel>
+
+      {/* G4 · Cambio de estado (HU-1.6) */}
+      <Modal
+        open={opsModal === 'state'}
+        title={`Cambiar estado de ${vehicle.plate}`}
+        onClose={() => setOpsModal(null)}
+      >
+        <form className="modal-form" onSubmit={submitState}>
+          <SelectField
+            label="Nuevo estado"
+            options={STATE_OPTIONS}
+            value={stateValue}
+            onValueChange={setStateValue}
+          />
+          <TextInputField
+            label="Motivo (queda en el evento)"
+            value={stateReason}
+            onChange={(e) => setStateReason(e.target.value)}
+          />
+          <p className="muted" style={{ margin: 0 }}>
+            El cambio queda registrado como evento con fecha. Algunos estados también los mueve el
+            sistema (p. ej. avería desde incidencias). La baja tiene su propio flujo.
+          </p>
+          {opsError && <div className="form-error">{opsError}</div>}
+          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+            <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
+              Cancelar
+            </Button>
+            <Button type="submit" variant="primary" disabled={opsSaving || stateValue === vehicle.state}>
+              {opsSaving ? 'Guardando…' : 'Cambiar estado'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* G4 · Baja (HU-1.5) — el aviso previo es responsabilidad del front */}
+      <Modal open={opsModal === 'baja'} title={`Dar de baja ${vehicle.plate}`} onClose={() => setOpsModal(null)}>
+        <form className="modal-form" onSubmit={submitBaja}>
+          {(vehicle.driver_name || activeLink) && (
+            <div className="baja-warnings">
+              {vehicle.driver_name && (
+                <p>⚠️ Tiene conductor asignado: <strong>{vehicle.driver_name}</strong>.</p>
+              )}
+              {activeLink && (
+                <p>⚠️ Tiene un vínculo de sustitución <strong>activo</strong> (ciérralo antes si procede).</p>
+              )}
+            </div>
+          )}
+          <TextInputField
+            label="Fecha de baja"
+            type="date"
+            value={bajaDate}
+            onChange={(e) => setBajaDate(e.target.value)}
+            required
+          />
+          <TextInputField
+            label="Motivo *"
+            value={bajaReason}
+            onChange={(e) => setBajaReason(e.target.value)}
+            required
+          />
+          <p className="muted" style={{ margin: 0 }}>
+            El vehículo pasa a <strong>baja</strong> conservando su histórico; deja de salir en el
+            listado por defecto y no admite nuevas operaciones.
+          </p>
+          {opsError && <div className="form-error">{opsError}</div>}
+          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+            <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
+              Cancelar
+            </Button>
+            <Button type="submit" variant="danger" disabled={opsSaving}>
+              {opsSaving ? 'Guardando…' : 'Confirmar baja'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* G4 · Vinculación principal ↔ sustitución (HU-1.8) */}
+      <Modal
+        open={opsModal === 'link'}
+        title={`Sustitución de ${vehicle.plate}`}
+        onClose={() => setOpsModal(null)}
+      >
+        {activeLink ? (
+          <div className="modal-form">
+            <p style={{ margin: 0 }}>
+              Vínculo <strong>activo</strong> desde {activeLink.start_date} (
+              {LINK_REASON_LABEL[activeLink.reason] ?? activeLink.reason}):{' '}
+              <strong>{plateMap[activeLink.main_vehicle] ?? `#${activeLink.main_vehicle}`}</strong> ↔{' '}
+              <strong>
+                {plateMap[activeLink.substitute_vehicle] ?? `#${activeLink.substitute_vehicle}`}
+              </strong>
+              . Solo puede haber un sustituto activo por principal.
+            </p>
+            {opsError && <div className="form-error">{opsError}</div>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button variant="danger" disabled={opsSaving} onClick={handleCloseLink}>
+                {opsSaving ? 'Cerrando…' : 'Cerrar vínculo (fin hoy)'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <form className="modal-form" onSubmit={submitLink}>
+            <SelectField
+              label="Vehículo de sustitución"
+              options={[
+                { value: '', label: '— Elegir —' },
+                // Los marcados como sustitución, primero.
+                ...[...candidates]
+                  .sort((a, b) => Number(b.is_substitute) - Number(a.is_substitute))
+                  .map((v) => ({
+                    value: String(v.id),
+                    label: `${v.plate} · ${v.brand} ${v.model}${v.is_substitute ? ' 🔁' : ''}`,
+                  })),
+              ]}
+              value={linkSubstitute}
+              onValueChange={setLinkSubstitute}
+            />
+            <SelectField
+              label="Motivo"
+              options={LINK_REASON_OPTIONS}
+              value={linkReason}
+              onValueChange={setLinkReason}
+            />
+            <TextInputField
+              label="Inicio"
+              type="date"
+              value={linkStart}
+              onChange={(e) => setLinkStart(e.target.value)}
+              required
+            />
+            {opsError && <div className="form-error">{opsError}</div>}
+            <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+              <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
+                Cancelar
+              </Button>
+              <Button type="submit" variant="primary" disabled={opsSaving}>
+                {opsSaving ? 'Vinculando…' : 'Vincular'}
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {allLinks.length > 0 && (
+          <div className="link-history">
+            <h4>Histórico de vínculos</h4>
+            <ul>
+              {allLinks.map((l) => (
+                <li key={l.id}>
+                  {plateMap[l.main_vehicle] ?? `#${l.main_vehicle}`} ↔{' '}
+                  {plateMap[l.substitute_vehicle] ?? `#${l.substitute_vehicle}`} ·{' '}
+                  {LINK_REASON_LABEL[l.reason] ?? l.reason} · {l.start_date} →{' '}
+                  {l.end_date ?? 'activo'}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Modal>
 
       <Modal open={kmModal} title={`Registrar km de ${vehicle.plate}`} onClose={() => setKmModal(false)}>
         <form className="modal-form" onSubmit={handleKmSubmit}>

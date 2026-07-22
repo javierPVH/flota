@@ -265,7 +265,18 @@ El CRUD por modal de /vehiculos se sustituyó por estas páginas.)*
 - **Aceptación:** alta atómica seccionada y edición segura con badges, preview y
   control de concurrencia.
 
-### G4 — Estados, baja y vinculación · HU-1.5, 1.6, 1.8 🔴
+### G4 — Estados, baja y vinculación · HU-1.5, 1.6, 1.8 🔴 — ✅ IMPLEMENTADA
+*(tres modales en la barra de acciones de la ficha: **Cambiar estado** (lista
+cerrada sin `baja`, motivo → el PATCH con `change_reason` emite el evento;
+guardar deshabilitado si no cambia); **Dar de baja** con fecha y motivo
+obligatorio, avisos previos del front si hay conductor asignado o vínculo
+activo, y nota de que conserva histórico y no admite operaciones (el back lo
+impide — verificado); **Sustitución**: crear vínculo con motivo
+(avería/mantenimiento/ITV/accidente) y fecha — candidatos con los 🔁 primero —,
+cerrar el activo con fin=hoy, e **histórico de vínculos** en el propio modal.
+El back ganó validación en `VehicleLinkSerializer`: segundo sustituto activo y
+auto-vínculo devuelven **400 legible** en vez del IntegrityError→500 que daba
+la constraint (3 tests). Las acciones desaparecen con el vehículo en baja.)*
 - **Cambio de estado** (HU-1.6): selector con la lista cerrada, color distintivo,
   emite evento con fecha (vía `PATCH` + `change_reason`). Nota: ciertos estados los
   dispara el back (mantenimiento/avería).

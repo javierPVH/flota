@@ -340,6 +340,28 @@ class VehicleLinkSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
 
+    def validate(self, attrs):
+        # HU-1.8: validar aquí lo que la constraint garantiza en BD, para que el
+        # cliente reciba un 400 legible y no un IntegrityError (500).
+        main = attrs.get("main_vehicle", getattr(self.instance, "main_vehicle", None))
+        substitute = attrs.get(
+            "substitute_vehicle", getattr(self.instance, "substitute_vehicle", None)
+        )
+        if main is not None and substitute is not None and main == substitute:
+            raise serializers.ValidationError(
+                {"substitute_vehicle": "El sustituto no puede ser el propio vehículo."}
+            )
+        end_date = attrs.get("end_date", getattr(self.instance, "end_date", None))
+        if main is not None and end_date is None:
+            existing = VehicleLink.objects.filter(main_vehicle=main, end_date__isnull=True)
+            if self.instance is not None:
+                existing = existing.exclude(pk=self.instance.pk)
+            if existing.exists():
+                raise serializers.ValidationError(
+                    "El vehículo ya tiene un sustituto activo; cierra ese vínculo primero."
+                )
+        return attrs
+
 
 # Tipos de evento que se pueden registrar A MANO por la API (Fase A1). El resto
 # los emiten los procesos de negocio (alta, cambios de estado/conductor, km…).

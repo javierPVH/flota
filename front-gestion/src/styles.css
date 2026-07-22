@@ -509,3 +509,21 @@ table.data th {
 }
 .preview-table td, .preview-table th { font-size: 0.86rem; }
 .preview-table .field-badge { margin-left: 0.4rem; }
+
+/* --- G4: estado / baja / sustitución -------------------------------------- */
+.baja-warnings {
+  padding: 0.6rem 0.9rem;
+  border-radius: 10px;
+  background: #fff4df;
+  color: #7a5410;
+  font-size: 0.9rem;
+}
+.baja-warnings p { margin: 0.15rem 0; }
+
+.link-history {
+  margin-top: 1.1rem;
+  padding-top: 0.8rem;
+  border-top: 1px dashed var(--border, #cfdae6);
+}
+.link-history h4 { margin: 0 0 0.4rem; font-size: 0.9rem; }
+.link-history ul { margin: 0; padding-left: 1.2rem; font-size: 0.86rem; color: #34495e; }

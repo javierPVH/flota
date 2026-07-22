@@ -157,6 +157,19 @@ export const listAssignments = (filters: { vehicle?: number; status?: string } =
 export const listVehicleLinks = (filters: { main_vehicle?: number; substitute_vehicle?: number }) =>
   getJson<Paginated<VehicleLinkRow>>(`${API}/vehicle-links/${buildQs({ ...filters })}`)
 
+// --- G4: estados, baja y vinculación ---------------------------------------
+
+export const createVehicleLink = (data: {
+  main_vehicle: number
+  substitute_vehicle: number
+  reason: string
+  start_date: string
+}) => postJson<VehicleLinkRow>(`${API}/vehicle-links/`, data)
+
+/** Cerrar el vínculo activo: fin = fecha dada (HU-1.8). */
+export const closeVehicleLink = (id: number, end_date: string) =>
+  patchJson<VehicleLinkRow>(`${API}/vehicle-links/${id}/`, { end_date })
+
 export const fetchManagedUser = (id: number) =>
   getJson<ManagedUser>(`${AUTH}/users/${id}/`)
 
