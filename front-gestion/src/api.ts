@@ -124,8 +124,23 @@ export interface CatalogEntry {
   project_name?: string
 }
 
-export const listCatalog = (resource: 'projects' | 'peps' | 'business-units' | 'rentings' | 'countries') =>
+export type CatalogResource = 'projects' | 'peps' | 'business-units' | 'rentings' | 'countries'
+
+export const listCatalog = (resource: CatalogResource) =>
   getJson<Paginated<CatalogEntry>>(`${API}/${resource}/`)
+
+// G11: escritura de catálogos (solo admin en el back).
+export const createCatalogEntry = (resource: CatalogResource, data: Record<string, string>) =>
+  postJson<CatalogEntry>(`${API}/${resource}/`, data)
+
+export const updateCatalogEntry = (
+  resource: CatalogResource,
+  id: number,
+  data: Record<string, string>,
+) => patchJson<CatalogEntry>(`${API}/${resource}/${id}/`, data)
+
+export const deleteCatalogEntry = (resource: CatalogResource, id: number) =>
+  deleteJson(`${API}/${resource}/${id}/`)
 
 // --- G1/G8: alertas ---------------------------------------------------------
 

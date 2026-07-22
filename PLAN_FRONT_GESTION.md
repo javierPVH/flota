@@ -448,7 +448,13 @@ URL del PDF no es https.)*
 - **Aceptación:** alta/consulta de facturas y refacturación por líneas que
   siempre cuadra al 100%.
 
-### G11 — Catálogos (admin) 🔵
+### G11 — Catálogos (admin) 🔵 — ✅ IMPLEMENTADA
+*(`/catalogos` con chips para los 5 maestros (proyectos, PEP/CECO, unidades,
+rentings, países): tabla + editar en modal + eliminar con confirmación (si
+está en uso, el error del back se muestra legible), y alta con el
+**`CatalogEntityCreateForm` del DS** (submit inyectado contra la API real).
+Verificado E2E el CRUD y que la escritura es solo-admin (supervisor → 403).
+Deja de hacer falta el admin de Django para mantenerlos.)*
 - CRUD de **proyectos, PEP/CECO, rentings, unidades de negocio y países**
   (`/projects|peps|rentings|business-units|countries/` — lectura gestión,
   escritura admin), con `TableWithPanel` + los formularios de catálogo del DS
