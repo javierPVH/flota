@@ -308,6 +308,66 @@ export const grantVehicleRequest = (id: number, vehicle: number) =>
 export const rejectVehicleRequest = (id: number) =>
   postJson<VehicleRequestRow>(`${API}/vehicle-requests/${id}/reject/`, {})
 
+// --- G10: facturas y refacturación (Épica 7) --------------------------------
+
+export interface InvoiceRow {
+  id: number
+  code: string
+  vehicle: number
+  date: string | null
+  amount: string | null
+  /** PDF en Google Drive (Fase A3): solo la referencia. */
+  drive_url: string
+  drive_file_id: string
+  created_at: string
+}
+
+export interface AllocationRow {
+  id: number
+  invoice: number
+  target_type: 'proyecto' | 'pep'
+  project: number | null
+  cost_center: number | null
+  percentage: string
+  amount: string
+}
+
+export const listInvoices = (filters: { vehicle?: number } = {}) =>
+  getJson<Paginated<InvoiceRow>>(`${API}/invoices/${buildQs({ ...filters })}`)
+
+export interface InvoiceInput {
+  code?: string
+  vehicle: number
+  date?: string | null
+  amount?: string | null
+  drive_url?: string
+  drive_file_id?: string
+}
+
+export const createInvoice = (data: InvoiceInput) =>
+  postJson<InvoiceRow>(`${API}/invoices/`, data)
+
+export const updateInvoice = (id: number, data: Partial<InvoiceInput>) =>
+  patchJson<InvoiceRow>(`${API}/invoices/${id}/`, data)
+
+export const deleteInvoice = (id: number) => deleteJson(`${API}/invoices/${id}/`)
+
+export const listAllocations = (filters: { invoice?: number } = {}) =>
+  getJson<Paginated<AllocationRow>>(`${API}/invoice-allocations/${buildQs({ ...filters })}`)
+
+/** Refacturación completa (Épica 7): el back exige que los % sumen 100 y
+ * calcula los importes que falten desde el total de la factura. */
+export const allocateInvoice = (
+  id: number,
+  lines: Array<{
+    target_type: 'proyecto' | 'pep'
+    project?: number | null
+    cost_center?: number | null
+    percentage: string
+    amount?: string | null
+  }>,
+) => postJson<AllocationRow[]>(`${API}/invoices/${id}/allocate/`, { lines })
+
 // --- G7: documentación e incidencias ---------------------------------------
 
 /** Query-string a partir de filtros opcionales (omite vacíos). */

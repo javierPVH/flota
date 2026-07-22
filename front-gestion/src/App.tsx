@@ -14,6 +14,7 @@ import { MileagePage } from './pages/MileagePage.tsx'
 import { AlertsPage } from './pages/AlertsPage.tsx'
 import { ReportsPage } from './pages/ReportsPage.tsx'
 import { RequestsPage } from './pages/RequestsPage.tsx'
+import { InvoicesPage } from './pages/InvoicesPage.tsx'
 import { UsersPage } from './pages/UsersPage.tsx'
 import { UserDetailPage } from './pages/UserDetailPage.tsx'
 
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/alertas" element={<AlertsPage />} />
         <Route path="/informes" element={<ReportsPage />} />
         <Route path="/solicitudes" element={<RequestsPage />} />
+        <Route path="/facturas" element={<InvoicesPage />} />
         <Route path="/conductores" element={<UsersPage />} />
         <Route path="/conductores/:id" element={<UserDetailPage />} />
       </Route>

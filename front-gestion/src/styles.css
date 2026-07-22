@@ -620,3 +620,14 @@ table.data th {
 .badge.req-approved { background: #e8f0fe; color: #1f63b8; }
 .badge.req-assigned { background: #e3f4e8; color: #1e7e45; }
 .badge.req-rejected { background: #f0e3e3; color: #a13a2f; }
+
+/* --- G10: facturas y refacturación ----------------------------------------- */
+.alloc-line {
+  display: grid;
+  grid-template-columns: 130px 1fr 90px 110px auto;
+  gap: 0.6rem;
+  align-items: end;
+}
+@media (max-width: 760px) {
+  .alloc-line { grid-template-columns: 1fr 1fr; }
+}

@@ -421,8 +421,18 @@ Verificado E2E con el seed: la pendiente de David (FLT-123) concedida con el
 - **Aceptación:** la bandeja distingue orígenes/estados y conceder deja al
   usuario dentro con su coche.
 
-### G10 — Costes y facturación · Épica 7 🔵
-*(pantalla "Refacturación vehículos" del PDF)*
+### G10 — Costes y facturación · Épica 7 🔵 — ✅ IMPLEMENTADA
+*(`/facturas` con filtro por vehículo en la URL (y acción **Refacturar** en la
+ficha que llega ya filtrada): listado con código, vehículo, fecha, importe,
+**Abrir PDF en Drive** y badge de reparto (sin repartir / N líneas · %). Alta y
+edición de cabecera con el PDF **vía Picker** (subir/elegir de Drive, tarjeta
+de conexión, fallback URL https). **Editor de refacturación**: líneas
+añadibles/borrables con destino Proyecto/CECO, **% ⇄ €** (rellenar uno calcula
+el otro desde el total), banner de cuadre en vivo (✓ 100% · € acumulados) y
+guardar deshabilitado hasta cuadrar; al abrir precarga las líneas existentes o
+propone el destino natural del vehículo al 100%. Verificado E2E: 60/40 con
+importes autocalculados por el back, y 400 tanto si no suma 100 como si la
+URL del PDF no es https.)*
 - Facturas (`/invoices/`) e **imputaciones** (`/invoice-allocations/`).
 - **El PDF de la factura vive en Drive** (Fase A3): al dar de alta una factura
   se adjunta con el **Picker** (subir o elegir de la carpeta `facturas/` del

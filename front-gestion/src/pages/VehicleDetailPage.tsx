@@ -369,6 +369,9 @@ export function VehicleDetailPage() {
           <Button variant="secondary" onClick={() => navigate(`/vehiculos/${vehicleId}/editar`)}>
             Editar
           </Button>
+          <Button variant="secondary" onClick={() => navigate(`/facturas?vehicle=${vehicleId}`)}>
+            Refacturar
+          </Button>
           {vehicle.state !== 'retired' && (
             <>
               <Button variant="secondary" onClick={() => openOps('state')}>
