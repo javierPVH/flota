@@ -82,8 +82,88 @@ export interface Vehicle {
   km_end: number | null
   /** Denormalizado del último EventItv; lo mantiene el back. */
   next_itv_date: string | null
+  /** Carpeta documental del vehículo en Google Drive (Fase A3). */
+  drive_folder_url: string
+  drive_folder_id: string
   created_at: string
   updated_at: string
+}
+
+// --- G7: documentación e incidencias --------------------------------------
+
+export type DocumentType =
+  | 'registration_certificate'
+  | 'technical_datasheet'
+  | 'insurance'
+  | 'contract'
+  | 'delivery_report'
+  | 'return_report'
+  | 'accident_report'
+  | 'damage_photos'
+  | 'other'
+
+export type DocumentStatus = 'valid' | 'expired' | 'pending_archive'
+
+export interface FlotaDocument {
+  id: number
+  vehicle: number
+  type: DocumentType
+  type_display: string
+  incident: number | null
+  /** webViewLink en Google Drive (Fase A3); vacío si aún no está archivado. */
+  drive_url: string
+  drive_file_id: string
+  /** Staging local del multipart; el archivador lo borra al subir a Drive. */
+  file: string | null
+  file_url: string
+  uploaded_by: number | null
+  uploaded_by_name: string
+  expiry_date: string | null
+  status: DocumentStatus
+  status_display: string
+  /** Versión anterior a la que sustituye (HU-4.4). */
+  replaces: number | null
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export type IncidentType = 'breakdown' | 'maintenance' | 'inspection' | 'accident'
+export type IncidentStatus = 'open' | 'on_going' | 'closed'
+
+export interface Incident {
+  id: number
+  vehicle: number
+  type: IncidentType
+  type_display: string
+  date: string | null
+  description: string
+  status: IncidentStatus
+  status_display: string
+  cost: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** GET /api/v1/google/picker-config/ — config del Google Picker (Fase A3). */
+export interface PickerConfig {
+  enabled: boolean
+  api_key?: string
+  app_id?: string
+  client_id?: string
+  /** false = el usuario aún no ha concedido Drive → tarjeta "Conectar Google". */
+  has_drive?: boolean
+  access_token?: string | null
+}
+
+/** Fichero de la carpeta de Drive del vehículo (folder-files). */
+export interface DriveFile {
+  id: string
+  name: string
+  mime: string
+  url: string
+  iconUrl?: string
+  thumbnailUrl?: string
 }
 
 /** GET /api/v1/summary/ — agregados del dashboard (Fase A1). */

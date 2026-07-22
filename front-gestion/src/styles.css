@@ -173,3 +173,94 @@ table.data th {
   display: grid;
   gap: 0.6rem;
 }
+
+/* --- G7: documentación e incidencias ------------------------------------- */
+/* Estados de documento */
+.badge.valid { background: #e3f4e8; color: #1e7e45; }
+.badge.expired { background: #e2e8f0; color: #475569; }
+.badge.pending_archive { background: #fff4df; color: #c17a11; }
+/* Estados de incidencia */
+.badge.open { background: #f5c3c3; color: #c63434; }
+.badge.on_going { background: #fdf0d5; color: #a9791c; }
+.badge.closed { background: #e3f4e8; color: #1e7e45; }
+.badge.subst { background: #e8f0fe; color: #1f63b8; margin-left: 0.4rem; }
+
+.breadcrumbs { margin: 0 0 0.6rem; font-size: 0.88rem; }
+.detail-plate { display: flex; align-items: center; gap: 0.5rem; margin: 0; }
+.detail-sub { margin: 0.25rem 0 0; color: #5f748c; font-size: 0.92rem; }
+
+.section-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+.section-head h3 { margin: 0; }
+.section-tools { display: flex; align-items: end; gap: 0.75rem; }
+
+.filters-row {
+  display: flex;
+  gap: 0.9rem;
+  align-items: end;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.drive-connect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.9rem;
+  border: 1px dashed #9db8d4;
+  border-radius: 10px;
+  background: #f2f7fc;
+}
+.drive-connect p { margin: 0; font-size: 0.9rem; }
+
+.drive-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  margin: 0 0 0.6rem;
+}
+.drive-folder-files {
+  margin: 0 0 0.8rem;
+  padding-left: 1.6rem;
+  font-size: 0.88rem;
+}
+
+.doc-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1f63b8;
+  text-decoration: none;
+}
+.doc-open:hover { text-decoration: underline; }
+.doc-version { color: #5f748c; font-size: 0.8rem; }
+.doc-notes { color: #5f748c; font-size: 0.8rem; }
+.row-muted td { color: #8496a9; }
+.cell-truncate {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-attach {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border, #dbe4ee);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.doc-attach-label { font-weight: 700; font-size: 0.85rem; }
+.doc-attach-drive { display: flex; gap: 0.6rem; }
+.doc-attach-picked { margin: 0; font-size: 0.9rem; }

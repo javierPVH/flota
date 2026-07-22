@@ -2,8 +2,17 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // Front de conductores (internet). Puerto 5174. Habla con el back por cookies
-// de sesión + CSRF; el origen se resuelve desde VITE_BACKEND_BASE_URL (ver .env).
+// de sesión + CSRF, que exigen MISMO ORIGEN: en dev, vite hace de proxy hacia
+// Django (patrón de list) y el cliente http usa rutas relativas
+// (VITE_BACKEND_BASE_URL vacío). En producción sirve el mismo dominio (nginx).
+const proxyTarget = process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:8000'
+const proxy = {
+  '/api': { target: proxyTarget, changeOrigin: false, secure: false },
+  '/media': { target: proxyTarget, changeOrigin: false, secure: false },
+}
+
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5174 },
+  server: { port: 5174, proxy },
+  preview: { port: 5174, proxy },
 })

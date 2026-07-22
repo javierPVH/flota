@@ -283,7 +283,16 @@ listado en una sola vista)*
 - **Aceptación:** el admin ve pendientes, proyección (3 niveles), simulador y
   evolución por vehículo/grupo.
 
-### G7 — Documentación e incidencias · HU-4.3, 4.4 + Épica 6 🟡
+### G7 — Documentación e incidencias · HU-4.3, 4.4 + Épica 6 🟡 — ✅ IMPLEMENTADA
+*(ficha mínima en `/vehiculos/:id` — adelanto de G2 — con la sección de
+documentos completa: listado con tipo/fecha/quién/caducidad/estado + filtro,
+abrir en Drive, Picker con tarjeta "Conectar Google" y fallback
+fichero/URL, sustituir con `replaces` (el anterior queda caducado),
+caducar/reactivar, eliminar con confirmación; carpeta del vehículo en Drive
+con listado vía `folder-files`. Bandeja `/incidencias` con filtros
+vehículo/tipo/estado, CRUD con coste y estado, y enlace a la ficha para ligar
+documentos. De paso: **proxy de vite** en ambos fronts (mismo origen, patrón
+list) — sin él las cookies de sesión no viajaban en dev.)*
 > **Todos los documentos y facturas viven en Google Drive** (patrón de `list`,
 > Fase A3 del back): la app guarda solo la referencia `{id, name, url}` y abre
 > el archivo por su `webViewLink`; nunca almacena los bytes.

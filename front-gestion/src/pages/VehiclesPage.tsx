@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
@@ -129,7 +130,9 @@ export function VehiclesPage() {
             {vehicles.map((v) => (
               <tr key={v.id}>
                 <td>
-                  <strong>{v.plate}</strong>
+                  <Link to={`/vehiculos/${v.id}`}>
+                    <strong>{v.plate}</strong>
+                  </Link>
                   {v.is_substitute ? ' 🔁' : ''}
                 </td>
                 <td>{v.brand}</td>
