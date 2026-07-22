@@ -164,7 +164,16 @@ G12/pulido.)*
 - **Aceptación:** el admin entra y navega por el shell; supervisor/conductor ven
   el 403; `/me` pinta los roles.
 
-### G1 — Vista general: dashboard + listado · HU-1.1, 1.6, 1.7 🔴
+### G1 — Vista general: dashboard + listado · HU-1.1, 1.6, 1.7 🔴 — ✅ IMPLEMENTADA
+*(home con 4 KPIs compuestos — vehículos activos/taller, personal vs obra con
+%, coste mensual con tendencia de facturación, ITV 30 días/vencidas —, bloque
+"Alertas que requieren atención" (las 4 más urgentes por nivel, tarjeta con
+matrícula + mensaje, enlazan a la ficha), búsqueda con debounce por
+matrícula/marca/conductor, chips de filtro (uso/estado/sin conductor/ITV
+próxima), conmutador "Mostrar bajas", paginación, y listado con conductor
+vigente y semáforo de ITV. El back ganó `driver_name` (mapa en bloque, sin
+N+1) y expone `drive_folder_*` en el serializer de vehículo. "Ver todas" las
+alertas llega con el panel de G8.)*
 *(pantalla "Vista general" del PDF: la home reúne KPIs, alertas destacadas y el
 listado en una sola vista)*
 - **Fila de KPIs** (`StatCard`): total de vehículos (activos/taller), uso

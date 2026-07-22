@@ -96,3 +96,17 @@ class VehicleAccessTests(APITestCase):
         self.assertNotIn("0000ZZZ", [v["plate"] for v in default.data["results"]])
         with_baja = self.client.get(self.list_url, {"include_baja": "1"})
         self.assertIn("0000ZZZ", [v["plate"] for v in with_baja.data["results"]])
+
+    def test_listing_exposes_current_driver_name(self):
+        # HU-1.1 (G1): el listado pinta el conductor vigente sin N+1 (el mapa
+        # se resuelve una vez por respuesta, no una query por fila). Solo
+        # cuentan las asignaciones ACEPTADAS (las propuestas no asignan).
+        Assignment.objects.filter(vehicle=self.assigned).update(status="accepted")
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(self.list_url)
+        by_plate = {v["plate"]: v for v in resp.data["results"]}
+        self.assertEqual(by_plate["1234ABC"]["driver_name"], "driver")
+        self.assertEqual(by_plate["0000ZZZ"]["driver_name"], "")
+        # La carpeta de Drive (Fase A3) viaja en el serializer (la usa G7).
+        self.assertIn("drive_folder_url", by_plate["1234ABC"])
+        self.assertIn("drive_folder_id", by_plate["1234ABC"])

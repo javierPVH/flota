@@ -4,6 +4,7 @@ from pathlib import Path
 from auditlog.models import LogEntry
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import models
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -31,6 +32,7 @@ from .models import (
     VehicleUsage,
 )
 from .models.enums import AllocationTarget, EventType, UseType, VehicleState
+from .selectors import current_driver_map
 
 
 class LogEntrySerializer(serializers.ModelSerializer):
@@ -66,6 +68,7 @@ class VehicleSerializer(serializers.ModelSerializer):
 
     state_display = serializers.CharField(source="get_state_display", read_only=True)
     supervisor_name = serializers.SerializerMethodField()
+    driver_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Vehicle
@@ -98,18 +101,45 @@ class VehicleSerializer(serializers.ModelSerializer):
             "km_start",
             "km_end",
             "next_itv_date",
+            "driver_name",
+            "drive_folder_url",
+            "drive_folder_id",
             "created_at",
             "updated_at",
         ]
         # next_itv_date lo mantiene el job refresh_next_itv (denormalizado).
+        # La carpeta de Drive la mantiene el archivador (Fase A3).
         # updated_at se expone para el bloqueo optimista (expected_updated_at).
-        read_only_fields = ["id", "next_itv_date", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "next_itv_date",
+            "drive_folder_url",
+            "drive_folder_id",
+            "created_at",
+            "updated_at",
+        ]
 
     def get_supervisor_name(self, obj: Vehicle) -> str:
         sup = obj.supervisor
         if not sup:
             return ""
         return sup.get_full_name() or sup.get_username()
+
+    def get_driver_name(self, obj: Vehicle) -> str:
+        """Conductor vigente (HU-1.1). El mapa se calcula UNA vez por respuesta
+        (cacheado en el context) para no hacer una query por fila del listado."""
+        drivers = self.context.get("_current_drivers")
+        if drivers is None:
+            instance = self.parent.instance if self.parent is not None else obj
+            ids = (
+                [v.id for v in instance]
+                if isinstance(instance, list | models.QuerySet)
+                else [obj.id]
+            )
+            drivers = current_driver_map(ids)
+            self.context["_current_drivers"] = drivers
+        driver = drivers.get(obj.id)
+        return (driver.get_full_name() or driver.get_username()) if driver else ""
 
     def validate(self, attrs):
         # HU-1.3: proyecto obligatorio cuando el uso empresarial es "proyecto".

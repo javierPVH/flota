@@ -1,6 +1,7 @@
 import { deleteJson, getCookie, getJson, patchJson, postJson, toUrl } from '@flota/ui/http'
 
 import type {
+  Alert,
   AuthConfig,
   DevUser,
   DriveFile,
@@ -49,7 +50,22 @@ export const listDrivers = () => getJson<Driver[]>(`${AUTH}/drivers/`)
 export const fetchFleetSummary = () => getJson<FleetSummary>(`${API}/summary/`)
 
 // --- Vehículos ------------------------------------------------------------
-export const listVehicles = () => getJson<Paginated<Vehicle>>(`${API}/vehicles/`)
+
+/** Filtros del listado (HU-1.1/1.7); todos opcionales. */
+export interface VehicleFilters {
+  search?: string
+  state?: string
+  business_use?: string
+  /** true = con conductor vigente; false = sin conductor. */
+  assigned?: boolean
+  /** Los `baja` no salen por defecto; 1 = incluirlos. */
+  include_baja?: 1
+  page?: number
+  ordering?: string
+}
+
+export const listVehicles = (filters: VehicleFilters = {}) =>
+  getJson<Paginated<Vehicle>>(`${API}/vehicles/${buildQs({ ...filters })}`)
 
 export type VehicleInput = Partial<
   Pick<Vehicle, 'plate' | 'brand' | 'model' | 'year' | 'state' | 'vin' | 'business_use'>
@@ -64,10 +80,17 @@ export const deleteVehicle = (id: number) => deleteJson(`${API}/vehicles/${id}/`
 
 export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${id}/`)
 
+// --- G1: alertas de la vista general ----------------------------------------
+
+export const listAlerts = (status = 'open') =>
+  getJson<Paginated<Alert>>(`${API}/alerts/${buildQs({ status })}`)
+
 // --- G7: documentación e incidencias ---------------------------------------
 
 /** Query-string a partir de filtros opcionales (omite vacíos). */
-function qs(params: Record<string, string | number | undefined | null>): string {
+function buildQs(
+  params: Record<string, string | number | boolean | undefined | null>,
+): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') search.set(key, String(value))
@@ -84,7 +107,7 @@ export interface DocumentFilters {
 }
 
 export const listDocuments = (filters: DocumentFilters = {}) =>
-  getJson<Paginated<FlotaDocument>>(`${API}/documents/${qs({ ...filters })}`)
+  getJson<Paginated<FlotaDocument>>(`${API}/documents/${buildQs({ ...filters })}`)
 
 /** Alta con referencia de Drive (Picker) o URL manual — sin binario. */
 export interface DocumentInput {
@@ -138,7 +161,7 @@ export interface IncidentFilters {
 }
 
 export const listIncidents = (filters: IncidentFilters = {}) =>
-  getJson<Paginated<Incident>>(`${API}/incidents/${qs({ ...filters })}`)
+  getJson<Paginated<Incident>>(`${API}/incidents/${buildQs({ ...filters })}`)
 
 export interface IncidentInput {
   vehicle: number
@@ -161,7 +184,7 @@ export const fetchPickerConfig = () => getJson<PickerConfig>(`${API}/google/pick
 
 export const fetchFolderFiles = (folderId: string, kind = 'all') =>
   getJson<{ files: DriveFile[]; error?: string }>(
-    `${API}/google/drive/folder-files/${qs({ folder_id: folderId, kind })}`,
+    `${API}/google/drive/folder-files/${buildQs({ folder_id: folderId, kind })}`,
   )
 
 /** URL (navegación completa) que arranca el consentimiento OAuth de Google. */

@@ -82,11 +82,34 @@ export interface Vehicle {
   km_end: number | null
   /** Denormalizado del último EventItv; lo mantiene el back. */
   next_itv_date: string | null
+  /** Conductor con asignación aceptada vigente (lo resuelve el back en bloque). */
+  driver_name: string
   /** Carpeta documental del vehículo en Google Drive (Fase A3). */
   drive_folder_url: string
   drive_folder_id: string
   created_at: string
   updated_at: string
+}
+
+// --- G1: alertas de la vista general ---------------------------------------
+
+export type AlertType = 'itv_due' | 'km_reading_pending' | 'km_overage' | 'no_driver'
+export type AlertLevel = 'info' | 'warning' | 'critical'
+
+export interface Alert {
+  id: number
+  type: AlertType
+  type_display: string
+  level: AlertLevel
+  level_display: string
+  status: 'open' | 'resolved' | 'dismissed'
+  status_display: string
+  vehicle: number | null
+  vehicle_plate: string
+  user: number | null
+  message: string
+  due_date: string | null
+  created_at: string
 }
 
 // --- G7: documentación e incidencias --------------------------------------
