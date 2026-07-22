@@ -26,7 +26,15 @@ export type QueuedItem =
         itv: { result: string; next_due: string | null }
       }
     }
-  | { kind: 'document'; payload: DocumentUploadInput; file: Blob; fileName: string }
+  | {
+      kind: 'document'
+      payload: DocumentUploadInput
+      file: Blob
+      fileName: string
+      /** MIME explícito: el structured clone de IndexedDB no siempre conserva
+       * el `type` del Blob (p. ej. implementaciones antiguas / polyfills). */
+      fileType: string
+    }
 
 export interface StoredItem {
   id: number
@@ -105,7 +113,7 @@ async function send(item: QueuedItem): Promise<void> {
     await registerItv(item.payload)
   } else {
     const file = new File([item.file], item.fileName || 'documento', {
-      type: item.file.type || 'application/octet-stream',
+      type: item.fileType || item.file.type || 'application/octet-stream',
     })
     await uploadDocument(item.payload, file)
   }

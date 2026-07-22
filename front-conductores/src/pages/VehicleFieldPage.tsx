@@ -172,7 +172,7 @@ export function VehicleFieldPage() {
     } catch (err) {
       // Sin red (M7): el binario entra en la cola offline con sus metadatos.
       if (isNetworkError(err)) {
-        await enqueue({ kind: 'document', payload, file, fileName: file.name })
+        await enqueue({ kind: 'document', payload, file, fileName: file.name, fileType: file.type })
         setForm(EMPTY_FORM)
         setFile(null)
         setShowUpload(false)

@@ -311,6 +311,49 @@ table.data th {
   color: var(--info, #1f63b8);
 }
 
+/* --- M9: micro-interacciones sobrias (respetando reduced-motion) --------- */
+.card-link,
+.quick-action,
+.bottom-tab {
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+.card-link:active,
+.quick-action:active {
+  transform: scale(0.98);
+}
+.bottom-tab:active {
+  transform: translateY(1px);
+}
+.queue-notice,
+.offline-banner {
+  animation: slide-down 180ms ease;
+}
+@keyframes slide-down {
+  from {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-link,
+  .quick-action,
+  .bottom-tab,
+  .queue-notice,
+  .offline-banner {
+    transition: none;
+    animation: none;
+  }
+  .card-link:active,
+  .quick-action:active,
+  .bottom-tab:active {
+    transform: none;
+  }
+}
+
 /* --- M7: PWA + cola offline ---------------------------------------------- */
 .offline-banner {
   display: flex;

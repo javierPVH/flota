@@ -8,13 +8,16 @@ import './styles.css'
 
 import App from './App.tsx'
 import { AuthProvider, bootstrap, onLogout } from './auth.ts'
+import { LanguageProvider } from './i18n.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <AuthProvider bootstrap={bootstrap} onLogout={onLogout}>
-        <App />
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider bootstrap={bootstrap} onLogout={onLogout}>
+          <App />
+        </AuthProvider>
+      </LanguageProvider>
     </BrowserRouter>
   </StrictMode>,
 )

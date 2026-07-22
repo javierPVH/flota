@@ -402,10 +402,27 @@ iOS requiere la PWA instalada (M7). Verificado E2E con claves VAPID reales
 generadas: config auth-only, enabled + clave pública, alta/subscribed/baja y
 400 a suscripciones inválidas.)*
 
-### M9 — Pulido móvil 🟡
-- Accesibilidad táctil, **i18n ES** (fechas/EUR), estados vacíos/carga/error,
-  animaciones sobrias, tests (Vitest + Testing Library, incl. render móvil).
-- **Aceptación:** UX móvil pulida y suite de front en verde.
+### M9 — Pulido móvil 🟡 — ✅ IMPLEMENTADA
+*(Cómo quedó: **i18n es/en** con el `createI18n` tipado del DS (`src/i18n.tsx`):
+shell completo (marca, pestañas, salir, banner y avisos de la cola offline) y
+"Mis vehículos"; `LanguageToggleButton` en el header; el resto de páginas sigue
+en castellano y se traduce incrementalmente añadiendo claves. `format.ts` ahora
+es consciente de idioma (`fmtDate`/`fmtKm` con locale es-ES/en-GB).
+**Micro-interacciones sobrias**: feedback táctil `:active` en tarjetas/acciones/
+pestañas y entrada suave del banner offline, todo desactivado con
+`prefers-reduced-motion`. **Suite Vitest + Testing Library** (19 tests):
+`format.test.ts` (semáforo ITV, lectura pendiente, formatos por idioma),
+`offline/queue.test.ts` con **fake-indexeddb** (distinción red/servidor, flush
+FIFO, conservar pendientes sin red, descartar rechazos sin bloquear, binario+
+MIME del documento — de paso se robusteció la cola guardando el MIME explícito
+porque el structured clone puede perder el `type` del Blob),
+`MyVehiclesPage.test.tsx` (tarjeta con km y píldora, enlace a ficha, buscador,
+título por rol) y `AlertsPage.test.tsx` (conductor sin Resolver/Descartar y
+con su acción natural; supervisor con ambos + lecturas pendientes del grupo;
+estado vacío). `npm test` en la raíz ejecuta gestión (13) + conductores (19).
+**Corrección operativa**: el dev server usaba el puerto 5174 — ocupado por otra
+app del equipo —; movido a **5175** (vite config, scripts, CORS del back y
+README). Estados vacíos/carga/error ya venían de las fases previas.)*
 
 ---
 

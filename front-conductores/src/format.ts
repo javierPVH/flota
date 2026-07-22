@@ -1,16 +1,20 @@
+import type { AppLanguage } from '@flota/ui'
+
 import type { VehicleSummary } from './types'
 
-/** Formatos de campo (es-ES). La i18n completa llega en M9. */
-export function fmtDate(value: string | null | undefined): string {
+const LOCALE: Record<AppLanguage, string> = { es: 'es-ES', en: 'en-GB' }
+
+/** Fecha ISO → local legible según idioma (M9). */
+export function fmtDate(value: string | null | undefined, lang: AppLanguage = 'es'): string {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('es-ES')
+  return date.toLocaleDateString(LOCALE[lang])
 }
 
-export function fmtKm(value: number | null | undefined): string {
+export function fmtKm(value: number | null | undefined, lang: AppLanguage = 'es'): string {
   if (value === null || value === undefined) return '—'
-  return `${value.toLocaleString('es-ES')} km`
+  return `${value.toLocaleString(LOCALE[lang])} km`
 }
 
 /** Semáforo de ITV: naranja = próxima (≤30 días), rojo = vencida. */

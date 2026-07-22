@@ -78,11 +78,11 @@ El self-registro, si se activa, crea siempre un `driver`.
 npm install                 # instala los 3 paquetes (hoisted)
 npm run build:ui            # compila @flota/ui una vez (front-*/ lo consumen)
 npm run dev:gestion         # → http://localhost:5173  (gestión)
-npm run dev:conductores     # → http://localhost:5174  (conductores)
+npm run dev:conductores     # → http://localhost:5175  (conductores)
 ```
 
 Cada front lee el origen del back de `VITE_BACKEND_BASE_URL` (ver
-`front-*/.env.example`). En dev, CORS del back ya permite `:5173` y `:5174`.
+`front-*/.env.example`). En dev, CORS del back ya permite `:5173` y `:5175`.
 
 ## Despliegue (split VPN / internet)
 

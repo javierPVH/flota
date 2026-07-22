@@ -7,6 +7,7 @@ import { asErrorMessage } from '@flota/ui/http'
 import { fetchVehicleSummary, listVehicles } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { fmtDate, fmtKm, itvClass, pendingThisMonth } from '../format.ts'
+import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 
 /**
@@ -16,6 +17,7 @@ import type { Vehicle, VehicleSummary } from '../types.ts'
  */
 export function MyVehiclesPage() {
   const { user } = useAuth()
+  const { t, language } = useLang()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [summaries, setSummaries] = useState<Record<number, VehicleSummary>>({})
   const [query, setQuery] = useState('')
@@ -57,27 +59,27 @@ export function MyVehiclesPage() {
     )
   }, [vehicles, query])
 
-  if (loading) return <p className="gate-checking">Cargando…</p>
+  if (loading) return <p className="gate-checking">{t.common.loading}</p>
   if (error) return <div className="form-error">{error}</div>
 
   return (
     <div>
       <div className="page-head">
-        <h2>{isSupervisor ? 'Mi grupo' : 'Mis vehículos'}</h2>
+        <h2>{isSupervisor ? t.home.myGroup : t.home.myVehicles}</h2>
       </div>
 
       {vehicles.length > 1 && (
         <input
           type="search"
           className="card-search"
-          placeholder="Buscar por matrícula o modelo…"
-          aria-label="Buscar vehículo"
+          placeholder={t.home.searchPlaceholder}
+          aria-label={t.home.searchLabel}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       )}
 
-      {visible.length === 0 && <p className="empty-note">Sin resultados.</p>}
+      {visible.length === 0 && <p className="empty-note">{t.home.empty}</p>}
 
       <div className="vehicle-cards">
         {visible.map((v) => {
@@ -94,27 +96,29 @@ export function MyVehiclesPage() {
                   </div>
                   <p className="vehicle-model">
                     {v.brand} {v.model}
-                    {v.is_substitute ? ' · 🔁 sustitución' : ''}
+                    {v.is_substitute ? ` · ${t.home.substitute}` : ''}
                   </p>
                   <dl className="vehicle-meta">
-                    <dt>Km</dt>
+                    <dt>{t.home.km}</dt>
                     <dd>
-                      {summary ? fmtKm(summary.km_current) : '…'}
+                      {summary ? fmtKm(summary.km_current, language) : '…'}
                       {kmPending && (
                         <span className="pill pending">
-                          <Gauge size={13} aria-hidden /> lectura pendiente
+                          <Gauge size={13} aria-hidden /> {t.home.pendingReading}
                         </span>
                       )}
                     </dd>
                     {v.next_itv_date && (
                       <>
-                        <dt>Próx. ITV</dt>
-                        <dd className={itvClass(v.next_itv_date)}>{fmtDate(v.next_itv_date)}</dd>
+                        <dt>{t.home.nextItv}</dt>
+                        <dd className={itvClass(v.next_itv_date)}>
+                          {fmtDate(v.next_itv_date, language)}
+                        </dd>
                       </>
                     )}
                     {isSupervisor && summary?.driver && (
                       <>
-                        <dt>Conductor</dt>
+                        <dt>{t.home.driver}</dt>
                         <dd>{summary.driver.name}</dd>
                       </>
                     )}
