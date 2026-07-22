@@ -10,11 +10,12 @@ from django_filters.widgets import BooleanWidget
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
+from accounts.models import Role, UserRole
 from accounts.permissions import (
     AdminWriteManagementOrDriverRead,
     AdminWriteManagementRead,
@@ -47,7 +48,7 @@ from .models import (
     VehicleRequest,
     VehicleUsage,
 )
-from .models.enums import AlertStatus, AssignmentStatus, VehicleState
+from .models.enums import AlertStatus, AssignmentStatus, VehicleRequestStatus, VehicleState
 from .scoping import vehicles_for
 from .serializers import (
     AlertSerializer,
@@ -68,6 +69,7 @@ from .serializers import (
     RentingSerializer,
     UsageSplitSerializer,
     VehicleLinkSerializer,
+    VehicleRequestMineSerializer,
     VehicleRequestSerializer,
     VehicleSerializer,
     VehicleUsageSerializer,
@@ -606,11 +608,13 @@ class AlertViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
 
 
 class VehicleRequestViewSet(viewsets.ModelViewSet):
-    """Solicitudes de vehículo. Gestión (front VPN).
+    """Solicitudes de vehículo. Gestión (front VPN) + self-service (Fase A2).
 
-    Entran aprobadas desde Jira (`import_vehicle_requests`) o se dan de alta a
-    mano; la gestión les asigna un vehículo. No van acotadas por vehículo (una
-    solicitud puede no tenerlo aún).
+    Tres orígenes: importadas aprobadas desde Jira (`import_vehicle_requests`),
+    alta a mano por la gestión, o **`mine`** — el usuario sin vehículo registra
+    su solicitud con la clave del ticket de Jira para seguirla. El estado se
+    sincroniza con Jira (`sync_jira_requests`); si no se puede saber, la
+    administración **concede a mano** (`grant` = asignar vehículo) o rechaza.
     """
 
     serializer_class = VehicleRequestSerializer
@@ -619,6 +623,107 @@ class VehicleRequestViewSet(viewsets.ModelViewSet):
     filterset_fields = ["status", "requester", "vehicle", "requested_type"]
     search_fields = ["jira_key", "notes"]
     ordering_fields = ["created_at", "start_date"]
+
+    @action(detail=False, methods=["get", "post"], permission_classes=[IsAuthenticated])
+    def mine(self, request):
+        """GET/POST /vehicle-requests/mine/ — la solicitud del propio usuario.
+
+        - `GET`: sus solicitudes (para pintar el estado en el portón de acceso).
+        - `POST`: crea su solicitud `pending` (o **actualiza la abierta**, p. ej.
+          para añadir la `jira_key` cuando ya ha abierto el ticket). Vale para
+          cualquier usuario autenticado, incluso sin rol todavía (recién creado
+          por Google): es justo el caso "existe pero no tiene coche".
+        """
+        open_statuses = [VehicleRequestStatus.PENDING, VehicleRequestStatus.APPROVED]
+        if request.method == "GET":
+            requests = VehicleRequest.objects.filter(requester=request.user).order_by("-created_at")
+            return Response(VehicleRequestMineSerializer(requests, many=True).data)
+        existing = (
+            VehicleRequest.objects.filter(requester=request.user, status__in=open_statuses)
+            .order_by("-created_at")
+            .first()
+        )
+        serializer = VehicleRequestMineSerializer(
+            instance=existing, data=request.data, partial=existing is not None
+        )
+        serializer.is_valid(raise_exception=True)
+        if existing is None:
+            serializer.save(requester=request.user, status=VehicleRequestStatus.PENDING)
+            code = status.HTTP_201_CREATED
+        else:
+            serializer.save()  # actualiza la abierta (jira_key, fechas, notas)
+            code = status.HTTP_200_OK
+        return Response(serializer.data, status=code)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    def grant(self, request, pk=None):
+        """POST /vehicle-requests/{id}/grant/ — concede el vehículo (Fase A2).
+
+        Cuerpo: `{"vehicle": <id>}`. Atómico: asegura el rol conductor del
+        solicitante, cierra la asignación vigente del vehículo, crea la nueva
+        **aceptada**, emite el evento y marca la solicitud `assigned`. Es la vía
+        manual cuando Jira no puede confirmar la concesión.
+        """
+        vehicle_request = self.get_object()
+        if vehicle_request.status not in (
+            VehicleRequestStatus.PENDING,
+            VehicleRequestStatus.APPROVED,
+        ):
+            raise ValidationError({"status": "Solo se conceden solicitudes pendientes/aprobadas."})
+        if vehicle_request.requester is None:
+            raise ValidationError({"requester": "La solicitud no tiene solicitante."})
+        try:
+            vehicle = Vehicle.objects.get(pk=request.data.get("vehicle"))
+        except (Vehicle.DoesNotExist, TypeError, ValueError) as exc:
+            raise ValidationError({"vehicle": "Indica un vehículo válido."}) from exc
+        if vehicle.state == VehicleState.BAJA:
+            raise ValidationError({"vehicle": "No se puede conceder un vehículo en baja."})
+        requester = vehicle_request.requester
+        start = vehicle_request.start_date or timezone.localdate()
+        with transaction.atomic():
+            # El concedido pasa a ser conductor si aún no lo era (usuario nuevo).
+            UserRole.objects.get_or_create(user=requester, role=Role.DRIVER)
+            requester.__dict__.pop("role_values", None)  # invalida el caché por instancia
+            current = (
+                Assignment.objects.select_for_update()
+                .filter(
+                    vehicle=vehicle,
+                    status=AssignmentStatus.ACCEPTED,
+                    end_date__isnull=True,
+                )
+                .select_related("driver")
+                .first()
+            )
+            old_driver = current.driver if current else None
+            if current:
+                current.status = AssignmentStatus.FINISHED
+                current.end_date = start
+                current.save(update_fields=["status", "end_date", "updated_at"])
+            Assignment.objects.create(
+                vehicle=vehicle,
+                driver=requester,
+                start_date=start,
+                end_date=vehicle_request.end_date,
+                status=AssignmentStatus.ACCEPTED,
+            )
+            events.emit_driver_change(vehicle, old_driver=old_driver, new_driver=requester)
+            vehicle_request.vehicle = vehicle
+            vehicle_request.status = VehicleRequestStatus.ASSIGNED
+            vehicle_request.save(update_fields=["vehicle", "status", "updated_at"])
+        return Response(self.get_serializer(vehicle_request).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    def reject(self, request, pk=None):
+        """POST /vehicle-requests/{id}/reject/ — rechaza la solicitud (vía manual)."""
+        vehicle_request = self.get_object()
+        if vehicle_request.status not in (
+            VehicleRequestStatus.PENDING,
+            VehicleRequestStatus.APPROVED,
+        ):
+            raise ValidationError({"status": "Solo se rechazan solicitudes pendientes/aprobadas."})
+        vehicle_request.status = VehicleRequestStatus.REJECTED
+        vehicle_request.save(update_fields=["status", "updated_at"])
+        return Response(self.get_serializer(vehicle_request).data)
 
 
 # --- Summary de flota (dashboard G1) --------------------------------------

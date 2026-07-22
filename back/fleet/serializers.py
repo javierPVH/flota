@@ -529,6 +529,58 @@ class VehicleRequestSerializer(serializers.ModelSerializer):
         return user.get_full_name() or user.get_username()
 
 
+class VehicleRequestMineSerializer(serializers.ModelSerializer):
+    """Solicitud self-service del usuario sin vehículo (Fase A2).
+
+    El usuario abre el ticket en Jira y registra aquí su clave para el
+    seguimiento. `requester` y `status` los fija el servidor: la solicitud nace
+    `pending` y se aprueba por la sincronización con Jira o a mano por la
+    administración (conceder = asignar vehículo).
+    """
+
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True, default="")
+
+    class Meta:
+        model = VehicleRequest
+        fields = [
+            "id",
+            "requested_type",
+            "start_date",
+            "end_date",
+            "jira_key",
+            "notes",
+            "status",
+            "status_display",
+            "vehicle",
+            "vehicle_plate",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "status", "vehicle", "created_at", "updated_at"]
+
+    def validate_jira_key(self, value):
+        value = (value or "").strip()
+        if value:
+            qs = VehicleRequest.objects.filter(jira_key=value)
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    "Ese ticket de Jira ya está asociado a otra solicitud."
+                )
+        return value
+
+    def validate(self, attrs):
+        start = attrs.get("start_date", getattr(self.instance, "start_date", None))
+        end = attrs.get("end_date", getattr(self.instance, "end_date", None))
+        if start and end and end < start:
+            raise serializers.ValidationError(
+                {"end_date": "La fecha de fin no puede ser anterior a la de inicio."}
+            )
+        return attrs
+
+
 # --- Catálogos ------------------------------------------------------------
 
 

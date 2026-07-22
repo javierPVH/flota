@@ -356,6 +356,6 @@ obligatorio si `business_use=on_project` (`vehicles`).
 | `alert_type` | `itv_due`, `km_reading_pending`, `km_overage`, `no_driver` |
 | `alert_level` | `info`, `warning`, `critical` |
 | `alert_status` | `open`, `resolved`, `dismissed` |
-| `vehicle_request_status` | `approved`, `assigned`, `rejected`, `closed` |
+| `vehicle_request_status` | `pending` (self-service, Fase A2), `approved`, `assigned`, `rejected`, `closed` |
 | `events_enum` | `creation`, `activation`, `deactivation`, `invoice`, `immobilization`, `reactivation`, `insurance_renewal`, `penalty`, `location_change`, `project_change`, `breakdown`, `km_reading`, `contract_change`, `fee_change`, `ceco_change`, `itv`, `maintenance`, `driver_change` |
 | `fuel_enum` | `gasoline`, `diesel`, `LPG`, `hybrid`, `other` |

@@ -302,9 +302,20 @@ listado en una sola vista)*
 - **Aceptación:** panel operativo, registro de ITV que cierra avisos, y descargas.
 
 ### G9 — Solicitudes de vehículo · Épica 8 🟡
-- Bandeja de `VehicleRequest` (`/vehicle-requests/`) que entran **aprobadas** desde
-  Jira; asignarles vehículo (estado → `assigned`).
-- **Aceptación:** flujo de solicitudes visible y accionable.
+- Bandeja de `VehicleRequest` (`/vehicle-requests/`) con **dos orígenes**: las
+  importadas **aprobadas** de Jira y las **`pending` self-service** que
+  registran los usuarios sin coche desde el front móvil (con su **clave de
+  ticket Jira** para seguimiento — Fase A2).
+- Estado del ticket: lo actualiza el job `sync_jira_requests`; si Jira no puede
+  confirmar, decide la administradora aquí.
+- **Conceder** (`POST /vehicle-requests/{id}/grant/` con el vehículo elegido):
+  da rol conductor si falta, cierra la asignación vigente del vehículo, crea la
+  aceptada y emite el evento — el solicitante ya puede entrar al front móvil.
+  **Rechazar** (`/reject/`) para la vía manual.
+- Filtros por estado (`pending`/`approved`/…) y aviso visual de las pendientes
+  sin decidir.
+- **Aceptación:** la bandeja distingue orígenes/estados y conceder deja al
+  usuario dentro con su coche.
 
 ### G10 — Costes y facturación · Épica 7 🔵
 *(pantalla "Refacturación vehículos" del PDF)*

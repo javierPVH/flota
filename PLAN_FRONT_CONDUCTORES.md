@@ -126,6 +126,8 @@ bottom-nav muestra 3 pestañas al conductor y 4 al supervisor:
 | Pestaña / ruta | Vista | Rol | Fase |
 |----------------|-------|-----|------|
 | `/login` | Login (password/Google según `/auth/config/`) | ambos | M0 |
+| `/solicitar` | **Portón de acceso**: invita al ticket Jira, guarda su clave y muestra el estado de la solicitud | sin vehículo/rol | M0 |
+| `/sin-flota` | Aviso al supervisor sin grupo asignado | supervisor | M0 |
 | 🚗 `/` | **Mis vehículos / Mi grupo** (tarjetas) | ambos | M1 |
 | `/vehiculos/:id` | Ficha de campo (KPIs, atributos, documentos) | ambos | M2 |
 | *(desde la ficha)* | Subir documento (cámara/galería) | ambos | M2 |
@@ -151,10 +153,23 @@ bottom-nav muestra 3 pestañas al conductor y 4 al supervisor:
   táctiles del DS, tema claro de alto contraste. Las pestañas varían según rol.
 - **Login** (página) según `/auth/config/`; un `admin` autenticado ve **403 "sin
   acceso"** con enlace a gestión (no un login en bucle).
+- **Portón de acceso por solicitud** (Fase A2 del back): tras el login, si el
+  usuario **no tiene vehículo** (o no tiene rol — recién creado por Google), no
+  entra a la app: ve la pantalla **"Solicita tu vehículo"** que (1) le invita a
+  abrir un **ticket de Jira** (enlace/instrucciones), (2) le deja **registrar la
+  clave del ticket** (`POST /vehicle-requests/mine/` — el 2º envío actualiza la
+  abierta) y (3) muestra el **estado** de su solicitud (pendiente / aprobada /
+  rechazada / concedida) consultando `GET /vehicle-requests/mine/`. Cuando la
+  administración le concede el coche, al recargar **ya entra** (su
+  `GET /vehicles/` deja de estar vacío).
+- **Supervisor sin flota**: si su `GET /vehicles/` está vacío, pantalla de aviso
+  "aún no tienes flota asignada — contacta con administración" (su grupo lo
+  gestiona el admin desde gestión, HU-2.7).
 - **Mi perfil** (menú del header): datos personales, tipo de permiso, tarjeta de
   combustible, `LanguageToggleButton`, salir.
-- **Aceptación:** login de supervisor y conductor OK; navegación inferior; sin
-  scroll horizontal; el `admin` ve el 403; el perfil pinta `/me`.
+- **Aceptación:** login de supervisor y conductor OK; sin vehículo se ve el
+  portón con el estado de la solicitud y sin flota el aviso; con coche se entra;
+  el `admin` ve el 403; el perfil pinta `/me`.
 
 ### M1 — Mis vehículos / Mi grupo · HU-1.1 (ámbito campo), 2.8 🔴
 - **Conductor:** lista de sus vehículos asignados (scoping del back por
@@ -267,6 +282,7 @@ Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
 | **2.8 / 3.3** (M5/M6) | Scoping verificado por tests de rol; alertas y summary acotados al grupo del supervisor (`GET /api/v1/summary/` para sus agregados) |
 | **2.5** (M6) | `POST /api/v1/vehicle-usages/set/` — el back valida la **suma = 100** y cierra el reparto vigente |
 | **4.1** (M2) | `/documents/` acepta **multipart** (`file` desde cámara/galería, máx. 10 MB, jpg/png/webp/heic/pdf); sin URL queda `pendiente_archivar` y `file_url` la sirve `/media/` |
+| **Portón** (M0) | `GET/POST /vehicle-requests/mine/` — solicitud propia con clave de ticket Jira y seguimiento de estado; concesión: sync con Jira (`sync_jira_requests`) o a mano por la admin (`grant`/`reject`) |
 
 | Pendiente | Estado |
 |-----------|--------|

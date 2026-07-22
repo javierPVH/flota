@@ -39,10 +39,21 @@ class BaseJiraClient:
         """
         raise NotImplementedError
 
+    def fetch_status(self, jira_key: str) -> str | None:
+        """Estado normalizado de un issue: `approved` | `rejected` | None.
+
+        `None` = no se puede saber (sin credenciales, issue inexistente, error).
+        En ese caso la solicitud queda pendiente y decide la administración.
+        """
+        raise NotImplementedError
+
 
 class NullJiraClient(BaseJiraClient):
     def fetch_approved_requests(self) -> list[dict]:
         return []
+
+    def fetch_status(self, jira_key: str) -> str | None:
+        return None  # sin Jira no se puede saber: decide la administración
 
 
 class HttpJiraClient(BaseJiraClient):  # pragma: no cover - requiere credenciales
@@ -52,6 +63,14 @@ class HttpJiraClient(BaseJiraClient):  # pragma: no cover - requiere credenciale
         if not (settings.FLEET_JIRA_URL and settings.FLEET_JIRA_TOKEN):
             logger.info("Jira no configurado: sin solicitudes que importar.")
             return []
+        raise NotImplementedError(
+            "Consulta real a la API de Jira pendiente de credenciales (Épica 9)."
+        )
+
+    def fetch_status(self, jira_key: str) -> str | None:
+        if not (settings.FLEET_JIRA_URL and settings.FLEET_JIRA_TOKEN):
+            logger.info("Jira no configurado: no se puede consultar %s.", jira_key)
+            return None
         raise NotImplementedError(
             "Consulta real a la API de Jira pendiente de credenciales (Épica 9)."
         )
@@ -90,3 +109,30 @@ def import_requests(client: BaseJiraClient | None = None) -> int:
         )
         created += int(was_created)
     return created
+
+
+def sync_request_statuses(client: BaseJiraClient | None = None) -> dict[str, int]:
+    """Sincroniza las solicitudes PENDIENTES con su ticket de Jira (Fase A2).
+
+    Para cada solicitud `pending` con `jira_key`, consulta el estado del issue:
+    `approved` → aprobada, `rejected` → rechazada, `None` (no se puede saber) →
+    sigue pendiente y decidirá la administración a mano. Devuelve el resumen.
+    """
+    client = client or get_jira_client()
+    summary = {"approved": 0, "rejected": 0, "unknown": 0}
+    pending = VehicleRequest.objects.filter(status=VehicleRequestStatus.PENDING).exclude(
+        jira_key=""
+    )
+    for request in pending:
+        status = client.fetch_status(request.jira_key)
+        if status == "approved":
+            request.status = VehicleRequestStatus.APPROVED
+            request.save(update_fields=["status", "updated_at"])
+            summary["approved"] += 1
+        elif status == "rejected":
+            request.status = VehicleRequestStatus.REJECTED
+            request.save(update_fields=["status", "updated_at"])
+            summary["rejected"] += 1
+        else:
+            summary["unknown"] += 1
+    return summary

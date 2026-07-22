@@ -125,6 +125,17 @@ cron en [`deploy/crontab.example`](./deploy/crontab.example).
   aprobación ocurre en Jira; `import_vehicle_requests` importa las aprobadas de
   forma idempotente (`jira_key`). `GET/POST /api/v1/vehicle-requests/` (gestión).
 
+**Portón de acceso por solicitud** (Fase A2). El usuario que entra al front de
+conductores **sin vehículo** (o recién auto-creado por Google, sin rol) no pasa:
+se le invita a abrir un **ticket de Jira** y registra su clave en
+`POST /vehicle-requests/mine/` (queda `pending`). El job `sync_jira_requests`
+consulta el estado del issue (aprobada/rechazada); si **no se puede saber**
+(Jira sin credenciales → `NullJiraClient`), decide la administración desde
+gestión: `grant` (concede = rol conductor + asignación aceptada + evento) o
+`reject`. **Teniendo coche ya entra** (su `GET /vehicles/` deja de estar vacío).
+El supervisor sin grupo ve la flota vacía y el front le muestra el aviso; su
+grupo lo gestiona el admin asignándole vehículos (HU-2.7).
+
 > **Google Drive / Jira** necesitan credenciales que este entorno no tiene
 > autorizadas. La arquitectura queda lista (interfaz + fallback local + reintento
 > + stubs documentados); activar el backend real es cuestión de configurar
@@ -173,7 +184,10 @@ logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
 | CRUD   | `/api/v1/documents/`     | ✔ᵃ | Documentos del vehículo. Conductor sube los suyos; borra solo gestión (Épica 4). Acepta **multipart** (`file`, máx. `FLEET_DOCUMENT_MAX_MB`, foto/PDF) o `drive_url` — Fase A1 |
 | GET    | `/api/v1/alerts/`        | ✔ᵃ | Bandeja de alertas (ITV, km, sin conductor). Solo lectura (los jobs las crean) |
 | POST   | `/api/v1/alerts/{id}/{resolve,dismiss}/` | gestión | Cierra la alerta (resuelta/descartada) |
-| CRUD   | `/api/v1/vehicle-requests/` | gestión | Solicitudes de vehículo (entran aprobadas de Jira) — Épica 8 |
+| CRUD   | `/api/v1/vehicle-requests/` | gestión | Solicitudes de vehículo (importadas de Jira o self-service) — Épica 8 |
+| GET/POST | `/api/v1/vehicle-requests/mine/` | ✔ (cualquier autenticado) | **Portón de acceso** (Fase A2): el usuario sin coche registra su solicitud `pending` con la **clave del ticket Jira** y consulta su estado; el 2º POST actualiza la abierta |
+| POST   | `/api/v1/vehicle-requests/{id}/grant/` | admin | **Concede el coche** `{vehicle}`: rol conductor + asignación aceptada + evento + `assigned` (vía manual si Jira no confirma) — Fase A2 |
+| POST   | `/api/v1/vehicle-requests/{id}/reject/` | admin | Rechaza la solicitud a mano — Fase A2 |
 | GET    | `/api/v1/reports/?kind=&fmt=` | gestión | Descarga informe Excel/CSV (flota/alertas/costes), acotado por rol — Épica 10 |
 | CRUD   | `/api/v1/{countries,business-units,projects,peps,rentings}/` | gestión / admin | Catálogos (lectura gestión, escritura admin) |
 

@@ -188,7 +188,20 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
      `file_url` absoluto en la respuesta; sin URL externa queda
      `pendiente_archivar` para el job.
   33 tests nuevos (170 en total, verdes; cobertura 89%).
-- **Pendiente de A1 (🔵):** push (suscripciones web-push/FCM + envío desde el
+- **Fase A2 — Portón de acceso por solicitud + ticket Jira: ✅ IMPLEMENTADA.**
+  El usuario sin vehículo (o sin rol, auto-creado por Google) no entra: registra
+  su solicitud con la clave del ticket en `GET/POST /vehicle-requests/mine/`
+  (nace `pending`, el 2º POST actualiza la abierta; `jira_key` única). El job
+  **`sync_jira_requests`** consulta el estado del issue
+  (`BaseJiraClient.fetch_status` → aprobada/rechazada/no-se-sabe); si Jira no
+  puede confirmar, la administración decide desde gestión:
+  **`grant`** (rol conductor si falta + cierra la asignación vigente del
+  vehículo + crea la aceptada + evento + `assigned`, atómico) o **`reject`**.
+  Con coche, su `GET /vehicles/` deja de estar vacío y **ya entra**. El
+  supervisor sin grupo ve la flota vacía (aviso en el front); su grupo lo asigna
+  el admin (HU-2.7). Estado `pending` nuevo (migración `0009`), cron de ejemplo
+  actualizado. 15 tests nuevos (185 en total, verdes).
+- **Pendiente (🔵):** push (suscripciones web-push/FCM + envío desde el
   motor de alertas) — va con la fase M8 del front móvil.
 
 ---

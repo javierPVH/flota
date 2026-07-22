@@ -23,3 +23,8 @@ PYTHON=/srv/flota/back/.venv/bin/python
 
 # Cada hora — importa de Jira las solicitudes de vehículo aprobadas (Épica 8).
 0 * * * *   cd $PROJECT && $PYTHON manage.py import_vehicle_requests
+
+# Cada hora — sincroniza con Jira el estado de las solicitudes pendientes
+# registradas por los usuarios (Fase A2). Sin credenciales es un no-op y
+# decide la administración a mano (grant/reject).
+30 * * * *   cd $PROJECT && $PYTHON manage.py sync_jira_requests
