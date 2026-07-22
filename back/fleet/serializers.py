@@ -162,7 +162,7 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
-        if vehicle is not None and vehicle.state == "baja":
+        if vehicle is not None and vehicle.state == "retired":
             raise serializers.ValidationError(
                 "No se puede asignar un conductor a un vehículo en baja."
             )

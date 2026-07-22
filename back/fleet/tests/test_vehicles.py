@@ -89,7 +89,7 @@ class VehicleAccessTests(APITestCase):
         self.assertEqual(plates, ["1234ABC"])
 
     def test_baja_hidden_by_default(self):
-        self.orphan.state = "baja"
+        self.orphan.state = "retired"
         self.orphan.save()
         self.client.force_authenticate(self.admin)
         default = self.client.get(self.list_url)

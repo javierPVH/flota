@@ -11,15 +11,15 @@ class VehicleState(models.TextChoices):
     """Estado técnico del vehículo.
 
     Lista cerrada de `flota.md` (HU-1.6): activo, mantenimiento, ITV, averiado,
-    baja. Se conservan además `non_active`/`accidente` heredados del DBML por
-    compatibilidad; revisar si deben retirarse.
+    baja (`retired`). Se conservan además `non_active`/`accidente` heredados del
+    DBML por compatibilidad; revisar si deben retirarse.
     """
 
     ACTIVE = "active", "Activo"
     MAINTENANCE = "maintenance", "En mantenimiento"
     ITV = "itv", "En ITV"
     BROKEN = "broken", "Averiado"
-    BAJA = "baja", "Baja"
+    BAJA = "retired", "Baja"
     NON_ACTIVE = "non_active", "No activo"
     ACCIDENT = "accidente", "Accidentado"
 
@@ -27,18 +27,18 @@ class VehicleState(models.TextChoices):
 class VehicleType(models.TextChoices):
     """DBML `type_enum`."""
 
-    TURISMO = "turismo", "Turismo"
-    FURGONETA = "furgoneta", "Furgoneta"
-    CAMION = "camion", "Camión"
-    MOTOCICLETA = "motocicleta", "Motocicleta"
+    TURISMO = "car", "Turismo"
+    FURGONETA = "van", "Furgoneta"
+    CAMION = "truck", "Camión"
+    MOTOCICLETA = "motorcycle", "Motocicleta"
 
 
 class VehicleSize(models.TextChoices):
     """DBML `size_enum`."""
 
-    SMALL = "pequeno", "Pequeño"
-    MEDIUM = "mediano", "Mediano"
-    LARGE = "grande", "Grande"
+    SMALL = "small", "Pequeño"
+    MEDIUM = "medium", "Mediano"
+    LARGE = "big", "Grande"
 
 
 class MarketSegment(models.TextChoices):
@@ -46,20 +46,20 @@ class MarketSegment(models.TextChoices):
 
     MINI = "mini", "Mini"
     SUPERMINI = "supermini", "Supermini"
-    LOWER_MEDIUM = "mediano_inferior", "Mediano inferior"
-    UPPER_MEDIUM = "mediano_superior", "Mediano superior"
-    EXECUTIVE = "ejecutivo", "Ejecutivo"
-    LUXURY = "lujo", "Lujo"
-    SPORT = "deportivo", "Deportivo"
-    DUAL_4X4 = "4x4_dual", "4x4 / Dual"
+    LOWER_MEDIUM = "med_low", "Mediano inferior"
+    UPPER_MEDIUM = "med_sup", "Mediano superior"
+    EXECUTIVE = "executive", "Ejecutivo"
+    LUXURY = "luxury", "Lujo"
+    SPORT = "sports", "Deportivo"
+    DUAL_4X4 = "suv", "4x4 / Dual (SUV)"
     MPV = "MPV", "MPV"
 
 
 class VehUse(models.TextChoices):
     """DBML `veh_use_enum`."""
 
-    PASSENGERS = "pasajeros", "Pasajeros"
-    GOODS = "mercancia", "Mercancía"
+    PASSENGERS = "passengers", "Pasajeros"
+    GOODS = "freight", "Mercancía"
 
 
 class PropertyType(models.TextChoices):
@@ -78,31 +78,10 @@ class UseType(models.TextChoices):
 
 
 class Fuel(models.TextChoices):
-    """DBML `fuel_enum`. Lista amplia de combustibles / vectores energéticos."""
+    """DBML `fuel_enum`. Lista simplificada de combustibles / vectores energéticos."""
 
-    CNG = "CNG", "GNC"
-    GASOLINE_E5 = "Gasoline_E5", "Gasolina E5"
-    GASOLINE_E10 = "Gasoline_E10", "Gasolina E10"
-    GASOLINE_E85 = "Gasoline_E85", "Gasolina E85"
-    GASOLINE_E100 = "Gasoline_E100", "Gasolina E100"
-    DIESEL_B = "Diesel_B", "Diésel B"
-    DIESEL_B7 = "Diesel_B7", "Diésel B7"
-    DIESEL_B10 = "Diesel_B10", "Diésel B10"
-    DIESEL_B20 = "Diesel_B20", "Diésel B20"
-    DIESEL_B30 = "Diesel_B30", "Diésel B30"
-    B100 = "B100", "B100"
-    LPG = "LPG", "LPG"
-    FUELOIL = "Fueloleo", "Fuelóleo"
-    KEROSENE = "Queroseno", "Queroseno"
-    AVIATION_GASOLINE = "Gasolina_aviacion", "Gasolina de aviación"
-    GLP = "GLP", "GLP"
-    ADBLUE = "Adblue", "AdBlue"
-    BIOMETHANOL = "Biometanol", "Biometanol"
-    MARINE_DIESEL = "Gasoleo_marino", "Gasóleo marino"
-    BIOGAS = "Biogas", "Biogás"
-    NAPHTHA = "Nafta", "Nafta"
-    BIOPROPANE = "Biopropano", "Biopropano"
-    ELECTRIC_BATTERY = "Vehiculo_electrico_bateria", "Eléctrico (batería)"
-    PLUGIN_HYBRID = "Vehiculo_hibrido_enchufable", "Híbrido enchufable"
-    RENEWABLE_AVIATION_KEROSENE = "Queroseno_aviacion_renovable", "Queroseno de aviación renovable"
-    BIOMETHANE = "Biometano", "Biometano"
+    GASOLINE = "gasoline", "Gasolina"
+    DIESEL = "diesel", "Diésel"
+    LPG = "LPG", "GLP"
+    HYBRID = "hybrid", "Híbrido"
+    OTHER = "other", "Otro"

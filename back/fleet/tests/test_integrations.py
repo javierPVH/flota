@@ -20,13 +20,13 @@ class ArchiverTests(TestCase):
         self.vehicle = Vehicle.objects.create(plate="ARC111", brand="a", model="b")
 
     def test_null_archiver_leaves_pending(self):
-        doc = Document.objects.create(vehicle=self.vehicle, type="seguro")
+        doc = Document.objects.create(vehicle=self.vehicle, type="insurance")
         archiver.archive_document(doc, archiver=archiver.NullArchiver())
         self.assertEqual(doc.status, DocumentStatus.PENDING_ARCHIVE)
         self.assertEqual(doc.drive_url, "")
 
     def test_local_archiver_sets_url_and_folder(self):
-        doc = Document.objects.create(vehicle=self.vehicle, type="seguro")
+        doc = Document.objects.create(vehicle=self.vehicle, type="insurance")
         with tempfile.TemporaryDirectory() as tmp:
             archiver.archive_document(doc, archiver=archiver.LocalArchiver(tmp))
         self.assertEqual(doc.status, DocumentStatus.VALID)
@@ -37,7 +37,7 @@ class ArchiverTests(TestCase):
     def test_existing_drive_url_marks_valid(self):
         doc = Document.objects.create(
             vehicle=self.vehicle,
-            type="seguro",
+            type="insurance",
             drive_url="https://drive.example/doc",
             status=DocumentStatus.PENDING_ARCHIVE,
         )
@@ -46,7 +46,7 @@ class ArchiverTests(TestCase):
 
     def test_archive_pending_retries(self):
         Document.objects.create(
-            vehicle=self.vehicle, type="seguro", status=DocumentStatus.PENDING_ARCHIVE
+            vehicle=self.vehicle, type="insurance", status=DocumentStatus.PENDING_ARCHIVE
         )
         with tempfile.TemporaryDirectory() as tmp:
             archived = archiver.archive_pending(archiver.LocalArchiver(tmp))
@@ -61,7 +61,7 @@ class DocumentArchiveOnUploadTests(APITestCase):
         vehicle = Vehicle.objects.create(plate="UP1", brand="a", model="b")
         Assignment.objects.create(vehicle=vehicle, driver=driver, start_date="2026-01-01")
         self.client.force_authenticate(driver)
-        resp = self.client.post(reverse("document-list"), {"vehicle": vehicle.pk, "type": "seguro"})
+        resp = self.client.post(reverse("document-list"), {"vehicle": vehicle.pk, "type": "insurance"})
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["status"], DocumentStatus.PENDING_ARCHIVE)
 
@@ -78,7 +78,7 @@ class JiraImportTests(TestCase):
     def test_import_is_idempotent(self):
         client = _FakeJira(
             [
-                {"jira_key": "FLT-1", "requested_type": "turismo"},
+                {"jira_key": "FLT-1", "requested_type": "car"},
                 {"jira_key": "FLT-2"},
             ]
         )
@@ -117,7 +117,7 @@ class VehicleRequestApiTests(APITestCase):
     def test_management_creates_request(self):
         self.client.force_authenticate(self.admin)
         resp = self.client.post(
-            self.list_url, {"jira_key": "FLT-200", "requested_type": "furgoneta"}
+            self.list_url, {"jira_key": "FLT-200", "requested_type": "van"}
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["status"], VehicleRequestStatus.APPROVED)

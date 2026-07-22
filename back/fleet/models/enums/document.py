@@ -6,20 +6,20 @@ from django.db import models
 class DocumentType(models.TextChoices):
     """Tipo de documento del vehículo (general o ligado a incidencia)."""
 
-    REGISTRATION = "permiso_circulacion", "Permiso de circulación"
-    TECHNICAL_SHEET = "ficha_tecnica", "Ficha técnica"
-    INSURANCE = "seguro", "Seguro"
-    CONTRACT = "contrato", "Contrato"
-    HANDOVER_ACT = "acta_entrega", "Acta de entrega"
-    RETURN_ACT = "acta_devolucion", "Acta de devolución"
-    ACCIDENT_REPORT = "parte_accidente", "Parte de accidente"
-    DAMAGE_PHOTOS = "fotos_danos", "Fotos de daños"
-    OTHER = "otro", "Otro"
+    REGISTRATION = "registration_certificate", "Permiso de circulación"
+    TECHNICAL_SHEET = "technical_datasheet", "Ficha técnica"
+    INSURANCE = "insurance", "Seguro"
+    CONTRACT = "contract", "Contrato"
+    HANDOVER_ACT = "delivery_report", "Acta de entrega"
+    RETURN_ACT = "return_report", "Acta de devolución"
+    ACCIDENT_REPORT = "accident_report", "Parte de accidente"
+    DAMAGE_PHOTOS = "damage_photos", "Fotos de daños"
+    OTHER = "other", "Otro"
 
 
 class DocumentStatus(models.TextChoices):
     """Estado del documento."""
 
-    VALID = "vigente", "Vigente"
-    EXPIRED = "caducado", "Caducado"
-    PENDING_ARCHIVE = "pendiente_archivar", "Pendiente de archivar"
+    VALID = "valid", "Vigente"
+    EXPIRED = "expired", "Caducado"
+    PENDING_ARCHIVE = "pending_archive", "Pendiente de archivar"
