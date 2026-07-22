@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Bell, Car, PlusCircle } from 'lucide-react'
+import { Bell, Car, PlusCircle, Users } from 'lucide-react'
 import { Button } from '@flota/ui/ui'
 
 import { useAuth } from '../auth.ts'
@@ -45,6 +45,12 @@ export function Layout() {
           <Bell size={22} strokeWidth={2.4} aria-hidden />
           <span>Alertas</span>
         </NavLink>
+        {user?.roles.includes('supervisor') && (
+          <NavLink to="/grupo" className="bottom-tab">
+            <Users size={22} strokeWidth={2.4} aria-hidden />
+            <span>Grupo</span>
+          </NavLink>
+        )}
       </nav>
     </div>
   )

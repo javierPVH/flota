@@ -6,6 +6,8 @@ import { Layout } from './components/Layout.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
 import { MyVehiclesPage } from './pages/MyVehiclesPage.tsx'
 import { AlertsPage } from './pages/AlertsPage.tsx'
+import { GroupPage } from './pages/GroupPage.tsx'
+import { NewIncidentPage } from './pages/NewIncidentPage.tsx'
 import { RegisterKmPage } from './pages/RegisterKmPage.tsx'
 import { VehicleFieldPage } from './pages/VehicleFieldPage.tsx'
 import { RequestAccessPage } from './pages/RequestAccessPage.tsx'
@@ -46,6 +48,8 @@ export default function App() {
         <Route path="/vehiculos/:id" element={<VehicleFieldPage />} />
         <Route path="/registrar" element={<RegisterKmPage />} />
         <Route path="/alertas" element={<AlertsPage />} />
+        <Route path="/grupo" element={<GroupPage />} />
+        <Route path="/grupo/incidencias/nueva" element={<NewIncidentPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -311,6 +311,54 @@ table.data th {
   color: var(--info, #1f63b8);
 }
 
+/* --- M6: modo supervisor (grupo, reparto, proyección, incidencias) ------- */
+.badge.level-ok { background: var(--success-soft, #e3f4e8); color: var(--success, #1f9f67); }
+.badge.level-watch { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); }
+.badge.level-over { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); }
+.km-progress {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--border-soft, #eceff3);
+  overflow: hidden;
+  margin: 0.5rem 0 0.7rem;
+}
+.km-progress-fill { height: 100%; border-radius: 999px; background: var(--success, #1f9f67); }
+.km-progress-fill.level-watch { background: var(--warning, #c17a11); }
+.km-progress-fill.level-over { background: var(--danger, #c63434); }
+.km-chart { margin-top: 0.7rem; }
+.km-chart svg { width: 100%; height: auto; }
+.km-chart-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--muted-text, #5f748c);
+}
+.pill.incident-open { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); margin-left: 0; }
+.pill.incident-on_going { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); margin-left: 0; }
+.pill.incident-closed { background: var(--success-soft, #e3f4e8); color: var(--success, #1f9f67); margin-left: 0; }
+.split-line {
+  display: grid;
+  grid-template-columns: 1fr 84px auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+.line-remove {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  background: none;
+  color: var(--danger, #c63434);
+  cursor: pointer;
+}
+.split-tools { display: flex; align-items: center; justify-content: space-between; }
+.split-total { font-weight: 800; }
+.split-total.ok { color: var(--success, #1f9f67); }
+.split-total.ko { color: var(--danger, #c63434); }
+.split-history { margin-top: 1rem; padding-top: 0.8rem; border-top: 1px dashed var(--border, #cfdae6); }
+.page-head h2 { display: flex; align-items: center; gap: 0.45rem; }
+
 /* --- M5: bandeja de alertas ---------------------------------------------- */
 .link-btn {
   border: 0;

@@ -5,6 +5,7 @@ import type {
   AssignmentRow,
   AuthConfig,
   DevUser,
+  Driver,
   FlotaDocument,
   FlotaUser,
   Incident,
@@ -14,6 +15,7 @@ import type {
   Paginated,
   Vehicle,
   VehicleSummary,
+  VehicleUsageRow,
 } from './types'
 
 // API de negocio versionada (M0): auth en /api/v1/auth/, dominio en /api/v1/.
@@ -129,9 +131,37 @@ export async function uploadDocument(data: DocumentUploadInput, file: File): Pro
   return payload as FlotaDocument
 }
 
-/** Incidencias del vehículo (solo supervisor: liga el documento al parte). */
-export const listIncidents = (vehicle: number) =>
-  getJson<Paginated<Incident>>(`${API}/incidents/?vehicle=${vehicle}`)
+/** Incidencias (solo gestión; el back acota al grupo del supervisor). */
+export const listIncidents = (vehicle?: number) =>
+  getJson<Paginated<Incident>>(`${API}/incidents/${vehicle ? `?vehicle=${vehicle}` : ''}`)
+
+// --- M6: modo supervisor (HU-2.5, 3.4/3.6, Épica 6) ------------------------
+
+/** Conductores activos para los desplegables (solo gestión). */
+export const listDrivers = () => getJson<Driver[]>(`${AUTH}/drivers/`)
+
+export const listVehicleUsages = (vehicle: number) =>
+  getJson<Paginated<VehicleUsageRow>>(`${API}/vehicle-usages/?vehicle=${vehicle}`)
+
+/** Aplica el reparto completo (HU-2.5): el back exige suma = 100 y cierra el
+ * vigente en la misma transacción. */
+export const setUsageSplit = (data: {
+  vehicle: number
+  start_date: string
+  end_date?: string | null
+  items: Array<{ driver: number; usage_percent: string }>
+}) => postJson<VehicleUsageRow[]>(`${API}/vehicle-usages/set/`, data)
+
+export const createIncident = (data: {
+  vehicle: number
+  type: string
+  date?: string | null
+  description?: string
+}) => postJson<Incident>(`${API}/incidents/`, data)
+
+/** Histórico de lecturas para la gráfica de evolución (HU-3.6). */
+export const listKmReadings = (vehicle: number) =>
+  getJson<Paginated<KmReading>>(`${API}/km-readings/?vehicle=${vehicle}&ordering=reading_date`)
 
 // --- Portón de acceso: mi solicitud con ticket Jira (Fase A2) -------------
 export const listMyRequests = () => getJson<MyVehicleRequest[]>(`${API}/vehicle-requests/mine/`)

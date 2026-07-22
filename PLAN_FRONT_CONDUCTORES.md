@@ -312,7 +312,26 @@ resuelve; admin ve toda la flota.)*
   con "desde cuándo" y acceso a ficha.
 - **Aceptación:** cada rol ve sus alertas y el supervisor gestiona las de su grupo.
 
-### M6 — Modo supervisor: grupo, reparto, proyección e incidencias · HU-2.5, 2.8, 3.4, 3.6, Épica 6 🟡
+### M6 — Modo supervisor: grupo, reparto, proyección e incidencias · HU-2.5, 2.8, 3.4, 3.6, Épica 6 🟡 — ✅ IMPLEMENTADA
+*(Cómo quedó: pestaña 👥 `/grupo` solo para el supervisor (`Navigate` a `/` si
+no lo es; la autoridad sigue siendo el back). Por vehículo del grupo: tarjeta
+con matrícula → ficha, conductor, **barra de progreso** consumidos/contratados
+y badge de los **tres niveles** (`Dentro`/`A vigilar`/`Riesgo exceso`, con
+exceso y multa estimada si `over`), media mensual y proyección a fin (del
+summary); "Ver evolución" carga bajo demanda la gráfica SVG (`KmChart`, portada
+de gestión). **Reparto de uso** (HU-2.5) en modal: líneas persona+% con
+desplegable de `GET /auth/drivers/` (IsManagement — 403 al conductor),
+indicador de suma en vivo (guardar deshabilitado si ≠100), "vigente desde", y
+histórico con los repartos cerrados; `POST /vehicle-usages/set/` revalida la
+suma y cierra el vigente en transacción. **Incidencias** (Épica 6): listado del
+grupo (el back acota) con estado en píldora, y alta en
+`/grupo/incidencias/nueva` — tipo avería/accidente/mantenimiento/revisión,
+fecha, descripción y **fotos** (multiple, cámara/galería) que se suben como
+documentos `damage_photos` ligados a la incidencia; si alguna foto falla, la
+incidencia no se pierde y se avisa. Verificado E2E con seed: 1234KLM proyecta
+`over` (141%, ~1.657 € de multa), suma 90 → 400, 60/40 aplicado cerrando el
+vigente, incidencia con foto `pending_archive` ligada, y el listado sin filtro
+devuelve solo el grupo de sara.)*
 - **Grupo** (HU-2.8): vistas agregadas de sus vehículos (mismas acciones que el
   conductor + lo propio de supervisor); **no** puede dar de alta/baja ni salir de
   su grupo.

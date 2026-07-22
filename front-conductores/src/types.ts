@@ -202,7 +202,7 @@ export interface FlotaDocument {
   updated_at: string
 }
 
-/** Incidencia (solo lectura aquí; el supervisor liga documentos a ellas). */
+/** Incidencia (el supervisor las crea/consulta; liga documentos a ellas). */
 export interface Incident {
   id: number
   vehicle: number
@@ -212,6 +212,25 @@ export interface Incident {
   description: string
   status: string
   status_display: string
+}
+
+// --- M6: modo supervisor (HU-2.5, 3.4/3.6, Épica 6) ------------------------
+
+/** Conductor compacto para desplegables (GET /auth/drivers/, solo gestión). */
+export interface Driver {
+  id: number
+  username: string
+  name: string
+}
+
+/** Fila del reparto de uso (HU-2.5). El nombre se resuelve vía `Driver`. */
+export interface VehicleUsageRow {
+  id: number
+  vehicle: number
+  driver: number
+  usage_percent: string | null
+  start_date: string | null
+  end_date: string | null
 }
 
 export interface Paginated<T> {
