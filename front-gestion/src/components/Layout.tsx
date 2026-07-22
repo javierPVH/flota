@@ -32,6 +32,7 @@ export function Layout() {
           <NavLink to="/vehiculos">Vehículos</NavLink>
           <NavLink to="/conductores">Conductores</NavLink>
           <NavLink to="/propuestas">Propuestas</NavLink>
+          <NavLink to="/kilometraje">Kilometraje</NavLink>
           <NavLink to="/incidencias">Incidencias</NavLink>
         </nav>
         <div className="spacer" />

@@ -565,3 +565,25 @@ table.data th {
   color: #14532d;
   font-size: 0.9rem;
 }
+
+/* --- G6: kilometraje -------------------------------------------------------- */
+.pending-count {
+  font-weight: 700;
+  color: #c17a11;
+}
+.simulator { display: grid; gap: 0.6rem; margin-bottom: 1rem; }
+.sim-label { font-size: 0.9rem; display: grid; gap: 0.4rem; }
+.sim-label input[type='range'] { width: 100%; accent-color: #009491; }
+.sim-result { margin: 0; font-size: 0.92rem; }
+.level-text-within { color: #1e7e45; }
+.level-text-watch { color: #a9791c; }
+.level-text-over { color: #c63434; }
+.history-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(280px, 1.4fr);
+  gap: 1.2rem;
+  align-items: start;
+}
+@media (max-width: 800px) {
+  .history-grid { grid-template-columns: 1fr; }
+}

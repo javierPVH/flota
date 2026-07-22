@@ -319,8 +319,17 @@ supervisor**. **HU-2.7**: select de supervisor en el formulario del vehículo
 - **Aceptación:** ciclo de asignación + propuestas + conductores + supervisores
   operativo. *(Ver dependencias de backend para HU-2.6.)*
 
-### G6 — Kilometraje: pendientes, proyección e histórico · HU-3.3, 3.4, 3.5, 3.6 🟡
-*(pantalla "Proyección de km" del PDF)*
+### G6 — Kilometraje: pendientes, proyección e histórico · HU-3.3, 3.4, 3.5, 3.6 🟡 — ✅ IMPLEMENTADA
+*(`/kilometraje` con filtro por grupo/supervisor: panel de **lecturas
+pendientes del mes** (última lectura y días pendiente, enlace a ficha; "Todo
+al día ✓" si no hay); tabla de **proyección a fin de contrato** para toda la
+flota (contratados, proyección con ±km de desvío, barra por nivel
+Dentro/A vigilar/Riesgo, media mensual, ritmo contratado y penalización
+estimada); **simulador** con slider de km/mes (arranca en la media real) que
+recalcula proyección, % y mensaje por nivel en vivo, en el front; e
+**histórico por vehículo** con km del periodo derivados por diferencias +
+gráfica compartida (`KmChart`, extraída de la ficha). Los datos salen del
+summary por vehículo (una llamada por fila, flotas pequeñas).)*
 - **Lectura pendiente** (HU-3.3): listado/alerta de vehículos sin km del mes,
   filtrable por supervisor/grupo, con "desde cuándo" pendiente y acceso a ficha.
 - **Proyección por vehículo** (HU-3.4/3.5): tabla con contratados, **barra de

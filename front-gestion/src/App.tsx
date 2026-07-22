@@ -10,6 +10,7 @@ import { VehicleDetailPage } from './pages/VehicleDetailPage.tsx'
 import { VehicleFormPage } from './pages/VehicleFormPage.tsx'
 import { IncidentsPage } from './pages/IncidentsPage.tsx'
 import { ProposalsPage } from './pages/ProposalsPage.tsx'
+import { MileagePage } from './pages/MileagePage.tsx'
 import { UsersPage } from './pages/UsersPage.tsx'
 import { UserDetailPage } from './pages/UserDetailPage.tsx'
 
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="/vehiculos/:id/editar" element={<VehicleFormPage />} />
         <Route path="/incidencias" element={<IncidentsPage />} />
         <Route path="/propuestas" element={<ProposalsPage />} />
+        <Route path="/kilometraje" element={<MileagePage />} />
         <Route path="/conductores" element={<UsersPage />} />
         <Route path="/conductores/:id" element={<UserDetailPage />} />
       </Route>
