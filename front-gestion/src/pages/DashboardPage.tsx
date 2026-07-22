@@ -4,19 +4,9 @@ import { Button, StatCard } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchFleetSummary, listAlerts, listVehicles, type VehicleFilters } from '../api.ts'
+import { fmtDate, fmtEur, itvClass } from '../format.ts'
+import { useLang } from '../i18n.tsx'
 import type { Alert, FleetSummary, Vehicle } from '../types.ts'
-
-const eur = (value: string) =>
-  `${Number(value).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €`
-
-/** Semáforo de ITV: naranja = próxima (≤30 días), rojo = vencida. */
-function itvClass(dateStr: string | null): string {
-  if (!dateStr) return ''
-  const days = Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86_400_000)
-  if (days < 0) return 'itv-overdue'
-  if (days <= 30) return 'itv-soon'
-  return ''
-}
 
 const USE_LABEL: Record<string, string> = {
   on_project: 'Proyecto',
@@ -26,15 +16,16 @@ const USE_LABEL: Record<string, string> = {
 
 // Chips de filtro rápido (HU-1.7). Cada chip fija un juego de filtros del back;
 // "ITV próxima" corta en cliente (el back no expone ese filtro como parámetro).
-const CHIPS: Array<{ key: string; label: string; filters: VehicleFilters }> = [
-  { key: 'all', label: 'Todos', filters: {} },
-  { key: 'personal', label: 'Uso personal', filters: { business_use: 'personal' } },
-  { key: 'works', label: 'Uso obra', filters: { business_use: 'works' } },
-  { key: 'project', label: 'Proyecto', filters: { business_use: 'on_project' } },
-  { key: 'active', label: 'Activos', filters: { state: 'active' } },
-  { key: 'shop', label: 'En taller', filters: { state: 'maintenance' } },
-  { key: 'no-driver', label: 'Sin conductor', filters: { assigned: false } },
-  { key: 'itv', label: 'ITV próxima', filters: {} },
+// Las etiquetas salen del diccionario i18n (t.home.chips).
+const CHIPS: Array<{ key: string; filters: VehicleFilters }> = [
+  { key: 'all', filters: {} },
+  { key: 'personal', filters: { business_use: 'personal' } },
+  { key: 'works', filters: { business_use: 'works' } },
+  { key: 'project', filters: { business_use: 'on_project' } },
+  { key: 'active', filters: { state: 'active' } },
+  { key: 'shop', filters: { state: 'maintenance' } },
+  { key: 'no-driver', filters: { assigned: false } },
+  { key: 'itv', filters: {} },
 ]
 
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
@@ -43,6 +34,8 @@ const PAGE_SIZE = 50 // PAGE_SIZE del back (DRF)
 /** Vista general (G1): KPIs + alertas urgentes + listado con búsqueda y chips. */
 export function DashboardPage() {
   const navigate = useNavigate()
+  const { language, t } = useLang()
+  const eur = (value: string) => fmtEur(value, language)
   const [summary, setSummary] = useState<FleetSummary | null>(null)
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [error, setError] = useState('')
@@ -122,9 +115,9 @@ export function DashboardPage() {
   return (
     <div>
       <div className="page-head">
-        <h2>Vista general</h2>
+        <h2>{t.home.title}</h2>
         <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
-          + Añadir vehículo
+          {t.home.addVehicle}
         </Button>
       </div>
 
@@ -133,30 +126,33 @@ export function DashboardPage() {
       {summary && (
         <div className="stat-grid">
           <StatCard
-            label="Vehículos"
+            label={t.home.kpiVehicles}
             value={summary.total}
-            sub={`${active} activos · ${shop} en taller`}
+            sub={t.home.kpiVehiclesSub(active, shop)}
           />
           <StatCard
-            label="Personal / obra"
+            label={t.home.kpiUse}
             value={`${personal} / ${works}`}
-            sub={`${pct(personal)}% personal · ${pct(works)}% obra`}
+            sub={t.home.kpiUseSub(pct(personal), pct(works))}
             accent="teal"
           />
           <StatCard
-            label="Coste mensual"
+            label={t.home.kpiCost}
             value={eur(summary.monthly_cost)}
             sub={
               trend === null
-                ? `Facturado: ${eur(summary.invoiced_this_month)}`
-                : `Facturado ${eur(summary.invoiced_this_month)} (${trend >= 0 ? '+' : ''}${trend}% vs mes anterior)`
+                ? t.home.kpiCostSub(eur(summary.invoiced_this_month))
+                : t.home.kpiCostTrend(
+                    eur(summary.invoiced_this_month),
+                    `${trend >= 0 ? '+' : ''}${trend}`,
+                  )
             }
             accent={trend !== null && trend > 0 ? 'warning' : 'navy'}
           />
           <StatCard
-            label="ITV próximas (30 días)"
+            label={t.home.kpiItv}
             value={summary.itv_next_30d}
-            sub={summary.itv_overdue ? `${summary.itv_overdue} vencidas` : 'Ninguna vencida'}
+            sub={summary.itv_overdue ? t.home.kpiItvOverdue(summary.itv_overdue) : t.home.kpiItvOk}
             accent={summary.itv_overdue ? 'danger' : 'info'}
           />
         </div>
@@ -165,9 +161,9 @@ export function DashboardPage() {
       {topAlerts.length > 0 && (
         <section className="alerts-block">
           <div className="section-head">
-            <h3>Alertas que requieren atención</h3>
+            <h3>{t.home.alertsTitle}</h3>
             <span className="alerts-count">
-              {alerts.length} abiertas · <Link to="/alertas">Ver todas →</Link>
+              {t.home.alertsOpen(alerts.length)} · <Link to="/alertas">{t.home.seeAll}</Link>
             </span>
           </div>
           <div className="alerts-grid">
@@ -191,7 +187,8 @@ export function DashboardPage() {
           <input
             className="search-input"
             type="search"
-            placeholder="Buscar matrícula, marca o conductor…"
+            aria-label={t.home.searchLabel}
+            placeholder={t.home.searchPlaceholder}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -201,7 +198,7 @@ export function DashboardPage() {
               checked={showBaja}
               onChange={(e) => setShowBaja(e.target.checked)}
             />
-            Mostrar bajas
+            {t.home.showRetired}
           </label>
         </div>
         <div className="chips-row">
@@ -210,32 +207,33 @@ export function DashboardPage() {
               key={c.key}
               type="button"
               className={`chip ${chip === c.key ? 'chip-active' : ''}`}
+              aria-pressed={chip === c.key}
               onClick={() => setChip(c.key)}
             >
-              {c.label}
+              {t.home.chips[c.key] ?? c.key}
             </button>
           ))}
         </div>
 
         {loading ? (
-          <p>Cargando…</p>
+          <p>{t.common.loading}</p>
         ) : (
           <>
             <table className="data">
               <thead>
                 <tr>
-                  <th>Matrícula</th>
-                  <th>Vehículo</th>
-                  <th>Uso</th>
-                  <th>Estado</th>
-                  <th>Conductor</th>
-                  <th>Próx. ITV</th>
+                  <th>{t.home.thPlate}</th>
+                  <th>{t.home.thVehicle}</th>
+                  <th>{t.home.thUse}</th>
+                  <th>{t.home.thState}</th>
+                  <th>{t.home.thDriver}</th>
+                  <th>{t.home.thItv}</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={6}>Ningún vehículo con estos filtros.</td>
+                    <td colSpan={6}>{t.home.empty}</td>
                   </tr>
                 )}
                 {rows.map((v) => (
@@ -254,7 +252,9 @@ export function DashboardPage() {
                       <span className={`badge ${v.state}`}>{v.state_display || '—'}</span>
                     </td>
                     <td>{v.driver_name || '—'}</td>
-                    <td className={itvClass(v.next_itv_date)}>{v.next_itv_date ?? '—'}</td>
+                    <td className={itvClass(v.next_itv_date)}>
+                      {fmtDate(v.next_itv_date, language)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -267,18 +267,16 @@ export function DashboardPage() {
                   disabled={page <= 1}
                   onClick={() => setPage((p) => p - 1)}
                 >
-                  ← Anterior
+                  {t.home.prev}
                 </Button>
-                <span>
-                  Página {page} de {totalPages} · {count} vehículos
-                </span>
+                <span>{t.home.pager(page, totalPages, count)}</span>
                 <Button
                   variant="secondary"
                   size="sm"
                   disabled={page >= totalPages}
                   onClick={() => setPage((p) => p + 1)}
                 >
-                  Siguiente →
+                  {t.home.next}
                 </Button>
               </div>
             )}

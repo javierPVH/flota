@@ -463,7 +463,18 @@ Deja de hacer falta el admin de Django para mantenerlos.)*
   se aprovisionan desde el admin de Django** (decisión explícita, no un hueco).
 - **Aceptación:** los catálogos se mantienen sin salir de la app.
 
-### G12 — Pulido (escritorio) 🟡
+### G12 — Pulido (escritorio) 🟡 — ✅ IMPLEMENTADA (núcleo)
+*(**i18n es/en** con `createI18n` del DS: diccionarios tipados (si falta una
+clave no compila) cubriendo shell + Vista general, `LanguageToggleButton` en
+el header, y `format.ts` con fechas/EUR/km conscientes de idioma; el resto de
+páginas se traduce incrementalmente añadiendo claves. **Atajos de teclado**:
+"/" enfoca la búsqueda y "n" abre el alta (nunca dentro de un campo).
+**Accesibilidad**: `aria-label` en búsqueda y nav, `aria-pressed` en los
+chips. **Tests**: Vitest + Testing Library en front-gestion (`npm test` desde
+la raíz) — 13 tests en verde: formatos/semáforo ITV, AdminGate (403 vs app),
+LoginPage (selector dev condicionado) y DashboardPage (KPIs, alertas, chips →
+parámetros reales del back). Pendiente 🔵: tutoriales `react-joyride` y la
+traducción del resto de páginas.)*
 - Tablas densas, atajos de teclado, estados de carga/vacío/error coherentes
   (`idle|loading|ok|error`), **i18n es/en** (fechas, **EUR**), accesibilidad,
   **tutoriales** (`react-joyride` + `data-tour`, patrón de list) y tests (Vitest

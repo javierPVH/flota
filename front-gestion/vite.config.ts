@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 // Front de gestión (VPN). Puerto 5173. Habla con el back por cookies de sesión
@@ -17,4 +17,8 @@ export default defineConfig({
   plugins: [react()],
   server: { port: 5173, proxy },
   preview: { port: 5173, proxy },
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+  },
 })
