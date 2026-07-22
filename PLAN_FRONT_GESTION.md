@@ -284,13 +284,23 @@ listado en una sola vista)*
   evolución por vehículo/grupo.
 
 ### G7 — Documentación e incidencias · HU-4.3, 4.4 + Épica 6 🟡
+> **Todos los documentos y facturas viven en Google Drive** (patrón de `list`,
+> Fase A3 del back): la app guarda solo la referencia `{id, name, url}` y abre
+> el archivo por su `webViewLink`; nunca almacena los bytes.
 - **Consultar documentos** (HU-4.3): por vehículo, con tipo/fecha, **quién subió**,
   si están ligados a **incidencia**, **caducidad** (seguro/permiso/ITV), abrir el
-  archivo (Drive), filtrar por tipo, y ver **estado de archivado**
-  (`pendiente_archivar`/`vigente`).
+  archivo en **Drive** (`webViewLink`, pestaña nueva, `safeLinkHref`), filtrar
+  por tipo, y ver **estado de archivado** (`pendiente_archivar`/`vigente`).
+- **Subir/elegir desde Drive con Google Picker** (patrón `FileFieldEditor` +
+  `google-picker.ts` de `list`): la config viene de
+  `GET /api/v1/google/picker-config/`; si el usuario no tiene el scope de Drive,
+  **tarjeta "Conectar Google"** con CTA al OAuth; con scope, el Picker permite
+  **subir** (el navegador sube directo a Drive con el token del usuario) o
+  **seleccionar** un archivo/carpeta existente. La carpeta del vehículo se lista
+  con `GET /google/drive/folder-files/?folder_id=`.
 - **Gestionar documentos** (HU-4.4): subir; **sustituir** conservando el anterior
   (`replaces`); **marcar caducado/vigente**; **eliminar con confirmación** (queda
-  registrado).
+  registrado — se borra la referencia, no el fichero de Drive).
 - **Incidencias** (Épica 6): crear/gestionar (avería/mantenimiento/ITV/accidente)
   con coste y estado; ligar documentos (acta/parte/fotos).
 - **Aceptación:** documentación completa por vehículo y gestión con versión/borrado
@@ -326,6 +336,10 @@ listado en una sola vista)*
 ### G10 — Costes y facturación · Épica 7 🔵
 *(pantalla "Refacturación vehículos" del PDF)*
 - Facturas (`/invoices/`) e **imputaciones** (`/invoice-allocations/`).
+- **El PDF de la factura vive en Drive** (Fase A3): al dar de alta una factura
+  se adjunta con el **Picker** (subir o elegir de la carpeta `facturas/` del
+  vehículo) y queda la referencia (`drive_file_id`/`drive_url`); en la lista y
+  en el editor de refacturación, icono para **abrir la factura** en Drive.
 - **Editor de refacturación** desde la ficha: cabecera con la factura (código,
   proveedor, vehículo, periodo, **importe total**) y **líneas de reparto**
   añadibles/borrables — cada línea elige destino (**Proyecto** o **Centro de
@@ -354,7 +368,7 @@ listado en una sola vista)*
 
 ---
 
-## Dependencias con el backend — ✅ resueltas (Fase A1)
+## Dependencias con el backend — ✅ resueltas (Fase A1), salvo Drive (A3)
 
 Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
 (ver [`PLAN_MEJORA_BACK.md`](./PLAN_MEJORA_BACK.md)). Endpoints a consumir:
@@ -369,6 +383,10 @@ Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
 | **2.4** (G5) | `POST /assignments/{id}/accept|reject/` (transición completa + evento) |
 | **2.5 / Épica 7** (G5/G10) | `POST /vehicle-usages/set/` y `POST /invoices/{id}/allocate/` — el back valida la **suma = 100** |
 | **4.4** (G7) | `/documents/` acepta **multipart** (`file`, máx. 10 MB foto/PDF) además de `drive_url`; `file_url` en la respuesta |
+
+| Pendiente | Estado |
+|-----------|--------|
+| **G7/G10 Drive** (🟡) | **Fase A3 del back** sin implementar: OAuth con scope Drive + `GET /google/picker-config/` + `GET /google/drive/folder-files/` + campos `drive_file_id` (Document/Invoice) y `drive_folder_id` (Vehicle). Hasta entonces, G7 puede arrancar con `drive_url` pegada a mano + multipart |
 
 Sigue siendo del front (por diseño): el **aviso previo a la baja** (HU-1.5) —
 consultar asignación/vínculos activos antes de confirmar.

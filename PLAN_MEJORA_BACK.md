@@ -201,6 +201,49 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
   supervisor sin grupo ve la flota vacía (aviso en el front); su grupo lo asigna
   el admin (HU-2.7). Estado `pending` nuevo (migración `0009`), cron de ejemplo
   actualizado. 15 tests nuevos (185 en total, verdes).
+- **Fase A3 — Documentos y facturas en Google Drive (patrón `list`): 🟡 PENDIENTE.**
+  **Decisión:** todos los documentos y facturas se guardan en **Drive**; la BD
+  solo persiste la **referencia** (`drive_file_id`, `drive_url` = `webViewLink`,
+  nombre, mime) — nunca los bytes a largo plazo. Se calca la arquitectura de
+  `list` (`backend/accounts/google_oauth.py` + Google Picker), con dos vías:
+  1. **Vía principal (escritorio, gestión) — OAuth del usuario + Picker:** el
+     back **no toca los bytes**. Guarda credenciales cifradas por usuario
+     (modelo `GoogleCredential`: `refresh_token` vía `prompt=consent` + PKCE,
+     campos cifrados) y expone `GET /api/v1/google/picker-config/` (`enabled`,
+     `api_key`, `app_id`, `has_drive`, **`access_token` vigente** refrescado al
+     vuelo) y `GET /api/v1/google/drive/folder-files/?folder_id=` (lista la
+     carpeta del vehículo: `id,name,mimeType,webViewLink,iconLink,
+     thumbnailLink`, `supportsAllDrives`). La subida la hace el **navegador
+     directamente contra Drive** con el token del usuario (`DocsUploadView` del
+     Picker); el front devuelve `{id, name, url, mime}` y el back lo valida y
+     guarda (URLs solo `https://`, patrón `_safe_https_url` de `list`).
+  2. **Vía móvil (conductores) — multipart + archivador con cuenta de
+     servicio:** se mantiene la subida `multipart` (cámara/galería + cola
+     offline M7): el documento nace `pendiente_archivar` con el binario en
+     `MEDIA_ROOT`, y el **`GoogleDriveArchiver` deja de ser stub**
+     ([`fleet/services/archiver.py`](./back/fleet/services/archiver.py)): con
+     cuenta de servicio (`GOOGLE_SA_KEYFILE`) **asegura la carpeta del
+     vehículo** en Drive (`Vehicle.drive_folder_id`, subcarpeta por matrícula),
+     sube el fichero (`MediaFileUpload`), persiste `drive_file_id`/`webViewLink`,
+     marca `vigente` y **borra el binario local**. El reintento ya existe
+     (`archive_pending_documents`); `/media/` queda como *staging* temporal.
+  - **Modelo (migración):** `Document.drive_file_id`; `Vehicle.drive_folder_id`
+    (junto al `drive_folder_url` actual); **`Invoice`**: sustituir el `file`
+    `CharField` por la misma referencia (`drive_file_id` + `drive_url`) — las
+    facturas se archivan en la carpeta del vehículo (subcarpeta `facturas/`) y
+    la refacturación (G10) enlaza el PDF.
+  - **Settings** (calcados de `list`): `GOOGLE_OAUTH_CLIENT_SECRET`,
+    `GOOGLE_OAUTH_REDIRECT_URI`, `GOOGLE_OAUTH_SCOPES` (añadir `drive.file` +
+    `drive.readonly` al login Google ya existente), `GOOGLE_API_KEY`,
+    `GOOGLE_PICKER_APP_ID`, `GOOGLE_SA_KEYFILE`, `GOOGLE_HTTP_TIMEOUT` (30 s de
+    socket) / `GOOGLE_NUM_RETRIES`; activar con `FLEET_ARCHIVE_BACKEND=gdrive`
+    + `GOOGLE_DRIVE_ENABLED=True`.
+  - **Degradación limpia** (como `list`): librerías de Google importadas de
+    forma perezosa; sin credenciales los endpoints devuelven `enabled:false` y
+    el front oculta el Picker y cae al multipart; errores de Drive se capturan
+    y degradan (`{"files": [], "error": "drive_unavailable"}`) sin romper la
+    petición; token no refrescable → `has_drive:false` y tarjeta de reconexión
+    en el front.
 - **Pendiente (🔵):** push (suscripciones web-push/FCM + envío desde el
   motor de alertas) — va con la fase M8 del front móvil.
 

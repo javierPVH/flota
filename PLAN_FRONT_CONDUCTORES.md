@@ -197,12 +197,18 @@ vehículos/Mi grupo" en tarjetas con semáforo de ITV.)*
   lectura), próxima ITV con semáforo; **estado / rol sustitución / situación de
   asignación** diferenciados; conductor (HU-1.2 en modo consulta).
 - **Documentos del vehículo** (HU-4.1/4.3): lista con tipo/fecha y **estado de
-  archivado** (`pendiente_archivar`/`vigente`); abrir el archivo (Drive).
+  archivado** (`pendiente_archivar`/`vigente`); **abrir el archivo en Drive**
+  (`webViewLink`, pestaña nueva) — todos los documentos y facturas viven en
+  Drive (Fase A3 del back, patrón de `list`); la app solo maneja la referencia.
 - **Subir documento desde el móvil** (HU-4.1): **cámara/galería**, tipo (seguro,
   ficha, parte, fotos de daños…), caducidad, y **opcionalmente ligado a una
-  incidencia** (acta/parte/fotos); el back lo archiva o lo deja pendiente.
-  Visible para gestor y supervisor. *(Ver dependencias: la API hoy solo acepta
-  metadatos + URL, no el binario.)*
+  incidencia** (acta/parte/fotos). En el móvil la subida va por **multipart**
+  (compatible con la cola offline de M7): el documento nace
+  `pendiente_archivar` y **el back lo archiva en la carpeta de Drive del
+  vehículo** con cuenta de servicio (Fase A3) — la UI refleja el paso
+  `pendiente_archivar → vigente` y entonces el enlace pasa a abrir Drive.
+  Visible para gestor y supervisor. *(No usamos Google Picker aquí: en el móvil
+  la cámara + multipart es el camino corto y funciona sin conexión.)*
 - **Accesos directos** contextuales: registrar km · subir documento · (M4)
   proponer fechas / registrar ITV.
 - **Aceptación:** consulta rápida + subida de documentación desde el teléfono con
@@ -279,7 +285,7 @@ vehículos/Mi grupo" en tarjetas con semáforo de ITV.)*
 
 ---
 
-## Dependencias con el backend — ✅ resueltas (Fase A1), salvo push
+## Dependencias con el backend — ✅ resueltas (Fase A1), salvo Drive (A3) y push
 
 Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
 (ver [`PLAN_MEJORA_BACK.md`](./PLAN_MEJORA_BACK.md)). Endpoints a consumir:
@@ -296,6 +302,7 @@ Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
 
 | Pendiente | Estado |
 |-----------|--------|
+| **M2 Drive** (🟡) | **Fase A3 del back** sin implementar: el `GoogleDriveArchiver` real (cuenta de servicio) que sube el multipart `pendiente_archivar` a la carpeta de Drive del vehículo y rellena `drive_url`/`drive_file_id`. Hasta entonces el multipart funciona igual, pero el documento se queda `pendiente_archivar` y se abre por `file_url` (`/media/`) |
 | **M8 push** (🔵) | Sin implementar: suscripciones web-push/FCM + envío desde el motor de alertas — se abordará con la fase M8 |
 
 > Además: km (`/km-readings/` con no-retroceso en servidor; última lectura con
