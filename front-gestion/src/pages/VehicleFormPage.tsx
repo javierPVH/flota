@@ -5,6 +5,7 @@ import { asErrorMessage } from '@flota/ui/http'
 
 import {
   createVehicleFull,
+  listUsers,
   fetchVehicle,
   listCatalog,
   listDrivers,
@@ -82,6 +83,7 @@ const FIELD_LABEL: Record<string, string> = {
   cost_center: 'CECO',
   country: 'País',
   property: 'Propiedad',
+  supervisor: 'Supervisor',
   registration_date: 'Matriculación',
 }
 
@@ -106,6 +108,7 @@ interface FormState {
   cost_center: string
   country: string
   property: string
+  supervisor: string
   driver: string
   // Contrato (solo alta, con propiedad = renting)
   renting: string
@@ -139,6 +142,7 @@ const EMPTY: FormState = {
   cost_center: '',
   country: '',
   property: 'renting',
+  supervisor: '',
   driver: '',
   renting: '',
   contract_number: '',
@@ -173,6 +177,7 @@ function fromVehicle(v: Vehicle): FormState {
     cost_center: v.cost_center != null ? String(v.cost_center) : '',
     country: v.country != null ? String(v.country) : '',
     property: v.property || 'renting',
+    supervisor: v.supervisor != null ? String(v.supervisor) : '',
   }
 }
 
@@ -198,6 +203,7 @@ function vehiclePayload(form: FormState): Record<string, unknown> {
     cost_center: form.cost_center ? Number(form.cost_center) : null,
     country: form.country ? Number(form.country) : null,
     property: form.property,
+    supervisor: form.supervisor ? Number(form.supervisor) : null,
   }
 }
 
@@ -247,6 +253,7 @@ export function VehicleFormPage() {
   const [conflict, setConflict] = useState(false)
 
   const [drivers, setDrivers] = useState<Driver[]>([])
+  const [supervisors, setSupervisors] = useState<Array<{ id: number; name: string }>>([])
   const [projects, setProjects] = useState<CatalogEntry[]>([])
   const [peps, setPeps] = useState<CatalogEntry[]>([])
   const [units, setUnits] = useState<CatalogEntry[]>([])
@@ -257,6 +264,16 @@ export function VehicleFormPage() {
 
   useEffect(() => {
     listDrivers().then(setDrivers).catch(() => setDrivers([]))
+    // Supervisores (HU-2.7): usuarios activos con ese rol.
+    listUsers()
+      .then((page) =>
+        setSupervisors(
+          page.results
+            .filter((u) => u.is_active && u.roles.includes('supervisor'))
+            .map((u) => ({ id: u.id, name: u.name })),
+        ),
+      )
+      .catch(() => setSupervisors([]))
     listCatalog('projects').then((p) => setProjects(p.results)).catch(() => {})
     listCatalog('peps').then((p) => setPeps(p.results)).catch(() => {})
     listCatalog('business-units').then((p) => setUnits(p.results)).catch(() => {})
@@ -483,6 +500,15 @@ export function VehicleFormPage() {
                 title={editing ? 'El conductor se cambia desde la ficha (Cambiar conductor)' : undefined}
               />
             </Labeled>
+            <SelectField
+              label="Supervisor"
+              options={[
+                { value: '', label: 'Sin supervisor' },
+                ...supervisors.map((u) => ({ value: String(u.id), label: u.name })),
+              ]}
+              value={form.supervisor}
+              onValueChange={set('supervisor')}
+            />
             <SelectField
               label="Unidad de negocio"
               options={catalogOptions(units)}

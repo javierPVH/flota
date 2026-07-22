@@ -151,8 +151,9 @@ export const listEvents = (vehicle: number) =>
 export const fetchVehicleHistory = (id: number) =>
   getJson<Paginated<AuditEntry>>(`${API}/vehicles/${id}/history/`)
 
-export const listAssignments = (filters: { vehicle?: number; status?: string } = {}) =>
-  getJson<Paginated<AssignmentRow>>(`${API}/assignments/${buildQs({ ...filters })}`)
+export const listAssignments = (
+  filters: { vehicle?: number; driver?: number; status?: string } = {},
+) => getJson<Paginated<AssignmentRow>>(`${API}/assignments/${buildQs({ ...filters })}`)
 
 export const listVehicleLinks = (filters: { main_vehicle?: number; substitute_vehicle?: number }) =>
   getJson<Paginated<VehicleLinkRow>>(`${API}/vehicle-links/${buildQs({ ...filters })}`)
@@ -172,6 +173,82 @@ export const closeVehicleLink = (id: number, end_date: string) =>
 
 export const fetchManagedUser = (id: number) =>
   getJson<ManagedUser>(`${AUTH}/users/${id}/`)
+
+// --- G5: asignaciones, conductores y reparto de uso -------------------------
+
+export const createAssignment = (data: {
+  vehicle: number
+  driver: number
+  start_date: string
+  status?: string
+}) => postJson<AssignmentRow>(`${API}/assignments/`, data)
+
+export const updateAssignment = (id: number, data: Partial<AssignmentRow>) =>
+  patchJson<AssignmentRow>(`${API}/assignments/${id}/`, data)
+
+export const deleteAssignment = (id: number) => deleteJson(`${API}/assignments/${id}/`)
+
+/** Confirma una propuesta: cierra la vigente + emite el evento (HU-2.4). */
+export const acceptAssignment = (id: number) =>
+  postJson<AssignmentRow>(`${API}/assignments/${id}/accept/`, {})
+
+export const rejectAssignment = (id: number) =>
+  postJson<AssignmentRow>(`${API}/assignments/${id}/reject/`, {})
+
+export interface VehicleUsageRow {
+  id: number
+  vehicle: number
+  driver: number
+  usage_percent: string
+  start_date: string | null
+  end_date: string | null
+}
+
+export const listVehicleUsages = (vehicle: number) =>
+  getJson<Paginated<VehicleUsageRow>>(`${API}/vehicle-usages/${buildQs({ vehicle })}`)
+
+/** Aplica el reparto completo: el back exige suma = 100 y cierra el vigente. */
+export const setUsageSplit = (data: {
+  vehicle: number
+  start_date: string
+  end_date?: string | null
+  items: Array<{ driver: number; usage_percent: string }>
+}) => postJson<VehicleUsageRow[]>(`${API}/vehicle-usages/set/`, data)
+
+// Gestión de usuarios/conductores (HU-2.6, solo admin).
+export interface ManagedUserFull extends ManagedUser {
+  email: string
+  name: string
+  dni: string | null
+  phone: string
+  is_active: boolean
+}
+
+export interface ManagedUserInput {
+  username?: string
+  first_name?: string
+  last_name?: string
+  email?: string
+  dni?: string | null
+  phone?: string
+  license_type?: string
+  fuel_card?: boolean
+  is_active?: boolean
+  roles?: string[]
+  password?: string
+}
+
+export const listUsers = (filters: { search?: string; is_active?: boolean } = {}) =>
+  getJson<Paginated<ManagedUserFull>>(`${AUTH}/users/${buildQs({ ...filters })}`)
+
+export const createUser = (data: ManagedUserInput) =>
+  postJson<ManagedUserFull>(`${AUTH}/users/`, data)
+
+export const updateUser = (id: number, data: ManagedUserInput) =>
+  patchJson<ManagedUserFull>(`${AUTH}/users/${id}/`, data)
+
+/** DELETE desactiva (no borra): el histórico se conserva. */
+export const deactivateUser = (id: number) => deleteJson(`${AUTH}/users/${id}/`)
 
 // --- G7: documentación e incidencias ---------------------------------------
 

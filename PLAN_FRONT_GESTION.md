@@ -289,7 +289,19 @@ la constraint (3 tests). Las acciones desaparecen con el vehículo en baja.)*
 - **Aceptación:** estados con color + evento; baja con motivo y avisos; vínculos
   gestionados sin romper el "único sustituto activo".
 
-### G5 — Asignaciones, conductores y propuestas · HU-2.1, 2.2, 2.4, 2.5, 2.6, 2.7 🔴
+### G5 — Asignaciones, conductores y propuestas · HU-2.1, 2.2, 2.4, 2.5, 2.6, 2.7 🔴 — ✅ IMPLEMENTADA
+*(panel "Conductor y reparto" en la ficha: **cambiar/asignar conductor**
+(propuesta + `accept` — cierra la vigente con fin=inicio y emite el evento;
+si accept falla se limpia la propuesta), **retirar** (fin=hoy), **histórico
+completo** de conductores con estado, y **reparto de uso** con editor de
+líneas (persona + %, indicador cuadra/no-cuadra en vivo, guardar solo al
+100%; el back cierra el vigente). **/propuestas**: bandeja `status=proposed`
+con Confirmar/Rechazar y aviso del resultado. **/conductores**: CRUD completo
+(nombre, DNI, contacto, permiso, tarjeta, roles multi, contraseña opcional →
+solo-Google), búsqueda con debounce, desactivar/reactivar (histórico
+conservado) y detalle con **vehículos que ha tenido** y el **grupo del
+supervisor**. **HU-2.7**: select de supervisor en el formulario del vehículo
+(usuarios activos con rol supervisor). Todo verificado E2E contra el seed.)*
 - **Asignar / cambiar conductor** (HU-2.1/2.2): desde `/auth/drivers/`; cierra la
   anterior con fecha de fin y abre la nueva; registra evento (old/new); no en baja;
   **histórico completo** de conductores del vehículo.

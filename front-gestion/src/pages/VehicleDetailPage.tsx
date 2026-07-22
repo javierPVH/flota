@@ -7,24 +7,21 @@ import {
   closeVehicleLink,
   createKmReading,
   createVehicleLink,
-  fetchManagedUser,
   fetchVehicle,
   fetchVehicleHistory,
   fetchVehicleSummary,
-  listAssignments,
   listEvents,
   listKmReadings,
   listVehicleLinks,
   listVehicles,
   updateVehicleFields,
 } from '../api.ts'
+import { VehicleAssignmentsPanel } from '../components/VehicleAssignmentsPanel.tsx'
 import { DocumentsPanel } from '../components/DocumentsPanel.tsx'
 import type {
-  AssignmentRow,
   AuditEntry,
   FlotaEvent,
   KmReading,
-  ManagedUser,
   Vehicle,
   VehicleLinkRow,
   VehicleSummary,
@@ -167,8 +164,6 @@ export function VehicleDetailPage() {
   const [readings, setReadings] = useState<KmReading[]>([])
   const [events, setEvents] = useState<FlotaEvent[]>([])
   const [audit, setAudit] = useState<AuditEntry[]>([])
-  const [assignment, setAssignment] = useState<AssignmentRow | null>(null)
-  const [driverDetail, setDriverDetail] = useState<ManagedUser | null>(null)
   const [linkInfo, setLinkInfo] = useState<{ role: 'main' | 'substitute'; plate: string; otherId: number; since: string } | null>(null)
   const [allLinks, setAllLinks] = useState<VehicleLinkRow[]>([])
   const [activeLink, setActiveLink] = useState<VehicleLinkRow | null>(null)
@@ -210,17 +205,6 @@ export function VehicleDetailPage() {
       .catch(() => setReadings([]))
     listEvents(vehicleId).then((page) => setEvents(page.results)).catch(() => setEvents([]))
     fetchVehicleHistory(vehicleId).then((page) => setAudit(page.results)).catch(() => setAudit([]))
-    listAssignments({ vehicle: vehicleId, status: 'accepted' })
-      .then((page) => {
-        const current = page.results.find((a) => a.end_date === null) ?? null
-        setAssignment(current)
-        if (current) {
-          fetchManagedUser(current.driver).then(setDriverDetail).catch(() => setDriverDetail(null))
-        } else {
-          setDriverDetail(null)
-        }
-      })
-      .catch(() => setAssignment(null))
     // Vínculos (HU-1.8): el activo se banneriza desde ambos lados y el
     // histórico completo alimenta el modal de vinculación.
     Promise.all([
@@ -592,24 +576,9 @@ export function VehicleDetailPage() {
           )}
         </Panel>
 
-        <Panel>
-          <h3>Conductor asignado</h3>
-          {summary?.driver ? (
-            <dl className="detail-dl">
-              <dt>Nombre</dt>
-              <dd>{summary.driver.name}</dd>
-              <dt>Desde</dt>
-              <dd>{assignment?.start_date ?? '—'}</dd>
-              <dt>Permiso</dt>
-              <dd>{driverDetail?.license_type || '—'}</dd>
-              <dt>Tarjeta combustible</dt>
-              <dd>{driverDetail ? (driverDetail.fuel_card ? 'Sí' : 'No') : '—'}</dd>
-            </dl>
-          ) : (
-            <p className="muted">Sin conductor asignado. La asignación se gestiona en G5.</p>
-          )}
-        </Panel>
       </div>
+
+      <VehicleAssignmentsPanel vehicle={vehicle} onChanged={load} />
 
       <DocumentsPanel vehicle={vehicle} />
 

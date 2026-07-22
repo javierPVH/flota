@@ -527,3 +527,41 @@ table.data th {
 }
 .link-history h4 { margin: 0 0 0.4rem; font-size: 0.9rem; }
 .link-history ul { margin: 0; padding-left: 1.2rem; font-size: 0.86rem; color: #34495e; }
+
+/* --- G5: asignaciones, conductores y reparto ------------------------------- */
+.assign-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.2rem;
+}
+.assign-grid h4 { margin: 0.4rem 0 0.4rem; font-size: 0.92rem; }
+.usage-list { margin: 0.3rem 0 0; padding-left: 1.2rem; font-size: 0.9rem; }
+.usage-line {
+  display: grid;
+  grid-template-columns: 1fr 90px auto;
+  gap: 0.6rem;
+  align-items: end;
+}
+.usage-sum {
+  padding: 0.45rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+.usage-sum.ok { background: #e3f4e8; color: #1e7e45; }
+.usage-sum.ko { background: #fdf0d5; color: #a9791c; }
+
+.badge.accepted { background: #e3f4e8; color: #1e7e45; }
+.badge.proposed { background: #e8f0fe; color: #1f63b8; }
+.badge.rejected { background: #f0e3e3; color: #a13a2f; }
+.badge.finished { background: #e2e8f0; color: #475569; }
+
+.roles-picker { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.notice-ok {
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.9rem;
+  border-radius: 10px;
+  background: #e3f4e8;
+  color: #14532d;
+  font-size: 0.9rem;
+}

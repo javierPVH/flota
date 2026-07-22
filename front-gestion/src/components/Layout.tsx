@@ -30,6 +30,8 @@ export function Layout() {
             Panel
           </NavLink>
           <NavLink to="/vehiculos">Vehículos</NavLink>
+          <NavLink to="/conductores">Conductores</NavLink>
+          <NavLink to="/propuestas">Propuestas</NavLink>
           <NavLink to="/incidencias">Incidencias</NavLink>
         </nav>
         <div className="spacer" />
