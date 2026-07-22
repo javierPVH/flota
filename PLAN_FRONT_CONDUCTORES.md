@@ -55,18 +55,31 @@ Recursos del DS (`@flota/ui`): `http` (`getJson/postJson/patchJson/deleteJson`),
 
 ---
 
-## Visuales de referencia (PDF) y regla de estilo
+## Estilo: el de `base` / `david_pvh` / `list`, adaptado a móvil
+
+Mismo sistema visual que el resto de apps de la casa (`base` es el DS canónico;
+`list` y `david_pvh` lo aplican): **tema claro**, **acento teal `#009491`** en la
+acción primaria, azul `#1f63b8` para focus/info, estados danger/success/warning
+(`#c63434`/`#1f9f67`/`#c17a11`), tipografía de sistema con títulos peso 800,
+iconos `lucide-react`, SASS indentado con **tokens por nombre** (nunca hex
+crudos) e i18n **es/en** vía `createI18n`.
+
+Adaptaciones móviles sobre ese estilo:
+
+- El **frame de escritorio** (tarjeta 26 px sobre wallpaper) se sustituye por un
+  layout **full-bleed** con `safe-area`; mismos colores/superficies.
+- La navegación por **menú de header** (patrón `ConsoleLayout` de list) se
+  convierte en **bottom-nav** construida con los tokens del DS (`TabButton` como
+  base táctil); el menú de usuario queda en el header (perfil, idioma, salir).
+- Se reutilizan tal cual: `StatCard` (mini-KPIs), `Panel` (avisos con `tone`),
+  `fields/*` (formularios), `Modal`. **`TableWithPanel` NO**: en móvil, tarjetas.
 
 Las visuales de [`Gestión de flotas Visuales Administrador.pdf`](./Gestión%20de%20flotas%20Visuales%20Administrador.pdf)
-son del front de **gestión**, pero varios patrones se **heredan aquí adaptados a
-móvil**: el **semáforo de ITV** (naranja = próxima, rojo = vencida) en tarjetas y
-listas, los badges de estado con color, las tarjetas de alerta con matrícula +
-contexto, la **barra de progreso de km** (consumidos/contratados) y los **tres
-niveles de proyección** (`Dentro` / `A vigilar` / `Riesgo exceso`), y el
-histórico en timeline. ⚠️ **El estilo NO se copia del PDF**: se construye con
-los **tokens y componentes del DS `@flota/ui`** (`front/src/styles/tokens.css` +
-`ui/`: `StatCard`, `Panel`, `TabButton`, `fields/*`, `Modal`) — el tema
-oscuro/verde del PDF es solo maqueta.
+(del front de gestión) aportan **patrones de contenido** que aquí se heredan: el
+**semáforo de ITV** (naranja = próxima, rojo = vencida), los badges de estado con
+color, las tarjetas de alerta con matrícula + contexto, la **barra de progreso de
+km** y los **tres niveles de proyección** (`Dentro` / `A vigilar` /
+`Riesgo exceso`), y el histórico en timeline.
 
 ---
 
@@ -105,6 +118,27 @@ oscuro/verde del PDF es solo maqueta.
 
 ---
 
+## Mapa de vistas (pestañas y rutas)
+
+Inventario completo de vistas de la app — si no está aquí, no existe. La
+bottom-nav muestra 3 pestañas al conductor y 4 al supervisor:
+
+| Pestaña / ruta | Vista | Rol | Fase |
+|----------------|-------|-----|------|
+| `/login` | Login (password/Google según `/auth/config/`) | ambos | M0 |
+| 🚗 `/` | **Mis vehículos / Mi grupo** (tarjetas) | ambos | M1 |
+| `/vehiculos/:id` | Ficha de campo (KPIs, atributos, documentos) | ambos | M2 |
+| *(desde la ficha)* | Subir documento (cámara/galería) | ambos | M2 |
+| ➕ `/registrar` | **Registro de odómetro** (acción central de la nav) | ambos | M3 |
+| *(desde la ficha)* | Proponer fechas · Registrar ITV | ambos | M4 |
+| 🔔 `/alertas` | Bandeja de alertas del ámbito | ambos | M5 |
+| 👥 `/grupo` | Grupo: reparto de uso · proyección · incidencias | solo supervisor | M6 |
+| `/grupo/incidencias/nueva` | Crear incidencia (con fotos) | supervisor | M6 |
+| *(menú del header)* | **Mi perfil**: datos, permiso, tarjeta, idioma, salir | ambos | M0 |
+| `*` / sin rol | 404 · **403 "sin acceso"** (admin → gestión) · error | M0 |
+
+---
+
 ## Fases
 
 ### M0 — Reconexión v1 + base móvil 🔴
@@ -115,8 +149,12 @@ oscuro/verde del PDF es solo maqueta.
   (el `admin` se trata como anónimo aquí / se redirige a gestión).
 - **Shell móvil:** viewport/`safe-area`, layout con **bottom-nav**, tokens
   táctiles del DS, tema claro de alto contraste. Las pestañas varían según rol.
+- **Login** (página) según `/auth/config/`; un `admin` autenticado ve **403 "sin
+  acceso"** con enlace a gestión (no un login en bucle).
+- **Mi perfil** (menú del header): datos personales, tipo de permiso, tarjeta de
+  combustible, `LanguageToggleButton`, salir.
 - **Aceptación:** login de supervisor y conductor OK; navegación inferior; sin
-  scroll horizontal; el `admin` no entra.
+  scroll horizontal; el `admin` ve el 403; el perfil pinta `/me`.
 
 ### M1 — Mis vehículos / Mi grupo · HU-1.1 (ámbito campo), 2.8 🔴
 - **Conductor:** lista de sus vehículos asignados (scoping del back por
@@ -136,8 +174,10 @@ oscuro/verde del PDF es solo maqueta.
 - **Documentos del vehículo** (HU-4.1/4.3): lista con tipo/fecha y **estado de
   archivado** (`pendiente_archivar`/`vigente`); abrir el archivo (Drive).
 - **Subir documento desde el móvil** (HU-4.1): **cámara/galería**, tipo (seguro,
-  ficha, parte, fotos de daños…), caducidad; el back lo archiva o lo deja
-  pendiente. Visible para gestor y supervisor.
+  ficha, parte, fotos de daños…), caducidad, y **opcionalmente ligado a una
+  incidencia** (acta/parte/fotos); el back lo archiva o lo deja pendiente.
+  Visible para gestor y supervisor. *(Ver dependencias: la API hoy solo acepta
+  metadatos + URL, no el binario.)*
 - **Accesos directos** contextuales: registrar km · subir documento · (M4)
   proponer fechas / registrar ITV.
 - **Aceptación:** consulta rápida + subida de documentación desde el teléfono con
@@ -224,16 +264,22 @@ del todo; conviene resolverlos antes/junto a su fase:
 | **2.3** | El **conductor** crea una **propuesta de fechas** (`Assignment status=propuesta`) sin alterar la vigente | `AssignmentViewSet.perform_create` valida rol driver, pero el flujo "propuesta" (self-service del conductor) no está definido como acción | Acción `propose`/`propuesta` en asignaciones acotada al propio conductor |
 | **5.1** | Conductor/supervisor **registran ITV** (resultado + próxima fecha) → crea `Event`+`EventItv` y auto-cierra avisos | `Event`/`EventItv` son **solo lectura** en la API | Endpoint de registro de ITV (compartido con el front de gestión) |
 | **3.4** | **Proyección de km por vehículo** (consumidos/contratados/restantes, verde/rojo) del grupo | El back la calcula en el job de alertas pero **no la expone por vehículo** | Endpoint *summary/métricas* por vehículo, o calcular en el front desde km + contrato |
-| **2.8 / 3.3** | Scoping "**mi grupo**" (supervisor) en vehículos, alertas y km pendiente | Hay `supervisor` en `Vehicle`; confirmar que list-views filtran por `?supervisor=me` y que alertas se acotan por rol | Verificar/añadir filtro por grupo y por rol en `/vehicles/`, `/alerts/`, km pendiente |
+| **2.8 / 3.3** | Scoping "**mi grupo**" (supervisor) en vehículos, alertas y km pendiente | El scoping existe (`ScopedByVehicleMixin` filtra por rol); confirmar cobertura en alertas y km pendiente | Verificar con tests de rol; añadir lo que falte |
+| **2.5** | Validación **suma = 100 %** del reparto de uso (M6) | `VehicleUsage` solo valida 0–100 por fila, no la suma por periodo | Validarla en el servidor; el front además valida en vivo |
+| **4.1** | **Subida del fichero** (multipart) desde cámara/galería | `Document.drive_url` es un `CharField`: la API solo acepta **metadatos + URL**, no el binario | `FileField` + almacenamiento (y archivado a Drive desde el back) — imprescindible para M2 |
 | **M8** | Suscripciones **push** (web-push/FCM) | No existe | Infra de suscripciones + envío desde el motor de alertas |
 
-> El resto ya tiene endpoint: km (`/km-readings/` con no-retroceso), documentos
-> (`/documents/` con archivado), alertas (+`resolve`/`dismiss`), reparto de uso,
+> El resto ya tiene endpoint: km (`/km-readings/` con no-retroceso en servidor;
+> la "última lectura" se obtiene con `?vehicle=&ordering=-reading_date`),
+> alertas (+`resolve`/`dismiss`, filtros tipo/nivel/estado), reparto de uso,
 > incidencias y catálogos.
 
 ---
 
 ## Transversal
+- **Estilo:** el de `base`/`david_pvh`/`list` adaptado a móvil (ver sección de
+  estilo): tokens por nombre, acento teal, componentes del DS; tarjetas en vez
+  de tablas.
 - **Auth:** sesión + CSRF; al ser público en internet, cuidar expiración y logout;
   el back aplica rate-limit de login y **throttle público** (`public_write`) — la
   UI maneja **429** con reintento amable.

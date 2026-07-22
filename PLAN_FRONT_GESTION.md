@@ -37,15 +37,39 @@ Recursos del DS (`@flota/ui`): `http` (`getJson/postJson/patchJson/deleteJson`),
 
 ---
 
-## Visuales de referencia (PDF) y regla de estilo
+## Estilo: el desarrollado en `base` / `david_pvh` / `list`
 
-Las pantallas de [`Gestión de flotas Visuales Administrador.pdf`](./Gestión%20de%20flotas%20Visuales%20Administrador.pdf)
-definen la **estructura y funcionalidad** de este front. ⚠️ **El estilo NO se
-copia del PDF**: se construye con los **tokens y componentes del DS `@flota/ui`**
-(`front/src/styles/tokens.css` + `ui/`) — el tema oscuro/verde del PDF es solo
-maqueta.
+El estilo visual es el **ya desarrollado** en los proyectos hermanos (`base` es
+el DS canónico; `list` y `david_pvh` lo aplican). El PDF de visuales aporta
+**estructura y flujo de pantallas**, no estilo:
 
-| Pantalla del PDF | Fase | Componentes del DS |
+- **Tema claro corporativo**: tarjeta blanca central (`.frame`, radio 26 px)
+  sobre wallpaper degradado navy→azul (`#002855` → `#34657F`) atenuado;
+  superficies `#eef3f8`, bordes `#cfdae6`, texto `#223a55`
+  (`styles/_colors/_colors-corp.sass` / `_colors-app.sass`).
+- **Acento de marca teal `#009491`** en el botón primario (como
+  `list/front/src/theme.ts`); azul `#1f63b8` para focus/info; estados: danger
+  `#c63434`, success `#1f9f67`, warning `#c17a11`.
+- **Tipografía de sistema** con mixins `+title` (peso 800) / `+subtitle` /
+  `+subsubtitle` (uppercase); iconos **`lucide-react`**; modales con
+  framer-motion.
+- **Shell** = `Base.tsx` (frame + `Section` + `Footer`) + **header propio al
+  estilo `ConsoleLayout` de list**: logo + bloque de usuario + **menú
+  hamburguesa** (sin sidebar permanente; la nav global va por menú).
+- **Patrones de página**: `TableWithPanel` para listados (búsqueda, orden,
+  paginación, botón crear, estados vacío/carga integrados); `StatCard`/`StatList`
+  con `accent` para KPIs; `Panel` con `tone` para avisos; `TabButton` para
+  filtros por estado con badge; formularios en `Modal` o `CreateFormPanel` con
+  campos `fields/*` y **validación inline** con copy i18n (sin
+  react-hook-form/zod).
+- **Convenciones**: páginas `*Page` en `src/pages/`; SASS indentado, un
+  `.module.sass` por componente que referencia **tokens por nombre** (nunca hex
+  crudos); i18n **es/en** vía `createI18n` + `LanguageToggleButton`; máquina de
+  estados `idle|loading|ok|error`; helper `cx`.
+
+Mapa *pantalla del PDF → fase → componentes del DS*:
+
+| Pantalla del PDF (estructura) | Fase | Componentes del DS |
 |------------------|------|--------------------|
 | Vista general (KPIs + alertas + listado) | G1 | `StatCard`, `Panel`, `TableWithPanel`, `TabButton` (chips) |
 | Creación de vehículos (form seccionado) | G3 | `Section`, `fields/*` (`TextInputField`, `SelectField`, `DateRangeField`), `FieldShell` |
@@ -86,6 +110,34 @@ maqueta.
 
 ---
 
+## Mapa de vistas (rutas)
+
+Inventario completo de vistas de la app — si no está aquí, no existe:
+
+| Ruta | Vista | Fase |
+|------|-------|------|
+| `/login` | Login (password/Google según `/auth/config/`) | G0 |
+| `/` | **Vista general**: KPIs + alertas + listado | G1 |
+| `/vehiculos/:id` | Ficha del vehículo | G2 |
+| `/vehiculos/nuevo` | Alta (formulario seccionado) | G3 |
+| `/vehiculos/:id/editar` | Edición (badges `histórico`/`bloqueado`) | G3 |
+| *(modales desde la ficha)* | Cambio de estado · Baja · Vincular sustitución | G4 |
+| *(modales desde la ficha)* | Cambiar conductor · Reparto de uso · Registrar km | G5 |
+| `/conductores` (+ `/conductores/:id`) | Gestión de conductores + su histórico de vehículos | G5 |
+| `/propuestas` | Bandeja de propuestas de fechas | G5 |
+| `/kilometraje` | Lecturas pendientes + proyección por vehículo + simulador | G6 |
+| *(sección de la ficha)* | Histórico de km + gráfica | G6 |
+| `/incidencias` (+ detalle) | Bandeja de incidencias | G7 |
+| *(sección de la ficha)* | Documentos (subir/sustituir/caducar/eliminar) | G7 |
+| `/alertas` | Panel de alertas (+ modal **Registrar ITV**) | G8 |
+| `/informes` | Descarga de informes (flota/alertas/costes, xlsx/csv) | G8 |
+| `/solicitudes` | Bandeja de solicitudes de vehículo (Jira) | G9 |
+| `/facturas` | Facturas + modal de **refacturación** | G10 |
+| `/catalogos` | Catálogos (proyectos, CECO, rentings, unidades, países) | G11 |
+| `*` / sin rol | 404 · **403 "sin acceso"** (no-admin) · error genérico | G0 |
+
+---
+
 ## Fases
 
 ### G0 — Reconexión al backend v1 (base) 🔴
@@ -96,9 +148,15 @@ maqueta.
   `next_itv_date`, `cost_center`, `vin`, `registration_date`, `is_substitute`,
   `business_use`, `created_at`, `updated_at`… sin `assigned_driver`).
 - `auth.ts`: `bootstrap` acepta al usuario **solo si `roles.includes('admin')`**.
+- **Login** (página): password y/o Google según `GET /auth/config/`; un usuario
+  autenticado **sin rol admin** ve una pantalla **403 "sin acceso"** con logout
+  (no un login en bucle).
+- **Shell**: `Base.tsx` + header al estilo `ConsoleLayout` de list (logo flota,
+  bloque de usuario, menú hamburguesa con las secciones del mapa de vistas,
+  `LanguageToggleButton`, salir) + rutas 404/error.
 - Manejo uniforme de errores `{detail, errors}`, CSRF y `409` (bloqueo optimista).
-- **Aceptación:** el admin entra; supervisor/conductor se tratan como anónimos;
-  `/me` pinta los roles.
+- **Aceptación:** el admin entra y navega por el shell; supervisor/conductor ven
+  el 403; `/me` pinta los roles.
 
 ### G1 — Vista general: dashboard + listado · HU-1.1, 1.6, 1.7 🔴
 *(pantalla "Vista general" del PDF: la home reúne KPIs, alertas destacadas y el
@@ -261,10 +319,20 @@ listado en una sola vista)*
 - **Aceptación:** alta/consulta de facturas y refacturación por líneas que
   siempre cuadra al 100%.
 
-### G11 — Pulido (escritorio) 🟡
-- Layout de escritorio (sidebar + tablas densas), atajos de teclado, estados de
-  carga/vacío/error, **i18n ES** (fechas, **EUR**), accesibilidad y tests (Vitest +
-  Testing Library).
+### G11 — Catálogos (admin) 🔵
+- CRUD de **proyectos, PEP/CECO, rentings, unidades de negocio y países**
+  (`/projects|peps|rentings|business-units|countries/` — lectura gestión,
+  escritura admin), con `TableWithPanel` + los formularios de catálogo del DS
+  (`CatalogEntityCreateForm`).
+- Los selects del alta/edición (G3) consumen estos catálogos; **hasta esta fase
+  se aprovisionan desde el admin de Django** (decisión explícita, no un hueco).
+- **Aceptación:** los catálogos se mantienen sin salir de la app.
+
+### G12 — Pulido (escritorio) 🟡
+- Tablas densas, atajos de teclado, estados de carga/vacío/error coherentes
+  (`idle|loading|ok|error`), **i18n es/en** (fechas, **EUR**), accesibilidad,
+  **tutoriales** (`react-joyride` + `data-tour`, patrón de list) y tests (Vitest
+  + Testing Library).
 - **Aceptación:** UX pulida y suite de front en verde.
 
 ---
@@ -281,19 +349,25 @@ abrirlos (o decidir alternativa) antes/junto a su fase:
 | **1.2 / 3.4** | Métricas de ficha: **coste mensual**, km consumidos/contratados/restantes y **proyección** | El back calcula la proyección en el job de alertas pero no la **expone por vehículo** | Endpoint de *summary/métricas* por vehículo (o calcular en el front desde km + contrato) |
 | **G1 (dashboard)** | KPIs de flota: totales por estado/uso, **coste mensual agregado con tendencia** vs mes anterior, ITV en 30 días | No hay endpoint de agregados de flota | Endpoint de *summary* de flota (o derivar en el front de los listados — costoso) |
 | **G2 / G6** | **Penalización por km** (€/km) del contrato, para la penalización estimada del exceso | `Contract` **no tiene** campo de penalización | Añadir `penalty_per_km` a `Contract` (migración + serializer) |
-| **1.4** | Eventos por cambio de **cuota/ubicación** | Hay subtipos de `Event` pero sin endpoint de alta | Igual que 5.1: alta de eventos manuales |
+| **1.4** | Eventos por cambio de **cuota/ubicación** | Hay subtipos de `Event` pero sin endpoint de alta (`EventItv` ni siquiera tiene serializer) | Igual que 5.1: alta de eventos manuales |
 | **1.5** | Aviso previo a baja si hay conductor/vínculos activos | El back impide operar en baja, pero el aviso es del front | Front consulta asignación/vínculos antes de confirmar |
+| **2.4** | **Confirmar/rechazar** propuesta como transición de negocio (cerrar la anterior + evento + informar) | `/assignments/` solo permite `PATCH` manual de `status`; sin acción dedicada | Acciones `accept`/`reject` en `AssignmentViewSet` que hagan la transición completa |
+| **2.5 / Épica 7** | Validación **suma = 100 %** del reparto de uso y de las imputaciones de factura | Ni `VehicleUsage` ni `InvoiceAllocation` la validan en el servidor (solo 0–100 por fila) | Validarla en serializer/endpoint compuesto; el front además valida en vivo |
+| **4.4** | **Subida de fichero** (multipart) para documentos y facturas | `Document.drive_url` e `Invoice.file` son `CharField`: la API solo acepta **metadatos + URL**, no binarios | `FileField` + almacenamiento (y archivado a Drive desde el back), o asumir flujo por URL |
 
-> El resto de HU de admin ya tienen endpoint: vehículos (+`history`/`preview`),
-> asignaciones, reparto de uso, vínculos, km, documentos, incidencias, alertas
-> (+`resolve`/`dismiss`), solicitudes, facturas, informes y catálogos.
+> El resto de HU de admin ya tienen endpoint: vehículos (+`history`/`preview`,
+> filtros `state/business_use/assigned/include_baja` + búsqueda), asignaciones
+> (filtrables por `status` → la bandeja de propuestas funciona), reparto de uso,
+> vínculos, km, documentos, incidencias, alertas (+`resolve`/`dismiss`, filtros
+> tipo/nivel/estado), solicitudes, facturas, informes (`fleet|alerts|costs` ×
+> `xlsx|csv`) y catálogos (escritura admin).
 
 ---
 
 ## Transversal
-- **Estilo:** siempre los tokens/componentes de `@flota/ui`; el PDF aporta
-  estructura y flujo, **nunca** colores/tipografías (ver "Visuales de
-  referencia").
+- **Estilo:** el de `base`/`david_pvh`/`list` (ver sección de estilo): tokens por
+  nombre, componentes del DS, tema claro con acento teal. El PDF aporta
+  estructura y flujo, no estilo.
 - **Auth:** sesión + CSRF (`credentials:'include'`), `RequireAuth`, expiración →
   login.
 - **Escritorio primero:** este front NO prioriza móvil (esa es la otra app).

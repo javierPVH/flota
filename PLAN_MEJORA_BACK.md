@@ -156,6 +156,30 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
   `public_write` en la escritura del front público (km/documentos) —
   [`core/throttling.py`](./back/core/throttling.py). 8 tests nuevos (137 en total;
   cobertura 89%). *Lockfile* de dependencias queda como mejora futura (🔵).
+- **Fase A1 — API para los fronts (⏳ PENDIENTE).** Huecos detectados al planificar
+  los dos frontends (auditoría de la superficie API; detalle y fase consumidora en
+  las tablas "Dependencias con el backend" de
+  [`PLAN_FRONT_GESTION.md`](./PLAN_FRONT_GESTION.md) y
+  [`PLAN_FRONT_CONDUCTORES.md`](./PLAN_FRONT_CONDUCTORES.md)):
+  1. **API de usuarios/conductores** (HU-2.6): CRUD + desactivar + roles; hoy solo
+     `GET /auth/drivers/` y self-register.
+  2. **Registro de ITV y eventos manuales** (HU-5.1/1.4): `Event`/`EventItv` son
+     solo lectura (`EventItv` ni tiene serializer); crear endpoint que dispare el
+     auto-cierre de alertas ya existente.
+  3. **Métricas por vehículo** (HU-1.2/3.4): summary JSON con coste mensual, km
+     consumidos/contratados/restantes y proyección (hoy solo se calcula en el job).
+  4. **Summary de flota** (dashboard G1): totales por estado/uso, coste agregado
+     con tendencia, ITV en 30 días.
+  5. **Acciones `accept`/`reject` en asignaciones** (HU-2.4): transición de negocio
+     completa (cerrar la anterior + evento), no un `PATCH` de `status`.
+  6. **Validación suma=100** en `VehicleUsage` (por periodo) e
+     `InvoiceAllocation` (por factura) — hoy solo 0–100 por fila.
+  7. **`Contract.penalty_per_km`**: campo nuevo para la penalización estimada del
+     exceso (visuales de ficha/edición).
+  8. **Upload multipart** de documentos (y facturas): `drive_url`/`file` son
+     `CharField`; el móvil necesita subir el binario (cámara) — `FileField` +
+     almacenamiento + archivado.
+  9. (🔵) **Push**: suscripciones web-push/FCM + envío desde el motor de alertas.
 
 ---
 
