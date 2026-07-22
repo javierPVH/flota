@@ -612,3 +612,11 @@ table.data th {
   background: #fff;
 }
 .report-download:hover { border-color: #009491; color: #009491; }
+
+/* --- G9: solicitudes de vehículo ------------------------------------------- */
+/* Pendientes sin decidir, resaltadas */
+.row-pending td { background: #fffaf0; }
+.badge.req-pending { background: #fff4df; color: #c17a11; }
+.badge.req-approved { background: #e8f0fe; color: #1f63b8; }
+.badge.req-assigned { background: #e3f4e8; color: #1e7e45; }
+.badge.req-rejected { background: #f0e3e3; color: #a13a2f; }

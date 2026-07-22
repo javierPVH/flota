@@ -397,7 +397,15 @@ descarga xlsx/csv por navegación con cookies (el back acota por rol). El
   (flota/alertas/costes, `xlsx`/`csv`), acotados por rol.
 - **Aceptación:** panel operativo, registro de ITV que cierra avisos, y descargas.
 
-### G9 — Solicitudes de vehículo · Épica 8 🟡
+### G9 — Solicitudes de vehículo · Épica 8 🟡 — ✅ IMPLEMENTADA
+*(`/solicitudes` con filtro por estado en la URL, contador "N sin decidir",
+filas pendientes resaltadas y columna de **origen** (Portón self-service /
+Jira / Manual). **Conceder…** abre el modal con el vehículo preseleccionado
+(primer libre del tipo solicitado; los ocupados se marcan con su conductor) y
+llama al `grant` atómico de la Fase A2; **Rechazar** con confirmación. Aviso
+del resultado explicando que el solicitante ya puede entrar al móvil.
+Verificado E2E con el seed: la pendiente de David (FLT-123) concedida con el
+4567JKL → gana rol conductor y su `GET /vehicles/` deja de estar vacío.)*
 - Bandeja de `VehicleRequest` (`/vehicle-requests/`) con **dos orígenes**: las
   importadas **aprobadas** de Jira y las **`pending` self-service** que
   registran los usuarios sin coche desde el front móvil (con su **clave de

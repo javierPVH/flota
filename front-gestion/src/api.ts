@@ -281,6 +281,33 @@ export const updateUser = (id: number, data: ManagedUserInput) =>
 /** DELETE desactiva (no borra): el histórico se conserva. */
 export const deactivateUser = (id: number) => deleteJson(`${AUTH}/users/${id}/`)
 
+// --- G9: solicitudes de vehículo (Épica 8 + Fase A2) ------------------------
+
+export interface VehicleRequestRow {
+  id: number
+  requester: number | null
+  requester_name: string
+  vehicle: number | null
+  requested_type: string
+  start_date: string | null
+  end_date: string | null
+  jira_key: string
+  status: 'pending' | 'approved' | 'rejected' | 'assigned'
+  status_display: string
+  notes: string
+  created_at: string
+}
+
+export const listVehicleRequests = (filters: { status?: string; search?: string } = {}) =>
+  getJson<Paginated<VehicleRequestRow>>(`${API}/vehicle-requests/${buildQs({ ...filters })}`)
+
+/** Concede la solicitud: rol conductor + asignación aceptada + evento (atómico). */
+export const grantVehicleRequest = (id: number, vehicle: number) =>
+  postJson<VehicleRequestRow>(`${API}/vehicle-requests/${id}/grant/`, { vehicle })
+
+export const rejectVehicleRequest = (id: number) =>
+  postJson<VehicleRequestRow>(`${API}/vehicle-requests/${id}/reject/`, {})
+
 // --- G7: documentación e incidencias ---------------------------------------
 
 /** Query-string a partir de filtros opcionales (omite vacíos). */
