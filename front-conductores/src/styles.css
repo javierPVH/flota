@@ -311,6 +311,50 @@ table.data th {
   color: var(--info, #1f63b8);
 }
 
+/* --- M3: registro de odómetro + accesos directos ------------------------- */
+.quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+.quick-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 52px; /* objetivo táctil generoso: uso a pie de vehículo */
+  border: 1px solid var(--border, #cfdae6);
+  border-radius: 12px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--primary, #009491);
+  text-decoration: none;
+  cursor: pointer;
+}
+.km-vehicle { margin: 0; color: var(--muted-text, #5f748c); }
+.km-input-label { display: grid; gap: 0.4rem; font-size: 0.9rem; font-weight: 600; }
+.km-input {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border: 2px solid var(--border, #cfdae6);
+  border-radius: 12px;
+  font-size: 1.9rem; /* campo grande: se teclea con guantes/prisa */
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+.km-input:focus { outline: none; border-color: var(--primary, #009491); }
+.panel-note a { color: inherit; font-weight: 700; }
+.km-saved {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1rem;
+  text-align: center;
+}
+.km-saved h2 { margin: 0; }
+.km-saved-icon { color: var(--success, #1f9f67); }
+.km-saved-detail { margin: 0; font-size: 1.05rem; }
+.back-link.center { justify-content: center; }
+
 .upload-form {
   margin-top: 1rem;
   padding-top: 1rem;

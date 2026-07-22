@@ -6,6 +6,7 @@ import type {
   FlotaDocument,
   FlotaUser,
   Incident,
+  KmReading,
   MyRequestInput,
   MyVehicleRequest,
   Paginated,
@@ -48,6 +49,10 @@ export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${
 
 export const fetchVehicleSummary = (id: number) =>
   getJson<VehicleSummary>(`${API}/vehicles/${id}/summary/`)
+
+// --- M3: odómetro (HU-3.1) — el back valida el no-retroceso ----------------
+export const createKmReading = (data: { vehicle: number; km_reading: number; reading_date: string }) =>
+  postJson<KmReading>(`${API}/km-readings/`, data)
 
 // --- M2: documentos del vehículo (Épica 4, archivado en Drive - Fase A3) --
 export const listDocuments = (vehicle: number) =>

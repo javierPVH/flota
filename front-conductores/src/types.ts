@@ -125,6 +125,14 @@ export interface VehicleSummary {
   } | null
 }
 
+/** Lectura de odómetro acumulado (HU-3.1). */
+export interface KmReading {
+  id: number
+  vehicle: number
+  reading_date: string | null
+  km_reading: number | null
+}
+
 // --- M2: documentación de campo (Épica 4) ---------------------------------
 
 export type DocumentType =

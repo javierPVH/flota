@@ -131,6 +131,24 @@ class KmReadingAlertTests(TestCase):
         KmReading.objects.create(vehicle=vehicle, reading_date=self.today, km_reading=100)
         self.assertEqual(alerts.check_km_readings(self.today), 0)
 
+    def test_reading_closes_pending_alert(self):
+        # HU-3.2: registrar la lectura del mes cierra el aviso (señal).
+        vehicle = Vehicle.objects.create(plate="KM3", brand="a", model="b")
+        alerts.check_km_readings(self.today)
+        KmReading.objects.create(vehicle=vehicle, reading_date=self.today, km_reading=100)
+        alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
+        self.assertEqual(alert.status, AlertStatus.RESOLVED)
+        self.assertIsNotNone(alert.resolved_at)
+
+    def test_backdated_reading_keeps_current_month_alert(self):
+        # Una lectura atrasada de otro mes NO cierra el aviso de este periodo.
+        vehicle = Vehicle.objects.create(plate="KM4", brand="a", model="b")
+        alerts.check_km_readings(self.today)
+        last_month = self.today.replace(day=1) - timedelta(days=1)
+        KmReading.objects.create(vehicle=vehicle, reading_date=last_month, km_reading=50)
+        alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
+        self.assertEqual(alert.status, AlertStatus.OPEN)
+
 
 class NoDriverAlertTests(TestCase):
     def setUp(self):

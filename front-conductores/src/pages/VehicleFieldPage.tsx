@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Camera, ExternalLink, FileText } from 'lucide-react'
+import { ArrowLeft, Camera, ExternalLink, FileText, Gauge } from 'lucide-react'
 import { Button, Panel, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
@@ -189,9 +189,22 @@ export function VehicleFieldPage() {
 
       {kmPending && (
         <Panel tone="warning">
-          <p className="panel-note">Falta la lectura de km de este mes.</p>
+          <p className="panel-note">
+            Falta la lectura de km de este mes.{' '}
+            <Link to={`/registrar?vehiculo=${vehicle.id}`}>Registrarla ahora</Link>
+          </p>
         </Panel>
       )}
+
+      {/* Accesos directos de campo (M4 añadirá proponer fechas / ITV). */}
+      <div className="quick-actions">
+        <Link to={`/registrar?vehiculo=${vehicle.id}`} className="quick-action">
+          <Gauge size={20} aria-hidden /> Registrar km
+        </Link>
+        <button type="button" className="quick-action" onClick={openUpload}>
+          <Camera size={20} aria-hidden /> Subir documento
+        </button>
+      </div>
 
       {/* Tres atributos independientes (HU-1.6), en solo lectura. */}
       <Panel>

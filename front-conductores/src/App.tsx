@@ -5,6 +5,7 @@ import { AccessGate } from './components/AccessGate.tsx'
 import { Layout } from './components/Layout.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
 import { MyVehiclesPage } from './pages/MyVehiclesPage.tsx'
+import { RegisterKmPage } from './pages/RegisterKmPage.tsx'
 import { VehicleFieldPage } from './pages/VehicleFieldPage.tsx'
 import { RequestAccessPage } from './pages/RequestAccessPage.tsx'
 import { SinFlotaPage } from './pages/SinFlotaPage.tsx'
@@ -42,6 +43,7 @@ export default function App() {
       >
         <Route path="/" element={<MyVehiclesPage />} />
         <Route path="/vehiculos/:id" element={<VehicleFieldPage />} />
+        <Route path="/registrar" element={<RegisterKmPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

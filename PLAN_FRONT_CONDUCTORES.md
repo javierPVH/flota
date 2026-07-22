@@ -235,7 +235,23 @@ para conductor y OK para sara.)*
 - **Aceptación:** consulta rápida + subida de documentación desde el teléfono con
   estado de archivado visible.
 
-### M3 — Registro de km (odómetro) · HU-3.1, 3.2 🔴
+### M3 — Registro de km (odómetro) · HU-3.1, 3.2 🔴 — ✅ IMPLEMENTADA
+*(Cómo quedó: `RegisterKmPage` en `/registrar` (pestaña ➕ de la bottom-nav),
+con `?vehiculo=` para preseleccionar desde la ficha; con un solo coche no hay
+selector. Panel de referencia con la **última lectura** (ámbar si falta la del
+mes) y campo numérico **grande** (`inputmode="numeric"`, solo dígitos), fecha =
+hoy (máx. hoy). El no-retroceso se corta ya en cliente comparando con la
+referencia y lo revalida el servidor; el 400 envuelto (`{detail, errors}`) se
+desenvuelve para mostrar "El odómetro no puede retroceder (última: X km)", y el
+429 del throttle público da mensaje amable. Al guardar, pantalla de
+confirmación con los **km recorridos del periodo** (diferencia con la última
+lectura) y opción de registrar otra. Accesos directos en la ficha: "Registrar
+km" y "Subir documento"; el aviso de lectura pendiente enlaza al formulario.
+**Hueco de back cerrado:** nueva señal `on_km_reading_registered` — la lectura
+cierra la alerta `km_reading_pending` de su periodo (una atrasada de otro mes
+no la cierra); +2 tests (224 en verde). Verificado E2E con seed: 400 de
+retroceso, lectura válida refresca el summary y la alerta de 7890NPQ pasa a
+resuelta.)*
 - Formulario **ultra-simple**: vehículo (preseleccionado desde la ficha), **campo
   numérico grande para el odómetro acumulado** (`inputmode="numeric"`), fecha =
   hoy.

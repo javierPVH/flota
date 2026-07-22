@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Car } from 'lucide-react'
+import { Car, PlusCircle } from 'lucide-react'
 import { Button } from '@flota/ui/ui'
 
 import { useAuth } from '../auth.ts'
@@ -36,6 +36,10 @@ export function Layout() {
         <NavLink to="/" end className="bottom-tab">
           <Car size={22} strokeWidth={2.4} aria-hidden />
           <span>Vehículos</span>
+        </NavLink>
+        <NavLink to="/registrar" className="bottom-tab">
+          <PlusCircle size={22} strokeWidth={2.4} aria-hidden />
+          <span>Registrar km</span>
         </NavLink>
       </nav>
     </div>
