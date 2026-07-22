@@ -2,17 +2,24 @@ import { deleteJson, getCookie, getJson, patchJson, postJson, toUrl } from '@flo
 
 import type {
   Alert,
+  AssignmentRow,
+  AuditEntry,
   AuthConfig,
   DevUser,
   DriveFile,
   Driver,
   FleetSummary,
   FlotaDocument,
+  FlotaEvent,
   FlotaUser,
   Incident,
+  KmReading,
+  ManagedUser,
   Paginated,
   PickerConfig,
   Vehicle,
+  VehicleLinkRow,
+  VehicleSummary,
 } from './types'
 
 // API de negocio versionada (G0): auth en /api/v1/auth/, dominio en /api/v1/.
@@ -84,6 +91,34 @@ export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${
 
 export const listAlerts = (status = 'open') =>
   getJson<Paginated<Alert>>(`${API}/alerts/${buildQs({ status })}`)
+
+// --- G2: ficha del vehículo -------------------------------------------------
+
+export const fetchVehicleSummary = (id: number) =>
+  getJson<VehicleSummary>(`${API}/vehicles/${id}/summary/`)
+
+export const listKmReadings = (vehicle: number) =>
+  getJson<Paginated<KmReading>>(
+    `${API}/km-readings/${buildQs({ vehicle, ordering: 'reading_date' })}`,
+  )
+
+export const createKmReading = (data: { vehicle: number; km_reading: number; reading_date: string }) =>
+  postJson<KmReading>(`${API}/km-readings/`, data)
+
+export const listEvents = (vehicle: number) =>
+  getJson<Paginated<FlotaEvent>>(`${API}/events/${buildQs({ vehicle, ordering: '-event_date' })}`)
+
+export const fetchVehicleHistory = (id: number) =>
+  getJson<Paginated<AuditEntry>>(`${API}/vehicles/${id}/history/`)
+
+export const listAssignments = (filters: { vehicle?: number; status?: string } = {}) =>
+  getJson<Paginated<AssignmentRow>>(`${API}/assignments/${buildQs({ ...filters })}`)
+
+export const listVehicleLinks = (filters: { main_vehicle?: number; substitute_vehicle?: number }) =>
+  getJson<Paginated<VehicleLinkRow>>(`${API}/vehicle-links/${buildQs({ ...filters })}`)
+
+export const fetchManagedUser = (id: number) =>
+  getJson<ManagedUser>(`${AUTH}/users/${id}/`)
 
 // --- G7: documentación e incidencias ---------------------------------------
 

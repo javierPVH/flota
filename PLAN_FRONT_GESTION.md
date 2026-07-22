@@ -195,8 +195,18 @@ listado en una sola vista)*
 - **Aceptación:** la home da la foto de la flota (KPIs + alertas) y el listado
   refleja los filtros del back distinguiendo estado / sustitución / asignación.
 
-### G2 — Ficha del vehículo · HU-1.2, 1.6, 1.8, 3.4, 3.6, 4.3 🔴
-*(pantalla "Detalle vehículo" del PDF)*
+### G2 — Ficha del vehículo · HU-1.2, 1.6, 1.8, 3.4, 3.6, 4.3 🔴 — ✅ IMPLEMENTADA
+*(cabecera con los tres atributos diferenciados (estado · sustitución ·
+conductor/sin conductor) + subtítulo técnico; banner del vínculo activo
+visible desde ambos lados; 4 KPIs (cuota+penalización, km con última lectura,
+ITV relativa con acento por urgencia, fin de contrato con duración); panel
+"Kilómetros contratados" con barra de progreso por nivel, tiles media/ritmo/
+proyección y aviso de penalización estimada en €; gráfica SVG de evolución
+(HU-3.6); paneles de datos técnicos, contrato, conductor (desde/permiso/
+tarjeta vía `/auth/users/{id}/`); documentos (G7); histórico fusionando
+`/events/` + auditoría `/history/` (últimos 10 + "ver completo"); acciones:
+**Registrar km** (modal con última lectura y no-retroceso) y Editar. "Cambiar
+conductor" llega con G5 y "Refacturar" con G10.)*
 - **Cabecera**: matrícula grande + badge de estado + resumen en subtítulo
   (marca/modelo/versión · tipo · combustible · proyecto).
 - **Fila de KPIs** (`StatCard`, HU-1.2): **coste mensual** (cuota + costes),

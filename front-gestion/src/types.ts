@@ -112,6 +112,97 @@ export interface Alert {
   created_at: string
 }
 
+// --- G2: ficha del vehículo -------------------------------------------------
+
+/** GET /vehicles/{id}/summary/ — métricas de la ficha (HU-1.2/3.4). */
+export interface VehicleSummary {
+  vehicle: number
+  plate: string
+  state: VehicleState
+  next_itv_date: string | null
+  km_current: number | null
+  km_reading_date: string | null
+  km_driven: number | null
+  driver: { id: number; name: string } | null
+  contract: {
+    id: number
+    month_fee: string | null
+    contract_km: number | null
+    contract_time: number | null
+    penalty_per_km: string | null
+    start_date: string
+    planned_end_date: string
+  } | null
+  projection: {
+    km_remaining: number
+    monthly_avg: number
+    contracted_rate: number | null
+    projected_end: number
+    pct_of_limit: number
+    level: 'within' | 'watch' | 'over'
+    overage_km: number
+    estimated_penalty: string | null
+  } | null
+}
+
+export interface KmReading {
+  id: number
+  vehicle: number
+  reading_date: string | null
+  km_reading: number | null
+}
+
+export interface FlotaEvent {
+  id: number
+  vehicle: number
+  event_type: string
+  event_type_display: string
+  event_date: string | null
+  notes: string
+  /** Detalle anidado según el tipo (itv/fee_change/location_change…). */
+  details: Record<string, unknown> | null
+}
+
+/** Entrada de auditoría de campos (GET /vehicles/{id}/history/). */
+export interface AuditEntry {
+  id: number
+  action: string
+  actor: string
+  changes: Record<string, [string, string]>
+  timestamp: string
+}
+
+export interface AssignmentRow {
+  id: number
+  vehicle: number
+  driver: number
+  driver_name: string
+  start_date: string
+  end_date: string | null
+  status: string
+}
+
+/** Vínculo principal ↔ sustitución (HU-1.8). */
+export interface VehicleLinkRow {
+  id: number
+  main_vehicle: number
+  substitute_vehicle: number
+  reason: string
+  start_date: string
+  end_date: string | null
+}
+
+/** Detalle de usuario gestionado (GET /auth/users/{id}/, solo admin). */
+export interface ManagedUser {
+  id: number
+  username: string
+  first_name: string
+  last_name: string
+  license_type: string
+  fuel_card: boolean
+  roles: Role[]
+}
+
 // --- G7: documentación e incidencias --------------------------------------
 
 export type DocumentType =

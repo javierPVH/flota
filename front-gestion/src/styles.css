@@ -359,3 +359,101 @@ table.data th {
   font-size: 0.9rem;
   color: #5f748c;
 }
+
+/* --- G2: ficha del vehículo ----------------------------------------------- */
+.muted { color: #5f748c; font-size: 0.9rem; }
+.detail-actions { display: flex; gap: 0.6rem; }
+.badge.assigned { background: #e3f4e8; color: #1e7e45; }
+.badge.unassigned { background: #e2e8f0; color: #475569; }
+
+.link-banner {
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 1rem;
+  border-radius: 10px;
+  background: #e8f0fe;
+  color: #1f3f66;
+  font-size: 0.92rem;
+}
+
+.vehicle-detail > .panel,
+.vehicle-detail section { margin-bottom: 1.2rem; }
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin: 1.2rem 0;
+}
+.detail-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0.6rem 0 0;
+  font-size: 0.92rem;
+}
+.detail-dl dt { color: #5f748c; }
+.detail-dl dd { margin: 0; font-weight: 600; }
+
+.badge.level-within { background: #e3f4e8; color: #1e7e45; }
+.badge.level-watch { background: #fdf0d5; color: #a9791c; }
+.badge.level-over { background: #f5c3c3; color: #c63434; }
+
+.km-progress {
+  height: 12px;
+  border-radius: 999px;
+  background: #e8eef5;
+  overflow: hidden;
+}
+.km-progress-fill { height: 100%; background: #009491; border-radius: 999px; }
+.km-progress-fill.level-watch { background: #c17a11; }
+.km-progress-fill.level-over { background: #c63434; }
+.km-progress-legend { margin: 0.4rem 0 0.8rem; font-size: 0.88rem; color: #5f748c; }
+
+.km-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 0.9rem;
+}
+.km-tile {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
+  background: #f7f9fc;
+  font-size: 0.85rem;
+}
+.km-tile span { color: #5f748c; }
+.km-tile.tile-over { background: #fdecec; }
+.km-tile.tile-over strong { color: #c63434; }
+
+.penalty-warning {
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.9rem;
+  border-radius: 10px;
+  background: #fdecec;
+  color: #8f2626;
+  font-size: 0.9rem;
+}
+
+.km-chart svg { width: 100%; height: auto; }
+.km-chart-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: #5f748c;
+}
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline-item {
+  display: flex;
+  gap: 1rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid #eef2f7;
+  font-size: 0.9rem;
+}
+.timeline-item:last-child { border-bottom: none; }
+.timeline-item p { margin: 0.15rem 0 0; color: #5f748c; font-size: 0.84rem; }
+.timeline-date { min-width: 90px; color: #5f748c; font-variant-numeric: tabular-nums; }
+.timeline-item.kind-event strong { color: #0f2e4a; }
+.timeline-item.kind-audit strong { color: #5f748c; font-weight: 600; }
