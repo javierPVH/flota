@@ -346,7 +346,29 @@ devuelve solo el grupo de sara.)*
 - **Aceptación:** el supervisor opera su grupo (reparto, proyección, incidencias)
   desde el móvil, sin ver el resto de la flota.
 
-### M7 — PWA / offline / rendimiento 🟡
+### M7 — PWA / offline / rendimiento 🟡 — ✅ IMPLEMENTADA
+*(Cómo quedó: **instalable** — `manifest.webmanifest` (standalone, teal, es) +
+iconos propios 192/512 + maskable + apple-touch (generados, coche blanco sobre
+teal), `theme-color` y `viewport-fit=cover` en el index. **Service worker**
+propio (`public/sw.js`, sin dependencias): cache-first para `/assets/*` e
+`/icons/*` (fingerprinted — nunca sirve código viejo), network-first con
+fallback al shell para las navegaciones (la SPA arranca sin red), y `/api` y
+`/media` SIEMPRE red sin caché (datos de negocio y sesión); registro solo en
+producción. **Cola offline** (`src/offline/queue.ts`, IndexedDB — los `File`
+de la cámara no caben en localStorage) para las tres escrituras críticas: km,
+documentos (con binario) e ITV. Solo encola ante fallo de RED (TypeError de
+fetch); un error HTTP se muestra y no se reencola. `flush()` FIFO al volver el
+evento `online`, al arrancar y manual; si el servidor rechaza un elemento se
+descarta y se avisa (no bloquea al resto). Indicador en el shell: banner ámbar
+"N registros sin enviar — toca para reintentar" + aviso verde al vaciar; las
+pantallas confirman "en cola, se enviará al volver la red". **Rendimiento**:
+rutas secundarias con `React.lazy` (chunks de 1-13 kB; login + Mis vehículos
+en el bundle inicial). **Mejora DS de propina**: `asErrorMessage` ahora
+desenvuelve `{detail, errors}` (prefiere el error de campo al genérico) y
+extrae `message` de un `Error` — +2 tests DS (59 en verde). Pendiente honesto:
+la idempotencia es best-effort (si la respuesta se pierde tras grabar, el
+reintento puede duplicar una lectura — el no-retroceso del back corta el caso
+grave); tests del módulo de cola en M9.)*
 - **Manifest + service worker**: instalable ("añadir a pantalla de inicio"), cache
   del shell.
 - **Cola offline** para las escrituras críticas de campo (**registro de km**,

@@ -39,6 +39,18 @@ describe('asErrorMessage', () => {
   it('cae al fallback', () => {
     expect(asErrorMessage(null, 'fb')).toBe('fb')
   })
+  it('prefiere los errores de campo al detail genérico (handler envuelto)', () => {
+    expect(
+      asErrorMessage(
+        { detail: 'Los datos enviados no son válidos.', errors: { km: ['No puede retroceder.'] } },
+        'fb',
+      ),
+    ).toBe('km: No puede retroceder.')
+  })
+  it('extrae el message de un Error (no enumerable)', () => {
+    expect(asErrorMessage(new Error('sin conexión'), 'fb')).toBe('sin conexión')
+    expect(asErrorMessage(new Error(''), 'fb')).toBe('fb')
+  })
 })
 
 describe('peticiones JSON', () => {

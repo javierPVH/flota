@@ -60,6 +60,17 @@ export function toUrl(path: string, explicitBaseUrl?: string): string {
 export function asErrorMessage(payload: unknown, fallbackMessage: string): string {
   if (typeof payload === 'string' && payload.trim()) return payload
 
+  // Errores ya normalizados (p. ej. re-lanzados por el transporte) — su
+  // `message` no es enumerable, así que flattenDrfErrors no lo vería.
+  if (payload instanceof Error) return payload.message.trim() || fallbackMessage
+
+  // Handler DRF que envuelve la validación: {detail: genérico, errors: {campo: […]}}.
+  // El mensaje útil está en `errors`; el `detail` genérico solo es el último recurso.
+  if (payload && typeof payload === 'object' && 'errors' in payload) {
+    const specific = flattenDrfErrors((payload as { errors: unknown }).errors)
+    if (specific) return specific
+  }
+
   if (
     payload
     && typeof payload === 'object'

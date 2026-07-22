@@ -311,6 +311,32 @@ table.data th {
   color: var(--info, #1f63b8);
 }
 
+/* --- M7: PWA + cola offline ---------------------------------------------- */
+.offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  background: var(--warning-soft, #fff4df);
+  color: var(--warning, #c17a11);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.queue-notice {
+  margin: 0;
+  padding: 0.5rem 1.5rem;
+  background: var(--success-soft, #e3f4e8);
+  color: var(--success, #1f9f67);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.km-saved-queued { color: var(--warning, #c17a11); }
+
 /* --- M6: modo supervisor (grupo, reparto, proyección, incidencias) ------- */
 .badge.level-ok { background: var(--success-soft, #e3f4e8); color: var(--success, #1f9f67); }
 .badge.level-watch { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); }

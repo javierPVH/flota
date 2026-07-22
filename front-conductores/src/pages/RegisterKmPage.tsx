@@ -6,6 +6,7 @@ import { asErrorMessage } from '@flota/ui/http'
 
 import { createKmReading, fetchVehicleSummary, listVehicles } from '../api.ts'
 import { fmtDate, fmtKm, pendingThisMonth } from '../format.ts'
+import { enqueue, isNetworkError } from '../offline/queue.ts'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 
 /** Hoy en formato de <input type="date"> (zona local, no UTC). */
@@ -15,14 +16,9 @@ function todayIso(): string {
   return now.toISOString().slice(0, 10)
 }
 
-/** Errores del servidor en claro: no-retroceso (400) y throttle (429). */
+/** Errores del servidor en claro: no-retroceso (400) y throttle (429).
+ * El transporte del DS ya desenvuelve {detail, errors} al mensaje de campo. */
 function readableError(err: unknown): string {
-  // El 400 de validación llega envuelto: {detail: genérico, errors: {campo: […]}}.
-  // El mensaje útil (p. ej. el no-retroceso) está en `errors`.
-  if (err && typeof err === 'object' && 'errors' in err) {
-    const specific = asErrorMessage((err as { errors: unknown }).errors, '')
-    if (specific) return specific.replace(/^km_reading:\s*/, '')
-  }
   const message = asErrorMessage(err, 'No se pudo guardar la lectura.')
   if (/throttled|Espera/i.test(message)) {
     return 'Demasiados registros seguidos. Espera un momento y reintenta.'
@@ -35,6 +31,8 @@ interface SavedReading {
   km: number
   /** Km del periodo: diferencia con la última lectura conocida (o null si es la primera). */
   driven: number | null
+  /** true si se quedó en la cola offline (sin red), pendiente de envío. */
+  queued: boolean
 }
 
 /**
@@ -98,22 +96,32 @@ export function RegisterKmPage() {
     if (!vehicle || kmValue === null || Number.isNaN(kmValue)) return
     setSaving(true)
     setError('')
+    const payload = { vehicle: vehicle.id, km_reading: kmValue, reading_date: date }
     try {
-      const reading = await createKmReading({
-        vehicle: vehicle.id,
-        km_reading: kmValue,
-        reading_date: date,
-      })
+      const reading = await createKmReading(payload)
       setSaved({
         plate: vehicle.plate,
         km: reading.km_reading ?? kmValue,
         driven: summary?.km_current != null ? kmValue - summary.km_current : null,
+        queued: false,
       })
       setKm('')
       // Refresca la referencia para un posible segundo registro.
       fetchVehicleSummary(vehicle.id).then(setSummary, () => {})
     } catch (err) {
-      setError(readableError(err))
+      // Sin red (M7): a la cola offline — se enviará al reconectar.
+      if (isNetworkError(err)) {
+        await enqueue({ kind: 'km', payload })
+        setSaved({
+          plate: vehicle.plate,
+          km: kmValue,
+          driven: summary?.km_current != null ? kmValue - summary.km_current : null,
+          queued: true,
+        })
+        setKm('')
+      } else {
+        setError(readableError(err))
+      }
     } finally {
       setSaving(false)
     }
@@ -124,8 +132,13 @@ export function RegisterKmPage() {
   if (saved) {
     return (
       <div className="km-saved">
-        <CheckCircle2 size={52} aria-hidden className="km-saved-icon" />
-        <h2>Lectura guardada</h2>
+        <CheckCircle2 size={52} aria-hidden className={saved.queued ? 'km-saved-queued' : 'km-saved-icon'} />
+        <h2>{saved.queued ? 'Lectura en cola' : 'Lectura guardada'}</h2>
+        {saved.queued && (
+          <p className="km-saved-detail">
+            Estás sin conexión: la lectura se enviará sola en cuanto vuelva la red.
+          </p>
+        )}
         <p className="km-saved-detail">
           {saved.plate}: <strong>{fmtKm(saved.km)}</strong>
         </p>

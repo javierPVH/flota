@@ -16,6 +16,7 @@ import {
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { fmtDate, fmtKm, itvClass, pendingThisMonth } from '../format.ts'
+import { enqueue, isNetworkError } from '../offline/queue.ts'
 import type { AssignmentRow, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
 
 // Tipos de documento (lista cerrada del back, Épica 4).
@@ -150,17 +151,15 @@ export function VehicleFieldPage() {
     }
     setSaving(true)
     setFormError('')
+    const payload = {
+      vehicle: vehicleId,
+      type: form.type,
+      expiry_date: form.expiry_date || null,
+      incident: form.incident ? Number(form.incident) : null,
+      notes: form.notes,
+    }
     try {
-      const doc = await uploadDocument(
-        {
-          vehicle: vehicleId,
-          type: form.type,
-          expiry_date: form.expiry_date || null,
-          incident: form.incident ? Number(form.incident) : null,
-          notes: form.notes,
-        },
-        file,
-      )
+      const doc = await uploadDocument(payload, file)
       setForm(EMPTY_FORM)
       setFile(null)
       setShowUpload(false)
@@ -171,7 +170,16 @@ export function VehicleFieldPage() {
       )
       loadDocuments()
     } catch (err) {
-      setFormError(asErrorMessage(err, 'No se pudo subir el documento.'))
+      // Sin red (M7): el binario entra en la cola offline con sus metadatos.
+      if (isNetworkError(err)) {
+        await enqueue({ kind: 'document', payload, file, fileName: file.name })
+        setForm(EMPTY_FORM)
+        setFile(null)
+        setShowUpload(false)
+        setUploadOk('Estás sin conexión: el documento se subirá solo en cuanto vuelva la red.')
+      } else {
+        setFormError(asErrorMessage(err, 'No se pudo subir el documento.'))
+      }
     } finally {
       setSaving(false)
     }
@@ -208,19 +216,28 @@ export function VehicleFieldPage() {
     event.preventDefault()
     setSaving(true)
     setItvError('')
+    const payload = {
+      vehicle: vehicleId,
+      event_date: itvForm.event_date,
+      itv: { result: itvForm.result, next_due: itvForm.next_due || null },
+    }
     try {
-      await registerItv({
-        vehicle: vehicleId,
-        event_date: itvForm.event_date,
-        itv: { result: itvForm.result, next_due: itvForm.next_due || null },
-      })
+      await registerItv(payload)
       setItvOpen(false)
       setItvForm({ event_date: todayIso(), result: 'done', next_due: '' })
       setItvOk('ITV registrada. Los avisos asociados se cierran y la próxima fecha queda actualizada.')
       // La señal del back refresca next_itv_date: recarga la cabecera.
       fetchVehicle(vehicleId).then(setVehicle, () => {})
     } catch (err) {
-      setItvError(asErrorMessage(err, 'No se pudo registrar la ITV.'))
+      // Sin red (M7): a la cola offline — se enviará al reconectar.
+      if (isNetworkError(err)) {
+        await enqueue({ kind: 'itv', payload })
+        setItvOpen(false)
+        setItvForm({ event_date: todayIso(), result: 'done', next_due: '' })
+        setItvOk('Estás sin conexión: la ITV se registrará sola en cuanto vuelva la red.')
+      } else {
+        setItvError(asErrorMessage(err, 'No se pudo registrar la ITV.'))
+      }
     } finally {
       setSaving(false)
     }
