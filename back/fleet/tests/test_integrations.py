@@ -2,7 +2,8 @@
 
 import tempfile
 
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -55,15 +56,36 @@ class ArchiverTests(TestCase):
 
 
 class DocumentArchiveOnUploadTests(APITestCase):
-    def test_upload_with_default_backend_stays_pending(self):
-        # El backend por defecto (none) deja el documento pendiente de archivar.
+    def test_upload_file_with_default_backend_stays_pending(self):
+        # Subida de binario (Fase A1) con backend `none`: el fichero queda
+        # guardado pero el documento pendiente de archivar (reintento por job).
         driver = make_user("driver", Role.DRIVER)
         vehicle = Vehicle.objects.create(plate="UP1", brand="a", model="b")
         Assignment.objects.create(vehicle=vehicle, driver=driver, start_date="2026-01-01")
         self.client.force_authenticate(driver)
-        resp = self.client.post(reverse("document-list"), {"vehicle": vehicle.pk, "type": "insurance"})
+        upload = SimpleUploadedFile("parte.jpg", b"\xff\xd8\xff fake-jpg", "image/jpeg")
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            resp = self.client.post(
+                reverse("document-list"),
+                {"vehicle": vehicle.pk, "type": "insurance", "file": upload},
+                format="multipart",
+            )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["status"], DocumentStatus.PENDING_ARCHIVE)
+        self.assertIn("parte", resp.data["file_url"])
+
+    def test_upload_with_drive_url_is_already_archived(self):
+        # Si el front trae ya la URL externa, el documento nace archivado.
+        driver = make_user("driver2", Role.DRIVER)
+        vehicle = Vehicle.objects.create(plate="UP2", brand="a", model="b")
+        Assignment.objects.create(vehicle=vehicle, driver=driver, start_date="2026-01-01")
+        self.client.force_authenticate(driver)
+        resp = self.client.post(
+            reverse("document-list"),
+            {"vehicle": vehicle.pk, "type": "insurance", "drive_url": "https://drive/x"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data["status"], DocumentStatus.VALID)
 
 
 class _FakeJira(jira.BaseJiraClient):
@@ -116,8 +138,6 @@ class VehicleRequestApiTests(APITestCase):
 
     def test_management_creates_request(self):
         self.client.force_authenticate(self.admin)
-        resp = self.client.post(
-            self.list_url, {"jira_key": "FLT-200", "requested_type": "van"}
-        )
+        resp = self.client.post(self.list_url, {"jira_key": "FLT-200", "requested_type": "van"})
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["status"], VehicleRequestStatus.APPROVED)

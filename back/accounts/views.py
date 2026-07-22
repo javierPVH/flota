@@ -22,7 +22,7 @@ from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core.cache import cache
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
-from rest_framework import status
+from rest_framework import status, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -30,8 +30,13 @@ from rest_framework.views import APIView
 
 from .google import GoogleAuthError, verify_google_id_token
 from .models import Role
-from .permissions import IsManagement
-from .serializers import DriverSerializer, RegisterSerializer, UserSerializer
+from .permissions import IsAdmin, IsManagement
+from .serializers import (
+    DriverSerializer,
+    ManagedUserSerializer,
+    RegisterSerializer,
+    UserSerializer,
+)
 
 User = get_user_model()
 security_logger = logging.getLogger("accounts.security")
@@ -335,3 +340,39 @@ class GoogleLoginView(APIView):
         login(request, user)
         security_logger.info("google login ok user=%s", user.pk)
         return Response(UserSerializer(user).data)
+
+
+# --- Gestión de usuarios (HU-2.6, Fase A1) --------------------------------
+
+
+class UserViewSet(viewsets.ModelViewSet):
+    """CRUD de usuarios/conductores para la gestión (solo admin).
+
+    - Alta/edición con roles multi-valor y datos de conductor (DNI, permiso,
+      tarjeta) — HU-2.6.
+    - `DELETE` NO borra: **desactiva** (`is_active=False`). El histórico de
+      asignaciones y eventos se conserva; un desactivado no sale en los
+      desplegables de asignación (`/auth/drivers/` filtra por activos).
+    - "Qué vehículos ha tenido": el front lo consulta con
+      `GET /api/v1/assignments/?driver=<id>`.
+    """
+
+    serializer_class = ManagedUserSerializer
+    permission_classes = [IsAdmin]
+    queryset = User.objects.prefetch_related("roles").order_by("first_name", "username")
+    filterset_fields = ["is_active", "roles__role"]
+    search_fields = ["username", "first_name", "last_name", "email", "dni"]
+    ordering_fields = ["username", "first_name", "date_joined"]
+
+    def destroy(self, request, *args, **kwargs):
+        user = self.get_object()
+        if user.pk == request.user.pk:
+            return Response(
+                {"detail": "No puedes desactivar tu propio usuario."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if user.is_active:
+            user.is_active = False
+            user.save(update_fields=["is_active"])
+            security_logger.info("usuario desactivado user=%s por=%s", user.pk, request.user.pk)
+        return Response(status=status.HTTP_204_NO_CONTENT)

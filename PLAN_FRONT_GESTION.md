@@ -337,30 +337,24 @@ listado en una sola vista)*
 
 ---
 
-## Dependencias con el backend (huecos a resolver)
+## Dependencias con el backend — ✅ resueltas (Fase A1)
 
-Algunas HU de admin necesitan endpoints que el backend **aún no expone**; conviene
-abrirlos (o decidir alternativa) antes/junto a su fase:
+Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
+(ver [`PLAN_MEJORA_BACK.md`](./PLAN_MEJORA_BACK.md)). Endpoints a consumir:
 
-| HU | Necesidad | Estado backend | Propuesta |
-|----|-----------|----------------|-----------|
-| **2.6** | CRUD de conductores/usuarios (alta/editar/**desactivar**, DNI/permiso/tarjeta) y "vehículos que ha tenido" | Solo `/auth/drivers/` (lectura) + `register` (self-signup driver). No hay CRUD de usuarios por API | Añadir API de usuarios (gestión) o, temporal, usar el admin de Django |
-| **5.1** | **Registrar ITV** (resultado + próxima fecha) que cree `Event`+`EventItv` y dispare el auto-cierre | `Event`/`EventItv` son **solo lectura** en la API | Endpoint de registro de ITV (y, en general, de eventos manuales: ubicación, cuota…) |
-| **1.2 / 3.4** | Métricas de ficha: **coste mensual**, km consumidos/contratados/restantes y **proyección** | El back calcula la proyección en el job de alertas pero no la **expone por vehículo** | Endpoint de *summary/métricas* por vehículo (o calcular en el front desde km + contrato) |
-| **G1 (dashboard)** | KPIs de flota: totales por estado/uso, **coste mensual agregado con tendencia** vs mes anterior, ITV en 30 días | No hay endpoint de agregados de flota | Endpoint de *summary* de flota (o derivar en el front de los listados — costoso) |
-| **G2 / G6** | **Penalización por km** (€/km) del contrato, para la penalización estimada del exceso | `Contract` **no tiene** campo de penalización | Añadir `penalty_per_km` a `Contract` (migración + serializer) |
-| **1.4** | Eventos por cambio de **cuota/ubicación** | Hay subtipos de `Event` pero sin endpoint de alta (`EventItv` ni siquiera tiene serializer) | Igual que 5.1: alta de eventos manuales |
-| **1.5** | Aviso previo a baja si hay conductor/vínculos activos | El back impide operar en baja, pero el aviso es del front | Front consulta asignación/vínculos antes de confirmar |
-| **2.4** | **Confirmar/rechazar** propuesta como transición de negocio (cerrar la anterior + evento + informar) | `/assignments/` solo permite `PATCH` manual de `status`; sin acción dedicada | Acciones `accept`/`reject` en `AssignmentViewSet` que hagan la transición completa |
-| **2.5 / Épica 7** | Validación **suma = 100 %** del reparto de uso y de las imputaciones de factura | Ni `VehicleUsage` ni `InvoiceAllocation` la validan en el servidor (solo 0–100 por fila) | Validarla en serializer/endpoint compuesto; el front además valida en vivo |
-| **4.4** | **Subida de fichero** (multipart) para documentos y facturas | `Document.drive_url` e `Invoice.file` son `CharField`: la API solo acepta **metadatos + URL**, no binarios | `FileField` + almacenamiento (y archivado a Drive desde el back), o asumir flujo por URL |
+| HU / fase | Endpoint (Fase A1) |
+|-----------|--------------------|
+| **2.6** (G5) | `CRUD /api/v1/auth/users/` (solo admin; `DELETE` desactiva; "vehículos que ha tenido" → `/assignments/?driver=`) |
+| **5.1 / 1.4** (G8) | `POST /api/v1/events/` con `itv`/`fee_change`/`location_change` anidados; la ITV **cierra avisos** y refresca la fecha |
+| **1.2 / 3.4** (G2/G6) | `GET /api/v1/vehicles/{id}/summary/` — coste, km, proyección `within/watch/over`, **penalización estimada** |
+| **G1 dashboard** | `GET /api/v1/summary/` — totales, coste mensual, facturado mes/anterior, ITV 30 días, alertas abiertas |
+| **G2/G6 penalización** | `Contract.penalty_per_km` ya en el serializer de contratos |
+| **2.4** (G5) | `POST /assignments/{id}/accept|reject/` (transición completa + evento) |
+| **2.5 / Épica 7** (G5/G10) | `POST /vehicle-usages/set/` y `POST /invoices/{id}/allocate/` — el back valida la **suma = 100** |
+| **4.4** (G7) | `/documents/` acepta **multipart** (`file`, máx. 10 MB foto/PDF) además de `drive_url`; `file_url` en la respuesta |
 
-> El resto de HU de admin ya tienen endpoint: vehículos (+`history`/`preview`,
-> filtros `state/business_use/assigned/include_baja` + búsqueda), asignaciones
-> (filtrables por `status` → la bandeja de propuestas funciona), reparto de uso,
-> vínculos, km, documentos, incidencias, alertas (+`resolve`/`dismiss`, filtros
-> tipo/nivel/estado), solicitudes, facturas, informes (`fleet|alerts|costs` ×
-> `xlsx|csv`) y catálogos (escritura admin).
+Sigue siendo del front (por diseño): el **aviso previo a la baja** (HU-1.5) —
+consultar asignación/vínculos activos antes de confirmar.
 
 ---
 

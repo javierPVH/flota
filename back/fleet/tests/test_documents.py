@@ -25,14 +25,20 @@ class DocumentTests(APITestCase):
 
     def test_driver_uploads_document_of_own_vehicle(self):
         self.client.force_authenticate(self.driver)
-        resp = self.client.post(self.list_url, {"vehicle": self.my_vehicle.pk, "type": "insurance"})
+        resp = self.client.post(
+            self.list_url,
+            {"vehicle": self.my_vehicle.pk, "type": "insurance", "drive_url": "https://drive/x"},
+        )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         # uploaded_by lo fija el servidor con el usuario de la petición.
         self.assertEqual(resp.data["uploaded_by"], self.driver.pk)
 
     def test_driver_cannot_upload_for_foreign_vehicle(self):
         self.client.force_authenticate(self.driver)
-        resp = self.client.post(self.list_url, {"vehicle": self.foreign.pk, "type": "insurance"})
+        resp = self.client.post(
+            self.list_url,
+            {"vehicle": self.foreign.pk, "type": "insurance", "drive_url": "https://drive/x"},
+        )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_driver_sees_only_own_vehicle_documents(self):
@@ -82,9 +88,7 @@ class IncidentTests(APITestCase):
 
     def test_supervisor_cannot_create_incident_outside_group(self):
         self.client.force_authenticate(self.supervisor)
-        resp = self.client.post(
-            self.list_url, {"vehicle": self.foreign.pk, "type": "maintenance"}
-        )
+        resp = self.client.post(self.list_url, {"vehicle": self.foreign.pk, "type": "maintenance"})
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_driver_has_no_access_to_incidents(self):

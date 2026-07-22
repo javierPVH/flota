@@ -58,15 +58,27 @@ class BusinessEventTests(APITestCase):
             Event.objects.filter(vehicle=vehicle, event_type=EventType.KM_READING).exists()
         )
 
-    def test_assignment_emits_driver_change_event(self):
+    def test_accepted_assignment_emits_driver_change_event(self):
         vehicle = Vehicle.objects.create(plate="AS111", brand="a", model="b")
         resp = self.client.post(
-            reverse("assignment-list"), {"vehicle": vehicle.pk, "driver": self.driver.pk}
+            reverse("assignment-list"),
+            {"vehicle": vehicle.pk, "driver": self.driver.pk, "status": "accepted"},
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         event = Event.objects.get(vehicle=vehicle, event_type=EventType.DRIVER_CHANGE)
         change = EventDriverChange.objects.get(event=event)
         self.assertEqual(change.new_driver, self.driver)
+
+    def test_proposed_assignment_does_not_emit_event(self):
+        # HU-2.3: una propuesta no altera nada hasta que la gestión la confirma.
+        vehicle = Vehicle.objects.create(plate="AS222", brand="a", model="b")
+        resp = self.client.post(
+            reverse("assignment-list"), {"vehicle": vehicle.pk, "driver": self.driver.pk}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(
+            Event.objects.filter(vehicle=vehicle, event_type=EventType.DRIVER_CHANGE).exists()
+        )
 
 
 class ItvAutoCloseTests(APITestCase):

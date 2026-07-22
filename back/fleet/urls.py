@@ -9,6 +9,7 @@ from .views import (
     CountryViewSet,
     DocumentViewSet,
     EventViewSet,
+    FleetSummaryView,
     IncidentViewSet,
     InvoiceAllocationViewSet,
     InvoiceViewSet,
@@ -46,5 +47,7 @@ router.register("rentings", RentingViewSet, basename="renting")
 
 urlpatterns = [
     path("reports/", ReportsView.as_view(), name="reports"),
+    # Agregados del dashboard (Fase A1); acotado por rol.
+    path("summary/", FleetSummaryView.as_view(), name="fleet-summary"),
     *router.urls,
 ]

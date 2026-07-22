@@ -157,13 +157,20 @@ logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
 | POST   | `/api/v1/auth/logout/`   | ✔    | Cierra la sesión                                   |
 | GET    | `/api/v1/auth/me/`       | ✔    | Usuario autenticado (incluye `roles` y `fuel_card`)|
 | GET    | `/api/v1/auth/drivers/`  | gestión | Conductores para el desplegable de asignación   |
+| CRUD   | `/api/v1/auth/users/`    | admin | Gestión de usuarios/conductores: roles multi-valor, DNI/permiso/tarjeta; `DELETE` **desactiva** (HU-2.6) — Fase A1 |
 | CRUD   | `/api/v1/vehicles/`      | ✔*   | Vehículos. Gestión: CRUD. Conductor: solo lectura de los suyos |
 | GET    | `/api/v1/vehicles/{id}/history/` | gestión | Auditoría de campos del vehículo (quién cambió qué y cuándo) |
 | POST   | `/api/v1/vehicles/{id}/preview/` | gestión | Diff de los cambios propuestos sin guardar (HU-1.4) |
+| GET    | `/api/v1/vehicles/{id}/summary/` | ✔ᵃ | Métricas de la ficha: coste, km, **proyección** `within/watch/over` y penalización estimada (HU-1.2/3.4) — Fase A1 |
+| GET    | `/api/v1/summary/`       | gestión | Agregados del dashboard: totales, coste mensual, facturado (mes/anterior), ITV 30 días, alertas — Fase A1 |
 | CRUD   | `/api/v1/{contracts,km-readings,assignments,vehicle-usages,vehicle-links,invoices,invoice-allocations}/` | ✔ᵃ | Recursos de dominio (acotados por rol) |
-| GET    | `/api/v1/events/`        | ✔ᵃ | Histórico de eventos (solo lectura) |
+| POST   | `/api/v1/assignments/propose/` | conductor | Propone fechas de SU vehículo → `proposed`, sin tocar la vigente (HU-2.3) — Fase A1 |
+| POST   | `/api/v1/assignments/{id}/{accept,reject}/` | admin | Transición de la propuesta: aceptar cierra la vigente + evento; rechazar no altera nada (HU-2.4) — Fase A1 |
+| POST   | `/api/v1/vehicle-usages/set/` | gestiónᵃ | Aplica el reparto completo (suma **= 100**) cerrando el vigente (HU-2.5) — Fase A1 |
+| POST   | `/api/v1/invoices/{id}/allocate/` | admin | Refacturación por líneas (proyecto/CECO, % suma **= 100**, importes autocalculados) — Fase A1 |
+| GET/POST | `/api/v1/events/`      | ✔ᵃ | Histórico de eventos + **registro manual** (`itv` — cierra avisos y refresca la fecha —, `fee_change`, `location_change`; el conductor solo ITV) — Fase A1 |
 | CRUD   | `/api/v1/incidents/`     | gestiónᵃ | Incidencias / mantenimiento (Épica 6) |
-| CRUD   | `/api/v1/documents/`     | ✔ᵃ | Documentos del vehículo. Conductor sube los suyos; borra solo gestión (Épica 4) |
+| CRUD   | `/api/v1/documents/`     | ✔ᵃ | Documentos del vehículo. Conductor sube los suyos; borra solo gestión (Épica 4). Acepta **multipart** (`file`, máx. `FLEET_DOCUMENT_MAX_MB`, foto/PDF) o `drive_url` — Fase A1 |
 | GET    | `/api/v1/alerts/`        | ✔ᵃ | Bandeja de alertas (ITV, km, sin conductor). Solo lectura (los jobs las crean) |
 | POST   | `/api/v1/alerts/{id}/{resolve,dismiss}/` | gestión | Cierra la alerta (resuelta/descartada) |
 | CRUD   | `/api/v1/vehicle-requests/` | gestión | Solicitudes de vehículo (entran aprobadas de Jira) — Épica 8 |

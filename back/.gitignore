@@ -16,3 +16,4 @@ db.sqlite3-journal
 htmlcov/
 .pytest_cache/
 .ruff_cache/
+media/

@@ -1,4 +1,5 @@
 from django.urls import path
+from rest_framework.routers import SimpleRouter
 
 from .views import (
     AuthConfigView,
@@ -9,7 +10,12 @@ from .views import (
     LogoutView,
     MeView,
     RegisterView,
+    UserViewSet,
 )
+
+router = SimpleRouter()
+# Gestión de usuarios/conductores (solo admin) — HU-2.6, Fase A1.
+router.register("users", UserViewSet, basename="user")
 
 urlpatterns = [
     path("config/", AuthConfigView.as_view(), name="auth-config"),
@@ -20,4 +26,5 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("me/", MeView.as_view(), name="me"),
     path("drivers/", DriversView.as_view(), name="drivers"),
+    *router.urls,
 ]

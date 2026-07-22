@@ -1,4 +1,10 @@
+from decimal import Decimal
+from pathlib import Path
+
 from auditlog.models import LogEntry
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
@@ -9,6 +15,9 @@ from .models import (
     Country,
     Document,
     Event,
+    EventFeeChange,
+    EventItv,
+    EventLocationChange,
     Incident,
     Invoice,
     InvoiceAllocation,
@@ -21,7 +30,7 @@ from .models import (
     VehicleRequest,
     VehicleUsage,
 )
-from .models.enums import UseType
+from .models.enums import AllocationTarget, EventType, UseType, VehicleState
 
 
 class LogEntrySerializer(serializers.ModelSerializer):
@@ -162,7 +171,7 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
-        if vehicle is not None and vehicle.state == "retired":
+        if vehicle is not None and vehicle.state == VehicleState.BAJA:
             raise serializers.ValidationError(
                 "No se puede asignar un conductor a un vehículo en baja."
             )
@@ -182,6 +191,45 @@ class VehicleUsageSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
+class UsageSplitItemSerializer(serializers.Serializer):
+    """Línea del reparto de uso: persona + porcentaje."""
+
+    driver = serializers.PrimaryKeyRelatedField(queryset=get_user_model().objects.all())
+    usage_percent = serializers.DecimalField(
+        max_digits=5, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("100")
+    )
+
+
+class UsageSplitSerializer(serializers.Serializer):
+    """Reparto completo de un vehículo (HU-2.5): la suma debe ser EXACTAMENTE 100.
+
+    Se aplica de una vez (endpoint compuesto): cierra el reparto vigente y crea
+    el nuevo en una transacción — así el invariante "suma 100 por periodo" no se
+    rompe fila a fila.
+    """
+
+    vehicle = serializers.PrimaryKeyRelatedField(queryset=Vehicle.objects.all())
+    start_date = serializers.DateField()
+    end_date = serializers.DateField(required=False, allow_null=True)
+    items = UsageSplitItemSerializer(many=True, allow_empty=False)
+
+    def validate(self, attrs):
+        end = attrs.get("end_date")
+        if end and end < attrs["start_date"]:
+            raise serializers.ValidationError(
+                {"end_date": "La fecha de fin no puede ser anterior a la de inicio."}
+            )
+        drivers = [item["driver"].pk for item in attrs["items"]]
+        if len(drivers) != len(set(drivers)):
+            raise serializers.ValidationError({"items": "Hay personas repetidas en el reparto."})
+        total = sum(item["usage_percent"] for item in attrs["items"])
+        if total != Decimal("100"):
+            raise serializers.ValidationError(
+                {"items": f"La suma de porcentajes debe ser exactamente 100 (suma {total})."}
+            )
+        return attrs
+
+
 class VehicleLinkSerializer(serializers.ModelSerializer):
     class Meta:
         model = VehicleLink
@@ -189,13 +237,115 @@ class VehicleLinkSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
+# Tipos de evento que se pueden registrar A MANO por la API (Fase A1). El resto
+# los emiten los procesos de negocio (alta, cambios de estado/conductor, km…).
+MANUAL_EVENT_TYPES = {EventType.ITV, EventType.FEE_CHANGE, EventType.LOCATION_CHANGE}
+
+
+class EventItvSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EventItv
+        fields = ["result", "next_due"]
+
+
+class EventFeeChangeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EventFeeChange
+        fields = ["old_fee", "new_fee"]
+
+
+class EventLocationChangeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EventLocationChange
+        fields = ["old_location", "new_location"]
+
+
 class EventSerializer(serializers.ModelSerializer):
+    """Histórico de eventos + alta manual (HU-5.1/1.4).
+
+    Alta manual solo de `MANUAL_EVENT_TYPES`, con el detalle anidado que toque:
+    `itv` (registrar ITV → la señal cierra alertas y refresca `next_itv_date`),
+    `fee_change` (cuota) o `location_change` (ubicación). El conductor solo
+    puede registrar ITV (de sus vehículos, por scoping); la gestión, los tres.
+    """
+
     event_type_display = serializers.CharField(source="get_event_type_display", read_only=True)
+    itv = EventItvSerializer(write_only=True, required=False)
+    fee_change = EventFeeChangeSerializer(write_only=True, required=False)
+    location_change = EventLocationChangeSerializer(write_only=True, required=False)
+    details = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_details(self, obj) -> dict | None:
+        # Reverse one-to-one: si el subtipo no existe, getattr devuelve None
+        # (RelatedObjectDoesNotExist hereda de AttributeError).
+        itv = getattr(obj, "itv", None)
+        if itv:
+            return {"kind": "itv", "result": itv.result, "next_due": itv.next_due}
+        fee = getattr(obj, "fee_change", None)
+        if fee:
+            return {"kind": "fee_change", "old_fee": fee.old_fee, "new_fee": fee.new_fee}
+        loc = getattr(obj, "location_change", None)
+        if loc:
+            return {
+                "kind": "location_change",
+                "old_location": loc.old_location,
+                "new_location": loc.new_location,
+            }
+        drv = getattr(obj, "driver_change", None)
+        if drv:
+            return {
+                "kind": "driver_change",
+                "old_driver": drv.old_driver_id,
+                "new_driver": drv.new_driver_id,
+            }
+        penalty = getattr(obj, "penalty", None)
+        if penalty:
+            return {"kind": "penalty", "amount": penalty.amount, "paid": penalty.paid}
+        return None
+
+    def validate(self, attrs):
+        if self.instance is not None:  # los eventos no se editan por la API
+            return attrs
+        event_type = attrs.get("event_type")
+        if event_type not in MANUAL_EVENT_TYPES:
+            valid = ", ".join(sorted(MANUAL_EVENT_TYPES))
+            raise serializers.ValidationError(
+                {"event_type": f"Solo se registran a mano estos tipos: {valid}."}
+            )
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is not None and not user.is_management and event_type != EventType.ITV:
+            raise serializers.ValidationError(
+                {"event_type": "El conductor solo puede registrar ITV."}
+            )
+        if event_type == EventType.ITV:
+            itv = attrs.get("itv")
+            if not itv or not itv.get("next_due"):
+                raise serializers.ValidationError(
+                    {"itv": "Registrar una ITV requiere `itv.next_due` (próxima fecha)."}
+                )
+        return attrs
+
+    def create(self, validated_data):
+        itv = validated_data.pop("itv", None)
+        fee_change = validated_data.pop("fee_change", None)
+        location_change = validated_data.pop("location_change", None)
+        validated_data.setdefault("event_date", timezone.localdate())
+        event = Event.objects.create(**validated_data)
+        # El subtipo se crea después: la señal post_save de EventItv es la que
+        # cierra las alertas de ITV y refresca `next_itv_date` (HU-5.1).
+        if itv:
+            EventItv.objects.create(event=event, **itv)
+        if fee_change:
+            EventFeeChange.objects.create(event=event, **fee_change)
+        if location_change:
+            EventLocationChange.objects.create(event=event, **location_change)
+        return event
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
@@ -212,6 +362,58 @@ class InvoiceAllocationSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
+class AllocationLineSerializer(serializers.Serializer):
+    """Línea de refacturación: destino (proyecto o PEP/CECO) + % (y/o importe)."""
+
+    target_type = serializers.ChoiceField(choices=AllocationTarget.choices)
+    project = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(), required=False, allow_null=True
+    )
+    cost_center = serializers.PrimaryKeyRelatedField(
+        queryset=Pep.objects.all(), required=False, allow_null=True
+    )
+    percentage = serializers.DecimalField(
+        max_digits=5, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("100")
+    )
+    amount = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False, allow_null=True
+    )
+
+    def validate(self, attrs):
+        if attrs["target_type"] == AllocationTarget.PROJECT and not attrs.get("project"):
+            raise serializers.ValidationError(
+                {"project": "Obligatorio cuando el destino es 'Proyecto'."}
+            )
+        if attrs["target_type"] == AllocationTarget.PEP and not attrs.get("cost_center"):
+            raise serializers.ValidationError(
+                {"cost_center": "Obligatorio cuando el destino es 'PEP / CECO'."}
+            )
+        return attrs
+
+
+class InvoiceAllocateSerializer(serializers.Serializer):
+    """Reparto completo de una factura (Épica 7): los % deben sumar 100.
+
+    Sustituye las imputaciones existentes en una transacción. Si una línea no
+    trae `amount`, se calcula desde el importe de la factura (% × total / 100).
+    """
+
+    lines = AllocationLineSerializer(many=True, allow_empty=False)
+
+    def validate(self, attrs):
+        total = sum(line["percentage"] for line in attrs["lines"])
+        if total != Decimal("100"):
+            raise serializers.ValidationError(
+                {"lines": f"Los porcentajes deben sumar exactamente 100 (suman {total})."}
+            )
+        invoice: Invoice = self.context["invoice"]
+        if invoice.amount is None and any(line.get("amount") is None for line in attrs["lines"]):
+            raise serializers.ValidationError(
+                {"lines": "La factura no tiene importe: indica el importe de cada línea."}
+            )
+        return attrs
+
+
 # --- Documentación e incidencias (Épica 4 / 6) ---------------------------
 
 
@@ -225,10 +427,15 @@ class IncidentSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
+# Extensiones admitidas en la subida de documentos (fotos de cámara + PDF).
+DOCUMENT_ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "pdf"}
+
+
 class DocumentSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source="get_type_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     uploaded_by_name = serializers.SerializerMethodField()
+    file_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
@@ -241,6 +448,35 @@ class DocumentSerializer(serializers.ModelSerializer):
         if not user:
             return ""
         return user.get_full_name() or user.get_username()
+
+    def get_file_url(self, obj) -> str:
+        if not obj.file:
+            return ""
+        request = self.context.get("request")
+        url = obj.file.url
+        return request.build_absolute_uri(url) if request else url
+
+    def validate_file(self, value):
+        if value is None:
+            return value
+        max_mb = settings.FLEET_DOCUMENT_MAX_MB
+        if value.size > max_mb * 1024 * 1024:
+            raise serializers.ValidationError(f"El fichero supera el máximo de {max_mb} MB.")
+        extension = Path(value.name).suffix.lower().lstrip(".")
+        if extension not in DOCUMENT_ALLOWED_EXTENSIONS:
+            valid = ", ".join(sorted(DOCUMENT_ALLOWED_EXTENSIONS))
+            raise serializers.ValidationError(
+                f"Extensión '.{extension}' no admitida. Válidas: {valid}."
+            )
+        return value
+
+    def validate(self, attrs):
+        # HU-4.1: subir un documento exige el binario o, al menos, su URL.
+        if self.instance is None and not attrs.get("file") and not attrs.get("drive_url"):
+            raise serializers.ValidationError(
+                "Adjunta un fichero (`file`) o indica la URL del documento (`drive_url`)."
+            )
+        return attrs
 
 
 # --- Alertas (Épicas 3/5/10) ---------------------------------------------

@@ -29,6 +29,15 @@ class Contract(TimeStampedModel):
     month_fee = models.DecimalField(
         "Cuota mensual", max_digits=10, decimal_places=2, null=True, blank=True
     )
+    penalty_per_km = models.DecimalField(
+        "Penalización por km (€)",
+        max_digits=6,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        help_text="€ por km de exceso sobre los contratados; alimenta la "
+        "penalización estimada de la proyección (HU-3.4).",
+    )
 
     class Meta:
         verbose_name = "contrato"

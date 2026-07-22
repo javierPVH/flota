@@ -1,12 +1,15 @@
+from decimal import Decimal
+
 from auditlog.models import LogEntry
 from django.db import transaction
 from django.http import HttpResponse
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django_filters import rest_framework as filters
 from django_filters.widgets import BooleanWidget
-from rest_framework import status, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, PermissionDenied
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -15,6 +18,8 @@ from rest_framework.views import APIView
 from accounts.permissions import (
     AdminWriteManagementOrDriverRead,
     AdminWriteManagementRead,
+    IsAdmin,
+    IsDriver,
     IsManagement,
     IsManagementOrDriverReadOnly,
     ManagementOrDriverReadWrite,
@@ -42,7 +47,7 @@ from .models import (
     VehicleRequest,
     VehicleUsage,
 )
-from .models.enums import AlertStatus, VehicleState
+from .models.enums import AlertStatus, AssignmentStatus, VehicleState
 from .scoping import vehicles_for
 from .serializers import (
     AlertSerializer,
@@ -53,6 +58,7 @@ from .serializers import (
     DocumentSerializer,
     EventSerializer,
     IncidentSerializer,
+    InvoiceAllocateSerializer,
     InvoiceAllocationSerializer,
     InvoiceSerializer,
     KmReadingSerializer,
@@ -60,12 +66,13 @@ from .serializers import (
     PepSerializer,
     ProjectSerializer,
     RentingSerializer,
+    UsageSplitSerializer,
     VehicleLinkSerializer,
     VehicleRequestSerializer,
     VehicleSerializer,
     VehicleUsageSerializer,
 )
-from .services import events, reports
+from .services import events, metrics, reports
 from .services.archiver import archive_document
 
 
@@ -232,6 +239,16 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 changes[field] = [_json_safe(old_value), _json_safe(new_value)]
         return Response({"changes": changes})
 
+    @action(detail=True, methods=["get"])
+    def summary(self, request, pk=None):
+        """GET /api/vehicles/{id}/summary/ — métricas de la ficha (HU-1.2/3.4).
+
+        Coste, km, proyección lineal a fin de contrato con nivel
+        `within`/`watch`/`over` y penalización estimada. Mismo scoping de
+        lectura que la ficha (conductor: sus vehículos; supervisor: su grupo).
+        """
+        return Response(metrics.vehicle_summary(self.get_object()))
+
 
 # --- Recursos que cuelgan del vehículo -----------------------------------
 
@@ -264,7 +281,12 @@ class KmReadingViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
 
 class AssignmentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
-    """Asignaciones. Escritura solo admin; conductor lee las suyas."""
+    """Asignaciones. Escritura solo admin; conductor lee las suyas.
+
+    El ciclo propuesta → aceptada/rechazada va por las acciones `accept`/`reject`
+    (HU-2.4): son la transición de negocio completa (cierran la vigente y emiten
+    el evento), no un simple cambio de `status`.
+    """
 
     serializer_class = AssignmentSerializer
     permission_classes = [AdminWriteManagementOrDriverRead]
@@ -273,13 +295,85 @@ class AssignmentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     ordering_fields = ["start_date", "created_at"]
 
     def perform_create(self, serializer):
-        # Nueva asignación + evento de cambio de conductor (HU-2.1), atómico.
+        # Nueva asignación, atómico. El evento de cambio de conductor solo se
+        # emite si nace ACEPTADA: una propuesta (HU-2.3) no altera nada hasta
+        # que la gestión la confirme.
         with transaction.atomic():
             super().perform_create(serializer)
             assignment = serializer.instance
-            events.emit_driver_change(
-                assignment.vehicle, old_driver=None, new_driver=assignment.driver
+            if assignment.status == AssignmentStatus.ACCEPTED:
+                events.emit_driver_change(
+                    assignment.vehicle, old_driver=None, new_driver=assignment.driver
+                )
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    def accept(self, request, pk=None):
+        """POST /assignments/{id}/accept/ — confirma una propuesta (HU-2.4).
+
+        Cierra la asignación vigente (fin = inicio de la nueva), acepta la
+        propuesta y emite el evento de cambio de conductor, todo atómico.
+        """
+        assignment = self.get_object()
+        if assignment.status != AssignmentStatus.PROPOSED:
+            raise ValidationError({"status": "Solo se puede aceptar una propuesta."})
+        with transaction.atomic():
+            current = (
+                Assignment.objects.select_for_update()
+                .filter(
+                    vehicle=assignment.vehicle,
+                    status=AssignmentStatus.ACCEPTED,
+                    end_date__isnull=True,
+                )
+                .exclude(pk=assignment.pk)
+                .select_related("driver")
+                .first()
             )
+            old_driver = current.driver if current else None
+            if current:
+                current.status = AssignmentStatus.FINISHED
+                current.end_date = assignment.start_date or timezone.localdate()
+                current.save(update_fields=["status", "end_date", "updated_at"])
+            assignment.status = AssignmentStatus.ACCEPTED
+            if not assignment.start_date:
+                assignment.start_date = timezone.localdate()
+            assignment.save(update_fields=["status", "start_date", "updated_at"])
+            events.emit_driver_change(
+                assignment.vehicle, old_driver=old_driver, new_driver=assignment.driver
+            )
+        return Response(self.get_serializer(assignment).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    def reject(self, request, pk=None):
+        """POST /assignments/{id}/reject/ — rechaza la propuesta sin tocar la vigente."""
+        assignment = self.get_object()
+        if assignment.status != AssignmentStatus.PROPOSED:
+            raise ValidationError({"status": "Solo se puede rechazar una propuesta."})
+        assignment.status = AssignmentStatus.REJECTED
+        assignment.save(update_fields=["status", "updated_at"])
+        return Response(self.get_serializer(assignment).data)
+
+    @action(detail=False, methods=["post"], permission_classes=[IsDriver])
+    def propose(self, request):
+        """POST /assignments/propose/ — el conductor propone fechas (HU-2.3).
+
+        Crea una asignación `proposed` a su nombre sobre un vehículo de su
+        ámbito. NO altera la asignación vigente: queda pendiente en la bandeja
+        de la gestión (accept/reject).
+        """
+        data = {
+            "vehicle": request.data.get("vehicle"),
+            "driver": request.user.pk,
+            "start_date": request.data.get("start_date"),
+            "end_date": request.data.get("end_date"),
+            "status": AssignmentStatus.PROPOSED,
+        }
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        vehicle = serializer.validated_data["vehicle"]
+        if not vehicles_for(request.user).filter(pk=vehicle.pk).exists():
+            raise PermissionDenied("El vehículo está fuera de tu ámbito.")
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class VehicleUsageViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
@@ -290,6 +384,39 @@ class VehicleUsageViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     queryset = VehicleUsage.objects.select_related("vehicle", "driver")
     filterset_fields = ["vehicle", "driver"]
 
+    @action(detail=False, methods=["post"], url_path="set", url_name="set")
+    def set_split(self, request):
+        """POST /vehicle-usages/set/ — aplica el reparto completo de un vehículo.
+
+        Valida que la suma sea **exactamente 100** (HU-2.5) y, en una
+        transacción, cierra el reparto vigente (fin = inicio del nuevo) y crea
+        las filas nuevas. Así el invariante no se rompe fila a fila.
+        """
+        serializer = UsageSplitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        vehicle = data["vehicle"]
+        user = request.user
+        if not user.is_admin and not vehicles_for(user).filter(pk=vehicle.pk).exists():
+            raise PermissionDenied("El vehículo está fuera de tu ámbito.")
+        with transaction.atomic():
+            VehicleUsage.objects.filter(vehicle=vehicle, end_date__isnull=True).update(
+                end_date=data["start_date"]
+            )
+            rows = VehicleUsage.objects.bulk_create(
+                VehicleUsage(
+                    vehicle=vehicle,
+                    driver=item["driver"],
+                    usage_percent=item["usage_percent"],
+                    start_date=data["start_date"],
+                    end_date=data.get("end_date"),
+                )
+                for item in data["items"]
+            )
+        return Response(
+            VehicleUsageSerializer(rows, many=True).data, status=status.HTTP_201_CREATED
+        )
+
 
 class VehicleLinkViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     serializer_class = VehicleLinkSerializer
@@ -299,14 +426,42 @@ class VehicleLinkViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     filterset_fields = ["main_vehicle", "substitute_vehicle", "reason"]
 
 
-class EventViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
-    """Histórico de eventos (solo lectura; los emiten los procesos de negocio)."""
+class EventPermission(BasePermission):
+    """Lectura para cualquier rol (scoping por queryset); alta para todos los
+    roles PERO el serializer restringe el conductor a registrar solo ITV
+    (HU-5.1/2.8) y los tipos manuales permitidos. Sin edición ni borrado."""
+
+    message = "No tienes permiso para esta operación sobre eventos."
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        if request.method in SAFE_METHODS or request.method == "POST":
+            return user.is_management or user.is_driver
+        return False
+
+
+class EventViewSet(ScopedByVehicleMixin, mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
+    """Histórico de eventos + registro manual (Fase A1).
+
+    Los procesos de negocio siguen emitiendo los suyos; por API solo se dan de
+    alta los tipos manuales (`MANUAL_EVENT_TYPES`): **ITV** (HU-5.1 — al crearse
+    su `EventItv`, la señal cierra las alertas y refresca `next_itv_date`),
+    cambio de **cuota** y de **ubicación** (HU-1.4). El conductor solo ITV, de
+    sus vehículos (scoping).
+    """
 
     serializer_class = EventSerializer
-    permission_classes = [AdminWriteManagementOrDriverRead]
+    permission_classes = [EventPermission]
     queryset = Event.objects.select_related("vehicle")
     filterset_fields = ["vehicle", "event_type"]
     ordering_fields = ["event_date"]
+
+    def perform_create(self, serializer):
+        # Evento + subtipo (y efectos de la señal de ITV) en una transacción.
+        with transaction.atomic():
+            super().perform_create(serializer)
 
 
 class InvoiceViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
@@ -315,6 +470,40 @@ class InvoiceViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     queryset = Invoice.objects.select_related("vehicle")
     filterset_fields = ["vehicle"]
     ordering_fields = ["date", "amount"]
+
+    @action(detail=True, methods=["post"])
+    def allocate(self, request, pk=None):
+        """POST /invoices/{id}/allocate/ — refacturación por líneas (Épica 7).
+
+        Sustituye las imputaciones de la factura por las líneas recibidas.
+        Valida que los % sumen **exactamente 100**; si una línea no trae
+        importe, se calcula desde el total de la factura. Todo atómico.
+        (Escritura = solo admin, por el permiso del viewset.)
+        """
+        invoice = self.get_object()
+        serializer = InvoiceAllocateSerializer(data=request.data, context={"invoice": invoice})
+        serializer.is_valid(raise_exception=True)
+        lines = serializer.validated_data["lines"]
+        with transaction.atomic():
+            invoice.allocations.all().delete()
+            rows = InvoiceAllocation.objects.bulk_create(
+                InvoiceAllocation(
+                    invoice=invoice,
+                    target_type=line["target_type"],
+                    project=line.get("project"),
+                    cost_center=line.get("cost_center"),
+                    percentage=line["percentage"],
+                    amount=line.get("amount")
+                    if line.get("amount") is not None
+                    else (invoice.amount * line["percentage"] / Decimal("100")).quantize(
+                        Decimal("0.01")
+                    ),
+                )
+                for line in lines
+            )
+        return Response(
+            InvoiceAllocationSerializer(rows, many=True).data, status=status.HTTP_201_CREATED
+        )
 
 
 class InvoiceAllocationViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
@@ -430,6 +619,24 @@ class VehicleRequestViewSet(viewsets.ModelViewSet):
     filterset_fields = ["status", "requester", "vehicle", "requested_type"]
     search_fields = ["jira_key", "notes"]
     ordering_fields = ["created_at", "start_date"]
+
+
+# --- Summary de flota (dashboard G1) --------------------------------------
+
+
+class FleetSummaryView(APIView):
+    """GET /api/summary/ — agregados de la flota para el dashboard (Fase A1).
+
+    Totales por estado/uso, asignados/sin asignar, coste mensual (contratos
+    vigentes), facturado del mes y del anterior (tendencia), ITV en 30 días y
+    vencidas, y alertas abiertas por tipo. Acotado por rol: el supervisor ve
+    los agregados de **su grupo**.
+    """
+
+    permission_classes = [IsManagement]
+
+    def get(self, request):
+        return Response(metrics.fleet_summary(request.user))
 
 
 # --- Informes / exportación (Épica 10) -----------------------------------

@@ -303,6 +303,7 @@ Table contracts {
   planned_end_date date [not null]
   end_date date
   month_fee decimal
+  penalty_per_km decimal [note: '€/km de exceso sobre los contratados (Fase A1)']
 }
 
 Table kms {
@@ -452,6 +453,7 @@ Table documents {
   type document_type_enum [not null]
   incident_id int [ref: > incidents.id, note: 'documento ligado a incidencia (acta/parte/fotos)']
   drive_url varchar
+  file varchar [note: 'ruta del binario subido por multipart (FileField, Fase A1)']
   uploaded_by_id int [ref: > drivers.id]
   expiry_date date [note: 'seguro, permiso, ITV…']
   status document_status_enum [not null, default: 'valid']

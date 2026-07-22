@@ -254,25 +254,27 @@ bottom-nav muestra 3 pestañas al conductor y 4 al supervisor:
 
 ---
 
-## Dependencias con el backend (huecos a resolver)
+## Dependencias con el backend — ✅ resueltas (Fase A1), salvo push
 
-Algunas HU de campo necesitan endpoints/permisos que el backend **aún no expone**
-del todo; conviene resolverlos antes/junto a su fase:
+Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
+(ver [`PLAN_MEJORA_BACK.md`](./PLAN_MEJORA_BACK.md)). Endpoints a consumir:
 
-| HU | Necesidad | Estado backend | Propuesta |
-|----|-----------|----------------|-----------|
-| **2.3** | El **conductor** crea una **propuesta de fechas** (`Assignment status=propuesta`) sin alterar la vigente | `AssignmentViewSet.perform_create` valida rol driver, pero el flujo "propuesta" (self-service del conductor) no está definido como acción | Acción `propose`/`propuesta` en asignaciones acotada al propio conductor |
-| **5.1** | Conductor/supervisor **registran ITV** (resultado + próxima fecha) → crea `Event`+`EventItv` y auto-cierra avisos | `Event`/`EventItv` son **solo lectura** en la API | Endpoint de registro de ITV (compartido con el front de gestión) |
-| **3.4** | **Proyección de km por vehículo** (consumidos/contratados/restantes, verde/rojo) del grupo | El back la calcula en el job de alertas pero **no la expone por vehículo** | Endpoint *summary/métricas* por vehículo, o calcular en el front desde km + contrato |
-| **2.8 / 3.3** | Scoping "**mi grupo**" (supervisor) en vehículos, alertas y km pendiente | El scoping existe (`ScopedByVehicleMixin` filtra por rol); confirmar cobertura en alertas y km pendiente | Verificar con tests de rol; añadir lo que falte |
-| **2.5** | Validación **suma = 100 %** del reparto de uso (M6) | `VehicleUsage` solo valida 0–100 por fila, no la suma por periodo | Validarla en el servidor; el front además valida en vivo |
-| **4.1** | **Subida del fichero** (multipart) desde cámara/galería | `Document.drive_url` es un `CharField`: la API solo acepta **metadatos + URL**, no el binario | `FileField` + almacenamiento (y archivado a Drive desde el back) — imprescindible para M2 |
-| **M8** | Suscripciones **push** (web-push/FCM) | No existe | Infra de suscripciones + envío desde el motor de alertas |
+| HU / fase | Endpoint (Fase A1) |
+|-----------|--------------------|
+| **2.3** (M4) | `POST /api/v1/assignments/propose/` — el conductor propone fechas de SU vehículo; queda `proposed` sin tocar la vigente |
+| **5.1** (M4) | `POST /api/v1/events/` con `itv: {result, next_due}` — **cierra los avisos** y refresca `next_itv_date`; el conductor solo ITV de su ámbito |
+| **3.4** (M6) | `GET /api/v1/vehicles/{id}/summary/` — proyección con nivel `within`/`watch`/`over` y penalización estimada |
+| **2.8 / 3.3** (M5/M6) | Scoping verificado por tests de rol; alertas y summary acotados al grupo del supervisor (`GET /api/v1/summary/` para sus agregados) |
+| **2.5** (M6) | `POST /api/v1/vehicle-usages/set/` — el back valida la **suma = 100** y cierra el reparto vigente |
+| **4.1** (M2) | `/documents/` acepta **multipart** (`file` desde cámara/galería, máx. 10 MB, jpg/png/webp/heic/pdf); sin URL queda `pendiente_archivar` y `file_url` la sirve `/media/` |
 
-> El resto ya tiene endpoint: km (`/km-readings/` con no-retroceso en servidor;
-> la "última lectura" se obtiene con `?vehicle=&ordering=-reading_date`),
-> alertas (+`resolve`/`dismiss`, filtros tipo/nivel/estado), reparto de uso,
-> incidencias y catálogos.
+| Pendiente | Estado |
+|-----------|--------|
+| **M8 push** (🔵) | Sin implementar: suscripciones web-push/FCM + envío desde el motor de alertas — se abordará con la fase M8 |
+
+> Además: km (`/km-readings/` con no-retroceso en servidor; última lectura con
+> `?vehicle=&ordering=-reading_date`), alertas (+`resolve`/`dismiss`, filtros
+> tipo/nivel/estado), incidencias y catálogos ya estaban.
 
 ---
 

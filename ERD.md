@@ -141,6 +141,7 @@ erDiagram
         date planned_end_date
         date end_date
         decimal month_fee
+        decimal penalty_per_km "EUR/km de exceso (Fase A1)"
     }
     KM_READING {
         int id PK
@@ -253,6 +254,7 @@ erDiagram
         enum type "document_type"
         int incident_id FK
         string drive_url
+        file file "binario subido (multipart, Fase A1)"
         int uploaded_by_id FK "USER"
         date expiry_date
         enum status "document_status"

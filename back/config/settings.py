@@ -144,6 +144,11 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = env_str("DJANGO_STATIC_ROOT", str(BASE_DIR / "staticfiles"))
+
+# Ficheros subidos por la app (documentos, HU-4.1). En producción los sirve el
+# proxy (nginx `location /media/`), nunca Django.
+MEDIA_URL = "media/"
+MEDIA_ROOT = env_str("DJANGO_MEDIA_ROOT", str(BASE_DIR / "media"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- Proxy inverso (nginx con TLS terminado upstream) ---------------------
@@ -292,6 +297,10 @@ FLEET_ITV_ALERT_DAYS = sorted(
 FLEET_NO_DRIVER_ALERT_DAYS = max(0, env_int("FLEET_NO_DRIVER_ALERT_DAYS", 30))
 # Margen sobre los km contratados a partir del cual la proyección alerta (0.05 = 5%).
 FLEET_KM_OVERAGE_MARGIN = max(0.0, float(env_str("FLEET_KM_OVERAGE_MARGIN", "0.05")))
+# Umbral "a vigilar" de la proyección (0.95 = 95% del límite) — nivel intermedio.
+FLEET_KM_WATCH_PCT = max(0.0, float(env_str("FLEET_KM_WATCH_PCT", "0.95")))
+# Subida de documentos (HU-4.1): tamaño máximo del fichero en MB.
+FLEET_DOCUMENT_MAX_MB = max(1, env_int("FLEET_DOCUMENT_MAX_MB", 10))
 
 # --- Flota: integraciones (Épica 9) ---------------------------------------
 # Archivado de documentos (HU-4.2). Backends: none | local | gdrive.

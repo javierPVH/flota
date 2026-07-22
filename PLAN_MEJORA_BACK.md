@@ -156,30 +156,40 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
   `public_write` en la escritura del front público (km/documentos) —
   [`core/throttling.py`](./back/core/throttling.py). 8 tests nuevos (137 en total;
   cobertura 89%). *Lockfile* de dependencias queda como mejora futura (🔵).
-- **Fase A1 — API para los fronts (⏳ PENDIENTE).** Huecos detectados al planificar
-  los dos frontends (auditoría de la superficie API; detalle y fase consumidora en
-  las tablas "Dependencias con el backend" de
-  [`PLAN_FRONT_GESTION.md`](./PLAN_FRONT_GESTION.md) y
-  [`PLAN_FRONT_CONDUCTORES.md`](./PLAN_FRONT_CONDUCTORES.md)):
-  1. **API de usuarios/conductores** (HU-2.6): CRUD + desactivar + roles; hoy solo
-     `GET /auth/drivers/` y self-register.
-  2. **Registro de ITV y eventos manuales** (HU-5.1/1.4): `Event`/`EventItv` son
-     solo lectura (`EventItv` ni tiene serializer); crear endpoint que dispare el
-     auto-cierre de alertas ya existente.
-  3. **Métricas por vehículo** (HU-1.2/3.4): summary JSON con coste mensual, km
-     consumidos/contratados/restantes y proyección (hoy solo se calcula en el job).
-  4. **Summary de flota** (dashboard G1): totales por estado/uso, coste agregado
-     con tendencia, ITV en 30 días.
-  5. **Acciones `accept`/`reject` en asignaciones** (HU-2.4): transición de negocio
-     completa (cerrar la anterior + evento), no un `PATCH` de `status`.
-  6. **Validación suma=100** en `VehicleUsage` (por periodo) e
-     `InvoiceAllocation` (por factura) — hoy solo 0–100 por fila.
-  7. **`Contract.penalty_per_km`**: campo nuevo para la penalización estimada del
-     exceso (visuales de ficha/edición).
-  8. **Upload multipart** de documentos (y facturas): `drive_url`/`file` son
-     `CharField`; el móvil necesita subir el binario (cámara) — `FileField` +
-     almacenamiento + archivado.
-  9. (🔵) **Push**: suscripciones web-push/FCM + envío desde el motor de alertas.
+- **Fase A1 — API para los fronts: ✅ IMPLEMENTADA** (salvo push 🔵). Los 8 huecos
+  que bloqueaban fases de los frontends, cerrados:
+  1. **API de usuarios** `CRUD /api/v1/auth/users/` (solo admin, HU-2.6): roles
+     multi-valor sincronizados, DNI/permiso/tarjeta, password opcional
+     (sin ella → inutilizable), `DELETE` **desactiva** (histórico intacto),
+     guardarraíl anti-bloqueo (no auto-desactivarse/quitarse admin).
+  2. **Registro manual de eventos** `POST /api/v1/events/` (tipos `itv`,
+     `fee_change`, `location_change` con detalle anidado): registrar ITV crea
+     `EventItv` y la señal existente **cierra alertas + refresca
+     `next_itv_date`**; el conductor solo ITV de sus vehículos (HU-5.1/1.4/2.8).
+  3. **Summary por vehículo** `GET /vehicles/{id}/summary/`
+     ([`fleet/services/metrics.py`](./back/fleet/services/metrics.py)): coste, km,
+     proyección lineal con nivel **`within`/`watch`/`over`**
+     (`FLEET_KM_WATCH_PCT`) y **penalización estimada** (HU-1.2/3.4).
+  4. **Summary de flota** `GET /api/v1/summary/` (gestión, acotado por rol):
+     totales por estado/uso, asignados, coste mensual, facturado mes/anterior
+     (tendencia), ITV 30 días/vencidas, alertas abiertas por tipo (dashboard G1).
+  5. **`accept`/`reject`** en asignaciones (admin, HU-2.4): transición completa —
+     aceptar cierra la vigente (fin = inicio de la nueva) y emite el evento;
+     además **`propose`** para el conductor (HU-2.3, sin tocar la vigente) y el
+     alta de asignación ya NO emite evento si nace como propuesta.
+  6. **Suma = 100** en endpoints compuestos: `POST /vehicle-usages/set/`
+     (reparto completo, cierra el vigente) y `POST /invoices/{id}/allocate/`
+     (líneas proyecto/CECO con importes autocalculados), ambos atómicos.
+  7. **`Contract.penalty_per_km`** (migración `0008`) alimentando la penalización
+     estimada del summary.
+  8. **Upload multipart** de documentos: `Document.file` (`FileField`, migración
+     `0008`), `MEDIA_ROOT`/`MEDIA_URL` (dev servido por Django; prod por proxy),
+     validación de tamaño (`FLEET_DOCUMENT_MAX_MB`) y extensión (foto/PDF),
+     `file_url` absoluto en la respuesta; sin URL externa queda
+     `pendiente_archivar` para el job.
+  33 tests nuevos (170 en total, verdes; cobertura 89%).
+- **Pendiente de A1 (🔵):** push (suscripciones web-push/FCM + envío desde el
+  motor de alertas) — va con la fase M8 del front móvil.
 
 ---
 

@@ -28,6 +28,14 @@ class Document(TimeStampedModel):
     drive_url = models.CharField(
         "URL en Drive", max_length=500, blank=True, help_text="Ruta o URL al documento archivado."
     )
+    file = models.FileField(
+        "Fichero",
+        upload_to="documents/%Y/%m/",
+        null=True,
+        blank=True,
+        help_text="Binario subido desde la app (cámara/galería del móvil, HU-4.1). "
+        "Convive con `drive_url`: al archivarse en Drive se rellena la URL.",
+    )
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
