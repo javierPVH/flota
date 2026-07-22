@@ -125,6 +125,17 @@ export interface VehicleSummary {
   } | null
 }
 
+/** Asignación (aquí solo lectura de propuestas propias — HU-2.3). */
+export interface AssignmentRow {
+  id: number
+  vehicle: number
+  driver: number
+  driver_name: string
+  start_date: string
+  end_date: string | null
+  status: 'proposed' | 'accepted' | 'rejected' | 'finished'
+}
+
 /** Lectura de odómetro acumulado (HU-3.1). */
 export interface KmReading {
   id: number

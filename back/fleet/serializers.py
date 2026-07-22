@@ -285,6 +285,14 @@ class AssignmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"driver": "El usuario asignado no tiene rol de conductor."}
             )
+        # HU-2.3: fin ≥ inicio (fin == inicio es válido: así cierra la gestión
+        # la asignación vigente al aceptar una nueva).
+        start = attrs.get("start_date", getattr(self.instance, "start_date", None))
+        end = attrs.get("end_date", getattr(self.instance, "end_date", None))
+        if start and end and end < start:
+            raise serializers.ValidationError(
+                {"end_date": "La fecha de fin no puede ser anterior a la de inicio."}
+            )
         return attrs
 
 

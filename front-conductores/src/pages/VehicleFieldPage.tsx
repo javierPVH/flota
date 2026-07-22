@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Camera, ExternalLink, FileText, Gauge } from 'lucide-react'
-import { Button, Panel, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
+import { ArrowLeft, CalendarPlus, Camera, ClipboardCheck, ExternalLink, FileText, Gauge } from 'lucide-react'
+import { Button, Modal, Panel, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
   fetchVehicle,
   fetchVehicleSummary,
+  listAssignments,
   listDocuments,
   listIncidents,
+  proposeAssignment,
+  registerItv,
   uploadDocument,
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { fmtDate, fmtKm, itvClass, pendingThisMonth } from '../format.ts'
-import type { FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
+import type { AssignmentRow, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
 
 // Tipos de documento (lista cerrada del back, Épica 4).
 const DOCUMENT_TYPE_OPTIONS = [
@@ -39,6 +42,19 @@ function documentHref(doc: FlotaDocument): string {
 }
 
 const EMPTY_FORM = { type: 'other', expiry_date: '', incident: '', notes: '' }
+
+// Resultado de la ITV: valores libres del back, consensuados con gestión.
+const ITV_RESULT_OPTIONS = [
+  { value: 'done', label: 'Favorable' },
+  { value: 'not done', label: 'Desfavorable' },
+]
+
+/** Hoy en formato de <input type="date"> (zona local, no UTC). */
+function todayIso(): string {
+  const now = new Date()
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
+  return now.toISOString().slice(0, 10)
+}
 
 /**
  * M2 — Ficha de campo (HU-1.2 lectura, 4.1, 4.3): consulta rápida a pie de
@@ -66,6 +82,17 @@ export function VehicleFieldPage() {
   const [formError, setFormError] = useState('')
   const [uploadOk, setUploadOk] = useState('')
   const uploadRef = useRef<HTMLFormElement>(null)
+
+  // M4: propuesta de fechas (HU-2.3) y registro de ITV (HU-5.1)
+  const [myProposals, setMyProposals] = useState<AssignmentRow[]>([])
+  const [proposeOpen, setProposeOpen] = useState(false)
+  const [proposeForm, setProposeForm] = useState({ start_date: todayIso(), end_date: '' })
+  const [proposeError, setProposeError] = useState('')
+  const [proposeOk, setProposeOk] = useState('')
+  const [itvOpen, setItvOpen] = useState(false)
+  const [itvForm, setItvForm] = useState({ event_date: todayIso(), result: 'done', next_due: '' })
+  const [itvError, setItvError] = useState('')
+  const [itvOk, setItvOk] = useState('')
 
   const loadDocuments = useCallback(() => {
     listDocuments(vehicleId)
@@ -98,6 +125,16 @@ export function VehicleFieldPage() {
       .then((page) => setIncidents(page.results.filter((i) => i.status !== 'closed')))
       .catch(() => setIncidents([]))
   }, [vehicleId, isSupervisor])
+
+  // Propuestas de fechas PROPIAS pendientes de confirmación (HU-2.3).
+  const loadProposals = useCallback(() => {
+    if (!user) return
+    listAssignments(vehicleId, 'proposed')
+      .then((page) => setMyProposals(page.results.filter((a) => a.driver === user.id)))
+      .catch(() => setMyProposals([]))
+  }, [vehicleId, user])
+
+  useEffect(loadProposals, [loadProposals])
 
   function openUpload() {
     setShowUpload(true)
@@ -135,6 +172,55 @@ export function VehicleFieldPage() {
       loadDocuments()
     } catch (err) {
       setFormError(asErrorMessage(err, 'No se pudo subir el documento.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handlePropose(event: FormEvent) {
+    event.preventDefault()
+    if (proposeForm.end_date && proposeForm.end_date < proposeForm.start_date) {
+      setProposeError('La fecha de fin no puede ser anterior a la de inicio.')
+      return
+    }
+    setSaving(true)
+    setProposeError('')
+    try {
+      await proposeAssignment({
+        vehicle: vehicleId,
+        start_date: proposeForm.start_date,
+        end_date: proposeForm.end_date || null,
+      })
+      setProposeOpen(false)
+      setProposeForm({ start_date: todayIso(), end_date: '' })
+      setProposeOk(
+        'Propuesta enviada. Queda pendiente de confirmación por la administración; tu asignación actual no cambia.',
+      )
+      loadProposals()
+    } catch (err) {
+      setProposeError(asErrorMessage(err, 'No se pudo enviar la propuesta.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleItv(event: FormEvent) {
+    event.preventDefault()
+    setSaving(true)
+    setItvError('')
+    try {
+      await registerItv({
+        vehicle: vehicleId,
+        event_date: itvForm.event_date,
+        itv: { result: itvForm.result, next_due: itvForm.next_due || null },
+      })
+      setItvOpen(false)
+      setItvForm({ event_date: todayIso(), result: 'done', next_due: '' })
+      setItvOk('ITV registrada. Los avisos asociados se cierran y la próxima fecha queda actualizada.')
+      // La señal del back refresca next_itv_date: recarga la cabecera.
+      fetchVehicle(vehicleId).then(setVehicle, () => {})
+    } catch (err) {
+      setItvError(asErrorMessage(err, 'No se pudo registrar la ITV.'))
     } finally {
       setSaving(false)
     }
@@ -196,7 +282,7 @@ export function VehicleFieldPage() {
         </Panel>
       )}
 
-      {/* Accesos directos de campo (M4 añadirá proponer fechas / ITV). */}
+      {/* Accesos directos de campo (M2 + M4). */}
       <div className="quick-actions">
         <Link to={`/registrar?vehiculo=${vehicle.id}`} className="quick-action">
           <Gauge size={20} aria-hidden /> Registrar km
@@ -204,7 +290,54 @@ export function VehicleFieldPage() {
         <button type="button" className="quick-action" onClick={openUpload}>
           <Camera size={20} aria-hidden /> Subir documento
         </button>
+        <button
+          type="button"
+          className="quick-action"
+          onClick={() => {
+            setProposeOk('')
+            setProposeError('')
+            setProposeOpen(true)
+          }}
+        >
+          <CalendarPlus size={20} aria-hidden /> Proponer fechas
+        </button>
+        <button
+          type="button"
+          className="quick-action"
+          onClick={() => {
+            setItvOk('')
+            setItvError('')
+            setItvOpen(true)
+          }}
+        >
+          <ClipboardCheck size={20} aria-hidden /> Registrar ITV
+        </button>
       </div>
+
+      {proposeOk && <p className="form-ok">{proposeOk}</p>}
+      {itvOk && <p className="form-ok">{itvOk}</p>}
+
+      {/* Propuestas propias pendientes (HU-2.3): NO alteran la vigente. */}
+      {myProposals.length > 0 && (
+        <Panel>
+          <h3 className="panel-title">Tus propuestas de fechas</h3>
+          <ul className="doc-list">
+            {myProposals.map((p) => (
+              <li key={p.id} className="doc-item">
+                <CalendarPlus size={18} aria-hidden className="doc-icon" />
+                <div className="doc-info">
+                  <strong>
+                    Desde {fmtDate(p.start_date)}
+                    {p.end_date ? ` hasta ${fmtDate(p.end_date)}` : ' (sin fin)'}
+                  </strong>
+                  <span className="doc-sub">La confirma o rechaza la administración.</span>
+                </div>
+                <span className="pill doc-pending_archive">Pendiente de confirmación</span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
 
       {/* Tres atributos independientes (HU-1.6), en solo lectura. */}
       <Panel>
@@ -268,6 +401,80 @@ export function VehicleFieldPage() {
             )
           })}
         </ul>
+
+        <Modal
+          open={proposeOpen}
+          title={`Proponer fechas · ${vehicle.plate}`}
+          onClose={() => setProposeOpen(false)}
+        >
+          <form className="modal-form" onSubmit={handlePropose}>
+            <p className="doc-sub">
+              La propuesta queda pendiente de confirmación: tu asignación actual no cambia hasta
+              que la administración la acepte.
+            </p>
+            <TextInputField
+              label="Desde"
+              type="date"
+              value={proposeForm.start_date}
+              onChange={(e) => setProposeForm((f) => ({ ...f, start_date: e.target.value }))}
+              required
+            />
+            <TextInputField
+              label="Hasta (opcional)"
+              type="date"
+              min={proposeForm.start_date}
+              value={proposeForm.end_date}
+              onChange={(e) => setProposeForm((f) => ({ ...f, end_date: e.target.value }))}
+            />
+            {proposeError && <div className="form-error">{proposeError}</div>}
+            <div className="form-actions">
+              <Button type="button" variant="secondary" onClick={() => setProposeOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={saving || !proposeForm.start_date}>
+                {saving ? 'Enviando…' : 'Enviar propuesta'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+
+        <Modal open={itvOpen} title={`Registrar ITV · ${vehicle.plate}`} onClose={() => setItvOpen(false)}>
+          <form className="modal-form" onSubmit={handleItv}>
+            <TextInputField
+              label="Fecha de la ITV"
+              type="date"
+              max={todayIso()}
+              value={itvForm.event_date}
+              onChange={(e) => setItvForm((f) => ({ ...f, event_date: e.target.value }))}
+              required
+            />
+            <SelectField
+              label="Resultado"
+              options={ITV_RESULT_OPTIONS}
+              value={itvForm.result}
+              onValueChange={(value) => setItvForm((f) => ({ ...f, result: value }))}
+            />
+            <TextInputField
+              label="Próxima ITV (fecha del informe)"
+              type="date"
+              min={itvForm.event_date}
+              value={itvForm.next_due}
+              onChange={(e) => setItvForm((f) => ({ ...f, next_due: e.target.value }))}
+            />
+            <p className="doc-sub">
+              Al registrarla, los avisos de ITV del vehículo se cierran automáticamente.
+            </p>
+            {itvError && <div className="form-error">{itvError}</div>}
+            <div className="form-actions">
+              <Button type="button" variant="secondary" onClick={() => setItvOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? 'Registrando…' : 'Registrar ITV'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
 
         {showUpload && (
           <form ref={uploadRef} className="modal-form upload-form" onSubmit={handleUpload}>

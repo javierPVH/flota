@@ -264,7 +264,22 @@ resuelta.)*
 - **Aceptación:** el conductor registra el odómetro en pocos toques y ve los km
   recorridos; el back valida el no-retroceso.
 
-### M4 — Aportaciones del conductor: propuestas de fechas e ITV · HU-2.3, 5.1 🔴
+### M4 — Aportaciones del conductor: propuestas de fechas e ITV · HU-2.3, 5.1 🔴 — ✅ IMPLEMENTADA
+*(Cómo quedó: dos accesos directos nuevos en la ficha — "Proponer fechas" y
+"Registrar ITV" — con modales del DS. Propuesta (HU-2.3): desde/hasta opcional,
+fin ≥ inicio validado en cliente **y ahora también en servidor** (hueco de back
+cerrado en `AssignmentSerializer`, con fin == inicio permitido porque así
+cierra la gestión la vigente al aceptar; +2 tests, 226 en verde); va por
+`POST /assignments/propose/` y queda `proposed` sin tocar la asignación
+vigente. La ficha lista "Tus propuestas de fechas" (las `proposed` propias)
+con la píldora "Pendiente de confirmación". ITV (HU-5.1): fecha (máx. hoy),
+resultado Favorable/Desfavorable (`done`/`not done`, como gestión) y próxima
+fecha; `POST /events/` con `itv:{result, next_due}` — la señal del back cierra
+los avisos y refresca `next_itv_date`, y la ficha recarga la cabecera.
+Verificado E2E con seed: propuesta de carlos queda pendiente con la vigente
+intacta, fuera de ámbito → 403, fin < inicio → 400 con mensaje de campo; ITV
+de sara sobre el 5678BCD (vencida) pasa next_itv de 2026-07-16 a 2028-07-22 y
+cierra la alerta.)*
 - **Proponer fechas de uso** (HU-2.3): fecha de inicio y (opcional) fin; validar
   **fin ≥ inicio**; queda como **propuesta pendiente** sin tocar la asignación
   vigente; el conductor ve el estado "pendiente de confirmación".

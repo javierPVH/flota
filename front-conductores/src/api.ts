@@ -1,6 +1,7 @@
 import { getCookie, getJson, postJson, toUrl } from '@flota/ui/http'
 
 import type {
+  AssignmentRow,
   AuthConfig,
   DevUser,
   FlotaDocument,
@@ -49,6 +50,28 @@ export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${
 
 export const fetchVehicleSummary = (id: number) =>
   getJson<VehicleSummary>(`${API}/vehicles/${id}/summary/`)
+
+// --- M4: aportaciones del conductor (HU-2.3, 5.1) --------------------------
+
+/** Propuesta de fechas: queda `proposed` SIN tocar la asignación vigente. */
+export const proposeAssignment = (data: {
+  vehicle: number
+  start_date: string
+  end_date?: string | null
+}) => postJson<AssignmentRow>(`${API}/assignments/propose/`, data)
+
+/** Asignaciones del vehículo por estado (el back acota al ámbito propio). */
+export const listAssignments = (vehicle: number, status: string) =>
+  getJson<Paginated<AssignmentRow>>(`${API}/assignments/?vehicle=${vehicle}&status=${status}`)
+
+/** Registrar ITV (HU-5.1): la señal del back cierra los avisos y refresca
+ * `next_itv_date`. El conductor solo puede registrar ITV de su ámbito. */
+export const registerItv = (data: {
+  vehicle: number
+  event_date: string
+  notes?: string
+  itv: { result: string; next_due: string | null }
+}) => postJson(`${API}/events/`, { ...data, event_type: 'itv' })
 
 // --- M3: odómetro (HU-3.1) — el back valida el no-retroceso ----------------
 export const createKmReading = (data: { vehicle: number; km_reading: number; reading_date: string }) =>

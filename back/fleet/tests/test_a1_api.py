@@ -168,6 +168,31 @@ class ProposalFlowTests(APITestCase):
         self.assertEqual(self.current.status, AssignmentStatus.ACCEPTED)
         self.assertIsNone(self.current.end_date)
 
+    def test_propose_rejects_end_before_start(self):
+        # HU-2.3: fin ≥ inicio también en servidor (la UI solo es cortesía).
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(
+            reverse("assignment-propose"),
+            {"vehicle": self.vehicle.pk, "start_date": "2026-08-10", "end_date": "2026-08-01"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("end_date", resp.data.get("errors", resp.data))
+
+    def test_end_equal_to_start_is_valid(self):
+        # Cerrar la vigente con fin == inicio del relevo debe seguir funcionando.
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            reverse("assignment-list"),
+            {
+                "vehicle": self.vehicle.pk,
+                "driver": self.other.pk,
+                "start_date": "2026-08-01",
+                "end_date": "2026-08-01",
+                "status": AssignmentStatus.PROPOSED,
+            },
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
     def test_driver_cannot_propose_for_foreign_vehicle(self):
         foreign = Vehicle.objects.create(plate="PRO2", brand="a", model="b")
         self.client.force_authenticate(self.driver)
