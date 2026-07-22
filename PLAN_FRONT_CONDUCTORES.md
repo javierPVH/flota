@@ -181,7 +181,14 @@ vehículos/Mi grupo" en tarjetas con semáforo de ITV.)*
   portón con el estado de la solicitud y sin flota el aviso; con coche se entra;
   el `admin` ve el 403; el perfil pinta `/me`.
 
-### M1 — Mis vehículos / Mi grupo · HU-1.1 (ámbito campo), 2.8 🔴
+### M1 — Mis vehículos / Mi grupo · HU-1.1 (ámbito campo), 2.8 🔴 — ✅ IMPLEMENTADA
+*(Cómo quedó: tarjetas táctiles enlazadas a la ficha (`/vehiculos/:id`) con
+matrícula grande, estado con color, semáforo de ITV, **km actual** y píldora
+"lectura pendiente" — los km salen de `GET /vehicles/{id}/summary/` en
+paralelo (el ámbito de campo es pequeño); el supervisor ve además el conductor
+de cada coche. Buscador simple en cliente (matrícula/marca/modelo), solo si hay
+más de un vehículo. El scoping lo hace el back: verificado con seed — carlos ve
+1 coche, sara su grupo de 2, david ninguno → portón.)*
 - **Conductor:** lista de sus vehículos asignados (scoping del back por
   `Assignment` aceptada y vigente).
 - **Supervisor:** los vehículos de su grupo (`?supervisor=me`) — **no** toda la
@@ -191,7 +198,21 @@ vehículos/Mi grupo" en tarjetas con semáforo de ITV.)*
   indicador de "lectura pendiente". Buscador simple.
 - **Aceptación:** cada rol ve **solo lo suyo**, en cards cómodas de tocar.
 
-### M2 — Ficha de campo del vehículo · HU-1.2 (lectura), 4.1, 4.3 🔴
+### M2 — Ficha de campo del vehículo · HU-1.2 (lectura), 4.1, 4.3 🔴 — ✅ IMPLEMENTADA
+*(Cómo quedó: `VehicleFieldPage` en `/vehiculos/:id` — cabecera con matrícula
+grande + badge; `StatCard` de km actual (con fecha de última lectura, ámbar si
+falta la del mes) y de próxima ITV con semáforo; panel "Situación" con los tres
+atributos (estado / sustitución / conductor) + supervisor y uso; aviso `tone`
+warning si falta la lectura mensual. Documentos: lista con tipo/fecha/caducidad,
+píldora de estado (`vigente` verde · `pendiente_archivar` ámbar · `caducado`
+rojo) y abrir en pestaña nueva — Drive (`drive_url`) si está archivado, staging
+`/media/` si no; `safeHref` solo http(s). Subida móvil por **multipart**
+(input file con accept imagen/PDF → el móvil ofrece cámara/galería), tipo,
+caducidad, notas y — solo supervisor, que es quien puede listar incidencias —
+enlace opcional a incidencia abierta; maneja el 429 del throttle público con
+mensaje amable y confirma el estado de archivado tras subir. Verificado E2E
+con seed: subida de carlos → `pending_archive` + `file_url`; incidencias 403
+para conductor y OK para sara.)*
 - **Ficha en solo lectura** orientada a campo: cabecera con matrícula grande +
   badge de estado; mini-KPIs (`StatCard`): km actual (con fecha de última
   lectura), próxima ITV con semáforo; **estado / rol sustitución / situación de

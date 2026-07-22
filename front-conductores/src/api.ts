@@ -1,13 +1,16 @@
-import { getJson, postJson } from '@flota/ui/http'
+import { getCookie, getJson, postJson, toUrl } from '@flota/ui/http'
 
 import type {
   AuthConfig,
   DevUser,
+  FlotaDocument,
   FlotaUser,
+  Incident,
   MyRequestInput,
   MyVehicleRequest,
   Paginated,
   Vehicle,
+  VehicleSummary,
 } from './types'
 
 // API de negocio versionada (M0): auth en /api/v1/auth/, dominio en /api/v1/.
@@ -40,6 +43,58 @@ export async function devLogin(username: string): Promise<FlotaUser> {
 
 // --- Vehículos (el back acota: conductor los suyos; supervisor su grupo) --
 export const listVehicles = () => getJson<Paginated<Vehicle>>(`${API}/vehicles/`)
+
+export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${id}/`)
+
+export const fetchVehicleSummary = (id: number) =>
+  getJson<VehicleSummary>(`${API}/vehicles/${id}/summary/`)
+
+// --- M2: documentos del vehículo (Épica 4, archivado en Drive - Fase A3) --
+export const listDocuments = (vehicle: number) =>
+  getJson<Paginated<FlotaDocument>>(`${API}/documents/?vehicle=${vehicle}`)
+
+export interface DocumentUploadInput {
+  vehicle: number
+  type: string
+  expiry_date?: string | null
+  incident?: number | null
+  notes?: string
+}
+
+/**
+ * Subida móvil (HU-4.1): multipart desde cámara/galería. El documento nace
+ * `pendiente_archivar` y el back lo sube a la carpeta de Drive del vehículo
+ * (cuenta de servicio, Fase A3). Va por el throttle público → manejar 429.
+ */
+export async function uploadDocument(data: DocumentUploadInput, file: File): Promise<FlotaDocument> {
+  const form = new FormData()
+  form.set('file', file)
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined && value !== null && value !== '') form.set(key, String(value))
+  }
+  const response = await fetch(toUrl(`${API}/documents/`), {
+    method: 'POST',
+    headers: { 'X-CSRFToken': getCookie('csrftoken') },
+    credentials: 'same-origin',
+    body: form,
+  })
+  if (response.status === 429) {
+    throw new Error('Demasiadas subidas seguidas. Espera un momento y reintenta.')
+  }
+  const text = await response.text()
+  let payload: unknown = null
+  try {
+    payload = text ? JSON.parse(text) : null
+  } catch {
+    payload = text
+  }
+  if (!response.ok) throw payload ?? new Error('No se pudo subir el documento.')
+  return payload as FlotaDocument
+}
+
+/** Incidencias del vehículo (solo supervisor: liga el documento al parte). */
+export const listIncidents = (vehicle: number) =>
+  getJson<Paginated<Incident>>(`${API}/incidents/?vehicle=${vehicle}`)
 
 // --- Portón de acceso: mi solicitud con ticket Jira (Fase A2) -------------
 export const listMyRequests = () => getJson<MyVehicleRequest[]>(`${API}/vehicle-requests/mine/`)

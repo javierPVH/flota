@@ -94,6 +94,87 @@ export interface MyRequestInput {
   notes?: string
 }
 
+/** GET /vehicles/{id}/summary/ — métricas de campo (HU-1.2/3.4). */
+export interface VehicleSummary {
+  vehicle: number
+  plate: string
+  state: VehicleState
+  next_itv_date: string | null
+  km_current: number | null
+  km_reading_date: string | null
+  km_driven: number | null
+  driver: { id: number; name: string } | null
+  contract: {
+    id: number
+    month_fee: string | null
+    contract_km: number | null
+    contract_time: number | null
+    penalty_per_km: string | null
+    start_date: string
+    planned_end_date: string
+  } | null
+  projection: {
+    km_remaining: number
+    monthly_avg: number
+    contracted_rate: number | null
+    projected_end: number
+    pct_of_limit: number
+    level: 'within' | 'watch' | 'over'
+    overage_km: number
+    estimated_penalty: string | null
+  } | null
+}
+
+// --- M2: documentación de campo (Épica 4) ---------------------------------
+
+export type DocumentType =
+  | 'registration_certificate'
+  | 'technical_datasheet'
+  | 'insurance'
+  | 'contract'
+  | 'delivery_report'
+  | 'return_report'
+  | 'accident_report'
+  | 'damage_photos'
+  | 'other'
+
+export type DocumentStatus = 'valid' | 'expired' | 'pending_archive'
+
+export interface FlotaDocument {
+  id: number
+  vehicle: number
+  type: DocumentType
+  type_display: string
+  incident: number | null
+  /** webViewLink en Google Drive (Fase A3); vacío hasta que se archiva. */
+  drive_url: string
+  drive_file_id: string
+  /** Staging local del multipart; el archivador lo borra al subir a Drive. */
+  file: string | null
+  file_url: string
+  uploaded_by: number | null
+  uploaded_by_name: string
+  expiry_date: string | null
+  status: DocumentStatus
+  status_display: string
+  replaces: number | null
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+/** Incidencia (solo lectura aquí; el supervisor liga documentos a ellas). */
+export interface Incident {
+  id: number
+  vehicle: number
+  type: string
+  type_display: string
+  date: string | null
+  description: string
+  status: string
+  status_display: string
+}
+
 export interface Paginated<T> {
   count: number
   next: string | null

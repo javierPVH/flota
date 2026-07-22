@@ -232,3 +232,90 @@ table.data th {
 .vehicle-meta dd { margin: 0; }
 .itv-soon { color: var(--warning, #c17a11); font-weight: 700; }
 .itv-overdue { color: var(--danger, #c63434); font-weight: 700; }
+
+/* --- M1: tarjetas enriquecidas + buscador -------------------------------- */
+.card-link { text-decoration: none; display: block; }
+.card-chevron { color: var(--muted-text, #5f748c); margin-left: auto; }
+.vehicle-card-head .badge { margin-left: auto; }
+.vehicle-card-head .card-chevron { margin-left: 0.4rem; }
+.card-search {
+  width: 100%;
+  min-height: 44px; /* objetivo táctil */
+  padding: 0.55rem 0.9rem;
+  margin-bottom: 0.9rem;
+  border: 1px solid var(--border, #cfdae6);
+  border-radius: 10px;
+  font-size: 1rem;
+  background: #fff;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.pill.pending { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); }
+.empty-note { color: var(--muted-text, #5f748c); }
+
+/* --- M2: ficha de campo + documentos ------------------------------------- */
+.field-page { display: grid; gap: 0.9rem; }
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 44px;
+  text-decoration: none;
+  font-weight: 600;
+  color: var(--muted-text, #5f748c);
+}
+.field-head { display: flex; align-items: center; gap: 0.7rem; }
+.plate-lg { font-size: 1.7rem; font-weight: 800; letter-spacing: 0.05em; }
+.field-page .vehicle-model { margin-top: -0.6rem; }
+.stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+.panel-title { margin: 0 0 0.6rem; font-size: 1rem; }
+.panel-note { margin: 0; font-weight: 600; }
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+.panel-head .panel-title { margin: 0; }
+
+.doc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
+.doc-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0;
+  min-height: 48px; /* objetivo táctil */
+  border-bottom: 1px solid var(--border-soft, #eceff3);
+}
+.doc-item:last-child { border-bottom: 0; }
+.doc-icon { color: var(--muted-text, #5f748c); flex-shrink: 0; }
+.doc-info { display: grid; min-width: 0; flex: 1; }
+.doc-info strong { font-size: 0.92rem; }
+.doc-sub { font-size: 0.78rem; color: var(--muted-text, #5f748c); }
+.pill.doc-valid { background: var(--success-soft, #e3f4e8); color: var(--success, #1f9f67); margin-left: 0; }
+.pill.doc-pending_archive { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); margin-left: 0; }
+.pill.doc-expired { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); margin-left: 0; }
+.doc-open {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  color: var(--info, #1f63b8);
+}
+
+.upload-form {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--border, #cfdae6);
+}
+.file-field { display: grid; gap: 0.35rem; font-size: 0.9rem; font-weight: 600; }
+.file-field input { font-size: 0.9rem; }
+.form-actions { display: flex; gap: 0.6rem; justify-content: flex-end; }
