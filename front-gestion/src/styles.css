@@ -160,3 +160,16 @@ table.data th {
   flex-direction: column;
   gap: 0.9rem;
 }
+
+/* --- G0: estados nuevos + bloque de login de desarrollo ------------------ */
+.badge.itv { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); }
+.badge.broken { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); }
+.badge.retired { background: #e2e8f0; color: #475569; }
+
+.dev-login {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--border, #cfdae6);
+  display: grid;
+  gap: 0.6rem;
+}

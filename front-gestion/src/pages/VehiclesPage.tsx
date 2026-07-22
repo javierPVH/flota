@@ -1,28 +1,30 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
   createVehicle,
   deleteVehicle,
-  listDrivers,
   listVehicles,
   updateVehicle,
   type VehicleInput,
 } from '../api.ts'
-import type { Driver, Vehicle, VehicleStatus } from '../types.ts'
+import type { Vehicle, VehicleState } from '../types.ts'
 
-const STATUS_OPTIONS = [
+// Lista cerrada del back (HU-1.6). `retired` = baja (no sale del listado por
+// defecto; el flujo completo de baja con motivo llega en G4).
+const STATE_OPTIONS = [
   { value: 'active', label: 'Activo' },
   { value: 'maintenance', label: 'En mantenimiento' },
-  { value: 'retired', label: 'Retirado' },
+  { value: 'itv', label: 'En ITV' },
+  { value: 'broken', label: 'Averiado' },
+  { value: 'retired', label: 'Baja' },
 ]
 
-const EMPTY: VehicleInput = { plate: '', brand: '', model: '', status: 'active' }
+const EMPTY: VehicleInput = { plate: '', brand: '', model: '', state: 'active' }
 
 export function VehiclesPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [drivers, setDrivers] = useState<Driver[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -34,10 +36,9 @@ export function VehiclesPage() {
 
   const load = useCallback(() => {
     setLoading(true)
-    Promise.all([listVehicles(), listDrivers()])
-      .then(([page, ds]) => {
+    listVehicles()
+      .then((page) => {
         setVehicles(page.results)
-        setDrivers(ds)
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar los vehículos.')))
@@ -45,14 +46,6 @@ export function VehiclesPage() {
   }, [])
 
   useEffect(load, [load])
-
-  const driverOptions = useMemo(
-    () => [
-      { value: '', label: '— Sin asignar —' },
-      ...drivers.map((d) => ({ value: String(d.id), label: d.name })),
-    ],
-    [drivers],
-  )
 
   function openCreate() {
     setEditing(null)
@@ -68,9 +61,8 @@ export function VehiclesPage() {
       brand: v.brand,
       model: v.model,
       year: v.year,
-      status: v.status,
-      assigned_driver: v.assigned_driver,
-      notes: v.notes,
+      state: v.state,
+      vin: v.vin,
     })
     setFormError('')
     setModalOpen(true)
@@ -123,27 +115,30 @@ export function VehiclesPage() {
               <th>Marca</th>
               <th>Modelo</th>
               <th>Estado</th>
-              <th>Conductor</th>
+              <th>Supervisor</th>
+              <th>Próx. ITV</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {vehicles.length === 0 && (
               <tr>
-                <td colSpan={6}>No hay vehículos todavía.</td>
+                <td colSpan={7}>No hay vehículos todavía.</td>
               </tr>
             )}
             {vehicles.map((v) => (
               <tr key={v.id}>
                 <td>
                   <strong>{v.plate}</strong>
+                  {v.is_substitute ? ' 🔁' : ''}
                 </td>
                 <td>{v.brand}</td>
                 <td>{v.model}</td>
                 <td>
-                  <span className={`badge ${v.status}`}>{v.status_display}</span>
+                  <span className={`badge ${v.state}`}>{v.state_display || '—'}</span>
                 </td>
-                <td>{v.assigned_driver_name || '—'}</td>
+                <td>{v.supervisor_name || '—'}</td>
+                <td>{v.next_itv_date ?? '—'}</td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <Button variant="secondary" size="sm" onClick={() => openEdit(v)}>
                     Editar
@@ -190,19 +185,16 @@ export function VehiclesPage() {
               setForm((f) => ({ ...f, year: e.target.value ? Number(e.target.value) : null }))
             }
           />
-          <SelectField
-            label="Estado"
-            options={STATUS_OPTIONS}
-            value={form.status ?? 'active'}
-            onValueChange={(value) => setForm((f) => ({ ...f, status: value as VehicleStatus }))}
+          <TextInputField
+            label="Bastidor (VIN)"
+            value={form.vin ?? ''}
+            onChange={(e) => setForm((f) => ({ ...f, vin: e.target.value }))}
           />
           <SelectField
-            label="Conductor asignado"
-            options={driverOptions}
-            value={form.assigned_driver != null ? String(form.assigned_driver) : ''}
-            onValueChange={(value) =>
-              setForm((f) => ({ ...f, assigned_driver: value ? Number(value) : null }))
-            }
+            label="Estado"
+            options={STATE_OPTIONS}
+            value={form.state || 'active'}
+            onValueChange={(value) => setForm((f) => ({ ...f, state: value as VehicleState }))}
           />
           {formError && <div className="form-error">{formError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>

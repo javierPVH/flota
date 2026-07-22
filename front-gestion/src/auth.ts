@@ -1,23 +1,23 @@
 import { createAuth } from '@flota/ui/auth'
 
-import type { FlotaUser, Role } from './types'
+import type { FlotaUser } from './types'
 import { ensureCsrf, fetchMe, logout } from './api'
-
-/** Roles con acceso a este front (gestión). El conductor NO entra aquí. */
-export const ALLOWED_ROLES: Role[] = ['admin', 'admin_flota']
 
 export const { AuthProvider, useAuth, RequireAuth } = createAuth<FlotaUser>()
 
+/** ¿Tiene acceso a este front? Gestión = SOLO rol `admin` (multi-rol). */
+export const isAllowed = (user: FlotaUser | null): boolean =>
+  !!user && user.roles.includes('admin')
+
 /**
- * Carga inicial de sesión: fija CSRF, pide /me y SOLO acepta al usuario si su
- * rol tiene acceso a gestión. Un conductor con sesión válida se trata como
- * anónimo aquí (defensa: el back además corta sus endpoints).
+ * Carga inicial de sesión: fija CSRF y pide /me. Devuelve al usuario
+ * autenticado AUNQUE no sea admin: el `AdminGate` le muestra la pantalla 403
+ * (con logout) en vez de un login en bucle. La autoridad real es el backend.
  */
 export async function bootstrap(): Promise<FlotaUser | null> {
   try {
     await ensureCsrf()
-    const user = await fetchMe()
-    return ALLOWED_ROLES.includes(user.role) ? user : null
+    return await fetchMe()
   } catch {
     return null
   }

@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { RequireAuth } from './auth.ts'
+import { AdminGate } from './components/AdminGate.tsx'
 import { Layout } from './components/Layout.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
 import { DashboardPage } from './pages/DashboardPage.tsx'
@@ -13,7 +14,9 @@ export default function App() {
       <Route
         element={
           <RequireAuth>
-            <Layout />
+            <AdminGate>
+              <Layout />
+            </AdminGate>
           </RequireAuth>
         }
       >

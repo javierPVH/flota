@@ -143,7 +143,12 @@ bottom-nav muestra 3 pestañas al conductor y 4 al supervisor:
 
 ## Fases
 
-### M0 — Reconexión v1 + base móvil 🔴
+### M0 — Reconexión v1 + base móvil 🔴 — ✅ IMPLEMENTADA
+*(types multi-rol + esquema nuevo; api a `/api/v1`; `AccessGate` decide:
+admin puro → 403 con enlace a gestión, sin vehículo/rol → portón `/solicitar`
+con ticket Jira y estado, supervisor sin grupo → `/sin-flota`; login con
+selector de desarrollo; shell móvil con bottom-nav + safe-area; "Mis
+vehículos/Mi grupo" en tarjetas con semáforo de ITV.)*
 - Base de la API a **`/api/v1/`** (auth en `/api/v1/auth/`), en el `http-client`.
 - `types.ts`: multi-rol (`roles: Role[]`, `driver`/`supervisor`) y `Vehicle` nuevo
   (`state`, `next_itv_date`, `supervisor`, `business_use`…).

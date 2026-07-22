@@ -80,7 +80,7 @@
       "import": "./dist/i18n/index.js"
     },
     "./styles/*": "./src/styles/*",
-    "./base.css": "./dist/base.css",
+    "./base.css": "./dist/ui.css",
     "./package.json": "./package.json"
   },
   "peerDependencies": {

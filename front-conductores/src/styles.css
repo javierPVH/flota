@@ -160,3 +160,75 @@ table.data th {
   flex-direction: column;
   gap: 0.9rem;
 }
+
+/* --- M0: shell móvil (bottom-nav + safe-area) + portón + tarjetas -------- */
+.app-shell.mobile {
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+.bottom-nav {
+  position: fixed;
+  inset: auto 0 0 0;
+  display: flex;
+  justify-content: space-around;
+  align-items: stretch;
+  background: #fff;
+  border-top: 1px solid var(--border, #cfdae6);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  z-index: 50;
+}
+.bottom-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 18px 6px;
+  min-width: 64px;
+  min-height: 48px; /* objetivo táctil ≥44px */
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted-text, #5f748c);
+  text-decoration: none;
+}
+.bottom-tab.active {
+  color: var(--primary, #009491);
+}
+
+.badge.itv { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); }
+.badge.broken { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); }
+
+.dev-login {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--border, #cfdae6);
+  display: grid;
+  gap: 0.6rem;
+}
+.request-form { display: grid; gap: 0.6rem; margin-top: 0.8rem; }
+.request-actions { display: grid; gap: 0.5rem; margin-top: 1rem; }
+.form-ok { color: var(--success, #1f9f67); font-size: 0.9rem; margin-top: 0.5rem; }
+.gate-checking { padding: 2rem; text-align: center; color: var(--muted-text, #5f748c); }
+
+.vehicle-cards { display: grid; gap: 0.9rem; }
+.vehicle-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+}
+.vehicle-card .plate {
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.vehicle-model { margin: 0.3rem 0 0.5rem; color: var(--muted-text, #5f748c); }
+.vehicle-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.9rem;
+  margin: 0;
+  font-size: 0.92rem;
+}
+.vehicle-meta dt { font-weight: 600; }
+.vehicle-meta dd { margin: 0; }
+.itv-soon { color: var(--warning, #c17a11); font-weight: 700; }
+.itv-overdue { color: var(--danger, #c63434); font-weight: 700; }

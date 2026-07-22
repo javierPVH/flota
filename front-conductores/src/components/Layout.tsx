@@ -1,8 +1,13 @@
-import { Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Car } from 'lucide-react'
 import { Button } from '@flota/ui/ui'
 
 import { useAuth } from '../auth.ts'
 
+/**
+ * Shell móvil (M0): header compacto + contenido + bottom-nav pulgar-friendly
+ * (safe-area). Las pestañas crecerán por fases (M3 registrar km, M5 alertas…).
+ */
 export function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -13,9 +18,9 @@ export function Layout() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell mobile">
       <header className="app-header">
-        <strong>Flota · Conductores</strong>
+        <strong>Flota</strong>
         <div className="spacer" />
         <div className="app-user">
           <span>{user?.first_name || user?.username}</span>
@@ -27,6 +32,12 @@ export function Layout() {
       <main className="app-main">
         <Outlet />
       </main>
+      <nav className="bottom-nav" aria-label="Navegación principal">
+        <NavLink to="/" end className="bottom-tab">
+          <Car size={22} strokeWidth={2.4} aria-hidden />
+          <span>Vehículos</span>
+        </NavLink>
+      </nav>
     </div>
   )
 }

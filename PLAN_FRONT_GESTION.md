@@ -140,7 +140,12 @@ Inventario completo de vistas de la app — si no está aquí, no existe:
 
 ## Fases
 
-### G0 — Reconexión al backend v1 (base) 🔴
+### G0 — Reconexión al backend v1 (base) 🔴 — ✅ IMPLEMENTADA
+*(types multi-rol + esquema nuevo; api a `/api/v1`; bootstrap devuelve al
+usuario y el `AdminGate` muestra el 403 al no-admin; login con password +
+selector de desarrollo; panel con el summary real de flota; vehículos con
+`state`/supervisor/próx. ITV. El shell tipo ConsoleLayout completo queda para
+G12/pulido.)*
 - Base de la API a **`/api/v1/`** (auth en `/api/v1/auth/`), centralizada en el
   `http-client`.
 - `types.ts`: `Role = 'admin' | 'supervisor' | 'driver'`; `FlotaUser.roles: Role[]`;

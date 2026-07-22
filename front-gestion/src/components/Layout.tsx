@@ -2,11 +2,12 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { Button } from '@flota/ui/ui'
 
 import { useAuth } from '../auth.ts'
+import type { Role } from '../types.ts'
 
-const ROLE_LABEL: Record<string, string> = {
-  admin: 'Administrador',
-  admin_flota: 'Administrador de flota',
-  conductor: 'Conductor',
+const ROLE_LABEL: Record<Role, string> = {
+  admin: 'Administración',
+  supervisor: 'Supervisión',
+  driver: 'Conductor',
 }
 
 export function Layout() {
@@ -17,6 +18,8 @@ export function Layout() {
     logout()
     navigate('/login', { replace: true })
   }
+
+  const roles = (user?.roles ?? []).map((r) => ROLE_LABEL[r] ?? r).join(' · ')
 
   return (
     <div className="app-shell">
@@ -32,7 +35,7 @@ export function Layout() {
         <div className="app-user">
           <span>
             {user?.first_name || user?.username}
-            {user ? ` · ${ROLE_LABEL[user.role] ?? user.role}` : ''}
+            {roles ? ` · ${roles}` : ''}
           </span>
           <Button variant="secondary" size="sm" onClick={handleLogout}>
             Salir
