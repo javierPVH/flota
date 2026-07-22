@@ -125,3 +125,31 @@ class GoogleCredential(models.Model):
 
     def __str__(self) -> str:
         return f"GoogleCredential({self.user})"
+
+
+class PushSubscription(models.Model):
+    """Suscripción Web Push de un dispositivo (M8).
+
+    Un usuario puede tener varias (móvil + tablet…). El `endpoint` la
+    identifica de forma única; las claves `p256dh`/`auth` cifran el payload
+    extremo a extremo (protocolo Web Push). Las suscripciones muertas
+    (404/410 del push service) se podan al enviar.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="push_subscriptions",
+    )
+    endpoint = models.URLField("Endpoint", max_length=500, unique=True)
+    p256dh = models.CharField("Clave p256dh", max_length=255)
+    auth = models.CharField("Clave auth", max_length=255)
+    user_agent = models.CharField("User-Agent", max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "suscripción push"
+        verbose_name_plural = "suscripciones push"
+
+    def __str__(self) -> str:
+        return f"PushSubscription({self.user}, …{self.endpoint[-24:]})"

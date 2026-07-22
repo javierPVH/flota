@@ -336,6 +336,7 @@ table.data th {
   font-weight: 600;
 }
 .km-saved-queued { color: var(--warning, #c17a11); }
+.push-row { display: flex; align-items: center; gap: 0.6rem; }
 
 /* --- M6: modo supervisor (grupo, reparto, proyección, incidencias) ------- */
 .badge.level-ok { background: var(--success-soft, #e3f4e8); color: var(--success, #1f9f67); }

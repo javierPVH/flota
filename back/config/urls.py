@@ -14,6 +14,8 @@ urlpatterns = [
     path("api/v1/auth/", include("accounts.urls")),  # /api/v1/auth/{csrf,login,me,…}/
     # Google Drive/Picker (Fase A3): OAuth de usuario + config del Picker.
     path("api/v1/google/", include("accounts.google_urls")),
+    # Notificaciones push del móvil (M8, Web Push/VAPID).
+    path("api/v1/push/", include("accounts.push_urls")),
     path("api/v1/", include("fleet.urls")),  # /api/v1/vehicles/, …
 ]
 

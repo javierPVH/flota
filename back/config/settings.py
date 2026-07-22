@@ -273,6 +273,15 @@ FRONTEND_BASE_URL = env_str("FRONTEND_BASE_URL", "http://localhost:5173")
 # cifra y todas descifran (rotación). Vacío = clave derivada del SECRET_KEY.
 FIELD_ENCRYPTION_KEYS = env_list("FIELD_ENCRYPTION_KEYS")
 
+# --- Notificaciones push (M8, Web Push/VAPID) -----------------------------
+# Generar el par una vez (p. ej. `vapid --gen` de py-vapid) y compartir la
+# pública con el front. Sin claves, el push queda deshabilitado (degradación
+# limpia, como Drive): /push/config/ responde enabled=false y no se envía nada.
+WEBPUSH_VAPID_PUBLIC_KEY = env_str("WEBPUSH_VAPID_PUBLIC_KEY", "")
+WEBPUSH_VAPID_PRIVATE_KEY = env_str("WEBPUSH_VAPID_PRIVATE_KEY", "")
+# Contacto que exige el protocolo VAPID (los push services pueden avisar ahí).
+WEBPUSH_CONTACT = env_str("WEBPUSH_CONTACT", "mailto:admin@example.com")
+
 # Validaciones de coherencia (solo estrictas en producción para no estorbar en dev).
 if not DEBUG:
     if not (AUTH_PASSWORD_ENABLED or AUTH_GOOGLE_ENABLED):

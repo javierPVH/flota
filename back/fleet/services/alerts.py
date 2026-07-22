@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from django.conf import settings
 from django.utils import timezone
 
+from accounts import push as webpush
 from fleet.models import Alert, Assignment, EventItv, KmReading, Vehicle
 from fleet.models.enums import (
     AlertLevel,
@@ -63,6 +64,8 @@ def upsert_alert(
             "due_date": due_date,
         },
     )
+    if created:
+        _notify_alert(alert)
     if not created and alert.status == AlertStatus.OPEN:
         changed = False
         for field, value in (("level", level), ("message", message), ("due_date", due_date)):
@@ -72,6 +75,35 @@ def upsert_alert(
         if changed:
             alert.save(update_fields=["level", "message", "due_date", "updated_at"])
     return created
+
+
+def _notify_alert(alert: Alert) -> None:
+    """Push (M8) a los afectados por una alerta NUEVA — best-effort.
+
+    Destinatarios: el usuario de la alerta (p. ej. el conductor del km
+    pendiente) o, si no lo tiene, el conductor en curso del vehículo; y además
+    su supervisor (que en `no_driver` es el único que existe). Solo alertas
+    nuevas: el refresco de una abierta no re-notifica.
+    """
+    if not webpush.push_enabled():
+        return
+    recipients = set()
+    if alert.user_id:
+        recipients.add(alert.user)
+    elif alert.vehicle_id:
+        driver = current_driver_map([alert.vehicle_id]).get(alert.vehicle_id)
+        if driver:
+            recipients.add(driver)
+    if alert.vehicle_id and alert.vehicle.supervisor_id:
+        recipients.add(alert.vehicle.supervisor)
+    plate = alert.vehicle.plate if alert.vehicle_id else "Flota"
+    for recipient in recipients:
+        webpush.send_to_user(
+            recipient,
+            title=f"{plate} · {alert.get_type_display()}",
+            body=alert.message,
+            url="/alertas",
+        )
 
 
 # --- Refresco del denormalizado next_itv_date -----------------------------

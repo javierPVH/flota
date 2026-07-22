@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BellOff, Gauge } from 'lucide-react'
+import { BellOff, BellRing, Gauge } from 'lucide-react'
 import { Button, Panel } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { dismissAlert, fetchVehicleSummary, listAlerts, resolveAlert } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { fmtDate } from '../format.ts'
+import { disablePush, enablePush, pushState, type PushState } from '../push.ts'
 import type { Alert, VehicleSummary } from '../types.ts'
 
 // Crítica primero: a pie de vehículo se atiende lo urgente.
@@ -27,6 +28,34 @@ export function AlertsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+
+  // M8: estado del push en ESTE dispositivo ('disabled' oculta el toggle).
+  const [push, setPush] = useState<PushState>('disabled')
+  const [pushBusy, setPushBusy] = useState(false)
+  const [pushError, setPushError] = useState('')
+
+  useEffect(() => {
+    pushState().then(setPush, () => setPush('disabled'))
+  }, [])
+
+  async function togglePush() {
+    setPushBusy(true)
+    setPushError('')
+    try {
+      if (push === 'on') {
+        await disablePush()
+        setPush('off')
+      } else {
+        await enablePush()
+        setPush('on')
+      }
+    } catch (err) {
+      setPushError(asErrorMessage(err, 'No se pudo cambiar el estado de los avisos.'))
+      pushState().then(setPush, () => {})
+    } finally {
+      setPushBusy(false)
+    }
+  }
 
   const load = useCallback(() => {
     setLoading(true)
@@ -93,6 +122,36 @@ export function AlertsPage() {
       </div>
 
       {notice && <p className="form-ok">{notice}</p>}
+
+      {/* M8: avisos push de este dispositivo (oculto si el back no los tiene). */}
+      {push !== 'disabled' && push !== 'unsupported' && (
+        <Panel>
+          <div className="push-row">
+            <BellRing size={18} aria-hidden className="doc-icon" />
+            <div className="doc-info">
+              <strong>Avisos en este dispositivo</strong>
+              <span className="doc-sub">
+                {push === 'on'
+                  ? 'Recibirás las alertas aunque la app esté cerrada.'
+                  : push === 'blocked'
+                    ? 'Bloqueados por el navegador: actívalos en sus ajustes.'
+                    : 'ITV, lecturas pendientes y más, aunque la app esté cerrada.'}
+              </span>
+            </div>
+            {push !== 'blocked' && (
+              <Button
+                size="sm"
+                variant={push === 'on' ? 'secondary' : 'primary'}
+                onClick={() => void togglePush()}
+                disabled={pushBusy}
+              >
+                {pushBusy ? '…' : push === 'on' ? 'Desactivar' : 'Activar'}
+              </Button>
+            )}
+          </div>
+          {pushError && <div className="form-error">{pushError}</div>}
+        </Panel>
+      )}
 
       {open.length === 0 && (
         <div className="alerts-empty">

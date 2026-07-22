@@ -378,10 +378,29 @@ grave); tests del módulo de cola en M9.)*
 - **Aceptación:** instalable y usable con red intermitente; las escrituras no se
   pierden.
 
-### M8 — Notificaciones push 🔵
-- Push de alertas relevantes (ITV, km pendiente) si hay infraestructura
-  (web-push/FCM). **Requiere backend** (suscripciones) — dependiente.
-- **Aceptación:** el usuario recibe avisos aunque no tenga la app abierta.
+### M8 — Notificaciones push 🔵 — ✅ IMPLEMENTADA
+*(Cómo quedó: **Web Push con VAPID** (sin FCM ni cuentas externas; `pywebpush`
+en requirements). **Back**: modelo `accounts.PushSubscription` (varias por
+usuario — una por dispositivo; `endpoint` único), `GET /api/v1/push/config/`
+(enabled + clave pública + subscribed) y `POST/DELETE /push/subscriptions/`
+(alta idempotente por endpoint; el endpoint es del dispositivo, así que cambia
+de dueño si otro usuario inicia sesión; baja solo de las propias). Envío en
+`accounts/push.py` con la degradación de la casa: sin claves
+(`WEBPUSH_VAPID_PUBLIC_KEY`/`_PRIVATE_KEY` — generar con py-vapid;
+`WEBPUSH_CONTACT`), todo queda deshabilitado sin romper nada; import perezoso;
+las suscripciones muertas (404/410 del push service) se **podan** al enviar;
+nunca lanza (best-effort, jamás tumba al motor de alertas). **Hook**: al CREAR
+una alerta (`upsert_alert`) se notifica a su usuario (o al conductor en curso
+del vehículo) y al supervisor — que en `no_driver` es el único que existe; el
+refresco de una alerta abierta NO re-notifica. +11 tests (237 en verde).
+**Front**: el SW maneja `push` (payload `{title, body, url}`, icono propio) y
+`notificationclick` (enfoca/abre `/alertas`); `src/push.ts` gestiona el ciclo
+(config → permiso con gesto del usuario → subscribe → alta en el back) con
+estados `unsupported/disabled/off/on/blocked`; toggle "Avisos en este
+dispositivo" en la página de Alertas — oculto si el back no tiene claves. En
+iOS requiere la PWA instalada (M7). Verificado E2E con claves VAPID reales
+generadas: config auth-only, enabled + clave pública, alta/subscribed/baja y
+400 a suscripciones inválidas.)*
 
 ### M9 — Pulido móvil 🟡
 - Accesibilidad táctil, **i18n ES** (fechas/EUR), estados vacíos/carga/error,
@@ -390,7 +409,7 @@ grave); tests del módulo de cola en M9.)*
 
 ---
 
-## Dependencias con el backend — ✅ resueltas (Fases A1 y A3), salvo push
+## Dependencias con el backend — ✅ todas resueltas (Fases A1, A3 y push M8)
 
 Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
 (ver [`PLAN_MEJORA_BACK.md`](./PLAN_MEJORA_BACK.md)). Endpoints a consumir:
@@ -406,9 +425,9 @@ Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
 | **Portón** (M0) | `GET/POST /vehicle-requests/mine/` — solicitud propia con clave de ticket Jira y seguimiento de estado; concesión: sync con Jira (`sync_jira_requests`) o a mano por la admin (`grant`/`reject`) |
 | **M2 Drive** (A3) | `GoogleDriveArchiver` real (cuenta de servicio) sube el multipart `pendiente_archivar` a la carpeta de Drive del vehículo, rellena `drive_url`/`drive_file_id` y borra el staging local. Requiere `FLEET_ARCHIVE_BACKEND=gdrive` + `GOOGLE_SA_KEYFILE` + `GOOGLE_DRIVE_ROOT_FOLDER_ID`; sin credenciales, el documento queda `pendiente_archivar` y se abre por `file_url` (`/media/`) |
 
-| Pendiente | Estado |
-|-----------|--------|
-| **M8 push** (🔵) | Sin implementar: suscripciones web-push/FCM + envío desde el motor de alertas — se abordará con la fase M8 |
+| Antes pendiente | Estado |
+|-----------------|--------|
+| **M8 push** (🔵) | ✅ Implementado con la fase M8: `accounts.PushSubscription` + `/api/v1/push/{config,subscriptions}/` + envío VAPID desde `upsert_alert` (best-effort, poda de suscripciones muertas). Activación: definir `WEBPUSH_VAPID_PUBLIC_KEY`/`WEBPUSH_VAPID_PRIVATE_KEY` (+`WEBPUSH_CONTACT`) en el `.env` |
 
 > Además: km (`/km-readings/` con no-retroceso en servidor; última lectura con
 > `?vehicle=&ordering=-reading_date`), alertas (+`resolve`/`dismiss`, filtros

@@ -54,6 +54,31 @@ export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${
 export const fetchVehicleSummary = (id: number) =>
   getJson<VehicleSummary>(`${API}/vehicles/${id}/summary/`)
 
+// --- M8: notificaciones push (Web Push/VAPID) ------------------------------
+export interface PushConfig {
+  enabled: boolean
+  public_key: string
+  subscribed: boolean
+}
+
+export const fetchPushConfig = () => getJson<PushConfig>(`${API}/push/config/`)
+
+/** Alta idempotente por endpoint (el body es la PushSubscription del navegador). */
+export const savePushSubscription = (subscription: PushSubscriptionJSON) =>
+  postJson(`${API}/push/subscriptions/`, subscription)
+
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  const response = await fetch(toUrl(`${API}/push/subscriptions/`), {
+    method: 'DELETE',
+    headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ endpoint }),
+  })
+  if (!response.ok && response.status !== 404) {
+    throw new Error('No se pudo desactivar el aviso en este dispositivo.')
+  }
+}
+
 // --- M5: alertas del ámbito (HU-3.2/3.3/3.5/5.1/1.7) -----------------------
 export const listAlerts = (status: string) =>
   getJson<Paginated<Alert>>(`${API}/alerts/?status=${status}`)
