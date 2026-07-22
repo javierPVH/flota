@@ -37,39 +37,39 @@ Enum state_enum {
   maintenance
   itv
   broken
-  baja
+  retired
   non_active   // heredado del DBML; revisar retirada
   accidente    // heredado del DBML; revisar retirada
 }
 
 Enum type_enum {
-  turismo
-  furgoneta
-  camion
-  motocicleta
+  car
+  van
+  truck
+  motorcycle
 }
 
 Enum size_enum {
-  pequeno
-  mediano
-  grande
+  small
+  medium
+  big
 }
 
 Enum market_segment_enum {
   mini
   supermini
-  mediano_inferior
-  mediano_superior
-  ejecutivo
-  lujo
-  deportivo
-  "4x4_dual"
+  med_low
+  med_sup
+  executive
+  luxury
+  sports
+  suv
   MPV
 }
 
 Enum veh_use_enum {
-  pasajeros
-  mercancia
+  passengers
+  freight
 }
 
 Enum property_type_enum {
@@ -83,18 +83,18 @@ Enum use_type_enum {
   works
 }
 
-Enum assignment_status_enum {
-  propuesta
-  aceptada
-  rechazada
-  finalizada
+Enum assignment_state_enum {
+  proposed
+  accepted
+  rejected
+  finished
 }
 
 Enum link_reason_enum {
-  averia
-  mantenimiento
-  itv
-  accidente
+  breakdown
+  maintenance
+  inspection
+  accident
 }
 
 Enum events_enum {
@@ -124,34 +124,34 @@ Enum allocation_target_enum {
 }
 
 Enum document_type_enum {
-  permiso_circulacion
-  ficha_tecnica
-  seguro
-  contrato
-  acta_entrega
-  acta_devolucion
-  parte_accidente
-  fotos_danos
-  otro
+  registration_certificate
+  technical_datasheet
+  insurance
+  contract
+  delivery_report
+  return_report
+  accident_report
+  damage_photos
+  other
 }
 
 Enum document_status_enum {
-  vigente
-  caducado
-  pendiente_archivar
+  valid
+  expired
+  pending_archive
 }
 
 Enum incident_type_enum {
-  averia
-  mantenimiento
-  accidente
-  itv
+  breakdown
+  maintenance
+  inspection
+  accident
 }
 
 Enum incident_status_enum {
-  abierta
-  en_curso
-  cerrada
+  open
+  on_going
+  closed
 }
 
 Enum alert_type_enum {
@@ -181,32 +181,11 @@ Enum vehicle_request_status_enum {
 }
 
 Enum fuel_enum {
-  CNG
-  Gasoline_E5
-  Gasoline_E10
-  Gasoline_E85
-  Gasoline_E100
-  Diesel_B
-  Diesel_B7
-  Diesel_B10
-  Diesel_B20
-  Diesel_B30
-  B100
+  gasoline
+  diesel
   LPG
-  Fueloleo
-  Queroseno
-  Gasolina_aviacion
-  GLP
-  Adblue
-  Biometanol
-  Gasoleo_marino
-  Biogas
-  Nafta
-  Biopropano
-  Vehiculo_electrico_bateria
-  Vehiculo_hibrido_enchufable
-  Queroseno_aviacion_renovable
-  Biometano
+  hybrid
+  other
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +325,7 @@ Table assignments {
   driver_id int [not null, ref: > drivers.id]
   start_date date
   end_date date [note: 'NULL = en curso']
-  status assignment_status_enum [not null, default: 'propuesta']
+  status assignment_state_enum [not null, default: 'proposed']
   usage_percent decimal
   created_at datetime
 
@@ -354,7 +333,7 @@ Table assignments {
     (vehicle_id, end_date, status)
     (driver_id, end_date)
   }
-  Note: 'Constraint parcial (Django): una sola asignación status=aceptada con end_date NULL por vehículo.'
+  Note: 'Constraint parcial (Django): una sola asignación status=accepted con end_date NULL por vehículo.'
 }
 
 Table vehicle_usage {
@@ -463,7 +442,7 @@ Table incidents {
   type incident_type_enum [not null]
   date date
   description text
-  status incident_status_enum [not null, default: 'abierta']
+  status incident_status_enum [not null, default: 'open']
   cost decimal
 }
 
@@ -475,7 +454,7 @@ Table documents {
   drive_url varchar
   uploaded_by_id int [ref: > drivers.id]
   expiry_date date [note: 'seguro, permiso, ITV…']
-  status document_status_enum [not null, default: 'vigente']
+  status document_status_enum [not null, default: 'valid']
   replaces_id int [ref: > documents.id, note: 'versión anterior sustituida (HU-4.4)']
   notes text
 

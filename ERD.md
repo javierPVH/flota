@@ -155,7 +155,7 @@ erDiagram
         int driver_id FK "USER"
         date start_date
         date end_date "NULL = en curso"
-        enum status "propuesta|aceptada|rechazada|finalizada"
+        enum status "proposed|accepted|rejected|finished"
         decimal usage_percent
         datetime created_at
     }
@@ -318,11 +318,11 @@ en SQLite Django los emula donde puede.
 |-------|-------------|-------|
 | `driver_roles` | **único** `(user, role)` | una persona no repite rol |
 | `vehicles` | **único** `plate` · índices `state`, `next_itv_date` | matrícula única; filtros frecuentes |
-| `assignments` | **único parcial** `(vehicle)` con `status=aceptada ∧ end_date NULL` | un solo conductor vigente por vehículo (HU-2.1/2.2) |
+| `assignments` | **único parcial** `(vehicle)` con `status=accepted ∧ end_date NULL` | un solo conductor vigente por vehículo (HU-2.1/2.2) |
 | `assignments` | índices `(vehicle,end_date,status)`, `(driver,end_date)` | conductor en curso / histórico |
 | `vehicle_links` | **único parcial** `(main_vehicle)` con `end_date NULL` | un solo sustituto activo por principal (HU-1.8) |
 | `kms` | índice `(vehicle, reading_date)` | última lectura / periodo |
-| `documents` | índice `(vehicle, status)` | filtro `pendiente_archivar` |
+| `documents` | índice `(vehicle, status)` | filtro `pending_archive` |
 | `alerts` | **único** `dedup_key` · índices `(type,status)`, `(vehicle,status)` | idempotencia de los jobs |
 | `vehicle_requests` | **único parcial** `jira_key` (cuando ≠ '') | una solicitud por issue de Jira |
 
@@ -336,24 +336,24 @@ obligatorio si `business_use=on_project` (`vehicles`).
 | Enum | Valores |
 |------|---------|
 | `role` | `admin`, `supervisor`, `driver` |
-| `state_enum` | `active`, `maintenance`, `itv`, `broken`, `baja`, `non_active`, `accidente` |
+| `state_enum` | `active`, `maintenance`, `itv`, `broken`, `retired`, `non_active`, `accidente` |
 | `license_type` | `B`, `C1`, `C`, `C+E`, `D1`, `D` |
-| `type_enum` | `turismo`, `furgoneta`, `camion`, `motocicleta` |
-| `size_enum` | `pequeno`, `mediano`, `grande` |
-| `market_segment_enum` | `mini`, `supermini`, `mediano_inferior`, `mediano_superior`, `ejecutivo`, `lujo`, `deportivo`, `4x4_dual`, `MPV` |
-| `veh_use_enum` | `pasajeros`, `mercancia` |
+| `type_enum` | `car`, `van`, `truck`, `motorcycle` |
+| `size_enum` | `small`, `medium`, `big` |
+| `market_segment_enum` | `mini`, `supermini`, `med_low`, `med_sup`, `executive`, `luxury`, `sports`, `suv`, `MPV` |
+| `veh_use_enum` | `passengers`, `freight` |
 | `property_type_enum` | `propio`, `renting` |
 | `use_type_enum` | `on_project`, `personal`, `works` |
-| `status` (asignación) | `propuesta`, `aceptada`, `rechazada`, `finalizada` |
-| `link_reason_enum` | `averia`, `mantenimiento`, `itv`, `accidente` |
+| `assignment_state_enum` | `proposed`, `accepted`, `rejected`, `finished` |
+| `link_reason_enum` | `breakdown`, `maintenance`, `inspection`, `accident` |
 | `allocation_target_enum` | `proyecto`, `pep` |
-| `document_type` | `permiso_circulacion`, `ficha_tecnica`, `seguro`, `contrato`, `acta_entrega`, `acta_devolucion`, `parte_accidente`, `fotos_danos`, `otro` |
-| `document_status` | `vigente`, `caducado`, `pendiente_archivar` |
-| `incident_type` | `averia`, `mantenimiento`, `accidente`, `itv` |
-| `incident_status` | `abierta`, `en_curso`, `cerrada` |
+| `document_type` | `registration_certificate`, `technical_datasheet`, `insurance`, `contract`, `delivery_report`, `return_report`, `accident_report`, `damage_photos`, `other` |
+| `document_status` | `valid`, `expired`, `pending_archive` |
+| `incident_type` | `breakdown`, `maintenance`, `inspection`, `accident` |
+| `incident_status` | `open`, `on_going`, `closed` |
 | `alert_type` | `itv_due`, `km_reading_pending`, `km_overage`, `no_driver` |
 | `alert_level` | `info`, `warning`, `critical` |
 | `alert_status` | `open`, `resolved`, `dismissed` |
 | `vehicle_request_status` | `approved`, `assigned`, `rejected`, `closed` |
 | `events_enum` | `creation`, `activation`, `deactivation`, `invoice`, `immobilization`, `reactivation`, `insurance_renewal`, `penalty`, `location_change`, `project_change`, `breakdown`, `km_reading`, `contract_change`, `fee_change`, `ceco_change`, `itv`, `maintenance`, `driver_change` |
-| `fuel_enum` | `CNG`, `Gasoline_E5/E10/E85/E100`, `Diesel_B/B7/B10/B20/B30`, `B100`, `LPG`, `Fueloleo`, `Queroseno`, `Gasolina_aviacion`, `GLP`, `Adblue`, `Biometanol`, `Gasoleo_marino`, `Biogas`, `Nafta`, `Biopropano`, `Vehiculo_electrico_bateria`, `Vehiculo_hibrido_enchufable`, `Queroseno_aviacion_renovable`, `Biometano` |
+| `fuel_enum` | `gasoline`, `diesel`, `LPG`, `hybrid`, `other` |

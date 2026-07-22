@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flota — Esquema de base de datos</title>
+
+<!--
+  Visualizador interactivo del esquema de Flota.
+  Nodos = tablas (con columnas), agrupados por dominio con color. Conectores = FK.
+  100% autónomo: sin dependencias externas, funciona offline (doble clic para abrir).
+  Generado a partir de back/accounts + back/fleet (≡ schema_comentado.dbml).
+-->
+
+<style>
+  :root {
+    --bg: #eef2f0;
+    --surface: #ffffff;
+    --surface-2: #eef2f0;
+    --border: #d3ddd8;
+    --text: #16211d;
+    --text-dim: #5c6b64;
+    --accent: #14795b;
+    --accent-soft: #dbeee6;
+    --pk: #b26a00;
+    --fk: #1f6fb2;
+    --uk: #7a4bbd;
+    --warn: #b45309;
+    --edge: #9aa8a2;
+    --edge-hi: #14795b;
+    --canvas: #f3f6f4;
+    --node-bg: #ffffff;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,.07), 0 8px 24px rgba(0,0,0,.05);
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1512;
+    --surface: #17201c;
+    --surface-2: #1f2a25;
+    --border: #2c3a33;
+    --text: #e6ede9;
+    --text-dim: #9db0a7;
+    --accent: #4fd1a5;
+    --accent-soft: #123329;
+    --pk: #e0a458;
+    --fk: #6cb6ec;
+    --uk: #b79aec;
+    --warn: #f0b357;
+    --edge: #46554d;
+    --edge-hi: #4fd1a5;
+    --canvas: #0c110f;
+    --node-bg: #18211d;
+    --shadow: 0 1px 3px rgba(0,0,0,.5), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); }
+
+  header.top { position: sticky; top: 0; z-index: 30; background: color-mix(in srgb, var(--surface) 90%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+  .top-inner { max-width: 1280px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .brand { font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; }
+  .brand small { display: block; font-weight: 500; color: var(--text-dim); font-size: .78rem; }
+  nav.links { display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto; }
+  nav.links a { text-decoration: none; color: var(--text-dim); font-size: .86rem; padding: 6px 10px; border-radius: 8px; }
+  nav.links a:hover { background: var(--surface-2); color: var(--text); }
+  .btn { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: .85rem; font-family: inherit; }
+  .btn:hover { background: var(--surface-2); }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 24px 20px 80px; }
+  section { margin-top: 44px; scroll-margin-top: 72px; }
+  h1 { font-size: 1.9rem; letter-spacing: -.02em; margin: 8px 0 4px; }
+  .lead { color: var(--text-dim); max-width: 74ch; }
+  h2 { font-size: 1.3rem; letter-spacing: -.01em; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+  h2 .num { font-size: .8rem; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 10px; font-weight: 700; }
+  .section-desc { color: var(--text-dim); margin: 0 0 16px; }
+
+  /* ---------- Visualizador ---------- */
+  .viz { position: relative; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); background: var(--canvas); overflow: hidden; height: 78vh; }
+  .viz.is-fullscreen { position: fixed; inset: 0; z-index: 9998; height: 100vh; width: 100vw; border-radius: 0; }
+  .viewport { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; }
+  .viewport.grabbing { cursor: grabbing; }
+  .world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+
+  .toolbar { position: absolute; top: 12px; left: 12px; z-index: 10; display: flex; gap: 6px; align-items: center; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(6px); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: var(--shadow); }
+  .toolbar .zbtn { border: 1px solid var(--border); background: var(--surface); color: var(--text); width: 32px; height: 32px; border-radius: 7px; cursor: pointer; font-size: 1.05rem; display: inline-flex; align-items: center; justify-content: center; }
+  .toolbar .zbtn:hover { background: var(--surface-2); }
+  .toolbar .zbtn.wide { width: auto; padding: 0 10px; font-size: .82rem; }
+  .toolbar .sep { width: 1px; height: 22px; background: var(--border); margin: 0 2px; }
+  .zoom-label { font-size: .78rem; color: var(--text-dim); min-width: 42px; text-align: center; }
+  .viz-hint { position: absolute; bottom: 12px; left: 12px; z-index: 10; font-size: .76rem; color: var(--text-dim); background: color-mix(in srgb, var(--surface) 85%, transparent); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; }
+
+  /* Grupos (áreas de color) */
+  .group { position: absolute; border: 1.5px solid; border-radius: 14px; z-index: 1; pointer-events: none; }
+  .group-title { position: absolute; top: -13px; left: 14px; font-size: .78rem; font-weight: 700; color: #fff; padding: 3px 12px; border-radius: 999px; white-space: nowrap; letter-spacing: .01em; pointer-events: auto; cursor: pointer; }
+  .group-title:hover { filter: brightness(1.12); box-shadow: 0 0 0 2px color-mix(in srgb, #fff 40%, transparent); }
+
+  /* SVG conectores */
+  svg.edges { position: absolute; top: 0; left: 0; z-index: 2; overflow: visible; pointer-events: none; }
+  svg.edges path.edge { fill: none; stroke: var(--edge); stroke-width: 1.4; opacity: .55; transition: stroke .12s, opacity .12s, stroke-width .12s; }
+  svg.edges path.edge.hi { stroke: var(--edge-hi); stroke-width: 2.2; opacity: 1; }
+  svg.edges path.edge.lo { opacity: .07; }
+
+  /* Nodos (tablas) */
+  .node { position: absolute; z-index: 3; background: var(--node-bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; transition: opacity .12s, box-shadow .12s, transform .12s; cursor: pointer; }
+  .node:hover { box-shadow: 0 0 0 2px var(--accent), var(--shadow); }
+  .node.sel { box-shadow: 0 0 0 2px var(--accent), var(--shadow); }
+  .node.lo { opacity: .3; }
+  .node-h { height: 34px; line-height: 34px; padding: 0 12px; font-family: var(--mono); font-weight: 700; font-size: .84rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .col { height: 24px; line-height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 10px; font-size: .76rem; border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+  .col:first-child { border-top: none; }
+  .col.pk { background: color-mix(in srgb, var(--pk) 8%, transparent); }
+  .col .cn { font-family: var(--mono); color: var(--text); }
+  .col .ct { margin-left: auto; font-family: var(--mono); font-size: .7rem; color: var(--text-dim); font-style: italic; }
+  .kbadge { font-size: .58rem; font-weight: 800; letter-spacing: .02em; padding: 1px 4px; border-radius: 4px; line-height: 1.3; }
+  .kbadge.pk { color: var(--pk); background: color-mix(in srgb, var(--pk) 18%, transparent); }
+  .kbadge.fk { color: var(--fk); background: color-mix(in srgb, var(--fk) 18%, transparent); }
+  .kbadge.uk { color: var(--uk); background: color-mix(in srgb, var(--uk) 18%, transparent); }
+  .node-ts { height: 22px; line-height: 22px; padding: 0 10px; font-size: .66rem; color: var(--text-dim); background: var(--surface-2); border-top: 1px solid var(--border); font-family: var(--mono); }
+
+  /* Panel de detalle */
+  .detail { position: absolute; top: 0; right: 0; height: 100%; width: 340px; max-width: 86%; z-index: 20; background: var(--surface); border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgba(0,0,0,.12); transform: translateX(100%); transition: transform .2s ease; display: flex; flex-direction: column; }
+  .detail.open { transform: translateX(0); }
+  .detail-h { padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+  .detail-h .dt-group { font-size: .72rem; font-weight: 700; color: #fff; padding: 2px 10px; border-radius: 999px; display: inline-block; }
+  .detail-h .dt-name { font-family: var(--mono); font-weight: 700; font-size: 1.05rem; margin-top: 8px; }
+  .detail-h .dt-note { color: var(--text-dim); font-size: .84rem; margin-top: 6px; }
+  .detail-close { position: absolute; top: 12px; right: 12px; border: none; background: var(--surface-2); color: var(--text); width: 28px; height: 28px; border-radius: 7px; cursor: pointer; font-size: 1rem; }
+  .detail-body { padding: 14px 18px; overflow-y: auto; }
+  .detail-body h4 { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); margin: 16px 0 6px; }
+  .detail-body h4:first-child { margin-top: 0; }
+  .rel { font-size: .8rem; padding: 4px 0; color: var(--text-dim); border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+  .rel code { font-family: var(--mono); color: var(--text); }
+  .rel .arrow { color: var(--accent); font-weight: 700; }
+
+  /* ---------- Leyenda ---------- */
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 14px 0 0; }
+  .legend .lg { display: inline-flex; align-items: center; gap: 7px; font-size: .82rem; color: var(--text-dim); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; }
+  .legend .dot { width: 12px; height: 12px; border-radius: 4px; }
+
+  /* ---------- Enums ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .enum-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+  .enum-card h3 { font-family: var(--mono); color: var(--accent); font-size: .92rem; margin: 0; }
+  .enum-card .desc { color: var(--text-dim); font-size: .82rem; margin: 2px 0 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip { font-family: var(--mono); font-size: .76rem; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
+  .chip.hot { border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); color: var(--warn); }
+  .chip.cat { font-family: var(--sans); font-weight: 600; }
+  .chip.cat small { font-family: var(--mono); font-weight: 400; opacity: .7; margin-left: 4px; }
+  .enum-card details { margin-top: 10px; }
+  .enum-card summary { cursor: pointer; font-size: .78rem; color: var(--accent); }
+  .enum-card details .chips { margin-top: 8px; }
+  .enum-list { list-style: none; margin: 8px 0 0; padding: 0; }
+  .enum-list.multi { column-count: 2; column-gap: 20px; }
+  .enum-list li { font-family: var(--mono); font-size: .78rem; padding: 4px 0 4px 16px; position: relative; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); break-inside: avoid; }
+  .enum-list li::before { content: '▪'; position: absolute; left: 2px; color: var(--accent); }
+  .enum-list li.hot { color: var(--warn); font-weight: 600; }
+  .enum-list li b { font-family: var(--sans); }
+  /* enums dentro del panel de detalle */
+  .enum-mini { margin: 6px 0 14px; }
+  .enum-mini .em-name { font-family: var(--mono); font-size: .78rem; font-weight: 700; color: var(--accent); margin-bottom: 2px; }
+  .enum-mini .enum-list li { font-size: .74rem; padding: 3px 0 3px 16px; }
+  .dt-link { cursor: pointer; }
+  .dt-link:hover code { color: var(--accent); }
+
+  /* ---------- Tabla de restricciones ---------- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  table.grid-table { border-collapse: collapse; width: 100%; font-size: .88rem; background: var(--surface); }
+  table.grid-table th, table.grid-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.grid-table th { background: var(--surface-2); font-weight: 700; }
+  table.grid-table tr:last-child td { border-bottom: none; }
+  table.grid-table code { font-family: var(--mono); background: var(--surface-2); padding: 0 5px; border-radius: 5px; }
+
+  /* ---------- Notas ---------- */
+  .notes { display: flex; flex-direction: column; gap: 10px; }
+  .note { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--warn); border-radius: 10px; padding: 12px 16px; font-size: .9rem; color: var(--text-dim); }
+  .note b { color: var(--text); }
+  footer { margin-top: 60px; color: var(--text-dim); font-size: .82rem; text-align: center; }
+  code { font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">Flota · Esquema de base de datos<small>Grupo Gransolar — GRS</small></div>
+    <nav class="links">
+      <a href="#diagrama">Diagrama</a>
+      <a href="#enums">Enums</a>
+      <a href="#restricciones">Restricciones</a>
+      <a href="#notas">Notas</a>
+    </nav>
+    <button class="btn" id="themeBtn" title="Cambiar tema">🌗 Tema</button>
+  </div>
+</header>
+
+<main>
+  <h1>Modelo de datos de Flota</h1>
+  <p class="lead">
+    26 tablas y 22 enumerados, agrupados por dominio. Pasa el ratón por una tabla para
+    ver sus relaciones; haz clic para ver su detalle. La persona es <code>drivers</code>
+    (Django <code>User</code>); el conductor de un vehículo va por <code>assignments</code>.
+  </p>
+
+  <div class="legend" id="group-legend"><!-- generado por JS --></div>
+
+  <section id="diagrama" style="margin-top:18px">
+    <div class="viz" id="viz">
+      <div class="toolbar">
+        <button class="zbtn" id="zoomOut" title="Alejar">−</button>
+        <span class="zoom-label" id="zoomLabel">100%</span>
+        <button class="zbtn" id="zoomIn" title="Acercar">+</button>
+        <div class="sep"></div>
+        <button class="zbtn wide" id="fitBtn" title="Ajustar a pantalla">Ajustar</button>
+        <button class="zbtn wide" id="fsBtn" title="Pantalla completa">⛶ Pantalla</button>
+      </div>
+      <div class="viewport" id="viewport">
+        <div class="world" id="world">
+          <svg class="edges" id="edges"></svg>
+          <!-- grupos y nodos inyectados por JS -->
+        </div>
+      </div>
+      <div class="viz-hint">Arrastra para mover · rueda para zoom · clic en una tabla para su detalle · <b>Esc</b> cierra</div>
+      <aside class="detail" id="detail">
+        <button class="detail-close" id="detailClose" title="Cerrar">✕</button>
+        <div class="detail-h">
+          <span class="dt-group" id="dtGroup"></span>
+          <div class="dt-name" id="dtName"></div>
+          <div class="dt-note" id="dtNote"></div>
+        </div>
+        <div class="detail-body" id="dtBody"></div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="enums">
+    <h2><span class="num">2</span> Enumerados</h2>
+    <p class="section-desc">Replican las <code>TextChoices</code> de <code>back/**/enums</code>. El valor mostrado es el que persiste en BD.</p>
+    <div class="grid" id="enum-grid"></div>
+  </section>
+
+  <section id="restricciones">
+    <h2><span class="num">3</span> Restricciones e índices</h2>
+    <p class="section-desc">Reglas de integridad a nivel de BD. Los <em>constraints parciales</em> (con condición) los soporta PostgreSQL.</p>
+    <div class="table-wrap">
+      <table class="grid-table">
+        <thead><tr><th>Tabla</th><th>Restricción</th><th>Regla</th></tr></thead>
+        <tbody>
+          <tr><td><code>driver_roles</code></td><td>único <code>(user, role)</code></td><td>una persona no repite rol</td></tr>
+          <tr><td><code>vehicles</code></td><td>único <code>plate</code> · índices <code>state</code>, <code>next_itv_date</code></td><td>matrícula única; filtros frecuentes</td></tr>
+          <tr><td><code>assignments</code></td><td>único parcial <code>(vehicle)</code> con <code>status=accepted ∧ end_date NULL</code></td><td>un solo conductor vigente por vehículo (HU-2.1/2.2)</td></tr>
+          <tr><td><code>assignments</code></td><td>índices <code>(vehicle,end_date,status)</code>, <code>(driver,end_date)</code></td><td>conductor en curso / histórico</td></tr>
+          <tr><td><code>vehicle_links</code></td><td>único parcial <code>(main_vehicle)</code> con <code>end_date NULL</code></td><td>un solo sustituto activo por principal (HU-1.8)</td></tr>
+          <tr><td><code>kms</code></td><td>índice <code>(vehicle, reading_date)</code></td><td>última lectura / periodo</td></tr>
+          <tr><td><code>documents</code></td><td>índice <code>(vehicle, status)</code></td><td>filtro <code>pending_archive</code></td></tr>
+          <tr><td><code>alerts</code></td><td>único <code>dedup_key</code> · índices <code>(type,status)</code>, <code>(vehicle,status)</code></td><td>idempotencia de los jobs</td></tr>
+          <tr><td><code>vehicle_requests</code></td><td>único parcial <code>jira_key</code> (cuando ≠ '')</td><td>una solicitud por issue de Jira</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="notas">
+    <h2><span class="num">4</span> Notas de fidelidad</h2>
+    <div class="notes">
+      <div class="note"><b>Campos enum/texto con <code>blank=True</code> no son NULL.</b> En Django se almacenan como <code>NOT NULL DEFAULT ''</code>. En el diagrama aparecen sin marca por legibilidad.</div>
+      <div class="note"><b>Las FK no muestran <code>on_delete</code>.</b> Son <code>CASCADE</code> hacia <code>vehicles</code>/<code>events</code>/<code>invoices</code> y <code>SET_NULL</code> en referencias opcionales (<code>supervisor</code>, <code>country</code>, <code>renting</code>, <code>project</code>…). Detallado en <code>schema_comentado.dbml</code>.</div>
+      <div class="note"><b><code>drivers</code> = Django <code>User</code>.</b> La tabla real también tiene <code>password</code>, <code>is_staff</code>, <code>is_superuser</code>, <code>last_login</code>, <code>date_joined</code> y M2M <code>groups</code>/<code>user_permissions</code>, omitidos aquí.</div>
+      <div class="note"><b>Timestamps.</b> Las tablas <code>fleet.*</code> heredan <code>created_at</code>/<code>updated_at</code> (marcado abajo en cada nodo). <code>drivers</code>, <code>driver_roles</code> y los <code>event_*</code> no los tienen.</div>
+    </div>
+  </section>
+
+  <footer>Generado a partir de <code>back/accounts</code> + <code>back/fleet</code> · fuente de plataforma en <code>schema_comentado.dbml</code>.</footer>
+</main>
+
+<script>
+/* =========================================================================
+   DATOS DEL ESQUEMA
+   ========================================================================= */
+const GROUPS = [
+  { id:'personas',    name:'Personas y roles',          color:'#3b82c4' },
+  { id:'catalogos',   name:'Catálogos maestros',        color:'#0f9e9e' },
+  { id:'vehiculo',    name:'Vehículo y operación',      color:'#2f9e5e' },
+  { id:'eventos',     name:'Eventos',                   color:'#8b5cf0' },
+  { id:'facturacion', name:'Facturación',               color:'#b08a2e' },
+  { id:'incidencias', name:'Incidencias y documentación', color:'#cf5a6e' },
+  { id:'alertas',     name:'Alertas y solicitudes',     color:'#c2703f' },
+];
+const GROUP_COLS = { personas:1, catalogos:1, vehiculo:2, eventos:2, facturacion:1, incidencias:1, alertas:1 };
+const GROUP_ORDER = ['vehiculo','eventos','catalogos','personas','facturacion','incidencias','alertas'];
+
+// clave: '', 'pk', 'fk', 'uk', 'pkfk'
+const TABLES = {
+  drivers: { g:'personas', ts:false, note:'Toda persona del sistema (admin, supervisor o conductor). Mapea el Django User (AbstractUser).', cols:[
+    ['id','bigint','pk'],['username','varchar','uk'],['email','varchar',''],['first_name','varchar',''],['last_name','varchar',''],
+    ['is_active','bool',''],['fuel_card','bool',''],['dni','varchar','uk'],['phone','varchar',''],['license_type','license_type_enum','']
+  ]},
+  driver_roles: { g:'personas', ts:false, note:'Rol asignado a una persona. Multi-rol: un supervisor puede además conducir. Único (user, role).', cols:[
+    ['id','bigint','pk'],['user_id','bigint','fk'],['role','role_enum','']
+  ]},
+
+  country: { g:'catalogos', ts:true, note:'País donde está ubicado/matriculado el vehículo.', cols:[
+    ['id','bigint','pk'],['name','varchar','']
+  ]},
+  business_unit: { g:'catalogos', ts:true, note:'Unidad de negocio a la que pertenece el vehículo.', cols:[
+    ['id','bigint','pk'],['code','varchar',''],['name','varchar','']
+  ]},
+  projects: { g:'catalogos', ts:true, note:'Proyecto/obra que financia el vehículo (destino de imputación).', cols:[
+    ['id','bigint','pk'],['project_name','varchar','']
+  ]},
+  pep: { g:'catalogos', ts:true, note:'Elemento PEP = centro de coste (CECO) al que se imputa.', cols:[
+    ['id','bigint','pk'],['code','varchar',''],['name','varchar','']
+  ]},
+  renting: { g:'catalogos', ts:true, note:'Compañía o producto de renting, referenciado por los contratos.', cols:[
+    ['id','bigint','pk'],['name','varchar','']
+  ]},
+
+  vehicles: { g:'vehiculo', ts:true, note:'Entidad central. El conductor NO es un campo: va por assignments. supervisor_id es el responsable opcional. next_itv_date está denormalizado del último event_itvs.', cols:[
+    ['id','bigint','pk'],['plate','varchar','uk'],['business_unit_id','bigint','fk'],['state','state_enum',''],['supervisor_id','bigint','fk'],
+    ['is_substitute','bool',''],['brand','varchar',''],['model','varchar',''],['year','int',''],['vin','varchar',''],['registration_date','date',''],
+    ['country_id','bigint','fk'],['fuel','fuel_enum',''],['type','type_enum',''],['size','size_enum',''],['market_segment','market_segment_enum',''],
+    ['veh_use','veh_use_enum',''],['version','varchar',''],['consumption','int',''],['km_start','int',''],['km_end','int',''],
+    ['property','property_type_enum',''],['business_use','use_type_enum',''],['project_id','bigint','fk'],['cost_center_id','bigint','fk'],
+    ['next_itv_date','date',''],['drive_folder_url','varchar','']
+  ]},
+  contracts: { g:'vehiculo', ts:true, note:'Contrato (renting o propiedad) asociado a un vehículo. end_date NULL = vigente.', cols:[
+    ['id','bigint','pk'],['vehicle_id','bigint','fk'],['contract_number','varchar',''],['contract_time','int',''],['contract_km','int',''],
+    ['client','varchar',''],['cif','varchar',''],['renting_id','bigint','fk'],['start_date','date',''],['planned_end_date','date',''],['end_date','date',''],['month_fee','decimal','']
+  ]},
+  kms: { g:'vehiculo', ts:true, note:'Lectura del odómetro acumulado en una fecha. No puede retroceder (validado en clean(), HU-3.1).', cols:[
+    ['id','bigint','pk'],['vehicle_id','bigint','fk'],['reading_date','date',''],['km_reading','int','']
+  ]},
+  assignments: { g:'vehiculo', ts:true, note:'Conductor asignado a un vehículo en un periodo. end_date NULL = en curso. Único parcial: un solo conductor vigente por vehículo.', cols:[
+    ['id','bigint','pk'],['vehicle_id','bigint','fk'],['driver_id','bigint','fk'],['start_date','date',''],['end_date','date',''],['status','assignment_state_enum',''],['usage_percent','decimal','']
+  ]},
+  vehicle_usage: { g:'vehiculo', ts:true, note:'Reparto porcentual de uso de un vehículo entre conductores. La suma por periodo = 100 (HU-2.5).', cols:[
+    ['id','bigint','pk'],['vehicle_id','bigint','fk'],['driver_id','bigint','fk'],['usage_percent','decimal',''],['start_date','date',''],['end_date','date','']
+  ]},
+  vehicle_links: { g:'vehiculo', ts:true, note:'Vínculo entre vehículo principal y su sustituto (dos FK a vehicles). Único parcial: un solo sustituto activo por principal (HU-1.8).', cols:[
+    ['id','bigint','pk'],['main_vehicle_id','bigint','fk'],['substitute_vehicle_id','bigint','fk'],['reason','link_reason_enum',''],['start_date','date',''],['end_date','date','']
+  ]},
+
+  events: { g:'eventos', ts:true, note:'Evento en la vida del vehículo. Guarda lo común (tipo, fecha, notas); el detalle va en un event_*.', cols:[
+    ['id','bigint','pk'],['vehicle_id','bigint','fk'],['event_type','events_enum',''],['event_date','date',''],['notes','text','']
+  ]},
+  event_penalties: { g:'eventos', ts:false, note:'Detalle de una sanción. event_id es PK y FK (extensión 1-a-1 de events).', cols:[
+    ['event_id','bigint','pkfk'],['amount','decimal',''],['paid','bool','']
+  ]},
+  event_fee_changes: { g:'eventos', ts:false, note:'Detalle de un cambio de cuota. event_id es PK y FK.', cols:[
+    ['event_id','bigint','pkfk'],['old_fee','decimal',''],['new_fee','decimal','']
+  ]},
+  event_itvs: { g:'eventos', ts:false, note:'Detalle de una ITV. Al registrarse refresca vehicles.next_itv_date y cierra alertas (HU-5.1).', cols:[
+    ['event_id','bigint','pkfk'],['result','varchar',''],['next_due','date','']
+  ]},
+  event_project_changes: { g:'eventos', ts:false, note:'Detalle de un cambio de proyecto.', cols:[
+    ['event_id','bigint','pkfk'],['old_project_id','bigint','fk'],['new_project_id','bigint','fk']
+  ]},
+  event_location_changes: { g:'eventos', ts:false, note:'Detalle de un cambio de ubicación.', cols:[
+    ['event_id','bigint','pkfk'],['old_location','varchar',''],['new_location','varchar','']
+  ]},
+  event_pep_changes: { g:'eventos', ts:false, note:'Detalle de un cambio de PEP/CECO.', cols:[
+    ['event_id','bigint','pkfk'],['old_pep_id','bigint','fk'],['new_pep_id','bigint','fk']
+  ]},
+  event_driver_changes: { g:'eventos', ts:false, note:'Detalle de un cambio de conductor.', cols:[
+    ['event_id','bigint','pkfk'],['old_driver_id','bigint','fk'],['new_driver_id','bigint','fk']
+  ]},
+
+  invoices: { g:'facturacion', ts:true, note:'Factura asociada a un vehículo (código, fecha, importe, PDF).', cols:[
+    ['id','bigint','pk'],['code','varchar',''],['vehicle_id','bigint','fk'],['date','date',''],['amount','decimal',''],['file','varchar','']
+  ]},
+  invoice_allocations: { g:'facturacion', ts:true, note:'Imputa cada factura a un proyecto o a un PEP/CECO. La suma de percentage por factura = 100. target_type decide qué FK aplica.', cols:[
+    ['id','bigint','pk'],['invoice_id','bigint','fk'],['target_type','allocation_target_enum',''],['project_id','bigint','fk'],['cost_center_id','bigint','fk'],['percentage','decimal',''],['amount','decimal','']
+  ]},
+
+  incidents: { g:'incidencias', ts:true, note:'Incidencia o mantenimiento del vehículo. A ella se ligan documentos (acta, parte, fotos).', cols:[
+    ['id','bigint','pk'],['vehicle_id','bigint','fk'],['type','incident_type_enum',''],['date','date',''],['description','text',''],['status','incident_status_enum',''],['cost','decimal','']
+  ]},
+  documents: { g:'incidencias', ts:true, note:'Documento del vehículo (general o ligado a incidencia). Se archiva en Drive. replaces_id apunta a la versión anterior (HU-4.4).', cols:[
+    ['id','bigint','pk'],['vehicle_id','bigint','fk'],['type','document_type_enum',''],['incident_id','bigint','fk'],['drive_url','varchar',''],['uploaded_by_id','bigint','fk'],['expiry_date','date',''],['status','document_status_enum',''],['replaces_id','bigint','fk'],['notes','text','']
+  ]},
+
+  alerts: { g:'alertas', ts:true, note:'Bandeja de avisos derivados que generan los jobs programados (ITV, km, sin conductor). dedup_key da idempotencia. No es negocio: es la capa de notificación.', cols:[
+    ['id','bigint','pk'],['type','alert_type_enum',''],['level','alert_level_enum',''],['status','alert_status_enum',''],['vehicle_id','bigint','fk'],['user_id','bigint','fk'],['message','varchar',''],['due_date','date',''],['dedup_key','varchar','uk'],['resolved_at','datetime',''],['resolved_by_id','bigint','fk']
+  ]},
+  vehicle_requests: { g:'alertas', ts:true, note:'Solicitud de vehículo que entra YA aprobada desde Jira; la gestión le asigna un vehículo (status → assigned). Único parcial jira_key (≠ \'\').', cols:[
+    ['id','bigint','pk'],['requester_id','bigint','fk'],['vehicle_id','bigint','fk'],['requested_type','type_enum',''],['start_date','date',''],['end_date','date',''],['jira_key','varchar',''],['status','vehicle_request_status_enum',''],['notes','text','']
+  ]},
+};
+
+// [tablaHija, columnaFK, tablaPadre]
+const EDGES = [
+  ['driver_roles','user_id','drivers'],
+  ['vehicles','business_unit_id','business_unit'],['vehicles','supervisor_id','drivers'],['vehicles','country_id','country'],['vehicles','project_id','projects'],['vehicles','cost_center_id','pep'],
+  ['contracts','vehicle_id','vehicles'],['contracts','renting_id','renting'],
+  ['kms','vehicle_id','vehicles'],
+  ['assignments','vehicle_id','vehicles'],['assignments','driver_id','drivers'],
+  ['vehicle_usage','vehicle_id','vehicles'],['vehicle_usage','driver_id','drivers'],
+  ['vehicle_links','main_vehicle_id','vehicles'],['vehicle_links','substitute_vehicle_id','vehicles'],
+  ['events','vehicle_id','vehicles'],
+  ['event_penalties','event_id','events'],['event_fee_changes','event_id','events'],['event_itvs','event_id','events'],
+  ['event_project_changes','event_id','events'],['event_project_changes','old_project_id','projects'],['event_project_changes','new_project_id','projects'],
+  ['event_location_changes','event_id','events'],
+  ['event_pep_changes','event_id','events'],['event_pep_changes','old_pep_id','pep'],['event_pep_changes','new_pep_id','pep'],
+  ['event_driver_changes','event_id','events'],['event_driver_changes','old_driver_id','drivers'],['event_driver_changes','new_driver_id','drivers'],
+  ['invoices','vehicle_id','vehicles'],
+  ['invoice_allocations','invoice_id','invoices'],['invoice_allocations','project_id','projects'],['invoice_allocations','cost_center_id','pep'],
+  ['incidents','vehicle_id','vehicles'],
+  ['documents','vehicle_id','vehicles'],['documents','incident_id','incidents'],['documents','uploaded_by_id','drivers'],['documents','replaces_id','documents'],
+  ['alerts','vehicle_id','vehicles'],['alerts','user_id','drivers'],['alerts','resolved_by_id','drivers'],
+  ['vehicle_requests','requester_id','drivers'],['vehicle_requests','vehicle_id','vehicles'],
+];
+
+/* =========================================================================
+   LAYOUT
+   ========================================================================= */
+const NODEW=240, ROWH=24, HEADH=34, TSH=22, TGAP=18, CGAP=24, GPAD=16, GTITLE=20, HGAP=44, VGAP=52, MAXW=1560, START=44;
+const tableH = t => HEADH + t.cols.length*ROWH + (t.ts?TSH:0);
+const box = {};          // tabla -> {x,y,w,h}
+const rowIndex = {};     // "tabla.col" -> índice
+for (const [name,t] of Object.entries(TABLES)) t.cols.forEach((c,i)=> rowIndex[name+'.'+c[0]]=i);
+
+const groupBoxes = [];
+let px = START, py = START, rowMaxH = 0, contentW = 0, contentH = 0;
+for (const gid of GROUP_ORDER) {
+  const g = GROUPS.find(x=>x.id===gid);
+  const tables = Object.entries(TABLES).filter(([,t])=>t.g===gid).map(([n])=>n);
+  const cols = GROUP_COLS[gid];
+  const colY = new Array(cols).fill(0);
+  const local = {};
+  for (const name of tables) {
+    let i=0; for (let k=1;k<cols;k++) if (colY[k]<colY[i]) i=k;
+    local[name] = { cx:i, y:colY[i] };
+    colY[i] += tableH(TABLES[name]) + TGAP;
+  }
+  const innerW = cols*NODEW + (cols-1)*CGAP;
+  const innerH = Math.max(...colY) - TGAP;
+  const gw = innerW + GPAD*2;
+  const gh = GTITLE + innerH + GPAD*2;
+  if (px!==START && px+gw>MAXW) { px=START; py+=rowMaxH+VGAP; rowMaxH=0; }
+  const gx=px, gy=py;
+  for (const name of tables) {
+    box[name] = {
+      x: gx + GPAD + local[name].cx*(NODEW+CGAP),
+      y: gy + GTITLE + GPAD + local[name].y,
+      w: NODEW, h: tableH(TABLES[name])
+    };
+  }
+  groupBoxes.push({ ...g, x:gx, y:gy, w:gw, h:gh });
+  px += gw + HGAP; rowMaxH = Math.max(rowMaxH, gh);
+  contentW = Math.max(contentW, gx+gw); contentH = Math.max(contentH, gy+gh);
+}
+contentW += START; contentH += START;
+
+/* =========================================================================
+   RENDER
+   ========================================================================= */
+const world = document.getElementById('world');
+const svg = document.getElementById('edges');
+const groupColor = {}; GROUPS.forEach(g=>groupColor[g.id]=g.color);
+world.style.width = contentW+'px'; world.style.height = contentH+'px';
+svg.setAttribute('width', contentW); svg.setAttribute('height', contentH);
+svg.setAttribute('viewBox', '0 0 '+contentW+' '+contentH);
+
+// defs (marcadores pata de gallo / barra)
+svg.innerHTML =
+  '<defs>'+
+  '<marker id="m-many" markerWidth="20" markerHeight="20" refX="2" refY="10" orient="auto-start-reverse" markerUnits="userSpaceOnUse">'+
+    '<path d="M18,3 L2,10 L18,17" fill="none" stroke="context-stroke" stroke-width="1.4"/></marker>'+
+  '<marker id="m-one" markerWidth="14" markerHeight="20" refX="8" refY="10" orient="auto-start-reverse" markerUnits="userSpaceOnUse">'+
+    '<line x1="7" y1="4" x2="7" y2="16" stroke="context-stroke" stroke-width="1.6"/></marker>'+
+  '</defs>';
+
+// grupos
+for (const g of groupBoxes) {
+  const d = document.createElement('div');
+  d.className = 'group';
+  d.style.left=g.x+'px'; d.style.top=g.y+'px'; d.style.width=g.w+'px'; d.style.height=g.h+'px';
+  d.style.borderColor = 'color-mix(in srgb, '+g.color+' 55%, transparent)';
+  d.style.background = 'color-mix(in srgb, '+g.color+' 9%, transparent)';
+  d.innerHTML = '<span class="group-title" data-group="'+g.id+'" style="background:'+g.color+'">'+g.name+'</span>';
+  world.appendChild(d);
+}
+
+// nodos
+const badge = k => k==='pkfk' ? '<span class="kbadge pk">PK</span><span class="kbadge fk">FK</span>'
+  : k ? '<span class="kbadge '+k+'">'+k.toUpperCase()+'</span>' : '';
+for (const [name,t] of Object.entries(TABLES)) {
+  const b = box[name];
+  const n = document.createElement('div');
+  n.className='node'; n.id='n-'+name; n.dataset.table=name;
+  n.style.left=b.x+'px'; n.style.top=b.y+'px'; n.style.width=b.w+'px'; n.style.height=b.h+'px';
+  let rows='';
+  for (const c of t.cols) {
+    const isPk = c[2]==='pk'||c[2]==='pkfk';
+    rows += '<div class="col'+(isPk?' pk':'')+'">'+badge(c[2])+
+      '<span class="cn">'+c[0]+'</span><span class="ct">'+c[1]+'</span></div>';
+  }
+  n.innerHTML = '<div class="node-h" style="background:'+groupColor[t.g]+'">'+name+'</div>'+rows+
+    (t.ts?'<div class="node-ts">+ created_at · updated_at</div>':'');
+  world.appendChild(n);
+}
+
+// aristas
+const anchorY = (tbl,col)=> box[tbl].y + HEADH + (rowIndex[tbl+'.'+col]||0)*ROWH + ROWH/2;
+const edgeEls = [];
+EDGES.forEach((e,idx)=>{
+  const [child,col,parent]=e;
+  const c=box[child], p=box[parent];
+  const y1=anchorY(child,col), y2=anchorY(parent,'id');
+  let x1,x2,dir,path;
+  if (child===parent) { // autorreferencia (documents.replaces_id)
+    x1=c.x+c.w; x2=c.x+c.w;
+    const yTop=c.y+HEADH+ROWH/2;
+    path='M '+x1+' '+y1+' C '+(x1+60)+' '+y1+', '+(x2+60)+' '+yTop+', '+x2+' '+yTop;
+  } else {
+    if (p.x+p.w/2 >= c.x+c.w/2) { x1=c.x+c.w; x2=p.x; dir=1; }
+    else { x1=c.x; x2=p.x+p.w; dir=-1; }
+    const dx=Math.max(45, Math.abs(x2-x1)*0.4);
+    path='M '+x1+' '+y1+' C '+(x1+dir*dx)+' '+y1+', '+(x2-dir*dx)+' '+y2+', '+x2+' '+y2;
+  }
+  const el=document.createElementNS('http://www.w3.org/2000/svg','path');
+  el.setAttribute('d',path); el.setAttribute('class','edge');
+  el.setAttribute('marker-start','url(#m-many)'); el.setAttribute('marker-end','url(#m-one)');
+  el.dataset.child=child; el.dataset.parent=parent;
+  svg.appendChild(el); edgeEls.push(el);
+});
+
+// adyacencia
+const neigh = {}; Object.keys(TABLES).forEach(t=>neigh[t]=new Set());
+EDGES.forEach(([c,,p])=>{ neigh[c].add(p); neigh[p].add(c); });
+
+/* =========================================================================
+   INTERACCIÓN: highlight, detalle, pan/zoom, fullscreen, tema
+   ========================================================================= */
+const nodes = [...document.querySelectorAll('.node')];
+function highlight(tbl){
+  edgeEls.forEach(el=>{
+    const on = el.dataset.child===tbl || el.dataset.parent===tbl;
+    el.classList.toggle('hi', on); el.classList.toggle('lo', !on);
+  });
+  nodes.forEach(n=>{ const t=n.dataset.table; n.classList.toggle('lo', t!==tbl && !neigh[tbl].has(t)); });
+}
+function clearHighlight(){ edgeEls.forEach(el=>el.classList.remove('hi','lo')); nodes.forEach(n=>n.classList.remove('lo')); }
+
+const detail=document.getElementById('detail');
+function openDetail(tbl){
+  const t=TABLES[tbl], g=GROUPS.find(x=>x.id===t.g);
+  document.getElementById('dtGroup').textContent=g.name;
+  document.getElementById('dtGroup').style.background=g.color;
+  document.getElementById('dtName').textContent=tbl;
+  document.getElementById('dtNote').textContent=t.note;
+  const out=EDGES.filter(e=>e[0]===tbl).map(e=>'<div class="rel"><code>'+e[1]+'</code> <span class="arrow">→</span> <code>'+e[2]+'</code></div>').join('');
+  const inc=EDGES.filter(e=>e[2]===tbl && e[0]!==tbl).map(e=>'<div class="rel"><code>'+e[0]+'</code>.<code>'+e[1]+'</code> <span class="arrow">→</span> aquí</div>').join('');
+  const colsHtml=t.cols.map(c=>'<div class="rel">'+(c[2]?badge(c[2])+' ':'')+'<code>'+c[0]+'</code> <span class="ct" style="color:var(--text-dim);font-style:italic">'+c[1]+'</span></div>').join('');
+  const enumsUsed=[...new Set(t.cols.filter(c=>c[1].endsWith('_enum')).map(c=>c[1]))];
+  const enumsHtml=enumsUsed.length?'<h4>Enumerados usados</h4>'+enumsUsed.map(enumMiniHtml).join(''):'';
+  document.getElementById('dtBody').innerHTML =
+    '<h4>Columnas ('+t.cols.length+(t.ts?' + timestamps':'')+')</h4>'+colsHtml+
+    enumsHtml+
+    (out?'<h4>Referencia a (FK saliente)</h4>'+out:'')+
+    (inc?'<h4>Referenciada por (FK entrante)</h4>'+inc:'');
+  detail.classList.add('open');
+  nodes.forEach(n=>n.classList.toggle('sel', n.dataset.table===tbl));
+  highlight(tbl);
+}
+function closeDetail(){ detail.classList.remove('open'); nodes.forEach(n=>n.classList.remove('sel')); clearHighlight(); }
+document.getElementById('detailClose').onclick=closeDetail;
+
+// enumerado (nombre + valores en lista) para el panel de detalle
+function enumMiniHtml(en){
+  const e=ENUM_MAP[en]; if(!e) return '';
+  return '<div class="enum-mini"><div class="em-name">'+en+'</div>'+enumListHtml(e.values,e.hot)+'</div>';
+}
+
+function highlightGroup(gid){
+  edgeEls.forEach(el=>el.classList.remove('hi','lo'));
+  nodes.forEach(n=>n.classList.toggle('lo', TABLES[n.dataset.table].g!==gid));
+}
+function openGroup(gid){
+  const g=GROUPS.find(x=>x.id===gid);
+  const tables=Object.entries(TABLES).filter(([,t])=>t.g===gid).map(([n])=>n);
+  document.getElementById('dtGroup').textContent='Grupo';
+  document.getElementById('dtGroup').style.background=g.color;
+  document.getElementById('dtName').textContent=g.name;
+  document.getElementById('dtNote').textContent=tables.length+' tablas';
+  const enumsUsed=[...new Set(tables.flatMap(n=>TABLES[n].cols).filter(c=>c[1].endsWith('_enum')).map(c=>c[1]))];
+  const tablesHtml=tables.map(n=>'<div class="rel dt-link" data-goto="'+n+'"><code>'+n+'</code></div>').join('');
+  const enumsHtml=enumsUsed.length?enumsUsed.map(enumMiniHtml).join(''):'<div class="rel">— ninguno —</div>';
+  document.getElementById('dtBody').innerHTML=
+    '<h4>Tablas ('+tables.length+') · clic para abrir</h4>'+tablesHtml+
+    '<h4>Enumerados usados en el grupo</h4>'+enumsHtml;
+  detail.classList.add('open');
+  nodes.forEach(n=>n.classList.remove('sel'));
+  highlightGroup(gid);
+}
+// clic en un nombre de tabla dentro del panel → abre esa tabla
+document.getElementById('dtBody').addEventListener('click',e=>{
+  const link=e.target.closest('[data-goto]'); if(link) openDetail(link.dataset.goto);
+});
+// clic en la etiqueta de color de un grupo → abre el detalle del grupo
+document.querySelectorAll('.group-title').forEach(el=>{
+  el.addEventListener('click',e=>{ e.stopPropagation(); openGroup(el.dataset.group); });
+});
+
+nodes.forEach(n=>{
+  const tbl=n.dataset.table;
+  n.addEventListener('mouseenter',()=>{ if(!detail.classList.contains('open')) highlight(tbl); });
+  n.addEventListener('mouseleave',()=>{ if(!detail.classList.contains('open')) clearHighlight(); });
+  n.addEventListener('click',e=>{ e.stopPropagation(); openDetail(tbl); });
+});
+
+// pan / zoom
+const viz=document.getElementById('viz'), viewport=document.getElementById('viewport');
+let scale=1, tx=0, ty=0, panning=false, sx=0, sy=0, stx=0, sty=0, moved=false;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function apply(){ world.style.transform='translate('+tx+'px,'+ty+'px) scale('+scale+')'; document.getElementById('zoomLabel').textContent=Math.round(scale*100)+'%'; }
+function fit(){
+  const vw=viewport.clientWidth, vh=viewport.clientHeight;
+  scale=clamp(Math.min(vw/contentW, vh/contentH)*0.94, 0.12, 3);
+  tx=(vw-contentW*scale)/2; ty=(vh-contentH*scale)/2; apply();
+}
+viewport.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=viewport.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  const wx=(mx-tx)/scale, wy=(my-ty)/scale;
+  scale=clamp(scale*(e.deltaY<0?1.12:1/1.12), 0.12, 3);
+  tx=mx-wx*scale; ty=my-wy*scale; apply();
+},{passive:false});
+viewport.addEventListener('mousedown',e=>{
+  if(e.target.closest('.node')||e.target.closest('.detail')||e.target.closest('.group-title')) return;
+  panning=true; moved=false; sx=e.clientX; sy=e.clientY; stx=tx; sty=ty; viewport.classList.add('grabbing');
+});
+window.addEventListener('mousemove',e=>{ if(!panning)return; tx=stx+(e.clientX-sx); ty=sty+(e.clientY-sy); if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4) moved=true; apply(); });
+window.addEventListener('mouseup',()=>{ panning=false; viewport.classList.remove('grabbing'); });
+viewport.addEventListener('click',e=>{ if(!moved && !e.target.closest('.node')) closeDetail(); });
+
+document.getElementById('zoomIn').onclick=()=>{ scale=clamp(scale*1.15,0.12,3); apply(); };
+document.getElementById('zoomOut').onclick=()=>{ scale=clamp(scale/1.15,0.12,3); apply(); };
+document.getElementById('fitBtn').onclick=fit;
+
+// fullscreen
+const fsBtn=document.getElementById('fsBtn');
+fsBtn.onclick=()=>{ viz.classList.toggle('is-fullscreen'); fsBtn.textContent=viz.classList.contains('is-fullscreen')?'✕ Salir':'⛶ Pantalla'; requestAnimationFrame(fit); };
+window.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    if(viz.classList.contains('is-fullscreen')){ viz.classList.remove('is-fullscreen'); fsBtn.textContent='⛶ Pantalla'; requestAnimationFrame(fit); }
+    else closeDetail();
+  }
+});
+window.addEventListener('resize',()=>{ if(viz.classList.contains('is-fullscreen')) fit(); });
+
+// leyenda de grupos
+document.getElementById('group-legend').innerHTML = GROUPS.map(g=>
+  '<span class="lg"><span class="dot" style="background:'+g.color+'"></span>'+g.name+'</span>').join('');
+
+// tema
+const root=document.documentElement;
+root.dataset.theme = localStorage.getItem('flota-theme') || (matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+document.getElementById('themeBtn').onclick=()=>{ root.dataset.theme = root.dataset.theme==='dark'?'light':'dark'; localStorage.setItem('flota-theme',root.dataset.theme); };
+
+fit();
+
+/* =========================================================================
+   ENUMS
+   ========================================================================= */
+const ENUMS = [
+  {name:'role_enum', desc:'Roles funcionales. Multi-rol.', values:['admin','supervisor','driver']},
+  {name:'license_type_enum', desc:'Permiso de conducir (HU-2.6).', values:['B','C1','C','C+E','D1','D']},
+  {name:'state_enum', desc:"Estado técnico del vehículo. 'retired' es terminal (soft-delete).", values:['active','maintenance','itv','broken','retired','non_active','accidente'], hot:['retired']},
+  {name:'type_enum', desc:'Categoría de vehículo.', values:['car','van','truck','motorcycle']},
+  {name:'size_enum', desc:'Tamaño físico.', values:['small','medium','big']},
+  {name:'market_segment_enum', desc:'Segmento comercial de mercado.', values:['mini','supermini','med_low','med_sup','executive','luxury','sports','suv','MPV']},
+  {name:'veh_use_enum', desc:'Uso funcional.', values:['passengers','freight']},
+  {name:'fuel_enum', desc:'Combustible / vector energético (simplificado).', values:['gasoline','diesel','LPG','hybrid','other']},
+  {name:'property_type_enum', desc:'Régimen de propiedad.', values:['propio','renting']},
+  {name:'use_type_enum', desc:"Uso empresarial. 'on_project' ⇒ proyecto obligatorio.", values:['on_project','personal','works'], hot:['on_project']},
+  {name:'assignment_state_enum', desc:'Ciclo de vida de la asignación.', values:['proposed','accepted','rejected','finished']},
+  {name:'link_reason_enum', desc:'Motivo del vínculo de sustitución.', values:['breakdown','maintenance','inspection','accident']},
+  {name:'allocation_target_enum', desc:'Destino de imputación de factura.', values:['proyecto','pep']},
+  {name:'document_type_enum', desc:'Tipo de documento del vehículo.', values:['registration_certificate','technical_datasheet','insurance','contract','delivery_report','return_report','accident_report','damage_photos','other']},
+  {name:'document_status_enum', desc:'Estado documental.', values:['valid','expired','pending_archive']},
+  {name:'incident_type_enum', desc:'Naturaleza de la incidencia.', values:['breakdown','maintenance','inspection','accident']},
+  {name:'incident_status_enum', desc:'Ciclo de vida de la incidencia.', values:['open','on_going','closed']},
+  {name:'alert_type_enum', desc:'Tipo de alerta derivada (jobs).', values:['itv_due','km_reading_pending','km_overage','no_driver']},
+  {name:'alert_level_enum', desc:'Severidad de la alerta.', values:['info','warning','critical']},
+  {name:'alert_status_enum', desc:'Ciclo de vida de la alerta.', values:['open','resolved','dismissed']},
+  {name:'vehicle_request_status_enum', desc:'Ciclo de la solicitud (entra aprobada de Jira).', values:['approved','assigned','rejected','closed']},
+  {name:'events_enum', desc:'Tipos de evento en la vida del vehículo.', values:['creation','activation','deactivation','invoice','immobilization','reactivation','insurance_renewal','penalty','location_change','project_change','breakdown','km_reading','contract_change','fee_change','ceco_change','itv','maintenance','driver_change']},
+];
+
+// enumerado como lista <ul>; en 2 columnas si tiene muchos valores
+function enumListHtml(values, hot){
+  const set=new Set(hot||[]);
+  const multi=values.length>=8?' multi':'';
+  return '<ul class="enum-list'+multi+'">'+values.map(v=>'<li'+(set.has(v)?' class="hot"':'')+'>'+v+'</li>').join('')+'</ul>';
+}
+// mapa nombre→enum para el panel de detalle
+const ENUM_MAP={};
+ENUMS.forEach(e=>ENUM_MAP[e.name]={desc:e.desc,values:e.values,hot:e.hot||[]});
+
+const eg=document.getElementById('enum-grid');
+for (const e of ENUMS) {
+  const c=document.createElement('div'); c.className='enum-card';
+  c.innerHTML='<h3>'+e.name+'</h3><div class="desc">'+e.desc+' <span style="opacity:.6">· '+e.values.length+' valores</span></div>'+enumListHtml(e.values,e.hot);
+  eg.appendChild(c);
+}
+</script>
+</body>
+</html>
