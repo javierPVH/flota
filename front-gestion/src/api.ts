@@ -127,10 +127,41 @@ export interface CatalogEntry {
 export const listCatalog = (resource: 'projects' | 'peps' | 'business-units' | 'rentings' | 'countries') =>
   getJson<Paginated<CatalogEntry>>(`${API}/${resource}/`)
 
-// --- G1: alertas de la vista general ----------------------------------------
+// --- G1/G8: alertas ---------------------------------------------------------
 
-export const listAlerts = (status = 'open') =>
-  getJson<Paginated<Alert>>(`${API}/alerts/${buildQs({ status })}`)
+export interface AlertFilters {
+  status?: string
+  type?: string
+  level?: string
+  vehicle?: number
+}
+
+export const listAlerts = (filters: AlertFilters | string = 'open') =>
+  getJson<Paginated<Alert>>(
+    `${API}/alerts/${buildQs(typeof filters === 'string' ? { status: filters } : { ...filters })}`,
+  )
+
+export const resolveAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/resolve/`, {})
+
+export const dismissAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/dismiss/`, {})
+
+// --- G8: registrar ITV + informes -------------------------------------------
+
+/** Registrar ITV (HU-5.1): la señal del back cierra los avisos y refresca
+ * `next_itv_date`. */
+export const registerItv = (data: {
+  vehicle: number
+  event_date: string
+  notes?: string
+  itv: { result: string; next_due: string | null }
+}) => postJson<FlotaEvent>(`${API}/events/`, { ...data, event_type: 'itv' })
+
+export type ReportKind = 'fleet' | 'alerts' | 'costs'
+export type ReportFormat = 'xlsx' | 'csv'
+
+/** URL de descarga de un informe (navegación con cookies, mismo origen). */
+export const reportUrl = (kind: ReportKind, fmt: ReportFormat) =>
+  toUrl(`${API}/reports/${buildQs({ kind, fmt })}`)
 
 // --- G2: ficha del vehículo -------------------------------------------------
 

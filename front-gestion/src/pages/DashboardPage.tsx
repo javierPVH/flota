@@ -166,7 +166,9 @@ export function DashboardPage() {
         <section className="alerts-block">
           <div className="section-head">
             <h3>Alertas que requieren atención</h3>
-            <span className="alerts-count">{alerts.length} abiertas</span>
+            <span className="alerts-count">
+              {alerts.length} abiertas · <Link to="/alertas">Ver todas →</Link>
+            </span>
           </div>
           <div className="alerts-grid">
             {topAlerts.map((alert) => (

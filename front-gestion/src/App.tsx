@@ -11,6 +11,8 @@ import { VehicleFormPage } from './pages/VehicleFormPage.tsx'
 import { IncidentsPage } from './pages/IncidentsPage.tsx'
 import { ProposalsPage } from './pages/ProposalsPage.tsx'
 import { MileagePage } from './pages/MileagePage.tsx'
+import { AlertsPage } from './pages/AlertsPage.tsx'
+import { ReportsPage } from './pages/ReportsPage.tsx'
 import { UsersPage } from './pages/UsersPage.tsx'
 import { UserDetailPage } from './pages/UserDetailPage.tsx'
 
@@ -35,6 +37,8 @@ export default function App() {
         <Route path="/incidencias" element={<IncidentsPage />} />
         <Route path="/propuestas" element={<ProposalsPage />} />
         <Route path="/kilometraje" element={<MileagePage />} />
+        <Route path="/alertas" element={<AlertsPage />} />
+        <Route path="/informes" element={<ReportsPage />} />
         <Route path="/conductores" element={<UsersPage />} />
         <Route path="/conductores/:id" element={<UserDetailPage />} />
       </Route>

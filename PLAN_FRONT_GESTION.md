@@ -377,7 +377,16 @@ list) — sin él las cookies de sesión no viajaban en dev.)*
 - **Aceptación:** documentación completa por vehículo y gestión con versión/borrado
   controlado.
 
-### G8 — Panel de alertas, ITV e informes · HU-5.1, 3.3, 3.5 + Épica 10 🟡
+### G8 — Panel de alertas, ITV e informes · HU-5.1, 3.3, 3.5 + Épica 10 🟡 — ✅ IMPLEMENTADA
+*(`/alertas` con filtros tipo/nivel/estado sincronizados con la URL, ordenadas
+por severidad, matrícula enlazada a la ficha, **ITV vencida resaltada** (fila
+y fecha en rojo), **Resolver/Descartar** por fila con aviso del resultado, y
+**Registrar ITV** (botón global + directo en cada alerta de ITV, con el
+vehículo preseleccionado): resultado favorable/desfavorable, fecha y próxima
+ITV — verificado E2E que la señal del back **cierra los avisos solos** y
+refresca `next_itv_date`. `/informes` con tarjetas flota/alertas/costes y
+descarga xlsx/csv por navegación con cookies (el back acota por rol). El
+"Ver todas →" de la home ya enlaza al panel.)*
 - **Panel de alertas** (`/alerts/`): **ITV escalonada 30/15/7 + vencida resaltada**
   (HU-5.1), **km pendiente** (HU-3.3), **sin conductor** (HU-1.7), **exceso de km**
   (HU-3.5). Cada alerta identifica el vehículo (matrícula/modelo) y enlaza a la

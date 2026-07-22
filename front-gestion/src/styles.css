@@ -587,3 +587,28 @@ table.data th {
 @media (max-width: 800px) {
   .history-grid { grid-template-columns: 1fr; }
 }
+
+/* --- G8: alertas e informes ------------------------------------------------ */
+/* ITV vencida resaltada (HU-5.1) */
+.row-overdue td { background: #fdf2f2; }
+
+.reports-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+.report-actions { display: flex; gap: 0.7rem; margin-top: 0.6rem; }
+.report-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--border, #cfdae6);
+  border-radius: 10px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #1f63b8;
+  text-decoration: none;
+  background: #fff;
+}
+.report-download:hover { border-color: #009491; color: #009491; }
