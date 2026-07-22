@@ -125,6 +125,26 @@ export interface VehicleSummary {
   } | null
 }
 
+/** Alerta del motor de avisos (Épica 10). Solo lectura + resolver/descartar. */
+export type AlertLevel = 'info' | 'warning' | 'critical'
+export type AlertStatus = 'open' | 'resolved' | 'dismissed'
+
+export interface Alert {
+  id: number
+  type: string
+  type_display: string
+  level: AlertLevel
+  level_display: string
+  status: AlertStatus
+  status_display: string
+  vehicle: number | null
+  vehicle_plate: string
+  user: number | null
+  message: string
+  due_date: string | null
+  created_at: string
+}
+
 /** Asignación (aquí solo lectura de propuestas propias — HU-2.3). */
 export interface AssignmentRow {
   id: number

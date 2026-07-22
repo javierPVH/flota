@@ -289,7 +289,19 @@ cierra la alerta.)*
 - **Aceptación:** el conductor propone fechas e informa de la ITV desde el móvil;
   el sistema no altera la asignación hasta que el admin confirma.
 
-### M5 — Alertas del ámbito · HU-3.2, 3.3, 3.5, 5.1, 1.7 🟡
+### M5 — Alertas del ámbito · HU-3.2, 3.3, 3.5, 5.1, 1.7 🟡 — ✅ IMPLEMENTADA
+*(Cómo quedó: `AlertsPage` en `/alertas`, pestaña 🔔 de la bottom-nav. Tarjetas
+ordenadas por nivel (crítica → aviso → info) con badge de nivel, tipo,
+matrícula enlazada a la ficha, mensaje y fechas; toggle "Ver cerradas" (las
+resueltas/descartadas salen atenuadas). Acción natural por tipo: `km pendiente`
+→ botón "Registrar km" (preseleccionado); el resto → "Ver ficha" (donde viven
+Registrar ITV, etc.). Los botones Resolver/Descartar solo se pintan al
+supervisor — y el back lo impone (`IsManagement`, 403 al conductor). HU-3.3:
+panel "Lecturas pendientes del grupo" para el supervisor, derivado de las
+alertas `km_reading_pending` abiertas + summary de cada vehículo ("sin lectura
+desde el…", enlace a ficha). Verificado E2E con seed: carlos ve solo las de su
+1234KLM y recibe 403 al resolver; sara ve su grupo (1234KLM + 5678BCD) y
+resuelve; admin ve toda la flota.)*
 - Bandeja **móvil** de alertas (`/alerts/`) acotada por rol:
   - **Conductor:** **km pendiente** e **ITV** de sus vehículos (HU-3.2/5.1).
   - **Supervisor:** además, **sin conductor** (HU-1.7) y **exceso de km**

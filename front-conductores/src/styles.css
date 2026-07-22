@@ -311,6 +311,43 @@ table.data th {
   color: var(--info, #1f63b8);
 }
 
+/* --- M5: bandeja de alertas ---------------------------------------------- */
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0.4rem 0;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--info, #1f63b8);
+  cursor: pointer;
+  text-decoration: none;
+}
+.badge.level-critical { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); }
+.badge.level-warning { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); }
+.badge.level-info { background: #e2edf9; color: var(--info, #1f63b8); }
+.alert-type { font-weight: 700; font-size: 0.9rem; }
+.alert-message { margin: 0.5rem 0 0.2rem; }
+.alert-plate { font-size: 1rem; text-decoration: underline; }
+.alert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  align-items: center;
+}
+.alert-actions .quick-action { min-height: 44px; padding: 0 0.9rem; }
+.alert-closed { opacity: 0.65; }
+.alerts-empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1rem;
+  color: var(--muted-text, #5f748c);
+  text-align: center;
+}
+.closed-title { margin: 1.4rem 0 0.7rem; font-size: 1rem; }
+
 /* --- M3: registro de odómetro + accesos directos ------------------------- */
 .quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
 .quick-action {

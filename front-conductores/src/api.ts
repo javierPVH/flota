@@ -1,6 +1,7 @@
 import { getCookie, getJson, postJson, toUrl } from '@flota/ui/http'
 
 import type {
+  Alert,
   AssignmentRow,
   AuthConfig,
   DevUser,
@@ -50,6 +51,14 @@ export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${
 
 export const fetchVehicleSummary = (id: number) =>
   getJson<VehicleSummary>(`${API}/vehicles/${id}/summary/`)
+
+// --- M5: alertas del ámbito (HU-3.2/3.3/3.5/5.1/1.7) -----------------------
+export const listAlerts = (status: string) =>
+  getJson<Paginated<Alert>>(`${API}/alerts/?status=${status}`)
+
+/** Solo gestión (supervisor/admin); el conductor no ve estos botones. */
+export const resolveAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/resolve/`, {})
+export const dismissAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/dismiss/`, {})
 
 // --- M4: aportaciones del conductor (HU-2.3, 5.1) --------------------------
 

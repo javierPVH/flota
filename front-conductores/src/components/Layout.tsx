@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Car, PlusCircle } from 'lucide-react'
+import { Bell, Car, PlusCircle } from 'lucide-react'
 import { Button } from '@flota/ui/ui'
 
 import { useAuth } from '../auth.ts'
@@ -40,6 +40,10 @@ export function Layout() {
         <NavLink to="/registrar" className="bottom-tab">
           <PlusCircle size={22} strokeWidth={2.4} aria-hidden />
           <span>Registrar km</span>
+        </NavLink>
+        <NavLink to="/alertas" className="bottom-tab">
+          <Bell size={22} strokeWidth={2.4} aria-hidden />
+          <span>Alertas</span>
         </NavLink>
       </nav>
     </div>
