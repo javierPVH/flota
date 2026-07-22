@@ -280,6 +280,7 @@ Table vehicles {
   km_end int
   next_itv_date date [note: 'denormalizado del último event_itvs.next_due; lo refresca un job']
   drive_folder_url varchar [note: 'carpeta documental en Drive (HU-4.2)']
+  drive_folder_id varchar [note: 'ID de la carpeta en Google Drive (Fase A3)']
 
   indexes {
     state
@@ -421,7 +422,8 @@ Table invoices {
   vehicle_id int [not null, ref: > vehicles.id]
   date date
   amount decimal
-  file varchar [note: 'ruta o URL al PDF']
+  drive_url varchar [note: 'enlace al PDF en Google Drive (Fase A3)']
+  drive_file_id varchar [note: 'ID del fichero en Drive (lo rellena el Picker)']
 }
 
 Table invoice_allocations {
@@ -453,8 +455,9 @@ Table documents {
   vehicle_id int [not null, ref: > vehicles.id]
   type document_type_enum [not null]
   incident_id int [ref: > incidents.id, note: 'documento ligado a incidencia (acta/parte/fotos)']
-  drive_url varchar
-  file varchar [note: 'ruta del binario subido por multipart (FileField, Fase A1)']
+  drive_url varchar [note: 'webViewLink en Google Drive (Fase A3)']
+  drive_file_id varchar [note: 'ID del fichero en Drive (Picker o archivador)']
+  file varchar [note: 'staging local del multipart (Fase A1); se borra al archivar en Drive']
   uploaded_by_id int [ref: > drivers.id]
   expiry_date date [note: 'seguro, permiso, ITV…']
   status document_status_enum [not null, default: 'valid']

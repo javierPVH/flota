@@ -285,7 +285,7 @@ vehículos/Mi grupo" en tarjetas con semáforo de ITV.)*
 
 ---
 
-## Dependencias con el backend — ✅ resueltas (Fase A1), salvo Drive (A3) y push
+## Dependencias con el backend — ✅ resueltas (Fases A1 y A3), salvo push
 
 Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
 (ver [`PLAN_MEJORA_BACK.md`](./PLAN_MEJORA_BACK.md)). Endpoints a consumir:
@@ -299,10 +299,10 @@ Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
 | **2.5** (M6) | `POST /api/v1/vehicle-usages/set/` — el back valida la **suma = 100** y cierra el reparto vigente |
 | **4.1** (M2) | `/documents/` acepta **multipart** (`file` desde cámara/galería, máx. 10 MB, jpg/png/webp/heic/pdf); sin URL queda `pendiente_archivar` y `file_url` la sirve `/media/` |
 | **Portón** (M0) | `GET/POST /vehicle-requests/mine/` — solicitud propia con clave de ticket Jira y seguimiento de estado; concesión: sync con Jira (`sync_jira_requests`) o a mano por la admin (`grant`/`reject`) |
+| **M2 Drive** (A3) | `GoogleDriveArchiver` real (cuenta de servicio) sube el multipart `pendiente_archivar` a la carpeta de Drive del vehículo, rellena `drive_url`/`drive_file_id` y borra el staging local. Requiere `FLEET_ARCHIVE_BACKEND=gdrive` + `GOOGLE_SA_KEYFILE` + `GOOGLE_DRIVE_ROOT_FOLDER_ID`; sin credenciales, el documento queda `pendiente_archivar` y se abre por `file_url` (`/media/`) |
 
 | Pendiente | Estado |
 |-----------|--------|
-| **M2 Drive** (🟡) | **Fase A3 del back** sin implementar: el `GoogleDriveArchiver` real (cuenta de servicio) que sube el multipart `pendiente_archivar` a la carpeta de Drive del vehículo y rellena `drive_url`/`drive_file_id`. Hasta entonces el multipart funciona igual, pero el documento se queda `pendiente_archivar` y se abre por `file_url` (`/media/`) |
 | **M8 push** (🔵) | Sin implementar: suscripciones web-push/FCM + envío desde el motor de alertas — se abordará con la fase M8 |
 
 > Además: km (`/km-readings/` con no-retroceso en servidor; última lectura con

@@ -348,11 +348,22 @@ class EventSerializer(serializers.ModelSerializer):
         return event
 
 
+def _https_only(value: str) -> str:
+    """Las URLs de Drive que llegan del cliente deben ser https (patrón `list`):
+    corta `javascript:`/`data:`/http plano antes de que lleguen a un href."""
+    if value and not value.startswith("https://"):
+        raise serializers.ValidationError("La URL debe empezar por https://.")
+    return value
+
+
 class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_drive_url(self, value):
+        return _https_only(value)
 
 
 class InvoiceAllocationSerializer(serializers.ModelSerializer):
@@ -455,6 +466,9 @@ class DocumentSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         url = obj.file.url
         return request.build_absolute_uri(url) if request else url
+
+    def validate_drive_url(self, value):
+        return _https_only(value)
 
     def validate_file(self, value):
         if value is None:

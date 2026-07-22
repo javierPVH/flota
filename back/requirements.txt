@@ -8,6 +8,13 @@ python-dotenv>=1.0,<2.0
 drf-spectacular>=0.27,<0.31
 # Verificación de ID tokens de Google (login con Google, AUTH_GOOGLE_ENABLED).
 google-auth>=2.35,<3.0
+# Google Drive (Fase A3): OAuth de usuario (Picker) + archivado con cuenta de
+# servicio. Importadas de forma perezosa: la app funciona sin configurarlas.
+google-api-python-client>=2.140,<3.0
+google-auth-oauthlib>=1.2,<2.0
+google-auth-httplib2>=0.2,<1.0
+# Cifrado en reposo de los tokens OAuth (accounts.fields.EncryptedTextField).
+cryptography>=43,<47
 # Auditoría de campos (quién cambió qué y cuándo) — ver MEJORAS.md §3.
 django-auditlog>=3,<4
 # Filtrado/búsqueda declarativos para la API (listados de la Épica 1).

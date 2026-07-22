@@ -13,8 +13,15 @@ class Invoice(TimeStampedModel):
     vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="invoices")
     date = models.DateField("Fecha", null=True, blank=True)
     amount = models.DecimalField("Importe", max_digits=12, decimal_places=2, null=True, blank=True)
-    file = models.CharField(
-        "Documento", max_length=500, blank=True, help_text="Ruta o URL al PDF de la factura."
+    # El PDF vive en Google Drive (Fase A3): se guarda solo la referencia.
+    drive_url = models.CharField(
+        "URL en Drive", max_length=500, blank=True, help_text="Enlace al PDF de la factura."
+    )
+    drive_file_id = models.CharField(
+        "ID en Drive",
+        max_length=100,
+        blank=True,
+        help_text="ID del fichero en Google Drive (lo rellena el Picker al adjuntar).",
     )
 
     class Meta:

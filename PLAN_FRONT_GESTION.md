@@ -368,7 +368,7 @@ listado en una sola vista)*
 
 ---
 
-## Dependencias con el backend — ✅ resueltas (Fase A1), salvo Drive (A3)
+## Dependencias con el backend — ✅ resueltas (Fases A1 y A3)
 
 Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
 (ver [`PLAN_MEJORA_BACK.md`](./PLAN_MEJORA_BACK.md)). Endpoints a consumir:
@@ -383,10 +383,7 @@ Los huecos que bloqueaban fases se implementaron en la **Fase A1** del backend
 | **2.4** (G5) | `POST /assignments/{id}/accept|reject/` (transición completa + evento) |
 | **2.5 / Épica 7** (G5/G10) | `POST /vehicle-usages/set/` y `POST /invoices/{id}/allocate/` — el back valida la **suma = 100** |
 | **4.4** (G7) | `/documents/` acepta **multipart** (`file`, máx. 10 MB foto/PDF) además de `drive_url`; `file_url` en la respuesta |
-
-| Pendiente | Estado |
-|-----------|--------|
-| **G7/G10 Drive** (🟡) | **Fase A3 del back** sin implementar: OAuth con scope Drive + `GET /google/picker-config/` + `GET /google/drive/folder-files/` + campos `drive_file_id` (Document/Invoice) y `drive_folder_id` (Vehicle). Hasta entonces, G7 puede arrancar con `drive_url` pegada a mano + multipart |
+| **G7/G10 Drive** (A3) | `GET /api/v1/google/picker-config/` (config + `access_token` vigente), `GET /google/drive/folder-files/`, OAuth en `/google/oauth/login/`; `drive_file_id` en Document/Invoice y `drive_folder_id` en Vehicle. Sin credenciales devuelve `enabled:false` (el front oculta el Picker) |
 
 Sigue siendo del front (por diseño): el **aviso previo a la baja** (HU-1.5) —
 consultar asignación/vínculos activos antes de confirmar.

@@ -238,6 +238,41 @@ GOOGLE_ALLOWED_DOMAINS = env_list("GOOGLE_ALLOWED_DOMAINS")
 # False = solo pueden entrar por Google usuarios ya existentes (aprovisionados aparte).
 GOOGLE_AUTO_CREATE_USERS = env_bool("GOOGLE_AUTO_CREATE_USERS", True)
 
+# --- Google Drive / Picker (Fase A3, patrón `list`) ------------------------
+# OAuth de usuario para el Google Picker (subir/elegir documentos en el front
+# de gestión). Distinto del login con Google de arriba: aquí hace falta el
+# flujo de código completo (client_secret + redirect) con scopes de Drive.
+GOOGLE_OAUTH_ENABLED = env_bool("GOOGLE_OAUTH_ENABLED", False)
+GOOGLE_OAUTH_CLIENT_SECRET = env_str("GOOGLE_OAUTH_CLIENT_SECRET", "")
+# Debe coincidir EXACTAMENTE con la URI autorizada en Google Cloud Console.
+GOOGLE_OAUTH_REDIRECT_URI = env_str(
+    "GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8000/api/v1/google/oauth/callback/"
+)
+GOOGLE_OAUTH_SCOPES = env_list(
+    "GOOGLE_OAUTH_SCOPES",
+    [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        # drive.file: el Picker sube y da acceso SOLO a lo que el usuario elige.
+        "https://www.googleapis.com/auth/drive.file",
+        # drive.readonly: listar la carpeta del vehículo (folder-files).
+        "https://www.googleapis.com/auth/drive.readonly",
+    ],
+)
+# API key + App ID (número de proyecto) que necesita el Google Picker en el SPA.
+GOOGLE_API_KEY = env_str("GOOGLE_API_KEY", "")
+GOOGLE_PICKER_APP_ID = env_str("GOOGLE_PICKER_APP_ID", "")
+# Cuenta de servicio (JSON) del ARCHIVADOR: sube a Drive los documentos que
+# llegan por multipart desde el móvil. La carpeta raíz debe estar compartida
+# con el email de la SA (permiso de editor).
+GOOGLE_SA_KEYFILE = env_str("GOOGLE_SA_KEYFILE", "")
+GOOGLE_DRIVE_ROOT_FOLDER_ID = env_str("GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
+# A dónde vuelve el navegador tras el callback del OAuth (el front de gestión).
+FRONTEND_BASE_URL = env_str("FRONTEND_BASE_URL", "http://localhost:5173")
+# Claves Fernet para cifrar los tokens OAuth en BD (accounts.fields). La PRIMERA
+# cifra y todas descifran (rotación). Vacío = clave derivada del SECRET_KEY.
+FIELD_ENCRYPTION_KEYS = env_list("FIELD_ENCRYPTION_KEYS")
+
 # Validaciones de coherencia (solo estrictas en producción para no estorbar en dev).
 if not DEBUG:
     if not (AUTH_PASSWORD_ENABLED or AUTH_GOOGLE_ENABLED):
@@ -248,6 +283,11 @@ if not DEBUG:
     if AUTH_GOOGLE_ENABLED and not GOOGLE_OAUTH_CLIENT_ID:
         raise ImproperlyConfigured(
             "AUTH_GOOGLE_ENABLED=True requiere definir GOOGLE_OAUTH_CLIENT_ID."
+        )
+    if GOOGLE_OAUTH_ENABLED and not (GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET):
+        raise ImproperlyConfigured(
+            "GOOGLE_OAUTH_ENABLED=True requiere GOOGLE_OAUTH_CLIENT_ID y "
+            "GOOGLE_OAUTH_CLIENT_SECRET (flujo del Picker de Drive)."
         )
 
 # --- DRF ------------------------------------------------------------------

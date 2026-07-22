@@ -122,6 +122,13 @@ class Vehicle(TimeStampedModel):
         help_text="Carpeta del vehículo en el repositorio documental (HU-4.2). "
         "La crea el archivador la primera vez que se archiva un documento.",
     )
+    drive_folder_id = models.CharField(
+        "ID de carpeta en Drive",
+        max_length=100,
+        blank=True,
+        help_text="ID de la carpeta del vehículo en Google Drive (Fase A3): lo usa "
+        "el archivador para subir y el Picker para listar (`folder-files`).",
+    )
 
     class Meta:
         verbose_name = "vehículo"

@@ -12,6 +12,8 @@ urlpatterns = [
     path("api/", include("core.urls")),  # /api/health/, /api/ready/
     # API de negocio versionada: evolucionar sin romper clientes (futuro /api/v2/).
     path("api/v1/auth/", include("accounts.urls")),  # /api/v1/auth/{csrf,login,me,…}/
+    # Google Drive/Picker (Fase A3): OAuth de usuario + config del Picker.
+    path("api/v1/google/", include("accounts.google_urls")),
     path("api/v1/", include("fleet.urls")),  # /api/v1/vehicles/, …
 ]
 

@@ -126,6 +126,7 @@ erDiagram
         int km_end
         date next_itv_date "denormalizado del último EventItv"
         string drive_folder_url "carpeta documental (HU-4.2)"
+        string drive_folder_id "ID de carpeta en Drive (A3)"
     }
 
     CONTRACT {
@@ -227,7 +228,8 @@ erDiagram
         int vehicle_id FK
         date date
         decimal amount
-        string file "ruta/URL al PDF"
+        string drive_url "PDF en Google Drive (A3)"
+        string drive_file_id "ID en Drive (Picker)"
     }
     INVOICE_ALLOCATION {
         int id PK
@@ -253,8 +255,9 @@ erDiagram
         int vehicle_id FK
         enum type "document_type"
         int incident_id FK
-        string drive_url
-        file file "binario subido (multipart, Fase A1)"
+        string drive_url "webViewLink en Drive (A3)"
+        string drive_file_id "ID en Drive (Picker o archivador)"
+        file file "staging multipart; se borra al archivar (A3)"
         int uploaded_by_id FK "USER"
         date expiry_date
         enum status "document_status"

@@ -68,22 +68,111 @@ class LocalArchiver(BaseArchiver):
         return f"{folder}/doc-{document.pk}-{document.type}"
 
 
-class GoogleDriveArchiver(BaseArchiver):
-    """Stub de Google Drive (Épica 9).
+_FOLDER_MIME = "application/vnd.google-apps.folder"
 
-    Cuando existan credenciales (`GOOGLE_DRIVE_*`), aquí se crearía la carpeta del
-    vehículo y se subiría el fichero devolviendo su URL. Sin credenciales, se
-    comporta como `NullArchiver` (deja el documento pendiente) para no romper el
-    alta. Ver la nota de autorización de conectores en el README.
+
+class GoogleDriveArchiver(BaseArchiver):
+    """Google Drive real (Fase A3): sube el binario a la carpeta del vehículo.
+
+    Usa la CUENTA DE SERVICIO (`GOOGLE_SA_KEYFILE`); la carpeta raíz
+    (`GOOGLE_DRIVE_ROOT_FOLDER_ID`) debe estar compartida con su email como
+    editor. Por vehículo se crea (o reutiliza) una subcarpeta con su matrícula
+    (`Vehicle.drive_folder_id`); tras subir, guarda `drive_file_id`, borra el
+    binario local (staging en `MEDIA_ROOT`) y devuelve el `webViewLink`.
+    Sin credenciales se comporta como `NullArchiver` (documento pendiente).
     """
+
+    def __init__(self, service=None):
+        self._service = service  # inyectable en tests
+
+    def _get_service(self):
+        if self._service is None:
+            from accounts.google_oauth import drive_service_service_account
+
+            self._service = drive_service_service_account()
+        return self._service
+
+    def _num_retries(self) -> int:
+        from accounts.google_oauth import GOOGLE_NUM_RETRIES
+
+        return GOOGLE_NUM_RETRIES
+
+    def ensure_folder(self, vehicle) -> str:
+        """Asegura la carpeta del vehículo en Drive; devuelve su URL (o '')."""
+        if vehicle.drive_folder_id:
+            return vehicle.drive_folder_url
+        service = self._get_service()
+        root = getattr(settings, "GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
+        if not service or not root:
+            return ""
+        safe_plate = vehicle.plate.replace("'", "")
+        found = (
+            service.files()
+            .list(
+                q=(
+                    f"name = '{safe_plate}' and '{root}' in parents "
+                    f"and mimeType = '{_FOLDER_MIME}' and trashed = false"
+                ),
+                pageSize=1,
+                fields="files(id,webViewLink)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute(num_retries=self._num_retries())
+            .get("files", [])
+        )
+        if found:
+            folder = found[0]
+        else:
+            folder = (
+                service.files()
+                .create(
+                    body={"name": vehicle.plate, "mimeType": _FOLDER_MIME, "parents": [root]},
+                    fields="id,webViewLink",
+                    supportsAllDrives=True,
+                )
+                .execute(num_retries=self._num_retries())
+            )
+        vehicle.drive_folder_id = folder.get("id") or ""
+        vehicle.drive_folder_url = folder.get("webViewLink") or ""
+        vehicle.save(update_fields=["drive_folder_id", "drive_folder_url", "updated_at"])
+        return vehicle.drive_folder_url
 
     def archive(self, document: Document) -> str | None:
         if not getattr(settings, "GOOGLE_DRIVE_ENABLED", False):
             logger.info("Drive no configurado: documento %s pendiente de archivar.", document.pk)
             return None
-        raise NotImplementedError(
-            "Integración real con Google Drive pendiente de credenciales (Épica 9)."
-        )
+        service = self._get_service()
+        if not service:
+            logger.info("Sin cuenta de servicio: documento %s pendiente.", document.pk)
+            return None
+        if not document.file:
+            return None  # sin binario no hay nada que subir (drive_url ya se trató)
+        self.ensure_folder(document.vehicle)
+        folder_id = document.vehicle.drive_folder_id
+        if not folder_id:
+            return None
+        import mimetypes
+
+        from googleapiclient.http import MediaIoBaseUpload
+
+        filename = Path(document.file.name).name
+        mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        with document.file.open("rb") as handle:
+            created = (
+                service.files()
+                .create(
+                    body={"name": f"{document.type}-{filename}", "parents": [folder_id]},
+                    media_body=MediaIoBaseUpload(handle, mimetype=mime),
+                    fields="id,webViewLink",
+                    supportsAllDrives=True,
+                )
+                .execute(num_retries=self._num_retries())
+            )
+        document.drive_file_id = created.get("id") or ""
+        # El binario local era solo staging: una vez en Drive, se borra.
+        document.file.delete(save=False)
+        return created.get("webViewLink") or None
 
 
 def get_archiver() -> BaseArchiver:
@@ -117,7 +206,10 @@ def archive_document(document: Document, *, archiver: BaseArchiver | None = None
     if url:
         document.drive_url = url
         document.status = DocumentStatus.VALID
-        document.save(update_fields=["drive_url", "status", "updated_at"])
+        # `drive_file_id`/`file` los puede haber tocado el archivador (Drive sube
+        # el binario y borra el staging local); persistirlos aquí es inocuo para
+        # los backends que no los tocan.
+        document.save(update_fields=["drive_url", "drive_file_id", "file", "status", "updated_at"])
     else:
         if document.status != DocumentStatus.PENDING_ARCHIVE:
             document.status = DocumentStatus.PENDING_ARCHIVE

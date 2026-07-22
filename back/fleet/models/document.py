@@ -28,6 +28,13 @@ class Document(TimeStampedModel):
     drive_url = models.CharField(
         "URL en Drive", max_length=500, blank=True, help_text="Ruta o URL al documento archivado."
     )
+    drive_file_id = models.CharField(
+        "ID en Drive",
+        max_length=100,
+        blank=True,
+        help_text="ID del fichero en Google Drive (Fase A3). Lo rellena el Picker "
+        "(vía escritorio) o el archivador al subir el multipart (vía móvil).",
+    )
     file = models.FileField(
         "Fichero",
         upload_to="documents/%Y/%m/",

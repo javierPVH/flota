@@ -201,7 +201,7 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
   supervisor sin grupo ve la flota vacía (aviso en el front); su grupo lo asigna
   el admin (HU-2.7). Estado `pending` nuevo (migración `0009`), cron de ejemplo
   actualizado. 15 tests nuevos (185 en total, verdes).
-- **Fase A3 — Documentos y facturas en Google Drive (patrón `list`): 🟡 PENDIENTE.**
+- **Fase A3 — Documentos y facturas en Google Drive (patrón `list`): ✅ IMPLEMENTADA.**
   **Decisión:** todos los documentos y facturas se guardan en **Drive**; la BD
   solo persiste la **referencia** (`drive_file_id`, `drive_url` = `webViewLink`,
   nombre, mime) — nunca los bytes a largo plazo. Se calca la arquitectura de
@@ -244,6 +244,22 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
     y degradan (`{"files": [], "error": "drive_unavailable"}`) sin romper la
     petición; token no refrescable → `has_drive:false` y tarjeta de reconexión
     en el front.
+  - **Cómo quedó:** `GoogleCredential` cifrado en reposo
+    ([`accounts/fields.py`](./back/accounts/fields.py) `EncryptedTextField`
+    Fernet, rotación por `FIELD_ENCRYPTION_KEYS`); flujo OAuth PKCE +
+    `prompt=consent` y endpoints en [`accounts/google_views.py`](./back/accounts/google_views.py)
+    (montados en `/api/v1/google/`); cliente Drive con timeout de socket y
+    reintentos en [`accounts/google_oauth.py`](./back/accounts/google_oauth.py);
+    `GoogleDriveArchiver` real ([`fleet/services/archiver.py`](./back/fleet/services/archiver.py)):
+    asegura/reutiliza la carpeta por matrícula bajo
+    `GOOGLE_DRIVE_ROOT_FOLDER_ID`, sube con `MediaIoBaseUpload`, guarda
+    `drive_file_id`/`webViewLink` y borra el staging local. Migraciones
+    `accounts/0002` y `fleet/0010` (`invoice.file` **renombrado** a `drive_url`
+    para conservar datos). URLs de Drive del cliente saneadas (https-only) en
+    los serializers. Se activa por entorno: `GOOGLE_OAUTH_ENABLED` (Picker) y
+    `FLEET_ARCHIVE_BACKEND=gdrive` + `GOOGLE_DRIVE_ENABLED` + SA (archivador).
+    29 tests nuevos con dobles de Drive, sin red (214 en total, verdes;
+    cobertura 86%).
 - **Pendiente (🔵):** push (suscripciones web-push/FCM + envío desde el
   motor de alertas) — va con la fase M8 del front móvil.
 

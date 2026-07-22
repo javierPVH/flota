@@ -1,7 +1,10 @@
 from functools import cached_property
 
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+
+from .fields import EncryptedTextField
 
 
 class Role(models.TextChoices):
@@ -94,3 +97,31 @@ class UserRole(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user} · {self.get_role_display()}"
+
+
+class GoogleCredential(models.Model):
+    """Credenciales OAuth de Google de un usuario (Fase A3: Drive/Picker).
+
+    Se rellena tras el consentimiento OAuth (`/api/v1/google/oauth/…`). El
+    `refresh_token` permite pedir nuevos `access_token` sin que el usuario
+    vuelva a consentir. 1:1 con el usuario; los tokens se cifran en reposo
+    (`EncryptedTextField`).
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="google_credential",
+    )
+    refresh_token = EncryptedTextField(blank=True, default="")
+    access_token = EncryptedTextField(blank=True, default="")
+    token_expiry = models.DateTimeField(null=True, blank=True)
+    scopes = models.TextField(blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "credencial de Google"
+        verbose_name_plural = "credenciales de Google"
+
+    def __str__(self) -> str:
+        return f"GoogleCredential({self.user})"
