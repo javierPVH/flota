@@ -87,6 +87,46 @@ export const deleteVehicle = (id: number) => deleteJson(`${API}/vehicles/${id}/`
 
 export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${id}/`)
 
+// --- G3: alta/edición seccionada -------------------------------------------
+
+/** Alta transaccional (HU-1.3): campos del vehículo + anidados opcionales. */
+export interface VehicleFullInput extends Record<string, unknown> {
+  contract?: {
+    contract_number?: string
+    contract_time?: number | null
+    contract_km?: number | null
+    renting?: number | null
+    start_date: string
+    planned_end_date: string
+    month_fee?: string | null
+    penalty_per_km?: string | null
+  }
+  driver?: number | null
+}
+
+export const createVehicleFull = (data: VehicleFullInput) =>
+  postJson<Vehicle>(`${API}/vehicles/`, data)
+
+export const updateVehicleFields = (id: number, data: Record<string, unknown>) =>
+  patchJson<Vehicle>(`${API}/vehicles/${id}/`, data)
+
+/** POST /vehicles/{id}/preview/ — diff campo a campo sin guardar (HU-1.4). */
+export const previewVehicle = (id: number, data: Record<string, unknown>) =>
+  postJson<{ changes: Record<string, [unknown, unknown]> }>(
+    `${API}/vehicles/${id}/preview/`,
+    data,
+  )
+
+export interface CatalogEntry {
+  id: number
+  name?: string
+  code?: string
+  project_name?: string
+}
+
+export const listCatalog = (resource: 'projects' | 'peps' | 'business-units' | 'rentings' | 'countries') =>
+  getJson<Paginated<CatalogEntry>>(`${API}/${resource}/`)
+
 // --- G1: alertas de la vista general ----------------------------------------
 
 export const listAlerts = (status = 'open') =>

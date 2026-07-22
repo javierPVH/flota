@@ -271,7 +271,7 @@ export function VehicleDetailPage() {
           <Button variant="primary" onClick={() => setKmModal(true)}>
             Registrar km
           </Button>
-          <Button variant="secondary" onClick={() => navigate('/vehiculos')}>
+          <Button variant="secondary" onClick={() => navigate(`/vehiculos/${vehicleId}/editar`)}>
             Editar
           </Button>
         </div>

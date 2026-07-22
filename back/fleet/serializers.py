@@ -31,7 +31,13 @@ from .models import (
     VehicleRequest,
     VehicleUsage,
 )
-from .models.enums import AllocationTarget, EventType, UseType, VehicleState
+from .models.enums import (
+    AllocationTarget,
+    AssignmentStatus,
+    EventType,
+    UseType,
+    VehicleState,
+)
 from .selectors import current_driver_map
 
 
@@ -58,6 +64,23 @@ class LogEntrySerializer(serializers.ModelSerializer):
         return obj.changes if isinstance(obj.changes, dict) else obj.changes_dict
 
 
+class VehicleContractInputSerializer(serializers.ModelSerializer):
+    """Contrato anidado del ALTA transaccional de vehículo (HU-1.3, G3)."""
+
+    class Meta:
+        model = Contract
+        fields = [
+            "contract_number",
+            "contract_time",
+            "contract_km",
+            "renting",
+            "start_date",
+            "planned_end_date",
+            "month_fee",
+            "penalty_per_km",
+        ]
+
+
 class VehicleSerializer(serializers.ModelSerializer):
     """Serializer de vehículo (nuevo esquema).
 
@@ -69,6 +92,16 @@ class VehicleSerializer(serializers.ModelSerializer):
     state_display = serializers.CharField(source="get_state_display", read_only=True)
     supervisor_name = serializers.SerializerMethodField()
     driver_name = serializers.SerializerMethodField()
+    # Alta transaccional (HU-1.3): contrato y conductor OPCIONALES en el POST;
+    # con `km_start` se registra además la primera lectura. Solo en el alta —
+    # editar contrato/conductor/kilometraje va por sus flujos propios.
+    contract = VehicleContractInputSerializer(write_only=True, required=False)
+    driver = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.filter(is_active=True),
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = Vehicle
@@ -104,6 +137,8 @@ class VehicleSerializer(serializers.ModelSerializer):
             "driver_name",
             "drive_folder_url",
             "drive_folder_id",
+            "contract",
+            "driver",
             "created_at",
             "updated_at",
         ]
@@ -149,7 +184,46 @@ class VehicleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"project": "El proyecto es obligatorio cuando el uso es 'Proyecto'."}
             )
+        # Los anidados del alta no valen en edición: tienen flujo propio
+        # (contratos por su CRUD; conductor por "Cambiar conductor" — HU-1.4).
+        if self.instance is not None:
+            forbidden = {"contract", "driver"} & set(self.initial_data.keys())
+            if forbidden:
+                raise serializers.ValidationError(
+                    dict.fromkeys(sorted(forbidden), "Solo se admite en el alta.")
+                )
+        driver = attrs.get("driver")
+        if driver is not None and not driver.is_driver:
+            raise serializers.ValidationError(
+                {"driver": "El usuario asignado no tiene rol de conductor."}
+            )
         return attrs
+
+    def create(self, validated_data):
+        """Alta transaccional (HU-1.3): vehículo + contrato + 1ª lectura +
+        asignación, o NADA (corre dentro del `atomic` de `perform_create`)."""
+        from .services import events
+
+        contract_data = validated_data.pop("contract", None)
+        driver = validated_data.pop("driver", None)
+        vehicle = super().create(validated_data)
+        today = timezone.localdate()
+        if contract_data:
+            Contract.objects.create(vehicle=vehicle, **contract_data)
+        if vehicle.km_start is not None:
+            reading = KmReading.objects.create(
+                vehicle=vehicle, reading_date=today, km_reading=vehicle.km_start
+            )
+            events.emit_km_reading(reading)
+        if driver is not None:
+            Assignment.objects.create(
+                vehicle=vehicle,
+                driver=driver,
+                start_date=today,
+                status=AssignmentStatus.ACCEPTED,
+            )
+            events.emit_driver_change(vehicle, None, driver)
+        return vehicle
 
 
 # --- Recursos que cuelgan del vehículo -----------------------------------

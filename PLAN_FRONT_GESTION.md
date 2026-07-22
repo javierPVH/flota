@@ -232,8 +232,19 @@ conductor" llega con G5 y "Refacturar" con G10.)*
   cambiar conductor.
 - **Aceptación:** la ficha reúne toda la información y las acciones en un sitio.
 
-### G3 — Alta y edición del vehículo · HU-1.3, 1.4, 2.7 🔴
-*(pantallas "Creación vehículos" y "Edición vehículos" del PDF)*
+### G3 — Alta y edición del vehículo · HU-1.3, 1.4, 2.7 🔴 — ✅ IMPLEMENTADA
+*(`/vehiculos/nuevo` y `/vehiculos/:id/editar` con las 4 secciones del plan;
+proyecto deshabilitado salvo uso "Proyecto" (y obligatorio entonces, validado
+también en el back); contrato solo con propiedad = renting; conductor "Sin
+asignar" por defecto. El back ganó el **alta transaccional real**: el POST de
+vehículo acepta `contract` y `driver` anidados y con `km_start` crea la 1ª
+lectura — vehículo + contrato + lectura + asignación aceptada + eventos en una
+transacción, y un fallo no crea nada (4 tests). En edición: banner + badges
+`histórico` (uso/proyecto/CECO) y `bloqueado` (odómetro y conductor,
+deshabilitados), pie "Sin cambios todavía" con guardar deshabilitado hasta
+que haya cambios, **preview de cambios** (tabla antes→después vía
+`/preview/`) y **bloqueo optimista** con banner de conflicto y recarga (409).
+El CRUD por modal de /vehiculos se sustituyó por estas páginas.)*
 - **Alta transaccional** (HU-1.3) en formulario **seccionado** (`Section`):
   **Identificación** (matrícula*, VIN, marca*, modelo*, versión, año) ·
   **Características técnicas** (combustible*, tipo*, tamaño, segmento, uso

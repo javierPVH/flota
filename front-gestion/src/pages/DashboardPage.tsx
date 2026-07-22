@@ -123,7 +123,7 @@ export function DashboardPage() {
     <div>
       <div className="page-head">
         <h2>Vista general</h2>
-        <Button variant="primary" onClick={() => navigate('/vehiculos')}>
+        <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
           + Añadir vehículo
         </Button>
       </div>

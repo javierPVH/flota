@@ -110,3 +110,68 @@ class VehicleAccessTests(APITestCase):
         # La carpeta de Drive (Fase A3) viaja en el serializer (la usa G7).
         self.assertIn("drive_folder_url", by_plate["1234ABC"])
         self.assertIn("drive_folder_id", by_plate["1234ABC"])
+
+
+class VehicleFullCreateTests(APITestCase):
+    """Alta transaccional (HU-1.3, G3): vehículo + contrato + 1ª lectura +
+    conductor en un solo POST — o nada."""
+
+    def setUp(self):
+        self.admin = make_user("admin", Role.ADMIN)
+        self.driver = make_user("driver", Role.DRIVER)
+        self.list_url = reverse("vehicle-list")
+        self.client.force_authenticate(self.admin)
+
+    def _payload(self, **extra):
+        return {
+            "plate": "9999GGG",
+            "brand": "Seat",
+            "model": "León",
+            "km_start": 12000,
+            "contract": {
+                "contract_km": 40000,
+                "contract_time": 24,
+                "month_fee": "390.00",
+                "start_date": "2026-01-01",
+                "planned_end_date": "2028-01-01",
+            },
+            "driver": self.driver.pk,
+            **extra,
+        }
+
+    def test_full_create_creates_everything(self):
+        resp = self.client.post(self.list_url, self._payload(), format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        vehicle = Vehicle.objects.get(plate="9999GGG")
+        contract = vehicle.contracts.get()
+        self.assertEqual(contract.contract_km, 40000)
+        reading = vehicle.km_readings.get()
+        self.assertEqual(reading.km_reading, 12000)  # odómetro inicial → 1ª lectura
+        assignment = vehicle.assignments.get()
+        self.assertEqual(assignment.driver, self.driver)
+        self.assertEqual(assignment.status, "accepted")
+        kinds = set(vehicle.events.values_list("event_type", flat=True))
+        self.assertLessEqual({"creation", "km_reading", "driver_change"}, kinds)
+
+    def test_invalid_contract_creates_nothing(self):
+        payload = self._payload()
+        del payload["contract"]["planned_end_date"]  # obligatorio en Contract
+        resp = self.client.post(self.list_url, payload, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Vehicle.objects.filter(plate="9999GGG").exists())
+
+    def test_driver_without_role_rejected(self):
+        no_role = make_user("sinrol")
+        resp = self.client.post(self.list_url, self._payload(driver=no_role.pk), format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Vehicle.objects.filter(plate="9999GGG").exists())
+
+    def test_nested_rejected_on_update(self):
+        vehicle = Vehicle.objects.create(plate="1111HHH", brand="a", model="b")
+        resp = self.client.patch(
+            reverse("vehicle-detail", args=[vehicle.pk]),
+            {"driver": self.driver.pk},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("driver", resp.data.get("errors", resp.data))

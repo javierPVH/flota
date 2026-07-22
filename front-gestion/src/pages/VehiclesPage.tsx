@@ -1,43 +1,23 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
-import { Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { useCallback, useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Button } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import {
-  createVehicle,
-  deleteVehicle,
-  listVehicles,
-  updateVehicle,
-  type VehicleInput,
-} from '../api.ts'
-import type { Vehicle, VehicleState } from '../types.ts'
+import { deleteVehicle, listVehicles } from '../api.ts'
+import type { Vehicle } from '../types.ts'
 
-// Lista cerrada del back (HU-1.6). `retired` = baja (no sale del listado por
-// defecto; el flujo completo de baja con motivo llega en G4).
-const STATE_OPTIONS = [
-  { value: 'active', label: 'Activo' },
-  { value: 'maintenance', label: 'En mantenimiento' },
-  { value: 'itv', label: 'En ITV' },
-  { value: 'broken', label: 'Averiado' },
-  { value: 'retired', label: 'Baja' },
-]
-
-const EMPTY: VehicleInput = { plate: '', brand: '', model: '', state: 'active' }
-
+/** Administración de vehículos. El alta/edición seccionada vive en
+ * /vehiculos/nuevo y /vehiculos/:id/editar (G3); aquí queda el inventario
+ * con acceso rápido y el borrado con confirmación. */
 export function VehiclesPage() {
+  const navigate = useNavigate()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editing, setEditing] = useState<Vehicle | null>(null)
-  const [form, setForm] = useState<VehicleInput>(EMPTY)
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState('')
-
   const load = useCallback(() => {
     setLoading(true)
-    listVehicles()
+    listVehicles({ include_baja: 1 })
       .then((page) => {
         setVehicles(page.results)
         setError('')
@@ -47,43 +27,6 @@ export function VehiclesPage() {
   }, [])
 
   useEffect(load, [load])
-
-  function openCreate() {
-    setEditing(null)
-    setForm(EMPTY)
-    setFormError('')
-    setModalOpen(true)
-  }
-
-  function openEdit(v: Vehicle) {
-    setEditing(v)
-    setForm({
-      plate: v.plate,
-      brand: v.brand,
-      model: v.model,
-      year: v.year,
-      state: v.state,
-      vin: v.vin,
-    })
-    setFormError('')
-    setModalOpen(true)
-  }
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault()
-    setSaving(true)
-    setFormError('')
-    try {
-      if (editing) await updateVehicle(editing.id, form)
-      else await createVehicle(form)
-      setModalOpen(false)
-      load()
-    } catch (err) {
-      setFormError(asErrorMessage(err, 'No se pudo guardar el vehículo.'))
-    } finally {
-      setSaving(false)
-    }
-  }
 
   async function handleDelete(v: Vehicle) {
     if (!window.confirm(`¿Eliminar el vehículo ${v.plate}?`)) return
@@ -99,7 +42,7 @@ export function VehiclesPage() {
     <div>
       <div className="page-head">
         <h2>Vehículos</h2>
-        <Button variant="primary" onClick={openCreate}>
+        <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
           Nuevo vehículo
         </Button>
       </div>
@@ -143,7 +86,11 @@ export function VehiclesPage() {
                 <td>{v.supervisor_name || '—'}</td>
                 <td>{v.next_itv_date ?? '—'}</td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <Button variant="secondary" size="sm" onClick={() => openEdit(v)}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => navigate(`/vehiculos/${v.id}/editar`)}
+                  >
                     Editar
                   </Button>{' '}
                   <Button variant="danger" size="sm" onClick={() => handleDelete(v)}>
@@ -155,61 +102,6 @@ export function VehiclesPage() {
           </tbody>
         </table>
       )}
-
-      <Modal
-        open={modalOpen}
-        title={editing ? `Editar ${editing.plate}` : 'Nuevo vehículo'}
-        onClose={() => setModalOpen(false)}
-      >
-        <form className="modal-form" onSubmit={handleSubmit}>
-          <TextInputField
-            label="Matrícula"
-            value={form.plate ?? ''}
-            onChange={(e) => setForm((f) => ({ ...f, plate: e.target.value }))}
-            required
-          />
-          <TextInputField
-            label="Marca"
-            value={form.brand ?? ''}
-            onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))}
-            required
-          />
-          <TextInputField
-            label="Modelo"
-            value={form.model ?? ''}
-            onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-            required
-          />
-          <TextInputField
-            label="Año"
-            type="number"
-            value={form.year ?? ''}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, year: e.target.value ? Number(e.target.value) : null }))
-            }
-          />
-          <TextInputField
-            label="Bastidor (VIN)"
-            value={form.vin ?? ''}
-            onChange={(e) => setForm((f) => ({ ...f, vin: e.target.value }))}
-          />
-          <SelectField
-            label="Estado"
-            options={STATE_OPTIONS}
-            value={form.state || 'active'}
-            onValueChange={(value) => setForm((f) => ({ ...f, state: value as VehicleState }))}
-          />
-          {formError && <div className="form-error">{formError}</div>}
-          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
-            <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? 'Guardando…' : 'Guardar'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
     </div>
   )
 }
