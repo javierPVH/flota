@@ -1,6 +1,9 @@
 /** Formateo consciente de idioma (G12): fechas, EUR y km en es/en. */
 
 import type { AppLanguage } from '@flota/ui'
+import type { BadgeTone } from '@flota/ui/ui'
+
+import type { AlertLevel, DocumentStatus, IncidentStatus } from './types'
 
 const LOCALE: Record<AppLanguage, string> = { es: 'es-ES', en: 'en-GB' }
 
@@ -33,3 +36,71 @@ export function itvClass(dateStr: string | null): string {
   if (days <= 30) return 'itv-soon'
   return ''
 }
+
+// Mapeo de estados de dominio → tono de <Badge> (reutilizable en las vistas, Fase 5).
+const STATE_TONE: Record<string, BadgeTone> = {
+  active: 'success',
+  maintenance: 'warning',
+  itv: 'warning',
+  broken: 'danger',
+  accidente: 'danger',
+  retired: 'neutral',
+  non_active: 'neutral',
+}
+/** Estado técnico del vehículo → tono de Badge. */
+export const vehicleStateTone = (state: string): BadgeTone => STATE_TONE[state] ?? 'neutral'
+
+const ALERT_TONE: Record<AlertLevel, BadgeTone> = {
+  critical: 'danger',
+  warning: 'warning',
+  info: 'info',
+}
+/** Nivel de alerta → tono de Badge. */
+export const alertLevelTone = (level: AlertLevel): BadgeTone => ALERT_TONE[level] ?? 'info'
+
+const INCIDENT_TONE: Record<IncidentStatus, BadgeTone> = {
+  open: 'warning',
+  on_going: 'info',
+  closed: 'success',
+}
+/** Estado de la incidencia → tono de Badge. */
+export const incidentStatusTone = (status: IncidentStatus): BadgeTone =>
+  INCIDENT_TONE[status] ?? 'neutral'
+
+// Estado de la solicitud de vehículo (G9): pendiente/aprobada/concedida/rechazada.
+const REQUEST_TONE: Record<string, BadgeTone> = {
+  pending: 'warning',
+  approved: 'info',
+  assigned: 'success',
+  rejected: 'neutral',
+}
+/** Estado de la solicitud → tono de Badge. */
+export const requestStatusTone = (status: string): BadgeTone => REQUEST_TONE[status] ?? 'neutral'
+
+const DOCUMENT_TONE: Record<DocumentStatus, BadgeTone> = {
+  valid: 'success',
+  expired: 'neutral',
+  pending_archive: 'warning',
+}
+/** Estado del documento → tono de Badge. */
+export const documentStatusTone = (status: DocumentStatus): BadgeTone =>
+  DOCUMENT_TONE[status] ?? 'neutral'
+
+// Estado de la asignación (G5): propuesta/vigente/rechazada/finalizada.
+const ASSIGNMENT_TONE: Record<string, BadgeTone> = {
+  proposed: 'info',
+  accepted: 'success',
+  rejected: 'neutral',
+  finished: 'neutral',
+}
+/** Estado de la asignación → tono de Badge. */
+export const assignmentStatusTone = (status: string): BadgeTone => ASSIGNMENT_TONE[status] ?? 'neutral'
+
+// Nivel de proyección de km (HU-3.4): dentro/vigilar/exceso.
+const KM_LEVEL_TONE: Record<string, BadgeTone> = {
+  within: 'success',
+  watch: 'warning',
+  over: 'danger',
+}
+/** Nivel de km proyectado → tono de Badge. */
+export const kmLevelTone = (level: string): BadgeTone => KM_LEVEL_TONE[level] ?? 'neutral'

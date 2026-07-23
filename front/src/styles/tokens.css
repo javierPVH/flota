@@ -2,14 +2,88 @@
  * Tokens globales de @gs/base (variables CSS + reset mínimo).
  * Impórtalo UNA vez en el entry de la app consumidora: `import '@gs/base/styles/tokens.css'`.
  *
- * Escala de z-index canónica y coherente (menús por encima del header). Los .module.sass
- * de los componentes referencian estas variables por NOMBRE, no por valor.
+ * Estos tokens en runtime reflejan la paleta SASS (`_colors/_colors-corp.sass`) y la
+ * escala tipográfica (`_typography/_type-scale.sass`). Úsalos desde el CSS de las apps
+ * consumidoras (p. ej. front-gestion) para no hardcodear hex. Los `.module.sass` de la
+ * librería siguen usando las variables SASS; ambas capas comparten los MISMOS valores.
  */
 :root {
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* ── Tipografía ─────────────────────────────────────────────── */
+  --font-sans: Arial, system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
   line-height: 1.5;
-  color-scheme: light dark;
+  color-scheme: light;
 
+  --font-size-eyebrow: 0.82rem;
+  --font-size-body: 0.88rem;
+  --font-size-sm: 0.82rem;
+  --font-size-xs: 0.72rem;
+
+  /* ── Color: marca / acción ──────────────────────────────────── */
+  --color-brand: #009491;        /* teal corporativo — acción principal, foco */
+  --color-brand-hover: #0b8f8d;
+  --color-primary: #1f63b8;      /* azul — enlaces y acentos */
+  --color-primary-hover: #184f94;
+  --color-primary-soft: #e9f2ff;
+
+  /* ── Color: texto y superficies ─────────────────────────────── */
+  --color-ink: #10233a;
+  --color-text: #223a55;
+  --color-text-muted: #5f748c;
+  --color-surface: #ffffff;
+  --color-app-bg: #eef3f8;
+  --color-surface-soft: #e4ecf4;
+  --color-border: #cfdae6;
+  --color-border-strong: #afc0d2;
+
+  /* ── Color: semánticos (base / soft / border-bg) ────────────── */
+  --color-danger: #c63434;
+  --color-danger-soft: #f5c3c3;
+  --color-danger-bg: #fdf0f0;
+  --color-success: #1f9f67;
+  --color-success-soft: #e7f7ef;
+  --color-success-border: #bfe7d2;
+  --color-warning: #c17a11;
+  --color-warning-soft: #fff4df;
+  --color-warning-border: #f0d4a4;
+  --color-info: #1d5ea8;
+  --color-info-soft: #e9f2ff;
+  --color-info-border: #bfd4f1;
+
+  /* ── Alias de compatibilidad (nombres cortos que ya usa front-gestion) ── */
+  --border: var(--color-border);
+  --danger: var(--color-danger);
+  --danger-soft: var(--color-danger-soft);
+  --warning: var(--color-warning);
+  --warning-soft: var(--color-warning-soft);
+
+  /* ── Espaciado ──────────────────────────────────────────────── */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* ── Radios ─────────────────────────────────────────────────── */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-field: 9px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --radius-xl: 16px;
+  --radius-frame: 26px;
+  --radius-pill: 999px;
+
+  /* ── Sombras (suaves, tinta) ────────────────────────────────── */
+  --shadow-card: 0 1px 2px rgba(16, 35, 58, 0.05);
+  --shadow-card-hover: 0 4px 14px rgba(16, 35, 58, 0.12);
+  --shadow-pop: 0 12px 30px rgba(16, 35, 58, 0.18);
+  --shadow-modal: 0 22px 60px rgba(0, 0, 0, 0.3);
+  --shadow-frame: 0 14px 30px rgba(16, 35, 58, 0.22);
+
+  /* ── z-index (menús por encima del header; modales por encima de todo) ── */
   --z-index-sticky: 10;
   --z-index-floating-panel: 20;
   --z-index-header: 100;

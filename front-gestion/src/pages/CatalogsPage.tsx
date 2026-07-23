@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Button, Modal, Panel, TextInputField } from '@flota/ui/ui'
+import { Button, Chip, IconButton, Modal, PageHeader, TextInputField } from '@flota/ui/ui'
 import { CatalogEntityCreateForm, type CatalogCreateFieldDefinition } from '@flota/ui/forms'
 import { asErrorMessage } from '@flota/ui/http'
+import { Pencil, Trash2 } from 'lucide-react'
 
 import {
   createCatalogEntry,
@@ -129,27 +130,27 @@ export function CatalogsPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h2>Catálogos</h2>
-      </div>
+      <PageHeader
+        title="Catálogos"
+        subtitle="Maestros que alimentan los desplegables de vehículos y facturas."
+      />
 
       <div className="chips-row">
         {CATALOGS.map((catalog) => (
-          <button
+          <Chip
             key={catalog.resource}
-            type="button"
-            className={`chip ${active.resource === catalog.resource ? 'chip-active' : ''}`}
+            active={active.resource === catalog.resource}
             onClick={() => setActive(catalog)}
           >
             {catalog.title}
-          </button>
+          </Chip>
         ))}
       </div>
 
       {error && <div className="form-error">{error}</div>}
 
       <div className="catalog-grid">
-        <Panel>
+        <section className="card">
           <h3>{active.title}</h3>
           {loading ? (
             <p>Cargando…</p>
@@ -160,7 +161,7 @@ export function CatalogsPage() {
                   {active.fields.map((f) => (
                     <th key={f.key}>{f.label}</th>
                   ))}
-                  <th />
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -177,21 +178,28 @@ export function CatalogsPage() {
                       </td>
                     ))}
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <Button variant="secondary" size="sm" onClick={() => openEdit(entry)}>
-                        Editar
-                      </Button>{' '}
-                      <Button variant="danger" size="sm" onClick={() => handleDelete(entry)}>
-                        Eliminar
-                      </Button>
+                      <div className="row-actions">
+                        <IconButton aria-label="Editar" title="Editar" onClick={() => openEdit(entry)}>
+                          <Pencil size={15} />
+                        </IconButton>
+                        <IconButton
+                          variant="danger"
+                          aria-label="Eliminar"
+                          title="Eliminar"
+                          onClick={() => handleDelete(entry)}
+                        >
+                          <Trash2 size={15} />
+                        </IconButton>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
-        </Panel>
+        </section>
 
-        <Panel>
+        <section className="card">
           <CatalogEntityCreateForm
             key={active.resource}
             entity={active.resource}
@@ -204,7 +212,7 @@ export function CatalogsPage() {
             }}
             onCreated={load}
           />
-        </Panel>
+        </section>
       </div>
 
       <Modal

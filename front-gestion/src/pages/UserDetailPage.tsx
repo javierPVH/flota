@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Panel } from '@flota/ui/ui'
+import { Badge, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchManagedUser, listAssignments, listVehicles } from '../api.ts'
+import { assignmentStatusTone } from '../format.ts'
 import type { AssignmentRow, ManagedUser, Vehicle } from '../types.ts'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -56,22 +57,18 @@ export function UserDetailPage() {
 
   return (
     <div>
-      <p className="breadcrumbs">
-        <Link to="/conductores">← Conductores y usuarios</Link>
-      </p>
-      <div className="page-head">
-        <div>
-          <h2>{fullName}</h2>
-          <p className="detail-sub">
-            {user.username}
-            {user.license_type ? ` · Permiso ${user.license_type}` : ''}
-            {user.fuel_card ? ' · ⛽ tarjeta de combustible' : ''}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={<Link to="/conductores">← Conductores y usuarios</Link>}
+        title={fullName}
+        subtitle={
+          `${user.username}` +
+          (user.license_type ? ` · Permiso ${user.license_type}` : '') +
+          (user.fuel_card ? ' · ⛽ tarjeta de combustible' : '')
+        }
+      />
 
       <div className="detail-grid">
-        <Panel>
+        <section className="card">
           <h3>Vehículos que ha tenido</h3>
           {history.length === 0 ? (
             <p className="muted">Sin asignaciones registradas.</p>
@@ -96,19 +93,19 @@ export function UserDetailPage() {
                       {a.start_date} → {a.end_date ?? '…'}
                     </td>
                     <td>
-                      <span className={`badge ${a.status}`}>
+                      <Badge tone={assignmentStatusTone(a.status)}>
                         {STATUS_LABEL[a.status] ?? a.status}
-                      </span>
+                      </Badge>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
-        </Panel>
+        </section>
 
         {user.roles.includes('supervisor') && (
-          <Panel>
+          <section className="card">
             <h3>Su grupo como supervisor</h3>
             {group.length === 0 ? (
               <p className="muted">
@@ -127,7 +124,7 @@ export function UserDetailPage() {
                 ))}
               </ul>
             )}
-          </Panel>
+          </section>
         )}
       </div>
     </div>

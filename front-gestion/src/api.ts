@@ -433,7 +433,8 @@ export async function uploadDocument(data: DocumentInput, file: File): Promise<F
   const response = await fetch(toUrl(`${API}/documents/`), {
     method: 'POST',
     headers: { 'X-CSRFToken': getCookie('csrftoken') },
-    credentials: 'same-origin',
+    // 'include': la cookie de sesión debe viajar aunque la SPA esté en otro origen.
+    credentials: 'include',
     body: form,
   })
   const text = await response.text()

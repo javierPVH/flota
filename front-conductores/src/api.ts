@@ -71,7 +71,7 @@ export async function deletePushSubscription(endpoint: string): Promise<void> {
   const response = await fetch(toUrl(`${API}/push/subscriptions/`), {
     method: 'DELETE',
     headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
+    credentials: 'include',
     body: JSON.stringify({ endpoint }),
   })
   if (!response.ok && response.status !== 404) {
@@ -139,7 +139,7 @@ export async function uploadDocument(data: DocumentUploadInput, file: File): Pro
   const response = await fetch(toUrl(`${API}/documents/`), {
     method: 'POST',
     headers: { 'X-CSRFToken': getCookie('csrftoken') },
-    credentials: 'same-origin',
+    credentials: 'include',
     body: form,
   })
   if (response.status === 429) {

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Button, Modal, Panel, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import { ExternalLink, FolderOpen } from 'lucide-react'
+
+import { documentStatusTone } from '../format.ts'
 
 import {
   connectGoogleUrl,
@@ -221,7 +223,7 @@ export function DocumentsPanel({ vehicle }: { vehicle: Vehicle }) {
   const folderUrl = safeHref(vehicle.drive_folder_url)
 
   return (
-    <Panel>
+    <section className="card">
       <div className="section-head">
         <h3>Documentos</h3>
         <div className="section-tools">
@@ -317,7 +319,7 @@ export function DocumentsPanel({ vehicle }: { vehicle: Vehicle }) {
                   <td>{doc.expiry_date ?? '—'}</td>
                   <td>{doc.incident ? `#${doc.incident}` : '—'}</td>
                   <td>
-                    <span className={`badge ${doc.status}`}>{doc.status_display}</span>
+                    <Badge tone={documentStatusTone(doc.status)}>{doc.status_display}</Badge>
                   </td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {href && (
@@ -434,6 +436,6 @@ export function DocumentsPanel({ vehicle }: { vehicle: Vehicle }) {
           </div>
         </form>
       </Modal>
-    </Panel>
+    </section>
   )
 }

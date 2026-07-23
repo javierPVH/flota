@@ -1,0 +1,44 @@
+@use '../../_colors/_colors-corp' as app
+
+// Chip interactivo de filtro (toggle). Activo = teal corporativo.
+.chip
+  display: inline-flex
+  align-items: center
+  gap: .35rem
+  border: 1px solid app.$border-app
+  background: #fff
+  border-radius: 999px
+  padding: .3rem .85rem
+  font-size: .82rem
+  font-weight: 600
+  color: #34495e
+  cursor: pointer
+  transition: border-color .15s ease, background .15s ease, color .15s ease, box-shadow .15s ease
+
+  &:hover
+    border-color: app.$teal-corp
+
+  &:focus-visible
+    outline: 2px solid app.$primary-app
+    outline-offset: 2px
+
+  &:disabled
+    opacity: .55
+    cursor: not-allowed
+
+.chipActive
+  background: app.$teal-corp
+  border-color: app.$teal-corp
+  color: #fff
+
+  &:hover
+    border-color: app.$teal-corp
+
+.icon
+  display: inline-flex
+  align-items: center
+  justify-content: center
+
+.count
+  font-variant-numeric: tabular-nums
+  opacity: .8

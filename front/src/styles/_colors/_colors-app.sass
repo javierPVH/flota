@@ -1,63 +1,7 @@
-// App palette (simplified)
-// Capa SEMÁNTICA marca-neutra: superficies, texto, primario y estados.
-// Naming rule: semantic + "-app" suffix.
-
-// Core neutrals
-$white-app: #ffffff
-$ink-app: #10233a
-$text-app: #223a55
-$muted-text-app: #5f748c
-
-// Surfaces
-$surface-app: #eef3f8
-$surface-soft-app: #e4ecf4
-$border-app: #cfdae6
-$border-strong-app: #afc0d2
-
-// App actions (not corporate teal/orange)
-$primary-app: #1f63b8
-$primary-hover-app: #184f94
-$primary-soft-app: #e9f2ff
-
-// Status: danger
-$danger-app: #c63434
-$danger-soft-app: #f5c3c3
-$danger-bg-app: #fdf0f0
-
-// Additional status tones
-$success-app: #1f9f67
-$success-soft-app: #e7f7ef
-$success-border-app: #bfe7d2
-$warning-app: #c17a11
-$warning-soft-app: #fff4df
-$warning-border-app: #f0d4a4
-$info-app: #1d5ea8
-$info-soft-app: #e9f2ff
-$info-border-app: #bfd4f1
-
-// Utility grouped map
-$palette-app: (
-  white-app: $white-app,
-  ink-app: $ink-app,
-  text-app: $text-app,
-  muted-text-app: $muted-text-app,
-  surface-app: $surface-app,
-  surface-soft-app: $surface-soft-app,
-  border-app: $border-app,
-  border-strong-app: $border-strong-app,
-  primary-app: $primary-app,
-  primary-hover-app: $primary-hover-app,
-  primary-soft-app: $primary-soft-app,
-  danger-app: $danger-app,
-  danger-soft-app: $danger-soft-app,
-  danger-bg-app: $danger-bg-app,
-  success-app: $success-app,
-  success-soft-app: $success-soft-app,
-  success-border-app: $success-border-app,
-  warning-app: $warning-app,
-  warning-soft-app: $warning-soft-app,
-  warning-border-app: $warning-border-app,
-  info-app: $info-app,
-  info-soft-app: $info-soft-app,
-  info-border-app: $info-border-app
-)
+// App palette — UNIFICADA.
+//
+// Fuente única de verdad: `_colors-corp.sass` (marca + alias semánticos `-app`).
+// Este archivo se conserva solo por compatibilidad: los módulos que hacen
+// `@use '../../_colors/_colors-app'` siguen funcionando porque reenvía todo lo
+// definido en `_colors-corp`. NO añadas definiciones aquí; edítalas en corp.
+@forward '_colors-corp'

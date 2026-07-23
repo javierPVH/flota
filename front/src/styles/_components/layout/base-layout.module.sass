@@ -18,9 +18,9 @@
     content: ''
     position: absolute
     inset: -1.6rem
-    // Fondo neutro de la base. El wallpaper de marca es específico de cada app;
-    // sobrescribe esta capa en la app consumidora si quieres una imagen.
-    background: linear-gradient(160deg, app.$navy-corp, app.$blue-corp) center top/cover no-repeat
+    // Wallpaper de marca (paneles solares), copiado de la app de referencia.
+    // El velo de .page::after lo suaviza; la tarjeta flota por encima.
+    background: url('../../../assets/img/wallpaper.png') center center/cover no-repeat
     filter: saturate(.92) contrast(1.03) brightness(.84)
     transform: scale(1.02)
     z-index: -2

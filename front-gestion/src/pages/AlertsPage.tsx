@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
@@ -10,6 +11,7 @@ import {
   registerItv,
   resolveAlert,
 } from '../api.ts'
+import { alertLevelTone } from '../format.ts'
 import type { Alert, Vehicle } from '../types.ts'
 
 const TYPE_OPTIONS = [
@@ -148,14 +150,98 @@ export function AlertsPage() {
     }
   }
 
+  const columns: Array<TableWithPanelColumn<Alert>> = [
+    {
+      key: 'level',
+      label: 'Nivel',
+      getValue: (a) => a.level_display,
+      render: (a) => <Badge tone={alertLevelTone(a.level)}>{a.level_display}</Badge>,
+    },
+    {
+      key: 'type',
+      label: 'Tipo',
+      getValue: (a) => a.type_display,
+      render: (a) => a.type_display || '—',
+    },
+    {
+      key: 'vehicle',
+      label: 'Vehículo',
+      getValue: (a) => a.vehicle_plate,
+      render: (a) =>
+        a.vehicle ? (
+          <Link to={`/vehiculos/${a.vehicle}`} className="cell-link">
+            <strong>{a.vehicle_plate}</strong>
+          </Link>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      key: 'message',
+      label: 'Mensaje',
+      getValue: (a) => a.message,
+      render: (a) => a.message || '—',
+    },
+    {
+      key: 'due_date',
+      label: 'Fecha límite',
+      isDate: true,
+      getValue: (a) => a.due_date,
+      render: (a) => (
+        <span className={isOverdueItv(a) ? 'itv-overdue' : undefined}>{a.due_date ?? '—'}</span>
+      ),
+    },
+    {
+      key: 'actions',
+      label: 'Acciones',
+      align: 'right',
+      searchable: false,
+      sortable: false,
+      render: (a) => (
+        <div className="row-actions">
+          {a.type === 'itv_due' && a.status === 'open' && (
+            <Button variant="primary" size="sm" onClick={() => openItv(a)}>
+              Registrar ITV
+            </Button>
+          )}
+          {a.status === 'open' ? (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={busyId === a.id}
+                onClick={() => close(a, true)}
+              >
+                Resolver
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={busyId === a.id}
+                onClick={() => close(a, false)}
+              >
+                Descartar
+              </Button>
+            </>
+          ) : (
+            <span className="muted">{a.status_display}</span>
+          )}
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div>
-      <div className="page-head">
-        <h2>Alertas</h2>
-        <Button variant="primary" onClick={() => openItv()}>
-          Registrar ITV
-        </Button>
-      </div>
+      <PageHeader
+        title="Alertas"
+        subtitle="Avisos de ITV, lecturas de km, exceso proyectado y vehículos sin conductor."
+        actions={
+          <Button variant="primary" onClick={() => openItv()}>
+            Registrar ITV
+          </Button>
+        }
+      />
 
       <div className="filters-row">
         <SelectField
@@ -184,78 +270,17 @@ export function AlertsPage() {
       {loading ? (
         <p>Cargando…</p>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Nivel</th>
-              <th>Tipo</th>
-              <th>Vehículo</th>
-              <th>Mensaje</th>
-              <th>Fecha límite</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {alerts.length === 0 && (
-              <tr>
-                <td colSpan={6}>Sin alertas con estos filtros. 🎉</td>
-              </tr>
-            )}
-            {alerts.map((alert) => (
-              <tr key={alert.id} className={isOverdueItv(alert) ? 'row-overdue' : undefined}>
-                <td>
-                  <span className={`badge ${alert.level}`}>{alert.level_display}</span>
-                </td>
-                <td>{alert.type_display}</td>
-                <td>
-                  {alert.vehicle ? (
-                    <Link to={`/vehiculos/${alert.vehicle}`}>
-                      <strong>{alert.vehicle_plate}</strong>
-                    </Link>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td>{alert.message}</td>
-                <td className={isOverdueItv(alert) ? 'itv-overdue' : undefined}>
-                  {alert.due_date ?? '—'}
-                </td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  {alert.type === 'itv_due' && alert.status === 'open' && (
-                    <>
-                      <Button variant="primary" size="sm" onClick={() => openItv(alert)}>
-                        Registrar ITV
-                      </Button>{' '}
-                    </>
-                  )}
-                  {alert.status === 'open' && (
-                    <>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={busyId === alert.id}
-                        onClick={() => close(alert, true)}
-                      >
-                        Resolver
-                      </Button>{' '}
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={busyId === alert.id}
-                        onClick={() => close(alert, false)}
-                      >
-                        Descartar
-                      </Button>
-                    </>
-                  )}
-                  {alert.status !== 'open' && (
-                    <span className="muted">{alert.status_display}</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <TableWithPanel<Alert>
+          rows={alerts}
+          columns={columns}
+          rowKey={(a) => String(a.id)}
+          rowClassName={(a) => (isOverdueItv(a) ? 'row-overdue' : '')}
+          enableColumnSort
+          enablePagination
+          defaultPageSize={25}
+          pageSizeOptions={[25, 50, 100]}
+          emptyStateLabel="Sin alertas con estos filtros. 🎉"
+        />
       )}
 
       {/* Registrar ITV (HU-5.1): la señal del back cierra los avisos */}

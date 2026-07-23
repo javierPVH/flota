@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import { ExternalLink } from 'lucide-react'
 
@@ -271,29 +272,118 @@ export function InvoicesPage() {
     }
   }
 
+  const columns: Array<TableWithPanelColumn<InvoiceRow>> = [
+    {
+      key: 'code',
+      label: 'Código',
+      getValue: (i) => i.code || `#${i.id}`,
+      render: (i) => <strong>{i.code || `#${i.id}`}</strong>,
+    },
+    {
+      key: 'vehicle',
+      label: 'Vehículo',
+      getValue: (i) => vehicleOf(i.vehicle)?.plate ?? `#${i.vehicle}`,
+      render: (i) => (
+        <Link to={`/vehiculos/${i.vehicle}`} className="cell-link">
+          {vehicleOf(i.vehicle)?.plate ?? `#${i.vehicle}`}
+        </Link>
+      ),
+    },
+    {
+      key: 'date',
+      label: 'Fecha',
+      isDate: true,
+      getValue: (i) => i.date,
+      render: (i) => i.date ?? '—',
+    },
+    {
+      key: 'amount',
+      label: 'Importe',
+      align: 'right',
+      getValue: (i) => (i.amount != null ? Number(i.amount) : null),
+      render: (i) => (i.amount != null ? eur(i.amount) : '—'),
+    },
+    {
+      key: 'pdf',
+      label: 'PDF',
+      searchable: false,
+      sortable: false,
+      render: (i) => {
+        const href = safeHref(i.drive_url)
+        return href ? (
+          <a className="doc-open" href={href} target="_blank" rel="noreferrer">
+            <ExternalLink size={14} aria-hidden /> Abrir
+          </a>
+        ) : (
+          '—'
+        )
+      },
+    },
+    {
+      key: 'allocation',
+      label: 'Reparto',
+      sortable: false,
+      getValue: (i) => allocationsOf(i.id).length,
+      render: (i) => {
+        const rows = allocationsOf(i.id)
+        if (rows.length === 0) return <Badge tone="neutral">Sin repartir</Badge>
+        const pct = round2(rows.reduce((acc, a) => acc + Number(a.percentage), 0))
+        return (
+          <Badge tone={pct === 100 ? 'success' : 'warning'}>
+            {rows.length} líneas · {pct}%
+          </Badge>
+        )
+      },
+    },
+    {
+      key: 'actions',
+      label: 'Acciones',
+      align: 'right',
+      searchable: false,
+      sortable: false,
+      render: (i) => (
+        <div className="row-actions">
+          <Button variant="primary" size="sm" onClick={() => openAllocate(i)}>
+            Refacturar…
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => openHeader(i)}>
+            Editar
+          </Button>
+          <Button variant="danger" size="sm" onClick={() => handleDelete(i)}>
+            Eliminar
+          </Button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div>
-      <div className="page-head">
-        <h2>Facturas</h2>
-        <div className="section-tools">
-          <SelectField
-            label="Vehículo"
-            options={[
-              { value: '', label: 'Todos' },
-              ...vehicles.map((v) => ({ value: String(v.id), label: v.plate })),
-            ]}
-            value={vehicleFilter}
-            onValueChange={(value) => {
-              const next = new URLSearchParams(searchParams)
-              if (value) next.set('vehicle', value)
-              else next.delete('vehicle')
-              setSearchParams(next, { replace: true })
-            }}
-          />
+      <PageHeader
+        title="Facturas"
+        subtitle="Facturas de la flota y reparto de costes por proyecto o CECO."
+        actions={
           <Button variant="primary" onClick={() => openHeader(null)}>
             Nueva factura
           </Button>
-        </div>
+        }
+      />
+
+      <div className="filters-row">
+        <SelectField
+          label="Vehículo"
+          options={[
+            { value: '', label: 'Todos' },
+            ...vehicles.map((v) => ({ value: String(v.id), label: v.plate })),
+          ]}
+          value={vehicleFilter}
+          onValueChange={(value) => {
+            const next = new URLSearchParams(searchParams)
+            if (value) next.set('vehicle', value)
+            else next.delete('vehicle')
+            setSearchParams(next, { replace: true })
+          }}
+        />
       </div>
 
       {error && <div className="form-error">{error}</div>}
@@ -301,74 +391,16 @@ export function InvoicesPage() {
       {loading ? (
         <p>Cargando…</p>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Código</th>
-              <th>Vehículo</th>
-              <th>Fecha</th>
-              <th>Importe</th>
-              <th>PDF</th>
-              <th>Reparto</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {invoices.length === 0 && (
-              <tr>
-                <td colSpan={7}>Sin facturas{vehicleFilter ? ' de este vehículo' : ''} todavía.</td>
-              </tr>
-            )}
-            {invoices.map((invoice) => {
-              const rows = allocationsOf(invoice.id)
-              const pct = round2(rows.reduce((acc, a) => acc + Number(a.percentage), 0))
-              const href = safeHref(invoice.drive_url)
-              return (
-                <tr key={invoice.id}>
-                  <td>
-                    <strong>{invoice.code || `#${invoice.id}`}</strong>
-                  </td>
-                  <td>
-                    <Link to={`/vehiculos/${invoice.vehicle}`}>
-                      {vehicleOf(invoice.vehicle)?.plate ?? `#${invoice.vehicle}`}
-                    </Link>
-                  </td>
-                  <td>{invoice.date ?? '—'}</td>
-                  <td>{invoice.amount != null ? eur(invoice.amount) : '—'}</td>
-                  <td>
-                    {href ? (
-                      <a className="doc-open" href={href} target="_blank" rel="noreferrer">
-                        <ExternalLink size={14} aria-hidden /> Abrir
-                      </a>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td>
-                    {rows.length === 0 ? (
-                      <span className="badge req-pending">Sin repartir</span>
-                    ) : (
-                      <span className={`badge ${pct === 100 ? 'req-assigned' : 'req-pending'}`}>
-                        {rows.length} líneas · {pct}%
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <Button variant="primary" size="sm" onClick={() => openAllocate(invoice)}>
-                      Refacturar…
-                    </Button>{' '}
-                    <Button variant="secondary" size="sm" onClick={() => openHeader(invoice)}>
-                      Editar
-                    </Button>{' '}
-                    <Button variant="danger" size="sm" onClick={() => handleDelete(invoice)}>
-                      Eliminar
-                    </Button>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        <TableWithPanel<InvoiceRow>
+          rows={invoices}
+          columns={columns}
+          rowKey={(i) => String(i.id)}
+          enableColumnSort
+          enablePagination
+          defaultPageSize={25}
+          pageSizeOptions={[25, 50, 100]}
+          emptyStateLabel={`Sin facturas${vehicleFilter ? ' de este vehículo' : ''} todavía.`}
+        />
       )}
 
       {/* Alta / edición de cabecera (PDF vía Picker de Drive, Fase A3) */}
@@ -385,7 +417,8 @@ export function InvoicesPage() {
               onChange={(e) => setHeader((h) => ({ ...h, code: e.target.value }))}
             />
             <SelectField
-              label="Vehículo *"
+              label="Vehículo"
+              requiredVisual
               options={[
                 { value: '', label: '— Elegir —' },
                 ...vehicles.map((v) => ({ value: String(v.id), label: `${v.plate} · ${v.brand} ${v.model}` })),

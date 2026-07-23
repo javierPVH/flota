@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button } from '@flota/ui/ui'
+import { Badge, Button, IconButton, PageHeader } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
+import { Pencil, Trash2 } from 'lucide-react'
 
 import { deleteVehicle, listVehicles } from '../api.ts'
+import { fmtDate, itvClass, vehicleStateTone } from '../format.ts'
+import { useLang } from '../i18n.tsx'
 import type { Vehicle } from '../types.ts'
 
 /** Administración de vehículos. El alta/edición seccionada vive en
@@ -11,6 +15,7 @@ import type { Vehicle } from '../types.ts'
  * con acceso rápido y el borrado con confirmación. */
 export function VehiclesPage() {
   const navigate = useNavigate()
+  const { language } = useLang()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -28,79 +33,113 @@ export function VehiclesPage() {
 
   useEffect(load, [load])
 
-  async function handleDelete(v: Vehicle) {
-    if (!window.confirm(`¿Eliminar el vehículo ${v.plate}?`)) return
-    try {
-      await deleteVehicle(v.id)
-      load()
-    } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo eliminar.'))
-    }
-  }
+  const handleDelete = useCallback(
+    async (v: Vehicle) => {
+      if (!window.confirm(`¿Eliminar el vehículo ${v.plate}?`)) return
+      try {
+        await deleteVehicle(v.id)
+        load()
+      } catch (err) {
+        setError(asErrorMessage(err, 'No se pudo eliminar.'))
+      }
+    },
+    [load],
+  )
+
+  const columns: Array<TableWithPanelColumn<Vehicle>> = [
+    {
+      key: 'plate',
+      label: 'Matrícula',
+      getValue: (v) => v.plate,
+      render: (v) => (
+        <Link to={`/vehiculos/${v.id}`} className="cell-link">
+          <strong>{v.plate}</strong>
+          {v.is_substitute ? ' 🔁' : ''}
+        </Link>
+      ),
+    },
+    {
+      key: 'vehicle',
+      label: 'Vehículo',
+      getValue: (v) => `${v.brand} ${v.model}`,
+      render: (v) => `${v.brand} ${v.model}`.trim() || '—',
+    },
+    {
+      key: 'state',
+      label: 'Estado',
+      getValue: (v) => v.state_display,
+      render: (v) => <Badge tone={vehicleStateTone(v.state)}>{v.state_display || '—'}</Badge>,
+    },
+    {
+      key: 'supervisor',
+      label: 'Supervisor',
+      getValue: (v) => v.supervisor_name,
+      render: (v) => v.supervisor_name || '—',
+    },
+    {
+      key: 'next_itv_date',
+      label: 'Próx. ITV',
+      isDate: true,
+      getValue: (v) => v.next_itv_date,
+      render: (v) => (
+        <span className={itvClass(v.next_itv_date)}>{fmtDate(v.next_itv_date, language)}</span>
+      ),
+    },
+    {
+      key: 'actions',
+      label: 'Acciones',
+      align: 'right',
+      searchable: false,
+      sortable: false,
+      render: (v) => (
+        <div className="row-actions">
+          <IconButton
+            aria-label="Editar"
+            title="Editar"
+            onClick={() => navigate(`/vehiculos/${v.id}/editar`)}
+          >
+            <Pencil size={15} />
+          </IconButton>
+          <IconButton
+            variant="danger"
+            aria-label="Eliminar"
+            title="Eliminar"
+            onClick={() => handleDelete(v)}
+          >
+            <Trash2 size={15} />
+          </IconButton>
+        </div>
+      ),
+    },
+  ]
 
   return (
     <div>
-      <div className="page-head">
-        <h2>Vehículos</h2>
-        <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
-          Nuevo vehículo
-        </Button>
-      </div>
+      <PageHeader
+        title="Vehículos"
+        subtitle="Inventario de la flota."
+        actions={
+          <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
+            Nuevo vehículo
+          </Button>
+        }
+      />
 
       {error && <div className="form-error">{error}</div>}
 
       {loading ? (
         <p>Cargando…</p>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Matrícula</th>
-              <th>Marca</th>
-              <th>Modelo</th>
-              <th>Estado</th>
-              <th>Supervisor</th>
-              <th>Próx. ITV</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {vehicles.length === 0 && (
-              <tr>
-                <td colSpan={7}>No hay vehículos todavía.</td>
-              </tr>
-            )}
-            {vehicles.map((v) => (
-              <tr key={v.id}>
-                <td>
-                  <Link to={`/vehiculos/${v.id}`}>
-                    <strong>{v.plate}</strong>
-                  </Link>
-                  {v.is_substitute ? ' 🔁' : ''}
-                </td>
-                <td>{v.brand}</td>
-                <td>{v.model}</td>
-                <td>
-                  <span className={`badge ${v.state}`}>{v.state_display || '—'}</span>
-                </td>
-                <td>{v.supervisor_name || '—'}</td>
-                <td>{v.next_itv_date ?? '—'}</td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => navigate(`/vehiculos/${v.id}/editar`)}
-                  >
-                    Editar
-                  </Button>{' '}
-                  <Button variant="danger" size="sm" onClick={() => handleDelete(v)}>
-                    Eliminar
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <TableWithPanel<Vehicle>
+          rows={vehicles}
+          columns={columns}
+          rowKey={(v) => String(v.id)}
+          enableColumnSort
+          enablePagination
+          defaultPageSize={25}
+          pageSizeOptions={[25, 50, 100]}
+          emptyStateLabel="No hay vehículos todavía."
+        />
       )}
     </div>
   )

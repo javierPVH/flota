@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, StatCard } from '@flota/ui/ui'
+import { Badge, Button, Chip, PageHeader, StatCard } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchFleetSummary, listAlerts, listVehicles, type VehicleFilters } from '../api.ts'
-import { fmtDate, fmtEur, itvClass } from '../format.ts'
+import { alertLevelTone, fmtDate, fmtEur, itvClass, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, FleetSummary, Vehicle } from '../types.ts'
 
@@ -114,12 +114,15 @@ export function DashboardPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h2>{t.home.title}</h2>
-        <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
-          {t.home.addVehicle}
-        </Button>
-      </div>
+      <PageHeader
+        title={t.home.title}
+        subtitle={t.home.subtitle}
+        actions={
+          <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
+            {t.home.addVehicle}
+          </Button>
+        }
+      />
 
       {error && <div className="form-error">{error}</div>}
 
@@ -173,7 +176,7 @@ export function DashboardPage() {
                 className={`alert-card level-${alert.level}`}
                 to={alert.vehicle ? `/vehiculos/${alert.vehicle}` : '/'}
               >
-                <span className={`badge ${alert.level}`}>{alert.level_display}</span>
+                <Badge tone={alertLevelTone(alert.level)}>{alert.level_display}</Badge>
                 <strong>{alert.vehicle_plate || alert.type_display}</strong>
                 <p>{alert.message}</p>
               </Link>
@@ -203,15 +206,9 @@ export function DashboardPage() {
         </div>
         <div className="chips-row">
           {CHIPS.map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              className={`chip ${chip === c.key ? 'chip-active' : ''}`}
-              aria-pressed={chip === c.key}
-              onClick={() => setChip(c.key)}
-            >
+            <Chip key={c.key} active={chip === c.key} onClick={() => setChip(c.key)}>
               {t.home.chips[c.key] ?? c.key}
-            </button>
+            </Chip>
           ))}
         </div>
 
@@ -249,7 +246,7 @@ export function DashboardPage() {
                     </td>
                     <td>{USE_LABEL[v.business_use] ?? (v.business_use || '—')}</td>
                     <td>
-                      <span className={`badge ${v.state}`}>{v.state_display || '—'}</span>
+                      <Badge tone={vehicleStateTone(v.state)}>{v.state_display || '—'}</Badge>
                     </td>
                     <td>{v.driver_name || '—'}</td>
                     <td className={itvClass(v.next_itv_date)}>

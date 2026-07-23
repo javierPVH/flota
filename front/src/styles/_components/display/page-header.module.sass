@@ -1,0 +1,76 @@
+@use '../../_colors/_colors-corp' as app
+@use '../../_typography/_type-scale' as type
+
+// Cabecera de página: (breadcrumb) + título/subtítulo a la izquierda y
+// acciones a la derecha. Reemplaza los `.page-head`/`.section-head` a mano.
+.header
+  display: flex
+  flex-direction: column
+  gap: .5rem
+  margin-bottom: 1.2rem
+
+.breadcrumb
+  display: flex
+  align-items: center
+  gap: .35rem
+  font-size: .82rem
+  color: app.$muted-text-app
+
+.row
+  display: flex
+  align-items: flex-start
+  justify-content: space-between
+  gap: 1rem
+  flex-wrap: wrap
+
+.lead
+  display: flex
+  align-items: center
+  gap: 1.1rem
+  flex-wrap: wrap
+  min-width: 0
+
+.titles
+  display: flex
+  flex-direction: column
+  gap: .2rem
+  min-width: 0
+
+.stats
+  display: flex
+  align-items: center
+  gap: 1.4rem
+  padding-left: 1.1rem
+  border-left: 2px solid app.$border-app
+
+.stat
+  display: flex
+  flex-direction: column
+  line-height: 1.1
+
+.statValue
+  font-size: 1.35rem
+  font-weight: 800
+  color: app.$ink-app
+  font-variant-numeric: tabular-nums
+
+.statLabel
+  font-size: .72rem
+  color: app.$muted-text-app
+
+.title
+  +type.title
+  color: app.$ink-app
+  margin: 0
+
+.subtitle
+  +type.subtitle
+  color: app.$muted-text-app
+  margin: 0
+  max-width: 82ch
+
+.actions
+  display: flex
+  align-items: center
+  gap: .6rem
+  flex-shrink: 0

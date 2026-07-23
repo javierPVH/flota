@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
+import { Pencil } from 'lucide-react'
 
 import {
   createUser,
@@ -161,14 +163,99 @@ export function UsersPage() {
 
   const rows = showInactive ? users : users.filter((u) => u.is_active)
 
+  const columns: Array<TableWithPanelColumn<ManagedUserFull>> = [
+    {
+      key: 'name',
+      label: 'Nombre',
+      getValue: (u) => `${u.name} ${u.username}`,
+      render: (u) => (
+        <>
+          <Link to={`/conductores/${u.id}`} className="cell-link">
+            <strong>{u.name}</strong>
+          </Link>
+          <div className="muted">{u.username}</div>
+        </>
+      ),
+    },
+    {
+      key: 'dni',
+      label: 'DNI',
+      getValue: (u) => u.dni ?? '',
+      render: (u) => u.dni ?? '—',
+    },
+    {
+      key: 'contact',
+      label: 'Contacto',
+      getValue: (u) => `${u.email} ${u.phone}`,
+      render: (u) => (
+        <>
+          {u.email || '—'}
+          {u.phone ? <div className="muted">{u.phone}</div> : null}
+        </>
+      ),
+    },
+    {
+      key: 'license_type',
+      label: 'Permiso',
+      getValue: (u) => u.license_type,
+      render: (u) => u.license_type || '—',
+    },
+    {
+      key: 'fuel_card',
+      label: 'Tarjeta',
+      getValue: (u) => (u.fuel_card ? 'Sí' : 'No'),
+      render: (u) => (u.fuel_card ? '⛽ Sí' : 'No'),
+    },
+    {
+      key: 'roles',
+      label: 'Roles',
+      getValue: (u) => u.roles.map((r) => ROLE_LABEL[r] ?? r).join(' · '),
+      render: (u) => u.roles.map((r) => ROLE_LABEL[r] ?? r).join(' · ') || '—',
+    },
+    {
+      key: 'is_active',
+      label: 'Estado',
+      getValue: (u) => (u.is_active ? 'Activo' : 'Desactivado'),
+      render: (u) => (
+        <Badge tone={u.is_active ? 'success' : 'neutral'}>
+          {u.is_active ? 'Activo' : 'Desactivado'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      label: 'Acciones',
+      align: 'right',
+      searchable: false,
+      sortable: false,
+      render: (u) => (
+        <div className="row-actions">
+          <IconButton aria-label="Editar" title="Editar" onClick={() => openEdit(u)}>
+            <Pencil size={15} />
+          </IconButton>
+          <Button
+            variant={u.is_active ? 'danger' : 'primary'}
+            size="sm"
+            onClick={() => toggleActive(u)}
+          >
+            {u.is_active ? 'Desactivar' : 'Reactivar'}
+          </Button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div>
-      <div className="page-head">
-        <h2>Conductores y usuarios</h2>
-        <Button variant="primary" onClick={openCreate}>
-          Nuevo usuario
-        </Button>
-      </div>
+      <PageHeader
+        title="Conductores y usuarios"
+        subtitle="Altas, roles y estado de las personas de la flota."
+        actions={
+          <Button variant="primary" onClick={openCreate}>
+            Nuevo usuario
+          </Button>
+        }
+      />
 
       <div className="list-tools">
         <input
@@ -193,62 +280,17 @@ export function UsersPage() {
       {loading ? (
         <p>Cargando…</p>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Nombre</th>
-              <th>DNI</th>
-              <th>Contacto</th>
-              <th>Permiso</th>
-              <th>Tarjeta</th>
-              <th>Roles</th>
-              <th>Estado</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={8}>Sin usuarios con estos filtros.</td>
-              </tr>
-            )}
-            {rows.map((u) => (
-              <tr key={u.id} className={u.is_active ? undefined : 'row-muted'}>
-                <td>
-                  <Link to={`/conductores/${u.id}`}>
-                    <strong>{u.name}</strong>
-                  </Link>
-                  <div className="muted">{u.username}</div>
-                </td>
-                <td>{u.dni ?? '—'}</td>
-                <td>
-                  {u.email || '—'}
-                  {u.phone ? <div className="muted">{u.phone}</div> : null}
-                </td>
-                <td>{u.license_type || '—'}</td>
-                <td>{u.fuel_card ? '⛽ Sí' : 'No'}</td>
-                <td>{u.roles.map((r) => ROLE_LABEL[r] ?? r).join(' · ') || '—'}</td>
-                <td>
-                  <span className={`badge ${u.is_active ? 'active' : 'retired'}`}>
-                    {u.is_active ? 'Activo' : 'Desactivado'}
-                  </span>
-                </td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <Button variant="secondary" size="sm" onClick={() => openEdit(u)}>
-                    Editar
-                  </Button>{' '}
-                  <Button
-                    variant={u.is_active ? 'danger' : 'primary'}
-                    size="sm"
-                    onClick={() => toggleActive(u)}
-                  >
-                    {u.is_active ? 'Desactivar' : 'Reactivar'}
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <TableWithPanel<ManagedUserFull>
+          rows={rows}
+          columns={columns}
+          rowKey={(u) => String(u.id)}
+          rowClassName={(u) => (u.is_active ? '' : 'row-muted')}
+          enableColumnSort
+          enablePagination
+          defaultPageSize={25}
+          pageSizeOptions={[25, 50, 100]}
+          emptyStateLabel="Sin usuarios con estos filtros."
+        />
       )}
 
       <Modal
@@ -259,7 +301,8 @@ export function UsersPage() {
         <form className="modal-form" onSubmit={handleSubmit}>
           <div className="form-grid">
             <TextInputField
-              label="Usuario *"
+              label="Usuario"
+              requiredVisual
               value={form.username}
               onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
               required

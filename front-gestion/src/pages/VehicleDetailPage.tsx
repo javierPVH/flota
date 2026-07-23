@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Button, Modal, Panel, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Modal, PageHeader, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
@@ -16,6 +16,7 @@ import {
   listVehicles,
   updateVehicleFields,
 } from '../api.ts'
+import { kmLevelTone, vehicleStateTone } from '../format.ts'
 import { VehicleAssignmentsPanel } from '../components/VehicleAssignmentsPanel.tsx'
 import { KmChart } from '../components/KmChart.tsx'
 import { DocumentsPanel } from '../components/DocumentsPanel.tsx'
@@ -337,55 +338,51 @@ export function VehicleDetailPage() {
 
   return (
     <div className="vehicle-detail">
-      <p className="breadcrumbs">
-        <Link to="/">← Vista general</Link>
-      </p>
-
       {/* Cabecera: tres atributos diferenciados (HU-1.2/1.6) */}
-      <div className="page-head">
-        <div>
-          <h2 className="detail-plate">
-            {vehicle.plate}
-            <span className={`badge ${vehicle.state}`}>{vehicle.state_display || '—'}</span>
-            {vehicle.is_substitute && <span className="badge subst">🔁 Vehículo de sustitución</span>}
-            {vehicle.driver_name ? (
-              <span className="badge assigned">Conductor: {vehicle.driver_name}</span>
-            ) : (
-              <span className="badge unassigned">Sin conductor</span>
+      <PageHeader
+        breadcrumb={<Link to="/">← Vista general</Link>}
+        title={vehicle.plate}
+        subtitle={
+          `${vehicle.brand} ${vehicle.model}${vehicle.version ? ` ${vehicle.version}` : ''}` +
+          ` · ${label(TYPE_LABEL, vehicle.type)} · ${label(FUEL_LABEL, vehicle.fuel)}` +
+          ` · ${label(USE_LABEL, vehicle.business_use)}`
+        }
+        actions={
+          <>
+            <Button variant="primary" onClick={() => setKmModal(true)}>
+              Registrar km
+            </Button>
+            <Button variant="secondary" onClick={() => navigate(`/vehiculos/${vehicleId}/editar`)}>
+              Editar
+            </Button>
+            <Button variant="secondary" onClick={() => navigate(`/facturas?vehicle=${vehicleId}`)}>
+              Refacturar
+            </Button>
+            {vehicle.state !== 'retired' && (
+              <>
+                <Button variant="secondary" onClick={() => openOps('state')}>
+                  Cambiar estado
+                </Button>
+                <Button variant="secondary" onClick={() => openOps('link')}>
+                  Sustitución
+                </Button>
+                <Button variant="danger" onClick={() => openOps('baja')}>
+                  Dar de baja
+                </Button>
+              </>
             )}
-          </h2>
-          <p className="detail-sub">
-            {vehicle.brand} {vehicle.model}
-            {vehicle.version ? ` ${vehicle.version}` : ''}
-            {' · '}
-            {label(TYPE_LABEL, vehicle.type)} · {label(FUEL_LABEL, vehicle.fuel)} ·{' '}
-            {label(USE_LABEL, vehicle.business_use)}
-          </p>
-        </div>
-        <div className="detail-actions">
-          <Button variant="primary" onClick={() => setKmModal(true)}>
-            Registrar km
-          </Button>
-          <Button variant="secondary" onClick={() => navigate(`/vehiculos/${vehicleId}/editar`)}>
-            Editar
-          </Button>
-          <Button variant="secondary" onClick={() => navigate(`/facturas?vehicle=${vehicleId}`)}>
-            Refacturar
-          </Button>
-          {vehicle.state !== 'retired' && (
-            <>
-              <Button variant="secondary" onClick={() => openOps('state')}>
-                Cambiar estado
-              </Button>
-              <Button variant="secondary" onClick={() => openOps('link')}>
-                Sustitución
-              </Button>
-              <Button variant="danger" onClick={() => openOps('baja')}>
-                Dar de baja
-              </Button>
-            </>
-          )}
-        </div>
+          </>
+        }
+      />
+
+      <div className="detail-badges">
+        <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+        {vehicle.is_substitute && <Badge tone="info">🔁 Vehículo de sustitución</Badge>}
+        {vehicle.driver_name ? (
+          <Badge tone="success">Conductor: {vehicle.driver_name}</Badge>
+        ) : (
+          <Badge tone="neutral">Sin conductor</Badge>
+        )}
       </div>
 
       {linkInfo && (
@@ -437,17 +434,17 @@ export function VehicleDetailPage() {
 
       {/* Kilómetros contratados (HU-3.4) */}
       {contract?.contract_km && (
-        <Panel>
+        <section className="card">
           <div className="section-head">
             <h3>Kilómetros contratados</h3>
             {projection && (
-              <span className={`badge level-${projection.level}`}>
+              <Badge tone={kmLevelTone(projection.level)}>
                 {projection.level === 'within'
                   ? 'Dentro'
                   : projection.level === 'watch'
                     ? 'A vigilar'
                     : 'Riesgo de exceso'}
-              </span>
+              </Badge>
             )}
           </div>
           {pctConsumed !== null && summary?.km_driven != null && (
@@ -491,11 +488,11 @@ export function VehicleDetailPage() {
             </div>
           )}
           <KmChart readings={readings} />
-        </Panel>
+        </section>
       )}
 
       <div className="detail-grid">
-        <Panel>
+        <section className="card">
           <h3>Datos técnicos</h3>
           <dl className="detail-dl">
             <dt>Bastidor (VIN)</dt>
@@ -515,9 +512,9 @@ export function VehicleDetailPage() {
             <dt>Supervisor</dt>
             <dd>{vehicle.supervisor_name || '—'}</dd>
           </dl>
-        </Panel>
+        </section>
 
-        <Panel>
+        <section className="card">
           <h3>Contrato</h3>
           {contract ? (
             <dl className="detail-dl">
@@ -539,7 +536,7 @@ export function VehicleDetailPage() {
           ) : (
             <p className="muted">Sin contrato vigente.</p>
           )}
-        </Panel>
+        </section>
 
       </div>
 
@@ -547,7 +544,7 @@ export function VehicleDetailPage() {
 
       <DocumentsPanel vehicle={vehicle} />
 
-      <Panel>
+      <section className="card">
         <div className="section-head">
           <h3>Histórico</h3>
           {timeline.length > 10 && (
@@ -571,7 +568,7 @@ export function VehicleDetailPage() {
             ))}
           </ul>
         )}
-      </Panel>
+      </section>
 
       {/* G4 · Cambio de estado (HU-1.6) */}
       <Modal

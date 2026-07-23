@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
+import { FileText, Pencil } from 'lucide-react'
 
 import {
   createIncident,
@@ -10,6 +12,7 @@ import {
   updateIncident,
   type IncidentInput,
 } from '../api.ts'
+import { incidentStatusTone } from '../format.ts'
 import type { Incident, Vehicle } from '../types.ts'
 
 // Listas cerradas del back (Épica 6).
@@ -143,14 +146,83 @@ export function IncidentsPage() {
     }
   }
 
+  const columns: Array<TableWithPanelColumn<Incident>> = [
+    {
+      key: 'vehicle',
+      label: 'Vehículo',
+      getValue: (i) => plateOf(i.vehicle),
+      render: (i) => (
+        <Link to={`/vehiculos/${i.vehicle}`} className="cell-link">
+          <strong>{plateOf(i.vehicle)}</strong>
+        </Link>
+      ),
+    },
+    {
+      key: 'type',
+      label: 'Tipo',
+      getValue: (i) => i.type_display,
+      render: (i) => i.type_display || '—',
+    },
+    {
+      key: 'date',
+      label: 'Fecha',
+      isDate: true,
+      getValue: (i) => i.date,
+      render: (i) => i.date ?? '—',
+    },
+    {
+      key: 'status',
+      label: 'Estado',
+      getValue: (i) => i.status_display,
+      render: (i) => <Badge tone={incidentStatusTone(i.status)}>{i.status_display || '—'}</Badge>,
+    },
+    {
+      key: 'cost',
+      label: 'Coste',
+      align: 'right',
+      getValue: (i) => (i.cost ? Number(i.cost) : null),
+      render: (i) => (i.cost ? `${i.cost} €` : '—'),
+    },
+    {
+      key: 'description',
+      label: 'Descripción',
+      getValue: (i) => i.description,
+      render: (i) => <span className="cell-truncate">{i.description || '—'}</span>,
+    },
+    {
+      key: 'actions',
+      label: 'Acciones',
+      align: 'right',
+      searchable: false,
+      sortable: false,
+      render: (i) => (
+        <div className="row-actions">
+          <IconButton aria-label="Editar" title="Editar" onClick={() => openEdit(i)}>
+            <Pencil size={15} />
+          </IconButton>
+          <Link
+            to={`/vehiculos/${i.vehicle}`}
+            className="cell-link"
+            title="Los documentos (acta/parte/fotos) se ligan desde la ficha"
+          >
+            <FileText size={14} aria-hidden /> Documentos
+          </Link>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div>
-      <div className="page-head">
-        <h2>Incidencias</h2>
-        <Button variant="primary" onClick={openCreate}>
-          Nueva incidencia
-        </Button>
-      </div>
+      <PageHeader
+        title="Incidencias"
+        subtitle="Averías, mantenimientos, ITV y accidentes de la flota."
+        actions={
+          <Button variant="primary" onClick={openCreate}>
+            Nueva incidencia
+          </Button>
+        }
+      />
 
       <div className="filters-row">
         <SelectField
@@ -181,54 +253,16 @@ export function IncidentsPage() {
       {loading ? (
         <p>Cargando…</p>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Vehículo</th>
-              <th>Tipo</th>
-              <th>Fecha</th>
-              <th>Estado</th>
-              <th>Coste</th>
-              <th>Descripción</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {incidents.length === 0 && (
-              <tr>
-                <td colSpan={7}>No hay incidencias con estos filtros.</td>
-              </tr>
-            )}
-            {incidents.map((incident) => (
-              <tr key={incident.id}>
-                <td>
-                  <Link to={`/vehiculos/${incident.vehicle}`}>
-                    <strong>{plateOf(incident.vehicle)}</strong>
-                  </Link>
-                </td>
-                <td>{incident.type_display}</td>
-                <td>{incident.date ?? '—'}</td>
-                <td>
-                  <span className={`badge ${incident.status}`}>{incident.status_display}</span>
-                </td>
-                <td>{incident.cost ? `${incident.cost} €` : '—'}</td>
-                <td className="cell-truncate">{incident.description || '—'}</td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <Button variant="secondary" size="sm" onClick={() => openEdit(incident)}>
-                    Editar
-                  </Button>{' '}
-                  <Link
-                    className="doc-open"
-                    to={`/vehiculos/${incident.vehicle}`}
-                    title="Los documentos (acta/parte/fotos) se ligan desde la ficha"
-                  >
-                    Documentos
-                  </Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <TableWithPanel<Incident>
+          rows={incidents}
+          columns={columns}
+          rowKey={(i) => String(i.id)}
+          enableColumnSort
+          enablePagination
+          defaultPageSize={25}
+          pageSizeOptions={[25, 50, 100]}
+          emptyStateLabel="No hay incidencias con estos filtros."
+        />
       )}
 
       <Modal

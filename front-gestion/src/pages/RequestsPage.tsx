@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Button, Modal, SelectField } from '@flota/ui/ui'
+import { Badge, Button, Modal, PageHeader, SelectField } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
@@ -10,6 +11,7 @@ import {
   rejectVehicleRequest,
   type VehicleRequestRow,
 } from '../api.ts'
+import { requestStatusTone } from '../format.ts'
 import type { Vehicle } from '../types.ts'
 
 const STATUS_OPTIONS = [
@@ -118,30 +120,123 @@ export function RequestsPage() {
     }
   }
 
+  const columns: Array<TableWithPanelColumn<VehicleRequestRow>> = [
+    {
+      key: 'requester',
+      label: 'Solicitante',
+      getValue: (r) => r.requester_name,
+      render: (r) => (
+        <>
+          <strong>{r.requester_name || '—'}</strong>
+          {r.notes && <div className="muted cell-truncate">{r.notes}</div>}
+        </>
+      ),
+    },
+    {
+      key: 'jira_key',
+      label: 'Ticket Jira',
+      getValue: (r) => r.jira_key,
+      render: (r) => r.jira_key || '—',
+    },
+    {
+      key: 'origin',
+      label: 'Origen',
+      getValue: (r) => originOf(r),
+      render: (r) => originOf(r),
+    },
+    {
+      key: 'requested_type',
+      label: 'Tipo',
+      getValue: (r) => TYPE_LABEL[r.requested_type] ?? r.requested_type,
+      render: (r) => TYPE_LABEL[r.requested_type] ?? (r.requested_type || '—'),
+    },
+    {
+      key: 'start_date',
+      label: 'Fechas',
+      isDate: true,
+      getValue: (r) => r.start_date,
+      render: (r) => (
+        <>
+          {r.start_date ?? '—'}
+          {r.end_date ? ` → ${r.end_date}` : ''}
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      label: 'Estado',
+      getValue: (r) => r.status_display,
+      render: (r) => <Badge tone={requestStatusTone(r.status)}>{r.status_display}</Badge>,
+    },
+    {
+      key: 'vehicle',
+      label: 'Vehículo',
+      getValue: (r) => (r.vehicle ? plateOf(r.vehicle) : ''),
+      render: (r) =>
+        r.vehicle ? (
+          <Link to={`/vehiculos/${r.vehicle}`} className="cell-link">
+            <strong>{plateOf(r.vehicle)}</strong>
+          </Link>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      key: 'actions',
+      label: 'Acciones',
+      align: 'right',
+      searchable: false,
+      sortable: false,
+      render: (r) =>
+        r.status === 'pending' || r.status === 'approved' ? (
+          <div className="row-actions">
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={busyId === r.id || !r.requester}
+              title={!r.requester ? 'Sin solicitante: no se puede conceder' : undefined}
+              onClick={() => openGrant(r)}
+            >
+              Conceder…
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={busyId === r.id}
+              onClick={() => handleReject(r)}
+            >
+              Rechazar
+            </Button>
+          </div>
+        ) : null,
+    },
+  ]
+
   return (
     <div>
-      <div className="page-head">
-        <h2>Solicitudes de vehículo</h2>
-        <div className="section-tools">
-          {pendingCount > 0 && <span className="pending-count">{pendingCount} sin decidir</span>}
-          <SelectField
-            label="Estado"
-            options={STATUS_OPTIONS}
-            value={statusFilter}
-            onValueChange={(value) => {
-              const next = new URLSearchParams(searchParams)
-              if (value) next.set('status', value)
-              else next.delete('status')
-              setSearchParams(next, { replace: true })
-            }}
-          />
-        </div>
+      <PageHeader
+        title="Solicitudes de vehículo"
+        subtitle="El estado del ticket lo sincroniza el job sync_jira_requests; si Jira no confirma, decide aquí."
+        stats={pendingCount > 0 ? [{ value: pendingCount, label: 'Sin decidir' }] : undefined}
+      />
+
+      <div className="filters-row">
+        <SelectField
+          label="Estado"
+          options={STATUS_OPTIONS}
+          value={statusFilter}
+          onValueChange={(value) => {
+            const next = new URLSearchParams(searchParams)
+            if (value) next.set('status', value)
+            else next.delete('status')
+            setSearchParams(next, { replace: true })
+          }}
+        />
       </div>
 
       <p className="muted">
-        El estado del ticket lo actualiza el job <code>sync_jira_requests</code>; si Jira no puede
-        confirmar, decide aquí: <strong>conceder</strong> asigna el vehículo y deja entrar al
-        solicitante, <strong>rechazar</strong> cierra la solicitud.
+        <strong>Conceder</strong> asigna el vehículo y deja entrar al solicitante;{' '}
+        <strong>rechazar</strong> cierra la solicitud.
       </p>
 
       {notice && <div className="notice-ok">{notice}</div>}
@@ -150,77 +245,17 @@ export function RequestsPage() {
       {loading ? (
         <p>Cargando…</p>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Solicitante</th>
-              <th>Ticket Jira</th>
-              <th>Origen</th>
-              <th>Tipo</th>
-              <th>Fechas</th>
-              <th>Estado</th>
-              <th>Vehículo</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {requests.length === 0 && (
-              <tr>
-                <td colSpan={8}>Sin solicitudes con estos filtros.</td>
-              </tr>
-            )}
-            {requests.map((request) => (
-              <tr key={request.id} className={request.status === 'pending' ? 'row-pending' : undefined}>
-                <td>
-                  <strong>{request.requester_name || '—'}</strong>
-                  {request.notes && <div className="muted cell-truncate">{request.notes}</div>}
-                </td>
-                <td>{request.jira_key || '—'}</td>
-                <td>{originOf(request)}</td>
-                <td>{TYPE_LABEL[request.requested_type] ?? (request.requested_type || '—')}</td>
-                <td>
-                  {request.start_date ?? '—'}
-                  {request.end_date ? ` → ${request.end_date}` : ''}
-                </td>
-                <td>
-                  <span className={`badge req-${request.status}`}>{request.status_display}</span>
-                </td>
-                <td>
-                  {request.vehicle ? (
-                    <Link to={`/vehiculos/${request.vehicle}`}>
-                      <strong>{plateOf(request.vehicle)}</strong>
-                    </Link>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  {(request.status === 'pending' || request.status === 'approved') && (
-                    <>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        disabled={busyId === request.id || !request.requester}
-                        title={!request.requester ? 'Sin solicitante: no se puede conceder' : undefined}
-                        onClick={() => openGrant(request)}
-                      >
-                        Conceder…
-                      </Button>{' '}
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        disabled={busyId === request.id}
-                        onClick={() => handleReject(request)}
-                      >
-                        Rechazar
-                      </Button>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <TableWithPanel<VehicleRequestRow>
+          rows={requests}
+          columns={columns}
+          rowKey={(r) => String(r.id)}
+          rowClassName={(r) => (r.status === 'pending' ? 'row-pending' : '')}
+          enableColumnSort
+          enablePagination
+          defaultPageSize={25}
+          pageSizeOptions={[25, 50, 100]}
+          emptyStateLabel="Sin solicitudes con estos filtros."
+        />
       )}
 
       {/* Conceder (Fase A2): rol conductor + asignación aceptada + evento */}

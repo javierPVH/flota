@@ -1,14 +1,18 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, SelectField, TextInputField } from '@flota/ui/ui'
+import { Button, LanguageToggleButton, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
+import { Check, ShieldCheck } from 'lucide-react'
 
 import { useAuth } from '../auth.ts'
+import { useLang } from '../i18n.tsx'
+import logoUrl from '../assets/img/gransolar-logo.png'
 import { devLogin, fetchAuthConfig, listDevUsers, login } from '../api.ts'
 import type { AuthConfig, DevUser } from '../types.ts'
 
 export function LoginPage() {
   const { setUser } = useAuth()
+  const { language, setLanguage, t } = useLang()
   const navigate = useNavigate()
   const [config, setConfig] = useState<AuthConfig | null>(null)
   const [username, setUsername] = useState('')
@@ -19,6 +23,8 @@ export function LoginPage() {
   // Selector de DESARROLLO (solo si el back lo anuncia — DEBUG+FLEET_SEED_DATA).
   const [devUsers, setDevUsers] = useState<DevUser[]>([])
   const [devUsername, setDevUsername] = useState('')
+
+  const L = t.login
 
   useEffect(() => {
     let alive = true
@@ -51,7 +57,7 @@ export function LoginPage() {
       setUser(await login(username, password))
       navigate('/', { replace: true })
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo iniciar sesión.'))
+      setError(asErrorMessage(err, L.errorLogin))
     } finally {
       setBusy(false)
     }
@@ -65,7 +71,7 @@ export function LoginPage() {
       setUser(await devLogin(devUsername))
       navigate('/', { replace: true })
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo entrar como usuario de prueba.'))
+      setError(asErrorMessage(err, L.errorDev))
     } finally {
       setBusy(false)
     }
@@ -74,53 +80,88 @@ export function LoginPage() {
   const passwordEnabled = config?.password_enabled ?? true
 
   return (
-    <div className="login-wrap">
-      <form className="login-card" onSubmit={handleSubmit}>
-        <h1>Flota · Gestión</h1>
-        <p className="sub">Acceso restringido (VPN) — solo administración.</p>
-        {passwordEnabled && (
-          <>
-            <TextInputField
-              label="Usuario o email"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              required
-            />
-            <TextInputField
-              label="Contraseña"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
-            <Button type="submit" variant="primary" fullWidth disabled={busy}>
-              {busy ? 'Entrando…' : 'Entrar'}
-            </Button>
-          </>
-        )}
+    <div className="login-scene">
+      <div className="login-panel">
+        <section className="login-form">
+          <header className="login-topline">
+            <div className="login-brand">
+              <span className="login-brand-mark" aria-hidden="true">F</span>
+              <span className="login-brand-name">{L.brand}</span>
+            </div>
+            <LanguageToggleButton activeLanguage={language} onChange={setLanguage} />
+          </header>
 
-        {config?.dev_login_enabled && devUsers.length > 0 && (
-          <div className="dev-login">
-            <p className="sub">🧪 Desarrollo: entra como usuario de prueba</p>
-            <SelectField
-              label="Usuario de prueba"
-              options={devUsers.map((u) => ({
-                value: u.username,
-                label: `${u.name} (${u.roles.join(', ') || 'sin rol'})`,
-              }))}
-              value={devUsername}
-              onValueChange={setDevUsername}
-            />
-            <Button type="button" variant="secondary" fullWidth disabled={busy} onClick={handleDevLogin}>
-              Entrar sin contraseña
-            </Button>
+          <h1 className="login-title">{L.heading}</h1>
+          <p className="login-subtitle">{L.subtitle}</p>
+
+          <ul className="login-features">
+            {L.features.map((feature) => (
+              <li key={feature}>
+                <span className="login-check" aria-hidden="true">
+                  <Check size={13} />
+                </span>
+                {feature}
+              </li>
+            ))}
+          </ul>
+
+          {passwordEnabled && (
+            <form className="login-fields" onSubmit={handleSubmit}>
+              <TextInputField
+                label={L.userLabel}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                required
+              />
+              <TextInputField
+                label={L.passwordLabel}
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+              <button type="submit" className="login-submit" disabled={busy}>
+                {busy ? L.submitting : L.submit}
+              </button>
+            </form>
+          )}
+
+          {config?.dev_login_enabled && devUsers.length > 0 && (
+            <div className="login-dev">
+              <p className="login-dev-title">{L.devTitle}</p>
+              <SelectField
+                label={L.devUserLabel}
+                options={devUsers.map((u) => ({
+                  value: u.username,
+                  label: `${u.name} (${u.roles.join(', ') || L.devNoRole})`,
+                }))}
+                value={devUsername}
+                onValueChange={setDevUsername}
+              />
+              <Button type="button" variant="secondary" fullWidth disabled={busy} onClick={handleDevLogin}>
+                {L.devSubmit}
+              </Button>
+            </div>
+          )}
+
+          {error && <div className="form-error">{error}</div>}
+
+          <p className="login-security">
+            <ShieldCheck size={14} /> {L.security}
+          </p>
+        </section>
+
+        <aside className="login-brandpanel">
+          <span className="login-pill">{L.panelPill}</span>
+          <div className="login-brandbody">
+            <img className="login-logo-img" src={logoUrl} alt="Gransolar Group" />
+            <h2 className="login-panel-title">{L.panelHeading}</h2>
+            <p className="login-panel-text">{L.panelText}</p>
           </div>
-        )}
-
-        {error && <div className="form-error">{error}</div>}
-      </form>
+        </aside>
+      </div>
     </div>
   )
 }

@@ -29,6 +29,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:watch": "vite build --watch",
     "build:app": "vite build --mode app",
     "preview": "vite preview --mode app",
     "lint": "eslint .",
@@ -121,6 +122,6 @@
     "vitest": "^3.0.0"
   },
   "optionalDependencies": {
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

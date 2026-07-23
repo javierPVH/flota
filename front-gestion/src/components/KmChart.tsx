@@ -23,9 +23,15 @@ export function KmChart({ readings }: { readings: KmReading[] }) {
   return (
     <div className="km-chart">
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Evolución del kilometraje">
-        <path d={path} fill="none" stroke="#009491" strokeWidth="2.5" strokeLinejoin="round" />
+        <path
+          d={path}
+          fill="none"
+          stroke="var(--color-brand)"
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+        />
         {points.map((p, i) => (
-          <circle key={p.id} cx={sx(xs[i])} cy={sy(ys[i])} r="3" fill="#009491" />
+          <circle key={p.id} cx={sx(xs[i])} cy={sy(ys[i])} r="3" fill="var(--color-brand)" />
         ))}
       </svg>
       <div className="km-chart-legend">

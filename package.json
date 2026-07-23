@@ -10,10 +10,11 @@
   ],
   "scripts": {
     "build:ui": "npm run build --workspace @flota/ui",
+    "dev:ui": "npm run build:watch --workspace @flota/ui",
     "build": "npm run build:ui && npm run build --workspace front-gestion && npm run build --workspace front-conductores",
     "typecheck": "npm run typecheck --workspace front-gestion && npm run typecheck --workspace front-conductores",
-    "dev:gestion": "npm run dev --workspace front-gestion",
-    "dev:conductores": "npm run dev --workspace front-conductores",
+    "dev:gestion": "npm run build:ui && npm run dev --workspace front-gestion",
+    "dev:conductores": "npm run build:ui && npm run dev --workspace front-conductores",
     "test": "npm run test --workspace front-gestion && npm run test --workspace front-conductores"
   }
 }

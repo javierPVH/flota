@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Button } from '@flota/ui/ui'
+import { Button, PageHeader } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { acceptAssignment, listAssignments, listVehicles, rejectAssignment } from '../api.ts'
@@ -60,12 +61,72 @@ export function ProposalsPage() {
     }
   }
 
+  const columns: Array<TableWithPanelColumn<AssignmentRow>> = [
+    {
+      key: 'vehicle',
+      label: 'Vehículo',
+      getValue: (p) => plateOf(p.vehicle),
+      render: (p) => (
+        <Link to={`/vehiculos/${p.vehicle}`} className="cell-link">
+          <strong>{plateOf(p.vehicle)}</strong>
+        </Link>
+      ),
+    },
+    {
+      key: 'driver',
+      label: 'Conductor',
+      getValue: (p) => p.driver_name,
+      render: (p) => p.driver_name || '—',
+    },
+    {
+      key: 'start_date',
+      label: 'Inicio propuesto',
+      isDate: true,
+      getValue: (p) => p.start_date,
+      render: (p) => p.start_date || '—',
+    },
+    {
+      key: 'end_date',
+      label: 'Fin propuesto',
+      isDate: true,
+      getValue: (p) => p.end_date,
+      render: (p) => p.end_date ?? '—',
+    },
+    {
+      key: 'actions',
+      label: 'Acciones',
+      align: 'right',
+      searchable: false,
+      sortable: false,
+      render: (p) => (
+        <div className="row-actions">
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={busyId === p.id}
+            onClick={() => decide(p, true)}
+          >
+            Confirmar
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={busyId === p.id}
+            onClick={() => decide(p, false)}
+          >
+            Rechazar
+          </Button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div>
-      <div className="page-head">
-        <h2>Propuestas de fechas</h2>
-        <span className="muted">{proposals.length} pendientes</span>
-      </div>
+      <PageHeader
+        title="Propuestas de fechas"
+        subtitle={`${proposals.length} propuesta(s) pendiente(s) de decidir.`}
+      />
 
       {notice && <div className="notice-ok">{notice}</div>}
       {error && <div className="form-error">{error}</div>}
@@ -73,54 +134,16 @@ export function ProposalsPage() {
       {loading ? (
         <p>Cargando…</p>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Vehículo</th>
-              <th>Conductor</th>
-              <th>Inicio propuesto</th>
-              <th>Fin propuesto</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {proposals.length === 0 && (
-              <tr>
-                <td colSpan={5}>No hay propuestas pendientes. 🎉</td>
-              </tr>
-            )}
-            {proposals.map((p) => (
-              <tr key={p.id}>
-                <td>
-                  <Link to={`/vehiculos/${p.vehicle}`}>
-                    <strong>{plateOf(p.vehicle)}</strong>
-                  </Link>
-                </td>
-                <td>{p.driver_name}</td>
-                <td>{p.start_date}</td>
-                <td>{p.end_date ?? '—'}</td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={busyId === p.id}
-                    onClick={() => decide(p, true)}
-                  >
-                    Confirmar
-                  </Button>{' '}
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    disabled={busyId === p.id}
-                    onClick={() => decide(p, false)}
-                  >
-                    Rechazar
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <TableWithPanel<AssignmentRow>
+          rows={proposals}
+          columns={columns}
+          rowKey={(p) => String(p.id)}
+          enableColumnSort
+          enablePagination
+          defaultPageSize={25}
+          pageSizeOptions={[25, 50, 100]}
+          emptyStateLabel="No hay propuestas pendientes. 🎉"
+        />
       )}
     </div>
   )

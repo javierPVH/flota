@@ -229,7 +229,10 @@ async function sendJson<TResponse>(
     const response = await fetch(toUrl(path, options.baseUrl), {
       method,
       headers: buildHeaders(includeContentType, method),
-      credentials: 'same-origin',
+      // 'include' (no 'same-origin') para que la cookie de sesión viaje también
+      // cuando la SPA vive en OTRO origen que el backend (p. ej. dev :5173 ↔ :8000).
+      // El backend lo permite: CORS_ALLOW_CREDENTIALS=True + orígenes explícitos.
+      credentials: 'include',
       body: payload === undefined ? undefined : JSON.stringify(payload),
       signal: options.signal,
     })

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Button, Modal, Panel, SelectField, TextInputField } from '@flota/ui/ui'
+import { Button, Modal, PageHeader, Panel, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
@@ -384,38 +384,41 @@ export function VehicleFormPage() {
 
   return (
     <div className="vehicle-form">
-      <p className="breadcrumbs">
-        <Link to={editing && vehicleId ? `/vehiculos/${vehicleId}` : '/'}>← Volver</Link>
-      </p>
-      <div className="page-head">
-        <h2>{title}</h2>
-      </div>
+      <PageHeader
+        breadcrumb={<Link to={editing && vehicleId ? `/vehiculos/${vehicleId}` : '/'}>← Volver</Link>}
+        title={title}
+        subtitle={
+          editing
+            ? 'Edita la ficha; los cambios se revisan antes de guardar.'
+            : 'Alta transaccional: si algo falla, no se crea nada.'
+        }
+      />
 
       {editing && (
-        <div className="edit-banner">
+        <Panel tone="info" className="form-banner">
           Los campos <span className="field-badge historic">histórico</span> registran un evento al
           cambiar; los <span className="field-badge locked">bloqueado</span> tienen flujo propio
           (el kilometraje va por lecturas y el conductor por «Cambiar conductor»).
-        </div>
+        </Panel>
       )}
 
       {conflict && (
-        <div className="form-error conflict-banner">
+        <Panel tone="warning" className="form-banner">
           La ficha cambió mientras editabas (otra sesión guardó antes).{' '}
           <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>
             Recargar con los datos actuales
           </Button>
-        </div>
+        </Panel>
       )}
 
       <form onSubmit={handleSubmit}>
-        <Panel>
+        <section className="card">
           <h3>Identificación</h3>
           <div className="form-grid">
-            <TextInputField label="Matrícula *" value={form.plate} onChange={setInput('plate')} required />
+            <TextInputField label="Matrícula" requiredVisual value={form.plate} onChange={setInput('plate')} required />
             <TextInputField label="Bastidor (VIN)" value={form.vin} onChange={setInput('vin')} />
-            <TextInputField label="Marca *" value={form.brand} onChange={setInput('brand')} required />
-            <TextInputField label="Modelo *" value={form.model} onChange={setInput('model')} required />
+            <TextInputField label="Marca" requiredVisual value={form.brand} onChange={setInput('brand')} required />
+            <TextInputField label="Modelo" requiredVisual value={form.model} onChange={setInput('model')} required />
             <TextInputField label="Versión" value={form.version} onChange={setInput('version')} />
             <TextInputField label="Año" type="number" value={form.year} onChange={setInput('year')} />
             <TextInputField
@@ -425,13 +428,13 @@ export function VehicleFormPage() {
               onChange={setInput('registration_date')}
             />
           </div>
-        </Panel>
+        </section>
 
-        <Panel>
+        <section className="card">
           <h3>Características técnicas</h3>
           <div className="form-grid">
-            <SelectField label="Combustible *" options={FUEL_OPTIONS} value={form.fuel} onValueChange={set('fuel')} />
-            <SelectField label="Tipo *" options={TYPE_OPTIONS} value={form.type} onValueChange={set('type')} />
+            <SelectField label="Combustible" requiredVisual options={FUEL_OPTIONS} value={form.fuel} onValueChange={set('fuel')} />
+            <SelectField label="Tipo" requiredVisual options={TYPE_OPTIONS} value={form.type} onValueChange={set('type')} />
             <SelectField label="Tamaño" options={SIZE_OPTIONS} value={form.size} onValueChange={set('size')} />
             <SelectField
               label="Segmento"
@@ -465,14 +468,15 @@ export function VehicleFormPage() {
           {!editing && (
             <p className="muted">El odómetro inicial crea la primera lectura de km del vehículo.</p>
           )}
-        </Panel>
+        </section>
 
-        <Panel>
+        <section className="card">
           <h3>Uso y asignación</h3>
           <div className="form-grid">
             <Labeled badge={editing ? 'historic' : undefined}>
               <SelectField
-                label="Tipo de uso *"
+                label="Tipo de uso"
+                requiredVisual
                 options={BUSINESS_USE_OPTIONS}
                 value={form.business_use}
                 onValueChange={set('business_use')}
@@ -480,7 +484,8 @@ export function VehicleFormPage() {
             </Labeled>
             <Labeled badge={editing ? 'historic' : undefined}>
               <SelectField
-                label={onProject ? 'Proyecto *' : 'Proyecto'}
+                label="Proyecto"
+                requiredVisual={onProject}
                 options={catalogOptions(projects, onProject ? '— Elegir —' : '— (solo uso Proyecto)')}
                 value={form.project}
                 onValueChange={set('project')}
@@ -530,13 +535,14 @@ export function VehicleFormPage() {
               onValueChange={set('country')}
             />
           </div>
-        </Panel>
+        </section>
 
-        <Panel>
+        <section className="card">
           <h3>Propiedad y contrato</h3>
           <div className="form-grid">
             <SelectField
-              label="Propiedad *"
+              label="Propiedad"
+              requiredVisual
               options={PROPERTY_OPTIONS}
               value={form.property}
               onValueChange={set('property')}
@@ -605,7 +611,7 @@ export function VehicleFormPage() {
               </p>
             )
           )}
-        </Panel>
+        </section>
 
         {error && <div className="form-error">{error}</div>}
 

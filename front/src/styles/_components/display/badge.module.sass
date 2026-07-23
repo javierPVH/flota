@@ -1,0 +1,87 @@
+@use '../../_colors/_colors-corp' as app
+
+// Píldora de estado. El tono fija variables CSS que consume la variante
+// (soft / solid / outline), evitando repetir combinaciones tono×variante.
+.badge
+  --badge-base: #{app.$muted-text-app}
+  --badge-fg: #45566b
+  --badge-soft-bg: #eef2f7
+  --badge-border: #d7dfe9
+  display: inline-flex
+  align-items: center
+  gap: .3rem
+  padding: .15rem .55rem
+  border-radius: 999px
+  border: 1px solid transparent
+  font-size: .72rem
+  font-weight: 700
+  line-height: 1.4
+  white-space: nowrap
+  vertical-align: middle
+
+.icon
+  display: inline-flex
+  align-items: center
+  justify-content: center
+
+// ── Tonos: solo fijan las variables ─────────────────────────
+.toneNeutral
+  --badge-base: #64748b
+  --badge-fg: #45566b
+  --badge-soft-bg: #eef2f7
+  --badge-border: #d7dfe9
+
+.toneBrand
+  --badge-base: #{app.$teal-corp}
+  --badge-fg: #0b7d7b
+  --badge-soft-bg: #e0f2f1
+  --badge-border: #9fd3d0
+
+.tonePrimary
+  --badge-base: #{app.$primary-app}
+  --badge-fg: #{app.$primary-app}
+  --badge-soft-bg: #e8f0fe
+  --badge-border: #bfd4f1
+
+.toneInfo
+  --badge-base: #{app.$info-app}
+  --badge-fg: #1d5ea8
+  --badge-soft-bg: #{app.$info-soft-app}
+  --badge-border: #{app.$info-border-app}
+
+.toneSuccess
+  --badge-base: #{app.$success-app}
+  --badge-fg: #1e7e45
+  --badge-soft-bg: #{app.$success-soft-app}
+  --badge-border: #{app.$success-border-app}
+
+.toneWarning
+  --badge-base: #{app.$warning-app}
+  --badge-fg: #b9740d
+  --badge-soft-bg: #{app.$warning-soft-app}
+  --badge-border: #{app.$warning-border-app}
+
+.toneDanger
+  --badge-base: #{app.$danger-app}
+  --badge-fg: #{app.$danger-app}
+  --badge-soft-bg: #fdecec
+  --badge-border: #{app.$danger-soft-app}
+
+// ── Variantes: consumen las variables ───────────────────────
+.soft
+  background: var(--badge-soft-bg)
+  color: var(--badge-fg)
+
+.solid
+  background: var(--badge-base)
+  color: #fff
+
+.outline
+  background: transparent
+  border-color: var(--badge-border)
+  color: var(--badge-fg)
+
+// ── Tamaños ─────────────────────────────────────────────────
+.sizeSm
+  padding: .06rem .4rem
+  font-size: .66rem

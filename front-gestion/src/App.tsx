@@ -18,11 +18,14 @@ import { InvoicesPage } from './pages/InvoicesPage.tsx'
 import { CatalogsPage } from './pages/CatalogsPage.tsx'
 import { UsersPage } from './pages/UsersPage.tsx'
 import { UserDetailPage } from './pages/UserDetailPage.tsx'
+import { UiKitPage } from './pages/UiKitPage.tsx'
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* QA visual del design system (dev). Público: sin auth ni backend. */}
+      <Route path="/ui-kit" element={<UiKitPage />} />
       <Route
         element={
           <RequireAuth>

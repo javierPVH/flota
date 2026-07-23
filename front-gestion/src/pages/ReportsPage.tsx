@@ -1,4 +1,4 @@
-import { Panel } from '@flota/ui/ui'
+import { PageHeader } from '@flota/ui/ui'
 import { Download } from 'lucide-react'
 
 import { reportUrl, type ReportFormat, type ReportKind } from '../api.ts'
@@ -29,12 +29,13 @@ const FORMATS: ReportFormat[] = ['xlsx', 'csv']
 export function ReportsPage() {
   return (
     <div>
-      <div className="page-head">
-        <h2>Informes</h2>
-      </div>
+      <PageHeader
+        title="Informes"
+        subtitle="Descarga de inventario, alertas y costes en Excel o CSV."
+      />
       <div className="reports-grid">
         {REPORTS.map((report) => (
-          <Panel key={report.kind}>
+          <section className="card" key={report.kind}>
             <h3>{report.title}</h3>
             <p className="muted">{report.description}</p>
             <div className="report-actions">
@@ -44,7 +45,7 @@ export function ReportsPage() {
                 </a>
               ))}
             </div>
-          </Panel>
+          </section>
         ))}
       </div>
     </div>

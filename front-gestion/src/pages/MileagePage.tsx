@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Panel, SelectField } from '@flota/ui/ui'
+import { Badge, PageHeader, SelectField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchVehicleSummary, listKmReadings, listVehicles } from '../api.ts'
+import { kmLevelTone } from '../format.ts'
 import { KmChart } from '../components/KmChart.tsx'
 import type { KmReading, Vehicle, VehicleSummary } from '../types.ts'
 
@@ -120,20 +121,23 @@ export function MileagePage() {
 
   return (
     <div>
-      <div className="page-head">
-        <h2>Kilometraje</h2>
-        {supervisors.length > 0 && (
-          <SelectField
-            label="Grupo / supervisor"
-            options={[
-              { value: '', label: 'Toda la flota' },
-              ...supervisors.map(([id, name]) => ({ value: String(id), label: name })),
-            ]}
-            value={supervisorFilter}
-            onValueChange={setSupervisorFilter}
-          />
-        )}
-      </div>
+      <PageHeader
+        title="Kilometraje"
+        subtitle="Lecturas pendientes, proyección a fin de contrato y simulador de ritmo."
+        actions={
+          supervisors.length > 0 ? (
+            <SelectField
+              label="Grupo / supervisor"
+              options={[
+                { value: '', label: 'Toda la flota' },
+                ...supervisors.map(([id, name]) => ({ value: String(id), label: name })),
+              ]}
+              value={supervisorFilter}
+              onValueChange={setSupervisorFilter}
+            />
+          ) : undefined
+        }
+      />
 
       {error && <div className="form-error">{error}</div>}
       {loading ? (
@@ -141,7 +145,7 @@ export function MileagePage() {
       ) : (
         <>
           {/* Lecturas pendientes (HU-3.3) */}
-          <Panel>
+          <section className="card">
             <div className="section-head">
               <h3>Lecturas pendientes de este mes</h3>
               <span className={pending.length ? 'pending-count' : 'muted'}>
@@ -183,10 +187,10 @@ export function MileagePage() {
                 </tbody>
               </table>
             )}
-          </Panel>
+          </section>
 
           {/* Proyección por vehículo (HU-3.4/3.5) */}
-          <Panel>
+          <section className="card">
             <h3>Proyección a fin de contrato</h3>
             {withProjection.length === 0 ? (
               <p className="muted">Ningún vehículo con contrato y lecturas suficientes.</p>
@@ -236,7 +240,7 @@ export function MileagePage() {
                         <td>{km(p.monthly_avg)}</td>
                         <td>{p.contracted_rate ? `${km(p.contracted_rate)}/mes` : '—'}</td>
                         <td>
-                          <span className={`badge ${meta.className}`}>{meta.label}</span>
+                          <Badge tone={kmLevelTone(p.level)}>{meta.label}</Badge>
                           {p.estimated_penalty && (
                             <div className="itv-overdue" style={{ fontSize: '0.8rem' }}>
                               ~{Number(p.estimated_penalty).toLocaleString('es-ES')} €
@@ -249,10 +253,10 @@ export function MileagePage() {
                 </tbody>
               </table>
             )}
-          </Panel>
+          </section>
 
           {/* Simulador + histórico por vehículo (HU-3.4/3.6) */}
-          <Panel>
+          <section className="card">
             <div className="section-head">
               <h3>Simulador e histórico</h3>
               <SelectField
@@ -339,7 +343,7 @@ export function MileagePage() {
                 )}
               </>
             )}
-          </Panel>
+          </section>
         </>
       )}
     </div>

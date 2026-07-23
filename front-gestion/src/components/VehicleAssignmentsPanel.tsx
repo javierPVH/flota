@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Button, Modal, Panel, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
+
+import { assignmentStatusTone } from '../format.ts'
 
 import {
   acceptAssignment,
@@ -166,7 +168,7 @@ export function VehicleAssignmentsPanel({
   }
 
   return (
-    <Panel>
+    <section className="card">
       <div className="section-head">
         <h3>Conductor y reparto</h3>
         <div className="section-tools">
@@ -240,7 +242,9 @@ export function VehicleAssignmentsPanel({
                       {a.start_date} → {a.end_date ?? '…'}
                     </td>
                     <td>
-                      <span className={`badge ${a.status}`}>{STATUS_LABEL[a.status] ?? a.status}</span>
+                      <Badge tone={assignmentStatusTone(a.status)}>
+                        {STATUS_LABEL[a.status] ?? a.status}
+                      </Badge>
                     </td>
                   </tr>
                 ))}
@@ -364,6 +368,6 @@ export function VehicleAssignmentsPanel({
           </div>
         </form>
       </Modal>
-    </Panel>
+    </section>
   )
 }
