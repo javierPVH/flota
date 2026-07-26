@@ -70,6 +70,56 @@ from fleet.services import alerts
 # Contraseña de prueba compartida por todos los usuarios sembrados.
 DEV_PASSWORD = "flota-dev-2026"
 
+# --- Volumen de pruebas (determinista, SIN random) --------------------------
+# Los datos "de referencia" (matrículas 1234KLM…, usuarios sara/carlos…) NO se
+# tocan: la doc y las pruebas manuales dependen de ellos. Esta capa añade
+# VOLUMEN encima — ~30 vehículos con contratos, meses de lecturas, conductores,
+# incidencias, documentos, facturas y solicitudes — para ejercitar listados,
+# paginación, buscadores, chips con contador y export CSV con datos realistas.
+# Todo sale de índices (aritmética modular), así el estado final es siempre el
+# mismo (la garantía del seeding destructivo).
+
+BULK_VEHICLES = 30
+_PLATE_LETTERS = "BCDFGHJKLMNPRSTVWXYZ"
+_DNI_LETTERS = "TRWAGMYFPDXBNJZSQVHL"
+
+BULK_DRIVERS = [
+    ("pedro", "Pedro", "Alonso"),
+    ("ana", "Ana", "Castro"),
+    ("jorge", "Jorge", "Núñez"),
+    ("elena", "Elena", "Prieto"),
+    ("raul", "Raúl", "Serrano"),
+    ("marina", "Marina", "Iglesias"),
+    ("sergio", "Sergio", "Domínguez"),
+    ("nuria", "Nuria", "Blanco"),
+    ("ivan", "Iván", "Cano"),
+    ("paula", "Paula", "Reyes"),
+    ("oscar", "Óscar", "Molina"),
+    ("teresa", "Teresa", "Gil"),
+]
+
+BULK_MODELS = [
+    # (marca, modelo, tipo, combustible)
+    ("Peugeot", "Partner", VehicleType.FURGONETA, Fuel.DIESEL),
+    ("Citroën", "Berlingo Van", VehicleType.FURGONETA, Fuel.DIESEL),
+    ("Ford", "Transit Custom", VehicleType.FURGONETA, Fuel.DIESEL),
+    ("Volkswagen", "Caddy Cargo", VehicleType.FURGONETA, Fuel.DIESEL),
+    ("Toyota", "Corolla Touring", VehicleType.TURISMO, Fuel.HYBRID),
+    ("Seat", "León ST", VehicleType.TURISMO, Fuel.GASOLINE),
+    ("Renault", "Clio", VehicleType.TURISMO, Fuel.GASOLINE),
+    ("Dacia", "Duster GLP", VehicleType.TURISMO, Fuel.LPG),
+    ("Kia", "Sportage", VehicleType.TURISMO, Fuel.HYBRID),
+    ("Hyundai", "Kona EV", VehicleType.TURISMO, Fuel.OTHER),
+    ("Iveco", "Daily 35S", VehicleType.CAMION, Fuel.DIESEL),
+    ("Yamaha", "Tricity 300", VehicleType.MOTOCICLETA, Fuel.GASOLINE),
+]
+
+
+def _bulk_plate(i: int) -> str:
+    """Matrícula determinista del vehículo i de volumen (2000BBB, 2001CKR…)."""
+    letters = _PLATE_LETTERS
+    return f"{2000 + i:04d}{letters[i % 20]}{letters[(i * 7 + 3) % 20]}{letters[(i * 13 + 5) % 20]}"
+
 
 def wipe(model, stdout=None) -> None:
     """Borra TODAS las filas del modelo (el helper `eliminar_registros`)."""
@@ -127,6 +177,28 @@ def seed_users(stdout=None) -> None:
         username="nuevo", email="nuevo@flota.dev", password=DEV_PASSWORD, first_name="Nuevo"
     )
 
+    # -- Volumen: segunda supervisora + plantilla de conductores.
+    marta = User.objects.create_user(
+        username="marta",
+        email="marta@flota.dev",
+        password=DEV_PASSWORD,
+        first_name="Marta",
+        last_name="Vega",
+    )
+    UserRole.objects.create(user=marta, role=Role.SUPERVISOR)
+    for i, (username, first, last) in enumerate(BULK_DRIVERS):
+        user = User.objects.create_user(
+            username=username,
+            email=f"{username}@flota.dev",
+            password=DEV_PASSWORD,
+            first_name=first,
+            last_name=last,
+            dni=f"44{i:06d}{_DNI_LETTERS[i % 20]}",
+            license_type="C" if i % 5 == 0 else "B",
+            fuel_card=i % 3 == 0,
+        )
+        UserRole.objects.create(user=user, role=Role.DRIVER)
+
 
 # --- 2) Catálogos ----------------------------------------------------------
 
@@ -137,12 +209,32 @@ def seed_catalogs(stdout=None) -> None:
     Country.objects.create(name="España")
     BusinessUnit.objects.create(code="OPS", name="Operaciones")
     BusinessUnit.objects.create(code="SVC", name="Servicios")
-    Project.objects.create(project_name="Obra Norte A-12")
-    Project.objects.create(project_name="Planta FV Badajoz")
-    Pep.objects.create(code="4300", name="Servicios generales")
-    Pep.objects.create(code="4400", name="Mantenimiento")
+    # Los CECO antes que los proyectos: todo proyecto imputa a un CECO.
+    ceco_servicios = Pep.objects.create(code="4300", name="Servicios generales")
+    ceco_mantenimiento = Pep.objects.create(code="4400", name="Mantenimiento")
+    Project.objects.create(project_name="Obra Norte A-12", cost_center=ceco_servicios)
+    Project.objects.create(project_name="Planta FV Badajoz", cost_center=ceco_mantenimiento)
     Renting.objects.create(name="ALD Automotive")
     Renting.objects.create(name="Northgate")
+
+    # -- Volumen: más países, unidades, CECOs, proyectos y rentings.
+    Country.objects.create(name="Portugal")
+    BusinessUnit.objects.create(code="ENG", name="Ingeniería")
+    BusinessUnit.objects.create(code="LOG", name="Logística")
+    ceco_log = Pep.objects.create(code="4500", name="Logística")
+    ceco_eng = Pep.objects.create(code="4600", name="Ingeniería")
+    ceco_corp = Pep.objects.create(code="4700", name="Flota corporativa")
+    for name, ceco in (
+        ("Parque eólico Teruel", ceco_eng),
+        ("Subestación Mérida", ceco_eng),
+        ("Obra Sur SE-40", ceco_servicios),
+        ("Almacén central Getafe", ceco_log),
+        ("Planta FV Cáceres", ceco_mantenimiento),
+        ("Oficinas Madrid", ceco_corp),
+    ):
+        Project.objects.create(project_name=name, cost_center=ceco)
+    Renting.objects.create(name="Alphabet")
+    Renting.objects.create(name="Arval")
 
 
 # --- 3) Vehículos ----------------------------------------------------------
@@ -226,6 +318,47 @@ def seed_vehicles(stdout=None) -> None:
         **common,
     )
 
+    # -- Volumen: BULK_VEHICLES vehículos repartidos entre los grupos de sara
+    # y marta (y algunos sin supervisor), con estados/usos/tipos variados.
+    marta = User.objects.get(username="marta")
+    portugal = Country.objects.get(name="Portugal")
+    units = list(BusinessUnit.objects.order_by("code"))
+    projects = list(Project.objects.order_by("project_name"))
+    cecos = list(Pep.objects.order_by("code"))
+    uses = [UseType.ON_PROJECT, UseType.WORKS, UseType.PERSONAL]
+    for i in range(BULK_VEHICLES):
+        brand, model, vtype, fuel = BULK_MODELS[i % len(BULK_MODELS)]
+        use = uses[i % 3]
+        project = projects[i % len(projects)] if use == UseType.ON_PROJECT else None
+        if i >= BULK_VEHICLES - 2:
+            state = VehicleState.BAJA
+        elif i % 9 == 4:
+            state = VehicleState.MAINTENANCE
+        elif i % 11 == 7:
+            state = VehicleState.ITV
+        elif i % 13 == 6:
+            state = VehicleState.BROKEN
+        else:
+            state = VehicleState.ACTIVE
+        Vehicle.objects.create(
+            plate=_bulk_plate(i),
+            brand=brand,
+            model=model,
+            year=2018 + i % 8,
+            state=state,
+            fuel=fuel,
+            type=vtype,
+            business_use=use,
+            project=project,
+            property=PropertyType.OWNED if i % 5 == 4 else PropertyType.RENTING,
+            supervisor=sara if i % 3 == 0 else marta if i % 3 == 1 else None,
+            is_substitute=i % 14 == 9,
+            km_start=(i * 3573) % 40000,
+            country=portugal if i % 10 == 9 else country,
+            business_unit=units[i % len(units)],
+            cost_center=project.cost_center if project else cecos[i % len(cecos)],
+        )
+
 
 # --- 4) Contratos y lecturas de km ----------------------------------------
 
@@ -280,6 +413,46 @@ def seed_contracts(stdout=None) -> None:
         month_fee=Decimal("620.00"),
     )
     KmReading.objects.create(vehicle=v3, reading_date=today - timedelta(days=45), km_reading=2500)
+
+    # -- Volumen: contrato (si es renting) + hasta 12 meses de lecturas.
+    rentings = list(Renting.objects.order_by("name"))
+    for i in range(BULK_VEHICLES):
+        vehicle = Vehicle.objects.get(plate=_bulk_plate(i))
+        months = (12, 24, 36)[i % 3]
+        # Antigüedad acotada al contrato para que la proyección tenga sentido.
+        started_days = 90 + (i * 37) % (months * 30 - 120)
+        start = today - timedelta(days=started_days)
+        contract_km = (40000, 60000, 90000, 120000)[i % 4]
+        month_fee = 380 + (i * 23) % 320
+        if vehicle.property == PropertyType.RENTING:
+            Contract.objects.create(
+                vehicle=vehicle,
+                renting=rentings[i % len(rentings)],
+                contract_number=f"R-27-{1000 + i}",
+                contract_time=months,
+                contract_km=contract_km,
+                start_date=start,
+                planned_end_date=start + timedelta(days=months * 30),
+                month_fee=Decimal(str(month_fee)),
+                penalty_per_km=Decimal("0.060") if i % 2 else Decimal("0.045"),
+            )
+        # Ritmo mensual ~70% / ~100% / ~130% del contratado → proyecciones
+        # repartidas entre "dentro", "a vigilar" y "riesgo exceso".
+        pace = (0.7, 1.0, 1.3)[i % 3]
+        monthly = int(contract_km / months * pace) or 500
+        n_readings = min(12, started_days // 30)
+        # 1 de cada 4 se salta la última lectura (>1 mes sin registrar) →
+        # alertas de "lectura pendiente" sin romper el no-retroceso.
+        if i % 4 == 0 and n_readings > 1:
+            n_readings -= 1
+        km = vehicle.km_start
+        for m in range(n_readings):
+            km += monthly + (i * 7 + m * 13) % 180
+            KmReading.objects.create(
+                vehicle=vehicle,
+                reading_date=today - timedelta(days=started_days - (m + 1) * 30),
+                km_reading=km,
+            )
 
 
 # --- 5) Asignaciones, reparto y vínculos -----------------------------------
@@ -343,6 +516,72 @@ def seed_assignments(stdout=None) -> None:
         substitute_vehicle=substitute,
         reason=LinkReason.MAINTENANCE,
         start_date=today - timedelta(days=5),
+    )
+
+    # -- Volumen: conductor vigente para el grueso de la flota nueva, algunos
+    # SIN conductor (alerta no_driver), históricos finalizados y propuestas.
+    drivers = [User.objects.get(username=username) for username, _, _ in BULK_DRIVERS]
+    for i in range(BULK_VEHICLES):
+        vehicle = Vehicle.objects.get(plate=_bulk_plate(i))
+        if vehicle.state == VehicleState.BAJA or vehicle.is_substitute:
+            continue
+        if i % 5 == 3:
+            continue  # sin conductor a propósito → alerta no_driver
+        driver = drivers[i % len(drivers)]
+        start = today - timedelta(days=30 + (i * 11) % 300)
+        # 1 de cada 6 tuvo otro conductor antes (histórico de la ficha).
+        if i % 6 == 2:
+            Assignment.objects.create(
+                vehicle=vehicle,
+                driver=drivers[(i + 5) % len(drivers)],
+                start_date=start - timedelta(days=200),
+                end_date=start - timedelta(days=1),
+                status=AssignmentStatus.FINISHED,
+            )
+        Assignment.objects.create(
+            vehicle=vehicle,
+            driver=driver,
+            start_date=start,
+            status=AssignmentStatus.ACCEPTED,
+        )
+        # Alguna propuesta de fechas pendiente (bandeja de gestión).
+        if i % 12 == 1:
+            Assignment.objects.create(
+                vehicle=vehicle,
+                driver=driver,
+                start_date=today + timedelta(days=15),
+                end_date=today + timedelta(days=45),
+                status=AssignmentStatus.PROPOSED,
+            )
+
+    # Reparto de uso 70/30 en el primer vehículo de volumen.
+    shared = Vehicle.objects.get(plate=_bulk_plate(0))
+    VehicleUsage.objects.create(
+        vehicle=shared,
+        driver=drivers[0],
+        usage_percent=Decimal("70"),
+        start_date=today - timedelta(days=90),
+    )
+    VehicleUsage.objects.create(
+        vehicle=shared,
+        driver=drivers[1],
+        usage_percent=Decimal("30"),
+        start_date=today - timedelta(days=90),
+    )
+    # Vínculo activo (avería cubierta por un sustituto de volumen) + uno
+    # histórico ya cerrado (para el histórico de la ficha).
+    VehicleLink.objects.create(
+        main_vehicle=Vehicle.objects.get(plate=_bulk_plate(6)),  # broken
+        substitute_vehicle=Vehicle.objects.get(plate=_bulk_plate(9)),  # sustituto
+        reason=LinkReason.BREAKDOWN,
+        start_date=today - timedelta(days=8),
+    )
+    VehicleLink.objects.create(
+        main_vehicle=Vehicle.objects.get(plate=_bulk_plate(4)),  # maintenance
+        substitute_vehicle=substitute,
+        reason=LinkReason.MAINTENANCE,
+        start_date=today - timedelta(days=60),
+        end_date=today - timedelta(days=40),
     )
 
 
@@ -459,6 +698,141 @@ def seed_operations(stdout=None) -> None:
         requested_type=VehicleType.FURGONETA,
         status=VehicleRequestStatus.APPROVED,
     )
+
+    # -- Volumen -------------------------------------------------------------
+    drivers = [User.objects.get(username=username) for username, _, _ in BULK_DRIVERS]
+
+    # ITV por vehículo: vencidas (i%7==0), a <30 días (i%7 in 1,2) o lejanas;
+    # + evento de alta para dar cuerpo al timeline de la ficha.
+    for i in range(BULK_VEHICLES):
+        vehicle = Vehicle.objects.get(plate=_bulk_plate(i))
+        if i % 7 == 0:
+            next_due = today - timedelta(days=3 + i % 20)
+        elif i % 7 in (1, 2):
+            next_due = today + timedelta(days=5 + i % 25)
+        else:
+            next_due = today + timedelta(days=60 + (i * 13) % 340)
+        event = Event.objects.create(
+            vehicle=vehicle,
+            event_type=EventType.ITV,
+            event_date=today - timedelta(days=330 + i % 30),
+        )
+        EventItv.objects.create(event=event, result="done", next_due=next_due)
+        Event.objects.create(
+            vehicle=vehicle,
+            event_type=EventType.CREATION,
+            event_date=today - timedelta(days=400 + (i * 9) % 300),
+        )
+
+    # Incidencias con tipos, estados y costes repartidos.
+    inc_types = [
+        IncidentType.BREAKDOWN,
+        IncidentType.MAINTENANCE,
+        IncidentType.ITV,
+        IncidentType.ACCIDENT,
+    ]
+    inc_status = [IncidentStatus.OPEN, IncidentStatus.IN_PROGRESS, IncidentStatus.CLOSED]
+    inc_descriptions = [
+        "Testigo de motor encendido",
+        "Cambio de aceite y filtros",
+        "Revisión previa a la ITV",
+        "Golpe en el lateral derecho en el aparcamiento",
+        "Embrague duro al arrancar en frío",
+        "Neumáticos delanteros al límite",
+        "Luna delantera con impacto",
+        "Frenos traseros con ruido",
+    ]
+    for j in range(14):
+        vehicle = Vehicle.objects.get(plate=_bulk_plate((j * 2) % BULK_VEHICLES))
+        Incident.objects.create(
+            vehicle=vehicle,
+            type=inc_types[j % 4],
+            date=today - timedelta(days=4 + j * 6),
+            description=inc_descriptions[j % len(inc_descriptions)],
+            status=inc_status[j % 3],
+            cost=Decimal(str(80 + j * 45)) if j % 3 != 0 else None,
+        )
+
+    # Documentos: seguro para todos (alguno caducado), ficha técnica cada 3 y
+    # fotos pendientes de archivar cada 10 (reintento del job de Drive).
+    for i in range(BULK_VEHICLES):
+        vehicle = Vehicle.objects.get(plate=_bulk_plate(i))
+        expired = i % 8 == 5
+        Document.objects.create(
+            vehicle=vehicle,
+            type=DocumentType.INSURANCE,
+            drive_url=f"https://drive.example/seguro-{vehicle.plate}",
+            uploaded_by=admin,
+            expiry_date=today - timedelta(days=10)
+            if expired
+            else today + timedelta(days=40 + (i * 17) % 320),
+            status=DocumentStatus.EXPIRED if expired else DocumentStatus.VALID,
+        )
+        if i % 3 == 0:
+            Document.objects.create(
+                vehicle=vehicle,
+                type=DocumentType.TECHNICAL_SHEET,
+                drive_url=f"https://drive.example/ficha-{vehicle.plate}",
+                uploaded_by=admin,
+                status=DocumentStatus.VALID,
+            )
+        if i % 10 == 6:
+            Document.objects.create(
+                vehicle=vehicle,
+                type=DocumentType.DAMAGE_PHOTOS,
+                drive_url="",
+                uploaded_by=drivers[i % len(drivers)],
+                status=DocumentStatus.PENDING_ARCHIVE,
+                notes="Rozadura en el paragolpes",
+            )
+
+    # Facturas: 3 meses por vehículo de renting con reparto proyecto/CECO
+    # (misma cuota que su contrato, con una pequeña deriva mensual).
+    month_starts = [today.replace(day=1)]
+    for _ in range(2):
+        month_starts.append((month_starts[-1] - timedelta(days=1)).replace(day=1))
+    for i in range(BULK_VEHICLES):
+        vehicle = Vehicle.objects.get(plate=_bulk_plate(i))
+        if vehicle.property != PropertyType.RENTING:
+            continue
+        base = 380 + (i * 23) % 320
+        for m, month_start in enumerate(month_starts):
+            amount = Decimal(str(base + m * 7))
+            invoice = Invoice.objects.create(
+                code=f"F-9{i:02d}{m}",
+                vehicle=vehicle,
+                date=month_start,
+                amount=amount,
+            )
+            if vehicle.project:
+                InvoiceAllocation.objects.create(
+                    invoice=invoice,
+                    target_type="proyecto",
+                    project=vehicle.project,
+                    percentage=Decimal("100"),
+                    amount=amount,
+                )
+            else:
+                InvoiceAllocation.objects.create(
+                    invoice=invoice,
+                    target_type="pep",
+                    cost_center=vehicle.cost_center,
+                    percentage=Decimal("100"),
+                    amount=amount,
+                )
+
+    # Solicitudes: bandeja con todos los estados (importadas de Jira, sin
+    # solicitante — el botón "Conceder" queda deshabilitado a propósito).
+    for status_value, vtype, jira in (
+        (VehicleRequestStatus.PENDING, VehicleType.FURGONETA, "FLT-201"),
+        (VehicleRequestStatus.PENDING, VehicleType.TURISMO, "FLT-202"),
+        (VehicleRequestStatus.APPROVED, VehicleType.TURISMO, "FLT-203"),
+        (VehicleRequestStatus.APPROVED, VehicleType.CAMION, "FLT-204"),
+        (VehicleRequestStatus.REJECTED, VehicleType.TURISMO, "FLT-205"),
+        (VehicleRequestStatus.REJECTED, VehicleType.FURGONETA, "FLT-206"),
+        (VehicleRequestStatus.CLOSED, VehicleType.TURISMO, "FLT-207"),
+    ):
+        VehicleRequest.objects.create(jira_key=jira, requested_type=vtype, status=status_value)
 
 
 # --- 7) Alertas (motor real sobre lo sembrado) -----------------------------

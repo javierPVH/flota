@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Badge, Button, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { ExternalLink } from 'lucide-react'
+import { Download, ExternalLink } from 'lucide-react'
 
 import {
   allocateInvoice,
@@ -11,6 +11,7 @@ import {
   createInvoice,
   deleteInvoice,
   fetchPickerConfig,
+  listAll,
   listAllocations,
   listCatalog,
   listInvoices,
@@ -21,13 +22,16 @@ import {
   type InvoiceInput,
   type InvoiceRow,
 } from '../api.ts'
+import { exportCsv } from '../csv.ts'
+import { todayIso } from '../format.ts'
 import { openDrivePicker, type PickedFile } from '../services/google-picker.ts'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 import type { PickerConfig, Vehicle } from '../types.ts'
 
 const eur = (value: string | number) =>
   Number(value).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = todayIso
 
 function safeHref(url: string): string {
   return /^https?:\/\//i.test(url) ? url : ''
@@ -65,6 +69,7 @@ interface Line {
 
 /** Facturas + editor de refacturación (G10, Épica 7). El PDF vive en Drive. */
 export function InvoicesPage() {
+  const confirm = useConfirm()
   const [searchParams, setSearchParams] = useSearchParams()
   const vehicleFilter = searchParams.get('vehicle') ?? ''
 
@@ -91,14 +96,14 @@ export function InvoicesPage() {
 
   const load = useCallback(() => {
     setLoading(true)
-    listInvoices({ vehicle: vehicleFilter ? Number(vehicleFilter) : undefined })
-      .then((page) => {
-        setInvoices(page.results)
+    listAll(listInvoices({ vehicle: vehicleFilter ? Number(vehicleFilter) : undefined }))
+      .then((rows) => {
+        setInvoices(rows)
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar las facturas.')))
       .finally(() => setLoading(false))
-    listAllocations().then((page) => setAllocations(page.results)).catch(() => setAllocations([]))
+    listAll(listAllocations()).then(setAllocations).catch(() => setAllocations([]))
   }, [vehicleFilter])
 
   useEffect(load, [load])
@@ -109,7 +114,9 @@ export function InvoicesPage() {
     fetchPickerConfig().then(setPicker).catch(() => setPicker({ enabled: false }))
   }, [])
 
-  const vehicleOf = (id: number) => vehicles.find((v) => v.id === id)
+  // O4: Map memoizada — el `find()` por celda era O(filas × vehículos).
+  const vehicleById = useMemo(() => new Map(vehicles.map((v) => [v.id, v])), [vehicles])
+  const vehicleOf = (id: number) => vehicleById.get(id)
   const allocationsOf = (invoiceId: number) => allocations.filter((a) => a.invoice === invoiceId)
   const pickerReady = Boolean(picker?.enabled && picker.has_drive && picker.access_token)
 
@@ -186,7 +193,7 @@ export function InvoicesPage() {
   }
 
   async function handleDelete(invoice: InvoiceRow) {
-    if (!window.confirm(`¿Eliminar la factura ${invoice.code || `#${invoice.id}`}?`)) return
+    if (!(await confirm({ message: `¿Eliminar la factura ${invoice.code || `#${invoice.id}`}?` }))) return
     try {
       await deleteInvoice(invoice.id)
       load()
@@ -363,9 +370,18 @@ export function InvoicesPage() {
         title="Facturas"
         subtitle="Facturas de la flota y reparto de costes por proyecto o CECO."
         actions={
-          <Button variant="primary" onClick={() => openHeader(null)}>
-            Nueva factura
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              disabled={invoices.length === 0}
+              onClick={() => exportCsv('facturas', columns, invoices)}
+            >
+              <Download size={16} aria-hidden /> Exportar CSV
+            </Button>
+            <Button variant="primary" onClick={() => openHeader(null)}>
+              Nueva factura
+            </Button>
+          </>
         }
       />
 
@@ -386,10 +402,10 @@ export function InvoicesPage() {
         />
       </div>
 
-      {error && <div className="form-error">{error}</div>}
+      {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p>Cargando…</p>
+        <p className="loading-state" role="status">Cargando…</p>
       ) : (
         <TableWithPanel<InvoiceRow>
           rows={invoices}
@@ -475,7 +491,7 @@ export function InvoicesPage() {
             )}
           </div>
 
-          {headerError && <div className="form-error">{headerError}</div>}
+          {headerError && <div role="alert" className="form-error">{headerError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setHeaderOpen(false)}>
               Cancelar
@@ -516,15 +532,39 @@ export function InvoicesPage() {
                   }
                 />
                 {line.target_type === 'proyecto' ? (
-                  <SelectField
-                    label={index === 0 ? 'Proyecto' : ''}
-                    options={[
-                      { value: '', label: '— Elegir —' },
-                      ...projects.map((p) => ({ value: String(p.id), label: p.project_name ?? `#${p.id}` })),
-                    ]}
-                    value={line.project}
-                    onValueChange={(value) => setLine(index, { project: value })}
-                  />
+                  <div>
+                    <SelectField
+                      label={index === 0 ? 'Proyecto' : ''}
+                      options={[
+                        { value: '', label: '— Elegir —' },
+                        ...projects.map((p) => ({ value: String(p.id), label: p.project_name ?? `#${p.id}` })),
+                      ]}
+                      value={line.project}
+                      onValueChange={(value) => setLine(index, { project: value })}
+                    />
+                    {(() => {
+                      // El proyecto lleva su CECO asociado: se muestra y se
+                      // ofrece imputar la línea directamente a él (mejora 🔴).
+                      const proj = projects.find((p) => String(p.id) === line.project)
+                      if (!proj?.cost_center) return null
+                      return (
+                        <button
+                          type="button"
+                          className="alloc-ceco-hint"
+                          title="Cambiar la línea a imputación directa por CECO"
+                          onClick={() =>
+                            setLine(index, {
+                              target_type: 'pep',
+                              cost_center: String(proj.cost_center),
+                              project: '',
+                            })
+                          }
+                        >
+                          CECO: {proj.cost_center_display ?? `#${proj.cost_center}`} → imputar directo
+                        </button>
+                      )
+                    })()}
+                  </div>
                 ) : (
                   <SelectField
                     label={index === 0 ? 'CECO' : ''}
@@ -584,7 +624,7 @@ export function InvoicesPage() {
                 : `Suma ${sumPct}% · ${eur(sumEur)} — debe sumar exactamente el 100%`}
             </div>
 
-            {allocError && <div className="form-error">{allocError}</div>}
+            {allocError && <div role="alert" className="form-error">{allocError}</div>}
             <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
               <Button type="button" variant="secondary" onClick={() => setAllocating(null)}>
                 Cancelar

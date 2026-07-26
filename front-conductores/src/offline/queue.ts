@@ -71,9 +71,15 @@ function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequ
   )
 }
 
-/** ¿Fallo de RED (sin conexión / servidor inalcanzable)? fetch → TypeError. */
+/** ¿Fallo de RED (sin conexión / servidor inalcanzable)? fetch → TypeError.
+ *
+ * OJO (E3 de OPTIMIZACION_Y_ERRORES.md): un TypeError de PROGRAMACIÓN en el
+ * camino del envío no debe pasar por "sin red" — se encolaría para siempre y
+ * cada flush repetiría el error, bloqueando también al resto de la cola. Se
+ * exige además el mensaje típico de red: Chrome «Failed to fetch», Firefox
+ * «NetworkError when attempting…», Safari «Load failed». */
 export function isNetworkError(err: unknown): boolean {
-  return err instanceof TypeError
+  return err instanceof TypeError && /fetch|network|load failed/i.test(err.message)
 }
 
 const listeners = new Set<() => void>()

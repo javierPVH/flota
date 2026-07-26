@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Badge, Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Chip, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { FileText, Pencil } from 'lucide-react'
+import { Download, FileText, Pencil } from 'lucide-react'
 
 import {
+  type IncidentInput,
   createIncident,
+  listAll,
   listIncidents,
   listVehicles,
   updateIncident,
-  type IncidentInput,
 } from '../api.ts'
+import { exportCsv } from '../csv.ts'
 import { incidentStatusTone } from '../format.ts'
 import type { Incident, Vehicle } from '../types.ts'
 
@@ -66,25 +68,26 @@ export function IncidentsPage() {
   const [formError, setFormError] = useState('')
 
   useEffect(() => {
-    listVehicles()
-      .then((page) => setVehicles(page.results))
+    listAll(listVehicles())
+      .then(setVehicles)
       .catch(() => setVehicles([]))
   }, [])
 
+  // El estado se filtra en cliente (chips con contador): los contadores
+  // muestran el reparto abierta/en curso/cerrada del recorte vehículo+tipo.
   const load = useCallback(() => {
     setLoading(true)
-    listIncidents({
+    listAll(listIncidents({
       vehicle: vehicleFilter ? Number(vehicleFilter) : undefined,
-      status: statusFilter || undefined,
       type: typeFilter || undefined,
-    })
-      .then((page) => {
-        setIncidents(page.results)
+    }))
+      .then((rows) => {
+        setIncidents(rows)
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar las incidencias.')))
       .finally(() => setLoading(false))
-  }, [vehicleFilter, statusFilter, typeFilter])
+  }, [vehicleFilter, typeFilter])
 
   useEffect(load, [load])
 
@@ -95,7 +98,13 @@ export function IncidentsPage() {
     setSearchParams(next, { replace: true })
   }
 
-  const plateOf = (id: number) => vehicles.find((v) => v.id === id)?.plate ?? `#${id}`
+  // O4: Map memoizada — el `find()` por celda era O(filas × vehículos).
+  const plateById = useMemo(() => new Map(vehicles.map((v) => [v.id, v.plate])), [vehicles])
+  const plateOf = (id: number) => plateById.get(id) ?? `#${id}`
+
+  const countOf = (status: string) =>
+    status ? incidents.filter((i) => i.status === status).length : incidents.length
+  const filtered = statusFilter ? incidents.filter((i) => i.status === statusFilter) : incidents
 
   function openCreate() {
     setEditing(null)
@@ -218,9 +227,18 @@ export function IncidentsPage() {
         title="Incidencias"
         subtitle="Averías, mantenimientos, ITV y accidentes de la flota."
         actions={
-          <Button variant="primary" onClick={openCreate}>
-            Nueva incidencia
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              disabled={filtered.length === 0}
+              onClick={() => exportCsv('incidencias', columns, filtered)}
+            >
+              <Download size={16} aria-hidden /> Exportar CSV
+            </Button>
+            <Button variant="primary" onClick={openCreate}>
+              Nueva incidencia
+            </Button>
+          </>
         }
       />
 
@@ -240,21 +258,29 @@ export function IncidentsPage() {
           value={typeFilter}
           onValueChange={(value) => setFilter('type', value)}
         />
-        <SelectField
-          label="Estado"
-          options={[{ value: '', label: 'Todos' }, ...STATUS_OPTIONS]}
-          value={statusFilter}
-          onValueChange={(value) => setFilter('status', value)}
-        />
       </div>
 
-      {error && <div className="form-error">{error}</div>}
+      {/* Estado como chips con contador (patrón de la home). */}
+      <div className="chips-row" role="group" aria-label="Filtrar por estado">
+        {[{ value: '', label: 'Todas' }, ...STATUS_OPTIONS].map((o) => (
+          <Chip
+            key={o.value}
+            active={statusFilter === o.value}
+            count={countOf(o.value)}
+            onClick={() => setFilter('status', o.value)}
+          >
+            {o.label}
+          </Chip>
+        ))}
+      </div>
+
+      {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p>Cargando…</p>
+        <p className="loading-state" role="status">Cargando…</p>
       ) : (
         <TableWithPanel<Incident>
-          rows={incidents}
+          rows={filtered}
           columns={columns}
           rowKey={(i) => String(i.id)}
           enableColumnSort
@@ -310,7 +336,7 @@ export function IncidentsPage() {
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
-          {formError && <div className="form-error">{formError}</div>}
+          {formError && <div role="alert" className="form-error">{formError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
               Cancelar

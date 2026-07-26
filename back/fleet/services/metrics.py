@@ -50,10 +50,54 @@ def _latest_reading(vehicle: Vehicle) -> KmReading | None:
 def vehicle_summary(vehicle: Vehicle, today: date | None = None) -> dict:
     """Métricas de la ficha del vehículo (HU-1.2/3.4). Todo puede ser None si faltan datos."""
     today = today or timezone.localdate()
-    contract = _active_contract(vehicle)
-    latest = _latest_reading(vehicle)
-    driver = current_driver_map([vehicle.id]).get(vehicle.id)
+    return _compose_summary(
+        vehicle,
+        _active_contract(vehicle),
+        _latest_reading(vehicle),
+        current_driver_map([vehicle.id]).get(vehicle.id),
+    )
 
+
+def vehicle_summaries(user) -> list[dict]:
+    """Summaries de TODOS los vehículos visibles por `user` (O2 de
+    OPTIMIZACION_Y_ERRORES.md): la app de campo hacía un GET por coche.
+
+    Consultas ACOTADAS sea cual sea el tamaño de la flota: 1 de vehículos +
+    1 de contratos vigentes + 1 de últimas lecturas + 1 de conductores
+    (`current_driver_map` ya es bulk). El "primero por vehículo" se resuelve
+    en Python con `setdefault` sobre un orden estable.
+    """
+    vehicles = list(vehicles_for(user).exclude(state=VehicleState.BAJA))
+    ids = [v.id for v in vehicles]
+
+    contracts: dict[int, Contract] = {}
+    for contract in Contract.objects.filter(vehicle_id__in=ids, end_date__isnull=True).order_by(
+        "vehicle_id", "-start_date"
+    ):
+        contracts.setdefault(contract.vehicle_id, contract)
+
+    latest: dict[int, KmReading] = {}
+    for reading in (
+        KmReading.objects.filter(vehicle_id__in=ids, km_reading__isnull=False)
+        .exclude(reading_date__isnull=True)
+        .order_by("vehicle_id", "-reading_date", "-id")
+    ):
+        latest.setdefault(reading.vehicle_id, reading)
+
+    drivers = current_driver_map(ids)
+    return [
+        _compose_summary(v, contracts.get(v.id), latest.get(v.id), drivers.get(v.id))
+        for v in vehicles
+    ]
+
+
+def _compose_summary(
+    vehicle: Vehicle,
+    contract: Contract | None,
+    latest: KmReading | None,
+    driver,
+) -> dict:
+    """Compone el summary desde datos ya resueltos (compartido single/bulk)."""
     km_current = latest.km_reading if latest else None
     km_driven = None
     if km_current is not None:

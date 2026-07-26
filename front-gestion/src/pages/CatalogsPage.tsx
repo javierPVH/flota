@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Button, Chip, IconButton, Modal, PageHeader, TextInputField } from '@flota/ui/ui'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Button, Chip, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { CatalogEntityCreateForm, type CatalogCreateFieldDefinition } from '@flota/ui/forms'
 import { asErrorMessage } from '@flota/ui/http'
 import { Pencil, Trash2 } from 'lucide-react'
@@ -12,6 +12,7 @@ import {
   type CatalogEntry,
   type CatalogResource,
 } from '../api.ts'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 
 interface CatalogDef {
   resource: CatalogResource
@@ -27,7 +28,11 @@ const CATALOGS: CatalogDef[] = [
     resource: 'projects',
     title: 'Proyectos',
     singular: 'proyecto',
-    fields: [{ key: 'project_name', label: 'Nombre del proyecto', required: true }],
+    fields: [
+      { key: 'project_name', label: 'Nombre del proyecto', required: true },
+      // Las opciones (catálogo de CECO) se inyectan en render — ver `activeFields`.
+      { key: 'cost_center', label: 'Centro de coste (CECO)', kind: 'select', required: true },
+    ],
   },
   {
     resource: 'peps',
@@ -67,6 +72,7 @@ function entryLabel(entry: CatalogEntry): string {
 
 /** Catálogos (G11): CRUD de los maestros que alimentan los selects de la app. */
 export function CatalogsPage() {
+  const confirm = useConfirm()
   const [active, setActive] = useState<CatalogDef>(CATALOGS[0])
   const [entries, setEntries] = useState<CatalogEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -76,6 +82,31 @@ export function CatalogsPage() {
   const [editValues, setEditValues] = useState<Record<string, string>>({})
   const [editError, setEditError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // Catálogo de CECO para el select de proyectos (proyecto → centro de coste).
+  const [peps, setPeps] = useState<CatalogEntry[]>([])
+  useEffect(() => {
+    listCatalog('peps')
+      .then((page) => setPeps(page.results))
+      .catch(() => setPeps([]))
+  }, [])
+  const pepOptions = useMemo(
+    () =>
+      peps.map((p) => ({
+        value: String(p.id),
+        label: p.code ? `${p.code} · ${p.name}` : (p.name ?? `#${p.id}`),
+      })),
+    [peps],
+  )
+
+  // Inyecta las opciones de CECO en la definición declarativa del catálogo.
+  const activeFields = useMemo(
+    () =>
+      active.fields.map((f) =>
+        f.kind === 'select' && f.key === 'cost_center' ? { ...f, options: pepOptions } : f,
+      ),
+    [active, pepOptions],
+  )
 
   const load = useCallback(() => {
     setLoading(true)
@@ -94,7 +125,7 @@ export function CatalogsPage() {
     setEditing(entry)
     setEditValues(
       Object.fromEntries(
-        active.fields.map((f) => [f.key, String((entry as unknown as Record<string, unknown>)[f.key] ?? '')]),
+        activeFields.map((f) => [f.key, String((entry as unknown as Record<string, unknown>)[f.key] ?? '')]),
       ),
     )
     setEditError('')
@@ -106,7 +137,15 @@ export function CatalogsPage() {
     setSaving(true)
     setEditError('')
     try {
-      await updateCatalogEntry(active.resource, editing.id, editValues)
+      // Los selects sin valor (p. ej. proyecto legacy sin CECO) se omiten del
+      // PATCH: el parcial no los exige y el back rechazaría el string vacío.
+      const payload = Object.fromEntries(
+        Object.entries(editValues).filter(
+          ([key, value]) =>
+            value !== '' || activeFields.find((f) => f.key === key)?.kind !== 'select',
+        ),
+      )
+      await updateCatalogEntry(active.resource, editing.id, payload)
       setEditing(null)
       load()
     } catch (err) {
@@ -117,7 +156,7 @@ export function CatalogsPage() {
   }
 
   async function handleDelete(entry: CatalogEntry) {
-    if (!window.confirm(`¿Eliminar ${active.singular} "${entryLabel(entry)}"?`)) return
+    if (!(await confirm({ message: `¿Eliminar ${active.singular} "${entryLabel(entry)}"?` }))) return
     try {
       await deleteCatalogEntry(active.resource, entry.id)
       load()
@@ -147,18 +186,18 @@ export function CatalogsPage() {
         ))}
       </div>
 
-      {error && <div className="form-error">{error}</div>}
+      {error && <div role="alert" className="form-error">{error}</div>}
 
       <div className="catalog-grid">
         <section className="card">
           <h3>{active.title}</h3>
           {loading ? (
-            <p>Cargando…</p>
+            <p className="loading-state" role="status">Cargando…</p>
           ) : (
             <table className="data">
               <thead>
                 <tr>
-                  {active.fields.map((f) => (
+                  {activeFields.map((f) => (
                     <th key={f.key}>{f.label}</th>
                   ))}
                   <th>Acciones</th>
@@ -167,14 +206,16 @@ export function CatalogsPage() {
               <tbody>
                 {entries.length === 0 && (
                   <tr>
-                    <td colSpan={active.fields.length + 1}>Vacío: crea el primero a la derecha.</td>
+                    <td colSpan={activeFields.length + 1}>Vacío: crea el primero a la derecha.</td>
                   </tr>
                 )}
                 {entries.map((entry) => (
                   <tr key={entry.id}>
-                    {active.fields.map((f) => (
+                    {activeFields.map((f) => (
                       <td key={f.key}>
-                        {String((entry as unknown as Record<string, unknown>)[f.key] ?? '') || '—'}
+                        {f.key === 'cost_center'
+                          ? entry.cost_center_display || '—'
+                          : String((entry as unknown as Record<string, unknown>)[f.key] ?? '') || '—'}
                       </td>
                     ))}
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -205,7 +246,7 @@ export function CatalogsPage() {
             entity={active.resource}
             title={`Nuevo ${active.singular}`}
             submitLabel="Crear"
-            fields={active.fields}
+            fields={activeFields}
             submit={async ({ entity, data }) => {
               const created = await createCatalogEntry(entity as CatalogResource, data)
               return { id: created.id, code: created.code, name: created.name ?? created.project_name }
@@ -221,16 +262,27 @@ export function CatalogsPage() {
         onClose={() => setEditing(null)}
       >
         <form className="modal-form" onSubmit={submitEdit}>
-          {active.fields.map((f) => (
-            <TextInputField
-              key={f.key}
-              label={f.label}
-              value={editValues[f.key] ?? ''}
-              onChange={(e) => setEditValues((v) => ({ ...v, [f.key]: e.target.value }))}
-              required={f.required}
-            />
-          ))}
-          {editError && <div className="form-error">{editError}</div>}
+          {activeFields.map((f) =>
+            f.kind === 'select' ? (
+              <SelectField
+                key={f.key}
+                label={f.label}
+                options={f.options ?? []}
+                value={editValues[f.key] ?? ''}
+                onValueChange={(value) => setEditValues((v) => ({ ...v, [f.key]: value }))}
+                required={f.required}
+              />
+            ) : (
+              <TextInputField
+                key={f.key}
+                label={f.label}
+                value={editValues[f.key] ?? ''}
+                onChange={(e) => setEditValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                required={f.required}
+              />
+            ),
+          )}
+          {editError && <div role="alert" className="form-error">{editError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
               Cancelar

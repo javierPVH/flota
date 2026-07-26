@@ -3,16 +3,19 @@ import { Link } from 'react-router-dom'
 import { Badge, Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { Pencil } from 'lucide-react'
+import { Download, Pencil } from 'lucide-react'
 
 import {
-  createUser,
-  deactivateUser,
-  listUsers,
-  updateUser,
   type ManagedUserFull,
   type ManagedUserInput,
+  createUser,
+  deactivateUser,
+  listAll,
+  listUsers,
+  updateUser,
 } from '../api.ts'
+import { exportCsv } from '../csv.ts'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 import type { Role } from '../types.ts'
 
 const LICENSE_OPTIONS = [
@@ -61,6 +64,7 @@ const EMPTY: FormState = {
 /** Gestión de conductores/usuarios (HU-2.6, solo admin). Desactivar ≠ borrar:
  * el histórico se conserva y el desactivado no sale en asignación. */
 export function UsersPage() {
+  const confirm = useConfirm()
   const [users, setUsers] = useState<ManagedUserFull[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -75,9 +79,9 @@ export function UsersPage() {
 
   const load = useCallback(() => {
     setLoading(true)
-    listUsers({ search: search || undefined })
-      .then((page) => {
-        setUsers(page.results)
+    listAll(listUsers({ search: search || undefined }))
+      .then((rows) => {
+        setUsers(rows)
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar los usuarios.')))
@@ -146,9 +150,11 @@ export function UsersPage() {
     try {
       if (user.is_active) {
         if (
-          !window.confirm(
-            `¿Desactivar a ${user.name}? No podrá entrar ni salir en asignaciones; su histórico se conserva.`,
-          )
+          !(await confirm({
+            message: `¿Desactivar a ${user.name}? No podrá entrar ni salir en asignaciones; su histórico se conserva.`,
+            confirmLabel: 'Desactivar',
+            tone: 'warning',
+          }))
         )
           return
         await deactivateUser(user.id)
@@ -251,9 +257,18 @@ export function UsersPage() {
         title="Conductores y usuarios"
         subtitle="Altas, roles y estado de las personas de la flota."
         actions={
-          <Button variant="primary" onClick={openCreate}>
-            Nuevo usuario
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              disabled={rows.length === 0}
+              onClick={() => exportCsv('usuarios', columns, rows)}
+            >
+              <Download size={16} aria-hidden /> Exportar CSV
+            </Button>
+            <Button variant="primary" onClick={openCreate}>
+              Nuevo usuario
+            </Button>
+          </>
         }
       />
 
@@ -275,10 +290,10 @@ export function UsersPage() {
         </label>
       </div>
 
-      {error && <div className="form-error">{error}</div>}
+      {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p>Cargando…</p>
+        <p className="loading-state" role="status">Cargando…</p>
       ) : (
         <TableWithPanel<ManagedUserFull>
           rows={rows}
@@ -381,7 +396,7 @@ export function UsersPage() {
               Sin contraseña, el usuario solo podrá entrar con Google.
             </p>
           )}
-          {formError && <div className="form-error">{formError}</div>}
+          {formError && <div role="alert" className="form-error">{formError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
               Cancelar

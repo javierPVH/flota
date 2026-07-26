@@ -16,6 +16,22 @@ export function fmtEur(value: string | number, lang: AppLanguage = 'es'): string
   })
 }
 
+/** Hoy en formato de <input type="date"> (zona LOCAL, no UTC — E2 de
+ * OPTIMIZACION_Y_ERRORES.md: toISOString() a medianoche daba "ayer"). */
+export function todayIso(): string {
+  const now = new Date()
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
+  return now.toISOString().slice(0, 10)
+}
+
+/** Timestamp ISO → fecha LOCAL YYYY-MM-DD (E6: `slice(0,10)` trocea en UTC). */
+export function isoDateOf(timestamp: string): string {
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return timestamp.slice(0, 10)
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
+  return date.toISOString().slice(0, 10)
+}
+
 /** Fecha ISO → local legible ("22 jul 2026" / "22 Jul 2026"). */
 export function fmtDate(iso: string | null | undefined, lang: AppLanguage = 'es'): string {
   if (!iso) return '—'

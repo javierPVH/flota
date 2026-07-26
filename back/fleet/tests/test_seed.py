@@ -11,14 +11,21 @@ from fleet.models import Alert, Assignment, Contract, Vehicle, VehicleRequest
 from fleet.models.enums import AlertType, VehicleRequestStatus
 from fleet.services import seed
 
+# Usuarios/vehículos de la capa de VOLUMEN (constantes del seed): los tests se
+# derivan de ellas para no romperse al ajustar el volumen.
+BULK_USERS = 1 + len(seed.BULK_DRIVERS)  # marta + conductores
+REF_USERS = 6
+REF_VEHICLES = 5
+BULK_BAJA = 2  # los 2 últimos vehículos de volumen se siembran en baja
+
 
 class SeedChainTests(APITestCase):
     """La cadena completa deja un estado conocido y es re-ejecutable."""
 
     def test_run_all_builds_expected_state(self):
         seed.run_all()
-        # Usuarios de referencia con sus roles.
-        self.assertEqual(User.objects.count(), 6)
+        # Usuarios de referencia (+ volumen) con sus roles.
+        self.assertEqual(User.objects.count(), REF_USERS + BULK_USERS)
         self.assertTrue(User.objects.get(username="admin").is_admin)
         self.assertTrue(User.objects.get(username="sara").is_supervisor)
         self.assertTrue(User.objects.get(username="sara").is_driver)  # multi-rol
@@ -30,16 +37,21 @@ class SeedChainTests(APITestCase):
         self.assertEqual(request.status, VehicleRequestStatus.PENDING)
         self.assertEqual(request.jira_key, "FLT-123")
         # Vehículos (incl. baja y sustitución) y contratos con penalización.
-        self.assertEqual(Vehicle.objects.count(), 5)
-        self.assertEqual(Vehicle.objects.active().count(), 4)
+        self.assertEqual(Vehicle.objects.count(), REF_VEHICLES + seed.BULK_VEHICLES)
+        self.assertEqual(
+            Vehicle.objects.active().count(),
+            (REF_VEHICLES - 1) + (seed.BULK_VEHICLES - BULK_BAJA),
+        )
         self.assertIsNotNone(Contract.objects.get(contract_number="R-2026-014").penalty_per_km)
         # La señal de ITV pobló next_itv_date (una vencida).
         self.assertIsNotNone(Vehicle.objects.get(plate="1234KLM").next_itv_date)
-        # El motor real generó alertas: ITV, lectura pendiente y exceso de km.
+        # El motor real generó alertas: ITV, lectura pendiente, exceso de km y
+        # (con el volumen: vehículos activos sin conductor) sin conductor.
         types = set(Alert.objects.values_list("type", flat=True))
         self.assertIn(AlertType.ITV_DUE, types)
         self.assertIn(AlertType.KM_READING_PENDING, types)
         self.assertIn(AlertType.KM_OVERAGE, types)
+        self.assertIn(AlertType.NO_DRIVER, types)
 
     def test_run_all_is_rerunnable_without_duplicates(self):
         seed.run_all()
@@ -57,7 +69,7 @@ class SeedChainTests(APITestCase):
     @override_settings(DEBUG=True, FLEET_SEED_DATA=True)
     def test_seed_command_runs_with_flag(self):
         call_command("seed_dev_data")
-        self.assertEqual(User.objects.count(), 6)
+        self.assertEqual(User.objects.count(), REF_USERS + BULK_USERS)
 
     @override_settings(DEBUG=False, FLEET_SEED_DATA=True)
     def test_seed_command_blocked_in_production(self):

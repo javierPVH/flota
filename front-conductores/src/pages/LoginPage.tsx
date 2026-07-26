@@ -1,15 +1,27 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Button, SelectField, TextInputField } from '@flota/ui/ui'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ShieldCheck } from 'lucide-react'
+import { Button, LanguageToggleButton, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { useAuth } from '../auth.ts'
 import { devLogin, fetchAuthConfig, listDevUsers, login } from '../api.ts'
+import { useLang } from '../i18n.tsx'
 import type { AuthConfig, DevUser } from '../types.ts'
 
+/**
+ * Login de campo (Fase 2): tarjeta única con acento naranja sobre el wallpaper
+ * velado — el lado izquierdo del login de gestión, sin el panel de marca (en
+ * móvil no cabe). Conserva usuario/clave y el selector de login de desarrollo.
+ */
 export function LoginPage() {
   const { setUser } = useAuth()
   const navigate = useNavigate()
+  // El transporte redirige aquí con ?auth=required cuando la sesión caduca (401).
+  const [searchParams] = useSearchParams()
+  const sessionExpired = searchParams.get('auth') === 'required'
+  const { language, setLanguage, t } = useLang()
+  const L = t.login
   const [config, setConfig] = useState<AuthConfig | null>(null)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -51,7 +63,7 @@ export function LoginPage() {
       setUser(await login(username, password))
       navigate('/', { replace: true })
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo iniciar sesión.'))
+      setError(asErrorMessage(err, L.errorLogin))
     } finally {
       setBusy(false)
     }
@@ -65,7 +77,7 @@ export function LoginPage() {
       setUser(await devLogin(devUsername))
       navigate('/', { replace: true })
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo entrar como usuario de prueba.'))
+      setError(asErrorMessage(err, L.errorDev))
     } finally {
       setBusy(false)
     }
@@ -74,53 +86,72 @@ export function LoginPage() {
   const passwordEnabled = config?.password_enabled ?? true
 
   return (
-    <div className="login-wrap">
-      <form className="login-card" onSubmit={handleSubmit}>
-        <h1>Flota</h1>
-        <p className="sub">Conductores y supervisores.</p>
+    <div className="login-scene">
+      <div className="login-card login-card-branded">
+        <header className="login-topline">
+          <div className="login-brand">
+            <span className="login-brand-mark" aria-hidden="true">F</span>
+            <span className="login-brand-name">{L.brand}</span>
+          </div>
+          <LanguageToggleButton activeLanguage={language} onChange={setLanguage} />
+        </header>
+
+        <h1 className="login-title">{L.heading}</h1>
+        <p className="login-subtitle">{L.subtitle}</p>
+
+        {sessionExpired && (
+          <div role="alert" className="form-warn">
+            {L.sessionExpired}
+          </div>
+        )}
+
         {passwordEnabled && (
-          <>
+          <form className="login-fields" onSubmit={handleSubmit}>
             <TextInputField
-              label="Usuario o email"
+              label={L.userLabel}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
               required
             />
             <TextInputField
-              label="Contraseña"
+              label={L.passwordLabel}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
               required
             />
-            <Button type="submit" variant="primary" fullWidth disabled={busy}>
-              {busy ? 'Entrando…' : 'Entrar'}
-            </Button>
-          </>
+            <button type="submit" className="login-submit" disabled={busy}>
+              {busy ? L.submitting : L.submit}
+            </button>
+          </form>
         )}
 
         {config?.dev_login_enabled && devUsers.length > 0 && (
-          <div className="dev-login">
-            <p className="sub">🧪 Desarrollo: entra como usuario de prueba</p>
+          <div className="login-dev">
+            <p className="login-dev-title">{L.devTitle}</p>
             <SelectField
-              label="Usuario de prueba"
+              label={L.devUserLabel}
               options={devUsers.map((u) => ({
                 value: u.username,
-                label: `${u.name} (${u.roles.join(', ') || 'sin rol'})`,
+                label: `${u.name} (${u.roles.join(', ') || L.devNoRole})`,
               }))}
               value={devUsername}
               onValueChange={setDevUsername}
             />
             <Button type="button" variant="secondary" fullWidth disabled={busy} onClick={handleDevLogin}>
-              Entrar sin contraseña
+              {L.devSubmit}
             </Button>
           </div>
         )}
 
-        {error && <div className="form-error">{error}</div>}
-      </form>
+        {error && <div role="alert" className="form-error">{error}</div>}
+
+        <p className="login-security">
+          <ShieldCheck size={14} /> {L.security}
+        </p>
+      </div>
     </div>
   )
 }

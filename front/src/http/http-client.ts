@@ -156,12 +156,27 @@ async function requestReauth(): Promise<boolean> {
   return reauthInFlight
 }
 
+/**
+ * [ES] Error HTTP con el status a mano: las apps pueden decidir por código
+ * (p. ej. 429 = throttle) en vez de hacer regex sobre el texto del back.
+ * [EN] HTTP error carrying the status code so apps can branch on it.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 function raiseApiError(status: number, payload: unknown, fallbackMessage: string): never {
   handleAuthExpiration(status)
   if (isReauthRequired(status, payload)) {
     throw new ReauthRequiredError(asErrorMessage(payload, fallbackMessage))
   }
-  throw new Error(asErrorMessage(payload, fallbackMessage))
+  throw new ApiError(asErrorMessage(payload, fallbackMessage), status)
 }
 
 /**

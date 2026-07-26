@@ -1,4 +1,4 @@
-/* Estilos mínimos de la app de gestión. El grueso viene de @flota/ui/base.css
+/* Estilos mínimos de la app de conductores. El grueso viene de @flota/ui/base.css
    y los tokens de @flota/ui/styles/tokens.css. */
 * {
   box-sizing: border-box;
@@ -6,9 +6,9 @@
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  background: var(--color-app-bg, #f4f6f9);
-  color: var(--color-text, #1f2a37);
+  font-family: var(--font-sans);
+  background: var(--color-app-bg);
+  color: var(--color-text);
 }
 
 a {
@@ -21,66 +21,110 @@ a {
   flex-direction: column;
 }
 
+/* Header claro corporativo compacto (Fase 1). Reemplaza la barra azul #0f2e4a. */
 .app-header {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  padding: 0.85rem 1.5rem;
-  background: #0f2e4a;
-  color: #fff;
+  justify-content: space-between;
+  gap: 0.8rem;
+  min-height: 56px;
+  padding: 0.4rem 1rem;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
 }
-
-.app-header nav {
-  display: flex;
-  gap: 1rem;
-}
-
-.app-header nav a {
-  color: #cfe0f0;
-  text-decoration: none;
-  font-weight: 600;
-  padding: 0.25rem 0;
-  border-bottom: 2px solid transparent;
-}
-
-.app-header nav a.active {
-  color: #fff;
-  border-bottom-color: #4a90d9;
-}
-
-.app-header .spacer {
-  flex: 1;
-}
-
-.app-user {
+.hdr-brand {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  font-size: 0.9rem;
+  gap: 0.55rem;
+  min-width: 0;
+}
+.hdr-logo {
+  height: 24px;
+  width: auto;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+.hdr-sep {
+  width: 1px;
+  height: 20px;
+  flex: 0 0 auto;
+  background: var(--color-border);
+}
+.hdr-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hdr-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+.hdr-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+.hdr-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px; /* objetivo táctil */
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-danger);
+  cursor: pointer;
+}
+.hdr-iconbtn:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-soft);
+}
+.hdr-iconbtn:active {
+  transform: translateY(1px);
 }
 
 .app-main {
   flex: 1;
   padding: 1.5rem;
-  max-width: 1100px;
+  /* Ancho de lectura cómodo (Fase 6): las listas de tarjetas se estiraban a 1100px. */
+  max-width: 720px;
   width: 100%;
   margin: 0 auto;
 }
 
-.login-wrap {
+/* --- Fase 2: login y portones de acceso (escena con wallpaper velado) ----- */
+.login-scene {
   min-height: 100dvh;
   display: grid;
   place-items: center;
   padding: 1.5rem;
+  background: linear-gradient(rgba(244, 248, 252, 0.82), rgba(244, 248, 252, 0.82)),
+    url('./assets/img/wallpaper.png') center / cover no-repeat fixed;
 }
 
 .login-card {
   width: 100%;
-  max-width: 380px;
-  background: #fff;
-  border-radius: 14px;
-  padding: 2rem;
-  box-shadow: 0 12px 40px rgba(15, 46, 74, 0.12);
+  max-width: 400px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: 2rem 1.6rem;
+  box-shadow: 0 22px 54px rgba(16, 35, 58, 0.18);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -89,70 +133,177 @@ a {
 .login-card h1 {
   margin: 0;
   font-size: 1.35rem;
+  color: var(--color-ink);
 }
 
 .login-card .sub {
   margin: 0;
-  color: #5f748c;
+  color: var(--color-text-muted);
   font-size: 0.9rem;
 }
 
-.form-error {
-  color: #b3261e;
-  font-size: 0.88rem;
-}
-
-table.data {
-  width: 100%;
-  border-collapse: collapse;
-  background: #fff;
-  border-radius: 10px;
+/* Tarjeta del login con marca: barra superior en degradado naranja. */
+.login-card-branded {
+  position: relative;
   overflow: hidden;
-  box-shadow: 0 2px 12px rgba(15, 46, 74, 0.06);
+  padding-top: 2.2rem;
 }
-
-table.data th,
-table.data td {
-  text-align: left;
-  padding: 0.7rem 0.9rem;
-  border-bottom: 1px solid #eceff3;
-  font-size: 0.9rem;
+.login-card-branded::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: linear-gradient(90deg, #e87a1e 0%, #f5a623 52%, #fbc96d 100%);
 }
-
-table.data th {
-  background: #f7f9fc;
-  font-weight: 700;
-  color: #34495e;
-}
-
-.badge {
-  display: inline-block;
-  padding: 0.15rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-.badge.active {
-  background: #e3f4e8;
-  color: #1e7e45;
-}
-.badge.maintenance {
-  background: #fdf0d5;
-  color: #a9791c;
-}
-.badge.retired {
-  background: #f0e3e3;
-  color: #a13a2f;
-}
-
-.page-head {
+.login-topline {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 1.2rem;
+  gap: 1rem;
 }
-.page-head h2 {
+.login-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.login-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 0.6rem;
+  background: linear-gradient(135deg, #e87a1e, #d06a14);
+  color: #fff;
+  font-weight: 800;
+  font-size: 1.1rem;
+  box-shadow: 0 8px 16px rgba(232, 122, 30, 0.3);
+}
+.login-brand-name {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: var(--color-ink);
+}
+.login-title {
+  position: relative;
+  margin: 0.4rem 0 0;
+  font-size: 1.7rem;
+  font-weight: 800;
+  line-height: 1.05;
+  color: var(--color-ink);
+  align-self: flex-start;
+}
+.login-title::after {
+  content: '';
+  display: block;
+  width: 2.8rem;
+  height: 4px;
+  margin-top: 0.5rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e87a1e, #f5a623);
+}
+.login-subtitle {
   margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+.login-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-top: 0.2rem;
+}
+.login-submit {
+  margin-top: 0.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px; /* objetivo táctil */
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, #e87a1e, #f5a623);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(232, 122, 30, 0.28);
+  transition: filter 0.15s ease, transform 0.06s ease, box-shadow 0.15s ease;
+}
+.login-submit:hover {
+  filter: brightness(1.03);
+  box-shadow: 0 10px 22px rgba(232, 122, 30, 0.32);
+}
+.login-submit:active {
+  transform: translateY(1px);
+}
+.login-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.login-submit:focus-visible {
+  outline: 2px solid #b45309;
+  outline-offset: 2px;
+}
+.login-dev {
+  margin-top: 0.2rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--color-border);
+  display: grid;
+  gap: 0.55rem;
+}
+.login-dev-title {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+.login-security {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+.login-security svg {
+  color: var(--color-brand);
+}
+
+/* Feedback inline (patrón gestión Fase 8): banner de error con tokens. */
+/* Banner de aviso (p. ej. sesión caducada): pareja warning del .form-error. */
+.form-warn {
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--color-warning-border);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-size: 0.88rem;
+}
+
+.form-error {
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--color-danger-soft);
+  border-left: 3px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-size: 0.88rem;
+}
+
+/* Tarjeta de contenido (Fase 4, patrón gestión Fase 7): blanco + borde + radio
+ * + sombra. `Panel` de la librería queda solo para mensajes con tono. */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 1rem 1.1rem;
 }
 
 .modal-form {
@@ -171,8 +322,8 @@ table.data th {
   display: flex;
   justify-content: space-around;
   align-items: stretch;
-  background: #fff;
-  border-top: 1px solid var(--border, #cfdae6);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   z-index: 50;
 }
@@ -186,27 +337,48 @@ table.data th {
   min-height: 48px; /* objetivo táctil ≥44px */
   font-size: 0.72rem;
   font-weight: 600;
-  color: var(--muted-text, #5f748c);
+  color: var(--color-text-muted);
   text-decoration: none;
 }
 .bottom-tab.active {
-  color: var(--primary, #009491);
+  color: var(--color-brand);
+}
+/* Punto de cola offline sobre el icono de la pestaña (mejora 🟡). */
+.tab-icon {
+  position: relative;
+  display: inline-flex;
+}
+.tab-dot {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--color-warning);
+  border: 2px solid var(--color-surface);
 }
 
-.badge.itv { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); }
-.badge.broken { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); }
-
-.dev-login {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px dashed var(--border, #cfdae6);
-  display: grid;
-  gap: 0.6rem;
-}
 .request-form { display: grid; gap: 0.6rem; margin-top: 0.8rem; }
 .request-actions { display: grid; gap: 0.5rem; margin-top: 1rem; }
-.form-ok { color: var(--success, #1f9f67); font-size: 0.9rem; margin-top: 0.5rem; }
-.gate-checking { padding: 2rem; text-align: center; color: var(--muted-text, #5f748c); }
+/* Banner de éxito (Fase 5, patrón gestión Fase 8): pareja del .form-error. */
+.form-ok {
+  padding: 0.55rem 0.9rem;
+  margin-top: 0.5rem;
+  border: 1px solid var(--color-success-border);
+  border-left: 3px solid var(--color-success);
+  border-radius: var(--radius-sm);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  font-size: 0.88rem;
+}
+/* Estado de carga/comprobación, centrado (portón y páginas). */
+.gate-checking {
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+}
 
 .vehicle-cards { display: grid; gap: 0.9rem; }
 .vehicle-card-head {
@@ -220,7 +392,7 @@ table.data th {
   font-weight: 800;
   letter-spacing: 0.04em;
 }
-.vehicle-model { margin: 0.3rem 0 0.5rem; color: var(--muted-text, #5f748c); }
+.vehicle-model { margin: 0.3rem 0 0.5rem; color: var(--color-text-muted); }
 .vehicle-meta {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -230,36 +402,51 @@ table.data th {
 }
 .vehicle-meta dt { font-weight: 600; }
 .vehicle-meta dd { margin: 0; }
-.itv-soon { color: var(--warning, #c17a11); font-weight: 700; }
-.itv-overdue { color: var(--danger, #c63434); font-weight: 700; }
+.itv-soon { color: var(--color-warning); font-weight: 700; }
+.itv-overdue { color: var(--color-danger); font-weight: 700; }
 
 /* --- M1: tarjetas enriquecidas + buscador -------------------------------- */
 .card-link { text-decoration: none; display: block; }
-.card-chevron { color: var(--muted-text, #5f748c); margin-left: auto; }
-.vehicle-card-head .badge { margin-left: auto; }
+.card-link .card {
+  transition: box-shadow 0.15s ease, transform 0.06s ease;
+}
+.card-link:hover .card {
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-1px);
+}
+.card-chevron { color: var(--color-text-muted); margin-left: auto; }
 .vehicle-card-head .card-chevron { margin-left: 0.4rem; }
 .card-search {
   width: 100%;
   min-height: 44px; /* objetivo táctil */
   padding: 0.55rem 0.9rem;
   margin-bottom: 0.9rem;
-  border: 1px solid var(--border, #cfdae6);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   font-size: 1rem;
-  background: #fff;
+  background: var(--color-surface);
 }
-.pill {
+.empty-note { color: var(--color-text-muted); }
+
+/* Chapita "lectura pendiente" clicable (mejora 🔴): botón transparente que
+   envuelve el Badge y salta a /registrar con el vehículo preseleccionado. */
+.pending-link {
   display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  margin-left: 0.5rem;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 700;
+  margin-left: 0.4rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
 }
-.pill.pending { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); }
-.empty-note { color: var(--muted-text, #5f748c); }
+.pending-link:active {
+  transform: translateY(1px);
+}
+
+/* Acciones rápidas en la home (mejora 🔴): reutiliza .quick-action de la ficha. */
+.home-quick {
+  margin-bottom: 0.9rem;
+}
 
 /* --- M2: ficha de campo + documentos ------------------------------------- */
 .field-page { display: grid; gap: 0.9rem; }
@@ -270,7 +457,7 @@ table.data th {
   min-height: 44px;
   text-decoration: none;
   font-weight: 600;
-  color: var(--muted-text, #5f748c);
+  color: var(--color-text-muted);
 }
 .field-head { display: flex; align-items: center; gap: 0.7rem; }
 .plate-lg { font-size: 1.7rem; font-weight: 800; letter-spacing: 0.05em; }
@@ -293,22 +480,19 @@ table.data th {
   gap: 0.6rem;
   padding: 0.55rem 0;
   min-height: 48px; /* objetivo táctil */
-  border-bottom: 1px solid var(--border-soft, #eceff3);
+  border-bottom: 1px solid var(--color-surface-soft);
 }
 .doc-item:last-child { border-bottom: 0; }
-.doc-icon { color: var(--muted-text, #5f748c); flex-shrink: 0; }
+.doc-icon { color: var(--color-text-muted); flex-shrink: 0; }
 .doc-info { display: grid; min-width: 0; flex: 1; }
 .doc-info strong { font-size: 0.92rem; }
-.doc-sub { font-size: 0.78rem; color: var(--muted-text, #5f748c); }
-.pill.doc-valid { background: var(--success-soft, #e3f4e8); color: var(--success, #1f9f67); margin-left: 0; }
-.pill.doc-pending_archive { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); margin-left: 0; }
-.pill.doc-expired { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); margin-left: 0; }
+.doc-sub { font-size: 0.78rem; color: var(--color-text-muted); }
 .doc-open {
   display: grid;
   place-items: center;
   min-width: 44px;
   min-height: 44px;
-  color: var(--info, #1f63b8);
+  color: var(--color-primary);
 }
 
 /* --- M9: micro-interacciones sobrias (respetando reduced-motion) --------- */
@@ -338,14 +522,17 @@ table.data th {
     opacity: 1;
   }
 }
+/* Movimiento reducido global (Fase 6, patrón gestión Fase 8): cubre también
+   transiciones de la librería y las micro-interacciones :active (transform
+   instantáneo pero sin animación). */
 @media (prefers-reduced-motion: reduce) {
-  .card-link,
-  .quick-action,
-  .bottom-tab,
-  .queue-notice,
-  .offline-banner {
-    transition: none;
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
   .card-link:active,
   .quick-action:active,
@@ -363,8 +550,9 @@ table.data th {
   width: 100%;
   min-height: 44px;
   border: 0;
-  background: var(--warning-soft, #fff4df);
-  color: var(--warning, #c17a11);
+  border-bottom: 1px solid var(--color-warning-border);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
   font: inherit;
   font-size: 0.88rem;
   font-weight: 700;
@@ -373,39 +561,70 @@ table.data th {
 .queue-notice {
   margin: 0;
   padding: 0.5rem 1.5rem;
-  background: var(--success-soft, #e3f4e8);
-  color: var(--success, #1f9f67);
+  background: var(--color-success-soft);
+  color: var(--color-success);
   font-size: 0.88rem;
   font-weight: 600;
 }
-.km-saved-queued { color: var(--warning, #c17a11); }
+.km-saved-queued { color: var(--color-warning); }
 .push-row { display: flex; align-items: center; gap: 0.6rem; }
 
+/* Aviso de instalación PWA (mejora 🟡): solo si el navegador lo ofrece. */
+.install-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+  padding: 0.45rem 0.9rem;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-brand) 9%, var(--color-surface));
+  color: var(--color-ink);
+  font-size: 0.88rem;
+  animation: slide-down 180ms ease;
+}
+.install-text { flex: 1; }
+.install-btn {
+  border: 0;
+  border-radius: var(--radius-md);
+  min-height: 36px;
+  padding: 0 0.9rem;
+  background: var(--color-brand);
+  color: #fff;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.install-close {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  min-height: 36px;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
 /* --- M6: modo supervisor (grupo, reparto, proyección, incidencias) ------- */
-.badge.level-ok { background: var(--success-soft, #e3f4e8); color: var(--success, #1f9f67); }
-.badge.level-watch { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); }
-.badge.level-over { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); }
 .km-progress {
   height: 10px;
   border-radius: 999px;
-  background: var(--border-soft, #eceff3);
+  background: var(--color-surface-soft);
   overflow: hidden;
   margin: 0.5rem 0 0.7rem;
 }
-.km-progress-fill { height: 100%; border-radius: 999px; background: var(--success, #1f9f67); }
-.km-progress-fill.level-watch { background: var(--warning, #c17a11); }
-.km-progress-fill.level-over { background: var(--danger, #c63434); }
+.km-progress-fill { height: 100%; border-radius: 999px; background: var(--color-success); }
+.km-progress-fill.level-watch { background: var(--color-warning); }
+.km-progress-fill.level-over { background: var(--color-danger); }
 .km-chart { margin-top: 0.7rem; }
 .km-chart svg { width: 100%; height: auto; }
 .km-chart-legend {
   display: flex;
   justify-content: space-between;
   font-size: 0.78rem;
-  color: var(--muted-text, #5f748c);
+  color: var(--color-text-muted);
 }
-.pill.incident-open { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); margin-left: 0; }
-.pill.incident-on_going { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); margin-left: 0; }
-.pill.incident-closed { background: var(--success-soft, #e3f4e8); color: var(--success, #1f9f67); margin-left: 0; }
 .split-line {
   display: grid;
   grid-template-columns: 1fr 84px auto;
@@ -419,15 +638,14 @@ table.data th {
   min-height: 44px;
   border: 0;
   background: none;
-  color: var(--danger, #c63434);
+  color: var(--color-danger);
   cursor: pointer;
 }
 .split-tools { display: flex; align-items: center; justify-content: space-between; }
 .split-total { font-weight: 800; }
-.split-total.ok { color: var(--success, #1f9f67); }
-.split-total.ko { color: var(--danger, #c63434); }
-.split-history { margin-top: 1rem; padding-top: 0.8rem; border-top: 1px dashed var(--border, #cfdae6); }
-.page-head h2 { display: flex; align-items: center; gap: 0.45rem; }
+.split-total.ok { color: var(--color-success); }
+.split-total.ko { color: var(--color-danger); }
+.split-history { margin-top: 1rem; padding-top: 0.8rem; border-top: 1px dashed var(--color-border); }
 
 /* --- M5: bandeja de alertas ---------------------------------------------- */
 .link-btn {
@@ -437,13 +655,10 @@ table.data th {
   font: inherit;
   font-size: 0.88rem;
   font-weight: 700;
-  color: var(--info, #1f63b8);
+  color: var(--color-primary);
   cursor: pointer;
   text-decoration: none;
 }
-.badge.level-critical { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); }
-.badge.level-warning { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); }
-.badge.level-info { background: #e2edf9; color: var(--info, #1f63b8); }
 .alert-type { font-weight: 700; font-size: 0.9rem; }
 .alert-message { margin: 0.5rem 0 0.2rem; }
 .alert-plate { font-size: 1rem; text-decoration: underline; }
@@ -461,7 +676,7 @@ table.data th {
   justify-items: center;
   gap: 0.5rem;
   padding: 2.5rem 1rem;
-  color: var(--muted-text, #5f748c);
+  color: var(--color-text-muted);
   text-align: center;
 }
 .closed-title { margin: 1.4rem 0 0.7rem; font-size: 1rem; }
@@ -474,29 +689,50 @@ table.data th {
   justify-content: center;
   gap: 0.45rem;
   min-height: 52px; /* objetivo táctil generoso: uso a pie de vehículo */
-  border: 1px solid var(--border, #cfdae6);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--color-surface);
   font: inherit;
   font-size: 0.92rem;
   font-weight: 700;
-  color: var(--primary, #009491);
+  color: var(--color-brand);
   text-decoration: none;
   cursor: pointer;
 }
-.km-vehicle { margin: 0; color: var(--muted-text, #5f748c); }
+.km-vehicle { margin: 0; color: var(--color-text-muted); }
+/* Últimas lecturas (mejora 🟡): lista compacta fecha → km dentro del panel. */
+.km-recent {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0.5rem 0 0;
+  border-top: 1px dashed var(--color-border);
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.86rem;
+}
+.km-recent li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+.km-recent span {
+  color: var(--color-text-muted);
+}
+.km-recent strong {
+  font-variant-numeric: tabular-nums;
+}
 .km-input-label { display: grid; gap: 0.4rem; font-size: 0.9rem; font-weight: 600; }
 .km-input {
   width: 100%;
   padding: 0.7rem 0.9rem;
-  border: 2px solid var(--border, #cfdae6);
+  border: 2px solid var(--color-border);
   border-radius: 12px;
   font-size: 1.9rem; /* campo grande: se teclea con guantes/prisa */
   font-weight: 800;
   letter-spacing: 0.03em;
   text-align: center;
 }
-.km-input:focus { outline: none; border-color: var(--primary, #009491); }
+.km-input:focus { outline: none; border-color: var(--color-brand); }
 .panel-note a { color: inherit; font-weight: 700; }
 .km-saved {
   display: grid;
@@ -506,15 +742,117 @@ table.data th {
   text-align: center;
 }
 .km-saved h2 { margin: 0; }
-.km-saved-icon { color: var(--success, #1f9f67); }
+.km-saved-icon { color: var(--color-success); }
 .km-saved-detail { margin: 0; font-size: 1.05rem; }
 .back-link.center { justify-content: center; }
 
 .upload-form {
   margin-top: 1rem;
   padding-top: 1rem;
-  border-top: 1px dashed var(--border, #cfdae6);
+  border-top: 1px dashed var(--color-border);
 }
 .file-field { display: grid; gap: 0.35rem; font-size: 0.9rem; font-weight: 600; }
 .file-field input { font-size: 0.9rem; }
 .form-actions { display: flex; gap: 0.6rem; justify-content: flex-end; }
+
+/* --- Fase 6: transversales ------------------------------------------------- */
+
+/* Accesibilidad: anillo de foco visible homogéneo (patrón gestión Fase 8) para
+   todo lo interactivo que no defina el suyo; los campos usan ring interior teal
+   (el foco de la referencia), sin doble anillo. */
+:where(a, button, [role='button'], input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+:where(input, select, textarea):focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(0, 148, 145, 0.38);
+}
+
+/* Tablet (≥760px): "Mis vehículos"/"Mi grupo" a dos columnas. El bottom-nav se
+   conserva también en tablet (consistencia de uso en campo). */
+@media (min-width: 760px) {
+  .vehicle-cards {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    align-items: stretch;
+  }
+  .card-link,
+  .card-link .card {
+    height: 100%;
+  }
+}
+
+/* --- Acordeones de la ficha de campo (CollapsibleCard) --------------------- */
+.acc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+.acc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  min-height: 44px; /* objetivo táctil */
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.acc-toggle .panel-title {
+  margin: 0;
+}
+.acc-chevron {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  transition: transform 0.15s ease;
+}
+.acc-closed .acc-chevron {
+  transform: rotate(-90deg);
+}
+.acc-actions {
+  flex: 0 0 auto;
+}
+.acc-body {
+  margin-top: 0.6rem;
+}
+.acc-body > :first-child {
+  margin-top: 0;
+}
+.acc-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.9rem;
+}
+.acc-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 40px;
+  padding: 0.2rem 0.3rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.acc-tool:active {
+  color: var(--color-brand);
+}
+
+/* Segundo botón del ErrorBoundary: mismo tamaño, aspecto secundario. */
+.boundary-home {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: none;
+}

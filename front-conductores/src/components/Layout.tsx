@@ -1,12 +1,14 @@
 import { useCallback, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Bell, Car, CloudOff, PlusCircle, Users } from 'lucide-react'
-import { Button, LanguageToggleButton } from '@flota/ui/ui'
+import { Bell, Car, CloudOff, LogOut, PlusCircle, Users } from 'lucide-react'
+import { LanguageToggleButton } from '@flota/ui/ui'
 
 import { useAuth } from '../auth.ts'
+import { InstallBanner } from './InstallBanner.tsx'
 import { useLang } from '../i18n.tsx'
 import { useOfflineQueue } from '../offline/useOfflineQueue.ts'
 import type { FlushResult } from '../offline/queue.ts'
+import logoUrl from '../assets/img/gransolar-logo.png'
 
 /**
  * Shell móvil (M0): header compacto + contenido + bottom-nav pulgar-friendly
@@ -35,17 +37,35 @@ export function Layout() {
     navigate('/login', { replace: true })
   }
 
+  const name = user?.first_name || user?.username || ''
+  const initials = (
+    (user?.first_name?.[0] ?? user?.username?.[0] ?? '?') + (user?.last_name?.[0] ?? '')
+  ).toUpperCase()
+
   return (
     <div className="app-shell mobile">
+      {/* Header claro corporativo compacto (Fase 1): logo + marca a la izquierda;
+          idioma, avatar y salir a la derecha. La navegación vive en el bottom-nav. */}
       <header className="app-header">
-        <strong>{t.shell.brand}</strong>
-        <div className="spacer" />
-        <div className="app-user">
+        <div className="hdr-brand">
+          <img className="hdr-logo" src={logoUrl} alt="Gransolar" />
+          <span className="hdr-sep" aria-hidden="true" />
+          <strong className="hdr-title">{t.shell.brand}</strong>
+        </div>
+        <div className="hdr-tools">
           <LanguageToggleButton activeLanguage={language} onChange={setLanguage} />
-          <span>{user?.first_name || user?.username}</span>
-          <Button variant="secondary" size="sm" onClick={handleLogout}>
-            {t.shell.logout}
-          </Button>
+          <span className="hdr-avatar" title={name} aria-hidden="true">
+            {initials}
+          </span>
+          <button
+            type="button"
+            className="hdr-iconbtn"
+            aria-label={t.shell.logout}
+            title={t.shell.logout}
+            onClick={handleLogout}
+          >
+            <LogOut size={18} />
+          </button>
         </div>
       </header>
       {pending > 0 && (
@@ -64,6 +84,7 @@ export function Layout() {
           {queueNotice}
         </p>
       )}
+      <InstallBanner />
       <main className="app-main">
         <Outlet />
       </main>
@@ -73,7 +94,12 @@ export function Layout() {
           <span>{t.shell.tabs.vehicles}</span>
         </NavLink>
         <NavLink to="/registrar" className="bottom-tab">
-          <PlusCircle size={22} strokeWidth={2.4} aria-hidden />
+          <span className="tab-icon">
+            <PlusCircle size={22} strokeWidth={2.4} aria-hidden />
+            {/* Punto de cola offline (mejora 🟡): recuerda que hay registros
+                sin enviar aunque el banner superior no esté a la vista. */}
+            {pending > 0 && <span className="tab-dot" aria-hidden />}
+          </span>
           <span>{t.shell.tabs.registerKm}</span>
         </NavLink>
         <NavLink to="/alertas" className="bottom-tab">

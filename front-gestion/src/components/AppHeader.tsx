@@ -22,11 +22,17 @@ import {
   Users,
   Wrench,
 } from 'lucide-react'
-import { LanguageToggleButton } from '@flota/ui/ui'
+import { Badge, LanguageToggleButton } from '@flota/ui/ui'
 
+import { listAlerts } from '../api.ts'
 import { useAuth } from '../auth.ts'
+import { alertLevelTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
+import type { Alert } from '../types.ts'
 import logoUrl from '../assets/img/gransolar-logo.png'
+
+// Crítica primero, como en la bandeja de alertas.
+const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
 
 export function AppHeader() {
   const { user, logout } = useAuth()
@@ -37,15 +43,48 @@ export function AppHeader() {
   // Posición del menú (anclado al botón, en coordenadas de viewport para el portal).
   const [menuPos, setMenuPos] = useState({ top: 88, right: 20, maxHeight: 640 })
 
-  // Cerrar el menú con Escape (el clic fuera lo captura el backdrop del overlay).
+  // Campana real (mejora 🔴): alertas abiertas, ordenadas por gravedad.
+  const [alerts, setAlerts] = useState<Alert[]>([])
+  const [bellOpen, setBellOpen] = useState(false)
+  const bellBtnRef = useRef<HTMLButtonElement | null>(null)
+  const [bellPos, setBellPos] = useState({ top: 88, right: 20, maxHeight: 480 })
+
+  const loadAlerts = () =>
+    listAlerts('open')
+      .then((page) =>
+        setAlerts([...page.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])),
+      )
+      .catch(() => {})
+
   useEffect(() => {
-    if (!navOpen) return
+    void loadAlerts()
+  }, [])
+
+  // Cerrar menú/campana con Escape (el clic fuera lo captura cada backdrop).
+  useEffect(() => {
+    if (!navOpen && !bellOpen) return
     function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') setNavOpen(false)
+      if (event.key === 'Escape') {
+        setNavOpen(false)
+        setBellOpen(false)
+      }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [navOpen])
+  }, [navOpen, bellOpen])
+
+  function toggleBell() {
+    if (!bellOpen && bellBtnRef.current) {
+      const rect = bellBtnRef.current.getBoundingClientRect()
+      setBellPos({
+        top: Math.round(rect.bottom + 8),
+        right: Math.round(Math.max(8, window.innerWidth - rect.right)),
+        maxHeight: Math.round(window.innerHeight - rect.bottom - 24),
+      })
+      void loadAlerts() // refresco al abrir: la campana muestra el estado real
+    }
+    setBellOpen((open) => !open)
+  }
 
   function toggleNav() {
     // Al abrir, ancla el menú justo bajo el botón (robusto ante el marco flotante).
@@ -122,8 +161,21 @@ export function AppHeader() {
           </span>
         </div>
 
-        <button type="button" className="shell-iconbtn shell-bell" aria-label={t.shell.notifications}>
+        <button
+          ref={bellBtnRef}
+          type="button"
+          className="shell-iconbtn shell-bell"
+          aria-label={t.shell.notifications}
+          aria-haspopup="true"
+          aria-expanded={bellOpen}
+          onClick={toggleBell}
+        >
           <Bell size={18} />
+          {alerts.length > 0 && (
+            <span className="shell-bell-count" aria-hidden="true">
+              {alerts.length > 99 ? '99+' : alerts.length}
+            </span>
+          )}
         </button>
 
         <button
@@ -131,12 +183,54 @@ export function AppHeader() {
           type="button"
           className="shell-iconbtn"
           aria-label={t.shell.menu}
+          aria-haspopup="true"
           aria-expanded={navOpen}
           onClick={toggleNav}
         >
           <Menu size={18} />
         </button>
       </div>
+
+      {bellOpen &&
+        createPortal(
+          <div className="shell-navpop-overlay" onClick={() => setBellOpen(false)}>
+            <div
+              className="shell-navpop shell-alertpop"
+              role="region"
+              aria-label={t.shell.notifications}
+              style={{ top: bellPos.top, right: bellPos.right, maxHeight: bellPos.maxHeight }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <span className="shell-navgroup-title">{t.shell.notifications}</span>
+              {alerts.length === 0 ? (
+                <p className="shell-alert-empty">{t.shell.noAlerts}</p>
+              ) : (
+                alerts.slice(0, 6).map((alert) => (
+                  <NavLink
+                    key={alert.id}
+                    to={alert.vehicle ? `/vehiculos/${alert.vehicle}` : '/alertas'}
+                    className="shell-alertitem"
+                    onClick={() => setBellOpen(false)}
+                  >
+                    <Badge tone={alertLevelTone(alert.level)}>{alert.level_display}</Badge>
+                    <span className="shell-alertitem-body">
+                      <strong>{alert.vehicle_plate || alert.type_display}</strong>
+                      <span className="shell-alertitem-msg">{alert.message}</span>
+                    </span>
+                  </NavLink>
+                ))
+              )}
+              <NavLink
+                to="/alertas"
+                className="shell-alertpop-all"
+                onClick={() => setBellOpen(false)}
+              >
+                {t.shell.seeAllAlerts}
+              </NavLink>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {navOpen &&
         createPortal(

@@ -3,15 +3,18 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Badge, Button, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
+import { Download } from 'lucide-react'
 
 import {
   dismissAlert,
   listAlerts,
+  listAll,
   listVehicles,
   registerItv,
   resolveAlert,
 } from '../api.ts'
-import { alertLevelTone } from '../format.ts'
+import { exportCsv } from '../csv.ts'
+import { alertLevelTone, todayIso } from '../format.ts'
 import type { Alert, Vehicle } from '../types.ts'
 
 const TYPE_OPTIONS = [
@@ -40,7 +43,7 @@ const ITV_RESULT_OPTIONS = [
 
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = todayIso
 
 /** ¿ITV vencida? El back marca las vencidas como críticas con due_date pasada. */
 function isOverdueItv(alert: Alert): boolean {
@@ -74,13 +77,13 @@ export function AlertsPage() {
 
   const load = useCallback(() => {
     setLoading(true)
-    listAlerts({
+    listAll(listAlerts({
       status: statusFilter || undefined,
       type: typeFilter || undefined,
       level: levelFilter || undefined,
-    })
-      .then((page) => {
-        setAlerts([...page.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]))
+    }))
+      .then((rows) => {
+        setAlerts([...rows].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]))
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar las alertas.')))
@@ -89,7 +92,7 @@ export function AlertsPage() {
 
   useEffect(load, [load])
   useEffect(() => {
-    listVehicles().then((page) => setVehicles(page.results)).catch(() => setVehicles([]))
+    listAll(listVehicles()).then(setVehicles).catch(() => setVehicles([]))
   }, [])
 
   function setFilter(key: string, value: string) {
@@ -237,9 +240,18 @@ export function AlertsPage() {
         title="Alertas"
         subtitle="Avisos de ITV, lecturas de km, exceso proyectado y vehículos sin conductor."
         actions={
-          <Button variant="primary" onClick={() => openItv()}>
-            Registrar ITV
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              disabled={alerts.length === 0}
+              onClick={() => exportCsv('alertas', columns, alerts)}
+            >
+              <Download size={16} aria-hidden /> Exportar CSV
+            </Button>
+            <Button variant="primary" onClick={() => openItv()}>
+              Registrar ITV
+            </Button>
+          </>
         }
       />
 
@@ -264,11 +276,11 @@ export function AlertsPage() {
         />
       </div>
 
-      {notice && <div className="notice-ok">{notice}</div>}
-      {error && <div className="form-error">{error}</div>}
+      {notice && <div role="status" className="notice-ok">{notice}</div>}
+      {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p>Cargando…</p>
+        <p className="loading-state" role="status">Cargando…</p>
       ) : (
         <TableWithPanel<Alert>
           rows={alerts}
@@ -326,7 +338,7 @@ export function AlertsPage() {
             Al registrarla, los avisos de ITV del vehículo se <strong>cierran solos</strong> y la
             próxima fecha queda actualizada en la ficha.
           </p>
-          {itvError && <div className="form-error">{itvError}</div>}
+          {itvError && <div role="alert" className="form-error">{itvError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setItvModal(false)}>
               Cancelar

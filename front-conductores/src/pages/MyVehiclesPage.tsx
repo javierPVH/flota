@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ChevronRight, Gauge } from 'lucide-react'
-import { Panel } from '@flota/ui/ui'
+import { Link, useNavigate } from 'react-router-dom'
+import { Camera, ChevronRight, Gauge } from 'lucide-react'
+import { Badge, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { fetchVehicleSummary, listVehicles } from '../api.ts'
+import { fetchVehicleSummaries, listVehicles } from '../api.ts'
 import { useAuth } from '../auth.ts'
-import { fmtDate, fmtKm, itvClass, pendingThisMonth } from '../format.ts'
+import { fmtDate, fmtKm, itvClass, pendingThisMonth, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 
@@ -18,6 +18,7 @@ import type { Vehicle, VehicleSummary } from '../types.ts'
 export function MyVehiclesPage() {
   const { user } = useAuth()
   const { t, language } = useLang()
+  const navigate = useNavigate()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [summaries, setSummaries] = useState<Record<number, VehicleSummary>>({})
   const [query, setQuery] = useState('')
@@ -26,28 +27,22 @@ export function MyVehiclesPage() {
 
   useEffect(() => {
     let alive = true
-    listVehicles()
-      .then(async (page) => {
+    // Summaries en UNA petición (O2): antes era un GET por coche.
+    Promise.all([
+      listVehicles(),
+      fetchVehicleSummaries().catch(() => [] as VehicleSummary[]),
+    ])
+      .then(([page, loaded]) => {
         if (!alive) return
         setVehicles(page.results)
-        // El ámbito de campo es pequeño (1-2 coches; grupo del supervisor):
-        // los summaries en paralelo dan km actual y lectura pendiente.
-        const loaded = await Promise.all(
-          page.results.map((v) =>
-            fetchVehicleSummary(v.id).then(
-              (s) => [v.id, s] as const,
-              () => null,
-            ),
-          ),
-        )
-        if (alive) setSummaries(Object.fromEntries(loaded.filter(Boolean) as [number, VehicleSummary][]))
+        setSummaries(Object.fromEntries(loaded.map((s) => [s.vehicle, s])))
       })
-      .catch((err) => alive && setError(asErrorMessage(err, 'No se pudieron cargar tus vehículos.')))
+      .catch((err) => alive && setError(asErrorMessage(err, t.home.loadError)))
       .finally(() => alive && setLoading(false))
     return () => {
       alive = false
     }
-  }, [])
+  }, [t])
 
   const isSupervisor = user?.roles.includes('supervisor')
 
@@ -59,13 +54,33 @@ export function MyVehiclesPage() {
     )
   }, [vehicles, query])
 
-  if (loading) return <p className="gate-checking">{t.common.loading}</p>
-  if (error) return <div className="form-error">{error}</div>
+  if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
+  if (error) return <div role="alert" className="form-error">{error}</div>
 
   return (
     <div>
-      <div className="page-head">
-        <h2>{isSupervisor ? t.home.myGroup : t.home.myVehicles}</h2>
+      <PageHeader
+        title={isSupervisor ? t.home.myGroup : t.home.myVehicles}
+        stats={[
+          { value: vehicles.length, label: t.home.statVehicles },
+          {
+            value: Object.values(summaries).filter((s) => s && pendingThisMonth(s)).length,
+            label: t.home.statPending,
+          },
+        ]}
+      />
+
+      {/* Acciones rápidas (mejora 🔴): los viajes más frecuentes, a un toque.
+          "Subir documento" solo con un único vehículo (enlaza a su ficha). */}
+      <div className="quick-actions home-quick">
+        <Link to="/registrar" className="quick-action">
+          <Gauge size={18} aria-hidden /> {t.home.quickRegister}
+        </Link>
+        {vehicles.length === 1 && (
+          <Link to={`/vehiculos/${vehicles[0].id}`} className="quick-action">
+            <Camera size={18} aria-hidden /> {t.home.quickUpload}
+          </Link>
+        )}
       </div>
 
       {vehicles.length > 1 && (
@@ -87,11 +102,11 @@ export function MyVehiclesPage() {
           const kmPending = summary ? pendingThisMonth(summary) : false
           return (
             <Link key={v.id} to={`/vehiculos/${v.id}`} className="card-link">
-              <Panel>
+              <div className="card">
                 <div className="vehicle-card">
                   <div className="vehicle-card-head">
                     <span className="plate">{v.plate}</span>
-                    <span className={`badge ${v.state}`}>{v.state_display || '—'}</span>
+                    <Badge tone={vehicleStateTone(v.state)}>{v.state_display || '—'}</Badge>
                     <ChevronRight size={18} aria-hidden className="card-chevron" />
                   </div>
                   <p className="vehicle-model">
@@ -103,9 +118,22 @@ export function MyVehiclesPage() {
                     <dd>
                       {summary ? fmtKm(summary.km_current, language) : '…'}
                       {kmPending && (
-                        <span className="pill pending">
-                          <Gauge size={13} aria-hidden /> {t.home.pendingReading}
-                        </span>
+                        // Atajo (mejora 🔴): la chapita lleva directo a registrar
+                        // la lectura de ESTE vehículo (sin pasar por la ficha).
+                        <button
+                          type="button"
+                          className="pending-link"
+                          title={t.home.quickRegister}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            navigate(`/registrar?vehiculo=${v.id}`)
+                          }}
+                        >
+                          <Badge tone="warning">
+                            <Gauge size={13} aria-hidden /> {t.home.pendingReading}
+                          </Badge>
+                        </button>
                       )}
                     </dd>
                     {v.next_itv_date && (
@@ -124,7 +152,7 @@ export function MyVehiclesPage() {
                     )}
                   </dl>
                 </div>
-              </Panel>
+              </div>
             </Link>
           )
         })}

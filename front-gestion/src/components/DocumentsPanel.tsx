@@ -4,6 +4,8 @@ import { asErrorMessage } from '@flota/ui/http'
 import { ExternalLink, FolderOpen } from 'lucide-react'
 
 import { documentStatusTone } from '../format.ts'
+import { useConfirm } from './ConfirmDialog.tsx'
+import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
 
 import {
   connectGoogleUrl,
@@ -68,7 +70,14 @@ const EMPTY_FORM: FormState = { type: 'insurance', expiry_date: '', incident: ''
 
 /** Sección "Documentos" de la ficha (G7): consultar, subir/elegir de Drive,
  * sustituir conservando versión, caducar/reactivar y eliminar. */
-export function DocumentsPanel({ vehicle }: { vehicle: Vehicle }) {
+export function DocumentsPanel({
+  vehicle,
+  accordion,
+}: {
+  vehicle: Vehicle
+  accordion: AccordionState
+}) {
+  const confirm = useConfirm()
   const [docs, setDocs] = useState<FlotaDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -191,9 +200,9 @@ export function DocumentsPanel({ vehicle }: { vehicle: Vehicle }) {
   }
 
   async function handleDelete(doc: FlotaDocument) {
-    const ok = window.confirm(
-      `¿Eliminar "${doc.type_display}"? Se borra la referencia (no el fichero de Drive) y queda registrado en la auditoría.`,
-    )
+    const ok = await confirm({
+      message: `¿Eliminar "${doc.type_display}"? Se borra la referencia (no el fichero de Drive) y queda registrado en la auditoría.`,
+    })
     if (!ok) return
     try {
       await deleteDocument(doc.id)
@@ -223,9 +232,11 @@ export function DocumentsPanel({ vehicle }: { vehicle: Vehicle }) {
   const folderUrl = safeHref(vehicle.drive_folder_url)
 
   return (
-    <section className="card">
-      <div className="section-head">
-        <h3>Documentos</h3>
+    <CollapsibleCard
+      id="documents"
+      accordion={accordion}
+      title="Documentos"
+      actions={
         <div className="section-tools">
           <SelectField
             label="Tipo"
@@ -237,7 +248,8 @@ export function DocumentsPanel({ vehicle }: { vehicle: Vehicle }) {
             Añadir documento
           </Button>
         </div>
-      </div>
+      }
+    >
 
       {needsConnect && (
         <div className="drive-connect">
@@ -268,7 +280,7 @@ export function DocumentsPanel({ vehicle }: { vehicle: Vehicle }) {
           )}
         </p>
       )}
-      {folderError && <div className="form-error">{folderError}</div>}
+      {folderError && <div role="alert" className="form-error">{folderError}</div>}
       {folderFiles && (
         <ul className="drive-folder-files">
           {folderFiles.length === 0 && <li>La carpeta está vacía.</li>}
@@ -282,10 +294,10 @@ export function DocumentsPanel({ vehicle }: { vehicle: Vehicle }) {
         </ul>
       )}
 
-      {error && <div className="form-error">{error}</div>}
+      {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p>Cargando…</p>
+        <p className="loading-state" role="status">Cargando…</p>
       ) : (
         <table className="data">
           <thead>
@@ -425,7 +437,7 @@ export function DocumentsPanel({ vehicle }: { vehicle: Vehicle }) {
             )}
           </div>
 
-          {formError && <div className="form-error">{formError}</div>}
+          {formError && <div role="alert" className="form-error">{formError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
               Cancelar
@@ -436,6 +448,6 @@ export function DocumentsPanel({ vehicle }: { vehicle: Vehicle }) {
           </div>
         </form>
       </Modal>
-    </section>
+    </CollapsibleCard>
   )
 }

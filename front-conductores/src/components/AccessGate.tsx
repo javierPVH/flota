@@ -4,6 +4,7 @@ import { Button, Panel } from '@flota/ui/ui'
 
 import { isAdminOnly, useAuth } from '../auth.ts'
 import { listVehicles } from '../api.ts'
+import { useLang } from '../i18n.tsx'
 
 type GateState = 'checking' | 'ok' | 'no-vehicle' | 'no-fleet' | 'admin-only'
 
@@ -17,6 +18,7 @@ type GateState = 'checking' | 'ok' | 'no-vehicle' | 'no-fleet' | 'admin-only'
  */
 export function AccessGate({ children }: { children: ReactNode }) {
   const { user } = useAuth()
+  const { t } = useLang()
   const [state, setState] = useState<GateState>('checking')
 
   useEffect(() => {
@@ -44,7 +46,7 @@ export function AccessGate({ children }: { children: ReactNode }) {
 
   switch (state) {
     case 'checking':
-      return <p className="gate-checking">Comprobando tu acceso…</p>
+      return <p role="status" className="gate-checking">{t.gate.checking}</p>
     case 'ok':
       return <>{children}</>
     case 'no-vehicle':
@@ -58,19 +60,18 @@ export function AccessGate({ children }: { children: ReactNode }) {
 
 function AdminOnlyScreen() {
   const { user, logout } = useAuth()
+  const { t } = useLang()
   return (
-    <div className="login-wrap">
+    // Misma escena que el login (wallpaper velado): coherencia visual en todas
+    // las pantallas fuera del shell (Fase 2, patrón del AdminGate de gestión).
+    <div className="login-scene">
       <div className="login-card">
-        <h1>Sin acceso</h1>
+        <h1>{t.gate.adminTitle}</h1>
         <Panel tone="warning">
-          <p style={{ margin: 0 }}>
-            Esta app es para <strong>conductores y supervisores</strong>. Tu usuario (
-            {user?.username}) es de administración: usa el <strong>front de gestión</strong>
-            (red interna / VPN).
-          </p>
+          <p style={{ margin: 0 }}>{t.gate.adminBody(user?.username ?? '')}</p>
         </Panel>
         <Button variant="secondary" fullWidth onClick={logout}>
-          Cerrar sesión
+          {t.common.logout}
         </Button>
       </div>
     </div>

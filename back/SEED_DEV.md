@@ -113,6 +113,26 @@ renombras rompes la cadena. Contraseña de prueba de TODOS: **`flota-dev-2026`**
 `5678BCD` (en taller, **ITV vencida**, vínculo de sustitución activo), `7890NPQ`
 (sin lectura de km este mes → alerta), `4567JKL` (sustitución), `0000ZZZ` (baja).
 
+**Capa de VOLUMEN** (constantes `BULK_*` en `seed.py`) — encima de la
+referencia, cada seed añade datos masivos **deterministas** (aritmética modular
+sobre el índice, sin `random`): la supervisora `marta`, **12 conductores**
+(`pedro`, `ana`, `jorge`, `elena`, `raul`, `marina`, `sergio`, `nuria`, `ivan`,
+`paula`, `oscar`, `teresa` — misma contraseña), 3 CECOs, 6 proyectos, 2 rentings
+y 2 unidades más, y **30 vehículos** con matrículas `2000???`…`2029???`
+(`_bulk_plate(i)`), repartidos entre los grupos de `sara`/`marta`/sin
+supervisor, con estados, tipos, usos y combustibles variados (los 2 últimos en
+baja, 2 sustitutos). Cada uno arrastra: contrato de renting (si aplica) con
+**ritmos ~70/100/130%** del km contratado (proyecciones repartidas entre los
+tres niveles), **hasta 12 meses de lecturas** mensuales (1 de cada 4 con la
+última "vieja" → alerta de lectura pendiente), conductor vigente (1 de cada 5
+sin conductor → alerta; históricos finalizados y propuestas sueltas), ITV
+vencida/próxima/lejana, **14 incidencias**, seguro (algunos caducados) + fichas
+técnicas + fotos pendientes de archivar, **3 meses de facturas** con reparto
+100% a proyecto o CECO, y 7 solicitudes de Jira en todos los estados
+(`FLT-201`…`FLT-207`, sin solicitante: "Conceder" queda deshabilitado a
+propósito). No dependas de los datos de volumen en asserts finos; para eso está
+la referencia.
+
 Al final siempre corre `seed_alerts`, que **borra las alertas y ejecuta el motor
 real** (`alerts.run_all()`): la bandeja refleja exactamente lo sembrado. No
 escribas asserts que dependan del número exacto de alertas.

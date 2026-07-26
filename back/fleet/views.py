@@ -538,10 +538,11 @@ class DocumentPermission(BasePermission):
 
 
 class IncidentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
-    """Incidencias / mantenimiento. Gestión (admin toda; supervisor su grupo)."""
+    """Incidencias / mantenimiento. Escribe gestión (admin toda; supervisor su
+    grupo); el conductor LEE las de sus vehículos (ficha de campo)."""
 
     serializer_class = IncidentSerializer
-    permission_classes = [ManagementReadWrite]
+    permission_classes = [IsManagementOrDriverReadOnly]
     queryset = Incident.objects.select_related("vehicle")
     filterset_fields = ["vehicle", "type", "status"]
     ordering_fields = ["date", "created_at"]
@@ -744,6 +745,21 @@ class FleetSummaryView(APIView):
         return Response(metrics.fleet_summary(request.user))
 
 
+class VehicleSummariesView(APIView):
+    """GET /api/summary/vehicles/ — summaries de TODO el ámbito en UNA respuesta.
+
+    O2 de OPTIMIZACION_Y_ERRORES.md: la app de campo hacía un
+    GET /vehicles/<id>/summary/ por coche (N+1 por HTTP). Mismo scoping por rol
+    que el listado de vehículos (conductor: los suyos; supervisor: su grupo;
+    admin: toda la flota) y consultas acotadas en el servicio.
+    """
+
+    permission_classes = [IsManagementOrDriverReadOnly]
+
+    def get(self, request):
+        return Response(metrics.vehicle_summaries(request.user))
+
+
 # --- Informes / exportación (Épica 10) -----------------------------------
 
 
@@ -795,10 +811,10 @@ class BusinessUnitViewSet(viewsets.ModelViewSet):
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
-    queryset = Project.objects.all()
+    queryset = Project.objects.select_related("cost_center")
     serializer_class = ProjectSerializer
     permission_classes = [AdminWriteManagementRead]
-    search_fields = ["project_name"]
+    search_fields = ["project_name", "cost_center__code", "cost_center__name"]
 
 
 class PepViewSet(viewsets.ModelViewSet):

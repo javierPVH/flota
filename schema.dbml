@@ -235,6 +235,7 @@ Table business_unit {
 Table projects {
   id int [pk, increment]
   project_name varchar [not null]
+  cost_center_id int [ref: > pep.id, note: 'CECO al que se asocia el proyecto (obligatorio en altas)']
 }
 
 Table pep {

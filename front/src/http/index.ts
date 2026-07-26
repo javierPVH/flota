@@ -8,6 +8,7 @@ export {
   toUrl,
   asErrorMessage,
   handleAuthExpiration,
+  ApiError,
   ReauthRequiredError,
   isReauthRequired,
   setReauthHandler,

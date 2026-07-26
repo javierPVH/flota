@@ -745,9 +745,18 @@ class BusinessUnitSerializer(serializers.ModelSerializer):
 
 
 class ProjectSerializer(serializers.ModelSerializer):
+    # Obligatorio en altas (el modelo es nullable solo por las filas legacy).
+    # En PATCH parcial no se exige, así los proyectos antiguos siguen editables.
+    cost_center = serializers.PrimaryKeyRelatedField(
+        queryset=Pep.objects.all(), required=True, allow_null=False
+    )
+    cost_center_display = serializers.StringRelatedField(
+        source="cost_center", read_only=True
+    )
+
     class Meta:
         model = Project
-        fields = ["id", "project_name"]
+        fields = ["id", "project_name", "cost_center", "cost_center_display"]
 
 
 class PepSerializer(serializers.ModelSerializer):

@@ -46,13 +46,23 @@ export async function devLogin(username: string): Promise<FlotaUser> {
   return postJson<FlotaUser>(`${AUTH}/dev-login/`, { username })
 }
 
+// Página grande (O1 de OPTIMIZACION_Y_ERRORES.md): el back permite hasta 1000
+// con `?page_size=`; así ni el grupo del supervisor ni los históricos se
+// quedan en la primera página de 50 sin avisar.
+const PS = 'page_size=500'
+
 // --- Vehículos (el back acota: conductor los suyos; supervisor su grupo) --
-export const listVehicles = () => getJson<Paginated<Vehicle>>(`${API}/vehicles/`)
+export const listVehicles = () => getJson<Paginated<Vehicle>>(`${API}/vehicles/?${PS}`)
 
 export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${id}/`)
 
 export const fetchVehicleSummary = (id: number) =>
   getJson<VehicleSummary>(`${API}/vehicles/${id}/summary/`)
+
+/** Summaries de TODO el ámbito en una petición (O2): antes era un GET por
+ * coche — en 4G la latencia por petición dominaba el tiempo de carga. */
+export const fetchVehicleSummaries = () =>
+  getJson<VehicleSummary[]>(`${API}/summary/vehicles/`)
 
 // --- M8: notificaciones push (Web Push/VAPID) ------------------------------
 export interface PushConfig {
@@ -81,7 +91,7 @@ export async function deletePushSubscription(endpoint: string): Promise<void> {
 
 // --- M5: alertas del ámbito (HU-3.2/3.3/3.5/5.1/1.7) -----------------------
 export const listAlerts = (status: string) =>
-  getJson<Paginated<Alert>>(`${API}/alerts/?status=${status}`)
+  getJson<Paginated<Alert>>(`${API}/alerts/?status=${status}&${PS}`)
 
 /** Solo gestión (supervisor/admin); el conductor no ve estos botones. */
 export const resolveAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/resolve/`, {})
@@ -98,7 +108,7 @@ export const proposeAssignment = (data: {
 
 /** Asignaciones del vehículo por estado (el back acota al ámbito propio). */
 export const listAssignments = (vehicle: number, status: string) =>
-  getJson<Paginated<AssignmentRow>>(`${API}/assignments/?vehicle=${vehicle}&status=${status}`)
+  getJson<Paginated<AssignmentRow>>(`${API}/assignments/?vehicle=${vehicle}&status=${status}&${PS}`)
 
 /** Registrar ITV (HU-5.1): la señal del back cierra los avisos y refresca
  * `next_itv_date`. El conductor solo puede registrar ITV de su ámbito. */
@@ -115,7 +125,7 @@ export const createKmReading = (data: { vehicle: number; km_reading: number; rea
 
 // --- M2: documentos del vehículo (Épica 4, archivado en Drive - Fase A3) --
 export const listDocuments = (vehicle: number) =>
-  getJson<Paginated<FlotaDocument>>(`${API}/documents/?vehicle=${vehicle}`)
+  getJson<Paginated<FlotaDocument>>(`${API}/documents/?vehicle=${vehicle}&${PS}`)
 
 export interface DocumentUploadInput {
   vehicle: number
@@ -158,7 +168,7 @@ export async function uploadDocument(data: DocumentUploadInput, file: File): Pro
 
 /** Incidencias (solo gestión; el back acota al grupo del supervisor). */
 export const listIncidents = (vehicle?: number) =>
-  getJson<Paginated<Incident>>(`${API}/incidents/${vehicle ? `?vehicle=${vehicle}` : ''}`)
+  getJson<Paginated<Incident>>(`${API}/incidents/?${PS}${vehicle ? `&vehicle=${vehicle}` : ''}`)
 
 // --- M6: modo supervisor (HU-2.5, 3.4/3.6, Épica 6) ------------------------
 
@@ -166,7 +176,7 @@ export const listIncidents = (vehicle?: number) =>
 export const listDrivers = () => getJson<Driver[]>(`${AUTH}/drivers/`)
 
 export const listVehicleUsages = (vehicle: number) =>
-  getJson<Paginated<VehicleUsageRow>>(`${API}/vehicle-usages/?vehicle=${vehicle}`)
+  getJson<Paginated<VehicleUsageRow>>(`${API}/vehicle-usages/?vehicle=${vehicle}&${PS}`)
 
 /** Aplica el reparto completo (HU-2.5): el back exige suma = 100 y cierra el
  * vigente en la misma transacción. */
@@ -186,7 +196,7 @@ export const createIncident = (data: {
 
 /** Histórico de lecturas para la gráfica de evolución (HU-3.6). */
 export const listKmReadings = (vehicle: number) =>
-  getJson<Paginated<KmReading>>(`${API}/km-readings/?vehicle=${vehicle}&ordering=reading_date`)
+  getJson<Paginated<KmReading>>(`${API}/km-readings/?vehicle=${vehicle}&ordering=reading_date&${PS}`)
 
 // --- Portón de acceso: mi solicitud con ticket Jira (Fase A2) -------------
 export const listMyRequests = () => getJson<MyVehicleRequest[]>(`${API}/vehicle-requests/mine/`)

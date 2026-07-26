@@ -1,11 +1,13 @@
 import type { KmReading } from '../types.ts'
 
 import { fmtKm } from '../format.ts'
+import { useLang } from '../i18n.tsx'
 
 /** Gráfica de evolución del km (HU-3.6): SVG propio, sin dependencias. */
 export function KmChart({ readings }: { readings: KmReading[] }) {
+  const { t } = useLang()
   const points = readings.filter((r) => r.km_reading !== null && r.reading_date)
-  if (points.length < 2) return <p className="empty-note">Aún no hay lecturas suficientes.</p>
+  if (points.length < 2) return <p className="empty-note">{t.chart.notEnough}</p>
 
   const W = 620
   const H = 150
@@ -22,7 +24,7 @@ export function KmChart({ readings }: { readings: KmReading[] }) {
 
   return (
     <div className="km-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Evolución del kilometraje">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t.chart.label}>
         <path d={path} fill="none" stroke="#009491" strokeWidth="2.5" strokeLinejoin="round" />
         {points.map((p, i) => (
           <circle key={p.id} cx={sx(xs[i])} cy={sy(ys[i])} r="3" fill="#009491" />

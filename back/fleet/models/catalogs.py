@@ -38,6 +38,18 @@ class Project(TimeStampedModel):
     """DBML `projects`."""
 
     project_name = models.CharField("Nombre del proyecto", max_length=150)
+    # Todo proyecto imputa a un CECO. Nullable en BD por las filas legacy
+    # (la API lo exige en altas: ver ProjectSerializer); PROTECT para que no
+    # se pueda borrar un CECO con proyectos colgando.
+    cost_center = models.ForeignKey(
+        "fleet.Pep",
+        verbose_name="Centro de coste (CECO)",
+        on_delete=models.PROTECT,
+        related_name="projects",
+        null=True,
+        blank=True,
+        help_text="Centro de coste (PEP/CECO) al que se asocia el proyecto.",
+    )
 
     class Meta:
         verbose_name = "proyecto"

@@ -10,6 +10,7 @@ from .views import (
     DocumentViewSet,
     EventViewSet,
     FleetSummaryView,
+    VehicleSummariesView,
     IncidentViewSet,
     InvoiceAllocationViewSet,
     InvoiceViewSet,
@@ -49,5 +50,7 @@ urlpatterns = [
     path("reports/", ReportsView.as_view(), name="reports"),
     # Agregados del dashboard (Fase A1); acotado por rol.
     path("summary/", FleetSummaryView.as_view(), name="fleet-summary"),
+    # Summaries de todo el ámbito en una respuesta (O2): evita el N+1 de campo.
+    path("summary/vehicles/", VehicleSummariesView.as_view(), name="vehicle-summaries"),
     *router.urls,
 ]

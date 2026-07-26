@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BellOff, BellRing, Gauge } from 'lucide-react'
-import { Button, Panel } from '@flota/ui/ui'
+import { Badge, Button, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { dismissAlert, fetchVehicleSummary, listAlerts, resolveAlert } from '../api.ts'
+import { dismissAlert, fetchVehicleSummaries, listAlerts, resolveAlert } from '../api.ts'
 import { useAuth } from '../auth.ts'
-import { fmtDate } from '../format.ts'
+import { alertLevelTone, fmtDate } from '../format.ts'
+import { useLang } from '../i18n.tsx'
 import { disablePush, enablePush, pushState, type PushState } from '../push.ts'
 import type { Alert, VehicleSummary } from '../types.ts'
 
@@ -20,6 +21,7 @@ const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, in
  */
 export function AlertsPage() {
   const { user } = useAuth()
+  const { t } = useLang()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
 
   const [alerts, setAlerts] = useState<Alert[]>([])
@@ -50,7 +52,7 @@ export function AlertsPage() {
         setPush('on')
       }
     } catch (err) {
-      setPushError(asErrorMessage(err, 'No se pudo cambiar el estado de los avisos.'))
+      setPushError(asErrorMessage(err, t.alerts.pushError))
       pushState().then(setPush, () => {})
     } finally {
       setPushBusy(false)
@@ -72,21 +74,22 @@ export function AlertsPage() {
                 .map((a) => a.vehicle as number),
             ),
           ]
-          Promise.all(
-            pendingVehicles.map((id) =>
-              fetchVehicleSummary(id).then(
-                (s) => [id, s] as const,
-                () => null,
+          // Summaries en UNA petición (O2): antes era un GET por pendiente.
+          const wanted = new Set(pendingVehicles)
+          fetchVehicleSummaries()
+            .then((summaries) =>
+              setLastReadings(
+                Object.fromEntries(
+                  summaries.filter((s) => wanted.has(s.vehicle)).map((s) => [s.vehicle, s]),
+                ),
               ),
-            ),
-          ).then((loaded) =>
-            setLastReadings(Object.fromEntries(loaded.filter(Boolean) as [number, VehicleSummary][])),
-          )
+            )
+            .catch(() => setLastReadings({}))
         }
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar las alertas.')))
+      .catch((err) => setError(asErrorMessage(err, t.alerts.loadError)))
       .finally(() => setLoading(false))
-  }, [showClosed, isSupervisor])
+  }, [showClosed, isSupervisor, t])
 
   useEffect(load, [load])
 
@@ -95,47 +98,46 @@ export function AlertsPage() {
     try {
       if (action === 'resolve') await resolveAlert(alert.id)
       else await dismissAlert(alert.id)
-      setNotice(
-        action === 'resolve'
-          ? `Alerta de ${alert.vehicle_plate || 'flota'} resuelta.`
-          : `Alerta de ${alert.vehicle_plate || 'flota'} descartada.`,
-      )
+      const plate = alert.vehicle_plate || t.alerts.fleet
+      setNotice(action === 'resolve' ? t.alerts.resolved(plate) : t.alerts.dismissed(plate))
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo cerrar la alerta.'))
+      setError(asErrorMessage(err, t.alerts.closeError))
     }
   }
 
   const open = useMemo(() => alerts.filter((a) => a.status === 'open'), [alerts])
   const closed = useMemo(() => alerts.filter((a) => a.status !== 'open'), [alerts])
 
-  if (loading) return <p className="gate-checking">Cargando…</p>
-  if (error) return <div className="form-error">{error}</div>
+  if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
+  if (error) return <div role="alert" className="form-error">{error}</div>
 
   return (
     <div>
-      <div className="page-head">
-        <h2>Alertas</h2>
-        <button type="button" className="link-btn" onClick={() => setShowClosed((v) => !v)}>
-          {showClosed ? 'Solo abiertas' : 'Ver cerradas'}
-        </button>
-      </div>
+      <PageHeader
+        title={t.alerts.title}
+        actions={
+          <button type="button" className="link-btn" onClick={() => setShowClosed((v) => !v)}>
+            {showClosed ? t.alerts.onlyOpen : t.alerts.showClosed}
+          </button>
+        }
+      />
 
-      {notice && <p className="form-ok">{notice}</p>}
+      {notice && <p role="status" className="form-ok">{notice}</p>}
 
       {/* M8: avisos push de este dispositivo (oculto si el back no los tiene). */}
       {push !== 'disabled' && push !== 'unsupported' && (
-        <Panel>
+        <section className="card">
           <div className="push-row">
             <BellRing size={18} aria-hidden className="doc-icon" />
             <div className="doc-info">
-              <strong>Avisos en este dispositivo</strong>
+              <strong>{t.alerts.pushTitle}</strong>
               <span className="doc-sub">
                 {push === 'on'
-                  ? 'Recibirás las alertas aunque la app esté cerrada.'
+                  ? t.alerts.pushOn
                   : push === 'blocked'
-                    ? 'Bloqueados por el navegador: actívalos en sus ajustes.'
-                    : 'ITV, lecturas pendientes y más, aunque la app esté cerrada.'}
+                    ? t.alerts.pushBlocked
+                    : t.alerts.pushOff}
               </span>
             </div>
             {push !== 'blocked' && (
@@ -145,18 +147,18 @@ export function AlertsPage() {
                 onClick={() => void togglePush()}
                 disabled={pushBusy}
               >
-                {pushBusy ? '…' : push === 'on' ? 'Desactivar' : 'Activar'}
+                {pushBusy ? '…' : push === 'on' ? t.alerts.pushDisable : t.alerts.pushEnable}
               </Button>
             )}
           </div>
-          {pushError && <div className="form-error">{pushError}</div>}
-        </Panel>
+          {pushError && <div role="alert" className="form-error">{pushError}</div>}
+        </section>
       )}
 
       {open.length === 0 && (
         <div className="alerts-empty">
           <BellOff size={40} aria-hidden />
-          <p>Sin alertas abiertas. Todo al día.</p>
+          <p>{t.alerts.empty}</p>
         </div>
       )}
 
@@ -167,8 +169,8 @@ export function AlertsPage() {
       </div>
 
       {isSupervisor && Object.keys(lastReadings).length > 0 && (
-        <Panel>
-          <h3 className="panel-title">Lecturas pendientes del grupo</h3>
+        <section className="card">
+          <h3 className="panel-title">{t.alerts.pendingTitle}</h3>
           <ul className="doc-list">
             {Object.values(lastReadings).map((s) => (
               <li key={s.vehicle} className="doc-item">
@@ -177,22 +179,22 @@ export function AlertsPage() {
                   <strong>{s.plate}</strong>
                   <span className="doc-sub">
                     {s.km_reading_date
-                      ? `Sin lectura desde el ${fmtDate(s.km_reading_date)}`
-                      : 'Nunca ha registrado lectura'}
+                      ? t.alerts.noReadingSince(fmtDate(s.km_reading_date))
+                      : t.alerts.neverRead}
                   </span>
                 </div>
                 <Link to={`/vehiculos/${s.vehicle}`} className="link-btn">
-                  Ver ficha
+                  {t.common.seeCard}
                 </Link>
               </li>
             ))}
           </ul>
-        </Panel>
+        </section>
       )}
 
       {showClosed && closed.length > 0 && (
         <>
-          <h3 className="closed-title">Resueltas y descartadas</h3>
+          <h3 className="closed-title">{t.alerts.closedTitle}</h3>
           <div className="vehicle-cards">
             {closed.map((alert) => (
               <AlertCard key={alert.id} alert={alert} isSupervisor={false} onClose={close} />
@@ -213,14 +215,15 @@ function AlertCard({
   isSupervisor: boolean
   onClose: (alert: Alert, action: 'resolve' | 'dismiss') => void
 }) {
+  const { t } = useLang()
   const isOpen = alert.status === 'open'
   return (
-    <Panel>
+    <section className="card">
       <div className={`alert-card ${isOpen ? '' : 'alert-closed'}`}>
         <div className="vehicle-card-head">
-          <span className={`badge level-${alert.level}`}>{alert.level_display}</span>
+          <Badge tone={alertLevelTone(alert.level)}>{alert.level_display}</Badge>
           <span className="alert-type">{alert.type_display}</span>
-          {!isOpen && <span className="pill doc-valid">{alert.status_display}</span>}
+          {!isOpen && <Badge tone="success">{alert.status_display}</Badge>}
         </div>
         <p className="alert-message">
           {alert.vehicle && (
@@ -231,34 +234,34 @@ function AlertCard({
           {alert.message}
         </p>
         <p className="doc-sub">
-          {alert.due_date ? `Vence: ${fmtDate(alert.due_date)} · ` : ''}
-          Creada el {fmtDate(alert.created_at)}
+          {alert.due_date ? `${t.alerts.due(fmtDate(alert.due_date))} · ` : ''}
+          {t.alerts.created(fmtDate(alert.created_at))}
         </p>
         {isOpen && (
           <div className="alert-actions">
             {alert.vehicle && alert.type === 'km_reading_pending' && (
               <Link to={`/registrar?vehiculo=${alert.vehicle}`} className="quick-action">
-                <Gauge size={18} aria-hidden /> Registrar km
+                <Gauge size={18} aria-hidden /> {t.common.registerKm}
               </Link>
             )}
             {alert.vehicle && alert.type !== 'km_reading_pending' && (
               <Link to={`/vehiculos/${alert.vehicle}`} className="quick-action">
-                Ver ficha
+                {t.common.seeCard}
               </Link>
             )}
             {isSupervisor && (
               <>
                 <Button size="sm" variant="secondary" onClick={() => onClose(alert, 'resolve')}>
-                  Resolver
+                  {t.alerts.resolve}
                 </Button>
                 <Button size="sm" variant="secondary" onClick={() => onClose(alert, 'dismiss')}>
-                  Descartar
+                  {t.alerts.dismiss}
                 </Button>
               </>
             )}
           </div>
         )}
       </div>
-    </Panel>
+    </section>
   )
 }

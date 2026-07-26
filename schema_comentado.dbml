@@ -280,6 +280,7 @@ Table business_unit {
 Table projects {
   id bigint [pk, increment]
   project_name varchar(150) [not null]
+  cost_center_id bigint [ref: > pep.id, note: 'CECO al que se asocia el proyecto. Nullable en BD (legacy); obligatorio en altas vía API.']
   created_at datetime [not null]
   updated_at datetime [not null]
 }

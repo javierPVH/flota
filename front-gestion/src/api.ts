@@ -72,7 +72,25 @@ export interface VehicleFilters {
 }
 
 export const listVehicles = (filters: VehicleFilters = {}) =>
-  getJson<Paginated<Vehicle>>(`${API}/vehicles/${buildQs({ ...filters })}`)
+  getJson<Paginated<Vehicle>>(`${API}/vehicles/${listQs({ ...filters })}`)
+
+/**
+ * Carga TODAS las páginas de un listado DRF siguiendo `next` (mejora 🔴).
+ * Los listados con `TableWithPanel` paginan/buscan en cliente: sin esto solo
+ * verían la primera página (50 filas) sin aviso. `next` llega como URL
+ * absoluta: se reduce a path+query para pasar por el transporte normal.
+ */
+export async function listAll<T>(first: Promise<Paginated<T>>): Promise<T[]> {
+  const results: T[] = []
+  let page = await first
+  results.push(...page.results)
+  while (page.next) {
+    const url = new URL(page.next, window.location.origin)
+    page = await getJson<Paginated<T>>(`${url.pathname}${url.search}`)
+    results.push(...page.results)
+  }
+  return results
+}
 
 export type VehicleInput = Partial<
   Pick<Vehicle, 'plate' | 'brand' | 'model' | 'year' | 'state' | 'vin' | 'business_use'>
@@ -122,12 +140,15 @@ export interface CatalogEntry {
   name?: string
   code?: string
   project_name?: string
+  /** Solo `projects`: CECO asociado (obligatorio en altas desde la API). */
+  cost_center?: number | null
+  cost_center_display?: string
 }
 
 export type CatalogResource = 'projects' | 'peps' | 'business-units' | 'rentings' | 'countries'
 
 export const listCatalog = (resource: CatalogResource) =>
-  getJson<Paginated<CatalogEntry>>(`${API}/${resource}/`)
+  getJson<Paginated<CatalogEntry>>(`${API}/${resource}/${listQs({})}`)
 
 // G11: escritura de catálogos (solo admin en el back).
 export const createCatalogEntry = (resource: CatalogResource, data: Record<string, string>) =>
@@ -153,7 +174,7 @@ export interface AlertFilters {
 
 export const listAlerts = (filters: AlertFilters | string = 'open') =>
   getJson<Paginated<Alert>>(
-    `${API}/alerts/${buildQs(typeof filters === 'string' ? { status: filters } : { ...filters })}`,
+    `${API}/alerts/${listQs(typeof filters === 'string' ? { status: filters } : { ...filters })}`,
   )
 
 export const resolveAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/resolve/`, {})
@@ -183,26 +204,31 @@ export const reportUrl = (kind: ReportKind, fmt: ReportFormat) =>
 export const fetchVehicleSummary = (id: number) =>
   getJson<VehicleSummary>(`${API}/vehicles/${id}/summary/`)
 
+/** Summaries de TODO el ámbito en una petición (O2 de
+ * OPTIMIZACION_Y_ERRORES.md): evita el GET por vehículo del Kilometraje. */
+export const fetchVehicleSummaries = () =>
+  getJson<VehicleSummary[]>(`${API}/summary/vehicles/`)
+
 export const listKmReadings = (vehicle: number) =>
   getJson<Paginated<KmReading>>(
-    `${API}/km-readings/${buildQs({ vehicle, ordering: 'reading_date' })}`,
+    `${API}/km-readings/${listQs({ vehicle, ordering: 'reading_date' })}`,
   )
 
 export const createKmReading = (data: { vehicle: number; km_reading: number; reading_date: string }) =>
   postJson<KmReading>(`${API}/km-readings/`, data)
 
 export const listEvents = (vehicle: number) =>
-  getJson<Paginated<FlotaEvent>>(`${API}/events/${buildQs({ vehicle, ordering: '-event_date' })}`)
+  getJson<Paginated<FlotaEvent>>(`${API}/events/${listQs({ vehicle, ordering: '-event_date' })}`)
 
 export const fetchVehicleHistory = (id: number) =>
-  getJson<Paginated<AuditEntry>>(`${API}/vehicles/${id}/history/`)
+  getJson<Paginated<AuditEntry>>(`${API}/vehicles/${id}/history/${listQs({})}`)
 
 export const listAssignments = (
   filters: { vehicle?: number; driver?: number; status?: string } = {},
-) => getJson<Paginated<AssignmentRow>>(`${API}/assignments/${buildQs({ ...filters })}`)
+) => getJson<Paginated<AssignmentRow>>(`${API}/assignments/${listQs({ ...filters })}`)
 
 export const listVehicleLinks = (filters: { main_vehicle?: number; substitute_vehicle?: number }) =>
-  getJson<Paginated<VehicleLinkRow>>(`${API}/vehicle-links/${buildQs({ ...filters })}`)
+  getJson<Paginated<VehicleLinkRow>>(`${API}/vehicle-links/${listQs({ ...filters })}`)
 
 // --- G4: estados, baja y vinculación ---------------------------------------
 
@@ -251,7 +277,7 @@ export interface VehicleUsageRow {
 }
 
 export const listVehicleUsages = (vehicle: number) =>
-  getJson<Paginated<VehicleUsageRow>>(`${API}/vehicle-usages/${buildQs({ vehicle })}`)
+  getJson<Paginated<VehicleUsageRow>>(`${API}/vehicle-usages/${listQs({ vehicle })}`)
 
 /** Aplica el reparto completo: el back exige suma = 100 y cierra el vigente. */
 export const setUsageSplit = (data: {
@@ -285,7 +311,7 @@ export interface ManagedUserInput {
 }
 
 export const listUsers = (filters: { search?: string; is_active?: boolean } = {}) =>
-  getJson<Paginated<ManagedUserFull>>(`${AUTH}/users/${buildQs({ ...filters })}`)
+  getJson<Paginated<ManagedUserFull>>(`${AUTH}/users/${listQs({ ...filters })}`)
 
 export const createUser = (data: ManagedUserInput) =>
   postJson<ManagedUserFull>(`${AUTH}/users/`, data)
@@ -314,7 +340,7 @@ export interface VehicleRequestRow {
 }
 
 export const listVehicleRequests = (filters: { status?: string; search?: string } = {}) =>
-  getJson<Paginated<VehicleRequestRow>>(`${API}/vehicle-requests/${buildQs({ ...filters })}`)
+  getJson<Paginated<VehicleRequestRow>>(`${API}/vehicle-requests/${listQs({ ...filters })}`)
 
 /** Concede la solicitud: rol conductor + asignación aceptada + evento (atómico). */
 export const grantVehicleRequest = (id: number, vehicle: number) =>
@@ -348,7 +374,7 @@ export interface AllocationRow {
 }
 
 export const listInvoices = (filters: { vehicle?: number } = {}) =>
-  getJson<Paginated<InvoiceRow>>(`${API}/invoices/${buildQs({ ...filters })}`)
+  getJson<Paginated<InvoiceRow>>(`${API}/invoices/${listQs({ ...filters })}`)
 
 export interface InvoiceInput {
   code?: string
@@ -368,7 +394,7 @@ export const updateInvoice = (id: number, data: Partial<InvoiceInput>) =>
 export const deleteInvoice = (id: number) => deleteJson(`${API}/invoices/${id}/`)
 
 export const listAllocations = (filters: { invoice?: number } = {}) =>
-  getJson<Paginated<AllocationRow>>(`${API}/invoice-allocations/${buildQs({ ...filters })}`)
+  getJson<Paginated<AllocationRow>>(`${API}/invoice-allocations/${listQs({ ...filters })}`)
 
 /** Refacturación completa (Épica 7): el back exige que los % sumen 100 y
  * calcula los importes que falten desde el total de la factura. */
@@ -384,6 +410,20 @@ export const allocateInvoice = (
 ) => postJson<AllocationRow[]>(`${API}/invoices/${id}/allocate/`, { lines })
 
 // --- G7: documentación e incidencias ---------------------------------------
+
+/** Página grande por defecto (O1 de OPTIMIZACION_Y_ERRORES.md): el back
+ * permite hasta 1000 (`core.pagination`, `?page_size=`). Con 500 casi todos
+ * los listados caben en UNA petición, `listAll` deja de encadenar páginas de
+ * 50 y los selects de vehículo no se truncan (E1). El caller puede pasar su
+ * propio `page_size` si necesita otro. */
+const FULL_PAGE = 500
+
+/** `buildQs` con `page_size` grande por defecto (solo endpoints paginados). */
+function listQs(
+  params: Record<string, string | number | boolean | undefined | null>,
+): string {
+  return buildQs({ page_size: FULL_PAGE, ...params })
+}
 
 /** Query-string a partir de filtros opcionales (omite vacíos). */
 function buildQs(
@@ -405,7 +445,7 @@ export interface DocumentFilters {
 }
 
 export const listDocuments = (filters: DocumentFilters = {}) =>
-  getJson<Paginated<FlotaDocument>>(`${API}/documents/${buildQs({ ...filters })}`)
+  getJson<Paginated<FlotaDocument>>(`${API}/documents/${listQs({ ...filters })}`)
 
 /** Alta con referencia de Drive (Picker) o URL manual — sin binario. */
 export interface DocumentInput {
@@ -460,7 +500,7 @@ export interface IncidentFilters {
 }
 
 export const listIncidents = (filters: IncidentFilters = {}) =>
-  getJson<Paginated<Incident>>(`${API}/incidents/${buildQs({ ...filters })}`)
+  getJson<Paginated<Incident>>(`${API}/incidents/${listQs({ ...filters })}`)
 
 export interface IncidentInput {
   vehicle: number

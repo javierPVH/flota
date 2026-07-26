@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Assignment, Vehicle
+from fleet.models import Assignment, Pep, Vehicle
 
 from .helpers import make_user
 
@@ -107,6 +107,7 @@ class CatalogPermissionTests(APITestCase):
         self.admin = make_user("admin", Role.ADMIN)
         self.supervisor = make_user("sup", Role.SUPERVISOR)
         self.url = reverse("project-list")
+        self.ceco = Pep.objects.create(code="4300", name="Servicios generales")
 
     def test_management_can_read(self):
         self.client.force_authenticate(self.supervisor)
@@ -114,10 +115,22 @@ class CatalogPermissionTests(APITestCase):
 
     def test_admin_can_write(self):
         self.client.force_authenticate(self.admin)
-        resp = self.client.post(self.url, {"project_name": "Solar-1"})
+        resp = self.client.post(
+            self.url, {"project_name": "Solar-1", "cost_center": self.ceco.id}
+        )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data["cost_center"], self.ceco.id)
+
+    def test_project_requires_cost_center(self):
+        # Todo proyecto debe asociarse a un CECO en el alta.
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(self.url, {"project_name": "Solar-1"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cost_center", resp.data)
 
     def test_supervisor_cannot_write(self):
         self.client.force_authenticate(self.supervisor)
-        resp = self.client.post(self.url, {"project_name": "Solar-2"})
+        resp = self.client.post(
+            self.url, {"project_name": "Solar-2", "cost_center": self.ceco.id}
+        )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

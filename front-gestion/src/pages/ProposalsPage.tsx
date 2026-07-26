@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button, PageHeader } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
+import { Download } from 'lucide-react'
 
-import { acceptAssignment, listAssignments, listVehicles, rejectAssignment } from '../api.ts'
+import { acceptAssignment, listAll, listAssignments, listVehicles, rejectAssignment } from '../api.ts'
+import { exportCsv } from '../csv.ts'
 import type { AssignmentRow, Vehicle } from '../types.ts'
 
 /** Bandeja de propuestas de fechas (HU-2.4): confirmar (pasa a oficial y
@@ -19,9 +21,9 @@ export function ProposalsPage() {
 
   const load = useCallback(() => {
     setLoading(true)
-    listAssignments({ status: 'proposed' })
-      .then((page) => {
-        setProposals(page.results)
+    listAll(listAssignments({ status: 'proposed' }))
+      .then((rows) => {
+        setProposals(rows)
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar las propuestas.')))
@@ -33,7 +35,9 @@ export function ProposalsPage() {
 
   useEffect(load, [load])
 
-  const plateOf = (id: number) => vehicles.find((v) => v.id === id)?.plate ?? `#${id}`
+  // O4: Map memoizada — el `find()` por celda era O(filas × vehículos).
+  const plateById = useMemo(() => new Map(vehicles.map((v) => [v.id, v.plate])), [vehicles])
+  const plateOf = (id: number) => plateById.get(id) ?? `#${id}`
 
   async function decide(proposal: AssignmentRow, accept: boolean) {
     setBusyId(proposal.id)
@@ -126,13 +130,22 @@ export function ProposalsPage() {
       <PageHeader
         title="Propuestas de fechas"
         subtitle={`${proposals.length} propuesta(s) pendiente(s) de decidir.`}
+        actions={
+          <Button
+            variant="secondary"
+            disabled={proposals.length === 0}
+            onClick={() => exportCsv('propuestas', columns, proposals)}
+          >
+            <Download size={16} aria-hidden /> Exportar CSV
+          </Button>
+        }
       />
 
-      {notice && <div className="notice-ok">{notice}</div>}
-      {error && <div className="form-error">{error}</div>}
+      {notice && <div role="status" className="notice-ok">{notice}</div>}
+      {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p>Cargando…</p>
+        <p className="loading-state" role="status">Cargando…</p>
       ) : (
         <TableWithPanel<AssignmentRow>
           rows={proposals}

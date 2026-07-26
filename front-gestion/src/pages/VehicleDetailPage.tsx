@@ -10,16 +10,29 @@ import {
   fetchVehicle,
   fetchVehicleHistory,
   fetchVehicleSummary,
+  listAll,
   listEvents,
   listKmReadings,
   listVehicleLinks,
   listVehicles,
   updateVehicleFields,
 } from '../api.ts'
-import { kmLevelTone, vehicleStateTone } from '../format.ts'
+import { isoDateOf, kmLevelTone, todayIso, vehicleStateTone } from '../format.ts'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { VehicleAssignmentsPanel } from '../components/VehicleAssignmentsPanel.tsx'
 import { KmChart } from '../components/KmChart.tsx'
 import { DocumentsPanel } from '../components/DocumentsPanel.tsx'
+import {
+  TimelineChart,
+  TimelineDayModal,
+  type TimelineDay,
+} from '../components/TimelineChart.tsx'
+import { useAuth } from '../auth.ts'
+import {
+  AccordionTools,
+  CollapsibleCard,
+  useAccordion,
+} from '../components/CollapsibleCard.tsx'
 import type {
   AuditEntry,
   FlotaEvent,
@@ -46,7 +59,7 @@ const LINK_REASON_OPTIONS = [
 ]
 const LINK_REASON_LABEL = Object.fromEntries(LINK_REASON_OPTIONS.map((o) => [o.value, o.label]))
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = todayIso
 
 const USE_LABEL: Record<string, string> = {
   on_project: 'Proyecto',
@@ -90,6 +103,8 @@ interface TimelineItem {
   date: string
   title: string
   sub: string
+  /** Desglose "campo: viejo → nuevo" para el modal de la línea temporal. */
+  detail?: string[]
   kind: 'event' | 'audit'
 }
 
@@ -104,11 +119,14 @@ function buildTimeline(events: FlotaEvent[], audit: AuditEntry[]): TimelineItem[
     })),
     ...audit.map((a) => ({
       key: `a${a.id}`,
-      date: a.timestamp.slice(0, 10),
+      date: isoDateOf(a.timestamp),
       title: `${a.action}${a.actor ? ` · ${a.actor}` : ''}`,
       sub: Object.keys(a.changes ?? {})
         .slice(0, 4)
         .join(', '),
+      detail: Object.entries(a.changes ?? {}).map(
+        ([field, pair]) => `${field}: ${pair?.[0] || '—'} → ${pair?.[1] || '—'}`,
+      ),
       kind: 'audit' as const,
     })),
   ]
@@ -118,6 +136,9 @@ function buildTimeline(events: FlotaEvent[], audit: AuditEntry[]): TimelineItem[
 // ---------------------------------------------------------------------------
 
 export function VehicleDetailPage() {
+  const confirm = useConfirm()
+  const { user } = useAuth()
+  const isAdmin = user?.roles.includes('admin') ?? false
   const { id } = useParams()
   const vehicleId = Number(id)
   const navigate = useNavigate()
@@ -147,9 +168,15 @@ export function VehicleDetailPage() {
   const [candidates, setCandidates] = useState<Vehicle[]>([])
   const [plateMap, setPlateMap] = useState<Record<number, string>>({})
 
+  // Acordeón de secciones (mejora): desplegadas por defecto.
+  const accordion = useAccordion(['km', 'tech', 'contract', 'assignments', 'documents', 'history'])
+
+  // Día seleccionado en la línea temporal de cambios (solo admin).
+  const [timelineDay, setTimelineDay] = useState<TimelineDay | null>(null)
+
   const [kmModal, setKmModal] = useState(false)
   const [kmValue, setKmValue] = useState('')
-  const [kmDate, setKmDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [kmDate, setKmDate] = useState(todayIso)
   const [kmError, setKmError] = useState('')
   const [kmSaving, setKmSaving] = useState(false)
 
@@ -216,10 +243,10 @@ export function VehicleDetailPage() {
       setLinkReason('breakdown')
       setLinkStart(today())
       // Candidatos a sustituto + mapa de matrículas para el histórico.
-      listVehicles()
-        .then((page) => {
-          setCandidates(page.results.filter((v) => v.id !== vehicleId))
-          setPlateMap(Object.fromEntries(page.results.map((v) => [v.id, v.plate])))
+      listAll(listVehicles())
+        .then((rows) => {
+          setCandidates(rows.filter((v) => v.id !== vehicleId))
+          setPlateMap(Object.fromEntries(rows.map((v) => [v.id, v.plate])))
         })
         .catch(() => setCandidates([]))
     }
@@ -293,7 +320,14 @@ export function VehicleDetailPage() {
 
   async function handleCloseLink() {
     if (!activeLink) return
-    if (!window.confirm('¿Cerrar el vínculo de sustitución con fecha de hoy?')) return
+    if (
+      !(await confirm({
+        message: '¿Cerrar el vínculo de sustitución con fecha de hoy?',
+        confirmLabel: 'Cerrar vínculo',
+        tone: 'warning',
+      }))
+    )
+      return
     setOpsSaving(true)
     try {
       await closeVehicleLink(activeLink.id, today())
@@ -326,8 +360,8 @@ export function VehicleDetailPage() {
     }
   }
 
-  if (error) return <div className="form-error">{error}</div>
-  if (!vehicle) return <p>Cargando…</p>
+  if (error) return <div role="alert" className="form-error">{error}</div>
+  if (!vehicle) return <p className="loading-state" role="status">Cargando…</p>
 
   const contract = summary?.contract ?? null
   const projection = summary?.projection ?? null
@@ -403,12 +437,21 @@ export function VehicleDetailPage() {
           sub={contract?.penalty_per_km ? `Penalización ${contract.penalty_per_km} €/km` : 'Cuota del contrato'}
           accent="navy"
         />
-        <StatCard
-          label="Kilometraje"
-          value={summary?.km_current != null ? km(summary.km_current) : '—'}
-          sub={summary?.km_reading_date ? `Última lectura: ${summary.km_reading_date}` : 'Sin lecturas'}
-          accent="teal"
-        />
+        {/* KPI clicable (patrón de la home): abre el modal de km con las
+            lecturas recientes y el alta. */}
+        <button
+          type="button"
+          className="kpi-btn"
+          title="Gestionar kilometraje"
+          onClick={() => setKmModal(true)}
+        >
+          <StatCard
+            label="Kilometraje"
+            value={summary?.km_current != null ? km(summary.km_current) : '—'}
+            sub={summary?.km_reading_date ? `Última lectura: ${summary.km_reading_date}` : 'Sin lecturas'}
+            accent="teal"
+          />
+        </button>
         <StatCard
           label="Próxima ITV"
           value={vehicle.next_itv_date ?? '—'}
@@ -432,12 +475,16 @@ export function VehicleDetailPage() {
         />
       </div>
 
+      <AccordionTools accordion={accordion} />
+
       {/* Kilómetros contratados (HU-3.4) */}
       {contract?.contract_km && (
-        <section className="card">
-          <div className="section-head">
-            <h3>Kilómetros contratados</h3>
-            {projection && (
+        <CollapsibleCard
+          id="km"
+          accordion={accordion}
+          title="Kilómetros contratados"
+          actions={
+            projection && (
               <Badge tone={kmLevelTone(projection.level)}>
                 {projection.level === 'within'
                   ? 'Dentro'
@@ -445,8 +492,9 @@ export function VehicleDetailPage() {
                     ? 'A vigilar'
                     : 'Riesgo de exceso'}
               </Badge>
-            )}
-          </div>
+            )
+          }
+        >
           {pctConsumed !== null && summary?.km_driven != null && (
             <>
               <div className="km-progress">
@@ -488,12 +536,11 @@ export function VehicleDetailPage() {
             </div>
           )}
           <KmChart readings={readings} />
-        </section>
+        </CollapsibleCard>
       )}
 
       <div className="detail-grid">
-        <section className="card">
-          <h3>Datos técnicos</h3>
+        <CollapsibleCard id="tech" accordion={accordion} title="Datos técnicos">
           <dl className="detail-dl">
             <dt>Bastidor (VIN)</dt>
             <dd>{vehicle.vin || '—'}</dd>
@@ -512,10 +559,9 @@ export function VehicleDetailPage() {
             <dt>Supervisor</dt>
             <dd>{vehicle.supervisor_name || '—'}</dd>
           </dl>
-        </section>
+        </CollapsibleCard>
 
-        <section className="card">
-          <h3>Contrato</h3>
+        <CollapsibleCard id="contract" accordion={accordion} title="Contrato">
           {contract ? (
             <dl className="detail-dl">
               <dt>Propiedad</dt>
@@ -536,23 +582,29 @@ export function VehicleDetailPage() {
           ) : (
             <p className="muted">Sin contrato vigente.</p>
           )}
-        </section>
+        </CollapsibleCard>
 
       </div>
 
-      <VehicleAssignmentsPanel vehicle={vehicle} onChanged={load} />
+      <VehicleAssignmentsPanel vehicle={vehicle} onChanged={load} accordion={accordion} />
 
-      <DocumentsPanel vehicle={vehicle} />
+      <DocumentsPanel vehicle={vehicle} accordion={accordion} />
 
-      <section className="card">
-        <div className="section-head">
-          <h3>Histórico</h3>
-          {timeline.length > 10 && (
+      <CollapsibleCard
+        id="history"
+        accordion={accordion}
+        title="Histórico"
+        actions={
+          timeline.length > 10 && (
             <Button variant="secondary" size="sm" onClick={() => setShowAllHistory((v) => !v)}>
               {showAllHistory ? 'Ver menos' : `Ver histórico completo (${timeline.length})`}
             </Button>
-          )}
-        </div>
+          )
+        }
+      >
+        {/* Línea temporal con muescas (solo admin): hover = qué cambió,
+            click = detalle del día en modal. */}
+        {isAdmin && <TimelineChart items={timeline} onSelectDay={setTimelineDay} />}
         {timeline.length === 0 ? (
           <p className="muted">Sin eventos todavía.</p>
         ) : (
@@ -568,7 +620,7 @@ export function VehicleDetailPage() {
             ))}
           </ul>
         )}
-      </section>
+      </CollapsibleCard>
 
       {/* G4 · Cambio de estado (HU-1.6) */}
       <Modal
@@ -592,7 +644,7 @@ export function VehicleDetailPage() {
             El cambio queda registrado como evento con fecha. Algunos estados también los mueve el
             sistema (p. ej. avería desde incidencias). La baja tiene su propio flujo.
           </p>
-          {opsError && <div className="form-error">{opsError}</div>}
+          {opsError && <div role="alert" className="form-error">{opsError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
               Cancelar
@@ -634,7 +686,7 @@ export function VehicleDetailPage() {
             El vehículo pasa a <strong>baja</strong> conservando su histórico; deja de salir en el
             listado por defecto y no admite nuevas operaciones.
           </p>
-          {opsError && <div className="form-error">{opsError}</div>}
+          {opsError && <div role="alert" className="form-error">{opsError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
               Cancelar
@@ -663,7 +715,7 @@ export function VehicleDetailPage() {
               </strong>
               . Solo puede haber un sustituto activo por principal.
             </p>
-            {opsError && <div className="form-error">{opsError}</div>}
+            {opsError && <div role="alert" className="form-error">{opsError}</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Button variant="danger" disabled={opsSaving} onClick={handleCloseLink}>
                 {opsSaving ? 'Cerrando…' : 'Cerrar vínculo (fin hoy)'}
@@ -700,7 +752,7 @@ export function VehicleDetailPage() {
               onChange={(e) => setLinkStart(e.target.value)}
               required
             />
-            {opsError && <div className="form-error">{opsError}</div>}
+            {opsError && <div role="alert" className="form-error">{opsError}</div>}
             <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
               <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
                 Cancelar
@@ -729,7 +781,22 @@ export function VehicleDetailPage() {
         )}
       </Modal>
 
-      <Modal open={kmModal} title={`Registrar km de ${vehicle.plate}`} onClose={() => setKmModal(false)}>
+      <Modal open={kmModal} title={`Kilometraje de ${vehicle.plate}`} onClose={() => setKmModal(false)}>
+        {/* Lecturas recientes (mejora 🟡): contexto antes del alta — una errata
+            de un dígito se ve al momento. `readings` viene ordenado ascendente. */}
+        {readings.length > 0 && (
+          <div className="mng-rows km-modal-recent">
+            {readings
+              .slice(-6)
+              .reverse()
+              .map((r) => (
+                <div className="mng-row is-static" key={r.id}>
+                  <span>{r.reading_date ?? '—'}</span>
+                  <strong>{r.km_reading != null ? km(r.km_reading) : '—'}</strong>
+                </div>
+              ))}
+          </div>
+        )}
         <form className="modal-form" onSubmit={handleKmSubmit}>
           {summary?.km_current != null && (
             <p className="muted" style={{ margin: 0 }}>
@@ -752,7 +819,7 @@ export function VehicleDetailPage() {
             onChange={(e) => setKmDate(e.target.value)}
             required
           />
-          {kmError && <div className="form-error">{kmError}</div>}
+          {kmError && <div role="alert" className="form-error">{kmError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setKmModal(false)}>
               Cancelar
@@ -763,6 +830,8 @@ export function VehicleDetailPage() {
           </div>
         </form>
       </Modal>
+
+      <TimelineDayModal day={timelineDay} onClose={() => setTimelineDay(null)} />
     </div>
   )
 }

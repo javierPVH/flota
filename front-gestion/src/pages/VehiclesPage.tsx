@@ -3,9 +3,11 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, IconButton, PageHeader } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Download, Pencil, Trash2 } from 'lucide-react'
 
-import { deleteVehicle, listVehicles } from '../api.ts'
+import { deleteVehicle, listAll, listVehicles } from '../api.ts'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { exportCsv } from '../csv.ts'
 import { fmtDate, itvClass, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle } from '../types.ts'
@@ -16,15 +18,16 @@ import type { Vehicle } from '../types.ts'
 export function VehiclesPage() {
   const navigate = useNavigate()
   const { language } = useLang()
+  const confirm = useConfirm()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
-    listVehicles({ include_baja: 1 })
-      .then((page) => {
-        setVehicles(page.results)
+    listAll(listVehicles({ include_baja: 1 }))
+      .then((rows) => {
+        setVehicles(rows)
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar los vehículos.')))
@@ -35,7 +38,7 @@ export function VehiclesPage() {
 
   const handleDelete = useCallback(
     async (v: Vehicle) => {
-      if (!window.confirm(`¿Eliminar el vehículo ${v.plate}?`)) return
+      if (!(await confirm({ message: `¿Eliminar el vehículo ${v.plate}?` }))) return
       try {
         await deleteVehicle(v.id)
         load()
@@ -43,7 +46,7 @@ export function VehiclesPage() {
         setError(asErrorMessage(err, 'No se pudo eliminar.'))
       }
     },
-    [load],
+    [confirm, load],
   )
 
   const columns: Array<TableWithPanelColumn<Vehicle>> = [
@@ -119,16 +122,25 @@ export function VehiclesPage() {
         title="Vehículos"
         subtitle="Inventario de la flota."
         actions={
-          <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
-            Nuevo vehículo
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              disabled={vehicles.length === 0}
+              onClick={() => exportCsv('vehiculos', columns, vehicles)}
+            >
+              <Download size={16} aria-hidden /> Exportar CSV
+            </Button>
+            <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
+              Nuevo vehículo
+            </Button>
+          </>
         }
       />
 
-      {error && <div className="form-error">{error}</div>}
+      {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p>Cargando…</p>
+        <p className="loading-state" role="status">Cargando…</p>
       ) : (
         <TableWithPanel<Vehicle>
           rows={vehicles}

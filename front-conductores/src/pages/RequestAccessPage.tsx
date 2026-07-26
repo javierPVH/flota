@@ -5,6 +5,7 @@ import { asErrorMessage } from '@flota/ui/http'
 
 import { useAuth } from '../auth.ts'
 import { listMyRequests, submitMyRequest } from '../api.ts'
+import { useLang } from '../i18n.tsx'
 import type { MyVehicleRequest } from '../types.ts'
 
 const STATUS_TONE: Record<string, 'info' | 'success' | 'warning' | 'danger'> = {
@@ -22,6 +23,7 @@ const STATUS_TONE: Record<string, 'info' | 'success' | 'warning' | 'danger'> = {
  */
 export function RequestAccessPage() {
   const { user, logout } = useAuth()
+  const { t } = useLang()
   const navigate = useNavigate()
   const [requests, setRequests] = useState<MyVehicleRequest[]>([])
   const [loading, setLoading] = useState(true)
@@ -42,9 +44,9 @@ export function RequestAccessPage() {
           setNotes(open.notes)
         }
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar tu solicitud.')))
+      .catch((err) => setError(asErrorMessage(err, t.request.loadError)))
       .finally(() => setLoading(false))
-  }, [])
+  }, [t])
 
   useEffect(load, [load])
 
@@ -58,31 +60,29 @@ export function RequestAccessPage() {
     setBusy(true)
     try {
       await submitMyRequest({ jira_key: jiraKey.trim(), notes })
-      setOkMsg(open ? 'Solicitud actualizada.' : 'Solicitud registrada. Queda pendiente de aprobación.')
+      setOkMsg(open ? t.request.updated : t.request.registered)
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo guardar la solicitud.'))
+      setError(asErrorMessage(err, t.request.saveError))
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <div className="login-wrap">
+    <div className="login-scene">
       <div className="login-card">
-        <h1>Solicita tu vehículo</h1>
-        <p className="sub">
-          Hola {user?.first_name || user?.username}: aún no tienes un vehículo asignado.
-        </p>
+        <h1>{t.request.title}</h1>
+        <p className="sub">{t.request.hello(user?.first_name || user?.username || '')}</p>
 
         {loading ? (
-          <p>Cargando…</p>
+          <p role="status" className="gate-checking">{t.common.loading}</p>
         ) : (
           <>
             {granted && (
               <Panel tone="success">
                 <p style={{ margin: 0 }}>
-                  🎉 Te han concedido el vehículo <strong>{granted.vehicle_plate}</strong>.
+                  🎉 {t.request.granted} <strong>{granted.vehicle_plate}</strong>.
                 </p>
               </Panel>
             )}
@@ -90,14 +90,14 @@ export function RequestAccessPage() {
             {open ? (
               <Panel tone={STATUS_TONE[open.status] ?? 'info'}>
                 <p style={{ margin: 0 }}>
-                  Tu solicitud está <strong>{open.status_display.toLowerCase()}</strong>
+                  {t.request.statusIs} <strong>{open.status_display.toLowerCase()}</strong>
                   {open.jira_key ? (
                     <>
                       {' '}
-                      (ticket <strong>{open.jira_key}</strong>)
+                      ({t.request.ticketWord} <strong>{open.jira_key}</strong>)
                     </>
                   ) : (
-                    ' — registra la clave de tu ticket para poder seguirla'
+                    <> {t.request.registerHint}</>
                   )}
                   .
                 </p>
@@ -106,11 +106,9 @@ export function RequestAccessPage() {
               !granted && (
                 <Panel tone="info">
                   <p style={{ margin: 0 }}>
-                    1. Abre un <strong>ticket en Jira</strong> pidiendo un vehículo (tu manager lo
-                    aprueba allí).
+                    {t.request.howTo1}
                     <br />
-                    2. Registra aquí la <strong>clave del ticket</strong> (p. ej. FLT-123) para
-                    seguir su estado.
+                    {t.request.howTo2}
                   </p>
                 </Panel>
               )
@@ -119,32 +117,32 @@ export function RequestAccessPage() {
             {!granted && (
               <form onSubmit={handleSubmit} className="request-form">
                 <TextInputField
-                  label="Clave del ticket de Jira"
+                  label={t.request.jiraLabel}
                   placeholder="FLT-123"
                   value={jiraKey}
                   onChange={(e) => setJiraKey(e.target.value)}
                 />
                 <TextInputField
-                  label="Notas (opcional)"
-                  placeholder="p. ej. lo necesito para la obra de Badajoz"
+                  label={t.request.notesLabel}
+                  placeholder={t.request.notesPlaceholder}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                 />
                 <Button type="submit" variant="primary" fullWidth disabled={busy}>
-                  {busy ? 'Guardando…' : open ? 'Actualizar solicitud' : 'Registrar solicitud'}
+                  {busy ? t.request.saving : open ? t.request.update : t.request.register}
                 </Button>
               </form>
             )}
 
-            {okMsg && <div className="form-ok">{okMsg}</div>}
-            {error && <div className="form-error">{error}</div>}
+            {okMsg && <div role="status" className="form-ok">{okMsg}</div>}
+            {error && <div role="alert" className="form-error">{error}</div>}
 
             <div className="request-actions">
               <Button variant="secondary" fullWidth onClick={() => navigate('/', { replace: true })}>
-                {granted ? 'Entrar' : 'Volver a comprobar'}
+                {granted ? t.request.enter : t.request.recheck}
               </Button>
               <Button variant="secondary" fullWidth onClick={logout}>
-                Cerrar sesión
+                {t.common.logout}
               </Button>
             </div>
           </>

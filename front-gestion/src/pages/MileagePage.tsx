@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Badge, PageHeader, SelectField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { fetchVehicleSummary, listKmReadings, listVehicles } from '../api.ts'
+import { fetchVehicleSummaries, listAll, listKmReadings, listVehicles } from '../api.ts'
 import { kmLevelTone } from '../format.ts'
 import { KmChart } from '../components/KmChart.tsx'
 import type { KmReading, Vehicle, VehicleSummary } from '../types.ts'
@@ -44,17 +44,16 @@ export function MileagePage() {
   const [readings, setReadings] = useState<KmReading[]>([])
 
   useEffect(() => {
-    listVehicles()
-      .then(async (page) => {
-        // El summary es por vehículo: una llamada por fila (flotas pequeñas).
-        const summaries = await Promise.all(
-          page.results.map((v) =>
-            fetchVehicleSummary(v.id)
-              .then((s) => ({ vehicle: v, summary: s }))
-              .catch(() => null),
-          ),
+    // Summaries en UNA petición (O2): antes era una llamada por fila.
+    Promise.all([listAll(listVehicles()), fetchVehicleSummaries()])
+      .then(([vehicles, summaries]) => {
+        const byId = new Map(summaries.map((s) => [s.vehicle, s]))
+        setRows(
+          vehicles.flatMap((v) => {
+            const summary = byId.get(v.id)
+            return summary ? [{ vehicle: v, summary }] : []
+          }),
         )
-        setRows(summaries.filter((r): r is Row => r !== null))
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar el kilometraje.')))
@@ -139,9 +138,9 @@ export function MileagePage() {
         }
       />
 
-      {error && <div className="form-error">{error}</div>}
+      {error && <div role="alert" className="form-error">{error}</div>}
       {loading ? (
-        <p>Cargando…</p>
+        <p className="loading-state" role="status">Cargando…</p>
       ) : (
         <>
           {/* Lecturas pendientes (HU-3.3) */}

@@ -6,9 +6,9 @@
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  background: var(--color-app-bg, #f4f6f9);
-  color: var(--color-text, #1f2a37);
+  font-family: var(--font-sans);
+  background: var(--color-app-bg);
+  color: var(--color-text);
 }
 
 a {
@@ -207,16 +207,91 @@ a {
   border: none;
   border-top: 1px solid var(--color-border);
   background: transparent;
-  color: #dc2626;
+  color: var(--color-danger);
   font-weight: 700;
   font-size: 0.86rem;
   cursor: pointer;
 }
 .shell-navlogout:hover {
-  background: #fee2e2;
+  background: var(--color-danger-bg);
 }
 .shell-bell {
+  position: relative;
   color: var(--color-brand);
+}
+/* Contador de alertas abiertas sobre la campana (mejora 🔴). */
+.shell-bell-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  border: 2px solid var(--color-surface);
+}
+
+/* Popover de la campana: reutiliza la caja del menú (.shell-navpop). */
+.shell-alertpop {
+  width: min(23rem, calc(100vw - 2rem));
+  padding: 0.5rem;
+}
+.shell-alert-empty {
+  margin: 0;
+  padding: 0.6rem 0.55rem 0.8rem;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+.shell-alertitem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.5rem 0.55rem;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--color-text);
+}
+.shell-alertitem:hover {
+  background: var(--color-surface-soft);
+}
+.shell-alertitem-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+.shell-alertitem-body strong {
+  color: var(--color-ink);
+}
+.shell-alertitem-msg {
+  color: var(--color-text-muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.shell-alertpop-all {
+  display: block;
+  margin-top: 0.3rem;
+  padding: 0.55rem;
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.shell-alertpop-all:hover {
+  background: var(--color-surface-soft);
 }
 .shell-navlang {
   display: flex;
@@ -244,17 +319,11 @@ a {
   }
 }
 
-.login-wrap {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: 1.5rem;
-}
-
+/* Tarjeta simple (AdminGate 403; el login usa .login-panel). */
 .login-card {
   width: 100%;
   max-width: 380px;
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 14px;
   padding: 2rem;
   box-shadow: 0 12px 40px rgba(15, 46, 74, 0.12);
@@ -263,14 +332,38 @@ a {
   gap: 1rem;
 }
 
+.login-card .sub {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
 .login-card h1 {
   margin: 0;
   font-size: 1.35rem;
 }
 
-.form-error {
-  color: #b3261e;
+/* Feedback inline (Fase 8): banners de error/éxito al estilo referencia
+   (tono suave + borde + radio). No hay toasts: el feedback vive en la página. */
+/* Banner de aviso (p. ej. sesión caducada): pareja warning del .form-error. */
+.form-warn {
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--color-warning-border);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
   font-size: 0.88rem;
+}
+
+.form-error {
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--color-danger-soft);
+  border-left: 3px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-size: var(--font-size-body);
 }
 
 /* --- Login (Fase 3): tarjeta a dos columnas con acento naranja ------------ */
@@ -571,61 +664,13 @@ table.data tbody tr:hover {
   text-decoration: underline;
 }
 
-.badge {
-  display: inline-block;
-  padding: 0.15rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-.badge.active {
-  background: #e3f4e8;
-  color: #1e7e45;
-}
-.badge.maintenance {
-  background: #fdf0d5;
-  color: #a9791c;
-}
-.badge.retired {
-  background: #f0e3e3;
-  color: #a13a2f;
-}
-
-.page-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.2rem;
-}
-.page-head h2 {
-  margin: 0;
-}
-
 .modal-form {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
 }
 
-/* --- G0: estados nuevos + bloque de login de desarrollo ------------------ */
-.badge.itv { background: var(--warning-soft, #fff4df); color: var(--warning, #c17a11); }
-.badge.broken { background: var(--danger-soft, #f5c3c3); color: var(--danger, #c63434); }
-.badge.retired { background: #e2e8f0; color: #475569; }
-
 /* --- G7: documentación e incidencias ------------------------------------- */
-/* Estados de documento */
-.badge.valid { background: #e3f4e8; color: #1e7e45; }
-.badge.expired { background: #e2e8f0; color: #475569; }
-.badge.pending_archive { background: #fff4df; color: #c17a11; }
-/* Estados de incidencia */
-.badge.open { background: #f5c3c3; color: #c63434; }
-.badge.on_going { background: #fdf0d5; color: #a9791c; }
-.badge.closed { background: #e3f4e8; color: #1e7e45; }
-.badge.subst { background: #e8f0fe; color: #1f63b8; margin-left: 0.4rem; }
-
-.breadcrumbs { margin: 0 0 0.6rem; font-size: 0.88rem; }
-.detail-plate { display: flex; align-items: center; gap: 0.5rem; margin: 0; }
-.detail-sub { margin: 0.25rem 0 0; color: #5f748c; font-size: 0.92rem; }
 /* Fila de badges de la ficha (estado, sustitución, conductor), bajo el PageHeader. */
 .detail-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: -0.4rem 0 1.1rem; }
 
@@ -671,9 +716,9 @@ table.data tbody tr:hover {
   gap: 1rem;
   padding: 0.8rem 1rem;
   margin-bottom: 0.9rem;
-  border: 1px dashed #9db8d4;
+  border: 1px dashed var(--color-border-strong);
   border-radius: 10px;
-  background: #f2f7fc;
+  background: var(--color-app-bg);
 }
 .drive-connect p { margin: 0; font-size: 0.9rem; }
 
@@ -696,13 +741,13 @@ table.data tbody tr:hover {
   gap: 0.25rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #1f63b8;
+  color: var(--color-primary);
   text-decoration: none;
 }
 .doc-open:hover { text-decoration: underline; }
-.doc-version { color: #5f748c; font-size: 0.8rem; }
-.doc-notes { color: #5f748c; font-size: 0.8rem; }
-.row-muted td { color: #8496a9; }
+.doc-version { color: var(--color-text-muted); font-size: 0.8rem; }
+.doc-notes { color: var(--color-text-muted); font-size: 0.8rem; }
+.row-muted td { color: var(--color-text-muted); }
 .cell-truncate {
   max-width: 220px;
   overflow: hidden;
@@ -714,7 +759,7 @@ table.data tbody tr:hover {
   display: grid;
   gap: 0.55rem;
   padding: 0.8rem;
-  border: 1px solid var(--border, #dbe4ee);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   background: #f8fafc;
 }
@@ -729,40 +774,189 @@ table.data tbody tr:hover {
   gap: 1rem;
   margin-bottom: 1.4rem;
 }
-
-.alerts-block { margin-bottom: 1.4rem; }
-.alerts-count { color: var(--color-text-muted); font-size: 0.88rem; }
-.alerts-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+.stat-grid-compact {
   gap: 0.8rem;
+  margin-bottom: 0.9rem;
 }
-.alert-card {
+
+/* KPI clicable: envuelve el StatCard en un botón (abre su modal de gestión). */
+.kpi-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: inherit;
+  font: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-lg);
+  transition: transform 0.06s ease, box-shadow 0.15s ease;
+}
+.kpi-btn > * {
+  height: 100%;
+}
+.kpi-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card-hover);
+}
+.kpi-btn:active {
+  transform: translateY(1px);
+}
+.kpi-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Tira compacta de alertas (sustituye a la parrilla de tarjetas): una línea
+   con contadores por nivel; al pulsarla abre el modal de gestión de alertas. */
+.alerts-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  margin-bottom: 0.9rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  font: inherit;
+  color: var(--color-ink);
+  cursor: pointer;
+  transition: transform 0.06s ease, box-shadow 0.15s ease;
+}
+.alerts-strip:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card-hover);
+}
+.alerts-strip:active {
+  transform: translateY(1px);
+}
+.alerts-strip-badges {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+.alerts-strip-hint {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+/* Toolbar del listado en una sola línea (búsqueda + chips + toggle). */
+.dash-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.8rem;
+}
+.dash-toolbar .search-input {
+  flex: 1 1 220px;
+  max-width: 300px;
+}
+.dash-toolbar .chips-inline {
+  margin-bottom: 0;
+  flex: 1 1 auto;
+}
+.dash-toolbar .baja-toggle {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Filas de los modales de gestión (desglose + acción por fila). */
+.mng {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  gap: 0.7rem;
+}
+.mng-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+.mng-subtitle {
+  margin: 0.2rem 0 0;
+  font-size: var(--font-size-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+.mng-rows {
+  display: flex;
+  flex-direction: column;
   gap: 0.35rem;
-  padding: 0.75rem 0.9rem;
-  background: var(--color-surface);
+  max-height: 45dvh;
+  overflow-y: auto;
+}
+.mng-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
   border: 1px solid var(--color-border);
-  border-left: 4px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: var(--font-size-body);
+  color: var(--color-text);
+  text-align: left;
   text-decoration: none;
-  transition: box-shadow 0.15s ease, transform 0.06s ease;
+  cursor: pointer;
 }
-.alert-card:hover {
-  box-shadow: var(--shadow-card-hover);
-  transform: translateY(-1px);
+.mng-row:hover {
+  border-color: var(--color-brand);
+  background: var(--color-surface-soft);
 }
-.alert-card strong { color: var(--color-ink); }
-.alert-card p { margin: 0; font-size: 0.85rem; color: var(--color-text-muted); }
-.alert-card.level-critical { border-left-color: var(--color-danger); }
-.alert-card.level-warning { border-left-color: var(--color-warning); }
-.alert-card.level-info { border-left-color: var(--color-primary); }
-.badge.critical { background: #f5c3c3; color: #c63434; }
-.badge.warning { background: #fdf0d5; color: #a9791c; }
-.badge.info { background: #e8f0fe; color: #1f63b8; }
+.mng-row:disabled,
+.mng-row.is-static {
+  cursor: default;
+  border-color: var(--color-border);
+  background: var(--color-app-bg);
+}
+.mng-row:disabled:hover,
+.mng-row.is-static:hover {
+  border-color: var(--color-border);
+  background: var(--color-app-bg);
+}
+.mng-row strong {
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+/* Cifra a la derecha solo cuando cierra la fila (desgloses); en las filas de
+   lista (ITV/alertas) el hueco lo absorbe .mng-grow. */
+.mng-row > strong:last-child {
+  margin-left: auto;
+}
+.mng-grow {
+  flex: 1 1 auto;
+}
+.mng-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mng-bar {
+  flex: 1 1 auto;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  overflow: hidden;
+}
+.mng-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-brand);
+}
+.mng-actions {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  padding-top: 0.2rem;
+}
 
 .list-tools {
   display: flex;
@@ -802,25 +996,8 @@ table.data tbody tr:hover {
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
-.chip {
-  border: 1px solid var(--border, #cfdae6);
-  background: #fff;
-  border-radius: 999px;
-  padding: 0.3rem 0.85rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #34495e;
-  cursor: pointer;
-}
-.chip:hover { border-color: #009491; }
-.chip-active {
-  background: #009491;
-  border-color: #009491;
-  color: #fff;
-}
-
-.itv-soon { color: #c17a11; font-weight: 700; }
-.itv-overdue { color: #c63434; font-weight: 700; }
+.itv-soon { color: var(--color-warning); font-weight: 700; }
+.itv-overdue { color: var(--color-danger); font-weight: 700; }
 
 .pager {
   display: flex;
@@ -833,21 +1010,17 @@ table.data tbody tr:hover {
 }
 
 /* --- G2: ficha del vehículo ----------------------------------------------- */
-.muted { color: #5f748c; font-size: 0.9rem; }
-.detail-actions { display: flex; gap: 0.6rem; }
-.badge.assigned { background: #e3f4e8; color: #1e7e45; }
-.badge.unassigned { background: #e2e8f0; color: #475569; }
+.muted { color: var(--color-text-muted); font-size: 0.9rem; }
 
 .link-banner {
   padding: 0.6rem 0.9rem;
   margin-bottom: 1rem;
   border-radius: 10px;
-  background: #e8f0fe;
-  color: #1f3f66;
+  background: var(--color-info-soft);
+  color: var(--color-info);
   font-size: 0.92rem;
 }
 
-.vehicle-detail > .panel,
 .vehicle-detail section { margin-bottom: 1.2rem; }
 
 .detail-grid {
@@ -863,17 +1036,13 @@ table.data tbody tr:hover {
   margin: 0.6rem 0 0;
   font-size: 0.92rem;
 }
-.detail-dl dt { color: #5f748c; }
+.detail-dl dt { color: var(--color-text-muted); }
 .detail-dl dd { margin: 0; font-weight: 600; }
-
-.badge.level-within { background: #e3f4e8; color: #1e7e45; }
-.badge.level-watch { background: #fdf0d5; color: #a9791c; }
-.badge.level-over { background: #f5c3c3; color: #c63434; }
 
 .km-progress {
   height: 12px;
   border-radius: 999px;
-  background: #e8eef5;
+  background: var(--color-surface-soft);
   overflow: hidden;
 }
 .km-progress-fill { height: 100%; background: var(--color-brand); border-radius: 999px; }
@@ -895,7 +1064,7 @@ table.data tbody tr:hover {
   background: #f7f9fc;
   font-size: 0.85rem;
 }
-.km-tile span { color: #5f748c; }
+.km-tile span { color: var(--color-text-muted); }
 .km-tile.tile-over { background: var(--color-danger-bg); }
 .km-tile.tile-over strong { color: var(--color-danger); }
 
@@ -913,7 +1082,7 @@ table.data tbody tr:hover {
   display: flex;
   justify-content: space-between;
   font-size: 0.8rem;
-  color: #5f748c;
+  color: var(--color-text-muted);
 }
 
 .timeline { list-style: none; margin: 0; padding: 0; }
@@ -931,7 +1100,6 @@ table.data tbody tr:hover {
 .timeline-item.kind-audit strong { color: var(--color-text-muted); font-weight: 600; }
 
 /* --- G3: alta/edición seccionada ------------------------------------------ */
-.vehicle-form .panel { margin-bottom: 1.1rem; }
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -951,27 +1119,9 @@ table.data tbody tr:hover {
   vertical-align: middle;
 }
 .field-with-badge .field-badge { position: absolute; top: 0; right: 0; }
-.field-badge.historic { background: #e8f0fe; color: #1f63b8; }
-.field-badge.locked { background: #e2e8f0; color: #475569; }
+.field-badge.historic { background: var(--color-primary-soft); color: var(--color-primary); }
+.field-badge.locked { background: var(--color-surface-soft); color: var(--color-text-muted); }
 
-.edit-banner {
-  padding: 0.65rem 0.9rem;
-  margin-bottom: 1rem;
-  border-radius: 10px;
-  background: #f2f7fc;
-  border: 1px dashed #9db8d4;
-  font-size: 0.88rem;
-  color: #34495e;
-}
-.conflict-banner {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  padding: 0.65rem 0.9rem;
-  border-radius: 10px;
-  background: #fdecec;
-  margin-bottom: 1rem;
-}
 /* Separación de los banners de aviso/conflicto (Panel de la librería) del formulario. */
 .form-banner { margin-bottom: 1.1rem; }
 
@@ -988,7 +1138,7 @@ table.data tbody tr:hover {
 .baja-warnings {
   padding: 0.6rem 0.9rem;
   border-radius: 10px;
-  background: #fff4df;
+  background: var(--color-warning-soft);
   color: #7a5410;
   font-size: 0.9rem;
 }
@@ -997,10 +1147,10 @@ table.data tbody tr:hover {
 .link-history {
   margin-top: 1.1rem;
   padding-top: 0.8rem;
-  border-top: 1px dashed var(--border, #cfdae6);
+  border-top: 1px dashed var(--color-border);
 }
 .link-history h4 { margin: 0 0 0.4rem; font-size: 0.9rem; }
-.link-history ul { margin: 0; padding-left: 1.2rem; font-size: 0.86rem; color: #34495e; }
+.link-history ul { margin: 0; padding-left: 1.2rem; font-size: 0.86rem; color: var(--color-text); }
 
 /* --- G5: asignaciones, conductores y reparto ------------------------------- */
 .assign-grid {
@@ -1022,28 +1172,25 @@ table.data tbody tr:hover {
   font-size: 0.88rem;
   font-weight: 700;
 }
-.usage-sum.ok { background: #e3f4e8; color: #1e7e45; }
-.usage-sum.ko { background: #fdf0d5; color: #a9791c; }
-
-.badge.accepted { background: #e3f4e8; color: #1e7e45; }
-.badge.proposed { background: #e8f0fe; color: #1f63b8; }
-.badge.rejected { background: #f0e3e3; color: #a13a2f; }
-.badge.finished { background: #e2e8f0; color: #475569; }
+.usage-sum.ok { background: var(--color-success-soft); color: var(--color-success); }
+.usage-sum.ko { background: var(--color-warning-soft); color: var(--color-warning); }
 
 .roles-picker { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .notice-ok {
-  padding: 0.6rem 0.9rem;
+  padding: 0.55rem 0.9rem;
   margin-bottom: 0.9rem;
-  border-radius: 10px;
-  background: #e3f4e8;
-  color: #14532d;
-  font-size: 0.9rem;
+  border: 1px solid var(--color-success-border);
+  border-left: 3px solid var(--color-success);
+  border-radius: var(--radius-sm);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  font-size: var(--font-size-body);
 }
 
 /* --- G6: kilometraje -------------------------------------------------------- */
 .pending-count {
   font-weight: 700;
-  color: #c17a11;
+  color: var(--color-warning);
 }
 .simulator { display: grid; gap: 0.6rem; margin-bottom: 1rem; }
 .sim-label { font-size: 0.9rem; display: grid; gap: 0.4rem; }
@@ -1064,7 +1211,7 @@ table.data tbody tr:hover {
 
 /* --- G8: alertas e informes ------------------------------------------------ */
 /* ITV vencida resaltada (HU-5.1) */
-.row-overdue td { background: #fdf2f2; }
+.row-overdue td { background: var(--color-danger-bg); }
 
 .reports-grid {
   display: grid;
@@ -1077,25 +1224,39 @@ table.data tbody tr:hover {
   align-items: center;
   gap: 0.35rem;
   padding: 0.4rem 0.9rem;
-  border: 1px solid var(--border, #cfdae6);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   font-size: 0.86rem;
   font-weight: 700;
-  color: #1f63b8;
+  color: var(--color-primary);
   text-decoration: none;
-  background: #fff;
+  background: var(--color-surface);
 }
-.report-download:hover { border-color: #009491; color: #009491; }
+.report-download:hover { border-color: var(--color-brand); color: var(--color-brand); }
 
 /* --- G9: solicitudes de vehículo ------------------------------------------- */
 /* Pendientes sin decidir, resaltadas */
 .row-pending td { background: #fffaf0; }
-.badge.req-pending { background: #fff4df; color: #c17a11; }
-.badge.req-approved { background: #e8f0fe; color: #1f63b8; }
-.badge.req-assigned { background: #e3f4e8; color: #1e7e45; }
-.badge.req-rejected { background: #f0e3e3; color: #a13a2f; }
 
 /* --- G10: facturas y refacturación ----------------------------------------- */
+/* Pista del CECO asociado al proyecto en la línea de reparto (mejora 🔴):
+   enlace pequeño que convierte la línea en imputación directa por CECO. */
+.alloc-ceco-hint {
+  display: inline-block;
+  margin-top: 0.25rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+.alloc-ceco-hint:hover {
+  text-decoration: underline;
+  color: var(--color-primary-hover);
+}
 .alloc-line {
   display: grid;
   grid-template-columns: 130px 1fr 90px 110px auto;
@@ -1115,4 +1276,324 @@ table.data tbody tr:hover {
 }
 @media (max-width: 760px) {
   .alloc-line { grid-template-columns: 1fr 1fr; }
+}
+
+/* --- Fase 8: transversales -------------------------------------------------- */
+
+/* Cuerpo del ConfirmDialog (modal de confirmación destructiva). */
+.confirm-body {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+.confirm-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: var(--radius-sm);
+}
+.confirm-icon.is-danger {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+.confirm-icon.is-warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+.confirm-message {
+  margin: 0.2rem 0 0;
+  font-size: var(--font-size-body);
+  color: var(--color-text);
+}
+
+/* Carga de página: mismo tono atenuado en todas las vistas. */
+.loading-state {
+  padding: 1.2rem 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+}
+
+/* Celda vacía de tablas `table.data` (dashboard y tablas contextuales). */
+table.data td.empty-cell {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 1.2rem 0.75rem;
+}
+
+/* Accesibilidad (Fase 8): anillo de foco visible homogéneo para todo lo
+   interactivo de la app que no defina el suyo (la librería trae los suyos). */
+:where(a, button, [role='button'], input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* Los campos de la librería usan ring interior teal — no duplicar anillo. */
+:where(input, select, textarea):focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(0, 148, 145, 0.38);
+}
+
+/* Responsive: en pantallas estrechas las tablas contextuales se desplazan en
+   horizontal dentro de su tarjeta en lugar de romper el frame. */
+@media (max-width: 760px) {
+  table.data {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+
+/* Movimiento reducido: desactivar transiciones/animaciones decorativas. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- Hoja de atajos de teclado (mejora 🟡, se abre con "?") ---------------- */
+.shortcuts-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.45rem 1rem;
+  margin: 0;
+}
+.shortcuts-item {
+  display: contents;
+}
+.shortcuts-item dt {
+  text-align: right;
+  white-space: nowrap;
+}
+.shortcuts-item dd {
+  margin: 0;
+  align-self: center;
+}
+.shortcuts-group {
+  margin: 1.1rem 0 0.6rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--color-surface-soft);
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Lecturas recientes dentro del modal de km de la ficha (mejora 🟡). */
+.km-modal-recent {
+  max-height: 30dvh;
+  margin-bottom: 0.9rem;
+}
+
+/* --- Acordeones de ficha (CollapsibleCard) --------------------------------- */
+.acc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.acc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.acc-toggle h3 {
+  margin: 0;
+}
+.acc-chevron {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  transition: transform 0.15s ease;
+}
+.acc-closed .acc-chevron {
+  transform: rotate(-90deg);
+}
+.acc-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 0 0 auto;
+}
+.acc-body {
+  margin-top: 0.9rem;
+}
+.acc-body > :first-child {
+  margin-top: 0;
+}
+.acc-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin: 0 0 0.6rem;
+}
+.acc-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.3rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.acc-tool:hover {
+  color: var(--color-primary);
+}
+
+/* --- Línea temporal de cambios (TimelineChart, solo admin) ----------------- */
+.tlc {
+  margin: 0 0 1.1rem;
+}
+.tlc-band {
+  position: relative;
+  height: 48px;
+}
+.tlc-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--color-border-strong);
+}
+.tlc-notch {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.tlc-notch::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 5px;
+  bottom: 5px;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--color-text-muted);
+}
+.tlc-notch.is-event::before {
+  background: var(--color-brand);
+}
+.tlc-notch:hover::before,
+.tlc-notch:focus-visible::before {
+  width: 5px;
+  background: var(--color-primary);
+}
+.tlc-count {
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+.tlc-tip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 250px;
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-ink);
+  color: #fff;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  box-shadow: var(--shadow-pop);
+  pointer-events: none;
+  z-index: 3;
+}
+.tlc-tip ul {
+  margin: 0.15rem 0 0;
+  padding-left: 1rem;
+}
+.tlc-tip-hint {
+  display: block;
+  margin-top: 0.25rem;
+  opacity: 0.7;
+}
+.tlc-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+/* Detalle del día (modal) */
+.tlc-detail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  max-height: 55dvh;
+  overflow-y: auto;
+}
+.tlc-detail-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.tlc-detail-body {
+  min-width: 0;
+}
+.tlc-detail-body p {
+  margin: 0.15rem 0 0;
+}
+.tlc-changes {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.tlc-changes li {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Segundo botón del ErrorBoundary: mismo tamaño, aspecto secundario. */
+.boundary-home {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: none;
 }

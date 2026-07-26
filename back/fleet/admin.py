@@ -50,8 +50,10 @@ class BusinessUnitAdmin(admin.ModelAdmin):
 
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
-    list_display = ("project_name",)
-    search_fields = ("project_name",)
+    list_display = ("project_name", "cost_center")
+    search_fields = ("project_name", "cost_center__code", "cost_center__name")
+    list_select_related = ("cost_center",)
+    autocomplete_fields = ("cost_center",)
 
 
 @admin.register(Pep)

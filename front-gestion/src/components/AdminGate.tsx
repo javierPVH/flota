@@ -15,7 +15,9 @@ export function AdminGate({ children }: { children: ReactNode }) {
 
   if (!isAllowed(user)) {
     return (
-      <div className="login-wrap">
+      // Misma escena que el login (wallpaper velado) para no romper el lenguaje
+      // visual de la referencia en la única pantalla fuera del shell (Fase 8).
+      <div className="login-scene">
         <div className="login-card">
           <h1>Sin acceso</h1>
           <Panel tone="warning">

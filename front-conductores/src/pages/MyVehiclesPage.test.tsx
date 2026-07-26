@@ -9,14 +9,14 @@ import type { Role } from '../types.ts'
 
 const mocks = vi.hoisted(() => ({
   listVehicles: vi.fn(),
-  fetchVehicleSummary: vi.fn(),
+  fetchVehicleSummaries: vi.fn(),
   roles: ['driver'] as Role[],
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   listVehicles: mocks.listVehicles,
-  fetchVehicleSummary: mocks.fetchVehicleSummary,
+  fetchVehicleSummaries: mocks.fetchVehicleSummaries,
 }))
 
 vi.mock('../auth.ts', async (importOriginal) => ({
@@ -61,8 +61,8 @@ describe('MyVehiclesPage (M1)', () => {
 
   it('pinta la tarjeta con km y píldora de lectura pendiente', async () => {
     mocks.listVehicles.mockResolvedValue({ count: 1, results: [vehicle(1, '1234KLM')] })
-    // Lectura de otro mes → pendiente.
-    mocks.fetchVehicleSummary.mockResolvedValue(summary(1, 31000, '2020-01-02'))
+    // Lectura de otro mes → pendiente. El bulk (O2) devuelve la lista entera.
+    mocks.fetchVehicleSummaries.mockResolvedValue([summary(1, 31000, '2020-01-02')])
 
     renderPage()
     expect(await screen.findByText('Mis vehículos')).toBeInTheDocument()
@@ -79,8 +79,8 @@ describe('MyVehiclesPage (M1)', () => {
       count: 2,
       results: [vehicle(1, '1234KLM'), vehicle(2, '5678BCD', 'Ford', 'Transit')],
     })
-    mocks.fetchVehicleSummary.mockImplementation((id: number) =>
-      Promise.resolve(summary(id, 1000, new Date().toISOString().slice(0, 10))),
+    mocks.fetchVehicleSummaries.mockResolvedValue(
+      [1, 2].map((id) => summary(id, 1000, new Date().toISOString().slice(0, 10))),
     )
 
     renderPage()

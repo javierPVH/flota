@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Assignment, Document, Vehicle
+from fleet.models import Assignment, Document, Incident, Vehicle
 
 from .helpers import make_user
 
@@ -77,6 +77,9 @@ class IncidentTests(APITestCase):
             plate="5678XYZ", brand="a", model="b", supervisor=self.supervisor
         )
         self.foreign = Vehicle.objects.create(plate="0000ZZZ", brand="a", model="b")
+        Assignment.objects.create(
+            vehicle=self.group_vehicle, driver=self.driver, start_date=date(2026, 1, 1)
+        )
         self.list_url = reverse("incident-list")
 
     def test_supervisor_can_create_incident_in_group(self):
@@ -91,6 +94,24 @@ class IncidentTests(APITestCase):
         resp = self.client.post(self.list_url, {"vehicle": self.foreign.pk, "type": "maintenance"})
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_driver_has_no_access_to_incidents(self):
+    def test_driver_reads_only_own_vehicle_incidents(self):
+        # El conductor VE las incidencias de sus vehículos (ficha de campo)…
+        Incident.objects.create(vehicle=self.group_vehicle, type="maintenance")
+        Incident.objects.create(vehicle=self.foreign, type="maintenance")
         self.client.force_authenticate(self.driver)
-        self.assertEqual(self.client.get(self.list_url).status_code, status.HTTP_403_FORBIDDEN)
+        resp = self.client.get(self.list_url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["count"], 1)
+
+    def test_driver_cannot_write_incidents(self):
+        # …pero seguir gestionándolas es cosa de gestión.
+        incident = Incident.objects.create(vehicle=self.group_vehicle, type="maintenance")
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(
+            self.list_url, {"vehicle": self.group_vehicle.pk, "type": "maintenance"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        url = reverse("incident-detail", args=[incident.pk])
+        self.assertEqual(
+            self.client.patch(url, {"status": "closed"}).status_code, status.HTTP_403_FORBIDDEN
+        )

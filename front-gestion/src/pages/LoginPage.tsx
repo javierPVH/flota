@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, LanguageToggleButton, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import { Check, ShieldCheck } from 'lucide-react'
@@ -14,6 +14,9 @@ export function LoginPage() {
   const { setUser } = useAuth()
   const { language, setLanguage, t } = useLang()
   const navigate = useNavigate()
+  // El transporte redirige aquí con ?auth=required cuando la sesión caduca (401).
+  const [searchParams] = useSearchParams()
+  const sessionExpired = searchParams.get('auth') === 'required'
   const [config, setConfig] = useState<AuthConfig | null>(null)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -94,6 +97,12 @@ export function LoginPage() {
           <h1 className="login-title">{L.heading}</h1>
           <p className="login-subtitle">{L.subtitle}</p>
 
+          {sessionExpired && (
+            <div role="alert" className="form-warn">
+              {L.sessionExpired}
+            </div>
+          )}
+
           <ul className="login-features">
             {L.features.map((feature) => (
               <li key={feature}>
@@ -146,7 +155,7 @@ export function LoginPage() {
             </div>
           )}
 
-          {error && <div className="form-error">{error}</div>}
+          {error && <div role="alert" className="form-error">{error}</div>}
 
           <p className="login-security">
             <ShieldCheck size={14} /> {L.security}

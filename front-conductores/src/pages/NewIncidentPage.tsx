@@ -1,27 +1,17 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import { Button, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
+import { Button, PageHeader, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { createIncident, listVehicles, uploadDocument } from '../api.ts'
 import { useAuth } from '../auth.ts'
+import { todayIso } from '../format.ts'
+import { useLang } from '../i18n.tsx'
 import type { Vehicle } from '../types.ts'
 
-// Tipos de incidencia (lista cerrada del back, Épica 6).
-const INCIDENT_TYPE_OPTIONS = [
-  { value: 'breakdown', label: 'Avería' },
-  { value: 'accident', label: 'Accidente' },
-  { value: 'maintenance', label: 'Mantenimiento' },
-  { value: 'inspection', label: 'Revisión' },
-]
-
-/** Hoy en formato de <input type="date"> (zona local, no UTC). */
-function todayIso(): string {
-  const now = new Date()
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
-  return now.toISOString().slice(0, 10)
-}
+// Tipos de incidencia (lista cerrada del back, Épica 6); etiquetas en i18n.
+const INCIDENT_TYPES = ['breakdown', 'accident', 'maintenance', 'inspection']
 
 /**
  * M6 — Nueva incidencia del grupo (Épica 6): avería/accidente con fotos desde
@@ -30,6 +20,7 @@ function todayIso(): string {
  */
 export function NewIncidentPage() {
   const { user } = useAuth()
+  const { t } = useLang()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -80,34 +71,33 @@ export function NewIncidentPage() {
         }
       }
       if (failed.length > 0) {
-        setError(
-          `Incidencia creada, pero no se pudieron subir: ${failed.join(', ')}. ` +
-            'Puedes añadirlas desde la ficha del vehículo.',
-        )
+        setError(t.newIncident.uploadFailed(failed.join(', ')))
         setSaving(false)
         return
       }
       navigate('/grupo', { replace: true })
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo crear la incidencia.'))
+      setError(asErrorMessage(err, t.newIncident.createError))
       setSaving(false)
     }
   }
 
   return (
     <div className="field-page">
-      <Link to="/grupo" className="back-link">
-        <ArrowLeft size={16} aria-hidden /> Mi grupo
-      </Link>
-      <div className="page-head">
-        <h2>Nueva incidencia</h2>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <Link to="/grupo" className="back-link">
+            <ArrowLeft size={16} aria-hidden /> {t.newIncident.back}
+          </Link>
+        }
+        title={t.newIncident.title}
+      />
 
       <form className="modal-form" onSubmit={handleSubmit}>
         <SelectField
-          label="Vehículo"
+          label={t.newIncident.vehicle}
           options={[
-            { value: '', label: 'Elige un vehículo…' },
+            { value: '', label: t.newIncident.choose },
             ...vehicles.map((v) => ({
               value: String(v.id),
               label: `${v.plate} · ${v.brand} ${v.model}`,
@@ -117,13 +107,16 @@ export function NewIncidentPage() {
           onValueChange={(value) => setForm((f) => ({ ...f, vehicle: value }))}
         />
         <SelectField
-          label="Tipo"
-          options={INCIDENT_TYPE_OPTIONS}
+          label={t.newIncident.type}
+          options={INCIDENT_TYPES.map((value) => ({
+            value,
+            label: t.newIncident.types[value] ?? value,
+          }))}
           value={form.type}
           onValueChange={(value) => setForm((f) => ({ ...f, type: value }))}
         />
         <TextInputField
-          label="Fecha"
+          label={t.newIncident.date}
           type="date"
           max={todayIso()}
           value={form.date}
@@ -131,14 +124,14 @@ export function NewIncidentPage() {
           required
         />
         <TextAreaField
-          label="Descripción"
+          label={t.newIncident.description}
           rows={3}
           value={form.description}
           onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-          placeholder="Qué ha pasado, dónde, estado del vehículo…"
+          placeholder={t.newIncident.descPlaceholder}
         />
         <label className="file-field">
-          <span>Fotos (cámara / galería, opcional)</span>
+          <span>{t.newIncident.photos}</span>
           <input
             type="file"
             accept="image/jpeg,image/png,image/webp,image/heic"
@@ -146,19 +139,16 @@ export function NewIncidentPage() {
             onChange={(e) => setPhotos(Array.from(e.target.files ?? []))}
           />
           {photos.length > 0 && (
-            <span className="doc-sub">
-              {photos.length} foto{photos.length === 1 ? '' : 's'} seleccionada
-              {photos.length === 1 ? '' : 's'}
-            </span>
+            <span className="doc-sub">{t.newIncident.photosSelected(photos.length)}</span>
           )}
         </label>
-        {error && <div className="form-error">{error}</div>}
+        {error && <div role="alert" className="form-error">{error}</div>}
         <div className="form-actions">
           <Button type="button" variant="secondary" onClick={() => navigate('/grupo')}>
-            Cancelar
+            {t.common.cancel}
           </Button>
           <Button type="submit" disabled={saving || !form.vehicle}>
-            {saving ? 'Creando…' : 'Crear incidencia'}
+            {saving ? t.newIncident.submitting : t.newIncident.submit}
           </Button>
         </div>
       </form>

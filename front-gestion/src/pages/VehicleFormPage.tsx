@@ -380,7 +380,7 @@ export function VehicleFormPage() {
   const isRenting = form.property === 'renting'
   const title = editing ? `Editar ${vehicle?.plate ?? ''}` : 'Nuevo vehículo'
 
-  if (editing && !vehicle && !error) return <p>Cargando…</p>
+  if (editing && !vehicle && !error) return <p className="loading-state" role="status">Cargando…</p>
 
   return (
     <div className="vehicle-form">
@@ -488,7 +488,17 @@ export function VehicleFormPage() {
                 requiredVisual={onProject}
                 options={catalogOptions(projects, onProject ? '— Elegir —' : '— (solo uso Proyecto)')}
                 value={form.project}
-                onValueChange={set('project')}
+                onValueChange={(value) => {
+                  set('project')(value)
+                  // El proyecto lleva su CECO asociado: autorrellena el del
+                  // vehículo si está vacío (el usuario puede cambiarlo después).
+                  const projectCeco = projects.find((p) => String(p.id) === value)?.cost_center
+                  if (projectCeco != null) {
+                    setForm((f) =>
+                      f.cost_center ? f : { ...f, cost_center: String(projectCeco) },
+                    )
+                  }
+                }}
                 disabled={!onProject}
               />
             </Labeled>
@@ -613,7 +623,7 @@ export function VehicleFormPage() {
           )}
         </section>
 
-        {error && <div className="form-error">{error}</div>}
+        {error && <div role="alert" className="form-error">{error}</div>}
 
         <div className="form-footer">
           <span className="muted">

@@ -291,10 +291,9 @@ cargar el listado y delegar en la tabla. Para el volumen interno de flota es asu
 - [x] Replicadas las 7 vistas restantes con el mismo patrón.
 - [x] Helpers de tono añadidos a `format.ts`: `incidentStatusTone`, `requestStatusTone`
       (más los ya existentes `vehicleStateTone`, `alertLevelTone`).
-- [ ] Al terminar, retirar de `styles.css` lo que quede huérfano (`table.data`, `.badge.*`,
-      `.chip`, filtros a medida) — solo cuando ninguna vista los use. **Ojo:** `table.data`
-      sigue en uso en `DashboardPage` (tabla server-side) y `CatalogsPage` (tabla dentro de
-      `Panel`, no migrada a `TableWithPanel` por su layout de dos columnas). → **Fase 9.**
+- [x] Al terminar, retirar de `styles.css` lo que quede huérfano (`.badge.*`, `.chip`,
+      `.page-head`…) — **hecho en Fase 9**. `table.data` se conserva: sigue en uso en
+      `DashboardPage` (tabla server-side), `CatalogsPage` y las sub-tablas de las fichas.
 
 **Decisiones de la migración:**
 - Se **mantienen los filtros de servidor** (SelectFields de estado/tipo/vehículo con
@@ -335,10 +334,9 @@ de la referencia.
       `kmLevelTone`.
 - [x] Tokenizados en `styles.css` los hex de km/simulador/timeline (`.km-progress-fill`,
       `.km-tile.tile-over`, `.penalty-warning`, `.sim-label`, `.level-text-*`, `.timeline-*`).
-- [ ] Limpieza de CSS de detalle → **Fase 9** (no antes de validar): `.badge.*` ya está
-      **100 % huérfano** en toda la app (Fase 5 + 6 migraron todos los badges a `<Badge>`);
-      `.detail-plate`/`.detail-sub`/`.detail-actions` huérfanos; `.page-head` aún lo usan
-      `ReportsPage` y `VehicleFormPage` (Fase 7). `.detail-grid`/`.detail-dl`/`.km-*`/
+- [x] Limpieza de CSS de detalle — **hecha en Fase 9**: purgados `.badge.*` (100 % huérfano),
+      `.detail-plate`/`.detail-sub`/`.detail-actions` y `.page-head` (ReportsPage y
+      VehicleFormPage ya usan `PageHeader`). `.detail-grid`/`.detail-dl`/`.km-*`/
       `.timeline`/`.assign-grid`/`.usage-*`/`.simulator`/`.history-grid` **siguen en uso**
       como layout de las fichas (se conservan; no se sustituyen por componentes de librería).
 
@@ -381,9 +379,9 @@ recoloreados con tokens. **Estado actual:** a la espera de `build:ui` + validaci
       (acceso denegado) y el showcase UiKit.
 - [ ] (Opcional) `warningMessage` (burbuja roja) en campos con validación en vivo — no hay
       validación de campo en vivo hoy; se deja como mejora si surge el caso.
-- [ ] Limpieza de CSS → **Fase 9**: `.edit-banner`/`.conflict-banner` (huérfanos, sustituidos
-      por `Panel`); revisar `.field-badge` (sigue en uso para histórico/bloqueado y en el
-      preview). `.form-grid`/`.catalog-grid`/`.doc-*`/`.alloc-line` **siguen en uso**.
+- [x] Limpieza de CSS — **hecha en Fase 9**: purgados `.edit-banner`/`.conflict-banner`
+      (sustituidos por `Panel`). `.field-badge` se conserva (histórico/bloqueado y preview,
+      ahora con tokens). `.form-grid`/`.catalog-grid`/`.doc-*`/`.alloc-line` **siguen en uso**.
 
 **DoD:** `VehicleFormPage` con `PageHeader`, requeridos en ámbar y banners con tono; tarjetas
 de contenido unificadas en `.card`. **Estado actual:** a la espera de `build:ui` + validación.
@@ -394,19 +392,38 @@ de contenido unificadas en `.card`. **Estado actual:** a la espera de `build:ui`
 
 **Objetivo:** rematar consistencia global.
 
-- [ ] **Modales**: todos vía `Modal` de la librería (portal, Escape, click-overlay,
-      `wide/xl`). Confirmaciones destructivas homogéneas.
-- [ ] **Feedback**: banners inline de éxito/error al estilo referencia (no hay toasts en
-      la referencia; mantener el patrón de banners). Campana de notificaciones si se
-      quiere paridad con `NotificationBell`.
-- [ ] **Estados vacíos** y **skeletons** coherentes.
-- [ ] **Responsive**: verificar breakpoint ~760px en shell, tablas (scroll horizontal),
-      grids a 1 columna, header a 64px.
-- [ ] **Accesibilidad**: `focus-visible` (outline 2px `$primary-app`), roles ARIA en
-      menús/switches, `prefers-reduced-motion`.
+- [x] **Confirmaciones destructivas homogéneas**: nuevo
+      [`ConfirmDialog.tsx`](front-gestion/src/components/ConfirmDialog.tsx)
+      (`ConfirmProvider` en `App.tsx` + hook `useConfirm()` que devuelve
+      `Promise<boolean>`, mismo contrato que `window.confirm`). Renderiza el `Modal`
+      de la librería con CTA `danger`/`warning` e icono de aviso. **Los 8
+      `window.confirm` eliminados** (Vehicles, Requests, Catalogs, Users, Invoices,
+      VehicleDetail, DocumentsPanel, VehicleAssignmentsPanel). Claves `t.common.*`
+      (confirmTitle/confirm/cancel/delete, es/en). El resto de modales ya usaba `Modal`.
+- [x] **Feedback**: `.form-error` y `.notice-ok` restilados como **banners** con tokens
+      (fondo suave + borde-izquierda de tono, radio `--radius-sm`) — un solo cambio CSS
+      unifica los ~36 usos. Añadidos `role="alert"` (errores) y `role="status"`
+      (avisos/carga) en todas las vistas. (Campana `NotificationBell`: fuera de alcance,
+      sigue decorativa.)
+- [x] **Estados de carga/vacío**: todos los `<p>Cargando…</p>` → `.loading-state`
+      (atenuado + `role="status"`); celda vacía del dashboard → `.empty-cell`; `.muted`
+      tokenizado. Los listados `TableWithPanel` ya traían `emptyStateLabel`. (Skeletons:
+      no — la referencia no los tiene.)
+- [x] **Responsive**: grids ya colapsan por `auto-fit/minmax`; añadido scroll horizontal
+      de `table.data` en ≤760px (dentro de su tarjeta, sin romper el frame). Header 64px
+      y colapso del login ya estaban (Fases 2–3).
+- [x] **Accesibilidad**: anillo `focus-visible` global (outline 2px `--color-primary`;
+      campos con ring interior teal, sin doble anillo), `prefers-reduced-motion`
+      (desactiva animaciones/transiciones), `aria-haspopup` en el botón del menú
+      (el popover ya tenía `nav` + `aria-expanded` + Escape; los switches son
+      checkboxes nativos, accesibles de serie).
+- [x] **AdminGate (403)** movido a la escena del login (`login-scene`, wallpaper velado)
+      — pendiente de Fase 3. Ojo Fase 9: `.login-wrap` ha quedado huérfano.
 
 **DoD:** interacción y estados (hover `translateY(-1px)`, active `translateY(1px)`,
 foco interior teal en campos) idénticos a la referencia en toda la app.
+**Estado actual:** código completo; a la espera de `build:ui` + `typecheck` + validación
+visual (sin Node en este entorno).
 
 ---
 
@@ -414,19 +431,36 @@ foco interior teal en campos) idénticos a la referencia en toda la app.
 
 **Objetivo:** cerrar deuda y validar.
 
-- [ ] `styles.css` reducido a mínimos (idealmente vacío o solo overrides puntuales con
-      tokens). Confirmar que **no quedan hex duplicados** de la paleta.
-- [ ] Eliminar el CSS/shell/tabla propios ya no usados.
-- [ ] Barrido de hex hardcodeados restantes en `@flota/ui` (si se pospuso en Fase 1).
+- [x] **Purga de CSS huérfano** en `styles.css` (verificado clase a clase contra los TSX):
+      eliminados el sistema `.badge`/`.badge.*` completo (~30 variantes), `.chip`/
+      `.chip-active` (queda `.chips-row` como layout), `.page-head`, `.breadcrumbs`,
+      `.detail-plate`/`.detail-sub`/`.detail-actions`, `.edit-banner`/`.conflict-banner`,
+      `.login-wrap` y los selectores muertos `.vehicle-form .panel`/`.vehicle-detail > .panel`.
+      **Se conservan** (en uso): `table.data` (dashboard/catálogos/sub-tablas), `.pager` y
+      `.search-input` (paginación/búsqueda server-side del dashboard), `.level-text-*`
+      (clase dinámica en MileagePage) y los layouts de fichas/formularios.
+- [x] **Cero hex duplicados de la paleta** en `styles.css`: tokenizados los restos
+      (`.itv-soon/.itv-overdue`, `.field-badge.*`, `.usage-sum.*`, `.link-banner`,
+      `.km-progress`, `.doc-*`, `.report-download`, `.shell-navlogout`, `.baja-warnings`,
+      `.drive-connect`, `.row-overdue`, `body` → `var(--font-sans)` — antes system-ui…).
+      Quedan ~17 hex **justificados**: naranjas de marca del login (permitidos por el plan)
+      y micro-tintes neutros sin token equivalente (`#f7f9fc`, `#fffaf0`, `#eef2f7`…).
+      `styles.css`: 1118 → ~1090 líneas, todas con tokens.
+- [ ] Barrido de hex hardcodeados en `@flota/ui`: **pendiente y bloqueado por entorno** —
+      son ~469 hex en 19 módulos SASS compartidos con `front-conductores`; editarlos sin
+      poder compilar (`npm run build:ui`) es demasiado arriesgado. Hacerlo con el watch
+      en marcha cuando haya Node.
 - [ ] QA visual final lado a lado contra `localhost:4173` (todas las pantallas de
-      Fase 0).
+      Fase 0). **Requiere entorno con Node.**
 - [ ] `typecheck` + `test` de `front-gestion` y de `@flota/ui` en verde;
-      recompilar `@flota/ui` y `npm run build` global.
-- [ ] **Nota dark mode**: la referencia es solo tema claro. Dejar documentado que NO se
-      implementa modo oscuro (sería infraestructura nueva; fuera de alcance).
+      recompilar `@flota/ui` y `npm run build` global. **Requiere entorno con Node.**
+- [x] **Nota dark mode**: la referencia es **solo tema claro**; NO se implementa modo
+      oscuro (sería infraestructura nueva en `@flota/ui` — tokens duales, `color-scheme`,
+      toggle — fuera de alcance). `tokens.css` ya declara `color-scheme: light`.
 
 **DoD:** app en paridad visual con la referencia, sin CSS propio duplicado, tests y
-build globales en verde.
+build globales en verde. **Estado actual:** limpieza de código completa; validación
+(build/typecheck/test/QA visual) pendiente de un entorno con Node.
 
 ---
 

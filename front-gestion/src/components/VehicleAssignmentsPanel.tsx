@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { assignmentStatusTone } from '../format.ts'
+import { assignmentStatusTone, todayIso } from '../format.ts'
+import { useConfirm } from './ConfirmDialog.tsx'
+import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
 
 import {
   acceptAssignment,
@@ -18,7 +20,7 @@ import {
 } from '../api.ts'
 import type { AssignmentRow, Driver, ManagedUser, Vehicle } from '../types.ts'
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = todayIso
 
 const STATUS_LABEL: Record<string, string> = {
   proposed: 'Propuesta',
@@ -36,10 +38,13 @@ interface UsageLine {
 export function VehicleAssignmentsPanel({
   vehicle,
   onChanged,
+  accordion,
 }: {
   vehicle: Vehicle
   onChanged: () => void
+  accordion: AccordionState
 }) {
+  const confirm = useConfirm()
   const [assignments, setAssignments] = useState<AssignmentRow[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [driverDetail, setDriverDetail] = useState<ManagedUser | null>(null)
@@ -134,7 +139,14 @@ export function VehicleAssignmentsPanel({
 
   async function handleRelease() {
     if (!current) return
-    if (!window.confirm(`¿Retirar a ${current.driver_name} de ${vehicle.plate}?`)) return
+    if (
+      !(await confirm({
+        message: `¿Retirar a ${current.driver_name} de ${vehicle.plate}?`,
+        confirmLabel: 'Retirar',
+        tone: 'warning',
+      }))
+    )
+      return
     try {
       await updateAssignment(current.id, { end_date: today(), status: 'finished' })
       load()
@@ -168,9 +180,11 @@ export function VehicleAssignmentsPanel({
   }
 
   return (
-    <section className="card">
-      <div className="section-head">
-        <h3>Conductor y reparto</h3>
+    <CollapsibleCard
+      id="assignments"
+      accordion={accordion}
+      title="Conductor y reparto"
+      actions={
         <div className="section-tools">
           <Button variant="primary" size="sm" onClick={openChange} disabled={vehicle.state === 'retired'}>
             {current ? 'Cambiar conductor' : 'Asignar conductor'}
@@ -184,9 +198,9 @@ export function VehicleAssignmentsPanel({
             Reparto de uso
           </Button>
         </div>
-      </div>
-
-      {error && <div className="form-error">{error}</div>}
+      }
+    >
+      {error && <div role="alert" className="form-error">{error}</div>}
 
       <div className="assign-grid">
         <div>
@@ -285,7 +299,7 @@ export function VehicleAssignmentsPanel({
             onChange={(e) => setStartDate(e.target.value)}
             required
           />
-          {modalError && <div className="form-error">{modalError}</div>}
+          {modalError && <div role="alert" className="form-error">{modalError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setModal(null)}>
               Cancelar
@@ -357,7 +371,7 @@ export function VehicleAssignmentsPanel({
           <p className="muted" style={{ margin: 0 }}>
             Al guardar se cierra el reparto vigente y entra este (histórico conservado).
           </p>
-          {modalError && <div className="form-error">{modalError}</div>}
+          {modalError && <div role="alert" className="form-error">{modalError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setModal(null)}>
               Cancelar
@@ -368,6 +382,6 @@ export function VehicleAssignmentsPanel({
           </div>
         </form>
       </Modal>
-    </section>
+    </CollapsibleCard>
   )
 }

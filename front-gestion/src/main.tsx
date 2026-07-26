@@ -7,17 +7,20 @@ import '@flota/ui/base.css'
 import './styles.css'
 
 import App from './App.tsx'
+import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { AuthProvider, bootstrap, onLogout } from './auth.ts'
 import { LanguageProvider } from './i18n.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
-      <LanguageProvider>
-        <AuthProvider bootstrap={bootstrap} onLogout={onLogout}>
-          <App />
-        </AuthProvider>
-      </LanguageProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <LanguageProvider>
+          <AuthProvider bootstrap={bootstrap} onLogout={onLogout}>
+            <App />
+          </AuthProvider>
+        </LanguageProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   </StrictMode>,
 )

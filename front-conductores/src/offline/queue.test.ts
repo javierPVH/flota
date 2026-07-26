@@ -32,9 +32,17 @@ describe('cola offline (M7)', () => {
   beforeEach(drain)
 
   it('isNetworkError distingue red (TypeError) de errores del servidor', () => {
-    expect(isNetworkError(new TypeError('Failed to fetch'))).toBe(true)
+    expect(isNetworkError(new TypeError('Failed to fetch'))).toBe(true) // Chrome
+    expect(
+      isNetworkError(new TypeError('NetworkError when attempting to fetch resource.')),
+    ).toBe(true) // Firefox
+    expect(isNetworkError(new TypeError('Load failed'))).toBe(true) // Safari
     expect(isNetworkError(new Error('km_reading: no puede retroceder'))).toBe(false)
     expect(isNetworkError({ detail: '400' })).toBe(false)
+    // Un TypeError de PROGRAMACIÓN no es "sin red": no debe encolarse.
+    expect(
+      isNetworkError(new TypeError("Cannot read properties of undefined (reading 'id')")),
+    ).toBe(false)
   })
 
   it('encola y reenvía en orden al hacer flush', async () => {

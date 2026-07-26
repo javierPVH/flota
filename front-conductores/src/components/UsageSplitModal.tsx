@@ -4,15 +4,9 @@ import { Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { listVehicleUsages, setUsageSplit } from '../api.ts'
-import { fmtDate } from '../format.ts'
+import { fmtDate, todayIso } from '../format.ts'
+import { useLang } from '../i18n.tsx'
 import type { Driver, Vehicle, VehicleUsageRow } from '../types.ts'
-
-/** Hoy en formato de <input type="date"> (zona local, no UTC). */
-function todayIso(): string {
-  const now = new Date()
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
-  return now.toISOString().slice(0, 10)
-}
 
 interface Line {
   driver: string
@@ -35,6 +29,7 @@ export function UsageSplitModal({
   onClose: () => void
   onSaved: () => void
 }) {
+  const { t } = useLang()
   const [usages, setUsages] = useState<VehicleUsageRow[]>([])
   const [lines, setLines] = useState<Line[]>([{ driver: '', percent: '100' }])
   const [startDate, setStartDate] = useState(todayIso())
@@ -84,7 +79,7 @@ export function UsageSplitModal({
       })
       onSaved()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo guardar el reparto.'))
+      setError(asErrorMessage(err, t.split.saveError))
     } finally {
       setSaving(false)
     }
@@ -93,19 +88,16 @@ export function UsageSplitModal({
   const history = usages.filter((u) => u.end_date)
 
   return (
-    <Modal open title={`Reparto de uso · ${vehicle.plate}`} onClose={onClose}>
+    <Modal open title={t.split.title(vehicle.plate)} onClose={onClose}>
       <form className="modal-form" onSubmit={handleSubmit}>
-        <p className="doc-sub">
-          Base de refacturación (HU-2.5): personas y porcentaje. La suma debe ser exactamente 100;
-          al guardar se cierra el reparto vigente.
-        </p>
+        <p className="doc-sub">{t.split.hint}</p>
 
         {lines.map((line, index) => (
           <div key={index} className="split-line">
             <SelectField
-              label={index === 0 ? 'Persona' : undefined}
+              label={index === 0 ? t.split.person : undefined}
               options={[
-                { value: '', label: 'Elige…' },
+                { value: '', label: t.split.choose },
                 ...drivers.map((d) => ({ value: String(d.id), label: d.name })),
               ]}
               value={line.driver}
@@ -124,7 +116,7 @@ export function UsageSplitModal({
               <button
                 type="button"
                 className="line-remove"
-                aria-label="Quitar persona"
+                aria-label={t.split.removePerson}
                 onClick={() => setLines((ls) => ls.filter((_, i) => i !== index))}
               >
                 <Trash2 size={18} aria-hidden />
@@ -140,32 +132,32 @@ export function UsageSplitModal({
             size="sm"
             onClick={() => setLines((ls) => [...ls, { driver: '', percent: '' }])}
           >
-            <Plus size={15} aria-hidden /> Añadir persona
+            <Plus size={15} aria-hidden /> {t.split.addPerson}
           </Button>
-          <span className={`split-total ${balanced ? 'ok' : 'ko'}`}>Suma: {total}%</span>
+          <span className={`split-total ${balanced ? 'ok' : 'ko'}`}>{t.split.sum(total)}</span>
         </div>
 
         <TextInputField
-          label="Vigente desde"
+          label={t.split.since}
           type="date"
           value={startDate}
           onChange={(e) => setStartDate(e.target.value)}
           required
         />
 
-        {error && <div className="form-error">{error}</div>}
+        {error && <div role="alert" className="form-error">{error}</div>}
         <div className="form-actions">
           <Button type="button" variant="secondary" onClick={onClose}>
-            Cancelar
+            {t.common.cancel}
           </Button>
           <Button type="submit" disabled={saving || !balanced || !complete}>
-            {saving ? 'Guardando…' : 'Guardar reparto'}
+            {saving ? t.split.saving : t.split.save}
           </Button>
         </div>
 
         {history.length > 0 && (
           <div className="split-history">
-            <h4 className="panel-title">Histórico</h4>
+            <h4 className="panel-title">{t.split.history}</h4>
             <ul className="doc-list">
               {history.map((u) => (
                 <li key={u.id} className="doc-item">

@@ -1,30 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { CheckCircle2, Gauge } from 'lucide-react'
-import { Button, Panel, SelectField } from '@flota/ui/ui'
-import { asErrorMessage } from '@flota/ui/http'
+import { Button, PageHeader, Panel, SelectField } from '@flota/ui/ui'
+import { ApiError, asErrorMessage } from '@flota/ui/http'
 
-import { createKmReading, fetchVehicleSummary, listVehicles } from '../api.ts'
-import { fmtDate, fmtKm, pendingThisMonth } from '../format.ts'
+import { createKmReading, fetchVehicleSummary, listKmReadings, listVehicles } from '../api.ts'
+import { fmtDate, fmtKm, pendingThisMonth, todayIso } from '../format.ts'
+import { useLang } from '../i18n.tsx'
 import { enqueue, isNetworkError } from '../offline/queue.ts'
-import type { Vehicle, VehicleSummary } from '../types.ts'
-
-/** Hoy en formato de <input type="date"> (zona local, no UTC). */
-function todayIso(): string {
-  const now = new Date()
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
-  return now.toISOString().slice(0, 10)
-}
-
-/** Errores del servidor en claro: no-retroceso (400) y throttle (429).
- * El transporte del DS ya desenvuelve {detail, errors} al mensaje de campo. */
-function readableError(err: unknown): string {
-  const message = asErrorMessage(err, 'No se pudo guardar la lectura.')
-  if (/throttled|Espera/i.test(message)) {
-    return 'Demasiados registros seguidos. Espera un momento y reintenta.'
-  }
-  return message.replace(/^km_reading:\s*/, '')
-}
+import type { KmReading, Vehicle, VehicleSummary } from '../types.ts'
 
 interface SavedReading {
   plate: string
@@ -41,6 +25,7 @@ interface SavedReading {
  * recorridos en el periodo. El no-retroceso lo valida también el servidor.
  */
 export function RegisterKmPage() {
+  const { t } = useLang()
   const [params] = useSearchParams()
   const preselected = params.get('vehiculo') ?? ''
 
@@ -54,6 +39,16 @@ export function RegisterKmPage() {
   const [error, setError] = useState('')
   const [saved, setSaved] = useState<SavedReading | null>(null)
 
+  /** Errores del servidor en claro: no-retroceso (400) y throttle (429).
+   * El throttle se decide por STATUS (E5: la regex sobre el texto del back se
+   * rompía al cambiar la redacción o el idioma). El transporte del DS ya
+   * desenvuelve {detail, errors} al mensaje de campo. */
+  function readableError(err: unknown): string {
+    if (err instanceof ApiError && err.status === 429) return t.km.throttled
+    const message = asErrorMessage(err, t.km.saveError)
+    return message.replace(/^km_reading:\s*/, '')
+  }
+
   useEffect(() => {
     let alive = true
     listVehicles()
@@ -63,21 +58,33 @@ export function RegisterKmPage() {
         // Sin preselección, con un solo coche no hay nada que elegir.
         if (!preselected && page.results.length === 1) setVehicleId(String(page.results[0].id))
       })
-      .catch((err) => alive && setError(asErrorMessage(err, 'No se pudieron cargar tus vehículos.')))
+      .catch((err) => alive && setError(asErrorMessage(err, t.home.loadError)))
       .finally(() => alive && setLoading(false))
     return () => {
       alive = false
     }
-  }, [preselected])
+  }, [preselected, t])
 
-  // Referencia: última lectura del vehículo elegido.
+  // Historial reciente (mejora 🟡): las últimas lecturas a la vista ayudan a
+  // detectar erratas en el momento (un dígito de más se ve al instante).
+  const [recent, setRecent] = useState<KmReading[]>([])
+
+  // Referencia: última lectura del vehículo elegido + historial reciente.
   useEffect(() => {
     setSummary(null)
+    setRecent([])
     if (!vehicleId) return
     let alive = true
     fetchVehicleSummary(Number(vehicleId))
       .then((s) => alive && setSummary(s))
       .catch(() => alive && setSummary(null))
+    listKmReadings(Number(vehicleId))
+      .then((page) => {
+        if (!alive) return
+        // El back ordena ascendente por fecha: nos quedamos con las 4 últimas.
+        setRecent([...page.results].slice(-4).reverse())
+      })
+      .catch(() => alive && setRecent([]))
     return () => {
       alive = false
     }
@@ -127,30 +134,28 @@ export function RegisterKmPage() {
     }
   }
 
-  if (loading) return <p className="gate-checking">Cargando…</p>
+  if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
 
   if (saved) {
     return (
       <div className="km-saved">
         <CheckCircle2 size={52} aria-hidden className={saved.queued ? 'km-saved-queued' : 'km-saved-icon'} />
-        <h2>{saved.queued ? 'Lectura en cola' : 'Lectura guardada'}</h2>
-        {saved.queued && (
-          <p className="km-saved-detail">
-            Estás sin conexión: la lectura se enviará sola en cuanto vuelva la red.
-          </p>
-        )}
+        <h2>{saved.queued ? t.km.queuedTitle : t.km.savedTitle}</h2>
+        {saved.queued && <p className="km-saved-detail">{t.km.queuedNote}</p>}
         <p className="km-saved-detail">
           {saved.plate}: <strong>{fmtKm(saved.km)}</strong>
         </p>
         {saved.driven !== null && (
           <p className="km-saved-detail">
-            Has recorrido <strong>{fmtKm(saved.driven)}</strong> desde la última lectura.
+            {t.km.drivenPrefix}
+            <strong>{fmtKm(saved.driven)}</strong>
+            {t.km.drivenSuffix}
           </p>
         )}
         <div className="request-actions">
-          <Button onClick={() => setSaved(null)}>Registrar otra lectura</Button>
+          <Button onClick={() => setSaved(null)}>{t.km.another}</Button>
           <Link to="/" className="back-link center">
-            Volver a mis vehículos
+            {t.km.backHome}
           </Link>
         </div>
       </div>
@@ -159,15 +164,13 @@ export function RegisterKmPage() {
 
   return (
     <div className="field-page">
-      <div className="page-head">
-        <h2>Registrar kilómetros</h2>
-      </div>
+      <PageHeader title={t.km.title} />
 
       {vehicles.length > 1 ? (
         <SelectField
-          label="Vehículo"
+          label={t.km.vehicle}
           options={[
-            { value: '', label: 'Elige un vehículo…' },
+            { value: '', label: t.km.choose },
             ...vehicles.map((v) => ({
               value: String(v.id),
               label: `${v.plate} · ${v.brand} ${v.model}`,
@@ -190,21 +193,31 @@ export function RegisterKmPage() {
             <Gauge size={16} aria-hidden />{' '}
             {summary.km_current != null ? (
               <>
-                Última lectura: <strong>{fmtKm(summary.km_current)}</strong>
+                {t.km.lastReading} <strong>{fmtKm(summary.km_current)}</strong>
                 {summary.km_reading_date ? ` (${fmtDate(summary.km_reading_date)})` : ''}
-                {pendingThisMonth(summary) ? ' — falta la de este mes.' : ''}
+                {pendingThisMonth(summary) ? t.km.missingMonth : ''}
               </>
             ) : (
-              'Aún no hay lecturas: esta será la primera.'
+              t.km.firstReading
             )}
           </p>
+          {recent.length > 1 && (
+            <ul className="km-recent">
+              {recent.map((r) => (
+                <li key={r.id}>
+                  <span>{fmtDate(r.reading_date)}</span>
+                  <strong>{fmtKm(r.km_reading)}</strong>
+                </li>
+              ))}
+            </ul>
+          )}
         </Panel>
       )}
 
       {vehicleId && (
         <form className="modal-form" onSubmit={handleSubmit}>
           <label className="km-input-label">
-            <span>Odómetro (km totales del cuadro)</span>
+            <span>{t.km.odometer}</span>
             <input
               className="km-input"
               type="text"
@@ -217,17 +230,17 @@ export function RegisterKmPage() {
             />
           </label>
           {goesBack && (
-            <div className="form-error">
-              El odómetro no puede retroceder: la última lectura fue {fmtKm(summary?.km_current)}.
+            <div role="alert" className="form-error">
+              {t.km.noGoBack(fmtKm(summary?.km_current))}
             </div>
           )}
           <label className="file-field">
-            <span>Fecha de la lectura</span>
+            <span>{t.km.date}</span>
             <input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} />
           </label>
-          {error && <div className="form-error">{error}</div>}
+          {error && <div role="alert" className="form-error">{error}</div>}
           <Button type="submit" disabled={saving || kmValue === null || goesBack}>
-            {saving ? 'Guardando…' : 'Guardar lectura'}
+            {saving ? t.km.saving : t.km.save}
           </Button>
         </form>
       )}

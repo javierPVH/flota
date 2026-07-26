@@ -3,18 +3,19 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AlertsPage } from './AlertsPage.tsx'
+import { LanguageProvider } from '../i18n.tsx'
 import type { Role } from '../types.ts'
 
 const mocks = vi.hoisted(() => ({
   listAlerts: vi.fn(),
-  fetchVehicleSummary: vi.fn(),
+  fetchVehicleSummaries: vi.fn(),
   roles: ['driver'] as Role[],
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   listAlerts: mocks.listAlerts,
-  fetchVehicleSummary: mocks.fetchVehicleSummary,
+  fetchVehicleSummaries: mocks.fetchVehicleSummaries,
 }))
 
 vi.mock('../auth.ts', async (importOriginal) => ({
@@ -46,10 +47,13 @@ const KM_ALERT = {
 }
 
 function renderPage() {
+  // AlertsPage usa useLang: el provider es obligatorio (idioma por defecto: es).
   return render(
-    <MemoryRouter>
-      <AlertsPage />
-    </MemoryRouter>,
+    <LanguageProvider>
+      <MemoryRouter>
+        <AlertsPage />
+      </MemoryRouter>
+    </LanguageProvider>,
   )
 }
 
@@ -58,13 +62,9 @@ describe('AlertsPage (M5)', () => {
     vi.clearAllMocks()
     mocks.roles = ['driver']
     mocks.listAlerts.mockResolvedValue({ count: 1, results: [KM_ALERT] })
-    mocks.fetchVehicleSummary.mockResolvedValue({
-      vehicle: 7,
-      plate: '7890NPQ',
-      km_reading_date: null,
-      km_current: null,
-      driver: null,
-    })
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      { vehicle: 7, plate: '7890NPQ', km_reading_date: null, km_current: null, driver: null },
+    ])
   })
 
   it('el conductor ve la alerta con su acción, pero SIN resolver/descartar', async () => {
