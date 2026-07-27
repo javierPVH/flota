@@ -12,6 +12,8 @@ __pycache__/
 db.sqlite3
 staticfiles/
 .env
+# Datos persistentes del despliegue Docker (BD, media, estáticos)
+/data/
 # Cobertura de tests
 .coverage
 htmlcov/

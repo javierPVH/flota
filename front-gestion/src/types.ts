@@ -142,6 +142,18 @@ export interface VehicleSummary {
     level: 'within' | 'watch' | 'over'
     overage_km: number
     estimated_penalty: string | null
+    // Enfoque anual proporcional (HU-3.4): cupo por año y proyección del año en curso.
+    contract_years: number
+    annual_km: number
+    year_index: number
+    year_start_date: string
+    year_end_date: string
+    year_start_km: number
+    annual_projected: number
+    annual_pct: number
+    annual_level: 'within' | 'watch' | 'over'
+    annual_overage_km: number
+    annual_estimated_penalty: string | null
   } | null
 }
 

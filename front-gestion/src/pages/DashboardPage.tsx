@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Badge, Button, Chip, Modal, PageHeader, StatCard } from '@flota/ui/ui'
+import { Badge, Button, Chip, Modal, PageHeader, SelectField, StatCard } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchFleetSummary, listAlerts, listVehicles, type VehicleFilters } from '../api.ts'
@@ -14,25 +14,9 @@ const USE_LABEL: Record<string, string> = {
   works: 'Obras',
 }
 
-// Chips de filtro rápido (HU-1.7). Cada chip fija un juego de filtros del back;
-// "ITV próxima" corta en cliente (el back no expone ese filtro como parámetro).
-// Las etiquetas salen del diccionario i18n (t.home.chips).
-const CHIPS: Array<{ key: string; filters: VehicleFilters }> = [
-  { key: 'all', filters: {} },
-  { key: 'personal', filters: { business_use: 'personal' } },
-  { key: 'works', filters: { business_use: 'works' } },
-  { key: 'project', filters: { business_use: 'on_project' } },
-  { key: 'active', filters: { state: 'active' } },
-  { key: 'shop', filters: { state: 'maintenance' } },
-  { key: 'no-driver', filters: { assigned: false } },
-  { key: 'itv', filters: {} },
-]
-
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
 const PAGE_SIZE = 50 // PAGE_SIZE del back (DRF)
 
-/** Estado de vehículo → chip del listado (para "filtrar desde el modal"). */
-const STATE_CHIP: Record<string, string> = { active: 'active', maintenance: 'shop' }
 const STATE_LABEL: Record<string, string> = {
   active: 'Activo',
   maintenance: 'En mantenimiento',
@@ -40,7 +24,20 @@ const STATE_LABEL: Record<string, string> = {
   broken: 'Averiado',
   retired: 'Baja',
 }
-const USE_CHIP: Record<string, string> = { personal: 'personal', works: 'works', on_project: 'project' }
+
+// Estados accionables desde el select de estado y los desgloses (el resto
+// —baja, no activo…— no se ofrece como filtro rápido).
+const FILTERABLE_STATES = new Set(['active', 'maintenance', 'itv', 'broken'])
+
+// Categoría de alerta (agrupa los tipos del back) → pestaña del modal/tira.
+// Las dos alertas de km comparten pestaña "Kilómetros".
+const ALERT_CATEGORY: Record<string, string> = {
+  itv_due: 'itv',
+  km_reading_pending: 'km',
+  km_overage: 'km',
+  no_driver: 'no_driver',
+}
+const ALERT_TAB_ORDER = ['all', 'itv', 'km', 'no_driver']
 
 type ManageKind = 'vehicles' | 'use' | 'cost' | 'itv' | 'alerts'
 
@@ -63,12 +60,20 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('') // búsqueda con debounce ya aplicado
-  const [chip, setChip] = useState('all')
+  // Filtros del listado: dos botones (Todos / ITV próximas) + tres selects
+  // combinables. "ITV próximas" corta en cliente; el resto va al back.
+  const [useFilter, setUseFilter] = useState('') // '' | personal | works | on_project
+  const [assignFilter, setAssignFilter] = useState('') // '' | assigned | unassigned
+  const [stateFilter, setStateFilter] = useState('') // '' | active | maintenance | itv | broken
+  const [itvOnly, setItvOnly] = useState(false)
   const [showBaja, setShowBaja] = useState(false)
+
+  const anyFilter = Boolean(useFilter || assignFilter || stateFilter || itvOnly)
 
   // Modal de gestión activo (uno por bloque informativo) y datos del de ITV.
   const [manage, setManage] = useState<ManageKind | null>(null)
   const [itvList, setItvList] = useState<Vehicle[] | null>(null)
+  const [alertTab, setAlertTab] = useState('all') // pestaña de tipo del modal de alertas
 
   useEffect(() => {
     fetchFleetSummary()
@@ -97,17 +102,19 @@ export function DashboardPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [query, chip, showBaja])
+  }, [query, useFilter, assignFilter, stateFilter, showBaja])
 
   const load = useCallback(() => {
     setLoading(true)
-    const chipFilters = CHIPS.find((c) => c.key === chip)?.filters ?? {}
-    listVehicles({
-      ...chipFilters,
+    const filters: VehicleFilters = {
+      business_use: useFilter || undefined,
+      state: stateFilter || undefined,
+      assigned: assignFilter ? assignFilter === 'assigned' : undefined,
       search: query || undefined,
       include_baja: showBaja ? 1 : undefined,
       page,
-    })
+    }
+    listVehicles(filters)
       .then((result) => {
         setVehicles(result.results)
         setCount(result.count)
@@ -115,19 +122,35 @@ export function DashboardPage() {
       })
       .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar el listado.')))
       .finally(() => setLoading(false))
-  }, [query, chip, showBaja, page])
+  }, [useFilter, stateFilter, assignFilter, query, showBaja, page])
 
   useEffect(load, [load])
 
-  /** Acción rápida de los modales: fija un chip del listado y cierra. */
-  function filterList(chipKey: string) {
-    setChip(chipKey)
+  function resetFilters() {
+    setUseFilter('')
+    setAssignFilter('')
+    setStateFilter('')
+    setItvOnly(false)
+  }
+
+  /** Acción rápida de los modales: fija UN filtro y cierra el modal (limpia los
+   * demás para mostrar el corte pedido tal cual). */
+  function filterList(target: { use?: string; assign?: string; state?: string; itv?: boolean }) {
+    setUseFilter(target.use ?? '')
+    setAssignFilter(target.assign ?? '')
+    setStateFilter(target.state ?? '')
+    setItvOnly(Boolean(target.itv))
     setManage(null)
   }
 
-  // "ITV próxima": corte en cliente sobre la página cargada.
-  const rows =
-    chip === 'itv' ? vehicles.filter((v) => itvClass(v.next_itv_date) !== '') : vehicles
+  /** Abre el modal de alertas en una pestaña de tipo concreta (o "todas"). */
+  function openAlerts(tab: string) {
+    setAlertTab(tab)
+    setManage('alerts')
+  }
+
+  // "ITV próximas": corte en cliente sobre la página cargada.
+  const rows = itvOnly ? vehicles.filter((v) => itvClass(v.next_itv_date) !== '') : vehicles
 
   const active = summary?.by_state?.active ?? 0
   const shop = (summary?.by_state?.maintenance ?? 0) + (summary?.by_state?.broken ?? 0)
@@ -148,7 +171,16 @@ export function DashboardPage() {
   const critical = alerts.filter((a) => a.level === 'critical').length
   const warning = alerts.filter((a) => a.level === 'warning').length
 
+  // Alertas por categoría: contador, pestañas visibles (con datos) y el corte
+  // según la pestaña activa. "Todas" siempre; el resto solo si tiene alertas.
+  const alertCatCount = (cat: string) =>
+    cat === 'all' ? alerts.length : alerts.filter((a) => ALERT_CATEGORY[a.type] === cat).length
+  const alertTabs = ALERT_TAB_ORDER.filter((cat) => cat === 'all' || alertCatCount(cat) > 0)
+  const shownAlerts =
+    alertTab === 'all' ? alerts : alerts.filter((a) => ALERT_CATEGORY[a.type] === alertTab)
+
   const m = t.home.manage
+  const f = t.home.filters
 
   const MANAGE_TITLE: Record<ManageKind, string> = {
     vehicles: m.vehiclesTitle,
@@ -224,22 +256,40 @@ export function DashboardPage() {
       )}
 
       {alerts.length > 0 && (
-        <button
-          type="button"
-          className="alerts-strip"
-          title={t.home.manageHint}
-          onClick={() => setManage('alerts')}
-        >
-          <strong>{t.home.alertsTitle}</strong>
-          <span className="alerts-strip-badges">
-            {critical > 0 && <Badge tone="danger">{critical}</Badge>}
-            {warning > 0 && <Badge tone="warning">{warning}</Badge>}
-            {alerts.length - critical - warning > 0 && (
-              <Badge tone="info">{alerts.length - critical - warning}</Badge>
-            )}
-          </span>
-          <span className="alerts-strip-hint">{t.home.alertsOpen(alerts.length)} →</span>
-        </button>
+        <div className="alerts-strip">
+          <button
+            type="button"
+            className="alerts-strip-lead"
+            title={t.home.manageHint}
+            onClick={() => openAlerts('all')}
+          >
+            <strong>{t.home.alertsTitle}</strong>
+            <span className="alerts-strip-badges">
+              {critical > 0 && <Badge tone="danger">{critical}</Badge>}
+              {warning > 0 && <Badge tone="warning">{warning}</Badge>}
+              {alerts.length - critical - warning > 0 && (
+                <Badge tone="info">{alerts.length - critical - warning}</Badge>
+              )}
+            </span>
+          </button>
+          {/* Desglose por tipo: cada chip abre el modal filtrado a ese tipo. */}
+          <div className="alerts-strip-types">
+            {alertTabs
+              .filter((cat) => cat !== 'all')
+              .map((cat) => (
+                <Chip key={cat} count={alertCatCount(cat)} onClick={() => openAlerts(cat)}>
+                  {t.home.alertTabs[cat]}
+                </Chip>
+              ))}
+          </div>
+          <button
+            type="button"
+            className="alerts-strip-hint"
+            onClick={() => openAlerts('all')}
+          >
+            {t.home.alertsOpen(alerts.length)} →
+          </button>
+        </div>
       )}
 
       <section>
@@ -252,12 +302,54 @@ export function DashboardPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <div className="chips-row chips-inline">
-            {CHIPS.map((c) => (
-              <Chip key={c.key} active={chip === c.key} onClick={() => setChip(c.key)}>
-                {t.home.chips[c.key] ?? c.key}
+          <div className="dash-filters">
+            <div className="chips-row chips-inline">
+              <Chip active={!anyFilter} onClick={resetFilters}>
+                {t.home.chips.all}
               </Chip>
-            ))}
+              <Chip active={itvOnly} onClick={() => setItvOnly((v) => !v)}>
+                {t.home.chips.itv}
+              </Chip>
+            </div>
+            <SelectField
+              aria-label={f.use}
+              containerClassName="dash-filter"
+              required
+              options={[
+                { value: '', label: f.useAll },
+                { value: 'personal', label: f.usePersonal },
+                { value: 'works', label: f.useWorks },
+                { value: 'on_project', label: f.useProject },
+              ]}
+              value={useFilter}
+              onValueChange={setUseFilter}
+            />
+            <SelectField
+              aria-label={f.assign}
+              containerClassName="dash-filter"
+              required
+              options={[
+                { value: '', label: f.assignAll },
+                { value: 'assigned', label: f.assigned },
+                { value: 'unassigned', label: f.unassigned },
+              ]}
+              value={assignFilter}
+              onValueChange={setAssignFilter}
+            />
+            <SelectField
+              aria-label={f.state}
+              containerClassName="dash-filter"
+              required
+              options={[
+                { value: '', label: f.stateAll },
+                { value: 'active', label: f.stateActive },
+                { value: 'maintenance', label: f.stateMaintenance },
+                { value: 'itv', label: f.stateItv },
+                { value: 'broken', label: f.stateBroken },
+              ]}
+              value={stateFilter}
+              onValueChange={setStateFilter}
+            />
           </div>
           <label className="baja-toggle">
             <input
@@ -351,14 +443,14 @@ export function DashboardPage() {
             <div className="mng-rows">
               {Object.entries(summary.by_state).map(([state, n]) => {
                 const label = STATE_LABEL[state] ?? state
-                const chipKey = STATE_CHIP[state]
+                const clickable = FILTERABLE_STATES.has(state)
                 return (
                   <button
                     key={state}
                     type="button"
                     className="mng-row"
-                    disabled={!chipKey}
-                    onClick={() => chipKey && filterList(chipKey)}
+                    disabled={!clickable}
+                    onClick={() => clickable && filterList({ state })}
                   >
                     <Badge tone={vehicleStateTone(state)}>{label}</Badge>
                     <strong>{n}</strong>
@@ -372,7 +464,11 @@ export function DashboardPage() {
                 <span>{m.assigned}</span>
                 <strong>{summary.assigned}</strong>
               </div>
-              <button type="button" className="mng-row" onClick={() => filterList('no-driver')}>
+              <button
+                type="button"
+                className="mng-row"
+                onClick={() => filterList({ assign: 'unassigned' })}
+              >
                 <span>{m.unassigned}</span>
                 <strong>{summary.unassigned}</strong>
               </button>
@@ -405,7 +501,7 @@ export function DashboardPage() {
                     key={use}
                     type="button"
                     className="mng-row"
-                    onClick={() => filterList(USE_CHIP[use])}
+                    onClick={() => filterList({ use })}
                   >
                     <span>{label}</span>
                     <span className="mng-bar" aria-hidden="true">
@@ -483,7 +579,7 @@ export function DashboardPage() {
               </div>
             )}
             <div className="mng-actions">
-              <Button variant="secondary" onClick={() => filterList('itv')}>
+              <Button variant="secondary" onClick={() => filterList({ itv: true })}>
                 {m.filterInList}
               </Button>
             </div>
@@ -493,8 +589,22 @@ export function DashboardPage() {
         {manage === 'alerts' && (
           <div className="mng">
             <p className="mng-hint">{m.alertsDesc}</p>
+            {/* Pestañas por tipo: ITV, Kilómetros, Sin conductor… (solo las que
+                tienen alertas). "Todas" siempre disponible. */}
+            <div className="chips-row" role="group" aria-label={t.home.alertsTitle}>
+              {alertTabs.map((cat) => (
+                <Chip
+                  key={cat}
+                  active={alertTab === cat}
+                  count={alertCatCount(cat)}
+                  onClick={() => setAlertTab(cat)}
+                >
+                  {t.home.alertTabs[cat]}
+                </Chip>
+              ))}
+            </div>
             <div className="mng-rows">
-              {alerts.map((alert) => (
+              {shownAlerts.map((alert) => (
                 <Link
                   key={alert.id}
                   className="mng-row"

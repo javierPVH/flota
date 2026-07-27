@@ -15,6 +15,7 @@ La proyección usa el mismo criterio lineal que `alerts.check_km_overage`
 
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -31,6 +32,27 @@ from fleet.selectors import current_driver_map
 LEVEL_WITHIN = "within"  # dentro de lo contratado
 LEVEL_WATCH = "watch"  # cerca del límite (>= FLEET_KM_WATCH_PCT)
 LEVEL_OVER = "over"  # exceso previsto
+
+# Días por año de contrato (media, considera bisiestos) para el reparto anual.
+YEAR_DAYS = 365.25
+
+
+def _km_level(projected: float, limit: float) -> str:
+    """Semáforo de tres tramos comparando una proyección con su límite."""
+    if not limit:
+        return LEVEL_WITHIN
+    if projected > limit:
+        return LEVEL_OVER
+    if projected / limit * 100 >= settings.FLEET_KM_WATCH_PCT * 100:
+        return LEVEL_WATCH
+    return LEVEL_WITHIN
+
+
+def _penalty(overage_km: int, penalty_per_km) -> Decimal | None:
+    """Penalización estimada = km de exceso × €/km (o None si no hay tarifa)."""
+    if overage_km and penalty_per_km is not None:
+        return (Decimal(overage_km) * penalty_per_km).quantize(Decimal("0.01"))
+    return None
 
 
 def _active_contract(vehicle: Vehicle) -> Contract | None:
@@ -55,6 +77,7 @@ def vehicle_summary(vehicle: Vehicle, today: date | None = None) -> dict:
         _active_contract(vehicle),
         _latest_reading(vehicle),
         current_driver_map([vehicle.id]).get(vehicle.id),
+        today,
     )
 
 
@@ -67,6 +90,7 @@ def vehicle_summaries(user) -> list[dict]:
     (`current_driver_map` ya es bulk). El "primero por vehículo" se resuelve
     en Python con `setdefault` sobre un orden estable.
     """
+    today = timezone.localdate()
     vehicles = list(vehicles_for(user).exclude(state=VehicleState.BAJA))
     ids = [v.id for v in vehicles]
 
@@ -86,7 +110,7 @@ def vehicle_summaries(user) -> list[dict]:
 
     drivers = current_driver_map(ids)
     return [
-        _compose_summary(v, contracts.get(v.id), latest.get(v.id), drivers.get(v.id))
+        _compose_summary(v, contracts.get(v.id), latest.get(v.id), drivers.get(v.id), today)
         for v in vehicles
     ]
 
@@ -96,8 +120,10 @@ def _compose_summary(
     contract: Contract | None,
     latest: KmReading | None,
     driver,
+    today: date | None = None,
 ) -> dict:
     """Compone el summary desde datos ya resueltos (compartido single/bulk)."""
+    today = today or timezone.localdate()
     km_current = latest.km_reading if latest else None
     km_driven = None
     if km_current is not None:
@@ -144,23 +170,40 @@ def _compose_summary(
     if total_days <= 0 or elapsed_days <= 0:
         return summary
 
-    projected = round(km_driven / elapsed_days * total_days)
+    pace = km_driven / elapsed_days  # km/día observados; base de toda proyección
+    projected = round(pace * total_days)
     remaining = contract.contract_km - km_driven
-    monthly_avg = round(km_driven / elapsed_days * 30)
+    monthly_avg = round(pace * 30)
     contracted_rate = (
         round(contract.contract_km / contract.contract_time) if contract.contract_time else None
     )
     pct = projected / contract.contract_km * 100
-    if projected > contract.contract_km:
-        level = LEVEL_OVER
-    elif pct >= settings.FLEET_KM_WATCH_PCT * 100:
-        level = LEVEL_WATCH
-    else:
-        level = LEVEL_WITHIN
+    level = _km_level(projected, contract.contract_km)
     overage = max(0, projected - contract.contract_km)
-    estimated_penalty = None
-    if overage and contract.penalty_per_km is not None:
-        estimated_penalty = (Decimal(overage) * contract.penalty_per_km).quantize(Decimal("0.01"))
+    estimated_penalty = _penalty(overage, contract.penalty_per_km)
+
+    # --- Reparto anual proporcional (HU-3.4, enfoque por año) ----------------
+    # Los km contratados son el tope del contrato completo; repartidos por año dan
+    # el "cupo anual" (km ÷ años). La proyección anual compara el ritmo observado
+    # (`pace`) con ese cupo, y la ventana del año en curso (según `today`) alimenta
+    # la gráfica año a año de la ficha. Todo se deriva de contrato + última lectura
+    # + km_start (sin consultar todas las lecturas: el endpoint masivo debe seguir
+    # con nº de consultas acotado).
+    years = contract.contract_time / 12 if contract.contract_time else max(total_days / YEAR_DAYS, 1 / 12)
+    annual_km = round(contract.contract_km / years)
+    year_index = max(
+        0, min(int((today - contract.start_date).days // YEAR_DAYS), math.ceil(years) - 1)
+    )
+    year_start_date = contract.start_date + timedelta(days=round(year_index * YEAR_DAYS))
+    year_end_date = contract.start_date + timedelta(days=round((year_index + 1) * YEAR_DAYS))
+    year_start_km = (vehicle.km_start or 0) + round(
+        pace * (year_start_date - contract.start_date).days
+    )
+    annual_projected = round(pace * YEAR_DAYS)
+    annual_pct = annual_projected / annual_km * 100 if annual_km else 0
+    annual_level = _km_level(annual_projected, annual_km)
+    annual_overage = max(0, annual_projected - annual_km)
+    annual_estimated_penalty = _penalty(annual_overage, contract.penalty_per_km)
 
     summary["projection"] = {
         "km_remaining": remaining,
@@ -171,6 +214,18 @@ def _compose_summary(
         "level": level,
         "overage_km": overage,
         "estimated_penalty": estimated_penalty,
+        # Enfoque anual proporcional
+        "contract_years": round(years, 2),
+        "annual_km": annual_km,
+        "year_index": year_index,
+        "year_start_date": year_start_date,
+        "year_end_date": year_end_date,
+        "year_start_km": year_start_km,
+        "annual_projected": annual_projected,
+        "annual_pct": round(annual_pct, 1),
+        "annual_level": annual_level,
+        "annual_overage_km": annual_overage,
+        "annual_estimated_penalty": annual_estimated_penalty,
     }
     return summary
 

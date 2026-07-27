@@ -121,7 +121,9 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+            # Ruta del fichero configurable para poder ubicarlo en un volumen
+            # persistente (Docker) sin mover el código. Por defecto, junto al proyecto.
+            "NAME": env_str("DJANGO_SQLITE_PATH", str(BASE_DIR / "db.sqlite3")),
         }
     }
 

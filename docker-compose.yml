@@ -1,0 +1,69 @@
+# Despliegue de PRODUCCIÓN de Flota en el servidor srvgcptd (Docker + Cloudflare Tunnel).
+#
+#   back                -> Django + DRF (gunicorn).   SOLO red interna (sin puerto host).
+#   front-gestion       -> nginx: SPA + proxy /api,/admin -> back.   profile: gestion
+#   front-conductores   -> nginx: SPA + proxy /api      -> back.     profile: conductores
+#
+# Cada front es una PUERTA completa de su dominio (sirve el SPA y reenvía /api al
+# back por la red interna), publicada en loopback del servidor:
+#   · conductores -> 127.0.0.1:8092   (se cuelga del Cloudflare Tunnel = internet)
+#   · gestion     -> 127.0.0.1:8093   (SOLO interna/VPN, NUNCA en el túnel)
+#
+# QUÉ APPS SE LEVANTAN: variable COMPOSE_PROFILES en `.env` (el back va siempre).
+#   COMPOSE_PROFILES=gestion | conductores | gestion,conductores
+#
+#   docker compose up -d --build
+
+name: flota
+
+services:
+  back:
+    build:
+      context: ./back
+      dockerfile: Dockerfile
+    image: flota-back:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - ./back/.env.prod
+    environment:
+      # Rutas de datos DENTRO del contenedor (persisten en el volumen ./data).
+      DJANGO_SQLITE_PATH: /app/data/db.sqlite3
+      DJANGO_MEDIA_ROOT: /app/data/media
+      DJANGO_STATIC_ROOT: /app/data/staticfiles
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+    volumes:
+      - ${DATA_DIR:-./data}:/app/data
+    expose:
+      - "8000"            # solo visible para los fronts en la red interna del compose
+
+  front-gestion:
+    build:
+      context: .
+      dockerfile: front-gestion/Dockerfile
+    image: flota-front-gestion:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    profiles: ["gestion"]
+    depends_on:
+      - back
+    volumes:
+      # Estáticos de Django (admin/DRF) y media (documentos) en solo-lectura.
+      - ${DATA_DIR:-./data}:/data:ro
+    ports:
+      # SOLO interna/VPN. Para acceso desde la VPN cambia GESTION_BIND a la IP
+      # interna del servidor (p. ej. 10.3.4.6) o a 0.0.0.0; 127.0.0.1 = solo local.
+      - "${GESTION_BIND:-127.0.0.1}:${GESTION_PORT:-8093}:80"
+
+  front-conductores:
+    build:
+      context: .
+      dockerfile: front-conductores/Dockerfile
+    image: flota-front-conductores:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    profiles: ["conductores"]
+    depends_on:
+      - back
+    volumes:
+      - ${DATA_DIR:-./data}:/data:ro
+    ports:
+      # Se publica en loopback; el Cloudflare Tunnel (red host) lo alcanza aquí.
+      - "127.0.0.1:${CONDUCTORES_PORT:-8092}:80"

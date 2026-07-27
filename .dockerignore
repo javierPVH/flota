@@ -1,0 +1,28 @@
+# Contexto de build de los FRONTS (context = raíz del monorepo `flota/`).
+# Se reinstala/reconstruye dentro de la imagen: fuera todo lo pesado o local.
+
+# Node
+**/node_modules/
+**/dist/
+**/dist-app/
+.vite/
+*.local
+
+# Python / back (no lo necesita el build del front; evita subir BD y venv)
+back/.venv/
+back/__pycache__/
+**/__pycache__/
+back/db.sqlite3
+back/db.sqlite3-journal
+back/staticfiles/
+back/media/
+back/archive/
+back/data/
+
+# VCS / editores / secretos
+.git/
+.idea/
+.vscode/
+**/.env
+**/.env.*
+!**/.env.example

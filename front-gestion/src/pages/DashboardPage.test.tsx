@@ -85,20 +85,28 @@ describe('DashboardPage (vista general)', () => {
     mocks.listVehicles.mockResolvedValue({ count: 1, next: null, previous: null, results: [VEHICLE] })
   })
 
-  it('pinta KPIs, alerta y fila del listado con conductor', async () => {
+  it('pinta KPIs, fila del listado y el detalle de la alerta en su modal', async () => {
     renderHome()
     expect(await screen.findByText('Vista general')).toBeInTheDocument()
     expect(await screen.findByText('3 activos · 1 en taller')).toBeInTheDocument()
+    // El listado muestra la matrícula (una vez) y el conductor.
+    expect(await screen.findByText('Carlos Ruiz')).toBeInTheDocument()
+    expect(screen.getByText('1234KLM')).toBeInTheDocument()
+    // La tira abre el modal de alertas, donde sale el mensaje y la matrícula.
+    await userEvent.click(
+      screen.getByRole('button', { name: /Alertas que requieren atención/i }),
+    )
     expect(await screen.findByText('ITV vencida hace 6 días')).toBeInTheDocument()
-    // La matrícula sale en la tarjeta de alerta Y en la fila del listado.
-    expect(await screen.findAllByText('1234KLM')).toHaveLength(2)
-    expect(screen.getByText('Carlos Ruiz')).toBeInTheDocument()
+    expect(screen.getAllByText('1234KLM').length).toBeGreaterThanOrEqual(2)
   })
 
-  it('el chip "Sin conductor" pide assigned=false al back', async () => {
+  it('el filtro "Sin conductor" pide assigned=false al back', async () => {
     renderHome()
     await screen.findAllByText('1234KLM')
-    await userEvent.click(screen.getByRole('button', { name: 'Sin conductor' }))
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Filtrar por asignación' }),
+      'unassigned',
+    )
     expect(mocks.listVehicles).toHaveBeenLastCalledWith(
       expect.objectContaining({ assigned: false }),
     )

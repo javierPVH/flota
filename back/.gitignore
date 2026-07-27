@@ -5,6 +5,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!.env.prod.example
 
 # Base de datos / estáticos
 db.sqlite3

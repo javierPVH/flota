@@ -1,0 +1,21 @@
+# Regla de ingress para el Cloudflare Tunnel (config.yml local del servidor).
+#
+# SOLO conductores sale a internet. Gestión NO se añade aquí (es interna/VPN).
+#
+# 1) Añade el bloque de `- hostname:` de abajo a la lista `ingress:` de tu
+#    config.yml del túnel, ANTES de la regla final `- service: http_status:404`.
+# 2) Crea el registro DNS del hostname apuntando al túnel (CNAME al
+#    <ID-del-tunel>.cfargotunnel.com), normalmente `cloudflared tunnel route dns`.
+# 3) Recarga el túnel:  sudo docker restart cloudflared
+#
+# El servicio apunta a http://localhost:8092 porque cloudflared corre en red
+# host y ahí publica Flota el front de conductores (CONDUCTORES_PORT).
+
+ingress:
+  # ... (tus reglas actuales: list, sap-budget, travel_expenses, ...)
+
+  - hostname: flota-conductores.gransolar.com   # <-- tu dominio real
+    service: http://localhost:8092
+
+  # Regla final que ya tendrás al final de la lista:
+  - service: http_status:404
