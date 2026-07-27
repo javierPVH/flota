@@ -203,11 +203,6 @@ export function DashboardPage() {
               ]
             : undefined
         }
-        actions={
-          <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
-            {t.home.addVehicle}
-          </Button>
-        }
       />
 
       {error && <div role="alert" className="form-error">{error}</div>}
@@ -474,9 +469,6 @@ export function DashboardPage() {
               </button>
             </div>
             <div className="mng-actions">
-              <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
-                {t.home.addVehicle}
-              </Button>
               <Button variant="secondary" onClick={() => navigate('/vehiculos')}>
                 {m.seeAllVehicles}
               </Button>

@@ -1,16 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import {
-  Badge,
-  Button,
-  ButtonGroup,
-  Modal,
-  PageHeader,
-  SelectField,
-  StatCard,
-  TabButton,
-  TextInputField,
-} from '@flota/ui/ui'
+import { Badge, Button, Modal, PageHeader, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
@@ -436,9 +426,6 @@ export function VehicleDetailPage() {
             <Button variant="secondary" onClick={() => navigate(`/vehiculos/${vehicleId}/editar`)}>
               Editar
             </Button>
-            <Button variant="secondary" onClick={() => navigate(`/facturas?vehicle=${vehicleId}`)}>
-              Refacturar
-            </Button>
             {vehicle.state !== 'retired' && (
               <>
                 <Button variant="secondary" onClick={() => openOps('state')}>
@@ -533,14 +520,24 @@ export function VehicleDetailPage() {
           actions={
             view && (
               <div className="km-card-actions">
-                <ButtonGroup>
-                  <TabButton active={kmView === 'annual'} onClick={() => setKmView('annual')}>
+                <div className="km-switch" role="group" aria-label="Vista de km contratados">
+                  <button
+                    type="button"
+                    className={kmView === 'annual' ? 'is-active' : ''}
+                    aria-pressed={kmView === 'annual'}
+                    onClick={() => setKmView('annual')}
+                  >
                     Anual
-                  </TabButton>
-                  <TabButton active={kmView === 'contract'} onClick={() => setKmView('contract')}>
+                  </button>
+                  <button
+                    type="button"
+                    className={kmView === 'contract' ? 'is-active' : ''}
+                    aria-pressed={kmView === 'contract'}
+                    onClick={() => setKmView('contract')}
+                  >
                     Contrato completo
-                  </TabButton>
-                </ButtonGroup>
+                  </button>
+                </div>
                 <Badge tone={kmLevelTone(view.level)}>
                   {view.level === 'within'
                     ? 'Dentro'
