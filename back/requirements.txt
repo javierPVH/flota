@@ -26,9 +26,11 @@ gunicorn>=23.0,<24.0
 # Notificaciones push del móvil (M8, Web Push/VAPID).
 pywebpush>=2.0,<3.0
 
+# PostgreSQL (activa con DB_ENGINE=postgres). Driver psycopg 3 con libpq incluida.
+psycopg[binary]>=3.2,<4.0
+
 # --- Opcionales (descomentar según necesidad) ----------------------------
-# PostgreSQL (activa con DB_ENGINE=postgres):
-# psycopg[binary]>=3.2,<4.0
+# Cache/rate-limit exactos entre workers (activa con REDIS_URL):
 # Cache/rate-limit exactos entre workers (activa con REDIS_URL):
 # redis>=5.0,<6.0
 # Cobertura de tests en CI:
