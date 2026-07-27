@@ -16,6 +16,10 @@ const LEVEL_META: Record<string, { label: string; className: string }> = {
   over: { label: 'Riesgo exceso', className: 'level-over' },
 }
 
+// Sección "Simulador e histórico" oculta (decisión de producto). Ponlo a `true`
+// para restaurar el simulador de ritmo y el histórico de lecturas por vehículo.
+const SHOW_SIMULATOR = false
+
 interface Row {
   vehicle: Vehicle
   summary: VehicleSummary
@@ -255,6 +259,7 @@ export function MileagePage() {
           </section>
 
           {/* Simulador + histórico por vehículo (HU-3.4/3.6) */}
+          {SHOW_SIMULATOR && (
           <section className="card">
             <div className="section-head">
               <h3>Simulador e histórico</h3>
@@ -343,6 +348,7 @@ export function MileagePage() {
               </>
             )}
           </section>
+          )}
         </>
       )}
     </div>
