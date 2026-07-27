@@ -162,12 +162,12 @@ async function requestReauth(): Promise<boolean> {
  * [EN] HTTP error carrying the status code so apps can branch on it.
  */
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
+  readonly status: number
+
+  constructor(message: string, status: number) {
     super(message)
     this.name = 'ApiError'
+    this.status = status
   }
 }
 

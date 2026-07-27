@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Badge, Button, Modal, PageHeader, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
+import {
+  Badge,
+  Button,
+  ButtonGroup,
+  Modal,
+  PageHeader,
+  SelectField,
+  StatCard,
+  TabButton,
+  TextInputField,
+} from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
@@ -173,6 +183,10 @@ export function VehicleDetailPage() {
 
   // Día seleccionado en la línea temporal de cambios (solo admin).
   const [timelineDay, setTimelineDay] = useState<TimelineDay | null>(null)
+
+  // Vista de la tarjeta de km: 'annual' = año en curso (cupo anual proporcional),
+  // 'contract' = total del contrato. Conmuta gráfica + cifras + penalización.
+  const [kmView, setKmView] = useState<'annual' | 'contract'>('annual')
 
   const [kmModal, setKmModal] = useState(false)
   const [kmValue, setKmValue] = useState('')
@@ -365,10 +379,43 @@ export function VehicleDetailPage() {
 
   const contract = summary?.contract ?? null
   const projection = summary?.projection ?? null
-  const pctConsumed =
-    contract?.contract_km && summary?.km_driven != null
-      ? Math.min(100, Math.round((summary.km_driven / contract.contract_km) * 100))
+
+  // Cifras según la vista elegida: 'annual' usa el cupo/proyección del AÑO en curso
+  // (reparto proporcional); 'contract' usa los totales del contrato completo.
+  const kmAnnual = kmView === 'annual'
+  const yearDriven =
+    projection && summary?.km_current != null
+      ? Math.max(0, summary.km_current - projection.year_start_km)
       : null
+  const view =
+    projection && contract?.contract_km
+      ? kmAnnual
+        ? {
+            level: projection.annual_level,
+            limit: projection.annual_km,
+            projected: projection.annual_projected,
+            pct: projection.annual_pct,
+            overage: projection.annual_overage_km,
+            penalty: projection.annual_estimated_penalty,
+            driven: yearDriven,
+            remaining: projection.annual_km - (yearDriven ?? 0),
+          }
+        : {
+            level: projection.level,
+            limit: contract.contract_km,
+            projected: projection.projected_end,
+            pct: projection.pct_of_limit,
+            overage: projection.overage_km,
+            penalty: projection.estimated_penalty,
+            driven: summary?.km_driven ?? null,
+            remaining: projection.km_remaining,
+          }
+      : null
+  const pctConsumed =
+    view && view.driven != null && view.limit
+      ? Math.min(100, Math.round((view.driven / view.limit) * 100))
+      : null
+  const totalYears = projection ? Math.max(1, Math.ceil(projection.contract_years)) : 0
 
   return (
     <div className="vehicle-detail">
@@ -484,58 +531,104 @@ export function VehicleDetailPage() {
           accordion={accordion}
           title="Kilómetros contratados"
           actions={
-            projection && (
-              <Badge tone={kmLevelTone(projection.level)}>
-                {projection.level === 'within'
-                  ? 'Dentro'
-                  : projection.level === 'watch'
-                    ? 'A vigilar'
-                    : 'Riesgo de exceso'}
-              </Badge>
+            view && (
+              <div className="km-card-actions">
+                <ButtonGroup>
+                  <TabButton active={kmView === 'annual'} onClick={() => setKmView('annual')}>
+                    Anual
+                  </TabButton>
+                  <TabButton active={kmView === 'contract'} onClick={() => setKmView('contract')}>
+                    Contrato completo
+                  </TabButton>
+                </ButtonGroup>
+                <Badge tone={kmLevelTone(view.level)}>
+                  {view.level === 'within'
+                    ? 'Dentro'
+                    : view.level === 'watch'
+                      ? 'A vigilar'
+                      : 'Riesgo de exceso'}
+                </Badge>
+              </div>
             )
           }
         >
-          {pctConsumed !== null && summary?.km_driven != null && (
+          {view && projection && (
+            <p className="km-view-caption muted">
+              {kmAnnual
+                ? `Cupo anual proporcional · Año ${projection.year_index + 1} de ${totalYears}` +
+                  ` (${projection.year_start_date} → ${projection.year_end_date})`
+                : `Total del contrato · ${km(contract.contract_km)} en ${totalYears} año${totalYears === 1 ? '' : 's'}`}
+            </p>
+          )}
+          {pctConsumed !== null && view && view.driven != null && (
             <>
               <div className="km-progress">
                 <div
-                  className={`km-progress-fill ${projection ? `level-${projection.level}` : ''}`}
+                  className={`km-progress-fill level-${view.level}`}
                   style={{ width: `${pctConsumed}%` }}
                 />
               </div>
               <p className="km-progress-legend">
-                {km(summary.km_driven)} de {km(contract.contract_km)} ({pctConsumed}%)
-                {projection ? ` · quedan ${km(Math.max(0, projection.km_remaining))}` : ''}
+                {km(view.driven)} de {km(view.limit)} ({pctConsumed}%) · quedan{' '}
+                {km(Math.max(0, view.remaining))}
+                {kmAnnual ? ' este año' : ''}
               </p>
             </>
           )}
-          {projection && (
+          {view && projection && (
             <div className="km-tiles">
               <div className="km-tile">
                 <span>Media mensual</span>
                 <strong>{km(projection.monthly_avg)}</strong>
               </div>
               <div className="km-tile">
-                <span>Ritmo contratado</span>
-                <strong>{projection.contracted_rate ? `${km(projection.contracted_rate)}/mes` : '—'}</strong>
-              </div>
-              <div className={`km-tile ${projection.level === 'over' ? 'tile-over' : ''}`}>
-                <span>Proyección a fin</span>
+                <span>{kmAnnual ? 'Cupo anual' : 'Ritmo contratado'}</span>
                 <strong>
-                  {km(projection.projected_end)} ({projection.pct_of_limit}%)
+                  {kmAnnual
+                    ? km(projection.annual_km)
+                    : projection.contracted_rate
+                      ? `${km(projection.contracted_rate)}/mes`
+                      : '—'}
+                </strong>
+              </div>
+              <div className={`km-tile ${view.level === 'over' ? 'tile-over' : ''}`}>
+                <span>{kmAnnual ? 'Proyección anual' : 'Proyección a fin'}</span>
+                <strong>
+                  {km(view.projected)} ({view.pct}%)
                 </strong>
               </div>
             </div>
           )}
-          {projection && projection.overage_km > 0 && (
+          {view && view.overage > 0 && (
             <div className="penalty-warning">
-              ⚠️ Exceso previsto de <strong>{km(projection.overage_km)}</strong>
-              {projection.estimated_penalty
-                ? ` — penalización estimada ${eur(projection.estimated_penalty)}`
+              ⚠️ Exceso previsto {kmAnnual ? 'este año' : 'a fin de contrato'} de{' '}
+              <strong>{km(view.overage)}</strong>
+              {view.penalty
+                ? ` — penalización estimada ${eur(view.penalty)}`
                 : ' (el contrato no tiene €/km para estimar la penalización)'}
             </div>
           )}
-          <KmChart readings={readings} />
+          <KmChart
+            readings={readings}
+            overlay={
+              projection && contract.contract_km
+                ? {
+                    mode: kmAnnual ? 'year' : 'contract',
+                    today: today(),
+                    kmStart: vehicle.km_start ?? 0,
+                    contractKm: contract.contract_km,
+                    contractStart: contract.start_date,
+                    contractEnd: contract.planned_end_date,
+                    contractMonths: contract.contract_time,
+                    annualKm: projection.annual_km,
+                    yearStart: projection.year_start_date,
+                    yearEnd: projection.year_end_date,
+                    yearStartKm: projection.year_start_km,
+                    yearIndex: projection.year_index,
+                  }
+                : undefined
+            }
+          />
         </CollapsibleCard>
       )}
 
@@ -575,7 +668,12 @@ export function VehicleDetailPage() {
               <dt>Duración</dt>
               <dd>{contract.contract_time ? `${contract.contract_time} meses` : '—'}</dd>
               <dt>Km contratados</dt>
-              <dd>{contract.contract_km ? km(contract.contract_km) : '—'}</dd>
+              <dd>
+                {contract.contract_km ? km(contract.contract_km) : '—'}
+                {contract.contract_km && contract.contract_time
+                  ? ` · cupo ${km(Math.round(contract.contract_km / (contract.contract_time / 12)))}/año`
+                  : ''}
+              </dd>
               <dt>Penalización</dt>
               <dd>{contract.penalty_per_km ? `${contract.penalty_per_km} €/km` : '—'}</dd>
             </dl>

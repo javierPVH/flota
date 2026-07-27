@@ -204,7 +204,8 @@ def seed_users(stdout=None) -> None:
 
 
 def seed_catalogs(stdout=None) -> None:
-    for model in (Renting, Pep, Project, BusinessUnit, Country):
+    # Project.cost_center → Pep es PROTECT: hay que vaciar Project ANTES que Pep.
+    for model in (Renting, Project, Pep, BusinessUnit, Country):
         wipe(model, stdout)
     Country.objects.create(name="España")
     BusinessUnit.objects.create(code="OPS", name="Operaciones")

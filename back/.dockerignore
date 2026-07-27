@@ -1,0 +1,25 @@
+# Entorno / secretos locales (NUNCA en la imagen: se pasan por compose)
+.venv/
+.env
+.env.*
+!.env.example
+
+# Caches de Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Datos locales (se persisten en volumen, no en la imagen)
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+archive/
+
+# Docker / VCS
+Dockerfile
+.dockerignore
+.git/
