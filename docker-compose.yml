@@ -1,40 +1,65 @@
-# Despliegue de PRODUCCIÓN de Flota en el servidor srvgcptd (Docker + Cloudflare Tunnel).
+# Despliegue de PRODUCCIÓN de Flota en srvgcptd (Docker + Cloudflare Tunnel).
 #
-#   back                -> Django + DRF (gunicorn).   SOLO red interna (sin puerto host).
+#   db                  -> PostgreSQL propio de Flota.   SOLO red interna (aislado).
+#   back                -> Django + DRF (gunicorn).      SOLO red interna.
 #   front-gestion       -> nginx: SPA + proxy /api,/admin -> back.   profile: gestion
 #   front-conductores   -> nginx: SPA + proxy /api      -> back.     profile: conductores
 #
-# Cada front es una PUERTA completa de su dominio (sirve el SPA y reenvía /api al
-# back por la red interna), publicada en loopback del servidor:
+# Cada front es una PUERTA completa de su dominio, publicada en loopback:
 #   · conductores -> 127.0.0.1:8092   (se cuelga del Cloudflare Tunnel = internet)
 #   · gestion     -> 127.0.0.1:8093   (SOLO interna/VPN, NUNCA en el túnel)
 #
-# QUÉ APPS SE LEVANTAN: variable COMPOSE_PROFILES en `.env` (el back va siempre).
-#   COMPOSE_PROFILES=gestion | conductores | gestion,conductores
+# La BD y sus credenciales viven en el `.env` de infra (DB_NAME/DB_USER/DB_PASSWORD):
+# las usan tanto `db` (POSTGRES_*) como `back` (DB_*), así no se duplican.
 #
 #   docker compose up -d --build
 
 name: flota
 
 services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-flota}
+      POSTGRES_USER: ${DB_USER:-flota}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en .env (sin el símbolo $)}
+    volumes:
+      - flota_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-flota} -d ${DB_NAME:-flota}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Sin `ports`: aislada, solo accesible por la red interna del compose.
+
   back:
     build:
       context: ./back
       dockerfile: Dockerfile
     image: flota-back:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     env_file:
       - ./back/.env.prod
     environment:
-      # Rutas de datos DENTRO del contenedor (persisten en el volumen ./data).
-      DJANGO_SQLITE_PATH: /app/data/db.sqlite3
+      # BD (fuente única: el .env de infra). Sobreescribe lo que hubiera en el env_file.
+      DB_ENGINE: postgres
+      DB_NAME: ${DB_NAME:-flota}
+      DB_USER: ${DB_USER:-flota}
+      DB_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en .env (sin el símbolo $)}
+      DB_HOST: db
+      DB_PORT: "5432"
+      # Media y estáticos siguen en el volumen ./data.
       DJANGO_MEDIA_ROOT: /app/data/media
       DJANGO_STATIC_ROOT: /app/data/staticfiles
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
     volumes:
       - ${DATA_DIR:-./data}:/app/data
     expose:
-      - "8000"            # solo visible para los fronts en la red interna del compose
+      - "8000"
 
   front-gestion:
     build:
@@ -46,7 +71,6 @@ services:
     depends_on:
       - back
     volumes:
-      # Estáticos de Django (admin/DRF) y media (documentos) en solo-lectura.
       - ${DATA_DIR:-./data}:/data:ro
     ports:
       # SOLO interna/VPN. Para acceso desde la VPN cambia GESTION_BIND a la IP
@@ -65,5 +89,7 @@ services:
     volumes:
       - ${DATA_DIR:-./data}:/data:ro
     ports:
-      # Se publica en loopback; el Cloudflare Tunnel (red host) lo alcanza aquí.
       - "127.0.0.1:${CONDUCTORES_PORT:-8092}:80"
+
+volumes:
+  flota_pgdata:
