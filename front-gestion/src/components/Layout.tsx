@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Base, Modal } from '@flota/ui/ui'
 
 import { useLang } from '../i18n.tsx'
@@ -23,6 +23,7 @@ const GO_KEYS = [
 
 export function Layout() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { t } = useLang()
   const [sheetOpen, setSheetOpen] = useState(false)
 
@@ -88,7 +89,10 @@ export function Layout() {
     <>
       <Base
         header={<AppHeader />}
-        section={{ content: <Outlet /> }}
+        // `key` por ruta: fuerza a que el contenido del shell se remonte al cambiar
+        // de URL. Blinda la navegación del menú (☰) ante un <Outlet> que no seguía
+        // el cambio de ruta ("la URL cambiaba pero la página no se refrescaba").
+        section={{ content: <Outlet key={location.pathname} /> }}
         footer={{ brand: 'Flota', contact: 'Gestión de flota Console' }}
       />
       <Modal open={sheetOpen} title={t.shortcuts.title} onClose={() => setSheetOpen(false)}>

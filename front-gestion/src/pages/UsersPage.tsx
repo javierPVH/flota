@@ -10,6 +10,7 @@ import {
   type ManagedUserInput,
   createUser,
   deactivateUser,
+  fetchAuthConfig,
   listAll,
   listUsers,
   updateUser,
@@ -76,6 +77,17 @@ export function UsersPage() {
   const [form, setForm] = useState<FormState>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
+
+  // Si Google está desactivado, la contraseña es el ÚNICO método de acceso: sin
+  // ella el alta crea un usuario que no puede entrar (contraseña inutilizable).
+  // Por eso, con Google off, la contraseña es obligatoria al crear.
+  const [googleEnabled, setGoogleEnabled] = useState(false)
+  useEffect(() => {
+    fetchAuthConfig()
+      .then((cfg) => setGoogleEnabled(cfg.google_enabled))
+      .catch(() => setGoogleEnabled(false))
+  }, [])
+  const passwordRequiredOnCreate = !editing && !googleEnabled
 
   const load = useCallback(() => {
     setLoading(true)
@@ -356,11 +368,20 @@ export function UsersPage() {
               onValueChange={(value) => setForm((f) => ({ ...f, license_type: value }))}
             />
             <TextInputField
-              label={editing ? 'Nueva contraseña (opcional)' : 'Contraseña (opcional)'}
+              label={
+                editing
+                  ? 'Nueva contraseña (opcional)'
+                  : passwordRequiredOnCreate
+                    ? 'Contraseña'
+                    : 'Contraseña (opcional)'
+              }
               type="password"
               value={form.password}
               onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
               autoComplete="new-password"
+              required={passwordRequiredOnCreate}
+              requiredVisual={passwordRequiredOnCreate}
+              minLength={8}
             />
           </div>
           <label className="baja-toggle">
@@ -393,7 +414,9 @@ export function UsersPage() {
           </div>
           {!editing && (
             <p className="muted" style={{ margin: 0 }}>
-              Sin contraseña, el usuario solo podrá entrar con Google.
+              {passwordRequiredOnCreate
+                ? 'Obligatoria: es el único método de acceso (login con Google desactivado). Mínimo 8 caracteres; evita contraseñas comunes o solo numéricas.'
+                : 'Sin contraseña, el usuario solo podrá entrar con Google.'}
             </p>
           )}
           {formError && <div role="alert" className="form-error">{formError}</div>}
