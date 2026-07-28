@@ -885,15 +885,24 @@ export function TableWithPanel<RowType extends object>({
   }
 
   function handleColumnSortChange(columnKey: string, state: MiniSortState) {
+    // Bail-out si no hay cambio: los MiniToolsButtons de cada cabecera notifican
+    // su estado en cada render (su efecto depende de la identidad del callback);
+    // sin este guard, cada notificación crearía un objeto nuevo → re-render →
+    // bucle infinito ("Maximum update depth exceeded").
+    setColumnSortStates((prev) => (prev[columnKey] === state ? prev : { ...prev, [columnKey]: state }))
     if (enablePagination) setCurrentPage(1)
-    setColumnSortStates((prev) => ({ ...prev, [columnKey]: state }))
   }
 
   function handleColumnLockChange(columnKey: string, locked: boolean, badge: number | null) {
     if (locked) {
-      setColumnLockOrders((prev) => ({ ...prev, [columnKey]: badge ?? (Object.keys(prev).length + 1) }))
+      setColumnLockOrders((prev) =>
+        columnKey in prev ? prev : { ...prev, [columnKey]: badge ?? (Object.keys(prev).length + 1) },
+      )
     } else {
       setColumnLockOrders((prev) => {
+        // No estaba bloqueada → nada que cambiar. Devolver `prev` evita el
+        // re-render y rompe el bucle de notificación de los MiniToolsButtons.
+        if (!(columnKey in prev)) return prev
         const next = { ...prev }
         delete next[columnKey]
         return next

@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
   Bell,
@@ -54,6 +54,7 @@ export function AppHeader() {
   const { user, logout } = useAuth()
   const { language, setLanguage, t } = useLang()
   const navigate = useNavigate()
+  const location = useLocation()
   const [navOpen, setNavOpen] = useState(false)
   const menuBtnRef = useRef<HTMLButtonElement | null>(null)
   // Posición del menú (anclado al botón, en coordenadas de viewport para el portal).
@@ -76,6 +77,13 @@ export function AppHeader() {
     if (!SHOW_BELL) return
     void loadAlerts()
   }, [])
+
+  // Cerrar el menú/campana al navegar: no dependemos solo del onClick del enlace
+  // (que se ejecuta mientras el portal se desmonta). Al cambiar la ruta, cerramos.
+  useEffect(() => {
+    setNavOpen(false)
+    setBellOpen(false)
+  }, [location.pathname])
 
   // Cerrar menú/campana con Escape (el clic fuera lo captura cada backdrop).
   useEffect(() => {
