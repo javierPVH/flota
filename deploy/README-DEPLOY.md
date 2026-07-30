@@ -126,10 +126,16 @@ sh deploy/backup.sh /srv/backups/flota
 - **Backups**: `deploy/backup.sh` — `pg_dump` de la BD + tar de la media, con
   retención (`BACKUP_RETENTION_DAYS`, 14 días por defecto). Prueba la
   restauración al configurarlo (comandos en el propio script).
-- **⚠️ RGPD (conductores es público)**: `/media` se sirve por ruta directa. Si
-  guardas documentos con datos personales, protégelo (auth interna vía
-  `X-Accel-Redirect` desde el back) o usa el archivado en Google Drive. Está
-  marcado en `front-conductores/nginx.conf`.
+- **RGPD (conductores es público)**: resuelto (SEC3) — `/media` ya NO se sirve
+  por ruta directa: nginx reenvía a Django, que exige sesión y responde con
+  `X-Accel-Redirect` a una location `internal`. No requiere configuración.
+- **Push (N9)**: para activar las notificaciones push genera un par VAPID
+  (`python -m py_vapid --gen`) y define `WEBPUSH_VAPID_PUBLIC_KEY`,
+  `WEBPUSH_VAPID_PRIVATE_KEY` y `WEBPUSH_CONTACT` en `back/.env` (ver
+  `back/.env.prod.example`). Sin claves, el push queda deshabilitado sin error.
+- **Correo saliente (N10a)**: define `EMAIL_HOST`/`EMAIL_PORT`/`EMAIL_HOST_USER`/
+  `EMAIL_HOST_PASSWORD`/`DEFAULT_FROM_EMAIL` para los avisos por email (seguro →
+  renting, km → conductor). Sin `EMAIL_HOST` el envío es un no-op con traza.
 - **Cookies no-Secure**: es a propósito porque gestión va por http interno; ver
   la explicación en `back/.env.prod.example`. Si pones TLS interno a gestión,
   vuelve a `SESSION_COOKIE_SECURE=True` y `CSRF_COOKIE_SECURE=True`.

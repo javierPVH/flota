@@ -1,9 +1,9 @@
 /**
  * i18n de la app de gestión (G12): `createI18n` del DS con diccionarios es/en.
  *
- * Cubre el shell y la Vista general; el resto de páginas sigue en castellano y
- * se traduce incrementalmente añadiendo claves aquí (el diccionario es tipado:
- * si falta una clave en un idioma, no compila).
+ * Cubre el shell y las secciones transversales; cada página tiene además su
+ * módulo en `src/translations/<ns>.ts`. El diccionario es tipado: si falta una
+ * clave en un idioma, no compila.
  */
 
 import { createI18n } from '@flota/ui/i18n'
@@ -40,6 +40,25 @@ const es = {
     seeAllAlerts: 'Ver todas las alertas →',
     navGroups: { general: 'General', fleet: 'Flota', requests: 'Solicitudes', admin: 'Administración' },
     language: 'Cambiar de idioma',
+    footerBrand: 'Flota',
+    footerContact: 'Gestión de flota Console',
+  },
+  timeline: {
+    groupAria: 'Línea temporal de cambios',
+    dayAria: (date: string, count: number) => `${date}: ${count} cambio(s) — ver detalle`,
+    moreItems: (n: number) => `… y ${n} más`,
+    tipHint: 'Click para ver el detalle',
+    modalTitle: (date: string) => `Cambios del ${date}`,
+    event: 'Evento',
+    audit: 'Auditoría',
+  },
+  adminGate: {
+    title: 'Sin acceso',
+    onlyFor: 'Este front es solo para',
+    role: 'administración',
+    noRole: (username: string) =>
+      `. Tu usuario (${username}) no tiene ese rol; usa la app de campo (conductores / supervisores).`,
+    logout: 'Cerrar sesión',
   },
   common: {
     loading: 'Cargando…',
@@ -217,6 +236,25 @@ const en: typeof es = {
     seeAllAlerts: 'See all alerts →',
     navGroups: { general: 'General', fleet: 'Fleet', requests: 'Requests', admin: 'Administration' },
     language: 'Change language',
+    footerBrand: 'Flota',
+    footerContact: 'Fleet Management Console',
+  },
+  timeline: {
+    groupAria: 'Timeline of changes',
+    dayAria: (date: string, count: number) => `${date}: ${count} change(s) — view detail`,
+    moreItems: (n: number) => `… and ${n} more`,
+    tipHint: 'Click to see the detail',
+    modalTitle: (date: string) => `Changes on ${date}`,
+    event: 'Event',
+    audit: 'Audit',
+  },
+  adminGate: {
+    title: 'No access',
+    onlyFor: 'This app is only for',
+    role: 'administration',
+    noRole: (username: string) =>
+      `. Your user (${username}) does not have that role; use the field app (drivers / supervisors).`,
+    logout: 'Log out',
   },
   common: {
     loading: 'Loading…',

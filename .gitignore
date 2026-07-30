@@ -25,3 +25,4 @@ back/archive/
 .idea/
 .vscode/
 *.log
+.eslintcache

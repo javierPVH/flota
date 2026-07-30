@@ -1,3 +1,4 @@
+import { todayIso } from '@flota/ui/domain'
 import type { AppLanguage } from '@flota/ui/i18n'
 import type { VehicleSummary } from './types'
 
@@ -16,11 +17,9 @@ export function fmtKm(value: number | null | undefined, lang: AppLanguage = 'es'
   return `${value.toLocaleString(LOCALE[lang])} km`
 }
 
-/** Hoy en formato de <input type="date"> (zona LOCAL, no UTC). Único punto:
- * antes estaba duplicado en 4 ficheros (E2 de OPTIMIZACION_Y_ERRORES.md). */
 /** ¿Falta la lectura de odómetro de este mes? (HU-3.2) */
 export function pendingThisMonth(summary: VehicleSummary): boolean {
-  const month = new Date().toISOString().slice(0, 7)
+  const month = todayIso().slice(0, 7) // mes LOCAL, no UTC (doctrina E2/E6)
   return !summary.km_reading_date || !summary.km_reading_date.startsWith(month)
 }
 

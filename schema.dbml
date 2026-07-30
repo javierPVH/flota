@@ -1,11 +1,3 @@
-// **Ampliaciones 2026-07 (N1–N10, ver PLAN_EVOLUCION.md)** — no reflejadas aún
-// en el diagrama: `Vehicle.insurance_expiry_date`, `Vehicle.unlimited_km`,
-// FKs `brand_ref`/`model_ref`/`company` (catálogos `Brand`, `VehicleModel`,
-// `Company`), mixin de soft-delete (`is_active`, `deactivated_at/by`, motivo) en
-// catálogos/documentos/incidencias/facturas/lecturas, `KmReading.estimated`,
-// `Renting.email`/`contact_name` y los modelos de correo `EmailTemplate`,
-// `EmailSignature`, `EmailLog`.
-
 // =============================================================================
 // Flota — esquema de base de datos en DBML (dbdiagram.io / dbml.dbdiagram.io)
 // -----------------------------------------------------------------------------
@@ -19,6 +11,13 @@
 //     que en Django mapean a User, UserRole, KmReading… (ver nota en cada tabla).
 //   - Todas las tablas de dominio (fleet.*) llevan created_at/updated_at
 //     (TimeStampedModel); se incluyen solo donde el modelo los expone en la API.
+//   - Soft-delete (N7) — DeactivatableModel: is_active, deactivated_at,
+//     deactivated_by FK→drivers, deactivation_reason — presente en: los 8
+//     catálogos (country, business_unit, projects, pep, renting, brands,
+//     vehicle_models, companies), documents, incidents, invoices,
+//     invoice_allocations, kms, email_templates, email_signatures. Las 4
+//     columnas se omiten en cada tabla por brevedad: nada se borra, se
+//     desactiva (espacio de erratas) y solo el superusuario purga.
 //   - Los enums replican las TextChoices de `back/**/enums`.
 // =============================================================================
 
@@ -164,6 +163,7 @@ Enum incident_status_enum {
 
 Enum alert_type_enum {
   itv_due
+  insurance_due   // N2: seguro próximo / vencido
   km_reading_pending
   km_overage
   no_driver
@@ -197,6 +197,19 @@ Enum fuel_enum {
   other
 }
 
+Enum email_template_key_enum {
+  insurance_due       // a la empresa de renting
+  km_overage          // al conductor
+  km_reading_pending  // al conductor
+  generic             // resto de avisos
+}
+
+Enum email_log_status_enum {
+  sent
+  failed
+  skipped  // sin destinatario / deshabilitado
+}
+
 // ---------------------------------------------------------------------------
 // Personas y roles
 // ---------------------------------------------------------------------------
@@ -224,6 +237,18 @@ Table driver_roles {
     (user_id, role) [unique, name: 'uq_user_role']
   }
   Note: 'Django UserRole. Multi-rol: una persona puede acumular varios (p. ej. supervisor que además conduce).'
+}
+
+Table push_subscriptions {
+  id int [pk, increment]
+  user_id int [not null, ref: > drivers.id]
+  endpoint varchar [not null, unique, note: 'URL del push service; identifica el dispositivo']
+  p256dh varchar [not null]
+  auth varchar [not null]
+  user_agent varchar
+  created_at datetime
+
+  Note: 'Django accounts.PushSubscription (M8): suscripción Web Push por dispositivo (un usuario puede tener varias). p256dh/auth cifran el payload extremo a extremo; las suscripciones muertas (404/410) se podan al enviar.'
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +281,33 @@ Table pep {
 Table renting {
   id int [pk, increment]
   name varchar [not null]
+  email varchar [note: 'N10a: destinatario de los avisos de seguro (alerta insurance_due)']
+  contact_name varchar
+}
+
+Table brands {
+  id int [pk, increment]
+  name varchar [not null, unique]
+  Note: 'N5: marca del vehículo (catálogo; antes texto libre en vehicles.brand).'
+}
+
+Table vehicle_models {
+  id int [pk, increment]
+  brand_id int [not null, ref: > brands.id, note: 'PROTECT: no se borra una marca con modelos']
+  name varchar [not null]
+
+  indexes {
+    (brand_id, name) [unique, name: 'uniq_model_per_brand']
+  }
+  Note: 'N5: modelo del vehículo — depende de la marca (no hay modelo sin marca).'
+}
+
+Table companies {
+  id int [pk, increment]
+  code varchar [not null, unique]
+  name varchar [not null]
+  description text
+  Note: 'N5: sociedad titular del vehículo.'
 }
 
 // ---------------------------------------------------------------------------
@@ -264,8 +316,11 @@ Table renting {
 Table vehicles {
   id int [pk, increment]
   plate varchar [not null, unique]
-  brand varchar [not null]
-  model varchar [not null]
+  brand varchar [not null, note: 'legado denormalizado (N5): se rellena desde brand_ref en el serializer hasta retirarlo']
+  model varchar [not null, note: 'legado denormalizado (N5): se rellena desde model_ref en el serializer hasta retirarlo']
+  brand_ref_id int [ref: > brands.id, note: 'N5: marca por catálogo (PROTECT)']
+  model_ref_id int [ref: > vehicle_models.id, note: 'N5: modelo por catálogo (PROTECT)']
+  company_id int [ref: > companies.id, note: 'N5: sociedad titular (PROTECT)']
   version varchar
   year int
   vin varchar
@@ -287,6 +342,8 @@ Table vehicles {
   consumption int
   km_start int
   km_end int
+  unlimited_km boolean [not null, default: false, note: 'N3: sin proyección de km ni alertas de exceso; el contrato puede no llevar km contratados']
+  insurance_expiry_date date [note: 'N2: editable en ficha y sincronizado al subir un documento de seguro; alimenta la alerta insurance_due (30/15/7)']
   next_itv_date date [note: 'denormalizado del último event_itvs.next_due; lo refresca un job']
   drive_folder_url varchar [note: 'carpeta documental en Drive (HU-4.2)']
   drive_folder_id varchar [note: 'ID de la carpeta en Google Drive (Fase A3)']
@@ -294,6 +351,7 @@ Table vehicles {
   indexes {
     state
     next_itv_date
+    insurance_expiry_date
   }
   Note: 'El conductor NO es un campo directo: va por assignments. supervisor_id es el responsable (opcional).'
 }
@@ -322,6 +380,7 @@ Table kms {
   vehicle_id int [not null, ref: > vehicles.id]
   reading_date date
   km_reading int [note: 'odómetro acumulado; no puede retroceder (HU-3.1)']
+  estimated boolean [not null, default: false, note: "N8b: creada por 'completar km faltantes' (media de N meses), no registrada por una persona"]
 
   indexes {
     (vehicle_id, reading_date)
@@ -514,4 +573,38 @@ Table vehicle_requests {
   jira_key varchar [note: 'issue de Jira; único cuando no está vacío (partial unique)']
   status vehicle_request_status_enum [not null, default: 'approved']
   notes text
+}
+
+// ---------------------------------------------------------------------------
+// Correo de alertas (N10 — plantillas, firmas y registro de envíos)
+// ---------------------------------------------------------------------------
+Table email_signatures {
+  id int [pk, increment]
+  name varchar [not null, unique]
+  body_html text
+
+  Note: 'N10c: firmas reutilizables, seleccionables por plantilla.'
+}
+
+Table email_templates {
+  id int [pk, increment]
+  key email_template_key_enum [not null, unique]
+  subject varchar [not null]
+  body_html text [not null, note: 'HTML saneado en servidor (nh3); variables {{matricula}}, {{conductor}}… interpoladas con allowlist']
+  signature_id int [ref: > email_signatures.id, note: 'SET_NULL']
+
+  Note: 'N10b: una plantilla por tipo de alerta (+ genérica), editable desde el gestor maestro.'
+}
+
+Table email_logs {
+  id int [pk, increment]
+  alert_id int [ref: > alerts.id, note: 'SET_NULL: la traza sobrevive a la alerta']
+  template_key varchar
+  recipient varchar
+  subject varchar
+  status email_log_status_enum [not null]
+  error text
+  created_at datetime
+
+  Note: 'N10a: traza de cada envío (destinatario, plantilla, alerta, estado) para soporte.'
 }

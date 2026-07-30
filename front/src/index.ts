@@ -1,5 +1,5 @@
-// Barrel raíz de @gs/base.
-// Re-exporta selectivamente los módulos públicos. Se irá poblando por fases.
+// Barrel raíz de @flota/ui, el design system del monorepo.
+// Re-exporta selectivamente los módulos públicos.
 export * from './utils/index.ts'
 export * from './http/index.ts'
 export * from './auth/index.ts'

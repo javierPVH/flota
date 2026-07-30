@@ -72,7 +72,11 @@ class Command(BaseCommand):
 
         # OPS3: rechaza el placeholder del .env de ejemplo y contraseñas débiles
         # (este usuario es además el SUPERUSUARIO del purge de erratas, N7).
-        if password.strip().lower() in {"cambia-esto", "changeme", "admin", "password"}:
+        normalized = password.strip().lower().replace("_", "-").replace(" ", "-")
+        if (
+            normalized in {"changeme", "admin", "password"}
+            or "cambia" in normalized  # cubre CAMBIA_ESTA_CONTRASEÑA y variantes
+        ):
             raise CommandError(
                 "bootstrap_admin: ADMIN_PASSWORD es un placeholder — pon una "
                 "contraseña real en el .env."

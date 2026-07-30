@@ -1,5 +1,5 @@
 # Backend Flota (Django + DRF) servido con gunicorn en producción.
-FROM python:3.12-slim AS runtime
+FROM python:3.13-slim AS runtime
 
 # - PYTHONUNBUFFERED: logs sin buffer (se ven en `docker logs` al instante).
 # - PIP_NO_CACHE_DIR: imagen más pequeña.
@@ -22,7 +22,8 @@ RUN pip install -r requirements.txt
 # Código de la aplicación.
 COPY . .
 
-# Usuario sin privilegios y carpeta de datos (BD SQLite + media) con permisos.
+# Usuario sin privilegios y carpeta de datos (media y estáticos; la BD es el
+# servicio PostgreSQL del compose) con permisos.
 RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /app/data/media /app/data/staticfiles \
     && chown -R appuser:appuser /app \

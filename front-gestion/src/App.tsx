@@ -2,6 +2,7 @@ import { Suspense, lazy, type ComponentType } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { RequireAuth } from './auth.ts'
+import { useLang } from './i18n.tsx'
 import { AdminGate } from './components/AdminGate.tsx'
 import { ConfirmProvider } from './components/ConfirmDialog.tsx'
 import { Layout } from './components/Layout.tsx'
@@ -42,7 +43,12 @@ const UiKitPage = import.meta.env.DEV
   ? page(() => import('./pages/UiKitPage.tsx'), 'UiKitPage')
   : null
 
-const fallback = <p className="loading-state" role="status">Cargando…</p>
+function Fallback() {
+  const { t } = useLang()
+  return <p className="loading-state" role="status">{t.common.loading}</p>
+}
+
+const fallback = <Fallback />
 
 export default function App() {
   return (

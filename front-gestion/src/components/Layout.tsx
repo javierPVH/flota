@@ -93,7 +93,7 @@ export function Layout() {
         // de URL. Blinda la navegación del menú (☰) ante un <Outlet> que no seguía
         // el cambio de ruta ("la URL cambiaba pero la página no se refrescaba").
         section={{ content: <Outlet key={location.pathname} /> }}
-        footer={{ brand: 'Flota', contact: 'Gestión de flota Console' }}
+        footer={{ brand: t.shell.footerBrand, contact: t.shell.footerContact }}
       />
       <Modal open={sheetOpen} title={t.shortcuts.title} onClose={() => setSheetOpen(false)}>
         <dl className="shortcuts-list">

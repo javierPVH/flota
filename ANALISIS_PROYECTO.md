@@ -115,18 +115,25 @@ inlinado en el CSS de ambas apps.
 
 ## 4. Hallazgos NUEVOS de esta auditoría
 
+> ✅ **Todos atacados el 2026-07-30 (tarde)** — cada hallazgo lleva su nota de
+> resolución. Único descarte deliberado: la unificación de los 17 DTOs de
+> `types.ts` y los 4 homónimos de `api.ts` (A11), por matices de contrato API
+> entre apps que hacen la deduplicación más arriesgada que la duplicación.
+
 ### 🔴 A1 · Un PNG de 3,9 MB inlinado en el CSS de las dos apps
 El CSS de build pesa **~4 MB (gzip 2,85 MB)** y el 97 % es UNA imagen de fondo
 (`_page_` del layout del DS) embebida como data-URI base64. Ambas apps lo
 cargan en el primer paint — anula gran parte de la ganancia de PF1/PF2.
 **Arreglo**: servir la imagen como asset (URL) con `assetsInlineLimit` o
 importándola desde el componente, y comprimirla (WebP/AVIF ~100-300 kB).
+**✅ Resuelto**: `wallpaper.png` (2,9 MB) → `wallpaper.webp` (204 kB, q62); el CSS de build cae de 3,96 MB a **396 kB** (gzip 2,85 MB → 236 kB).
 
 ### 🟠 A2 · Plantillas/firmas desactivadas quedan irrecuperables por API
 `EmailTemplate` y `EmailSignature` son deactivatables y su DELETE desactiva,
 pero **no están en el registro del espacio de erratas** → una plantilla
 "borrada" desaparece del listado y no se puede restaurar ni purgar por API
 (solo por `/admin/`). Añadirlas a `fleet/erratas.py::DEACTIVATABLE`.
+**✅ Resuelto**: ambas en `DEACTIVATABLE` + test de restauración en `test_n7_erratas.py`.
 
 ### 🟠 A3 · Cabeceras de seguridad perdidas en el HTML del SPA público
 En nginx, un `add_header` dentro de `location` **anula la herencia** de los del
@@ -135,6 +142,7 @@ bloque `server`: las locations con `Cache-Control` propio (`/`, `index.html`,
 Policy`. Repetir las cabeceras en esas locations (o usar un include). Además:
 **gestión no tiene `no-cache` en su `index.html`** (mismo riesgo post-deploy
 que BG5 arregló en conductores) y no hay CSP en ninguno.
+**✅ Resuelto**: cabeceras repetidas en todas las locations con `add_header` propio; `no-cache` en el shell de gestión; **CSP estricta en conductores** (no carga nada externo). En gestión se omite la CSP a propósito (Google Picker/GIS la romperían) — anotado en el conf. Ambos validados con `nginx -t`.
 
 ### 🟠 A4 · `bootstrap_admin` no rechaza el placeholder exacto del ejemplo
 La lista negra (`cambia-esto`, `changeme`…) **no incluye
@@ -142,6 +150,7 @@ La lista negra (`cambia-esto`, `changeme`…) **no incluye
 además pasa los validadores de Django → un despliegue descuidado arranca con
 contraseña conocida. Añadirlo (y/o rechazar cualquier valor que contenga
 "cambia").
+**✅ Resuelto**: se rechaza cualquier contraseña que contenga "cambia" (normalizada), además de la lista negra previa.
 
 ### 🟡 A5 · Variables sin documentar en los `.env.example`
 Existen y funcionan, pero ningún ejemplo las menciona: `WEBPUSH_VAPID_*`
@@ -149,15 +158,18 @@ Existen y funcionan, pero ningún ejemplo las menciona: `WEBPUSH_VAPID_*`
 **los emails de producción enlazarían a localhost**), `FLEET_KM_WINDOW_START` /
 `FLEET_KM_ESTIMATE_WINDOW_END` (reglas de negocio con default distinto
 dev/prod), `FLEET_INSURANCE_ALERT_DAYS`.
+**✅ Resuelto**: todas documentadas en `.env.example` y `.env.prod.example` (con `FRONTEND_BASE_URL` también en prod).
 
 ### 🟡 A6 · Sin comando suelto `check_insurance`
 `run_fleet_jobs` sí cubre el seguro (Docker OK), pero el `crontab.example` de
 bare-metal desglosa comando a comando y **nunca dispararía la alerta de
 póliza**. Crear el comando o anotar el crontab.
+**✅ Resuelto**: comando `check_insurance` creado y añadido al job diario del `crontab.example`.
 
 ### 🟡 A7 · CI en Python 3.13 vs imagen de producción 3.12
 Los tests corren en 3.13 y `back/Dockerfile` usa `python:3.12-slim`. Alinear
 (subir la imagen o bajar el CI). El CI tampoco construye las imágenes Docker.
+**✅ Resuelto**: imagen subida a `python:3.13-slim`. (El build de imágenes en CI queda como mejora futura.)
 
 ### 🔵 A8 · Documentación con restos de la era anterior
 - `ERD.md`/`schema.dbml`: llevan la nota "N1–N10 no reflejadas en el diagrama"
@@ -172,6 +184,7 @@ Los tests corren en 3.13 y `back/Dockerfile` usa `python:3.12-slim`. Alinear
   (la BD es Postgres en volumen).
 - Deuda ya conocida y documentada: retirar los CharField legado
   `Vehicle.brand/model` cuando las FKs se consideren asentadas.
+**✅ Resuelto**: ERD.md y schema.dbml regenerados (34 entidades, N1–N10 al día, DBML validado); README-DEPLOY con RGPD corregido + pasos VAPID/SMTP; back/README menciona el servicio `jobs`; cabecera del plan y comentario del Dockerfile corregidos. (La retirada de `Vehicle.brand/model` legado sigue siendo deuda aceptada.)
 
 ### 🟡 A9 · Bug latente de zona horaria en "lectura pendiente" (conductores)
 `pendingThisMonth()` en `front-conductores/src/format.ts` calcula el mes con
@@ -179,6 +192,7 @@ Los tests corren en 3.13 y `back/Dockerfile` usa `python:3.12-slim`. Alinear
 en el resto del código. En Europe/Madrid, las primeras horas del día 1 devuelven
 el mes ANTERIOR: la lectura aparecería como "al día" cuando no lo está.
 Sustituir por el mes en hora local (helpers de `@flota/ui/domain`).
+**✅ Resuelto**: `todayIso().slice(0, 7)` (local) en conductores **y** en el duplicado de `MileagePage.tsx` de gestión.
 
 ### 🟡 A10 · Flecos de i18n que la pasada UX1 no alcanzó
 - Gestión: 6 literales sueltos en `TimelineChart` (aria-labels y "Evento"/
@@ -187,6 +201,7 @@ Sustituir por el mes en hora local (helpers de `@flota/ui/domain`).
 - DS: 4 `aria-label` fijos en castellano dentro de `TableWithPanel`
   ("Desplegar", "Herramientas de columna", "Cerrar", "Limpiar búsqueda") pese a
   tener `copy.ts`; y `SheetSelectorModal` con `aria-label="Close"` en inglés.
+**✅ Resuelto**: gestión con claves nuevas `timeline`/`adminGate`/`shell.footer*` y fallback traducible; los 4 aria-labels del DS enrutan por `copy.ts` (clave nueva `columnTools`/`close`) y `SheetSelectorModal` gana su clave `close`.
 
 ### 🔵 A11 · Duplicación restante (menor y acotada)
 - `types.ts` de ambas apps repiten **17 DTOs** casi idénticos (candidatos a
@@ -197,6 +212,7 @@ Sustituir por el mes en hora local (helpers de `@flota/ui/domain`).
 - Comentarios obsoletos: el barrel del DS aún se autodescribe como `@gs/base`,
   la cabecera de `i18n.tsx` de gestión dice que "el resto sigue en castellano",
   y `format.ts` de conductores conserva notas de helpers ya movidos.
+**✅ Resuelto** (salvo el descarte deliberado de arriba): shim re-exporta `ChartReading`/`KmChartOverlay`; disables muertos fuera (incluido un `no-new` en `CatalogEntityCreateForm`); comentarios actualizados.
 
 ### 🔵 A12 · Fricción de tooling
 - El DS testea con `--passWithNoTests` (si se perdieran los tests, CI no lo
@@ -204,6 +220,7 @@ Sustituir por el mes en hora local (helpers de `@flota/ui/domain`).
   para 19 páginas).
 - `npm run lint` del monorepo completo supera los 5 min (lanzarlo por paquete
   o cachear) — a considerar antes de meterlo en pre-commit.
+**✅ Resuelto**: `--passWithNoTests` eliminado (el DS tiene 80 tests) y `eslint --cache` en los tres paquetes (+ `.eslintcache` ignorado). El reequilibrio de tests por página queda como deuda aceptada.
 
 ## 5. Estado del plan maestro
 

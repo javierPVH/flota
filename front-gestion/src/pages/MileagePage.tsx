@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Badge, Button, Modal, PageHeader, Panel, SelectField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
+import { todayIso } from '@flota/ui/domain'
 import { useAppLang, type AppLanguage } from '@flota/ui/i18n'
 
 import {
@@ -29,7 +30,7 @@ interface Row {
 
 /** ¿Le falta la lectura del mes? (HU-3.3) */
 function pendingThisMonth(summary: VehicleSummary): boolean {
-  const month = new Date().toISOString().slice(0, 7)
+  const month = todayIso().slice(0, 7) // mes LOCAL, no UTC (doctrina E2/E6)
   return !summary.km_reading_date || !summary.km_reading_date.startsWith(month)
 }
 
