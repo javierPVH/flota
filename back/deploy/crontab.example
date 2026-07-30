@@ -1,5 +1,8 @@
-# Trabajos programados de flota (Fase E) — instalar con `crontab crontab.example`
-# o copiar a /etc/cron.d/flota. Ajusta las rutas de PROJECT y PYTHON.
+# Trabajos programados de flota (Fase E) — SOLO para despliegues bare-metal.
+# ⚠️ En el despliegue Docker NO hace falta: el servicio `jobs` del compose
+# (back/deploy/jobs-loop.sh) los ejecuta cada 15 min de forma idempotente.
+# Instalar con `crontab crontab.example` o copiar a /etc/cron.d/flota.
+# Ajusta las rutas de PROJECT y PYTHON.
 #
 # Los comandos son idempotentes (dedup_key): re-ejecutarlos no duplica alertas.
 # La zona horaria del cron debe coincidir con TIME_ZONE de settings.
