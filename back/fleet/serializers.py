@@ -750,9 +750,7 @@ class ProjectSerializer(serializers.ModelSerializer):
     cost_center = serializers.PrimaryKeyRelatedField(
         queryset=Pep.objects.all(), required=True, allow_null=False
     )
-    cost_center_display = serializers.StringRelatedField(
-        source="cost_center", read_only=True
-    )
+    cost_center_display = serializers.StringRelatedField(source="cost_center", read_only=True)
 
     class Meta:
         model = Project

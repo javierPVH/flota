@@ -17,6 +17,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import Role
 from fleet.models import Assignment, Contract, KmReading, Vehicle
+from fleet.models.enums.operations import AssignmentStatus
 from fleet.services import metrics
 
 from .helpers import make_user
@@ -36,11 +37,19 @@ def _vehicle_with_data(plate, supervisor=None, driver=None) -> Vehicle:
         start_date=today - timedelta(days=180),
         planned_end_date=today + timedelta(days=185),
     )
-    KmReading.objects.create(vehicle=vehicle, reading_date=today - timedelta(days=60), km_reading=9000)
-    KmReading.objects.create(vehicle=vehicle, reading_date=today - timedelta(days=10), km_reading=15000)
+    KmReading.objects.create(
+        vehicle=vehicle, reading_date=today - timedelta(days=60), km_reading=9000
+    )
+    KmReading.objects.create(
+        vehicle=vehicle, reading_date=today - timedelta(days=10), km_reading=15000
+    )
     if driver:
+        # `current_driver_map` solo cuenta asignaciones aceptadas.
         Assignment.objects.create(
-            vehicle=vehicle, driver=driver, start_date=today - timedelta(days=180)
+            vehicle=vehicle,
+            driver=driver,
+            start_date=today - timedelta(days=180),
+            status=AssignmentStatus.ACCEPTED,
         )
     return vehicle
 
@@ -69,9 +78,7 @@ class VehicleSummariesTests(APITestCase):
     def test_supervisor_gets_group(self):
         self.client.force_authenticate(self.supervisor)
         resp = self.client.get(reverse(URL))
-        self.assertEqual(
-            {s["vehicle"] for s in resp.data}, {self.mine.pk, self.group_only.pk}
-        )
+        self.assertEqual({s["vehicle"] for s in resp.data}, {self.mine.pk, self.group_only.pk})
 
     def test_admin_gets_all_and_matches_single_endpoint(self):
         self.client.force_authenticate(self.admin)
@@ -83,13 +90,14 @@ class VehicleSummariesTests(APITestCase):
 
     def test_anonymous_forbidden(self):
         resp = self.client.get(reverse(URL))
-        self.assertIn(
-            resp.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
-        )
+        self.assertIn(resp.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
 
     def test_query_count_does_not_grow_with_fleet(self):
         """B2: consultas acotadas — misma cuenta con 3 que con 8 vehículos."""
         self.client.force_authenticate(self.admin)
+        # Calentamiento: la 1.ª petición paga la query de roles (cached_property
+        # sobre la instancia de usuario que force_authenticate reutiliza).
+        self.client.get(reverse(URL))
         with CaptureQueriesContext(connection) as small:
             self.client.get(reverse(URL))
         for i in range(5):
@@ -107,9 +115,7 @@ class AnnualProjectionTests(TestCase):
     """
 
     def _vehicle(self, *, contract_time, contract_km, km_start, penalty=None):
-        vehicle = Vehicle.objects.create(
-            plate="ANU0001", brand="a", model="b", km_start=km_start
-        )
+        vehicle = Vehicle.objects.create(plate="ANU0001", brand="a", model="b", km_start=km_start)
         Contract.objects.create(
             vehicle=vehicle,
             contract_time=contract_time,
@@ -126,9 +132,7 @@ class AnnualProjectionTests(TestCase):
             contract_time=48, contract_km=100_000, km_start=5_000, penalty=Decimal("0.10")
         )
         # Ritmo exacto: 10.000 km en 100 días = 100 km/día.
-        KmReading.objects.create(
-            vehicle=vehicle, reading_date=date(2026, 4, 11), km_reading=15_000
-        )
+        KmReading.objects.create(vehicle=vehicle, reading_date=date(2026, 4, 11), km_reading=15_000)
         proj = metrics.vehicle_summary(vehicle, today=date(2026, 4, 11))["projection"]
 
         self.assertEqual(proj["contract_years"], 4.0)
@@ -149,9 +153,7 @@ class AnnualProjectionTests(TestCase):
     def test_year_window_advances_to_second_year(self):
         # Con `today` en el 2.º año de contrato, la ventana se desplaza un año.
         vehicle = self._vehicle(contract_time=48, contract_km=100_000, km_start=0)
-        KmReading.objects.create(
-            vehicle=vehicle, reading_date=date(2027, 3, 1), km_reading=30_000
-        )
+        KmReading.objects.create(vehicle=vehicle, reading_date=date(2027, 3, 1), km_reading=30_000)
         proj = metrics.vehicle_summary(vehicle, today=date(2027, 3, 1))["projection"]
 
         self.assertEqual(proj["year_index"], 1)
@@ -166,9 +168,7 @@ class AnnualProjectionTests(TestCase):
             start_date=date(2026, 1, 1),
             planned_end_date=date(2028, 1, 1),  # ~2 años
         )
-        KmReading.objects.create(
-            vehicle=vehicle, reading_date=date(2026, 7, 1), km_reading=10_000
-        )
+        KmReading.objects.create(vehicle=vehicle, reading_date=date(2026, 7, 1), km_reading=10_000)
         proj = metrics.vehicle_summary(vehicle, today=date(2026, 7, 1))["projection"]
 
         # 730 días ≈ 2,0 años; cupo ≈ 50.000 ÷ 2 = 25.000 (±redondeo por bisiestos).

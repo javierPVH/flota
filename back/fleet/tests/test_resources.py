@@ -115,9 +115,7 @@ class CatalogPermissionTests(APITestCase):
 
     def test_admin_can_write(self):
         self.client.force_authenticate(self.admin)
-        resp = self.client.post(
-            self.url, {"project_name": "Solar-1", "cost_center": self.ceco.id}
-        )
+        resp = self.client.post(self.url, {"project_name": "Solar-1", "cost_center": self.ceco.id})
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["cost_center"], self.ceco.id)
 
@@ -126,11 +124,10 @@ class CatalogPermissionTests(APITestCase):
         self.client.force_authenticate(self.admin)
         resp = self.client.post(self.url, {"project_name": "Solar-1"})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("cost_center", resp.data)
+        # El handler envuelve la validación en {detail, errors}.
+        self.assertIn("cost_center", resp.data["errors"])
 
     def test_supervisor_cannot_write(self):
         self.client.force_authenticate(self.supervisor)
-        resp = self.client.post(
-            self.url, {"project_name": "Solar-2", "cost_center": self.ceco.id}
-        )
+        resp = self.client.post(self.url, {"project_name": "Solar-2", "cost_center": self.ceco.id})
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

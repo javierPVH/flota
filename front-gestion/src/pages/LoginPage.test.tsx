@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { LanguageProvider } from '../i18n.tsx'
 import { LoginPage } from './LoginPage.tsx'
 
 const mocks = vi.hoisted(() => ({
@@ -39,7 +40,9 @@ describe('LoginPage (selector de desarrollo)', () => {
 
     render(
       <MemoryRouter>
-        <LoginPage />
+        <LanguageProvider>
+          <LoginPage />
+        </LanguageProvider>
       </MemoryRouter>,
     )
 
@@ -58,7 +61,9 @@ describe('LoginPage (selector de desarrollo)', () => {
 
     render(
       <MemoryRouter>
-        <LoginPage />
+        <LanguageProvider>
+          <LoginPage />
+        </LanguageProvider>
       </MemoryRouter>,
     )
 

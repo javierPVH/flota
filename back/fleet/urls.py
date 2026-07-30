@@ -10,7 +10,6 @@ from .views import (
     DocumentViewSet,
     EventViewSet,
     FleetSummaryView,
-    VehicleSummariesView,
     IncidentViewSet,
     InvoiceAllocationViewSet,
     InvoiceViewSet,
@@ -21,6 +20,7 @@ from .views import (
     ReportsView,
     VehicleLinkViewSet,
     VehicleRequestViewSet,
+    VehicleSummariesView,
     VehicleUsageViewSet,
     VehicleViewSet,
 )

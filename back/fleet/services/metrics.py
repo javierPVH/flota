@@ -189,7 +189,10 @@ def _compose_summary(
     # la gráfica año a año de la ficha. Todo se deriva de contrato + última lectura
     # + km_start (sin consultar todas las lecturas: el endpoint masivo debe seguir
     # con nº de consultas acotado).
-    years = contract.contract_time / 12 if contract.contract_time else max(total_days / YEAR_DAYS, 1 / 12)
+    if contract.contract_time:
+        years = contract.contract_time / 12
+    else:
+        years = max(total_days / YEAR_DAYS, 1 / 12)
     annual_km = round(contract.contract_km / years)
     year_index = max(
         0, min(int((today - contract.start_date).days // YEAR_DAYS), math.ceil(years) - 1)
