@@ -638,7 +638,7 @@ de N8. **Hacerlo antes de multiplicar modales.**
 `<div onClick>` sin teclado. Aprovechar el trabajo de N4 (fila expandible)
 para pagar esta deuda en el mismo componente.
 
-### ✅ UX4 · Detalles de a11y (parcial-M) — acordeón con h3 real + aria-controls, aviso de cola descartable por teclado; resto (labels de buscadores, focus-ring token, Base.tsx) queda como mejora menor
+### ✅ UX4 · Detalles de a11y (M) — COMPLETO: acordeón con h3 real + aria-controls, aviso de cola por teclado, aria-label en buscadores, label real del input de fichero, token --focus-ring (y .km-input lo usa) y Base.tsx con header/footer FUERA de <main> (display:contents, sin cambio de layout)
 
 - `CollapsibleCard` (ambas copias): `aria-expanded` sin `aria-controls`, `<h3>`
   dentro del `<button>` (desaparece del árbol de encabezados).
@@ -653,7 +653,7 @@ para pagar esta deuda en el mismo componente.
 - `Base.tsx` mete header y footer dentro de `<main>`.
 - Microcopy castellano fijo en Modal/TableWithPanel: pasar por `ui/copy.ts`.
 
-### ✅ UX5 · Errores silenciados (parcial-M) — 🔵 final: el alta/edición de vehículo (la trampa transaccional) detecta fallos de catálogos con banner+Reintentar; el resto de .catch(()=>[]) queda como mejora menor
+### ✅ UX5 · Errores silenciados (M) — COMPLETO: formulario de vehículo (catálogos con banner+Reintentar), campana (error+reintento en el popover) y ficha de vehículo (banner agregado si falla algún bloque, con reintento)
 
 14 `.catch(() => setX([]))`: cinco catálogos en el alta de vehículo (un
 desplegable vacío en un formulario transaccional es una trampa — y N5 añade
@@ -719,7 +719,7 @@ red de seguridad de toda la Parte I.**
 Las apps no tienen config ni script `lint` — sin `react-hooks/exhaustive-deps`
 ni React Compiler. Extender el flat config a los tres paquetes.
 
-### ✅ DX3 · Duplicación DS↔apps (M) — 🔵 final (`3a3117e`): CollapsibleCard/useAccordion/ErrorBoundary en @flota/ui, postForm compartido, @flota/ui/domain (fechas+tonos); build:watch ya existía (dev:ui). KmChart sigue por app (visual distinta escritorio/móvil, deliberado)
+### ✅ DX3 · Duplicación DS↔apps (M) — 🔵 final (`3a3117e`): CollapsibleCard/useAccordion/ErrorBoundary en @flota/ui, postForm compartido, @flota/ui/domain (fechas+tonos); build:watch ya existía (dev:ui). KmChart UNIFICADO después: la gráfica rica vive en @flota/ui y ambas apps la comparten (shims + CSS portado al móvil)
 
 Las apps consumen `dist/` por symlink; tocar el DS exige rebuild manual — la
 **causa raíz confesada** de la duplicación
@@ -749,7 +749,7 @@ script raíz + tests de `Modal` (tras UX2) y de la tabla (tras N4).
 ([copy.ts:77,203](front/src/ui/copy.ts#L77)), claves `gs_base_*`, y
 `front/README.md`/`CHANGELOG.md` documentan un paquete que ya no existe.
 
-### ✅ DX6 · Menores (parcial) — 🔵 final: cx() desduplicado (6 copias → utils/cx). Pendiente deliberado: descomponer TableWithPanel (no antes de más tests), sendJson PUT (sin uso) y hook de escape de handleAuthExpiration
+### ✅ DX6 · Menores — COMPLETO: cx() desduplicado, putJson añadido, setAuthExpirationHandler() como hook de escape, y TableWithPanel descompuesto (helpers puros → table-utils.ts con tests de unidad)
 
 - 6 reimplementaciones de `cx` dentro del propio DS.
 - `TableWithPanel`: 33 props y 10 flags booleanos que se solapan — no

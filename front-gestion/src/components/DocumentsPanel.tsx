@@ -453,13 +453,17 @@ export function DocumentsPanel({
               </p>
             ) : (
               <>
-                <input
-                  type="file"
-                  accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
-                  onChange={(e) =>
-                    setAttach({ picked: null, file: e.target.files?.[0] ?? null, manualUrl: '' })
-                  }
-                />
+                {/* UX4: input de fichero con etiqueta real. */}
+                <label className="file-field">
+                  <span>{t.filePickLabel}</span>
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
+                    onChange={(e) =>
+                      setAttach({ picked: null, file: e.target.files?.[0] ?? null, manualUrl: '' })
+                    }
+                  />
+                </label>
                 <TextInputField
                   label={t.urlLabel}
                   value={attach.manualUrl}

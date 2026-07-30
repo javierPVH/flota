@@ -287,6 +287,7 @@ export function UsersPage() {
         <input
           className="search-input"
           type="search"
+          aria-label={t.searchPlaceholder}
           placeholder={t.searchPlaceholder}
           value={search}
           onChange={(e) => setSearch(e.target.value)}

@@ -14,15 +14,19 @@ export interface BaseProps {
   footer?: FooterProps
 }
 
-/** Shell de página: cabecera inyectada + sección de contenido + pie. */
+/** Shell de página: cabecera inyectada + sección de contenido + pie.
+ * UX4: header y footer viven FUERA de <main> (landmarks correctos);
+ * `display: contents` mantiene el layout exactamente igual. */
 export function Base({ section, header, footer }: BaseProps) {
   return (
-    <main className={styles.page}>
+    <div className={styles.page}>
       <div className={styles.frame}>
         {header}
-        <Section section={section} />
+        <main style={{ display: 'contents' }}>
+          <Section section={section} />
+        </main>
         <Footer {...footer} />
       </div>
-    </main>
+    </div>
   )
 }

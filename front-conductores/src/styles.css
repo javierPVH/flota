@@ -732,7 +732,12 @@ a {
   letter-spacing: 0.03em;
   text-align: center;
 }
-.km-input:focus { outline: none; border-color: var(--color-brand); }
+.km-input:focus {
+  /* UX4: nunca outline:none sin sustituto — anillo del token del DS. */
+  outline: none;
+  border-color: var(--color-brand);
+  box-shadow: var(--focus-ring);
+}
 .panel-note a { color: inherit; font-weight: 700; }
 .km-saved {
   display: grid;
@@ -871,3 +876,24 @@ a {
   font-weight: 600;
   color: #b45309;
 }
+
+/* --- KmChart rico del DS (overlay, hoy, tooltip) — portado de gestión ------ */
+.km-chart .ideal {
+  stroke: var(--color-text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  opacity: 0.75;
+}
+.km-chart .anchor-dot { fill: var(--color-surface, #fff); stroke: var(--color-brand); stroke-width: 1.5; }
+.km-chart .year-line { stroke: var(--color-border, #dfe6ef); stroke-width: 1; stroke-dasharray: 2 3; }
+.km-chart .year-label { fill: var(--color-text-muted); font-size: 10px; }
+.km-chart .today { stroke: var(--color-danger); stroke-width: 1.5; }
+.km-chart .axis-date { fill: var(--color-text-muted); font-size: 9.5px; }
+.km-chart .axis-date.is-today { fill: var(--color-danger); font-weight: 700; }
+.km-chart .km-tip rect {
+  fill: #0f172a;
+  opacity: 0.92;
+}
+.km-chart .km-tip text { fill: #fff; font-size: 11px; font-weight: 600; }
+.km-chart circle { transition: r 0.1s ease; }
+.km-chart-ideal-legend { color: var(--color-text-muted); }

@@ -52,12 +52,15 @@ export function AppHeader() {
   const bellBtnRef = useRef<HTMLButtonElement | null>(null)
   const [bellPos, setBellPos] = useState({ top: 88, right: 20, maxHeight: 480 })
 
+  // UX5: un fallo de carga se muestra en el popover (antes: silencio y "0").
+  const [bellError, setBellError] = useState(false)
   const loadAlerts = () =>
     listAlerts('open')
-      .then((page) =>
-        setAlerts([...page.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])),
-      )
-      .catch(() => {})
+      .then((page) => {
+        setAlerts([...page.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]))
+        setBellError(false)
+      })
+      .catch(() => setBellError(true))
 
   useEffect(() => {
     void loadAlerts()
@@ -246,7 +249,14 @@ export function AppHeader() {
               onClick={(event) => event.stopPropagation()}
             >
               <span className="shell-navgroup-title">{t.shell.notifications}</span>
-              {alerts.length === 0 ? (
+              {bellError ? (
+                <p className="shell-alert-empty">
+                  {t.shell.alertsLoadError}{' '}
+                  <button type="button" className="link-btn" onClick={() => void loadAlerts()}>
+                    {t.shell.alertsRetry}
+                  </button>
+                </p>
+              ) : alerts.length === 0 ? (
                 <p className="shell-alert-empty">{t.shell.noAlerts}</p>
               ) : (
                 alerts.slice(0, 6).map((alert) => (

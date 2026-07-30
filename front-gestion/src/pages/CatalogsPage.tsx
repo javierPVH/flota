@@ -366,6 +366,7 @@ export function CatalogsPage() {
         <input
           className="search-input"
           type="search"
+          aria-label={t.searchPlaceholder(active.singular)}
           placeholder={t.searchPlaceholder(active.singular)}
           value={query}
           onChange={(e) => setQuery(e.target.value)}

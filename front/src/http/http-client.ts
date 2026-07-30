@@ -105,9 +105,26 @@ function flattenDrfErrors(payload: unknown, depth = 0): string {
   return ''
 }
 
+/**
+ * [ES] DX6: hook de escape — la app puede sustituir la navegación dura al login
+ * (p. ej. para mostrar su propio aviso o conservar estado antes de salir).
+ * [EN] Escape hook: apps may override the hard redirect on session expiry.
+ */
+export type AuthExpirationHandler = () => void
+
+let authExpirationHandler: AuthExpirationHandler | null = null
+
+export function setAuthExpirationHandler(handler: AuthExpirationHandler | null): void {
+  authExpirationHandler = handler
+}
+
 export function handleAuthExpiration(status: number): void {
   if (status !== 401 || typeof window === 'undefined') return
   clearToken()
+  if (authExpirationHandler) {
+    authExpirationHandler()
+    return
+  }
   if (!window.location.pathname.startsWith('/login')) {
     window.location.assign('/login?auth=required')
   }
@@ -232,7 +249,7 @@ async function parseResponsePayload(response: Response): Promise<unknown> {
  * de modo que cualquier endpoint sensible recupera sin tocar cada llamada.
  */
 async function sendJson<TResponse>(
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   payload: unknown,
   options: ApiTransportOptions,
@@ -331,6 +348,16 @@ export function patchJson<TResponse>(
   fallbackMessage = 'No se pudo completar la actualizacion.',
 ): Promise<TResponse> {
   return sendJson<TResponse>('PATCH', path, payload, options, fallbackMessage, true, true)
+}
+
+/** [ES] PUT JSON (reemplazo completo). [EN] Full-replace JSON PUT. */
+export function putJson<TResponse>(
+  path: string,
+  payload: unknown,
+  options: ApiTransportOptions = {},
+  fallbackMessage = 'No se pudo completar la actualizacion.',
+): Promise<TResponse> {
+  return sendJson<TResponse>('PUT', path, payload, options, fallbackMessage, true, true)
 }
 
 export function deleteJson(

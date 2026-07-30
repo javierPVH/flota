@@ -21,7 +21,30 @@ const COLUMNS: Array<TableWithPanelColumn<Row>> = [
   { key: 'km', label: 'Km', getValue: (r) => r.km },
 ]
 
+const MANY: Row[] = Array.from({ length: 30 }, (_, i) => ({
+  id: i + 1,
+  plate: `${String(i + 1).padStart(4, '0')}AAA`,
+  km: (i + 1) * 100,
+}))
+
 describe('TableWithPanel', () => {
+  it('pagina: 25 por página y la segunda muestra el resto', () => {
+    render(
+      <TableWithPanel<Row>
+        rows={MANY}
+        columns={COLUMNS}
+        rowKey={(r) => String(r.id)}
+        enablePagination
+        defaultPageSize={25}
+      />,
+    )
+    expect(screen.getByText('0001AAA')).toBeInTheDocument()
+    expect(screen.queryByText('0030AAA')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Página siguiente' }))
+    expect(screen.getByText('0030AAA')).toBeInTheDocument()
+    expect(screen.queryByText('0001AAA')).not.toBeInTheDocument()
+  })
+
   it('pinta cabeceras con scope=col y las filas', () => {
     render(<TableWithPanel<Row> rows={ROWS} columns={COLUMNS} rowKey={(r) => String(r.id)} />)
     const headers = screen.getAllByRole('columnheader')

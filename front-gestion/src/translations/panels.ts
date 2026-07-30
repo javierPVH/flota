@@ -3,6 +3,7 @@ import { useAppLang } from '@flota/ui/i18n'
 const es = {
   documents: {
     title: 'Documentos',
+    filePickLabel: 'Foto o PDF (desde tu equipo)',
     typeOptions: {
       registration_certificate: 'Permiso de circulación',
       technical_datasheet: 'Ficha técnica',
@@ -148,6 +149,7 @@ const es = {
 const en: typeof es = {
   documents: {
     title: 'Documents',
+    filePickLabel: 'Photo or PDF (from your computer)',
     typeOptions: {
       registration_certificate: 'Registration certificate',
       technical_datasheet: 'Technical datasheet',

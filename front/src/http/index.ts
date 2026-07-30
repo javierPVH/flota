@@ -16,6 +16,8 @@ export {
   getCookie,
   getJson,
   postForm,
+  putJson,
+  setAuthExpirationHandler,
   postJson,
   patchJson,
   deleteJson,
