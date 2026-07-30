@@ -4,7 +4,9 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     AlertViewSet,
     AssignmentViewSet,
+    BrandViewSet,
     BusinessUnitViewSet,
+    CompanyViewSet,
     ContractViewSet,
     CountryViewSet,
     DocumentViewSet,
@@ -19,6 +21,7 @@ from .views import (
     RentingViewSet,
     ReportsView,
     VehicleLinkViewSet,
+    VehicleModelViewSet,
     VehicleRequestViewSet,
     VehicleSummariesView,
     VehicleUsageViewSet,
@@ -45,6 +48,10 @@ router.register("business-units", BusinessUnitViewSet, basename="businessunit")
 router.register("projects", ProjectViewSet, basename="project")
 router.register("peps", PepViewSet, basename="pep")
 router.register("rentings", RentingViewSet, basename="renting")
+# N5: marca, modelo (dependiente, `?brand=<id>`) y sociedad.
+router.register("brands", BrandViewSet, basename="brand")
+router.register("vehicle-models", VehicleModelViewSet, basename="vehiclemodel")
+router.register("companies", CompanyViewSet, basename="company")
 
 urlpatterns = [
     path("reports/", ReportsView.as_view(), name="reports"),

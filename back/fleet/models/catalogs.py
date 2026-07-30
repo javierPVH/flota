@@ -87,3 +87,56 @@ class Renting(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.name
+
+
+class Brand(TimeStampedModel):
+    """N5: marca del vehículo (catálogo; antes texto libre en `Vehicle.brand`)."""
+
+    name = models.CharField("Nombre", max_length=50, unique=True)
+
+    class Meta:
+        verbose_name = "marca"
+        verbose_name_plural = "marcas"
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class VehicleModel(TimeStampedModel):
+    """N5: modelo del vehículo — DEPENDE de la marca (no hay modelo sin marca)."""
+
+    brand = models.ForeignKey(
+        Brand,
+        on_delete=models.PROTECT,
+        related_name="models",
+        verbose_name="Marca",
+    )
+    name = models.CharField("Nombre", max_length=50)
+
+    class Meta:
+        verbose_name = "modelo"
+        verbose_name_plural = "modelos"
+        ordering = ["brand__name", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["brand", "name"], name="uniq_model_per_brand"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.brand.name} {self.name}"
+
+
+class Company(TimeStampedModel):
+    """N5: sociedad titular (código, nombre y descripción)."""
+
+    code = models.CharField("Código", max_length=30, unique=True)
+    name = models.CharField("Nombre", max_length=150)
+    description = models.TextField("Descripción", blank=True)
+
+    class Meta:
+        verbose_name = "sociedad"
+        verbose_name_plural = "sociedades"
+        ordering = ["code", "name"]
+
+    def __str__(self) -> str:
+        return f"{self.code} · {self.name}"

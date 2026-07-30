@@ -31,7 +31,9 @@ from core.throttling import PublicWriteThrottle
 from .models import (
     Alert,
     Assignment,
+    Brand,
     BusinessUnit,
+    Company,
     Contract,
     Country,
     Document,
@@ -45,6 +47,7 @@ from .models import (
     Renting,
     Vehicle,
     VehicleLink,
+    VehicleModel,
     VehicleRequest,
     VehicleUsage,
 )
@@ -53,7 +56,9 @@ from .scoping import vehicles_for
 from .serializers import (
     AlertSerializer,
     AssignmentSerializer,
+    BrandSerializer,
     BusinessUnitSerializer,
+    CompanySerializer,
     ContractSerializer,
     CountrySerializer,
     DocumentSerializer,
@@ -69,6 +74,7 @@ from .serializers import (
     RentingSerializer,
     UsageSplitSerializer,
     VehicleLinkSerializer,
+    VehicleModelSerializer,
     VehicleRequestMineSerializer,
     VehicleRequestSerializer,
     VehicleSerializer,
@@ -853,3 +859,27 @@ class RentingViewSet(viewsets.ModelViewSet):
     serializer_class = RentingSerializer
     permission_classes = [AdminWriteManagementRead]
     search_fields = ["name"]
+
+
+class BrandViewSet(viewsets.ModelViewSet):
+    queryset = Brand.objects.all()
+    serializer_class = BrandSerializer
+    permission_classes = [AdminWriteManagementRead]
+    search_fields = ["name"]
+
+
+class VehicleModelViewSet(viewsets.ModelViewSet):
+    """N5: `?brand=<id>` alimenta el desplegable dependiente del alta."""
+
+    queryset = VehicleModel.objects.select_related("brand")
+    serializer_class = VehicleModelSerializer
+    permission_classes = [AdminWriteManagementRead]
+    filterset_fields = ["brand"]
+    search_fields = ["name", "brand__name"]
+
+
+class CompanyViewSet(viewsets.ModelViewSet):
+    queryset = Company.objects.all()
+    serializer_class = CompanySerializer
+    permission_classes = [AdminWriteManagementRead]
+    search_fields = ["code", "name", "description"]

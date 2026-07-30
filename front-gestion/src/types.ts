@@ -80,6 +80,11 @@ export interface Vehicle {
   consumption: number | null
   km_start: number | null
   km_end: number | null
+  /** N5: marca/modelo por catálogo (el texto brand/model queda denormalizado). */
+  brand_ref: number | null
+  model_ref: number | null
+  company: number | null
+  company_display: string
   /** N3: sin proyección de km ni alertas de exceso. */
   unlimited_km: boolean
   /** N2: vencimiento del seguro (editable; lo sincroniza también la póliza). */

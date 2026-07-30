@@ -4,11 +4,13 @@ import { Button, Modal, PageHeader, Panel, SelectField, TextInputField } from '@
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
+  createCatalogEntry,
   createVehicleFull,
   listUsers,
   fetchVehicle,
   listCatalog,
   listDrivers,
+  listVehicleModels,
   previewVehicle,
   updateVehicleFields,
   type CatalogEntry,
@@ -110,6 +112,10 @@ interface FormState {
   property: string
   supervisor: string
   driver: string
+  // N5: marca/modelo por catálogo (selects dependientes) + sociedad
+  brand_ref: string
+  model_ref: string
+  company: string
   // N3/N2: sin proyección de km · vencimiento del seguro
   unlimited_km: boolean
   insurance_expiry_date: string
@@ -147,6 +153,9 @@ const EMPTY: FormState = {
   property: 'renting',
   supervisor: '',
   driver: '',
+  brand_ref: '',
+  model_ref: '',
+  company: '',
   unlimited_km: false,
   insurance_expiry_date: '',
   renting: '',
@@ -183,6 +192,9 @@ function fromVehicle(v: Vehicle): FormState {
     country: v.country != null ? String(v.country) : '',
     property: v.property || 'renting',
     supervisor: v.supervisor != null ? String(v.supervisor) : '',
+    brand_ref: v.brand_ref != null ? String(v.brand_ref) : '',
+    model_ref: v.model_ref != null ? String(v.model_ref) : '',
+    company: v.company != null ? String(v.company) : '',
     unlimited_km: v.unlimited_km ?? false,
     insurance_expiry_date: v.insurance_expiry_date ?? '',
   }
@@ -193,8 +205,18 @@ function vehiclePayload(form: FormState): Record<string, unknown> {
   return {
     plate: form.plate,
     vin: form.vin,
-    brand: form.brand,
-    model: form.model,
+    // N5: catálogo primero; el texto solo viaja si no hay ref (legado).
+    ...(form.brand_ref
+      ? { brand_ref: Number(form.brand_ref) }
+      : form.brand
+        ? { brand: form.brand }
+        : {}),
+    ...(form.model_ref
+      ? { model_ref: Number(form.model_ref) }
+      : form.model
+        ? { model: form.model }
+        : {}),
+    company: form.company ? Number(form.company) : null,
     version: form.version,
     year: form.year ? Number(form.year) : null,
     registration_date: form.registration_date || null,
@@ -268,6 +290,14 @@ export function VehicleFormPage() {
   const [units, setUnits] = useState<CatalogEntry[]>([])
   const [rentings, setRentings] = useState<CatalogEntry[]>([])
   const [countries, setCountries] = useState<CatalogEntry[]>([])
+  // N5: marca/modelo (dependiente) y sociedad.
+  const [brands, setBrands] = useState<CatalogEntry[]>([])
+  const [models, setModels] = useState<CatalogEntry[]>([])
+  const [companies, setCompanies] = useState<CatalogEntry[]>([])
+  // Alta rápida de modelo (admin) sin salir del formulario.
+  const [addingModel, setAddingModel] = useState(false)
+  const [newModelName, setNewModelName] = useState('')
+  const [addModelError, setAddModelError] = useState('')
 
   const [preview, setPreview] = useState<Record<string, [unknown, unknown]> | null>(null)
 
@@ -288,7 +318,20 @@ export function VehicleFormPage() {
     listCatalog('business-units').then((p) => setUnits(p.results)).catch(() => {})
     listCatalog('rentings').then((p) => setRentings(p.results)).catch(() => {})
     listCatalog('countries').then((p) => setCountries(p.results)).catch(() => {})
+    listCatalog('brands').then((p) => setBrands(p.results)).catch(() => {})
+    listCatalog('companies').then((p) => setCompanies(p.results)).catch(() => {})
   }, [])
+
+  // N5: el desplegable de modelos depende de la marca elegida.
+  useEffect(() => {
+    if (!form.brand_ref) {
+      setModels([])
+      return
+    }
+    listVehicleModels(Number(form.brand_ref))
+      .then((p) => setModels(p.results))
+      .catch(() => setModels([]))
+  }, [form.brand_ref])
 
   useEffect(() => {
     if (!vehicleId) return
@@ -426,8 +469,45 @@ export function VehicleFormPage() {
           <div className="form-grid">
             <TextInputField label="Matrícula" requiredVisual value={form.plate} onChange={setInput('plate')} required />
             <TextInputField label="Bastidor (VIN)" value={form.vin} onChange={setInput('vin')} />
-            <TextInputField label="Marca" requiredVisual value={form.brand} onChange={setInput('brand')} required />
-            <TextInputField label="Modelo" requiredVisual value={form.model} onChange={setInput('model')} required />
+            <SelectField
+              label="Marca"
+              requiredVisual
+              required
+              options={catalogOptions(brands, '— Elegir marca —')}
+              value={form.brand_ref}
+              onValueChange={(value) =>
+                // Cambiar de marca invalida el modelo elegido (dependiente).
+                setForm((f) => ({ ...f, brand_ref: value, model_ref: '' }))
+              }
+            />
+            <div className="field-with-badge">
+              <SelectField
+                label="Modelo"
+                requiredVisual
+                required
+                options={catalogOptions(
+                  models,
+                  form.brand_ref ? '— Elegir modelo —' : 'Elige antes la marca',
+                )}
+                value={form.model_ref}
+                onValueChange={set('model_ref')}
+                disabled={!form.brand_ref}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={!form.brand_ref}
+                title="Añadir un modelo nuevo a esta marca"
+                onClick={() => {
+                  setNewModelName('')
+                  setAddModelError('')
+                  setAddingModel(true)
+                }}
+              >
+                + Nuevo
+              </Button>
+            </div>
             <TextInputField label="Versión" value={form.version} onChange={setInput('version')} />
             <TextInputField label="Año" type="number" value={form.year} onChange={setInput('year')} />
             <TextInputField
@@ -565,6 +645,12 @@ export function VehicleFormPage() {
               options={PROPERTY_OPTIONS}
               value={form.property}
               onValueChange={set('property')}
+            />
+            <SelectField
+              label="Sociedad"
+              options={catalogOptions(companies, '— Sin sociedad —')}
+              value={form.company}
+              onValueChange={set('company')}
             />
             <TextInputField
               label="Vencimiento del seguro"
@@ -721,6 +807,49 @@ export function VehicleFormPage() {
             {saving ? 'Guardando…' : 'Guardar cambios'}
           </Button>
         </div>
+      </Modal>
+
+      {/* N5: alta rápida de modelo para la marca elegida (solo admin en el back). */}
+      <Modal
+        open={addingModel}
+        title={`Nuevo modelo de ${brands.find((b) => String(b.id) === form.brand_ref)?.name ?? 'la marca'}`}
+        onClose={() => setAddingModel(false)}
+      >
+        <form
+          className="modal-form"
+          onSubmit={async (event) => {
+            event.preventDefault()
+            setAddModelError('')
+            try {
+              const created = await createCatalogEntry('vehicle-models', {
+                brand: form.brand_ref,
+                name: newModelName.trim(),
+              })
+              const page = await listVehicleModels(Number(form.brand_ref))
+              setModels(page.results)
+              setForm((f) => ({ ...f, model_ref: String(created.id) }))
+              setAddingModel(false)
+            } catch (err) {
+              setAddModelError(asErrorMessage(err, 'No se pudo crear el modelo.'))
+            }
+          }}
+        >
+          <TextInputField
+            label="Nombre del modelo"
+            value={newModelName}
+            onChange={(e) => setNewModelName(e.target.value)}
+            required
+          />
+          {addModelError && <div role="alert" className="form-error">{addModelError}</div>}
+          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+            <Button type="button" variant="secondary" onClick={() => setAddingModel(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" variant="primary" disabled={!newModelName.trim()}>
+              Crear y seleccionar
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   )

@@ -73,15 +73,43 @@ const CATALOGS: CatalogDef[] = [
     singular: 'país',
     fields: [{ key: 'name', label: 'Nombre', required: true }],
   },
+  // N5: marca, modelo (depende de la marca) y sociedad.
+  {
+    resource: 'brands',
+    title: 'Marcas',
+    singular: 'marca',
+    fields: [{ key: 'name', label: 'Nombre', required: true }],
+  },
+  {
+    resource: 'vehicle-models',
+    title: 'Modelos',
+    singular: 'modelo',
+    fields: [
+      // Las opciones (catálogo de marcas) se inyectan en render — ver `activeFields`.
+      { key: 'brand', label: 'Marca', kind: 'select', required: true },
+      { key: 'name', label: 'Nombre', required: true },
+    ],
+  },
+  {
+    resource: 'companies',
+    title: 'Sociedades',
+    singular: 'sociedad',
+    fields: [
+      { key: 'code', label: 'Código', required: true },
+      { key: 'name', label: 'Nombre', required: true },
+      { key: 'description', label: 'Descripción' },
+    ],
+  },
 ]
 
 function entryLabel(entry: CatalogEntry): string {
   return entry.project_name ?? (entry.code ? `${entry.code} · ${entry.name}` : (entry.name ?? `#${entry.id}`))
 }
 
-/** Valor a mostrar de un campo del catálogo (resuelve el display del CECO). */
+/** Valor a mostrar de un campo del catálogo (resuelve displays de FKs). */
 function cellValue(entry: CatalogEntry, key: string): string {
   if (key === 'cost_center') return entry.cost_center_display || ''
+  if (key === 'brand') return entry.brand_display || ''
   return String((entry as unknown as Record<string, unknown>)[key] ?? '')
 }
 
@@ -121,13 +149,28 @@ export function CatalogsPage() {
     [peps],
   )
 
-  // Inyecta las opciones de CECO en la definición declarativa del catálogo.
+  // N5: catálogo de marcas para el select de modelos (modelo → marca).
+  const [brands, setBrands] = useState<CatalogEntry[]>([])
+  useEffect(() => {
+    listCatalog('brands')
+      .then((page) => setBrands(page.results))
+      .catch(() => setBrands([]))
+  }, [])
+  const brandOptions = useMemo(
+    () => brands.map((b) => ({ value: String(b.id), label: b.name ?? `#${b.id}` })),
+    [brands],
+  )
+
+  // Inyecta las opciones de las FKs en la definición declarativa del catálogo.
   const activeFields = useMemo(
     () =>
-      active.fields.map((f) =>
-        f.kind === 'select' && f.key === 'cost_center' ? { ...f, options: pepOptions } : f,
-      ),
-    [active, pepOptions],
+      active.fields.map((f) => {
+        if (f.kind !== 'select') return f
+        if (f.key === 'cost_center') return { ...f, options: pepOptions }
+        if (f.key === 'brand') return { ...f, options: brandOptions }
+        return f
+      }),
+    [active, pepOptions, brandOptions],
   )
 
   const load = useCallback(() => {
@@ -135,6 +178,8 @@ export function CatalogsPage() {
     listCatalog(active.resource)
       .then((page) => {
         setEntries(page.results)
+        // Mantiene fresco el select de marcas de la pestaña Modelos.
+        if (active.resource === 'brands') setBrands(page.results)
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar el catálogo.')))
@@ -373,8 +418,9 @@ export function CatalogsPage() {
   )
 }
 
-/** Valor inicial de un campo al editar: el CECO usa el id (para el select). */
+/** Valor inicial de un campo al editar: las FKs usan el id (para el select). */
 function cellValueForEdit(entry: CatalogEntry, key: string): string {
   if (key === 'cost_center') return entry.cost_center != null ? String(entry.cost_center) : ''
+  if (key === 'brand') return entry.brand != null ? String(entry.brand) : ''
   return String((entry as unknown as Record<string, unknown>)[key] ?? '')
 }

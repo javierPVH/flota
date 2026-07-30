@@ -6,7 +6,7 @@ descubra y para poder importar `from fleet.models import Vehicle, ...`.
 
 from .alert import Alert
 from .assignment import Assignment, VehicleLink, VehicleUsage
-from .catalogs import BusinessUnit, Country, Pep, Project, Renting
+from .catalogs import Brand, BusinessUnit, Company, Country, Pep, Project, Renting, VehicleModel
 from .contract import Contract, KmReading
 from .document import Document
 from .event import (
@@ -25,7 +25,10 @@ from .request import VehicleRequest
 from .vehicle import Vehicle
 
 __all__ = [
+    "Brand",
     "BusinessUnit",
+    "Company",
+    "VehicleModel",
     "Country",
     "Pep",
     "Project",

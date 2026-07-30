@@ -32,7 +32,9 @@ from accounts.models import Role, User, UserRole
 from fleet.models import (
     Alert,
     Assignment,
+    Brand,
     BusinessUnit,
+    Company,
     Contract,
     Country,
     Document,
@@ -47,6 +49,7 @@ from fleet.models import (
     Renting,
     Vehicle,
     VehicleLink,
+    VehicleModel,
     VehicleRequest,
     VehicleUsage,
 )
@@ -205,6 +208,8 @@ def seed_users(stdout=None) -> None:
 
 def seed_catalogs(stdout=None) -> None:
     # Project.cost_center → Pep es PROTECT: hay que vaciar Project ANTES que Pep.
+    # (N5: Marca/Modelo/Sociedad se resiembran en seed_vehicles — los vehículos
+    # los protegen por FK, así que hay que vaciar Vehicle primero.)
     for model in (Renting, Project, Pep, BusinessUnit, Country):
         wipe(model, stdout)
     Country.objects.create(name="España")
@@ -243,6 +248,11 @@ def seed_catalogs(stdout=None) -> None:
 
 def seed_vehicles(stdout=None) -> None:
     wipe(Vehicle, stdout)  # cascada: contratos, km, eventos, documentos…
+    # N5: tras vaciar Vehicle ya no hay FKs PROTECT → resiembra marca/modelo/sociedad.
+    for model in (VehicleModel, Brand, Company):
+        wipe(model, stdout)
+    Company.objects.create(code="GS-ES", name="Gransolar España", description="Sociedad matriz")
+    Company.objects.create(code="GS-PT", name="Gransolar Portugal")
     sara = User.objects.get(username="sara")
     country = Country.objects.get(name="España")
     ops = BusinessUnit.objects.get(code="OPS")
@@ -364,6 +374,21 @@ def seed_vehicles(stdout=None) -> None:
             business_unit=units[i % len(units)],
             cost_center=project.cost_center if project else cecos[i % len(cecos)],
         )
+
+    # -- N5: puebla Marca/Modelo desde el texto sembrado y enlaza las FKs
+    # (mismo criterio que la migración de datos 0014) + sociedad titular.
+    companies = list(Company.objects.order_by("code"))
+    for idx, vehicle in enumerate(Vehicle.objects.all().order_by("id")):
+        brand, _ = Brand.objects.get_or_create(name=vehicle.brand.strip())
+        model_ref = None
+        if vehicle.model.strip():
+            model_ref, _ = VehicleModel.objects.get_or_create(
+                brand=brand, name=vehicle.model.strip()
+            )
+        vehicle.brand_ref = brand
+        vehicle.model_ref = model_ref
+        vehicle.company = companies[idx % len(companies)] if companies else None
+        vehicle.save(update_fields=["brand_ref", "model_ref", "company", "updated_at"])
 
 
 # --- 4) Contratos y lecturas de km ----------------------------------------
