@@ -123,6 +123,17 @@ export const registerItv = (data: {
 export const createKmReading = (data: { vehicle: number; km_reading: number; reading_date: string }) =>
   postJson<KmReading>(`${API}/km-readings/`, data)
 
+/** N8a: estado de la ventana de registro de campo (día 23 → fin de mes). */
+export interface KmWindow {
+  open: boolean
+  start_day: number
+  last_day: number
+  today: string
+  management_exempt: boolean
+}
+
+export const fetchKmWindow = () => getJson<KmWindow>(`${API}/km-readings/window/`)
+
 // --- M2: documentos del vehículo (Épica 4, archivado en Drive - Fase A3) --
 export const listDocuments = (vehicle: number) =>
   getJson<Paginated<FlotaDocument>>(`${API}/documents/?vehicle=${vehicle}&${PS}`)

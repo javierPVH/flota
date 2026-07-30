@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from auditlog.models import LogEntry
+from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse
 from django.utils import timezone
@@ -339,6 +340,68 @@ class KmReadingViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.
     def perform_destroy(self, instance):
         self._require_management()
         super().perform_destroy(instance)
+
+    @action(detail=False, methods=["get"], permission_classes=[IsAuthenticated])
+    def window(self, request):
+        """GET /km-readings/window/ — estado de la ventana de registro (N8a).
+
+        La app de campo lo usa para avisar y deshabilitar el formulario fuera
+        de plazo (la autoridad real es la validación del serializer).
+        """
+        from .services import km_window
+
+        today = timezone.localdate()
+        return Response(
+            {
+                "open": km_window.field_window_open(today) or request.user.is_management,
+                "start_day": settings.FLEET_KM_WINDOW_START,
+                "last_day": km_window.last_day_of_month(today),
+                "today": today,
+                "management_exempt": request.user.is_management,
+            }
+        )
+
+    @action(detail=False, methods=["get", "post"], permission_classes=[IsAdmin])
+    def estimate(self, request):
+        """N8b — completar km faltantes del mes anterior (solo admin, días 1-10).
+
+        - `GET`: recuento de vehículos sin lectura del mes anterior + ventana.
+        - `POST {months: 1|2|3|6}`: crea las lecturas estimadas (media mensual
+          de los N últimos meses, redondeada, nunca retrocede, `estimated=True`)
+          y devuelve el resumen. Idempotente por periodo.
+        """
+        from .services import km_window
+
+        today = timezone.localdate()
+        window_open = km_window.estimate_window_open(today)
+        if request.method == "GET":
+            missing = km_window.missing_last_month(today)
+            return Response(
+                {
+                    "open": window_open,
+                    "window_end_day": settings.FLEET_KM_ESTIMATE_WINDOW_END,
+                    "missing_count": len(missing),
+                    "missing": [{"vehicle": v.id, "plate": v.plate} for v in missing],
+                }
+            )
+        if not window_open:
+            raise ValidationError(
+                {
+                    "detail": (
+                        "El cálculo de km faltantes solo está disponible del día 1 al "
+                        f"{settings.FLEET_KM_ESTIMATE_WINDOW_END} del mes."
+                    )
+                }
+            )
+        try:
+            months = int(request.data.get("months", 0))
+        except (TypeError, ValueError):
+            months = 0
+        if months not in (1, 2, 3, 6):
+            raise ValidationError({"months": "Indica la media a usar: 1, 2, 3 o 6 meses."})
+        with transaction.atomic():
+            result = km_window.estimate_missing(months, today)
+        return Response(result)
 
 
 class AssignmentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):

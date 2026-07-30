@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Badge } from '@flota/ui/ui'
 
 import { listKmReadings } from '../api.ts'
 import { KmChart } from './KmChart.tsx'
@@ -62,7 +63,15 @@ export function ReadingsHistory({ vehicleId }: { vehicleId: number }) {
           {[...rows].reverse().map((r) => (
             <tr key={r.id}>
               <td>{r.reading_date ?? '—'}</td>
-              <td>{r.km_reading != null ? km(r.km_reading) : '—'}</td>
+              <td>
+                {r.km_reading != null ? km(r.km_reading) : '—'}
+                {r.estimated && (
+                  <>
+                    {' '}
+                    <Badge tone="info">estimada</Badge>
+                  </>
+                )}
+              </td>
               <td>{r.period != null ? `+${km(r.period)}` : '—'}</td>
             </tr>
           ))}

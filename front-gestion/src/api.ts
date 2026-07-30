@@ -235,6 +235,28 @@ export const listKmReadings = (vehicle: number) =>
 export const createKmReading = (data: { vehicle: number; km_reading: number; reading_date: string }) =>
   postJson<KmReading>(`${API}/km-readings/`, data)
 
+// --- N8b: completar km faltantes (admin, días 1-10) -------------------------
+
+export interface KmEstimatePreview {
+  open: boolean
+  window_end_day: number
+  missing_count: number
+  missing: Array<{ vehicle: number; plate: string }>
+}
+
+export interface KmEstimateResult {
+  period: string
+  months: number
+  created: Array<{ vehicle: number; plate: string; km_reading: number; reading_date: string }>
+  skipped: Array<{ vehicle: number; plate: string; why: string }>
+}
+
+export const fetchKmEstimatePreview = () =>
+  getJson<KmEstimatePreview>(`${API}/km-readings/estimate/`)
+
+export const runKmEstimate = (months: number) =>
+  postJson<KmEstimateResult>(`${API}/km-readings/estimate/`, { months })
+
 export const listEvents = (vehicle: number) =>
   getJson<Paginated<FlotaEvent>>(`${API}/events/${listQs({ vehicle, ordering: '-event_date' })}`)
 

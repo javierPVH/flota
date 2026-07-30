@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Badge, Button, PageHeader, SelectField } from '@flota/ui/ui'
+import { Badge, Button, Modal, PageHeader, Panel, SelectField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { fetchVehicleSummaries, listAll, listVehicles } from '../api.ts'
+import {
+  fetchKmEstimatePreview,
+  fetchVehicleSummaries,
+  listAll,
+  listVehicles,
+  runKmEstimate,
+  type KmEstimatePreview,
+  type KmEstimateResult,
+} from '../api.ts'
 import { exportCsv } from '../csv.ts'
 import { kmLevelTone } from '../format.ts'
 import { ReadingsHistory } from '../components/ReadingsHistory.tsx'
@@ -173,6 +181,35 @@ export function MileagePage() {
   const [error, setError] = useState('')
   const [supervisorFilter, setSupervisorFilter] = useState('')
 
+  // N8b: completar km faltantes del mes anterior (admin, días 1-10).
+  const [estimateOpen, setEstimateOpen] = useState(false)
+  const [preview, setPreview] = useState<KmEstimatePreview | null>(null)
+  const [months, setMonths] = useState('2')
+  const [running, setRunning] = useState(false)
+  const [estimateResult, setEstimateResult] = useState<KmEstimateResult | null>(null)
+  const [estimateError, setEstimateError] = useState('')
+
+  useEffect(() => {
+    fetchKmEstimatePreview()
+      .then(setPreview)
+      .catch(() => setPreview(null))
+  }, [])
+
+  async function handleEstimate() {
+    setRunning(true)
+    setEstimateError('')
+    try {
+      const result = await runKmEstimate(Number(months))
+      setEstimateResult(result)
+      const refreshed = await fetchKmEstimatePreview().catch(() => null)
+      if (refreshed) setPreview(refreshed)
+    } catch (err) {
+      setEstimateError(asErrorMessage(err, 'No se pudieron completar los km faltantes.'))
+    } finally {
+      setRunning(false)
+    }
+  }
+
   useEffect(() => {
     // Summaries en UNA petición (O2): antes era una llamada por fila.
     Promise.all([listAll(listVehicles()), fetchVehicleSummaries()])
@@ -213,19 +250,38 @@ export function MileagePage() {
     <div>
       <PageHeader
         title="Kilometraje"
-        subtitle="Lecturas pendientes, proyección a fin de contrato y simulador de ritmo."
+        subtitle="Lecturas pendientes, proyección a fin de contrato e histórico por vehículo."
         actions={
-          supervisors.length > 0 ? (
-            <SelectField
-              label="Grupo / supervisor"
-              options={[
-                { value: '', label: 'Toda la flota' },
-                ...supervisors.map(([id, name]) => ({ value: String(id), label: name })),
-              ]}
-              value={supervisorFilter}
-              onValueChange={setSupervisorFilter}
-            />
-          ) : undefined
+          <>
+            <Button
+              variant="secondary"
+              disabled={!preview?.open}
+              title={
+                preview && !preview.open
+                  ? `Disponible del día 1 al ${preview.window_end_day} del mes`
+                  : 'Completar las lecturas que faltaron el mes anterior'
+              }
+              onClick={() => {
+                setEstimateResult(null)
+                setEstimateError('')
+                setEstimateOpen(true)
+              }}
+            >
+              Completar km faltantes
+              {preview && preview.missing_count > 0 ? ` (${preview.missing_count})` : ''}
+            </Button>
+            {supervisors.length > 0 && (
+              <SelectField
+                label="Grupo / supervisor"
+                options={[
+                  { value: '', label: 'Toda la flota' },
+                  ...supervisors.map(([id, name]) => ({ value: String(id), label: name })),
+                ]}
+                value={supervisorFilter}
+                onValueChange={setSupervisorFilter}
+              />
+            )}
+          </>
         }
       />
 
@@ -295,6 +351,69 @@ export function MileagePage() {
 
         </>
       )}
+
+      {/* N8b: modal de completar km faltantes — div informativo + selector de
+          meses + recuento en vivo; al confirmar, resumen de lo creado. */}
+      <Modal
+        open={estimateOpen}
+        title="Completar km faltantes del mes anterior"
+        onClose={() => setEstimateOpen(false)}
+      >
+        <div className="modal-form">
+          <Panel tone="info">
+            <p className="panel-note">
+              Para cada vehículo activo <strong>sin lectura del mes anterior</strong> se creará
+              una lectura a fin de ese mes con la <strong>media mensual</strong> de los meses
+              elegidos (nunca retrocede). Las lecturas quedan marcadas como{' '}
+              <Badge tone="info">estimada</Badge> para su trazabilidad y entran en el histórico
+              y las proyecciones como cualquier otra.
+            </p>
+          </Panel>
+          <p className="muted" role="status">
+            {preview
+              ? `Registros sin km del mes anterior: ${preview.missing_count}`
+              : 'Cargando recuento…'}
+          </p>
+          <SelectField
+            label="Media de los últimos…"
+            options={[
+              { value: '1', label: '1 mes' },
+              { value: '2', label: '2 meses' },
+              { value: '3', label: '3 meses' },
+              { value: '6', label: '6 meses' },
+            ]}
+            value={months}
+            onValueChange={setMonths}
+          />
+          {estimateError && <div role="alert" className="form-error">{estimateError}</div>}
+          {estimateResult && (
+            <Panel tone="info">
+              <p className="panel-note">
+                Creadas <strong>{estimateResult.created.length}</strong> lecturas estimadas del
+                periodo {estimateResult.period}
+                {estimateResult.skipped.length > 0 &&
+                  ` · ${estimateResult.skipped.length} sin datos suficientes (${estimateResult.skipped
+                    .map((s) => s.plate)
+                    .join(', ')})`}
+                .
+              </p>
+            </Panel>
+          )}
+          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+            <Button type="button" variant="secondary" onClick={() => setEstimateOpen(false)}>
+              {estimateResult ? 'Cerrar' : 'Cancelar'}
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={running || !preview?.open || preview.missing_count === 0}
+              onClick={handleEstimate}
+            >
+              {running ? 'Calculando…' : 'Completar faltantes'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

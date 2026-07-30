@@ -279,8 +279,10 @@ class KmReadingSerializer(serializers.ModelSerializer):
         model = KmReading
         fields = "__all__"
         # N7: la desactivación solo cambia por destroy/erratas, nunca por PATCH.
+        # N8b: `estimated` lo fija el endpoint de completar faltantes.
         read_only_fields = [
             "id",
+            "estimated",
             "is_active",
             "deactivated_at",
             "deactivated_by",
@@ -297,6 +299,20 @@ class KmReadingSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        # N8a: el personal de campo solo registra en la ventana [día 23, fin de
+        # mes]. La gestión queda exenta. Mensaje explícito: la cola offline lo
+        # muestra tal cual cuando un registro encolado llega fuera de plazo.
+        from .services import km_window
+
+        request = self.context.get("request")
+        if (
+            self.instance is None
+            and request is not None
+            and request.user.is_authenticated
+            and not request.user.is_management
+            and not km_window.field_window_open()
+        ):
+            raise serializers.ValidationError({"reading_date": km_window.field_window_message()})
         # HU-3.1: el odómetro no puede retroceder (valida contra la última lectura).
         vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
         km = attrs.get("km_reading", getattr(self.instance, "km_reading", None))

@@ -56,6 +56,14 @@ class KmReading(DeactivatableModel, TimeStampedModel):
     )
     reading_date = models.DateField("Fecha de lectura", null=True, blank=True)
     km_reading = models.PositiveIntegerField("Odómetro (km acumulados)", null=True, blank=True)
+    estimated = models.BooleanField(
+        "Estimada",
+        default=False,
+        help_text=(
+            "N8b: creada por 'completar km faltantes' (media de N meses), no "
+            "registrada por una persona. Trazabilidad del dato."
+        ),
+    )
 
     class Meta:
         verbose_name = "lectura de km"
