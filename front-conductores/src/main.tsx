@@ -10,6 +10,11 @@ import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { AuthProvider, bootstrap, onLogout } from './auth.ts'
 import { LanguageProvider } from './i18n.tsx'
+import { requestPersistentStorage } from './offline/queue.ts'
+
+// BG4: pide almacenamiento persistente — protege la cola offline (IndexedDB)
+// de las purgas del navegador bajo presión de disco.
+requestPersistentStorage()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -15,7 +15,9 @@ vi.mock('../api.ts', async (importOriginal) => ({
   uploadDocument: mocks.uploadDocument,
 }))
 
-import { enqueue, flush, isNetworkError, queueSize, queuedItems } from './queue.ts'
+import { ApiError } from '@flota/ui/http'
+
+import { enqueue, flush, isNetworkError, isTransientError, queueSize, queuedItems } from './queue.ts'
 
 const KM = { kind: 'km' as const, payload: { vehicle: 1, km_reading: 32000, reading_date: '2026-07-22' } }
 
@@ -104,5 +106,52 @@ describe('cola offline (M7)', () => {
     expect(payload).toEqual({ vehicle: 1, type: 'damage_photos' })
     expect(file.name).toBe('dano.png')
     expect(file.type).toBe('image/png')
+  })
+
+  // --- BG3: clasificación por status --------------------------------------
+
+  it('isTransientError: 401/408/429/5xx se conservan; 400 se descarta', () => {
+    expect(isTransientError(new ApiError('sesión caducada', 401))).toBe(true)
+    expect(isTransientError(new ApiError('timeout', 408))).toBe(true)
+    expect(isTransientError(new ApiError('throttle', 429))).toBe(true)
+    expect(isTransientError(new ApiError('bad gateway', 502))).toBe(true)
+    expect(isTransientError(new ApiError('validación', 400))).toBe(false)
+    expect(isTransientError(new Error('cualquiera'))).toBe(false)
+  })
+
+  it('un 502 transitorio CONSERVA el elemento (antes se destruía)', async () => {
+    mocks.createKmReading.mockRejectedValue(new ApiError('Bad gateway', 502))
+    await enqueue(KM)
+
+    const result = await flush()
+    expect(result.sent).toBe(0)
+    expect(result.rejected).toEqual([])
+    expect(result.remaining).toBe(1)
+    const [stored] = await queuedItems()
+    expect(stored.attempts).toBe(1)
+  })
+
+  it('tras 8 reintentos transitorios el elemento se descarta con aviso', async () => {
+    mocks.createKmReading.mockRejectedValue(new ApiError('Server error', 500))
+    await enqueue(KM)
+    let last = { rejected: [] as string[] }
+    for (let i = 0; i < 8; i += 1) last = await flush()
+    expect(last.rejected).toHaveLength(1)
+    expect(last.rejected[0]).toContain('8 reintentos')
+    expect(await queueSize()).toBe(0)
+  })
+
+  it('un 400 de validación (ventana de km) se descarta con el mensaje del back', async () => {
+    mocks.createKmReading.mockRejectedValue(
+      new ApiError('El registro de km se abre del día 23 al último día del mes.', 400),
+    )
+    await enqueue(KM)
+    const result = await flush()
+    expect(result.rejected[0]).toContain('se abre del día 23')
+    expect(result.remaining).toBe(0)
+  })
+
+  it('AbortError cuenta como fallo de red: conservar', async () => {
+    expect(isNetworkError(new DOMException('The operation was aborted.', 'AbortError'))).toBe(true)
   })
 })

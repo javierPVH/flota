@@ -4,10 +4,17 @@ import { CheckCircle2, Gauge } from 'lucide-react'
 import { Button, PageHeader, Panel, SelectField } from '@flota/ui/ui'
 import { ApiError, asErrorMessage } from '@flota/ui/http'
 
-import { createKmReading, fetchVehicleSummary, listKmReadings, listVehicles } from '../api.ts'
+import {
+  createKmReading,
+  fetchKmWindow,
+  fetchVehicleSummary,
+  listKmReadings,
+  listVehicles,
+  type KmWindow,
+} from '../api.ts'
 import { fmtDate, fmtKm, pendingThisMonth, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import { enqueue, isNetworkError } from '../offline/queue.ts'
+import { isNetworkError, safeEnqueue } from '../offline/queue.ts'
 import type { KmReading, Vehicle, VehicleSummary } from '../types.ts'
 
 interface SavedReading {
@@ -38,6 +45,15 @@ export function RegisterKmPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState<SavedReading | null>(null)
+  // N8a: ventana de registro (día 23 → fin de mes) — la autoridad es el back.
+  const [window_, setWindow] = useState<KmWindow | null>(null)
+
+  useEffect(() => {
+    fetchKmWindow()
+      .then(setWindow)
+      .catch(() => setWindow(null))
+  }, [])
+  const windowClosed = window_ !== null && !window_.open
 
   /** Errores del servidor en claro: no-retroceso (400) y throttle (429).
    * El throttle se decide por STATUS (E5: la regex sobre el texto del back se
@@ -100,6 +116,7 @@ export function RegisterKmPage() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
+    if (windowClosed) return
     if (!vehicle || kmValue === null || Number.isNaN(kmValue)) return
     setSaving(true)
     setError('')
@@ -117,15 +134,19 @@ export function RegisterKmPage() {
       fetchVehicleSummary(vehicle.id).then(setSummary, () => {})
     } catch (err) {
       // Sin red (M7): a la cola offline — se enviará al reconectar.
+      // BG4: si IndexedDB falla (privado/cuota), avisar — el dato NO se guardó.
       if (isNetworkError(err)) {
-        await enqueue({ kind: 'km', payload })
-        setSaved({
-          plate: vehicle.plate,
-          km: kmValue,
-          driven: summary?.km_current != null ? kmValue - summary.km_current : null,
-          queued: true,
-        })
-        setKm('')
+        if (await safeEnqueue({ kind: 'km', payload })) {
+          setSaved({
+            plate: vehicle.plate,
+            km: kmValue,
+            driven: summary?.km_current != null ? kmValue - summary.km_current : null,
+            queued: true,
+          })
+          setKm('')
+        } else {
+          setError(t.km.queueFailed)
+        }
       } else {
         setError(readableError(err))
       }
@@ -165,6 +186,12 @@ export function RegisterKmPage() {
   return (
     <div className="field-page">
       <PageHeader title={t.km.title} />
+
+      {windowClosed && window_ && (
+        <Panel tone="warning">
+          <p className="panel-note">{t.km.windowClosed(window_.start_day)}</p>
+        </Panel>
+      )}
 
       {vehicles.length > 1 ? (
         <SelectField
@@ -239,7 +266,7 @@ export function RegisterKmPage() {
             <input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} />
           </label>
           {error && <div role="alert" className="form-error">{error}</div>}
-          <Button type="submit" disabled={saving || kmValue === null || goesBack}>
+          <Button type="submit" disabled={saving || kmValue === null || goesBack || windowClosed}>
             {saving ? t.km.saving : t.km.save}
           </Button>
         </form>

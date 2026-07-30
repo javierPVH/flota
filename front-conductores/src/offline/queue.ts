@@ -13,6 +13,8 @@
  * - Reintento automático: evento `online` + al arrancar la app.
  */
 
+import { ApiError } from '@flota/ui/http'
+
 import { createKmReading, registerItv, uploadDocument } from '../api.ts'
 import type { DocumentUploadInput } from '../api.ts'
 
@@ -40,7 +42,13 @@ export interface StoredItem {
   id: number
   createdAt: string
   item: QueuedItem
+  /** BG3: reintentos consumidos por errores transitorios (429/5xx/408/401). */
+  attempts?: number
 }
+
+/** BG3: tras N reintentos transitorios fallidos, el elemento se descarta con
+ * aviso (cuarentena) para no bloquear la cola para siempre. */
+const MAX_TRANSIENT_ATTEMPTS = 8
 
 const DB_NAME = 'flota-campo'
 const STORE = 'outbox'
@@ -79,7 +87,16 @@ function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequ
  * exige además el mensaje típico de red: Chrome «Failed to fetch», Firefox
  * «NetworkError when attempting…», Safari «Load failed». */
 export function isNetworkError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === 'AbortError') return true
   return err instanceof TypeError && /fetch|network|load failed/i.test(err.message)
+}
+
+/** BG3: ¿error TRANSITORIO del servidor? Se conserva y se reintenta con tope.
+ * 401 (sesión caducada: al reautenticarse el flush lo enviará), 408, 429
+ * (throttle) y 5xx (p. ej. 502 de nginx durante un deploy). */
+export function isTransientError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false
+  return err.status === 401 || err.status === 408 || err.status === 429 || err.status >= 500
 }
 
 const listeners = new Set<() => void>()
@@ -99,6 +116,29 @@ export async function enqueue(item: QueuedItem): Promise<void> {
   notify()
 }
 
+/** BG4: `enqueue` sin excepciones — IndexedDB puede fallar justo en el
+ * escenario para el que existe la cola (Safari en privado, cuota llena con
+ * una foto grande). Devuelve `false` si no se pudo guardar: la UI debe avisar
+ * de que el dato NO quedó encolado. */
+export async function safeEnqueue(item: QueuedItem): Promise<boolean> {
+  try {
+    await enqueue(item)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** BG4: pedir almacenamiento persistente al arrancar — reduce el riesgo de
+ * que el navegador purgue IndexedDB (y la cola) bajo presión de disco. */
+export function requestPersistentStorage(): void {
+  try {
+    void navigator.storage?.persist?.()
+  } catch {
+    // Best-effort: sin soporte no hay nada que hacer.
+  }
+}
+
 export function queuedItems(): Promise<StoredItem[]> {
   return tx('readonly', (store) => store.getAll() as IDBRequest<StoredItem[]>)
 }
@@ -110,6 +150,12 @@ export async function queueSize(): Promise<number> {
 async function remove(id: number): Promise<void> {
   await tx('readwrite', (store) => store.delete(id))
   notify()
+}
+
+async function bumpAttempts(stored: StoredItem): Promise<number> {
+  const attempts = (stored.attempts ?? 0) + 1
+  await tx('readwrite', (store) => store.put({ ...stored, attempts }))
+  return attempts
 }
 
 async function send(item: QueuedItem): Promise<void> {
@@ -149,8 +195,24 @@ export async function flush(): Promise<FlushResult> {
         result.sent += 1
       } catch (err) {
         if (isNetworkError(err)) break // seguimos sin red: parar y conservar
-        // El servidor respondió con error: descartar y avisar (reenviarlo
-        // repetiría el mismo rechazo para siempre).
+        if (isTransientError(err)) {
+          // BG3: 401/408/429/5xx — el servidor está mal o la sesión caducó.
+          // CONSERVAR y parar (reintento en el próximo flush), con tope de
+          // intentos para que un fallo persistente no bloquee la cola.
+          const attempts = await bumpAttempts(stored)
+          if (attempts >= MAX_TRANSIENT_ATTEMPTS) {
+            await remove(stored.id)
+            result.rejected.push(
+              `Descartado tras ${attempts} reintentos: ` +
+                (err instanceof Error ? err.message : String(err)),
+            )
+            continue
+          }
+          break
+        }
+        // 4xx de validación (p. ej. "fuera de plazo" de la ventana de km, N8a):
+        // descartar con el mensaje del servidor — reenviarlo repetiría el
+        // mismo rechazo para siempre.
         await remove(stored.id)
         result.rejected.push(err instanceof Error ? err.message : String(err))
       }

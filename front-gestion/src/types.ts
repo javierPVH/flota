@@ -178,6 +178,8 @@ export interface KmReading {
   vehicle: number
   reading_date: string | null
   km_reading: number | null
+  /** N8b: creada por "completar km faltantes" (media de N meses). */
+  estimated?: boolean
 }
 
 export interface FlotaEvent {

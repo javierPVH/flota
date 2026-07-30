@@ -344,6 +344,14 @@ FLEET_ITV_ALERT_DAYS = sorted(
     {int(x) for x in env_list("FLEET_ITV_ALERT_DAYS", ["30", "15", "7"]) if x.isdigit()},
     reverse=True,
 ) or [30, 15, 7]
+# N8a: día del mes desde el que el personal de campo (no gestión) puede
+# registrar km, hasta fin de mes. 0 = sin ventana. En dev/tests queda
+# desactivada para no romper flujos con fechas libres.
+FLEET_KM_WINDOW_START = max(0, env_int("FLEET_KM_WINDOW_START", 0 if DEBUG else 23))
+# N8b: último día del mes (incluido) en el que el admin puede completar los km
+# faltantes del mes anterior. 0 = siempre disponible (dev).
+FLEET_KM_ESTIMATE_WINDOW_END = max(0, env_int("FLEET_KM_ESTIMATE_WINDOW_END", 0 if DEBUG else 10))
+
 # Días antes del vencimiento del seguro en los que se avisa (N2, escalonado).
 FLEET_INSURANCE_ALERT_DAYS = sorted(
     {int(x) for x in env_list("FLEET_INSURANCE_ALERT_DAYS", ["30", "15", "7"]) if x.isdigit()},

@@ -217,6 +217,10 @@ const es = {
     another: 'Registrar otra lectura',
     backHome: 'Volver a mis vehículos',
     throttled: 'Demasiados registros seguidos. Espera un momento y reintenta.',
+    windowClosed: (start: number) =>
+      `El registro de km se abre del día ${start} al último día del mes.`,
+    queueFailed:
+      'Sin conexión y sin poder guardar en el dispositivo (¿modo privado o memoria llena?). La lectura NO se ha registrado: reinténtalo con conexión.',
     saveError: 'No se pudo guardar la lectura.',
   },
   alerts: {
@@ -525,6 +529,9 @@ const en: typeof es = {
     another: 'Log another reading',
     backHome: 'Back to my vehicles',
     throttled: 'Too many readings in a row. Wait a moment and retry.',
+    windowClosed: (start) => `Mileage entry opens from day ${start} to the last day of the month.`,
+    queueFailed:
+      'Offline and unable to store on this device (private mode or full storage?). The reading was NOT saved: retry when back online.',
     saveError: 'Could not save the reading.',
   },
   alerts: {

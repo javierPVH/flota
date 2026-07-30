@@ -31,7 +31,7 @@ import {
   pendingThisMonth,
   vehicleStateTone,
 } from '../format.ts'
-import { enqueue, isNetworkError } from '../offline/queue.ts'
+import { isNetworkError, safeEnqueue } from '../offline/queue.ts'
 import type { AssignmentRow, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
 
 // Tipos de documento (lista cerrada del back, Épica 4); etiquetas en i18n.
@@ -179,8 +179,8 @@ export function VehicleFieldPage() {
       loadDocuments()
     } catch (err) {
       // Sin red (M7): el binario entra en la cola offline con sus metadatos.
-      if (isNetworkError(err)) {
-        await enqueue({ kind: 'document', payload, file, fileName: file.name, fileType: file.type })
+      if (isNetworkError(err) &&
+          (await safeEnqueue({ kind: 'document', payload, file, fileName: file.name, fileType: file.type }))) {
         setForm(EMPTY_FORM)
         setFile(null)
         setShowUpload(false)
@@ -236,8 +236,7 @@ export function VehicleFieldPage() {
       fetchVehicle(vehicleId).then(setVehicle, () => {})
     } catch (err) {
       // Sin red (M7): a la cola offline — se enviará al reconectar.
-      if (isNetworkError(err)) {
-        await enqueue({ kind: 'itv', payload })
+      if (isNetworkError(err) && (await safeEnqueue({ kind: 'itv', payload }))) {
         setItvOpen(false)
         setItvForm({ event_date: todayIso(), result: 'done', next_due: '' })
         setItvOk(t.vehicle.itvOffline)
