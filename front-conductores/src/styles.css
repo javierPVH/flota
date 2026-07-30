@@ -856,3 +856,15 @@ a {
   border: 1px solid var(--color-border-strong);
   box-shadow: none;
 }
+
+/* --- N9: principal bloqueado por sustitución ------------------------------- */
+.card-blocked {
+  opacity: 0.72;
+  border-style: dashed;
+}
+.blocked-note {
+  margin: 0.25rem 0 0.45rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #b45309;
+}

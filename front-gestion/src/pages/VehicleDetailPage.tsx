@@ -5,6 +5,7 @@ import { asErrorMessage } from '@flota/ui/http'
 
 import {
   closeVehicleLink,
+  convertToFleet,
   createKmReading,
   createVehicleLink,
   fetchVehicle,
@@ -420,7 +421,16 @@ export function VehicleDetailPage() {
         }
         actions={
           <>
-            <Button variant="primary" onClick={() => setKmModal(true)}>
+            <Button
+              variant="primary"
+              disabled={Boolean(summary?.blocked_by_link)}
+              title={
+                summary?.blocked_by_link
+                  ? `Bloqueado por sustitución — registra los km sobre ${summary.blocked_by_link.plate}`
+                  : undefined
+              }
+              onClick={() => setKmModal(true)}
+            >
               Registrar km
             </Button>
             <Button variant="secondary" onClick={() => navigate(`/vehiculos/${vehicleId}/editar`)}>
@@ -434,6 +444,22 @@ export function VehicleDetailPage() {
                 <Button variant="secondary" onClick={() => openOps('link')}>
                   Sustitución
                 </Button>
+                {vehicle.is_substitute && (
+                  <Button
+                    variant="secondary"
+                    title="El tipo se fija al crear; esta es la única vía sustituto → flota"
+                    onClick={async () => {
+                      try {
+                        await convertToFleet(vehicle.id)
+                        load()
+                      } catch (err) {
+                        setError(asErrorMessage(err, 'No se pudo convertir en flota.'))
+                      }
+                    }}
+                  >
+                    Convertir en flota
+                  </Button>
+                )}
                 <Button variant="danger" onClick={() => openOps('baja')}>
                   Dar de baja
                 </Button>
@@ -454,14 +480,26 @@ export function VehicleDetailPage() {
         )}
       </div>
 
-      {linkInfo && (
-        <div className="link-banner">
-          {linkInfo.role === 'main' ? 'Sustituido por' : 'Sustituye a'}{' '}
-          <Link to={`/vehiculos/${linkInfo.otherId}`}>
-            <strong>{linkInfo.plate}</strong>
-          </Link>{' '}
-          desde {linkInfo.since}.
+      {/* N9: principal BLOQUEADO por sustitución — banner destacado. */}
+      {summary?.blocked_by_link ? (
+        <div className="blocked-banner" role="status">
+          🔒 Bloqueado por sustitución: {summary.blocked_by_link.reason.toLowerCase()} desde{' '}
+          {summary.blocked_by_link.since} — sustituto{' '}
+          <Link to={`/vehiculos/${summary.blocked_by_link.substitute_id}`}>
+            <strong>{summary.blocked_by_link.plate}</strong>
+          </Link>
+          . Las asignaciones y lecturas de km se hacen sobre el sustituto.
         </div>
+      ) : (
+        linkInfo && (
+          <div className="link-banner">
+            {linkInfo.role === 'main' ? 'Sustituido por' : 'Sustituye a'}{' '}
+            <Link to={`/vehiculos/${linkInfo.otherId}`}>
+              <strong>{linkInfo.plate}</strong>
+            </Link>{' '}
+            desde {linkInfo.since}.
+          </div>
+        )
       )}
 
       {/* KPIs (HU-1.2) */}

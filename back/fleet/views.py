@@ -297,6 +297,38 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         """
         return Response(metrics.vehicle_summary(self.get_object()))
 
+    @action(
+        detail=True, methods=["post"], url_path="convert-to-fleet", permission_classes=[IsAdmin]
+    )
+    def convert_to_fleet(self, request, pk=None):
+        """N9: sustituto → flota (vía explícita; la inversa está prohibida).
+
+        Solo si NO tiene un vínculo de sustitución activo: primero se cierra
+        el vínculo, después se convierte.
+        """
+        from .selectors import active_link_blocking
+
+        vehicle = self.get_object()
+        if not vehicle.is_substitute:
+            raise ValidationError({"is_substitute": "El vehículo ya es de flota."})
+        busy = VehicleLink.objects.filter(substitute_vehicle=vehicle, end_date__isnull=True).first()
+        if busy is not None:
+            raise ValidationError(
+                {
+                    "is_substitute": (
+                        "Está cubriendo a "
+                        f"{busy.main_vehicle.plate}: cierra ese vínculo antes de convertirlo."
+                    )
+                }
+            )
+        # Defensa extra: tampoco debe estar bloqueado como principal (no debería
+        # poder tener sustituto siendo sustituto, pero por si hay datos legados).
+        if active_link_blocking(vehicle) is not None:
+            raise ValidationError({"is_substitute": "Tiene un vínculo activo como principal."})
+        vehicle.is_substitute = False
+        vehicle.save(update_fields=["is_substitute", "updated_at"])
+        return Response(self.get_serializer(vehicle).data)
+
 
 # --- Recursos que cuelgan del vehículo -----------------------------------
 

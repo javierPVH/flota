@@ -103,6 +103,14 @@ export interface VehicleSummary {
   insurance_expiry_date: string | null
   /** N3: sin proyección — pintar "Km ilimitados" en vez de "sin contrato". */
   unlimited_km: boolean
+  is_substitute: boolean
+  /** N9: principal bloqueado mientras el sustituto opera por él. */
+  blocked_by_link: {
+    substitute_id: number
+    plate: string
+    reason: string
+    since: string
+  } | null
   km_current: number | null
   km_reading_date: string | null
   km_driven: number | null

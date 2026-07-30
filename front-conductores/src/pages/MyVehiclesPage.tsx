@@ -100,19 +100,28 @@ export function MyVehiclesPage() {
         {visible.map((v) => {
           const summary = summaries[v.id]
           const kmPending = summary ? pendingThisMonth(summary) : false
+          // N9: el principal con sustituto activo se ve BLOQUEADO (atenuado,
+          // candado y motivo); el sustituto operativo queda ligado visualmente.
+          const blocked = summary?.blocked_by_link ?? null
           return (
             <Link key={v.id} to={`/vehiculos/${v.id}`} className="card-link">
-              <div className="card">
+              <div className={`card${blocked ? ' card-blocked' : ''}`}>
                 <div className="vehicle-card">
                   <div className="vehicle-card-head">
                     <span className="plate">{v.plate}</span>
                     <Badge tone={vehicleStateTone(v.state)}>{v.state_display || '—'}</Badge>
+                    {blocked && <Badge tone="warning">🔒 {t.home.blocked}</Badge>}
                     <ChevronRight size={18} aria-hidden className="card-chevron" />
                   </div>
                   <p className="vehicle-model">
                     {v.brand} {v.model}
                     {v.is_substitute ? ` · ${t.home.substitute}` : ''}
                   </p>
+                  {blocked && (
+                    <p className="blocked-note">
+                      {t.home.blockedNote(blocked.reason, blocked.plate)}
+                    </p>
+                  )}
                   <dl className="vehicle-meta">
                     <dt>{t.home.km}</dt>
                     <dd>

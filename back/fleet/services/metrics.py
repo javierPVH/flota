@@ -26,7 +26,7 @@ from django.utils import timezone
 from fleet.models import Alert, Contract, Invoice, KmReading, Vehicle
 from fleet.models.enums import AlertStatus, VehicleState
 from fleet.scoping import vehicles_for
-from fleet.selectors import current_driver_map
+from fleet.selectors import active_link_blocking, active_substitution_map, current_driver_map
 
 # Niveles de proyección (semáforo de tres tramos de las visuales).
 LEVEL_WITHIN = "within"  # dentro de lo contratado
@@ -78,6 +78,7 @@ def vehicle_summary(vehicle: Vehicle, today: date | None = None) -> dict:
         _latest_reading(vehicle),
         current_driver_map([vehicle.id]).get(vehicle.id),
         today,
+        link=active_link_blocking(vehicle),
     )
 
 
@@ -109,8 +110,16 @@ def vehicle_summaries(user) -> list[dict]:
         latest.setdefault(reading.vehicle_id, reading)
 
     drivers = current_driver_map(ids)
+    links = active_substitution_map(ids)  # N9: principales bloqueados (1 query)
     return [
-        _compose_summary(v, contracts.get(v.id), latest.get(v.id), drivers.get(v.id), today)
+        _compose_summary(
+            v,
+            contracts.get(v.id),
+            latest.get(v.id),
+            drivers.get(v.id),
+            today,
+            link=links.get(v.id),
+        )
         for v in vehicles
     ]
 
@@ -121,6 +130,8 @@ def _compose_summary(
     latest: KmReading | None,
     driver,
     today: date | None = None,
+    *,
+    link=None,
 ) -> dict:
     """Compone el summary desde datos ya resueltos (compartido single/bulk)."""
     today = today or timezone.localdate()
@@ -136,6 +147,18 @@ def _compose_summary(
         "next_itv_date": vehicle.next_itv_date,
         "insurance_expiry_date": vehicle.insurance_expiry_date,
         "unlimited_km": vehicle.unlimited_km,
+        "is_substitute": vehicle.is_substitute,
+        # N9: principal bloqueado mientras su sustituto opera por él.
+        "blocked_by_link": (
+            {
+                "substitute_id": link.substitute_vehicle_id,
+                "plate": link.substitute_vehicle.plate,
+                "reason": link.get_reason_display(),
+                "since": link.start_date,
+            }
+            if link is not None
+            else None
+        ),
         "km_current": km_current,
         "km_reading_date": latest.reading_date if latest else None,
         "km_driven": km_driven,
