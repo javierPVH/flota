@@ -242,6 +242,13 @@ class KmReadingSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
 
+    def validate_reading_date(self, value):
+        # SEC2: sin cota superior, una lectura fechada en el futuro bloquearía
+        # (por el no-retroceso) los registros legítimos posteriores.
+        if value and value > timezone.localdate():
+            raise serializers.ValidationError("La fecha de lectura no puede ser futura.")
+        return value
+
     def validate(self, attrs):
         # HU-3.1: el odómetro no puede retroceder (valida contra la última lectura).
         vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
@@ -293,6 +300,16 @@ class AssignmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"end_date": "La fecha de fin no puede ser anterior a la de inicio."}
             )
+        # SEC2: la máquina de estados no se salta por PATCH. La única transición
+        # directa permitida es cerrar (→ finished, como hace la gestión); aceptar
+        # o rechazar una propuesta va por las acciones accept/reject, que son la
+        # transición de negocio completa.
+        if self.instance is not None:
+            new_status = attrs.get("status", self.instance.status)
+            if new_status != self.instance.status and new_status != AssignmentStatus.FINISHED:
+                raise serializers.ValidationError(
+                    {"status": "Usa accept/reject para transicionar la propuesta."}
+                )
         return attrs
 
 
@@ -668,7 +685,10 @@ class VehicleRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = VehicleRequest
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        # SEC2: `status` solo cambia por grant/reject (IsAdmin) o la sincronización
+        # con Jira — nunca por POST/PATCH directo (un supervisor podía marcar
+        # `assigned` saltándose el grant).
+        read_only_fields = ["id", "status", "created_at", "updated_at"]
 
     def get_requester_name(self, obj) -> str:
         user = obj.requester

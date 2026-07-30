@@ -125,6 +125,16 @@ class ScopedByVehicleMixin:
                 raise PermissionDenied("El vehículo está fuera de tu ámbito.")
         serializer.save(**self.extra_create_kwargs())
 
+    def perform_update(self, serializer):
+        # SEC1: sin esto, un PATCH {"vehicle": <ajeno>} movía el recurso (lectura,
+        # incidencia, documento…) a un vehículo fuera del ámbito del autor.
+        user = self.request.user
+        if not user.is_admin and self.vehicle_lookup:
+            vehicle = serializer.validated_data.get("vehicle")
+            if vehicle is not None and not vehicles_for(user).filter(pk=vehicle.pk).exists():
+                raise PermissionDenied("El vehículo está fuera de tu ámbito.")
+        serializer.save()
+
     def extra_create_kwargs(self) -> dict:
         """Kwargs extra al crear (p. ej. fijar el autor). Sobrescríbelo si hace falta."""
         return {}
@@ -280,6 +290,20 @@ class KmReadingViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             super().perform_create(serializer)
             events.emit_km_reading(serializer.instance)
+
+    def _require_management(self):
+        # SEC4: para el conductor el registro es append-only — editar o borrar
+        # la última lectura permitiría esquivar el no-retroceso.
+        if not self.request.user.is_management:
+            raise PermissionDenied("Solo la gestión puede modificar o borrar lecturas.")
+
+    def perform_update(self, serializer):
+        self._require_management()
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        self._require_management()
+        super().perform_destroy(instance)
 
 
 class AssignmentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):

@@ -1,0 +1,183 @@
+"""Endurecimiento SEC1/SEC2/SEC4 (PLAN_EVOLUCION.md, paso 2).
+
+- SEC1: `ScopedByVehicleMixin.perform_update` — un PATCH no puede mover un
+  recurso a un vehículo fuera del ámbito del autor.
+- SEC2: las máquinas de estado no se saltan por PATCH (Assignment,
+  VehicleRequest) y `reading_date` no puede ser futura.
+- SEC4: el registro de km es append-only para el conductor.
+"""
+
+from datetime import date, timedelta
+
+from django.urls import reverse
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APITestCase
+
+from accounts.models import Role
+from fleet.models import Assignment, Incident, KmReading, Vehicle, VehicleRequest
+from fleet.models.enums.operations import AssignmentStatus
+from fleet.models.enums.request import VehicleRequestStatus
+
+from .helpers import make_user
+
+
+class CrossVehiclePatchTests(APITestCase):
+    """SEC1: PATCH {"vehicle": <ajeno>} debe rechazarse para no-admin."""
+
+    def setUp(self):
+        self.driver = make_user("driver", Role.DRIVER)
+        self.supervisor = make_user("sup", Role.SUPERVISOR)
+        self.mine = Vehicle.objects.create(plate="1111AAA", brand="a", model="b")
+        self.group = Vehicle.objects.create(
+            plate="2222BBB", brand="a", model="b", supervisor=self.supervisor
+        )
+        self.foreign = Vehicle.objects.create(plate="0000ZZZ", brand="a", model="b")
+        Assignment.objects.create(
+            vehicle=self.mine,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+
+    def test_driver_cannot_move_km_reading_to_foreign_vehicle(self):
+        reading = KmReading.objects.create(
+            vehicle=self.mine, reading_date=date(2026, 2, 1), km_reading=1000
+        )
+        self.client.force_authenticate(self.driver)
+        resp = self.client.patch(
+            reverse("kmreading-detail", args=[reading.pk]), {"vehicle": self.foreign.pk}
+        )
+        # SEC4 lo corta antes (append-only), pero nunca debe ser 2xx.
+        self.assertIn(resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_400_BAD_REQUEST))
+        reading.refresh_from_db()
+        self.assertEqual(reading.vehicle_id, self.mine.pk)
+
+    def test_supervisor_cannot_move_incident_outside_group(self):
+        incident = Incident.objects.create(
+            vehicle=self.group, type="breakdown", date=date(2026, 2, 1), description="golpe"
+        )
+        self.client.force_authenticate(self.supervisor)
+        resp = self.client.patch(
+            reverse("incident-detail", args=[incident.pk]), {"vehicle": self.foreign.pk}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        incident.refresh_from_db()
+        self.assertEqual(incident.vehicle_id, self.group.pk)
+
+    def test_supervisor_can_still_edit_within_group(self):
+        incident = Incident.objects.create(
+            vehicle=self.group, type="breakdown", date=date(2026, 2, 1), description="golpe"
+        )
+        self.client.force_authenticate(self.supervisor)
+        resp = self.client.patch(
+            reverse("incident-detail", args=[incident.pk]), {"description": "golpe leve"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+
+class StateMachineTests(APITestCase):
+    """SEC2: los estados transicionan por sus acciones, no por PATCH."""
+
+    def setUp(self):
+        self.admin = make_user("admin", Role.ADMIN)
+        self.supervisor = make_user("sup", Role.SUPERVISOR)
+        self.driver = make_user("driver", Role.DRIVER)
+        self.vehicle = Vehicle.objects.create(
+            plate="1111AAA", brand="a", model="b", supervisor=self.supervisor
+        )
+
+    def test_patch_cannot_accept_a_proposal(self):
+        proposal = Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.PROPOSED,
+        )
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(
+            reverse("assignment-detail", args=[proposal.pk]), {"status": "accepted"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, AssignmentStatus.PROPOSED)
+
+    def test_patch_can_still_close_an_accepted_assignment(self):
+        # La gestión cierra la vigente con {end_date, status: finished}.
+        current = Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(
+            reverse("assignment-detail", args=[current.pk]),
+            {"end_date": "2026-06-01", "status": "finished"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        current.refresh_from_db()
+        self.assertEqual(current.status, AssignmentStatus.FINISHED)
+
+    def test_supervisor_cannot_patch_request_status(self):
+        request = VehicleRequest.objects.create(
+            requester=self.driver, status=VehicleRequestStatus.PENDING
+        )
+        self.client.force_authenticate(self.supervisor)
+        resp = self.client.patch(
+            reverse("vehiclerequest-detail", args=[request.pk]), {"status": "assigned"}
+        )
+        request.refresh_from_db()
+        # `status` es read-only: aunque el PATCH responda 200, no cambia nada.
+        self.assertEqual(request.status, VehicleRequestStatus.PENDING)
+        self.assertNotEqual(resp.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def test_km_reading_date_cannot_be_future(self):
+        self.client.force_authenticate(self.admin)
+        future = (timezone.localdate() + timedelta(days=30)).isoformat()
+        resp = self.client.post(
+            reverse("kmreading-list"),
+            {"vehicle": self.vehicle.pk, "reading_date": future, "km_reading": 1000},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("reading_date", resp.data["errors"])
+
+
+class KmReadingAppendOnlyTests(APITestCase):
+    """SEC4: el conductor no edita ni borra lecturas (esquivaría el no-retroceso)."""
+
+    def setUp(self):
+        self.admin = make_user("admin", Role.ADMIN)
+        self.driver = make_user("driver", Role.DRIVER)
+        self.vehicle = Vehicle.objects.create(plate="1111AAA", brand="a", model="b")
+        Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.reading = KmReading.objects.create(
+            vehicle=self.vehicle, reading_date=date(2026, 2, 1), km_reading=5000
+        )
+
+    def test_driver_cannot_delete_reading(self):
+        self.client.force_authenticate(self.driver)
+        resp = self.client.delete(reverse("kmreading-detail", args=[self.reading.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(KmReading.objects.filter(pk=self.reading.pk).exists())
+
+    def test_driver_cannot_lower_reading(self):
+        self.client.force_authenticate(self.driver)
+        resp = self.client.patch(
+            reverse("kmreading-detail", args=[self.reading.pk]), {"km_reading": 100}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.reading.refresh_from_db()
+        self.assertEqual(self.reading.km_reading, 5000)
+
+    def test_management_can_still_correct_a_reading(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(
+            reverse("kmreading-detail", args=[self.reading.pk]), {"km_reading": 5100}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
