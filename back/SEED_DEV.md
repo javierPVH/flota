@@ -78,7 +78,9 @@ las FK. Si añades un modelo, insértalo en el punto correcto:
 users → catalogs → vehicles → contracts (y lecturas de km)
       → assignments (reparto de uso, vínculos de sustitución)
       → operations (eventos/ITV, incidencias, documentos, facturas, solicitudes)
+      → erratas (N7: desactivaciones de varios tipos + usuario inactivo)
       → alerts (el MOTOR REAL regenera la bandeja sobre lo sembrado)
+      → comms (N9/N10: traza de correos ligada a alertas reales + push)
 ```
 
 Nunca crees un registro cuya FK aún no se ha sembrado.
@@ -130,12 +132,25 @@ vencida/próxima/lejana, **14 incidencias**, seguro (algunos caducados) + fichas
 técnicas + fotos pendientes de archivar, **3 meses de facturas** con reparto
 100% a proyecto o CECO, y 7 solicitudes de Jira en todos los estados
 (`FLT-201`…`FLT-207`, sin solicitante: "Conceder" queda deshabilitado a
-propósito). No dependas de los datos de volumen en asserts finos; para eso está
-la referencia.
+propósito). El seguro de cada vehículo se decide en su DOCUMENTO de seguro
+(la señal lo denormaliza a `Vehicle.insurance_expiry_date`): vencido (i%8==5),
+próximo a <30 días (i%8 in 1,2) o lejano → bandeja de alertas de seguro (N2)
+con los tres niveles. 1 de cada 5 vehículos lleva su última lectura de km
+**estimada** (N8b, trazo diferenciado en la gráfica). No dependas de los datos
+de volumen en asserts finos; para eso está la referencia.
 
-Al final siempre corre `seed_alerts`, que **borra las alertas y ejecuta el motor
+Casi al final corre `seed_alerts`, que **borra las alertas y ejecuta el motor
 real** (`alerts.run_all()`): la bandeja refleja exactamente lo sembrado. No
 escribas asserts que dependan del número exacto de alertas.
+
+**Erratas y comunicaciones** (los dos últimos pasos): `seed_erratas` puebla el
+espacio de erratas con una incidencia, una lectura de km, la marca `Saab`, la
+firma "Firma antigua (2024)" (todas desactivadas con motivo) y el usuario
+inactivo `expedro`; junto con los vehículos en baja, la página de Erratas
+enseña TODOS los mecanismos. `seed_comms` deja 4 `EmailLog` (enviado ×2,
+fallido y omitido, ligados a alertas reales) y una `PushSubscription` ficticia
+de `carlos` (endpoint falso: sin claves VAPID nadie la usa, y con ellas el
+push service la poda al primer 404/410).
 
 ## 7. Login de desarrollo en los fronts (saltarse Google)
 
