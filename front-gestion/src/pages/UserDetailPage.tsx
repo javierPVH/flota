@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Badge, PageHeader } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchManagedUser, listAssignments, listVehicles } from '../api.ts'
@@ -98,6 +99,34 @@ export function UserDetailPage() {
 
   const fullName = `${user.first_name} ${user.last_name}`.trim() || user.username
 
+  // Histórico de vehículos con el estilo unificado (TableWithPanel).
+  const historyColumns: Array<TableWithPanelColumn<AssignmentRow>> = [
+    {
+      key: 'vehicle',
+      label: 'Vehículo',
+      getValue: (a) => plateOf(a.vehicle),
+      render: (a) => (
+        <Link to={`/vehiculos/${a.vehicle}`} className="cell-link">
+          <strong>{plateOf(a.vehicle)}</strong>
+        </Link>
+      ),
+    },
+    {
+      key: 'period',
+      label: 'Periodo',
+      getValue: (a) => a.start_date,
+      render: (a) => `${a.start_date} → ${a.end_date ?? '…'}`,
+    },
+    {
+      key: 'status',
+      label: 'Estado',
+      getValue: (a) => STATUS_LABEL[a.status] ?? a.status,
+      render: (a) => (
+        <Badge tone={assignmentStatusTone(a.status)}>{STATUS_LABEL[a.status] ?? a.status}</Badge>
+      ),
+    },
+  ]
+
   return (
     <div>
       <PageHeader
@@ -118,34 +147,14 @@ export function UserDetailPage() {
           {history.length === 0 ? (
             <p className="muted">Sin asignaciones registradas.</p>
           ) : (
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Vehículo</th>
-                  <th>Periodo</th>
-                  <th>Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((a) => (
-                  <tr key={a.id}>
-                    <td>
-                      <Link to={`/vehiculos/${a.vehicle}`}>
-                        <strong>{plateOf(a.vehicle)}</strong>
-                      </Link>
-                    </td>
-                    <td>
-                      {a.start_date} → {a.end_date ?? '…'}
-                    </td>
-                    <td>
-                      <Badge tone={assignmentStatusTone(a.status)}>
-                        {STATUS_LABEL[a.status] ?? a.status}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <TableWithPanel<AssignmentRow>
+              rows={history}
+              columns={historyColumns}
+              rowKey={(a) => String(a.id)}
+              enablePagination
+              defaultPageSize={25}
+              pageSizeOptions={[25, 50, 100]}
+            />
           )}
         </CollapsibleCard>
 

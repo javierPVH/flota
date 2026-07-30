@@ -458,8 +458,8 @@ export function TableWithPanel<RowType extends object>({
   groupRowsByMonth = false,
   summaryLeadingSlot,
   panelTrailingSlot,
-  enableColumnSort = false,
-  enableColumnResize = false,
+  enableColumnSort = true,
+  enableColumnResize = true,
   columnResizeDivider,
   enablePagination = false,
   defaultPageSize = 25,
@@ -524,6 +524,9 @@ export function TableWithPanel<RowType extends object>({
   const [currentPage, setCurrentPage] = useState(1)
   const [orderedColumnKeys, setOrderedColumnKeys] = useState(() => columns.map((column) => column.key))
   const [hiddenColumnKeys, setHiddenColumnKeys] = useState<Set<string>>(() => new Set(defaultHiddenColumnKeys))
+  // Cabeceras cuyas herramientas (candado + orden) están desplegadas. Por defecto
+  // ocultas tras un chevron: se muestran solo al pulsarlo (patrón de las visuales).
+  const [expandedHeaders, setExpandedHeaders] = useState<Set<string>>(() => new Set())
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
   const resizingRef = useRef<ResizeDragState | null>(null)
   const [draftDateFilter, setDraftDateFilter] = useState<DateFilterState>(() => ({
@@ -590,6 +593,10 @@ export function TableWithPanel<RowType extends object>({
       : null
     const fromBoundary = parseDateBoundary(appliedDateFilter.from, 'start')
     const toBoundary = parseDateBoundary(appliedDateFilter.to, 'end')
+    // El filtro por fecha SOLO actúa cuando hay un rango aplicado (desde/hasta).
+    // Sin él, tener una columna de fecha no debe ocultar filas con fecha vacía
+    // (p. ej. vehículos sin ITV, documentos sin caducidad).
+    const hasDateRange = fromBoundary !== null || toBoundary !== null
 
     return rows.filter((row) => {
       if (searchEnabled) {
@@ -602,7 +609,7 @@ export function TableWithPanel<RowType extends object>({
         }
       }
 
-      if (!selectedDateColumn) {
+      if (!selectedDateColumn || !hasDateRange) {
         return true
       }
 
@@ -676,18 +683,22 @@ export function TableWithPanel<RowType extends object>({
   }, [filteredRows, monthSortColumn, monthSortDirection])
 
   const activeSortCriteria = useMemo(() => {
+    // Cadena de orden: las columnas con candado ordenan por prioridad (según el
+    // orden del candado 1, 2, 3…), y su dirección se toma de su estado de orden
+    // (por defecto asc). Además, cualquier columna SIN candado con orden activo
+    // se añade al final de la cadena. Así, con un candado puesto, primero ordena
+    // esa columna y, dentro de ese orden, la siguiente columna que se ordene.
+    const lockedKeys = new Set(Object.keys(columnLockOrders))
     const locked = Object.entries(columnLockOrders)
       .sort((a, b) => a[1] - b[1])
       .map(([key]) => ({
         key,
         direction: (columnSortStates[key] === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc',
       }))
-
-    if (locked.length > 0) return locked
-
-    return Object.entries(columnSortStates)
-      .filter(([key, state]) => state !== 'neutral' && !columnLockOrders[key])
+    const unlocked = Object.entries(columnSortStates)
+      .filter(([key, state]) => state !== 'neutral' && !lockedKeys.has(key))
       .map(([key, state]) => ({ key, direction: state as 'asc' | 'desc' }))
+    return [...locked, ...unlocked]
   }, [columnLockOrders, columnSortStates])
 
   const columnSortedRows = useMemo(() => {
@@ -1361,20 +1372,50 @@ export function TableWithPanel<RowType extends object>({
                   <th key={column.key} style={thStyle} data-column-key={column.key} title={column.label} className={isDividerColumn ? styles.thDivider : undefined}>
                     <div className={styles.thContent}>
                       {isSortable && (
-                        <MiniToolsButtons
-                          size="xs"
-                          showLock
-                          showSort
-                          showSearch={false}
-                          showDelete={false}
-                          lockSortWhenLocked
-                          sortScope={tableSortScope}
-                          relatedGroup={tableSortScope}
-                          progressionEnabled
-                          className={styles.thMiniTools}
-                          onSortChange={(state) => handleColumnSortChange(column.key, state)}
-                          onLockChange={(locked, badge) => handleColumnLockChange(column.key, locked, badge)}
-                        />
+                        <>
+                          {/* Chevron: despliega en línea (con animación) el candado + las flechas. */}
+                          <button
+                            type="button"
+                            className={cx(
+                              styles.thToolsToggle,
+                              expandedHeaders.has(column.key) && styles.thToolsToggleOpen,
+                            )}
+                            aria-label="Herramientas de columna"
+                            aria-expanded={expandedHeaders.has(column.key)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setExpandedHeaders((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(column.key)) next.delete(column.key)
+                                else next.add(column.key)
+                                return next
+                              })
+                            }}
+                          >
+                            <ChevronRight size={10} />
+                          </button>
+                          <div
+                            className={cx(
+                              styles.thMiniToolsWrap,
+                              expandedHeaders.has(column.key) && styles.thMiniToolsWrapOpen,
+                            )}
+                          >
+                            <MiniToolsButtons
+                              size="xs"
+                              showLock
+                              showSort
+                              showSearch={false}
+                              showDelete={false}
+                              lockSortWhenLocked={false}
+                              sortScope={tableSortScope}
+                              relatedGroup={tableSortScope}
+                              progressionEnabled
+                              className={styles.thMiniTools}
+                              onSortChange={(state) => handleColumnSortChange(column.key, state)}
+                              onLockChange={(locked, badge) => handleColumnLockChange(column.key, locked, badge)}
+                            />
+                          </div>
+                        </>
                       )}
                       <span className={styles.thLabel}>
                         {column.header ?? column.label}
