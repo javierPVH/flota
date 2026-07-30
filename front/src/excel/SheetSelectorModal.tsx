@@ -5,6 +5,7 @@ import styles from '../styles/_components/excel/sheet-selector-modal.module.sass
 
 interface SheetSelectorCopy {
   title: string
+  close: string
   fileLabel: (name: string) => string
   rowsSuffix: (n: number) => string
 }
@@ -12,11 +13,13 @@ interface SheetSelectorCopy {
 const COPY: Record<'es' | 'en', SheetSelectorCopy> = {
   es: {
     title: 'Selecciona una hoja',
+    close: 'Cerrar',
     fileLabel: (name) => `Archivo: ${name}`,
     rowsSuffix: (n) => `${n} filas`,
   },
   en: {
     title: 'Select a sheet',
+    close: 'Close',
     fileLabel: (name) => `File: ${name}`,
     rowsSuffix: (n) => `${n} rows`,
   },
@@ -92,7 +95,7 @@ export function SheetSelectorModal({ open, fileName, sheets, onSelect, onClose }
             className={styles.closeButton}
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={copy.close}
           >
             ✕
           </button>

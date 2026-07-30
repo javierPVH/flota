@@ -23,6 +23,8 @@ from .models import (
     Company,
     Country,
     Document,
+    EmailSignature,
+    EmailTemplate,
     Incident,
     Invoice,
     InvoiceAllocation,
@@ -50,6 +52,9 @@ DEACTIVATABLE: dict[str, tuple[type, str]] = {
     "peps": (Pep, "PEP / CECO"),
     "business-units": (BusinessUnit, "Unidades de negocio"),
     "countries": (Country, "Países"),
+    # A2: sin esto, una plantilla/firma "borrada" era irrecuperable por API.
+    "email-templates": (EmailTemplate, "Plantillas de correo"),
+    "email-signatures": (EmailSignature, "Firmas de correo"),
 }
 
 

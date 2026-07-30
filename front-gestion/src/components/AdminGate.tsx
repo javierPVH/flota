@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Button, Panel } from '@flota/ui/ui'
 
 import { isAllowed, useAuth } from '../auth.ts'
+import { useLang } from '../i18n.tsx'
 
 /**
  * Portón de rol (G0): este front es SOLO para `admin`. Un usuario autenticado
@@ -10,6 +11,7 @@ import { isAllowed, useAuth } from '../auth.ts'
  */
 export function AdminGate({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
+  const { t } = useLang()
 
   if (!user) return null // RequireAuth ya redirige al login
 
@@ -19,16 +21,15 @@ export function AdminGate({ children }: { children: ReactNode }) {
       // visual de la referencia en la única pantalla fuera del shell (Fase 8).
       <div className="login-scene">
         <div className="login-card">
-          <h1>Sin acceso</h1>
+          <h1>{t.adminGate.title}</h1>
           <Panel tone="warning">
             <p style={{ margin: 0 }}>
-              Este front es solo para <strong>administración</strong>. Tu usuario (
-              {user.username}) no tiene ese rol; usa la app de campo (conductores /
-              supervisores).
+              {t.adminGate.onlyFor} <strong>{t.adminGate.role}</strong>
+              {t.adminGate.noRole(user.username)}
             </p>
           </Panel>
           <Button variant="secondary" fullWidth onClick={logout}>
-            Cerrar sesión
+            {t.adminGate.logout}
           </Button>
         </div>
       </div>

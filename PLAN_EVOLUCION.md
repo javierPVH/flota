@@ -4,7 +4,7 @@
 > (pasos 0–16): las 10 funcionalidades N1–N10, todos los 🔴/🟠/🟡 del catálogo
 > R2 y los 🔵 accionables (BG11-13, PR5-6, SEC8-10, PF4 parcial). Restan solo
 > las tareas que dependen del entorno real (.env de producción: SMTP, VAPID,
-> Drive, Jira; y el push a GitHub pendiente de la clave) y los 🔵 de puro
+> Drive, Jira) y los 🔵 de puro
 > refactor (DX3-dedup, DX4 ampliado, DX6, PF3).
 >
 > Documento maestro (2026-07-30). **Parte I**: las nuevas funcionalidades

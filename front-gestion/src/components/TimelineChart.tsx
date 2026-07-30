@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Badge, Modal } from '@flota/ui/ui'
 
+import { useLang } from '../i18n.tsx'
+
 /**
  * Línea temporal de cambios con muescas (solo admin): una muesca por día con
  * cambios sobre el rango [primer cambio, hoy]. Al pasar el ratón (o enfocar
@@ -58,13 +60,14 @@ export function TimelineChart({
   }, [items])
 
   const [hover, setHover] = useState<PlacedDay | null>(null)
+  const { t } = useLang()
 
   if (days.length === 0) return null
   const first = days[0].date
   const last = days[days.length - 1].date
 
   return (
-    <div className="tlc" role="group" aria-label="Línea temporal de cambios">
+    <div className="tlc" role="group" aria-label={t.timeline.groupAria}>
       <div className="tlc-band">
         <div className="tlc-line" aria-hidden />
         {days.map((day) => (
@@ -73,7 +76,7 @@ export function TimelineChart({
             type="button"
             className={`tlc-notch${day.items.some((i) => i.kind === 'event') ? ' is-event' : ''}`}
             style={{ left: `${day.left}%` }}
-            aria-label={`${day.date}: ${day.items.length} cambio(s) — ver detalle`}
+            aria-label={t.timeline.dayAria(day.date, day.items.length)}
             onMouseEnter={() => setHover(day)}
             onMouseLeave={() => setHover((h) => (h?.date === day.date ? null : h))}
             onFocus={() => setHover(day)}
@@ -94,9 +97,9 @@ export function TimelineChart({
               {hover.items.slice(0, 3).map((i) => (
                 <li key={i.key}>{i.title}</li>
               ))}
-              {hover.items.length > 3 && <li>… y {hover.items.length - 3} más</li>}
+              {hover.items.length > 3 && <li>{t.timeline.moreItems(hover.items.length - 3)}</li>}
             </ul>
-            <span className="tlc-tip-hint">Click para ver el detalle</span>
+            <span className="tlc-tip-hint">{t.timeline.tipHint}</span>
           </div>
         )}
       </div>
@@ -116,13 +119,14 @@ export function TimelineDayModal({
   day: TimelineDay | null
   onClose: () => void
 }) {
+  const { t } = useLang()
   return (
-    <Modal open={day !== null} title={`Cambios del ${day?.date ?? ''}`} onClose={onClose}>
+    <Modal open={day !== null} title={t.timeline.modalTitle(day?.date ?? '')} onClose={onClose}>
       <ul className="tlc-detail">
         {day?.items.map((item) => (
           <li key={item.key} className="tlc-detail-item">
             <Badge tone={item.kind === 'event' ? 'info' : 'neutral'}>
-              {item.kind === 'event' ? 'Evento' : 'Auditoría'}
+              {item.kind === 'event' ? t.timeline.event : t.timeline.audit}
             </Badge>
             <div className="tlc-detail-body">
               <strong>{item.title}</strong>

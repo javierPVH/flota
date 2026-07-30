@@ -118,7 +118,6 @@ function isValidEmailValue(value: string): boolean {
 
 function isValidUrlValue(value: string): boolean {
   try {
-    // eslint-disable-next-line no-new
     new URL(value)
     return true
   } catch {

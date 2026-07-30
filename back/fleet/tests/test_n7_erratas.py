@@ -85,6 +85,25 @@ class ErratasSpaceTests(APITestCase):
         self.assertEqual(item["id"], self.incident.pk)
         self.assertEqual(item["reason"], "errata")
 
+    def test_email_template_and_signature_are_restorable(self):
+        # A2: los DELETE de plantillas/firmas desactivan; deben aparecer aquí.
+        from fleet.models import EmailSignature, EmailTemplate
+
+        tpl = EmailTemplate.objects.create(key="itv_due", subject="s", body_html="b")
+        sig = EmailSignature.objects.create(name="Firma flota", body_html="f")
+        tpl.deactivate(by=self.admin, reason="duplicada")
+        sig.deactivate(by=self.admin, reason="obsoleta")
+        self.client.force_authenticate(self.admin)
+        data = self.client.get(reverse("erratas")).data
+        self.assertIn("email-templates", [g["type"] for g in data])
+        self.assertIn("email-signatures", [g["type"] for g in data])
+        resp = self.client.post(
+            reverse("erratas-restore"), {"type": "email-templates", "id": tpl.pk}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        tpl.refresh_from_db()
+        self.assertTrue(tpl.is_active)
+
     def test_supervisor_cannot_see_erratas(self):
         self.client.force_authenticate(self.supervisor)
         self.assertEqual(self.client.get(reverse("erratas")).status_code, status.HTTP_403_FORBIDDEN)

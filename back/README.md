@@ -106,16 +106,20 @@ coincide con el actual, responde `409 Conflict`.
 |---------|----------|----------|
 | `refresh_next_itv` | diaria | Recalcula `Vehicle.next_itv_date` desde el último `EventItv`. |
 | `check_itv` | diaria | Alerta de ITV escalonada (30/15/7 días y vencida) — HU-5.1. |
+| `check_insurance` | diaria | Alerta de seguro escalonada (30/15/7 días) — N2. |
 | `check_no_driver` | diaria | Vehículo activo sin conductor > N días — HU-1.7. |
 | `remind_km_readings` | mensual | Vehículo activo sin lectura de km este mes — HU-3.2. |
 | `check_km_overage` | mensual | Proyección de km sobre los contratados — HU-3.4. |
-| `run_fleet_jobs` | — | Ejecuta el refresco + los cuatro chequeos de una vez. |
+| `run_fleet_jobs` | — | Ejecuta el refresco + todos los chequeos de una vez. |
 
 Cada aviso lleva una `dedup_key` única, así que re-ejecutar un job **no duplica**
 alertas ya abiertas (escalar la ITV 30→15→7 sí crea avisos nuevos). Los umbrales
 son configurables por entorno: `FLEET_ITV_ALERT_DAYS` (`30,15,7`),
-`FLEET_NO_DRIVER_ALERT_DAYS` (`30`), `FLEET_KM_OVERAGE_MARGIN` (`0.05`). Ejemplo de
-cron en [`deploy/crontab.example`](./deploy/crontab.example).
+`FLEET_NO_DRIVER_ALERT_DAYS` (`30`), `FLEET_INSURANCE_ALERT_DAYS` (`30,15,7`) y
+`FLEET_KM_OVERAGE_MARGIN` (`0.05`). En Docker no hace falta cron: el servicio
+`jobs` del compose (`deploy/jobs-loop.sh`) ejecuta `run_fleet_jobs` + archivado +
+Jira cada 15 min de forma idempotente. Para bare-metal hay un ejemplo de cron en
+[`deploy/crontab.example`](./deploy/crontab.example).
 
 **Informes e integraciones** (Fase F).
 

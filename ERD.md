@@ -1,14 +1,5 @@
 # Esquema de base de datos — Flota
 
-> **Ampliaciones 2026-07 (N1–N10, ver PLAN_EVOLUCION.md)** — no reflejadas aún
-> en el diagrama: `Vehicle.insurance_expiry_date`, `Vehicle.unlimited_km`,
-> FKs `brand_ref`/`model_ref`/`company` (catálogos `Brand`, `VehicleModel`,
-> `Company`), mixin de soft-delete (`is_active`, `deactivated_at/by`, motivo) en
-> catálogos/documentos/incidencias/facturas/lecturas, `KmReading.estimated`,
-> `Renting.email`/`contact_name` y los modelos de correo `EmailTemplate`,
-> `EmailSignature`, `EmailLog`.
-
-
 Diagrama Entidad-Relación de la app (generado a partir de los modelos de
 `back/accounts` y `back/fleet`). Se renderiza automáticamente en GitHub y en el
 preview de Markdown de VS Code (Mermaid).
@@ -31,6 +22,10 @@ erDiagram
     BUSINESS_UNIT ||--o{ VEHICLE : "agrupa"
     COUNTRY ||--o{ VEHICLE : "ubica"
     PROJECT ||--o{ VEHICLE : "financia"
+    BRAND ||--o{ VEHICLE_MODEL : "tiene"
+    BRAND ||--o{ VEHICLE : "marca (catálogo)"
+    VEHICLE_MODEL ||--o{ VEHICLE : "modelo (catálogo)"
+    COMPANY ||--o{ VEHICLE : "sociedad titular"
 
     VEHICLE ||--o{ CONTRACT : "tiene"
     RENTING ||--o{ CONTRACT : "provee"
@@ -65,6 +60,10 @@ erDiagram
     INVOICE ||--o{ INVOICE_ALLOCATION : "imputa"
     PROJECT ||--o{ INVOICE_ALLOCATION : "recibe"
     PEP ||--o{ INVOICE_ALLOCATION : "recibe"
+
+    EMAIL_SIGNATURE ||--o{ EMAIL_TEMPLATE : "firma"
+    ALERT ||--o{ EMAIL_LOG : "origina"
+    USER ||--o{ PUSH_SUBSCRIPTION : "suscribe"
 
     USER {
         int id PK
@@ -105,13 +104,33 @@ erDiagram
     RENTING {
         int id PK
         string name
+        string email "destinatario de avisos de seguro (N10a)"
+        string contact_name
+    }
+    BRAND {
+        int id PK
+        string name UK "catálogo de marcas (N5)"
+    }
+    VEHICLE_MODEL {
+        int id PK
+        int brand_id FK "PROTECT; único (brand, name)"
+        string name
+    }
+    COMPANY {
+        int id PK
+        string code UK
+        string name
+        string description
     }
 
     VEHICLE {
         int id PK
         string plate UK
-        string brand
-        string model
+        string brand "legado denormalizado; se rellena desde brand_ref"
+        string model "legado denormalizado; se rellena desde model_ref"
+        int brand_ref_id FK "BRAND (PROTECT, null) — N5"
+        int model_ref_id FK "VEHICLE_MODEL (PROTECT, null) — N5"
+        int company_id FK "COMPANY (PROTECT, null) — N5"
         string version
         int year
         string vin
@@ -133,6 +152,8 @@ erDiagram
         int consumption
         int km_start
         int km_end
+        bool unlimited_km "N3: sin proyección ni alertas de exceso"
+        date insurance_expiry_date "N2: alimenta la alerta insurance_due (30/15/7)"
         date next_itv_date "denormalizado del último EventItv"
         string drive_folder_url "carpeta documental (HU-4.2)"
         string drive_folder_id "ID de carpeta en Drive (A3)"
@@ -158,6 +179,7 @@ erDiagram
         int vehicle_id FK
         date reading_date
         int km_reading
+        bool estimated "N8b: creada por 'completar km faltantes'"
     }
 
     ASSIGNMENT {
@@ -297,6 +319,38 @@ erDiagram
         enum status "vehicle_request_status"
         string notes
     }
+
+    EMAIL_SIGNATURE {
+        int id PK
+        string name UK
+        string body_html
+    }
+    EMAIL_TEMPLATE {
+        int id PK
+        enum key UK "email_template_key"
+        string subject
+        string body_html "saneado en servidor (nh3)"
+        int signature_id FK "EMAIL_SIGNATURE (SET_NULL)"
+    }
+    EMAIL_LOG {
+        int id PK
+        int alert_id FK "ALERT (SET_NULL)"
+        string template_key
+        string recipient
+        string subject
+        enum status "email_log_status"
+        string error
+        datetime created_at
+    }
+    PUSH_SUBSCRIPTION {
+        int id PK
+        int user_id FK "USER"
+        string endpoint UK
+        string p256dh
+        string auth
+        string user_agent
+        datetime created_at
+    }
 ```
 
 ## Notas del modelo
@@ -321,6 +375,17 @@ erDiagram
   vehículo (`status` → `assigned`).
 - **Timestamps:** todas las tablas de dominio (`fleet.*`) tienen `created_at` y
   `updated_at` (vía `TimeStampedModel`); se omiten en el diagrama por brevedad.
+- **Soft-delete (N7) — `DeactivatableModel`:** `is_active`, `deactivated_at`,
+  `deactivated_by` FK→`USER`, `deactivation_reason` — presente en: los 8
+  catálogos (`COUNTRY`, `BUSINESS_UNIT`, `PROJECT`, `PEP`, `RENTING`, `BRAND`,
+  `VEHICLE_MODEL`, `COMPANY`), `DOCUMENT`, `INCIDENT`, `INVOICE`,
+  `INVOICE_ALLOCATION`, `KM_READING`, `EMAIL_TEMPLATE`, `EMAIL_SIGNATURE`.
+  Se omite en el diagrama por brevedad: nada se borra, se desactiva (espacio de
+  erratas) y solo el superusuario purga.
+- **Correo (N10):** `EMAIL_TEMPLATE` (una plantilla por tipo de alerta +
+  genérica, con firma reutilizable `EMAIL_SIGNATURE`) y `EMAIL_LOG` (traza de
+  cada envío). `PUSH_SUBSCRIPTION` (app `accounts`, M8) guarda las
+  suscripciones Web Push por dispositivo.
 
 ## Restricciones e índices
 
@@ -331,7 +396,13 @@ en SQLite Django los emula donde puede.
 | Tabla | Restricción | Regla |
 |-------|-------------|-------|
 | `driver_roles` | **único** `(user, role)` | una persona no repite rol |
-| `vehicles` | **único** `plate` · índices `state`, `next_itv_date` | matrícula única; filtros frecuentes |
+| `vehicles` | **único** `plate` · índices `state`, `next_itv_date`, `insurance_expiry_date` | matrícula única; filtros frecuentes |
+| `brands` | **único** `name` | catálogo de marcas sin duplicados |
+| `vehicle_models` | **único** `(brand, name)` | un modelo no se repite dentro de su marca |
+| `companies` | **único** `code` | código de sociedad único |
+| `email_templates` | **único** `key` | una plantilla por tipo de alerta |
+| `email_signatures` | **único** `name` | firmas sin duplicados |
+| `push_subscriptions` | **único** `endpoint` | una suscripción por dispositivo/endpoint |
 | `assignments` | **único parcial** `(vehicle)` con `status=accepted ∧ end_date NULL` | un solo conductor vigente por vehículo (HU-2.1/2.2) |
 | `assignments` | índices `(vehicle,end_date,status)`, `(driver,end_date)` | conductor en curso / histórico |
 | `vehicle_links` | **único parcial** `(main_vehicle)` con `end_date NULL` | un solo sustituto activo por principal (HU-1.8) |
@@ -365,9 +436,11 @@ obligatorio si `business_use=on_project` (`vehicles`).
 | `document_status` | `valid`, `expired`, `pending_archive` |
 | `incident_type` | `breakdown`, `maintenance`, `inspection`, `accident` |
 | `incident_status` | `open`, `on_going`, `closed` |
-| `alert_type` | `itv_due`, `km_reading_pending`, `km_overage`, `no_driver` |
+| `alert_type` | `itv_due`, `insurance_due`, `km_reading_pending`, `km_overage`, `no_driver` |
 | `alert_level` | `info`, `warning`, `critical` |
 | `alert_status` | `open`, `resolved`, `dismissed` |
 | `vehicle_request_status` | `pending` (self-service, Fase A2), `approved`, `assigned`, `rejected`, `closed` |
 | `events_enum` | `creation`, `activation`, `deactivation`, `invoice`, `immobilization`, `reactivation`, `insurance_renewal`, `penalty`, `location_change`, `project_change`, `breakdown`, `km_reading`, `contract_change`, `fee_change`, `ceco_change`, `itv`, `maintenance`, `driver_change` |
 | `fuel_enum` | `gasoline`, `diesel`, `LPG`, `hybrid`, `other` |
+| `email_template_key` | `insurance_due`, `km_overage`, `km_reading_pending`, `generic` |
+| `email_log_status` | `sent`, `failed`, `skipped` |

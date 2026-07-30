@@ -140,6 +140,8 @@ interface TableWithPanelCopy {
   lastPage: string
   expandRow: string
   collapseRow: string
+  columnTools: string
+  close: string
 }
 
 
@@ -881,7 +883,6 @@ export function TableWithPanel<RowType extends object>({
     }
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!enableColumnResize) return undefined
 
@@ -929,7 +930,6 @@ export function TableWithPanel<RowType extends object>({
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedCell])
 
   const showMonthButtons = showMonthSortButtons && Boolean(monthSortColumn)
@@ -1285,7 +1285,7 @@ export function TableWithPanel<RowType extends object>({
         <table className={styles.dataTable}>
           <thead>
             <tr>
-              {renderExpandedRow && <th scope="col" className={styles.expanderCell} aria-label="Desplegar" />}
+              {renderExpandedRow && <th scope="col" className={styles.expanderCell} aria-label={copy.expandRow} />}
               {visibleColumns.map((column) => {
                 const isSortable = enableColumnSort && column.sortable !== false && !column.header
                 const resolvedWidth = columnWidths[column.key] !== undefined
@@ -1307,7 +1307,7 @@ export function TableWithPanel<RowType extends object>({
                               styles.thToolsToggle,
                               expandedHeaders.has(column.key) && styles.thToolsToggleOpen,
                             )}
-                            aria-label="Herramientas de columna"
+                            aria-label={copy.columnTools}
                             aria-expanded={expandedHeaders.has(column.key)}
                             onClick={(event) => {
                               event.stopPropagation()
@@ -1429,7 +1429,7 @@ export function TableWithPanel<RowType extends object>({
               <div className={styles.panelDrawerHeader}>
                 <h3 className={styles.panelDrawerTitle}>{expandedCell.label}</h3>
                 <span className={styles.panelDrawerCount}>{expandedCell.items.length}</span>
-                <button className={styles.panelDrawerClose} onClick={closePanel} aria-label="Cerrar">
+                <button className={styles.panelDrawerClose} onClick={closePanel} aria-label={copy.close}>
                   <X size={14} />
                 </button>
               </div>
@@ -1442,7 +1442,7 @@ export function TableWithPanel<RowType extends object>({
                   placeholder="Buscar..."
                 />
                 {panelSearchTerm && (
-                  <button className={styles.panelSearchClear} onClick={() => setPanelSearchTerm('')} aria-label="Limpiar búsqueda">
+                  <button className={styles.panelSearchClear} onClick={() => setPanelSearchTerm('')} aria-label={copy.searchClearTitle}>
                     <X size={12} />
                   </button>
                 )}

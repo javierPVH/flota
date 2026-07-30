@@ -116,6 +116,8 @@ const es = {
     lastPage: 'Última página',
     expandRow: 'Desplegar fila',
     collapseRow: 'Plegar fila',
+    columnTools: 'Herramientas de columna',
+    close: 'Cerrar',
   },
   modal: {
     close: 'Cerrar',
@@ -260,6 +262,8 @@ const en: typeof es = {
     lastPage: 'Last page',
     expandRow: 'Expand row',
     collapseRow: 'Collapse row',
+    columnTools: 'Column tools',
+    close: 'Close',
   },
   modal: {
     close: 'Close',
