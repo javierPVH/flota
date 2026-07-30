@@ -7,11 +7,13 @@ import { Download } from 'lucide-react'
 
 import { acceptAssignment, listAll, listAssignments, listVehicles, rejectAssignment } from '../api.ts'
 import { exportCsv } from '../csv.ts'
+import { useProposalsCopy } from '../translations/proposals.ts'
 import type { AssignmentRow, Vehicle } from '../types.ts'
 
 /** Bandeja de propuestas de fechas (HU-2.4): confirmar (pasa a oficial y
  * cierra la vigente) o rechazar (sin alterar nada). */
 export function ProposalsPage() {
+  const t = useProposalsCopy()
   const [proposals, setProposals] = useState<AssignmentRow[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
@@ -26,12 +28,12 @@ export function ProposalsPage() {
         setProposals(rows)
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar las propuestas.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadError)))
       .finally(() => setLoading(false))
     listVehicles({ include_baja: 1 })
       .then((page) => setVehicles(page.results))
       .catch(() => setVehicles([]))
-  }, [])
+  }, [t])
 
   useEffect(load, [load])
 
@@ -46,20 +48,14 @@ export function ProposalsPage() {
     try {
       if (accept) {
         await acceptAssignment(proposal.id)
-        setNotice(
-          `Propuesta de ${proposal.driver_name} sobre ${plateOf(proposal.vehicle)} confirmada: ` +
-            'la asignación anterior queda cerrada y el cambio registrado como evento.',
-        )
+        setNotice(t.accepted(proposal.driver_name, plateOf(proposal.vehicle)))
       } else {
         await rejectAssignment(proposal.id)
-        setNotice(
-          `Propuesta de ${proposal.driver_name} sobre ${plateOf(proposal.vehicle)} rechazada; ` +
-            'la asignación vigente no cambia.',
-        )
+        setNotice(t.rejected(proposal.driver_name, plateOf(proposal.vehicle)))
       }
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo procesar la propuesta.'))
+      setError(asErrorMessage(err, t.processError))
     } finally {
       setBusyId(null)
     }
@@ -68,7 +64,7 @@ export function ProposalsPage() {
   const columns: Array<TableWithPanelColumn<AssignmentRow>> = [
     {
       key: 'vehicle',
-      label: 'Vehículo',
+      label: t.columns.vehicle,
       getValue: (p) => plateOf(p.vehicle),
       render: (p) => (
         <Link to={`/vehiculos/${p.vehicle}`} className="cell-link">
@@ -78,27 +74,27 @@ export function ProposalsPage() {
     },
     {
       key: 'driver',
-      label: 'Conductor',
+      label: t.columns.driver,
       getValue: (p) => p.driver_name,
       render: (p) => p.driver_name || '—',
     },
     {
       key: 'start_date',
-      label: 'Inicio propuesto',
+      label: t.columns.proposedStart,
       isDate: true,
       getValue: (p) => p.start_date,
       render: (p) => p.start_date || '—',
     },
     {
       key: 'end_date',
-      label: 'Fin propuesto',
+      label: t.columns.proposedEnd,
       isDate: true,
       getValue: (p) => p.end_date,
       render: (p) => p.end_date ?? '—',
     },
     {
       key: 'actions',
-      label: 'Acciones',
+      label: t.columns.actions,
       align: 'right',
       searchable: false,
       sortable: false,
@@ -110,7 +106,7 @@ export function ProposalsPage() {
             disabled={busyId === p.id}
             onClick={() => decide(p, true)}
           >
-            Confirmar
+            {t.confirm}
           </Button>
           <Button
             variant="danger"
@@ -118,7 +114,7 @@ export function ProposalsPage() {
             disabled={busyId === p.id}
             onClick={() => decide(p, false)}
           >
-            Rechazar
+            {t.reject}
           </Button>
         </div>
       ),
@@ -128,15 +124,15 @@ export function ProposalsPage() {
   return (
     <div>
       <PageHeader
-        title="Propuestas de fechas"
-        subtitle={`${proposals.length} propuesta(s) pendiente(s) de decidir.`}
+        title={t.title}
+        subtitle={t.subtitle(proposals.length)}
         actions={
           <Button
             variant="secondary"
             disabled={proposals.length === 0}
             onClick={() => exportCsv('propuestas', columns, proposals)}
           >
-            <Download size={16} aria-hidden /> Exportar CSV
+            <Download size={16} aria-hidden /> {t.exportCsv}
           </Button>
         }
       />
@@ -145,7 +141,7 @@ export function ProposalsPage() {
       {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p className="loading-state" role="status">Cargando…</p>
+        <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<AssignmentRow>
           rows={proposals}
@@ -155,7 +151,7 @@ export function ProposalsPage() {
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel="No hay propuestas pendientes. 🎉"
+          emptyStateLabel={t.empty}
         />
       )}
     </div>

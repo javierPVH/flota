@@ -1,0 +1,114 @@
+import { useAppLang } from '@flota/ui/i18n'
+
+const es = {
+  title: 'Incidencias',
+  subtitle: 'Averías, mantenimientos, ITV y accidentes de la flota.',
+  exportCsv: 'Exportar CSV',
+  newIncident: 'Nueva incidencia',
+  loading: 'Cargando…',
+  empty: 'No hay incidencias con estos filtros.',
+  loadError: 'No se pudieron cargar las incidencias.',
+  saveError: 'No se pudo guardar la incidencia.',
+  chooseVehicle: 'Elige el vehículo.',
+  types: {
+    breakdown: 'Avería',
+    maintenance: 'Mantenimiento',
+    inspection: 'ITV',
+    accident: 'Accidente',
+  },
+  statuses: {
+    open: 'Abierta',
+    on_going: 'En curso',
+    closed: 'Cerrada',
+  },
+  columns: {
+    vehicle: 'Vehículo',
+    type: 'Tipo',
+    date: 'Fecha',
+    status: 'Estado',
+    cost: 'Coste',
+    description: 'Descripción',
+    actions: 'Acciones',
+  },
+  edit: 'Editar',
+  documents: 'Documentos',
+  documentsTitle: 'Los documentos (acta/parte/fotos) se ligan desde la ficha',
+  filterVehicle: 'Vehículo',
+  filterType: 'Tipo',
+  filterAll: 'Todos',
+  filterByStatus: 'Filtrar por estado',
+  filterAllStatuses: 'Todas',
+  incidentTitle: (id: number) => `Incidencia #${id}`,
+  form: {
+    vehicle: 'Vehículo',
+    choosePlaceholder: '— Elegir —',
+    type: 'Tipo',
+    date: 'Fecha',
+    status: 'Estado',
+    cost: 'Coste (€)',
+    description: 'Descripción',
+    cancel: 'Cancelar',
+    save: 'Guardar',
+    saving: 'Guardando…',
+  },
+}
+
+const en: typeof es = {
+  title: 'Incidents',
+  subtitle: 'Breakdowns, maintenance, MOT and accidents across the fleet.',
+  exportCsv: 'Export CSV',
+  newIncident: 'New incident',
+  loading: 'Loading…',
+  empty: 'No incidents match these filters.',
+  loadError: 'Could not load incidents.',
+  saveError: 'Could not save the incident.',
+  chooseVehicle: 'Choose a vehicle.',
+  types: {
+    breakdown: 'Breakdown',
+    maintenance: 'Maintenance',
+    inspection: 'MOT',
+    accident: 'Accident',
+  },
+  statuses: {
+    open: 'Open',
+    on_going: 'In progress',
+    closed: 'Closed',
+  },
+  columns: {
+    vehicle: 'Vehicle',
+    type: 'Type',
+    date: 'Date',
+    status: 'Status',
+    cost: 'Cost',
+    description: 'Description',
+    actions: 'Actions',
+  },
+  edit: 'Edit',
+  documents: 'Documents',
+  documentsTitle: 'Documents (report/claim/photos) are attached from the vehicle page',
+  filterVehicle: 'Vehicle',
+  filterType: 'Type',
+  filterAll: 'All',
+  filterByStatus: 'Filter by status',
+  filterAllStatuses: 'All',
+  incidentTitle: (id) => `Incident #${id}`,
+  form: {
+    vehicle: 'Vehicle',
+    choosePlaceholder: '— Choose —',
+    type: 'Type',
+    date: 'Date',
+    status: 'Status',
+    cost: 'Cost (€)',
+    description: 'Description',
+    cancel: 'Cancel',
+    save: 'Save',
+    saving: 'Saving…',
+  },
+}
+
+const dict = { es, en }
+
+/** Copia de la página en el idioma activo (UX1). */
+export function useIncidentsCopy() {
+  return dict[useAppLang()]
+}

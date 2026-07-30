@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Badge } from '@flota/ui/ui'
+import { useAppLang } from '@flota/ui/i18n'
 
 import { listKmReadings } from '../api.ts'
+import { fmtKm } from '../format.ts'
+import { usePanelsCopy } from '../translations/panels.ts'
 import { KmChart } from './KmChart.tsx'
 import type { KmReading } from '../types.ts'
-
-const km = (value: number) => `${value.toLocaleString('es-ES')} km`
 
 /**
  * N4: histórico COMPLETO de lecturas de un vehículo, para la fila expandible
@@ -14,6 +15,9 @@ const km = (value: number) => `${value.toLocaleString('es-ES')} km`
  * solo se pide una vez por vehículo) y pinta mini-tabla + gráfica.
  */
 export function ReadingsHistory({ vehicleId }: { vehicleId: number }) {
+  const t = usePanelsCopy().readings
+  const lang = useAppLang()
+  const km = (value: number) => fmtKm(value, lang)
   const [readings, setReadings] = useState<KmReading[] | null>(null)
   const [error, setError] = useState(false)
 
@@ -36,9 +40,9 @@ export function ReadingsHistory({ vehicleId }: { vehicleId: number }) {
     }
   }, [vehicleId])
 
-  if (error) return <p className="muted">No se pudo cargar el histórico.</p>
-  if (readings === null) return <p className="loading-state" role="status">Cargando histórico…</p>
-  if (readings.length === 0) return <p className="muted">Sin lecturas registradas.</p>
+  if (error) return <p className="muted">{t.loadError}</p>
+  if (readings === null) return <p className="loading-state" role="status">{t.loading}</p>
+  if (readings.length === 0) return <p className="muted">{t.empty}</p>
 
   // Km del periodo: diferencia con la lectura anterior (HU-3.6).
   const rows = readings.map((r, i) => ({
@@ -54,9 +58,9 @@ export function ReadingsHistory({ vehicleId }: { vehicleId: number }) {
       <table className="data">
         <thead>
           <tr>
-            <th scope="col">Fecha</th>
-            <th scope="col">Odómetro</th>
-            <th scope="col">Km del periodo</th>
+            <th scope="col">{t.date}</th>
+            <th scope="col">{t.odometer}</th>
+            <th scope="col">{t.periodKm}</th>
           </tr>
         </thead>
         <tbody>
@@ -68,7 +72,7 @@ export function ReadingsHistory({ vehicleId }: { vehicleId: number }) {
                 {r.estimated && (
                   <>
                     {' '}
-                    <Badge tone="info">estimada</Badge>
+                    <Badge tone="info">{t.estimated}</Badge>
                   </>
                 )}
               </td>

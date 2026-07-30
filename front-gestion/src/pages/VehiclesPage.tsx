@@ -10,6 +10,7 @@ import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { exportCsv } from '../csv.ts'
 import { fmtDate, itvClass, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
+import { useVehiclesCopy } from '../translations/vehicles.ts'
 import type { Vehicle } from '../types.ts'
 
 /** Administración de vehículos. El alta/edición seccionada vive en
@@ -18,6 +19,7 @@ import type { Vehicle } from '../types.ts'
 export function VehiclesPage() {
   const navigate = useNavigate()
   const { language } = useLang()
+  const t = useVehiclesCopy()
   const confirm = useConfirm()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
@@ -30,29 +32,29 @@ export function VehiclesPage() {
         setVehicles(rows)
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar los vehículos.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadError)))
       .finally(() => setLoading(false))
-  }, [])
+  }, [t])
 
   useEffect(load, [load])
 
   const handleDelete = useCallback(
     async (v: Vehicle) => {
-      if (!(await confirm({ message: `¿Eliminar el vehículo ${v.plate}?` }))) return
+      if (!(await confirm({ message: t.confirmDelete(v.plate) }))) return
       try {
         await deleteVehicle(v.id)
         load()
       } catch (err) {
-        setError(asErrorMessage(err, 'No se pudo eliminar.'))
+        setError(asErrorMessage(err, t.deleteError))
       }
     },
-    [confirm, load],
+    [confirm, load, t],
   )
 
   const columns: Array<TableWithPanelColumn<Vehicle>> = [
     {
       key: 'plate',
-      label: 'Matrícula',
+      label: t.columns.plate,
       getValue: (v) => v.plate,
       render: (v) => (
         <Link to={`/vehiculos/${v.id}`} className="cell-link">
@@ -63,25 +65,25 @@ export function VehiclesPage() {
     },
     {
       key: 'vehicle',
-      label: 'Vehículo',
+      label: t.columns.vehicle,
       getValue: (v) => `${v.brand} ${v.model}`,
       render: (v) => `${v.brand} ${v.model}`.trim() || '—',
     },
     {
       key: 'state',
-      label: 'Estado',
+      label: t.columns.state,
       getValue: (v) => v.state_display,
       render: (v) => <Badge tone={vehicleStateTone(v.state)}>{v.state_display || '—'}</Badge>,
     },
     {
       key: 'supervisor',
-      label: 'Supervisor',
+      label: t.columns.supervisor,
       getValue: (v) => v.supervisor_name,
       render: (v) => v.supervisor_name || '—',
     },
     {
       key: 'next_itv_date',
-      label: 'Próx. ITV',
+      label: t.columns.nextItv,
       isDate: true,
       getValue: (v) => v.next_itv_date,
       render: (v) => (
@@ -90,23 +92,23 @@ export function VehiclesPage() {
     },
     {
       key: 'actions',
-      label: 'Acciones',
+      label: t.columns.actions,
       align: 'right',
       searchable: false,
       sortable: false,
       render: (v) => (
         <div className="row-actions">
           <IconButton
-            aria-label="Editar"
-            title="Editar"
+            aria-label={t.edit}
+            title={t.edit}
             onClick={() => navigate(`/vehiculos/${v.id}/editar`)}
           >
             <Pencil size={15} />
           </IconButton>
           <IconButton
             variant="danger"
-            aria-label="Eliminar"
-            title="Eliminar"
+            aria-label={t.delete}
+            title={t.delete}
             onClick={() => handleDelete(v)}
           >
             <Trash2 size={15} />
@@ -119,8 +121,8 @@ export function VehiclesPage() {
   return (
     <div>
       <PageHeader
-        title="Vehículos"
-        subtitle="Inventario de la flota."
+        title={t.title}
+        subtitle={t.subtitle}
         actions={
           <>
             <Button
@@ -128,10 +130,10 @@ export function VehiclesPage() {
               disabled={vehicles.length === 0}
               onClick={() => exportCsv('vehiculos', columns, vehicles)}
             >
-              <Download size={16} aria-hidden /> Exportar CSV
+              <Download size={16} aria-hidden /> {t.exportCsv}
             </Button>
             <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
-              Nuevo vehículo
+              {t.newVehicle}
             </Button>
           </>
         }
@@ -140,7 +142,7 @@ export function VehiclesPage() {
       {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p className="loading-state" role="status">Cargando…</p>
+        <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<Vehicle>
           rows={vehicles}
@@ -150,7 +152,7 @@ export function VehiclesPage() {
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel="No hay vehículos todavía."
+          emptyStateLabel={t.empty}
         />
       )}
     </div>

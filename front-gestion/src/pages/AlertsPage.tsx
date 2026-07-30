@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Badge, Button, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
@@ -15,31 +15,8 @@ import {
 } from '../api.ts'
 import { exportCsv } from '../csv.ts'
 import { alertLevelTone, todayIso } from '../format.ts'
+import { useAlertsPageCopy } from '../translations/alertsPage.ts'
 import type { Alert, Vehicle } from '../types.ts'
-
-const TYPE_OPTIONS = [
-  { value: '', label: 'Todos los tipos' },
-  { value: 'itv_due', label: 'ITV próxima / vencida' },
-  { value: 'km_reading_pending', label: 'Lectura de km pendiente' },
-  { value: 'km_overage', label: 'Exceso de km proyectado' },
-  { value: 'no_driver', label: 'Sin conductor' },
-]
-const LEVEL_OPTIONS = [
-  { value: '', label: 'Todos los niveles' },
-  { value: 'critical', label: 'Crítica' },
-  { value: 'warning', label: 'Aviso' },
-  { value: 'info', label: 'Informativa' },
-]
-const STATUS_OPTIONS = [
-  { value: 'open', label: 'Abiertas' },
-  { value: 'resolved', label: 'Resueltas' },
-  { value: 'dismissed', label: 'Descartadas' },
-  { value: '', label: 'Todas' },
-]
-const ITV_RESULT_OPTIONS = [
-  { value: 'done', label: 'Favorable' },
-  { value: 'not done', label: 'Desfavorable' },
-]
 
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
 
@@ -54,10 +31,47 @@ function isOverdueItv(alert: Alert): boolean {
 
 /** Panel de alertas (G8, HU-5.1/3.3/3.5/1.7) + Registrar ITV. */
 export function AlertsPage() {
+  const t = useAlertsPageCopy()
   const [searchParams, setSearchParams] = useSearchParams()
   const typeFilter = searchParams.get('type') ?? ''
   const levelFilter = searchParams.get('level') ?? ''
   const statusFilter = searchParams.get('status') ?? 'open'
+
+  const typeOptions = useMemo(
+    () => [
+      { value: '', label: t.typeOptions.all },
+      { value: 'itv_due', label: t.typeOptions.itvDue },
+      { value: 'km_reading_pending', label: t.typeOptions.kmReadingPending },
+      { value: 'km_overage', label: t.typeOptions.kmOverage },
+      { value: 'no_driver', label: t.typeOptions.noDriver },
+    ],
+    [t],
+  )
+  const levelOptions = useMemo(
+    () => [
+      { value: '', label: t.levelOptions.all },
+      { value: 'critical', label: t.levelOptions.critical },
+      { value: 'warning', label: t.levelOptions.warning },
+      { value: 'info', label: t.levelOptions.info },
+    ],
+    [t],
+  )
+  const statusOptions = useMemo(
+    () => [
+      { value: 'open', label: t.statusOptions.open },
+      { value: 'resolved', label: t.statusOptions.resolved },
+      { value: 'dismissed', label: t.statusOptions.dismissed },
+      { value: '', label: t.statusOptions.all },
+    ],
+    [t],
+  )
+  const itvResultOptions = useMemo(
+    () => [
+      { value: 'done', label: t.itvModal.resultPass },
+      { value: 'not done', label: t.itvModal.resultFail },
+    ],
+    [t],
+  )
 
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -86,9 +100,9 @@ export function AlertsPage() {
         setAlerts([...rows].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]))
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar las alertas.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadError)))
       .finally(() => setLoading(false))
-  }, [statusFilter, typeFilter, levelFilter])
+  }, [statusFilter, typeFilter, levelFilter, t])
 
   useEffect(load, [load])
   useEffect(() => {
@@ -107,10 +121,10 @@ export function AlertsPage() {
     setNotice('')
     try {
       await (resolve ? resolveAlert(alert.id) : dismissAlert(alert.id))
-      setNotice(`Alerta de ${alert.vehicle_plate || alert.type_display} ${resolve ? 'resuelta' : 'descartada'}.`)
+      setNotice(t.closedNotice(alert.vehicle_plate || alert.type_display, resolve))
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo cerrar la alerta.'))
+      setError(asErrorMessage(err, t.closeError))
     } finally {
       setBusyId(null)
     }
@@ -129,7 +143,7 @@ export function AlertsPage() {
   async function submitItv(event: FormEvent) {
     event.preventDefault()
     if (!itvVehicle) {
-      setItvError('Elige el vehículo.')
+      setItvError(t.itvModal.chooseVehicleError)
       return
     }
     setItvSaving(true)
@@ -142,12 +156,10 @@ export function AlertsPage() {
         itv: { result: itvResult, next_due: itvNextDue || null },
       })
       setItvModal(false)
-      setNotice(
-        'ITV registrada: los avisos asociados se cierran automáticamente y la próxima fecha queda actualizada.',
-      )
+      setNotice(t.itvModal.savedNotice)
       load()
     } catch (err) {
-      setItvError(asErrorMessage(err, 'No se pudo registrar la ITV.'))
+      setItvError(asErrorMessage(err, t.itvModal.saveError))
     } finally {
       setItvSaving(false)
     }
@@ -156,19 +168,19 @@ export function AlertsPage() {
   const columns: Array<TableWithPanelColumn<Alert>> = [
     {
       key: 'level',
-      label: 'Nivel',
+      label: t.columns.level,
       getValue: (a) => a.level_display,
       render: (a) => <Badge tone={alertLevelTone(a.level)}>{a.level_display}</Badge>,
     },
     {
       key: 'type',
-      label: 'Tipo',
+      label: t.columns.type,
       getValue: (a) => a.type_display,
       render: (a) => a.type_display || '—',
     },
     {
       key: 'vehicle',
-      label: 'Vehículo',
+      label: t.columns.vehicle,
       getValue: (a) => a.vehicle_plate,
       render: (a) =>
         a.vehicle ? (
@@ -181,13 +193,13 @@ export function AlertsPage() {
     },
     {
       key: 'message',
-      label: 'Mensaje',
+      label: t.columns.message,
       getValue: (a) => a.message,
       render: (a) => a.message || '—',
     },
     {
       key: 'due_date',
-      label: 'Fecha límite',
+      label: t.columns.dueDate,
       isDate: true,
       getValue: (a) => a.due_date,
       render: (a) => (
@@ -196,7 +208,7 @@ export function AlertsPage() {
     },
     {
       key: 'actions',
-      label: 'Acciones',
+      label: t.columns.actions,
       align: 'right',
       searchable: false,
       sortable: false,
@@ -204,7 +216,7 @@ export function AlertsPage() {
         <div className="row-actions">
           {a.type === 'itv_due' && a.status === 'open' && (
             <Button variant="primary" size="sm" onClick={() => openItv(a)}>
-              Registrar ITV
+              {t.registerItv}
             </Button>
           )}
           {a.status === 'open' ? (
@@ -215,7 +227,7 @@ export function AlertsPage() {
                 disabled={busyId === a.id}
                 onClick={() => close(a, true)}
               >
-                Resolver
+                {t.resolve}
               </Button>
               <Button
                 variant="secondary"
@@ -223,7 +235,7 @@ export function AlertsPage() {
                 disabled={busyId === a.id}
                 onClick={() => close(a, false)}
               >
-                Descartar
+                {t.dismiss}
               </Button>
             </>
           ) : (
@@ -237,8 +249,8 @@ export function AlertsPage() {
   return (
     <div>
       <PageHeader
-        title="Alertas"
-        subtitle="Avisos de ITV, lecturas de km, exceso proyectado y vehículos sin conductor."
+        title={t.title}
+        subtitle={t.subtitle}
         actions={
           <>
             <Button
@@ -246,10 +258,10 @@ export function AlertsPage() {
               disabled={alerts.length === 0}
               onClick={() => exportCsv('alertas', columns, alerts)}
             >
-              <Download size={16} aria-hidden /> Exportar CSV
+              <Download size={16} aria-hidden /> {t.exportCsv}
             </Button>
             <Button variant="primary" onClick={() => openItv()}>
-              Registrar ITV
+              {t.registerItv}
             </Button>
           </>
         }
@@ -257,20 +269,20 @@ export function AlertsPage() {
 
       <div className="filters-row">
         <SelectField
-          label="Tipo"
-          options={TYPE_OPTIONS}
+          label={t.filters.type}
+          options={typeOptions}
           value={typeFilter}
           onValueChange={(value) => setFilter('type', value)}
         />
         <SelectField
-          label="Nivel"
-          options={LEVEL_OPTIONS}
+          label={t.filters.level}
+          options={levelOptions}
           value={levelFilter}
           onValueChange={(value) => setFilter('level', value)}
         />
         <SelectField
-          label="Estado"
-          options={STATUS_OPTIONS}
+          label={t.filters.status}
+          options={statusOptions}
           value={statusFilter}
           onValueChange={(value) => setFilter('status', value)}
         />
@@ -280,7 +292,7 @@ export function AlertsPage() {
       {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p className="loading-state" role="status">Cargando…</p>
+        <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<Alert>
           rows={alerts}
@@ -291,17 +303,17 @@ export function AlertsPage() {
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel="Sin alertas con estos filtros. 🎉"
+          emptyStateLabel={t.emptyState}
         />
       )}
 
       {/* Registrar ITV (HU-5.1): la señal del back cierra los avisos */}
-      <Modal open={itvModal} title="Registrar ITV" onClose={() => setItvModal(false)}>
+      <Modal open={itvModal} title={t.itvModal.title} onClose={() => setItvModal(false)}>
         <form className="modal-form" onSubmit={submitItv}>
           <SelectField
-            label="Vehículo"
+            label={t.itvModal.vehicle}
             options={[
-              { value: '', label: '— Elegir —' },
+              { value: '', label: t.itvModal.choose },
               ...vehicles.map((v) => ({
                 value: String(v.id),
                 label: `${v.plate} · ${v.brand} ${v.model}`,
@@ -311,40 +323,41 @@ export function AlertsPage() {
             onValueChange={setItvVehicle}
           />
           <SelectField
-            label="Resultado"
-            options={ITV_RESULT_OPTIONS}
+            label={t.itvModal.result}
+            options={itvResultOptions}
             value={itvResult}
             onValueChange={setItvResult}
           />
           <TextInputField
-            label="Fecha de la inspección"
+            label={t.itvModal.inspectionDate}
             type="date"
             value={itvDate}
             onChange={(e) => setItvDate(e.target.value)}
             required
           />
           <TextInputField
-            label="Próxima ITV"
+            label={t.itvModal.nextDue}
             type="date"
             value={itvNextDue}
             onChange={(e) => setItvNextDue(e.target.value)}
           />
           <TextInputField
-            label="Notas"
+            label={t.itvModal.notes}
             value={itvNotes}
             onChange={(e) => setItvNotes(e.target.value)}
           />
           <p className="muted" style={{ margin: 0 }}>
-            Al registrarla, los avisos de ITV del vehículo se <strong>cierran solos</strong> y la
-            próxima fecha queda actualizada en la ficha.
+            {t.itvModal.note1}
+            <strong>{t.itvModal.noteStrong}</strong>
+            {t.itvModal.note2}
           </p>
           {itvError && <div role="alert" className="form-error">{itvError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setItvModal(false)}>
-              Cancelar
+              {t.itvModal.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={itvSaving}>
-              {itvSaving ? 'Guardando…' : 'Registrar'}
+              {itvSaving ? t.itvModal.saving : t.itvModal.save}
             </Button>
           </div>
         </form>

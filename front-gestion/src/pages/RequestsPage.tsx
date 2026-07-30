@@ -16,32 +16,12 @@ import {
 import { exportCsv } from '../csv.ts'
 import { requestStatusTone } from '../format.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { useRequestsCopy } from '../translations/requests.ts'
 import type { Vehicle } from '../types.ts'
-
-const STATUS_OPTIONS = [
-  { value: '', label: 'Todas' },
-  { value: 'pending', label: 'Pendientes' },
-  { value: 'approved', label: 'Aprobadas (Jira)' },
-  { value: 'assigned', label: 'Concedidas' },
-  { value: 'rejected', label: 'Rechazadas' },
-]
-
-const TYPE_LABEL: Record<string, string> = {
-  car: 'Turismo',
-  van: 'Furgoneta',
-  truck: 'Camión',
-  motorcycle: 'Motocicleta',
-}
-
-/** Origen de la solicitud: el portón self-service entra `pending` con ticket;
- * la importación de Jira entra ya `approved`. */
-function originOf(request: VehicleRequestRow): string {
-  if (request.status === 'pending') return 'Portón (self-service)'
-  return request.jira_key ? 'Jira' : 'Manual'
-}
 
 /** Bandeja de solicitudes de vehículo (G9, Épica 8 + Fase A2). */
 export function RequestsPage() {
+  const t = useRequestsCopy()
   const confirm = useConfirm()
   const [searchParams, setSearchParams] = useSearchParams()
   const statusFilter = searchParams.get('status') ?? ''
@@ -58,6 +38,24 @@ export function RequestsPage() {
   const [grantError, setGrantError] = useState('')
   const [grantSaving, setGrantSaving] = useState(false)
 
+  const statusOptions = useMemo(
+    () => [
+      { value: '', label: t.statusAll },
+      { value: 'pending', label: t.statusPending },
+      { value: 'approved', label: t.statusApproved },
+      { value: 'assigned', label: t.statusAssigned },
+      { value: 'rejected', label: t.statusRejected },
+    ],
+    [t],
+  )
+
+  /** Origen de la solicitud: el portón self-service entra `pending` con ticket;
+   * la importación de Jira entra ya `approved`. */
+  const originOf = (request: VehicleRequestRow): string => {
+    if (request.status === 'pending') return t.originSelfService
+    return request.jira_key ? 'Jira' : t.originManual
+  }
+
   // Carga completa: el filtro de estado es de cliente (chips con contador),
   // así los contadores reflejan la bandeja entera sin refetch por chip.
   const load = useCallback(() => {
@@ -67,9 +65,9 @@ export function RequestsPage() {
         setRequests(rows)
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar las solicitudes.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadError)))
       .finally(() => setLoading(false))
-  }, [])
+  }, [t.loadError])
 
   useEffect(load, [load])
   useEffect(() => {
@@ -97,7 +95,7 @@ export function RequestsPage() {
   async function submitGrant(event: FormEvent) {
     event.preventDefault()
     if (!granting || !grantVehicle) {
-      setGrantError('Elige el vehículo a conceder.')
+      setGrantError(t.grantChooseVehicle)
       return
     }
     setGrantSaving(true)
@@ -105,13 +103,10 @@ export function RequestsPage() {
     try {
       const updated = await grantVehicleRequest(granting.id, Number(grantVehicle))
       setGranting(null)
-      setNotice(
-        `Concedido ${plateOf(Number(grantVehicle))} a ${updated.requester_name}: ya es conductor ` +
-          'con asignación aceptada y puede entrar al front móvil.',
-      )
+      setNotice(t.grantOk(plateOf(Number(grantVehicle)), updated.requester_name))
       load()
     } catch (err) {
-      setGrantError(asErrorMessage(err, 'No se pudo conceder la solicitud.'))
+      setGrantError(asErrorMessage(err, t.grantError))
     } finally {
       setGrantSaving(false)
     }
@@ -120,18 +115,18 @@ export function RequestsPage() {
   async function handleReject(request: VehicleRequestRow) {
     if (
       !(await confirm({
-        message: `¿Rechazar la solicitud de ${request.requester_name || request.jira_key}?`,
-        confirmLabel: 'Rechazar',
+        message: t.rejectConfirm(request.requester_name || request.jira_key),
+        confirmLabel: t.rejectConfirmLabel,
       }))
     )
       return
     setBusyId(request.id)
     try {
       await rejectVehicleRequest(request.id)
-      setNotice(`Solicitud de ${request.requester_name || request.jira_key} rechazada.`)
+      setNotice(t.rejectOk(request.requester_name || request.jira_key))
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo rechazar.'))
+      setError(asErrorMessage(err, t.rejectError))
     } finally {
       setBusyId(null)
     }
@@ -140,7 +135,7 @@ export function RequestsPage() {
   const columns: Array<TableWithPanelColumn<VehicleRequestRow>> = [
     {
       key: 'requester',
-      label: 'Solicitante',
+      label: t.columns.requester,
       getValue: (r) => r.requester_name,
       render: (r) => (
         <>
@@ -151,25 +146,25 @@ export function RequestsPage() {
     },
     {
       key: 'jira_key',
-      label: 'Ticket Jira',
+      label: t.columns.jiraKey,
       getValue: (r) => r.jira_key,
       render: (r) => r.jira_key || '—',
     },
     {
       key: 'origin',
-      label: 'Origen',
+      label: t.columns.origin,
       getValue: (r) => originOf(r),
       render: (r) => originOf(r),
     },
     {
       key: 'requested_type',
-      label: 'Tipo',
-      getValue: (r) => TYPE_LABEL[r.requested_type] ?? r.requested_type,
-      render: (r) => TYPE_LABEL[r.requested_type] ?? (r.requested_type || '—'),
+      label: t.columns.type,
+      getValue: (r) => t.typeLabel[r.requested_type] ?? r.requested_type,
+      render: (r) => t.typeLabel[r.requested_type] ?? (r.requested_type || '—'),
     },
     {
       key: 'start_date',
-      label: 'Fechas',
+      label: t.columns.dates,
       isDate: true,
       getValue: (r) => r.start_date,
       render: (r) => (
@@ -181,13 +176,13 @@ export function RequestsPage() {
     },
     {
       key: 'status',
-      label: 'Estado',
+      label: t.columns.status,
       getValue: (r) => r.status_display,
       render: (r) => <Badge tone={requestStatusTone(r.status)}>{r.status_display}</Badge>,
     },
     {
       key: 'vehicle',
-      label: 'Vehículo',
+      label: t.columns.vehicle,
       getValue: (r) => (r.vehicle ? plateOf(r.vehicle) : ''),
       render: (r) =>
         r.vehicle ? (
@@ -200,7 +195,7 @@ export function RequestsPage() {
     },
     {
       key: 'actions',
-      label: 'Acciones',
+      label: t.columns.actions,
       align: 'right',
       searchable: false,
       sortable: false,
@@ -211,10 +206,10 @@ export function RequestsPage() {
               variant="primary"
               size="sm"
               disabled={busyId === r.id || !r.requester}
-              title={!r.requester ? 'Sin solicitante: no se puede conceder' : undefined}
+              title={!r.requester ? t.noRequesterTitle : undefined}
               onClick={() => openGrant(r)}
             >
-              Conceder…
+              {t.grantAction}
             </Button>
             <Button
               variant="danger"
@@ -222,7 +217,7 @@ export function RequestsPage() {
               disabled={busyId === r.id}
               onClick={() => handleReject(r)}
             >
-              Rechazar
+              {t.rejectAction}
             </Button>
           </div>
         ) : null,
@@ -232,24 +227,24 @@ export function RequestsPage() {
   return (
     <div>
       <PageHeader
-        title="Solicitudes de vehículo"
-        subtitle="El estado del ticket lo sincroniza el job sync_jira_requests; si Jira no confirma, decide aquí."
-        stats={pendingCount > 0 ? [{ value: pendingCount, label: 'Sin decidir' }] : undefined}
+        title={t.title}
+        subtitle={t.subtitle}
+        stats={pendingCount > 0 ? [{ value: pendingCount, label: t.statPending }] : undefined}
         actions={
           <Button
             variant="secondary"
             disabled={filtered.length === 0}
-            onClick={() => exportCsv('solicitudes', columns, filtered)}
+            onClick={() => exportCsv(t.csvName, columns, filtered)}
           >
-            <Download size={16} aria-hidden /> Exportar CSV
+            <Download size={16} aria-hidden /> {t.exportCsv}
           </Button>
         }
       />
 
       {/* Filtro de estado como chips con contador (patrón de la home): un
           vistazo dice cuánto hay en cada bandeja antes de entrar. */}
-      <div className="chips-row" role="group" aria-label="Filtrar por estado">
-        {STATUS_OPTIONS.map((o) => (
+      <div className="chips-row" role="group" aria-label={t.filterAria}>
+        {statusOptions.map((o) => (
           <Chip
             key={o.value}
             active={statusFilter === o.value}
@@ -267,15 +262,17 @@ export function RequestsPage() {
       </div>
 
       <p className="muted">
-        <strong>Conceder</strong> asigna el vehículo y deja entrar al solicitante;{' '}
-        <strong>rechazar</strong> cierra la solicitud.
+        <strong>{t.helpGrant}</strong>
+        {t.helpGrantRest}
+        <strong>{t.helpReject}</strong>
+        {t.helpRejectRest}
       </p>
 
       {notice && <div role="status" className="notice-ok">{notice}</div>}
       {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p className="loading-state" role="status">Cargando…</p>
+        <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<VehicleRequestRow>
           rows={filtered}
@@ -286,46 +283,46 @@ export function RequestsPage() {
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel="Sin solicitudes con estos filtros."
+          emptyStateLabel={t.empty}
         />
       )}
 
       {/* Conceder (Fase A2): rol conductor + asignación aceptada + evento */}
       <Modal
         open={granting !== null}
-        title={`Conceder vehículo a ${granting?.requester_name ?? ''}`}
+        title={t.grantModalTitle(granting?.requester_name ?? '')}
         onClose={() => setGranting(null)}
       >
         <form className="modal-form" onSubmit={submitGrant}>
           {granting?.requested_type && (
             <p className="muted" style={{ margin: 0 }}>
-              Solicitó: <strong>{TYPE_LABEL[granting.requested_type] ?? granting.requested_type}</strong>
-              {granting.jira_key ? ` · ticket ${granting.jira_key}` : ''}
+              {t.requestedPrefix}{' '}
+              <strong>{t.typeLabel[granting.requested_type] ?? granting.requested_type}</strong>
+              {granting.jira_key ? t.requestedTicket(granting.jira_key) : ''}
             </p>
           )}
           <SelectField
-            label="Vehículo"
+            label={t.vehicleLabel}
             options={[
-              { value: '', label: '— Elegir —' },
+              { value: '', label: t.choosePlaceholder },
               ...vehicles.map((v) => ({
                 value: String(v.id),
-                label: `${v.plate} · ${v.brand} ${v.model}${v.driver_name ? ` (ocupado: ${v.driver_name})` : ' (libre)'}`,
+                label: `${v.plate} · ${v.brand} ${v.model}${v.driver_name ? t.vehicleOccupied(v.driver_name) : t.vehicleFree}`,
               })),
             ]}
             value={grantVehicle}
             onValueChange={setGrantVehicle}
           />
           <p className="muted" style={{ margin: 0 }}>
-            Conceder da rol de conductor si falta, cierra la asignación vigente del vehículo, crea
-            la aceptada y emite el evento — el solicitante ya podrá entrar al front móvil.
+            {t.grantHelp}
           </p>
           {grantError && <div role="alert" className="form-error">{grantError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setGranting(null)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={grantSaving}>
-              {grantSaving ? 'Concediendo…' : 'Conceder'}
+              {grantSaving ? t.grantSubmitting : t.grantSubmit}
             </Button>
           </div>
         </form>

@@ -1,0 +1,136 @@
+import { useAppLang } from '@flota/ui/i18n'
+
+const es = {
+  title: 'Solicitudes de vehículo',
+  subtitle:
+    'El estado del ticket lo sincroniza el job sync_jira_requests; si Jira no confirma, decide aquí.',
+  statPending: 'Sin decidir',
+  exportCsv: 'Exportar CSV',
+  csvName: 'solicitudes',
+  filterAria: 'Filtrar por estado',
+  statusAll: 'Todas',
+  statusPending: 'Pendientes',
+  statusApproved: 'Aprobadas (Jira)',
+  statusAssigned: 'Concedidas',
+  statusRejected: 'Rechazadas',
+  helpGrant: 'Conceder',
+  helpGrantRest: ' asigna el vehículo y deja entrar al solicitante; ',
+  helpReject: 'rechazar',
+  helpRejectRest: ' cierra la solicitud.',
+  loading: 'Cargando…',
+  empty: 'Sin solicitudes con estos filtros.',
+  loadError: 'No se pudieron cargar las solicitudes.',
+  typeLabel: {
+    car: 'Turismo',
+    van: 'Furgoneta',
+    truck: 'Camión',
+    motorcycle: 'Motocicleta',
+  } as Record<string, string>,
+  originSelfService: 'Portón (self-service)',
+  originManual: 'Manual',
+  columns: {
+    requester: 'Solicitante',
+    jiraKey: 'Ticket Jira',
+    origin: 'Origen',
+    type: 'Tipo',
+    dates: 'Fechas',
+    status: 'Estado',
+    vehicle: 'Vehículo',
+    actions: 'Acciones',
+  },
+  grantAction: 'Conceder…',
+  rejectAction: 'Rechazar',
+  noRequesterTitle: 'Sin solicitante: no se puede conceder',
+  rejectConfirm: (who: string) => `¿Rechazar la solicitud de ${who}?`,
+  rejectConfirmLabel: 'Rechazar',
+  rejectOk: (who: string) => `Solicitud de ${who} rechazada.`,
+  rejectError: 'No se pudo rechazar.',
+  grantModalTitle: (name: string) => `Conceder vehículo a ${name}`,
+  requestedPrefix: 'Solicitó:',
+  requestedTicket: (jiraKey: string) => ` · ticket ${jiraKey}`,
+  vehicleLabel: 'Vehículo',
+  choosePlaceholder: '— Elegir —',
+  vehicleOccupied: (driver: string) => ` (ocupado: ${driver})`,
+  vehicleFree: ' (libre)',
+  grantHelp:
+    'Conceder da rol de conductor si falta, cierra la asignación vigente del vehículo, crea ' +
+    'la aceptada y emite el evento — el solicitante ya podrá entrar al front móvil.',
+  grantChooseVehicle: 'Elige el vehículo a conceder.',
+  grantOk: (plate: string, name: string) =>
+    `Concedido ${plate} a ${name}: ya es conductor con asignación aceptada y puede entrar al front móvil.`,
+  grantError: 'No se pudo conceder la solicitud.',
+  cancel: 'Cancelar',
+  grantSubmit: 'Conceder',
+  grantSubmitting: 'Concediendo…',
+}
+
+const en: typeof es = {
+  title: 'Vehicle requests',
+  subtitle:
+    'Ticket status is synced by the sync_jira_requests job; if Jira does not confirm, decide here.',
+  statPending: 'Undecided',
+  exportCsv: 'Export CSV',
+  csvName: 'requests',
+  filterAria: 'Filter by status',
+  statusAll: 'All',
+  statusPending: 'Pending',
+  statusApproved: 'Approved (Jira)',
+  statusAssigned: 'Granted',
+  statusRejected: 'Rejected',
+  helpGrant: 'Grant',
+  helpGrantRest: ' assigns the vehicle and lets the requester in; ',
+  helpReject: 'reject',
+  helpRejectRest: ' closes the request.',
+  loading: 'Loading…',
+  empty: 'No requests match these filters.',
+  loadError: 'Could not load requests.',
+  typeLabel: {
+    car: 'Car',
+    van: 'Van',
+    truck: 'Truck',
+    motorcycle: 'Motorcycle',
+  },
+  originSelfService: 'Gate (self-service)',
+  originManual: 'Manual',
+  columns: {
+    requester: 'Requester',
+    jiraKey: 'Jira ticket',
+    origin: 'Origin',
+    type: 'Type',
+    dates: 'Dates',
+    status: 'Status',
+    vehicle: 'Vehicle',
+    actions: 'Actions',
+  },
+  grantAction: 'Grant…',
+  rejectAction: 'Reject',
+  noRequesterTitle: 'No requester: cannot grant',
+  rejectConfirm: (who) => `Reject the request from ${who}?`,
+  rejectConfirmLabel: 'Reject',
+  rejectOk: (who) => `Request from ${who} rejected.`,
+  rejectError: 'Could not reject.',
+  grantModalTitle: (name) => `Grant vehicle to ${name}`,
+  requestedPrefix: 'Requested:',
+  requestedTicket: (jiraKey) => ` · ticket ${jiraKey}`,
+  vehicleLabel: 'Vehicle',
+  choosePlaceholder: '— Choose —',
+  vehicleOccupied: (driver) => ` (taken: ${driver})`,
+  vehicleFree: ' (free)',
+  grantHelp:
+    'Granting adds the driver role if missing, closes the vehicle’s current assignment, creates ' +
+    'the accepted one and emits the event — the requester can then sign in to the mobile front.',
+  grantChooseVehicle: 'Choose the vehicle to grant.',
+  grantOk: (plate, name) =>
+    `Granted ${plate} to ${name}: they are now a driver with an accepted assignment and can sign in to the mobile front.`,
+  grantError: 'Could not grant the request.',
+  cancel: 'Cancel',
+  grantSubmit: 'Grant',
+  grantSubmitting: 'Granting…',
+}
+
+const dict = { es, en }
+
+/** Copia de la página en el idioma activo (UX1). */
+export function useRequestsCopy() {
+  return dict[useAppLang()]
+}

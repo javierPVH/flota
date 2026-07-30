@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Badge, Button, PageHeader, TabButton } from '@flota/ui/ui'
+import { useAppLang } from '@flota/ui/i18n'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
@@ -14,7 +15,7 @@ import { useAuth } from '../auth.ts'
 import { fmtDate } from '../format.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { exportCsv } from '../csv.ts'
-import { useLang } from '../i18n.tsx'
+import { useErratasCopy } from '../translations/erratas.ts'
 
 /**
  * N7 — Espacio de erratas: inventario de registros desactivados por tipo.
@@ -22,8 +23,9 @@ import { useLang } from '../i18n.tsx'
  * usar "Eliminar definitivamente" (el back lo revalida con IsSuperuser).
  */
 export function ErratasPage() {
+  const t = useErratasCopy()
   const { user } = useAuth()
-  const { language } = useLang()
+  const lang = useAppLang()
   const confirm = useConfirm()
   const [groups, setGroups] = useState<ErrataGroup[]>([])
   const [active, setActive] = useState<string>('')
@@ -41,9 +43,9 @@ export function ErratasPage() {
         )
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar el espacio de erratas.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadError)))
       .finally(() => setLoading(false))
-  }, [])
+  }, [t])
 
   useEffect(load, [load])
 
@@ -52,14 +54,14 @@ export function ErratasPage() {
 
   async function handleRestore(item: ErrataItem) {
     if (!group) return
-    if (!(await confirm({ message: `¿Restaurar "${item.label}"?`, tone: 'warning', confirmLabel: 'Restaurar' })))
+    if (!(await confirm({ message: t.confirmRestore(item.label), tone: 'warning', confirmLabel: t.restore })))
       return
     try {
       await restoreErrata(group.type, item.id)
-      setNotice(`Restaurado: ${item.label}`)
+      setNotice(t.restoreOk(item.label))
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo restaurar.'))
+      setError(asErrorMessage(err, t.restoreError))
     }
   }
 
@@ -67,44 +69,44 @@ export function ErratasPage() {
     if (!group) return
     if (
       !(await confirm({
-        message: `¿Eliminar DEFINITIVAMENTE "${item.label}"? Esta acción no se puede deshacer y queda auditada.`,
-        confirmLabel: 'Eliminar definitivamente',
+        message: t.confirmPurge(item.label),
+        confirmLabel: t.purge,
       }))
     )
       return
     try {
       await purgeErrata(group.type, item.id)
-      setNotice(`Eliminado definitivamente: ${item.label}`)
+      setNotice(t.purgeOk(item.label))
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo eliminar.'))
+      setError(asErrorMessage(err, t.purgeError))
     }
   }
 
   const columns: Array<TableWithPanelColumn<ErrataItem>> = [
-    { key: 'label', label: 'Registro', getValue: (r) => r.label },
+    { key: 'label', label: t.columns.label, getValue: (r) => r.label },
     {
       key: 'deactivated_at',
-      label: 'Desactivado el',
+      label: t.columns.deactivatedAt,
       isDate: true,
       getValue: (r) => r.deactivated_at ?? '',
-      render: (r) => fmtDate(r.deactivated_at, language),
+      render: (r) => fmtDate(r.deactivated_at, lang),
     },
-    { key: 'deactivated_by', label: 'Por', getValue: (r) => r.deactivated_by, render: (r) => r.deactivated_by || '—' },
-    { key: 'reason', label: 'Motivo', getValue: (r) => r.reason, render: (r) => r.reason || '—' },
+    { key: 'deactivated_by', label: t.columns.deactivatedBy, getValue: (r) => r.deactivated_by, render: (r) => r.deactivated_by || '—' },
+    { key: 'reason', label: t.columns.reason, getValue: (r) => r.reason, render: (r) => r.reason || '—' },
     {
       key: '__actions',
-      label: 'Acciones',
+      label: t.columns.actions,
       align: 'right' as const,
       sortable: false,
       render: (item) => (
         <div className="row-actions">
           <Button variant="secondary" size="sm" onClick={() => handleRestore(item)}>
-            Restaurar
+            {t.restore}
           </Button>
           {isSuperuser && (
             <Button variant="danger" size="sm" onClick={() => handlePurge(item)}>
-              Eliminar definitivamente
+              {t.purge}
             </Button>
           )}
         </div>
@@ -114,18 +116,15 @@ export function ErratasPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Espacio de erratas"
-        subtitle="Registros desactivados: restaurables por la administración; el borrado definitivo es exclusivo del superusuario."
-      />
+      <PageHeader title={t.title} subtitle={t.subtitle} />
 
       {error && <div role="alert" className="form-error">{error}</div>}
       {notice && <p role="status" className="muted">{notice}</p>}
 
       {loading ? (
-        <p className="loading-state" role="status">Cargando…</p>
+        <p className="loading-state" role="status">{t.loading}</p>
       ) : groups.length === 0 ? (
-        <p className="muted">No hay erratas: ningún registro desactivado. ✓</p>
+        <p className="muted">{t.empty}</p>
       ) : (
         <>
           <div className="chips-row catalog-tabs">
@@ -142,7 +141,7 @@ export function ErratasPage() {
                 disabled={group.items.length === 0}
                 onClick={() => exportCsv(`erratas-${group.type}`, columns, group.items)}
               >
-                Exportar CSV
+                {t.exportCsv}
               </Button>
             </div>
           )}
@@ -155,7 +154,7 @@ export function ErratasPage() {
               enablePagination
               defaultPageSize={25}
               pageSizeOptions={[25, 50, 100]}
-              emptyStateLabel="Sin erratas de este tipo."
+              emptyStateLabel={t.emptyType}
             />
           )}
         </>
