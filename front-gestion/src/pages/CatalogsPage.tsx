@@ -22,6 +22,7 @@ import {
   type CatalogResource,
 } from '../api.ts'
 import { useDeactivateConfirm } from '../components/ConfirmDialog.tsx'
+import { exportCsv } from '../csv.ts'
 
 interface CatalogDef {
   resource: CatalogResource
@@ -363,6 +364,13 @@ export function CatalogsPage() {
           <span className="catalog-count muted">
             {filtered.length}/{entries.length}
           </span>
+          <Button
+            variant="secondary"
+            disabled={filtered.length === 0}
+            onClick={() => exportCsv(active.resource, columns, filtered)}
+          >
+            Exportar CSV
+          </Button>
           <Button variant="primary" onClick={openCreate}>
             Crear
           </Button>

@@ -6,6 +6,7 @@ import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchFleetSummary, listAlerts, listAll, listVehicles, type VehicleFilters } from '../api.ts'
 import { alertLevelTone, dueClass, fmtDate, fmtEur, itvClass, vehicleStateTone } from '../format.ts'
+import { exportCsv } from '../csv.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, FleetSummary, Vehicle } from '../types.ts'
 
@@ -441,6 +442,13 @@ export function DashboardPage() {
             />
             {t.home.showRetired}
           </label>
+          <Button
+            variant="secondary"
+            disabled={rows.length === 0}
+            onClick={() => exportCsv('flota', columns, rows)}
+          >
+            Exportar CSV
+          </Button>
         </div>
 
         {loading ? (
