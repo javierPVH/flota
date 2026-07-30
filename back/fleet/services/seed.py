@@ -38,6 +38,9 @@ from fleet.models import (
     Contract,
     Country,
     Document,
+    EmailSignature,
+    EmailTemplate,
+    EmailTemplateKey,
     Event,
     EventItv,
     Incident,
@@ -220,8 +223,10 @@ def seed_catalogs(stdout=None) -> None:
     ceco_mantenimiento = Pep.objects.create(code="4400", name="Mantenimiento")
     Project.objects.create(project_name="Obra Norte A-12", cost_center=ceco_servicios)
     Project.objects.create(project_name="Planta FV Badajoz", cost_center=ceco_mantenimiento)
-    Renting.objects.create(name="ALD Automotive")
-    Renting.objects.create(name="Northgate")
+    Renting.objects.create(
+        name="ALD Automotive", email="flota@ald.example", contact_name="Marta ALD"
+    )
+    Renting.objects.create(name="Northgate", email="soporte@northgate.example")
 
     # -- Volumen: más países, unidades, CECOs, proyectos y rentings.
     Country.objects.create(name="Portugal")
@@ -241,6 +246,45 @@ def seed_catalogs(stdout=None) -> None:
         Project.objects.create(project_name=name, cost_center=ceco)
     Renting.objects.create(name="Alphabet")
     Renting.objects.create(name="Arval")
+
+    # -- N10b: plantillas de correo por defecto + una firma de ejemplo.
+    for model in (EmailTemplate, EmailSignature):
+        wipe(model, stdout)
+    firma = EmailSignature.objects.create(
+        name="Flota Gransolar",
+        body_html="<p>—<br/>Equipo de Flota · Gransolar</p>",
+    )
+    EmailTemplate.objects.create(
+        key=EmailTemplateKey.INSURANCE_DUE,
+        subject="Renovación de seguro · {{matricula}}",
+        body_html=(
+            "<p>Estimado equipo de {{empresa}}:</p>"
+            "<p>El seguro del vehículo <strong>{{matricula}}</strong> vence el "
+            "<strong>{{fecha_vencimiento}}</strong>. {{mensaje}}</p>"
+            "<p>Por favor, gestionad la renovación de la póliza.</p>"
+        ),
+        signature=firma,
+    )
+    EmailTemplate.objects.create(
+        key=EmailTemplateKey.KM_OVERAGE,
+        subject="Aviso de kilometraje · {{matricula}}",
+        body_html=(
+            "<p>Hola {{conductor}}:</p>"
+            "<p>La proyección de km de <strong>{{matricula}}</strong> supera lo "
+            "contratado. {{mensaje}}</p><p>Modera el uso o contacta con la gestión.</p>"
+        ),
+        signature=firma,
+    )
+    EmailTemplate.objects.create(
+        key=EmailTemplateKey.KM_READING_PENDING,
+        subject="Falta tu lectura de km · {{matricula}}",
+        body_html=(
+            "<p>Hola {{conductor}}:</p>"
+            "<p>Falta la lectura de km de este mes de <strong>{{matricula}}</strong>. "
+            "Regístrala desde la app de campo (del día 23 a fin de mes).</p>"
+        ),
+        signature=firma,
+    )
 
 
 # --- 3) Vehículos ----------------------------------------------------------

@@ -25,6 +25,9 @@ import { UserDetailPage } from './pages/UserDetailPage.tsx'
 const ErratasPage = lazy(() =>
   import('./pages/ErratasPage.tsx').then((m) => ({ default: m.ErratasPage })),
 )
+const EmailTemplatesPage = lazy(() =>
+  import('./pages/EmailTemplatesPage.tsx').then((m) => ({ default: m.EmailTemplatesPage })),
+)
 import { UiKitPage } from './pages/UiKitPage.tsx'
 
 export default function App() {
@@ -62,6 +65,14 @@ export default function App() {
           element={
             <Suspense fallback={<p className="loading-state" role="status">Cargando…</p>}>
               <ErratasPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/plantillas"
+          element={
+            <Suspense fallback={<p className="loading-state" role="status">Cargando…</p>}>
+              <EmailTemplatesPage />
             </Suspense>
           }
         />

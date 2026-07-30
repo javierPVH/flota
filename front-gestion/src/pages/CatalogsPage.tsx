@@ -66,7 +66,12 @@ const CATALOGS: CatalogDef[] = [
     resource: 'rentings',
     title: 'Rentings',
     singular: 'compañía de renting',
-    fields: [{ key: 'name', label: 'Nombre', required: true }],
+    fields: [
+      { key: 'name', label: 'Nombre', required: true },
+      // N10a: destinatario de los avisos de seguro (insurance_due).
+      { key: 'email', label: 'Email de contacto' },
+      { key: 'contact_name', label: 'Persona de contacto' },
+    ],
   },
   {
     resource: 'countries',

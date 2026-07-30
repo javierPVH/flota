@@ -66,6 +66,11 @@ def upsert_alert(
     )
     if created:
         _notify_alert(alert)
+        # N10a: email best-effort (seguro → renting; km → conductor). Import
+        # perezoso para evitar ciclos alerts ↔ mailer.
+        from fleet.services import mailer
+
+        mailer.send_for_alert(alert)
     if not created and alert.status == AlertStatus.OPEN:
         changed = False
         for field, value in (("level", level), ("message", message), ("due_date", due_date)):

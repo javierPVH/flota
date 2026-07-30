@@ -9,6 +9,9 @@ from .models import (
     Contract,
     Country,
     Document,
+    EmailLog,
+    EmailSignature,
+    EmailTemplate,
     Event,
     EventDriverChange,
     EventFeeChange,
@@ -209,3 +212,23 @@ class AlertAdmin(admin.ModelAdmin):
     search_fields = ("vehicle__plate", "message", "dedup_key")
     autocomplete_fields = ("vehicle", "user", "resolved_by")
     readonly_fields = ("dedup_key", "created_at", "updated_at", "resolved_at")
+
+
+# --- N10: correo -----------------------------------------------------------
+@admin.register(EmailTemplate)
+class EmailTemplateAdmin(admin.ModelAdmin):
+    list_display = ("key", "subject", "signature", "is_active")
+    list_filter = ("is_active",)
+
+
+@admin.register(EmailSignature)
+class EmailSignatureAdmin(admin.ModelAdmin):
+    list_display = ("name", "is_active")
+
+
+@admin.register(EmailLog)
+class EmailLogAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "recipient", "template_key", "status")
+    list_filter = ("status", "template_key")
+    search_fields = ("recipient", "subject")
+    readonly_fields = [f.name for f in EmailLog._meta.fields]

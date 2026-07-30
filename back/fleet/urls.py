@@ -11,6 +11,9 @@ from .views import (
     ContractViewSet,
     CountryViewSet,
     DocumentViewSet,
+    EmailLogViewSet,
+    EmailSignatureViewSet,
+    EmailTemplateViewSet,
     EventViewSet,
     FleetSummaryView,
     IncidentViewSet,
@@ -53,6 +56,10 @@ router.register("rentings", RentingViewSet, basename="renting")
 router.register("brands", BrandViewSet, basename="brand")
 router.register("vehicle-models", VehicleModelViewSet, basename="vehiclemodel")
 router.register("companies", CompanyViewSet, basename="company")
+# N10: gestor maestro de correo (plantillas, firmas y traza de envíos).
+router.register("email-templates", EmailTemplateViewSet, basename="emailtemplate")
+router.register("email-signatures", EmailSignatureViewSet, basename="emailsignature")
+router.register("email-logs", EmailLogViewSet, basename="emaillog")
 
 urlpatterns = [
     path("reports/", ReportsView.as_view(), name="reports"),

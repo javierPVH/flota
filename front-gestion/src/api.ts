@@ -152,6 +152,9 @@ export interface CatalogEntry {
   brand_display?: string
   /** Solo `companies` (N5). */
   description?: string
+  /** Solo `rentings` (N10a): destinatario de los avisos de seguro. */
+  email?: string
+  contact_name?: string
 }
 
 export type CatalogResource =
@@ -600,3 +603,62 @@ export const restoreErrata = (type: string, id: number) =>
 /** Borrado REAL — solo el superusuario (el back lo revalida). */
 export const purgeErrata = (type: string, id: number) =>
   postJson<{ purged: boolean }>(`${API}/erratas/purge/`, { type, id })
+
+// --- N10: gestor maestro de plantillas de correo ----------------------------
+
+export interface EmailSignatureRow {
+  id: number
+  name: string
+  body_html: string
+}
+
+export interface EmailTemplateRow {
+  id: number
+  key: string
+  key_display: string
+  subject: string
+  body_html: string
+  signature: number | null
+  signature_name: string
+  updated_at: string
+}
+
+export interface EmailLogRow {
+  id: number
+  alert: number | null
+  alert_message: string
+  template_key: string
+  recipient: string
+  subject: string
+  status: 'sent' | 'failed' | 'skipped'
+  status_display: string
+  error: string
+  created_at: string
+}
+
+export const listEmailTemplates = () =>
+  getJson<Paginated<EmailTemplateRow>>(`${API}/email-templates/${listQs({})}`)
+
+export const createEmailTemplate = (data: Partial<EmailTemplateRow>) =>
+  postJson<EmailTemplateRow>(`${API}/email-templates/`, data)
+
+export const updateEmailTemplate = (id: number, data: Partial<EmailTemplateRow>) =>
+  patchJson<EmailTemplateRow>(`${API}/email-templates/${id}/`, data)
+
+export const previewEmailTemplate = (id: number) =>
+  postJson<{ subject: string; body_html: string }>(`${API}/email-templates/${id}/preview/`, {})
+
+export const sendTestEmail = (id: number) =>
+  postJson<{ sent_to: string }>(`${API}/email-templates/${id}/test/`, {})
+
+export const listEmailSignatures = () =>
+  getJson<Paginated<EmailSignatureRow>>(`${API}/email-signatures/${listQs({})}`)
+
+export const createEmailSignature = (data: { name: string; body_html: string }) =>
+  postJson<EmailSignatureRow>(`${API}/email-signatures/`, data)
+
+export const updateEmailSignature = (id: number, data: Partial<EmailSignatureRow>) =>
+  patchJson<EmailSignatureRow>(`${API}/email-signatures/${id}/`, data)
+
+export const listEmailLogs = () =>
+  getJson<Paginated<EmailLogRow>>(`${API}/email-logs/${listQs({})}`)

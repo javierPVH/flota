@@ -9,6 +9,7 @@ from .assignment import Assignment, VehicleLink, VehicleUsage
 from .catalogs import Brand, BusinessUnit, Company, Country, Pep, Project, Renting, VehicleModel
 from .contract import Contract, KmReading
 from .document import Document
+from .email import EmailLog, EmailSignature, EmailTemplate, EmailTemplateKey
 from .event import (
     Event,
     EventDriverChange,
@@ -25,6 +26,10 @@ from .request import VehicleRequest
 from .vehicle import Vehicle
 
 __all__ = [
+    "EmailLog",
+    "EmailSignature",
+    "EmailTemplate",
+    "EmailTemplateKey",
     "Brand",
     "BusinessUnit",
     "Company",

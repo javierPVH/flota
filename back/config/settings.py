@@ -344,6 +344,22 @@ FLEET_ITV_ALERT_DAYS = sorted(
     {int(x) for x in env_list("FLEET_ITV_ALERT_DAYS", ["30", "15", "7"]) if x.isdigit()},
     reverse=True,
 ) or [30, 15, 7]
+# --- N10a: correo saliente (SMTP por .env; sin host → deshabilitado limpio,
+# patrón Drive/push: la app funciona igual y el mailer es un no-op con log).
+EMAIL_HOST = env_str("EMAIL_HOST", "")
+EMAIL_PORT = env_int("EMAIL_PORT", 587)
+EMAIL_HOST_USER = env_str("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env_str("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+DEFAULT_FROM_EMAIL = env_str("DEFAULT_FROM_EMAIL", "flota@example.invalid")
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if EMAIL_HOST
+    else "django.core.mail.backends.console.EmailBackend"
+)
+# Interruptor real del envío (los tests usan locmem vía override).
+FLEET_EMAIL_ENABLED = bool(EMAIL_HOST) or env_bool("FLEET_EMAIL_FORCE_ENABLED", False)
+
 # N8a: día del mes desde el que el personal de campo (no gestión) puede
 # registrar km, hasta fin de mes. 0 = sin ventana. En dev/tests queda
 # desactivada para no romper flujos con fechas libres.

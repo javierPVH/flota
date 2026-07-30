@@ -97,12 +97,8 @@ class VehicleLinkApiRuleTests(APITestCase):
         self.client.force_authenticate(self.admin)
         # N9: el vínculo exige principal en estado no activo y sustituto de tipo
         # sustitución (reglas reforzadas del paso 11).
-        self.main = Vehicle.objects.create(
-            plate="M-9", brand="a", model="b", state="maintenance"
-        )
-        self.sub = Vehicle.objects.create(
-            plate="S-9", brand="a", model="b", is_substitute=True
-        )
+        self.main = Vehicle.objects.create(plate="M-9", brand="a", model="b", state="maintenance")
+        self.sub = Vehicle.objects.create(plate="S-9", brand="a", model="b", is_substitute=True)
         self.url = "/api/v1/vehicle-links/"
 
     def _payload(self, **extra):
@@ -116,9 +112,7 @@ class VehicleLinkApiRuleTests(APITestCase):
 
     def test_second_active_link_rejected_with_400(self):
         self.assertEqual(self.client.post(self.url, self._payload()).status_code, 201)
-        other = Vehicle.objects.create(
-            plate="S-10", brand="a", model="b", is_substitute=True
-        )
+        other = Vehicle.objects.create(plate="S-10", brand="a", model="b", is_substitute=True)
         resp = self.client.post(self.url, self._payload(substitute_vehicle=other.pk))
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 

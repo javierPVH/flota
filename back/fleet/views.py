@@ -38,6 +38,9 @@ from .models import (
     Contract,
     Country,
     Document,
+    EmailLog,
+    EmailSignature,
+    EmailTemplate,
     Event,
     Incident,
     Invoice,
@@ -63,6 +66,9 @@ from .serializers import (
     ContractSerializer,
     CountrySerializer,
     DocumentSerializer,
+    EmailLogSerializer,
+    EmailSignatureSerializer,
+    EmailTemplateSerializer,
     EventSerializer,
     IncidentSerializer,
     InvoiceAllocateSerializer,
@@ -1009,3 +1015,86 @@ class CompanyViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     serializer_class = CompanySerializer
     permission_classes = [AdminWriteManagementRead]
     search_fields = ["code", "name", "description"]
+
+
+# --- N10: plantillas de correo (gestor maestro, solo admin) -----------------
+
+
+class EmailSignatureViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
+    queryset = EmailSignature.objects.all()
+    serializer_class = EmailSignatureSerializer
+    permission_classes = [IsAdmin]
+    search_fields = ["name"]
+
+
+class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
+    """CRUD de plantillas (N10b) + previsualización y envío de prueba (10c)."""
+
+    queryset = EmailTemplate.objects.select_related("signature")
+    serializer_class = EmailTemplateSerializer
+    permission_classes = [IsAdmin]
+
+    SAMPLE_CONTEXT = {
+        "matricula": "1234KLM",
+        "conductor": "Carlos Ruiz",
+        "empresa": "ALD Automotive",
+        "fecha_vencimiento": "2026-08-15",
+        "km_exceso": "11.525",
+        "mensaje": "Seguro en 15 día(s) (vence el 2026-08-15).",
+    }
+
+    @action(detail=True, methods=["post"])
+    def preview(self, request, pk=None):
+        """POST /email-templates/{id}/preview/ — render con datos de ejemplo."""
+        from .services import mailer
+
+        template = self.get_object()
+        body = mailer.render(template.body_html, self.SAMPLE_CONTEXT)
+        if template.signature is not None and template.signature.is_active:
+            body += template.signature.body_html
+        return Response(
+            {
+                "subject": mailer.render(template.subject, self.SAMPLE_CONTEXT),
+                "body_html": body,
+                "sample_context": self.SAMPLE_CONTEXT,
+            }
+        )
+
+    @action(detail=True, methods=["post"])
+    def test(self, request, pk=None):
+        """POST /email-templates/{id}/test/ — envía la prueba a MI correo."""
+        from django.core.mail import EmailMultiAlternatives
+        from django.utils.html import strip_tags
+
+        from .services import mailer
+
+        if not request.user.email:
+            raise ValidationError({"detail": "Tu usuario no tiene email configurado."})
+        if not mailer.email_enabled():
+            raise ValidationError(
+                {"detail": "El correo saliente no está configurado (EMAIL_HOST)."}
+            )
+        template = self.get_object()
+        subject = mailer.render(template.subject, self.SAMPLE_CONTEXT)
+        body = mailer.render(template.body_html, self.SAMPLE_CONTEXT)
+        if template.signature is not None and template.signature.is_active:
+            body += template.signature.body_html
+        message = EmailMultiAlternatives(
+            subject=f"[PRUEBA] {subject}",
+            body=strip_tags(body),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[request.user.email],
+        )
+        message.attach_alternative(body, "text/html")
+        message.send(fail_silently=False)
+        return Response({"sent_to": request.user.email})
+
+
+class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """Traza de envíos (soporte). Solo lectura, solo admin."""
+
+    queryset = EmailLog.objects.select_related("alert")
+    serializer_class = EmailLogSerializer
+    permission_classes = [IsAdmin]
+    filterset_fields = ["status", "template_key"]
+    search_fields = ["recipient", "subject"]
