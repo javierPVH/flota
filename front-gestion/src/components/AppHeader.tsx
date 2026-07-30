@@ -34,22 +34,6 @@ import logoUrl from '../assets/img/gransolar-logo.png'
 // Crítica primero, como en la bandeja de alertas.
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
 
-// Secciones ocultas del menú (por decisión de producto). Las RUTAS siguen
-// activas: se puede entrar por URL directa. Para volver a mostrar una, quita
-// su ruta de este set.
-const HIDDEN_NAV = new Set([
-  '/solicitudes',
-  '/incidencias',
-  '/alertas',
-  '/informes',
-  '/facturas',
-  '/propuestas',
-])
-
-// Campana de alertas oculta (Alertas está fuera del menú). Ponlo a `true`
-// para restaurar el icono, su contador y el popover de la cabecera.
-const SHOW_BELL = false
-
 export function AppHeader() {
   const { user, logout } = useAuth()
   const { language, setLanguage, t } = useLang()
@@ -74,7 +58,6 @@ export function AppHeader() {
       .catch(() => {})
 
   useEffect(() => {
-    if (!SHOW_BELL) return
     void loadAlerts()
   }, [])
 
@@ -169,10 +152,7 @@ export function AppHeader() {
     },
   ]
 
-  // Oculta las secciones marcadas y descarta los grupos que se queden vacíos.
   const visibleGroups = navGroups
-    .map((group) => ({ ...group, items: group.items.filter((item) => !HIDDEN_NAV.has(item.to)) }))
-    .filter((group) => group.items.length > 0)
 
   return (
     <div className="shell-headerbar">
@@ -191,24 +171,22 @@ export function AppHeader() {
           </span>
         </div>
 
-        {SHOW_BELL && (
-          <button
-            ref={bellBtnRef}
-            type="button"
-            className="shell-iconbtn shell-bell"
-            aria-label={t.shell.notifications}
-            aria-haspopup="true"
-            aria-expanded={bellOpen}
-            onClick={toggleBell}
-          >
-            <Bell size={18} />
-            {alerts.length > 0 && (
-              <span className="shell-bell-count" aria-hidden="true">
-                {alerts.length > 99 ? '99+' : alerts.length}
-              </span>
-            )}
-          </button>
-        )}
+        <button
+          ref={bellBtnRef}
+          type="button"
+          className="shell-iconbtn shell-bell"
+          aria-label={t.shell.notifications}
+          aria-haspopup="true"
+          aria-expanded={bellOpen}
+          onClick={toggleBell}
+        >
+          <Bell size={18} />
+          {alerts.length > 0 && (
+            <span className="shell-bell-count" aria-hidden="true">
+              {alerts.length > 99 ? '99+' : alerts.length}
+            </span>
+          )}
+        </button>
 
         <button
           ref={menuBtnRef}
@@ -223,8 +201,7 @@ export function AppHeader() {
         </button>
       </div>
 
-      {SHOW_BELL &&
-        bellOpen &&
+      {bellOpen &&
         createPortal(
           <div className="shell-navpop-overlay" onClick={() => setBellOpen(false)}>
             <div
