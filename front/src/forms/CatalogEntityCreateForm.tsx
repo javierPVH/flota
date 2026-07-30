@@ -23,6 +23,7 @@ import styles from '../styles/_components/forms/catalog-create-form.module.sass'
 import { getUiCopy, useUiCopy } from '../ui/copy.ts'
 import { resolveLanguage } from '../utils/language.ts'
 import { toErrorMessage } from '../utils/errors.ts'
+import { cx } from '../utils/cx.ts'
 
 export type CatalogCreateFieldKind =
   | 'text'
@@ -66,9 +67,6 @@ export interface CatalogEntityCreateFormProps {
   onCancel?: () => void
 }
 
-function cx(...values: Array<string | false | null | undefined>): string {
-  return values.filter(Boolean).join(' ')
-}
 
 // Lectura puntual (no reactiva) de la copy para helpers a nivel de módulo.
 function getComponentsCopy() {

@@ -33,6 +33,7 @@ const libEntries = {
   'http/index': resolve('./src/http/index.ts'),
   'auth/index': resolve('./src/auth/index.ts'),
   'i18n/index': resolve('./src/i18n/index.ts'),
+  'domain/index': resolve('./src/domain/index.ts'),
 }
 
 // https://vite.dev/config/

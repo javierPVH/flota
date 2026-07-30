@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { X } from 'lucide-react'
 import styles from '../../styles/_components/overlay/modal.module.sass'
 import { useUiCopy } from '../copy.ts'
+import { cx } from '../../utils/cx.ts'
 
 export interface ModalProps {
   open: boolean
@@ -20,9 +21,6 @@ export interface ModalProps {
   height?: number | string
 }
 
-function cx(...values: Array<string | false | null | undefined>): string {
-  return values.filter(Boolean).join(' ')
-}
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), ' +

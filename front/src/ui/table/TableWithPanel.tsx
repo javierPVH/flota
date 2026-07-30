@@ -5,6 +5,7 @@ import { DateMiniFilter } from '../fields'
 import styles from '../../styles/_components/table/table-with-panel.module.sass'
 import { useAppLang } from '../../i18n/langStore.ts'
 import { useUiCopy } from '../copy.ts'
+import { cx } from '../../utils/cx.ts'
 
 type TableLanguage = 'es' | 'en'
 
@@ -127,9 +128,6 @@ interface TableWithPanelCopy {
   collapseRow: string
 }
 
-function cx(...values: Array<string | false | null | undefined>): string {
-  return values.filter(Boolean).join(' ')
-}
 
 function readCellValue<RowType extends object>(
   row: RowType,

@@ -1,4 +1,4 @@
-import { getCookie, getJson, postJson, toUrl } from '@flota/ui/http'
+import { getCookie, getJson, postForm, postJson, toUrl } from '@flota/ui/http'
 
 import type {
   Alert,
@@ -151,30 +151,15 @@ export interface DocumentUploadInput {
  * `pendiente_archivar` y el back lo sube a la carpeta de Drive del vehículo
  * (cuenta de servicio, Fase A3). Va por el throttle público → manejar 429.
  */
-export async function uploadDocument(data: DocumentUploadInput, file: File): Promise<FlotaDocument> {
+export function uploadDocument(data: DocumentUploadInput, file: File): Promise<FlotaDocument> {
+  // DX3/BG10: multipart por el transporte compartido — ApiError con status
+  // (la cola offline y la UI deciden por código; nada de "[object Object]").
   const form = new FormData()
   form.set('file', file)
   for (const [key, value] of Object.entries(data)) {
     if (value !== undefined && value !== null && value !== '') form.set(key, String(value))
   }
-  const response = await fetch(toUrl(`${API}/documents/`), {
-    method: 'POST',
-    headers: { 'X-CSRFToken': getCookie('csrftoken') },
-    credentials: 'include',
-    body: form,
-  })
-  if (response.status === 429) {
-    throw new Error('Demasiadas subidas seguidas. Espera un momento y reintenta.')
-  }
-  const text = await response.text()
-  let payload: unknown = null
-  try {
-    payload = text ? JSON.parse(text) : null
-  } catch {
-    payload = text
-  }
-  if (!response.ok) throw payload ?? new Error('No se pudo subir el documento.')
-  return payload as FlotaDocument
+  return postForm<FlotaDocument>(`${API}/documents/`, form, {}, 'No se pudo subir el documento.')
 }
 
 /** Incidencias (solo gestión; el back acota al grupo del supervisor). */

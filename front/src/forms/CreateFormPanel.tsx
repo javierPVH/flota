@@ -4,10 +4,8 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import styles from '../styles/_components/forms/catalog-create-form.module.sass'
+import { cx } from '../utils/cx.ts'
 
-function cx(...values: Array<string | false | null | undefined>): string {
-  return values.filter(Boolean).join(' ')
-}
 
 export interface CreateFormPanelProps {
   title: string

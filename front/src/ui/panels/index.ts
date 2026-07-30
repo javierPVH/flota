@@ -4,3 +4,8 @@ export { StatList } from './StatList.tsx'
 export type { StatListProps, StatItem, StatTone } from './StatList.tsx'
 export { StatCard } from './StatCard.tsx'
 export type { StatCardProps, StatAccent } from './StatCard.tsx'
+// DX3: antes duplicados en ambas apps.
+export { AccordionTools, CollapsibleCard } from './CollapsibleCard.tsx'
+export { useAccordion } from './useAccordion.ts'
+export type { AccordionState } from './useAccordion.ts'
+export { ErrorBoundary } from './ErrorBoundary.tsx'

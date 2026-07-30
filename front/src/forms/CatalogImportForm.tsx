@@ -3,6 +3,7 @@ import { Button } from '../ui/buttons/index.ts'
 import { TextInputField } from '../ui/fields/index.ts'
 import { downloadCsvTemplateFile } from '../utils/csv-template.ts'
 import styles from '../styles/_components/forms/catalog-create-form.module.sass'
+import { cx } from '../utils/cx.ts'
 
 /** Sube el CSV de importación al backend de la app (inyectado). */
 export type CatalogImportUpload = (args: {
@@ -32,9 +33,6 @@ export interface CatalogImportFormProps {
   onImported?: () => void
 }
 
-function cx(...values: Array<string | false | null | undefined>): string {
-  return values.filter(Boolean).join(' ')
-}
 
 function toErrorMessage(error: unknown, fallbackMessage: string): string {
   if (error instanceof Error && error.message) {
