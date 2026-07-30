@@ -6,15 +6,24 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from accounts.models import User
-from fleet.models import Alert, Assignment, Contract, Vehicle, VehicleRequest
+from accounts.models import PushSubscription, User
+from fleet.models import (
+    Alert,
+    Assignment,
+    Contract,
+    EmailLog,
+    EmailSignature,
+    KmReading,
+    Vehicle,
+    VehicleRequest,
+)
 from fleet.models.enums import AlertType, VehicleRequestStatus
 from fleet.services import seed
 
 # Usuarios/vehículos de la capa de VOLUMEN (constantes del seed): los tests se
 # derivan de ellas para no romperse al ajustar el volumen.
 BULK_USERS = 1 + len(seed.BULK_DRIVERS)  # marta + conductores
-REF_USERS = 6
+REF_USERS = 6 + 1  # + expedro (inactivo, siembra del espacio de erratas)
 REF_VEHICLES = 5
 BULK_BAJA = 2  # los 2 últimos vehículos de volumen se siembran en baja
 
@@ -52,6 +61,20 @@ class SeedChainTests(APITestCase):
         self.assertIn(AlertType.KM_READING_PENDING, types)
         self.assertIn(AlertType.KM_OVERAGE, types)
         self.assertIn(AlertType.NO_DRIVER, types)
+        self.assertIn(AlertType.INSURANCE_DUE, types)
+        # N8b: hay lecturas estimadas (trazo diferenciado en la gráfica).
+        self.assertTrue(KmReading.objects.filter(estimated=True).exists())
+        # N7: el espacio de erratas tiene contenido de varios mecanismos.
+        self.assertTrue(KmReading.objects.filter(is_active=False).exists())
+        self.assertTrue(EmailSignature.objects.filter(is_active=False).exists())
+        self.assertFalse(User.objects.get(username="expedro").is_active)
+        # N9/N10: traza de correos (todos los estados) y una suscripción push.
+        statuses = set(EmailLog.objects.values_list("status", flat=True))
+        self.assertEqual(
+            statuses,
+            {EmailLog.Status.SENT, EmailLog.Status.FAILED, EmailLog.Status.SKIPPED},
+        )
+        self.assertEqual(PushSubscription.objects.count(), 1)
 
     def test_run_all_is_rerunnable_without_duplicates(self):
         seed.run_all()

@@ -28,7 +28,7 @@ from decimal import Decimal
 
 from django.utils import timezone
 
-from accounts.models import Role, User, UserRole
+from accounts.models import PushSubscription, Role, User, UserRole
 from fleet.models import (
     Alert,
     Assignment,
@@ -38,6 +38,7 @@ from fleet.models import (
     Contract,
     Country,
     Document,
+    EmailLog,
     EmailSignature,
     EmailTemplate,
     EmailTemplateKey,
@@ -57,6 +58,7 @@ from fleet.models import (
     VehicleUsage,
 )
 from fleet.models.enums import (
+    AlertType,
     AssignmentStatus,
     DocumentStatus,
     DocumentType,
@@ -527,6 +529,9 @@ def seed_contracts(stdout=None) -> None:
                 vehicle=vehicle,
                 reading_date=today - timedelta(days=started_days - (m + 1) * 30),
                 km_reading=km,
+                # N8b: en 1 de cada 5, la ÚLTIMA lectura es una estimación
+                # (como las que crea "completar km faltantes").
+                estimated=i % 5 == 2 and m == n_readings - 1,
             )
 
 
@@ -828,19 +833,26 @@ def seed_operations(stdout=None) -> None:
             cost=Decimal(str(80 + j * 45)) if j % 3 != 0 else None,
         )
 
-    # Documentos: seguro para todos (alguno caducado), ficha técnica cada 3 y
-    # fotos pendientes de archivar cada 10 (reintento del job de Drive).
+    # Documentos: seguro para todos — la señal denormaliza su expiry_date a
+    # Vehicle.insurance_expiry_date, así que ESTE reparto es el que alimenta
+    # las alertas de N2: vencido (i%8==5), próximo <30 días (i%8 in 1,2) o
+    # lejano. Ficha técnica cada 3 y fotos pendientes de archivar cada 10
+    # (reintento del job de Drive).
     for i in range(BULK_VEHICLES):
         vehicle = Vehicle.objects.get(plate=_bulk_plate(i))
         expired = i % 8 == 5
+        if expired:
+            insurance_expiry = today - timedelta(days=10)
+        elif i % 8 in (1, 2):
+            insurance_expiry = today + timedelta(days=5 + i % 23)
+        else:
+            insurance_expiry = today + timedelta(days=40 + (i * 17) % 320)
         Document.objects.create(
             vehicle=vehicle,
             type=DocumentType.INSURANCE,
             drive_url=f"https://drive.example/seguro-{vehicle.plate}",
             uploaded_by=admin,
-            expiry_date=today - timedelta(days=10)
-            if expired
-            else today + timedelta(days=40 + (i * 17) % 320),
+            expiry_date=insurance_expiry,
             status=DocumentStatus.EXPIRED if expired else DocumentStatus.VALID,
         )
         if i % 3 == 0:
@@ -925,6 +937,125 @@ def seed_alerts(stdout=None) -> None:
         stdout.write(f"  - Alertas regeneradas: {summary}")
 
 
+# --- 8) Erratas (N7): registros desactivados de varios tipos ---------------
+
+
+def seed_erratas(stdout=None) -> None:
+    """Deja el espacio de erratas con contenido de todos los mecanismos.
+
+    Los vehículos en baja ya se siembran en `seed_vehicles`; aquí se añaden
+    desactivaciones (destroy → deactivate), un usuario inactivo y una firma de
+    correo desactivada (A2). No hay wipe propio (los pasos anteriores recrean
+    estos registros desde cero), así que todo es get_or_create/idempotente
+    para poder re-ejecutarse en aislado (`reset_erratas`).
+    """
+    admin = User.objects.get(username="admin")
+
+    # Una incidencia cerrada de volumen, "duplicada por error".
+    incident = (
+        Incident.objects.filter(status=IncidentStatus.CLOSED, is_active=True)
+        .order_by("date")
+        .first()
+    )
+    if incident:
+        incident.deactivate(by=admin, reason="Duplicada: ya existía el parte del taller")
+
+    # Una lectura intermedia de km (no la última: respeta el no-retroceso).
+    reading = (
+        KmReading.objects.filter(estimated=False, is_active=True).order_by("reading_date").first()
+    )
+    if reading and not KmReading.objects.filter(is_active=False).exists():
+        reading.deactivate(by=admin, reason="Error de tecleo: odómetro mal leído")
+
+    # Un catálogo sin uso: marca creada y retirada.
+    saab, _ = Brand.objects.get_or_create(name="Saab")
+    if saab.is_active:
+        saab.deactivate(by=admin, reason="Marca sin vehículos en flota")
+
+    # A2: una firma de correo antigua, restaurable desde erratas.
+    firma_vieja, _ = EmailSignature.objects.get_or_create(
+        name="Firma antigua (2024)",
+        defaults={"body_html": "<p>Departamento de Flota — Gransolar</p>"},
+    )
+    if firma_vieja.is_active:
+        firma_vieja.deactivate(by=admin, reason="Sustituida por la firma corporativa nueva")
+
+    # Un conductor que causó baja en la empresa (usuario desactivado).
+    ex_driver, created = User.objects.get_or_create(
+        username="expedro",
+        defaults={
+            "email": "pedro@flota.dev",
+            "first_name": "Pedro",
+            "last_name": "Saliente",
+        },
+    )
+    if created:
+        ex_driver.set_password(DEV_PASSWORD)
+    ex_driver.is_active = False
+    ex_driver.save()
+    if stdout:
+        stdout.write("  - Erratas: incidencia, lectura, marca, firma y usuario inactivo.")
+
+
+# --- 9) Comunicaciones (N9 push / N10 correo) ------------------------------
+
+
+def seed_comms(stdout=None) -> None:
+    """Traza de correos enviados por los jobs y una suscripción push.
+
+    `EmailLog` es SET_NULL respecto a `Alert`: sin wipe propio se acumularía
+    entre resembrados. La suscripción push usa un endpoint ficticio — sin
+    claves VAPID el envío es no-op, y con ellas el push service la poda
+    limpiamente al primer 404/410.
+    """
+    wipe(EmailLog, stdout)
+    wipe(PushSubscription, stdout)
+    today = _today()
+
+    insurance_alert = Alert.objects.filter(type=AlertType.INSURANCE_DUE).first()
+    km_alert = Alert.objects.filter(type=AlertType.KM_READING_PENDING).first()
+    plate = insurance_alert.vehicle.plate if insurance_alert else "1234KLM"
+    EmailLog.objects.create(
+        alert=insurance_alert,
+        template_key=EmailTemplateKey.INSURANCE_DUE,
+        recipient="flota@ald.example",
+        subject=f"Seguro próximo a vencer — {plate}",
+        status=EmailLog.Status.SENT,
+    )
+    EmailLog.objects.create(
+        alert=km_alert,
+        template_key=EmailTemplateKey.KM_READING_PENDING,
+        recipient="carlos@flota.dev",
+        subject=f"Lectura de km pendiente ({today:%m/%Y})",
+        status=EmailLog.Status.SENT,
+    )
+    EmailLog.objects.create(
+        template_key=EmailTemplateKey.KM_OVERAGE,
+        recipient="soporte@northgate.example",
+        subject="Proyección de km sobre lo contratado",
+        status=EmailLog.Status.FAILED,
+        error="SMTPConnectError: connection refused (smtp.example.com:587)",
+    )
+    EmailLog.objects.create(
+        template_key=EmailTemplateKey.INSURANCE_DUE,
+        recipient="",
+        subject="Seguro próximo a vencer",
+        status=EmailLog.Status.SKIPPED,
+        error="El renting no tiene email de contacto",
+    )
+
+    carlos = User.objects.get(username="carlos")
+    PushSubscription.objects.create(
+        user=carlos,
+        endpoint="https://fcm.googleapis.com/fcm/send/dev-seed-carlos",
+        p256dh="BDevSeedP256dhKeyNoValida0000000000000000000",
+        auth="dev-seed-auth-000000",
+        user_agent="Mozilla/5.0 (Android 14; Pixel 8) dev-seed",
+    )
+    if stdout:
+        stdout.write("  - Comms: 4 EmailLog (sent/failed/skipped) y 1 PushSubscription.")
+
+
 # --- Cadena completa -------------------------------------------------------
 
 # Orden de dependencias (las FK mandan). Cada paso es (nombre, función).
@@ -935,7 +1066,9 @@ SEED_CHAIN = [
     ("contracts", seed_contracts),
     ("assignments", seed_assignments),
     ("operations", seed_operations),
+    ("erratas", seed_erratas),
     ("alerts", seed_alerts),
+    ("comms", seed_comms),
 ]
 
 
