@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { assignmentStatusTone, todayIso } from '../format.ts'
@@ -28,6 +29,30 @@ const STATUS_LABEL: Record<string, string> = {
   rejected: 'Rechazada',
   finished: 'Finalizada',
 }
+
+// Histórico de conductores con el estilo unificado (TableWithPanel).
+const ASSIGNMENT_HISTORY_COLUMNS: Array<TableWithPanelColumn<AssignmentRow>> = [
+  {
+    key: 'driver',
+    label: 'Conductor',
+    getValue: (a) => a.driver_name,
+    render: (a) => a.driver_name,
+  },
+  {
+    key: 'period',
+    label: 'Periodo',
+    getValue: (a) => a.start_date,
+    render: (a) => `${a.start_date} → ${a.end_date ?? '…'}`,
+  },
+  {
+    key: 'status',
+    label: 'Estado',
+    getValue: (a) => STATUS_LABEL[a.status] ?? a.status,
+    render: (a) => (
+      <Badge tone={assignmentStatusTone(a.status)}>{STATUS_LABEL[a.status] ?? a.status}</Badge>
+    ),
+  },
+]
 
 interface UsageLine {
   driver: string
@@ -240,30 +265,14 @@ export function VehicleAssignmentsPanel({
           {assignments.length === 0 ? (
             <p className="muted">Sin asignaciones todavía.</p>
           ) : (
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Conductor</th>
-                  <th>Periodo</th>
-                  <th>Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {assignments.map((a) => (
-                  <tr key={a.id}>
-                    <td>{a.driver_name}</td>
-                    <td>
-                      {a.start_date} → {a.end_date ?? '…'}
-                    </td>
-                    <td>
-                      <Badge tone={assignmentStatusTone(a.status)}>
-                        {STATUS_LABEL[a.status] ?? a.status}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <TableWithPanel<AssignmentRow>
+              rows={assignments}
+              columns={ASSIGNMENT_HISTORY_COLUMNS}
+              rowKey={(a) => String(a.id)}
+              enablePagination
+              defaultPageSize={25}
+              pageSizeOptions={[25, 50, 100]}
+            />
           )}
         </div>
       </div>

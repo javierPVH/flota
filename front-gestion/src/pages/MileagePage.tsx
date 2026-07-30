@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge, PageHeader, SelectField } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchVehicleSummaries, listAll, listKmReadings, listVehicles } from '../api.ts'
@@ -35,6 +36,144 @@ function pendingThisMonth(summary: VehicleSummary): boolean {
   const month = new Date().toISOString().slice(0, 7)
   return !summary.km_reading_date || !summary.km_reading_date.startsWith(month)
 }
+
+/** Días transcurridos desde una fecha ISO (o -1 si no hay). */
+function daysSince(dateStr: string | null | undefined): number {
+  return dateStr ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000) : -1
+}
+
+// Columnas de "Lecturas pendientes" — mismo estilo unificado (TableWithPanel).
+const PENDING_COLUMNS: Array<TableWithPanelColumn<Row>> = [
+  {
+    key: 'vehicle',
+    label: 'Vehículo',
+    getValue: ({ vehicle }) => vehicle.plate,
+    render: ({ vehicle }) => (
+      <span>
+        <Link to={`/vehiculos/${vehicle.id}`} className="cell-link">
+          <strong>{vehicle.plate}</strong>
+        </Link>{' '}
+        {vehicle.brand} {vehicle.model}
+      </span>
+    ),
+  },
+  {
+    key: 'supervisor',
+    label: 'Supervisor',
+    getValue: ({ vehicle }) => vehicle.supervisor_name || '',
+    render: ({ vehicle }) => vehicle.supervisor_name || '—',
+  },
+  {
+    key: 'last_reading',
+    label: 'Última lectura',
+    getValue: ({ summary }) => summary.km_current ?? -1,
+    render: ({ summary }) =>
+      summary.km_current != null
+        ? `${km(summary.km_current)} (${summary.km_reading_date})`
+        : 'Nunca',
+  },
+  {
+    key: 'pending_since',
+    label: 'Pendiente desde',
+    getValue: ({ summary }) => daysSince(summary.km_reading_date),
+    render: ({ summary }) => (
+      <span className="itv-soon">
+        {summary.km_reading_date ? `${daysSince(summary.km_reading_date)} días` : '—'}
+      </span>
+    ),
+  },
+]
+
+// Columnas de "Proyección a fin de contrato" — mismo estilo unificado.
+const PROJECTION_COLUMNS: Array<TableWithPanelColumn<Row>> = [
+  {
+    key: 'vehicle',
+    label: 'Vehículo',
+    getValue: ({ vehicle }) => vehicle.plate,
+    render: ({ vehicle }) => (
+      <Link to={`/vehiculos/${vehicle.id}`} className="cell-link">
+        <strong>{vehicle.plate}</strong>
+      </Link>
+    ),
+  },
+  {
+    key: 'contracted',
+    label: 'Contratados',
+    getValue: ({ summary }) => summary.contract?.contract_km ?? -1,
+    render: ({ summary }) =>
+      summary.contract?.contract_km ? km(summary.contract.contract_km) : '—',
+  },
+  {
+    key: 'projected',
+    label: 'Proyección',
+    getValue: ({ summary }) => summary.projection?.projected_end ?? -1,
+    render: ({ summary }) => {
+      const p = summary.projection!
+      const diff = p.projected_end - (summary.contract?.contract_km ?? 0)
+      return (
+        <span>
+          {km(p.projected_end)}{' '}
+          <span className={diff > 0 ? 'itv-overdue' : 'muted'}>
+            ({diff > 0 ? '+' : ''}
+            {km(diff)})
+          </span>
+        </span>
+      )
+    },
+  },
+  {
+    key: 'pct',
+    label: '% del límite',
+    width: '22%',
+    getValue: ({ summary }) => summary.projection?.pct_of_limit ?? -1,
+    render: ({ summary }) => {
+      const p = summary.projection!
+      return (
+        <>
+          <div className="km-progress">
+            <div
+              className={`km-progress-fill level-${p.level}`}
+              style={{ width: `${Math.min(100, p.pct_of_limit)}%` }}
+            />
+          </div>
+          <span className="muted">{p.pct_of_limit}%</span>
+        </>
+      )
+    },
+  },
+  {
+    key: 'monthly_avg',
+    label: 'Media mensual',
+    getValue: ({ summary }) => summary.projection?.monthly_avg ?? -1,
+    render: ({ summary }) => km(summary.projection!.monthly_avg),
+  },
+  {
+    key: 'contracted_rate',
+    label: 'Ritmo contratado',
+    getValue: ({ summary }) => summary.projection?.contracted_rate ?? -1,
+    render: ({ summary }) =>
+      summary.projection!.contracted_rate ? `${km(summary.projection!.contracted_rate)}/mes` : '—',
+  },
+  {
+    key: 'level',
+    label: 'Estado',
+    getValue: ({ summary }) => summary.projection?.level ?? '',
+    render: ({ summary }) => {
+      const p = summary.projection!
+      const meta = LEVEL_META[p.level]
+      return (
+        <>
+          <Badge tone={kmLevelTone(p.level)}>{meta.label}</Badge>
+          {p.estimated_penalty && (
+            <div className="itv-overdue" style={{ fontSize: '0.8rem' }}>
+              ~{Number(p.estimated_penalty).toLocaleString('es-ES')} €
+            </div>
+          )}
+        </>
+      )
+    },
+  },
+]
 
 export function MileagePage() {
   const [rows, setRows] = useState<Row[]>([])
@@ -156,39 +295,14 @@ export function MileagePage() {
               </span>
             </div>
             {pending.length > 0 && (
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Vehículo</th>
-                    <th>Supervisor</th>
-                    <th>Última lectura</th>
-                    <th>Pendiente desde</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pending.map(({ vehicle, summary }) => (
-                    <tr key={vehicle.id}>
-                      <td>
-                        <Link to={`/vehiculos/${vehicle.id}`}>
-                          <strong>{vehicle.plate}</strong>
-                        </Link>{' '}
-                        {vehicle.brand} {vehicle.model}
-                      </td>
-                      <td>{vehicle.supervisor_name || '—'}</td>
-                      <td>
-                        {summary.km_current != null
-                          ? `${km(summary.km_current)} (${summary.km_reading_date})`
-                          : 'Nunca'}
-                      </td>
-                      <td className="itv-soon">
-                        {summary.km_reading_date
-                          ? `${Math.floor((Date.now() - new Date(summary.km_reading_date).getTime()) / 86_400_000)} días`
-                          : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <TableWithPanel<Row>
+                rows={pending}
+                columns={PENDING_COLUMNS}
+                rowKey={({ vehicle }) => String(vehicle.id)}
+                enablePagination
+                defaultPageSize={25}
+                pageSizeOptions={[25, 50, 100]}
+              />
             )}
           </section>
 
@@ -198,63 +312,14 @@ export function MileagePage() {
             {withProjection.length === 0 ? (
               <p className="muted">Ningún vehículo con contrato y lecturas suficientes.</p>
             ) : (
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Vehículo</th>
-                    <th>Contratados</th>
-                    <th>Proyección</th>
-                    <th style={{ width: '22%' }}>% del límite</th>
-                    <th>Media mensual</th>
-                    <th>Ritmo contratado</th>
-                    <th>Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {withProjection.map(({ vehicle, summary }) => {
-                    const p = summary.projection!
-                    const c = summary.contract!
-                    const meta = LEVEL_META[p.level]
-                    const diff = p.projected_end - (c.contract_km ?? 0)
-                    return (
-                      <tr key={vehicle.id}>
-                        <td>
-                          <Link to={`/vehiculos/${vehicle.id}`}>
-                            <strong>{vehicle.plate}</strong>
-                          </Link>
-                        </td>
-                        <td>{c.contract_km ? km(c.contract_km) : '—'}</td>
-                        <td>
-                          {km(p.projected_end)}{' '}
-                          <span className={diff > 0 ? 'itv-overdue' : 'muted'}>
-                            ({diff > 0 ? '+' : ''}
-                            {km(diff)})
-                          </span>
-                        </td>
-                        <td>
-                          <div className="km-progress">
-                            <div
-                              className={`km-progress-fill level-${p.level}`}
-                              style={{ width: `${Math.min(100, p.pct_of_limit)}%` }}
-                            />
-                          </div>
-                          <span className="muted">{p.pct_of_limit}%</span>
-                        </td>
-                        <td>{km(p.monthly_avg)}</td>
-                        <td>{p.contracted_rate ? `${km(p.contracted_rate)}/mes` : '—'}</td>
-                        <td>
-                          <Badge tone={kmLevelTone(p.level)}>{meta.label}</Badge>
-                          {p.estimated_penalty && (
-                            <div className="itv-overdue" style={{ fontSize: '0.8rem' }}>
-                              ~{Number(p.estimated_penalty).toLocaleString('es-ES')} €
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+              <TableWithPanel<Row>
+                rows={withProjection}
+                columns={PROJECTION_COLUMNS}
+                rowKey={({ vehicle }) => String(vehicle.id)}
+                enablePagination
+                defaultPageSize={25}
+                pageSizeOptions={[25, 50, 100]}
+              />
             )}
           </section>
 

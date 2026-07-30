@@ -411,6 +411,42 @@
   th:hover &
     opacity: 1
 
+// Chevron que oculta/despliega el candado + las flechas de orden en la cabecera.
+.thToolsToggle
+  flex: 0 0 auto
+  display: inline-flex
+  align-items: center
+  justify-content: center
+  border: none
+  background: transparent
+  color: var(--color-text-muted)
+  cursor: pointer
+  padding: 0
+  width: 14px
+  height: 14px
+  border-radius: 3px
+  transition: color .14s ease, transform .2s ease
+
+  &:hover
+    color: var(--color-brand)
+
+.thToolsToggleOpen
+  transform: rotate(90deg)
+
+// Contenedor colapsable de los MiniToolsButtons (animación de despliegue).
+.thMiniToolsWrap
+  flex: 0 0 auto
+  overflow: visible
+  max-width: 0
+  opacity: 0
+  pointer-events: none
+  transition: max-width .2s ease, opacity .15s ease
+
+.thMiniToolsWrapOpen
+  max-width: 60px
+  opacity: 1
+  pointer-events: auto
+
 .resizeHandle
   position: absolute
   top: 0

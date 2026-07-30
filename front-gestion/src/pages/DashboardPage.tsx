@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Chip, Modal, PageHeader, SelectField, StatCard } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { fetchFleetSummary, listAlerts, listVehicles, type VehicleFilters } from '../api.ts'
+import { fetchFleetSummary, listAlerts, listAll, listVehicles, type VehicleFilters } from '../api.ts'
 import { alertLevelTone, fmtDate, fmtEur, itvClass, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, FleetSummary, Vehicle } from '../types.ts'
@@ -15,7 +16,6 @@ const USE_LABEL: Record<string, string> = {
 }
 
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
-const PAGE_SIZE = 50 // PAGE_SIZE del back (DRF)
 
 const STATE_LABEL: Record<string, string> = {
   active: 'Activo',
@@ -55,8 +55,6 @@ export function DashboardPage() {
   const [error, setError] = useState('')
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [count, setCount] = useState(0)
-  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('') // búsqueda con debounce ya aplicado
@@ -100,10 +98,6 @@ export function DashboardPage() {
     return () => clearTimeout(timer)
   }, [search])
 
-  useEffect(() => {
-    setPage(1)
-  }, [query, useFilter, assignFilter, stateFilter, showBaja])
-
   const load = useCallback(() => {
     setLoading(true)
     const filters: VehicleFilters = {
@@ -112,17 +106,17 @@ export function DashboardPage() {
       assigned: assignFilter ? assignFilter === 'assigned' : undefined,
       search: query || undefined,
       include_baja: showBaja ? 1 : undefined,
-      page,
     }
-    listVehicles(filters)
+    // Carga completa en cliente (todas las páginas): la tabla unificada
+    // (TableWithPanel) se encarga de paginar, ordenar y buscar.
+    listAll(listVehicles(filters))
       .then((result) => {
-        setVehicles(result.results)
-        setCount(result.count)
+        setVehicles(result)
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar el listado.')))
       .finally(() => setLoading(false))
-  }, [useFilter, stateFilter, assignFilter, query, showBaja, page])
+  }, [useFilter, stateFilter, assignFilter, query, showBaja])
 
   useEffect(load, [load])
 
@@ -167,7 +161,6 @@ export function DashboardPage() {
         )
       : null
 
-  const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE))
   const critical = alerts.filter((a) => a.level === 'critical').length
   const warning = alerts.filter((a) => a.level === 'warning').length
 
@@ -189,6 +182,56 @@ export function DashboardPage() {
     itv: m.itvTitle,
     alerts: m.alertsTitle,
   }
+
+  // Listado de flota con el estilo unificado (TableWithPanel).
+  const columns: Array<TableWithPanelColumn<Vehicle>> = [
+    {
+      key: 'plate',
+      label: t.home.thPlate,
+      getValue: (v) => v.plate,
+      render: (v) => (
+        <span>
+          <Link to={`/vehiculos/${v.id}`} className="cell-link">
+            <strong>{v.plate}</strong>
+          </Link>
+          {v.is_substitute ? ' 🔁' : ''}
+        </span>
+      ),
+    },
+    {
+      key: 'vehicle',
+      label: t.home.thVehicle,
+      getValue: (v) => `${v.brand} ${v.model}`,
+      render: (v) => `${v.brand} ${v.model}`,
+    },
+    {
+      key: 'use',
+      label: t.home.thUse,
+      getValue: (v) => USE_LABEL[v.business_use] ?? (v.business_use || ''),
+      render: (v) => USE_LABEL[v.business_use] ?? (v.business_use || '—'),
+    },
+    {
+      key: 'state',
+      label: t.home.thState,
+      getValue: (v) => v.state_display || '',
+      render: (v) => <Badge tone={vehicleStateTone(v.state)}>{v.state_display || '—'}</Badge>,
+    },
+    {
+      key: 'driver',
+      label: t.home.thDriver,
+      getValue: (v) => v.driver_name || '',
+      render: (v) => v.driver_name || '—',
+    },
+    {
+      key: 'itv',
+      label: t.home.thItv,
+      isDate: true,
+      getValue: (v) => v.next_itv_date ?? '',
+      render: (v) => (
+        <span className={itvClass(v.next_itv_date)}>{fmtDate(v.next_itv_date, language)}</span>
+      ),
+    },
+  ]
 
   return (
     <div>
@@ -359,69 +402,15 @@ export function DashboardPage() {
         {loading ? (
           <p className="loading-state" role="status">{t.common.loading}</p>
         ) : (
-          <>
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>{t.home.thPlate}</th>
-                  <th>{t.home.thVehicle}</th>
-                  <th>{t.home.thUse}</th>
-                  <th>{t.home.thState}</th>
-                  <th>{t.home.thDriver}</th>
-                  <th>{t.home.thItv}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="empty-cell">{t.home.empty}</td>
-                  </tr>
-                )}
-                {rows.map((v) => (
-                  <tr key={v.id}>
-                    <td>
-                      <Link to={`/vehiculos/${v.id}`}>
-                        <strong>{v.plate}</strong>
-                      </Link>
-                      {v.is_substitute ? ' 🔁' : ''}
-                    </td>
-                    <td>
-                      {v.brand} {v.model}
-                    </td>
-                    <td>{USE_LABEL[v.business_use] ?? (v.business_use || '—')}</td>
-                    <td>
-                      <Badge tone={vehicleStateTone(v.state)}>{v.state_display || '—'}</Badge>
-                    </td>
-                    <td>{v.driver_name || '—'}</td>
-                    <td className={itvClass(v.next_itv_date)}>
-                      {fmtDate(v.next_itv_date, language)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {totalPages > 1 && (
-              <div className="pager">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  {t.home.prev}
-                </Button>
-                <span>{t.home.pager(page, totalPages, count)}</span>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  {t.home.next}
-                </Button>
-              </div>
-            )}
-          </>
+          <TableWithPanel<Vehicle>
+            rows={rows}
+            columns={columns}
+            rowKey={(v) => String(v.id)}
+            enablePagination
+            defaultPageSize={50}
+            pageSizeOptions={[25, 50, 100]}
+            emptyStateLabel={t.home.empty}
+          />
         )}
       </section>
 

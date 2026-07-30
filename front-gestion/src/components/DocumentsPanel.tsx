@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import { ExternalLink, FolderOpen } from 'lucide-react'
 
@@ -231,6 +232,84 @@ export function DocumentsPanel({
   const needsConnect = Boolean(picker?.enabled && !picker.has_drive)
   const folderUrl = safeHref(vehicle.drive_folder_url)
 
+  // Tabla de documentos con el estilo unificado (TableWithPanel).
+  const columns: Array<TableWithPanelColumn<FlotaDocument>> = [
+    {
+      key: 'type',
+      label: 'Tipo',
+      getValue: (doc) => doc.type_display,
+      render: (doc) => (
+        <span>
+          <strong>{doc.type_display}</strong>
+          {doc.replaces ? <span className="doc-version"> · sustituye #{doc.replaces}</span> : null}
+          {doc.notes ? <div className="doc-notes">{doc.notes}</div> : null}
+        </span>
+      ),
+    },
+    {
+      key: 'created_at',
+      label: 'Subido',
+      isDate: true,
+      getValue: (doc) => doc.created_at.slice(0, 10),
+      render: (doc) => doc.created_at.slice(0, 10),
+    },
+    {
+      key: 'uploaded_by',
+      label: 'Por',
+      getValue: (doc) => doc.uploaded_by_name || '',
+      render: (doc) => doc.uploaded_by_name || '—',
+    },
+    {
+      key: 'expiry_date',
+      label: 'Caducidad',
+      isDate: true,
+      getValue: (doc) => doc.expiry_date ?? '',
+      render: (doc) => doc.expiry_date ?? '—',
+    },
+    {
+      key: 'incident',
+      label: 'Incidencia',
+      getValue: (doc) => doc.incident ?? -1,
+      render: (doc) => (doc.incident ? `#${doc.incident}` : '—'),
+    },
+    {
+      key: 'status',
+      label: 'Estado',
+      getValue: (doc) => doc.status_display,
+      render: (doc) => <Badge tone={documentStatusTone(doc.status)}>{doc.status_display}</Badge>,
+    },
+    {
+      key: 'actions',
+      label: 'Acciones',
+      align: 'right',
+      searchable: false,
+      sortable: false,
+      render: (doc) => {
+        const href = documentHref(doc)
+        return (
+          <div className="row-actions">
+            {href && (
+              <a className="doc-open" href={href} target="_blank" rel="noreferrer">
+                <ExternalLink size={14} aria-hidden /> Abrir
+              </a>
+            )}
+            <Button variant="secondary" size="sm" onClick={() => openCreate(doc)}>
+              Sustituir
+            </Button>
+            {doc.status !== 'pending_archive' && (
+              <Button variant="secondary" size="sm" onClick={() => toggleStatus(doc)}>
+                {doc.status === 'expired' ? 'Marcar vigente' : 'Marcar caducado'}
+              </Button>
+            )}
+            <Button variant="danger" size="sm" onClick={() => handleDelete(doc)}>
+              Eliminar
+            </Button>
+          </div>
+        )
+      },
+    },
+  ]
+
   return (
     <CollapsibleCard
       id="documents"
@@ -299,65 +378,16 @@ export function DocumentsPanel({
       {loading ? (
         <p className="loading-state" role="status">Cargando…</p>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Tipo</th>
-              <th>Subido</th>
-              <th>Por</th>
-              <th>Caducidad</th>
-              <th>Incidencia</th>
-              <th>Estado</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {docs.length === 0 && (
-              <tr>
-                <td colSpan={7}>Sin documentos{typeFilter ? ' de este tipo' : ''} todavía.</td>
-              </tr>
-            )}
-            {docs.map((doc) => {
-              const href = documentHref(doc)
-              return (
-                <tr key={doc.id} className={doc.status === 'expired' ? 'row-muted' : undefined}>
-                  <td>
-                    <strong>{doc.type_display}</strong>
-                    {doc.replaces ? <span className="doc-version"> · sustituye #{doc.replaces}</span> : null}
-                    {doc.notes ? <div className="doc-notes">{doc.notes}</div> : null}
-                  </td>
-                  <td>{doc.created_at.slice(0, 10)}</td>
-                  <td>{doc.uploaded_by_name || '—'}</td>
-                  <td>{doc.expiry_date ?? '—'}</td>
-                  <td>{doc.incident ? `#${doc.incident}` : '—'}</td>
-                  <td>
-                    <Badge tone={documentStatusTone(doc.status)}>{doc.status_display}</Badge>
-                  </td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {href && (
-                      <a className="doc-open" href={href} target="_blank" rel="noreferrer">
-                        <ExternalLink size={14} aria-hidden /> Abrir
-                      </a>
-                    )}{' '}
-                    <Button variant="secondary" size="sm" onClick={() => openCreate(doc)}>
-                      Sustituir
-                    </Button>{' '}
-                    {doc.status !== 'pending_archive' && (
-                      <>
-                        <Button variant="secondary" size="sm" onClick={() => toggleStatus(doc)}>
-                          {doc.status === 'expired' ? 'Marcar vigente' : 'Marcar caducado'}
-                        </Button>{' '}
-                      </>
-                    )}
-                    <Button variant="danger" size="sm" onClick={() => handleDelete(doc)}>
-                      Eliminar
-                    </Button>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        <TableWithPanel<FlotaDocument>
+          rows={docs}
+          columns={columns}
+          rowKey={(doc) => String(doc.id)}
+          rowClassName={(doc) => (doc.status === 'expired' ? 'row-muted' : '')}
+          enablePagination
+          defaultPageSize={25}
+          pageSizeOptions={[25, 50, 100]}
+          emptyStateLabel={`Sin documentos${typeFilter ? ' de este tipo' : ''} todavía.`}
+        />
       )}
 
       <Modal
