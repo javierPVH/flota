@@ -79,6 +79,9 @@ class Renting(DeactivatableModel, TimeStampedModel):
     """DBML `renting` (compañía / producto de renting)."""
 
     name = models.CharField("Nombre", max_length=150)
+    # N10a: destinatario de los avisos de seguro (alerta insurance_due).
+    email = models.EmailField("Email de contacto", blank=True)
+    contact_name = models.CharField("Persona de contacto", max_length=150, blank=True)
 
     class Meta:
         verbose_name = "renting"

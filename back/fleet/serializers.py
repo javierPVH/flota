@@ -17,6 +17,9 @@ from .models import (
     Contract,
     Country,
     Document,
+    EmailLog,
+    EmailSignature,
+    EmailTemplate,
     Event,
     EventFeeChange,
     EventItv,
@@ -966,7 +969,8 @@ class PepSerializer(serializers.ModelSerializer):
 class RentingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Renting
-        fields = ["id", "name", "is_active"]
+        # N10a: email/contacto de la empresa — destinatario del aviso de seguro.
+        fields = ["id", "name", "email", "contact_name", "is_active"]
         read_only_fields = ["is_active"]
 
 
@@ -995,3 +999,102 @@ class CompanySerializer(serializers.ModelSerializer):
         model = Company
         fields = ["id", "code", "name", "description", "is_active"]
         read_only_fields = ["is_active"]
+
+
+# --- N10b/c: plantillas de correo -------------------------------------------
+
+# Etiquetas y atributos permitidos en el cuerpo de los correos (editor 10c).
+_EMAIL_HTML_TAGS = {
+    "a",
+    "b",
+    "strong",
+    "i",
+    "em",
+    "u",
+    "p",
+    "br",
+    "ul",
+    "ol",
+    "li",
+    "h1",
+    "h2",
+    "h3",
+    "blockquote",
+    "img",
+    "span",
+    "div",
+    "hr",
+}
+_EMAIL_HTML_ATTRS = {
+    "a": {"href", "title", "target"},
+    "img": {"src", "alt", "width", "height"},
+    "span": {"style"},
+    "div": {"style"},
+    "p": {"style"},
+}
+
+
+def sanitize_email_html(value: str) -> str:
+    """Sanea el HTML del editor (nh3): fuera scripts/handlers/iframes."""
+    import nh3
+
+    return nh3.clean(
+        value or "",
+        tags=_EMAIL_HTML_TAGS,
+        attributes=_EMAIL_HTML_ATTRS,
+        url_schemes={"http", "https", "mailto"},
+    )
+
+
+class EmailSignatureSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmailSignature
+        fields = ["id", "name", "body_html", "is_active"]
+        read_only_fields = ["is_active"]
+
+    def validate_body_html(self, value):
+        return sanitize_email_html(value)
+
+
+class EmailTemplateSerializer(serializers.ModelSerializer):
+    key_display = serializers.CharField(source="get_key_display", read_only=True)
+    signature_name = serializers.StringRelatedField(source="signature", read_only=True)
+
+    class Meta:
+        model = EmailTemplate
+        fields = [
+            "id",
+            "key",
+            "key_display",
+            "subject",
+            "body_html",
+            "signature",
+            "signature_name",
+            "is_active",
+            "updated_at",
+        ]
+        read_only_fields = ["is_active", "updated_at"]
+
+    def validate_body_html(self, value):
+        return sanitize_email_html(value)
+
+
+class EmailLogSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    alert_message = serializers.CharField(source="alert.message", read_only=True, default="")
+
+    class Meta:
+        model = EmailLog
+        fields = [
+            "id",
+            "alert",
+            "alert_message",
+            "template_key",
+            "recipient",
+            "subject",
+            "status",
+            "status_display",
+            "error",
+            "created_at",
+        ]
+        read_only_fields = fields

@@ -37,3 +37,4 @@ psycopg[binary]>=3.2,<4.0
 # coverage>=7.5,<8.0
 # Captura de errores en producción (activa con SENTRY_DSN):
 # sentry-sdk[django]>=2.0,<3.0
+nh3>=0.2,<1.0
