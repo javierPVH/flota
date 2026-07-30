@@ -52,3 +52,43 @@ jobs:
       - name: Auditoría de dependencias (informativa)
         continue-on-error: true
         run: pip-audit -r requirements.txt
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build design system (@flota/ui)
+        run: npm run build:ui
+
+      - name: Typecheck (apps)
+        run: npm run typecheck
+
+      - name: Lint (DS + apps)
+        run: npm run lint
+
+      - name: Tests (DS + apps)
+        run: npm test
+
+      - name: Build (apps)
+        run: npm run build
+
+  deploy-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: docker compose config (valida la composición)
+        run: |
+          cp .env.example .env
+          cp back/.env.prod.example back/.env.prod
+          docker compose config -q
