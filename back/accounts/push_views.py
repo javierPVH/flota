@@ -4,7 +4,10 @@ from django.conf import settings
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
+
+from core.throttling import PublicWriteThrottle
 
 from .models import PushSubscription
 from .push import push_enabled
@@ -39,6 +42,9 @@ class PushSubscriptionView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+    # SEC9: alta/baja de suscripciones alcanzable desde internet.
+    throttle_classes = [UserRateThrottle, PublicWriteThrottle]
+    throttle_scope = "public_write"
 
     def post(self, request):
         endpoint = str(request.data.get("endpoint", "")).strip()

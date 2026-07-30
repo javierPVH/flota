@@ -28,6 +28,10 @@ class Event(TimeStampedModel):
         verbose_name = "evento"
         verbose_name_plural = "eventos"
         ordering = ["-event_date"]
+        indexes = [
+            # PR4: el timeline y los filtros consultan siempre por vehículo+fecha.
+            models.Index(fields=["vehicle", "event_date"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.vehicle.plate} · {self.get_event_type_display()} ({self.event_date})"

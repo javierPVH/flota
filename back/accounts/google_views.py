@@ -24,6 +24,7 @@ from .google_oauth import (
     oauth_enabled,
     save_credentials,
 )
+from .permissions import IsManagement
 
 logger = logging.getLogger("accounts.google")
 
@@ -81,6 +82,9 @@ class GooglePickerConfigView(APIView):
     `access_token` vigente de Drive. Si el usuario aún no ha concedido Drive,
     devuelve `has_drive: false` para que el front le pida conectar."""
 
+    # SEC8: el Picker/Drive es del front de gestión — no para cualquier autenticado.
+    permission_classes = [IsManagement]
+
     def get(self, request):
         if not oauth_enabled():
             return Response({"enabled": False})
@@ -106,6 +110,9 @@ class DriveFolderFilesView(APIView):
 
     GET /api/v1/google/drive/folder-files/?folder_id=…&kind=image|pdf|all
     """
+
+    # SEC8: solo gestión (lista contenido real de Drive).
+    permission_classes = [IsManagement]
 
     def get(self, request):
         if not oauth_enabled():

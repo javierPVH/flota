@@ -12,7 +12,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
-from accounts.models import GoogleCredential, User
+from accounts.models import GoogleCredential, Role, User, UserRole
 
 OAUTH_ON = {
     "GOOGLE_OAUTH_ENABLED": True,
@@ -25,7 +25,11 @@ OAUTH_ON = {
 
 
 def make_user(username="ada"):
-    return User.objects.create_user(username=username, password="test-pass-123")
+    # SEC8: los endpoints de Drive/Picker son de GESTIÓN — el fixture refleja
+    # al usuario real (admin de gestión), no a un autenticado cualquiera.
+    user = User.objects.create_user(username=username, password="test-pass-123")
+    UserRole.objects.create(user=user, role=Role.ADMIN)
+    return user
 
 
 class EncryptedCredentialTests(TestCase):

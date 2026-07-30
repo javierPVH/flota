@@ -61,5 +61,13 @@ class EncryptedTextField(models.TextField):
         try:
             return _fernet().decrypt(value[len(_PREFIX) :].encode()).decode()
         except InvalidToken:
-            # Clave rotada o dato corrupto: no exponer basura ni romper la lectura.
+            # Clave rotada o dato corrupto: no exponer basura ni romper la
+            # lectura — pero SEC10: dejar rastro (antes fallaba en silencio y
+            # el operador no sabía que había perdido los tokens).
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "EncryptedTextField: token indescifrable (¿FIELD_ENCRYPTION_KEYS "
+                "rotada sin conservar la clave anterior?). Se devuelve vacío."
+            )
             return ""

@@ -70,6 +70,36 @@ export function AppHeader() {
     setBellOpen(false)
   }, [location.pathname])
 
+  // BG13: la posición se fijaba solo al abrir — recalcular en resize/scroll
+  // para que el popover no quede flotando lejos de su botón.
+  useEffect(() => {
+    if (!navOpen && !bellOpen) return
+    function reposition() {
+      if (navOpen && menuBtnRef.current) {
+        const rect = menuBtnRef.current.getBoundingClientRect()
+        setMenuPos({
+          top: Math.round(rect.bottom + 8),
+          right: Math.round(Math.max(8, window.innerWidth - rect.right)),
+          maxHeight: Math.round(window.innerHeight - rect.bottom - 24),
+        })
+      }
+      if (bellOpen && bellBtnRef.current) {
+        const rect = bellBtnRef.current.getBoundingClientRect()
+        setBellPos({
+          top: Math.round(rect.bottom + 8),
+          right: Math.round(Math.max(8, window.innerWidth - rect.right)),
+          maxHeight: Math.round(window.innerHeight - rect.bottom - 24),
+        })
+      }
+    }
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [navOpen, bellOpen])
+
   // Cerrar menú/campana con Escape (el clic fuera lo captura cada backdrop).
   useEffect(() => {
     if (!navOpen && !bellOpen) return

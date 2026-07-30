@@ -6,6 +6,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import Role
 from fleet.models import Assignment, Vehicle
+from fleet.models.enums import AssignmentStatus
 
 from .helpers import make_user
 
@@ -25,8 +26,12 @@ class VehicleAccessTests(APITestCase):
         )
         # Vehículo sin supervisor ni asignación.
         self.orphan = Vehicle.objects.create(plate="0000ZZZ", brand="Seat", model="Ibiza")
+        # BG12: "asignado" = asignación ACEPTADA en curso (una propuesta no cuenta).
         Assignment.objects.create(
-            vehicle=self.assigned, driver=self.driver, start_date=date(2026, 1, 1)
+            vehicle=self.assigned,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
         )
         self.list_url = reverse("vehicle-list")
 

@@ -82,7 +82,7 @@ def vehicle_summary(vehicle: Vehicle, today: date | None = None) -> dict:
     )
 
 
-def vehicle_summaries(user) -> list[dict]:
+def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
     """Summaries de TODOS los vehículos visibles por `user` (O2 de
     OPTIMIZACION_Y_ERRORES.md): la app de campo hacía un GET por coche.
 
@@ -92,7 +92,11 @@ def vehicle_summaries(user) -> list[dict]:
     en Python con `setdefault` sobre un orden estable.
     """
     today = timezone.localdate()
-    vehicles = list(vehicles_for(user).exclude(state=VehicleState.BAJA))
+    scope = vehicles_for(user).exclude(state=VehicleState.BAJA)
+    if ids is not None:
+        # PR5: recorte opcional (siempre DENTRO del ámbito del rol).
+        scope = scope.filter(id__in=ids)
+    vehicles = list(scope)
     ids = [v.id for v in vehicles]
 
     contracts: dict[int, Contract] = {}
