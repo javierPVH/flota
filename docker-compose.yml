@@ -61,6 +61,36 @@ services:
     expose:
       - "8000"
 
+  # OPS1: los trabajos programados (alertas ITV/seguro/km, archivado en Drive,
+  # Jira) corren DENTRO del despliegue — sin este servicio no se ejecutan nunca.
+  # Reutiliza la imagen del back con un bucle idempotente (ver jobs-loop.sh).
+  jobs:
+    image: flota-back:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      back:
+        condition: service_started
+    env_file:
+      - ./back/.env.prod
+    environment:
+      DB_ENGINE: postgres
+      DB_NAME: ${DB_NAME:-flota}
+      DB_USER: ${DB_USER:-flota}
+      DB_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en .env (sin el símbolo $)}
+      DB_HOST: db
+      DB_PORT: "5432"
+      DJANGO_MEDIA_ROOT: /app/data/media
+      DJANGO_STATIC_ROOT: /app/data/staticfiles
+      FLEET_JOBS_INTERVAL: ${FLEET_JOBS_INTERVAL:-900}
+    volumes:
+      - ${DATA_DIR:-./data}:/app/data
+    entrypoint: ["sh", "deploy/jobs-loop.sh"]
+    healthcheck:
+      # El healthcheck de la imagen apunta a gunicorn, que aquí no corre.
+      disable: true
+
   front-gestion:
     build:
       context: .

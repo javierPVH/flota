@@ -104,15 +104,28 @@ docker compose logs -f back
 # Cambiar contraseña del admin: edita ADMIN_PASSWORD en back/.env.prod y:
 docker compose up -d back        # bootstrap_admin la re-sincroniza
 
-# Jobs del back (ITV, km, alertas): ver back/deploy/crontab.example
-docker compose exec back python manage.py check_itv
+# Jobs del back (ITV, seguro, km, alertas, Drive, Jira): los ejecuta el
+# servicio `jobs` del compose cada 15 min (idempotentes; OPS1). Para forzar uno:
+docker compose exec back python manage.py run_fleet_jobs
+docker compose logs -f jobs
+
+# Backup (OPS2): BD Postgres (volumen flota_pgdata) + media, con retención.
+sh deploy/backup.sh /srv/backups/flota
+# Cron del host recomendado (diario 03:30):
+#   30 3 * * *  cd /srv/flota && sh deploy/backup.sh /srv/backups/flota >> /var/log/flota-backup.log 2>&1
+# Restaurar:
+#   docker compose exec -T db pg_restore -U flota -d flota --clean --if-exists < backups/db-<fecha>.dump
+#   tar -xzf backups/media-<fecha>.tar.gz -C .
 ```
 
 ## Notas
 
-- **BD**: SQLite en `./data/db.sqlite3` por defecto. Para PostgreSQL, añade un
-  servicio `db` al compose y descomenta las `DB_*` en `back/.env.prod`.
-- **Backups**: copia `./data` (BD + media).
+- **BD**: **PostgreSQL** en el volumen Docker `flota_pgdata` (servicio `db` del
+  compose). ⚠️ Copiar `./data` NO incluye la BD: `./data` solo tiene media y
+  estáticos.
+- **Backups**: `deploy/backup.sh` — `pg_dump` de la BD + tar de la media, con
+  retención (`BACKUP_RETENTION_DAYS`, 14 días por defecto). Prueba la
+  restauración al configurarlo (comandos en el propio script).
 - **⚠️ RGPD (conductores es público)**: `/media` se sirve por ruta directa. Si
   guardas documentos con datos personales, protégelo (auth interna vía
   `X-Accel-Redirect` desde el back) o usa el archivado en Google Drive. Está
