@@ -5,7 +5,7 @@ import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchFleetSummary, listAlerts, listAll, listVehicles, type VehicleFilters } from '../api.ts'
-import { alertLevelTone, fmtDate, fmtEur, itvClass, vehicleStateTone } from '../format.ts'
+import { alertLevelTone, dueClass, fmtDate, fmtEur, itvClass, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, FleetSummary, Vehicle } from '../types.ts'
 
@@ -33,11 +33,12 @@ const FILTERABLE_STATES = new Set(['active', 'maintenance', 'itv', 'broken'])
 // Las dos alertas de km comparten pestaña "Kilómetros".
 const ALERT_CATEGORY: Record<string, string> = {
   itv_due: 'itv',
+  insurance_due: 'insurance',
   km_reading_pending: 'km',
   km_overage: 'km',
   no_driver: 'no_driver',
 }
-const ALERT_TAB_ORDER = ['all', 'itv', 'km', 'no_driver']
+const ALERT_TAB_ORDER = ['all', 'itv', 'insurance', 'km', 'no_driver']
 
 type ManageKind = 'vehicles' | 'use' | 'cost' | 'itv' | 'alerts'
 
@@ -64,9 +65,10 @@ export function DashboardPage() {
   const [assignFilter, setAssignFilter] = useState('') // '' | assigned | unassigned
   const [stateFilter, setStateFilter] = useState('') // '' | active | maintenance | itv | broken
   const [itvOnly, setItvOnly] = useState(false)
+  const [insuranceOnly, setInsuranceOnly] = useState(false)
   const [showBaja, setShowBaja] = useState(false)
 
-  const anyFilter = Boolean(useFilter || assignFilter || stateFilter || itvOnly)
+  const anyFilter = Boolean(useFilter || assignFilter || stateFilter || itvOnly || insuranceOnly)
 
   // Modal de gestión activo (uno por bloque informativo) y datos del de ITV.
   const [manage, setManage] = useState<ManageKind | null>(null)
@@ -125,15 +127,23 @@ export function DashboardPage() {
     setAssignFilter('')
     setStateFilter('')
     setItvOnly(false)
+    setInsuranceOnly(false)
   }
 
   /** Acción rápida de los modales: fija UN filtro y cierra el modal (limpia los
    * demás para mostrar el corte pedido tal cual). */
-  function filterList(target: { use?: string; assign?: string; state?: string; itv?: boolean }) {
+  function filterList(target: {
+    use?: string
+    assign?: string
+    state?: string
+    itv?: boolean
+    insurance?: boolean
+  }) {
     setUseFilter(target.use ?? '')
     setAssignFilter(target.assign ?? '')
     setStateFilter(target.state ?? '')
     setItvOnly(Boolean(target.itv))
+    setInsuranceOnly(Boolean(target.insurance))
     setManage(null)
   }
 
@@ -143,8 +153,10 @@ export function DashboardPage() {
     setManage('alerts')
   }
 
-  // "ITV próximas": corte en cliente sobre la página cargada.
-  const rows = itvOnly ? vehicles.filter((v) => itvClass(v.next_itv_date) !== '') : vehicles
+  // "ITV/seguros próximos": cortes en cliente sobre la página cargada.
+  const rows = vehicles
+    .filter((v) => !itvOnly || itvClass(v.next_itv_date) !== '')
+    .filter((v) => !insuranceOnly || dueClass(v.insurance_expiry_date) !== '')
 
   const active = summary?.by_state?.active ?? 0
   const shop = (summary?.by_state?.maintenance ?? 0) + (summary?.by_state?.broken ?? 0)
@@ -231,6 +243,18 @@ export function DashboardPage() {
         <span className={itvClass(v.next_itv_date)}>{fmtDate(v.next_itv_date, language)}</span>
       ),
     },
+    {
+      key: 'insurance',
+      label: t.home.thInsurance,
+      isDate: true,
+      getValue: (v) => v.insurance_expiry_date ?? '',
+      render: (v) => (
+        <span className={dueClass(v.insurance_expiry_date)}>
+          {v.unlimited_km ? '∞ km · ' : ''}
+          {fmtDate(v.insurance_expiry_date, language)}
+        </span>
+      ),
+    },
   ]
 
   return (
@@ -290,6 +314,23 @@ export function DashboardPage() {
               accent={summary.itv_overdue ? 'danger' : 'info'}
             />
           </button>
+          <button
+            type="button"
+            className="kpi-btn"
+            title={t.home.manageHint}
+            onClick={() => filterList({ insurance: true })}
+          >
+            <StatCard
+              label={t.home.kpiInsurance}
+              value={summary.insurance_next_30d}
+              sub={
+                summary.insurance_overdue
+                  ? t.home.kpiInsuranceOverdue(summary.insurance_overdue)
+                  : t.home.kpiInsuranceOk
+              }
+              accent={summary.insurance_overdue ? 'danger' : 'info'}
+            />
+          </button>
         </div>
       )}
 
@@ -347,6 +388,9 @@ export function DashboardPage() {
               </Chip>
               <Chip active={itvOnly} onClick={() => setItvOnly((v) => !v)}>
                 {t.home.chips.itv}
+              </Chip>
+              <Chip active={insuranceOnly} onClick={() => setInsuranceOnly((v) => !v)}>
+                {t.home.chips.insurance}
               </Chip>
             </div>
             <SelectField

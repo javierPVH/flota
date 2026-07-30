@@ -91,6 +91,9 @@ const es = {
     kpiItv: 'ITV próximas (30 días)',
     kpiItvOverdue: (n: number) => `${n} vencidas`,
     kpiItvOk: 'Ninguna vencida',
+    kpiInsurance: 'Seguros próximos (30 días)',
+    kpiInsuranceOverdue: (n: number) => `${n} vencidos`,
+    kpiInsuranceOk: 'Ninguno vencido',
     alertsTitle: 'Alertas que requieren atención',
     alertsOpen: (n: number) => `${n} abiertas`,
     seeAll: 'Ver todas →',
@@ -100,6 +103,7 @@ const es = {
     chips: {
       all: 'Todos',
       itv: 'ITV próximas',
+      insurance: 'Seguros próximos',
     } as Record<string, string>,
     filters: {
       use: 'Filtrar por uso',
@@ -121,6 +125,7 @@ const es = {
     alertTabs: {
       all: 'Todas',
       itv: 'ITV',
+      insurance: 'Seguro',
       km: 'Kilómetros',
       no_driver: 'Sin conductor',
     } as Record<string, string>,
@@ -130,6 +135,7 @@ const es = {
     thState: 'Estado',
     thDriver: 'Conductor',
     thItv: 'Próx. ITV',
+    thInsurance: 'Seguro',
     empty: 'Ningún vehículo con estos filtros.',
     pager: (page: number, total: number, count: number) =>
       `Página ${page} de ${total} · ${count} vehículos`,
@@ -251,6 +257,9 @@ const en: typeof es = {
     kpiItv: 'MOT due (30 days)',
     kpiItvOverdue: (n) => `${n} overdue`,
     kpiItvOk: 'None overdue',
+    kpiInsurance: 'Insurance due (30 days)',
+    kpiInsuranceOverdue: (n) => `${n} expired`,
+    kpiInsuranceOk: 'None expired',
     alertsTitle: 'Alerts that need attention',
     alertsOpen: (n) => `${n} open`,
     seeAll: 'See all →',
@@ -260,6 +269,7 @@ const en: typeof es = {
     chips: {
       all: 'All',
       itv: 'MOT due soon',
+      insurance: 'Insurance due soon',
     },
     filters: {
       use: 'Filter by use',
@@ -281,6 +291,7 @@ const en: typeof es = {
     alertTabs: {
       all: 'All',
       itv: 'MOT',
+      insurance: 'Insurance',
       km: 'Mileage',
       no_driver: 'No driver',
     } as Record<string, string>,
@@ -290,6 +301,7 @@ const en: typeof es = {
     thState: 'State',
     thDriver: 'Driver',
     thItv: 'Next MOT',
+    thInsurance: 'Insurance',
     empty: 'No vehicles match these filters.',
     pager: (page, total, count) => `Page ${page} of ${total} · ${count} vehicles`,
     prev: '← Previous',

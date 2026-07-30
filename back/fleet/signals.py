@@ -12,8 +12,8 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .models import Alert, EventItv, KmReading
-from .models.enums import AlertStatus, AlertType
+from .models import Alert, Document, EventItv, KmReading
+from .models.enums import AlertStatus, AlertType, DocumentType
 
 
 @receiver(post_save, sender=EventItv, dispatch_uid="fleet_itv_registered")
@@ -35,6 +35,28 @@ def on_itv_registered(sender, instance: EventItv, **kwargs):
     Alert.objects.filter(vehicle=vehicle, type=AlertType.ITV_DUE, status=AlertStatus.OPEN).update(
         status=AlertStatus.RESOLVED, resolved_at=timezone.now()
     )
+
+
+@receiver(post_save, sender=Document, dispatch_uid="fleet_insurance_document_saved")
+def on_insurance_document_saved(sender, instance: Document, **kwargs):
+    """N2: la póliza renovada actualiza el vencimiento del seguro del vehículo.
+
+    Mismo patrón que la ITV: al subir/editar un documento de seguro con
+    caducidad **más reciente** que la registrada, se denormaliza en
+    `Vehicle.insurance_expiry_date` y se cierran las alertas de seguro abiertas
+    (el aviso ya no aplica: hay póliza nueva).
+    """
+    if instance.type != DocumentType.INSURANCE or instance.expiry_date is None:
+        return
+    vehicle = instance.vehicle
+    current = vehicle.insurance_expiry_date
+    if current is not None and instance.expiry_date <= current:
+        return
+    vehicle.insurance_expiry_date = instance.expiry_date
+    vehicle.save(update_fields=["insurance_expiry_date", "updated_at"])
+    Alert.objects.filter(
+        vehicle=vehicle, type=AlertType.INSURANCE_DUE, status=AlertStatus.OPEN
+    ).update(status=AlertStatus.RESOLVED, resolved_at=timezone.now())
 
 
 @receiver(post_save, sender=KmReading, dispatch_uid="fleet_km_reading_registered")
