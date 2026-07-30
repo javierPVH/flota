@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Bell, Car, CloudOff, LogOut, PlusCircle, Users } from 'lucide-react'
+import { Bell, Car, CloudOff, LogOut, PlusCircle, RefreshCw, Users } from 'lucide-react'
 import { LanguageToggleButton } from '@flota/ui/ui'
 
 import { useAuth } from '../auth.ts'
@@ -8,6 +8,7 @@ import { InstallBanner } from './InstallBanner.tsx'
 import { useLang } from '../i18n.tsx'
 import { useOfflineQueue } from '../offline/useOfflineQueue.ts'
 import type { FlushResult } from '../offline/queue.ts'
+import { applyUpdate, onUpdateAvailable } from '../sw-update.ts'
 import logoUrl from '../assets/img/gransolar-logo.png'
 
 /**
@@ -31,6 +32,10 @@ export function Layout() {
   )
 
   const { pending, sending, flushNow } = useOfflineQueue(onFlushed)
+
+  // BG5: hay un service worker nuevo esperando → ofrecer recargar.
+  const [hasUpdate, setHasUpdate] = useState(false)
+  useEffect(() => onUpdateAvailable(setHasUpdate), [])
 
   function handleLogout() {
     logout()
@@ -68,6 +73,12 @@ export function Layout() {
           </button>
         </div>
       </header>
+      {hasUpdate && (
+        <button type="button" className="offline-banner update-banner" onClick={applyUpdate}>
+          <RefreshCw size={16} aria-hidden />
+          {t.shell.updateAvailable}
+        </button>
+      )}
       {pending > 0 && (
         <button
           type="button"
@@ -80,9 +91,16 @@ export function Layout() {
         </button>
       )}
       {queueNotice && (
-        <p className="queue-notice" role="status" onClick={() => setQueueNotice('')}>
+        // UX4: descartable también con teclado (antes era un <p onClick>).
+        <button
+          type="button"
+          className="queue-notice"
+          role="status"
+          aria-label={t.shell.dismissNotice}
+          onClick={() => setQueueNotice('')}
+        >
           {queueNotice}
-        </p>
+        </button>
       )}
       <InstallBanner />
       <main className="app-main">

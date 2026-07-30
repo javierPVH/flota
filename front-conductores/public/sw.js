@@ -1,4 +1,4 @@
-/* Service worker de la app de campo (M7).
+/* Service worker de la app de campo (M7, endurecido en BG5).
  *
  * Estrategia mínima y segura:
  * - Assets fingerprinted de Vite (/assets/*): cache-first — su nombre cambia
@@ -6,22 +6,34 @@
  * - Navegaciones: network-first con fallback al shell cacheado (la SPA arranca
  *   sin red y la cola offline hace el resto).
  * - /api y /media: SIEMPRE red, sin caché — datos de negocio (y sesión) no se
- *   sirven rancios; las escrituras sin red las gestiona la cola de la app,
- *   no el service worker.
+ *   sirven rancios; las escrituras sin red las gestiona la cola de la app.
+ *
+ * BG5 — actualizaciones sin ChunkLoadError:
+ * - La caché se versiona POR BUILD (__BUILD_ID__ lo estampa vite.config.ts):
+ *   los assets del build anterior no se purgan hasta que el SW nuevo activa.
+ * - SIN skipWaiting incondicional: el SW nuevo espera. La app detecta la
+ *   versión nueva y ofrece "recargar"; al aceptar, envía SKIP_WAITING y
+ *   recarga en `controllerchange` — nunca hay una pestaña vieja pidiendo
+ *   chunks ya borrados.
+ * - `pushsubscriptionchange`: si el navegador rota la suscripción, se
+ *   re-suscribe y re-registra en el back (antes los avisos morían en silencio).
  */
-const CACHE = 'flota-campo-v1'
+const CACHE = 'flota-campo-__BUILD_ID__'
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png']
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((cache) => cache.addAll(SHELL))
-      .then(() => self.skipWaiting()),
-  )
+  // Sin skipWaiting: queda "waiting" hasta que la app lo acepte (o se cierren
+  // las pestañas). Así la pestaña abierta sigue con SU build completo.
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)))
+})
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting()
 })
 
 self.addEventListener('activate', (event) => {
+  // Ahora sí: el SW nuevo controla, la app va a recargar con el HTML nuevo —
+  // purgar las generaciones anteriores es seguro (y evita crecer sin techo).
   event.waitUntil(
     caches
       .keys()
@@ -64,6 +76,29 @@ self.addEventListener('notificationclick', (event) => {
   )
 })
 
+// BG5 — el navegador puede rotar la suscripción push: re-suscribir con la
+// misma clave y re-registrar en el back (cookies de sesión incluidas).
+self.addEventListener('pushsubscriptionchange', (event) => {
+  const oldKey =
+    event.oldSubscription && event.oldSubscription.options
+      ? event.oldSubscription.options.applicationServerKey
+      : null
+  if (!oldKey) return
+  event.waitUntil(
+    self.registration.pushManager
+      .subscribe({ userVisibleOnly: true, applicationServerKey: oldKey })
+      .then((subscription) =>
+        fetch('/api/v1/push/subscriptions/', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(subscription.toJSON()),
+        }),
+      )
+      .catch(() => {}),
+  )
+})
+
 self.addEventListener('fetch', (event) => {
   const request = event.request
   if (request.method !== 'GET') return
@@ -87,7 +122,8 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Navegación SPA: red primero; sin red, el shell cacheado.
+  // Navegación SPA: red primero; sin red, el shell cacheado. `?? Response`:
+  // sin shell cacheado, respondWith(undefined) LANZARÍA (BG5).
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
@@ -96,7 +132,10 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE).then((cache) => cache.put('/', copy))
           return response
         })
-        .catch(() => caches.match('/')),
+        .catch(async () => {
+          const shell = await caches.match('/')
+          return shell ?? new Response('Sin conexión', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+        }),
     )
   }
 })
