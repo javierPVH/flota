@@ -1,5 +1,10 @@
 # Plan de evolución — nuevas funcionalidades + optimización R2
 
+> **Estado (2026-07-30)**: los pasos 0–12 de la Parte III están **completados**
+> (las 10 funcionalidades N1–N10 + sus cimientos BG1-4/BG8, SEC1-2/4, OPS1-2,
+> DX1-2, UX2 y parte de UX3/UX6). Quedan los pasos 13–16 (robustez PWA, i18n
+> completo de gestión, endurecimiento y documentación) y los 🔵 intercalables.
+>
 > Documento maestro (2026-07-30). **Parte I**: las nuevas funcionalidades
 > pedidas por negocio, especificadas contra el código real (modelo, API y
 > fronts). **Parte II**: el catálogo íntegro de optimizaciones, mejoras y
@@ -16,7 +21,9 @@
 
 # PARTE I — Nuevas funcionalidades
 
-## N1 · Habilitar incidencias, alertas y campana 🔴 (S)
+## N1 · Habilitar incidencias, alertas y campana 🔴 (S) — ✅ IMPLEMENTADA
+
+> **Cómo quedó** (paso 3, `e537364`): fuera `SHOW_BELL` y `HIDDEN_NAV`; campana con contador + popover y menú completo. Queda `SHOW_SIMULATOR`, resuelto en N4 (borrado).
 
 Las vistas **ya existen** (`AlertsPage`, `IncidentsPage`) y la campana está
 escrita pero apagada con flags de piedra:
@@ -34,7 +41,9 @@ accesible (esto conecta con UX4: darle `role`/teclado al abrirlo).
 **Aceptación**: campana con recuento en el header, popover con las últimas
 alertas y enlace "ver todas"; Alertas e Incidencias visibles en el menú.
 
-## N2 · Vencimiento del seguro + alerta en dashboard 🔴 (M)
+## N2 · Vencimiento del seguro + alerta en dashboard 🔴 (M) — ✅ IMPLEMENTADA
+
+> **Cómo quedó** (paso 4, `9891ece`): `Vehicle.insurance_expiry_date` + señal de póliza + `check_insurance` (FLEET_INSURANCE_ALERT_DAYS) + KPI/chip/columna/pestaña en dashboard y StatCard en ficha. Email a renting: cerrado en N10.
 
 Hoy el seguro solo existe como documento (`type='insurance'` con
 `expiry_date`); no hay campo de vehículo ni alerta.
@@ -60,7 +69,9 @@ días) · N vencidos", con chip de filtro como el de ITV.
 KPI del dashboard; al subir la póliza renovada con nueva caducidad, el campo
 se actualiza y los avisos se cierran.
 
-## N3 · Check "km ilimitados" en el vehículo 🔴 (S/M)
+## N3 · Check "km ilimitados" en el vehículo 🔴 (S/M) — ✅ IMPLEMENTADA
+
+> **Cómo quedó** (paso 4, `9891ece`): `unlimited_km` en modelo/summary, exceso excluido, checkbox que limpia `contract_km`, badge '∞ km' en gestión y nota en conductores.
 
 **Back**: `Vehicle.unlimited_km` (Boolean, default False).
 - `metrics._compose_summary`: si `unlimited_km`, `projection = None` y el
@@ -78,7 +89,9 @@ barra de proyección.
 **Aceptación**: un coche con el check no proyecta, no genera alertas de exceso
 y lo dice claramente en ambas apps.
 
-## N4 · Histórico de lecturas por acordeón en la tabla de km 🔴 (M)
+## N4 · Histórico de lecturas por acordeón en la tabla de km 🔴 (M) — ✅ IMPLEMENTADA
+
+> **Cómo quedó** (paso 7, `5174bfc`): `renderExpandedRow` en TableWithPanel (0fr→1fr, reduced-motion, contenido montado tras abrir) + `ReadingsHistory` perezoso con mini-tabla, badge 'estimada' (N8) y KmChart. Simulador muerto eliminado.
 
 En la tabla de kilometraje de gestión
 ([MileagePage.tsx](front-gestion/src/pages/MileagePage.tsx)), cada fila debe
@@ -99,7 +112,9 @@ badge "estimada").
 **Aceptación**: pulsar una fila despliega con animación el histórico completo
 de ese coche; volver a pulsar lo pliega; el resto de la tabla no se recarga.
 
-## N5 · Tres catálogos nuevos: Marca, Modelo y Sociedad 🔴 (L)
+## N5 · Tres catálogos nuevos: Marca, Modelo y Sociedad 🔴 (L) — ✅ IMPLEMENTADA
+
+> **Cómo quedó** (paso 6, `09ed306`): Brand/VehicleModel(unique por marca)/Company + FKs en Vehicle con migración de DATOS 0014 (35/35 enlazados en dev), selects dependientes + alta rápida de modelo, 3 pestañas en Catálogos.
 
 Hoy `Vehicle.brand`/`model` son **texto libre**
 ([vehicle.py:59-60](back/fleet/models/vehicle.py#L59)).
@@ -131,7 +146,9 @@ Hoy `Vehicle.brand`/`model` son **texto libre**
 puede crear un modelo sin marca; los vehículos existentes quedan enlazados por
 la migración.
 
-## N6 · Exportar CSV en todas las tablas 🔴 (S)
+## N6 · Exportar CSV en todas las tablas 🔴 (S) — ✅ IMPLEMENTADA
+
+> **Cómo quedó** (paso 9, `c066dea`): BG8 arreglado (anchor en DOM + revoke pospuesto + antifórmulas) y export extendido a Vista general, Catálogos (8 pestañas), Kilometraje y Erratas — siempre filas filtradas.
 
 `csv.ts` + botón "Exportar CSV" ya están en los 7 listados con
 `TableWithPanel`. **Hacer**: extenderlo a las tablas restantes (Catálogos —
@@ -143,7 +160,9 @@ que cancela descargas + inyección de fórmulas) — es el mismo fichero.
 **Aceptación**: toda tabla de gestión tiene "Exportar CSV" y el fichero refleja
 exactamente lo que se ve (filtros aplicados, columnas visibles).
 
-## N7 · Nada se borra: desactivación, espacio de erratas y superusuario 🔴 (L)
+## N7 · Nada se borra: desactivación, espacio de erratas y superusuario 🔴 (L) — ✅ IMPLEMENTADA
+
+> **Cómo quedó** (paso 8, `e0af59d`): DeactivatableModel en 13 modelos, destroy→deactivate con motivo, dominio ignora inactivos, `/erratas/` con restore (admin) y purge (IsSuperuser = admin del .env), doble ConfirmDialog con motivo y página Erratas.
 
 **Regla**: ningún registro se elimina desde la app. El flujo es
 **desactivar** (con doble confirmación) → el registro pasa al **espacio de
@@ -183,7 +202,9 @@ erratas** → solo el **superusuario** puede eliminarlo definitivamente.
 exige doble confirmación; la errata se puede restaurar; solo el superusuario
 puede purgarla, y esa acción queda auditada.
 
-## N8 · Ventanas temporales de km + cálculo de faltantes 🔴 (L)
+## N8 · Ventanas temporales de km + cálculo de faltantes 🔴 (L) — ✅ IMPLEMENTADA
+
+> **Cómo quedó** (paso 10, `a038b91`): 8a ventana [23, fin de mes] validada en servidor (management exento) + endpoint window + aviso/deshabilitado en RegisterKmPage; 8b `KmReading.estimated` + GET/POST estimate (días 1-10, media 1/2/3/6 meses, idempotente) + modal con recuento en vivo y badge 'estimada'.
 
 ### 8a · Conductor/supervisor: registro solo del 23 a fin de mes
 
@@ -222,7 +243,9 @@ avisando); el admin, el día 3, completa los faltantes con la media de los 2
 últimos meses desde el modal y ve cuántos ha rellenado; las estimadas quedan
 marcadas.
 
-## N9 · Lógica reforzada de coches de sustitución 🔴 (L)
+## N9 · Lógica reforzada de coches de sustitución 🔴 (L) — ✅ IMPLEMENTADA
+
+> **Cómo quedó** (paso 11, `5db3228`): tipo inmutable + convert-to-fleet, vínculo con sustituto real/único y principal no-activo, bloqueo del principal (rechaza km/asignaciones, `blocked_by_link` en summary), formulario de sustitución marcado entero, banner+deshabilitado en ficha, tarjetas bloqueada/operativa en conductores.
 
 Base existente: `is_substitute`, `VehicleLink` (un solo sustituto activo por
 constraint, sin auto-vínculo). Reglas nuevas a imponer **en servidor** y
@@ -265,7 +288,9 @@ un sustituto vinculado no puede vincularse a otro coche; el principal
 bloqueado rechaza asignaciones y lecturas; ambas apps dejan claro quién está
 bloqueado, por qué, y quién le sustituye.
 
-## N10 · Emails de alertas + gestor maestro de plantillas 🔴 (XL — 3 fases)
+## N10 · Emails de alertas + gestor maestro de plantillas 🔴 (XL — 3 fases) — ✅ IMPLEMENTADA
+
+> **Cómo quedó** (paso 12, `00ab122`): mailer best-effort con EmailLog, enrutado seguro→renting / km→conductor, EmailTemplate+EmailSignature con variables allowlist y nh3, gestor /plantillas con editor contentEditable propio, preview y envío de prueba. Falta solo el SMTP real en `.env` de producción.
 
 ### 10a · Infraestructura de correo (M)
 
@@ -318,7 +343,7 @@ previsualiza y se envía pruebas.
 
 ## 1. Bugs (BG)
 
-### 🔴 BG1 · CI del back en rojo: 3 tests + 2 faltas de ruff (S)
+### ✅ BG1 · CI del back en rojo (S) — arreglado en el paso 0 (`9d65852`)
 
 La ola post-M9 se escribió sin entorno y sus tests fallan por sí mismos (el
 código que prueban está bien):
@@ -336,13 +361,13 @@ código que prueban está bien):
 - `ruff`: E501 en [metrics.py:192](back/fleet/services/metrics.py#L192), I001
   en [fleet/urls.py](back/fleet/urls.py) + 4 ficheros sin `ruff format`.
 
-### 🔴 BG2 · 2 tests de gestión rotos por el rediseño del login (S)
+### ✅ BG2 · Tests de gestión rotos (S) — arreglado en el paso 0 (`9d65852`)
 
 [LoginPage.test.tsx](front-gestion/src/pages/LoginPage.test.tsx): el
 `LoginPage` actual usa `useLang` y el test no envuelve en `LanguageProvider`.
 Mismo patrón que ya usan el resto de tests de ambas apps.
 
-### 🔴 BG3 · La cola offline pierde trabajo de campo ante errores no-red (M)
+### ✅ BG3 · Cola offline pierde trabajo (M) — arreglado en el paso 10 (`a038b91`): clasificación por status con reintentos+cuarentena
 
 [queue.ts:151-156](front-conductores/src/offline/queue.ts#L151): política
 binaria — red → conservar; **cualquier otra cosa → descartar**. Un 502 de
@@ -353,7 +378,7 @@ Arreglo: clasificar por status — 4xx de validación → descartar con aviso;
 tras N intentos (hoy un `AbortError` ni siquiera es `TypeError` → se
 descarta).
 
-### 🔴 BG4 · `enqueue()` puede lanzar y nadie lo captura (S)
+### ✅ BG4 · `enqueue()` sin capturar (S) — arreglado en el paso 10 (`a038b91`): safeEnqueue + storage.persist()
 
 [RegisterKmPage.tsx](front-conductores/src/pages/RegisterKmPage.tsx) y
 [VehicleFieldPage.tsx](front-conductores/src/pages/VehicleFieldPage.tsx): el
@@ -397,7 +422,7 @@ listado como fallback de lectura.
 cualquier error a `'disabled'`, que **oculta el panel**. Añadir estado
 `'unknown'` con reintento.
 
-### 🟡 BG8 · Descarga CSV con carrera + inyección de fórmulas (S)
+### ✅ BG8 · CSV carrera + inyección (S) — arreglado en el paso 9 (`c066dea`)
 
 [csv.ts:36-37](front-gestion/src/csv.ts#L36): `anchor.click()` sin insertar en
 el DOM y `URL.revokeObjectURL` inmediato — en algunos navegadores cancela la
@@ -439,7 +464,7 @@ posición se fija al abrir. Recalcular en `resize`/`scroll` o anclar por CSS.
 
 ## 2. Seguridad (SEC)
 
-### 🔴 SEC1 · `ScopedByVehicleMixin` sin `perform_update` (M)
+### ✅ SEC1 · Mixin sin `perform_update` (M) — arreglado en el paso 2 (`d2b0efc`)
 
 [views.py:101-130](back/fleet/views.py#L101): el mixin guarda `get_queryset` y
 `perform_create`, **no la actualización**. `PATCH /km-readings/<propia>/
@@ -448,7 +473,7 @@ coche de otro); un supervisor puede mover incidencias/documentos/repartos
 fuera de su grupo. Arreglo: `perform_update` con la misma comprobación +
 **test parametrizado de PATCH cruzado por viewset** (hoy no existe ninguno).
 
-### 🔴 SEC2 · `fields = "__all__"` deja las máquinas de estado escribibles (M)
+### ✅ SEC2 · Máquinas de estado escribibles (M) — arreglado en el paso 2 (`d2b0efc`)
 
 11 serializers ([serializers.py](back/fleet/serializers.py)) con solo
 `id/created_at/updated_at` read-only:
@@ -471,7 +496,7 @@ para siempre**. Fotos de partes, permisos y pólizas accesibles a quien
 tenga/adivine la URL (aviso RGPD reconocido en el README de deploy). Vista
 autenticada + `X-Accel-Redirect` en nginx (y/o activar `gdrive`).
 
-### 🟠 SEC4 · El conductor puede borrar lecturas de km (S)
+### ✅ SEC4 · Conductor borra lecturas (S) — arreglado en el paso 2 (append-only) y absorbido por N7
 
 `DELETE /km-readings/{id}/` permitido por `ManagementOrDriverReadWrite`:
 borrar la última y re-registrar un valor menor esquiva el no-retroceso.
@@ -598,7 +623,7 @@ hardcodeadas en castellano** (solo 6 ficheros usan `useLang`). Conductores
 está completa (19/19) y es la vara de medir. O se completan las páginas o se
 retira el toggle hasta entonces. Las páginas nuevas (N7/N10) nacen con i18n.
 
-### 🔴 UX2 · `Modal` del DS sin focus trap (M)
+### ✅ UX2 · Modal sin focus trap (M) — arreglado en el paso 8 (`e0af59d`): trampa de Tab, foco inicial/retorno, scroll lock, aria-labelledby
 
 [Modal.tsx:63-70](front/src/ui/overlay/Modal.tsx#L63): `aria-modal="true"` sin
 `aria-labelledby`, sin foco inicial/trampa/retorno, sin bloqueo de scroll. Lo
@@ -641,7 +666,7 @@ borrar.
 
 ## 6. Operación y despliegue (OPS)
 
-### 🔴 OPS1 · Los jobs programados no corren en Docker (M)
+### ✅ OPS1 · Jobs no corren en Docker (M) — arreglado en el paso 5 (`b9f9fee`): servicio `jobs` del compose
 
 El crontab de ejemplo apunta a un venv bare-metal que no existe en el
 contenedor, y nada más los ejecuta: **alertas de ITV, km, exceso, archivado y
@@ -649,7 +674,7 @@ Jira no se ejecutan nunca en producción** — y N2 (seguros) y N10 (emails)
 dependen de ellos. Servicio `ofelia`/cron del host con
 `docker compose exec back python manage.py run_fleet_jobs`.
 
-### 🔴 OPS2 · Los backups no incluyen la base de datos (S)
+### ✅ OPS2 · Backups sin BD (S) — arreglado en el paso 5 (`b9f9fee`): deploy/backup.sh (pg_dump + media + retención)
 
 [README-DEPLOY.md:115](deploy/README-DEPLOY.md#L115) dice «copia `./data`»,
 pero la BD es Postgres en el volumen `flota_pgdata`. `pg_dump` con retención +
@@ -680,14 +705,14 @@ Sin rotación de logs ni límites de recursos; `migrate` en el entrypoint
 
 ## 7. Proceso y DX (DX)
 
-### 🔴 DX1 · CI de frontend inexistente (M)
+### ✅ DX1 · CI de frontend (M) — arreglado en el paso 1 (`ade416f`): jobs frontend + deploy-config
 
 Un único job (backend) en [ci.yml](.github/workflows/ci.yml). Añadir job Node:
 `build:ui` → `typecheck` → `test` ×3 → `build`, y `docker compose config` +
 build de imágenes. **La medida que impide que todo lo demás se degrade — y la
 red de seguridad de toda la Parte I.**
 
-### 🔴 DX2 · ESLint solo en el DS (S)
+### ✅ DX2 · ESLint en las apps (S) — arreglado en el paso 1 (`ade416f`): flat config en las 3 piezas (heredados como aviso)
 
 Las apps no tienen config ni script `lint` — sin `react-hooks/exhaustive-deps`
 ni React Compiler. Extender el flat config a los tres paquetes.
@@ -758,19 +783,19 @@ de los que depende.
 
 | Paso | Puntos | Por qué |
 |---|---|---|
-| 0 | **BG1 + BG2** (CI en verde) | Nada se valida con la base roja. 1 h. |
-| 1 | **DX1 + DX2** (CI front + ESLint) | La red de seguridad de TODO lo que viene. |
-| 2 | **SEC1 + SEC2 (+SEC4)** | Huecos de autorización; además SEC2 es prerrequisito de N7. |
-| 3 | **N1** (+UX6) | Encender alertas/incidencias/campana: rápido y visible. |
-| 4 | **N3** y **N2** (+PR2 de propina en `check_insurance`) | Km ilimitados (S) y seguros: modelo + motor + dashboard. |
-| 5 | **OPS1 + OPS2** | Sin jobs, N2 no alerta en producción; sin backup no hay producto. |
-| 6 | **N5** | Catálogos marca/modelo/sociedad con su migración de datos. |
-| 7 | **DX3 → N4 (+UX3)** | HMR del DS, fila expandible en la tabla y su deuda a11y de paso. |
-| 8 | **UX2 → N7** | Focus trap del Modal antes de multiplicar modales; luego soft-delete + erratas + superusuario (+OPS3). |
-| 9 | **BG8 → N6** | CSV robusto y extendido a todas las tablas (incluidas las nuevas). |
-| 10 | **BG3 + BG4 → N8** | Cola offline fiable antes de las ventanas de km (el rechazo "fuera de plazo" depende de ella); después 8a y 8b. |
-| 11 | **N9** | Sustitución reforzada (back + ambos fronts). |
-| 12 | **N10** (10a → 10b → 10c) | Correo: infra → plantillas → gestor con editor. |
+| ✅ 0 | **BG1 + BG2** (CI en verde) | Nada se valida con la base roja. 1 h. |
+| ✅ 1 | **DX1 + DX2** (CI front + ESLint) | La red de seguridad de TODO lo que viene. |
+| ✅ 2 | **SEC1 + SEC2 (+SEC4)** | Huecos de autorización; además SEC2 es prerrequisito de N7. |
+| ✅ 3 | **N1** (+UX6) | Encender alertas/incidencias/campana: rápido y visible. |
+| ✅ 4 | **N3** y **N2** (+PR2 de propina en `check_insurance`) | Km ilimitados (S) y seguros: modelo + motor + dashboard. |
+| ✅ 5 | **OPS1 + OPS2** | Sin jobs, N2 no alerta en producción; sin backup no hay producto. |
+| ✅ 6 | **N5** | Catálogos marca/modelo/sociedad con su migración de datos. |
+| ✅ 7 | **DX3 → N4 (+UX3)** | HMR del DS, fila expandible en la tabla y su deuda a11y de paso. |
+| ✅ 8 | **UX2 → N7** | Focus trap del Modal antes de multiplicar modales; luego soft-delete + erratas + superusuario (+OPS3). |
+| ✅ 9 | **BG8 → N6** | CSV robusto y extendido a todas las tablas (incluidas las nuevas). |
+| ✅ 10 | **BG3 + BG4 → N8** | Cola offline fiable antes de las ventanas de km (el rechazo "fuera de plazo" depende de ella); después 8a y 8b. |
+| ✅ 11 | **N9** | Sustitución reforzada (back + ambos fronts). |
+| ✅ 12 | **N10** (10a → 10b → 10c) | Correo: infra → plantillas → gestor con editor. |
 | 13 | **BG5 + BG6 + BG7** | Robustez PWA (SW, arranque offline, push). |
 | 14 | **UX1** (i18n gestión completa) + PF1 + PF2 | Cerrar el rediseño; las páginas nuevas ya nacen bien. |
 | 15 | **SEC3 + SEC6 + SEC7 + OPS4-OPS6 + PR1/PR3/PR4 + SEC5** | Endurecimiento y rendimiento del back/deploy. |
