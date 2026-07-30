@@ -74,7 +74,7 @@ const es = {
     footerAriaLabel: 'Pie de página',
     footerSeparator: '|',
     footerContact: 'Contacto',
-    footerBrand: '@gs/base',
+    footerBrand: 'Flota · Gransolar',
   },
   tableWithPanel: {
     actionsColumn: 'Acciones',
@@ -205,7 +205,7 @@ const en: typeof es = {
     footerAriaLabel: 'Main footer',
     footerSeparator: '|',
     footerContact: 'Contact',
-    footerBrand: '@gs/base',
+    footerBrand: 'Flota · Gransolar',
   },
   tableWithPanel: {
     actionsColumn: 'Actions',

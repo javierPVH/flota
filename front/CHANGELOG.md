@@ -1,6 +1,16 @@
 # Changelog
 
-Todas las novedades relevantes de `@gs/base` se documentan aquí.
+## (flota) 2026-07-30 — @flota/ui
+
+- Renombrado efectivo a `@flota/ui` dentro del monorepo flota (DX5): README y
+  marca del footer actualizados; el paquete es interno (workspaces), sin publicación.
+- `TableWithPanel`: fila expandible con animación (`renderExpandedRow`, N4),
+  `scope="col"` en cabeceras (UX3) y copy es/en nueva.
+- `Modal`: focus-trap completo, retorno de foco, scroll-lock y `aria-labelledby` (UX2).
+- `http`: `ApiError` con `status`; `i18n`: subpath ligero `@flota/ui/i18n` (PF1).
+
+
+Todas las novedades relevantes de `@flota/ui` (antes `@gs/base`) se documentan aquí.
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/).
 
 ## [1.0.0] — 2026-07-20

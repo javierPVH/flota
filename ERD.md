@@ -1,5 +1,14 @@
 # Esquema de base de datos — Flota
 
+> **Ampliaciones 2026-07 (N1–N10, ver PLAN_EVOLUCION.md)** — no reflejadas aún
+> en el diagrama: `Vehicle.insurance_expiry_date`, `Vehicle.unlimited_km`,
+> FKs `brand_ref`/`model_ref`/`company` (catálogos `Brand`, `VehicleModel`,
+> `Company`), mixin de soft-delete (`is_active`, `deactivated_at/by`, motivo) en
+> catálogos/documentos/incidencias/facturas/lecturas, `KmReading.estimated`,
+> `Renting.email`/`contact_name` y los modelos de correo `EmailTemplate`,
+> `EmailSignature`, `EmailLog`.
+
+
 Diagrama Entidad-Relación de la app (generado a partir de los modelos de
 `back/accounts` y `back/fleet`). Se renderiza automáticamente en GitHub y en el
 preview de Markdown de VS Code (Mermaid).
