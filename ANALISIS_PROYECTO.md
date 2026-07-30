@@ -173,6 +173,38 @@ Los tests corren en 3.13 y `back/Dockerfile` usa `python:3.12-slim`. Alinear
 - Deuda ya conocida y documentada: retirar los CharField legado
   `Vehicle.brand/model` cuando las FKs se consideren asentadas.
 
+### 🟡 A9 · Bug latente de zona horaria en "lectura pendiente" (conductores)
+`pendingThisMonth()` en `front-conductores/src/format.ts` calcula el mes con
+`toISOString().slice(0,7)` (**UTC**) — el mismo patrón que E2/E6 ya corrigieron
+en el resto del código. En Europe/Madrid, las primeras horas del día 1 devuelven
+el mes ANTERIOR: la lectura aparecería como "al día" cuando no lo está.
+Sustituir por el mes en hora local (helpers de `@flota/ui/domain`).
+
+### 🟡 A10 · Flecos de i18n que la pasada UX1 no alcanzó
+- Gestión: 6 literales sueltos en `TimelineChart` (aria-labels y "Evento"/
+  "Auditoría"), `AdminGate` ("Sin acceso"), footer del `Layout` y el fallback
+  "Cargando…" de `App.tsx`.
+- DS: 4 `aria-label` fijos en castellano dentro de `TableWithPanel`
+  ("Desplegar", "Herramientas de columna", "Cerrar", "Limpiar búsqueda") pese a
+  tener `copy.ts`; y `SheetSelectorModal` con `aria-label="Close"` en inglés.
+
+### 🔵 A11 · Duplicación restante (menor y acotada)
+- `types.ts` de ambas apps repiten **17 DTOs** casi idénticos (candidatos a
+  `@flota/ui/domain`); `api.ts` repite 4 funciones (`login`, `logout`,
+  `devLogin`, `uploadDocument`). El resto ya vive en el DS vía shims.
+- El shim de KmChart en conductores no re-exporta el tipo `KmChartOverlay`.
+- 2 directivas `eslint-disable` muertas en TableWithPanel (el lint las señala).
+- Comentarios obsoletos: el barrel del DS aún se autodescribe como `@gs/base`,
+  la cabecera de `i18n.tsx` de gestión dice que "el resto sigue en castellano",
+  y `format.ts` de conductores conserva notas de helpers ya movidos.
+
+### 🔵 A12 · Fricción de tooling
+- El DS testea con `--passWithNoTests` (si se perdieran los tests, CI no lo
+  notaría) y el reparto de tests está desequilibrado (DS 80 vs gestión 13
+  para 19 páginas).
+- `npm run lint` del monorepo completo supera los 5 min (lanzarlo por paquete
+  o cachear) — a considerar antes de meterlo en pre-commit.
+
 ## 5. Estado del plan maestro
 
 `PLAN_EVOLUCION.md`: **Parte III completada al 100 %** (pasos 0–16 + los 🔵
@@ -180,5 +212,6 @@ accionables), cada punto con su commit de referencia. Los planes históricos
 (`PLAN_FRONT_*`, `OPTIMIZACION_Y_ERRORES`, `MEJORAS*`) quedan como memoria del
 proyecto, no como fuentes de verdad.
 
-**Siguiente lista de trabajo natural**: los hallazgos A1–A7 de arriba (todos
-acotados; A1 es el único con impacto directo en usuarios) + regenerar ERD.
+**Siguiente lista de trabajo natural**: los hallazgos A1–A10 de arriba (todos
+acotados; A1 es el único con impacto directo en usuarios, A9 el único bug
+funcional latente) + los 🔵 A11/A12 y regenerar el ERD.
