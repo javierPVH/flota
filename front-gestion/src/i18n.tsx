@@ -6,7 +6,7 @@
  * si falta una clave en un idioma, no compila).
  */
 
-import { createI18n } from '@flota/ui'
+import { createI18n } from '@flota/ui/i18n'
 
 const es = {
   shell: {

@@ -1,4 +1,4 @@
-import type { AppLanguage } from '@flota/ui'
+import type { AppLanguage } from '@flota/ui/i18n'
 import type { BadgeTone } from '@flota/ui/ui'
 
 import type { AlertLevel, DocumentStatus, VehicleSummary } from './types'
