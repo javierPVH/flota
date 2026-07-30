@@ -22,6 +22,7 @@ import {
   type CatalogResource,
 } from '../api.ts'
 import { useDeactivateConfirm } from '../components/ConfirmDialog.tsx'
+import { useCatalogsCopy } from '../translations/catalogs.ts'
 import { exportCsv } from '../csv.ts'
 
 interface CatalogDef {
@@ -30,83 +31,6 @@ interface CatalogDef {
   singular: string
   fields: CatalogCreateFieldDefinition[]
 }
-
-// Los selects del alta/edición del vehículo (G3) y la refacturación (G10)
-// consumen estos catálogos; aquí se mantienen sin salir de la app (HU G11).
-const CATALOGS: CatalogDef[] = [
-  {
-    resource: 'projects',
-    title: 'Proyectos',
-    singular: 'proyecto',
-    fields: [
-      { key: 'project_name', label: 'Nombre del proyecto', required: true },
-      // Las opciones (catálogo de CECO) se inyectan en render — ver `activeFields`.
-      { key: 'cost_center', label: 'Centro de coste (CECO)', kind: 'select', required: true },
-    ],
-  },
-  {
-    resource: 'peps',
-    title: 'PEP / CECO',
-    singular: 'CECO',
-    fields: [
-      { key: 'code', label: 'Código' },
-      { key: 'name', label: 'Nombre', required: true },
-    ],
-  },
-  {
-    resource: 'business-units',
-    title: 'Unidades de negocio',
-    singular: 'unidad de negocio',
-    fields: [
-      { key: 'code', label: 'Código' },
-      { key: 'name', label: 'Nombre', required: true },
-    ],
-  },
-  {
-    resource: 'rentings',
-    title: 'Rentings',
-    singular: 'compañía de renting',
-    fields: [
-      { key: 'name', label: 'Nombre', required: true },
-      // N10a: destinatario de los avisos de seguro (insurance_due).
-      { key: 'email', label: 'Email de contacto' },
-      { key: 'contact_name', label: 'Persona de contacto' },
-    ],
-  },
-  {
-    resource: 'countries',
-    title: 'Países',
-    singular: 'país',
-    fields: [{ key: 'name', label: 'Nombre', required: true }],
-  },
-  // N5: marca, modelo (depende de la marca) y sociedad.
-  {
-    resource: 'brands',
-    title: 'Marcas',
-    singular: 'marca',
-    fields: [{ key: 'name', label: 'Nombre', required: true }],
-  },
-  {
-    resource: 'vehicle-models',
-    title: 'Modelos',
-    singular: 'modelo',
-    fields: [
-      // Las opciones (catálogo de marcas) se inyectan en render — ver `activeFields`.
-      { key: 'brand', label: 'Marca', kind: 'select', required: true },
-      { key: 'name', label: 'Nombre', required: true },
-    ],
-  },
-  {
-    resource: 'companies',
-    title: 'Sociedades',
-    singular: 'sociedad',
-    fields: [
-      { key: 'code', label: 'Código', required: true },
-      { key: 'name', label: 'Nombre', required: true },
-      { key: 'description', label: 'Descripción' },
-    ],
-  },
-]
 
 function entryLabel(entry: CatalogEntry): string {
   return entry.project_name ?? (entry.code ? `${entry.code} · ${entry.name}` : (entry.name ?? `#${entry.id}`))
@@ -121,8 +45,94 @@ function cellValue(entry: CatalogEntry, key: string): string {
 
 /** Catálogos (G11): CRUD de los maestros que alimentan los selects de la app. */
 export function CatalogsPage() {
+  const t = useCatalogsCopy()
   const deactivateConfirm = useDeactivateConfirm()
-  const [active, setActive] = useState<CatalogDef>(CATALOGS[0])
+
+  // Los selects del alta/edición del vehículo (G3) y la refacturación (G10)
+  // consumen estos catálogos; aquí se mantienen sin salir de la app (HU G11).
+  // Dentro del componente (UX1): los títulos/labels salen de la copia activa.
+  const catalogs = useMemo<CatalogDef[]>(
+    () => [
+      {
+        resource: 'projects',
+        title: t.catalogs.projects.title,
+        singular: t.catalogs.projects.singular,
+        fields: [
+          { key: 'project_name', label: t.fields.projectName, required: true },
+          // Las opciones (catálogo de CECO) se inyectan en render — ver `activeFields`.
+          { key: 'cost_center', label: t.fields.costCenter, kind: 'select', required: true },
+        ],
+      },
+      {
+        resource: 'peps',
+        title: t.catalogs.peps.title,
+        singular: t.catalogs.peps.singular,
+        fields: [
+          { key: 'code', label: t.fields.code },
+          { key: 'name', label: t.fields.name, required: true },
+        ],
+      },
+      {
+        resource: 'business-units',
+        title: t.catalogs.businessUnits.title,
+        singular: t.catalogs.businessUnits.singular,
+        fields: [
+          { key: 'code', label: t.fields.code },
+          { key: 'name', label: t.fields.name, required: true },
+        ],
+      },
+      {
+        resource: 'rentings',
+        title: t.catalogs.rentings.title,
+        singular: t.catalogs.rentings.singular,
+        fields: [
+          { key: 'name', label: t.fields.name, required: true },
+          // N10a: destinatario de los avisos de seguro (insurance_due).
+          { key: 'email', label: t.fields.email },
+          { key: 'contact_name', label: t.fields.contactName },
+        ],
+      },
+      {
+        resource: 'countries',
+        title: t.catalogs.countries.title,
+        singular: t.catalogs.countries.singular,
+        fields: [{ key: 'name', label: t.fields.name, required: true }],
+      },
+      // N5: marca, modelo (depende de la marca) y sociedad.
+      {
+        resource: 'brands',
+        title: t.catalogs.brands.title,
+        singular: t.catalogs.brands.singular,
+        fields: [{ key: 'name', label: t.fields.name, required: true }],
+      },
+      {
+        resource: 'vehicle-models',
+        title: t.catalogs.vehicleModels.title,
+        singular: t.catalogs.vehicleModels.singular,
+        fields: [
+          // Las opciones (catálogo de marcas) se inyectan en render — ver `activeFields`.
+          { key: 'brand', label: t.fields.brand, kind: 'select', required: true },
+          { key: 'name', label: t.fields.name, required: true },
+        ],
+      },
+      {
+        resource: 'companies',
+        title: t.catalogs.companies.title,
+        singular: t.catalogs.companies.singular,
+        fields: [
+          { key: 'code', label: t.fields.code, required: true },
+          { key: 'name', label: t.fields.name, required: true },
+          { key: 'description', label: t.fields.description },
+        ],
+      },
+    ],
+    [t],
+  )
+
+  // La pestaña activa se guarda por `resource` (estable entre idiomas); la
+  // definición activa se re-deriva de la copia del idioma en curso.
+  const [activeResource, setActiveResource] = useState<CatalogResource>('projects')
+  const active = catalogs.find((c) => c.resource === activeResource) ?? catalogs[0]
   const [entries, setEntries] = useState<CatalogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -181,21 +191,21 @@ export function CatalogsPage() {
 
   const load = useCallback(() => {
     setLoading(true)
-    listCatalog(active.resource)
+    listCatalog(activeResource)
       .then((page) => {
         setEntries(page.results)
         // Mantiene fresco el select de marcas de la pestaña Modelos.
-        if (active.resource === 'brands') setBrands(page.results)
+        if (activeResource === 'brands') setBrands(page.results)
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar el catálogo.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadError)))
       .finally(() => setLoading(false))
-  }, [active.resource])
+  }, [activeResource, t.loadError])
 
   useEffect(load, [load])
 
   function selectCatalog(catalog: CatalogDef) {
-    setActive(catalog)
+    setActiveResource(catalog.resource)
     setQuery('')
   }
 
@@ -222,7 +232,7 @@ export function CatalogsPage() {
         <SelectField
           key={f.key}
           label={f.label}
-          options={[{ value: '', label: '— Elegir —' }, ...(f.options ?? [])]}
+          options={[{ value: '', label: t.choosePlaceholder }, ...(f.options ?? [])]}
           value={values[f.key] ?? ''}
           onValueChange={(value) => setValues((v) => ({ ...v, [f.key]: value }))}
           required={f.required}
@@ -247,18 +257,18 @@ export function CatalogsPage() {
     })),
     {
       key: '__actions',
-      label: 'Acciones',
+      label: t.actionsColumn,
       align: 'right' as const,
       sortable: false,
       render: (entry: CatalogEntry) => (
         <div className="row-actions">
-          <IconButton aria-label="Editar" title="Editar" onClick={() => openEdit(entry)}>
+          <IconButton aria-label={t.edit} title={t.edit} onClick={() => openEdit(entry)}>
             <Pencil size={15} />
           </IconButton>
           <IconButton
             variant="danger"
-            aria-label="Eliminar"
-            title="Eliminar"
+            aria-label={t.delete}
+            title={t.delete}
             onClick={() => handleDelete(entry)}
           >
             <Trash2 size={15} />
@@ -292,7 +302,7 @@ export function CatalogsPage() {
       setCreating(false)
       load()
     } catch (err) {
-      setCreateError(asErrorMessage(err, 'No se pudo crear.'))
+      setCreateError(asErrorMessage(err, t.createError))
     } finally {
       setSaving(false)
     }
@@ -316,7 +326,7 @@ export function CatalogsPage() {
       setEditing(null)
       load()
     } catch (err) {
-      setEditError(asErrorMessage(err, 'No se pudo guardar.'))
+      setEditError(asErrorMessage(err, t.saveError))
     } finally {
       setSaving(false)
     }
@@ -324,27 +334,22 @@ export function CatalogsPage() {
 
   async function handleDelete(entry: CatalogEntry) {
     // N7: nada se borra — doble confirmación y desactivación con motivo.
-    const reason = await deactivateConfirm(`${active.singular} "${entryLabel(entry)}"?`)
+    const reason = await deactivateConfirm(t.deactivateSubject(active.singular, entryLabel(entry)))
     if (reason === null) return
     try {
       await deleteCatalogEntry(active.resource, entry.id, reason)
       load()
     } catch (err) {
-      setError(
-        asErrorMessage(err, 'No se pudo desactivar (puede estar en uso por algún vehículo o factura).'),
-      )
+      setError(asErrorMessage(err, t.deactivateError))
     }
   }
 
   return (
     <div>
-      <PageHeader
-        title="Configuración de catálogos"
-        subtitle="Gestión de los maestros que alimentan los desplegables de vehículos y facturas."
-      />
+      <PageHeader title={t.title} subtitle={t.subtitle} />
 
       <div className="chips-row catalog-tabs">
-        {CATALOGS.map((catalog) => (
+        {catalogs.map((catalog) => (
           <TabButton
             key={catalog.resource}
             active={active.resource === catalog.resource}
@@ -361,7 +366,7 @@ export function CatalogsPage() {
         <input
           className="search-input"
           type="search"
-          placeholder={`Buscar ${active.singular}…`}
+          placeholder={t.searchPlaceholder(active.singular)}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -374,16 +379,16 @@ export function CatalogsPage() {
             disabled={filtered.length === 0}
             onClick={() => exportCsv(active.resource, columns, filtered)}
           >
-            Exportar CSV
+            {t.exportCsv}
           </Button>
           <Button variant="primary" onClick={openCreate}>
-            Crear
+            {t.create}
           </Button>
         </div>
       </div>
 
       {loading ? (
-        <p className="loading-state" role="status">Cargando…</p>
+        <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<CatalogEntry>
           rows={filtered}
@@ -393,38 +398,36 @@ export function CatalogsPage() {
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel={
-            query ? 'Sin resultados para la búsqueda.' : 'Vacío: crea el primero con «Crear».'
-          }
+          emptyStateLabel={query ? t.emptySearch : t.empty}
         />
       )}
 
       {/* Alta (HU G11): botón «Crear» → modal con los campos del catálogo activo. */}
-      <Modal open={creating} title={`Nuevo ${active.singular}`} onClose={() => setCreating(false)}>
+      <Modal open={creating} title={t.createTitle(active.singular)} onClose={() => setCreating(false)}>
         <form className="modal-form" onSubmit={submitCreate}>
           {renderFields(createValues, setCreateValues)}
           {createError && <div role="alert" className="form-error">{createError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setCreating(false)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? 'Creando…' : 'Crear'}
+              {saving ? t.creating : t.create}
             </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={editing !== null} title={`Editar ${active.singular}`} onClose={() => setEditing(null)}>
+      <Modal open={editing !== null} title={t.editTitle(active.singular)} onClose={() => setEditing(null)}>
         <form className="modal-form" onSubmit={submitEdit}>
           {renderFields(editValues, setEditValues)}
           {editError && <div role="alert" className="form-error">{editError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? 'Guardando…' : 'Guardar'}
+              {saving ? t.saving : t.save}
             </Button>
           </div>
         </form>

@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronsDown, ChevronsUp } from 'lucide-react'
 
+import { usePanelsCopy } from '../translations/panels.ts'
+
 /**
  * Acordeón de fichas (mejora): cada tarjeta informativa se puede plegar.
  * Desplegadas por defecto (el estado guarda las CERRADAS); `AccordionTools`
@@ -31,13 +33,14 @@ export function useAccordion(allIds: readonly string[]): AccordionState {
 }
 
 export function AccordionTools({ accordion }: { accordion: AccordionState }) {
+  const t = usePanelsCopy().accordion
   return (
     <div className="acc-tools">
       <button type="button" className="acc-tool" onClick={accordion.expandAll}>
-        <ChevronsDown size={15} aria-hidden /> Desplegar todo
+        <ChevronsDown size={15} aria-hidden /> {t.expandAll}
       </button>
       <button type="button" className="acc-tool" onClick={accordion.collapseAll}>
-        <ChevronsUp size={15} aria-hidden /> Plegar todo
+        <ChevronsUp size={15} aria-hidden /> {t.collapseAll}
       </button>
     </div>
   )

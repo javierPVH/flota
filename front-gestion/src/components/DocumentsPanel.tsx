@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import { ExternalLink, FolderOpen } from 'lucide-react'
 
 import { documentStatusTone } from '../format.ts'
+import { usePanelsCopy } from '../translations/panels.ts'
 import { useDeactivateConfirm } from './ConfirmDialog.tsx'
 import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
 
@@ -29,18 +30,18 @@ import type {
   Vehicle,
 } from '../types.ts'
 
-// Tipos de documento (lista cerrada del back, Épica 4).
-const DOCUMENT_TYPE_OPTIONS = [
-  { value: 'registration_certificate', label: 'Permiso de circulación' },
-  { value: 'technical_datasheet', label: 'Ficha técnica' },
-  { value: 'insurance', label: 'Seguro' },
-  { value: 'contract', label: 'Contrato' },
-  { value: 'delivery_report', label: 'Acta de entrega' },
-  { value: 'return_report', label: 'Acta de devolución' },
-  { value: 'accident_report', label: 'Parte de accidente' },
-  { value: 'damage_photos', label: 'Fotos de daños' },
-  { value: 'other', label: 'Otro' },
-]
+// Tipos de documento (lista cerrada del back, Épica 4). Etiquetas en panels.ts.
+const DOCUMENT_TYPE_VALUES = [
+  'registration_certificate',
+  'technical_datasheet',
+  'insurance',
+  'contract',
+  'delivery_report',
+  'return_report',
+  'accident_report',
+  'damage_photos',
+  'other',
+] as const
 
 /** Solo enlaces http(s): corta javascript:/data: aunque el back ya sanea. */
 function safeHref(url: string): string {
@@ -78,6 +79,11 @@ export function DocumentsPanel({
   vehicle: Vehicle
   accordion: AccordionState
 }) {
+  const t = usePanelsCopy().documents
+  const typeOptions = useMemo(
+    () => DOCUMENT_TYPE_VALUES.map((value) => ({ value, label: t.typeOptions[value] })),
+    [t],
+  )
   const deactivateConfirm = useDeactivateConfirm()
   const [docs, setDocs] = useState<FlotaDocument[]>([])
   const [loading, setLoading] = useState(true)
@@ -103,9 +109,9 @@ export function DocumentsPanel({
         setDocs(page.results)
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar los documentos.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadError)))
       .finally(() => setLoading(false))
-  }, [vehicle.id, typeFilter])
+  }, [vehicle.id, typeFilter, t])
 
   useEffect(load, [load])
 
@@ -147,7 +153,7 @@ export function DocumentsPanel({
       })
       if (result) setAttach({ picked: result, file: null, manualUrl: '' })
     } catch (err) {
-      setFormError(asErrorMessage(err, 'No se pudo abrir Google Picker.'))
+      setFormError(asErrorMessage(err, t.pickerError))
     }
   }
 
@@ -155,7 +161,7 @@ export function DocumentsPanel({
     event.preventDefault()
     const { picked, file, manualUrl } = attach
     if (!picked && !file && !manualUrl) {
-      setFormError('Adjunta el documento: desde Drive, un fichero o su URL.')
+      setFormError(t.attachRequired)
       return
     }
     setSaving(true)
@@ -185,7 +191,7 @@ export function DocumentsPanel({
       setModalOpen(false)
       load()
     } catch (err) {
-      setFormError(asErrorMessage(err, 'No se pudo guardar el documento.'))
+      setFormError(asErrorMessage(err, t.saveError))
     } finally {
       setSaving(false)
     }
@@ -196,19 +202,19 @@ export function DocumentsPanel({
       await updateDocument(doc.id, { status: doc.status === 'expired' ? 'valid' : 'expired' })
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo cambiar el estado.'))
+      setError(asErrorMessage(err, t.statusError))
     }
   }
 
   async function handleDelete(doc: FlotaDocument) {
     // N7: nada se borra — doble confirmación y desactivación con motivo.
-    const reason = await deactivateConfirm(`el documento "${doc.type_display}"?`)
+    const reason = await deactivateConfirm(t.deactivateTarget(doc.type_display))
     if (reason === null) return
     try {
       await deleteDocument(doc.id, reason)
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo desactivar el documento.'))
+      setError(asErrorMessage(err, t.deactivateError))
     }
   }
 
@@ -220,10 +226,10 @@ export function DocumentsPanel({
     setFolderError('')
     try {
       const result = await fetchFolderFiles(vehicle.drive_folder_id)
-      if (result.error) setFolderError('Drive no está disponible ahora mismo.')
+      if (result.error) setFolderError(t.driveUnavailable)
       setFolderFiles(result.files)
     } catch (err) {
-      setFolderError(asErrorMessage(err, 'No se pudo listar la carpeta de Drive.'))
+      setFolderError(asErrorMessage(err, t.folderListError))
     }
   }
 
@@ -235,51 +241,51 @@ export function DocumentsPanel({
   const columns: Array<TableWithPanelColumn<FlotaDocument>> = [
     {
       key: 'type',
-      label: 'Tipo',
+      label: t.columns.type,
       getValue: (doc) => doc.type_display,
       render: (doc) => (
         <span>
           <strong>{doc.type_display}</strong>
-          {doc.replaces ? <span className="doc-version"> · sustituye #{doc.replaces}</span> : null}
+          {doc.replaces ? <span className="doc-version">{t.replacesTag(doc.replaces)}</span> : null}
           {doc.notes ? <div className="doc-notes">{doc.notes}</div> : null}
         </span>
       ),
     },
     {
       key: 'created_at',
-      label: 'Subido',
+      label: t.columns.uploaded,
       isDate: true,
       getValue: (doc) => doc.created_at.slice(0, 10),
       render: (doc) => doc.created_at.slice(0, 10),
     },
     {
       key: 'uploaded_by',
-      label: 'Por',
+      label: t.columns.by,
       getValue: (doc) => doc.uploaded_by_name || '',
       render: (doc) => doc.uploaded_by_name || '—',
     },
     {
       key: 'expiry_date',
-      label: 'Caducidad',
+      label: t.columns.expiry,
       isDate: true,
       getValue: (doc) => doc.expiry_date ?? '',
       render: (doc) => doc.expiry_date ?? '—',
     },
     {
       key: 'incident',
-      label: 'Incidencia',
+      label: t.columns.incident,
       getValue: (doc) => doc.incident ?? -1,
       render: (doc) => (doc.incident ? `#${doc.incident}` : '—'),
     },
     {
       key: 'status',
-      label: 'Estado',
+      label: t.columns.status,
       getValue: (doc) => doc.status_display,
       render: (doc) => <Badge tone={documentStatusTone(doc.status)}>{doc.status_display}</Badge>,
     },
     {
       key: 'actions',
-      label: 'Acciones',
+      label: t.columns.actions,
       align: 'right',
       searchable: false,
       sortable: false,
@@ -289,19 +295,19 @@ export function DocumentsPanel({
           <div className="row-actions">
             {href && (
               <a className="doc-open" href={href} target="_blank" rel="noreferrer">
-                <ExternalLink size={14} aria-hidden /> Abrir
+                <ExternalLink size={14} aria-hidden /> {t.open}
               </a>
             )}
             <Button variant="secondary" size="sm" onClick={() => openCreate(doc)}>
-              Sustituir
+              {t.replace}
             </Button>
             {doc.status !== 'pending_archive' && (
               <Button variant="secondary" size="sm" onClick={() => toggleStatus(doc)}>
-                {doc.status === 'expired' ? 'Marcar vigente' : 'Marcar caducado'}
+                {doc.status === 'expired' ? t.markValid : t.markExpired}
               </Button>
             )}
             <Button variant="danger" size="sm" onClick={() => handleDelete(doc)}>
-              Eliminar
+              {t.delete}
             </Button>
           </div>
         )
@@ -313,17 +319,17 @@ export function DocumentsPanel({
     <CollapsibleCard
       id="documents"
       accordion={accordion}
-      title="Documentos"
+      title={t.title}
       actions={
         <div className="section-tools">
           <SelectField
-            label="Tipo"
-            options={[{ value: '', label: 'Todos' }, ...DOCUMENT_TYPE_OPTIONS]}
+            label={t.filterType}
+            options={[{ value: '', label: t.allTypes }, ...typeOptions]}
             value={typeFilter}
             onValueChange={setTypeFilter}
           />
           <Button variant="primary" onClick={() => openCreate()}>
-            Añadir documento
+            {t.add}
           </Button>
         </div>
       }
@@ -332,11 +338,10 @@ export function DocumentsPanel({
       {needsConnect && (
         <div className="drive-connect">
           <p>
-            Conecta tu Google para subir y elegir documentos <strong>directamente en Drive</strong>
-            {' '}(mientras tanto puedes adjuntar fichero o URL).
+            {t.connectLead}<strong>{t.connectStrong}</strong>{t.connectTail}
           </p>
           <Button variant="secondary" onClick={() => (window.location.href = connectGoogleUrl())}>
-            Conectar Google Drive
+            {t.connectButton}
           </Button>
         </div>
       )}
@@ -346,14 +351,14 @@ export function DocumentsPanel({
           <FolderOpen size={15} aria-hidden />
           {folderUrl ? (
             <a href={folderUrl} target="_blank" rel="noreferrer">
-              Carpeta del vehículo en Drive
+              {t.driveFolder}
             </a>
           ) : (
-            <span>Carpeta del vehículo en Drive</span>
+            <span>{t.driveFolder}</span>
           )}
           {pickerReady && vehicle.drive_folder_id && (
             <Button variant="secondary" size="sm" onClick={toggleFolder}>
-              {folderFiles ? 'Ocultar contenido' : 'Ver contenido'}
+              {folderFiles ? t.hideContents : t.showContents}
             </Button>
           )}
         </p>
@@ -361,7 +366,7 @@ export function DocumentsPanel({
       {folderError && <div role="alert" className="form-error">{folderError}</div>}
       {folderFiles && (
         <ul className="drive-folder-files">
-          {folderFiles.length === 0 && <li>La carpeta está vacía.</li>}
+          {folderFiles.length === 0 && <li>{t.folderEmpty}</li>}
           {folderFiles.map((f) => (
             <li key={f.id}>
               <a href={safeHref(f.url)} target="_blank" rel="noreferrer">
@@ -375,7 +380,7 @@ export function DocumentsPanel({
       {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p className="loading-state" role="status">Cargando…</p>
+        <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<FlotaDocument>
           rows={docs}
@@ -385,33 +390,33 @@ export function DocumentsPanel({
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel={`Sin documentos${typeFilter ? ' de este tipo' : ''} todavía.`}
+          emptyStateLabel={t.empty(Boolean(typeFilter))}
         />
       )}
 
       <Modal
         open={modalOpen}
-        title={replacing ? `Sustituir "${replacing.type_display}"` : `Documento de ${vehicle.plate}`}
+        title={replacing ? t.modalTitleReplace(replacing.type_display) : t.modalTitleNew(vehicle.plate)}
         onClose={() => setModalOpen(false)}
       >
         <form className="modal-form" onSubmit={handleSubmit}>
           <SelectField
-            label="Tipo de documento"
-            options={DOCUMENT_TYPE_OPTIONS}
+            label={t.typeLabel}
+            options={typeOptions}
             value={form.type}
             onValueChange={(value) => setForm((f) => ({ ...f, type: value }))}
           />
           <TextInputField
-            label="Caducidad (seguro, permiso, ITV…)"
+            label={t.expiryLabel}
             type="date"
             value={form.expiry_date}
             onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
           />
           {incidents.length > 0 && (
             <SelectField
-              label="Ligado a incidencia (opcional)"
+              label={t.incidentLabel}
               options={[
-                { value: '', label: 'Ninguna' },
+                { value: '', label: t.incidentNone },
                 ...incidents.map((i) => ({
                   value: String(i.id),
                   label: `#${i.id} · ${i.type_display}${i.date ? ` (${i.date})` : ''}`,
@@ -422,20 +427,20 @@ export function DocumentsPanel({
             />
           )}
           <TextInputField
-            label="Notas"
+            label={t.notesLabel}
             value={form.notes}
             onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
           />
 
           <div className="doc-attach">
-            <span className="doc-attach-label">Archivo</span>
+            <span className="doc-attach-label">{t.fileLabel}</span>
             {pickerReady && (
               <div className="doc-attach-drive">
                 <Button type="button" variant="secondary" onClick={() => pickFromDrive('upload')}>
-                  Subir a Drive
+                  {t.uploadToDrive}
                 </Button>
                 <Button type="button" variant="secondary" onClick={() => pickFromDrive('file')}>
-                  Elegir de Drive
+                  {t.pickFromDrive}
                 </Button>
               </div>
             )}
@@ -443,7 +448,7 @@ export function DocumentsPanel({
               <p className="doc-attach-picked">
                 📄 {attach.picked.name}{' '}
                 <Button type="button" variant="secondary" size="sm" onClick={() => setAttach(EMPTY_ATTACH)}>
-                  Quitar
+                  {t.removeAttachment}
                 </Button>
               </p>
             ) : (
@@ -456,7 +461,7 @@ export function DocumentsPanel({
                   }
                 />
                 <TextInputField
-                  label="…o URL del documento (https)"
+                  label={t.urlLabel}
                   value={attach.manualUrl}
                   onChange={(e) => setAttach({ picked: null, file: null, manualUrl: e.target.value })}
                   placeholder="https://drive.google.com/…"
@@ -469,10 +474,10 @@ export function DocumentsPanel({
           {formError && <div role="alert" className="form-error">{formError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? 'Guardando…' : replacing ? 'Sustituir' : 'Guardar'}
+              {saving ? t.saving : replacing ? t.replace : t.save}
             </Button>
           </div>
         </form>

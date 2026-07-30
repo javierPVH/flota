@@ -18,18 +18,13 @@ import {
   type TimelineDay,
 } from '../components/TimelineChart.tsx'
 import { assignmentStatusTone } from '../format.ts'
+import { useUserDetailCopy } from '../translations/userDetail.ts'
 import type { AssignmentRow, ManagedUser, Vehicle } from '../types.ts'
-
-const STATUS_LABEL: Record<string, string> = {
-  proposed: 'Propuesta',
-  accepted: 'Vigente',
-  rejected: 'Rechazada',
-  finished: 'Finalizada',
-}
 
 /** Detalle de un usuario: qué vehículos ha tenido (HU-2.6) y, si es
  * supervisor, su grupo (HU-2.7). */
 export function UserDetailPage() {
+  const t = useUserDetailCopy()
   // `user` es el usuario CONSULTADO; el de la sesión es `me` (para el gate admin).
   const { user: me } = useAuth()
   const isAdmin = me?.roles.includes('admin') ?? false
@@ -61,8 +56,8 @@ export function UserDetailPage() {
         {
           key: `s${a.id}`,
           date: a.start_date,
-          title: `Asignación de ${plate(a.vehicle)}`,
-          sub: STATUS_LABEL[a.status] ?? a.status,
+          title: t.assignmentOf(plate(a.vehicle)),
+          sub: t.statuses[a.status] ?? a.status,
           kind: 'event',
         },
       ]
@@ -70,19 +65,19 @@ export function UserDetailPage() {
         items.push({
           key: `f${a.id}`,
           date: a.end_date,
-          title: `Fin de asignación de ${plate(a.vehicle)}`,
+          title: t.assignmentEndOf(plate(a.vehicle)),
           kind: 'audit',
         })
       }
       return items
     })
-  }, [history, plateById])
+  }, [history, plateById, t])
 
   useEffect(() => {
     if (!userId) return
     fetchManagedUser(userId)
       .then(setUser)
-      .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar el usuario.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadError)))
     listAssignments({ driver: userId })
       .then((page) =>
         setHistory([...page.results].sort((a, b) => (a.start_date < b.start_date ? 1 : -1))),
@@ -92,10 +87,10 @@ export function UserDetailPage() {
     listVehicles({ include_baja: 1 })
       .then((page) => setVehicles(page.results))
       .catch(() => setVehicles([]))
-  }, [userId])
+  }, [userId, t])
 
   if (error) return <div role="alert" className="form-error">{error}</div>
-  if (!user) return <p className="loading-state" role="status">Cargando…</p>
+  if (!user) return <p className="loading-state" role="status">{t.loading}</p>
 
   const fullName = `${user.first_name} ${user.last_name}`.trim() || user.username
 
@@ -103,7 +98,7 @@ export function UserDetailPage() {
   const historyColumns: Array<TableWithPanelColumn<AssignmentRow>> = [
     {
       key: 'vehicle',
-      label: 'Vehículo',
+      label: t.columns.vehicle,
       getValue: (a) => plateOf(a.vehicle),
       render: (a) => (
         <Link to={`/vehiculos/${a.vehicle}`} className="cell-link">
@@ -113,16 +108,16 @@ export function UserDetailPage() {
     },
     {
       key: 'period',
-      label: 'Periodo',
+      label: t.columns.period,
       getValue: (a) => a.start_date,
       render: (a) => `${a.start_date} → ${a.end_date ?? '…'}`,
     },
     {
       key: 'status',
-      label: 'Estado',
-      getValue: (a) => STATUS_LABEL[a.status] ?? a.status,
+      label: t.columns.status,
+      getValue: (a) => t.statuses[a.status] ?? a.status,
       render: (a) => (
-        <Badge tone={assignmentStatusTone(a.status)}>{STATUS_LABEL[a.status] ?? a.status}</Badge>
+        <Badge tone={assignmentStatusTone(a.status)}>{t.statuses[a.status] ?? a.status}</Badge>
       ),
     },
   ]
@@ -130,22 +125,22 @@ export function UserDetailPage() {
   return (
     <div>
       <PageHeader
-        breadcrumb={<Link to="/conductores">← Conductores y usuarios</Link>}
+        breadcrumb={<Link to="/conductores">{t.breadcrumb}</Link>}
         title={fullName}
         subtitle={
           `${user.username}` +
-          (user.license_type ? ` · Permiso ${user.license_type}` : '') +
-          (user.fuel_card ? ' · ⛽ tarjeta de combustible' : '')
+          (user.license_type ? t.licenseSuffix(user.license_type) : '') +
+          (user.fuel_card ? t.fuelCardSuffix : '')
         }
       />
 
       <AccordionTools accordion={accordion} />
 
       <div className="detail-grid">
-        <CollapsibleCard id="history" accordion={accordion} title="Vehículos que ha tenido">
+        <CollapsibleCard id="history" accordion={accordion} title={t.historyTitle}>
           {isAdmin && <TimelineChart items={timelineItems} onSelectDay={setTimelineDay} />}
           {history.length === 0 ? (
-            <p className="muted">Sin asignaciones registradas.</p>
+            <p className="muted">{t.noAssignments}</p>
           ) : (
             <TableWithPanel<AssignmentRow>
               rows={history}
@@ -159,12 +154,9 @@ export function UserDetailPage() {
         </CollapsibleCard>
 
         {user.roles.includes('supervisor') && (
-          <CollapsibleCard id="group" accordion={accordion} title="Su grupo como supervisor">
+          <CollapsibleCard id="group" accordion={accordion} title={t.groupTitle}>
             {group.length === 0 ? (
-              <p className="muted">
-                No tiene vehículos a su cargo. El grupo se compone asignándole como supervisor en
-                la edición de cada vehículo.
-              </p>
+              <p className="muted">{t.groupEmpty}</p>
             ) : (
               <ul className="usage-list">
                 {group.map((v) => (

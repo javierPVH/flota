@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, Modal, PageHeader, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
+import { useAppLang } from '@flota/ui/i18n'
 
 import {
   closeVehicleLink,
@@ -18,7 +19,8 @@ import {
   listVehicles,
   updateVehicleFields,
 } from '../api.ts'
-import { isoDateOf, kmLevelTone, todayIso, vehicleStateTone } from '../format.ts'
+import { fmtEur, fmtKm, isoDateOf, kmLevelTone, todayIso, vehicleStateTone } from '../format.ts'
+import { useVehicleDetailCopy } from '../translations/vehicleDetail.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { VehicleAssignmentsPanel } from '../components/VehicleAssignmentsPanel.tsx'
 import { KmChart } from '../components/KmChart.tsx'
@@ -45,52 +47,12 @@ import type {
 
 // Estados operables a mano (HU-1.6). La baja tiene su propio flujo (HU-1.5) y
 // algunos estados los dispara el back (p. ej. avería desde incidencias).
-const STATE_OPTIONS = [
-  { value: 'active', label: 'Activo' },
-  { value: 'maintenance', label: 'En mantenimiento' },
-  { value: 'itv', label: 'En ITV' },
-  { value: 'broken', label: 'Averiado' },
-]
-
-const LINK_REASON_OPTIONS = [
-  { value: 'breakdown', label: 'Avería' },
-  { value: 'maintenance', label: 'Mantenimiento' },
-  { value: 'inspection', label: 'ITV' },
-  { value: 'accident', label: 'Accidente' },
-]
-const LINK_REASON_LABEL = Object.fromEntries(LINK_REASON_OPTIONS.map((o) => [o.value, o.label]))
+// Las opciones y etiquetas de dominio viven en translations/vehicleDetail.ts (UX1).
 
 const today = todayIso
 
-const USE_LABEL: Record<string, string> = {
-  on_project: 'Proyecto',
-  personal: 'Personal',
-  works: 'Obras',
-}
-const FUEL_LABEL: Record<string, string> = {
-  gasoline: 'Gasolina',
-  diesel: 'Diésel',
-  LPG: 'GLP',
-  hybrid: 'Híbrido',
-  other: 'Otro',
-}
-const TYPE_LABEL: Record<string, string> = { car: 'Turismo', van: 'Furgoneta' }
-const PROPERTY_LABEL: Record<string, string> = { propio: 'Propio', renting: 'Renting' }
-
-const eur = (value: string | number) =>
-  `${Number(value).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €`
-const km = (value: number) => `${value.toLocaleString('es-ES')} km`
-
 function daysUntil(dateStr: string): number {
   return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86_400_000)
-}
-
-/** "en 3 meses" / "en 12 días" / "hace 6 días" — para los KPIs. */
-function relative(dateStr: string): string {
-  const days = daysUntil(dateStr)
-  const abs = Math.abs(days)
-  const unit = abs >= 60 ? `${Math.round(abs / 30)} meses` : `${abs} día${abs === 1 ? '' : 's'}`
-  return days >= 0 ? `en ${unit}` : `hace ${unit}`
 }
 
 function label(map: Record<string, string>, value: string): string {
@@ -138,6 +100,8 @@ function buildTimeline(events: FlotaEvent[], audit: AuditEntry[]): TimelineItem[
 
 export function VehicleDetailPage() {
   const confirm = useConfirm()
+  const lang = useAppLang()
+  const t = useVehicleDetailCopy()
   const { user } = useAuth()
   const isAdmin = user?.roles.includes('admin') ?? false
   const { id } = useParams()
@@ -189,7 +153,7 @@ export function VehicleDetailPage() {
     if (!vehicleId) return
     fetchVehicle(vehicleId)
       .then(setVehicle)
-      .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar el vehículo.')))
+      .catch((err) => setError(asErrorMessage(err, t.errLoadVehicle)))
     fetchVehicleSummary(vehicleId).then(setSummary).catch(() => setSummary(null))
     listKmReadings(vehicleId)
       .then((page) =>
@@ -233,10 +197,19 @@ export function VehicleDetailPage() {
 
   const timeline = useMemo(() => buildTimeline(events, audit), [events, audit])
 
+  // Formateadores y etiquetas conscientes de idioma (UX1).
+  const eur = (value: string | number) => fmtEur(value, lang)
+  const km = (value: number) => fmtKm(value, lang)
+  const relative = (dateStr: string) => t.relative(daysUntil(dateStr))
+  const linkReasonLabel = useMemo(
+    () => Object.fromEntries(t.linkReasonOptions.map((o) => [o.value, o.label])),
+    [t],
+  )
+
   function openOps(kind: 'state' | 'baja' | 'link') {
     setOpsError('')
     if (kind === 'state' && vehicle) {
-      setStateValue(STATE_OPTIONS.some((o) => o.value === vehicle.state) ? vehicle.state : 'active')
+      setStateValue(t.stateOptions.some((o) => o.value === vehicle.state) ? vehicle.state : 'active')
       setStateReason('')
     }
     if (kind === 'baja') {
@@ -273,7 +246,7 @@ export function VehicleDetailPage() {
       setOpsModal(null)
       load()
     } catch (err) {
-      setOpsError(asErrorMessage(err, 'No se pudo cambiar el estado.'))
+      setOpsError(asErrorMessage(err, t.errChangeState))
     } finally {
       setOpsSaving(false)
     }
@@ -293,7 +266,7 @@ export function VehicleDetailPage() {
       setOpsModal(null)
       load()
     } catch (err) {
-      setOpsError(asErrorMessage(err, 'No se pudo dar de baja.'))
+      setOpsError(asErrorMessage(err, t.errBaja))
     } finally {
       setOpsSaving(false)
     }
@@ -302,7 +275,7 @@ export function VehicleDetailPage() {
   async function submitLink(event: FormEvent) {
     event.preventDefault()
     if (!linkSubstitute) {
-      setOpsError('Elige el vehículo de sustitución.')
+      setOpsError(t.errChooseSubstitute)
       return
     }
     setOpsSaving(true)
@@ -317,7 +290,7 @@ export function VehicleDetailPage() {
       setOpsModal(null)
       load()
     } catch (err) {
-      setOpsError(asErrorMessage(err, 'No se pudo crear el vínculo (¿ya hay un sustituto activo?).'))
+      setOpsError(asErrorMessage(err, t.errCreateLink))
     } finally {
       setOpsSaving(false)
     }
@@ -327,8 +300,8 @@ export function VehicleDetailPage() {
     if (!activeLink) return
     if (
       !(await confirm({
-        message: '¿Cerrar el vínculo de sustitución con fecha de hoy?',
-        confirmLabel: 'Cerrar vínculo',
+        message: t.confirmCloseLink,
+        confirmLabel: t.closeLink,
         tone: 'warning',
       }))
     )
@@ -339,7 +312,7 @@ export function VehicleDetailPage() {
       setOpsModal(null)
       load()
     } catch (err) {
-      setOpsError(asErrorMessage(err, 'No se pudo cerrar el vínculo.'))
+      setOpsError(asErrorMessage(err, t.errCloseLink))
     } finally {
       setOpsSaving(false)
     }
@@ -359,14 +332,14 @@ export function VehicleDetailPage() {
       setKmValue('')
       load()
     } catch (err) {
-      setKmError(asErrorMessage(err, 'No se pudo registrar la lectura.'))
+      setKmError(asErrorMessage(err, t.errKmReading))
     } finally {
       setKmSaving(false)
     }
   }
 
   if (error) return <div role="alert" className="form-error">{error}</div>
-  if (!vehicle) return <p className="loading-state" role="status">Cargando…</p>
+  if (!vehicle) return <p className="loading-state" role="status">{t.loading}</p>
 
   const contract = summary?.contract ?? null
   const projection = summary?.projection ?? null
@@ -412,12 +385,12 @@ export function VehicleDetailPage() {
     <div className="vehicle-detail">
       {/* Cabecera: tres atributos diferenciados (HU-1.2/1.6) */}
       <PageHeader
-        breadcrumb={<Link to="/">← Vista general</Link>}
+        breadcrumb={<Link to="/">{t.backToOverview}</Link>}
         title={vehicle.plate}
         subtitle={
           `${vehicle.brand} ${vehicle.model}${vehicle.version ? ` ${vehicle.version}` : ''}` +
-          ` · ${label(TYPE_LABEL, vehicle.type)} · ${label(FUEL_LABEL, vehicle.fuel)}` +
-          ` · ${label(USE_LABEL, vehicle.business_use)}`
+          ` · ${label(t.typeLabel, vehicle.type)} · ${label(t.fuelLabel, vehicle.fuel)}` +
+          ` · ${label(t.useLabel, vehicle.business_use)}`
         }
         actions={
           <>
@@ -426,42 +399,42 @@ export function VehicleDetailPage() {
               disabled={Boolean(summary?.blocked_by_link)}
               title={
                 summary?.blocked_by_link
-                  ? `Bloqueado por sustitución — registra los km sobre ${summary.blocked_by_link.plate}`
+                  ? t.blockedTooltip(summary.blocked_by_link.plate)
                   : undefined
               }
               onClick={() => setKmModal(true)}
             >
-              Registrar km
+              {t.registerKm}
             </Button>
             <Button variant="secondary" onClick={() => navigate(`/vehiculos/${vehicleId}/editar`)}>
-              Editar
+              {t.edit}
             </Button>
             {vehicle.state !== 'retired' && (
               <>
                 <Button variant="secondary" onClick={() => openOps('state')}>
-                  Cambiar estado
+                  {t.changeState}
                 </Button>
                 <Button variant="secondary" onClick={() => openOps('link')}>
-                  Sustitución
+                  {t.substitution}
                 </Button>
                 {vehicle.is_substitute && (
                   <Button
                     variant="secondary"
-                    title="El tipo se fija al crear; esta es la única vía sustituto → flota"
+                    title={t.convertToFleetTitle}
                     onClick={async () => {
                       try {
                         await convertToFleet(vehicle.id)
                         load()
                       } catch (err) {
-                        setError(asErrorMessage(err, 'No se pudo convertir en flota.'))
+                        setError(asErrorMessage(err, t.errConvertFleet))
                       }
                     }}
                   >
-                    Convertir en flota
+                    {t.convertToFleet}
                   </Button>
                 )}
                 <Button variant="danger" onClick={() => openOps('baja')}>
-                  Dar de baja
+                  {t.retire}
                 </Button>
               </>
             )}
@@ -471,33 +444,32 @@ export function VehicleDetailPage() {
 
       <div className="detail-badges">
         <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
-        {vehicle.is_substitute && <Badge tone="info">🔁 Vehículo de sustitución</Badge>}
-        {vehicle.unlimited_km && <Badge tone="info">∞ km ilimitados</Badge>}
+        {vehicle.is_substitute && <Badge tone="info">{t.substituteBadge}</Badge>}
+        {vehicle.unlimited_km && <Badge tone="info">{t.unlimitedKmBadge}</Badge>}
         {vehicle.driver_name ? (
-          <Badge tone="success">Conductor: {vehicle.driver_name}</Badge>
+          <Badge tone="success">{t.driverBadge(vehicle.driver_name)}</Badge>
         ) : (
-          <Badge tone="neutral">Sin conductor</Badge>
+          <Badge tone="neutral">{t.noDriverBadge}</Badge>
         )}
       </div>
 
       {/* N9: principal BLOQUEADO por sustitución — banner destacado. */}
       {summary?.blocked_by_link ? (
         <div className="blocked-banner" role="status">
-          🔒 Bloqueado por sustitución: {summary.blocked_by_link.reason.toLowerCase()} desde{' '}
-          {summary.blocked_by_link.since} — sustituto{' '}
+          🔒 {t.blockedBanner(summary.blocked_by_link.reason.toLowerCase(), summary.blocked_by_link.since)}{' '}
           <Link to={`/vehiculos/${summary.blocked_by_link.substitute_id}`}>
             <strong>{summary.blocked_by_link.plate}</strong>
           </Link>
-          . Las asignaciones y lecturas de km se hacen sobre el sustituto.
+          . {t.blockedBannerNote}
         </div>
       ) : (
         linkInfo && (
           <div className="link-banner">
-            {linkInfo.role === 'main' ? 'Sustituido por' : 'Sustituye a'}{' '}
+            {linkInfo.role === 'main' ? t.substitutedBy : t.substitutes}{' '}
             <Link to={`/vehiculos/${linkInfo.otherId}`}>
               <strong>{linkInfo.plate}</strong>
             </Link>{' '}
-            desde {linkInfo.since}.
+            {t.sinceDate(linkInfo.since)}
           </div>
         )
       )}
@@ -505,9 +477,9 @@ export function VehicleDetailPage() {
       {/* KPIs (HU-1.2) */}
       <div className="stat-grid">
         <StatCard
-          label="Coste mensual"
+          label={t.monthlyCost}
           value={contract?.month_fee ? eur(contract.month_fee) : '—'}
-          sub={contract?.penalty_per_km ? `Penalización ${contract.penalty_per_km} €/km` : 'Cuota del contrato'}
+          sub={contract?.penalty_per_km ? t.penaltySub(contract.penalty_per_km) : t.contractFeeSub}
           accent="navy"
         />
         {/* KPI clicable (patrón de la home): abre el modal de km con las
@@ -515,20 +487,20 @@ export function VehicleDetailPage() {
         <button
           type="button"
           className="kpi-btn"
-          title="Gestionar kilometraje"
+          title={t.manageMileage}
           onClick={() => setKmModal(true)}
         >
           <StatCard
-            label="Kilometraje"
+            label={t.mileage}
             value={summary?.km_current != null ? km(summary.km_current) : '—'}
-            sub={summary?.km_reading_date ? `Última lectura: ${summary.km_reading_date}` : 'Sin lecturas'}
+            sub={summary?.km_reading_date ? t.lastReadingSub(summary.km_reading_date) : t.noReadings}
             accent="teal"
           />
         </button>
         <StatCard
-          label="Próxima ITV"
+          label={t.nextItv}
           value={vehicle.next_itv_date ?? '—'}
-          sub={vehicle.next_itv_date ? relative(vehicle.next_itv_date) : 'Sin fecha registrada'}
+          sub={vehicle.next_itv_date ? relative(vehicle.next_itv_date) : t.noDateRecorded}
           accent={
             vehicle.next_itv_date && daysUntil(vehicle.next_itv_date) < 0
               ? 'danger'
@@ -538,12 +510,12 @@ export function VehicleDetailPage() {
           }
         />
         <StatCard
-          label="Vencimiento del seguro"
+          label={t.insuranceExpiry}
           value={vehicle.insurance_expiry_date ?? '—'}
           sub={
             vehicle.insurance_expiry_date
               ? relative(vehicle.insurance_expiry_date)
-              : 'Sin fecha registrada'
+              : t.noDateRecorded
           }
           accent={
             vehicle.insurance_expiry_date && daysUntil(vehicle.insurance_expiry_date) < 0
@@ -554,12 +526,12 @@ export function VehicleDetailPage() {
           }
         />
         <StatCard
-          label="Fin de contrato"
+          label={t.contractEnd}
           value={contract?.planned_end_date ?? '—'}
           sub={
             contract
-              ? `${contract.contract_time ? `${contract.contract_time} meses · ` : ''}${relative(contract.planned_end_date)}`
-              : 'Sin contrato vigente'
+              ? `${contract.contract_time ? `${t.months(contract.contract_time)} · ` : ''}${relative(contract.planned_end_date)}`
+              : t.noActiveContract
           }
         />
       </div>
@@ -571,18 +543,18 @@ export function VehicleDetailPage() {
         <CollapsibleCard
           id="km"
           accordion={accordion}
-          title="Kilómetros contratados"
+          title={t.contractedKmTitle}
           actions={
             view && (
               <div className="km-card-actions">
-                <div className="km-switch" role="group" aria-label="Vista de km contratados">
+                <div className="km-switch" role="group" aria-label={t.kmSwitchAria}>
                   <button
                     type="button"
                     className={kmView === 'annual' ? 'is-active' : ''}
                     aria-pressed={kmView === 'annual'}
                     onClick={() => setKmView('annual')}
                   >
-                    Anual
+                    {t.annualView}
                   </button>
                   <button
                     type="button"
@@ -590,15 +562,11 @@ export function VehicleDetailPage() {
                     aria-pressed={kmView === 'contract'}
                     onClick={() => setKmView('contract')}
                   >
-                    Contrato completo
+                    {t.contractView}
                   </button>
                 </div>
                 <Badge tone={kmLevelTone(view.level)}>
-                  {view.level === 'within'
-                    ? 'Dentro'
-                    : view.level === 'watch'
-                      ? 'A vigilar'
-                      : 'Riesgo de exceso'}
+                  {t.levelLabel[view.level] ?? t.levelLabel.over}
                 </Badge>
               </div>
             )
@@ -607,9 +575,13 @@ export function VehicleDetailPage() {
           {view && projection && (
             <p className="km-view-caption muted">
               {kmAnnual
-                ? `Cupo anual proporcional · Año ${projection.year_index + 1} de ${totalYears}` +
-                  ` (${projection.year_start_date} → ${projection.year_end_date})`
-                : `Total del contrato · ${km(contract.contract_km)} en ${totalYears} año${totalYears === 1 ? '' : 's'}`}
+                ? t.annualCaption(
+                    projection.year_index + 1,
+                    totalYears,
+                    projection.year_start_date,
+                    projection.year_end_date,
+                  )
+                : t.contractCaption(km(contract.contract_km), totalYears)}
             </p>
           )}
           {pctConsumed !== null && view && view.driven != null && (
@@ -621,30 +593,34 @@ export function VehicleDetailPage() {
                 />
               </div>
               <p className="km-progress-legend">
-                {km(view.driven)} de {km(view.limit)} ({pctConsumed}%) · quedan{' '}
-                {km(Math.max(0, view.remaining))}
-                {kmAnnual ? ' este año' : ''}
+                {t.kmProgressLegend(
+                  km(view.driven),
+                  km(view.limit),
+                  pctConsumed,
+                  km(Math.max(0, view.remaining)),
+                  kmAnnual,
+                )}
               </p>
             </>
           )}
           {view && projection && (
             <div className="km-tiles">
               <div className="km-tile">
-                <span>Media mensual</span>
+                <span>{t.monthlyAvg}</span>
                 <strong>{km(projection.monthly_avg)}</strong>
               </div>
               <div className="km-tile">
-                <span>{kmAnnual ? 'Cupo anual' : 'Ritmo contratado'}</span>
+                <span>{kmAnnual ? t.annualAllowance : t.contractedRate}</span>
                 <strong>
                   {kmAnnual
                     ? km(projection.annual_km)
                     : projection.contracted_rate
-                      ? `${km(projection.contracted_rate)}/mes`
+                      ? t.perMonth(km(projection.contracted_rate))
                       : '—'}
                 </strong>
               </div>
               <div className={`km-tile ${view.level === 'over' ? 'tile-over' : ''}`}>
-                <span>{kmAnnual ? 'Proyección anual' : 'Proyección a fin'}</span>
+                <span>{kmAnnual ? t.annualProjection : t.endProjection}</span>
                 <strong>
                   {km(view.projected)} ({view.pct}%)
                 </strong>
@@ -653,11 +629,8 @@ export function VehicleDetailPage() {
           )}
           {view && view.overage > 0 && (
             <div className="penalty-warning">
-              ⚠️ Exceso previsto {kmAnnual ? 'este año' : 'a fin de contrato'} de{' '}
-              <strong>{km(view.overage)}</strong>
-              {view.penalty
-                ? ` — penalización estimada ${eur(view.penalty)}`
-                : ' (el contrato no tiene €/km para estimar la penalización)'}
+              ⚠️ {t.overageLead(kmAnnual)} <strong>{km(view.overage)}</strong>
+              {view.penalty ? t.penaltyEstimate(eur(view.penalty)) : t.noPenaltyRate}
             </div>
           )}
           <KmChart
@@ -685,52 +658,52 @@ export function VehicleDetailPage() {
       )}
 
       <div className="detail-grid">
-        <CollapsibleCard id="tech" accordion={accordion} title="Datos técnicos">
+        <CollapsibleCard id="tech" accordion={accordion} title={t.techTitle}>
           <dl className="detail-dl">
-            <dt>Bastidor (VIN)</dt>
+            <dt>{t.vin}</dt>
             <dd>{vehicle.vin || '—'}</dd>
-            <dt>Año</dt>
+            <dt>{t.year}</dt>
             <dd>{vehicle.year ?? '—'}</dd>
-            <dt>Matriculación</dt>
+            <dt>{t.registrationDate}</dt>
             <dd>{vehicle.registration_date ?? '—'}</dd>
-            <dt>Combustible</dt>
-            <dd>{label(FUEL_LABEL, vehicle.fuel)}</dd>
-            <dt>Tipo</dt>
-            <dd>{label(TYPE_LABEL, vehicle.type)}</dd>
-            <dt>Consumo</dt>
+            <dt>{t.fuel}</dt>
+            <dd>{label(t.fuelLabel, vehicle.fuel)}</dd>
+            <dt>{t.type}</dt>
+            <dd>{label(t.typeLabel, vehicle.type)}</dd>
+            <dt>{t.consumption}</dt>
             <dd>{vehicle.consumption != null ? `${vehicle.consumption} l/100km` : '—'}</dd>
-            <dt>Odómetro inicial</dt>
+            <dt>{t.initialOdometer}</dt>
             <dd>{vehicle.km_start != null ? km(vehicle.km_start) : '—'}</dd>
-            <dt>Supervisor</dt>
+            <dt>{t.supervisor}</dt>
             <dd>{vehicle.supervisor_name || '—'}</dd>
           </dl>
         </CollapsibleCard>
 
-        <CollapsibleCard id="contract" accordion={accordion} title="Contrato">
+        <CollapsibleCard id="contract" accordion={accordion} title={t.contractTitle}>
           {contract ? (
             <dl className="detail-dl">
-              <dt>Propiedad</dt>
-              <dd>{label(PROPERTY_LABEL, vehicle.property)}</dd>
-              <dt>Cuota mensual</dt>
+              <dt>{t.ownership}</dt>
+              <dd>{label(t.propertyLabel, vehicle.property)}</dd>
+              <dt>{t.monthlyFee}</dt>
               <dd>{contract.month_fee ? eur(contract.month_fee) : '—'}</dd>
-              <dt>Inicio</dt>
+              <dt>{t.start}</dt>
               <dd>{contract.start_date}</dd>
-              <dt>Fin previsto</dt>
+              <dt>{t.plannedEnd}</dt>
               <dd>{contract.planned_end_date}</dd>
-              <dt>Duración</dt>
-              <dd>{contract.contract_time ? `${contract.contract_time} meses` : '—'}</dd>
-              <dt>Km contratados</dt>
+              <dt>{t.duration}</dt>
+              <dd>{contract.contract_time ? t.months(contract.contract_time) : '—'}</dd>
+              <dt>{t.contractedKm}</dt>
               <dd>
                 {contract.contract_km ? km(contract.contract_km) : '—'}
                 {contract.contract_km && contract.contract_time
-                  ? ` · cupo ${km(Math.round(contract.contract_km / (contract.contract_time / 12)))}/año`
+                  ? t.quotaPerYear(km(Math.round(contract.contract_km / (contract.contract_time / 12))))
                   : ''}
               </dd>
-              <dt>Penalización</dt>
+              <dt>{t.penalty}</dt>
               <dd>{contract.penalty_per_km ? `${contract.penalty_per_km} €/km` : '—'}</dd>
             </dl>
           ) : (
-            <p className="muted">Sin contrato vigente.</p>
+            <p className="muted">{t.noActiveContractDot}</p>
           )}
         </CollapsibleCard>
 
@@ -743,11 +716,11 @@ export function VehicleDetailPage() {
       <CollapsibleCard
         id="history"
         accordion={accordion}
-        title="Histórico"
+        title={t.historyTitle}
         actions={
           timeline.length > 10 && (
             <Button variant="secondary" size="sm" onClick={() => setShowAllHistory((v) => !v)}>
-              {showAllHistory ? 'Ver menos' : `Ver histórico completo (${timeline.length})`}
+              {showAllHistory ? t.showLess : t.showFullHistory(timeline.length)}
             </Button>
           )
         }
@@ -756,7 +729,7 @@ export function VehicleDetailPage() {
             click = detalle del día en modal. */}
         {isAdmin && <TimelineChart items={timeline} onSelectDay={setTimelineDay} />}
         {timeline.length === 0 ? (
-          <p className="muted">Sin eventos todavía.</p>
+          <p className="muted">{t.noEventsYet}</p>
         ) : (
           <ul className="timeline">
             {(showAllHistory ? timeline : timeline.slice(0, 10)).map((item) => (
@@ -775,74 +748,72 @@ export function VehicleDetailPage() {
       {/* G4 · Cambio de estado (HU-1.6) */}
       <Modal
         open={opsModal === 'state'}
-        title={`Cambiar estado de ${vehicle.plate}`}
+        title={t.stateModalTitle(vehicle.plate)}
         onClose={() => setOpsModal(null)}
       >
         <form className="modal-form" onSubmit={submitState}>
           <SelectField
-            label="Nuevo estado"
-            options={STATE_OPTIONS}
+            label={t.newState}
+            options={t.stateOptions}
             value={stateValue}
             onValueChange={setStateValue}
           />
           <TextInputField
-            label="Motivo (queda en el evento)"
+            label={t.stateReasonLabel}
             value={stateReason}
             onChange={(e) => setStateReason(e.target.value)}
           />
           <p className="muted" style={{ margin: 0 }}>
-            El cambio queda registrado como evento con fecha. Algunos estados también los mueve el
-            sistema (p. ej. avería desde incidencias). La baja tiene su propio flujo.
+            {t.stateModalNote}
           </p>
           {opsError && <div role="alert" className="form-error">{opsError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={opsSaving || stateValue === vehicle.state}>
-              {opsSaving ? 'Guardando…' : 'Cambiar estado'}
+              {opsSaving ? t.saving : t.changeState}
             </Button>
           </div>
         </form>
       </Modal>
 
       {/* G4 · Baja (HU-1.5) — el aviso previo es responsabilidad del front */}
-      <Modal open={opsModal === 'baja'} title={`Dar de baja ${vehicle.plate}`} onClose={() => setOpsModal(null)}>
+      <Modal open={opsModal === 'baja'} title={t.bajaModalTitle(vehicle.plate)} onClose={() => setOpsModal(null)}>
         <form className="modal-form" onSubmit={submitBaja}>
           {(vehicle.driver_name || activeLink) && (
             <div className="baja-warnings">
               {vehicle.driver_name && (
-                <p>⚠️ Tiene conductor asignado: <strong>{vehicle.driver_name}</strong>.</p>
+                <p>{t.bajaHasDriver} <strong>{vehicle.driver_name}</strong>.</p>
               )}
               {activeLink && (
-                <p>⚠️ Tiene un vínculo de sustitución <strong>activo</strong> (ciérralo antes si procede).</p>
+                <p>{t.bajaLinkWarn.pre}<strong>{t.bajaLinkWarn.bold}</strong>{t.bajaLinkWarn.post}</p>
               )}
             </div>
           )}
           <TextInputField
-            label="Fecha de baja"
+            label={t.bajaDateLabel}
             type="date"
             value={bajaDate}
             onChange={(e) => setBajaDate(e.target.value)}
             required
           />
           <TextInputField
-            label="Motivo *"
+            label={t.reasonRequired}
             value={bajaReason}
             onChange={(e) => setBajaReason(e.target.value)}
             required
           />
           <p className="muted" style={{ margin: 0 }}>
-            El vehículo pasa a <strong>baja</strong> conservando su histórico; deja de salir en el
-            listado por defecto y no admite nuevas operaciones.
+            {t.bajaNote.pre}<strong>{t.bajaNote.bold}</strong>{t.bajaNote.post}
           </p>
           {opsError && <div role="alert" className="form-error">{opsError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="danger" disabled={opsSaving}>
-              {opsSaving ? 'Guardando…' : 'Confirmar baja'}
+              {opsSaving ? t.saving : t.confirmBaja}
             </Button>
           </div>
         </form>
@@ -851,33 +822,37 @@ export function VehicleDetailPage() {
       {/* G4 · Vinculación principal ↔ sustitución (HU-1.8) */}
       <Modal
         open={opsModal === 'link'}
-        title={`Sustitución de ${vehicle.plate}`}
+        title={t.linkModalTitle(vehicle.plate)}
         onClose={() => setOpsModal(null)}
       >
         {activeLink ? (
           <div className="modal-form">
             <p style={{ margin: 0 }}>
-              Vínculo <strong>activo</strong> desde {activeLink.start_date} (
-              {LINK_REASON_LABEL[activeLink.reason] ?? activeLink.reason}):{' '}
+              {t.linkActive.pre}
+              <strong>{t.linkActive.bold}</strong>
+              {t.linkActive.post(
+                activeLink.start_date,
+                linkReasonLabel[activeLink.reason] ?? activeLink.reason,
+              )}
               <strong>{plateMap[activeLink.main_vehicle] ?? `#${activeLink.main_vehicle}`}</strong> ↔{' '}
               <strong>
                 {plateMap[activeLink.substitute_vehicle] ?? `#${activeLink.substitute_vehicle}`}
               </strong>
-              . Solo puede haber un sustituto activo por principal.
+              . {t.onlyOneSubstitute}
             </p>
             {opsError && <div role="alert" className="form-error">{opsError}</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Button variant="danger" disabled={opsSaving} onClick={handleCloseLink}>
-                {opsSaving ? 'Cerrando…' : 'Cerrar vínculo (fin hoy)'}
+                {opsSaving ? t.closing : t.closeLinkEndsToday}
               </Button>
             </div>
           </div>
         ) : (
           <form className="modal-form" onSubmit={submitLink}>
             <SelectField
-              label="Vehículo de sustitución"
+              label={t.substituteVehicle}
               options={[
-                { value: '', label: '— Elegir —' },
+                { value: '', label: t.choosePlaceholder },
                 // Los marcados como sustitución, primero.
                 ...[...candidates]
                   .sort((a, b) => Number(b.is_substitute) - Number(a.is_substitute))
@@ -890,13 +865,13 @@ export function VehicleDetailPage() {
               onValueChange={setLinkSubstitute}
             />
             <SelectField
-              label="Motivo"
-              options={LINK_REASON_OPTIONS}
+              label={t.reason}
+              options={t.linkReasonOptions}
               value={linkReason}
               onValueChange={setLinkReason}
             />
             <TextInputField
-              label="Inicio"
+              label={t.start}
               type="date"
               value={linkStart}
               onChange={(e) => setLinkStart(e.target.value)}
@@ -905,10 +880,10 @@ export function VehicleDetailPage() {
             {opsError && <div role="alert" className="form-error">{opsError}</div>}
             <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
               <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
-                Cancelar
+                {t.cancel}
               </Button>
               <Button type="submit" variant="primary" disabled={opsSaving}>
-                {opsSaving ? 'Vinculando…' : 'Vincular'}
+                {opsSaving ? t.linking : t.linkVerb}
               </Button>
             </div>
           </form>
@@ -916,14 +891,14 @@ export function VehicleDetailPage() {
 
         {allLinks.length > 0 && (
           <div className="link-history">
-            <h4>Histórico de vínculos</h4>
+            <h4>{t.linkHistoryTitle}</h4>
             <ul>
               {allLinks.map((l) => (
                 <li key={l.id}>
                   {plateMap[l.main_vehicle] ?? `#${l.main_vehicle}`} ↔{' '}
                   {plateMap[l.substitute_vehicle] ?? `#${l.substitute_vehicle}`} ·{' '}
-                  {LINK_REASON_LABEL[l.reason] ?? l.reason} · {l.start_date} →{' '}
-                  {l.end_date ?? 'activo'}
+                  {linkReasonLabel[l.reason] ?? l.reason} · {l.start_date} →{' '}
+                  {l.end_date ?? t.activeWord}
                 </li>
               ))}
             </ul>
@@ -931,7 +906,7 @@ export function VehicleDetailPage() {
         )}
       </Modal>
 
-      <Modal open={kmModal} title={`Kilometraje de ${vehicle.plate}`} onClose={() => setKmModal(false)}>
+      <Modal open={kmModal} title={t.kmModalTitle(vehicle.plate)} onClose={() => setKmModal(false)}>
         {/* Lecturas recientes (mejora 🟡): contexto antes del alta — una errata
             de un dígito se ve al momento. `readings` viene ordenado ascendente. */}
         {readings.length > 0 && (
@@ -950,12 +925,12 @@ export function VehicleDetailPage() {
         <form className="modal-form" onSubmit={handleKmSubmit}>
           {summary?.km_current != null && (
             <p className="muted" style={{ margin: 0 }}>
-              Última lectura: <strong>{km(summary.km_current)}</strong> ({summary.km_reading_date}).
-              El odómetro no puede retroceder.
+              {t.lastReadingLabel} <strong>{km(summary.km_current)}</strong> ({summary.km_reading_date}).{' '}
+              {t.odometerNote}
             </p>
           )}
           <TextInputField
-            label="Odómetro (km acumulados)"
+            label={t.odometerLabel}
             type="number"
             inputMode="numeric"
             value={kmValue}
@@ -963,7 +938,7 @@ export function VehicleDetailPage() {
             required
           />
           <TextInputField
-            label="Fecha"
+            label={t.dateLabel}
             type="date"
             value={kmDate}
             onChange={(e) => setKmDate(e.target.value)}
@@ -972,10 +947,10 @@ export function VehicleDetailPage() {
           {kmError && <div role="alert" className="form-error">{kmError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setKmModal(false)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={kmSaving}>
-              {kmSaving ? 'Guardando…' : 'Guardar lectura'}
+              {kmSaving ? t.saving : t.saveReading}
             </Button>
           </div>
         </form>

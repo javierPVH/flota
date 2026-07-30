@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge, Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
@@ -17,23 +17,9 @@ import {
 } from '../api.ts'
 import { exportCsv } from '../csv.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { useUsersCopy } from '../translations/users.ts'
 import type { Role } from '../types.ts'
 
-const LICENSE_OPTIONS = [
-  { value: '', label: '—' },
-  { value: 'B', label: 'B (turismos)' },
-  { value: 'C1', label: 'C1' },
-  { value: 'C', label: 'C (camiones)' },
-  { value: 'C+E', label: 'C+E (camión con remolque)' },
-  { value: 'D1', label: 'D1' },
-  { value: 'D', label: 'D (autobuses)' },
-]
-
-const ROLE_LABEL: Record<Role, string> = {
-  admin: 'Admin',
-  supervisor: 'Supervisor',
-  driver: 'Conductor',
-}
 const ALL_ROLES: Role[] = ['admin', 'supervisor', 'driver']
 
 interface FormState {
@@ -65,7 +51,20 @@ const EMPTY: FormState = {
 /** Gestión de conductores/usuarios (HU-2.6, solo admin). Desactivar ≠ borrar:
  * el histórico se conserva y el desactivado no sale en asignación. */
 export function UsersPage() {
+  const t = useUsersCopy()
   const confirm = useConfirm()
+  const licenseOptions = useMemo(
+    () => [
+      { value: '', label: '—' },
+      { value: 'B', label: t.licenses.B },
+      { value: 'C1', label: t.licenses.C1 },
+      { value: 'C', label: t.licenses.C },
+      { value: 'C+E', label: t.licenses.CE },
+      { value: 'D1', label: t.licenses.D1 },
+      { value: 'D', label: t.licenses.D },
+    ],
+    [t],
+  )
   const [users, setUsers] = useState<ManagedUserFull[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -96,9 +95,9 @@ export function UsersPage() {
         setUsers(rows)
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar los usuarios.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadError)))
       .finally(() => setLoading(false))
-  }, [search])
+  }, [search, t])
 
   useEffect(() => {
     const timer = setTimeout(load, 300)
@@ -152,7 +151,7 @@ export function UsersPage() {
       setModalOpen(false)
       load()
     } catch (err) {
-      setFormError(asErrorMessage(err, 'No se pudo guardar el usuario.'))
+      setFormError(asErrorMessage(err, t.saveError))
     } finally {
       setSaving(false)
     }
@@ -163,8 +162,8 @@ export function UsersPage() {
       if (user.is_active) {
         if (
           !(await confirm({
-            message: `¿Desactivar a ${user.name}? No podrá entrar ni salir en asignaciones; su histórico se conserva.`,
-            confirmLabel: 'Desactivar',
+            message: t.confirmDeactivate(user.name),
+            confirmLabel: t.deactivate,
             tone: 'warning',
           }))
         )
@@ -175,7 +174,7 @@ export function UsersPage() {
       }
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo cambiar el estado del usuario.'))
+      setError(asErrorMessage(err, t.toggleError))
     }
   }
 
@@ -184,7 +183,7 @@ export function UsersPage() {
   const columns: Array<TableWithPanelColumn<ManagedUserFull>> = [
     {
       key: 'name',
-      label: 'Nombre',
+      label: t.columns.name,
       getValue: (u) => `${u.name} ${u.username}`,
       render: (u) => (
         <>
@@ -197,13 +196,13 @@ export function UsersPage() {
     },
     {
       key: 'dni',
-      label: 'DNI',
+      label: t.columns.dni,
       getValue: (u) => u.dni ?? '',
       render: (u) => u.dni ?? '—',
     },
     {
       key: 'contact',
-      label: 'Contacto',
+      label: t.columns.contact,
       getValue: (u) => `${u.email} ${u.phone}`,
       render: (u) => (
         <>
@@ -214,41 +213,41 @@ export function UsersPage() {
     },
     {
       key: 'license_type',
-      label: 'Permiso',
+      label: t.columns.license,
       getValue: (u) => u.license_type,
       render: (u) => u.license_type || '—',
     },
     {
       key: 'fuel_card',
-      label: 'Tarjeta',
-      getValue: (u) => (u.fuel_card ? 'Sí' : 'No'),
-      render: (u) => (u.fuel_card ? '⛽ Sí' : 'No'),
+      label: t.columns.fuelCard,
+      getValue: (u) => (u.fuel_card ? t.yes : t.no),
+      render: (u) => (u.fuel_card ? t.fuelYes : t.no),
     },
     {
       key: 'roles',
-      label: 'Roles',
-      getValue: (u) => u.roles.map((r) => ROLE_LABEL[r] ?? r).join(' · '),
-      render: (u) => u.roles.map((r) => ROLE_LABEL[r] ?? r).join(' · ') || '—',
+      label: t.columns.roles,
+      getValue: (u) => u.roles.map((r) => t.roles[r] ?? r).join(' · '),
+      render: (u) => u.roles.map((r) => t.roles[r] ?? r).join(' · ') || '—',
     },
     {
       key: 'is_active',
-      label: 'Estado',
-      getValue: (u) => (u.is_active ? 'Activo' : 'Desactivado'),
+      label: t.columns.status,
+      getValue: (u) => (u.is_active ? t.active : t.inactive),
       render: (u) => (
         <Badge tone={u.is_active ? 'success' : 'neutral'}>
-          {u.is_active ? 'Activo' : 'Desactivado'}
+          {u.is_active ? t.active : t.inactive}
         </Badge>
       ),
     },
     {
       key: 'actions',
-      label: 'Acciones',
+      label: t.columns.actions,
       align: 'right',
       searchable: false,
       sortable: false,
       render: (u) => (
         <div className="row-actions">
-          <IconButton aria-label="Editar" title="Editar" onClick={() => openEdit(u)}>
+          <IconButton aria-label={t.edit} title={t.edit} onClick={() => openEdit(u)}>
             <Pencil size={15} />
           </IconButton>
           <Button
@@ -256,7 +255,7 @@ export function UsersPage() {
             size="sm"
             onClick={() => toggleActive(u)}
           >
-            {u.is_active ? 'Desactivar' : 'Reactivar'}
+            {u.is_active ? t.deactivate : t.reactivate}
           </Button>
         </div>
       ),
@@ -266,8 +265,8 @@ export function UsersPage() {
   return (
     <div>
       <PageHeader
-        title="Conductores y usuarios"
-        subtitle="Altas, roles y estado de las personas de la flota."
+        title={t.title}
+        subtitle={t.subtitle}
         actions={
           <>
             <Button
@@ -275,10 +274,10 @@ export function UsersPage() {
               disabled={rows.length === 0}
               onClick={() => exportCsv('usuarios', columns, rows)}
             >
-              <Download size={16} aria-hidden /> Exportar CSV
+              <Download size={16} aria-hidden /> {t.exportCsv}
             </Button>
             <Button variant="primary" onClick={openCreate}>
-              Nuevo usuario
+              {t.newUser}
             </Button>
           </>
         }
@@ -288,7 +287,7 @@ export function UsersPage() {
         <input
           className="search-input"
           type="search"
-          placeholder="Buscar nombre, usuario, email o DNI…"
+          placeholder={t.searchPlaceholder}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -298,14 +297,14 @@ export function UsersPage() {
             checked={showInactive}
             onChange={(e) => setShowInactive(e.target.checked)}
           />
-          Mostrar desactivados
+          {t.showInactive}
         </label>
       </div>
 
       {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p className="loading-state" role="status">Cargando…</p>
+        <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<ManagedUserFull>
           rows={rows}
@@ -316,19 +315,19 @@ export function UsersPage() {
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel="Sin usuarios con estos filtros."
+          emptyStateLabel={t.empty}
         />
       )}
 
       <Modal
         open={modalOpen}
-        title={editing ? `Editar ${editing.name}` : 'Nuevo usuario'}
+        title={editing ? t.modalEdit(editing.name) : t.modalNew}
         onClose={() => setModalOpen(false)}
       >
         <form className="modal-form" onSubmit={handleSubmit}>
           <div className="form-grid">
             <TextInputField
-              label="Usuario"
+              label={t.fUsername}
               requiredVisual
               value={form.username}
               onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
@@ -336,44 +335,44 @@ export function UsersPage() {
               disabled={Boolean(editing)}
             />
             <TextInputField
-              label="Email"
+              label={t.fEmail}
               type="email"
               value={form.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
             />
             <TextInputField
-              label="Nombre"
+              label={t.fFirstName}
               value={form.first_name}
               onChange={(e) => setForm((f) => ({ ...f, first_name: e.target.value }))}
             />
             <TextInputField
-              label="Apellidos"
+              label={t.fLastName}
               value={form.last_name}
               onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))}
             />
             <TextInputField
-              label="DNI"
+              label={t.fDni}
               value={form.dni}
               onChange={(e) => setForm((f) => ({ ...f, dni: e.target.value }))}
             />
             <TextInputField
-              label="Teléfono"
+              label={t.fPhone}
               value={form.phone}
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
             />
             <SelectField
-              label="Tipo de permiso"
-              options={LICENSE_OPTIONS}
+              label={t.fLicenseType}
+              options={licenseOptions}
               value={form.license_type}
               onValueChange={(value) => setForm((f) => ({ ...f, license_type: value }))}
             />
             <TextInputField
               label={
                 editing
-                  ? 'Nueva contraseña (opcional)'
+                  ? t.fPasswordNew
                   : passwordRequiredOnCreate
-                    ? 'Contraseña'
-                    : 'Contraseña (opcional)'
+                    ? t.fPassword
+                    : t.fPasswordOptional
               }
               type="password"
               value={form.password}
@@ -390,10 +389,10 @@ export function UsersPage() {
               checked={form.fuel_card}
               onChange={(e) => setForm((f) => ({ ...f, fuel_card: e.target.checked }))}
             />
-            Tiene tarjeta de combustible
+            {t.fuelCardToggle}
           </label>
           <div className="roles-picker">
-            <span className="doc-attach-label">Roles</span>
+            <span className="doc-attach-label">{t.rolesLabel}</span>
             {ALL_ROLES.map((role) => (
               <label key={role} className="baja-toggle">
                 <input
@@ -408,24 +407,22 @@ export function UsersPage() {
                     }))
                   }
                 />
-                {ROLE_LABEL[role]}
+                {t.roles[role]}
               </label>
             ))}
           </div>
           {!editing && (
             <p className="muted" style={{ margin: 0 }}>
-              {passwordRequiredOnCreate
-                ? 'Obligatoria: es el único método de acceso (login con Google desactivado). Mínimo 8 caracteres; evita contraseñas comunes o solo numéricas.'
-                : 'Sin contraseña, el usuario solo podrá entrar con Google.'}
+              {passwordRequiredOnCreate ? t.passwordRequiredHint : t.passwordOptionalHint}
             </p>
           )}
           {formError && <div role="alert" className="form-error">{formError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? 'Guardando…' : 'Guardar'}
+              {saving ? t.saving : t.save}
             </Button>
           </div>
         </form>

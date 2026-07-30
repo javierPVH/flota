@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Button, Modal, PageHeader, Panel, SelectField, TextInputField } from '@flota/ui/ui'
-import { asErrorMessage } from '@flota/ui/http'
+import { ApiError, asErrorMessage } from '@flota/ui/http'
+
+import { useVehicleFormCopy, type VehicleFormCopy } from '../translations/vehicleForm.ts'
 
 import {
   createCatalogEntry,
@@ -18,76 +20,25 @@ import {
 } from '../api.ts'
 import type { Driver, Vehicle } from '../types.ts'
 
-// Listas cerradas del back (etiquetas locales; el serializer valida).
-const FUEL_OPTIONS = [
-  { value: 'gasoline', label: 'Gasolina' },
-  { value: 'diesel', label: 'Diésel' },
-  { value: 'LPG', label: 'GLP' },
-  { value: 'hybrid', label: 'Híbrido' },
-  { value: 'other', label: 'Otro' },
-]
-const TYPE_OPTIONS = [
-  { value: 'car', label: 'Turismo' },
-  { value: 'van', label: 'Furgoneta' },
-  { value: 'truck', label: 'Camión' },
-  { value: 'motorcycle', label: 'Motocicleta' },
-]
-const SIZE_OPTIONS = [
-  { value: '', label: '—' },
-  { value: 'small', label: 'Pequeño' },
-  { value: 'medium', label: 'Mediano' },
-  { value: 'big', label: 'Grande' },
-]
-const SEGMENT_OPTIONS = [
-  { value: '', label: '—' },
-  { value: 'mini', label: 'Mini' },
-  { value: 'supermini', label: 'Supermini' },
-  { value: 'med_low', label: 'Mediano inferior' },
-  { value: 'med_sup', label: 'Mediano superior' },
-  { value: 'executive', label: 'Ejecutivo' },
-  { value: 'luxury', label: 'Lujo' },
-]
-const VEH_USE_OPTIONS = [
-  { value: '', label: '—' },
-  { value: 'passengers', label: 'Pasajeros' },
-  { value: 'freight', label: 'Mercancía' },
-]
-const BUSINESS_USE_OPTIONS = [
-  { value: 'personal', label: 'Personal' },
-  { value: 'works', label: 'Obras' },
-  { value: 'on_project', label: 'Proyecto' },
-]
-const PROPERTY_OPTIONS = [
-  { value: 'propio', label: 'Propio' },
-  { value: 'renting', label: 'Renting' },
-]
+// Listas cerradas del back (etiquetas i18n del diccionario; el serializer valida).
+function toOptions(labels: Record<string, string>) {
+  return Object.entries(labels).map(([value, label]) => ({ value, label }))
+}
+function closedListOptions(t: VehicleFormCopy) {
+  const empty = { value: '', label: '—' }
+  return {
+    fuel: toOptions(t.fuelLabels),
+    type: toOptions(t.typeLabels),
+    size: [empty, ...toOptions(t.sizeLabels)],
+    segment: [empty, ...toOptions(t.segmentLabels)],
+    vehUse: [empty, ...toOptions(t.vehUseLabels)],
+    businessUse: toOptions(t.businessUseLabels),
+    property: toOptions(t.propertyLabels),
+  }
+}
 
 // Campos del vehículo que emiten evento al cambiar (HU-1.4): badge `histórico`.
 const HISTORIC_FIELDS = new Set(['business_use', 'project', 'cost_center'])
-
-// Etiquetas legibles del diff del preview.
-const FIELD_LABEL: Record<string, string> = {
-  plate: 'Matrícula',
-  vin: 'Bastidor (VIN)',
-  brand: 'Marca',
-  model: 'Modelo',
-  version: 'Versión',
-  year: 'Año',
-  fuel: 'Combustible',
-  type: 'Tipo',
-  size: 'Tamaño',
-  market_segment: 'Segmento',
-  veh_use: 'Uso pasajeros/mercancía',
-  consumption: 'Consumo',
-  business_use: 'Tipo de uso',
-  project: 'Proyecto',
-  business_unit: 'Unidad de negocio',
-  cost_center: 'CECO',
-  country: 'País',
-  property: 'Propiedad',
-  supervisor: 'Supervisor',
-  registration_date: 'Matriculación',
-}
 
 interface FormState {
   plate: string
@@ -254,13 +205,14 @@ function catalogOptions(entries: CatalogEntry[], empty = '—') {
 }
 
 function FieldBadge({ kind }: { kind: 'historic' | 'locked' }) {
+  const t = useVehicleFormCopy()
   return kind === 'historic' ? (
-    <span className="field-badge historic" title="Su cambio queda registrado como evento">
-      histórico
+    <span className="field-badge historic" title={t.historicBadgeTitle}>
+      {t.historicBadge}
     </span>
   ) : (
-    <span className="field-badge locked" title="Tiene un flujo propio; no se edita aquí">
-      bloqueado
+    <span className="field-badge locked" title={t.lockedBadgeTitle}>
+      {t.lockedBadge}
     </span>
   )
 }
@@ -280,6 +232,8 @@ export function VehicleFormPage() {
   const editing = id !== undefined
   const vehicleId = editing ? Number(id) : null
   const navigate = useNavigate()
+  const t = useVehicleFormCopy()
+  const opts = useMemo(() => closedListOptions(t), [t])
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY)
@@ -347,7 +301,7 @@ export function VehicleFormPage() {
         setForm(state)
         setInitial(state)
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar el vehículo.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadError)))
   }, [vehicleId])
 
   const set = (key: keyof FormState) => (value: string) =>
@@ -380,7 +334,7 @@ export function VehicleFormPage() {
         const result = await previewVehicle(vehicleId, changedPayload())
         setPreview(result.changes)
       } catch (err) {
-        setError(asErrorMessage(err, 'No se pudo previsualizar los cambios.'))
+        setError(asErrorMessage(err, t.previewError))
       }
       return
     }
@@ -405,7 +359,7 @@ export function VehicleFormPage() {
       const created = await createVehicleFull(payload)
       navigate(`/vehiculos/${created.id}`, { replace: true })
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo crear el vehículo (no se ha guardado nada).'))
+      setError(asErrorMessage(err, t.createError))
     } finally {
       setSaving(false)
     }
@@ -424,10 +378,10 @@ export function VehicleFormPage() {
       navigate(`/vehiculos/${vehicleId}`, { replace: true })
     } catch (err) {
       setPreview(null)
-      const message = asErrorMessage(err, 'No se pudo guardar.')
-      // Detail del 409 del back: "El registro ha cambiado desde que lo cargaste…"
-      if (message.includes('ha cambiado desde que lo cargaste')) setConflict(true)
-      else setError(message)
+      // BG9: el 409 (bloqueo optimista) se decide por status, no por el texto
+      // del detail — el sniffing de mensaje se rompe al traducir.
+      if (err instanceof ApiError && err.status === 409) setConflict(true)
+      else setError(asErrorMessage(err, t.saveError))
     } finally {
       setSaving(false)
     }
@@ -435,35 +389,31 @@ export function VehicleFormPage() {
 
   const onProject = form.business_use === 'on_project'
   const isRenting = form.property === 'renting'
-  const title = editing ? `Editar ${vehicle?.plate ?? ''}` : 'Nuevo vehículo'
+  const title = editing ? t.editTitle(vehicle?.plate ?? '') : t.newTitle
 
-  if (editing && !vehicle && !error) return <p className="loading-state" role="status">Cargando…</p>
+  if (editing && !vehicle && !error) return <p className="loading-state" role="status">{t.loading}</p>
 
   return (
     <div className="vehicle-form">
       <PageHeader
-        breadcrumb={<Link to={editing && vehicleId ? `/vehiculos/${vehicleId}` : '/'}>← Volver</Link>}
+        breadcrumb={<Link to={editing && vehicleId ? `/vehiculos/${vehicleId}` : '/'}>{t.back}</Link>}
         title={title}
-        subtitle={
-          editing
-            ? 'Edita la ficha; los cambios se revisan antes de guardar.'
-            : 'Alta transaccional: si algo falla, no se crea nada.'
-        }
+        subtitle={editing ? t.editSubtitle : t.newSubtitle}
       />
 
       {editing && (
         <Panel tone="info" className="form-banner">
-          Los campos <span className="field-badge historic">histórico</span> registran un evento al
-          cambiar; los <span className="field-badge locked">bloqueado</span> tienen flujo propio
-          (el kilometraje va por lecturas y el conductor por «Cambiar conductor»).
+          {t.bannerFieldsPrefix} <span className="field-badge historic">{t.historicBadge}</span>{' '}
+          {t.bannerHistoricNote} <span className="field-badge locked">{t.lockedBadge}</span>{' '}
+          {t.bannerLockedNote}
         </Panel>
       )}
 
       {conflict && (
         <Panel tone="warning" className="form-banner">
-          La ficha cambió mientras editabas (otra sesión guardó antes).{' '}
+          {t.conflictBanner}{' '}
           <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>
-            Recargar con los datos actuales
+            {t.conflictReload}
           </Button>
         </Panel>
       )}
@@ -472,14 +422,14 @@ export function VehicleFormPage() {
         {/* N9: el tipo se elige AL CREAR y queda fijado (sustituto→flota va por
             la acción 'Convertir en flota' de la ficha; la inversa, prohibida). */}
         <section className="card">
-          <h3>Tipo de vehículo</h3>
+          <h3>{t.typeSectionTitle}</h3>
           {editing ? (
             <p className="muted">
-              {form.is_substitute ? '🔁 Vehículo de sustitución' : 'Vehículo de flota'} — el tipo
-              se fija al crear. {form.is_substitute && 'Puede convertirse en flota desde su ficha.'}
+              {form.is_substitute ? t.substituteVehicle : t.fleetVehicle} {t.typeFixedNote}{' '}
+              {form.is_substitute && t.convertibleNote}
             </p>
           ) : (
-            <div className="type-switch" role="radiogroup" aria-label="Tipo de vehículo">
+            <div className="type-switch" role="radiogroup" aria-label={t.typeAria}>
               <label className="baja-toggle">
                 <input
                   type="radio"
@@ -487,7 +437,7 @@ export function VehicleFormPage() {
                   checked={!form.is_substitute}
                   onChange={() => setForm((f) => ({ ...f, is_substitute: false }))}
                 />
-                Flota
+                {t.fleetOption}
               </label>
               <label className="baja-toggle">
                 <input
@@ -496,27 +446,27 @@ export function VehicleFormPage() {
                   checked={form.is_substitute}
                   onChange={() => setForm((f) => ({ ...f, is_substitute: true }))}
                 />
-                🔁 Sustitución
+                {t.substituteOption}
               </label>
             </div>
           )}
           {form.is_substitute && (
             <p className="substitute-note">
-              Estás creando un <strong>vehículo de sustitución</strong>: cubrirá temporalmente a
-              coches de flota en avería/taller/ITV. Solo puede cubrir uno a la vez.
+              {t.substituteNotePrefix} <strong>{t.substituteNoteStrong}</strong>
+              {t.substituteNoteSuffix}
             </p>
           )}
         </section>
         <section className="card">
-          <h3>Identificación{form.is_substitute && <span className="substitute-badge">🔁 Sustitución</span>}</h3>
+          <h3>{t.identificationTitle}{form.is_substitute && <span className="substitute-badge">{t.substituteBadge}</span>}</h3>
           <div className="form-grid">
-            <TextInputField label="Matrícula" requiredVisual value={form.plate} onChange={setInput('plate')} required />
-            <TextInputField label="Bastidor (VIN)" value={form.vin} onChange={setInput('vin')} />
+            <TextInputField label={t.plate} requiredVisual value={form.plate} onChange={setInput('plate')} required />
+            <TextInputField label={t.vin} value={form.vin} onChange={setInput('vin')} />
             <SelectField
-              label="Marca"
+              label={t.brand}
               requiredVisual
               required
-              options={catalogOptions(brands, '— Elegir marca —')}
+              options={catalogOptions(brands, t.chooseBrand)}
               value={form.brand_ref}
               onValueChange={(value) =>
                 // Cambiar de marca invalida el modelo elegido (dependiente).
@@ -525,12 +475,12 @@ export function VehicleFormPage() {
             />
             <div className="field-with-badge">
               <SelectField
-                label="Modelo"
+                label={t.model}
                 requiredVisual
                 required
                 options={catalogOptions(
                   models,
-                  form.brand_ref ? '— Elegir modelo —' : 'Elige antes la marca',
+                  form.brand_ref ? t.chooseModel : t.chooseBrandFirst,
                 )}
                 value={form.model_ref}
                 onValueChange={set('model_ref')}
@@ -541,20 +491,20 @@ export function VehicleFormPage() {
                 variant="secondary"
                 size="sm"
                 disabled={!form.brand_ref}
-                title="Añadir un modelo nuevo a esta marca"
+                title={t.newModelButtonTitle}
                 onClick={() => {
                   setNewModelName('')
                   setAddModelError('')
                   setAddingModel(true)
                 }}
               >
-                + Nuevo
+                {t.newModelButton}
               </Button>
             </div>
-            <TextInputField label="Versión" value={form.version} onChange={setInput('version')} />
-            <TextInputField label="Año" type="number" value={form.year} onChange={setInput('year')} />
+            <TextInputField label={t.version} value={form.version} onChange={setInput('version')} />
+            <TextInputField label={t.year} type="number" value={form.year} onChange={setInput('year')} />
             <TextInputField
-              label="Matriculación"
+              label={t.registrationDate}
               type="date"
               value={form.registration_date}
               onChange={setInput('registration_date')}
@@ -563,62 +513,60 @@ export function VehicleFormPage() {
         </section>
 
         <section className="card">
-          <h3>Características técnicas{form.is_substitute && <span className="substitute-badge">🔁 Sustitución</span>}</h3>
+          <h3>{t.technicalTitle}{form.is_substitute && <span className="substitute-badge">{t.substituteBadge}</span>}</h3>
           <div className="form-grid">
-            <SelectField label="Combustible" requiredVisual options={FUEL_OPTIONS} value={form.fuel} onValueChange={set('fuel')} />
-            <SelectField label="Tipo" requiredVisual options={TYPE_OPTIONS} value={form.type} onValueChange={set('type')} />
-            <SelectField label="Tamaño" options={SIZE_OPTIONS} value={form.size} onValueChange={set('size')} />
+            <SelectField label={t.fuel} requiredVisual options={opts.fuel} value={form.fuel} onValueChange={set('fuel')} />
+            <SelectField label={t.type} requiredVisual options={opts.type} value={form.type} onValueChange={set('type')} />
+            <SelectField label={t.size} options={opts.size} value={form.size} onValueChange={set('size')} />
             <SelectField
-              label="Segmento"
-              options={SEGMENT_OPTIONS}
+              label={t.segment}
+              options={opts.segment}
               value={form.market_segment}
               onValueChange={set('market_segment')}
             />
             <SelectField
-              label="Uso pasajeros/mercancía"
-              options={VEH_USE_OPTIONS}
+              label={t.vehUse}
+              options={opts.vehUse}
               value={form.veh_use}
               onValueChange={set('veh_use')}
             />
             <TextInputField
-              label="Consumo (l/100km)"
+              label={t.consumption}
               type="number"
               value={form.consumption}
               onChange={setInput('consumption')}
             />
             <Labeled badge={editing ? 'locked' : undefined}>
               <TextInputField
-                label="Odómetro inicial (km)"
+                label={t.kmStart}
                 type="number"
                 value={form.km_start}
                 onChange={setInput('km_start')}
                 disabled={editing}
-                title={editing ? 'El kilometraje se actualiza registrando lecturas' : undefined}
+                title={editing ? t.kmStartLockedTitle : undefined}
               />
             </Labeled>
           </div>
-          {!editing && (
-            <p className="muted">El odómetro inicial crea la primera lectura de km del vehículo.</p>
-          )}
+          {!editing && <p className="muted">{t.kmStartNote}</p>}
         </section>
 
         <section className="card">
-          <h3>Uso y asignación{form.is_substitute && <span className="substitute-badge">🔁 Sustitución</span>}</h3>
+          <h3>{t.usageTitle}{form.is_substitute && <span className="substitute-badge">{t.substituteBadge}</span>}</h3>
           <div className="form-grid">
             <Labeled badge={editing ? 'historic' : undefined}>
               <SelectField
-                label="Tipo de uso"
+                label={t.businessUse}
                 requiredVisual
-                options={BUSINESS_USE_OPTIONS}
+                options={opts.businessUse}
                 value={form.business_use}
                 onValueChange={set('business_use')}
               />
             </Labeled>
             <Labeled badge={editing ? 'historic' : undefined}>
               <SelectField
-                label="Proyecto"
+                label={t.project}
                 requiredVisual={onProject}
-                options={catalogOptions(projects, onProject ? '— Elegir —' : '— (solo uso Proyecto)')}
+                options={catalogOptions(projects, onProject ? t.choose : t.projectOnlyUse)}
                 value={form.project}
                 onValueChange={(value) => {
                   set('project')(value)
@@ -636,42 +584,42 @@ export function VehicleFormPage() {
             </Labeled>
             <Labeled badge={editing ? 'locked' : undefined}>
               <SelectField
-                label="Conductor"
+                label={t.driver}
                 options={[
-                  { value: '', label: 'Sin asignar' },
+                  { value: '', label: t.unassigned },
                   ...drivers.map((d) => ({ value: String(d.id), label: d.name })),
                 ]}
                 value={form.driver}
                 onValueChange={set('driver')}
                 disabled={editing}
-                title={editing ? 'El conductor se cambia desde la ficha (Cambiar conductor)' : undefined}
+                title={editing ? t.driverLockedTitle : undefined}
               />
             </Labeled>
             <SelectField
-              label="Supervisor"
+              label={t.supervisor}
               options={[
-                { value: '', label: 'Sin supervisor' },
+                { value: '', label: t.noSupervisor },
                 ...supervisors.map((u) => ({ value: String(u.id), label: u.name })),
               ]}
               value={form.supervisor}
               onValueChange={set('supervisor')}
             />
             <SelectField
-              label="Unidad de negocio"
+              label={t.businessUnit}
               options={catalogOptions(units)}
               value={form.business_unit}
               onValueChange={set('business_unit')}
             />
             <Labeled badge={editing ? 'historic' : undefined}>
               <SelectField
-                label="CECO"
+                label={t.costCenter}
                 options={catalogOptions(peps)}
                 value={form.cost_center}
                 onValueChange={set('cost_center')}
               />
             </Labeled>
             <SelectField
-              label="País"
+              label={t.country}
               options={catalogOptions(countries)}
               value={form.country}
               onValueChange={set('country')}
@@ -680,28 +628,28 @@ export function VehicleFormPage() {
         </section>
 
         <section className="card">
-          <h3>Propiedad y contrato{form.is_substitute && <span className="substitute-badge">🔁 Sustitución</span>}</h3>
+          <h3>{t.propertyTitle}{form.is_substitute && <span className="substitute-badge">{t.substituteBadge}</span>}</h3>
           <div className="form-grid">
             <SelectField
-              label="Propiedad"
+              label={t.property}
               requiredVisual
-              options={PROPERTY_OPTIONS}
+              options={opts.property}
               value={form.property}
               onValueChange={set('property')}
             />
             <SelectField
-              label="Sociedad"
-              options={catalogOptions(companies, '— Sin sociedad —')}
+              label={t.company}
+              options={catalogOptions(companies, t.noCompany)}
               value={form.company}
               onValueChange={set('company')}
             />
             <TextInputField
-              label="Vencimiento del seguro"
+              label={t.insuranceExpiry}
               type="date"
               value={form.insurance_expiry_date}
               onChange={setInput('insurance_expiry_date')}
             />
-            <label className="baja-toggle" title="Sin proyección de km ni alertas de exceso">
+            <label className="baja-toggle" title={t.unlimitedKmTitle}>
               <input
                 type="checkbox"
                 checked={form.unlimited_km}
@@ -714,54 +662,54 @@ export function VehicleFormPage() {
                   }))
                 }
               />
-              Km ilimitados (sin proyección)
+              {t.unlimitedKm}
             </label>
             {!editing && isRenting && (
               <>
                 <SelectField
-                  label="Compañía de renting"
+                  label={t.rentingCompany}
                   options={catalogOptions(rentings)}
                   value={form.renting}
                   onValueChange={set('renting')}
                 />
                 <TextInputField
-                  label="Nº de contrato"
+                  label={t.contractNumber}
                   value={form.contract_number}
                   onChange={setInput('contract_number')}
                 />
                 <TextInputField
-                  label="Duración (meses)"
+                  label={t.contractTime}
                   type="number"
                   value={form.contract_time}
                   onChange={setInput('contract_time')}
                 />
                 <TextInputField
-                  label="Km contratados"
+                  label={t.contractKm}
                   type="number"
                   value={form.contract_km}
                   onChange={setInput('contract_km')}
                   disabled={form.unlimited_km}
                 />
                 <TextInputField
-                  label="Cuota mensual (€)"
+                  label={t.monthFee}
                   type="number"
                   value={form.month_fee}
                   onChange={setInput('month_fee')}
                 />
                 <TextInputField
-                  label="Penalización (€/km)"
+                  label={t.penaltyPerKm}
                   type="number"
                   value={form.penalty_per_km}
                   onChange={setInput('penalty_per_km')}
                 />
                 <TextInputField
-                  label="Inicio del contrato"
+                  label={t.contractStart}
                   type="date"
                   value={form.contract_start}
                   onChange={setInput('contract_start')}
                 />
                 <TextInputField
-                  label="Fin previsto"
+                  label={t.contractEnd}
                   type="date"
                   value={form.contract_end}
                   onChange={setInput('contract_end')}
@@ -770,16 +718,9 @@ export function VehicleFormPage() {
             )}
           </div>
           {editing ? (
-            <p className="muted">
-              El contrato vigente se consulta en la ficha; los cambios de cuota se registran como
-              evento (G8) y los contratos tienen su propio CRUD.
-            </p>
+            <p className="muted">{t.contractEditNote}</p>
           ) : (
-            isRenting && (
-              <p className="muted">
-                El contrato se crea junto al vehículo: si algo falla, no se guarda nada.
-              </p>
-            )
+            isRenting && <p className="muted">{t.contractCreateNote}</p>
           )}
         </section>
 
@@ -787,7 +728,7 @@ export function VehicleFormPage() {
 
         <div className="form-footer">
           <span className="muted">
-            {editing ? (dirty ? 'Hay cambios sin guardar.' : 'Sin cambios todavía.') : ''}
+            {editing ? (dirty ? t.unsavedChanges : t.noChangesYet) : ''}
           </span>
           <div style={{ display: 'flex', gap: '0.6rem' }}>
             <Button
@@ -795,10 +736,10 @@ export function VehicleFormPage() {
               variant="secondary"
               onClick={() => navigate(editing && vehicleId ? `/vehiculos/${vehicleId}` : '/')}
             >
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={saving || (editing && !dirty)}>
-              {saving ? 'Guardando…' : editing ? 'Revisar cambios…' : 'Crear vehículo'}
+              {saving ? t.saving : editing ? t.reviewChanges : t.createVehicle}
             </Button>
           </div>
         </div>
@@ -807,18 +748,18 @@ export function VehicleFormPage() {
       {/* Preview de cambios (HU-1.4): confirmar antes de guardar */}
       <Modal
         open={preview !== null}
-        title="Confirmar cambios"
+        title={t.confirmChanges}
         onClose={() => setPreview(null)}
       >
         {preview && Object.keys(preview).length === 0 ? (
-          <p className="muted">El servidor no detecta cambios efectivos.</p>
+          <p className="muted">{t.noEffectiveChanges}</p>
         ) : (
           <table className="data preview-table">
             <thead>
               <tr>
-                <th>Campo</th>
-                <th>Antes</th>
-                <th>Después</th>
+                <th>{t.fieldCol}</th>
+                <th>{t.beforeCol}</th>
+                <th>{t.afterCol}</th>
               </tr>
             </thead>
             <tbody>
@@ -826,7 +767,7 @@ export function VehicleFormPage() {
                 Object.entries(preview).map(([field, [before, after]]) => (
                   <tr key={field}>
                     <td>
-                      {FIELD_LABEL[field] ?? field}
+                      {t.fieldLabels[field] ?? field}
                       {HISTORIC_FIELDS.has(field) && <FieldBadge kind="historic" />}
                     </td>
                     <td>{String(before ?? '—')}</td>
@@ -840,14 +781,14 @@ export function VehicleFormPage() {
         )}
         <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
           <Button variant="secondary" onClick={() => setPreview(null)}>
-            Seguir editando
+            {t.keepEditing}
           </Button>
           <Button
             variant="primary"
             disabled={saving || !preview || Object.keys(preview).length === 0}
             onClick={confirmSave}
           >
-            {saving ? 'Guardando…' : 'Guardar cambios'}
+            {saving ? t.saving : t.saveChanges}
           </Button>
         </div>
       </Modal>
@@ -855,7 +796,9 @@ export function VehicleFormPage() {
       {/* N5: alta rápida de modelo para la marca elegida (solo admin en el back). */}
       <Modal
         open={addingModel}
-        title={`Nuevo modelo de ${brands.find((b) => String(b.id) === form.brand_ref)?.name ?? 'la marca'}`}
+        title={t.newModelTitle(
+          brands.find((b) => String(b.id) === form.brand_ref)?.name ?? t.theBrandFallback,
+        )}
         onClose={() => setAddingModel(false)}
       >
         <form
@@ -873,12 +816,12 @@ export function VehicleFormPage() {
               setForm((f) => ({ ...f, model_ref: String(created.id) }))
               setAddingModel(false)
             } catch (err) {
-              setAddModelError(asErrorMessage(err, 'No se pudo crear el modelo.'))
+              setAddModelError(asErrorMessage(err, t.createModelError))
             }
           }}
         >
           <TextInputField
-            label="Nombre del modelo"
+            label={t.modelName}
             value={newModelName}
             onChange={(e) => setNewModelName(e.target.value)}
             required
@@ -886,10 +829,10 @@ export function VehicleFormPage() {
           {addModelError && <div role="alert" className="form-error">{addModelError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setAddingModel(false)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={!newModelName.trim()}>
-              Crear y seleccionar
+              {t.createAndSelect}
             </Button>
           </div>
         </form>

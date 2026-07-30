@@ -26,16 +26,13 @@ import {
   type EmailSignatureRow,
   type EmailTemplateRow,
 } from '../api.ts'
+import { useAppLang } from '@flota/ui/i18n'
+
 import { fmtDate } from '../format.ts'
-import { useLang } from '../i18n.tsx'
+import { useEmailTemplatesCopy } from '../translations/emailTemplates.ts'
 
 // Tipos de plantilla (lista cerrada del back). Se crean bajo demanda.
-const TEMPLATE_KEYS: Array<{ key: string; label: string }> = [
-  { key: 'insurance_due', label: 'Seguro (a la empresa de renting)' },
-  { key: 'km_overage', label: 'Exceso de km (al conductor)' },
-  { key: 'km_reading_pending', label: 'Lectura pendiente (al conductor)' },
-  { key: 'generic', label: 'Genérica' },
-]
+const TEMPLATE_KEYS = ['insurance_due', 'km_overage', 'km_reading_pending', 'generic']
 
 // Variables interpolables (allowlist del back — mailer.ALLOWED_VARIABLES).
 const VARIABLES = [
@@ -54,7 +51,8 @@ const VARIABLES = [
  * El HTML se sanea SIEMPRE en servidor (nh3) al guardar.
  */
 export function EmailTemplatesPage() {
-  const { language } = useLang()
+  const t = useEmailTemplatesCopy()
+  const lang = useAppLang()
   const [templates, setTemplates] = useState<EmailTemplateRow[]>([])
   const [signatures, setSignatures] = useState<EmailSignatureRow[]>([])
   const [logs, setLogs] = useState<EmailLogRow[]>([])
@@ -78,18 +76,18 @@ export function EmailTemplatesPage() {
   const load = useCallback(() => {
     listEmailTemplates()
       .then((page) => setTemplates(page.results))
-      .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar las plantillas.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadTemplatesError)))
     listEmailSignatures()
       .then((page) => setSignatures(page.results))
       .catch(() => setSignatures([]))
     listEmailLogs()
       .then((page) => setLogs(page.results.slice(0, 10)))
       .catch(() => setLogs([]))
-  }, [])
+  }, [t])
 
   useEffect(load, [load])
 
-  const active = templates.find((t) => t.key === activeKey) ?? null
+  const active = templates.find((tpl) => tpl.key === activeKey) ?? null
 
   // Vuelca la plantilla activa al editor al cambiar de pestaña o recargar.
   useEffect(() => {
@@ -110,16 +108,12 @@ export function EmailTemplatesPage() {
   }
 
   function insertLink(kind: 'link' | 'drive') {
-    const url = window.prompt(
-      kind === 'drive'
-        ? 'URL del documento de Drive (la referencia, no el binario):'
-        : 'URL del enlace:',
-    )
+    const url = window.prompt(kind === 'drive' ? t.promptDriveUrl : t.promptLinkUrl)
     if (url && /^https?:\/\//i.test(url)) exec('createLink', url)
   }
 
   function insertImage() {
-    const url = window.prompt('URL de la imagen (https://…):')
+    const url = window.prompt(t.promptImageUrl)
     if (url && /^https?:\/\//i.test(url)) exec('insertImage', url)
   }
 
@@ -137,10 +131,10 @@ export function EmailTemplatesPage() {
       } else {
         await createEmailTemplate({ key: activeKey, ...payload })
       }
-      setNotice('Plantilla guardada.')
+      setNotice(t.templateSaved)
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo guardar la plantilla.'))
+      setError(asErrorMessage(err, t.saveTemplateError))
     } finally {
       setSaving(false)
     }
@@ -151,7 +145,7 @@ export function EmailTemplatesPage() {
     try {
       setPreview(await previewEmailTemplate(active.id))
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo previsualizar.'))
+      setError(asErrorMessage(err, t.previewError))
     }
   }
 
@@ -159,9 +153,9 @@ export function EmailTemplatesPage() {
     if (!active) return
     try {
       const result = await sendTestEmail(active.id)
-      setNotice(`Prueba enviada a ${result.sent_to}.`)
+      setNotice(t.testSent(result.sent_to))
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo enviar la prueba.'))
+      setError(asErrorMessage(err, t.testError))
     }
   }
 
@@ -186,53 +180,51 @@ export function EmailTemplatesPage() {
       setSignatureModal(false)
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo guardar la firma.'))
+      setError(asErrorMessage(err, t.saveSignatureError))
     }
   }
 
   return (
     <div>
-      <PageHeader
-        title="Plantillas de correo"
-        subtitle="Respuestas genéricas de los avisos: seguro → empresa de renting, km → conductor. Texto enriquecido, firmas, imágenes y documentos."
-      />
+      <PageHeader title={t.title} subtitle={t.subtitle} />
 
       {error && <div role="alert" className="form-error">{error}</div>}
       {notice && <p role="status" className="muted">{notice}</p>}
 
       <div className="chips-row catalog-tabs">
-        {TEMPLATE_KEYS.map(({ key, label }) => (
+        {TEMPLATE_KEYS.map((key) => (
           <TabButton key={key} active={activeKey === key} onClick={() => setActiveKey(key)}>
-            {label} {templates.some((t) => t.key === key) ? '' : '·  sin definir'}
+            {t.templateKeys[key] ?? key}{' '}
+            {templates.some((tpl) => tpl.key === key) ? '' : t.undefinedSuffix}
           </TabButton>
         ))}
       </div>
 
       <section className="card">
         <TextInputField
-          label="Asunto (admite variables, p. ej. {{matricula}})"
+          label={t.subjectLabel}
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
         />
 
         {/* Barra de herramientas del editor propio */}
-        <div className="editor-toolbar" role="toolbar" aria-label="Formato del texto">
-          <button type="button" title="Negrita" onClick={() => exec('bold')}><Bold size={15} /></button>
-          <button type="button" title="Cursiva" onClick={() => exec('italic')}><Italic size={15} /></button>
-          <button type="button" title="Subrayado" onClick={() => exec('underline')}><Underline size={15} /></button>
-          <button type="button" title="Encabezado" onClick={() => exec('formatBlock', 'h2')}><Heading2 size={15} /></button>
-          <button type="button" title="Lista" onClick={() => exec('insertUnorderedList')}><List size={15} /></button>
-          <button type="button" title="Lista numerada" onClick={() => exec('insertOrderedList')}><ListOrdered size={15} /></button>
-          <button type="button" title="Enlace" onClick={() => insertLink('link')}><Link2 size={15} /></button>
-          <button type="button" title="Imagen (URL)" onClick={insertImage}><Image size={15} /></button>
-          <button type="button" className="editor-drive" title="Insertar enlace de un documento de Drive" onClick={() => insertLink('drive')}>
+        <div className="editor-toolbar" role="toolbar" aria-label={t.toolbarLabel}>
+          <button type="button" title={t.bold} onClick={() => exec('bold')}><Bold size={15} /></button>
+          <button type="button" title={t.italic} onClick={() => exec('italic')}><Italic size={15} /></button>
+          <button type="button" title={t.underline} onClick={() => exec('underline')}><Underline size={15} /></button>
+          <button type="button" title={t.heading} onClick={() => exec('formatBlock', 'h2')}><Heading2 size={15} /></button>
+          <button type="button" title={t.list} onClick={() => exec('insertUnorderedList')}><List size={15} /></button>
+          <button type="button" title={t.orderedList} onClick={() => exec('insertOrderedList')}><ListOrdered size={15} /></button>
+          <button type="button" title={t.link} onClick={() => insertLink('link')}><Link2 size={15} /></button>
+          <button type="button" title={t.image} onClick={insertImage}><Image size={15} /></button>
+          <button type="button" className="editor-drive" title={t.driveTitle} onClick={() => insertLink('drive')}>
             Drive
           </button>
           <SelectField
-            aria-label="Insertar variable"
+            aria-label={t.insertVariable}
             containerClassName="editor-var"
             options={[
-              { value: '', label: 'Insertar variable…' },
+              { value: '', label: t.insertVariableOption },
               ...VARIABLES.map((v) => ({ value: v, label: `{{${v}}}` })),
             ]}
             value=""
@@ -246,15 +238,15 @@ export function EmailTemplatesPage() {
           contentEditable
           role="textbox"
           aria-multiline="true"
-          aria-label="Cuerpo del correo"
+          aria-label={t.bodyLabel}
           suppressContentEditableWarning
         />
 
         <div className="editor-footer">
           <SelectField
-            label="Firma"
+            label={t.signatureLabel}
             options={[
-              { value: '', label: '— Sin firma —' },
+              { value: '', label: t.noSignature },
               ...signatures.map((s) => ({ value: String(s.id), label: s.name })),
             ]}
             value={signatureId}
@@ -262,7 +254,7 @@ export function EmailTemplatesPage() {
           />
           <div className="editor-actions">
             <Button variant="secondary" onClick={() => openSignature(null)}>
-              Nueva firma
+              {t.newSignature}
             </Button>
             {signatureId && (
               <Button
@@ -271,45 +263,44 @@ export function EmailTemplatesPage() {
                   openSignature(signatures.find((s) => String(s.id) === signatureId) ?? null)
                 }
               >
-                Editar firma
+                {t.editSignature}
               </Button>
             )}
             <Button variant="secondary" disabled={!active} onClick={handlePreview}>
-              Previsualizar
+              {t.preview}
             </Button>
             <Button variant="secondary" disabled={!active} onClick={handleTest}>
-              Enviar prueba a mi correo
+              {t.sendTest}
             </Button>
             <Button variant="primary" disabled={saving || !subject.trim()} onClick={handleSave}>
-              {saving ? 'Guardando…' : 'Guardar plantilla'}
+              {saving ? t.saving : t.saveTemplate}
             </Button>
           </div>
         </div>
         <p className="muted">
-          El HTML se sanea en servidor al guardar. Variables disponibles:{' '}
-          {VARIABLES.map((v) => `{{${v}}}`).join(' · ')}
+          {t.sanitizeHint} {VARIABLES.map((v) => `{{${v}}}`).join(' · ')}
         </p>
       </section>
 
       {/* Últimos envíos (traza de soporte, EmailLog) */}
       <section className="card">
-        <h3>Últimos envíos</h3>
+        <h3>{t.logsTitle}</h3>
         {logs.length === 0 ? (
-          <p className="muted">Sin envíos registrados todavía.</p>
+          <p className="muted">{t.logsEmpty}</p>
         ) : (
           <table className="data">
             <thead>
               <tr>
-                <th scope="col">Fecha</th>
-                <th scope="col">Destinatario</th>
-                <th scope="col">Asunto</th>
-                <th scope="col">Estado</th>
+                <th scope="col">{t.logColumns.date}</th>
+                <th scope="col">{t.logColumns.recipient}</th>
+                <th scope="col">{t.logColumns.subject}</th>
+                <th scope="col">{t.logColumns.status}</th>
               </tr>
             </thead>
             <tbody>
               {logs.map((log) => (
                 <tr key={log.id}>
-                  <td>{fmtDate(log.created_at, language)}</td>
+                  <td>{fmtDate(log.created_at, lang)}</td>
                   <td>{log.recipient || '—'}</td>
                   <td>{log.subject || '—'}</td>
                   <td>
@@ -333,10 +324,10 @@ export function EmailTemplatesPage() {
       </section>
 
       {/* Previsualización con datos de ejemplo (HTML ya saneado en servidor) */}
-      <Modal open={preview !== null} title="Previsualización" onClose={() => setPreview(null)} wide>
+      <Modal open={preview !== null} title={t.previewTitle} onClose={() => setPreview(null)} wide>
         {preview && (
           <div className="email-preview">
-            <p className="muted">Asunto: <strong>{preview.subject}</strong></p>
+            <p className="muted">{t.previewSubject} <strong>{preview.subject}</strong></p>
             <Panel>
               <div dangerouslySetInnerHTML={{ __html: preview.body_html }} />
             </Panel>
@@ -347,12 +338,12 @@ export function EmailTemplatesPage() {
       {/* Alta/edición de firma */}
       <Modal
         open={signatureModal}
-        title={editingSignature ? `Editar firma · ${editingSignature.name}` : 'Nueva firma'}
+        title={editingSignature ? t.editSignatureTitle(editingSignature.name) : t.newSignatureTitle}
         onClose={() => setSignatureModal(false)}
       >
         <div className="modal-form">
           <TextInputField
-            label="Nombre"
+            label={t.signatureName}
             value={signatureName}
             onChange={(e) => setSignatureName(e.target.value)}
             required
@@ -363,15 +354,15 @@ export function EmailTemplatesPage() {
             contentEditable
             role="textbox"
             aria-multiline="true"
-            aria-label="Contenido de la firma"
+            aria-label={t.signatureBodyLabel}
             suppressContentEditableWarning
           />
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setSignatureModal(false)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="button" variant="primary" disabled={!signatureName.trim()} onClick={saveSignature}>
-              Guardar firma
+              {t.saveSignature}
             </Button>
           </div>
         </div>

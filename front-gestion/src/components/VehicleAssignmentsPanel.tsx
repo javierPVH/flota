@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { assignmentStatusTone, todayIso } from '../format.ts'
+import { usePanelsCopy } from '../translations/panels.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
 import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
 
@@ -23,37 +24,6 @@ import type { AssignmentRow, Driver, ManagedUser, Vehicle } from '../types.ts'
 
 const today = todayIso
 
-const STATUS_LABEL: Record<string, string> = {
-  proposed: 'Propuesta',
-  accepted: 'Vigente',
-  rejected: 'Rechazada',
-  finished: 'Finalizada',
-}
-
-// Histórico de conductores con el estilo unificado (TableWithPanel).
-const ASSIGNMENT_HISTORY_COLUMNS: Array<TableWithPanelColumn<AssignmentRow>> = [
-  {
-    key: 'driver',
-    label: 'Conductor',
-    getValue: (a) => a.driver_name,
-    render: (a) => a.driver_name,
-  },
-  {
-    key: 'period',
-    label: 'Periodo',
-    getValue: (a) => a.start_date,
-    render: (a) => `${a.start_date} → ${a.end_date ?? '…'}`,
-  },
-  {
-    key: 'status',
-    label: 'Estado',
-    getValue: (a) => STATUS_LABEL[a.status] ?? a.status,
-    render: (a) => (
-      <Badge tone={assignmentStatusTone(a.status)}>{STATUS_LABEL[a.status] ?? a.status}</Badge>
-    ),
-  },
-]
-
 interface UsageLine {
   driver: string
   percent: string
@@ -69,6 +39,7 @@ export function VehicleAssignmentsPanel({
   onChanged: () => void
   accordion: AccordionState
 }) {
+  const t = usePanelsCopy().assignments
   const confirm = useConfirm()
   const [assignments, setAssignments] = useState<AssignmentRow[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
@@ -86,6 +57,33 @@ export function VehicleAssignmentsPanel({
 
   const current = assignments.find((a) => a.status === 'accepted' && a.end_date === null) ?? null
   const activeUsages = usages.filter((u) => u.end_date === null)
+
+  // Histórico de conductores con el estilo unificado (TableWithPanel).
+  const historyColumns = useMemo<Array<TableWithPanelColumn<AssignmentRow>>>(() => {
+    const statusLabel = (status: string) => t.status[status as keyof typeof t.status] ?? status
+    return [
+      {
+        key: 'driver',
+        label: t.columns.driver,
+        getValue: (a) => a.driver_name,
+        render: (a) => a.driver_name,
+      },
+      {
+        key: 'period',
+        label: t.columns.period,
+        getValue: (a) => a.start_date,
+        render: (a) => `${a.start_date} → ${a.end_date ?? '…'}`,
+      },
+      {
+        key: 'status',
+        label: t.columns.status,
+        getValue: (a) => statusLabel(a.status),
+        render: (a) => (
+          <Badge tone={assignmentStatusTone(a.status)}>{statusLabel(a.status)}</Badge>
+        ),
+      },
+    ]
+  }, [t])
 
   const load = useCallback(() => {
     listAssignments({ vehicle: vehicle.id })
@@ -134,7 +132,7 @@ export function VehicleAssignmentsPanel({
   async function submitChange(event: FormEvent) {
     event.preventDefault()
     if (!newDriver) {
-      setModalError('Elige el conductor.')
+      setModalError(t.chooseDriverError)
       return
     }
     setSaving(true)
@@ -156,7 +154,7 @@ export function VehicleAssignmentsPanel({
       onChanged()
     } catch (err) {
       if (proposalId) await deleteAssignment(proposalId).catch(() => {})
-      setModalError(asErrorMessage(err, 'No se pudo cambiar el conductor.'))
+      setModalError(asErrorMessage(err, t.changeError))
     } finally {
       setSaving(false)
     }
@@ -166,8 +164,8 @@ export function VehicleAssignmentsPanel({
     if (!current) return
     if (
       !(await confirm({
-        message: `¿Retirar a ${current.driver_name} de ${vehicle.plate}?`,
-        confirmLabel: 'Retirar',
+        message: t.confirmRelease(current.driver_name, vehicle.plate),
+        confirmLabel: t.release,
         tone: 'warning',
       }))
     )
@@ -177,7 +175,7 @@ export function VehicleAssignmentsPanel({
       load()
       onChanged()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo retirar al conductor.'))
+      setError(asErrorMessage(err, t.releaseError))
     }
   }
 
@@ -198,7 +196,7 @@ export function VehicleAssignmentsPanel({
       setModal(null)
       load()
     } catch (err) {
-      setModalError(asErrorMessage(err, 'No se pudo guardar el reparto.'))
+      setModalError(asErrorMessage(err, t.splitError))
     } finally {
       setSaving(false)
     }
@@ -208,19 +206,19 @@ export function VehicleAssignmentsPanel({
     <CollapsibleCard
       id="assignments"
       accordion={accordion}
-      title="Conductor y reparto"
+      title={t.title}
       actions={
         <div className="section-tools">
           <Button variant="primary" size="sm" onClick={openChange} disabled={vehicle.state === 'retired'}>
-            {current ? 'Cambiar conductor' : 'Asignar conductor'}
+            {current ? t.changeDriver : t.assignDriver}
           </Button>
           {current && (
             <Button variant="secondary" size="sm" onClick={handleRelease}>
-              Retirar
+              {t.release}
             </Button>
           )}
           <Button variant="secondary" size="sm" onClick={openUsage}>
-            Reparto de uso
+            {t.usageSplit}
           </Button>
         </div>
       }
@@ -229,31 +227,31 @@ export function VehicleAssignmentsPanel({
 
       <div className="assign-grid">
         <div>
-          <h4>Conductor actual</h4>
+          <h4>{t.currentDriver}</h4>
           {current ? (
             <dl className="detail-dl">
-              <dt>Nombre</dt>
+              <dt>{t.name}</dt>
               <dd>{current.driver_name}</dd>
-              <dt>Desde</dt>
+              <dt>{t.since}</dt>
               <dd>{current.start_date}</dd>
-              <dt>Permiso</dt>
+              <dt>{t.license}</dt>
               <dd>{driverDetail?.license_type || '—'}</dd>
-              <dt>Tarjeta combustible</dt>
-              <dd>{driverDetail ? (driverDetail.fuel_card ? 'Sí' : 'No') : '—'}</dd>
+              <dt>{t.fuelCard}</dt>
+              <dd>{driverDetail ? (driverDetail.fuel_card ? t.yes : t.no) : '—'}</dd>
             </dl>
           ) : (
-            <p className="muted">Sin conductor asignado.</p>
+            <p className="muted">{t.noDriver}</p>
           )}
 
-          <h4>Reparto de uso vigente</h4>
+          <h4>{t.activeSplit}</h4>
           {activeUsages.length === 0 ? (
-            <p className="muted">Sin reparto registrado.</p>
+            <p className="muted">{t.noSplit}</p>
           ) : (
             <ul className="usage-list">
               {activeUsages.map((u) => (
                 <li key={u.id}>
                   {driverName(u.driver)} — <strong>{Number(u.usage_percent)}%</strong>
-                  {u.start_date ? ` (desde ${u.start_date})` : ''}
+                  {u.start_date ? t.sinceDate(u.start_date) : ''}
                 </li>
               ))}
             </ul>
@@ -261,13 +259,13 @@ export function VehicleAssignmentsPanel({
         </div>
 
         <div>
-          <h4>Histórico de conductores</h4>
+          <h4>{t.history}</h4>
           {assignments.length === 0 ? (
-            <p className="muted">Sin asignaciones todavía.</p>
+            <p className="muted">{t.noAssignments}</p>
           ) : (
             <TableWithPanel<AssignmentRow>
               rows={assignments}
-              columns={ASSIGNMENT_HISTORY_COLUMNS}
+              columns={historyColumns}
               rowKey={(a) => String(a.id)}
               enablePagination
               defaultPageSize={25}
@@ -280,20 +278,19 @@ export function VehicleAssignmentsPanel({
       {/* Cambiar conductor (HU-2.1/2.2) */}
       <Modal
         open={modal === 'change'}
-        title={`${current ? 'Cambiar' : 'Asignar'} conductor de ${vehicle.plate}`}
+        title={t.modalTitleChange(Boolean(current), vehicle.plate)}
         onClose={() => setModal(null)}
       >
         <form className="modal-form" onSubmit={submitChange}>
           {current && (
             <p className="muted" style={{ margin: 0 }}>
-              La asignación vigente de <strong>{current.driver_name}</strong> se cerrará con fin =
-              inicio de la nueva, y quedará el evento de cambio.
+              {t.closeNoteLead}<strong>{current.driver_name}</strong>{t.closeNoteTail}
             </p>
           )}
           <SelectField
-            label="Conductor"
+            label={t.driverLabel}
             options={[
-              { value: '', label: '— Elegir —' },
+              { value: '', label: t.choosePlaceholder },
               ...drivers
                 .filter((d) => d.id !== current?.driver)
                 .map((d) => ({ value: String(d.id), label: d.name })),
@@ -302,7 +299,7 @@ export function VehicleAssignmentsPanel({
             onValueChange={setNewDriver}
           />
           <TextInputField
-            label="Inicio"
+            label={t.startLabel}
             type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
@@ -311,24 +308,24 @@ export function VehicleAssignmentsPanel({
           {modalError && <div role="alert" className="form-error">{modalError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setModal(null)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? 'Guardando…' : 'Confirmar'}
+              {saving ? t.saving : t.confirm}
             </Button>
           </div>
         </form>
       </Modal>
 
       {/* Reparto de uso (HU-2.5): la suma debe ser exactamente 100 */}
-      <Modal open={modal === 'usage'} title={`Reparto de uso de ${vehicle.plate}`} onClose={() => setModal(null)}>
+      <Modal open={modal === 'usage'} title={t.usageModalTitle(vehicle.plate)} onClose={() => setModal(null)}>
         <form className="modal-form" onSubmit={submitUsage}>
           {usageLines.map((line, index) => (
             <div className="usage-line" key={index}>
               <SelectField
-                label={index === 0 ? 'Persona' : ''}
+                label={index === 0 ? t.person : ''}
                 options={[
-                  { value: '', label: '— Elegir —' },
+                  { value: '', label: t.choosePlaceholder },
                   ...drivers.map((d) => ({ value: String(d.id), label: d.name })),
                 ]}
                 value={line.driver}
@@ -364,29 +361,29 @@ export function VehicleAssignmentsPanel({
               size="sm"
               onClick={() => setUsageLines((lines) => [...lines, { driver: '', percent: '' }])}
             >
-              + Añadir persona
+              {t.addPerson}
             </Button>
           </div>
           <div className={`usage-sum ${usageSum === 100 ? 'ok' : 'ko'}`}>
-            {usageSum === 100 ? '✓ El reparto cuadra (100%)' : `Suma ${usageSum}% — debe ser exactamente 100%`}
+            {usageSum === 100 ? t.sumOk : t.sumKo(usageSum)}
           </div>
           <TextInputField
-            label="Vigente desde"
+            label={t.validFrom}
             type="date"
             value={usageStart}
             onChange={(e) => setUsageStart(e.target.value)}
             required
           />
           <p className="muted" style={{ margin: 0 }}>
-            Al guardar se cierra el reparto vigente y entra este (histórico conservado).
+            {t.splitNote}
           </p>
           {modalError && <div role="alert" className="form-error">{modalError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setModal(null)}>
-              Cancelar
+              {t.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={saving || usageSum !== 100}>
-              {saving ? 'Guardando…' : 'Guardar reparto'}
+              {saving ? t.saving : t.saveSplit}
             </Button>
           </div>
         </form>

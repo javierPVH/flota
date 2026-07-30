@@ -1,17 +1,20 @@
 import { useState } from 'react'
+import { useAppLang, type AppLanguage } from '@flota/ui/i18n'
 
+import { fmtKm } from '../format.ts'
+import { usePanelsCopy } from '../translations/panels.ts'
 import type { KmReading } from '../types.ts'
 
-const km = (value: number) => `${value.toLocaleString('es-ES')} km`
+const LOCALE: Record<AppLanguage, string> = { es: 'es-ES', en: 'en-GB' }
 const YEAR_MS = 365.25 * 86_400_000
 const ms = (iso: string) => new Date(iso).getTime()
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 /** "07/07/25" — etiqueta corta del eje X. */
-const fmtShort = (t: number) =>
-  new Date(t).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })
+const fmtShort = (t: number, locale: string) =>
+  new Date(t).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' })
 /** "7 jul 2026" — texto del bocadillo. */
-const fmtLong = (t: number) =>
-  new Date(t).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+const fmtLong = (t: number, locale: string) =>
+  new Date(t).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })
 
 /** Overlay del enfoque anual (HU-3.4): dibuja el cupo, la ventana del año/contrato
  *  y la línea vertical del día actual. Sin overlay, la gráfica es la de siempre. */
@@ -48,14 +51,18 @@ interface Pt {
 
 /** Gráfica de evolución del km (HU-3.6): SVG propio, sin dependencias. */
 export function KmChart({ readings, overlay }: { readings: KmReading[]; overlay?: KmChartOverlay }) {
-  // Índice del punto con el ratón encima (para el bocadillo). Hook siempre arriba.
+  // Índice del punto con el ratón encima (para el bocadillo). Hooks siempre arriba.
   const [hover, setHover] = useState<number | null>(null)
+  const copy = usePanelsCopy().kmChart
+  const lang = useAppLang()
+  const locale = LOCALE[lang]
+  const km = (value: number) => fmtKm(value, lang)
 
   const points = readings.filter((r) => r.km_reading !== null && r.reading_date)
 
   // Sin overlay: comportamiento clásico (lo usa MileagePage). Necesita ≥2 lecturas.
   if (!overlay && points.length < 2) {
-    return <p className="muted">Aún no hay lecturas suficientes.</p>
+    return <p className="muted">{copy.notEnough}</p>
   }
 
   // Dominio X: la ventana (año/contrato) si hay overlay; si no, el rango de lecturas.
@@ -109,7 +116,7 @@ export function KmChart({ readings, overlay }: { readings: KmReading[]; overlay?
       const prev = clamp(xMin + (k - 1) * YEAR_MS, xMin, xMax)
       yearMarks.push({
         line: k < nSeg ? boundary : null, // sin línea en la frontera final (borde)
-        label: `Año ${k}`,
+        label: copy.yearMark(k),
         labelX: (prev + boundary) / 2,
       })
     }
@@ -132,7 +139,7 @@ export function KmChart({ readings, overlay }: { readings: KmReading[]; overlay?
   const hovered = hover !== null ? actual[hover] : null
   let tip: { x: number; y: number; w: number; text: string } | null = null
   if (hovered) {
-    const text = `${fmtLong(hovered.x)} · ${km(hovered.y)}`
+    const text = `${fmtLong(hovered.x, locale)} · ${km(hovered.y)}`
     const w = text.length * 6.3 + 16
     tip = {
       x: clamp(sx(hovered.x) - w / 2, 2, W - w - 2),
@@ -144,7 +151,7 @@ export function KmChart({ readings, overlay }: { readings: KmReading[]; overlay?
 
   return (
     <div className="km-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Evolución del kilometraje">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={copy.ariaLabel}>
         {/* Marcas de año (modo contrato) */}
         {yearMarks.map((m, i) => (
           <g key={`ym${i}`}>
@@ -191,12 +198,12 @@ export function KmChart({ readings, overlay }: { readings: KmReading[]; overlay?
         {/* Etiquetas de fecha del eje: puntos + hoy */}
         {dateLabels.map((p) => (
           <text key={`dl${p.id}`} className="axis-date" x={sx(p.x)} y={H - 12} textAnchor="middle">
-            {fmtShort(p.x)}
+            {fmtShort(p.x, locale)}
           </text>
         ))}
         {todayMs !== null && (
           <text className="axis-date is-today" x={sx(todayMs)} y={H - 2} textAnchor="middle">
-            {fmtShort(todayMs)}
+            {fmtShort(todayMs, locale)}
           </text>
         )}
 
@@ -241,13 +248,13 @@ export function KmChart({ readings, overlay }: { readings: KmReading[]; overlay?
           <>
             <span>
               {overlay.mode === 'year'
-                ? `Inicio año ${overlay.yearIndex + 1} · ${km(overlay.yearStartKm)}`
-                : `Inicio · ${km(overlay.kmStart)}`}
+                ? copy.legendYearStart(overlay.yearIndex + 1, km(overlay.yearStartKm))
+                : copy.legendStart(km(overlay.kmStart))}
             </span>
             <span className="km-chart-ideal-legend">
-              — — cupo {km(overlay.mode === 'year' ? overlay.annualKm : overlay.contractKm)}
+              {copy.legendQuota(km(overlay.mode === 'year' ? overlay.annualKm : overlay.contractKm))}
             </span>
-            <span>{last ? `Último · ${km(last.y)}` : ''}</span>
+            <span>{last ? copy.legendLast(km(last.y)) : ''}</span>
           </>
         ) : (
           <>

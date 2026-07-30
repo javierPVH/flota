@@ -15,20 +15,8 @@ import {
 } from '../api.ts'
 import { exportCsv } from '../csv.ts'
 import { incidentStatusTone } from '../format.ts'
+import { useIncidentsCopy } from '../translations/incidents.ts'
 import type { Incident, Vehicle } from '../types.ts'
-
-// Listas cerradas del back (Épica 6).
-const TYPE_OPTIONS = [
-  { value: 'breakdown', label: 'Avería' },
-  { value: 'maintenance', label: 'Mantenimiento' },
-  { value: 'inspection', label: 'ITV' },
-  { value: 'accident', label: 'Accidente' },
-]
-const STATUS_OPTIONS = [
-  { value: 'open', label: 'Abierta' },
-  { value: 'on_going', label: 'En curso' },
-  { value: 'closed', label: 'Cerrada' },
-]
 
 interface FormState {
   vehicle: string
@@ -51,6 +39,7 @@ const EMPTY: FormState = {
 /** Bandeja de incidencias (G7, Épica 6): crear/gestionar con coste y estado.
  * Los documentos (acta/parte/fotos) se ligan desde la ficha del vehículo. */
 export function IncidentsPage() {
+  const t = useIncidentsCopy()
   const [searchParams, setSearchParams] = useSearchParams()
   const vehicleFilter = searchParams.get('vehicle') ?? ''
   const statusFilter = searchParams.get('status') ?? ''
@@ -66,6 +55,25 @@ export function IncidentsPage() {
   const [form, setForm] = useState<FormState>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
+
+  // Listas cerradas del back (Épica 6); etiquetas en el idioma activo.
+  const typeOptions = useMemo(
+    () => [
+      { value: 'breakdown', label: t.types.breakdown },
+      { value: 'maintenance', label: t.types.maintenance },
+      { value: 'inspection', label: t.types.inspection },
+      { value: 'accident', label: t.types.accident },
+    ],
+    [t],
+  )
+  const statusOptions = useMemo(
+    () => [
+      { value: 'open', label: t.statuses.open },
+      { value: 'on_going', label: t.statuses.on_going },
+      { value: 'closed', label: t.statuses.closed },
+    ],
+    [t],
+  )
 
   useEffect(() => {
     listAll(listVehicles())
@@ -85,9 +93,9 @@ export function IncidentsPage() {
         setIncidents(rows)
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudieron cargar las incidencias.')))
+      .catch((err) => setError(asErrorMessage(err, t.loadError)))
       .finally(() => setLoading(false))
-  }, [vehicleFilter, typeFilter])
+  }, [vehicleFilter, typeFilter, t])
 
   useEffect(load, [load])
 
@@ -130,7 +138,7 @@ export function IncidentsPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     if (!form.vehicle) {
-      setFormError('Elige el vehículo.')
+      setFormError(t.chooseVehicle)
       return
     }
     setSaving(true)
@@ -149,7 +157,7 @@ export function IncidentsPage() {
       setModalOpen(false)
       load()
     } catch (err) {
-      setFormError(asErrorMessage(err, 'No se pudo guardar la incidencia.'))
+      setFormError(asErrorMessage(err, t.saveError))
     } finally {
       setSaving(false)
     }
@@ -158,7 +166,7 @@ export function IncidentsPage() {
   const columns: Array<TableWithPanelColumn<Incident>> = [
     {
       key: 'vehicle',
-      label: 'Vehículo',
+      label: t.columns.vehicle,
       getValue: (i) => plateOf(i.vehicle),
       render: (i) => (
         <Link to={`/vehiculos/${i.vehicle}`} className="cell-link">
@@ -168,53 +176,53 @@ export function IncidentsPage() {
     },
     {
       key: 'type',
-      label: 'Tipo',
+      label: t.columns.type,
       getValue: (i) => i.type_display,
       render: (i) => i.type_display || '—',
     },
     {
       key: 'date',
-      label: 'Fecha',
+      label: t.columns.date,
       isDate: true,
       getValue: (i) => i.date,
       render: (i) => i.date ?? '—',
     },
     {
       key: 'status',
-      label: 'Estado',
+      label: t.columns.status,
       getValue: (i) => i.status_display,
       render: (i) => <Badge tone={incidentStatusTone(i.status)}>{i.status_display || '—'}</Badge>,
     },
     {
       key: 'cost',
-      label: 'Coste',
+      label: t.columns.cost,
       align: 'right',
       getValue: (i) => (i.cost ? Number(i.cost) : null),
       render: (i) => (i.cost ? `${i.cost} €` : '—'),
     },
     {
       key: 'description',
-      label: 'Descripción',
+      label: t.columns.description,
       getValue: (i) => i.description,
       render: (i) => <span className="cell-truncate">{i.description || '—'}</span>,
     },
     {
       key: 'actions',
-      label: 'Acciones',
+      label: t.columns.actions,
       align: 'right',
       searchable: false,
       sortable: false,
       render: (i) => (
         <div className="row-actions">
-          <IconButton aria-label="Editar" title="Editar" onClick={() => openEdit(i)}>
+          <IconButton aria-label={t.edit} title={t.edit} onClick={() => openEdit(i)}>
             <Pencil size={15} />
           </IconButton>
           <Link
             to={`/vehiculos/${i.vehicle}`}
             className="cell-link"
-            title="Los documentos (acta/parte/fotos) se ligan desde la ficha"
+            title={t.documentsTitle}
           >
-            <FileText size={14} aria-hidden /> Documentos
+            <FileText size={14} aria-hidden /> {t.documents}
           </Link>
         </div>
       ),
@@ -224,8 +232,8 @@ export function IncidentsPage() {
   return (
     <div>
       <PageHeader
-        title="Incidencias"
-        subtitle="Averías, mantenimientos, ITV y accidentes de la flota."
+        title={t.title}
+        subtitle={t.subtitle}
         actions={
           <>
             <Button
@@ -233,10 +241,10 @@ export function IncidentsPage() {
               disabled={filtered.length === 0}
               onClick={() => exportCsv('incidencias', columns, filtered)}
             >
-              <Download size={16} aria-hidden /> Exportar CSV
+              <Download size={16} aria-hidden /> {t.exportCsv}
             </Button>
             <Button variant="primary" onClick={openCreate}>
-              Nueva incidencia
+              {t.newIncident}
             </Button>
           </>
         }
@@ -244,25 +252,25 @@ export function IncidentsPage() {
 
       <div className="filters-row">
         <SelectField
-          label="Vehículo"
+          label={t.filterVehicle}
           options={[
-            { value: '', label: 'Todos' },
+            { value: '', label: t.filterAll },
             ...vehicles.map((v) => ({ value: String(v.id), label: v.plate })),
           ]}
           value={vehicleFilter}
           onValueChange={(value) => setFilter('vehicle', value)}
         />
         <SelectField
-          label="Tipo"
-          options={[{ value: '', label: 'Todos' }, ...TYPE_OPTIONS]}
+          label={t.filterType}
+          options={[{ value: '', label: t.filterAll }, ...typeOptions]}
           value={typeFilter}
           onValueChange={(value) => setFilter('type', value)}
         />
       </div>
 
       {/* Estado como chips con contador (patrón de la home). */}
-      <div className="chips-row" role="group" aria-label="Filtrar por estado">
-        {[{ value: '', label: 'Todas' }, ...STATUS_OPTIONS].map((o) => (
+      <div className="chips-row" role="group" aria-label={t.filterByStatus}>
+        {[{ value: '', label: t.filterAllStatuses }, ...statusOptions].map((o) => (
           <Chip
             key={o.value}
             active={statusFilter === o.value}
@@ -277,7 +285,7 @@ export function IncidentsPage() {
       {error && <div role="alert" className="form-error">{error}</div>}
 
       {loading ? (
-        <p className="loading-state" role="status">Cargando…</p>
+        <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<Incident>
           rows={filtered}
@@ -287,20 +295,20 @@ export function IncidentsPage() {
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel="No hay incidencias con estos filtros."
+          emptyStateLabel={t.empty}
         />
       )}
 
       <Modal
         open={modalOpen}
-        title={editing ? `Incidencia #${editing.id}` : 'Nueva incidencia'}
+        title={editing ? t.incidentTitle(editing.id) : t.newIncident}
         onClose={() => setModalOpen(false)}
       >
         <form className="modal-form" onSubmit={handleSubmit}>
           <SelectField
-            label="Vehículo"
+            label={t.form.vehicle}
             options={[
-              { value: '', label: '— Elegir —' },
+              { value: '', label: t.form.choosePlaceholder },
               ...vehicles.map((v) => ({ value: String(v.id), label: `${v.plate} · ${v.brand} ${v.model}` })),
             ]}
             value={form.vehicle}
@@ -308,41 +316,41 @@ export function IncidentsPage() {
             disabled={Boolean(editing)}
           />
           <SelectField
-            label="Tipo"
-            options={TYPE_OPTIONS}
+            label={t.form.type}
+            options={typeOptions}
             value={form.type}
             onValueChange={(value) => setForm((f) => ({ ...f, type: value }))}
           />
           <TextInputField
-            label="Fecha"
+            label={t.form.date}
             type="date"
             value={form.date}
             onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
           />
           <SelectField
-            label="Estado"
-            options={STATUS_OPTIONS}
+            label={t.form.status}
+            options={statusOptions}
             value={form.status}
             onValueChange={(value) => setForm((f) => ({ ...f, status: value }))}
           />
           <TextInputField
-            label="Coste (€)"
+            label={t.form.cost}
             type="number"
             value={form.cost}
             onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
           />
           <TextInputField
-            label="Descripción"
+            label={t.form.description}
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
           {formError && <div role="alert" className="form-error">{formError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancelar
+              {t.form.cancel}
             </Button>
             <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? 'Guardando…' : 'Guardar'}
+              {saving ? t.form.saving : t.form.save}
             </Button>
           </div>
         </form>
