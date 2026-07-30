@@ -29,6 +29,13 @@ npm run dev --workspace front-conductores   # :5175
 | `david` | Conductor **sin coche** | Portón "sin vehículo" de la PWA |
 | `nuevo` | Usuario recién dado de alta | Primer acceso |
 
+El seed además deja preparado (no requiere montarlo a mano): **12 alertas de
+seguro** en los tres niveles, lecturas de km **estimadas** (1 de cada 5
+vehículos de volumen), el **espacio de erratas poblado** (incidencia, lectura,
+marca "Saab", firma "Firma antigua (2024)" y el usuario inactivo `expedro` —
+que NO sale en el selector de login, a propósito), y **4 envíos de correo** de
+traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
+
 ---
 
 ## 1. Gestión en castellano (`http://localhost:5173`, entrar como `admin`)
@@ -54,6 +61,7 @@ npm run dev --workspace front-conductores   # :5175
 ### Detalle de vehículo
 - [ ] Acordeones abren/cierran con animación; datos, contrato, asignaciones.
 - [ ] Gráfica de km: tooltip, línea de "hoy", lecturas estimadas distinguibles.
+- [ ] Buscar un vehículo con lectura **estimada** (1 de cada 5 de volumen; p. ej. `2002DXP`, `2007KRW`…): en el histórico de lecturas luce el badge "Estimada" y en la gráfica se distingue del dato real (N8b).
 - [ ] Documentos: subir un PDF/foto local; descargarlo después (pasa por sesión).
 - [ ] Editar el vehículo y guardar; el cambio aparece en la línea temporal del panel.
 
@@ -63,6 +71,7 @@ npm run dev --workspace front-conductores   # :5175
 
 ### Alertas
 - [ ] Hay alertas de ITV, **seguro (A6/N2)**, km y "sin conductor" sembradas.
+- [ ] Las de seguro (~12) mezclan los tres niveles: **vencidas (críticas)**, a <15 días y a <30 — comprobar que el nivel/color acompaña al mensaje.
 - [ ] Resolver/reabrir una alerta.
 
 ### Incidencias, propuestas, solicitudes, facturas, informes
@@ -75,16 +84,18 @@ npm run dev --workspace front-conductores   # :5175
 - [ ] Crear una marca o sociedad; el validador de email/URL del formulario avisa con valores malos.
 - [ ] Borrar la que acabas de crear → confirma → desaparece.
 - [ ] Usuarios: abrir el detalle de `carlos`, ver sus asignaciones.
+- [ ] `expedro` figura como inactivo (o no figura en el listado activo), pero SÍ en Erratas.
 
-### Erratas (A2 — comprobar EXPRESAMENTE)
-- [ ] En **Plantillas de correo**, borrar una plantilla o firma.
-- [ ] Ir a **Erratas** → aparece bajo "Plantillas de correo" / "Firmas de correo" con quién/cuándo/motivo.
-- [ ] **Restaurarla** → vuelve a Plantillas intacta.
-- [ ] Purgar (solo `admin`): borra de verdad tras la confirmación.
+### Erratas (N7/A2 — el seed ya la deja poblada)
+- [ ] La página muestra TODOS los grupos sembrados: incidencia ("Duplicada…"), lectura de km ("Error de tecleo…"), marca **Saab**, firma **"Firma antigua (2024)"**, usuario **expedro** y los vehículos en baja — cada uno con quién/cuándo/motivo.
+- [ ] **Restaurar** la firma antigua → aparece de nuevo en Plantillas de correo (A2). Restaurar también la marca Saab → vuelve a Catálogos.
+- [ ] **Purgar** (solo `admin`) la lectura de km desactivada: desaparece de verdad tras la doble confirmación.
+- [ ] Extra: borrar tú una plantilla desde Plantillas de correo y verificar el ciclo completo borrar → erratas → restaurar.
 
 ### Plantillas de correo (N10)
 - [ ] Editar una plantilla (asunto y cuerpo), previsualizar, guardar.
 - [ ] Asignar una firma y ver que la previsualización la incluye.
+- [ ] **Últimos envíos** (traza EmailLog sembrada): se ven los 4 estados — 2 enviados, 1 **fallido con su error SMTP** legible y 1 omitido ("sin email de contacto"). Los enviados enlazan/citan su alerta.
 
 ---
 
@@ -124,7 +135,7 @@ npm run dev --workspace front-conductores   # :5175
 - [ ] **Offline**: DevTools → Network → Offline. La app sigue mostrando el shell; registrar una lectura → queda **encolada** con aviso. Volver online → se envía sola y desaparece de la cola.
 - [ ] **Actualización del SW**: con la app abierta, hacer un rebuild (`npm run build --workspace front-conductores` servido con `preview`) → aparece el aviso de nueva versión y al aceptarlo recarga con la nueva.
 - [ ] Instalable: el navegador ofrece "Instalar app" (manifest OK).
-- [ ] Push (N9): solo comprobable con claves VAPID configuradas; sin ellas la app **no debe** romperse ni pedir permiso a ciegas.
+- [ ] Push (N9): solo comprobable con claves VAPID configuradas; sin ellas la app **no debe** romperse ni pedir permiso a ciegas. (En `/admin` del back hay una suscripción sembrada de `carlos` con endpoint ficticio — es normal que no reciba nada.)
 
 ---
 
@@ -144,6 +155,7 @@ done
 - [ ] La app funciona ENTERA bajo la CSP de conductores: consola del navegador sin errores `Content-Security-Policy` (wallpaper, SW, manifest incluidos).
 - [ ] `/media/...` sin sesión → redirige/401, nunca el fichero directo (SEC3).
 - [ ] `docker compose exec back python manage.py check_insurance` → "N alertas nuevas", idempotente a la segunda.
+- [ ] `reset_erratas` y `reset_comms` (con `FLEET_SEED_DATA=1`) re-ejecutan sin error dos veces seguidas.
 - [ ] Peso: `ls -lh front/dist/**/*.css` (o el dist de cada app) — el CSS grande ronda **~400 kB**, no 4 MB (A1).
 
 ---
