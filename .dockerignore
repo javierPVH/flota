@@ -19,6 +19,11 @@ back/media/
 back/archive/
 back/data/
 
+# OPS5: la media/BD REAL de producción vive en ./data (volumen) — jamás debe
+# pasearse por el daemon en cada build de los fronts.
+data/
+backups/
+
 # VCS / editores / secretos
 .git/
 .idea/

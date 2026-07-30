@@ -227,7 +227,8 @@ TRUSTED_PROXY_COUNT = max(0, env_int("TRUSTED_PROXY_COUNT", 0))
 # El front descubre qué está activo en GET /api/auth/config/ y pinta la UI acorde.
 AUTH_PASSWORD_ENABLED = env_bool("AUTH_PASSWORD_ENABLED", True)
 # Alta de usuarios (self-signup). Por defecto sigue a la de contraseña.
-AUTH_REGISTRATION_ENABLED = env_bool("AUTH_REGISTRATION_ENABLED", AUTH_PASSWORD_ENABLED)
+# SEC10: default CERRADO — el alta libre se abre explícitamente por entorno.
+AUTH_REGISTRATION_ENABLED = env_bool("AUTH_REGISTRATION_ENABLED", False)
 # Login con Google (verificación de ID token de Google Identity Services).
 AUTH_GOOGLE_ENABLED = env_bool("AUTH_GOOGLE_ENABLED", False)
 
@@ -238,7 +239,8 @@ GOOGLE_OAUTH_CLIENT_ID = env_str("GOOGLE_OAUTH_CLIENT_ID", "")
 GOOGLE_ALLOWED_DOMAINS = env_list("GOOGLE_ALLOWED_DOMAINS")
 # ¿Crear el usuario automáticamente la primera vez que entra por Google?
 # False = solo pueden entrar por Google usuarios ya existentes (aprovisionados aparte).
-GOOGLE_AUTO_CREATE_USERS = env_bool("GOOGLE_AUTO_CREATE_USERS", True)
+# SEC10: default CERRADO — sin auto-alta por Google salvo opt-in explícito.
+GOOGLE_AUTO_CREATE_USERS = env_bool("GOOGLE_AUTO_CREATE_USERS", False)
 
 # --- Google Drive / Picker (Fase A3, patrón `list`) ------------------------
 # OAuth de usuario para el Google Picker (subir/elegir documentos en el front

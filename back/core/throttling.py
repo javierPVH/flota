@@ -14,8 +14,13 @@ class PublicWriteThrottle(ScopedRateThrottle):
     """
 
     scope_attr = "throttle_scope"
+    default_scope = "public_write"
 
     def allow_request(self, request, view):
         if request.method in SAFE_METHODS:
             return True
+        # SEC9: si la vista no declara scope (p. ej. una @action), aplica el
+        # de public_write — antes ScopedRateThrottle pasaba sin limitar.
+        if not getattr(view, self.scope_attr, None):
+            setattr(view, self.scope_attr, self.default_scope)
         return super().allow_request(request, view)

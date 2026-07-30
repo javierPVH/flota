@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.contrib import admin
-from django.urls import include, path
+from django.urls import include, path, re_path
+
+from core.media_views import ProtectedMediaView
 
 admin.site.site_header = "Administración — Flota"
 admin.site.site_title = "Flota Admin"
@@ -17,6 +19,9 @@ urlpatterns = [
     # Notificaciones push del móvil (M8, Web Push/VAPID).
     path("api/v1/push/", include("accounts.push_urls")),
     path("api/v1/", include("fleet.urls")),  # /api/v1/vehicles/, …
+    # SEC3: /media exige sesión — nginx lo reenvía aquí y sirve el binario por
+    # X-Accel-Redirect (location internal). En dev lo sirve la propia vista.
+    re_path(r"^media/(?P<path>.+)$", ProtectedMediaView.as_view(), name="protected-media"),
 ]
 
 # Documentación OpenAPI SOLO en dev/staging (nunca superficie extra en prod).

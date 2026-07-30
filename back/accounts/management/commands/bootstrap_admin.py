@@ -66,6 +66,23 @@ class Command(BaseCommand):
                 "(uno de los dos está vacío)."
             )
 
+        # OPS3: rechaza el placeholder del .env de ejemplo y contraseñas débiles
+        # (este usuario es además el SUPERUSUARIO del purge de erratas, N7).
+        if password.strip().lower() in {"cambia-esto", "changeme", "admin", "password"}:
+            raise CommandError(
+                "bootstrap_admin: ADMIN_PASSWORD es un placeholder — pon una "
+                "contraseña real en el .env."
+            )
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        try:
+            validate_password(password)
+        except DjangoValidationError as exc:
+            raise CommandError(
+                "bootstrap_admin: la contraseña no pasa los validadores: " + "; ".join(exc.messages)
+            ) from exc
+
         User = get_user_model()
         user, created = User.objects.get_or_create(
             username=username,

@@ -118,16 +118,19 @@ def refresh_next_itv_dates() -> int:
     """Recalcula `Vehicle.next_itv_date` desde el último `EventItv.next_due`.
 
     Denormaliza para no derivar la próxima ITV en cada consulta/alerta. Devuelve
-    cuántos vehículos cambiaron.
+    cuántos vehículos cambiaron. PR2: en BULK — 2 consultas fijas en vez de una
+    por vehículo.
     """
+    from django.db.models import Max
+
+    latest_by_vehicle = dict(
+        EventItv.objects.filter(next_due__isnull=False)
+        .values_list("event__vehicle")
+        .annotate(latest=Max("next_due"))
+    )
     updated = 0
     for vehicle in Vehicle.objects.all():
-        latest = (
-            EventItv.objects.filter(event__vehicle=vehicle, next_due__isnull=False)
-            .order_by("-next_due")
-            .first()
-        )
-        new_value = latest.next_due if latest else None
+        new_value = latest_by_vehicle.get(vehicle.id)
         if vehicle.next_itv_date != new_value:
             vehicle.next_itv_date = new_value
             vehicle.save(update_fields=["next_itv_date", "updated_at"])

@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from auditlog.models import LogEntry
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -55,7 +55,13 @@ from .models import (
     VehicleRequest,
     VehicleUsage,
 )
-from .models.enums import AlertStatus, AssignmentStatus, VehicleRequestStatus, VehicleState
+from .models.enums import (
+    AlertStatus,
+    AssignmentStatus,
+    DocumentStatus,
+    VehicleRequestStatus,
+    VehicleState,
+)
 from .scoping import vehicles_for
 from .serializers import (
     AlertSerializer,
@@ -197,9 +203,12 @@ class VehicleFilter(filters.FilterSet):
         fields = ["state", "business_use", "is_substitute", "supervisor", "type", "property"]
 
     def filter_assigned(self, queryset, name, value):
-        # Vehículos con al menos una asignación EN CURSO (consulta directa a la
-        # tabla para no capturar por LEFT JOIN los que no tienen asignaciones).
-        active = Assignment.objects.filter(end_date__isnull=True).values("vehicle_id")
+        # Vehículos con asignación ACEPTADA en curso (BG12: contar cualquier
+        # asignación incluía PROPUESTAS — un coche salía "asignado" y sin
+        # conductor en la misma fila; mismo criterio que current_driver_map).
+        active = Assignment.objects.filter(
+            end_date__isnull=True, status=AssignmentStatus.ACCEPTED
+        ).values("vehicle_id")
         return queryset.filter(id__in=active) if value else queryset.exclude(id__in=active)
 
 
@@ -514,7 +523,13 @@ class AssignmentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         assignment.save(update_fields=["status", "updated_at"])
         return Response(self.get_serializer(assignment).data)
 
-    @action(detail=False, methods=["post"], permission_classes=[IsDriver])
+    @action(
+        detail=False,
+        methods=["post"],
+        permission_classes=[IsDriver],
+        # SEC9: escritura alcanzable desde internet — mismo scope que km/docs.
+        throttle_classes=[UserRateThrottle, PublicWriteThrottle],
+    )
     def propose(self, request):
         """POST /assignments/propose/ — el conductor propone fechas (HU-2.3).
 
@@ -616,7 +631,11 @@ class EventViewSet(ScopedByVehicleMixin, mixins.CreateModelMixin, viewsets.ReadO
 
     serializer_class = EventSerializer
     permission_classes = [EventPermission]
-    queryset = Event.objects.select_related("vehicle")
+    # PR1: los subtipos son one-to-one inversos que get_details toca fila a
+    # fila — sin select_related eran hasta 5 queries por evento.
+    queryset = Event.objects.select_related(
+        "vehicle", "itv", "fee_change", "location_change", "project_change", "pep_change"
+    )
     filterset_fields = ["vehicle", "event_type"]
     ordering_fields = ["event_date"]
 
@@ -726,12 +745,17 @@ class DocumentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.M
         return {"uploaded_by": self.request.user}
 
     def perform_create(self, serializer):
-        # Alta + archivado automático (HU-4.2) en una transacción: o quedan
-        # ambos (documento y su estado/URL), o ninguno. Si el backend no puede
-        # archivar, el documento queda `pendiente_archivar` para el reintento.
+        # PR3: el archivado hace I/O de red (hasta >90 s con reintentos) — se
+        # dispara en on_commit, FUERA de la transacción. Hasta entonces el
+        # documento nace `pendiente_archivar` (estado veraz en la respuesta);
+        # si el archivado falla, lo reintenta el job.
         with transaction.atomic():
             super().perform_create(serializer)
-            archive_document(serializer.instance)
+            document = serializer.instance
+            if not document.drive_url and document.status != DocumentStatus.PENDING_ARCHIVE:
+                document.status = DocumentStatus.PENDING_ARCHIVE
+                document.save(update_fields=["status", "updated_at"])
+            transaction.on_commit(lambda: archive_document(document))
 
 
 # --- Alertas (Épicas 3/5/10) ---------------------------------------------
@@ -747,9 +771,18 @@ class AlertViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
 
     serializer_class = AlertSerializer
     permission_classes = [IsManagementOrDriverReadOnly]
-    queryset = Alert.objects.select_related("vehicle", "user")
+    # BG11: `level` es texto — ordenar por él ponía warning antes que critical.
+    # Se expone `level_rank` (0=critical) anotado para ordenar por gravedad real.
+    queryset = Alert.objects.select_related("vehicle", "user").annotate(
+        level_rank=models.Case(
+            models.When(level="critical", then=0),
+            models.When(level="warning", then=1),
+            default=2,
+            output_field=models.IntegerField(),
+        )
+    )
     filterset_fields = ["vehicle", "type", "level", "status"]
-    ordering_fields = ["created_at", "due_date", "level"]
+    ordering_fields = ["created_at", "due_date", "level_rank"]
     ordering = ["-created_at"]
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
@@ -787,7 +820,13 @@ class VehicleRequestViewSet(viewsets.ModelViewSet):
     search_fields = ["jira_key", "notes"]
     ordering_fields = ["created_at", "start_date"]
 
-    @action(detail=False, methods=["get", "post"], permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=["get", "post"],
+        permission_classes=[IsAuthenticated],
+        # SEC9: el POST de la solicitud self-service llega desde internet.
+        throttle_classes=[UserRateThrottle, PublicWriteThrottle],
+    )
     def mine(self, request):
         """GET/POST /vehicle-requests/mine/ — la solicitud del propio usuario.
 
@@ -919,7 +958,16 @@ class VehicleSummariesView(APIView):
     permission_classes = [IsManagementOrDriverReadOnly]
 
     def get(self, request):
-        return Response(metrics.vehicle_summaries(request.user))
+        # PR5/PF4: `?ids=1,2,3` acota la respuesta a esos vehículos (dentro del
+        # ámbito del rol) — quien necesita unos pocos no carga toda la flota.
+        ids_param = (request.query_params.get("ids") or "").strip()
+        ids = None
+        if ids_param:
+            try:
+                ids = [int(x) for x in ids_param.split(",") if x.strip()]
+            except ValueError as exc:
+                raise ValidationError({"ids": "Lista de ids separados por comas."}) from exc
+        return Response(metrics.vehicle_summaries(request.user, ids=ids))
 
 
 # --- Informes / exportación (Épica 10) -----------------------------------
