@@ -117,6 +117,9 @@ export function VehicleDetailPage() {
   const [allLinks, setAllLinks] = useState<VehicleLinkRow[]>([])
   const [activeLink, setActiveLink] = useState<VehicleLinkRow | null>(null)
   const [error, setError] = useState('')
+  // UX5: algún bloque secundario (summary, lecturas, eventos, histórico,
+  // vínculos) falló — banner con reintento en vez de huecos silenciosos.
+  const [partialError, setPartialError] = useState(false)
   const [showAllHistory, setShowAllHistory] = useState(false)
 
   // Operaciones G4 (estado / baja / vinculación)
@@ -155,12 +158,18 @@ export function VehicleDetailPage() {
     // ANTERIOR pisando al actual. El flag `alive` (devuelto como cleanup a
     // useEffect) descarta las respuestas tardías del vehículo abandonado.
     let alive = true
+    setPartialError(false)
+    // UX5: un bloque que falla ya no se disfraza de "sin datos".
+    const flagPartial = () => alive && setPartialError(true)
     fetchVehicle(vehicleId)
       .then((v) => alive && setVehicle(v))
       .catch((err) => alive && setError(asErrorMessage(err, t.errLoadVehicle)))
     fetchVehicleSummary(vehicleId)
       .then((sm) => alive && setSummary(sm))
-      .catch(() => alive && setSummary(null))
+      .catch(() => {
+        flagPartial()
+        if (alive) setSummary(null)
+      })
     listKmReadings(vehicleId)
       .then(
         (page) =>
@@ -171,13 +180,22 @@ export function VehicleDetailPage() {
             ),
           ),
       )
-      .catch(() => alive && setReadings([]))
+      .catch(() => {
+        flagPartial()
+        if (alive) setReadings([])
+      })
     listEvents(vehicleId)
       .then((page) => alive && setEvents(page.results))
-      .catch(() => alive && setEvents([]))
+      .catch(() => {
+        flagPartial()
+        if (alive) setEvents([])
+      })
     fetchVehicleHistory(vehicleId)
       .then((page) => alive && setAudit(page.results))
-      .catch(() => alive && setAudit([]))
+      .catch(() => {
+        flagPartial()
+        if (alive) setAudit([])
+      })
     // Vínculos (HU-1.8): el activo se banneriza desde ambos lados y el
     // histórico completo alimenta el modal de vinculación.
     Promise.all([
@@ -206,7 +224,10 @@ export function VehicleDetailPage() {
           since: link.start_date,
         })
       })
-      .catch(() => alive && setLinkInfo(null))
+      .catch(() => {
+        flagPartial()
+        if (alive) setLinkInfo(null)
+      })
     return () => {
       alive = false
     }
@@ -491,6 +512,15 @@ export function VehicleDetailPage() {
             {t.sinceDate(linkInfo.since)}
           </div>
         )
+      )}
+
+      {partialError && (
+        <div className="link-banner" role="status">
+          ⚠️ {t.partialLoadError}{' '}
+          <button type="button" className="link-btn" onClick={() => void load()}>
+            {t.partialLoadRetry}
+          </button>
+        </div>
       )}
 
       {/* KPIs (HU-1.2) */}

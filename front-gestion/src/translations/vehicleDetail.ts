@@ -195,6 +195,9 @@ const es = {
   errKmReading: 'No se pudo registrar la lectura.',
   errConvertFleet: 'No se pudo convertir en flota.',
   errChooseSubstitute: 'Elige el vehículo de sustitución.',
+  partialLoadError:
+    'Algunos bloques de la ficha no se pudieron cargar (pueden verse vacíos).',
+  partialLoadRetry: 'Reintentar',
 }
 
 const en: typeof es = {
@@ -391,6 +394,8 @@ const en: typeof es = {
   errKmReading: 'Could not save the reading.',
   errConvertFleet: 'Could not convert to fleet.',
   errChooseSubstitute: 'Choose the substitute vehicle.',
+  partialLoadError: 'Some blocks of this page failed to load (they may look empty).',
+  partialLoadRetry: 'Retry',
 }
 
 const dict = { es, en }

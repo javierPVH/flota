@@ -8,6 +8,8 @@
  * librería siguen usando las variables SASS; ambas capas comparten los MISMOS valores.
  */
 :root {
+  /* UX4: anillo de foco accesible — sustituye a los outline:none sueltos. */
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-brand, #0d9488) 35%, transparent);
   /* ── Tipografía ─────────────────────────────────────────────── */
   --font-sans: Arial, system-ui, 'Segoe UI', Roboto, sans-serif;
   font-family: var(--font-sans);

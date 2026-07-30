@@ -124,6 +124,15 @@ const es = {
     expandAll: 'Desplegar todo',
     collapseAll: 'Plegar todo',
   },
+  kmChart: {
+    notEnough: 'Aún no hay lecturas suficientes.',
+    ariaLabel: 'Evolución del kilometraje',
+    yearMark: (k: number) => `Año ${k}`,
+    legendYearStart: (year: number, km: string) => `Inicio año ${year} · ${km}`,
+    legendStart: (km: string) => `Inicio · ${km}`,
+    legendQuota: (km: string) => `— — cupo ${km}`,
+    legendLast: (km: string) => `Último · ${km}`,
+  },
   catalogEntityCreateForm: {
     submitDefaultLabel: 'Crear',
     closeButton: 'Cerrar',
@@ -258,6 +267,15 @@ const en: typeof es = {
   accordion: {
     expandAll: 'Expand all',
     collapseAll: 'Collapse all',
+  },
+  kmChart: {
+    notEnough: 'Not enough readings yet.',
+    ariaLabel: 'Mileage over time',
+    yearMark: (k) => `Year ${k}`,
+    legendYearStart: (year, km) => `Year ${year} start · ${km}`,
+    legendStart: (km) => `Start · ${km}`,
+    legendQuota: (km) => `— — quota ${km}`,
+    legendLast: (km) => `Last · ${km}`,
   },
   catalogEntityCreateForm: {
     submitDefaultLabel: 'Create',
