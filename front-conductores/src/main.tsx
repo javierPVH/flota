@@ -11,6 +11,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { AuthProvider, bootstrap, onLogout } from './auth.ts'
 import { LanguageProvider } from './i18n.tsx'
 import { requestPersistentStorage } from './offline/queue.ts'
+import { registerServiceWorker } from './sw-update.ts'
 
 // BG4: pide almacenamiento persistente — protege la cola offline (IndexedDB)
 // de las purgas del navegador bajo presión de disco.
@@ -31,8 +32,7 @@ createRoot(document.getElementById('root')!).render(
 )
 
 // PWA (M7): solo en producción — en dev el SW cachearía módulos de Vite.
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {})
-  })
+// BG5: el registro detecta versiones nuevas y la UI ofrece recargar.
+if (import.meta.env.PROD) {
+  registerServiceWorker()
 }

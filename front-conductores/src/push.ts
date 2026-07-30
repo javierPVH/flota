@@ -21,7 +21,7 @@ function toApplicationServerKey(base64url: string): Uint8Array {
   return Uint8Array.from(raw, (char) => char.charCodeAt(0))
 }
 
-export type PushState = 'unsupported' | 'disabled' | 'off' | 'on' | 'blocked'
+export type PushState = 'unsupported' | 'disabled' | 'off' | 'on' | 'blocked' | 'unknown'
 
 /** Estado actual del push en ESTE dispositivo (para pintar el toggle). */
 export async function pushState(): Promise<PushState> {
@@ -34,7 +34,9 @@ export async function pushState(): Promise<PushState> {
     const subscription = await registration.pushManager.getSubscription()
     return subscription ? 'on' : 'off'
   } catch {
-    return 'disabled'
+    // BG7: un fallo de red NO es "deshabilitado" (eso ocultaba el panel):
+    // estado indeterminado con reintento en la UI.
+    return 'unknown'
   }
 }
 

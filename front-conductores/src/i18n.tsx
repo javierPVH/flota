@@ -25,6 +25,8 @@ const es = {
     offlineSent: (n: number) =>
       `${n} registro${n === 1 ? '' : 's'} pendiente${n === 1 ? '' : 's'} enviado${n === 1 ? '' : 's'}.`,
     offlineRejected: (detail: string) => `Rechazados por el servidor: ${detail}`,
+    updateAvailable: 'Hay una versión nueva — toca para recargar',
+    dismissNotice: 'Descartar el aviso',
     installHint: 'Añade Flota a tu pantalla de inicio para abrirla como una app.',
     installAction: 'Instalar',
     installDismiss: 'No volver a mostrar',
@@ -77,6 +79,9 @@ const es = {
   },
   gate: {
     checking: 'Comprobando tu acceso…',
+    offline:
+      'Sin conexión: no se puede comprobar tu flota ahora mismo. Reintenta cuando tengas cobertura.',
+    retry: 'Reintentar',
     adminTitle: 'Sin acceso',
     adminBody: (username: string) =>
       `Esta app es para conductores y supervisores. Tu usuario (${username}) es de ` +
@@ -238,6 +243,8 @@ const es = {
     pushTitle: 'Avisos en este dispositivo',
     pushOn: 'Recibirás las alertas aunque la app esté cerrada.',
     pushBlocked: 'Bloqueados por el navegador: actívalos en sus ajustes.',
+    pushUnknown: 'No se pudo comprobar el estado (¿sin conexión?).',
+    pushRetry: 'Reintentar',
     pushOff: 'ITV, lecturas pendientes y más, aunque la app esté cerrada.',
     pushEnable: 'Activar',
     pushDisable: 'Desactivar',
@@ -340,6 +347,8 @@ const en: typeof es = {
     offlineSending: 'Sending pending…',
     offlineSent: (n) => `${n} pending record${n === 1 ? '' : 's'} sent.`,
     offlineRejected: (detail) => `Rejected by the server: ${detail}`,
+    updateAvailable: 'A new version is available — tap to reload',
+    dismissNotice: 'Dismiss notice',
     installHint: 'Add Fleet to your home screen to open it like an app.',
     installAction: 'Install',
     installDismiss: "Don't show again",
@@ -392,6 +401,8 @@ const en: typeof es = {
   },
   gate: {
     checking: 'Checking your access…',
+    offline: 'Offline: your fleet cannot be checked right now. Retry once you have coverage.',
+    retry: 'Retry',
     adminTitle: 'No access',
     adminBody: (username) =>
       `This app is for drivers and supervisors. Your user (${username}) is an admin ` +
@@ -552,6 +563,8 @@ const en: typeof es = {
     pushTitle: 'Notifications on this device',
     pushOn: 'You will receive alerts even with the app closed.',
     pushBlocked: 'Blocked by the browser: enable them in its settings.',
+    pushUnknown: 'Could not check the status (offline?).',
+    pushRetry: 'Retry',
     pushOff: 'MOT, pending readings and more, even with the app closed.',
     pushEnable: 'Enable',
     pushDisable: 'Disable',

@@ -37,7 +37,7 @@ export function AlertsPage() {
   const [pushError, setPushError] = useState('')
 
   useEffect(() => {
-    pushState().then(setPush, () => setPush('disabled'))
+    pushState().then(setPush, () => setPush('unknown'))
   }, [])
 
   async function togglePush() {
@@ -125,7 +125,8 @@ export function AlertsPage() {
 
       {notice && <p role="status" className="form-ok">{notice}</p>}
 
-      {/* M8: avisos push de este dispositivo (oculto si el back no los tiene). */}
+      {/* M8: avisos push de este dispositivo (oculto si el back no los tiene).
+          BG7: 'unknown' (fallo de red) NO oculta el panel — ofrece reintentar. */}
       {push !== 'disabled' && push !== 'unsupported' && (
         <section className="card">
           <div className="push-row">
@@ -137,18 +138,30 @@ export function AlertsPage() {
                   ? t.alerts.pushOn
                   : push === 'blocked'
                     ? t.alerts.pushBlocked
-                    : t.alerts.pushOff}
+                    : push === 'unknown'
+                      ? t.alerts.pushUnknown
+                      : t.alerts.pushOff}
               </span>
             </div>
-            {push !== 'blocked' && (
+            {push === 'unknown' ? (
               <Button
                 size="sm"
-                variant={push === 'on' ? 'secondary' : 'primary'}
-                onClick={() => void togglePush()}
-                disabled={pushBusy}
+                variant="secondary"
+                onClick={() => pushState().then(setPush, () => setPush('unknown'))}
               >
-                {pushBusy ? '…' : push === 'on' ? t.alerts.pushDisable : t.alerts.pushEnable}
+                {t.alerts.pushRetry}
               </Button>
+            ) : (
+              push !== 'blocked' && (
+                <Button
+                  size="sm"
+                  variant={push === 'on' ? 'secondary' : 'primary'}
+                  onClick={() => void togglePush()}
+                  disabled={pushBusy}
+                >
+                  {pushBusy ? '…' : push === 'on' ? t.alerts.pushDisable : t.alerts.pushEnable}
+                </Button>
+              )
             )}
           </div>
           {pushError && <div role="alert" className="form-error">{pushError}</div>}
