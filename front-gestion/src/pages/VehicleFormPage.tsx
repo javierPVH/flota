@@ -260,26 +260,34 @@ export function VehicleFormPage() {
 
   const [preview, setPreview] = useState<Record<string, [unknown, unknown]> | null>(null)
 
+  // UX5: un desplegable VACÍO por un fallo de carga en un formulario
+  // transaccional es una trampa — si algo falla, banner + reintento.
+  const [catalogError, setCatalogError] = useState(false)
+  const [catalogRetry, setCatalogRetry] = useState(0)
+
   useEffect(() => {
-    listDrivers().then(setDrivers).catch(() => setDrivers([]))
-    // Supervisores (HU-2.7): usuarios activos con ese rol.
-    listUsers()
-      .then((page) =>
+    const loads: Array<Promise<unknown>> = [
+      listDrivers().then(setDrivers),
+      // Supervisores (HU-2.7): usuarios activos con ese rol.
+      listUsers().then((page) =>
         setSupervisors(
           page.results
             .filter((u) => u.is_active && u.roles.includes('supervisor'))
             .map((u) => ({ id: u.id, name: u.name })),
         ),
-      )
-      .catch(() => setSupervisors([]))
-    listCatalog('projects').then((p) => setProjects(p.results)).catch(() => {})
-    listCatalog('peps').then((p) => setPeps(p.results)).catch(() => {})
-    listCatalog('business-units').then((p) => setUnits(p.results)).catch(() => {})
-    listCatalog('rentings').then((p) => setRentings(p.results)).catch(() => {})
-    listCatalog('countries').then((p) => setCountries(p.results)).catch(() => {})
-    listCatalog('brands').then((p) => setBrands(p.results)).catch(() => {})
-    listCatalog('companies').then((p) => setCompanies(p.results)).catch(() => {})
-  }, [])
+      ),
+      listCatalog('projects').then((p) => setProjects(p.results)),
+      listCatalog('peps').then((p) => setPeps(p.results)),
+      listCatalog('business-units').then((p) => setUnits(p.results)),
+      listCatalog('rentings').then((p) => setRentings(p.results)),
+      listCatalog('countries').then((p) => setCountries(p.results)),
+      listCatalog('brands').then((p) => setBrands(p.results)),
+      listCatalog('companies').then((p) => setCompanies(p.results)),
+    ]
+    void Promise.allSettled(loads).then((results) =>
+      setCatalogError(results.some((r) => r.status === 'rejected')),
+    )
+  }, [catalogRetry])
 
   // N5: el desplegable de modelos depende de la marca elegida.
   useEffect(() => {
@@ -414,6 +422,15 @@ export function VehicleFormPage() {
           {t.conflictBanner}{' '}
           <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>
             {t.conflictReload}
+          </Button>
+        </Panel>
+      )}
+
+      {catalogError && (
+        <Panel tone="warning" className="form-banner">
+          {t.catalogsLoadError}{' '}
+          <Button variant="secondary" size="sm" onClick={() => setCatalogRetry((n) => n + 1)}>
+            {t.catalogsRetry}
           </Button>
         </Panel>
       )}

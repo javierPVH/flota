@@ -82,7 +82,11 @@
     },
     "./styles/*": "./src/styles/*",
     "./base.css": "./dist/ui.css",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./domain": {
+      "types": "./dist/src/domain/index.d.ts",
+      "import": "./dist/domain/index.js"
+    }
   },
   "peerDependencies": {
     "framer-motion": "^12.38.0",

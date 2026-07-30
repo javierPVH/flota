@@ -15,6 +15,7 @@ export {
   isAuthCookieMode,
   getCookie,
   getJson,
+  postForm,
   postJson,
   patchJson,
   deleteJson,

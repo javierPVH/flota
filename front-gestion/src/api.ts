@@ -1,4 +1,4 @@
-import { deleteJson, getCookie, getJson, patchJson, postJson, toUrl } from '@flota/ui/http'
+import { deleteJson, getJson, patchJson, postForm, postJson, toUrl } from '@flota/ui/http'
 
 import type {
   Alert,
@@ -512,28 +512,14 @@ export const createDocument = (data: DocumentInput) =>
 
 /** Alta con binario (multipart): queda `pendiente_archivar` y el archivador
  * lo sube a la carpeta de Drive del vehículo (Fase A3). */
-export async function uploadDocument(data: DocumentInput, file: File): Promise<FlotaDocument> {
+export function uploadDocument(data: DocumentInput, file: File): Promise<FlotaDocument> {
+  // DX3/BG10: multipart por el transporte compartido — ApiError con status.
   const form = new FormData()
   form.set('file', file)
   for (const [key, value] of Object.entries(data)) {
     if (value !== undefined && value !== null && value !== '') form.set(key, String(value))
   }
-  const response = await fetch(toUrl(`${API}/documents/`), {
-    method: 'POST',
-    headers: { 'X-CSRFToken': getCookie('csrftoken') },
-    // 'include': la cookie de sesión debe viajar aunque la SPA esté en otro origen.
-    credentials: 'include',
-    body: form,
-  })
-  const text = await response.text()
-  let payload: unknown = null
-  try {
-    payload = text ? JSON.parse(text) : null
-  } catch {
-    payload = text
-  }
-  if (!response.ok) throw payload ?? new Error('No se pudo subir el documento.')
-  return payload as FlotaDocument
+  return postForm<FlotaDocument>(`${API}/documents/`, form, {}, 'No se pudo subir el documento.')
 }
 
 export const updateDocument = (id: number, data: Partial<DocumentInput> & { status?: string }) =>

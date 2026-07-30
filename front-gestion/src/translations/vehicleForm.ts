@@ -197,6 +197,9 @@ const es = {
     supervisor: 'Supervisor',
     registration_date: 'Matriculación',
   } as Record<string, string>,
+  catalogsLoadError:
+    'No se pudieron cargar todos los catálogos (marcas, proyectos, sociedades…): algún desplegable puede estar vacío.',
+  catalogsRetry: 'Reintentar',
 }
 
 const en: typeof es = {
@@ -381,6 +384,9 @@ const en: typeof es = {
     supervisor: 'Supervisor',
     registration_date: 'Registration date',
   } as Record<string, string>,
+  catalogsLoadError:
+    'Some catalogs (brands, projects, companies…) failed to load: a dropdown may be empty.',
+  catalogsRetry: 'Retry',
 }
 
 const dict = { es, en }

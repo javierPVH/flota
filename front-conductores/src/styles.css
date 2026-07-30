@@ -805,8 +805,11 @@ a {
   text-align: left;
   cursor: pointer;
 }
-.acc-toggle .panel-title {
+/* UX4: ahora el h3 ENVUELVE al botón (encabezado real en el árbol a11y). */
+.acc-head .panel-title {
   margin: 0;
+  flex: 1;
+  min-width: 0;
 }
 .acc-chevron {
   flex: 0 0 auto;

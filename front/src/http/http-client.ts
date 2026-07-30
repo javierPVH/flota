@@ -285,6 +285,45 @@ export function postJson<TResponse>(
   return sendJson<TResponse>('POST', path, payload, options, fallbackMessage, true, true)
 }
 
+/**
+ * [ES] POST multipart (subidas de fichero) con el MISMO pipeline que el resto:
+ * cookies+CSRF, reauth transparente, envoltura {detail, errors} y `ApiError`
+ * con status (DX3/BG10 — las subidas a mano lanzaban el JSON crudo y el aviso
+ * mostraba "[object Object]").
+ * [EN] Multipart POST sharing the JSON transport pipeline (auth, reauth, errors).
+ */
+export async function postForm<TResponse>(
+  path: string,
+  form: FormData,
+  options: ApiTransportOptions = {},
+  fallbackMessage = 'No se pudo completar la operacion.',
+): Promise<TResponse> {
+  const attempt = async () => {
+    const response = await fetch(toUrl(path, options.baseUrl), {
+      method: 'POST',
+      // SIN Content-Type: el navegador pone multipart/form-data con boundary.
+      headers: buildHeaders(false, 'POST'),
+      credentials: 'include',
+      body: form,
+      signal: options.signal,
+    })
+    const data = await parseResponsePayload(response)
+    return { response, data }
+  }
+
+  let result = await attempt()
+  if (
+    !result.response.ok
+    && isReauthRequired(result.response.status, result.data)
+    && await requestReauth()
+  ) {
+    result = await attempt()
+  }
+  const { response, data } = result
+  if (!response.ok) raiseApiError(response.status, data, fallbackMessage)
+  return data as TResponse
+}
+
 export function patchJson<TResponse>(
   path: string,
   payload: unknown,

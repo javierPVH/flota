@@ -343,7 +343,7 @@ export function VehicleFieldPage() {
 
       {/* Propuestas propias pendientes (HU-2.3): NO alteran la vigente. */}
       {myProposals.length > 0 && (
-        <CollapsibleCard id="proposals" accordion={accordion} title={t.vehicle.proposalsTitle}>
+        <CollapsibleCard id="proposals" headingClassName="panel-title" accordion={accordion} title={t.vehicle.proposalsTitle}>
           <ul className="doc-list">
             {myProposals.map((p) => (
               <li key={p.id} className="doc-item">
@@ -363,7 +363,7 @@ export function VehicleFieldPage() {
       )}
 
       {/* Tres atributos independientes (HU-1.6), en solo lectura. */}
-      <CollapsibleCard id="situation" accordion={accordion} title={t.vehicle.situationTitle}>
+      <CollapsibleCard id="situation" headingClassName="panel-title" accordion={accordion} title={t.vehicle.situationTitle}>
         <dl className="vehicle-meta">
           <dt>{t.vehicle.state}</dt>
           <dd>
@@ -387,7 +387,7 @@ export function VehicleFieldPage() {
       {/* Incidencias abiertas (mejora 🟡): el conductor ve qué le pasa a SU
           vehículo; la gestión (cerrar, coste…) sigue en el front de gestión. */}
       {incidents.length > 0 && (
-        <CollapsibleCard id="incidents" accordion={accordion} title={t.vehicle.incidentsTitle}>
+        <CollapsibleCard id="incidents" headingClassName="panel-title" accordion={accordion} title={t.vehicle.incidentsTitle}>
           <ul className="doc-list">
             {incidents.map((i) => (
               <li key={i.id} className="doc-item">
@@ -409,6 +409,7 @@ export function VehicleFieldPage() {
       {/* Documentos (HU-4.1/4.3): viven en Drive; aquí solo la referencia. */}
       <CollapsibleCard
         id="documents"
+        headingClassName="panel-title"
         accordion={accordion}
         title={t.vehicle.documentsTitle}
         actions={

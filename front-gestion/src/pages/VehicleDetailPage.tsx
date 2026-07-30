@@ -151,19 +151,33 @@ export function VehicleDetailPage() {
 
   const load = useCallback(() => {
     if (!vehicleId) return
+    // PF3: navegar rápido entre fichas dejaba 6 respuestas del vehículo
+    // ANTERIOR pisando al actual. El flag `alive` (devuelto como cleanup a
+    // useEffect) descarta las respuestas tardías del vehículo abandonado.
+    let alive = true
     fetchVehicle(vehicleId)
-      .then(setVehicle)
-      .catch((err) => setError(asErrorMessage(err, t.errLoadVehicle)))
-    fetchVehicleSummary(vehicleId).then(setSummary).catch(() => setSummary(null))
+      .then((v) => alive && setVehicle(v))
+      .catch((err) => alive && setError(asErrorMessage(err, t.errLoadVehicle)))
+    fetchVehicleSummary(vehicleId)
+      .then((sm) => alive && setSummary(sm))
+      .catch(() => alive && setSummary(null))
     listKmReadings(vehicleId)
-      .then((page) =>
-        setReadings(
-          [...page.results].sort((a, b) => ((a.reading_date ?? '') < (b.reading_date ?? '') ? -1 : 1)),
-        ),
+      .then(
+        (page) =>
+          alive &&
+          setReadings(
+            [...page.results].sort((a, b) =>
+              (a.reading_date ?? '') < (b.reading_date ?? '') ? -1 : 1,
+            ),
+          ),
       )
-      .catch(() => setReadings([]))
-    listEvents(vehicleId).then((page) => setEvents(page.results)).catch(() => setEvents([]))
-    fetchVehicleHistory(vehicleId).then((page) => setAudit(page.results)).catch(() => setAudit([]))
+      .catch(() => alive && setReadings([]))
+    listEvents(vehicleId)
+      .then((page) => alive && setEvents(page.results))
+      .catch(() => alive && setEvents([]))
+    fetchVehicleHistory(vehicleId)
+      .then((page) => alive && setAudit(page.results))
+      .catch(() => alive && setAudit([]))
     // Vínculos (HU-1.8): el activo se banneriza desde ambos lados y el
     // histórico completo alimenta el modal de vinculación.
     Promise.all([
@@ -171,6 +185,7 @@ export function VehicleDetailPage() {
       listVehicleLinks({ substitute_vehicle: vehicleId }),
     ])
       .then(async ([asMain, asSubstitute]) => {
+        if (!alive) return
         const merged = [...asMain.results, ...asSubstitute.results]
         setAllLinks(merged)
         const activeMain = asMain.results.find((l) => l.end_date === null)
@@ -183,6 +198,7 @@ export function VehicleDetailPage() {
         }
         const otherId = activeMain ? link.substitute_vehicle : link.main_vehicle
         const other = await fetchVehicle(otherId).catch(() => null)
+        if (!alive) return
         setLinkInfo({
           role: activeMain ? 'main' : 'substitute',
           plate: other?.plate ?? `#${otherId}`,
@@ -190,8 +206,11 @@ export function VehicleDetailPage() {
           since: link.start_date,
         })
       })
-      .catch(() => setLinkInfo(null))
-  }, [vehicleId])
+      .catch(() => alive && setLinkInfo(null))
+    return () => {
+      alive = false
+    }
+  }, [vehicleId, t])
 
   useEffect(load, [load])
 

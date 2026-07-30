@@ -120,6 +120,10 @@ const es = {
   modal: {
     close: 'Cerrar',
   },
+  accordion: {
+    expandAll: 'Desplegar todo',
+    collapseAll: 'Plegar todo',
+  },
   catalogEntityCreateForm: {
     submitDefaultLabel: 'Crear',
     closeButton: 'Cerrar',
@@ -250,6 +254,10 @@ const en: typeof es = {
   },
   modal: {
     close: 'Close',
+  },
+  accordion: {
+    expandAll: 'Expand all',
+    collapseAll: 'Collapse all',
   },
   catalogEntityCreateForm: {
     submitDefaultLabel: 'Create',

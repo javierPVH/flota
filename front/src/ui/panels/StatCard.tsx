@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import styles from '../../styles/_components/panels/dashboard.module.sass'
+import { cx } from '../../utils/cx.ts'
 
 export type StatAccent =
   | 'primary'
@@ -28,9 +29,6 @@ export interface StatCardProps {
   icon?: ReactNode
 }
 
-function cx(...values: Array<string | false | null | undefined>): string {
-  return values.filter(Boolean).join(' ')
-}
 
 export function StatCard({ label, value, sub, accent = 'primary', icon }: StatCardProps) {
   return (
