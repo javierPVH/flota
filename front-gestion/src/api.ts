@@ -177,8 +177,9 @@ export const updateCatalogEntry = (
   data: Record<string, string>,
 ) => patchJson<CatalogEntry>(`${API}/${resource}/${id}/`, data)
 
-export const deleteCatalogEntry = (resource: CatalogResource, id: number) =>
-  deleteJson(`${API}/${resource}/${id}/`)
+// N7: DELETE desactiva en el back; el motivo viaja como query.
+export const deleteCatalogEntry = (resource: CatalogResource, id: number, reason = '') =>
+  deleteJson(`${API}/${resource}/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
 
 // --- G1/G8: alertas ---------------------------------------------------------
 
@@ -408,7 +409,8 @@ export const createInvoice = (data: InvoiceInput) =>
 export const updateInvoice = (id: number, data: Partial<InvoiceInput>) =>
   patchJson<InvoiceRow>(`${API}/invoices/${id}/`, data)
 
-export const deleteInvoice = (id: number) => deleteJson(`${API}/invoices/${id}/`)
+export const deleteInvoice = (id: number, reason = '') =>
+  deleteJson(`${API}/invoices/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
 
 export const listAllocations = (filters: { invoice?: number } = {}) =>
   getJson<Paginated<AllocationRow>>(`${API}/invoice-allocations/${listQs({ ...filters })}`)
@@ -508,7 +510,8 @@ export async function uploadDocument(data: DocumentInput, file: File): Promise<F
 export const updateDocument = (id: number, data: Partial<DocumentInput> & { status?: string }) =>
   patchJson<FlotaDocument>(`${API}/documents/${id}/`, data)
 
-export const deleteDocument = (id: number) => deleteJson(`${API}/documents/${id}/`)
+export const deleteDocument = (id: number, reason = '') =>
+  deleteJson(`${API}/documents/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
 
 export interface IncidentFilters {
   vehicle?: number
@@ -545,3 +548,29 @@ export const fetchFolderFiles = (folderId: string, kind = 'all') =>
 
 /** URL (navegación completa) que arranca el consentimiento OAuth de Google. */
 export const connectGoogleUrl = () => toUrl(`${API}/google/oauth/login/`)
+
+// --- N7: espacio de erratas -------------------------------------------------
+
+export interface ErrataItem {
+  id: number
+  label: string
+  deactivated_at: string | null
+  deactivated_by: string
+  reason: string
+}
+
+export interface ErrataGroup {
+  type: string
+  label: string
+  count: number
+  items: ErrataItem[]
+}
+
+export const listErratas = () => getJson<ErrataGroup[]>(`${API}/erratas/`)
+
+export const restoreErrata = (type: string, id: number) =>
+  postJson<{ restored: boolean }>(`${API}/erratas/restore/`, { type, id })
+
+/** Borrado REAL — solo el superusuario (el back lo revalida). */
+export const purgeErrata = (type: string, id: number) =>
+  postJson<{ purged: boolean }>(`${API}/erratas/purge/`, { type, id })

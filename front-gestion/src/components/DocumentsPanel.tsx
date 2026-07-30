@@ -5,7 +5,7 @@ import { asErrorMessage } from '@flota/ui/http'
 import { ExternalLink, FolderOpen } from 'lucide-react'
 
 import { documentStatusTone } from '../format.ts'
-import { useConfirm } from './ConfirmDialog.tsx'
+import { useDeactivateConfirm } from './ConfirmDialog.tsx'
 import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
 
 import {
@@ -78,7 +78,7 @@ export function DocumentsPanel({
   vehicle: Vehicle
   accordion: AccordionState
 }) {
-  const confirm = useConfirm()
+  const deactivateConfirm = useDeactivateConfirm()
   const [docs, setDocs] = useState<FlotaDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -201,15 +201,14 @@ export function DocumentsPanel({
   }
 
   async function handleDelete(doc: FlotaDocument) {
-    const ok = await confirm({
-      message: `¿Eliminar "${doc.type_display}"? Se borra la referencia (no el fichero de Drive) y queda registrado en la auditoría.`,
-    })
-    if (!ok) return
+    // N7: nada se borra — doble confirmación y desactivación con motivo.
+    const reason = await deactivateConfirm(`el documento "${doc.type_display}"?`)
+    if (reason === null) return
     try {
-      await deleteDocument(doc.id)
+      await deleteDocument(doc.id, reason)
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo eliminar el documento.'))
+      setError(asErrorMessage(err, 'No se pudo desactivar el documento.'))
     }
   }
 

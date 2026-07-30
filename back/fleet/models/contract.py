@@ -3,7 +3,7 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from .base import TimeStampedModel
+from .base import DeactivatableModel, TimeStampedModel
 
 
 class Contract(TimeStampedModel):
@@ -48,7 +48,7 @@ class Contract(TimeStampedModel):
         return f"{self.contract_number or 'Contrato'} · {self.vehicle.plate}"
 
 
-class KmReading(TimeStampedModel):
+class KmReading(DeactivatableModel, TimeStampedModel):
     """DBML `kms` — lectura del odómetro acumulado de un vehículo en una fecha."""
 
     vehicle = models.ForeignKey(

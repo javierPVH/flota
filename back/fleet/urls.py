@@ -1,6 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from .erratas import ErratasPurgeView, ErratasRestoreView, ErratasView
 from .views import (
     AlertViewSet,
     AssignmentViewSet,
@@ -55,6 +56,10 @@ router.register("companies", CompanyViewSet, basename="company")
 
 urlpatterns = [
     path("reports/", ReportsView.as_view(), name="reports"),
+    # N7: espacio de erratas (desactivados) — restaurar (admin) / purgar (superusuario).
+    path("erratas/", ErratasView.as_view(), name="erratas"),
+    path("erratas/restore/", ErratasRestoreView.as_view(), name="erratas-restore"),
+    path("erratas/purge/", ErratasPurgeView.as_view(), name="erratas-purge"),
     # Agregados del dashboard (Fase A1); acotado por rol.
     path("summary/", FleetSummaryView.as_view(), name="fleet-summary"),
     # Summaries de todo el ámbito en una respuesta (O2): evita el N+1 de campo.

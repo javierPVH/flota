@@ -19,6 +19,7 @@ import {
   Menu,
   Receipt,
   Tags,
+  Trash2,
   Users,
   Wrench,
 } from 'lucide-react'
@@ -147,6 +148,7 @@ export function AppHeader() {
       items: [
         { to: '/facturas', label: nav.invoices, icon: <Receipt size={16} /> },
         { to: '/catalogos', label: nav.catalogs, icon: <Tags size={16} /> },
+        { to: '/erratas', label: nav.erratas, icon: <Trash2 size={16} /> },
         { to: '/informes', label: nav.reports, icon: <FileText size={16} /> },
       ],
     },

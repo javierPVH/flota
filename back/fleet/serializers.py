@@ -278,7 +278,16 @@ class KmReadingSerializer(serializers.ModelSerializer):
     class Meta:
         model = KmReading
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        # N7: la desactivación solo cambia por destroy/erratas, nunca por PATCH.
+        read_only_fields = [
+            "id",
+            "is_active",
+            "deactivated_at",
+            "deactivated_by",
+            "deactivation_reason",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate_reading_date(self, value):
         # SEC2: sin cota superior, una lectura fechada en el futuro bloquearía
@@ -292,7 +301,7 @@ class KmReadingSerializer(serializers.ModelSerializer):
         vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
         km = attrs.get("km_reading", getattr(self.instance, "km_reading", None))
         if vehicle is not None and km is not None:
-            qs = KmReading.objects.filter(vehicle=vehicle, km_reading__isnull=False)
+            qs = KmReading.objects.filter(vehicle=vehicle, km_reading__isnull=False, is_active=True)
             if self.instance is not None:
                 qs = qs.exclude(pk=self.instance.pk)
             previous = qs.order_by("-reading_date", "-id").first()
@@ -549,7 +558,15 @@ class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "is_active",
+            "deactivated_at",
+            "deactivated_by",
+            "deactivation_reason",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate_drive_url(self, value):
         return _https_only(value)
@@ -559,7 +576,15 @@ class InvoiceAllocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceAllocation
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "is_active",
+            "deactivated_at",
+            "deactivated_by",
+            "deactivation_reason",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class AllocationLineSerializer(serializers.Serializer):
@@ -624,7 +649,15 @@ class IncidentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Incident
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "is_active",
+            "deactivated_at",
+            "deactivated_by",
+            "deactivation_reason",
+            "created_at",
+            "updated_at",
+        ]
 
 
 # Extensiones admitidas en la subida de documentos (fotos de cámara + PDF).
@@ -641,7 +674,16 @@ class DocumentSerializer(serializers.ModelSerializer):
         model = Document
         fields = "__all__"
         # uploaded_by lo fija el servidor (el usuario de la petición).
-        read_only_fields = ["id", "uploaded_by", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "uploaded_by",
+            "is_active",
+            "deactivated_at",
+            "deactivated_by",
+            "deactivation_reason",
+            "created_at",
+            "updated_at",
+        ]
 
     def get_uploaded_by_name(self, obj) -> str:
         user = obj.uploaded_by
@@ -793,13 +835,15 @@ class VehicleRequestMineSerializer(serializers.ModelSerializer):
 class CountrySerializer(serializers.ModelSerializer):
     class Meta:
         model = Country
-        fields = ["id", "name"]
+        fields = ["id", "name", "is_active"]
+        read_only_fields = ["is_active"]
 
 
 class BusinessUnitSerializer(serializers.ModelSerializer):
     class Meta:
         model = BusinessUnit
-        fields = ["id", "code", "name"]
+        fields = ["id", "code", "name", "is_active"]
+        read_only_fields = ["is_active"]
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -812,25 +856,29 @@ class ProjectSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Project
-        fields = ["id", "project_name", "cost_center", "cost_center_display"]
+        fields = ["id", "project_name", "cost_center", "cost_center_display", "is_active"]
+        read_only_fields = ["is_active"]
 
 
 class PepSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pep
-        fields = ["id", "code", "name"]
+        fields = ["id", "code", "name", "is_active"]
+        read_only_fields = ["is_active"]
 
 
 class RentingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Renting
-        fields = ["id", "name"]
+        fields = ["id", "name", "is_active"]
+        read_only_fields = ["is_active"]
 
 
 class BrandSerializer(serializers.ModelSerializer):
     class Meta:
         model = Brand
-        fields = ["id", "name"]
+        fields = ["id", "name", "is_active"]
+        read_only_fields = ["is_active"]
 
 
 class VehicleModelSerializer(serializers.ModelSerializer):
@@ -842,10 +890,12 @@ class VehicleModelSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = VehicleModel
-        fields = ["id", "brand", "brand_display", "name"]
+        fields = ["id", "brand", "brand_display", "name", "is_active"]
+        read_only_fields = ["is_active"]
 
 
 class CompanySerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
-        fields = ["id", "code", "name", "description"]
+        fields = ["id", "code", "name", "description", "is_active"]
+        read_only_fields = ["is_active"]

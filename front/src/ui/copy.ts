@@ -117,6 +117,9 @@ const es = {
     expandRow: 'Desplegar fila',
     collapseRow: 'Plegar fila',
   },
+  modal: {
+    close: 'Cerrar',
+  },
   catalogEntityCreateForm: {
     submitDefaultLabel: 'Crear',
     closeButton: 'Cerrar',
@@ -244,6 +247,9 @@ const en: typeof es = {
     lastPage: 'Last page',
     expandRow: 'Expand row',
     collapseRow: 'Collapse row',
+  },
+  modal: {
+    close: 'Close',
   },
   catalogEntityCreateForm: {
     submitDefaultLabel: 'Create',

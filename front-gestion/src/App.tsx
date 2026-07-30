@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { RequireAuth } from './auth.ts'
@@ -19,6 +20,11 @@ import { InvoicesPage } from './pages/InvoicesPage.tsx'
 import { CatalogsPage } from './pages/CatalogsPage.tsx'
 import { UsersPage } from './pages/UsersPage.tsx'
 import { UserDetailPage } from './pages/UserDetailPage.tsx'
+
+// N7 (y PF2): las páginas nuevas nacen lazy.
+const ErratasPage = lazy(() =>
+  import('./pages/ErratasPage.tsx').then((m) => ({ default: m.ErratasPage })),
+)
 import { UiKitPage } from './pages/UiKitPage.tsx'
 
 export default function App() {
@@ -51,6 +57,14 @@ export default function App() {
         <Route path="/solicitudes" element={<RequestsPage />} />
         <Route path="/facturas" element={<InvoicesPage />} />
         <Route path="/catalogos" element={<CatalogsPage />} />
+        <Route
+          path="/erratas"
+          element={
+            <Suspense fallback={<p className="loading-state" role="status">Cargando…</p>}>
+              <ErratasPage />
+            </Suspense>
+          }
+        />
         <Route path="/conductores" element={<UsersPage />} />
         <Route path="/conductores/:id" element={<UserDetailPage />} />
       </Route>
