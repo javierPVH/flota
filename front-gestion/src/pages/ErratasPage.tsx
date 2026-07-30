@@ -13,6 +13,7 @@ import {
 import { useAuth } from '../auth.ts'
 import { fmtDate } from '../format.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { exportCsv } from '../csv.ts'
 import { useLang } from '../i18n.tsx'
 
 /**
@@ -134,6 +135,17 @@ export function ErratasPage() {
               </TabButton>
             ))}
           </div>
+          {group && (
+            <div className="list-tools">
+              <Button
+                variant="secondary"
+                disabled={group.items.length === 0}
+                onClick={() => exportCsv(`erratas-${group.type}`, columns, group.items)}
+              >
+                Exportar CSV
+              </Button>
+            </div>
+          )}
           {group && (
             <TableWithPanel<ErrataItem>
               rows={group.items}

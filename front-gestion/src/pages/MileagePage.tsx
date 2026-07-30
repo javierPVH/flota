@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Badge, PageHeader, SelectField } from '@flota/ui/ui'
+import { Badge, Button, PageHeader, SelectField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchVehicleSummaries, listAll, listVehicles } from '../api.ts'
+import { exportCsv } from '../csv.ts'
 import { kmLevelTone } from '../format.ts'
 import { ReadingsHistory } from '../components/ReadingsHistory.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
@@ -240,6 +241,15 @@ export function MileagePage() {
               <span className={pending.length ? 'pending-count' : 'muted'}>
                 {pending.length ? `${pending.length} vehículos` : 'Todo al día ✓'}
               </span>
+              {pending.length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => exportCsv('km-pendientes', PENDING_COLUMNS, pending)}
+                >
+                  Exportar CSV
+                </Button>
+              )}
             </div>
             {pending.length > 0 && (
               <TableWithPanel<Row>
@@ -256,7 +266,18 @@ export function MileagePage() {
 
           {/* Proyección por vehículo (HU-3.4/3.5) */}
           <section className="card">
-            <h3>Proyección a fin de contrato</h3>
+            <div className="section-head">
+              <h3>Proyección a fin de contrato</h3>
+              {withProjection.length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => exportCsv('km-proyeccion', PROJECTION_COLUMNS, withProjection)}
+                >
+                  Exportar CSV
+                </Button>
+              )}
+            </div>
             {withProjection.length === 0 ? (
               <p className="muted">Ningún vehículo con contrato y lecturas suficientes.</p>
             ) : (

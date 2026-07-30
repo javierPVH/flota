@@ -13,7 +13,10 @@ import { todayIso } from './format.ts'
 
 function escapeCell(value: unknown): string {
   if (value === null || value === undefined) return ''
-  const text = String(value)
+  let text = String(value)
+  // BG8: neutraliza la inyección de fórmulas en Excel/Sheets — una celda que
+  // empieza por = + - @ (o tab/CR) se interpretaría como fórmula al abrir.
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`
   return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
@@ -33,6 +36,10 @@ export function exportCsv<T extends object>(
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = `${baseName}-${todayIso()}.csv`
+  // BG8: sin insertar el anchor en el DOM y con revoke inmediato, algunos
+  // navegadores cancelan la descarga. Se inserta y el revoke se pospone.
+  document.body.appendChild(anchor)
   anchor.click()
-  URL.revokeObjectURL(url)
+  anchor.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
