@@ -146,6 +146,35 @@ class ScopedByVehicleMixin:
         return {}
 
 
+# --- N7: nada se borra ----------------------------------------------------
+
+
+class DeactivateOnDestroyMixin:
+    """N7: `DELETE` desactiva (actor + momento + motivo) en vez de borrar.
+
+    Los listados excluyen inactivos por defecto; la gestión puede verlos con
+    `?include_inactive=1`. El borrado real (purge) solo existe en el espacio
+    de erratas y exige superusuario.
+    """
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        params = self.request.query_params
+        if params.get("include_inactive") in ("1", "true", "True") and (
+            self.request.user.is_authenticated and self.request.user.is_management
+        ):
+            return qs
+        return qs.filter(is_active=True)
+
+    def perform_destroy(self, instance):
+        # El motivo llega por query (`?reason=`, los DELETE sin cuerpo del front)
+        # o por cuerpo JSON.
+        reason = str(self.request.query_params.get("reason", "") or "")
+        if not reason and isinstance(self.request.data, dict):
+            reason = str(self.request.data.get("reason", "") or "")
+        instance.deactivate(by=self.request.user, reason=reason)
+
+
 # --- Vehículos ------------------------------------------------------------
 
 
@@ -279,7 +308,7 @@ class ContractViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     ordering_fields = ["start_date", "planned_end_date"]
 
 
-class KmReadingViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
+class KmReadingViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
     """Lecturas de km. El conductor registra las de su vehículo (HU-3.1)."""
 
     serializer_class = KmReadingSerializer
@@ -496,7 +525,7 @@ class EventViewSet(ScopedByVehicleMixin, mixins.CreateModelMixin, viewsets.ReadO
             super().perform_create(serializer)
 
 
-class InvoiceViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
+class InvoiceViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
     serializer_class = InvoiceSerializer
     permission_classes = [AdminWriteManagementRead]
     queryset = Invoice.objects.select_related("vehicle")
@@ -538,7 +567,9 @@ class InvoiceViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         )
 
 
-class InvoiceAllocationViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
+class InvoiceAllocationViewSet(
+    DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet
+):
     serializer_class = InvoiceAllocationSerializer
     permission_classes = [AdminWriteManagementRead]
     queryset = InvoiceAllocation.objects.select_related("invoice", "project", "cost_center")
@@ -567,7 +598,7 @@ class DocumentPermission(BasePermission):
         return user.is_management  # PUT / PATCH / DELETE
 
 
-class IncidentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
+class IncidentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
     """Incidencias / mantenimiento. Escribe gestión (admin toda; supervisor su
     grupo); el conductor LEE las de sus vehículos (ficha de campo)."""
 
@@ -578,7 +609,7 @@ class IncidentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     ordering_fields = ["date", "created_at"]
 
 
-class DocumentViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
+class DocumentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
     """Documentos del vehículo. El conductor sube los de su vehículo (HU-4.1)."""
 
     serializer_class = DocumentSerializer
@@ -826,49 +857,49 @@ class ReportsView(APIView):
 # --- Catálogos (lectura gestión, escritura admin) ------------------------
 
 
-class CountryViewSet(viewsets.ModelViewSet):
+class CountryViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     queryset = Country.objects.all()
     serializer_class = CountrySerializer
     permission_classes = [AdminWriteManagementRead]
     search_fields = ["name"]
 
 
-class BusinessUnitViewSet(viewsets.ModelViewSet):
+class BusinessUnitViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     queryset = BusinessUnit.objects.all()
     serializer_class = BusinessUnitSerializer
     permission_classes = [AdminWriteManagementRead]
     search_fields = ["code", "name"]
 
 
-class ProjectViewSet(viewsets.ModelViewSet):
+class ProjectViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     queryset = Project.objects.select_related("cost_center")
     serializer_class = ProjectSerializer
     permission_classes = [AdminWriteManagementRead]
     search_fields = ["project_name", "cost_center__code", "cost_center__name"]
 
 
-class PepViewSet(viewsets.ModelViewSet):
+class PepViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     queryset = Pep.objects.all()
     serializer_class = PepSerializer
     permission_classes = [AdminWriteManagementRead]
     search_fields = ["code", "name"]
 
 
-class RentingViewSet(viewsets.ModelViewSet):
+class RentingViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     queryset = Renting.objects.all()
     serializer_class = RentingSerializer
     permission_classes = [AdminWriteManagementRead]
     search_fields = ["name"]
 
 
-class BrandViewSet(viewsets.ModelViewSet):
+class BrandViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     queryset = Brand.objects.all()
     serializer_class = BrandSerializer
     permission_classes = [AdminWriteManagementRead]
     search_fields = ["name"]
 
 
-class VehicleModelViewSet(viewsets.ModelViewSet):
+class VehicleModelViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     """N5: `?brand=<id>` alimenta el desplegable dependiente del alta."""
 
     queryset = VehicleModel.objects.select_related("brand")
@@ -878,7 +909,7 @@ class VehicleModelViewSet(viewsets.ModelViewSet):
     search_fields = ["name", "brand__name"]
 
 
-class CompanyViewSet(viewsets.ModelViewSet):
+class CompanyViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     queryset = Company.objects.all()
     serializer_class = CompanySerializer
     permission_classes = [AdminWriteManagementRead]

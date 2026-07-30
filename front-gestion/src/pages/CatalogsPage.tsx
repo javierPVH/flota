@@ -21,7 +21,7 @@ import {
   type CatalogEntry,
   type CatalogResource,
 } from '../api.ts'
-import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { useDeactivateConfirm } from '../components/ConfirmDialog.tsx'
 
 interface CatalogDef {
   resource: CatalogResource
@@ -115,7 +115,7 @@ function cellValue(entry: CatalogEntry, key: string): string {
 
 /** Catálogos (G11): CRUD de los maestros que alimentan los selects de la app. */
 export function CatalogsPage() {
-  const confirm = useConfirm()
+  const deactivateConfirm = useDeactivateConfirm()
   const [active, setActive] = useState<CatalogDef>(CATALOGS[0])
   const [entries, setEntries] = useState<CatalogEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -317,13 +317,15 @@ export function CatalogsPage() {
   }
 
   async function handleDelete(entry: CatalogEntry) {
-    if (!(await confirm({ message: `¿Eliminar ${active.singular} "${entryLabel(entry)}"?` }))) return
+    // N7: nada se borra — doble confirmación y desactivación con motivo.
+    const reason = await deactivateConfirm(`${active.singular} "${entryLabel(entry)}"?`)
+    if (reason === null) return
     try {
-      await deleteCatalogEntry(active.resource, entry.id)
+      await deleteCatalogEntry(active.resource, entry.id, reason)
       load()
     } catch (err) {
       setError(
-        asErrorMessage(err, 'No se pudo eliminar (puede estar en uso por algún vehículo o factura).'),
+        asErrorMessage(err, 'No se pudo desactivar (puede estar en uso por algún vehículo o factura).'),
       )
     }
   }

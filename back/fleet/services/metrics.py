@@ -62,7 +62,7 @@ def _active_contract(vehicle: Vehicle) -> Contract | None:
 
 def _latest_reading(vehicle: Vehicle) -> KmReading | None:
     return (
-        KmReading.objects.filter(vehicle=vehicle, km_reading__isnull=False)
+        KmReading.objects.filter(vehicle=vehicle, km_reading__isnull=False, is_active=True)
         .exclude(reading_date__isnull=True)
         .order_by("-reading_date", "-id")
         .first()
@@ -102,7 +102,7 @@ def vehicle_summaries(user) -> list[dict]:
 
     latest: dict[int, KmReading] = {}
     for reading in (
-        KmReading.objects.filter(vehicle_id__in=ids, km_reading__isnull=False)
+        KmReading.objects.filter(vehicle_id__in=ids, km_reading__isnull=False, is_active=True)
         .exclude(reading_date__isnull=True)
         .order_by("vehicle_id", "-reading_date", "-id")
     ):
@@ -268,7 +268,11 @@ def fleet_summary(user, today: date | None = None) -> dict:
 
     def _invoiced(start: date, end: date):
         return Invoice.objects.filter(
-            vehicle_id__in=ids, date__gte=start, date__lte=end, amount__isnull=False
+            vehicle_id__in=ids,
+            date__gte=start,
+            date__lte=end,
+            amount__isnull=False,
+            is_active=True,
         ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
 
     itv_next_30d = active.filter(

@@ -22,6 +22,8 @@ export interface ConfirmOptions {
   confirmLabel?: string
   /** Tono del CTA: `danger` (borrar) o `warning` (acciones reversibles serias). */
   tone?: 'danger' | 'warning'
+  /** N7: muestra un campo de motivo; su valor llega en el resultado. */
+  withReason?: boolean
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>
@@ -32,6 +34,52 @@ export function useConfirm(): ConfirmFn {
   const confirm = useContext(ConfirmContext)
   if (!confirm) throw new Error('useConfirm requiere <ConfirmProvider> (ver App.tsx)')
   return confirm
+}
+
+/**
+ * N7 ("nada se borra"): DOBLE confirmación de desactivación. Primer modal
+ * "¿Desactivar X?", segundo "confirma de nuevo: pasará al espacio de erratas"
+ * con campo de motivo. Devuelve `null` si se cancela, o el motivo (puede ser
+ * cadena vacía) si se confirma dos veces.
+ */
+export function useDeactivateConfirm(): (subject: ReactNode) => Promise<string | null> {
+  const confirm = useConfirm()
+  const { t } = useLang()
+  const reasonRef = useRef('')
+  return useCallback(
+    async (subject: ReactNode) => {
+      const first = await confirm({
+        title: t.common.deactivateTitle,
+        message: <>{t.common.deactivateFirst} {subject}</>,
+        confirmLabel: t.common.deactivate,
+        tone: 'warning',
+      })
+      if (!first) return null
+      reasonRef.current = ''
+      const second = await confirm({
+        title: t.common.deactivateTitle,
+        message: (
+          <div className="deactivate-second">
+            <p>{t.common.deactivateSecond}</p>
+            <label className="deactivate-reason">
+              {t.common.deactivateReason}
+              <input
+                type="text"
+                maxLength={250}
+                onChange={(e) => {
+                  reasonRef.current = e.target.value
+                }}
+              />
+            </label>
+          </div>
+        ),
+        confirmLabel: t.common.deactivate,
+        tone: 'danger',
+      })
+      return second ? reasonRef.current : null
+    },
+    [confirm, t],
+  )
 }
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {

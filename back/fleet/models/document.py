@@ -8,11 +8,11 @@ la URL; el archivado real es una integración (Épica 9, ver MEJORAS.md).
 from django.conf import settings
 from django.db import models
 
-from .base import TimeStampedModel
+from .base import DeactivatableModel, TimeStampedModel
 from .enums import DocumentStatus, DocumentType
 
 
-class Document(TimeStampedModel):
+class Document(DeactivatableModel, TimeStampedModel):
     """Documento asociado a un vehículo (y opcionalmente a una incidencia)."""
 
     vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="documents")

@@ -67,7 +67,8 @@ def on_km_reading_registered(sender, instance: KmReading, **kwargs):
     que solo se cierra el aviso del mes de la lectura (una lectura atrasada de
     junio no cierra el aviso de julio).
     """
-    if instance.reading_date is None:
+    if instance.reading_date is None or not instance.is_active:
+        # N7: guardar una desactivación no debe cerrar el aviso del periodo.
         return
     period = f"{instance.reading_date.year:04d}-{instance.reading_date.month:02d}"
     Alert.objects.filter(

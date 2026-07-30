@@ -2,10 +2,10 @@
 
 from django.db import models
 
-from .base import TimeStampedModel
+from .base import DeactivatableModel, TimeStampedModel
 
 
-class Country(TimeStampedModel):
+class Country(DeactivatableModel, TimeStampedModel):
     """DBML `country`."""
 
     name = models.CharField("Nombre", max_length=100)
@@ -19,7 +19,7 @@ class Country(TimeStampedModel):
         return self.name
 
 
-class BusinessUnit(TimeStampedModel):
+class BusinessUnit(DeactivatableModel, TimeStampedModel):
     """DBML `business_unit` (unidad de negocio)."""
 
     code = models.CharField("Código", max_length=30, blank=True)
@@ -34,7 +34,7 @@ class BusinessUnit(TimeStampedModel):
         return f"{self.code} · {self.name}" if self.code else self.name
 
 
-class Project(TimeStampedModel):
+class Project(DeactivatableModel, TimeStampedModel):
     """DBML `projects`."""
 
     project_name = models.CharField("Nombre del proyecto", max_length=150)
@@ -60,7 +60,7 @@ class Project(TimeStampedModel):
         return self.project_name
 
 
-class Pep(TimeStampedModel):
+class Pep(DeactivatableModel, TimeStampedModel):
     """DBML `pep` (elemento PEP / centro de coste — CECO)."""
 
     code = models.CharField("Código", max_length=30, blank=True)
@@ -75,7 +75,7 @@ class Pep(TimeStampedModel):
         return f"{self.code} · {self.name}" if self.code else self.name
 
 
-class Renting(TimeStampedModel):
+class Renting(DeactivatableModel, TimeStampedModel):
     """DBML `renting` (compañía / producto de renting)."""
 
     name = models.CharField("Nombre", max_length=150)
@@ -89,7 +89,7 @@ class Renting(TimeStampedModel):
         return self.name
 
 
-class Brand(TimeStampedModel):
+class Brand(DeactivatableModel, TimeStampedModel):
     """N5: marca del vehículo (catálogo; antes texto libre en `Vehicle.brand`)."""
 
     name = models.CharField("Nombre", max_length=50, unique=True)
@@ -103,7 +103,7 @@ class Brand(TimeStampedModel):
         return self.name
 
 
-class VehicleModel(TimeStampedModel):
+class VehicleModel(DeactivatableModel, TimeStampedModel):
     """N5: modelo del vehículo — DEPENDE de la marca (no hay modelo sin marca)."""
 
     brand = models.ForeignKey(
@@ -126,7 +126,7 @@ class VehicleModel(TimeStampedModel):
         return f"{self.brand.name} {self.name}"
 
 
-class Company(TimeStampedModel):
+class Company(DeactivatableModel, TimeStampedModel):
     """N5: sociedad titular (código, nombre y descripción)."""
 
     code = models.CharField("Código", max_length=30, unique=True)

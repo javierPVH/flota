@@ -227,6 +227,7 @@ def check_km_readings(today: date | None = None) -> int:
             vehicle_id__in=ids,
             reading_date__year=today.year,
             reading_date__month=today.month,
+            is_active=True,
         ).values_list("vehicle_id", flat=True)
     )
     missing = [v for v in vehicles if v.id not in with_reading]
@@ -300,7 +301,7 @@ def check_km_overage(today: date | None = None) -> int:
         if not (contract.start_date and contract.planned_end_date):
             continue
         latest = (
-            KmReading.objects.filter(vehicle=vehicle, km_reading__isnull=False)
+            KmReading.objects.filter(vehicle=vehicle, km_reading__isnull=False, is_active=True)
             .exclude(reading_date__isnull=True)
             .order_by("-reading_date", "-id")
             .first()

@@ -5,11 +5,11 @@ Recurso al que se ligan documentos (acta, parte, fotos) — ver `Document`.
 
 from django.db import models
 
-from .base import TimeStampedModel
+from .base import DeactivatableModel, TimeStampedModel
 from .enums import IncidentStatus, IncidentType
 
 
-class Incident(TimeStampedModel):
+class Incident(DeactivatableModel, TimeStampedModel):
     """Incidencia o mantenimiento de un vehículo."""
 
     vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="incidents")

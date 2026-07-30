@@ -114,6 +114,15 @@ class ManagementOrDriverReadWrite(RoleReadWritePermission):
     write_roles = ("is_management", "is_driver")
 
 
+class IsSuperuser(BasePermission):
+    """N7: solo el superusuario (el `admin` que aprovisiona `bootstrap_admin`
+    desde el .env — único por diseño). Reservado al purge de erratas."""
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        return bool(user and user.is_authenticated and user.is_superuser)
+
+
 __all__ = [
     "IsAdmin",
     "IsSupervisor",
@@ -125,4 +134,5 @@ __all__ = [
     "AdminWriteManagementOrDriverRead",
     "ManagementReadWrite",
     "ManagementOrDriverReadWrite",
+    "IsSuperuser",
 ]

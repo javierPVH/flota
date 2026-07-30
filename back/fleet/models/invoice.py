@@ -2,11 +2,11 @@
 
 from django.db import models
 
-from .base import TimeStampedModel
+from .base import DeactivatableModel, TimeStampedModel
 from .enums import AllocationTarget
 
 
-class Invoice(TimeStampedModel):
+class Invoice(DeactivatableModel, TimeStampedModel):
     """DBML `invoices` — factura asociada a un vehículo."""
 
     code = models.CharField("Código", max_length=60, blank=True)
@@ -33,7 +33,7 @@ class Invoice(TimeStampedModel):
         return f"{self.code or 'Factura'} · {self.vehicle.plate}"
 
 
-class InvoiceAllocation(TimeStampedModel):
+class InvoiceAllocation(DeactivatableModel, TimeStampedModel):
     """DBML `invoice_allocations` — imputación de una factura a proyecto o PEP/CECO.
 
     La suma de `percentage` por factura debería ser 100; `amount` es el importe

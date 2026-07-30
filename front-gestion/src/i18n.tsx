@@ -21,6 +21,7 @@ const es = {
       requests: 'Solicitudes',
       invoices: 'Facturas',
       catalogs: 'Catálogos',
+      erratas: 'Erratas',
       incidents: 'Incidencias',
       reports: 'Informes',
     },
@@ -43,6 +44,12 @@ const es = {
     confirm: 'Confirmar',
     cancel: 'Cancelar',
     delete: 'Eliminar',
+    deactivate: 'Desactivar',
+    deactivateTitle: 'Desactivar registro',
+    deactivateFirst: '¿Desactivar',
+    deactivateSecond:
+      'Confirma de nuevo: el registro se desactivará y pasará al espacio de erratas, donde la administración puede restaurarlo (y solo el superusuario eliminarlo definitivamente).',
+    deactivateReason: 'Motivo (opcional)',
   },
   shortcuts: {
     title: 'Atajos de teclado',
@@ -191,6 +198,7 @@ const en: typeof es = {
       requests: 'Requests',
       invoices: 'Invoices',
       catalogs: 'Catalogs',
+      erratas: 'Errata',
       incidents: 'Incidents',
       reports: 'Reports',
     },
@@ -210,6 +218,12 @@ const en: typeof es = {
     confirm: 'Confirm',
     cancel: 'Cancel',
     delete: 'Delete',
+    deactivate: 'Deactivate',
+    deactivateTitle: 'Deactivate record',
+    deactivateFirst: 'Deactivate',
+    deactivateSecond:
+      'Confirm again: the record will be deactivated and moved to the erratum space, where admins can restore it (and only the superuser can delete it for good).',
+    deactivateReason: 'Reason (optional)',
   },
   shortcuts: {
     title: 'Keyboard shortcuts',

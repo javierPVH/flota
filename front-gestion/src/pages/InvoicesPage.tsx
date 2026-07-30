@@ -25,7 +25,7 @@ import {
 import { exportCsv } from '../csv.ts'
 import { todayIso } from '../format.ts'
 import { openDrivePicker, type PickedFile } from '../services/google-picker.ts'
-import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { useDeactivateConfirm } from '../components/ConfirmDialog.tsx'
 import type { PickerConfig, Vehicle } from '../types.ts'
 
 const eur = (value: string | number) =>
@@ -69,7 +69,7 @@ interface Line {
 
 /** Facturas + editor de refacturación (G10, Épica 7). El PDF vive en Drive. */
 export function InvoicesPage() {
-  const confirm = useConfirm()
+  const deactivateConfirm = useDeactivateConfirm()
   const [searchParams, setSearchParams] = useSearchParams()
   const vehicleFilter = searchParams.get('vehicle') ?? ''
 
@@ -193,12 +193,14 @@ export function InvoicesPage() {
   }
 
   async function handleDelete(invoice: InvoiceRow) {
-    if (!(await confirm({ message: `¿Eliminar la factura ${invoice.code || `#${invoice.id}`}?` }))) return
+    // N7: nada se borra — doble confirmación y desactivación con motivo.
+    const reason = await deactivateConfirm(`la factura ${invoice.code || `#${invoice.id}`}?`)
+    if (reason === null) return
     try {
-      await deleteInvoice(invoice.id)
+      await deleteInvoice(invoice.id, reason)
       load()
     } catch (err) {
-      setError(asErrorMessage(err, 'No se pudo eliminar.'))
+      setError(asErrorMessage(err, 'No se pudo desactivar.'))
     }
   }
 
