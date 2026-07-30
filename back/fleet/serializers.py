@@ -206,6 +206,20 @@ class VehicleSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     dict.fromkeys(sorted(forbidden), "Solo se admite en el alta.")
                 )
+            # N9: el tipo (flota / sustitución) se fija al crear. Sustituto →
+            # flota va por la acción explícita convert-to-fleet; flota →
+            # sustituto está prohibido.
+            new_type = attrs.get("is_substitute", self.instance.is_substitute)
+            if new_type != self.instance.is_substitute:
+                raise serializers.ValidationError(
+                    {
+                        "is_substitute": (
+                            "El tipo se fija al crear el vehículo. Un sustituto puede pasar "
+                            "a flota con la acción 'convertir en flota'; un coche de flota "
+                            "no puede convertirse en sustituto."
+                        )
+                    }
+                )
         driver = attrs.get("driver")
         if driver is not None and not driver.is_driver:
             raise serializers.ValidationError(
@@ -299,6 +313,22 @@ class KmReadingSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        # N9: un principal bloqueado por sustitución no admite lecturas — se
+        # registra sobre el sustituto mientras dure el vínculo.
+        from .selectors import active_link_blocking
+
+        vehicle_for_block = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
+        if self.instance is None and vehicle_for_block is not None:
+            link = active_link_blocking(vehicle_for_block)
+            if link is not None:
+                raise serializers.ValidationError(
+                    {
+                        "vehicle": (
+                            "Vehículo bloqueado por sustitución — registra los km sobre "
+                            f"{link.substitute_vehicle.plate}."
+                        )
+                    }
+                )
         # N8a: el personal de campo solo registra en la ventana [día 23, fin de
         # mes]. La gestión queda exenta. Mensaje explícito: la cola offline lo
         # muestra tal cual cuando un registro encolado llega fuera de plazo.
@@ -349,6 +379,21 @@ class AssignmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "No se puede asignar un conductor a un vehículo en baja."
             )
+        # N9: un principal bloqueado por sustitución no admite asignaciones ni
+        # propuestas — se opera sobre el sustituto mientras dure el vínculo.
+        if self.instance is None and vehicle is not None:
+            from .selectors import active_link_blocking
+
+            link = active_link_blocking(vehicle)
+            if link is not None:
+                raise serializers.ValidationError(
+                    {
+                        "vehicle": (
+                            "Vehículo bloqueado por sustitución — opera sobre "
+                            f"{link.substitute_vehicle.plate}."
+                        )
+                    }
+                )
         # El usuario asignado debe tener rol de conductor (HU-2.1).
         driver = attrs.get("driver", getattr(self.instance, "driver", None))
         if driver is not None and not driver.is_driver:
@@ -439,6 +484,15 @@ class VehicleLinkSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"substitute_vehicle": "El sustituto no puede ser el propio vehículo."}
             )
+        # N9: el sustituto debe SER de sustitución, y solo puede cubrir un coche.
+        if substitute is not None and not substitute.is_substitute:
+            raise serializers.ValidationError(
+                {"substitute_vehicle": "El vehículo elegido no es de sustitución."}
+            )
+        if main is not None and main.is_substitute:
+            raise serializers.ValidationError(
+                {"main_vehicle": "Un vehículo de sustitución no puede tener sustituto."}
+            )
         end_date = attrs.get("end_date", getattr(self.instance, "end_date", None))
         if main is not None and end_date is None:
             existing = VehicleLink.objects.filter(main_vehicle=main, end_date__isnull=True)
@@ -447,6 +501,32 @@ class VehicleLinkSerializer(serializers.ModelSerializer):
             if existing.exists():
                 raise serializers.ValidationError(
                     "El vehículo ya tiene un sustituto activo; cierra ese vínculo primero."
+                )
+        if substitute is not None and end_date is None:
+            # N9: un sustituto vinculado no puede asignarse a otro coche a la vez.
+            busy = VehicleLink.objects.filter(substitute_vehicle=substitute, end_date__isnull=True)
+            if self.instance is not None:
+                busy = busy.exclude(pk=self.instance.pk)
+            if busy.exists():
+                raise serializers.ValidationError(
+                    {
+                        "substitute_vehicle": (
+                            "Ese sustituto ya está cubriendo otro vehículo; cierra ese "
+                            "vínculo primero."
+                        )
+                    }
+                )
+        # N9: el vínculo solo se crea con el principal en estado NO activo
+        # (avería, taller, ITV…): si el coche funciona, no hay sustitución.
+        if self.instance is None and main is not None and end_date is None:
+            if main.state in (VehicleState.ACTIVE, VehicleState.BAJA):
+                raise serializers.ValidationError(
+                    {
+                        "main_vehicle": (
+                            "El vehículo principal debe estar en un estado no activo "
+                            "(avería, taller, ITV…) para recibir un sustituto."
+                        )
+                    }
                 )
         return attrs
 

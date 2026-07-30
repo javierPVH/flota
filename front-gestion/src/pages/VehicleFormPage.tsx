@@ -112,6 +112,8 @@ interface FormState {
   property: string
   supervisor: string
   driver: string
+  // N9: tipo fijado al crear (flota / sustitución); inmutable después.
+  is_substitute: boolean
   // N5: marca/modelo por catálogo (selects dependientes) + sociedad
   brand_ref: string
   model_ref: string
@@ -153,6 +155,7 @@ const EMPTY: FormState = {
   property: 'renting',
   supervisor: '',
   driver: '',
+  is_substitute: false,
   brand_ref: '',
   model_ref: '',
   company: '',
@@ -192,6 +195,7 @@ function fromVehicle(v: Vehicle): FormState {
     country: v.country != null ? String(v.country) : '',
     property: v.property || 'renting',
     supervisor: v.supervisor != null ? String(v.supervisor) : '',
+    is_substitute: v.is_substitute,
     brand_ref: v.brand_ref != null ? String(v.brand_ref) : '',
     model_ref: v.model_ref != null ? String(v.model_ref) : '',
     company: v.company != null ? String(v.company) : '',
@@ -233,6 +237,7 @@ function vehiclePayload(form: FormState): Record<string, unknown> {
     country: form.country ? Number(form.country) : null,
     property: form.property,
     supervisor: form.supervisor ? Number(form.supervisor) : null,
+    is_substitute: form.is_substitute,
     unlimited_km: form.unlimited_km,
     insurance_expiry_date: form.insurance_expiry_date || null,
   }
@@ -463,9 +468,47 @@ export function VehicleFormPage() {
         </Panel>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className={form.is_substitute ? 'substitute-form' : undefined}>
+        {/* N9: el tipo se elige AL CREAR y queda fijado (sustituto→flota va por
+            la acción 'Convertir en flota' de la ficha; la inversa, prohibida). */}
         <section className="card">
-          <h3>Identificación</h3>
+          <h3>Tipo de vehículo</h3>
+          {editing ? (
+            <p className="muted">
+              {form.is_substitute ? '🔁 Vehículo de sustitución' : 'Vehículo de flota'} — el tipo
+              se fija al crear. {form.is_substitute && 'Puede convertirse en flota desde su ficha.'}
+            </p>
+          ) : (
+            <div className="type-switch" role="radiogroup" aria-label="Tipo de vehículo">
+              <label className="baja-toggle">
+                <input
+                  type="radio"
+                  name="vehicle-type"
+                  checked={!form.is_substitute}
+                  onChange={() => setForm((f) => ({ ...f, is_substitute: false }))}
+                />
+                Flota
+              </label>
+              <label className="baja-toggle">
+                <input
+                  type="radio"
+                  name="vehicle-type"
+                  checked={form.is_substitute}
+                  onChange={() => setForm((f) => ({ ...f, is_substitute: true }))}
+                />
+                🔁 Sustitución
+              </label>
+            </div>
+          )}
+          {form.is_substitute && (
+            <p className="substitute-note">
+              Estás creando un <strong>vehículo de sustitución</strong>: cubrirá temporalmente a
+              coches de flota en avería/taller/ITV. Solo puede cubrir uno a la vez.
+            </p>
+          )}
+        </section>
+        <section className="card">
+          <h3>Identificación{form.is_substitute && <span className="substitute-badge">🔁 Sustitución</span>}</h3>
           <div className="form-grid">
             <TextInputField label="Matrícula" requiredVisual value={form.plate} onChange={setInput('plate')} required />
             <TextInputField label="Bastidor (VIN)" value={form.vin} onChange={setInput('vin')} />
@@ -520,7 +563,7 @@ export function VehicleFormPage() {
         </section>
 
         <section className="card">
-          <h3>Características técnicas</h3>
+          <h3>Características técnicas{form.is_substitute && <span className="substitute-badge">🔁 Sustitución</span>}</h3>
           <div className="form-grid">
             <SelectField label="Combustible" requiredVisual options={FUEL_OPTIONS} value={form.fuel} onValueChange={set('fuel')} />
             <SelectField label="Tipo" requiredVisual options={TYPE_OPTIONS} value={form.type} onValueChange={set('type')} />
@@ -560,7 +603,7 @@ export function VehicleFormPage() {
         </section>
 
         <section className="card">
-          <h3>Uso y asignación</h3>
+          <h3>Uso y asignación{form.is_substitute && <span className="substitute-badge">🔁 Sustitución</span>}</h3>
           <div className="form-grid">
             <Labeled badge={editing ? 'historic' : undefined}>
               <SelectField
@@ -637,7 +680,7 @@ export function VehicleFormPage() {
         </section>
 
         <section className="card">
-          <h3>Propiedad y contrato</h3>
+          <h3>Propiedad y contrato{form.is_substitute && <span className="substitute-badge">🔁 Sustitución</span>}</h3>
           <div className="form-grid">
             <SelectField
               label="Propiedad"

@@ -103,6 +103,10 @@ export const updateVehicle = (id: number, data: VehicleInput) =>
 
 export const deleteVehicle = (id: number) => deleteJson(`${API}/vehicles/${id}/`)
 
+/** N9: sustituto → flota (vía explícita; solo sin vínculo activo). */
+export const convertToFleet = (id: number) =>
+  postJson<Vehicle>(`${API}/vehicles/${id}/convert-to-fleet/`, {})
+
 export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${id}/`)
 
 // --- G3: alta/edición seccionada -------------------------------------------

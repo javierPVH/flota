@@ -66,6 +66,9 @@ const es = {
     nextItv: 'Próx. ITV',
     driver: 'Conductor',
     substitute: '🔁 sustitución',
+    blocked: 'Bloqueado',
+    blockedNote: (reason: string, plate: string) =>
+      `${reason} — sustituido por ${plate}. Registra los km y documentos sobre el sustituto.`,
     statVehicles: 'Vehículos',
     statPending: 'Lecturas pendientes',
     quickRegister: 'Registrar km',
@@ -378,6 +381,9 @@ const en: typeof es = {
     nextItv: 'Next MOT',
     driver: 'Driver',
     substitute: '🔁 substitute',
+    blocked: 'Blocked',
+    blockedNote: (reason, plate) =>
+      `${reason} — substituted by ${plate}. Log mileage and documents on the substitute.`,
     statVehicles: 'Vehicles',
     statPending: 'Readings due',
     quickRegister: 'Log km',

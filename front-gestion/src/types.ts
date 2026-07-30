@@ -136,6 +136,14 @@ export interface VehicleSummary {
   next_itv_date: string | null
   insurance_expiry_date: string | null
   unlimited_km: boolean
+  is_substitute: boolean
+  /** N9: principal bloqueado mientras el sustituto opera por él. */
+  blocked_by_link: {
+    substitute_id: number
+    plate: string
+    reason: string
+    since: string
+  } | null
   km_current: number | null
   km_reading_date: string | null
   km_driven: number | null
