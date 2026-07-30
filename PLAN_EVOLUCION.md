@@ -439,7 +439,7 @@ en Excel. Prefijar con `'` esos casos. **Prerrequisito de N6.**
 status). Bonus: la resolución es `location.reload()` — conservar el formulario
 y re-pedir solo el vehículo.
 
-### 🟡 BG10 · `throw payload` no-`Error` en las subidas multipart (S)
+### ✅ BG10 · throw payload no-Error en multipart (S) — 🔵 final (`3a3117e`): postForm compartido con ApiError
 
 [api.ts:487 (gestión)](front-gestion/src/api.ts#L487) y
 [api.ts (conductores)](front-conductores/src/api.ts): lanzan el JSON crudo →
@@ -598,7 +598,7 @@ en el **grafo eager** de ambas apps. Cambiar a `@flota/ui/i18n` (2 líneas).
 meterla tras el gate). Conductores ya lo hace bien: copiar el patrón. Las
 páginas nuevas (Erratas N7, Plantillas N10) nacen lazy.
 
-### 🟡 PF3 · Fichas con cargas en paralelo sin cancelación (M)
+### ✅ PF3 · Fichas sin cancelación (M) — 🔵 final (`3a3117e`): flag alive devuelto como cleanup en las 6 cargas
 
 [VehicleDetailPage.tsx:187-229](front-gestion/src/pages/VehicleDetailPage.tsx#L187):
 6 fetch sin `AbortController` — navegar rápido entre vehículos deja datos del
@@ -638,7 +638,7 @@ de N8. **Hacerlo antes de multiplicar modales.**
 `<div onClick>` sin teclado. Aprovechar el trabajo de N4 (fila expandible)
 para pagar esta deuda en el mismo componente.
 
-### 🟡 UX4 · Detalles de a11y acumulados (M)
+### ✅ UX4 · Detalles de a11y (parcial-M) — acordeón con h3 real + aria-controls, aviso de cola descartable por teclado; resto (labels de buscadores, focus-ring token, Base.tsx) queda como mejora menor
 
 - `CollapsibleCard` (ambas copias): `aria-expanded` sin `aria-controls`, `<h3>`
   dentro del `<button>` (desaparece del árbol de encabezados).
@@ -653,7 +653,7 @@ para pagar esta deuda en el mismo componente.
 - `Base.tsx` mete header y footer dentro de `<main>`.
 - Microcopy castellano fijo en Modal/TableWithPanel: pasar por `ui/copy.ts`.
 
-### 🟡 UX5 · Errores silenciados como "no hay datos" (M)
+### ✅ UX5 · Errores silenciados (parcial-M) — 🔵 final: el alta/edición de vehículo (la trampa transaccional) detecta fallos de catálogos con banner+Reintentar; el resto de .catch(()=>[]) queda como mejora menor
 
 14 `.catch(() => setX([]))`: cinco catálogos en el alta de vehículo (un
 desplegable vacío en un formulario transaccional es una trampa — y N5 añade
@@ -719,7 +719,7 @@ red de seguridad de toda la Parte I.**
 Las apps no tienen config ni script `lint` — sin `react-hooks/exhaustive-deps`
 ni React Compiler. Extender el flat config a los tres paquetes.
 
-### 🟡 DX3 · DX del DS: sin HMR, la duplicación seguirá creciendo (M)
+### ✅ DX3 · Duplicación DS↔apps (M) — 🔵 final (`3a3117e`): CollapsibleCard/useAccordion/ErrorBoundary en @flota/ui, postForm compartido, @flota/ui/domain (fechas+tonos); build:watch ya existía (dev:ui). KmChart sigue por app (visual distinta escritorio/móvil, deliberado)
 
 Las apps consumen `dist/` por symlink; tocar el DS exige rebuild manual — la
 **causa raíz confesada** de la duplicación
@@ -737,7 +737,7 @@ Las apps consumen `dist/` por symlink; tocar el DS exige rebuild manual — la
 **N4 (fila expandible) y N9 (visuales de sustitución) tocan el DS: hacer DX3
 antes o con ellos.**
 
-### 🟡 DX4 · Tests de componentes del DS: cero (L)
+### ✅ DX4 · Tests del DS: cero (L) — 🔵 final (`3a3117e`): Modal + TableWithPanel (+7; DS 66 tests); npm test raíz ya incluye front desde DX2
 
 Ni `Badge`, ni `Modal`, ni las 1.654 líneas de `TableWithPanel` (13 usos). Y
 `npm test` de la raíz **excluye `front`**. Mínimo: incluir `front` en el
@@ -749,7 +749,7 @@ script raíz + tests de `Modal` (tras UX2) y de la tabla (tras N4).
 ([copy.ts:77,203](front/src/ui/copy.ts#L77)), claves `gs_base_*`, y
 `front/README.md`/`CHANGELOG.md` documentan un paquete que ya no existe.
 
-### 🔵 DX6 · Menores
+### ✅ DX6 · Menores (parcial) — 🔵 final: cx() desduplicado (6 copias → utils/cx). Pendiente deliberado: descomponer TableWithPanel (no antes de más tests), sendJson PUT (sin uso) y hook de escape de handleAuthExpiration
 
 - 6 reimplementaciones de `cx` dentro del propio DS.
 - `TableWithPanel`: 33 props y 10 flags booleanos que se solapan — no
