@@ -119,6 +119,10 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
   Con `DEBUG=False` los defaults son estrictos: `SECURE_SSL_REDIRECT`, HSTS 1 año
   (+subdominios/preload), `SECURE_CONTENT_TYPE_NOSNIFF`, `Referrer-Policy`
   same-origin, `X-Frame-Options` DENY; cookies `Secure` ya automáticas.
+  **Excepción real en producción**: gestión se sirve por http INTERNO (VPN, sin
+  TLS), así que el despliegue fija `SESSION_COOKIE_SECURE=False` y
+  `CSRF_COOKIE_SECURE=False` en `back/.env.prod` (documentado allí); si algún
+  día gestión lleva TLS interno, vuelven a `True`.
   **Proxy-headers por flag** (`SECURE_BEHIND_PROXY`: sin él no se confía en
   `X-Forwarded-Proto/Host`, falsificables). Cookies `SameSite` documentadas por
   entorno; `security.W017` silenciado (CSRF cookie legible por la SPA, a
@@ -260,7 +264,9 @@ Cada fase es entregable y verificable; el orden prioriza **riesgo × esfuerzo**.
     `FLEET_ARCHIVE_BACKEND=gdrive` + `GOOGLE_DRIVE_ENABLED` + SA (archivador).
     29 tests nuevos con dobles de Drive, sin red (214 en total, verdes;
     cobertura 86%).
-- **Pendiente (🔵):** push (suscripciones web-push/FCM + envío desde el
+- ~~Pendiente (🔵): push~~ **✅ HECHO (M8)**: Web Push/VAPID (`accounts.push`),
+  suscripciones por dispositivo y hook en el motor de alertas; además N10 añadió
+  **email** enrutado por tipo. (Texto original: push — suscripciones web-push/FCM + envío desde el
   motor de alertas) — va con la fase M8 del front móvil.
 
 ---

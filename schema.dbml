@@ -1,3 +1,11 @@
+// **Ampliaciones 2026-07 (N1–N10, ver PLAN_EVOLUCION.md)** — no reflejadas aún
+// en el diagrama: `Vehicle.insurance_expiry_date`, `Vehicle.unlimited_km`,
+// FKs `brand_ref`/`model_ref`/`company` (catálogos `Brand`, `VehicleModel`,
+// `Company`), mixin de soft-delete (`is_active`, `deactivated_at/by`, motivo) en
+// catálogos/documentos/incidencias/facturas/lecturas, `KmReading.estimated`,
+// `Renting.email`/`contact_name` y los modelos de correo `EmailTemplate`,
+// `EmailSignature`, `EmailLog`.
+
 // =============================================================================
 // Flota — esquema de base de datos en DBML (dbdiagram.io / dbml.dbdiagram.io)
 // -----------------------------------------------------------------------------

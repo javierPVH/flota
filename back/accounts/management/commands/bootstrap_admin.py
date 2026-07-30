@@ -1,4 +1,8 @@
-"""Crea (o actualiza) el ÚNICO usuario administrador a partir del entorno.
+"""Crea (o actualiza) el usuario administrador "canónico" a partir del entorno.
+
+DOC: «único» significa que este comando aprovisiona UN admin (el del .env) y es
+además el SUPERUSUARIO del purge de erratas (N7); NO borra ni degrada a otros
+usuarios que existan — solo garantiza el suyo.
 
 Pensado para producción: en el arranque del contenedor, tras `migrate`, deja el
 sistema con exactamente un usuario —el administrador de la gestión— sin sembrar

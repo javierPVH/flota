@@ -86,17 +86,17 @@ Cada front lee el origen del back de `VITE_BACKEND_BASE_URL` (ver
 
 ## Despliegue (split VPN / internet)
 
-Se despliega **un** backend y se sirven los dos fronts como sitios estáticos
-distintos, cada uno tras su propio nginx/host:
+El despliegue REAL es Docker Compose ([`docker-compose.yml`](./docker-compose.yml)
++ [`deploy/README-DEPLOY.md`](./deploy/README-DEPLOY.md)): Postgres (volumen
+`flota_pgdata`), redis (throttles), back (gunicorn), servicio `jobs` (alertas de
+ITV/seguro/km, archivado en Drive y Jira, en bucle idempotente) y un nginx por
+front, cada uno puerta completa de su dominio:
 
-- `gestion.flota.interno` → `front-gestion/dist`, **solo alcanzable por VPN**
-  (regla de firewall / server block restringido a la red interna).
-- `flota.empresa.com` → `front-conductores/dist`, público en internet.
-- Ambos hablan con el mismo `/api` del backend. Si el conductor puede llegar al
-  API desde internet, el backend igualmente le corta todo lo que no sea leer su
-  vehículo (permisos por rol). Endurecer en `back/.env`: `SESSION_COOKIE_SECURE`,
-  `CSRF_COOKIE_SECURE`, `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`,
-  `CSRF_TRUSTED_ORIGINS`, `SECURE_HSTS_SECONDS`.
+- **conductores** → `127.0.0.1:8092`, colgado del túnel de Cloudflare (internet).
+- **gestión** → `8093`, SOLO red interna/VPN (nunca en el túnel).
+- `/media` exige sesión (X-Accel-Redirect); backups con `deploy/backup.sh`
+  (pg_dump + media + retención). Aunque el conductor llegue al API desde
+  internet, el backend le corta todo lo que no sea suyo (permisos por rol).
 
 ## Modelo de dominio (app `fleet`)
 
@@ -105,7 +105,9 @@ Modelado completo del esquema (DBML) en `back/fleet/` (`models/` por áreas +
 
 - **Vehículo** (`Vehicle`): matrícula, marca/modelo/versión/año, estado,
   combustible, tipo, tamaño, segmento, uso, propiedad, supervisor, sustitución…
-- **Catálogos**: `Country`, `BusinessUnit`, `Project`, `Pep` (CECO), `Renting`.
+- **Catálogos**: `Country`, `BusinessUnit`, `Project`, `Pep` (CECO), `Renting`
+  (con email de contacto para los avisos de seguro), y — N5 — `Brand`,
+  `VehicleModel` (dependiente de marca) y `Company` (sociedad).
 - **Contratos y km**: `Contract`, `KmReading`.
 - **Asignación y uso**: `Assignment` (conductor↔vehículo, con estado
   propuesta→aceptada/rechazada→finalizada), `VehicleUsage` (reparto %),
@@ -115,24 +117,23 @@ Modelado completo del esquema (DBML) en `back/fleet/` (`models/` por áreas +
   `EventDriverChange`).
 - **Facturación**: `Invoice`, `InvoiceAllocation` (imputación a proyecto/PEP).
 
-Añade además: **alertas** (`Alert`, bandeja idempotente de avisos derivados),
-**incidencias/mantenimiento** (`Incident`), **documentación** (`Document`, con
-archivado y versiones) y **solicitudes** (`VehicleRequest`, entran aprobadas de
-Jira). Todo es administrable desde `/admin/` y expuesto por **API REST
+Añade además: **alertas** (`Alert` — ITV, seguro, km, sin conductor; con push
+Web/VAPID y **email** enrutado por tipo), **incidencias** (`Incident`),
+**documentación** (`Document`, archivado y versiones), **solicitudes**
+(`VehicleRequest`), **plantillas de correo** (`EmailTemplate`/`EmailSignature`/
+`EmailLog`, gestor con editor enriquecido) y el **soft-delete N7**: nada se
+borra — se desactiva con motivo y pasa al espacio de erratas (restaurable;
+purga solo del superusuario). Todo es administrable desde `/admin/` y expuesto por **API REST
 versionada** bajo `/api/v1/` (acotada por rol); ver la tabla de endpoints y los
 trabajos programados en [`back/README.md`](./back/README.md). El esquema completo
 en [`ERD.md`](./ERD.md) / [`schema.dbml`](./schema.dbml).
 
-> **Nota:** los dos fronts (`front-gestion`/`front-conductores`) todavía usan el
-> contrato anterior (base `/api/…`, rol único, `assigned_driver`). El backend ya
-> está en `/api/v1/`, `/me` devuelve `roles` (lista) y el vehículo ya no lleva
-> conductor directo (va por `Assignment`). Reconectarlos es la Fase G0/M0 de los
-> planes de front.
-
 ## Tests
 
 ```bash
-cd back && .venv/bin/python manage.py test      # 137 tests (roles, reglas, alertas, informes…)
+cd back && .venv/bin/python manage.py test      # 317 tests (roles, reglas, alertas, erratas, correo…)
 npm run typecheck                                # typecheck de ambos fronts
+npm run lint                                     # eslint del DS y las apps
+npm test                                         # vitest: DS + gestión + conductores (100 tests)
 npm run build                                    # build DS + ambos fronts
 ```

@@ -1,5 +1,14 @@
 # Mejoras — Flota
 
+> **Estado (2026-07-30)**: gran parte de este catálogo está ya IMPLEMENTADO —
+> motor de alertas (ITV/seguro/km/sin conductor) con push y email, informes y
+> export CSV, throttling con Redis, bloqueo optimista en la ficha, Drive
+> (archivado + Picker) y Jira, propuestas de fechas del conductor, soft-delete
+> con erratas (N7), ventanas de km (N8) y sustitución reforzada (N9). La
+> referencia viva del trabajo restante es `PLAN_EVOLUCION.md`.
+
+
+
 Análisis de mejoras derivado de las historias de usuario (`flota.md`, épicas 1–5 +
 documentación) frente al modelo de datos actual (`back/accounts` + `back/fleet`),
 más un diseño de **auditoría de campos** al estilo del proyecto `list`.

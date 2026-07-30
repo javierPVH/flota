@@ -1,9 +1,11 @@
 # Plan de evolución — nuevas funcionalidades + optimización R2
 
-> **Estado (2026-07-30)**: los pasos 0–12 de la Parte III están **completados**
-> (las 10 funcionalidades N1–N10 + sus cimientos BG1-4/BG8, SEC1-2/4, OPS1-2,
-> DX1-2, UX2 y parte de UX3/UX6). Quedan los pasos 13–16 (robustez PWA, i18n
-> completo de gestión, endurecimiento y documentación) y los 🔵 intercalables.
+> **Estado (2026-07-30)**: la Parte III está **COMPLETADA al completo**
+> (pasos 0–16): las 10 funcionalidades N1–N10, todos los 🔴/🟠/🟡 del catálogo
+> R2 y los 🔵 accionables (BG11-13, PR5-6, SEC8-10, PF4 parcial). Restan solo
+> las tareas que dependen del entorno real (.env de producción: SMTP, VAPID,
+> Drive, Jira; y el push a GitHub pendiente de la clave) y los 🔵 de puro
+> refactor (DX3-dedup, DX4 ampliado, DX6, PF3).
 >
 > Documento maestro (2026-07-30). **Parte I**: las nuevas funcionalidades
 > pedidas por negocio, especificadas contra el código real (modelo, API y
@@ -388,7 +390,7 @@ escapa como *unhandled rejection* y **el dato se pierde en silencio en el
 escenario exacto para el que existe la cola**. Envolver en try/catch con aviso
 y pedir `navigator.storage.persist()` al arrancar.
 
-### 🔴 BG5 · SW: `ChunkLoadError` tras cada deploy (M)
+### ✅ BG5 · SW: ChunkLoadError tras cada deploy (M) — paso 13 (`5e109b3`): caché por build, update-prompt, fallback seguro, pushsubscriptionchange, no-cache en nginx
 
 [sw.js:20,29](front-conductores/public/sw.js#L20): `skipWaiting()` +
 `clients.claim()` incondicionales + purga de cachés viejas + rutas `lazy()` =
@@ -406,7 +408,7 @@ o detectar el SW nuevo y ofrecer "hay una versión nueva — recargar". Extras:
 - [nginx.conf](front-conductores/nginx.conf): servir `sw.js` e `index.html`
   con `Cache-Control: no-cache`.
 
-### 🔴 BG6 · Arranque offline expulsa al login (M)
+### ✅ BG6 · Arranque offline expulsa al login (M) — paso 13 (`5e109b3`): /me y recuento cacheados como fallback SOLO ante fallo de red; pantalla sin conexión con reintento
 
 [auth.ts:21-28](front-conductores/src/auth.ts#L21) trata **cualquier** fallo
 de `/me` como sesión anónima, y
@@ -416,7 +418,7 @@ manda al conductor al login o al portón. Distinguir fallo de red (pantalla
 "sin conexión" + reintento) de 401 real; cachear el último `/me` y el último
 listado como fallback de lectura.
 
-### 🟡 BG7 · El toggle de avisos push desaparece ante un fallo de red (S)
+### ✅ BG7 · Toggle push desaparecía sin red (S) — paso 13 (`5e109b3`): estado 'unknown' con reintento
 
 [push.ts:36-38](front-conductores/src/push.ts#L36): `pushState()` colapsa
 cualquier error a `'disabled'`, que **oculta el panel**. Añadir estado
@@ -429,7 +431,7 @@ el DOM y `URL.revokeObjectURL` inmediato — en algunos navegadores cancela la
 descarga. Y `escapeCell` no neutraliza `=`/`+`/`-`/`@` → inyección de fórmulas
 en Excel. Prefijar con `'` esos casos. **Prerrequisito de N6.**
 
-### 🟡 BG9 · Conflicto 409 detectado por sniffing de texto (S)
+### ✅ BG9 · 409 por sniffing de texto (S) — paso 14b: decide por ApiError.status
 
 [VehicleFormPage.tsx:371-373](front-gestion/src/pages/VehicleFormPage.tsx#L371):
 `message.includes('ha cambiado desde que lo cargaste')` → cambiar a
@@ -444,20 +446,20 @@ y re-pedir solo el vehículo.
 `err.message === undefined` y `"[object Object]"` en el aviso de la cola.
 Lanzar `ApiError` (ver DX3, `postForm` compartido).
 
-### 🟡 BG11 · `?ordering=-level` en alertas ordena alfabéticamente (S)
+### ✅ BG11 · Orden de alertas alfabético (S) — paso 15: level_rank anotado (critical primero)
 
 `AlertLevel` es texto → pedir "más graves primero" pone warning arriba
 ([views.py:590](back/fleet/views.py#L590)). Ordenar por rango
 (`Case/When`) o quitar `level` de `ordering_fields`.
 
-### 🟡 BG12 · `?assigned=` y `driver_name` no cuentan lo mismo (S)
+### ✅ BG12 · ?assigned= contaba propuestas (S) — paso 15: solo asignaciones ACEPTADAS
 
 El filtro cuenta cualquier asignación sin fin
 ([views.py:150](back/fleet/views.py#L150)); el conductor vigente exige
 `ACCEPTED`. Un coche con solo una **propuesta** sale "asignado" y sin
 conductor en la misma fila. Alinear el filtro a `status=ACCEPTED`.
 
-### 🔵 BG13 · Popovers del header no recalculan al resize/scroll (S)
+### ✅ BG13 · Popovers sin reposición (S) — paso 15: recálculo en resize/scroll
 
 [AppHeader.tsx:114-121](front-gestion/src/components/AppHeader.tsx#L114): la
 posición se fija al abrir. Recalcular en `resize`/`scroll` o anclar por CSS.
@@ -488,7 +490,7 @@ Listas explícitas al estilo de `AlertSerializer` en `Assignment`,
 `VehicleRequest` y `KmReading` + validar `reading_date <= hoy`.
 **Prerrequisito de N7** (si no, el soft-delete se revierte por PATCH).
 
-### 🔴 SEC3 · `/media` público en internet con documentos personales (M)
+### ✅ SEC3 · /media público (M) — paso 15 (`309d015`): vista autenticada + X-Accel-Redirect en ambos nginx
 
 [nginx conductores:31](front-conductores/nginx.conf#L31) sirve `/media` sin
 sesión, y sin `FLEET_ARCHIVE_BACKEND=gdrive` los binarios **se quedan en media
@@ -502,39 +504,39 @@ autenticada + `X-Accel-Redirect` en nginx (y/o activar `gdrive`).
 borrar la última y re-registrar un valor menor esquiva el no-retroceso.
 Append-only para el conductor. (N7 lo absorbe: destroy → desactivar.)
 
-### 🟠 SEC5 · Los 8 comandos `reset_*` sin candado de producción (S)
+### ✅ SEC5 · reset_* sin candado (S) — paso 15: guarda DEBUG/FLEET_SEED_DATA y excepción propagada
 
 `manage.py reset_users` en el contenedor borra usuarios en cascada, y su
 `except Exception` convierte un borrado a medias en éxito
 ([reset_users.py:15-20](back/fleet/management/commands/reset_users.py#L15)).
 Guarda común (`DEBUG or FLEET_SEED_DATA`) + dejar propagar la excepción.
 
-### 🟠 SEC6 · XFF/XFP falsificables en la ruta de gestión (M)
+### ✅ SEC6 · XFP falsificable en gestión (M) — paso 15: X-Forwarded-Proto=$scheme
 
 Ambos nginx propagan `X-Forwarded-Proto` **del cliente**; en gestión debe ser
 `$scheme` a secas. Y `TRUSTED_PROXY_COUNT=2` es falso para gestión (1 proxy):
 rotando `X-Forwarded-For` se burla el rate-limit por IP justo en el puerto del
 `/admin`.
 
-### 🟡 SEC7 · Throttles y rate-limit por worker sin Redis (S)
+### ✅ SEC7 · Throttles por worker (S) — paso 15: servicio redis + REDIS_URL en compose
 
 Sin `REDIS_URL`, LocMem **por proceso**: con 3 workers los umbrales se
 multiplican ×3 y se reinician en cada deploy. Añadir servicio `redis` al
 compose y descomentar la variable.
 
-### 🟡 SEC8 · Endpoints de Drive con solo `IsAuthenticated` (S)
+### ✅ SEC8 · Drive con IsAuthenticated (S) — paso 15: IsManagement
 
 [google_views.py](back/accounts/google_views.py): `picker-config` y
 `folder-files` deberían ser `IsManagement`; valorar reducir `drive.readonly` a
 `drive.file`.
 
-### 🟡 SEC9 · `public_write` incompleto (S)
+### ✅ SEC9 · public_write incompleto (S) — paso 15: propose/mine/push con throttle (y scope por defecto)
 
 Cubre km y documentos pero no `POST /assignments/propose/`,
 `POST /vehicle-requests/mine/` ni `POST /push/subscriptions/` — escrituras
 alcanzables desde internet. Añadir el throttle scope.
 
-### 🔵 SEC10 · Higiene
+### ✅ SEC10 · Higiene — paso 15: log de InvalidToken, FIELD_ENCRYPTION_KEYS documentada, defaults False, cabeceras nginx
 
 - `EncryptedTextField.from_db_value` se traga `InvalidToken` sin log
   ([fields.py:61-65](back/accounts/fields.py#L61)).
@@ -547,49 +549,49 @@ alcanzables desde internet. Añadir el throttle scope.
 
 ## 3. Rendimiento — back (PR)
 
-### 🔴 PR1 · N+1 en el timeline de eventos (S)
+### ✅ PR1 · N+1 del timeline (S) — paso 15: select_related de los 5 subtipos
 
 `EventSerializer.get_details` toca **5 one-to-one inversos** sin
 `select_related` ([views.py:459](back/fleet/views.py#L459)): hasta 250 queries
 por página de 50 eventos. Arreglo de 1 línea.
 
-### 🟡 PR2 · Dos jobs programados con N+1 (M)
+### ✅ PR2 · Jobs con N+1 (M) — paso 15: refresh_next_itv y check_km_overage en bulk
 
 `refresh_next_itv_dates` y `check_km_overage`
 ([alerts.py](back/fleet/services/alerts.py)) hacen 1-2 queries por vehículo;
 el patrón bulk ya existe en `metrics.vehicle_summaries`. (N2 añade
 `check_insurance`: nace bulk.)
 
-### 🟡 PR3 · I/O de red dentro de transacción (S)
+### ✅ PR3 · Archivado dentro de la transacción (S) — paso 15: on_commit + estado veraz pendiente_archivar
 
 [views.py:566-572](back/fleet/views.py#L566): `archive_document` (hasta >90 s
 con reintentos) dentro de `transaction.atomic()`. Mover a
 `transaction.on_commit()`.
 
-### 🟡 PR4 · `Event` sin índices (S)
+### ✅ PR4 · Event sin índices (S) — paso 15: índice (vehicle, event_date), migración 0018
 
 Único modelo caliente sin `Meta.indexes`
 ([event.py:27-30](back/fleet/models/event.py#L27)) con filtros constantes por
 `(vehicle, event_date)`. Índice + migración.
 
-### 🔵 PR5 · Bulk de summaries sin tope de respuesta (S)
+### ✅ PR5 · Bulk sin recorte (S) — paso 15: ?ids= (dentro del ámbito del rol)
 
 `GET /summary/vehicles/` responde la lista completa sin paginar. Tope o
 paginación opcional antes de que la flota crezca.
 
-### 🔵 PR6 · `fleet_summary` sin presupuesto de queries (S)
+### ✅ PR6 · fleet_summary sin presupuesto (S) — paso 15: test de recuento comparado
 
 Replicar el test de recuento comparado para `/api/summary/` del dashboard.
 
 ## 4. Rendimiento — front (PF)
 
-### 🔴 PF1 · `import { createI18n } from '@flota/ui'` arrastra la UI entera (S)
+### ✅ PF1 · Barrel raíz en el grafo eager (S) — paso 14a: imports por @flota/ui/i18n
 
 El barrel raíz re-exporta `./ui` completo con `preserveModules: false` → la
 factory de i18n mete `framer-motion` + `lucide-react` + todos los componentes
 en el **grafo eager** de ambas apps. Cambiar a `@flota/ui/i18n` (2 líneas).
 
-### 🟡 PF2 · Gestión sin lazy-loading (M)
+### ✅ PF2 · Gestión sin lazy (M) — paso 14a: todas las páginas lazy (entry 444→207 kB) y ui-kit fuera de prod
 
 [App.tsx](front-gestion/src/App.tsx): 20 páginas estáticas, incluida
 `UiKitPage` (**ruta pública sin auth** — sacarla del build de producción o
@@ -616,7 +618,7 @@ anterior pisando al actual. El transporte ya acepta `signal`.
 
 ## 5. UX y accesibilidad (UX)
 
-### 🔴 UX1 · i18n de gestión a medias = bug visible (L)
+### ✅ UX1 · i18n de gestión a medias (L) — paso 14b (`d26a57f`): 15 páginas + 6 componentes es/en (16 módulos en src/translations)
 
 El `LanguageToggleButton` está en la cabecera y **15 de 20 páginas siguen
 hardcodeadas en castellano** (solo 6 ficheros usan `useLang`). Conductores
@@ -680,7 +682,7 @@ dependen de ellos. Servicio `ofelia`/cron del host con
 pero la BD es Postgres en el volumen `flota_pgdata`. `pg_dump` con retención +
 probar restauración + corregir el README.
 
-### 🟠 OPS3 · `bootstrap_admin`: contraseña reimpuesta en cada arranque (S)
+### ✅ OPS3 · bootstrap_admin (S) — paso 15: placeholder rechazado, validadores, fallo NO silenciado
 
 Con `ADMIN_UPDATE_PASSWORD=True` (default), cambiarla desde `/admin` se
 revierte en el siguiente `up -d`. Recomendar `False` tras el primer arranque;
@@ -688,17 +690,17 @@ validar robustez y rechazar el placeholder; no tragarse el fallo con
 `|| echo`. (N7 convierte a este usuario en el superusuario del purge: más
 motivo para endurecerlo.)
 
-### 🟠 OPS4 · `depends_on` corto y readiness sin usar (S)
+### ✅ OPS4 · depends_on corto (S) — paso 15: service_healthy en fronts y jobs
 
 Los fronts esperan al arranque del back, no a `service_healthy` → 502 durante
 el `migrate`. `/api/ready/` existe y no lo usa ninguna sonda.
 
-### 🟠 OPS5 · `./data` de producción entra en el contexto de build (S)
+### ✅ OPS5 · ./data en el build (S) — paso 15: data/ y backups/ en .dockerignore
 
 El `.dockerignore` raíz no excluye `data/` y los fronts buildan con
 `context: .`: cada `--build` pasea la media real por el daemon.
 
-### 🟡 OPS6 · Higiene de contenedores (S)
+### ✅ OPS6 · Higiene de contenedores (S) — paso 15: rotación de logs 10m×3 y body_size alineado (12m)
 
 Sin rotación de logs ni límites de recursos; `migrate` en el entrypoint
 (impide `--scale`); `client_max_body_size 20m` vs 10 MB reales de Django.
@@ -741,7 +743,7 @@ Ni `Badge`, ni `Modal`, ni las 1.654 líneas de `TableWithPanel` (13 usos). Y
 `npm test` de la raíz **excluye `front`**. Mínimo: incluir `front` en el
 script raíz + tests de `Modal` (tras UX2) y de la tabla (tras N4).
 
-### 🟡 DX5 · Marca `@gs/base` residual (S)
+### ✅ DX5 · Marca @gs/base residual (S) — paso 16: footer 'Flota · Gransolar', README/CHANGELOG de @flota/ui
 
 `footerBrand: '@gs/base'` **visible en producción**
 ([copy.ts:77,203](front/src/ui/copy.ts#L77)), claves `gs_base_*`, y
@@ -796,11 +798,11 @@ de los que depende.
 | ✅ 10 | **BG3 + BG4 → N8** | Cola offline fiable antes de las ventanas de km (el rechazo "fuera de plazo" depende de ella); después 8a y 8b. |
 | ✅ 11 | **N9** | Sustitución reforzada (back + ambos fronts). |
 | ✅ 12 | **N10** (10a → 10b → 10c) | Correo: infra → plantillas → gestor con editor. |
-| 13 | **BG5 + BG6 + BG7** | Robustez PWA (SW, arranque offline, push). |
-| 14 | **UX1** (i18n gestión completa) + PF1 + PF2 | Cerrar el rediseño; las páginas nuevas ya nacen bien. |
-| 15 | **SEC3 + SEC6 + SEC7 + OPS4-OPS6 + PR1/PR3/PR4 + SEC5** | Endurecimiento y rendimiento del back/deploy. |
-| 16 | **DOC** (+DX5) | Actualizar docs y ERD al cerrar cada bloque. |
-| 🔵 | Resto (BG11-13, PF3-4, UX4-5, PR5-6, DX4, DX6, SEC8-10) | Intercalar cuando toquen los ficheros afectados. |
+| ✅ 13 | **BG5 + BG6 + BG7** | Robustez PWA (SW, arranque offline, push). |
+| ✅ 14 | **UX1** (i18n gestión completa) + PF1 + PF2 | Cerrar el rediseño; las páginas nuevas ya nacen bien. |
+| ✅ 15 | **SEC3 + SEC6 + SEC7 + OPS4-OPS6 + PR1/PR3/PR4 + SEC5** | Endurecimiento y rendimiento del back/deploy. |
+| ✅ 16 | **DOC** (+DX5) | Actualizar docs y ERD al cerrar cada bloque. |
+| ✅ 🔵 | Resto (BG11-13, PF3-4, UX4-5, PR5-6, DX4, DX6, SEC8-10) | Intercalar cuando toquen los ficheros afectados. |
 
 > Documento vivo. Cada fase, al completarse, se marca **✅ IMPLEMENTADA** con
 > su nota de "cómo quedó" y su verificación (tests + smoke E2E contra el seed).
