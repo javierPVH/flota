@@ -446,6 +446,7 @@ export function VehicleDetailPage() {
       <div className="detail-badges">
         <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
         {vehicle.is_substitute && <Badge tone="info">🔁 Vehículo de sustitución</Badge>}
+        {vehicle.unlimited_km && <Badge tone="info">∞ km ilimitados</Badge>}
         {vehicle.driver_name ? (
           <Badge tone="success">Conductor: {vehicle.driver_name}</Badge>
         ) : (
@@ -494,6 +495,22 @@ export function VehicleDetailPage() {
             vehicle.next_itv_date && daysUntil(vehicle.next_itv_date) < 0
               ? 'danger'
               : vehicle.next_itv_date && daysUntil(vehicle.next_itv_date) <= 30
+                ? 'warning'
+                : 'info'
+          }
+        />
+        <StatCard
+          label="Vencimiento del seguro"
+          value={vehicle.insurance_expiry_date ?? '—'}
+          sub={
+            vehicle.insurance_expiry_date
+              ? relative(vehicle.insurance_expiry_date)
+              : 'Sin fecha registrada'
+          }
+          accent={
+            vehicle.insurance_expiry_date && daysUntil(vehicle.insurance_expiry_date) < 0
+              ? 'danger'
+              : vehicle.insurance_expiry_date && daysUntil(vehicle.insurance_expiry_date) <= 30
                 ? 'warning'
                 : 'info'
           }

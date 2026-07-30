@@ -176,6 +176,45 @@ def check_itv(today: date | None = None) -> int:
     return created
 
 
+def check_insurance(today: date | None = None) -> int:
+    """Seguro escalonado (N2): mismos umbrales que la ITV (30/15/7); vencido = crítica.
+
+    Trabaja sobre el denormalizado `Vehicle.insurance_expiry_date` (editable en
+    ficha y sincronizado por señal desde el documento de seguro). Nace bulk:
+    una sola consulta de vehículos, sin N+1 (PR2).
+    """
+    today = _today(today)
+    thresholds = sorted(settings.FLEET_INSURANCE_ALERT_DAYS)
+    if not thresholds:
+        return 0
+    created = 0
+    qs = _active_vehicles().filter(insurance_expiry_date__isnull=False)
+    for vehicle in qs:
+        days_left = (vehicle.insurance_expiry_date - today).days
+        due = vehicle.insurance_expiry_date.isoformat()
+        if days_left < 0:
+            key = f"insurance:{vehicle.pk}:{due}:overdue"
+            level = AlertLevel.CRITICAL
+            message = f"Seguro vencido hace {-days_left} día(s) (venció el {due})."
+        else:
+            buckets = [t for t in thresholds if t >= days_left]
+            if not buckets:
+                continue  # aún fuera del primer umbral
+            bucket = min(buckets)
+            level = _itv_level(bucket, thresholds)
+            key = f"insurance:{vehicle.pk}:{due}:{bucket}"
+            message = f"Seguro en {days_left} día(s) (vence el {due})."
+        created += upsert_alert(
+            dedup_key=key,
+            type=AlertType.INSURANCE_DUE,
+            level=level,
+            message=message,
+            vehicle=vehicle,
+            due_date=vehicle.insurance_expiry_date,
+        )
+    return created
+
+
 def check_km_readings(today: date | None = None) -> int:
     """Recordatorio mensual de km (HU-3.2): vehículo activo sin lectura este mes."""
     today = _today(today)
@@ -248,7 +287,8 @@ def check_km_overage(today: date | None = None) -> int:
     margin = settings.FLEET_KM_OVERAGE_MARGIN
     period = f"{today.year:04d}-{today.month:02d}"
     created = 0
-    for vehicle in _active_vehicles():
+    # N3: los vehículos con km ilimitados no proyectan ni generan exceso.
+    for vehicle in _active_vehicles().filter(unlimited_km=False):
         contract = (
             vehicle.contracts.filter(end_date__isnull=True)
             .exclude(contract_km__isnull=True)
@@ -303,6 +343,7 @@ def run_all(today: date | None = None) -> dict[str, int]:
     return {
         "next_itv_refreshed": refresh_next_itv_dates(),
         "itv": check_itv(today),
+        "insurance": check_insurance(today),
         "km_readings": check_km_readings(today),
         "no_driver": check_no_driver(today),
         "km_overage": check_km_overage(today),

@@ -100,6 +100,9 @@ export interface VehicleSummary {
   plate: string
   state: VehicleState
   next_itv_date: string | null
+  insurance_expiry_date: string | null
+  /** N3: sin proyección — pintar "Km ilimitados" en vez de "sin contrato". */
+  unlimited_km: boolean
   km_current: number | null
   km_reading_date: string | null
   km_driven: number | null

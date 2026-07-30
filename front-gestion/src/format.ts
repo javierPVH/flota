@@ -53,6 +53,9 @@ export function itvClass(dateStr: string | null): string {
   return ''
 }
 
+/** N2: mismo semáforo para cualquier vencimiento (seguro, ITV…). */
+export const dueClass = itvClass
+
 // Mapeo de estados de dominio → tono de <Badge> (reutilizable en las vistas, Fase 5).
 const STATE_TONE: Record<string, BadgeTone> = {
   active: 'success',

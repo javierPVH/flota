@@ -113,6 +113,7 @@ export function GroupPage() {
                   {t.group.levels[projection.level] ?? projection.level}
                 </Badge>
               )}
+              {summary?.unlimited_km && <Badge tone="info">∞ {t.group.unlimited}</Badge>}
             </div>
             <p className="vehicle-model">
               {vehicle.brand} {vehicle.model}
@@ -159,7 +160,9 @@ export function GroupPage() {
                 </dl>
               </>
             ) : (
-              <p className="empty-note">{t.group.noContract}</p>
+              <p className="empty-note">
+                {summary?.unlimited_km ? t.group.unlimitedNote : t.group.noContract}
+              </p>
             )}
 
             <div className="alert-actions">

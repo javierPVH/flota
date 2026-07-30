@@ -106,6 +106,24 @@ class Vehicle(TimeStampedModel):
         verbose_name="CECO de imputación",
         help_text="Centro de coste (PEP) al que se imputa el vehículo.",
     )
+    unlimited_km = models.BooleanField(
+        "Km ilimitados",
+        default=False,
+        help_text=(
+            "N3: sin proyección de km ni alertas de exceso; el contrato puede "
+            "no llevar km contratados."
+        ),
+    )
+    insurance_expiry_date = models.DateField(
+        "Vencimiento del seguro",
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "N2: editable en ficha y sincronizado al subir un documento de seguro "
+            "con caducidad más reciente; alimenta la alerta de seguro (30/15/7)."
+        ),
+    )
     next_itv_date = models.DateField(
         "Próxima ITV",
         null=True,

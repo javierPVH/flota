@@ -134,6 +134,8 @@ def _compose_summary(
         "plate": vehicle.plate,
         "state": vehicle.state,
         "next_itv_date": vehicle.next_itv_date,
+        "insurance_expiry_date": vehicle.insurance_expiry_date,
+        "unlimited_km": vehicle.unlimited_km,
         "km_current": km_current,
         "km_reading_date": latest.reading_date if latest else None,
         "km_driven": km_driven,
@@ -155,6 +157,11 @@ def _compose_summary(
         "start_date": contract.start_date,
         "planned_end_date": contract.planned_end_date,
     }
+
+    # N3: con km ilimitados no hay proyección — los fronts pintan "Km ilimitados"
+    # (distinguible de "sin contrato" porque `contract` sí viene).
+    if vehicle.unlimited_km:
+        return summary
 
     # Proyección lineal (mismo criterio que alerts.check_km_overage).
     if not (
@@ -271,6 +278,14 @@ def fleet_summary(user, today: date | None = None) -> dict:
     ).count()
     itv_overdue = active.filter(next_itv_date__lt=today).count()
 
+    # N2: mismos agregados para el seguro (KPI del dashboard).
+    insurance_next_30d = active.filter(
+        insurance_expiry_date__isnull=False,
+        insurance_expiry_date__gte=today,
+        insurance_expiry_date__lte=today + timedelta(days=30),
+    ).count()
+    insurance_overdue = active.filter(insurance_expiry_date__lt=today).count()
+
     open_alerts = dict(
         Alert.objects.filter(vehicle_id__in=ids, status=AlertStatus.OPEN)
         .values_list("type")
@@ -289,5 +304,7 @@ def fleet_summary(user, today: date | None = None) -> dict:
         "invoiced_previous_month": _invoiced(prev_month_start, prev_month_end),
         "itv_next_30d": itv_next_30d,
         "itv_overdue": itv_overdue,
+        "insurance_next_30d": insurance_next_30d,
+        "insurance_overdue": insurance_overdue,
         "open_alerts": open_alerts,
     }

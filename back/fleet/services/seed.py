@@ -264,6 +264,8 @@ def seed_vehicles(stdout=None) -> None:
         property=PropertyType.RENTING,
         supervisor=sara,
         km_start=0,
+        # N2: seguro dentro del bucket de 30 días → alerta y KPI en el dashboard.
+        insurance_expiry_date=timezone.localdate() + timedelta(days=20),
         **common,
     )
     Vehicle.objects.create(
@@ -278,6 +280,8 @@ def seed_vehicles(stdout=None) -> None:
         property=PropertyType.RENTING,
         supervisor=sara,
         km_start=12000,
+        # N2: seguro vencido → alerta crítica.
+        insurance_expiry_date=timezone.localdate() - timedelta(days=5),
         **common,
     )
     Vehicle.objects.create(
@@ -291,6 +295,7 @@ def seed_vehicles(stdout=None) -> None:
         business_use=UseType.PERSONAL,
         property=PropertyType.RENTING,
         km_start=100,
+        unlimited_km=True,  # N3: sin proyección ni alertas de exceso
         **common,
     )
     Vehicle.objects.create(

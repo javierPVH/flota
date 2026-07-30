@@ -133,6 +133,8 @@ class VehicleSerializer(serializers.ModelSerializer):
             "consumption",
             "km_start",
             "km_end",
+            "unlimited_km",
+            "insurance_expiry_date",
             "next_itv_date",
             "driver_name",
             "drive_folder_url",
@@ -197,6 +199,11 @@ class VehicleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"driver": "El usuario asignado no tiene rol de conductor."}
             )
+        # N3: con km ilimitados los km contratados no aplican — se limpian en el
+        # alta para que no quede una cifra que nunca se usará.
+        unlimited = attrs.get("unlimited_km", getattr(self.instance, "unlimited_km", False))
+        if unlimited and attrs.get("contract"):
+            attrs["contract"]["contract_km"] = None
         return attrs
 
     def create(self, validated_data):

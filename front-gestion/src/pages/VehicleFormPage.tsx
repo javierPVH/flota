@@ -110,6 +110,9 @@ interface FormState {
   property: string
   supervisor: string
   driver: string
+  // N3/N2: sin proyección de km · vencimiento del seguro
+  unlimited_km: boolean
+  insurance_expiry_date: string
   // Contrato (solo alta, con propiedad = renting)
   renting: string
   contract_number: string
@@ -144,6 +147,8 @@ const EMPTY: FormState = {
   property: 'renting',
   supervisor: '',
   driver: '',
+  unlimited_km: false,
+  insurance_expiry_date: '',
   renting: '',
   contract_number: '',
   contract_time: '',
@@ -178,6 +183,8 @@ function fromVehicle(v: Vehicle): FormState {
     country: v.country != null ? String(v.country) : '',
     property: v.property || 'renting',
     supervisor: v.supervisor != null ? String(v.supervisor) : '',
+    unlimited_km: v.unlimited_km ?? false,
+    insurance_expiry_date: v.insurance_expiry_date ?? '',
   }
 }
 
@@ -204,6 +211,8 @@ function vehiclePayload(form: FormState): Record<string, unknown> {
     country: form.country ? Number(form.country) : null,
     property: form.property,
     supervisor: form.supervisor ? Number(form.supervisor) : null,
+    unlimited_km: form.unlimited_km,
+    insurance_expiry_date: form.insurance_expiry_date || null,
   }
 }
 
@@ -557,6 +566,27 @@ export function VehicleFormPage() {
               value={form.property}
               onValueChange={set('property')}
             />
+            <TextInputField
+              label="Vencimiento del seguro"
+              type="date"
+              value={form.insurance_expiry_date}
+              onChange={setInput('insurance_expiry_date')}
+            />
+            <label className="baja-toggle" title="Sin proyección de km ni alertas de exceso">
+              <input
+                type="checkbox"
+                checked={form.unlimited_km}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    unlimited_km: e.target.checked,
+                    // Con km ilimitados, los km contratados no aplican.
+                    contract_km: e.target.checked ? '' : f.contract_km,
+                  }))
+                }
+              />
+              Km ilimitados (sin proyección)
+            </label>
             {!editing && isRenting && (
               <>
                 <SelectField
@@ -581,6 +611,7 @@ export function VehicleFormPage() {
                   type="number"
                   value={form.contract_km}
                   onChange={setInput('contract_km')}
+                  disabled={form.unlimited_km}
                 />
                 <TextInputField
                   label="Cuota mensual (€)"

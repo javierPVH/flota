@@ -80,6 +80,10 @@ export interface Vehicle {
   consumption: number | null
   km_start: number | null
   km_end: number | null
+  /** N3: sin proyección de km ni alertas de exceso. */
+  unlimited_km: boolean
+  /** N2: vencimiento del seguro (editable; lo sincroniza también la póliza). */
+  insurance_expiry_date: string | null
   /** Denormalizado del último EventItv; lo mantiene el back. */
   next_itv_date: string | null
   /** Conductor con asignación aceptada vigente (lo resuelve el back en bloque). */
@@ -93,7 +97,12 @@ export interface Vehicle {
 
 // --- G1: alertas de la vista general ---------------------------------------
 
-export type AlertType = 'itv_due' | 'km_reading_pending' | 'km_overage' | 'no_driver'
+export type AlertType =
+  | 'itv_due'
+  | 'insurance_due'
+  | 'km_reading_pending'
+  | 'km_overage'
+  | 'no_driver'
 export type AlertLevel = 'info' | 'warning' | 'critical'
 
 export interface Alert {
@@ -120,6 +129,8 @@ export interface VehicleSummary {
   plate: string
   state: VehicleState
   next_itv_date: string | null
+  insurance_expiry_date: string | null
+  unlimited_km: boolean
   km_current: number | null
   km_reading_date: string | null
   km_driven: number | null
@@ -304,6 +315,8 @@ export interface FleetSummary {
   invoiced_previous_month: string
   itv_next_30d: number
   itv_overdue: number
+  insurance_next_30d: number
+  insurance_overdue: number
   open_alerts: Record<string, number>
 }
 
