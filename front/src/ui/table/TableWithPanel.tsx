@@ -70,6 +70,10 @@ export interface TableWithPanelProps<RowType extends object> {
   defaultHiddenColumnKeys?: string[]
   rowClassName?: (row: RowType, index: number) => string | undefined
   rowTitle?: (row: RowType, index: number) => string | undefined
+  /** N4: fila expandible — al pulsar la fila se despliega este contenido con
+   * animación (0fr→1fr, respeta prefers-reduced-motion). El contenido queda
+   * montado tras la primera apertura (las cargas perezosas conservan estado). */
+  renderExpandedRow?: (row: RowType, index: number) => ReactNode
 }
 
 interface DateFilterState {
@@ -119,6 +123,8 @@ interface TableWithPanelCopy {
   previousPage: string
   nextPage: string
   lastPage: string
+  expandRow: string
+  collapseRow: string
 }
 
 function cx(...values: Array<string | false | null | undefined>): string {
@@ -472,8 +478,33 @@ export function TableWithPanel<RowType extends object>({
   defaultHiddenColumnKeys,
   rowClassName,
   rowTitle,
+  renderExpandedRow,
 }: TableWithPanelProps<RowType>) {
   const tableSortScope = useId()
+  // N4: filas abiertas + filas ya montadas (el contenido no se desmonta al
+  // plegar: conserva cargas perezosas y permite animar el cierre).
+  const [openExpandedRows, setOpenExpandedRows] = useState<ReadonlySet<string>>(new Set())
+  const [mountedExpandedRows, setMountedExpandedRows] = useState<ReadonlySet<string>>(new Set())
+  const toggleExpandedRow = (key: string) => {
+    if (openExpandedRows.has(key)) {
+      setOpenExpandedRows((prev) => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+      return
+    }
+    if (!mountedExpandedRows.has(key)) {
+      // Primera apertura: monta plegado (0fr) y abre en el siguiente frame para
+      // que la transición 0fr→1fr se vea también la primera vez.
+      setMountedExpandedRows((prev) => new Set(prev).add(key))
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => setOpenExpandedRows((prev) => new Set(prev).add(key))),
+      )
+    } else {
+      setOpenExpandedRows((prev) => new Set(prev).add(key))
+    }
+  }
   const language = useAppLang()
   const copy: TableWithPanelCopy = useUiCopy().tableWithPanel
   const normalizedPageSizeOptions = useMemo(() => {
@@ -1080,6 +1111,78 @@ export function TableWithPanel<RowType extends object>({
 
   const showMonthButtons = showMonthSortButtons && Boolean(monthSortColumn)
   const showPagination = enablePagination && sortedRows.length > 0
+
+  // N4: nº de columnas del cuerpo (con la columna del expansor si aplica).
+  const bodyColSpan = visibleColumns.length + (renderExpandedRow ? 1 : 0)
+
+  /** Fila de datos + (si aplica) su fila expandida animada. Compartido por el
+   * render agrupado por meses y el plano. */
+  function renderBodyRow(row: RowType, index: number, resolvedRowKey: string): ReactNode {
+    const isOpen = openExpandedRows.has(resolvedRowKey)
+    return (
+      <Fragment key={resolvedRowKey}>
+        <tr
+          className={
+            cx(rowClassName?.(row, index), renderExpandedRow && styles.expandableRow) || undefined
+          }
+          title={rowTitle?.(row, index)}
+          onClick={
+            renderExpandedRow
+              ? (event) => {
+                  // La fila entera despliega, salvo que el clic sea sobre un
+                  // control propio (enlaces, botones de celda…).
+                  const target = event.target as HTMLElement
+                  if (target.closest('a, button, input, select, textarea, label')) return
+                  toggleExpandedRow(resolvedRowKey)
+                }
+              : undefined
+          }
+        >
+          {renderExpandedRow && (
+            <td className={styles.expanderCell}>
+              <button
+                type="button"
+                className={cx(styles.expanderButton, isOpen && styles.expanderButtonOpen)}
+                aria-expanded={isOpen}
+                aria-label={isOpen ? copy.collapseRow : copy.expandRow}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  toggleExpandedRow(resolvedRowKey)
+                }}
+              >
+                <ChevronDown size={15} />
+              </button>
+            </td>
+          )}
+          {visibleColumns.map((column) => {
+            const cellText = normalizeString(readCellValue(row, column))
+            const isCellDivider = enableColumnResize && columnResizeDivider === column.key
+            return (
+              <td
+                key={`${resolvedRowKey}-${column.key}`}
+                className={isCellDivider ? styles.tdDivider : undefined}
+                style={column.align ? { textAlign: column.align } : undefined}
+                title={column.expandable ? undefined : (cellText || undefined)}
+              >
+                {renderCellContent(row, column)}
+              </td>
+            )
+          })}
+        </tr>
+        {renderExpandedRow && mountedExpandedRows.has(resolvedRowKey) && (
+          <tr className={styles.expandedRow}>
+            <td colSpan={bodyColSpan}>
+              <div className={cx(styles.expandOuter, isOpen && styles.expandOuterOpen)}>
+                <div className={styles.expandInner}>
+                  <div className={styles.expandContent}>{renderExpandedRow(row, index)}</div>
+                </div>
+              </div>
+            </td>
+          </tr>
+        )}
+      </Fragment>
+    )
+  }
   const shellStyle: CSSProperties = {
     ...(fillViewportHeight ? { '--table-viewport-offset': `${viewportOffset}px` } as CSSProperties : {}),
     ...(fixedHeight ? { '--table-fixed-height': `${fixedHeightPx}px` } as CSSProperties : {}),
@@ -1359,6 +1462,7 @@ export function TableWithPanel<RowType extends object>({
         <table className={styles.dataTable}>
           <thead>
             <tr>
+              {renderExpandedRow && <th scope="col" className={styles.expanderCell} aria-label="Desplegar" />}
               {visibleColumns.map((column) => {
                 const isSortable = enableColumnSort && column.sortable !== false && !column.header
                 const resolvedWidth = columnWidths[column.key] !== undefined
@@ -1369,7 +1473,7 @@ export function TableWithPanel<RowType extends object>({
                   : {}
                 const isDividerColumn = enableColumnResize && columnResizeDivider === column.key
                 return (
-                  <th key={column.key} style={thStyle} data-column-key={column.key} title={column.label} className={isDividerColumn ? styles.thDivider : undefined}>
+                  <th key={column.key} scope="col" style={thStyle} data-column-key={column.key} title={column.label} className={isDividerColumn ? styles.thDivider : undefined}>
                     <div className={styles.thContent}>
                       {isSortable && (
                         <>
@@ -1445,7 +1549,7 @@ export function TableWithPanel<RowType extends object>({
 
             {visibleColumns.length > 0 && paginatedRows.length === 0 && (
               <tr>
-                <td colSpan={visibleColumns.length} className={styles.emptyCell}>
+                <td colSpan={bodyColSpan} className={styles.emptyCell}>
                   {emptyStateLabel || copy.noRecords}
                 </td>
               </tr>
@@ -1456,7 +1560,7 @@ export function TableWithPanel<RowType extends object>({
                 ? groupedRows.map((group) => (
                   <Fragment key={group.key}>
                     <tr className={styles.monthDividerRow}>
-                      <td colSpan={visibleColumns.length}>
+                      <td colSpan={bodyColSpan}>
                         <div className={styles.monthDividerContent}>
                           <span className={styles.monthDividerTitle}>{group.title}</span>
                           <span className={styles.monthDividerCount}>
@@ -1466,50 +1570,12 @@ export function TableWithPanel<RowType extends object>({
                       </td>
                     </tr>
 
-                    {group.rows.map((row, index) => {
-                      const resolvedRowKey = `${group.key}-${rowKey(row, index)}`
-                      return (
-                        <tr key={resolvedRowKey} className={rowClassName?.(row, index) || undefined} title={rowTitle?.(row, index)}>
-                          {visibleColumns.map((column) => {
-                            const cellText = normalizeString(readCellValue(row, column))
-                            const isCellDivider = enableColumnResize && columnResizeDivider === column.key
-                            return (
-                              <td
-                                key={`${resolvedRowKey}-${column.key}`}
-                                className={isCellDivider ? styles.tdDivider : undefined}
-                                style={column.align ? { textAlign: column.align } : undefined}
-                                title={column.expandable ? undefined : (cellText || undefined)}
-                              >
-                                {renderCellContent(row, column)}
-                              </td>
-                            )
-                          })}
-                        </tr>
-                      )
-                    })}
+                    {group.rows.map((row, index) =>
+                      renderBodyRow(row, index, `${group.key}-${rowKey(row, index)}`),
+                    )}
                   </Fragment>
                 ))
-                : paginatedRows.map((row, index) => {
-                  const resolvedRowKey = rowKey(row, index)
-                  return (
-                    <tr key={resolvedRowKey} className={rowClassName?.(row, index) || undefined} title={rowTitle?.(row, index)}>
-                      {visibleColumns.map((column) => {
-                        const cellText = normalizeString(readCellValue(row, column))
-                        const isCellDivider = enableColumnResize && columnResizeDivider === column.key
-                        return (
-                          <td
-                            key={`${resolvedRowKey}-${column.key}`}
-                            className={isCellDivider ? styles.tdDivider : undefined}
-                            style={column.align ? { textAlign: column.align } : undefined}
-                            title={column.expandable ? undefined : (cellText || undefined)}
-                          >
-                            {renderCellContent(row, column)}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  )
-                })
+                : paginatedRows.map((row, index) => renderBodyRow(row, index, rowKey(row, index)))
             )}
           </tbody>
         </table>

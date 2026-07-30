@@ -4,10 +4,10 @@ import { Badge, PageHeader, SelectField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { fetchVehicleSummaries, listAll, listKmReadings, listVehicles } from '../api.ts'
+import { fetchVehicleSummaries, listAll, listVehicles } from '../api.ts'
 import { kmLevelTone } from '../format.ts'
-import { KmChart } from '../components/KmChart.tsx'
-import type { KmReading, Vehicle, VehicleSummary } from '../types.ts'
+import { ReadingsHistory } from '../components/ReadingsHistory.tsx'
+import type { Vehicle, VehicleSummary } from '../types.ts'
 
 const km = (value: number) => `${value.toLocaleString('es-ES')} km`
 
@@ -17,18 +17,9 @@ const LEVEL_META: Record<string, { label: string; className: string }> = {
   over: { label: 'Riesgo exceso', className: 'level-over' },
 }
 
-// Sección "Simulador e histórico" oculta (decisión de producto). Ponlo a `true`
-// para restaurar el simulador de ritmo y el histórico de lecturas por vehículo.
-const SHOW_SIMULATOR = false
-
 interface Row {
   vehicle: Vehicle
   summary: VehicleSummary
-}
-
-/** Meses (con decimales) hasta el fin de contrato. */
-function monthsUntil(dateStr: string): number {
-  return Math.max(0, (new Date(dateStr).getTime() - Date.now()) / (30 * 86_400_000))
 }
 
 /** ¿Le falta la lectura del mes? (HU-3.3) */
@@ -181,11 +172,6 @@ export function MileagePage() {
   const [error, setError] = useState('')
   const [supervisorFilter, setSupervisorFilter] = useState('')
 
-  // Detalle + simulador (HU-3.4/3.6)
-  const [selectedId, setSelectedId] = useState('')
-  const [simRate, setSimRate] = useState<number | null>(null)
-  const [readings, setReadings] = useState<KmReading[]>([])
-
   useEffect(() => {
     // Summaries en UNA petición (O2): antes era una llamada por fila.
     Promise.all([listAll(listVehicles()), fetchVehicleSummaries()])
@@ -203,22 +189,6 @@ export function MileagePage() {
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => {
-    if (!selectedId) {
-      setReadings([])
-      return
-    }
-    listKmReadings(Number(selectedId))
-      .then((page) =>
-        setReadings(
-          [...page.results].sort((a, b) =>
-            (a.reading_date ?? '') < (b.reading_date ?? '') ? -1 : 1,
-          ),
-        ),
-      )
-      .catch(() => setReadings([]))
-  }, [selectedId])
-
   const supervisors = useMemo(() => {
     const map = new Map<number, string>()
     for (const { vehicle } of rows) {
@@ -234,32 +204,9 @@ export function MileagePage() {
   const pending = visible.filter((r) => pendingThisMonth(r.summary))
   const withProjection = visible.filter((r) => r.summary.projection && r.summary.contract)
 
-  const selected = rows.find((r) => String(r.vehicle.id) === selectedId) ?? null
-  const projection = selected?.summary.projection ?? null
-  const contract = selected?.summary.contract ?? null
-
-  // Simulador: proyección = km actuales + ritmo estimado × meses restantes.
-  const rate = simRate ?? projection?.monthly_avg ?? 0
-  let simulated: { projected: number; pct: number; level: string } | null = null
-  if (selected && contract?.contract_km && selected.summary.km_driven != null) {
-    const months = monthsUntil(contract.planned_end_date)
-    const projected = Math.round(selected.summary.km_driven + rate * months)
-    const pct = (projected / contract.contract_km) * 100
-    simulated = {
-      projected,
-      pct: Math.round(pct * 10) / 10,
-      level: projected > contract.contract_km ? 'over' : pct >= 95 ? 'watch' : 'within',
-    }
-  }
-
-  // Histórico con km del periodo (diferencias entre lecturas) — HU-3.6.
-  const historyRows = readings.map((r, i) => ({
-    ...r,
-    period:
-      i > 0 && r.km_reading != null && readings[i - 1].km_reading != null
-        ? (r.km_reading as number) - (readings[i - 1].km_reading as number)
-        : null,
-  }))
+  // N4: cada fila se despliega (con animación) mostrando TODO el histórico
+  // del vehículo; la carga es perezosa y queda cacheada al seguir montada.
+  const renderHistory = ({ vehicle }: Row) => <ReadingsHistory vehicleId={vehicle.id} />
 
   return (
     <div>
@@ -299,6 +246,7 @@ export function MileagePage() {
                 rows={pending}
                 columns={PENDING_COLUMNS}
                 rowKey={({ vehicle }) => String(vehicle.id)}
+                renderExpandedRow={renderHistory}
                 enablePagination
                 defaultPageSize={25}
                 pageSizeOptions={[25, 50, 100]}
@@ -316,6 +264,7 @@ export function MileagePage() {
                 rows={withProjection}
                 columns={PROJECTION_COLUMNS}
                 rowKey={({ vehicle }) => String(vehicle.id)}
+                renderExpandedRow={renderHistory}
                 enablePagination
                 defaultPageSize={25}
                 pageSizeOptions={[25, 50, 100]}
@@ -323,97 +272,6 @@ export function MileagePage() {
             )}
           </section>
 
-          {/* Simulador + histórico por vehículo (HU-3.4/3.6) */}
-          {SHOW_SIMULATOR && (
-          <section className="card">
-            <div className="section-head">
-              <h3>Simulador e histórico</h3>
-              <SelectField
-                label="Vehículo"
-                options={[
-                  { value: '', label: '— Elegir —' },
-                  ...visible.map(({ vehicle }) => ({
-                    value: String(vehicle.id),
-                    label: `${vehicle.plate} · ${vehicle.brand} ${vehicle.model}`,
-                  })),
-                ]}
-                value={selectedId}
-                onValueChange={(value) => {
-                  setSelectedId(value)
-                  setSimRate(null)
-                }}
-              />
-            </div>
-
-            {!selected ? (
-              <p className="muted">Elige un vehículo para simular su ritmo y ver su evolución.</p>
-            ) : (
-              <>
-                {contract?.contract_km && simulated ? (
-                  <div className="simulator">
-                    <label className="sim-label">
-                      Ritmo estimado: <strong>{km(Math.round(rate))}/mes</strong>
-                      {projection && simRate === null ? ' (media actual)' : ''}
-                      <input
-                        type="range"
-                        min={0}
-                        max={Math.max(8000, (projection?.monthly_avg ?? 0) * 2)}
-                        step={100}
-                        value={rate}
-                        onChange={(e) => setSimRate(Number(e.target.value))}
-                      />
-                    </label>
-                    <div className="km-progress">
-                      <div
-                        className={`km-progress-fill level-${simulated.level}`}
-                        style={{ width: `${Math.min(100, simulated.pct)}%` }}
-                      />
-                    </div>
-                    <p className={`sim-result level-text-${simulated.level}`}>
-                      A este ritmo, al fin de contrato ({contract.planned_end_date}):{' '}
-                      <strong>{km(simulated.projected)}</strong> — {simulated.pct}% de los{' '}
-                      {km(contract.contract_km)} contratados.{' '}
-                      {simulated.level === 'within'
-                        ? 'Dentro de lo contratado. ✓'
-                        : simulated.level === 'watch'
-                          ? 'Cerca del límite: a vigilar.'
-                          : `Riesgo de exceso (+${km(Math.max(0, simulated.projected - contract.contract_km))}).`}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="muted">Este vehículo no tiene contrato con km para simular.</p>
-                )}
-
-                <h4>Histórico de lecturas</h4>
-                {historyRows.length === 0 ? (
-                  <p className="muted">Sin lecturas registradas.</p>
-                ) : (
-                  <div className="history-grid">
-                    <table className="data">
-                      <thead>
-                        <tr>
-                          <th>Fecha</th>
-                          <th>Odómetro</th>
-                          <th>Km del periodo</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...historyRows].reverse().map((r) => (
-                          <tr key={r.id}>
-                            <td>{r.reading_date ?? '—'}</td>
-                            <td>{r.km_reading != null ? km(r.km_reading) : '—'}</td>
-                            <td>{r.period != null ? `+${km(r.period)}` : '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <KmChart readings={readings} />
-                  </div>
-                )}
-              </>
-            )}
-          </section>
-          )}
         </>
       )}
     </div>
