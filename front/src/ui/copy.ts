@@ -114,6 +114,8 @@ const es = {
     previousPage: 'Página anterior',
     nextPage: 'Página siguiente',
     lastPage: 'Última página',
+    expandRow: 'Desplegar fila',
+    collapseRow: 'Plegar fila',
   },
   catalogEntityCreateForm: {
     submitDefaultLabel: 'Crear',
@@ -240,6 +242,8 @@ const en: typeof es = {
     previousPage: 'Previous page',
     nextPage: 'Next page',
     lastPage: 'Last page',
+    expandRow: 'Expand row',
+    collapseRow: 'Collapse row',
   },
   catalogEntityCreateForm: {
     submitDefaultLabel: 'Create',
