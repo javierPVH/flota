@@ -56,8 +56,35 @@ class Vehicle(TimeStampedModel):
         help_text="Opcional: responsable del vehículo.",
     )
     is_substitute = models.BooleanField("¿Es vehículo de sustitución?", default=False)
+    # N5: marca/modelo por catálogo (FKs) + sociedad titular. Los CharField
+    # `brand`/`model` quedan como legado denormalizado (se rellenan desde las
+    # FKs en el serializer) hasta retirarlos en una migración posterior.
     brand = models.CharField("Marca", max_length=50)
     model = models.CharField("Modelo", max_length=50)
+    brand_ref = models.ForeignKey(
+        "fleet.Brand",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="vehicles",
+        verbose_name="Marca (catálogo)",
+    )
+    model_ref = models.ForeignKey(
+        "fleet.VehicleModel",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="vehicles",
+        verbose_name="Modelo (catálogo)",
+    )
+    company = models.ForeignKey(
+        "fleet.Company",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="vehicles",
+        verbose_name="Sociedad",
+    )
     year = models.PositiveIntegerField("Año", null=True, blank=True)
     vin = models.CharField("Bastidor (VIN)", max_length=32, blank=True)
     registration_date = models.DateField("Fecha de matriculación", null=True, blank=True)

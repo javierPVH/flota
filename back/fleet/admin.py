@@ -3,7 +3,9 @@ from django.contrib import admin
 from .models import (
     Alert,
     Assignment,
+    Brand,
     BusinessUnit,
+    Company,
     Contract,
     Country,
     Document,
@@ -24,6 +26,7 @@ from .models import (
     Renting,
     Vehicle,
     VehicleLink,
+    VehicleModel,
     VehicleRequest,
     VehicleUsage,
 )
@@ -40,6 +43,26 @@ class CountryAdmin(admin.ModelAdmin):
 class RentingAdmin(admin.ModelAdmin):
     list_display = ("name",)
     search_fields = ("name",)
+
+
+@admin.register(Brand)
+class BrandAdmin(admin.ModelAdmin):
+    list_display = ("name",)
+    search_fields = ("name",)
+
+
+@admin.register(VehicleModel)
+class VehicleModelAdmin(admin.ModelAdmin):
+    list_display = ("brand", "name")
+    search_fields = ("name", "brand__name")
+    list_select_related = ("brand",)
+    autocomplete_fields = ("brand",)
+
+
+@admin.register(Company)
+class CompanyAdmin(admin.ModelAdmin):
+    list_display = ("code", "name")
+    search_fields = ("code", "name", "description")
 
 
 @admin.register(BusinessUnit)

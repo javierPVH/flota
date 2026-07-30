@@ -143,12 +143,29 @@ export interface CatalogEntry {
   /** Solo `projects`: CECO asociado (obligatorio en altas desde la API). */
   cost_center?: number | null
   cost_center_display?: string
+  /** Solo `vehicle-models` (N5): marca de la que depende el modelo. */
+  brand?: number | null
+  brand_display?: string
+  /** Solo `companies` (N5). */
+  description?: string
 }
 
-export type CatalogResource = 'projects' | 'peps' | 'business-units' | 'rentings' | 'countries'
+export type CatalogResource =
+  | 'projects'
+  | 'peps'
+  | 'business-units'
+  | 'rentings'
+  | 'countries'
+  | 'brands'
+  | 'vehicle-models'
+  | 'companies'
 
 export const listCatalog = (resource: CatalogResource) =>
   getJson<Paginated<CatalogEntry>>(`${API}/${resource}/${listQs({})}`)
+
+/** N5: modelos de una marca (desplegable dependiente del alta de vehículo). */
+export const listVehicleModels = (brand: number) =>
+  getJson<Paginated<CatalogEntry>>(`${API}/vehicle-models/${listQs({ brand })}`)
 
 // G11: escritura de catálogos (solo admin en el back).
 export const createCatalogEntry = (resource: CatalogResource, data: Record<string, string>) =>

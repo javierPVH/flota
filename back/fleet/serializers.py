@@ -11,7 +11,9 @@ from rest_framework import serializers
 from .models import (
     Alert,
     Assignment,
+    Brand,
     BusinessUnit,
+    Company,
     Contract,
     Country,
     Document,
@@ -28,6 +30,7 @@ from .models import (
     Renting,
     Vehicle,
     VehicleLink,
+    VehicleModel,
     VehicleRequest,
     VehicleUsage,
 )
@@ -92,6 +95,11 @@ class VehicleSerializer(serializers.ModelSerializer):
     state_display = serializers.CharField(source="get_state_display", read_only=True)
     supervisor_name = serializers.SerializerMethodField()
     driver_name = serializers.SerializerMethodField()
+    # N5: marca/modelo por catálogo. Los CharField legados pasan a opcionales
+    # (se rellenan desde las FKs); los fronts leen brand/model como siempre.
+    brand = serializers.CharField(required=False, allow_blank=False, max_length=50)
+    model = serializers.CharField(required=False, allow_blank=False, max_length=50)
+    company_display = serializers.StringRelatedField(source="company", read_only=True)
     # Alta transaccional (HU-1.3): contrato y conductor OPCIONALES en el POST;
     # con `km_start` se registra además la primera lectura. Solo en el alta —
     # editar contrato/conductor/kilometraje va por sus flujos propios.
@@ -110,6 +118,10 @@ class VehicleSerializer(serializers.ModelSerializer):
             "plate",
             "brand",
             "model",
+            "brand_ref",
+            "model_ref",
+            "company",
+            "company_display",
             "year",
             "vin",
             "registration_date",
@@ -204,6 +216,25 @@ class VehicleSerializer(serializers.ModelSerializer):
         unlimited = attrs.get("unlimited_km", getattr(self.instance, "unlimited_km", False))
         if unlimited and attrs.get("contract"):
             attrs["contract"]["contract_km"] = None
+        # N5: coherencia marca↔modelo y denormalización del texto legado.
+        brand_ref = attrs.get("brand_ref", getattr(self.instance, "brand_ref", None))
+        model_ref = attrs.get("model_ref", getattr(self.instance, "model_ref", None))
+        if model_ref is not None and brand_ref is not None and model_ref.brand_id != brand_ref.id:
+            raise serializers.ValidationError(
+                {"model_ref": "El modelo no pertenece a la marca elegida."}
+            )
+        if model_ref is not None and brand_ref is None:
+            raise serializers.ValidationError(
+                {"brand_ref": "Elige la marca del modelo (el modelo depende de la marca)."}
+            )
+        if brand_ref is not None:
+            attrs["brand"] = brand_ref.name
+        if model_ref is not None:
+            attrs["model"] = model_ref.name
+        if self.instance is None and not attrs.get("brand"):
+            raise serializers.ValidationError({"brand": "Indica la marca (catálogo o texto)."})
+        if self.instance is None and not attrs.get("model"):
+            raise serializers.ValidationError({"model": "Indica el modelo (catálogo o texto)."})
         return attrs
 
     def create(self, validated_data):
@@ -794,3 +825,27 @@ class RentingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Renting
         fields = ["id", "name"]
+
+
+class BrandSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Brand
+        fields = ["id", "name"]
+
+
+class VehicleModelSerializer(serializers.ModelSerializer):
+    # N5: el modelo DEPENDE de la marca — obligatoria en el alta.
+    brand = serializers.PrimaryKeyRelatedField(
+        queryset=Brand.objects.all(), required=True, allow_null=False
+    )
+    brand_display = serializers.StringRelatedField(source="brand", read_only=True)
+
+    class Meta:
+        model = VehicleModel
+        fields = ["id", "brand", "brand_display", "name"]
+
+
+class CompanySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Company
+        fields = ["id", "code", "name", "description"]
