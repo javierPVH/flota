@@ -98,6 +98,12 @@ cloudflared tunnel route dns <tunel> flota-conductores.gransolar.com
 sudo docker restart cloudflared
 ```
 
+> El túnel entra por `http://localhost:8092`, así que `CONDUCTORES_BIND` tiene
+> que seguir cubriendo el loopback: `127.0.0.1` (por defecto) o `0.0.0.0`. Usa
+> `0.0.0.0` si además quieres abrir conductores desde la VPN para probarlo. Si
+> lo fijas a la IP interna a secas (`10.3.4.6`), el loopback deja de publicarse
+> y el túnel se queda sin destino hasta que cambies el `service:` del ingress.
+
 > Gestión **no** se añade al túnel. Se accede por la VPN a
 > `http://<IP-interna-o-DNS>:8093` (recuerda poner ese host en `ALLOWED_HOSTS` y
 > en `CSRF_TRUSTED_ORIGINS`). Para que la VPN llegue, `GESTION_BIND` debe ser la
