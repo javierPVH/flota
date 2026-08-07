@@ -26,6 +26,9 @@ const RequestAccessPage = lazy(() =>
 const SinFlotaPage = lazy(() =>
   import('./pages/SinFlotaPage.tsx').then((m) => ({ default: m.SinFlotaPage })),
 )
+const UploadDocumentPage = lazy(() =>
+  import('./pages/UploadDocumentPage.tsx').then((m) => ({ default: m.UploadDocumentPage })),
+)
 
 const fallback = <p className="gate-checking">Cargando…</p>
 
@@ -65,8 +68,16 @@ export default function App() {
           <Route path="/vehiculos/:id" element={<VehicleFieldPage />} />
           <Route path="/registrar" element={<RegisterKmPage />} />
           <Route path="/alertas" element={<AlertsPage />} />
+          {/* Subir documento y comunicar avería/incidencia son VISTAS propias,
+              accesibles al conductor (C3) — no formularios dentro de la ficha. */}
+          <Route path="/documentos/nuevo" element={<UploadDocumentPage />} />
+          <Route path="/incidencias/nueva" element={<NewIncidentPage />} />
           <Route path="/grupo" element={<GroupPage />} />
-          <Route path="/grupo/incidencias/nueva" element={<NewIncidentPage />} />
+          {/* Ruta histórica del supervisor: la pantalla es la misma. */}
+          <Route
+            path="/grupo/incidencias/nueva"
+            element={<Navigate to="/incidencias/nueva?desde=grupo" replace />}
+          />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

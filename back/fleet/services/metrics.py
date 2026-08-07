@@ -165,6 +165,9 @@ def _compose_summary(
         ),
         "km_current": km_current,
         "km_reading_date": latest.reading_date if latest else None,
+        # ¿La última lectura fue generada automáticamente (media mensual)? Sirve
+        # para avisar de que ese km puede no corresponder con la realidad.
+        "km_estimated": bool(latest.estimated) if latest else False,
         "km_driven": km_driven,
         "driver": {"id": driver.id, "name": driver.get_full_name() or driver.get_username()}
         if driver
@@ -183,6 +186,7 @@ def _compose_summary(
         "penalty_per_km": contract.penalty_per_km,
         "start_date": contract.start_date,
         "planned_end_date": contract.planned_end_date,
+        "drive_url": contract.drive_url,
     }
 
     # N3: con km ilimitados no hay proyección — los fronts pintan "Km ilimitados"

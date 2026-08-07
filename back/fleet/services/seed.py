@@ -28,7 +28,7 @@ from decimal import Decimal
 
 from django.utils import timezone
 
-from accounts.models import PushSubscription, Role, User, UserRole
+from accounts.models import LicenseType, PushSubscription, Role, User, UserRole
 from fleet.models import (
     Alert,
     Assignment,
@@ -43,7 +43,13 @@ from fleet.models import (
     EmailTemplate,
     EmailTemplateKey,
     Event,
+    EventDriverChange,
+    EventFeeChange,
     EventItv,
+    EventLocationChange,
+    EventPenalty,
+    EventPepChange,
+    EventProjectChange,
     Incident,
     Invoice,
     InvoiceAllocation,
@@ -58,7 +64,9 @@ from fleet.models import (
     VehicleUsage,
 )
 from fleet.models.enums import (
+    AlertStatus,
     AlertType,
+    AllocationTarget,
     AssignmentStatus,
     DocumentStatus,
     DocumentType,
@@ -67,11 +75,14 @@ from fleet.models.enums import (
     IncidentStatus,
     IncidentType,
     LinkReason,
+    MarketSegment,
     PropertyType,
     UseType,
     VehicleRequestStatus,
+    VehicleSize,
     VehicleState,
     VehicleType,
+    VehUse,
 )
 from fleet.services import alerts
 
@@ -86,10 +97,17 @@ DEV_PASSWORD = "flota-dev-2026"
 # paginación, buscadores, chips con contador y export CSV con datos realistas.
 # Todo sale de índices (aritmética modular), así el estado final es siempre el
 # mismo (la garantía del seeding destructivo).
+#
+# COBERTURA TOTAL: la capa de volumen está dimensionada para que TODAS las
+# tablas tengan filas y TODAS las variantes de cada enumerado aparezcan al menos
+# una vez (lo verifica `test_seed.SeedCoverageTests`). Al tocar estas
+# constantes, vuelve a pasar ese test: es el contrato.
 
 BULK_VEHICLES = 30
 _PLATE_LETTERS = "BCDFGHJKLMNPRSTVWXYZ"
 _DNI_LETTERS = "TRWAGMYFPDXBNJZSQVHL"
+# Letras válidas de un VIN (la norma ISO 3779 excluye I, O y Q).
+_VIN_LETTERS = "ABCDEFGHJKLMNPRSTUVWXYZ"
 
 BULK_DRIVERS = [
     ("pedro", "Pedro", "Alonso"),
@@ -106,20 +124,62 @@ BULK_DRIVERS = [
     ("teresa", "Teresa", "Gil"),
 ]
 
+# Los 12 conductores de volumen recorren los 6 tipos de permiso (dos vueltas).
+BULK_LICENSES = [
+    LicenseType.B,
+    LicenseType.C1,
+    LicenseType.C,
+    LicenseType.CE,
+    LicenseType.D1,
+    LicenseType.D,
+]
+
+# (marca, modelo, tipo, combustible, tamaño, segmento, versión, consumo l/100km)
+# Los 16 modelos cubren entre todos los 4 tipos, los 5 combustibles, los 3
+# tamaños y los 9 segmentos de mercado.
 BULK_MODELS = [
-    # (marca, modelo, tipo, combustible)
-    ("Peugeot", "Partner", VehicleType.FURGONETA, Fuel.DIESEL),
-    ("Citroën", "Berlingo Van", VehicleType.FURGONETA, Fuel.DIESEL),
-    ("Ford", "Transit Custom", VehicleType.FURGONETA, Fuel.DIESEL),
-    ("Volkswagen", "Caddy Cargo", VehicleType.FURGONETA, Fuel.DIESEL),
-    ("Toyota", "Corolla Touring", VehicleType.TURISMO, Fuel.HYBRID),
-    ("Seat", "León ST", VehicleType.TURISMO, Fuel.GASOLINE),
-    ("Renault", "Clio", VehicleType.TURISMO, Fuel.GASOLINE),
-    ("Dacia", "Duster GLP", VehicleType.TURISMO, Fuel.LPG),
-    ("Kia", "Sportage", VehicleType.TURISMO, Fuel.HYBRID),
-    ("Hyundai", "Kona EV", VehicleType.TURISMO, Fuel.OTHER),
-    ("Iveco", "Daily 35S", VehicleType.CAMION, Fuel.DIESEL),
-    ("Yamaha", "Tricity 300", VehicleType.MOTOCICLETA, Fuel.GASOLINE),
+    ("Peugeot", "Partner", VehicleType.FURGONETA, Fuel.DIESEL,
+     VehicleSize.LARGE, MarketSegment.MPV, "1.5 BlueHDi 100 Pro", 5),
+    ("Citroën", "Berlingo Van", VehicleType.FURGONETA, Fuel.DIESEL,
+     VehicleSize.MEDIUM, MarketSegment.MPV, "1.5 BlueHDi 130 Control", 5),
+    ("Ford", "Transit Custom", VehicleType.FURGONETA, Fuel.DIESEL,
+     VehicleSize.LARGE, MarketSegment.MPV, "2.0 EcoBlue 136 Trend", 7),
+    ("Volkswagen", "Caddy Cargo", VehicleType.FURGONETA, Fuel.DIESEL,
+     VehicleSize.MEDIUM, MarketSegment.MPV, "2.0 TDI 102 Pro", 5),
+    ("Toyota", "Corolla Touring", VehicleType.TURISMO, Fuel.HYBRID,
+     VehicleSize.MEDIUM, MarketSegment.UPPER_MEDIUM, "1.8 125H Advance", 4),
+    ("Seat", "León ST", VehicleType.TURISMO, Fuel.GASOLINE,
+     VehicleSize.MEDIUM, MarketSegment.LOWER_MEDIUM, "1.5 TSI 130 Style", 5),
+    ("Renault", "Clio", VehicleType.TURISMO, Fuel.GASOLINE,
+     VehicleSize.SMALL, MarketSegment.SUPERMINI, "1.0 TCe 90 Evolution", 5),
+    ("Dacia", "Duster GLP", VehicleType.TURISMO, Fuel.LPG,
+     VehicleSize.MEDIUM, MarketSegment.DUAL_4X4, "1.0 ECO-G 100 Expression", 7),
+    ("Kia", "Sportage", VehicleType.TURISMO, Fuel.HYBRID,
+     VehicleSize.LARGE, MarketSegment.DUAL_4X4, "1.6 T-GDi 230 HEV Drive", 5),
+    ("Hyundai", "Kona EV", VehicleType.TURISMO, Fuel.OTHER,
+     VehicleSize.MEDIUM, MarketSegment.LOWER_MEDIUM, "65 kWh Maxx", 16),
+    ("Iveco", "Daily 35S", VehicleType.CAMION, Fuel.DIESEL,
+     VehicleSize.LARGE, MarketSegment.MPV, "35S14 Furgón 12 m³", 10),
+    ("Yamaha", "Tricity 300", VehicleType.MOTOCICLETA, Fuel.GASOLINE,
+     VehicleSize.SMALL, MarketSegment.MINI, "300 ABS", 3),
+    ("Fiat", "500", VehicleType.TURISMO, Fuel.GASOLINE,
+     VehicleSize.SMALL, MarketSegment.MINI, "1.0 Hybrid Dolcevita", 4),
+    ("BMW", "Serie 5 Touring", VehicleType.TURISMO, Fuel.HYBRID,
+     VehicleSize.LARGE, MarketSegment.EXECUTIVE, "530e xDrive", 6),
+    ("Mercedes-Benz", "Clase S", VehicleType.TURISMO, Fuel.HYBRID,
+     VehicleSize.LARGE, MarketSegment.LUXURY, "S 580 e L 4MATIC", 8),
+    ("Cupra", "Formentor", VehicleType.TURISMO, Fuel.GASOLINE,
+     VehicleSize.MEDIUM, MarketSegment.SPORT, "VZ 2.0 TSI 310 DSG 4Drive", 8),
+]
+
+# Ubicaciones para los eventos de cambio de ubicación (EventLocationChange).
+BULK_LOCATIONS = [
+    "Nave de Getafe",
+    "Obra Norte A-12",
+    "Planta FV Badajoz",
+    "Oficinas Madrid",
+    "Almacén de Mérida",
+    "Parque eólico Teruel",
 ]
 
 
@@ -127,6 +187,17 @@ def _bulk_plate(i: int) -> str:
     """Matrícula determinista del vehículo i de volumen (2000BBB, 2001CKR…)."""
     letters = _PLATE_LETTERS
     return f"{2000 + i:04d}{letters[i % 20]}{letters[(i * 7 + 3) % 20]}{letters[(i * 13 + 5) % 20]}"
+
+
+def _vin(i: int) -> str:
+    """Bastidor determinista de 17 caracteres para el vehículo i."""
+    body = "".join(_VIN_LETTERS[(i * (k + 3) + k * 7) % len(_VIN_LETTERS)] for k in range(8))
+    return f"VF1{body}{(i * 104729) % 1000000:06d}"
+
+
+def _phone(i: int) -> str:
+    """Teléfono ficticio determinista (prefijo 6, sin corresponder a nadie real)."""
+    return f"6{(10 + i % 80):02d} {(100 + (i * 37) % 900):03d} {(100 + (i * 71) % 900):03d}"
 
 
 def wipe(model, stdout=None) -> None:
@@ -148,7 +219,11 @@ def seed_users(stdout=None) -> None:
     wipe(User, stdout)  # cascada: roles, asignaciones, solicitudes…
 
     admin = User.objects.create_superuser(
-        username="admin", email="admin@flota.dev", password=DEV_PASSWORD, first_name="Alicia"
+        username="admin",
+        email="admin@flota.dev",
+        password=DEV_PASSWORD,
+        first_name="Alicia",
+        phone=_phone(1),
     )
     UserRole.objects.create(user=admin, role=Role.ADMIN)
 
@@ -158,15 +233,19 @@ def seed_users(stdout=None) -> None:
         password=DEV_PASSWORD,
         first_name="Sara",
         last_name="Supervisora",
+        license_type=LicenseType.B,
+        phone=_phone(2),
     )
     UserRole.objects.create(user=sara, role=Role.SUPERVISOR)
     # Multi-rol: la supervisora además conduce (caso real de flota.md).
     UserRole.objects.create(user=sara, role=Role.DRIVER)
 
-    for username, first, last, dni, license_type, fuel_card in (
-        ("carlos", "Carlos", "Ruiz", "11111111H", "B", True),
-        ("lucia", "Lucía", "Mora", "22222222J", "B", False),
-        ("david", "David", "León", "33333333P", "C", False),  # SIN coche → portón
+    for i, (username, first, last, dni, license_type, fuel_card) in enumerate(
+        (
+            ("carlos", "Carlos", "Ruiz", "11111111H", LicenseType.B, True),
+            ("lucia", "Lucía", "Mora", "22222222J", LicenseType.B, False),
+            ("david", "David", "León", "33333333P", LicenseType.C, False),  # SIN coche → portón
+        )
     ):
         user = User.objects.create_user(
             username=username,
@@ -177,6 +256,7 @@ def seed_users(stdout=None) -> None:
             dni=dni,
             license_type=license_type,
             fuel_card=fuel_card,
+            phone=_phone(3 + i),
         )
         UserRole.objects.create(user=user, role=Role.DRIVER)
 
@@ -192,6 +272,7 @@ def seed_users(stdout=None) -> None:
         password=DEV_PASSWORD,
         first_name="Marta",
         last_name="Vega",
+        phone=_phone(6),
     )
     UserRole.objects.create(user=marta, role=Role.SUPERVISOR)
     for i, (username, first, last) in enumerate(BULK_DRIVERS):
@@ -202,8 +283,10 @@ def seed_users(stdout=None) -> None:
             first_name=first,
             last_name=last,
             dni=f"44{i:06d}{_DNI_LETTERS[i % 20]}",
-            license_type="C" if i % 5 == 0 else "B",
+            # Recorre los 6 tipos de permiso (12 conductores = dos vueltas).
+            license_type=BULK_LICENSES[i % len(BULK_LICENSES)],
             fuel_card=i % 3 == 0,
+            phone=_phone(10 + i),
         )
         UserRole.objects.create(user=user, role=Role.DRIVER)
 
@@ -249,12 +332,20 @@ def seed_catalogs(stdout=None) -> None:
     Renting.objects.create(name="Alphabet")
     Renting.objects.create(name="Arval")
 
-    # -- N10b: plantillas de correo por defecto + una firma de ejemplo.
+    # -- N10b: plantillas de correo por defecto + firmas de ejemplo.
+    # Se siembran las SEIS claves de `EmailTemplateKey` (la clave es única, así
+    # que hay exactamente una fila por tipo). `seed_erratas` desactiva luego la
+    # genérica para poblar el espacio de erratas sin dejar ningún aviso mudo:
+    # los tres tipos que envían correo tienen su propia plantilla activa.
     for model in (EmailTemplate, EmailSignature):
         wipe(model, stdout)
     firma = EmailSignature.objects.create(
         name="Flota Gransolar",
         body_html="<p>—<br/>Equipo de Flota · Gransolar</p>",
+    )
+    firma_direccion = EmailSignature.objects.create(
+        name="Dirección de Flota",
+        body_html="<p>—<br/>Dirección de Flota · Grupo Gransolar</p>",
     )
     EmailTemplate.objects.create(
         key=EmailTemplateKey.INSURANCE_DUE,
@@ -283,8 +374,34 @@ def seed_catalogs(stdout=None) -> None:
         body_html=(
             "<p>Hola {{conductor}}:</p>"
             "<p>Falta la lectura de km de este mes de <strong>{{matricula}}</strong>. "
-            "Regístrala desde la app de campo (del día 23 a fin de mes).</p>"
+            "Regístrala desde la app de campo (del día 20 a fin de mes).</p>"
         ),
+        signature=firma,
+    )
+    EmailTemplate.objects.create(
+        key=EmailTemplateKey.ITV_DUE,
+        subject="ITV próxima · {{matricula}}",
+        body_html=(
+            "<p>Hola {{conductor}}:</p>"
+            "<p>La ITV de <strong>{{matricula}}</strong> vence el "
+            "<strong>{{fecha_vencimiento}}</strong>. {{mensaje}}</p>"
+            "<p>Pide cita en la estación y avisa a la gestión de flota.</p>"
+        ),
+        signature=firma,
+    )
+    EmailTemplate.objects.create(
+        key=EmailTemplateKey.STATE_NOTICE,
+        subject="Comunicado sobre el vehículo {{matricula}}",
+        body_html=(
+            "<p>Hola {{conductor}}:</p>"
+            "<p>Comunicado sobre <strong>{{matricula}}</strong>: {{mensaje}}</p>"
+        ),
+        signature=firma_direccion,
+    )
+    EmailTemplate.objects.create(
+        key=EmailTemplateKey.GENERIC,
+        subject="[Flota] Aviso · {{matricula}}",
+        body_html="<p>Aviso de la flota sobre <strong>{{matricula}}</strong>: {{mensaje}}</p>",
         signature=firma,
     )
 
@@ -311,27 +428,47 @@ def seed_vehicles(stdout=None) -> None:
         plate="1234KLM",
         brand="Mercedes-Benz",
         model="Sprinter 314 CDI",
+        version="314 CDI Furgón Largo 3.5t",
         year=2023,
+        vin="WDB9061331N123456",
+        registration_date=date(2023, 3, 14),
         state=VehicleState.ACTIVE,
         fuel=Fuel.DIESEL,
         type=VehicleType.FURGONETA,
+        size=VehicleSize.LARGE,
+        market_segment=MarketSegment.MPV,
+        veh_use=VehUse.GOODS,
+        consumption=9,
         business_use=UseType.ON_PROJECT,
         project=obra,
         property=PropertyType.RENTING,
         supervisor=sara,
         km_start=0,
         # N2: seguro dentro del bucket de 30 días → alerta y KPI en el dashboard.
+        # El DOCUMENTO de seguro de `seed_operations` lleva esta MISMA fecha: si
+        # llevara una posterior, la señal la denormalizaría encima y el aviso no
+        # llegaría a saltar.
         insurance_expiry_date=timezone.localdate() + timedelta(days=20),
+        # Fase A3: carpeta ya creada por el archivador de Drive.
+        drive_folder_url="https://drive.example/carpetas/1234KLM",
+        drive_folder_id="drv-folder-1234KLM",
         **common,
     )
     Vehicle.objects.create(
         plate="5678BCD",
         brand="Renault",
         model="Master",
+        version="L2H2 dCi 135 Energy",
         year=2022,
+        vin="VF1MA000X67890123",
+        registration_date=date(2022, 6, 2),
         state=VehicleState.MAINTENANCE,
         fuel=Fuel.DIESEL,
         type=VehicleType.FURGONETA,
+        size=VehicleSize.LARGE,
+        market_segment=MarketSegment.MPV,
+        veh_use=VehUse.GOODS,
+        consumption=8,
         business_use=UseType.WORKS,
         property=PropertyType.RENTING,
         supervisor=sara,
@@ -344,10 +481,17 @@ def seed_vehicles(stdout=None) -> None:
         plate="7890NPQ",
         brand="Tesla",
         model="Model 3",
+        version="Long Range AWD",
         year=2024,
+        vin="5YJ3E1EA7PF345678",
+        registration_date=date(2024, 1, 22),
         state=VehicleState.ACTIVE,
         fuel=Fuel.OTHER,
         type=VehicleType.TURISMO,
+        size=VehicleSize.MEDIUM,
+        market_segment=MarketSegment.UPPER_MEDIUM,
+        veh_use=VehUse.PASSENGERS,
+        consumption=15,
         business_use=UseType.PERSONAL,
         property=PropertyType.RENTING,
         km_start=100,
@@ -358,10 +502,17 @@ def seed_vehicles(stdout=None) -> None:
         plate="4567JKL",
         brand="Nissan",
         model="Leaf",
+        version="40 kWh Acenta",
         year=2021,
+        vin="SJNFAAZE1U0567890",
+        registration_date=date(2021, 9, 8),
         state=VehicleState.ACTIVE,
         fuel=Fuel.HYBRID,
         type=VehicleType.TURISMO,
+        size=VehicleSize.SMALL,
+        market_segment=MarketSegment.LOWER_MEDIUM,
+        veh_use=VehUse.PASSENGERS,
+        consumption=17,
         business_use=UseType.PERSONAL,
         property=PropertyType.OWNED,
         is_substitute=True,  # vehículo de sustitución
@@ -372,11 +523,21 @@ def seed_vehicles(stdout=None) -> None:
         plate="0000ZZZ",
         brand="Ford",
         model="Transit",
+        version="350 L3H2 TDCi 130",
         year=2018,
+        vin="WF0XXXTTGXJY67890",
+        registration_date=date(2018, 4, 30),
         state=VehicleState.BAJA,  # para probar el filtro include_baja
         fuel=Fuel.DIESEL,
         type=VehicleType.FURGONETA,
+        size=VehicleSize.LARGE,
+        market_segment=MarketSegment.MPV,
+        veh_use=VehUse.GOODS,
+        consumption=9,
         property=PropertyType.OWNED,
+        # Vehículo dado de baja: se cerró su odómetro al devolverlo.
+        km_start=15000,
+        km_end=212430,
         **common,
     )
 
@@ -389,36 +550,63 @@ def seed_vehicles(stdout=None) -> None:
     cecos = list(Pep.objects.order_by("code"))
     uses = [UseType.ON_PROJECT, UseType.WORKS, UseType.PERSONAL]
     for i in range(BULK_VEHICLES):
-        brand, model, vtype, fuel = BULK_MODELS[i % len(BULK_MODELS)]
+        brand, model, vtype, fuel, size, segment, version, consumption = BULK_MODELS[
+            i % len(BULK_MODELS)
+        ]
         use = uses[i % 3]
         project = projects[i % len(projects)] if use == UseType.ON_PROJECT else None
+        # Los 7 estados del enumerado. Los índices 4/6/7/9/28/29 son
+        # load-bearing (vínculos de sustitución y baja): no muevas sus ramas.
         if i >= BULK_VEHICLES - 2:
-            state = VehicleState.BAJA
+            state = VehicleState.BAJA  # 28, 29
         elif i % 9 == 4:
-            state = VehicleState.MAINTENANCE
+            state = VehicleState.MAINTENANCE  # 4, 13, 22
         elif i % 11 == 7:
-            state = VehicleState.ITV
+            state = VehicleState.ITV  # 7, 18
         elif i % 13 == 6:
-            state = VehicleState.BROKEN
+            state = VehicleState.BROKEN  # 6, 19
+        elif i % 17 == 10:
+            state = VehicleState.ACCIDENT  # 10, 27
+        elif i % 19 == 15:
+            state = VehicleState.NON_ACTIVE  # 15
         else:
             state = VehicleState.ACTIVE
+        year = 2018 + i % 8
         Vehicle.objects.create(
             plate=_bulk_plate(i),
             brand=brand,
             model=model,
-            year=2018 + i % 8,
+            version=version,
+            year=year,
+            vin=_vin(i),
+            registration_date=date(year, (i % 12) + 1, (i % 28) + 1),
             state=state,
             fuel=fuel,
             type=vtype,
+            size=size,
+            market_segment=segment,
+            # El uso (pasajeros/mercancía) se deduce del tipo de vehículo.
+            veh_use=(
+                VehUse.GOODS
+                if vtype in (VehicleType.FURGONETA, VehicleType.CAMION)
+                else VehUse.PASSENGERS
+            ),
+            consumption=consumption,
             business_use=use,
             project=project,
             property=PropertyType.OWNED if i % 5 == 4 else PropertyType.RENTING,
             supervisor=sara if i % 3 == 0 else marta if i % 3 == 1 else None,
-            is_substitute=i % 14 == 9,
+            # 4 sustitutos (2, 9, 16, 23): uno por cada motivo de vínculo.
+            is_substitute=i % 7 == 2,
             km_start=(i * 3573) % 40000,
             country=portugal if i % 10 == 9 else country,
             business_unit=units[i % len(units)],
             cost_center=project.cost_center if project else cecos[i % len(cecos)],
+            # Fase A3: 1 de cada 4 ya tiene carpeta creada en Drive.
+            drive_folder_url=(
+                f"https://drive.example/carpetas/{_bulk_plate(i)}" if i % 4 == 0 else ""
+            ),
+            drive_folder_id=f"drv-folder-{_bulk_plate(i)}" if i % 4 == 0 else "",
         )
 
     # -- N5: puebla Marca/Modelo desde el texto sembrado y enlaza las FKs
@@ -449,6 +637,27 @@ def seed_contracts(stdout=None) -> None:
     v2 = Vehicle.objects.get(plate="5678BCD")
     v3 = Vehicle.objects.get(plate="7890NPQ")
 
+    northgate = Renting.objects.get(name="Northgate")
+    # Datos de cliente comunes a los contratos sembrados (sociedad titular).
+    client = {"client": "Gransolar España, S.L.", "cif": "B00000000"}
+
+    # v1: contrato ANTERIOR ya cerrado (histórico de la ficha) + el vigente.
+    # El motor de km solo mira los contratos sin `end_date`, así que el cerrado
+    # da cuerpo al histórico sin alterar la proyección.
+    Contract.objects.create(
+        vehicle=v1,
+        renting=northgate,
+        contract_number="R-2022-771",
+        contract_time=36,
+        contract_km=120000,
+        start_date=today - timedelta(days=1280),
+        planned_end_date=today - timedelta(days=200),
+        end_date=today - timedelta(days=190),
+        month_fee=Decimal("495.00"),
+        penalty_per_km=Decimal("0.070"),
+        drive_url="https://drive.example/contratos/R-2022-771.pdf",
+        **client,
+    )
     # v1: contrato a 12 meses ya mediado, ritmo por ENCIMA → proyección "over".
     Contract.objects.create(
         vehicle=v1,
@@ -460,6 +669,8 @@ def seed_contracts(stdout=None) -> None:
         planned_end_date=today + timedelta(days=185),
         month_fee=Decimal("540.00"),
         penalty_per_km=Decimal("0.080"),
+        drive_url="https://drive.example/contratos/R-2026-014.pdf",
+        **client,
     )
     KmReading.objects.create(vehicle=v1, reading_date=today - timedelta(days=90), km_reading=16000)
     KmReading.objects.create(vehicle=v1, reading_date=today - timedelta(days=20), km_reading=31000)
@@ -475,10 +686,14 @@ def seed_contracts(stdout=None) -> None:
         planned_end_date=today + timedelta(days=530),
         month_fee=Decimal("480.00"),
         penalty_per_km=Decimal("0.050"),
+        drive_url="https://drive.example/contratos/R-2025-101.pdf",
+        **client,
     )
     KmReading.objects.create(vehicle=v2, reading_date=today - timedelta(days=15), km_reading=30000)
 
-    # v3: sin lectura ESTE MES → alerta de "lectura pendiente".
+    # v3: sin lectura ESTE MES. Ojo, NO genera aviso de "lectura pendiente":
+    # tiene `unlimited_km` y X2 dejó esos vehículos fuera del recordatorio (sin
+    # cupo que vigilar no hay nada que recordar). El aviso lo dan los de volumen.
     Contract.objects.create(
         vehicle=v3,
         renting=ald,
@@ -488,6 +703,8 @@ def seed_contracts(stdout=None) -> None:
         start_date=today - timedelta(days=60),
         planned_end_date=today + timedelta(days=1035),
         month_fee=Decimal("620.00"),
+        drive_url="https://drive.example/contratos/R-2026-055.pdf",
+        **client,
     )
     KmReading.objects.create(vehicle=v3, reading_date=today - timedelta(days=45), km_reading=2500)
 
@@ -502,6 +719,23 @@ def seed_contracts(stdout=None) -> None:
         contract_km = (40000, 60000, 90000, 120000)[i % 4]
         month_fee = 380 + (i * 23) % 320
         if vehicle.property == PropertyType.RENTING:
+            # 1 de cada 8 arrastra un contrato ANTERIOR ya cerrado (`end_date`)
+            # para que la ficha tenga histórico de contratos.
+            if i % 8 == 3:
+                Contract.objects.create(
+                    vehicle=vehicle,
+                    renting=rentings[(i + 1) % len(rentings)],
+                    contract_number=f"R-23-{2000 + i}",
+                    contract_time=36,
+                    contract_km=contract_km,
+                    start_date=start - timedelta(days=1100),
+                    planned_end_date=start - timedelta(days=20),
+                    end_date=start - timedelta(days=10),
+                    month_fee=Decimal(str(month_fee - 40)),
+                    penalty_per_km=Decimal("0.055"),
+                    drive_url=f"https://drive.example/contratos/R-23-{2000 + i}.pdf",
+                    **client,
+                )
             Contract.objects.create(
                 vehicle=vehicle,
                 renting=rentings[i % len(rentings)],
@@ -512,6 +746,8 @@ def seed_contracts(stdout=None) -> None:
                 planned_end_date=start + timedelta(days=months * 30),
                 month_fee=Decimal(str(month_fee)),
                 penalty_per_km=Decimal("0.060") if i % 2 else Decimal("0.045"),
+                drive_url=f"https://drive.example/contratos/R-27-{1000 + i}.pdf",
+                **client,
             )
         # Ritmo mensual ~70% / ~100% / ~130% del contratado → proyecciones
         # repartidas entre "dentro", "a vigilar" y "riesgo exceso".
@@ -533,6 +769,11 @@ def seed_contracts(stdout=None) -> None:
                 # (como las que crea "completar km faltantes").
                 estimated=i % 5 == 2 and m == n_readings - 1,
             )
+        # Los vehículos en baja cierran su odómetro (`km_end`) en la última
+        # lectura: es el kilometraje con el que se devolvieron.
+        if vehicle.state == VehicleState.BAJA:
+            vehicle.km_end = km
+            vehicle.save(update_fields=["km_end", "updated_at"])
 
 
 # --- 5) Asignaciones, reparto y vínculos -----------------------------------
@@ -577,7 +818,17 @@ def seed_assignments(stdout=None) -> None:
         end_date=today + timedelta(days=40),
         status=AssignmentStatus.PROPOSED,
     )
-    # Reparto de uso de v1: 60/40 (HU-2.5).
+    # Propuesta RECHAZADA por el conductor: cierra el ciclo del enumerado
+    # (propuesta → aceptada/rechazada → finalizada) en el histórico de la ficha.
+    Assignment.objects.create(
+        vehicle=v3,
+        driver=lucia,
+        start_date=today - timedelta(days=25),
+        end_date=today - timedelta(days=5),
+        status=AssignmentStatus.REJECTED,
+    )
+    # Reparto de uso de v1: 60/40 (HU-2.5). El % viaja tanto en el reparto como
+    # en la asignación vigente (el campo existe en las dos tablas).
     VehicleUsage.objects.create(
         vehicle=v1,
         driver=carlos,
@@ -589,6 +840,17 @@ def seed_assignments(stdout=None) -> None:
         driver=lucia,
         usage_percent=Decimal("40"),
         start_date=today - timedelta(days=180),
+    )
+    # Reparto ANTERIOR ya cerrado (`end_date`): histórico del reparto de v1.
+    VehicleUsage.objects.create(
+        vehicle=v1,
+        driver=carlos,
+        usage_percent=Decimal("100"),
+        start_date=today - timedelta(days=360),
+        end_date=today - timedelta(days=181),
+    )
+    Assignment.objects.filter(vehicle=v1, driver=carlos, status=AssignmentStatus.ACCEPTED).update(
+        usage_percent=Decimal("60")
     )
     # v2 en taller ← lo cubre el Leaf de sustitución (HU-1.8).
     VehicleLink.objects.create(
@@ -633,6 +895,15 @@ def seed_assignments(stdout=None) -> None:
                 end_date=today + timedelta(days=45),
                 status=AssignmentStatus.PROPOSED,
             )
+        # Y alguna propuesta que el conductor RECHAZÓ.
+        if i % 9 == 5:
+            Assignment.objects.create(
+                vehicle=vehicle,
+                driver=drivers[(i + 3) % len(drivers)],
+                start_date=today - timedelta(days=20),
+                end_date=today - timedelta(days=3),
+                status=AssignmentStatus.REJECTED,
+            )
 
     # Reparto de uso 70/30 en el primer vehículo de volumen.
     shared = Vehicle.objects.get(plate=_bulk_plate(0))
@@ -648,24 +919,116 @@ def seed_assignments(stdout=None) -> None:
         usage_percent=Decimal("30"),
         start_date=today - timedelta(days=90),
     )
-    # Vínculo activo (avería cubierta por un sustituto de volumen) + uno
-    # histórico ya cerrado (para el histórico de la ficha).
-    VehicleLink.objects.create(
-        main_vehicle=Vehicle.objects.get(plate=_bulk_plate(6)),  # broken
-        substitute_vehicle=Vehicle.objects.get(plate=_bulk_plate(9)),  # sustituto
-        reason=LinkReason.BREAKDOWN,
-        start_date=today - timedelta(days=8),
+    Assignment.objects.filter(vehicle=shared, status=AssignmentStatus.ACCEPTED).update(
+        usage_percent=Decimal("70")
     )
+    # Vínculos de sustitución: uno por cada MOTIVO del enumerado. El estado del
+    # principal casa con el motivo (averiado→avería, en ITV→ITV…) y cada
+    # sustituto cubre a uno solo (la restricción es un activo por principal).
+    for main_index, substitute_index, reason, started, ended in (
+        (6, 9, LinkReason.BREAKDOWN, 8, None),  # averiado
+        (7, 23, LinkReason.ITV, 3, None),  # en ITV
+        (10, 16, LinkReason.ACCIDENT, 12, None),  # accidentado
+        (4, 2, LinkReason.MAINTENANCE, 60, 40),  # histórico ya cerrado
+    ):
+        VehicleLink.objects.create(
+            main_vehicle=Vehicle.objects.get(plate=_bulk_plate(main_index)),
+            substitute_vehicle=Vehicle.objects.get(plate=_bulk_plate(substitute_index)),
+            reason=reason,
+            start_date=today - timedelta(days=started),
+            end_date=today - timedelta(days=ended) if ended else None,
+        )
+    # El Leaf de referencia cubrió antes a otro vehículo de volumen (histórico).
     VehicleLink.objects.create(
-        main_vehicle=Vehicle.objects.get(plate=_bulk_plate(4)),  # maintenance
+        main_vehicle=Vehicle.objects.get(plate=_bulk_plate(13)),  # maintenance
         substitute_vehicle=substitute,
         reason=LinkReason.MAINTENANCE,
-        start_date=today - timedelta(days=60),
-        end_date=today - timedelta(days=40),
+        start_date=today - timedelta(days=120),
+        end_date=today - timedelta(days=95),
     )
 
 
 # --- 6) Operación: eventos/ITV, incidencias, documentos, facturas, solicitudes
+
+# Tipos de evento SIN la ITV: esa se siembra aparte porque su subtipo dispara la
+# señal que denormaliza `Vehicle.next_itv_date` (y hay fechas de referencia que
+# dependen de ella). El resto se reparte por la flota con este catálogo.
+EVENT_NOTES = {
+    EventType.CREATION: "Alta del vehículo en la flota.",
+    EventType.ACTIVATION: "Puesta en servicio tras la preparación del taller.",
+    EventType.DEACTIVATION: "Retirado temporalmente del servicio.",
+    EventType.INVOICE: "Registrada la factura mensual del renting.",
+    EventType.IMMOBILIZATION: "Inmovilizado a la espera de recambio.",
+    EventType.REACTIVATION: "Vuelve al servicio tras la reparación.",
+    EventType.INSURANCE_RENEWAL: "Renovada la póliza para la nueva anualidad.",
+    EventType.PENALTY: "Sanción de tráfico recibida por correo.",
+    EventType.LOCATION_CHANGE: "Traslado entre centros de trabajo.",
+    EventType.PROJECT_CHANGE: "Reasignado a otro proyecto.",
+    EventType.BREAKDOWN: "Avería comunicada por el conductor.",
+    EventType.KM_READING: "Lectura de odómetro registrada en campo.",
+    EventType.CONTRACT_CHANGE: "Novación del contrato de renting.",
+    EventType.FEE_CHANGE: "Revisión de la cuota mensual.",
+    EventType.CECO_CHANGE: "Cambio de centro de coste de imputación.",
+    EventType.MAINTENANCE: "Mantenimiento preventivo de los 30.000 km.",
+    EventType.DRIVER_CHANGE: "Relevo del conductor asignado.",
+}
+EVENT_TYPES_NO_ITV = list(EVENT_NOTES)
+
+
+def _seed_event_detail(event, *, index, projects, cecos, drivers) -> None:
+    """Crea el subtipo 1-a-1 del evento, si su tipo tiene uno.
+
+    Siete de los 18 tipos extienden `Event` con una tabla propia; los otros once
+    viven solo en `Event`. La ITV se siembra aparte (ver `EVENT_NOTES`).
+    """
+    kind = event.event_type
+    if kind == EventType.PENALTY:
+        EventPenalty.objects.create(
+            event=event,
+            amount=Decimal(str(90 + (index % 5) * 60)),
+            paid=index % 2 == 0,  # pagadas y sin pagar
+        )
+    elif kind == EventType.FEE_CHANGE:
+        old_fee = Decimal(str(400 + (index * 17) % 200))
+        EventFeeChange.objects.create(
+            event=event, old_fee=old_fee, new_fee=old_fee + Decimal("35.00")
+        )
+    elif kind == EventType.PROJECT_CHANGE:
+        EventProjectChange.objects.create(
+            event=event,
+            old_project=projects[index % len(projects)],
+            new_project=projects[(index + 1) % len(projects)],
+        )
+    elif kind == EventType.LOCATION_CHANGE:
+        EventLocationChange.objects.create(
+            event=event,
+            old_location=BULK_LOCATIONS[index % len(BULK_LOCATIONS)],
+            new_location=BULK_LOCATIONS[(index + 1) % len(BULK_LOCATIONS)],
+        )
+    elif kind == EventType.CECO_CHANGE:
+        EventPepChange.objects.create(
+            event=event,
+            old_pep=cecos[index % len(cecos)],
+            new_pep=cecos[(index + 1) % len(cecos)],
+        )
+    elif kind == EventType.DRIVER_CHANGE:
+        EventDriverChange.objects.create(
+            event=event,
+            old_driver=drivers[index % len(drivers)],
+            new_driver=drivers[(index + 1) % len(drivers)],
+        )
+
+
+def _seed_event(vehicle, event_type, *, days_ago, index, projects, cecos, drivers):
+    """Evento + su subtipo, con la nota de negocio del catálogo."""
+    event = Event.objects.create(
+        vehicle=vehicle,
+        event_type=event_type,
+        event_date=_today() - timedelta(days=days_ago),
+        notes=EVENT_NOTES.get(event_type, ""),
+    )
+    _seed_event_detail(event, index=index, projects=projects, cecos=cecos, drivers=drivers)
+    return event
 
 
 def seed_operations(stdout=None) -> None:
@@ -681,12 +1044,16 @@ def seed_operations(stdout=None) -> None:
     today = _today()
     admin = User.objects.get(username="admin")
     carlos = User.objects.get(username="carlos")
+    lucia = User.objects.get(username="lucia")
     david = User.objects.get(username="david")
     v1 = Vehicle.objects.get(plate="1234KLM")
     v2 = Vehicle.objects.get(plate="5678BCD")
     v3 = Vehicle.objects.get(plate="7890NPQ")
+    v_baja = Vehicle.objects.get(plate="0000ZZZ")
     obra = Project.objects.get(project_name="Obra Norte A-12")
     ceco = Pep.objects.get(code="4300")
+    all_projects = list(Project.objects.order_by("project_name"))
+    all_cecos = list(Pep.objects.order_by("code"))
 
     # ITV: la señal refresca next_itv_date. v1 a 10 días (aviso), v2 VENCIDA,
     # v3 lejos (sin aviso).
@@ -696,9 +1063,26 @@ def seed_operations(stdout=None) -> None:
         (v3, today + timedelta(days=200)),
     ):
         event = Event.objects.create(
-            vehicle=vehicle, event_type=EventType.ITV, event_date=today - timedelta(days=300)
+            vehicle=vehicle,
+            event_type=EventType.ITV,
+            event_date=today - timedelta(days=300),
+            notes="Inspección técnica superada sin defectos.",
         )
         EventItv.objects.create(event=event, result="done", next_due=next_due)
+
+    # Timeline COMPLETO de v1: un evento de cada tipo (menos la ITV, ya arriba)
+    # con su subtipo cuando lo tiene. La ficha del vehículo de referencia enseña
+    # así los 18 tipos y las 7 tablas de detalle.
+    for n, event_type in enumerate(EVENT_TYPES_NO_ITV):
+        _seed_event(
+            v1,
+            event_type,
+            days_ago=420 - n * 20,
+            index=n,
+            projects=all_projects,
+            cecos=all_cecos,
+            drivers=[carlos, lucia],
+        )
 
     # Incidencia abierta en v2 (está en taller) con su documento ligado.
     incident = Incident.objects.create(
@@ -714,16 +1098,34 @@ def seed_operations(stdout=None) -> None:
         type=DocumentType.HANDOVER_ACT,
         incident=incident,
         drive_url="https://drive.example/acta-entrega-5678BCD",
+        drive_file_id="drv-file-acta-5678BCD",
         uploaded_by=carlos,
         status=DocumentStatus.VALID,
+    )
+    # Seguro de v1 con VERSIONADO: la póliza vieja (caducada) y la vigente que
+    # la sustituye (`replaces`). Se crean en ese orden a propósito — la señal
+    # solo denormaliza hacia adelante, así que el vehículo se queda con la
+    # caducidad de la póliza nueva. Y esa fecha es LA MISMA que fijó
+    # `seed_vehicles` (hoy+20): con una posterior, el aviso N2 no saltaría.
+    poliza_vieja = Document.objects.create(
+        vehicle=v1,
+        type=DocumentType.INSURANCE,
+        drive_url="https://drive.example/seguro-1234KLM-2025",
+        drive_file_id="drv-file-seguro-1234KLM-2025",
+        uploaded_by=admin,
+        expiry_date=today - timedelta(days=345),
+        status=DocumentStatus.EXPIRED,
+        notes="Póliza de la anualidad anterior.",
     )
     Document.objects.create(
         vehicle=v1,
         type=DocumentType.INSURANCE,
         drive_url="https://drive.example/seguro-1234KLM",
+        drive_file_id="drv-file-seguro-1234KLM",
         uploaded_by=admin,
-        expiry_date=today + timedelta(days=120),
+        expiry_date=today + timedelta(days=20),
         status=DocumentStatus.VALID,
+        replaces=poliza_vieja,
     )
     Document.objects.create(
         vehicle=v1,
@@ -733,6 +1135,52 @@ def seed_operations(stdout=None) -> None:
         status=DocumentStatus.PENDING_ARCHIVE,  # para probar el reintento del job
         notes="Foto del retrovisor",
     )
+    # Los cuatro tipos de documento que faltaban, cada uno en el vehículo al que
+    # le pega: permiso y contrato en el vigente, parte de accidente en el que
+    # está en taller y acta de devolución en el que se dio de baja.
+    Document.objects.create(
+        vehicle=v1,
+        type=DocumentType.REGISTRATION,
+        drive_url="https://drive.example/permiso-1234KLM",
+        drive_file_id="drv-file-permiso-1234KLM",
+        uploaded_by=admin,
+        status=DocumentStatus.VALID,
+    )
+    Document.objects.create(
+        vehicle=v1,
+        type=DocumentType.CONTRACT,
+        drive_url="https://drive.example/contratos/R-2026-014.pdf",
+        drive_file_id="drv-file-contrato-1234KLM",
+        uploaded_by=admin,
+        status=DocumentStatus.VALID,
+    )
+    Document.objects.create(
+        vehicle=v2,
+        type=DocumentType.ACCIDENT_REPORT,
+        incident=incident,
+        drive_url="https://drive.example/parte-5678BCD",
+        drive_file_id="drv-file-parte-5678BCD",
+        uploaded_by=carlos,
+        status=DocumentStatus.VALID,
+        notes="Parte amistoso del golpe en el lateral.",
+    )
+    Document.objects.create(
+        vehicle=v_baja,
+        type=DocumentType.RETURN_ACT,
+        drive_url="https://drive.example/acta-devolucion-0000ZZZ",
+        drive_file_id="drv-file-devolucion-0000ZZZ",
+        uploaded_by=admin,
+        status=DocumentStatus.VALID,
+        notes="Acta de devolución al finalizar el renting.",
+    )
+    Document.objects.create(
+        vehicle=v3,
+        type=DocumentType.OTHER,
+        drive_url="https://drive.example/tarjeta-recarga-7890NPQ",
+        uploaded_by=admin,
+        status=DocumentStatus.VALID,
+        notes="Contrato de la tarjeta de recarga eléctrica.",
+    )
 
     # Facturas de v1: mes actual y anterior (tendencia del dashboard) + reparto.
     invoice_now = Invoice.objects.create(
@@ -740,6 +1188,8 @@ def seed_operations(stdout=None) -> None:
         vehicle=v1,
         date=today.replace(day=1),
         amount=Decimal("997.00"),
+        drive_url="https://drive.example/facturas/F-2061.pdf",
+        drive_file_id="drv-file-F-2061",
     )
     prev_month_end = today.replace(day=1) - timedelta(days=1)
     Invoice.objects.create(
@@ -747,17 +1197,19 @@ def seed_operations(stdout=None) -> None:
         vehicle=v1,
         date=prev_month_end.replace(day=1),
         amount=Decimal("940.00"),
+        drive_url="https://drive.example/facturas/F-2032.pdf",
+        drive_file_id="drv-file-F-2032",
     )
     InvoiceAllocation.objects.create(
         invoice=invoice_now,
-        target_type="proyecto",
+        target_type=AllocationTarget.PROJECT,
         project=obra,
         percentage=Decimal("60"),
         amount=Decimal("598.20"),
     )
     InvoiceAllocation.objects.create(
         invoice=invoice_now,
-        target_type="pep",
+        target_type=AllocationTarget.PEP,
         cost_center=ceco,
         percentage=Decimal("40"),
         amount=Decimal("398.80"),
@@ -796,13 +1248,36 @@ def seed_operations(stdout=None) -> None:
             vehicle=vehicle,
             event_type=EventType.ITV,
             event_date=today - timedelta(days=330 + i % 30),
+            notes="Inspección técnica superada sin defectos.",
         )
-        EventItv.objects.create(event=event, result="done", next_due=next_due)
-        Event.objects.create(
-            vehicle=vehicle,
-            event_type=EventType.CREATION,
-            event_date=today - timedelta(days=400 + (i * 9) % 300),
+        EventItv.objects.create(
+            event=event,
+            # 1 de cada 6 volvió con defecto leve (el resultado es texto libre).
+            result="not done" if i % 6 == 5 else "done",
+            next_due=next_due,
         )
+        _seed_event(
+            vehicle,
+            EventType.CREATION,
+            days_ago=400 + (i * 9) % 300,
+            index=i,
+            projects=all_projects,
+            cecos=all_cecos,
+            drivers=drivers,
+        )
+        # Dos eventos más por vehículo recorriendo el resto de tipos: da cuerpo
+        # al timeline y reparte los subtipos (sanciones, cambios de cuota,
+        # de proyecto, de ubicación, de CECO y de conductor) por toda la flota.
+        for offset in (0, 1):
+            _seed_event(
+                vehicle,
+                EVENT_TYPES_NO_ITV[(i * 2 + offset) % len(EVENT_TYPES_NO_ITV)],
+                days_ago=250 - offset * 60 - (i * 3) % 40,
+                index=i + offset,
+                projects=all_projects,
+                cecos=all_cecos,
+                drivers=drivers,
+            )
 
     # Incidencias con tipos, estados y costes repartidos.
     inc_types = [
@@ -847,19 +1322,55 @@ def seed_operations(stdout=None) -> None:
             insurance_expiry = today + timedelta(days=5 + i % 23)
         else:
             insurance_expiry = today + timedelta(days=40 + (i * 17) % 320)
+        # 1 de cada 6 conserva la póliza anterior, sustituida por la vigente
+        # (cadena `replaces`). La vieja va PRIMERO: la señal solo denormaliza
+        # hacia adelante, así el vehículo se queda con la caducidad correcta.
+        anterior = None
+        if i % 6 == 1:
+            anterior = Document.objects.create(
+                vehicle=vehicle,
+                type=DocumentType.INSURANCE,
+                drive_url=f"https://drive.example/seguro-{vehicle.plate}-ant",
+                drive_file_id=f"drv-file-seguro-ant-{vehicle.plate}",
+                uploaded_by=admin,
+                expiry_date=insurance_expiry - timedelta(days=365),
+                status=DocumentStatus.EXPIRED,
+                notes="Póliza de la anualidad anterior.",
+            )
         Document.objects.create(
             vehicle=vehicle,
             type=DocumentType.INSURANCE,
             drive_url=f"https://drive.example/seguro-{vehicle.plate}",
+            drive_file_id=f"drv-file-seguro-{vehicle.plate}",
             uploaded_by=admin,
             expiry_date=insurance_expiry,
             status=DocumentStatus.EXPIRED if expired else DocumentStatus.VALID,
+            replaces=anterior,
         )
         if i % 3 == 0:
             Document.objects.create(
                 vehicle=vehicle,
                 type=DocumentType.TECHNICAL_SHEET,
                 drive_url=f"https://drive.example/ficha-{vehicle.plate}",
+                drive_file_id=f"drv-file-ficha-{vehicle.plate}",
+                uploaded_by=admin,
+                status=DocumentStatus.VALID,
+            )
+        if i % 4 == 1:
+            Document.objects.create(
+                vehicle=vehicle,
+                type=DocumentType.REGISTRATION,
+                drive_url=f"https://drive.example/permiso-{vehicle.plate}",
+                drive_file_id=f"drv-file-permiso-{vehicle.plate}",
+                uploaded_by=admin,
+                status=DocumentStatus.VALID,
+            )
+        if vehicle.property == PropertyType.RENTING and i % 5 == 0:
+            Document.objects.create(
+                vehicle=vehicle,
+                type=DocumentType.CONTRACT,
+                drive_url=f"https://drive.example/contratos/R-27-{1000 + i}.pdf",
+                drive_file_id=f"drv-file-contrato-{vehicle.plate}",
                 uploaded_by=admin,
                 status=DocumentStatus.VALID,
             )
@@ -871,6 +1382,46 @@ def seed_operations(stdout=None) -> None:
                 uploaded_by=drivers[i % len(drivers)],
                 status=DocumentStatus.PENDING_ARCHIVE,
                 notes="Rozadura en el paragolpes",
+            )
+        # Los vehículos accidentados arrastran su parte y su acta; los de baja,
+        # el acta de devolución. Los sueltos, un "otro" para el cajón de sastre.
+        if vehicle.state == VehicleState.ACCIDENT:
+            Document.objects.create(
+                vehicle=vehicle,
+                type=DocumentType.ACCIDENT_REPORT,
+                drive_url=f"https://drive.example/parte-{vehicle.plate}",
+                drive_file_id=f"drv-file-parte-{vehicle.plate}",
+                uploaded_by=drivers[i % len(drivers)],
+                status=DocumentStatus.VALID,
+                notes="Parte amistoso con el tercero implicado.",
+            )
+        if vehicle.state == VehicleState.BAJA:
+            Document.objects.create(
+                vehicle=vehicle,
+                type=DocumentType.RETURN_ACT,
+                drive_url=f"https://drive.example/acta-devolucion-{vehicle.plate}",
+                drive_file_id=f"drv-file-devolucion-{vehicle.plate}",
+                uploaded_by=admin,
+                status=DocumentStatus.VALID,
+                notes="Acta de devolución al cerrar el contrato.",
+            )
+        if i % 9 == 2:
+            Document.objects.create(
+                vehicle=vehicle,
+                type=DocumentType.HANDOVER_ACT,
+                drive_url=f"https://drive.example/acta-entrega-{vehicle.plate}",
+                drive_file_id=f"drv-file-entrega-{vehicle.plate}",
+                uploaded_by=drivers[i % len(drivers)],
+                status=DocumentStatus.VALID,
+            )
+        if i % 11 == 3:
+            Document.objects.create(
+                vehicle=vehicle,
+                type=DocumentType.OTHER,
+                drive_url=f"https://drive.example/varios-{vehicle.plate}",
+                uploaded_by=admin,
+                status=DocumentStatus.VALID,
+                notes="Justificante del distintivo ambiental.",
             )
 
     # Facturas: 3 meses por vehículo de renting con reparto proyecto/CECO
@@ -890,11 +1441,33 @@ def seed_operations(stdout=None) -> None:
                 vehicle=vehicle,
                 date=month_start,
                 amount=amount,
+                # El PDF vive en Drive en 1 de cada 2 (el resto, sin adjuntar).
+                drive_url=(
+                    f"https://drive.example/facturas/F-9{i:02d}{m}.pdf" if i % 2 == 0 else ""
+                ),
+                drive_file_id=f"drv-file-F-9{i:02d}{m}" if i % 2 == 0 else "",
             )
-            if vehicle.project:
+            if vehicle.project and i % 7 == 4:
+                # Reparto MIXTO 70/30 entre proyecto y CECO (el caso que ejercita
+                # la validación de "los porcentajes suman 100").
                 InvoiceAllocation.objects.create(
                     invoice=invoice,
-                    target_type="proyecto",
+                    target_type=AllocationTarget.PROJECT,
+                    project=vehicle.project,
+                    percentage=Decimal("70"),
+                    amount=(amount * Decimal("0.70")).quantize(Decimal("0.01")),
+                )
+                InvoiceAllocation.objects.create(
+                    invoice=invoice,
+                    target_type=AllocationTarget.PEP,
+                    cost_center=vehicle.cost_center,
+                    percentage=Decimal("30"),
+                    amount=(amount * Decimal("0.30")).quantize(Decimal("0.01")),
+                )
+            elif vehicle.project:
+                InvoiceAllocation.objects.create(
+                    invoice=invoice,
+                    target_type=AllocationTarget.PROJECT,
                     project=vehicle.project,
                     percentage=Decimal("100"),
                     amount=amount,
@@ -902,7 +1475,7 @@ def seed_operations(stdout=None) -> None:
             else:
                 InvoiceAllocation.objects.create(
                     invoice=invoice,
-                    target_type="pep",
+                    target_type=AllocationTarget.PEP,
                     cost_center=vehicle.cost_center,
                     percentage=Decimal("100"),
                     amount=amount,
@@ -921,6 +1494,33 @@ def seed_operations(stdout=None) -> None:
     ):
         VehicleRequest.objects.create(jira_key=jira, requested_type=vtype, status=status_value)
 
+    # Y las que SÍ llevan solicitante (ahí "Conceder" sí está habilitado), con
+    # el estado `assigned` —el único que faltaba— ya resuelto sobre un vehículo.
+    granted_vehicle = Vehicle.objects.get(plate=_bulk_plate(1))
+    for status_value, vtype, jira, requester, assigned, offset in (
+        (VehicleRequestStatus.PENDING, VehicleType.MOTOCICLETA, "FLT-208", drivers[0], None, 12),
+        (VehicleRequestStatus.APPROVED, VehicleType.FURGONETA, "FLT-209", drivers[1], None, 20),
+        (
+            VehicleRequestStatus.ASSIGNED,
+            VehicleType.TURISMO,
+            "FLT-210",
+            drivers[2],
+            granted_vehicle,
+            -30,
+        ),
+        (VehicleRequestStatus.CLOSED, VehicleType.CAMION, "FLT-211", drivers[3], None, -60),
+    ):
+        VehicleRequest.objects.create(
+            jira_key=jira,
+            requester=requester,
+            vehicle=assigned,
+            requested_type=vtype,
+            status=status_value,
+            start_date=today + timedelta(days=offset),
+            end_date=today + timedelta(days=offset + 90),
+            notes=f"Solicitud importada de Jira ({jira}).",
+        )
+
 
 # --- 7) Alertas (motor real sobre lo sembrado) -----------------------------
 
@@ -929,36 +1529,68 @@ def seed_alerts(stdout=None) -> None:
     """Borra las alertas y deja que el MOTOR REAL las regenere.
 
     Así la bandeja refleja exactamente lo sembrado: ITV a 10 días + vencida,
-    lectura de km pendiente (v3) y exceso de km proyectado (v1).
+    seguro a 20 días + vencido, exceso de km proyectado (v1) y, de la capa de
+    volumen, lecturas pendientes y vehículos sin conductor.
+
+    El motor solo crea alertas ABIERTAS, así que después se cierran dos a mano
+    (una resuelta y otra descartada) para que el filtro por estado de la bandeja
+    tenga contenido en los tres valores. Se eligen de los tipos más numerosos y
+    de forma determinista (por `dedup_key`), así que no dejan ningún tipo vacío.
     """
     wipe(Alert, stdout)
     summary = alerts.run_all()
+
+    admin = User.objects.get(username="admin")
+    for alert_type, new_status in (
+        (AlertType.ITV_DUE, AlertStatus.RESOLVED),
+        (AlertType.KM_READING_PENDING, AlertStatus.DISMISSED),
+    ):
+        alert = (
+            Alert.objects.filter(type=alert_type, status=AlertStatus.OPEN)
+            .order_by("dedup_key")
+            .first()
+        )
+        if alert:
+            alert.close(status=new_status, by=admin)
     if stdout:
-        stdout.write(f"  - Alertas regeneradas: {summary}")
+        stdout.write(f"  - Alertas regeneradas: {summary} (+1 resuelta, +1 descartada)")
 
 
 # --- 8) Erratas (N7): registros desactivados de varios tipos ---------------
 
 
 def seed_erratas(stdout=None) -> None:
-    """Deja el espacio de erratas con contenido de todos los mecanismos.
+    """Deja el espacio de erratas con contenido de TODOS los mecanismos.
 
-    Los vehículos en baja ya se siembran en `seed_vehicles`; aquí se añaden
-    desactivaciones (destroy → deactivate), un usuario inactivo y una firma de
-    correo desactivada (A2). No hay wipe propio (los pasos anteriores recrean
-    estos registros desde cero), así que todo es get_or_create/idempotente
-    para poder re-ejecutarse en aislado (`reset_erratas`).
+    Objetivo: que cada tipo de `fleet.erratas.DEACTIVATABLE` tenga al menos una
+    fila desactivada, más los vehículos en baja (ya vienen de `seed_vehicles`) y
+    un usuario inactivo. Así la página de Erratas enseña todos sus grupos y se
+    puede probar restaurar/purgar en cada uno.
+
+    Criterio: se desactiva SIEMPRE algo que no está en uso — para los catálogos
+    se crea a propósito una fila huérfana (un CECO sin proyectos, un renting sin
+    contratos…). Si se desactivara un catálogo en uso, los listados que lo
+    filtran por `is_active` dejarían huecos raros en el resto de pantallas.
+
+    No hay wipe propio (los pasos anteriores recrean estos registros desde
+    cero), así que todo es get_or_create/idempotente para poder re-ejecutarse en
+    aislado (`reset_erratas`).
     """
     admin = User.objects.get(username="admin")
 
+    def retirar(obj, reason: str) -> None:
+        """Desactiva si sigue activo (idempotente para `reset_erratas`)."""
+        if obj is not None and obj.is_active:
+            obj.deactivate(by=admin, reason=reason)
+
+    # -- Registros de operación: se retira uno REAL de los sembrados ---------
     # Una incidencia cerrada de volumen, "duplicada por error".
-    incident = (
+    retirar(
         Incident.objects.filter(status=IncidentStatus.CLOSED, is_active=True)
         .order_by("date")
-        .first()
+        .first(),
+        "Duplicada: ya existía el parte del taller",
     )
-    if incident:
-        incident.deactivate(by=admin, reason="Duplicada: ya existía el parte del taller")
 
     # Una lectura intermedia de km (no la última: respeta el no-retroceso).
     reading = (
@@ -967,20 +1599,75 @@ def seed_erratas(stdout=None) -> None:
     if reading and not KmReading.objects.filter(is_active=False).exists():
         reading.deactivate(by=admin, reason="Error de tecleo: odómetro mal leído")
 
-    # Un catálogo sin uso: marca creada y retirada.
-    saab, _ = Brand.objects.get_or_create(name="Saab")
-    if saab.is_active:
-        saab.deactivate(by=admin, reason="Marca sin vehículos en flota")
+    # Un documento subido al vehículo equivocado (nunca uno de seguro: la señal
+    # de N2 los usa para denormalizar el vencimiento).
+    retirar(
+        Document.objects.filter(type=DocumentType.OTHER, is_active=True).order_by("id").first(),
+        "Adjuntado al vehículo equivocado",
+    )
 
-    # A2: una firma de correo antigua, restaurable desde erratas.
+    # Una factura duplicada y, en OTRA factura, un reparto mal imputado (así los
+    # dos grupos de erratas se ven por separado).
+    factura = Invoice.objects.filter(is_active=True).order_by("code").first()
+    retirar(factura, "Factura duplicada del mismo periodo")
+    reparto = (
+        InvoiceAllocation.objects.filter(is_active=True)
+        .exclude(invoice=factura)
+        .order_by("id")
+        .first()
+    )
+    retirar(reparto, "Imputada al CECO equivocado")
+
+    # -- Catálogos: se crean filas huérfanas y se retiran --------------------
+    saab, _ = Brand.objects.get_or_create(name="Saab")
+    retirar(saab, "Marca sin vehículos en flota")
+    modelo_saab, _ = VehicleModel.objects.get_or_create(brand=saab, name="9-3 Sport Sedan")
+    retirar(modelo_saab, "Modelo de una marca ya retirada")
+
+    sociedad, _ = Company.objects.get_or_create(
+        code="GS-OLD",
+        defaults={"name": "Gransolar Servicios (absorbida)", "description": "Fusionada en GS-ES."},
+    )
+    retirar(sociedad, "Sociedad absorbida: sus vehículos pasaron a GS-ES")
+
+    renting_viejo, _ = Renting.objects.get_or_create(
+        name="Renting Histórico, S.L.",
+        defaults={"email": "", "contact_name": ""},
+    )
+    retirar(renting_viejo, "Proveedor sin contratos vivos desde 2024")
+
+    ceco_obsoleto, _ = Pep.objects.get_or_create(code="4900", defaults={"name": "CECO obsoleto"})
+    proyecto_cancelado, _ = Project.objects.get_or_create(
+        project_name="Obra cancelada Z-99",
+        defaults={"cost_center": ceco_obsoleto},
+    )
+    retirar(proyecto_cancelado, "Obra cancelada antes de arrancar")
+    retirar(ceco_obsoleto, "Centro de coste cerrado en el ejercicio anterior")
+
+    unidad_vieja, _ = BusinessUnit.objects.get_or_create(
+        code="OLD", defaults={"name": "División histórica"}
+    )
+    retirar(unidad_vieja, "División reorganizada dentro de Operaciones")
+
+    pais_sin_flota, _ = Country.objects.get_or_create(name="Andorra")
+    retirar(pais_sin_flota, "País sin vehículos matriculados")
+
+    # -- Correo (A2): una firma antigua y la plantilla genérica --------------
     firma_vieja, _ = EmailSignature.objects.get_or_create(
         name="Firma antigua (2024)",
         defaults={"body_html": "<p>Departamento de Flota — Gransolar</p>"},
     )
-    if firma_vieja.is_active:
-        firma_vieja.deactivate(by=admin, reason="Sustituida por la firma corporativa nueva")
+    retirar(firma_vieja, "Sustituida por la firma corporativa nueva")
+    # `EmailTemplate.key` es única (una fila por tipo), así que para que el
+    # grupo de plantillas tenga errata hay que retirar una de las seis. Se elige
+    # la GENÉRICA: es el comodín para los avisos sin plantilla propia, y los
+    # tres tipos que envían correo ya tienen la suya activa → nadie se queda mudo.
+    retirar(
+        EmailTemplate.objects.filter(key=EmailTemplateKey.GENERIC).first(),
+        "Sustituida por las plantillas específicas de cada aviso",
+    )
 
-    # Un conductor que causó baja en la empresa (usuario desactivado).
+    # -- Un conductor que causó baja en la empresa (usuario desactivado) -----
     ex_driver, created = User.objects.get_or_create(
         username="expedro",
         defaults={
@@ -994,7 +1681,9 @@ def seed_erratas(stdout=None) -> None:
     ex_driver.is_active = False
     ex_driver.save()
     if stdout:
-        stdout.write("  - Erratas: incidencia, lectura, marca, firma y usuario inactivo.")
+        stdout.write(
+            "  - Erratas: un ejemplo desactivado de cada tipo + usuario inactivo."
+        )
 
 
 # --- 9) Comunicaciones (N9 push / N10 correo) ------------------------------
@@ -1043,17 +1732,47 @@ def seed_comms(stdout=None) -> None:
         status=EmailLog.Status.SKIPPED,
         error="El renting no tiene email de contacto",
     )
-
-    carlos = User.objects.get(username="carlos")
-    PushSubscription.objects.create(
-        user=carlos,
-        endpoint="https://fcm.googleapis.com/fcm/send/dev-seed-carlos",
-        p256dh="BDevSeedP256dhKeyNoValida0000000000000000000",
-        auth="dev-seed-auth-000000",
-        user_agent="Mozilla/5.0 (Android 14; Pixel 8) dev-seed",
+    # Las tres claves de plantilla que no emiten desde el motor de alertas
+    # (ITV, comunicado de estado y genérica) también dejan traza: la pantalla de
+    # envíos filtra por plantilla y así los seis valores tienen contenido.
+    itv_alert = Alert.objects.filter(type=AlertType.ITV_DUE).order_by("dedup_key").first()
+    EmailLog.objects.create(
+        alert=itv_alert,
+        template_key=EmailTemplateKey.ITV_DUE,
+        recipient="carlos@flota.dev",
+        subject=f"ITV próxima — {itv_alert.vehicle.plate if itv_alert else '1234KLM'}",
+        status=EmailLog.Status.SENT,
     )
+    EmailLog.objects.create(
+        template_key=EmailTemplateKey.STATE_NOTICE,
+        recipient="lucia@flota.dev",
+        subject="Comunicado sobre el vehículo 5678BCD",
+        status=EmailLog.Status.SENT,
+    )
+    EmailLog.objects.create(
+        template_key=EmailTemplateKey.GENERIC,
+        recipient="sara@flota.dev",
+        subject="Aviso de flota",
+        status=EmailLog.Status.FAILED,
+        error="SMTPRecipientsRefused: 550 mailbox unavailable",
+    )
+
+    # Varias suscripciones: un conductor con DOS dispositivos (móvil y tablet) y
+    # la supervisora con el suyo — el envío recorre todos los del usuario.
+    for username, slug, agent in (
+        ("carlos", "carlos-movil", "Mozilla/5.0 (Android 14; Pixel 8) dev-seed"),
+        ("carlos", "carlos-tablet", "Mozilla/5.0 (Android 14; Tab S9) dev-seed"),
+        ("sara", "sara-movil", "Mozilla/5.0 (iPhone; iOS 18) dev-seed"),
+    ):
+        PushSubscription.objects.create(
+            user=User.objects.get(username=username),
+            endpoint=f"https://fcm.googleapis.com/fcm/send/dev-seed-{slug}",
+            p256dh="BDevSeedP256dhKeyNoValida0000000000000000000",
+            auth="dev-seed-auth-000000",
+            user_agent=agent,
+        )
     if stdout:
-        stdout.write("  - Comms: 4 EmailLog (sent/failed/skipped) y 1 PushSubscription.")
+        stdout.write("  - Comms: 7 EmailLog (sent/failed/skipped) y 3 PushSubscription.")
 
 
 # --- Cadena completa -------------------------------------------------------

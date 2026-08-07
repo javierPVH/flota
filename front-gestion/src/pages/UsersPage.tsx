@@ -1,51 +1,77 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Badge, Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
+import {
+  Badge,
+  Button,
+  DateMiniFilter,
+  IconButton,
+  MiniToolsButtons,
+  Modal,
+  PageHeader,
+  SelectField,
+} from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { Download, Pencil } from 'lucide-react'
+import { ChevronDown, ChevronUp, Download, Pencil, Upload } from 'lucide-react'
 
 import {
   type ManagedUserFull,
-  type ManagedUserInput,
-  createUser,
   deactivateUser,
-  fetchAuthConfig,
   listAll,
   listUsers,
   updateUser,
 } from '../api.ts'
 import { exportCsv } from '../csv.ts'
+import { BulkImportModal } from '../components/bulk-import/BulkImportModal.tsx'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { UserFormModal } from '../components/UserFormModal.tsx'
 import { useUsersCopy } from '../translations/users.ts'
 import type { Role } from '../types.ts'
 
-const ALL_ROLES: Role[] = ['admin', 'supervisor', 'driver']
+// Orden por defecto de las columnas y cuáles arrancan ocultas (ninguna).
+const COLUMN_KEYS = ['name', 'dni', 'contact', 'license_type', 'fuel_card', 'roles', 'is_active']
+const DEFAULT_HIDDEN: string[] = []
 
-interface FormState {
-  username: string
-  first_name: string
-  last_name: string
-  email: string
-  dni: string
-  phone: string
-  license_type: string
-  fuel_card: boolean
-  roles: Role[]
-  password: string
+// Clave canónica del conjunto de roles (orden alfabético) para el filtro por rol.
+const roleKey = (roles: Role[]) => (roles.length ? [...roles].sort().join(',') : 'none')
+
+// Fecha local (YYYY-MM-DD) de hace N días (para el preset "Últimos 30 días").
+function isoDaysAgo(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
 }
 
-const EMPTY: FormState = {
-  username: '',
-  first_name: '',
-  last_name: '',
-  email: '',
-  dni: '',
-  phone: '',
-  license_type: '',
-  fuel_card: false,
-  roles: ['driver'],
-  password: '',
+type UserStatus = 'all' | 'active' | 'inactive'
+interface UserFilter {
+  search: string
+  role: string
+  from: string
+  to: string
+  status: UserStatus
+}
+
+// Filtrado en cliente compartido por la barra y por el modal de exportación.
+function filterUsers(list: ManagedUserFull[], f: UserFilter): ManagedUserFull[] {
+  const term = f.search.trim().toLowerCase()
+  return list.filter((u) => {
+    if (f.status === 'active' && !u.is_active) return false
+    if (f.status === 'inactive' && u.is_active) return false
+    if (f.role && roleKey(u.roles) !== f.role) return false
+    if (term) {
+      const hay = `${u.name} ${u.username} ${u.email} ${u.dni ?? ''} ${u.phone}`.toLowerCase()
+      if (!hay.includes(term)) return false
+    }
+    if (f.from || f.to) {
+      const d = (u.date_joined || '').slice(0, 10) // 'YYYY-MM-DD'
+      if (!d) return false
+      if (f.from && d < f.from) return false
+      if (f.to && d > f.to) return false
+    }
+    return true
+  })
 }
 
 /** Gestión de conductores/usuarios (HU-2.6, solo admin). Desactivar ≠ borrar:
@@ -53,108 +79,89 @@ const EMPTY: FormState = {
 export function UsersPage() {
   const t = useUsersCopy()
   const confirm = useConfirm()
-  const licenseOptions = useMemo(
-    () => [
-      { value: '', label: '—' },
-      { value: 'B', label: t.licenses.B },
-      { value: 'C1', label: t.licenses.C1 },
-      { value: 'C', label: t.licenses.C },
-      { value: 'C+E', label: t.licenses.CE },
-      { value: 'D1', label: t.licenses.D1 },
-      { value: 'D', label: t.licenses.D },
-    ],
-    [t],
-  )
   const [users, setUsers] = useState<ManagedUserFull[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [showInactive, setShowInactive] = useState(false)
+  const [roleFilter, setRoleFilter] = useState('') // '' = todos; 'none' = sin rol
+  // Fecha de creación: borrador (inputs) vs aplicado (lo que filtra, al pulsar 🔍).
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [appliedFrom, setAppliedFrom] = useState('')
+  const [appliedTo, setAppliedTo] = useState('')
+
+  // Columnas: orden + ocultas + menú desplegable (como en Vehículos).
+  const [colOrder, setColOrder] = useState<string[]>(() => [...COLUMN_KEYS])
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => new Set(DEFAULT_HIDDEN))
+  const [colMenuOpen, setColMenuOpen] = useState(false)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<ManagedUserFull | null>(null)
-  const [form, setForm] = useState<FormState>(EMPTY)
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
 
-  // Si Google está desactivado, la contraseña es el ÚNICO método de acceso: sin
-  // ella el alta crea un usuario que no puede entrar (contraseña inutilizable).
-  // Por eso, con Google off, la contraseña es obligatoria al crear.
-  const [googleEnabled, setGoogleEnabled] = useState(false)
-  useEffect(() => {
-    fetchAuthConfig()
-      .then((cfg) => setGoogleEnabled(cfg.google_enabled))
-      .catch(() => setGoogleEnabled(false))
-  }, [])
-  const passwordRequiredOnCreate = !editing && !googleEnabled
+  // Modal de exportación: mismos filtros que la barra + estado + columnas.
+  const [exportOpen, setExportOpen] = useState(false)
+  const [expSearch, setExpSearch] = useState('')
+  const [expRole, setExpRole] = useState('')
+  const [expFrom, setExpFrom] = useState('')
+  const [expTo, setExpTo] = useState('')
+  const [expStatus, setExpStatus] = useState<UserStatus>('all')
+  const [expCols, setExpCols] = useState<Set<string>>(() => new Set())
+
+  // Opciones del filtro por rol: roles sueltos + combinaciones (clave = roleKey).
+  const roleFilterOptions = useMemo(
+    () => [
+      { value: '', label: t.roleFilterAll },
+      { value: 'admin', label: t.roles.admin },
+      { value: 'supervisor', label: t.roles.supervisor },
+      { value: 'driver', label: t.roles.driver },
+      { value: 'driver,supervisor', label: `${t.roles.supervisor} · ${t.roles.driver}` },
+      { value: 'admin,supervisor', label: `${t.roles.supervisor} · ${t.roles.admin}` },
+      { value: 'admin,driver', label: `${t.roles.admin} · ${t.roles.driver}` },
+      {
+        value: 'admin,driver,supervisor',
+        label: `${t.roles.admin} · ${t.roles.supervisor} · ${t.roles.driver}`,
+      },
+      { value: 'none', label: t.roleFilterNone },
+    ],
+    [t],
+  )
+
+  // Opciones de estado para el modal de exportación.
+  const statusOptions = useMemo(
+    () => [
+      { value: 'all', label: t.statusAll },
+      { value: 'active', label: t.statusActive },
+      { value: 'inactive', label: t.statusInactive },
+    ],
+    [t],
+  )
 
   const load = useCallback(() => {
     setLoading(true)
-    listAll(listUsers({ search: search || undefined }))
+    // Trae SIEMPRE todos los empleados; la búsqueda y los filtros van en cliente.
+    listAll(listUsers())
       .then((rows) => {
         setUsers(rows)
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, t.loadError)))
       .finally(() => setLoading(false))
-  }, [search, t])
+  }, [t])
 
   useEffect(() => {
-    const timer = setTimeout(load, 300)
-    return () => clearTimeout(timer)
+    load()
   }, [load])
 
   function openCreate() {
     setEditing(null)
-    setForm(EMPTY)
-    setFormError('')
     setModalOpen(true)
   }
 
   function openEdit(user: ManagedUserFull) {
     setEditing(user)
-    setForm({
-      username: user.username,
-      first_name: user.first_name,
-      last_name: user.last_name,
-      email: user.email,
-      dni: user.dni ?? '',
-      phone: user.phone,
-      license_type: user.license_type,
-      fuel_card: user.fuel_card,
-      roles: user.roles,
-      password: '',
-    })
-    setFormError('')
     setModalOpen(true)
-  }
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault()
-    setSaving(true)
-    setFormError('')
-    const data: ManagedUserInput = {
-      username: form.username,
-      first_name: form.first_name,
-      last_name: form.last_name,
-      email: form.email,
-      dni: form.dni || null,
-      phone: form.phone,
-      license_type: form.license_type,
-      fuel_card: form.fuel_card,
-      roles: form.roles,
-    }
-    if (form.password) data.password = form.password
-    try {
-      if (editing) await updateUser(editing.id, data)
-      else await createUser(data)
-      setModalOpen(false)
-      load()
-    } catch (err) {
-      setFormError(asErrorMessage(err, t.saveError))
-    } finally {
-      setSaving(false)
-    }
   }
 
   async function toggleActive(user: ManagedUserFull) {
@@ -178,9 +185,33 @@ export function UsersPage() {
     }
   }
 
-  const rows = showInactive ? users : users.filter((u) => u.is_active)
+  const rows = useMemo(
+    () =>
+      filterUsers(users, {
+        // "Mostrar desactivados": ON → solo desactivados; OFF → solo activos.
+        status: showInactive ? 'inactive' : 'active',
+        role: roleFilter,
+        search,
+        from: appliedFrom,
+        to: appliedTo,
+      }),
+    [users, showInactive, roleFilter, search, appliedFrom, appliedTo],
+  )
 
-  const columns: Array<TableWithPanelColumn<ManagedUserFull>> = [
+  // Vista previa de lo que exportará el modal (filtros independientes de la barra).
+  const exportRows = useMemo(
+    () =>
+      filterUsers(users, {
+        status: expStatus,
+        role: expRole,
+        search: expSearch,
+        from: expFrom,
+        to: expTo,
+      }),
+    [users, expStatus, expRole, expSearch, expFrom, expTo],
+  )
+
+  const allColumns: Array<TableWithPanelColumn<ManagedUserFull>> = [
     {
       key: 'name',
       label: t.columns.name,
@@ -221,7 +252,7 @@ export function UsersPage() {
       key: 'fuel_card',
       label: t.columns.fuelCard,
       getValue: (u) => (u.fuel_card ? t.yes : t.no),
-      render: (u) => (u.fuel_card ? t.fuelYes : t.no),
+      render: (u) => (u.fuel_card ? <span className="fuel-yes">{t.yes}</span> : t.no),
     },
     {
       key: 'roles',
@@ -239,28 +270,91 @@ export function UsersPage() {
         </Badge>
       ),
     },
-    {
-      key: 'actions',
-      label: t.columns.actions,
-      align: 'right',
-      searchable: false,
-      sortable: false,
-      render: (u) => (
-        <div className="row-actions">
-          <IconButton aria-label={t.edit} title={t.edit} onClick={() => openEdit(u)}>
-            <Pencil size={15} />
-          </IconButton>
-          <Button
-            variant={u.is_active ? 'danger' : 'primary'}
-            size="sm"
-            onClick={() => toggleActive(u)}
-          >
-            {u.is_active ? t.deactivate : t.reactivate}
-          </Button>
-        </div>
-      ),
-    },
   ]
+
+  const actionsColumn: TableWithPanelColumn<ManagedUserFull> = {
+    key: 'actions',
+    label: t.columns.actions,
+    align: 'right',
+    searchable: false,
+    sortable: false,
+    render: (u) => (
+      <div className="row-actions">
+        <IconButton aria-label={t.edit} title={t.edit} onClick={() => openEdit(u)}>
+          <Pencil size={15} />
+        </IconButton>
+        <Button
+          variant={u.is_active ? 'danger' : 'primary'}
+          size="sm"
+          onClick={() => toggleActive(u)}
+        >
+          {u.is_active ? t.deactivate : t.reactivate}
+        </Button>
+      </div>
+    ),
+  }
+
+  const colByKey = new Map(allColumns.map((c) => [c.key, c]))
+
+  // Columnas visibles en el orden elegido + acciones al final.
+  const tableColumns: Array<TableWithPanelColumn<ManagedUserFull>> = [
+    ...colOrder
+      .filter((key) => !hiddenCols.has(key))
+      .map((key) => colByKey.get(key))
+      .filter((c): c is TableWithPanelColumn<ManagedUserFull> => Boolean(c)),
+    actionsColumn,
+  ]
+
+  const visibleColCount = colOrder.filter((key) => !hiddenCols.has(key)).length
+
+  function toggleColumn(key: string) {
+    setHiddenCols((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function moveColumn(key: string, dir: 'up' | 'down') {
+    setColOrder((order) => {
+      const i = order.indexOf(key)
+      const j = dir === 'up' ? i - 1 : i + 1
+      if (i < 0 || j < 0 || j >= order.length) return order
+      const next = [...order]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    })
+  }
+
+  // Columnas exportables (las de acciones no tienen valor).
+  const exportableColumns = allColumns.filter((c) => c.getValue)
+
+  function toggleExportCol(key: string) {
+    setExpCols((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function openExport() {
+    // Prellenar con lo que hay en la barra; el usuario lo ajusta en el modal.
+    setExpSearch(search)
+    setExpRole(roleFilter)
+    setExpFrom(appliedFrom)
+    setExpTo(appliedTo)
+    setExpStatus(showInactive ? 'inactive' : 'active')
+    setExpCols(new Set(exportableColumns.map((c) => c.key)))
+    setExportOpen(true)
+  }
+
+  function runExport() {
+    const cols = exportableColumns.filter((c) => expCols.has(c.key))
+    exportCsv('usuarios', cols, exportRows)
+    setExportOpen(false)
+  }
 
   return (
     <div>
@@ -271,10 +365,13 @@ export function UsersPage() {
           <>
             <Button
               variant="secondary"
-              disabled={rows.length === 0}
-              onClick={() => exportCsv('usuarios', columns, rows)}
+              disabled={users.length === 0}
+              onClick={openExport}
             >
               <Download size={16} aria-hidden /> {t.exportCsv}
+            </Button>
+            <Button variant="secondary" onClick={() => setImportOpen(true)}>
+              <Upload size={16} aria-hidden /> {t.importBtn}
             </Button>
             <Button variant="primary" onClick={openCreate}>
               {t.newUser}
@@ -283,23 +380,159 @@ export function UsersPage() {
         }
       />
 
-      <div className="list-tools">
-        <input
-          className="search-input"
-          type="search"
-          aria-label={t.searchPlaceholder}
-          placeholder={t.searchPlaceholder}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <label className="baja-toggle">
-          <input
-            type="checkbox"
-            checked={showInactive}
-            onChange={(e) => setShowInactive(e.target.checked)}
+      <div className="filters-bar filters-bar--panel">
+        {/* 1 · Nº de registros (ancho fijo: cabe hasta 5 dígitos). */}
+        <div className="filter-field filter-field--count">
+          <label>{t.lblRecords}</label>
+          <div className="filter-count">{rows.length}</div>
+        </div>
+
+        {/* 2 · Búsqueda (papelera para limpiar); campo estrecho, pegado a la izquierda. */}
+        <div className="filter-field filter-field--search">
+          <label htmlFor="users-search">{t.lblSearch}</label>
+          <div className="filter-search">
+            <input
+              id="users-search"
+              type="search"
+              aria-label={t.lblSearch}
+              placeholder={t.searchPlaceholder}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <MiniToolsButtons
+              size="xs"
+              showLock={false}
+              showSearch={false}
+              showSort={false}
+              showDelete
+              onDelete={() => setSearch('')}
+            />
+          </div>
+        </div>
+
+        {/* 3 · Filtro por rol (campo estrecho). */}
+        <div className="filter-field filter-field--role">
+          <label>{t.lblRole}</label>
+          <SelectField
+            aria-label={t.roleFilterLabel}
+            containerClassName="role-filter"
+            required
+            options={roleFilterOptions}
+            value={roleFilter}
+            onValueChange={setRoleFilter}
           />
-          {t.showInactive}
-        </label>
+        </div>
+
+        {/* 4 · Fecha de creación (misma lógica/UI que el panel: Desde/Hasta + 🔍 + 🗑 + Últimos 30 días). */}
+        <div className="filter-field filter-field--date">
+          <label>{t.lblCreated}</label>
+          <DateMiniFilter
+            fromLabel={t.dateFrom}
+            toLabel={t.dateTo}
+            startDate={dateFrom}
+            endDate={dateTo}
+            onStartDateChange={setDateFrom}
+            onEndDateChange={setDateTo}
+            onApply={() => {
+              setAppliedFrom(dateFrom)
+              setAppliedTo(dateTo)
+            }}
+            onClear={() => {
+              setDateFrom('')
+              setDateTo('')
+              setAppliedFrom('')
+              setAppliedTo('')
+            }}
+            onApplyLast30Days={() => {
+              const from = isoDaysAgo(30)
+              const to = isoDaysAgo(0)
+              setDateFrom(from)
+              setDateTo(to)
+              setAppliedFrom(from)
+              setAppliedTo(to)
+            }}
+          />
+        </div>
+
+        {/* 5 · Columnas (mostrar/ocultar + ordenar). */}
+        <div className="filter-field filter-field--cols">
+          <label>{t.lblColumns}</label>
+          <div className="cols-dropdown">
+            <button
+              type="button"
+              className="cols-trigger"
+              onClick={() => setColMenuOpen((o) => !o)}
+              aria-expanded={colMenuOpen}
+            >
+              {t.columnsBtn(visibleColCount, colOrder.length)}
+              <ChevronDown size={14} aria-hidden />
+            </button>
+            {colMenuOpen && (
+              <>
+                <div className="cols-menu-overlay" onClick={() => setColMenuOpen(false)} />
+                <div className="cols-menu" role="menu">
+                  {colOrder.map((key, index) => {
+                    const col = colByKey.get(key)
+                    if (!col) return null
+                    return (
+                      <div key={key} className="cols-menu-item">
+                        <label className="baja-toggle">
+                          <input
+                            type="checkbox"
+                            checked={!hiddenCols.has(key)}
+                            onChange={() => toggleColumn(key)}
+                          />
+                          {col.label}
+                        </label>
+                        <span className="cols-menu-actions">
+                          <IconButton
+                            variant="default"
+                            size="xs"
+                            disabled={index === 0}
+                            aria-label={t.colMoveUp}
+                            title={t.colMoveUp}
+                            onClick={() => moveColumn(key, 'up')}
+                          >
+                            <ChevronUp size={12} />
+                          </IconButton>
+                          <IconButton
+                            variant="default"
+                            size="xs"
+                            disabled={index === colOrder.length - 1}
+                            aria-label={t.colMoveDown}
+                            title={t.colMoveDown}
+                            onClick={() => moveColumn(key, 'down')}
+                          >
+                            <ChevronDown size={12} />
+                          </IconButton>
+                        </span>
+                      </div>
+                    )
+                  })}
+                  <button
+                    type="button"
+                    className="linklike"
+                    onClick={() => setHiddenCols(new Set())}
+                  >
+                    {t.columnsAll}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* 6 · Interruptores: mostrar desactivados. */}
+        <div className="filter-toggles">
+          <label className="baja-toggle">
+            <input
+              type="checkbox"
+              checked={showInactive}
+              onChange={(e) => setShowInactive(e.target.checked)}
+            />
+            {t.showInactive}
+          </label>
+        </div>
       </div>
 
       {error && <div role="alert" className="form-error">{error}</div>}
@@ -308,11 +541,15 @@ export function UsersPage() {
         <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<ManagedUserFull>
+          // Remonta al cambiar orden/visibilidad: TableWithPanel guarda su propio
+          // orden interno (mergeColumnOrder) e ignoraría el reordenado por props.
+          key={`${colOrder.join(',')}|${[...hiddenCols].sort().join(',')}`}
           rows={rows}
-          columns={columns}
+          columns={tableColumns}
           rowKey={(u) => String(u.id)}
           rowClassName={(u) => (u.is_active ? '' : 'row-muted')}
           enableColumnSort
+          showControlPanel={false}
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
@@ -320,113 +557,148 @@ export function UsersPage() {
         />
       )}
 
-      <Modal
+      <UserFormModal
         open={modalOpen}
-        title={editing ? t.modalEdit(editing.name) : t.modalNew}
+        editing={editing}
         onClose={() => setModalOpen(false)}
-      >
-        <form className="modal-form" onSubmit={handleSubmit}>
-          <div className="form-grid">
-            <TextInputField
-              label={t.fUsername}
-              requiredVisual
-              value={form.username}
-              onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
-              required
-              disabled={Boolean(editing)}
-            />
-            <TextInputField
-              label={t.fEmail}
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-            />
-            <TextInputField
-              label={t.fFirstName}
-              value={form.first_name}
-              onChange={(e) => setForm((f) => ({ ...f, first_name: e.target.value }))}
-            />
-            <TextInputField
-              label={t.fLastName}
-              value={form.last_name}
-              onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))}
-            />
-            <TextInputField
-              label={t.fDni}
-              value={form.dni}
-              onChange={(e) => setForm((f) => ({ ...f, dni: e.target.value }))}
-            />
-            <TextInputField
-              label={t.fPhone}
-              value={form.phone}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-            />
-            <SelectField
-              label={t.fLicenseType}
-              options={licenseOptions}
-              value={form.license_type}
-              onValueChange={(value) => setForm((f) => ({ ...f, license_type: value }))}
-            />
-            <TextInputField
-              label={
-                editing
-                  ? t.fPasswordNew
-                  : passwordRequiredOnCreate
-                    ? t.fPassword
-                    : t.fPasswordOptional
-              }
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              autoComplete="new-password"
-              required={passwordRequiredOnCreate}
-              requiredVisual={passwordRequiredOnCreate}
-              minLength={8}
-            />
-          </div>
-          <label className="baja-toggle">
-            <input
-              type="checkbox"
-              checked={form.fuel_card}
-              onChange={(e) => setForm((f) => ({ ...f, fuel_card: e.target.checked }))}
-            />
-            {t.fuelCardToggle}
-          </label>
-          <div className="roles-picker">
-            <span className="doc-attach-label">{t.rolesLabel}</span>
-            {ALL_ROLES.map((role) => (
-              <label key={role} className="baja-toggle">
+        onDone={() => {
+          setModalOpen(false)
+          load()
+        }}
+      />
+
+      {/* Importación masiva de personas (IMPORTACION_MASIVA.md §9). */}
+      <BulkImportModal
+        open={importOpen}
+        entity="users"
+        onClose={() => setImportOpen(false)}
+        onDone={load}
+      />
+
+      <Modal open={exportOpen} title={t.exportTitle} onClose={() => setExportOpen(false)} wide>
+        <div className="export-form">
+          <p className="muted" style={{ margin: 0 }}>{t.exportIntro}</p>
+
+          {/* Mismos controles que la barra de filtros. */}
+          <div className="filters-bar">
+            <div className="filter-field filter-field--search">
+              <label htmlFor="export-search">{t.lblSearch}</label>
+              <div className="filter-search">
                 <input
-                  type="checkbox"
-                  checked={form.roles.includes(role)}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      roles: e.target.checked
-                        ? [...f.roles, role]
-                        : f.roles.filter((r) => r !== role),
-                    }))
-                  }
+                  id="export-search"
+                  type="search"
+                  aria-label={t.lblSearch}
+                  placeholder={t.searchPlaceholder}
+                  value={expSearch}
+                  onChange={(e) => setExpSearch(e.target.value)}
                 />
-                {t.roles[role]}
-              </label>
-            ))}
+                <MiniToolsButtons
+                  size="xs"
+                  showLock={false}
+                  showSearch={false}
+                  showSort={false}
+                  showDelete
+                  onDelete={() => setExpSearch('')}
+                />
+              </div>
+            </div>
+
+            <div className="filter-field filter-field--role">
+              <label>{t.lblRole}</label>
+              <SelectField
+                aria-label={t.roleFilterLabel}
+                containerClassName="role-filter"
+                required
+                options={roleFilterOptions}
+                value={expRole}
+                onValueChange={setExpRole}
+              />
+            </div>
+
+            <div className="filter-field filter-field--role">
+              <label>{t.exportStatusLabel}</label>
+              <SelectField
+                aria-label={t.exportStatusLabel}
+                containerClassName="role-filter"
+                required
+                options={statusOptions}
+                value={expStatus}
+                onValueChange={(v) => setExpStatus(v as UserStatus)}
+              />
+            </div>
+
+            <div className="filter-field filter-field--date">
+              <label>{t.lblCreated}</label>
+              <DateMiniFilter
+                fromLabel={t.dateFrom}
+                toLabel={t.dateTo}
+                startDate={expFrom}
+                endDate={expTo}
+                onStartDateChange={setExpFrom}
+                onEndDateChange={setExpTo}
+                onClear={() => {
+                  setExpFrom('')
+                  setExpTo('')
+                }}
+                onApplyLast30Days={() => {
+                  setExpFrom(isoDaysAgo(30))
+                  setExpTo(isoDaysAgo(0))
+                }}
+              />
+            </div>
           </div>
-          {!editing && (
-            <p className="muted" style={{ margin: 0 }}>
-              {passwordRequiredOnCreate ? t.passwordRequiredHint : t.passwordOptionalHint}
-            </p>
-          )}
-          {formError && <div role="alert" className="form-error">{formError}</div>}
+
+          {/* Selección de columnas a incluir. */}
+          <div className="export-cols">
+            <div className="export-cols-head">
+              <span className="doc-attach-label">{t.exportColumns}</span>
+              <span className="export-cols-actions">
+                <button
+                  type="button"
+                  className="linklike"
+                  onClick={() => setExpCols(new Set(exportableColumns.map((c) => c.key)))}
+                >
+                  {t.exportSelectAll}
+                </button>
+                <button type="button" className="linklike" onClick={() => setExpCols(new Set())}>
+                  {t.exportSelectNone}
+                </button>
+              </span>
+            </div>
+            <div className="export-cols-list">
+              {exportableColumns.map((c) => (
+                <label key={c.key} className="baja-toggle">
+                  <input
+                    type="checkbox"
+                    checked={expCols.has(c.key)}
+                    onChange={() => toggleExportCol(c.key)}
+                  />
+                  {c.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <p className="export-summary">
+            {t.exportSummaryLabel}{' '}
+            <span className="export-num">{exportRows.length}</span> {t.exportSummaryOf}{' '}
+            <span className="export-num">{users.length}</span> {t.exportSummaryTail}
+          </p>
+
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
-            <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
+            <Button type="button" variant="secondary" onClick={() => setExportOpen(false)}>
               {t.cancel}
             </Button>
-            <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? t.saving : t.save}
+            <Button
+              type="button"
+              variant="primary"
+              disabled={exportRows.length === 0 || expCols.size === 0}
+              onClick={runExport}
+            >
+              <Download size={16} aria-hidden /> {t.exportRun}
             </Button>
           </div>
-        </form>
+        </div>
       </Modal>
     </div>
   )

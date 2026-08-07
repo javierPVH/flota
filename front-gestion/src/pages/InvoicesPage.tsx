@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Badge, Button, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
+import { Button, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import { useAppLang, type AppLanguage } from '@flota/ui/i18n'
@@ -27,6 +27,8 @@ import { exportCsv } from '../csv.ts'
 import { todayIso } from '../format.ts'
 import { openDrivePicker, type PickedFile } from '../services/google-picker.ts'
 import { useDeactivateConfirm } from '../components/ConfirmDialog.tsx'
+import { TableInfoBar } from '../components/TableInfoBar.tsx'
+import { VehicleSelect } from '../components/VehicleSelect.tsx'
 import { useInvoicesCopy } from '../translations/invoices.ts'
 import type { PickerConfig, Vehicle } from '../types.ts'
 
@@ -72,7 +74,7 @@ interface Line {
 }
 
 /** Facturas + editor de refacturación (G10, Épica 7). El PDF vive en Drive. */
-export function InvoicesPage() {
+export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) {
   const t = useInvoicesCopy()
   const lang = useAppLang()
   const deactivateConfirm = useDeactivateConfirm()
@@ -80,6 +82,12 @@ export function InvoicesPage() {
   const vehicleFilter = searchParams.get('vehicle') ?? ''
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
+  // Búsqueda + filtros en cliente (franja de opciones): sobre el vehículo de la
+  // factura (conductor, marca/modelo, responsable).
+  const [search, setSearch] = useState('')
+  const [driverFilter, setDriverFilter] = useState('')
+  const [brandModelFilter, setBrandModelFilter] = useState('')
+  const [supervisorFilter, setSupervisorFilter] = useState('')
   const [allocations, setAllocations] = useState<AllocationRow[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [projects, setProjects] = useState<CatalogEntry[]>([])
@@ -335,22 +343,6 @@ export function InvoicesPage() {
       },
     },
     {
-      key: 'allocation',
-      label: t.columns.allocation,
-      sortable: false,
-      getValue: (i) => allocationsOf(i.id).length,
-      render: (i) => {
-        const rows = allocationsOf(i.id)
-        if (rows.length === 0) return <Badge tone="neutral">{t.notAllocated}</Badge>
-        const pct = round2(rows.reduce((acc, a) => acc + Number(a.percentage), 0))
-        return (
-          <Badge tone={pct === 100 ? 'success' : 'warning'}>
-            {t.allocationBadge(rows.length, pct)}
-          </Badge>
-        )
-      },
-    },
-    {
       key: 'actions',
       label: t.columns.actions,
       align: 'right',
@@ -372,58 +364,165 @@ export function InvoicesPage() {
     },
   ]
 
-  return (
-    <div>
-      <PageHeader
-        title={t.title}
-        subtitle={t.subtitle}
-        actions={
-          <>
-            <Button
-              variant="secondary"
-              disabled={invoices.length === 0}
-              onClick={() => exportCsv(t.csvName, columns, invoices)}
-            >
-              <Download size={16} aria-hidden /> {t.exportCsv}
-            </Button>
-            <Button variant="primary" onClick={() => openHeader(null)}>
-              {t.newInvoice}
-            </Button>
-          </>
-        }
-      />
+  // Opciones de los filtros derivados (conductor, marca/modelo, responsable) a
+  // partir de los vehículos cargados; `vehicleById` ya está memoizada arriba.
+  const driverOptions = useMemo(() => {
+    const seen = new Map<number, string>()
+    for (const v of vehicles) if (v.driver_id != null) seen.set(v.driver_id, v.driver_name || `#${v.driver_id}`)
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [vehicles])
+  const supervisorOptions = useMemo(() => {
+    const seen = new Map<number, string>()
+    for (const v of vehicles) if (v.supervisor != null) seen.set(v.supervisor, v.supervisor_name || `#${v.supervisor}`)
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [vehicles])
+  const brandModelOptions = useMemo(() => {
+    const seen = new Set<string>()
+    for (const v of vehicles) {
+      const bm = `${v.brand} ${v.model}`.trim()
+      if (bm) seen.add(bm)
+    }
+    return [...seen].sort((a, b) => a.localeCompare(b))
+  }, [vehicles])
 
-      <div className="filters-row">
+  // Búsqueda + filtros en cliente sobre las facturas ya cargadas.
+  const visibleInvoices = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return invoices.filter((i) => {
+      if (term && !`${i.code} ${i.date ?? ''} ${i.amount ?? ''}`.toLowerCase().includes(term))
+        return false
+      if (driverFilter || brandModelFilter || supervisorFilter) {
+        const v = vehicleById.get(i.vehicle)
+        if (!v) return false
+        if (driverFilter && String(v.driver_id ?? '') !== driverFilter) return false
+        if (supervisorFilter && String(v.supervisor ?? '') !== supervisorFilter) return false
+        if (brandModelFilter && `${v.brand} ${v.model}`.trim() !== brandModelFilter) return false
+      }
+      return true
+    })
+  }, [invoices, search, driverFilter, brandModelFilter, supervisorFilter, vehicleById])
+
+  // Acciones de la cabecera (exportar + nueva). En modo embebido (dentro de
+  // Ajustes) no hay PageHeader: se muestran en la franja de opciones.
+  const actions = (
+    <>
+      <Button
+        variant="secondary"
+        disabled={visibleInvoices.length === 0}
+        onClick={() => exportCsv(t.csvName, columns, visibleInvoices)}
+      >
+        <Download size={16} aria-hidden /> {t.exportCsv}
+      </Button>
+      <Button variant="primary" onClick={() => openHeader(null)}>
+        {t.newInvoice}
+      </Button>
+    </>
+  )
+
+  // Filtros de la franja: Vehículo (recarga por servidor vía URL) + conductor,
+  // marca/modelo y responsable (en cliente, sobre el vehículo de cada factura).
+  const invoiceFilters = (
+    <>
+      <VehicleSelect
+        label={t.vehicleLabel}
+        ariaLabel={t.vehicleLabel}
+        vehicles={vehicles}
+        value={vehicleFilter}
+        onChange={(value) => {
+          const next = new URLSearchParams(searchParams)
+          if (value) next.set('vehicle', value)
+          else next.delete('vehicle')
+          setSearchParams(next, { replace: true })
+        }}
+        copy={{ all: t.allVehicles, searchPlaceholder: t.vehicleSearchPlaceholder, noResults: t.noResults }}
+      />
+      <div className="filter-field filter-field--role">
+        <label>{t.driverLabel}</label>
         <SelectField
-          label={t.vehicleLabel}
+          aria-label={t.driverLabel}
+          containerClassName="role-filter"
+          required
+          enableSearchFilter
+          searchInputPlaceholder={t.searchLabel}
           options={[
-            { value: '', label: t.allVehicles },
-            ...vehicles.map((v) => ({ value: String(v.id), label: v.plate })),
+            { value: '', label: t.allDrivers },
+            ...driverOptions.map(([id, name]) => ({ value: String(id), label: name })),
           ]}
-          value={vehicleFilter}
-          onValueChange={(value) => {
-            const next = new URLSearchParams(searchParams)
-            if (value) next.set('vehicle', value)
-            else next.delete('vehicle')
-            setSearchParams(next, { replace: true })
-          }}
+          value={driverFilter}
+          onValueChange={setDriverFilter}
         />
       </div>
+      <div className="filter-field filter-field--role">
+        <label>{t.brandModelLabel}</label>
+        <SelectField
+          aria-label={t.brandModelLabel}
+          containerClassName="role-filter"
+          required
+          enableSearchFilter
+          searchInputPlaceholder={t.searchLabel}
+          options={[
+            { value: '', label: t.allBrandModels },
+            ...brandModelOptions.map((bm) => ({ value: bm, label: bm })),
+          ]}
+          value={brandModelFilter}
+          onValueChange={setBrandModelFilter}
+        />
+      </div>
+      <div className="filter-field filter-field--role">
+        <label>{t.supervisorLabel}</label>
+        <SelectField
+          aria-label={t.supervisorLabel}
+          containerClassName="role-filter"
+          required
+          enableSearchFilter
+          searchInputPlaceholder={t.searchLabel}
+          options={[
+            { value: '', label: t.allSupervisors },
+            ...supervisorOptions.map(([id, name]) => ({ value: String(id), label: name })),
+          ]}
+          value={supervisorFilter}
+          onValueChange={setSupervisorFilter}
+        />
+      </div>
+    </>
+  )
+
+  return (
+    <div>
+      {!embedded && <PageHeader title={t.title} subtitle={t.subtitle} actions={actions} />}
 
       {error && <div role="alert" className="form-error">{error}</div>}
+
+      {/* Franja de opciones (como en vehículos): registros + buscar + filtro
+          Vehículo + acciones, todo en la misma línea. */}
+      <TableInfoBar
+        inline
+        count={visibleInvoices.length}
+        recordsLabel={t.records}
+        searchLabel={t.searchLabel}
+        searchPlaceholder={t.searchPlaceholder}
+        search={search}
+        onSearchChange={setSearch}
+        actions={embedded ? actions : undefined}
+      >
+        {invoiceFilters}
+      </TableInfoBar>
 
       {loading ? (
         <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<InvoiceRow>
-          rows={invoices}
+          rows={visibleInvoices}
           columns={columns}
           rowKey={(i) => String(i.id)}
           enableColumnSort
+          showControlPanel={false}
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel={t.empty(Boolean(vehicleFilter))}
+          emptyStateLabel={t.empty(
+            Boolean(vehicleFilter || search || driverFilter || brandModelFilter || supervisorFilter),
+          )}
         />
       )}
 

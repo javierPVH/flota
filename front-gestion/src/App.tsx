@@ -28,15 +28,11 @@ const MileagePage = page(() => import('./pages/MileagePage.tsx'), 'MileagePage')
 const AlertsPage = page(() => import('./pages/AlertsPage.tsx'), 'AlertsPage')
 const ReportsPage = page(() => import('./pages/ReportsPage.tsx'), 'ReportsPage')
 const RequestsPage = page(() => import('./pages/RequestsPage.tsx'), 'RequestsPage')
-const InvoicesPage = page(() => import('./pages/InvoicesPage.tsx'), 'InvoicesPage')
-const CatalogsPage = page(() => import('./pages/CatalogsPage.tsx'), 'CatalogsPage')
 const UsersPage = page(() => import('./pages/UsersPage.tsx'), 'UsersPage')
 const UserDetailPage = page(() => import('./pages/UserDetailPage.tsx'), 'UserDetailPage')
-const ErratasPage = page(() => import('./pages/ErratasPage.tsx'), 'ErratasPage')
-const EmailTemplatesPage = page(
-  () => import('./pages/EmailTemplatesPage.tsx'),
-  'EmailTemplatesPage',
-)
+// Ajustes agrupa Catálogos, Borrado definitivo, Plantillas de correo y Facturas
+// (cada una embebida) — un único chunk perezoso para todo el bloque de administración.
+const AjustesPage = page(() => import('./pages/AjustesPage.tsx'), 'AjustesPage')
 // PF2: el ui-kit era una ruta PÚBLICA en producción — ahora solo existe en dev
 // (el import dinámico condicionado deja el chunk fuera del build de prod).
 const UiKitPage = import.meta.env.DEV
@@ -79,10 +75,16 @@ export default function App() {
           <Route path="/alertas" element={<AlertsPage />} />
           <Route path="/informes" element={<ReportsPage />} />
           <Route path="/solicitudes" element={<RequestsPage />} />
-          <Route path="/facturas" element={<InvoicesPage />} />
-          <Route path="/catalogos" element={<CatalogsPage />} />
-          <Route path="/erratas" element={<ErratasPage />} />
-          <Route path="/plantillas" element={<EmailTemplatesPage />} />
+          {/* Ajustes (2 iconos de administración): pestañas en la URL. */}
+          <Route path="/ajustes" element={<Navigate to="/ajustes/catalogos" replace />} />
+          {/* Facturas ya no está en Ajustes: vive en Informes. */}
+          <Route path="/ajustes/facturas" element={<Navigate to="/informes?tab=facturas" replace />} />
+          <Route path="/ajustes/:tab" element={<AjustesPage />} />
+          {/* Redirecciones de las rutas antiguas. */}
+          <Route path="/facturas" element={<Navigate to="/informes?tab=facturas" replace />} />
+          <Route path="/catalogos" element={<Navigate to="/ajustes/catalogos" replace />} />
+          <Route path="/erratas" element={<Navigate to="/ajustes/borrado" replace />} />
+          <Route path="/plantillas" element={<Navigate to="/ajustes/plantillas" replace />} />
           <Route path="/conductores" element={<UsersPage />} />
           <Route path="/conductores/:id" element={<UserDetailPage />} />
         </Route>

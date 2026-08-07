@@ -8,6 +8,7 @@ import { documentStatusTone } from '../format.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
 import { useDeactivateConfirm } from './ConfirmDialog.tsx'
 import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
+import { TableInfoBar } from './TableInfoBar.tsx'
 
 import {
   connectGoogleUrl,
@@ -89,6 +90,8 @@ export function DocumentsPanel({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  // Búsqueda en cliente sobre los documentos ya cargados (barra informativa).
+  const [search, setSearch] = useState('')
 
   const [picker, setPicker] = useState<PickerConfig | null>(null)
   const [folderFiles, setFolderFiles] = useState<DriveFile[] | null>(null)
@@ -237,6 +240,17 @@ export function DocumentsPanel({
   const needsConnect = Boolean(picker?.enabled && !picker.has_drive)
   const folderUrl = safeHref(vehicle.drive_folder_url)
 
+  // Filtro en cliente: tipo, notas, usuario, estado, caducidad o fecha de subida.
+  const visibleDocs = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return docs
+    return docs.filter((doc) =>
+      `${doc.type_display} ${doc.notes ?? ''} ${doc.uploaded_by_name ?? ''} ${doc.status_display} ${doc.expiry_date ?? ''} ${doc.created_at.slice(0, 10)}`
+        .toLowerCase()
+        .includes(term),
+    )
+  }, [docs, search])
+
   // Tabla de documentos con el estilo unificado (TableWithPanel).
   const columns: Array<TableWithPanelColumn<FlotaDocument>> = [
     {
@@ -321,17 +335,16 @@ export function DocumentsPanel({
       accordion={accordion}
       title={t.title}
       actions={
-        <div className="section-tools">
-          <SelectField
-            label={t.filterType}
-            options={[{ value: '', label: t.allTypes }, ...typeOptions]}
-            value={typeFilter}
-            onValueChange={setTypeFilter}
-          />
-          <Button variant="primary" onClick={() => openCreate()}>
-            {t.add}
-          </Button>
-        </div>
+        accordion.isOpen('documents') ? (
+          <div className="section-tools">
+            <Button variant="primary" onClick={() => openCreate()}>
+              {t.add}
+            </Button>
+          </div>
+        ) : (
+          // Resumen al colapsar: nº de documentos.
+          <span className="acc-summary">{t.collapsedCount(docs.length)}</span>
+        )
       }
     >
 
@@ -382,16 +395,42 @@ export function DocumentsPanel({
       {loading ? (
         <p className="loading-state" role="status">{t.loading}</p>
       ) : (
-        <TableWithPanel<FlotaDocument>
-          rows={docs}
-          columns={columns}
-          rowKey={(doc) => String(doc.id)}
-          rowClassName={(doc) => (doc.status === 'expired' ? 'row-muted' : '')}
-          enablePagination
-          defaultPageSize={25}
-          pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel={t.empty(Boolean(typeFilter))}
-        />
+        <>
+          {/* Barra informativa tipo tarjeta (como en Vehículos): contador +
+              buscador + filtro de tipo. */}
+          <TableInfoBar
+            count={visibleDocs.length}
+            recordsLabel={t.records}
+            searchLabel={t.searchLabel}
+            searchPlaceholder={t.searchPlaceholder}
+            search={search}
+            onSearchChange={setSearch}
+          >
+            <div className="filter-field filter-field--role">
+              <label>{t.filterType}</label>
+              <SelectField
+                aria-label={t.filterType}
+                containerClassName="role-filter"
+                required
+                options={[{ value: '', label: t.allTypes }, ...typeOptions]}
+                value={typeFilter}
+                onValueChange={setTypeFilter}
+              />
+            </div>
+          </TableInfoBar>
+          <TableWithPanel<FlotaDocument>
+            rows={visibleDocs}
+            columns={columns}
+            rowKey={(doc) => String(doc.id)}
+            rowClassName={(doc) => (doc.status === 'expired' ? 'row-muted' : '')}
+            enableColumnSort
+            showControlPanel={false}
+            enablePagination
+            defaultPageSize={25}
+            pageSizeOptions={[25, 50, 100]}
+            emptyStateLabel={t.empty(Boolean(typeFilter) || Boolean(search))}
+          />
+        </>
       )}
 
       <Modal

@@ -72,12 +72,30 @@ class FieldWindowApiTests(APITestCase):
             resp = self._post()
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
 
-    def test_management_is_exempt(self):
+    def test_admin_is_exempt(self):
         tomorrow = timezone.localdate().day + 1
         with override_settings(FLEET_KM_WINDOW_START=tomorrow):
             self.client.force_authenticate(self.admin)
             resp = self._post()
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+    def test_supervisor_is_NOT_exempt(self):
+        """El supervisor es personal de CAMPO: la ventana le aplica (plan 8a).
+
+        Antes se eximía por `is_management`, que agrupa admin + supervisor, así
+        que quien gestiona un grupo desde la app móvil registraba a cualquier día.
+        """
+        # Al supervisor los vehículos le llegan por GRUPO, no por asignación
+        # (una asignación activa por vehículo: la de `setUp` ya la ocupa).
+        supervisor = make_user("sup", Role.SUPERVISOR)
+        self.vehicle.supervisor = supervisor
+        self.vehicle.save(update_fields=["supervisor"])
+        tomorrow = timezone.localdate().day + 1
+        with override_settings(FLEET_KM_WINDOW_START=tomorrow):
+            self.client.force_authenticate(supervisor)
+            resp = self._post()
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        self.assertIn("se abre del día", str(resp.data["errors"]["reading_date"]))
 
     def test_window_endpoint_reports_state(self):
         tomorrow = timezone.localdate().day + 1
@@ -87,6 +105,7 @@ class FieldWindowApiTests(APITestCase):
             self.assertEqual(resp.status_code, status.HTTP_200_OK)
             self.assertFalse(resp.data["open"])
             self.assertEqual(resp.data["start_day"], tomorrow)
+            self.assertFalse(resp.data["admin_exempt"])
 
 
 class EstimateMissingTests(APITestCase):
@@ -148,6 +167,19 @@ class EstimateMissingTests(APITestCase):
         with override_settings(FLEET_KM_ESTIMATE_WINDOW_END=yesterday):
             resp = self.client.post(reverse("kmreading-estimate"), {"months": 2})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_post_override_bypasses_window(self):
+        # La administración puede forzar el cálculo fuera de la ventana.
+        self.client.force_authenticate(self.admin)
+        if timezone.localdate().day == 1:
+            self.skipTest("día 1: no se puede simular ventana cerrada")
+        yesterday = max(1, timezone.localdate().day - 1)
+        with override_settings(FLEET_KM_ESTIMATE_WINDOW_END=yesterday):
+            resp = self.client.post(
+                reverse("kmreading-estimate"), {"months": 2, "override": True}
+            )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertIn("1111AAA", {c["plate"] for c in resp.data["created"]})
 
     def test_supervisor_cannot_estimate(self):
         self.client.force_authenticate(self.supervisor)

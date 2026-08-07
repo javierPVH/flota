@@ -1,23 +1,54 @@
 """Tests del seeding de desarrollo (SEED_DEV.md) y del login de desarrollo."""
 
+from datetime import timedelta
+
 from django.core.management import call_command
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from accounts.models import PushSubscription, User
+from accounts.models import LicenseType, PushSubscription, Role, User, UserRole
 from fleet.models import (
     Alert,
     Assignment,
     Contract,
+    Document,
     EmailLog,
     EmailSignature,
+    EmailTemplate,
+    EmailTemplateKey,
+    Event,
+    Incident,
+    InvoiceAllocation,
     KmReading,
     Vehicle,
+    VehicleLink,
     VehicleRequest,
 )
-from fleet.models.enums import AlertType, VehicleRequestStatus
+from fleet.models.enums import (
+    AlertLevel,
+    AlertStatus,
+    AlertType,
+    AllocationTarget,
+    AssignmentStatus,
+    DocumentStatus,
+    DocumentType,
+    EventType,
+    Fuel,
+    IncidentStatus,
+    IncidentType,
+    LinkReason,
+    MarketSegment,
+    PropertyType,
+    UseType,
+    VehicleRequestStatus,
+    VehicleSize,
+    VehicleState,
+    VehicleType,
+    VehUse,
+)
 from fleet.services import seed
 
 # Usuarios/vehículos de la capa de VOLUMEN (constantes del seed): los tests se
@@ -68,13 +99,15 @@ class SeedChainTests(APITestCase):
         self.assertTrue(KmReading.objects.filter(is_active=False).exists())
         self.assertTrue(EmailSignature.objects.filter(is_active=False).exists())
         self.assertFalse(User.objects.get(username="expedro").is_active)
-        # N9/N10: traza de correos (todos los estados) y una suscripción push.
+        # N9/N10: traza de correos (todos los estados) y suscripciones push
+        # (un conductor con dos dispositivos + la supervisora).
         statuses = set(EmailLog.objects.values_list("status", flat=True))
         self.assertEqual(
             statuses,
             {EmailLog.Status.SENT, EmailLog.Status.FAILED, EmailLog.Status.SKIPPED},
         )
-        self.assertEqual(PushSubscription.objects.count(), 1)
+        self.assertEqual(PushSubscription.objects.count(), 3)
+        self.assertEqual(PushSubscription.objects.filter(user__username="carlos").count(), 2)
 
     def test_run_all_is_rerunnable_without_duplicates(self):
         seed.run_all()
@@ -98,6 +131,130 @@ class SeedChainTests(APITestCase):
     def test_seed_command_blocked_in_production(self):
         call_command("seed_dev_data", "--force")
         self.assertEqual(User.objects.count(), 0)  # DEBUG=False: jamás siembra
+
+
+class SeedCoverageTests(APITestCase):
+    """El seed cubre TODAS las tablas y TODAS las variantes de cada enumerado.
+
+    Es el contrato de la capa de volumen: si añades un valor a un enumerado (o
+    una tabla nueva) y no lo siembras, este test lo caza. Comprueba la
+    PRESENCIA, nunca cantidades exactas — el volumen puede reajustarse.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        seed.run_all()
+
+    def assert_all_variants(self, model, field, enum):
+        present = set(model.objects.values_list(field, flat=True).distinct())
+        missing = sorted({value for value, _ in enum.choices} - present)
+        self.assertEqual(
+            missing,
+            [],
+            f"{model.__name__}.{field}: variantes sin sembrar → {missing}",
+        )
+
+    def test_every_enum_variant_is_seeded(self):
+        for model, field, enum in (
+            (Vehicle, "state", VehicleState),
+            (Vehicle, "type", VehicleType),
+            (Vehicle, "size", VehicleSize),
+            (Vehicle, "market_segment", MarketSegment),
+            (Vehicle, "veh_use", VehUse),
+            (Vehicle, "fuel", Fuel),
+            (Vehicle, "property", PropertyType),
+            (Vehicle, "business_use", UseType),
+            (Assignment, "status", AssignmentStatus),
+            (VehicleLink, "reason", LinkReason),
+            (Event, "event_type", EventType),
+            (Document, "type", DocumentType),
+            (Document, "status", DocumentStatus),
+            (Incident, "type", IncidentType),
+            (Incident, "status", IncidentStatus),
+            (InvoiceAllocation, "target_type", AllocationTarget),
+            (Alert, "type", AlertType),
+            (Alert, "level", AlertLevel),
+            (Alert, "status", AlertStatus),
+            (VehicleRequest, "status", VehicleRequestStatus),
+            (VehicleRequest, "requested_type", VehicleType),
+            (User, "license_type", LicenseType),
+            (UserRole, "role", Role),
+            (EmailTemplate, "key", EmailTemplateKey),
+            (EmailLog, "status", EmailLog.Status),
+        ):
+            with self.subTest(model=model.__name__, field=field):
+                self.assert_all_variants(model, field, enum)
+
+    def test_every_domain_table_has_rows(self):
+        """Ninguna tabla del dominio se queda vacía.
+
+        `GoogleCredential` es la excepción declarada: guarda tokens OAuth
+        reales (cifrados) que solo escribe el consentimiento de Google. Sembrar
+        uno falso haría creer al front que Drive está conectado.
+        """
+        from django.apps import apps
+
+        exempt = {"accounts.GoogleCredential"}
+        empty = []
+        for model in apps.get_models():
+            label = f"{model._meta.app_label}.{model.__name__}"
+            if model._meta.app_label not in {"fleet", "accounts"} or label in exempt:
+                continue
+            if not model.objects.exists():
+                empty.append(label)
+        self.assertEqual(empty, [], f"Tablas del dominio sin sembrar → {empty}")
+
+    def test_every_event_subtype_is_seeded(self):
+        """Los 7 subtipos 1-a-1 de `Event` tienen filas (no solo la ITV)."""
+        for related in (
+            "penalty",
+            "fee_change",
+            "itv",
+            "project_change",
+            "location_change",
+            "pep_change",
+            "driver_change",
+        ):
+            with self.subTest(subtype=related):
+                self.assertTrue(
+                    Event.objects.filter(**{f"{related}__isnull": False}).exists(),
+                    f"Sin eventos con subtipo {related}",
+                )
+
+    def test_erratas_space_has_one_of_each_type(self):
+        """La página de Erratas enseña todos sus grupos (N7 + A2)."""
+        from fleet.erratas import DEACTIVATABLE
+
+        missing = [
+            key
+            for key, (model, _label) in DEACTIVATABLE.items()
+            if not model.objects.filter(is_active=False).exists()
+        ]
+        self.assertEqual(missing, [], f"Tipos de errata sin ejemplo → {missing}")
+        # Integrados en el mismo espacio sin duplicar mecanismo.
+        self.assertTrue(Vehicle.objects.filter(state=VehicleState.BAJA).exists())
+        self.assertTrue(User.objects.filter(is_active=False).exists())
+
+    def test_reference_layer_invariants_hold(self):
+        """Los datos de referencia que documenta SEED_DEV.md siguen en pie."""
+        today = timezone.localdate()
+        v1 = Vehicle.objects.get(plate="1234KLM")
+        # N2: el DOCUMENTO de seguro de v1 lleva la misma fecha que la ficha —
+        # si llevara una posterior, la señal la pisaría y el aviso no saltaría.
+        self.assertEqual(v1.insurance_expiry_date, today + timedelta(days=20))
+        self.assertEqual(v1.next_itv_date, today + timedelta(days=10))
+        for alert_type in (AlertType.ITV_DUE, AlertType.INSURANCE_DUE, AlertType.KM_OVERAGE):
+            self.assertTrue(
+                Alert.objects.filter(vehicle=v1, type=alert_type).exists(),
+                f"1234KLM sin alerta {alert_type}",
+            )
+        # El contrato vigente convive con el histórico ya cerrado.
+        self.assertIsNone(Contract.objects.get(contract_number="R-2026-014").end_date)
+        self.assertTrue(Contract.objects.filter(vehicle=v1, end_date__isnull=False).exists())
+        # Versionado documental: la póliza vigente sustituye a la anterior.
+        polizas = Document.objects.filter(vehicle=v1, type=DocumentType.INSURANCE).order_by("id")
+        self.assertEqual(polizas.count(), 2)
+        self.assertEqual(polizas.last().replaces_id, polizas.first().id)
 
 
 class DevLoginTests(APITestCase):

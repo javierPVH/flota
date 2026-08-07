@@ -7,11 +7,14 @@ import {
   type FormEvent,
   type SetStateAction,
 } from 'react'
-import { Button, IconButton, Modal, PageHeader, SelectField, TabButton, TextInputField } from '@flota/ui/ui'
+import { Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import type { CatalogCreateFieldDefinition } from '@flota/ui/forms'
 import { asErrorMessage } from '@flota/ui/http'
 import { Pencil, Trash2 } from 'lucide-react'
+
+import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
+import { TableInfoBar } from '../components/TableInfoBar.tsx'
 
 import {
   createCatalogEntry,
@@ -43,8 +46,9 @@ function cellValue(entry: CatalogEntry, key: string): string {
   return String((entry as unknown as Record<string, unknown>)[key] ?? '')
 }
 
-/** Catálogos (G11): CRUD de los maestros que alimentan los selects de la app. */
-export function CatalogsPage() {
+/** Catálogos (G11): CRUD de los maestros que alimentan los selects de la app.
+ * `embedded`: se renderiza dentro de Ajustes (sin su propia cabecera). */
+export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const t = useCatalogsCopy()
   const deactivateConfirm = useDeactivateConfirm()
 
@@ -346,47 +350,42 @@ export function CatalogsPage() {
 
   return (
     <div>
-      <PageHeader title={t.title} subtitle={t.subtitle} />
+      {!embedded && <PageHeader title={t.title} subtitle={t.subtitle} />}
 
-      <div className="chips-row catalog-tabs">
-        {catalogs.map((catalog) => (
-          <TabButton
-            key={catalog.resource}
-            active={active.resource === catalog.resource}
-            onClick={() => selectCatalog(catalog)}
-          >
-            {catalog.title}
-          </TabButton>
-        ))}
-      </div>
+      <SettingsSubtabs
+        ariaLabel={t.title}
+        items={catalogs.map((catalog) => ({ key: catalog.resource, label: catalog.title }))}
+        active={active.resource}
+        onChange={(key) => {
+          const next = catalogs.find((c) => c.resource === key)
+          if (next) selectCatalog(next)
+        }}
+      />
 
       {error && <div role="alert" className="form-error">{error}</div>}
 
-      <div className="list-tools">
-        <input
-          className="search-input"
-          type="search"
-          aria-label={t.searchPlaceholder(active.singular)}
-          placeholder={t.searchPlaceholder(active.singular)}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <div className="catalog-toolbar-end">
-          <span className="catalog-count muted">
-            {filtered.length}/{entries.length}
-          </span>
-          <Button
-            variant="secondary"
-            disabled={filtered.length === 0}
-            onClick={() => exportCsv(active.resource, columns, filtered)}
-          >
-            {t.exportCsv}
-          </Button>
-          <Button variant="primary" onClick={openCreate}>
-            {t.create}
-          </Button>
-        </div>
-      </div>
+      <TableInfoBar
+        count={filtered.length}
+        recordsLabel={t.records}
+        searchLabel={t.searchLabel}
+        searchPlaceholder={t.searchPlaceholder(active.singular)}
+        search={query}
+        onSearchChange={setQuery}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              disabled={filtered.length === 0}
+              onClick={() => exportCsv(active.resource, columns, filtered)}
+            >
+              {t.exportCsv}
+            </Button>
+            <Button variant="primary" onClick={openCreate}>
+              {t.create}
+            </Button>
+          </>
+        }
+      />
 
       {loading ? (
         <p className="loading-state" role="status">{t.loading}</p>
@@ -396,6 +395,7 @@ export function CatalogsPage() {
           columns={columns}
           rowKey={(entry) => String(entry.id)}
           enableColumnSort
+          showControlPanel={false}
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}

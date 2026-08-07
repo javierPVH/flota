@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarPlus, Camera, ClipboardCheck, ExternalLink, FileText, Gauge, Wrench } from 'lucide-react'
 import { Badge, Button, Modal, Panel, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
@@ -12,7 +12,6 @@ import {
   listIncidents,
   proposeAssignment,
   registerItv,
-  uploadDocument,
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import {
@@ -34,19 +33,6 @@ import {
 import { isNetworkError, safeEnqueue } from '../offline/queue.ts'
 import type { AssignmentRow, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
 
-// Tipos de documento (lista cerrada del back, Épica 4); etiquetas en i18n.
-const DOCUMENT_TYPES = [
-  'registration_certificate',
-  'technical_datasheet',
-  'insurance',
-  'contract',
-  'delivery_report',
-  'return_report',
-  'accident_report',
-  'damage_photos',
-  'other',
-]
-
 /** Solo enlaces http(s): corta javascript:/data: aunque el back ya sanea. */
 function safeHref(url: string): string {
   return /^https?:\/\//i.test(url) ? url : ''
@@ -56,8 +42,6 @@ function safeHref(url: string): string {
 function documentHref(doc: FlotaDocument): string {
   return safeHref(doc.drive_url) || safeHref(doc.file_url)
 }
-
-const EMPTY_FORM = { type: 'other', expiry_date: '', incident: '', notes: '' }
 
 // Resultado de la ITV: valores libres del back, consensuados con gestión.
 const ITV_RESULT_VALUES = ['done', 'not done'] as const
@@ -84,14 +68,7 @@ export function VehicleFieldPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // Subida de documento (HU-4.1)
-  const [showUpload, setShowUpload] = useState(false)
-  const [form, setForm] = useState(EMPTY_FORM)
-  const [file, setFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState('')
-  const [uploadOk, setUploadOk] = useState('')
-  const uploadRef = useRef<HTMLFormElement>(null)
 
   // M4: propuesta de fechas (HU-2.3) y registro de ITV (HU-5.1)
   const [myProposals, setMyProposals] = useState<AssignmentRow[]>([])
@@ -145,53 +122,6 @@ export function VehicleFieldPage() {
   }, [vehicleId, user])
 
   useEffect(loadProposals, [loadProposals])
-
-  function openUpload() {
-    if (!accordion.isOpen('documents')) accordion.toggle('documents')
-    setShowUpload(true)
-    setUploadOk('')
-    setTimeout(() => uploadRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
-  }
-
-  async function handleUpload(event: FormEvent) {
-    event.preventDefault()
-    if (!file) {
-      setFormError(t.vehicle.chooseFile)
-      return
-    }
-    setSaving(true)
-    setFormError('')
-    const payload = {
-      vehicle: vehicleId,
-      type: form.type,
-      expiry_date: form.expiry_date || null,
-      incident: form.incident ? Number(form.incident) : null,
-      notes: form.notes,
-    }
-    try {
-      const doc = await uploadDocument(payload, file)
-      setForm(EMPTY_FORM)
-      setFile(null)
-      setShowUpload(false)
-      setUploadOk(
-        doc.status === 'pending_archive' ? t.vehicle.uploadOkPending : t.vehicle.uploadOkArchived,
-      )
-      loadDocuments()
-    } catch (err) {
-      // Sin red (M7): el binario entra en la cola offline con sus metadatos.
-      if (isNetworkError(err) &&
-          (await safeEnqueue({ kind: 'document', payload, file, fileName: file.name, fileType: file.type }))) {
-        setForm(EMPTY_FORM)
-        setFile(null)
-        setShowUpload(false)
-        setUploadOk(t.vehicle.uploadOffline)
-      } else {
-        setFormError(asErrorMessage(err, t.vehicle.uploadError))
-      }
-    } finally {
-      setSaving(false)
-    }
-  }
 
   async function handlePropose(event: FormEvent) {
     event.preventDefault()
@@ -309,9 +239,13 @@ export function VehicleFieldPage() {
         <Link to={`/registrar?vehiculo=${vehicle.id}`} className="quick-action">
           <Gauge size={20} aria-hidden /> {t.common.registerKm}
         </Link>
-        <button type="button" className="quick-action" onClick={openUpload}>
+        <Link to={`/documentos/nuevo?vehiculo=${vehicle.id}`} className="quick-action">
           <Camera size={20} aria-hidden /> {t.vehicle.quickUpload}
-        </button>
+        </Link>
+        {/* C3: comunicar avería desde la propia ficha, con el coche ya elegido. */}
+        <Link to={`/incidencias/nueva?tipo=breakdown&vehiculo=${vehicle.id}`} className="quick-action">
+          <Wrench size={20} aria-hidden /> {t.home.quickBreakdown}
+        </Link>
         <button
           type="button"
           className="quick-action"
@@ -413,12 +347,15 @@ export function VehicleFieldPage() {
         accordion={accordion}
         title={t.vehicle.documentsTitle}
         actions={
-          <Button size="sm" onClick={openUpload}>
-            <Camera size={16} aria-hidden /> {t.vehicle.upload}
-          </Button>
+          // La subida se resuelve en su VISTA propia, no en un formulario
+          // desplegable dentro de la ficha (pantalla pequeña, un paso cada vez).
+          <Link to={`/documentos/nuevo?vehiculo=${vehicleId}`}>
+            <Button size="sm">
+              <Camera size={16} aria-hidden /> {t.vehicle.upload}
+            </Button>
+          </Link>
         }
       >
-        {uploadOk && <p role="status" className="form-ok">{uploadOk}</p>}
         {documents.length === 0 && <p className="empty-note">{t.vehicle.noDocuments}</p>}
         <ul className="doc-list">
           {documents.map((doc) => {
@@ -522,62 +459,6 @@ export function VehicleFieldPage() {
           </form>
         </Modal>
 
-        {showUpload && (
-          <form ref={uploadRef} className="modal-form upload-form" onSubmit={handleUpload}>
-            <h4 className="panel-title">{t.vehicle.uploadTitle}</h4>
-            <SelectField
-              label={t.vehicle.docType}
-              options={DOCUMENT_TYPES.map((value) => ({
-                value,
-                label: t.vehicle.docTypes[value] ?? value,
-              }))}
-              value={form.type}
-              onValueChange={(value) => setForm((f) => ({ ...f, type: value }))}
-            />
-            <label className="file-field">
-              <span>{t.vehicle.filePick}</span>
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-            </label>
-            <TextInputField
-              label={t.vehicle.expiry}
-              type="date"
-              value={form.expiry_date}
-              onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
-            />
-            {incidents.length > 0 && (
-              <SelectField
-                label={t.vehicle.linkIncident}
-                options={[
-                  { value: '', label: t.vehicle.linkNone },
-                  ...incidents.map((i) => ({
-                    value: String(i.id),
-                    label: `#${i.id} · ${i.type_display}${i.date ? ` (${fmtDate(i.date)})` : ''}`,
-                  })),
-                ]}
-                value={form.incident}
-                onValueChange={(value) => setForm((f) => ({ ...f, incident: value }))}
-              />
-            )}
-            <TextInputField
-              label={t.vehicle.notes}
-              value={form.notes}
-              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-            />
-            {formError && <div role="alert" className="form-error">{formError}</div>}
-            <div className="form-actions">
-              <Button type="button" variant="secondary" onClick={() => setShowUpload(false)}>
-                {t.common.cancel}
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? t.vehicle.uploadSubmitting : t.vehicle.uploadTitle}
-              </Button>
-            </div>
-          </form>
-        )}
       </CollapsibleCard>
     </div>
   )

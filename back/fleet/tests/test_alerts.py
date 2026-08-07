@@ -149,6 +149,20 @@ class KmReadingAlertTests(TestCase):
         alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
         self.assertEqual(alert.status, AlertStatus.OPEN)
 
+    def test_unlimited_km_vehicle_gets_no_reading_alert(self):
+        # X2: sin cupo que vigilar no hay lectura que reclamar.
+        Vehicle.objects.create(plate="KM5", brand="a", model="b", unlimited_km=True)
+        self.assertEqual(alerts.check_km_readings(self.today), 0)
+        self.assertFalse(Alert.objects.filter(type=AlertType.KM_READING_PENDING).exists())
+
+    def test_unlimited_km_does_not_hide_the_others(self):
+        # Solo se calla lo derivado del kilometraje: el resto de la flota sigue.
+        Vehicle.objects.create(plate="KM6", brand="a", model="b", unlimited_km=True)
+        Vehicle.objects.create(plate="KM7", brand="a", model="b")
+        self.assertEqual(alerts.check_km_readings(self.today), 1)
+        alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
+        self.assertEqual(alert.vehicle.plate, "KM7")
+
 
 class NoDriverAlertTests(TestCase):
     def setUp(self):
@@ -256,3 +270,43 @@ class AlertApiTests(APITestCase):
         self.client.force_authenticate(self.driver)
         url = reverse("alert-resolve", args=[self.mine.pk])
         self.assertEqual(self.client.post(url).status_code, status.HTTP_403_FORBIDDEN)
+
+    # --- X1: el seguro no baja al campo ---------------------------------
+    def _insurance_alert(self):
+        return Alert.objects.create(
+            type=AlertType.INSURANCE_DUE, vehicle=self.my_vehicle, dedup_key="k-ins"
+        )
+
+    def test_driver_does_not_see_insurance_alerts(self):
+        """El seguro es de administración: al conductor no le llega."""
+        self._insurance_alert()
+        self.client.force_authenticate(self.driver)
+        resp = self.client.get(self.list_url)
+        types = {row["type"] for row in resp.data["results"]}
+        self.assertNotIn(AlertType.INSURANCE_DUE, types)
+        self.assertEqual(resp.data["count"], 1)  # sigue viendo la suya de no_driver
+
+    def test_supervisor_does_not_see_insurance_alerts_either(self):
+        supervisor = make_user("sup", Role.SUPERVISOR)
+        self.my_vehicle.supervisor = supervisor
+        self.my_vehicle.save(update_fields=["supervisor"])
+        self._insurance_alert()
+        self.client.force_authenticate(supervisor)
+        resp = self.client.get(self.list_url)
+        types = {row["type"] for row in resp.data["results"]}
+        self.assertNotIn(AlertType.INSURANCE_DUE, types)
+
+    def test_admin_still_sees_insurance_alerts(self):
+        """La lógica de administración no se toca: el admin la sigue viendo."""
+        self._insurance_alert()
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(self.list_url)
+        types = {row["type"] for row in resp.data["results"]}
+        self.assertIn(AlertType.INSURANCE_DUE, types)
+
+    def test_driver_cannot_reach_an_insurance_alert_by_id(self):
+        """El filtro es de queryset, así que tampoco vale ir al detalle."""
+        alert = self._insurance_alert()
+        self.client.force_authenticate(self.driver)
+        resp = self.client.get(reverse("alert-detail", args=[alert.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)

@@ -103,15 +103,32 @@ class IncidentTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["count"], 1)
 
-    def test_driver_cannot_write_incidents(self):
-        # …pero seguir gestionándolas es cosa de gestión.
-        incident = Incident.objects.create(vehicle=self.group_vehicle, type="maintenance")
+    # --- C3: el conductor APORTA (crea), no resuelve --------------------
+    def test_driver_can_report_a_breakdown_on_own_vehicle(self):
         self.client.force_authenticate(self.driver)
         resp = self.client.post(
-            self.list_url, {"vehicle": self.group_vehicle.pk, "type": "maintenance"}
+            self.list_url,
+            {"vehicle": self.group_vehicle.pk, "type": "breakdown", "description": "Ruido raro"},
         )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(Incident.objects.get().type, "breakdown")
+
+    def test_driver_cannot_report_on_a_foreign_vehicle(self):
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(self.list_url, {"vehicle": self.foreign.pk, "type": "breakdown"})
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_driver_cannot_edit_or_close_incidents(self):
+        # Aportar no es resolver: cerrar o reclasificar sigue siendo de gestión.
+        incident = Incident.objects.create(vehicle=self.group_vehicle, type="maintenance")
+        self.client.force_authenticate(self.driver)
         url = reverse("incident-detail", args=[incident.pk])
         self.assertEqual(
             self.client.patch(url, {"status": "closed"}).status_code, status.HTTP_403_FORBIDDEN
         )
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_a_user_without_roles_cannot_report(self):
+        self.client.force_authenticate(make_user("nadie"))
+        resp = self.client.post(self.list_url, {"vehicle": self.group_vehicle.pk, "type": "breakdown"})
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

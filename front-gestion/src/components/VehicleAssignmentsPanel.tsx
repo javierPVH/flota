@@ -7,6 +7,7 @@ import { assignmentStatusTone, todayIso } from '../format.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
 import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
+import { TableInfoBar } from './TableInfoBar.tsx'
 
 import {
   acceptAssignment,
@@ -23,6 +24,12 @@ import {
 import type { AssignmentRow, Driver, ManagedUser, Vehicle } from '../types.ts'
 
 const today = todayIso
+
+/** Iniciales para el avatar del conductor (1-2 letras). */
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
+}
 
 interface UsageLine {
   driver: string
@@ -54,9 +61,21 @@ export function VehicleAssignmentsPanel({
   const [startDate, setStartDate] = useState(today())
   const [usageLines, setUsageLines] = useState<UsageLine[]>([{ driver: '', percent: '100' }])
   const [usageStart, setUsageStart] = useState(today())
+  // Búsqueda en cliente del histórico (barra informativa).
+  const [historySearch, setHistorySearch] = useState('')
 
   const current = assignments.find((a) => a.status === 'accepted' && a.end_date === null) ?? null
   const activeUsages = usages.filter((u) => u.end_date === null)
+
+  // Histórico filtrado por conductor o estado (para el contador + la tabla).
+  const historyRows = useMemo(() => {
+    const term = historySearch.trim().toLowerCase()
+    if (!term) return assignments
+    const statusLabel = (status: string) => t.status[status as keyof typeof t.status] ?? status
+    return assignments.filter((a) =>
+      `${a.driver_name} ${statusLabel(a.status)}`.toLowerCase().includes(term),
+    )
+  }, [assignments, historySearch, t])
 
   // Histórico de conductores con el estilo unificado (TableWithPanel).
   const historyColumns = useMemo<Array<TableWithPanelColumn<AssignmentRow>>>(() => {
@@ -208,71 +227,118 @@ export function VehicleAssignmentsPanel({
       accordion={accordion}
       title={t.title}
       actions={
-        <div className="section-tools">
-          <Button variant="primary" size="sm" onClick={openChange} disabled={vehicle.state === 'retired'}>
-            {current ? t.changeDriver : t.assignDriver}
-          </Button>
-          {current && (
-            <Button variant="secondary" size="sm" onClick={handleRelease}>
-              {t.release}
+        accordion.isOpen('assignments') ? (
+          <div className="section-tools">
+            <Button variant="primary" size="sm" onClick={openChange} disabled={vehicle.state === 'retired'}>
+              {current ? t.changeDriver : t.assignDriver}
             </Button>
-          )}
-          <Button variant="secondary" size="sm" onClick={openUsage}>
-            {t.usageSplit}
-          </Button>
-        </div>
+            {current && (
+              <Button variant="secondary" size="sm" onClick={handleRelease}>
+                {t.release}
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" onClick={openUsage}>
+              {t.usageSplit}
+            </Button>
+          </div>
+        ) : (
+          // Resumen al colapsar: conductor actual.
+          <span className="acc-summary">{current ? current.driver_name : t.noDriver}</span>
+        )
       }
     >
       {error && <div role="alert" className="form-error">{error}</div>}
 
-      <div className="assign-grid">
-        <div>
+      {/* Conductor actual + reparto de uso: dos tarjetas destacadas. */}
+      <div className="assign-cards">
+        <div className="assign-panel-card">
           <h4>{t.currentDriver}</h4>
           {current ? (
-            <dl className="detail-dl">
-              <dt>{t.name}</dt>
-              <dd>{current.driver_name}</dd>
-              <dt>{t.since}</dt>
-              <dd>{current.start_date}</dd>
-              <dt>{t.license}</dt>
-              <dd>{driverDetail?.license_type || '—'}</dd>
-              <dt>{t.fuelCard}</dt>
-              <dd>{driverDetail ? (driverDetail.fuel_card ? t.yes : t.no) : '—'}</dd>
-            </dl>
+            <div className="person-card">
+              <span className="person-avatar" aria-hidden="true">
+                {initialsOf(current.driver_name)}
+              </span>
+              <div className="person-info">
+                <span className="person-name">{current.driver_name}</span>
+                <span className="person-since muted">
+                  {t.since}: {current.start_date}
+                </span>
+                <div className="person-chips">
+                  <span className="info-chip">
+                    {t.license}: <strong>{driverDetail?.license_type || '—'}</strong>
+                  </span>
+                  <span
+                    className={`info-chip ${driverDetail?.fuel_card ? 'chip-ok' : ''}`}
+                    title={t.fuelCard}
+                  >
+                    {t.fuelCard}: <strong>{driverDetail ? (driverDetail.fuel_card ? t.yes : t.no) : '—'}</strong>
+                  </span>
+                </div>
+              </div>
+            </div>
           ) : (
             <p className="muted">{t.noDriver}</p>
           )}
+        </div>
 
+        <div className="assign-panel-card">
           <h4>{t.activeSplit}</h4>
           {activeUsages.length === 0 ? (
             <p className="muted">{t.noSplit}</p>
           ) : (
-            <ul className="usage-list">
-              {activeUsages.map((u) => (
-                <li key={u.id}>
-                  {driverName(u.driver)} — <strong>{Number(u.usage_percent)}%</strong>
-                  {u.start_date ? t.sinceDate(u.start_date) : ''}
-                </li>
-              ))}
-            </ul>
+            <div className="usage-bars">
+              {activeUsages.map((u) => {
+                const pct = Number(u.usage_percent)
+                return (
+                  <div className="usage-bar-row" key={u.id}>
+                    <div className="usage-bar-head">
+                      <span>{driverName(u.driver)}</span>
+                      <strong>{pct}%</strong>
+                    </div>
+                    <div className="usage-bar-track">
+                      <div
+                        className="usage-bar-fill"
+                        style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+                      />
+                    </div>
+                    {u.start_date && (
+                      <span className="usage-bar-since muted">{t.sinceDate(u.start_date).trim()}</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           )}
         </div>
+      </div>
 
-        <div>
-          <h4>{t.history}</h4>
-          {assignments.length === 0 ? (
-            <p className="muted">{t.noAssignments}</p>
-          ) : (
+      {/* Histórico de conductores con la barra informativa (estilo Vehículos). */}
+      <div className="assign-history">
+        <h4>{t.history}</h4>
+        {assignments.length === 0 ? (
+          <p className="muted">{t.noAssignments}</p>
+        ) : (
+          <>
+            <TableInfoBar
+              count={historyRows.length}
+              recordsLabel={t.records}
+              searchLabel={t.searchLabel}
+              searchPlaceholder={t.searchPlaceholder}
+              search={historySearch}
+              onSearchChange={setHistorySearch}
+            />
             <TableWithPanel<AssignmentRow>
-              rows={assignments}
+              rows={historyRows}
               columns={historyColumns}
               rowKey={(a) => String(a.id)}
+              enableColumnSort
+              showControlPanel={false}
               enablePagination
               defaultPageSize={25}
               pageSizeOptions={[25, 50, 100]}
             />
-          )}
-        </div>
+          </>
+        )}
       </div>
 
       {/* Cambiar conductor (HU-2.1/2.2) */}

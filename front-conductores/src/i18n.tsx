@@ -27,9 +27,6 @@ const es = {
     offlineRejected: (detail: string) => `Rechazados por el servidor: ${detail}`,
     updateAvailable: 'Hay una versión nueva — toca para recargar',
     dismissNotice: 'Descartar el aviso',
-    installHint: 'Añade Flota a tu pantalla de inicio para abrirla como una app.',
-    installAction: 'Instalar',
-    installDismiss: 'No volver a mostrar',
   },
   common: {
     loading: 'Cargando…',
@@ -59,6 +56,8 @@ const es = {
   },
   home: {
     myVehicles: 'Mis vehículos',
+    /** C1: título en singular cuando el conductor solo tiene un coche. */
+    myVehicle: 'Mi vehículo',
     myGroup: 'Mi grupo',
     searchPlaceholder: 'Buscar por matrícula o modelo…',
     searchLabel: 'Buscar vehículo',
@@ -75,7 +74,25 @@ const es = {
     statPending: 'Lecturas pendientes',
     quickRegister: 'Registrar km',
     quickUpload: 'Subir documento',
+    quickBreakdown: 'Avería',
+    quickIncident: 'Incidencia',
     loadError: 'No se pudieron cargar tus vehículos.',
+    // Acordeón de advertencias del inicio: solo sale cuando queda poco.
+    // X1: del seguro, nada — es asunto de administración.
+    deadlines: {
+      title: 'Te queda poco',
+      count: (n: number) => (n === 1 ? '1 aviso' : `${n} avisos`),
+      km: 'Registrar kilómetros',
+      itv: (plate: string) => `ITV de ${plate}`,
+      // Cuenta atrás en lenguaje natural (evita "en 1 días").
+      inDays: (days: number) =>
+        days <= 0 ? 'hoy es el último día' : days === 1 ? 'mañana es el último día' : `quedan ${days} días`,
+      dueIn: (days: number) => (days === 0 ? 'hoy' : days === 1 ? 'mañana' : `en ${days} días`),
+      overdue: (days: number) => (days === 1 ? 'venció ayer' : `venció hace ${days} días`),
+      kmUntil: (lastDay: number) => `hasta el día ${lastDay}`,
+      kmOpens: (days: number, startDay: number) =>
+        `${days === 1 ? 'se abre mañana' : `se abre en ${days} días`} (día ${startDay})`,
+    },
   },
   gate: {
     checking: 'Comprobando tu acceso…',
@@ -214,6 +231,7 @@ const es = {
     firstReading: 'Aún no hay lecturas: esta será la primera.',
     odometer: 'Odómetro (km totales del cuadro)',
     date: 'Fecha de la lectura',
+    historyTitle: 'Histórico de lecturas',
     save: 'Guardar lectura',
     saving: 'Guardando…',
     noGoBack: (last: string) => `El odómetro no puede retroceder: la última lectura fue ${last}.`,
@@ -285,9 +303,22 @@ const es = {
     noIncidents: 'Sin incidencias registradas.',
     noDescription: 'Sin descripción',
   },
+  // Vista propia de subida de documentos; los campos reutilizan `vehicle.*`.
+  uploadDoc: {
+    title: 'Subir documento',
+    back: 'Volver',
+    vehicle: 'Vehículo',
+    choose: 'Elige un vehículo…',
+    submit: 'Subir',
+    savedTitle: 'Documento subido',
+    another: 'Subir otro',
+    backHome: 'Volver al inicio',
+  },
   newIncident: {
     title: 'Nueva incidencia',
-    back: 'Mi grupo',
+    /** El inicio tiene un acceso propio para "Avería": el título lo refleja. */
+    titleBreakdown: 'Comunicar avería',
+    back: 'Volver',
     vehicle: 'Vehículo',
     choose: 'Elige un vehículo…',
     type: 'Tipo',
@@ -349,9 +380,6 @@ const en: typeof es = {
     offlineRejected: (detail) => `Rejected by the server: ${detail}`,
     updateAvailable: 'A new version is available — tap to reload',
     dismissNotice: 'Dismiss notice',
-    installHint: 'Add Fleet to your home screen to open it like an app.',
-    installAction: 'Install',
-    installDismiss: "Don't show again",
   },
   common: {
     loading: 'Loading…',
@@ -381,6 +409,7 @@ const en: typeof es = {
   },
   home: {
     myVehicles: 'My vehicles',
+    myVehicle: 'My vehicle',
     myGroup: 'My group',
     searchPlaceholder: 'Search by plate or model…',
     searchLabel: 'Search vehicle',
@@ -397,7 +426,22 @@ const en: typeof es = {
     statPending: 'Readings due',
     quickRegister: 'Log km',
     quickUpload: 'Upload document',
+    quickBreakdown: 'Breakdown',
+    quickIncident: 'Incident',
     loadError: 'Could not load your vehicles.',
+    deadlines: {
+      title: 'Due soon',
+      count: (n) => (n === 1 ? '1 notice' : `${n} notices`),
+      km: 'Log mileage',
+      itv: (plate) => `MOT for ${plate}`,
+      inDays: (days) =>
+        days <= 0 ? 'today is the last day' : days === 1 ? 'tomorrow is the last day' : `${days} days left`,
+      dueIn: (days) => (days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`),
+      overdue: (days) => (days === 1 ? 'expired yesterday' : `expired ${days} days ago`),
+      kmUntil: (lastDay) => `until day ${lastDay}`,
+      kmOpens: (days, startDay) =>
+        `${days === 1 ? 'opens tomorrow' : `opens in ${days} days`} (day ${startDay})`,
+    },
   },
   gate: {
     checking: 'Checking your access…',
@@ -535,6 +579,7 @@ const en: typeof es = {
     firstReading: 'No readings yet: this will be the first one.',
     odometer: 'Odometer (total km on the dashboard)',
     date: 'Reading date',
+    historyTitle: 'Reading history',
     save: 'Save reading',
     saving: 'Saving…',
     noGoBack: (last) => `The odometer cannot go backwards: the last reading was ${last}.`,
@@ -601,9 +646,20 @@ const en: typeof es = {
     noIncidents: 'No incidents recorded.',
     noDescription: 'No description',
   },
+  uploadDoc: {
+    title: 'Upload document',
+    back: 'Back',
+    vehicle: 'Vehicle',
+    choose: 'Choose a vehicle…',
+    submit: 'Upload',
+    savedTitle: 'Document uploaded',
+    another: 'Upload another',
+    backHome: 'Back to home',
+  },
   newIncident: {
     title: 'New incident',
-    back: 'My group',
+    titleBreakdown: 'Report a breakdown',
+    back: 'Back',
     vehicle: 'Vehicle',
     choose: 'Choose a vehicle…',
     type: 'Type',

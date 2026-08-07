@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Badge, Button, Modal, PageHeader, Panel, SelectField, TabButton, TextInputField } from '@flota/ui/ui'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Badge, Button, Modal, PageHeader, Panel, SelectField, TextInputField } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import {
   Bold,
@@ -29,10 +30,22 @@ import {
 import { useAppLang } from '@flota/ui/i18n'
 
 import { fmtDate } from '../format.ts'
+import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
+import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { useEmailTemplatesCopy } from '../translations/emailTemplates.ts'
 
+// Pestaña especial (primera): traza de últimos envíos (EmailLog).
+const LOGS_TAB = 'logs'
+
 // Tipos de plantilla (lista cerrada del back). Se crean bajo demanda.
-const TEMPLATE_KEYS = ['insurance_due', 'km_overage', 'km_reading_pending', 'generic']
+const TEMPLATE_KEYS = [
+  'insurance_due',
+  'itv_due',
+  'state_notice',
+  'km_overage',
+  'km_reading_pending',
+  'generic',
+]
 
 // Variables interpolables (allowlist del back — mailer.ALLOWED_VARIABLES).
 const VARIABLES = [
@@ -50,13 +63,15 @@ const VARIABLES = [
  * cursiva, listas, enlaces, encabezados, imágenes por URL y enlaces de Drive.
  * El HTML se sanea SIEMPRE en servidor (nh3) al guardar.
  */
-export function EmailTemplatesPage() {
+export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } = {}) {
   const t = useEmailTemplatesCopy()
   const lang = useAppLang()
   const [templates, setTemplates] = useState<EmailTemplateRow[]>([])
   const [signatures, setSignatures] = useState<EmailSignatureRow[]>([])
   const [logs, setLogs] = useState<EmailLogRow[]>([])
-  const [activeKey, setActiveKey] = useState('insurance_due')
+  // La pestaña activa: 'logs' (Últimos envíos, primera) o una clave de plantilla.
+  const [activeTab, setActiveTab] = useState(LOGS_TAB)
+  const [logsSearch, setLogsSearch] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -81,13 +96,66 @@ export function EmailTemplatesPage() {
       .then((page) => setSignatures(page.results))
       .catch(() => setSignatures([]))
     listEmailLogs()
-      .then((page) => setLogs(page.results.slice(0, 10)))
+      .then((page) => setLogs(page.results))
       .catch(() => setLogs([]))
   }, [t])
 
   useEffect(load, [load])
 
-  const active = templates.find((tpl) => tpl.key === activeKey) ?? null
+  const isLogs = activeTab === LOGS_TAB
+  const active = isLogs ? null : (templates.find((tpl) => tpl.key === activeTab) ?? null)
+
+  // Últimos envíos filtrados (franja de opciones de la tabla).
+  const visibleLogs = useMemo(() => {
+    const term = logsSearch.trim().toLowerCase()
+    if (!term) return logs
+    return logs.filter((log) =>
+      `${log.recipient} ${log.subject} ${log.status_display} ${t.templateKeys[log.template_key] ?? log.template_key}`
+        .toLowerCase()
+        .includes(term),
+    )
+  }, [logs, logsSearch, t])
+
+  // Columnas de la tabla de últimos envíos (mismo estilo que las de vehículos).
+  const logColumns: Array<TableWithPanelColumn<EmailLogRow>> = [
+    {
+      key: 'created_at',
+      label: t.logColumns.date,
+      isDate: true,
+      getValue: (log) => log.created_at.slice(0, 10),
+      render: (log) => fmtDate(log.created_at, lang),
+    },
+    {
+      key: 'template_key',
+      label: t.logColumns.template,
+      getValue: (log) => t.templateKeys[log.template_key] ?? log.template_key,
+      render: (log) => (t.templateKeys[log.template_key] ?? log.template_key) || '—',
+    },
+    {
+      key: 'recipient',
+      label: t.logColumns.recipient,
+      getValue: (log) => log.recipient,
+      render: (log) => log.recipient || '—',
+    },
+    {
+      key: 'subject',
+      label: t.logColumns.subject,
+      getValue: (log) => log.subject,
+      render: (log) => log.subject || '—',
+    },
+    {
+      key: 'status',
+      label: t.logColumns.status,
+      getValue: (log) => log.status_display,
+      render: (log) => (
+        <Badge
+          tone={log.status === 'sent' ? 'success' : log.status === 'failed' ? 'danger' : 'neutral'}
+        >
+          {log.status_display}
+        </Badge>
+      ),
+    },
+  ]
 
   // Vuelca la plantilla activa al editor al cambiar de pestaña o recargar.
   useEffect(() => {
@@ -129,7 +197,7 @@ export function EmailTemplatesPage() {
       if (active) {
         await updateEmailTemplate(active.id, payload)
       } else {
-        await createEmailTemplate({ key: activeKey, ...payload })
+        await createEmailTemplate({ key: activeTab, ...payload })
       }
       setNotice(t.templateSaved)
       load()
@@ -186,20 +254,48 @@ export function EmailTemplatesPage() {
 
   return (
     <div>
-      <PageHeader title={t.title} subtitle={t.subtitle} />
+      {!embedded && <PageHeader title={t.title} subtitle={t.subtitle} />}
 
       {error && <div role="alert" className="form-error">{error}</div>}
       {notice && <p role="status" className="muted">{notice}</p>}
 
-      <div className="chips-row catalog-tabs">
-        {TEMPLATE_KEYS.map((key) => (
-          <TabButton key={key} active={activeKey === key} onClick={() => setActiveKey(key)}>
-            {t.templateKeys[key] ?? key}{' '}
-            {templates.some((tpl) => tpl.key === key) ? '' : t.undefinedSuffix}
-          </TabButton>
-        ))}
-      </div>
+      <SettingsSubtabs
+        ariaLabel={t.title}
+        active={activeTab}
+        onChange={setActiveTab}
+        items={[
+          { key: LOGS_TAB, label: t.logsTitle },
+          ...TEMPLATE_KEYS.map((key) => ({
+            key,
+            label: t.templateKeys[key] ?? key,
+            suffix: templates.some((tpl) => tpl.key === key) ? undefined : t.undefinedSuffix,
+          })),
+        ]}
+      />
 
+      {isLogs ? (
+        <section>
+          <TableInfoBar
+            count={visibleLogs.length}
+            recordsLabel={t.records}
+            searchLabel={t.searchLabel}
+            searchPlaceholder={t.logsSearchPlaceholder}
+            search={logsSearch}
+            onSearchChange={setLogsSearch}
+          />
+          <TableWithPanel<EmailLogRow>
+            rows={visibleLogs}
+            columns={logColumns}
+            rowKey={(log) => String(log.id)}
+            enableColumnSort
+            showControlPanel={false}
+            enablePagination
+            defaultPageSize={25}
+            pageSizeOptions={[25, 50, 100]}
+            emptyStateLabel={t.logsEmpty}
+          />
+        </section>
+      ) : (
       <section className="card">
         <TextInputField
           label={t.subjectLabel}
@@ -281,47 +377,7 @@ export function EmailTemplatesPage() {
           {t.sanitizeHint} {VARIABLES.map((v) => `{{${v}}}`).join(' · ')}
         </p>
       </section>
-
-      {/* Últimos envíos (traza de soporte, EmailLog) */}
-      <section className="card">
-        <h3>{t.logsTitle}</h3>
-        {logs.length === 0 ? (
-          <p className="muted">{t.logsEmpty}</p>
-        ) : (
-          <table className="data">
-            <thead>
-              <tr>
-                <th scope="col">{t.logColumns.date}</th>
-                <th scope="col">{t.logColumns.recipient}</th>
-                <th scope="col">{t.logColumns.subject}</th>
-                <th scope="col">{t.logColumns.status}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map((log) => (
-                <tr key={log.id}>
-                  <td>{fmtDate(log.created_at, lang)}</td>
-                  <td>{log.recipient || '—'}</td>
-                  <td>{log.subject || '—'}</td>
-                  <td>
-                    <Badge
-                      tone={
-                        log.status === 'sent'
-                          ? 'success'
-                          : log.status === 'failed'
-                            ? 'danger'
-                            : 'neutral'
-                      }
-                    >
-                      {log.status_display}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      )}
 
       {/* Previsualización con datos de ejemplo (HTML ya saneado en servidor) */}
       <Modal open={preview !== null} title={t.previewTitle} onClose={() => setPreview(null)} wide>

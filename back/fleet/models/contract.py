@@ -38,6 +38,13 @@ class Contract(TimeStampedModel):
         help_text="€ por km de exceso sobre los contratados; alimenta la "
         "penalización estimada de la proyección (HU-3.4).",
     )
+    # Enlace al contrato archivado en Google Drive (carpeta o fichero).
+    drive_url = models.CharField(
+        "Enlace en Drive",
+        max_length=500,
+        blank=True,
+        help_text="Enlace a la carpeta o el fichero del contrato en Google Drive.",
+    )
 
     class Meta:
         verbose_name = "contrato"

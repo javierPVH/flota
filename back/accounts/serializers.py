@@ -81,10 +81,11 @@ class ManagedUserSerializer(serializers.ModelSerializer):
             "license_type",
             "fuel_card",
             "is_active",
+            "date_joined",
             "roles",
             "password",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "date_joined"]
 
     def get_name(self, obj) -> str:
         return obj.get_full_name() or obj.get_username()

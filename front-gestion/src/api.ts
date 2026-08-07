@@ -239,6 +239,12 @@ export const listKmReadings = (vehicle: number) =>
     `${API}/km-readings/${listQs({ vehicle, ordering: 'reading_date' })}`,
   )
 
+/** Lecturas de km de toda la flota (o de un vehículo) — para el informe de km. */
+export const listKmReadingsAll = (filters: { vehicle?: number } = {}) =>
+  getJson<Paginated<KmReading>>(
+    `${API}/km-readings/${listQs({ ...filters, ordering: '-reading_date' })}`,
+  )
+
 export const createKmReading = (data: { vehicle: number; km_reading: number; reading_date: string }) =>
   postJson<KmReading>(`${API}/km-readings/`, data)
 
@@ -261,14 +267,18 @@ export interface KmEstimateResult {
 export const fetchKmEstimatePreview = () =>
   getJson<KmEstimatePreview>(`${API}/km-readings/estimate/`)
 
-export const runKmEstimate = (months: number) =>
-  postJson<KmEstimateResult>(`${API}/km-readings/estimate/`, { months })
+export const runKmEstimate = (months: number, override = false) =>
+  postJson<KmEstimateResult>(`${API}/km-readings/estimate/`, { months, override })
 
 export const listEvents = (vehicle: number) =>
   getJson<Paginated<FlotaEvent>>(`${API}/events/${listQs({ vehicle, ordering: '-event_date' })}`)
 
 export const fetchVehicleHistory = (id: number) =>
   getJson<Paginated<AuditEntry>>(`${API}/vehicles/${id}/history/${listQs({})}`)
+
+/** Editar campos de un contrato (p. ej. el enlace del contrato en Drive). */
+export const updateContract = (id: number, data: Record<string, unknown>) =>
+  patchJson(`${API}/contracts/${id}/`, data)
 
 export const listAssignments = (
   filters: { vehicle?: number; driver?: number; status?: string } = {},
@@ -284,11 +294,48 @@ export const createVehicleLink = (data: {
   substitute_vehicle: number
   reason: string
   start_date: string
+  /** Opcional: si se informa, el vínculo queda como periodo cerrado. */
+  end_date?: string
 }) => postJson<VehicleLinkRow>(`${API}/vehicle-links/`, data)
 
 /** Cerrar el vínculo activo: fin = fecha dada (HU-1.8). */
 export const closeVehicleLink = (id: number, end_date: string) =>
   patchJson<VehicleLinkRow>(`${API}/vehicle-links/${id}/`, { end_date })
+
+/** Resultado del comunicado por email (best-effort, trazado en EmailLog). */
+export interface NotifyResult {
+  sent: Array<{ role: string; email: string }>
+  skipped: Array<{ role: string; email?: string; reason: string }>
+}
+
+/** Envía un comunicado/aviso por email a los destinatarios elegidos: conductor
+ * vigente, supervisor, administradores, empresa de renting y/o un email libre.
+ * Con `template_key`, el asunto/cuerpo salen de la plantilla de correo (10b). */
+export const notifyVehicle = (
+  id: number,
+  data: {
+    message?: string
+    to_driver?: boolean
+    to_supervisor?: boolean
+    to_admin?: boolean
+    to_renting?: boolean
+    /** Email libre («otro email que se especifique»). */
+    email?: string
+    subject?: string
+    /** Clave de plantilla (state_notice · itv_due · insurance_due). */
+    template_key?: string
+  },
+) => postJson<NotifyResult>(`${API}/vehicles/${id}/notify/`, data)
+
+/** Vista previa (asunto + cuerpo HTML) de un aviso con una plantilla, sin enviar. */
+export const noticePreviewVehicle = (
+  id: number,
+  data: { template_key: string; message?: string },
+) =>
+  postJson<{ subject: string; body_html: string; has_template: boolean }>(
+    `${API}/vehicles/${id}/notice-preview/`,
+    data,
+  )
 
 export const fetchManagedUser = (id: number) =>
   getJson<ManagedUser>(`${AUTH}/users/${id}/`)
@@ -341,6 +388,8 @@ export interface ManagedUserFull extends ManagedUser {
   dni: string | null
   phone: string
   is_active: boolean
+  /** Fecha de alta (ISO, solo lectura). Para el filtro por fecha de creación. */
+  date_joined: string
 }
 
 export interface ManagedUserInput {
@@ -648,3 +697,78 @@ export const updateEmailSignature = (id: number, data: Partial<EmailSignatureRow
 
 export const listEmailLogs = () =>
   getJson<Paginated<EmailLogRow>>(`${API}/email-logs/${listQs({})}`)
+
+// --- Importación masiva (IMPORTACION_MASIVA.md) -----------------------------
+// Ruta plana portada de sap_budget: detect-columns → preview-import →
+// bulk-create por tandas conducidas por el cliente.
+
+export type ImportEntity = 'vehicles' | 'users'
+
+const IMPORT_BASE: Record<ImportEntity, string> = {
+  vehicles: `${API}/vehicles`,
+  users: `${AUTH}/users`,
+}
+
+export interface DetectColumnsResult {
+  columns: string[]
+  /** campo → índice de columna (el índice evita ambigüedad entre cabeceras iguales). */
+  auto_mapping: Record<string, number | null>
+  total_rows: number
+  omitted_count: number
+  sheet_names: string[]
+}
+
+export interface ImportMappingError {
+  field: string
+  message: string
+}
+
+export interface ImportDataError {
+  row: number
+  field: string
+  message: string
+}
+
+export interface ImportPreviewResult {
+  /** Solo filas VÁLIDAS, ya canónicas; cada una lleva `_row` (fila del fichero). */
+  records: Record<string, unknown>[]
+  warnings: { mapping_errors: ImportMappingError[]; data_errors: ImportDataError[] }
+  ready_count: number
+  total_rows: number
+}
+
+export interface BulkCreateResult {
+  created: number
+  ids: number[]
+  errors: { index: number; row_number: number | null; error: string }[]
+}
+
+export const detectImportColumns = (entity: ImportEntity, file: File) => {
+  const form = new FormData()
+  form.append('file', file)
+  return postForm<DetectColumnsResult>(`${IMPORT_BASE[entity]}/detect-columns/`, form)
+}
+
+export const previewImport = (
+  entity: ImportEntity,
+  file: File,
+  mapping: Record<string, number | null>,
+  defaults: Record<string, unknown> = {},
+) => {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('mapping', JSON.stringify(mapping))
+  form.append('defaults', JSON.stringify(defaults))
+  return postForm<ImportPreviewResult>(`${IMPORT_BASE[entity]}/preview-import/`, form)
+}
+
+export const bulkCreateImport = (entity: ImportEntity, rows: Record<string, unknown>[]) =>
+  postJson<BulkCreateResult>(`${IMPORT_BASE[entity]}/bulk-create/`, { rows })
+
+/** Tramos de tanda de sap_budget: pocas filas → una tanda; muchas → lotes grandes. */
+export function computeBatchSize(total: number): number {
+  if (total <= 200) return Math.max(total, 1)
+  if (total <= 1000) return 100
+  if (total <= 5000) return 250
+  return 500
+}

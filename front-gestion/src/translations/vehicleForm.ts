@@ -37,6 +37,18 @@ const es = {
   fleetVehicle: 'Vehículo de flota',
   typeFixedNote: '— el tipo se fija al crear.',
   convertibleNote: 'Puede convertirse en flota desde su ficha.',
+  // Convertir sustituto → flota (triple aviso, solo si no está en uso).
+  convertBtn: 'Convertir en coche de flota',
+  convertTitle: 'Convertir en flota',
+  convertWarn1: (plate: string) =>
+    `Vas a convertir el coche de sustitución ${plate} en un coche de flota. Solo debería hacerse si ya no se usará como sustituto.`,
+  convertWarn2:
+    'El tipo es definitivo: un coche de flota NO puede volver a ser de sustitución. Asegúrate de que no está cubriendo a ningún vehículo.',
+  convertWarn3: (plate: string) =>
+    `Confirmación final: ${plate} pasará a la flota de forma permanente. ¿Continuar?`,
+  convertContinue: 'Continuar',
+  convertConfirm: 'Convertir en flota',
+  convertError: 'No se pudo convertir el vehículo (¿está cubriendo a algún coche?).',
   substituteNotePrefix: 'Estás creando un',
   substituteNoteStrong: 'vehículo de sustitución',
   substituteNoteSuffix:
@@ -234,6 +246,17 @@ const en: typeof es = {
   fleetVehicle: 'Fleet vehicle',
   typeFixedNote: '— the type is set at creation.',
   convertibleNote: 'It can be converted to fleet from its detail page.',
+  convertBtn: 'Convert to fleet vehicle',
+  convertTitle: 'Convert to fleet',
+  convertWarn1: (plate) =>
+    `You are about to convert the substitution vehicle ${plate} into a fleet vehicle. Do this only if it will no longer be used as a substitute.`,
+  convertWarn2:
+    'The type is permanent: a fleet vehicle CANNOT go back to being a substitute. Make sure it is not covering any vehicle.',
+  convertWarn3: (plate) =>
+    `Final confirmation: ${plate} will permanently become a fleet vehicle. Continue?`,
+  convertContinue: 'Continue',
+  convertConfirm: 'Convert to fleet',
+  convertError: 'Could not convert the vehicle (is it covering a car?).',
   substituteNotePrefix: 'You are creating a',
   substituteNoteStrong: 'substitution vehicle',
   substituteNoteSuffix:

@@ -38,6 +38,10 @@ const es = {
   filterAll: 'Todos',
   filterByStatus: 'Filtrar por estado',
   filterAllStatuses: 'Todas',
+  records: 'Registros',
+  searchLabel: 'Buscar',
+  searchPlaceholder: 'Matrícula, tipo o descripción…',
+  viewDescription: 'Ver descripción',
   incidentTitle: (id: number) => `Incidencia #${id}`,
   form: {
     vehicle: 'Vehículo',
@@ -91,6 +95,10 @@ const en: typeof es = {
   filterAll: 'All',
   filterByStatus: 'Filter by status',
   filterAllStatuses: 'All',
+  records: 'Records',
+  searchLabel: 'Search',
+  searchPlaceholder: 'Plate, type or description…',
+  viewDescription: 'View description',
   incidentTitle: (id) => `Incident #${id}`,
   form: {
     vehicle: 'Vehicle',

@@ -47,11 +47,12 @@ export interface KmChartOverlay {
 }
 
 // Lienzo SVG (sin dependencias). Deja hueco arriba (años) y abajo (fechas).
+// Alto compacto (antes 190): la gráfica ocupa menos vertical en la ficha.
 const W = 640
-const H = 190
+const H = 150
 const PAD_X = 12
-const PAD_TOP = 20
-const PAD_BOTTOM = 34
+const PAD_TOP = 18
+const PAD_BOTTOM = 30
 
 interface Pt {
   x: number

@@ -17,6 +17,8 @@ from .base import DeactivatableModel, TimeStampedModel
 
 class EmailTemplateKey(models.TextChoices):
     INSURANCE_DUE = "insurance_due", "Seguro próximo / vencido (a la empresa de renting)"
+    ITV_DUE = "itv_due", "ITV próxima / vencida (aviso de ITV)"
+    STATE_NOTICE = "state_notice", "Comunicado de estado del vehículo"
     KM_OVERAGE = "km_overage", "Exceso de km proyectado (al conductor)"
     KM_READING_PENDING = "km_reading_pending", "Lectura de km pendiente (al conductor)"
     GENERIC = "generic", "Genérica (resto de avisos)"

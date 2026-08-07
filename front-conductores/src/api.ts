@@ -123,13 +123,15 @@ export const registerItv = (data: {
 export const createKmReading = (data: { vehicle: number; km_reading: number; reading_date: string }) =>
   postJson<KmReading>(`${API}/km-readings/`, data)
 
-/** N8a: estado de la ventana de registro de campo (día 23 → fin de mes). */
+/** N8a: estado de la ventana de registro de campo (día 20 → fin de mes).
+ * `today` es el día del BACK: es quien valida, y su zona horaria es la que
+ * cuenta. Solo el admin queda exento (el supervisor es campo). */
 export interface KmWindow {
   open: boolean
   start_day: number
   last_day: number
   today: string
-  management_exempt: boolean
+  admin_exempt: boolean
 }
 
 export const fetchKmWindow = () => getJson<KmWindow>(`${API}/km-readings/window/`)

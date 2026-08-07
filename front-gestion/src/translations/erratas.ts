@@ -18,6 +18,12 @@ const es = {
   restore: 'Restaurar',
   purge: 'Eliminar definitivamente',
   exportCsv: 'Exportar CSV',
+  records: 'Registros',
+  searchLabel: 'Buscar',
+  searchPlaceholder: 'Registro, motivo o persona…',
+  alertTitle: 'Qué es el borrado definitivo',
+  alertBody:
+    'Aquí se listan los registros desactivados (no eliminados). La administración puede restaurarlos; solo el superusuario puede eliminarlos definitivamente. El borrado definitivo es irreversible y queda auditado.',
   columns: {
     label: 'Registro',
     deactivatedAt: 'Desactivado el',
@@ -45,6 +51,12 @@ const en: typeof es = {
   restore: 'Restore',
   purge: 'Delete permanently',
   exportCsv: 'Export CSV',
+  records: 'Records',
+  searchLabel: 'Search',
+  searchPlaceholder: 'Record, reason or person…',
+  alertTitle: 'What permanent deletion means',
+  alertBody:
+    'These are deactivated (not deleted) records. Admins can restore them; only the superuser can delete them permanently. Permanent deletion is irreversible and audited.',
   columns: {
     label: 'Record',
     deactivatedAt: 'Deactivated on',

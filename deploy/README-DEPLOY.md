@@ -35,8 +35,8 @@ for p in 8092 8093; do ss -tln | grep -q ":$p " && echo "$p OCUPADO" || echo "$p
 cd flota
 
 cp .env.example .env
-#   COMPOSE_PROFILES=gestion,conductores   (o solo una)
 #   GESTION_BIND=127.0.0.1  -> cámbialo a 10.3.4.6 (IP interna) para llegar por VPN
+#   (no hay perfiles: el `up` levanta el back y LOS DOS fronts)
 
 cp back/.env.prod.example back/.env.prod
 #   - SECRET_KEY:  python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
@@ -54,9 +54,18 @@ sudo chown -R 10001:10001 data
 ## 3. Construir y levantar
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build     # db, redis, back, jobs, gestión Y conductores
 docker compose ps
 docker compose logs -f back      # migraciones + creación del admin
+```
+
+`docker compose ps` debe listar **seis** servicios; si falta `front-conductores`,
+no está corriendo este compose (o se nombraron servicios sueltos en el `up`).
+Para levantar solo una de las dos apps:
+
+```bash
+docker compose up -d --build back jobs front-conductores
+docker compose up -d --build back jobs front-gestion
 ```
 
 Arranque del back: `migrate` → `collectstatic` → `bootstrap_admin` (crea el admin

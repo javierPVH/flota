@@ -2,17 +2,28 @@
 #
 #   db                  -> PostgreSQL propio de Flota.   SOLO red interna (aislado).
 #   back                -> Django + DRF (gunicorn).      SOLO red interna.
-#   front-gestion       -> nginx: SPA + proxy /api,/admin -> back.   profile: gestion
-#   front-conductores   -> nginx: SPA + proxy /api      -> back.     profile: conductores
+#   front-gestion       -> nginx: SPA + proxy /api,/admin -> back.
+#   front-conductores   -> nginx: SPA + proxy /api      -> back.
 #
 # Cada front es una PUERTA completa de su dominio, publicada en loopback:
 #   · conductores -> 127.0.0.1:8092   (se cuelga del Cloudflare Tunnel = internet)
 #   · gestion     -> 127.0.0.1:8093   (SOLO interna/VPN, NUNCA en el túnel)
 #
+# LAS DOS APLICACIONES SE LEVANTAN SIEMPRE: ningún servicio usa `profiles`, así
+# que un `up` normal arranca back + gestión + conductores. (Antes iban detrás de
+# los perfiles `gestion`/`conductores` y bastaba olvidar COMPOSE_PROFILES —o usar
+# `--profile gestion`— para quedarse sin el front de conductores.)
+#
 # La BD y sus credenciales viven en el `.env` de infra (DB_NAME/DB_USER/DB_PASSWORD):
 # las usan tanto `db` (POSTGRES_*) como `back` (DB_*), así no se duplican.
 #
-#   docker compose up -d --build
+#   docker compose up -d --build                 # todo: back + los dos fronts
+#
+# Para levantar SOLO una de las dos apps, nombra sus servicios explícitamente
+# (compose arrastra sus dependencias; añade `jobs` para las tareas programadas):
+#
+#   docker compose up -d --build back jobs front-conductores
+#   docker compose up -d --build back jobs front-gestion
 
 name: flota
 
@@ -122,7 +133,6 @@ services:
       dockerfile: front-gestion/Dockerfile
     image: flota-front-gestion:${IMAGE_TAG:-latest}
     restart: unless-stopped
-    profiles: ["gestion"]
     depends_on:
       back:
         # OPS4: sin esto el front daba 502 mientras el back migraba.
@@ -141,7 +151,6 @@ services:
       dockerfile: front-conductores/Dockerfile
     image: flota-front-conductores:${IMAGE_TAG:-latest}
     restart: unless-stopped
-    profiles: ["conductores"]
     depends_on:
       back:
         condition: service_healthy
@@ -149,6 +158,8 @@ services:
     volumes:
       - ${DATA_DIR:-./data}:/data:ro
     ports:
+      # Loopback FIJO a propósito: la única puerta pública es el Cloudflare
+      # Tunnel (http://localhost:8092). No lo abras a otras interfaces.
       - "127.0.0.1:${CONDUCTORES_PORT:-8092}:80"
 
 volumes:

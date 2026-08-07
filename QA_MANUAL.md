@@ -122,6 +122,12 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
 - [ ] Login → resumen del vehículo: matrícula, km, próxima ITV, estado del seguro.
 - [ ] Aviso "lectura de este mes pendiente" coherente (A9, mismo criterio que en gestión).
 - [ ] Registrar una lectura de km (dentro de la ventana; fuera de ventana debe explicarse, no fallar en silencio).
+- [ ] **Ventana de km (N8a, día 20 → fin de mes)**: fuera de plazo el formulario sale
+      deshabilitado con el aviso; dentro, guarda. `FLEET_KM_WINDOW_START=0` en
+      `back/.env` la desactiva si necesitas registrar a cualquier día.
+- [ ] **Avisos del inicio**: aparecen SOLO cuando queda poco — km (≤5 días para que
+      cierre la ventana, o ≤3 para que abra), ITV y seguro (≤30 días; rojo a ≤7 o ya
+      vencido). Sin nada urgente, la tira no existe. Cada aviso enlaza a su destino.
 - [ ] Crear una incidencia con foto.
 - [ ] Subir un documento.
 - [ ] Gráfica de km con overlay (A11: el shim re-exporta los tipos — si compila y pinta, OK).
@@ -130,6 +136,8 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
 ### Portones de acceso
 - [ ] `david` (sin coche): pantalla clara de "sin vehículo asignado", sin errores.
 - [ ] `sara` (supervisora): ve su vista de supervisión, no la de conductor.
+- [ ] `sara` **también** está sujeta a la ventana de km (es campo): fuera de plazo se
+      le bloquea igual que a `carlos`. Solo el `admin` queda exento.
 
 ### Robustez PWA (BG5–BG7 — con DevTools)
 - [ ] **Offline**: DevTools → Network → Offline. La app sigue mostrando el shell; registrar una lectura → queda **encolada** con aviso. Volver online → se envía sola y desaparece de la cola.

@@ -1,5 +1,6 @@
 from datetime import date
 
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -44,6 +45,10 @@ class ResourceScopeTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
     # --- Km: el conductor registra los de su vehículo (HU-3.1) --------
+    # La ventana N8a se desactiva a propósito: aquí se prueba el ALCANCE (de
+    # quién son los km), no el plazo. Sin el override, estos dos tests pasaban o
+    # fallaban según el día del mes en que se ejecutara la suite.
+    @override_settings(FLEET_KM_WINDOW_START=0)
     def test_driver_can_register_km_of_own_vehicle(self):
         self.client.force_authenticate(self.driver)
         resp = self.client.post(
@@ -52,6 +57,7 @@ class ResourceScopeTests(APITestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
+    @override_settings(FLEET_KM_WINDOW_START=0)
     def test_driver_cannot_register_km_of_foreign_vehicle(self):
         self.client.force_authenticate(self.driver)
         resp = self.client.post(

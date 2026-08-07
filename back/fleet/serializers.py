@@ -53,10 +53,14 @@ class LogEntrySerializer(serializers.ModelSerializer):
     action = serializers.CharField(source="get_action_display", read_only=True)
     actor = serializers.SerializerMethodField()
     changes = serializers.SerializerMethodField()
+    # Modelo de origen (vehicle/contract/assignment/…) y su representación, para
+    # que el histórico exhaustivo pueda etiquetar de dónde viene cada cambio.
+    model = serializers.SerializerMethodField()
+    object_repr = serializers.CharField(read_only=True)
 
     class Meta:
         model = LogEntry
-        fields = ["id", "action", "actor", "changes", "timestamp"]
+        fields = ["id", "action", "actor", "changes", "model", "object_repr", "timestamp"]
         read_only_fields = fields
 
     def get_actor(self, obj) -> str:
@@ -64,6 +68,9 @@ class LogEntrySerializer(serializers.ModelSerializer):
         if not actor:
             return ""
         return actor.get_full_name() or actor.get_username()
+
+    def get_model(self, obj) -> str:
+        return obj.content_type.model if obj.content_type_id else ""
 
     def get_changes(self, obj) -> dict:
         # En auditlog 3.x `changes` ya es dict; defensivo por si viniera como texto.
@@ -98,6 +105,7 @@ class VehicleSerializer(serializers.ModelSerializer):
     state_display = serializers.CharField(source="get_state_display", read_only=True)
     supervisor_name = serializers.SerializerMethodField()
     driver_name = serializers.SerializerMethodField()
+    driver_id = serializers.SerializerMethodField()
     # N5: marca/modelo por catálogo. Los CharField legados pasan a opcionales
     # (se rellenan desde las FKs); los fronts leen brand/model como siempre.
     brand = serializers.CharField(required=False, allow_blank=False, max_length=50)
@@ -152,6 +160,7 @@ class VehicleSerializer(serializers.ModelSerializer):
             "insurance_expiry_date",
             "next_itv_date",
             "driver_name",
+            "driver_id",
             "drive_folder_url",
             "drive_folder_id",
             "contract",
@@ -165,6 +174,7 @@ class VehicleSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "next_itv_date",
+            "driver_id",
             "drive_folder_url",
             "drive_folder_id",
             "created_at",
@@ -177,7 +187,7 @@ class VehicleSerializer(serializers.ModelSerializer):
             return ""
         return sup.get_full_name() or sup.get_username()
 
-    def get_driver_name(self, obj: Vehicle) -> str:
+    def _current_driver(self, obj: Vehicle):
         """Conductor vigente (HU-1.1). El mapa se calcula UNA vez por respuesta
         (cacheado en el context) para no hacer una query por fila del listado."""
         drivers = self.context.get("_current_drivers")
@@ -190,8 +200,16 @@ class VehicleSerializer(serializers.ModelSerializer):
             )
             drivers = current_driver_map(ids)
             self.context["_current_drivers"] = drivers
-        driver = drivers.get(obj.id)
+        return drivers.get(obj.id)
+
+    def get_driver_name(self, obj: Vehicle) -> str:
+        driver = self._current_driver(obj)
         return (driver.get_full_name() or driver.get_username()) if driver else ""
+
+    def get_driver_id(self, obj: Vehicle) -> int | None:
+        # Id del conductor vigente: permite enlazar a su ficha desde el listado.
+        driver = self._current_driver(obj)
+        return driver.id if driver else None
 
     def validate(self, attrs):
         # HU-1.3: proyecto obligatorio cuando el uso empresarial es "proyecto".
@@ -332,9 +350,12 @@ class KmReadingSerializer(serializers.ModelSerializer):
                         )
                     }
                 )
-        # N8a: el personal de campo solo registra en la ventana [día 23, fin de
-        # mes]. La gestión queda exenta. Mensaje explícito: la cola offline lo
-        # muestra tal cual cuando un registro encolado llega fuera de plazo.
+        # N8a: el personal de campo solo registra en la ventana [día 20, fin de
+        # mes]. Exento el ADMIN, no `is_management`: esa propiedad incluye al
+        # supervisor, que es personal de CAMPO (usa la app móvil, ver README) y
+        # a quien el plan 8a sujeta a la ventana igual que al conductor.
+        # Mensaje explícito: la cola offline lo muestra tal cual cuando un
+        # registro encolado llega fuera de plazo.
         from .services import km_window
 
         request = self.context.get("request")
@@ -342,7 +363,7 @@ class KmReadingSerializer(serializers.ModelSerializer):
             self.instance is None
             and request is not None
             and request.user.is_authenticated
-            and not request.user.is_management
+            and not request.user.is_admin
             and not km_window.field_window_open()
         ):
             raise serializers.ValidationError({"reading_date": km_window.field_window_message()})

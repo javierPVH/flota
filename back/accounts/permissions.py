@@ -62,6 +62,28 @@ class IsManagementOrDriverReadOnly(BasePermission):
         return request.method in SAFE_METHODS and user.is_driver
 
 
+class IsManagementOrDriverCreate(BasePermission):
+    """Gestión escribe todo; el conductor lee y CREA, pero no edita ni borra.
+
+    C3: el conductor comunica averías e incidencias desde la app de campo
+    (HU-4.1 lo hacía ya con documentos, y esta es la pareja natural). Aportar no
+    es resolver: cerrar o reclasificar una incidencia sigue siendo de gestión, y
+    el ámbito (solo sus vehículos) lo impone el queryset, no este permiso.
+    """
+
+    message = "No tienes permiso para modificar este recurso."
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        if user.is_management:
+            return True
+        if not user.is_driver:
+            return False
+        return request.method in SAFE_METHODS or request.method == "POST"
+
+
 class RoleReadWritePermission(BasePermission):
     """Base declarativa: qué roles pueden LEER y qué roles pueden ESCRIBIR.
 
@@ -129,6 +151,7 @@ __all__ = [
     "IsManagement",
     "IsDriver",
     "IsManagementOrDriverReadOnly",
+    "IsManagementOrDriverCreate",
     "RoleReadWritePermission",
     "AdminWriteManagementRead",
     "AdminWriteManagementOrDriverRead",

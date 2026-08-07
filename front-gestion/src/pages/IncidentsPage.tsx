@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Badge, Button, Chip, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import { Download, FileText, Pencil } from 'lucide-react'
@@ -15,6 +15,8 @@ import {
 } from '../api.ts'
 import { exportCsv } from '../csv.ts'
 import { incidentStatusTone } from '../format.ts'
+import { TableInfoBar } from '../components/TableInfoBar.tsx'
+import { TextCell } from '../components/TextCell.tsx'
 import { useIncidentsCopy } from '../translations/incidents.ts'
 import type { Incident, Vehicle } from '../types.ts'
 
@@ -42,13 +44,15 @@ export function IncidentsPage() {
   const t = useIncidentsCopy()
   const [searchParams, setSearchParams] = useSearchParams()
   const vehicleFilter = searchParams.get('vehicle') ?? ''
-  const statusFilter = searchParams.get('status') ?? ''
   const typeFilter = searchParams.get('type') ?? ''
 
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // Estado como pestañas (subtab) + búsqueda en cliente (franja estilo Vehículos).
+  const [tab, setTab] = useState('')
+  const [search, setSearch] = useState('')
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Incident | null>(null)
@@ -110,9 +114,29 @@ export function IncidentsPage() {
   const plateById = useMemo(() => new Map(vehicles.map((v) => [v.id, v.plate])), [vehicles])
   const plateOf = (id: number) => plateById.get(id) ?? `#${id}`
 
-  const countOf = (status: string) =>
-    status ? incidents.filter((i) => i.status === status).length : incidents.length
-  const filtered = statusFilter ? incidents.filter((i) => i.status === statusFilter) : incidents
+  // Pestañas por estado + búsqueda en cliente (matrícula, tipo, descripción…).
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return incidents.filter((i) => {
+      if (tab && i.status !== tab) return false
+      if (
+        term &&
+        !`${plateOf(i.vehicle)} ${i.type_display} ${i.description ?? ''} ${i.status_display}`
+          .toLowerCase()
+          .includes(term)
+      )
+        return false
+      return true
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incidents, tab, search, plateById])
+
+  const tabs = [
+    { key: '', label: t.filterAllStatuses },
+    { key: 'open', label: t.statuses.open },
+    { key: 'on_going', label: t.statuses.on_going },
+    { key: 'closed', label: t.statuses.closed },
+  ]
 
   function openCreate() {
     setEditing(null)
@@ -203,8 +227,11 @@ export function IncidentsPage() {
     {
       key: 'description',
       label: t.columns.description,
+      sortable: false,
       getValue: (i) => i.description,
-      render: (i) => <span className="cell-truncate">{i.description || '—'}</span>,
+      render: (i) => (
+        <TextCell text={i.description} title={t.columns.description} label={t.viewDescription} />
+      ),
     },
     {
       key: 'actions',
@@ -231,15 +258,39 @@ export function IncidentsPage() {
 
   return (
     <div>
-      <PageHeader
-        title={t.title}
-        subtitle={t.subtitle}
+      <PageHeader title={t.title} subtitle={t.subtitle} />
+
+      {/* Pestañas por estado (subtabs). */}
+      <div className="veh-tabs settings-tabs" role="tablist" aria-label={t.filterByStatus}>
+        {tabs.map((item) => (
+          <button
+            key={item.key || 'all'}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.key}
+            className={`veh-tab${tab === item.key ? ' is-active' : ''}`}
+            onClick={() => setTab(item.key)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Franja de opciones (como en Vehículos): registros + buscar + filtros + acciones. */}
+      <TableInfoBar
+        inline
+        count={visible.length}
+        recordsLabel={t.records}
+        searchLabel={t.searchLabel}
+        searchPlaceholder={t.searchPlaceholder}
+        search={search}
+        onSearchChange={setSearch}
         actions={
           <>
             <Button
               variant="secondary"
-              disabled={filtered.length === 0}
-              onClick={() => exportCsv('incidencias', columns, filtered)}
+              disabled={visible.length === 0}
+              onClick={() => exportCsv('incidencias', columns, visible)}
             >
               <Download size={16} aria-hidden /> {t.exportCsv}
             </Button>
@@ -248,39 +299,35 @@ export function IncidentsPage() {
             </Button>
           </>
         }
-      />
-
-      <div className="filters-row">
-        <SelectField
-          label={t.filterVehicle}
-          options={[
-            { value: '', label: t.filterAll },
-            ...vehicles.map((v) => ({ value: String(v.id), label: v.plate })),
-          ]}
-          value={vehicleFilter}
-          onValueChange={(value) => setFilter('vehicle', value)}
-        />
-        <SelectField
-          label={t.filterType}
-          options={[{ value: '', label: t.filterAll }, ...typeOptions]}
-          value={typeFilter}
-          onValueChange={(value) => setFilter('type', value)}
-        />
-      </div>
-
-      {/* Estado como chips con contador (patrón de la home). */}
-      <div className="chips-row" role="group" aria-label={t.filterByStatus}>
-        {[{ value: '', label: t.filterAllStatuses }, ...statusOptions].map((o) => (
-          <Chip
-            key={o.value}
-            active={statusFilter === o.value}
-            count={countOf(o.value)}
-            onClick={() => setFilter('status', o.value)}
-          >
-            {o.label}
-          </Chip>
-        ))}
-      </div>
+      >
+        <div className="filter-field filter-field--role">
+          <label>{t.filterVehicle}</label>
+          <SelectField
+            aria-label={t.filterVehicle}
+            containerClassName="role-filter"
+            required
+            enableSearchFilter
+            options={[
+              { value: '', label: t.filterAll },
+              ...vehicles.map((v) => ({ value: String(v.id), label: v.plate })),
+            ]}
+            value={vehicleFilter}
+            onValueChange={(value) => setFilter('vehicle', value)}
+          />
+        </div>
+        <div className="filter-field filter-field--role">
+          <label>{t.filterType}</label>
+          <SelectField
+            aria-label={t.filterType}
+            containerClassName="role-filter"
+            required
+            enableSearchFilter
+            options={[{ value: '', label: t.filterAll }, ...typeOptions]}
+            value={typeFilter}
+            onValueChange={(value) => setFilter('type', value)}
+          />
+        </div>
+      </TableInfoBar>
 
       {error && <div role="alert" className="form-error">{error}</div>}
 
@@ -288,10 +335,11 @@ export function IncidentsPage() {
         <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<Incident>
-          rows={filtered}
+          rows={visible}
           columns={columns}
           rowKey={(i) => String(i.id)}
           enableColumnSort
+          showControlPanel={false}
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}

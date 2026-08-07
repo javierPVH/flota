@@ -45,7 +45,7 @@ export function RegisterKmPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState<SavedReading | null>(null)
-  // N8a: ventana de registro (día 23 → fin de mes) — la autoridad es el back.
+  // N8a: ventana de registro (día 20 → fin de mes) — la autoridad es el back.
   const [window_, setWindow] = useState<KmWindow | null>(null)
 
   useEffect(() => {
@@ -97,8 +97,9 @@ export function RegisterKmPage() {
     listKmReadings(Number(vehicleId))
       .then((page) => {
         if (!alive) return
-        // El back ordena ascendente por fecha: nos quedamos con las 4 últimas.
-        setRecent([...page.results].slice(-4).reverse())
+        // El back ordena ascendente por fecha. Como ahora el histórico es una
+        // sección propia al pie (y no una nota dentro del panel), caben más.
+        setRecent([...page.results].slice(-8).reverse())
       })
       .catch(() => alive && setRecent([]))
     return () => {
@@ -228,21 +229,17 @@ export function RegisterKmPage() {
               t.km.firstReading
             )}
           </p>
-          {recent.length > 1 && (
-            <ul className="km-recent">
-              {recent.map((r) => (
-                <li key={r.id}>
-                  <span>{fmtDate(r.reading_date)}</span>
-                  <strong>{fmtKm(r.km_reading)}</strong>
-                </li>
-              ))}
-            </ul>
-          )}
         </Panel>
       )}
 
       {vehicleId && (
         <form className="modal-form" onSubmit={handleSubmit}>
+          {/* La FECHA va primero: es lo que decide de qué mes es la lectura, y
+              en la ventana del día 20 se registra a veces con fecha atrasada. */}
+          <label className="file-field">
+            <span>{t.km.date}</span>
+            <input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} />
+          </label>
           <label className="km-input-label">
             <span>{t.km.odometer}</span>
             <input
@@ -261,15 +258,27 @@ export function RegisterKmPage() {
               {t.km.noGoBack(fmtKm(summary?.km_current))}
             </div>
           )}
-          <label className="file-field">
-            <span>{t.km.date}</span>
-            <input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} />
-          </label>
           {error && <div role="alert" className="form-error">{error}</div>}
           <Button type="submit" disabled={saving || kmValue === null || goesBack || windowClosed}>
             {saving ? t.km.saving : t.km.save}
           </Button>
         </form>
+      )}
+
+      {/* Histórico al pie: sirve para detectar una errata (un dígito de más se
+          ve al instante comparando con las anteriores), no para operar. */}
+      {recent.length > 0 && (
+        <section className="km-history">
+          <h3 className="panel-title">{t.km.historyTitle}</h3>
+          <ul className="km-recent">
+            {recent.map((r) => (
+              <li key={r.id}>
+                <span>{fmtDate(r.reading_date)}</span>
+                <strong>{fmtKm(r.km_reading)}</strong>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </div>
   )

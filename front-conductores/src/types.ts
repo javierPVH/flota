@@ -100,7 +100,10 @@ export interface VehicleSummary {
   plate: string
   state: VehicleState
   next_itv_date: string | null
-  insurance_expiry_date: string | null
+  // X1: `insurance_expiry_date` viaja en el payload (el endpoint lo comparte el
+  // front de gestión) pero NO se declara aquí a propósito: el seguro es asunto
+  // de administración y en campo no se pinta. Dejarlo fuera del tipo es lo que
+  // impide que vuelva a colarse en una pantalla.
   /** N3: sin proyección — pintar "Km ilimitados" en vez de "sin contrato". */
   unlimited_km: boolean
   is_substitute: boolean

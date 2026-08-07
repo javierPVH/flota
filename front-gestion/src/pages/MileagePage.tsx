@@ -1,37 +1,41 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge, Button, Modal, PageHeader, Panel, SelectField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import { todayIso } from '@flota/ui/domain'
 import { useAppLang, type AppLanguage } from '@flota/ui/i18n'
+import { AlertTriangle, ChevronLeft, ChevronRight, Download, Mail } from 'lucide-react'
 
 import {
   fetchKmEstimatePreview,
   fetchVehicleSummaries,
   listAll,
+  listEmailTemplates,
+  listKmReadingsAll,
   listVehicles,
+  noticePreviewVehicle,
+  notifyVehicle,
   runKmEstimate,
+  type EmailTemplateRow,
   type KmEstimatePreview,
   type KmEstimateResult,
 } from '../api.ts'
 import { exportCsv } from '../csv.ts'
 import { kmLevelTone } from '../format.ts'
 import { ReadingsHistory } from '../components/ReadingsHistory.tsx'
+import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { useMileageCopy } from '../translations/mileage.ts'
-import type { Vehicle, VehicleSummary } from '../types.ts'
+import type { KmReading, Vehicle, VehicleSummary } from '../types.ts'
 
 const LOCALES: Record<AppLanguage, string> = { es: 'es-ES', en: 'en-GB' }
+
+type MileageTab = 'readings' | 'pending' | 'projection' | 'unlimited'
+type ProjMode = 'contract' | 'year'
 
 interface Row {
   vehicle: Vehicle
   summary: VehicleSummary
-}
-
-/** ¿Le falta la lectura del mes? (HU-3.3) */
-function pendingThisMonth(summary: VehicleSummary): boolean {
-  const month = todayIso().slice(0, 7) // mes LOCAL, no UTC (doctrina E2/E6)
-  return !summary.km_reading_date || !summary.km_reading_date.startsWith(month)
 }
 
 /** Días transcurridos desde una fecha ISO (o -1 si no hay). */
@@ -39,53 +43,106 @@ function daysSince(dateStr: string | null | undefined): number {
   return dateStr ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000) : -1
 }
 
+/** Mes (YYYY-MM) desplazado `delta` meses. */
+function shiftMonth(ym: string, delta: number): string {
+  const [y, m] = ym.split('-').map(Number)
+  const d = new Date(y, m - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
 export function MileagePage() {
   const t = useMileageCopy()
   const lang = useAppLang()
   const locale = LOCALES[lang]
   const km = useMemo(
-    () => (value: number) => `${value.toLocaleString(locale)} km`,
+    () => (value: number) => `${value.toLocaleString(locale, { useGrouping: true })} km`,
     [locale],
   )
 
   const [rows, setRows] = useState<Row[]>([])
+  const [allReadings, setAllReadings] = useState<KmReading[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [supervisorFilter, setSupervisorFilter] = useState('')
 
-  // N8b: completar km faltantes del mes anterior (admin, días 1-10).
+  // Pestañas + filtros de la franja (estilo Vehículos).
+  const [tab, setTab] = useState<MileageTab>('readings')
+  const [search, setSearch] = useState('')
+  const [supervisorFilter, setSupervisorFilter] = useState('')
+  const [projMode, setProjMode] = useState<ProjMode>('contract')
+
+  // Mes que se está reflejando (las lecturas son mensuales). Por defecto, el mes
+  // actual; se puede navegar atrás/adelante con el manejador de fechas.
+  const currentMonth = todayIso().slice(0, 7)
+  const [month, setMonth] = useState<string>(currentMonth)
+
+  // N8b: completar km faltantes del mes anterior (admin).
   const [estimateOpen, setEstimateOpen] = useState(false)
   const [preview, setPreview] = useState<KmEstimatePreview | null>(null)
   const [months, setMonths] = useState('2')
   const [running, setRunning] = useState(false)
   const [estimateResult, setEstimateResult] = useState<KmEstimateResult | null>(null)
   const [estimateError, setEstimateError] = useState('')
+  // Avisos al pulsar el botón fuera de ventana (hasta 3; al 3º se permite).
+  const [warnOpen, setWarnOpen] = useState(false)
+  const [warnCount, setWarnCount] = useState(0)
+
+  // Aviso por correo (recordatorio de lectura): por fila o masivo a los pendientes.
+  // El asunto y el cuerpo salen de una PLANTILLA de correo (10b).
+  const [templates, setTemplates] = useState<EmailTemplateRow[]>([])
+  const [emailMode, setEmailMode] = useState<{ kind: 'single'; row: Row } | { kind: 'bulk' } | null>(null)
+  const [emailTemplate, setEmailTemplate] = useState('')
+  const [emailMessage, setEmailMessage] = useState('')
+  const [emailToDriver, setEmailToDriver] = useState(true)
+  const [emailToSupervisor, setEmailToSupervisor] = useState(false)
+  const [emailSending, setEmailSending] = useState(false)
+  const [emailError, setEmailError] = useState('')
+  const [emailResult, setEmailResult] = useState<string | null>(null)
+  const [emailPreview, setEmailPreview] = useState<{ subject: string; body_html: string } | null>(null)
+  const [previewing, setPreviewing] = useState(false)
+
+  // Ventana del botón: desde 2 días antes del fin de mes hasta 4 días después.
+  const withinWindow = useMemo(() => {
+    const now = new Date()
+    const day = now.getDate()
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    return day <= 4 || day >= lastDay - 2
+  }, [])
 
   useEffect(() => {
     fetchKmEstimatePreview()
       .then(setPreview)
       .catch(() => setPreview(null))
+    listEmailTemplates()
+      .then((p) => setTemplates(p.results))
+      .catch(() => setTemplates([]))
   }, [])
 
-  async function handleEstimate() {
-    setRunning(true)
+  function openEstimate() {
+    setEstimateResult(null)
     setEstimateError('')
-    try {
-      const result = await runKmEstimate(Number(months))
-      setEstimateResult(result)
-      const refreshed = await fetchKmEstimatePreview().catch(() => null)
-      if (refreshed) setPreview(refreshed)
-    } catch (err) {
-      setEstimateError(asErrorMessage(err, t.modal.runError))
-    } finally {
-      setRunning(false)
-    }
+    setWarnCount(0)
+    setEstimateOpen(true)
   }
 
-  // Summaries en UNA petición (O2): antes era una llamada por fila.
+  // Dentro de ventana → abre directo. Fuera → avisos (al 3º ofrece continuar).
+  function handleEstimateClick() {
+    if (withinWindow) {
+      openEstimate()
+      return
+    }
+    setWarnCount((n) => n + 1)
+    setWarnOpen(true)
+  }
+
+  // Summaries + vehículos + TODAS las lecturas (para el cálculo por mes) en
+  // paralelo. Los summaries aportan contrato/proyección para su pestaña.
   const load = useCallback(() => {
-    Promise.all([listAll(listVehicles()), fetchVehicleSummaries()])
-      .then(([vehicles, summaries]) => {
+    Promise.all([
+      listAll(listVehicles()),
+      fetchVehicleSummaries(),
+      listAll(listKmReadingsAll({})),
+    ])
+      .then(([vehicles, summaries, readings]) => {
         const byId = new Map(summaries.map((s) => [s.vehicle, s]))
         setRows(
           vehicles.flatMap((v) => {
@@ -93,6 +150,7 @@ export function MileagePage() {
             return summary ? [{ vehicle: v, summary }] : []
           }),
         )
+        setAllReadings(readings)
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, t.loadError)))
@@ -101,22 +159,188 @@ export function MileagePage() {
 
   useEffect(load, [load])
 
-  // Columnas de "Lecturas pendientes" — mismo estilo unificado (TableWithPanel).
-  const pendingColumns = useMemo<Array<TableWithPanelColumn<Row>>>(
-    () => [
-      {
-        key: 'vehicle',
-        label: t.columns.vehicle,
-        getValue: ({ vehicle }) => vehicle.plate,
-        render: ({ vehicle }) => (
-          <span>
-            <Link to={`/vehiculos/${vehicle.id}`} className="cell-link">
-              <strong>{vehicle.plate}</strong>
-            </Link>{' '}
-            {vehicle.brand} {vehicle.model}
+  async function handleEstimate() {
+    setRunning(true)
+    setEstimateError('')
+    try {
+      // Fuera de la ventana del backend (días 1-10) se fuerza con override.
+      const result = await runKmEstimate(Number(months), !preview?.open)
+      setEstimateResult(result)
+      const refreshed = await fetchKmEstimatePreview().catch(() => null)
+      if (refreshed) setPreview(refreshed)
+      load()
+    } catch (err) {
+      setEstimateError(asErrorMessage(err, t.modal.runError))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  function openEmail(target: { kind: 'single'; row: Row } | { kind: 'bulk' }) {
+    setEmailMode(target)
+    // Por defecto, la plantilla de "lectura de km pendiente"; si no, la primera.
+    const preferred = templates.find((tp) => tp.key === 'km_reading_pending') ?? templates[0]
+    setEmailTemplate(preferred?.key ?? '')
+    setEmailMessage('')
+    setEmailToDriver(true)
+    setEmailToSupervisor(false)
+    setEmailError('')
+    setEmailResult(null)
+    setEmailPreview(null)
+  }
+
+  async function previewEmail() {
+    if (emailMode?.kind !== 'single' || !emailTemplate) return
+    setPreviewing(true)
+    setEmailError('')
+    try {
+      const res = await noticePreviewVehicle(emailMode.row.vehicle.id, {
+        template_key: emailTemplate,
+        message: emailMessage,
+      })
+      setEmailPreview({ subject: res.subject, body_html: res.body_html })
+    } catch (err) {
+      setEmailError(asErrorMessage(err, t.email.sendError))
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  async function sendEmail() {
+    if (!emailMode) return
+    if (!emailTemplate) {
+      setEmailError(t.email.noTemplate)
+      return
+    }
+    if (!emailToDriver && !emailToSupervisor) {
+      setEmailError(t.email.noRecipients)
+      return
+    }
+    setEmailSending(true)
+    setEmailError('')
+    const data = {
+      to_driver: emailToDriver,
+      to_supervisor: emailToSupervisor,
+      template_key: emailTemplate,
+      message: emailMessage,
+    }
+    try {
+      if (emailMode.kind === 'single') {
+        const res = await notifyVehicle(emailMode.row.vehicle.id, data)
+        setEmailResult(t.email.result(res.sent.length, res.skipped.length))
+      } else {
+        // Masivo: un envío por cada vehículo pendiente (secuencial, best-effort).
+        let sent = 0
+        let skipped = 0
+        let failed = 0
+        for (const r of pending) {
+          try {
+            const res = await notifyVehicle(r.vehicle.id, data)
+            sent += res.sent.length
+            skipped += res.skipped.length
+          } catch {
+            failed += 1
+          }
+        }
+        setEmailResult(t.email.bulkResult(sent, skipped, failed))
+      }
+    } catch (err) {
+      setEmailError(asErrorMessage(err, t.email.sendError))
+    } finally {
+      setEmailSending(false)
+    }
+  }
+
+  // Lecturas por vehículo, ordenadas de la más reciente a la más antigua.
+  const readingsByVehicle = useMemo(() => {
+    const map = new Map<number, KmReading[]>()
+    for (const r of allReadings) {
+      const arr = map.get(r.vehicle)
+      if (arr) arr.push(r)
+      else map.set(r.vehicle, [r])
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => (a.reading_date ?? '') < (b.reading_date ?? '') ? 1 : -1)
+    }
+    return map
+  }, [allReadings])
+
+  // Lectura del mes seleccionado (la más reciente dentro de ese mes).
+  const monthReading = useCallback(
+    (vid: number, ym: string) =>
+      readingsByVehicle.get(vid)?.find((r) => (r.reading_date ?? '').startsWith(ym)),
+    [readingsByVehicle],
+  )
+  // Última lectura a fin del mes seleccionado (para "pendiente desde").
+  const lastAsOf = useCallback(
+    (vid: number, ym: string) =>
+      readingsByVehicle.get(vid)?.find((r) => (r.reading_date ?? '') <= `${ym}-31`),
+    [readingsByVehicle],
+  )
+  // Última lectura REAL (no estimada) anterior a una fecha.
+  const lastRealBefore = useCallback(
+    (vid: number, dateStr: string) =>
+      readingsByVehicle
+        .get(vid)
+        ?.find((r) => !r.estimated && r.km_reading != null && (r.reading_date ?? '') < dateStr),
+    [readingsByVehicle],
+  )
+
+  // Celda de lectura: km + marca "Estimada" (con la última lectura real) si fue
+  // generada automáticamente.
+  const readingCell = useCallback(
+    (r: KmReading | undefined) => {
+      if (!r || r.km_reading == null) return <span className="muted">{t.never}</span>
+      const real = r.estimated ? lastRealBefore(r.vehicle, r.reading_date ?? '') : undefined
+      return (
+        <span className="km-reading-cell">
+          {/* Advertencia a la izquierda; km SIEMPRE a la derecha. */}
+          <span className="km-reading-line">
+            {r.estimated && (
+              <span
+                className="km-estimated-mark"
+                title={
+                  real && real.km_reading != null
+                    ? t.estimatedWithReal(km(real.km_reading), real.reading_date ?? '')
+                    : t.estimatedTitle
+                }
+              >
+                <AlertTriangle size={13} aria-hidden /> {t.estimatedTag}
+              </span>
+            )}
+            <span className="km-value">{km(r.km_reading)}</span>
           </span>
-        ),
-      },
+          {r.estimated && real && real.km_reading != null && (
+            <span className="km-real-note">{t.lastReal(km(real.km_reading), real.reading_date ?? '')}</span>
+          )}
+        </span>
+      )
+    },
+    [t, km, lastRealBefore],
+  )
+
+  const vehicleColumn = useMemo<TableWithPanelColumn<Row>>(
+    () => ({
+      key: 'vehicle',
+      label: t.columns.vehicle,
+      getValue: ({ vehicle }) => vehicle.plate,
+      render: ({ vehicle }) => (
+        <span>
+          <Link to={`/vehiculos/${vehicle.id}`} className="cell-link">
+            <strong>{vehicle.plate}</strong>
+          </Link>{' '}
+          {vehicle.brand} {vehicle.model}
+        </span>
+      ),
+    }),
+    [t],
+  )
+
+  // Columnas de "Lecturas" (todos los coches, lectura del mes reflejado) y de
+  // "Flota con km ilimitados".
+  const readingsColumns = useMemo<Array<TableWithPanelColumn<Row>>>(
+    () => [
+      vehicleColumn,
       {
         key: 'supervisor',
         label: t.columns.supervisor,
@@ -124,58 +348,125 @@ export function MileagePage() {
         render: ({ vehicle }) => vehicle.supervisor_name || '—',
       },
       {
+        key: 'driver',
+        label: t.columns.driver,
+        getValue: ({ summary, vehicle }) => summary.driver?.name || vehicle.driver_name || '',
+        render: ({ summary, vehicle }) => summary.driver?.name || vehicle.driver_name || '—',
+      },
+      {
+        key: 'month_km',
+        label: t.columns.monthReading,
+        align: 'right',
+        getValue: ({ vehicle }) => monthReading(vehicle.id, month)?.km_reading ?? -1,
+        render: ({ vehicle }) => readingCell(monthReading(vehicle.id, month)),
+      },
+      {
+        key: 'reading_date',
+        label: t.columns.readingDate,
+        isDate: true,
+        getValue: ({ vehicle }) => monthReading(vehicle.id, month)?.reading_date ?? '',
+        render: ({ vehicle }) => monthReading(vehicle.id, month)?.reading_date ?? '—',
+      },
+      {
+        key: 'month_state',
+        label: t.columns.monthState,
+        // Ordena: "Al día" primero (-1) y luego los pendientes por días.
+        getValue: ({ vehicle }) =>
+          monthReading(vehicle.id, month) ? -1 : daysSince(lastAsOf(vehicle.id, month)?.reading_date),
+        render: ({ vehicle }) => {
+          if (monthReading(vehicle.id, month)) return <Badge tone="success">{t.statusUpToDate}</Badge>
+          const days = daysSince(lastAsOf(vehicle.id, month)?.reading_date)
+          return (
+            <span className="km-month-state">
+              <Badge tone="warning">{t.statusPending}</Badge>
+              {days >= 0 && <span className="muted">{t.days(days)}</span>}
+            </span>
+          )
+        },
+      },
+    ],
+    [t, month, monthReading, lastAsOf, readingCell, vehicleColumn],
+  )
+
+  // Columnas de "Lecturas pendientes de este mes".
+  const pendingColumns = useMemo<Array<TableWithPanelColumn<Row>>>(
+    () => [
+      vehicleColumn,
+      {
+        key: 'supervisor',
+        label: t.columns.supervisor,
+        getValue: ({ vehicle }) => vehicle.supervisor_name || '',
+        render: ({ vehicle }) => vehicle.supervisor_name || '—',
+      },
+      {
+        key: 'driver',
+        label: t.columns.driver,
+        getValue: ({ summary, vehicle }) => summary.driver?.name || vehicle.driver_name || '',
+        render: ({ summary, vehicle }) => summary.driver?.name || vehicle.driver_name || '—',
+      },
+      {
         key: 'last_reading',
         label: t.columns.lastReading,
-        getValue: ({ summary }) => summary.km_current ?? -1,
-        render: ({ summary }) =>
-          summary.km_current != null
-            ? `${km(summary.km_current)} (${summary.km_reading_date})`
-            : t.never,
+        getValue: ({ vehicle }) => lastAsOf(vehicle.id, month)?.km_reading ?? -1,
+        render: ({ vehicle }) => readingCell(lastAsOf(vehicle.id, month)),
       },
       {
         key: 'pending_since',
         label: t.columns.pendingSince,
-        getValue: ({ summary }) => daysSince(summary.km_reading_date),
-        render: ({ summary }) => (
-          <span className="itv-soon">
-            {summary.km_reading_date ? t.days(daysSince(summary.km_reading_date)) : '—'}
-          </span>
+        getValue: ({ vehicle }) => daysSince(lastAsOf(vehicle.id, month)?.reading_date),
+        render: ({ vehicle }) => {
+          const last = lastAsOf(vehicle.id, month)
+          return (
+            <span className="itv-soon">
+              {last?.reading_date ? t.days(daysSince(last.reading_date)) : '—'}
+            </span>
+          )
+        },
+      },
+      {
+        key: 'actions',
+        label: t.columns.actions,
+        align: 'right',
+        searchable: false,
+        sortable: false,
+        render: (row) => (
+          <Button variant="secondary" size="sm" onClick={() => openEmail({ kind: 'single', row })}>
+            <Mail size={14} aria-hidden /> {t.email.action}
+          </Button>
         ),
       },
     ],
-    [t, km],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [t, month, lastAsOf, readingCell, vehicleColumn],
   )
 
-  // Columnas de "Proyección a fin de contrato" — mismo estilo unificado.
-  const projectionColumns = useMemo<Array<TableWithPanelColumn<Row>>>(
-    () => [
+  // Columnas de "Proyección": alternan fin de contrato ⇄ fin de año según el switch.
+  const projectionColumns = useMemo<Array<TableWithPanelColumn<Row>>>(() => {
+    const isYear = projMode === 'year'
+    const quotaOf = (s: VehicleSummary) => (isYear ? s.projection?.annual_km : s.contract?.contract_km) ?? null
+    return [
+      vehicleColumn,
       {
-        key: 'vehicle',
-        label: t.columns.vehicle,
-        getValue: ({ vehicle }) => vehicle.plate,
-        render: ({ vehicle }) => (
-          <Link to={`/vehiculos/${vehicle.id}`} className="cell-link">
-            <strong>{vehicle.plate}</strong>
-          </Link>
-        ),
-      },
-      {
-        key: 'contracted',
-        label: t.columns.contracted,
-        getValue: ({ summary }) => summary.contract?.contract_km ?? -1,
-        render: ({ summary }) =>
-          summary.contract?.contract_km ? km(summary.contract.contract_km) : '—',
+        key: 'quota',
+        label: isYear ? t.columns.annualQuota : t.columns.contracted,
+        getValue: ({ summary }) => quotaOf(summary) ?? -1,
+        render: ({ summary }) => {
+          const q = quotaOf(summary)
+          return q ? km(q) : '—'
+        },
       },
       {
         key: 'projected',
-        label: t.columns.projected,
-        getValue: ({ summary }) => summary.projection?.projected_end ?? -1,
+        label: isYear ? t.columns.projectedYear : t.columns.projected,
+        getValue: ({ summary }) =>
+          (isYear ? summary.projection?.annual_projected : summary.projection?.projected_end) ?? -1,
         render: ({ summary }) => {
           const p = summary.projection!
-          const diff = p.projected_end - (summary.contract?.contract_km ?? 0)
+          const proj = isYear ? p.annual_projected : p.projected_end
+          const diff = proj - (quotaOf(summary) ?? 0)
           return (
             <span>
-              {km(p.projected_end)}{' '}
+              {km(proj)}{' '}
               <span className={diff > 0 ? 'itv-overdue' : 'muted'}>
                 ({diff > 0 ? '+' : ''}
                 {km(diff)})
@@ -188,18 +479,21 @@ export function MileagePage() {
         key: 'pct',
         label: t.columns.pctOfLimit,
         width: '22%',
-        getValue: ({ summary }) => summary.projection?.pct_of_limit ?? -1,
+        getValue: ({ summary }) =>
+          (isYear ? summary.projection?.annual_pct : summary.projection?.pct_of_limit) ?? -1,
         render: ({ summary }) => {
           const p = summary.projection!
+          const pct = isYear ? p.annual_pct : p.pct_of_limit
+          const level = isYear ? p.annual_level : p.level
           return (
             <>
               <div className="km-progress">
                 <div
-                  className={`km-progress-fill level-${p.level}`}
-                  style={{ width: `${Math.min(100, p.pct_of_limit)}%` }}
+                  className={`km-progress-fill level-${level}`}
+                  style={{ width: `${Math.min(100, pct)}%` }}
                 />
               </div>
-              <span className="muted">{p.pct_of_limit}%</span>
+              <span className="muted">{pct}%</span>
             </>
           )
         },
@@ -222,24 +516,26 @@ export function MileagePage() {
       {
         key: 'level',
         label: t.columns.level,
-        getValue: ({ summary }) => summary.projection?.level ?? '',
+        getValue: ({ summary }) =>
+          (isYear ? summary.projection?.annual_level : summary.projection?.level) ?? '',
         render: ({ summary }) => {
           const p = summary.projection!
+          const level = isYear ? p.annual_level : p.level
+          const penalty = isYear ? p.annual_estimated_penalty : p.estimated_penalty
           return (
             <>
-              <Badge tone={kmLevelTone(p.level)}>{t.levels[p.level]}</Badge>
-              {p.estimated_penalty && (
+              <Badge tone={kmLevelTone(level)}>{t.levels[level]}</Badge>
+              {penalty && (
                 <div className="itv-overdue" style={{ fontSize: '0.8rem' }}>
-                  ~{Number(p.estimated_penalty).toLocaleString(locale)} €
+                  ~{Number(penalty).toLocaleString(locale)} €
                 </div>
               )}
             </>
           )
         },
       },
-    ],
-    [t, km, locale],
-  )
+    ]
+  }, [t, km, locale, projMode, vehicleColumn])
 
   const supervisors = useMemo(() => {
     const map = new Map<number, string>()
@@ -249,122 +545,421 @@ export function MileagePage() {
     return [...map.entries()]
   }, [rows])
 
-  const visible = supervisorFilter
-    ? rows.filter((r) => String(r.vehicle.supervisor ?? '') === supervisorFilter)
-    : rows
+  // Búsqueda + filtro de supervisor en cliente (compartidos por las pestañas).
+  const base = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return rows.filter(({ vehicle }) => {
+      if (supervisorFilter && String(vehicle.supervisor ?? '') !== supervisorFilter) return false
+      if (
+        term &&
+        !`${vehicle.plate} ${vehicle.brand} ${vehicle.model} ${vehicle.supervisor_name ?? ''}`
+          .toLowerCase()
+          .includes(term)
+      )
+        return false
+      return true
+    })
+  }, [rows, search, supervisorFilter])
 
-  const pending = visible.filter((r) => pendingThisMonth(r.summary))
-  const withProjection = visible.filter((r) => r.summary.projection && r.summary.contract)
+  // Pendientes = sin lectura en el mes reflejado.
+  const pending = useMemo(
+    () => base.filter((r) => !monthReading(r.vehicle.id, month)),
+    [base, month, monthReading],
+  )
+  const withProjection = useMemo(
+    () => base.filter((r) => r.summary.projection && r.summary.contract),
+    [base],
+  )
+  const unlimited = useMemo(
+    () => base.filter((r) => r.summary.unlimited_km || r.vehicle.unlimited_km),
+    [base],
+  )
 
-  // N4: cada fila se despliega (con animación) mostrando TODO el histórico
-  // del vehículo; la carga es perezosa y queda cacheada al seguir montada.
-  const renderHistory = ({ vehicle }: Row) => <ReadingsHistory vehicleId={vehicle.id} />
+  // N4: cada fila se despliega (con animación) mostrando TODO el histórico del
+  // vehículo; la carga es perezosa y queda cacheada al seguir montada. Se le pasa
+  // si tiene km ilimitados y (si hay contrato) los datos de proyección año/contrato.
+  const renderHistory = ({ vehicle, summary }: Row) => {
+    const c = summary.contract
+    const p = summary.projection
+    const hasProjection = c && p && c.contract_km != null
+    const projection = hasProjection
+      ? {
+          today: todayIso(),
+          kmStart: vehicle.km_start ?? 0,
+          contractKm: c.contract_km as number,
+          contractStart: c.start_date,
+          contractEnd: c.planned_end_date,
+          contractMonths: c.contract_time,
+          annualKm: p!.annual_km,
+          yearStart: p!.year_start_date,
+          yearEnd: p!.year_end_date,
+          yearStartKm: p!.year_start_km,
+          yearIndex: p!.year_index,
+        }
+      : undefined
+    const risk = hasProjection
+      ? {
+          level: p!.level,
+          annualLevel: p!.annual_level,
+          overageKm: p!.overage_km,
+          annualOverageKm: p!.annual_overage_km,
+        }
+      : undefined
+    return (
+      <ReadingsHistory
+        vehicleId={vehicle.id}
+        unlimited={summary.unlimited_km || vehicle.unlimited_km}
+        projection={projection}
+        risk={risk}
+      />
+    )
+  }
+
+  // Filtro de supervisor en la franja (compartido por todas las pestañas).
+  const supervisorField =
+    supervisors.length > 0 ? (
+      <div className="filter-field filter-field--role">
+        <label>{t.supervisorFilter}</label>
+        <SelectField
+          aria-label={t.supervisorFilter}
+          containerClassName="role-filter"
+          required
+          enableSearchFilter
+          options={[
+            { value: '', label: t.wholeFleet },
+            ...supervisors.map(([id, name]) => ({ value: String(id), label: name })),
+          ]}
+          value={supervisorFilter}
+          onValueChange={setSupervisorFilter}
+        />
+      </div>
+    ) : null
+
+  // Manejador de mes (mes/año visible + navegar atrás/adelante).
+  const monthLabel = useMemo(() => {
+    const [y, m] = month.split('-').map(Number)
+    const s = new Date(y, m - 1, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' })
+    return s.charAt(0).toUpperCase() + s.slice(1)
+  }, [month, locale])
+
+  const monthNav = (
+    <div className="filter-field filter-field--date">
+      <label>{t.monthLabel}</label>
+      <div className="month-nav">
+        <button
+          type="button"
+          className="month-nav-btn"
+          aria-label={t.prevMonth}
+          onClick={() => setMonth((m) => shiftMonth(m, -1))}
+        >
+          <ChevronLeft size={16} aria-hidden />
+        </button>
+        <span className="month-nav-current">{monthLabel}</span>
+        <button
+          type="button"
+          className="month-nav-btn"
+          aria-label={t.nextMonth}
+          disabled={month >= currentMonth}
+          onClick={() => setMonth((m) => shiftMonth(m, 1))}
+        >
+          <ChevronRight size={16} aria-hidden />
+        </button>
+      </div>
+    </div>
+  )
+
+  // Switch fin de contrato ⇄ fin de año (solo en la pestaña de proyección).
+  const projSwitch = (
+    <div className="filter-field filter-field--role">
+      <label>{t.projModeLabel}</label>
+      <div className="seg-toggle" role="group" aria-label={t.projModeLabel}>
+        <button
+          type="button"
+          aria-pressed={projMode === 'contract'}
+          className={projMode === 'contract' ? 'is-active' : ''}
+          onClick={() => setProjMode('contract')}
+        >
+          {t.projContract}
+        </button>
+        <button
+          type="button"
+          aria-pressed={projMode === 'year'}
+          className={projMode === 'year' ? 'is-active' : ''}
+          onClick={() => setProjMode('year')}
+        >
+          {t.projYear}
+        </button>
+      </div>
+    </div>
+  )
+
+  // Botón de completar km faltantes — solo en la pestaña de pendientes. Fuera de
+  // ventana no se deshabilita del todo: al pulsarlo salen avisos (al 3º permite).
+  const estimateButton = (
+    <Button
+      variant="secondary"
+      className={withinWindow ? undefined : 'is-soft-disabled'}
+      aria-disabled={!withinWindow}
+      title={withinWindow ? t.estimateOpenTitle : t.estimateClosedHint}
+      onClick={handleEstimateClick}
+    >
+      {t.estimateAction}
+      {preview && preview.missing_count > 0 ? ` (${preview.missing_count})` : ''}
+    </Button>
+  )
+
+  // Correo masivo: avisar a todos los conductores con lectura pendiente del mes.
+  const bulkEmailButton = (
+    <Button
+      variant="secondary"
+      disabled={pending.length === 0}
+      title={t.email.bulkTitle}
+      onClick={() => openEmail({ kind: 'bulk' })}
+    >
+      <Mail size={16} aria-hidden /> {t.email.bulkAction}
+      {pending.length > 0 ? ` (${pending.length})` : ''}
+    </Button>
+  )
+
+  // Una sección = franja (registros + buscar + supervisor + acciones) + tabla.
+  const renderTable = (
+    data: Row[],
+    columns: Array<TableWithPanelColumn<Row>>,
+    csvName: string,
+    emptyLabel: string,
+    extraFilter?: ReactNode,
+    extraActions?: ReactNode,
+  ) => (
+    <>
+      <TableInfoBar
+        inline
+        count={data.length}
+        recordsLabel={t.records}
+        searchLabel={t.searchLabel}
+        searchPlaceholder={t.searchPlaceholder}
+        search={search}
+        onSearchChange={setSearch}
+        actions={
+          <>
+            {extraActions}
+            <Button
+              variant="secondary"
+              disabled={data.length === 0}
+              onClick={() => exportCsv(csvName, columns, data)}
+            >
+              <Download size={16} aria-hidden /> {t.exportCsv}
+            </Button>
+          </>
+        }
+      >
+        {supervisorField}
+        {extraFilter}
+      </TableInfoBar>
+      <TableWithPanel<Row>
+        rows={data}
+        columns={columns}
+        rowKey={({ vehicle }) => String(vehicle.id)}
+        renderExpandedRow={renderHistory}
+        enableColumnSort
+        showControlPanel={false}
+        enablePagination
+        defaultPageSize={25}
+        pageSizeOptions={[25, 50, 100]}
+        emptyStateLabel={emptyLabel}
+      />
+    </>
+  )
+
+  const tabs: Array<{ key: MileageTab; label: string }> = [
+    { key: 'readings', label: t.tabs.readings },
+    { key: 'pending', label: t.tabs.pending },
+    { key: 'projection', label: t.tabs.projection },
+    { key: 'unlimited', label: t.tabs.unlimited },
+  ]
 
   return (
     <div>
-      <PageHeader
-        title={t.title}
-        subtitle={t.subtitle}
-        actions={
-          <>
-            <Button
-              variant="secondary"
-              disabled={!preview?.open}
-              title={
-                preview && !preview.open
-                  ? t.estimateClosedTitle(preview.window_end_day)
-                  : t.estimateOpenTitle
-              }
-              onClick={() => {
-                setEstimateResult(null)
-                setEstimateError('')
-                setEstimateOpen(true)
-              }}
-            >
-              {t.estimateAction}
-              {preview && preview.missing_count > 0 ? ` (${preview.missing_count})` : ''}
-            </Button>
-            {supervisors.length > 0 && (
-              <SelectField
-                label={t.supervisorFilter}
-                options={[
-                  { value: '', label: t.wholeFleet },
-                  ...supervisors.map(([id, name]) => ({ value: String(id), label: name })),
-                ]}
-                value={supervisorFilter}
-                onValueChange={setSupervisorFilter}
-              />
-            )}
-          </>
-        }
-      />
+      <PageHeader title={t.title} subtitle={t.subtitle} />
 
       {error && <div role="alert" className="form-error">{error}</div>}
       {loading ? (
         <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <>
-          {/* Lecturas pendientes (HU-3.3) */}
-          <section className="card">
-            <div className="section-head">
-              <h3>{t.pendingSection}</h3>
-              <span className={pending.length ? 'pending-count' : 'muted'}>
-                {pending.length ? t.pendingCount(pending.length) : t.allUpToDate}
-              </span>
-              {pending.length > 0 && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => exportCsv('km-pendientes', pendingColumns, pending)}
-                >
-                  {t.exportCsv}
-                </Button>
-              )}
-            </div>
-            {pending.length > 0 && (
-              <TableWithPanel<Row>
-                rows={pending}
-                columns={pendingColumns}
-                rowKey={({ vehicle }) => String(vehicle.id)}
-                renderExpandedRow={renderHistory}
-                enablePagination
-                defaultPageSize={25}
-                pageSizeOptions={[25, 50, 100]}
-              />
-            )}
-          </section>
+          <div className="veh-tabs settings-tabs" role="tablist" aria-label={t.title}>
+            {tabs.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                role="tab"
+                aria-selected={tab === item.key}
+                className={`veh-tab${tab === item.key ? ' is-active' : ''}`}
+                onClick={() => setTab(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
 
-          {/* Proyección por vehículo (HU-3.4/3.5) */}
-          <section className="card">
-            <div className="section-head">
-              <h3>{t.projectionSection}</h3>
-              {withProjection.length > 0 && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => exportCsv('km-proyeccion', projectionColumns, withProjection)}
-                >
-                  {t.exportCsv}
-                </Button>
+          <div className="settings-body">
+            {tab === 'readings' &&
+              renderTable(base, readingsColumns, `km-lecturas-${month}`, t.emptyReadings, monthNav)}
+            {tab === 'pending' &&
+              renderTable(
+                pending,
+                pendingColumns,
+                `km-pendientes-${month}`,
+                t.emptyPending,
+                monthNav,
+                <>
+                  {bulkEmailButton}
+                  {estimateButton}
+                </>,
               )}
-            </div>
-            {withProjection.length === 0 ? (
-              <p className="muted">{t.projectionEmpty}</p>
-            ) : (
-              <TableWithPanel<Row>
-                rows={withProjection}
-                columns={projectionColumns}
-                rowKey={({ vehicle }) => String(vehicle.id)}
-                renderExpandedRow={renderHistory}
-                enablePagination
-                defaultPageSize={25}
-                pageSizeOptions={[25, 50, 100]}
-              />
-            )}
-          </section>
-
+            {tab === 'projection' &&
+              renderTable(withProjection, projectionColumns, 'km-proyeccion', t.projectionEmpty, projSwitch)}
+            {tab === 'unlimited' &&
+              renderTable(unlimited, readingsColumns, 'km-ilimitados', t.emptyUnlimited)}
+          </div>
         </>
       )}
+
+      {/* Recordatorio por correo (por fila o masivo a los pendientes del mes). */}
+      <Modal
+        open={emailMode !== null}
+        title={
+          emailMode?.kind === 'single'
+            ? t.email.single(emailMode.row.vehicle.plate)
+            : t.email.bulk(pending.length)
+        }
+        onClose={() => setEmailMode(null)}
+      >
+        <div className="modal-form">
+          {emailMode?.kind === 'bulk' && !emailResult && (
+            <Panel tone="info">
+              <p className="panel-note">{t.email.bulkNote(pending.length)}</p>
+            </Panel>
+          )}
+          {templates.length === 0 ? (
+            <Panel tone="warning">
+              <p className="panel-note">{t.email.noTemplates}</p>
+            </Panel>
+          ) : (
+            <SelectField
+              label={t.email.template}
+              required
+              options={templates.map((tp) => ({ value: tp.key, label: tp.key_display }))}
+              value={emailTemplate}
+              onValueChange={(v) => {
+                setEmailTemplate(v)
+                setEmailPreview(null)
+              }}
+            />
+          )}
+          <div>
+            <label className="ops-field-label">{t.email.message}</label>
+            <textarea
+              className="ops-textarea"
+              value={emailMessage}
+              placeholder={t.email.messagePlaceholder}
+              onChange={(e) => setEmailMessage(e.target.value)}
+            />
+          </div>
+          <div className="ops-checks">
+            <label>
+              <input
+                type="checkbox"
+                checked={emailToDriver}
+                onChange={(e) => setEmailToDriver(e.target.checked)}
+              />{' '}
+              {t.email.toDriver}
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={emailToSupervisor}
+                onChange={(e) => setEmailToSupervisor(e.target.checked)}
+              />{' '}
+              {t.email.toSupervisor}
+            </label>
+          </div>
+          {emailMode?.kind === 'single' && !emailResult && (
+            <div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={previewing || !emailTemplate}
+                onClick={previewEmail}
+              >
+                {previewing ? t.email.previewing : t.email.preview}
+              </Button>
+            </div>
+          )}
+          {emailPreview && (
+            <div className="email-preview">
+              <div className="email-preview-subject">
+                <strong>{t.email.subject}:</strong> {emailPreview.subject}
+              </div>
+              <div
+                className="email-preview-body"
+                dangerouslySetInnerHTML={{ __html: emailPreview.body_html }}
+              />
+            </div>
+          )}
+          {emailError && <div role="alert" className="form-error">{emailError}</div>}
+          {emailResult && (
+            <Panel tone="info">
+              <p className="panel-note">{emailResult}</p>
+            </Panel>
+          )}
+          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+            <Button type="button" variant="secondary" onClick={() => setEmailMode(null)}>
+              {emailResult ? t.email.close : t.email.cancel}
+            </Button>
+            {!emailResult && (
+              <Button
+                type="button"
+                variant="primary"
+                disabled={emailSending || !emailTemplate}
+                onClick={sendEmail}
+              >
+                {emailSending ? t.email.sending : t.email.send}
+              </Button>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* Aviso al forzar fuera de ventana (hasta 3; al 3º ofrece continuar). */}
+      <Modal open={warnOpen} title={t.warn.title} onClose={() => setWarnOpen(false)}>
+        <div className="modal-form">
+          <div className="alert-note tone-warning">
+            <AlertTriangle size={20} aria-hidden />
+            <div>
+              <strong>{t.warn.heading(Math.min(warnCount, 3))}</strong>
+              <p>{warnCount >= 3 ? t.warn.bodyFinal : t.warn.body}</p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+            <Button type="button" variant="secondary" onClick={() => setWarnOpen(false)}>
+              {t.warn.dismiss}
+            </Button>
+            {warnCount >= 3 && (
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => {
+                  setWarnOpen(false)
+                  openEstimate()
+                }}
+              >
+                {t.warn.proceed}
+              </Button>
+            )}
+          </div>
+        </div>
+      </Modal>
 
       {/* N8b: modal de completar km faltantes — div informativo + selector de
           meses + recuento en vivo; al confirmar, resumen de lo creado. */}
@@ -420,7 +1015,7 @@ export function MileagePage() {
             <Button
               type="button"
               variant="primary"
-              disabled={running || !preview?.open || preview.missing_count === 0}
+              disabled={running || !preview || preview.missing_count === 0}
               onClick={handleEstimate}
             >
               {running ? t.modal.running : t.modal.run}
