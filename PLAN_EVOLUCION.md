@@ -208,16 +208,19 @@ puede purgarla, y esa acción queda auditada.
 
 > **Cómo quedó** (paso 10, `a038b91`): 8a ventana [23, fin de mes] validada en servidor (management exento) + endpoint window + aviso/deshabilitado en RegisterKmPage; 8b `KmReading.estimated` + GET/POST estimate (días 1-10, media 1/2/3/6 meses, idempotente) + modal con recuento en vivo y badge 'estimada'.
 
-### 8a · Conductor/supervisor: registro solo del 23 a fin de mes
+### 8a · Conductor/supervisor: registro solo del 20 a fin de mes
+
+> El día de apertura pasó de **23 a 20** (2026-08-06, a peticion de negocio). El
+> mecanismo no cambió: solo el default de `FLEET_KM_WINDOW_START`.
 
 - **Back**: validación en `KmReadingSerializer` — si el autor es de campo (no
-  management), `reading_date` debe estar en la ventana [día 23, fin de mes]
-  del mes en curso. Configurable: `FLEET_KM_WINDOW_START=23` (0 = sin
+  management), `reading_date` debe estar en la ventana [día 20, fin de mes]
+  del mes en curso. Configurable: `FLEET_KM_WINDOW_START=20` (0 = sin
   ventana, para no romper dev/tests). Management queda exento.
 - **Front conductores**: fuera de ventana, `RegisterKmPage` muestra el aviso
-  "El registro de km se abre del 23 al último día del mes" con el formulario
+  "El registro de km se abre del 20 al último día del mes" con el formulario
   deshabilitado (y la píldora "lectura pendiente" lo refleja). El texto entra
-  en `i18n.tsx` (es/en).
+  en `i18n.tsx` (es/en). El inicio añade además la cuenta atrás (ver 8c).
 - ⚠️ **Interacción con la cola offline (BG3)**: un registro encolado el 30 que
   se envía el 2 recibirá un 400 de ventana. Con BG3 arreglado, ese 400 de
   validación se descarta **con aviso claro** ("llegó fuera de plazo") — dejar

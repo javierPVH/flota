@@ -1,14 +1,38 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Badge, Button, Chip, Modal, PageHeader, SelectField, StatCard } from '@flota/ui/ui'
+import { Badge, Button, Chip, IconButton, MiniToolsButtons, Modal, PageHeader, SelectField, StatCard } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
+import { ArrowRightLeft, ChevronDown, Mail, Pencil, Receipt, Trash2, UserCog, Wrench } from 'lucide-react'
 
-import { fetchFleetSummary, listAlerts, listAll, listVehicles, type VehicleFilters } from '../api.ts'
-import { alertLevelTone, dueClass, fmtDate, fmtEur, itvClass, vehicleStateTone } from '../format.ts'
+import {
+  convertToFleet,
+  deactivateUser,
+  deleteVehicle,
+  fetchFleetSummary,
+  listAlerts,
+  listAll,
+  listIncidents,
+  listUsers,
+  listVehicleLinks,
+  listVehicles,
+  updateUser,
+  type ManagedUserFull,
+  type VehicleFilters,
+} from '../api.ts'
+import { alertLevelTone, dueClass, fmtDate, fmtEur, itvClass, todayIso, vehicleStateTone } from '../format.ts'
 import { exportCsv } from '../csv.ts'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { RowActionsMenu, type RowAction } from '../components/RowActionsMenu.tsx'
+import { UserFormModal } from '../components/UserFormModal.tsx'
+import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
+import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
+import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
+import { VehicleStateModal } from '../components/VehicleStateModal.tsx'
 import { useLang } from '../i18n.tsx'
-import type { Alert, FleetSummary, Vehicle } from '../types.ts'
+import { useUsersCopy } from '../translations/users.ts'
+import { useVehiclesCopy } from '../translations/vehicles.ts'
+import type { Alert, FleetSummary, Incident, IncidentType, Vehicle, VehicleLinkRow } from '../types.ts'
 
 const USE_LABEL: Record<string, string> = {
   on_project: 'Proyecto',
@@ -26,6 +50,9 @@ const STATE_LABEL: Record<string, string> = {
   retired: 'Baja',
 }
 
+// Estado que representa la baja del vehículo (VehicleState.BAJA = 'retired').
+const BAJA_STATE = 'retired'
+
 // Estados accionables desde el select de estado y los desgloses (el resto
 // —baja, no activo…— no se ofrece como filtro rápido).
 const FILTERABLE_STATES = new Set(['active', 'maintenance', 'itv', 'broken'])
@@ -41,40 +68,107 @@ const ALERT_CATEGORY: Record<string, string> = {
 }
 const ALERT_TAB_ORDER = ['all', 'itv', 'insurance', 'km', 'no_driver']
 
-type ManageKind = 'vehicles' | 'use' | 'cost' | 'itv' | 'alerts'
+// Incidencias: el tipo ES la categoría (avería/mantenimiento/ITV/accidente).
+// Averías y accidentes son las "serias" (semáforo rojo en la tira/KPI).
+const INCIDENT_TYPE_TONE: Record<IncidentType, 'danger' | 'warning' | 'info'> = {
+  breakdown: 'danger',
+  accident: 'danger',
+  maintenance: 'warning',
+  inspection: 'info',
+}
+const INCIDENT_TAB_ORDER: IncidentType[] = ['breakdown', 'maintenance', 'inspection', 'accident']
+
+type ManageKind = 'vehicles' | 'use' | 'cost' | 'itv' | 'insurance' | 'alerts' | 'incidents'
+// Corte de un desglose de vencimientos (ITV / seguro).
+type DueSeg = 'all' | 'overdue' | 'soon'
+// Pestañas del listado: dos de vehículos (flota / sustitución) y dos de personas
+// (supervisores / conductores).
+type DashTab = 'flota' | 'substitute' | 'supervisors' | 'drivers'
 
 /**
- * Vista general (G1): KPIs + alertas + listado con búsqueda y chips.
- * Cada bloque informativo (KPIs y alertas) abre al pulsarlo un modal de gestión
- * de esa área: desglose + acciones rápidas (filtrar el listado o navegar).
+ * Vista general (G1): KPIs + alertas + incidencias + listado con pestañas
+ * (Flota · Sustitución · Supervisores · Conductores). Cada fila lleva su columna
+ * de acciones con los mismos botones que su vista de origen (Vehículos /
+ * Conductores). La franja de búsqueda/filtros/exportación es un acordeón que
+ * arranca colapsado.
  */
 export function DashboardPage() {
   const navigate = useNavigate()
   const { language, t } = useLang()
+  const vt = useVehiclesCopy()
+  const ut = useUsersCopy()
+  const confirm = useConfirm()
   const eur = (value: string) => fmtEur(value, language)
   const [summary, setSummary] = useState<FleetSummary | null>(null)
   const [alerts, setAlerts] = useState<Alert[]>([])
+  const [incidents, setIncidents] = useState<Incident[]>([])
   const [error, setError] = useState('')
 
+  // Vehículos del listado (flota/sustitución): carga filtrada en servidor.
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
+  // Vehículos completos + vínculos de sustitución (contadores de pestaña, cruce
+  // personas ↔ flota, matrículas del modal de incidencias, modales de estado).
+  const [allVehicles, setAllVehicles] = useState<Vehicle[]>([])
+  const [links, setLinks] = useState<VehicleLinkRow[]>([])
+  // Personas (supervisores/conductores): se cargan todas y se filtran en cliente.
+  const [users, setUsers] = useState<ManagedUserFull[]>([])
+  const [usersLoading, setUsersLoading] = useState(true)
+
+  const [tab, setTab] = useState<DashTab>('flota')
+  const [toolsOpen, setToolsOpen] = useState(false) // acordeón de búsqueda/filtros
   const [search, setSearch] = useState('')
-  const [query, setQuery] = useState('') // búsqueda con debounce ya aplicado
-  // Filtros del listado: dos botones (Todos / ITV próximas) + tres selects
-  // combinables. "ITV próximas" corta en cliente; el resto va al back.
+  const [query, setQuery] = useState('') // búsqueda de vehículos con debounce aplicado
+  // Filtros de vehículos combinables: tres selects + dos cortes de vencimiento
+  // (ITV/seguro próximos, en cliente) + mostrar bajas (recarga del back).
   const [useFilter, setUseFilter] = useState('') // '' | personal | works | on_project
   const [assignFilter, setAssignFilter] = useState('') // '' | assigned | unassigned
   const [stateFilter, setStateFilter] = useState('') // '' | active | maintenance | itv | broken
   const [itvOnly, setItvOnly] = useState(false)
   const [insuranceOnly, setInsuranceOnly] = useState(false)
   const [showBaja, setShowBaja] = useState(false)
+  const [showInactive, setShowInactive] = useState(false) // personas desactivadas
 
+  const isVehicleTab = tab === 'flota' || tab === 'substitute'
   const anyFilter = Boolean(useFilter || assignFilter || stateFilter || itvOnly || insuranceOnly)
 
-  // Modal de gestión activo (uno por bloque informativo) y datos del de ITV.
+  // Modal de gestión activo (uno por bloque informativo) y datos de ITV/seguro.
   const [manage, setManage] = useState<ManageKind | null>(null)
   const [itvList, setItvList] = useState<Vehicle[] | null>(null)
+  const [insList, setInsList] = useState<Vehicle[] | null>(null)
+  const [itvSeg, setItvSeg] = useState<DueSeg>('all') // corte del desglose de ITV
+  const [insSeg, setInsSeg] = useState<DueSeg>('all') // corte del desglose de seguros
   const [alertTab, setAlertTab] = useState('all') // pestaña de tipo del modal de alertas
+  const [incidentTab, setIncidentTab] = useState('all') // pestaña de tipo del modal de incidencias
+  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null) // detalle de una alerta
+
+  // Modales de acciones por fila (vehículos y personas).
+  const [opsVehicle, setOpsVehicle] = useState<Vehicle | null>(null)
+  const [emailVehicle, setEmailVehicle] = useState<Vehicle | null>(null)
+  const [driverVehicle, setDriverVehicle] = useState<Vehicle | null>(null)
+  const [invoicesVehicle, setInvoicesVehicle] = useState<Vehicle | null>(null)
+  const [userModalOpen, setUserModalOpen] = useState(false)
+  const [editingUser, setEditingUser] = useState<ManagedUserFull | null>(null)
+
+  // Carga completa de vehículos + vínculos (sin filtro) para lo transversal.
+  const loadCore = useCallback(() => {
+    Promise.all([listAll(listVehicles({ include_baja: 1 })), listAll(listVehicleLinks({}))])
+      .then(([vs, ls]) => {
+        setAllVehicles(vs)
+        setLinks(ls)
+      })
+      .catch(() => {
+        /* transversal: si falla, el listado principal sigue funcionando */
+      })
+  }, [])
+
+  const loadUsers = useCallback(() => {
+    setUsersLoading(true)
+    listAll(listUsers())
+      .then(setUsers)
+      .catch(() => setUsers([]))
+      .finally(() => setUsersLoading(false))
+  }, [])
 
   useEffect(() => {
     fetchFleetSummary()
@@ -85,7 +179,12 @@ export function DashboardPage() {
         setAlerts([...result.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])),
       )
       .catch(() => setAlerts([]))
-  }, [])
+    listIncidents({ status: 'open' })
+      .then((result) => setIncidents(result.results))
+      .catch(() => setIncidents([]))
+    loadCore()
+    loadUsers()
+  }, [loadCore, loadUsers])
 
   // ITV: carga perezosa al abrir su modal (ordenado por fecha, corte en cliente).
   useEffect(() => {
@@ -94,6 +193,16 @@ export function DashboardPage() {
       .then((result) => setItvList(result.results.filter((v) => itvClass(v.next_itv_date) !== '')))
       .catch(() => setItvList([]))
   }, [manage, itvList])
+
+  // Seguros: carga perezosa análoga a la de ITV.
+  useEffect(() => {
+    if (manage !== 'insurance' || insList !== null) return
+    listVehicles({ ordering: 'insurance_expiry_date' })
+      .then((result) =>
+        setInsList(result.results.filter((v) => dueClass(v.insurance_expiry_date) !== '')),
+      )
+      .catch(() => setInsList([]))
+  }, [manage, insList])
 
   // Debounce: una petición por pausa de tecleo, no por tecla.
   useEffect(() => {
@@ -123,6 +232,12 @@ export function DashboardPage() {
 
   useEffect(load, [load])
 
+  // Tras una acción que muta un vehículo: recarga listado + datos transversales.
+  const reloadVehicles = useCallback(() => {
+    load()
+    loadCore()
+  }, [load, loadCore])
+
   function resetFilters() {
     setUseFilter('')
     setAssignFilter('')
@@ -131,8 +246,19 @@ export function DashboardPage() {
     setInsuranceOnly(false)
   }
 
-  /** Acción rápida de los modales: fija UN filtro y cierra el modal (limpia los
-   * demás para mostrar el corte pedido tal cual). */
+  /** Cambia de pestaña y limpia búsqueda + filtros (independientes por pestaña). */
+  function switchTab(next: DashTab) {
+    if (next === tab) return
+    setTab(next)
+    setSearch('')
+    resetFilters()
+    setShowBaja(false)
+    setShowInactive(false)
+  }
+
+  /** Acción rápida de los modales: fija UN filtro de vehículos, vuelve a la
+   * pestaña de flota, abre el acordeón (para ver el corte aplicado) y cierra el
+   * modal (limpia los demás para mostrar el corte pedido tal cual). */
   function filterList(target: {
     use?: string
     assign?: string
@@ -140,24 +266,123 @@ export function DashboardPage() {
     itv?: boolean
     insurance?: boolean
   }) {
+    setTab('flota')
     setUseFilter(target.use ?? '')
     setAssignFilter(target.assign ?? '')
     setStateFilter(target.state ?? '')
     setItvOnly(Boolean(target.itv))
     setInsuranceOnly(Boolean(target.insurance))
+    setToolsOpen(true)
     setManage(null)
   }
 
   /** Abre el modal de alertas en una pestaña de tipo concreta (o "todas"). */
-  function openAlerts(tab: string) {
-    setAlertTab(tab)
+  function openAlerts(tabKey: string) {
+    setAlertTab(tabKey)
     setManage('alerts')
   }
 
+  /** Abre el modal de incidencias en una pestaña de tipo concreta (o "todas"). */
+  function openIncidents(tabKey: string) {
+    setIncidentTab(tabKey)
+    setManage('incidents')
+  }
+
+  const handleDelete = useCallback(
+    async (v: Vehicle) => {
+      if (!(await confirm({ message: vt.confirmDelete(v.plate) }))) return
+      try {
+        await deleteVehicle(v.id)
+        reloadVehicles()
+      } catch (err) {
+        setError(asErrorMessage(err, vt.deleteError))
+      }
+    },
+    [confirm, reloadVehicles, vt],
+  )
+
+  // Convertir sustitución → flota: irreversible desde la UI → triple aviso.
+  const handleConvertToFleet = useCallback(
+    async (v: Vehicle) => {
+      const c = vt.convert
+      if (!(await confirm({ title: c.title, message: c.warn1(v.plate), confirmLabel: c.continue, tone: 'warning' })))
+        return
+      if (!(await confirm({ title: c.title, message: c.warn2, confirmLabel: c.continue, tone: 'warning' })))
+        return
+      if (!(await confirm({ title: c.title, message: c.warn3(v.plate), confirmLabel: c.confirm, tone: 'danger' })))
+        return
+      try {
+        await convertToFleet(v.id)
+        reloadVehicles()
+      } catch (err) {
+        setError(asErrorMessage(err, c.error))
+      }
+    },
+    [confirm, reloadVehicles, vt],
+  )
+
+  async function toggleUserActive(u: ManagedUserFull) {
+    try {
+      if (u.is_active) {
+        if (
+          !(await confirm({ message: ut.confirmDeactivate(u.name), confirmLabel: ut.deactivate, tone: 'warning' }))
+        )
+          return
+        await deactivateUser(u.id)
+      } else {
+        await updateUser(u.id, { is_active: true })
+      }
+      loadUsers()
+    } catch (err) {
+      setError(asErrorMessage(err, ut.toggleError))
+    }
+  }
+
+  // Índice matrícula por id (modal de incidencias) desde la carga completa.
+  const plateBook = useMemo(() => new Map(allVehicles.map((v) => [v.id, v])), [allVehicles])
+  const plateOf = (id: number) => plateBook.get(id)?.plate ?? `#${id}`
+
+  // Sustitutos que están cubriendo a un vehículo (no se pueden convertir).
+  const activeMainOfSub = useMemo(() => {
+    const map = new Map<number, number>()
+    for (const l of links) if (l.end_date === null) map.set(l.substitute_vehicle, l.main_vehicle)
+    return map
+  }, [links])
+
+  // Cruce personas ↔ flota (excluye bajas): vehículos supervisados / conducidos.
+  const supervisedBy = (uid: number) =>
+    allVehicles.filter((v) => v.supervisor === uid && v.state !== BAJA_STATE)
+  const drivenBy = (uid: number) =>
+    allVehicles.filter((v) => v.driver_id === uid && v.state !== BAJA_STATE)
+
   // "ITV/seguros próximos": cortes en cliente sobre la página cargada.
-  const rows = vehicles
+  const vehicleRows = vehicles
     .filter((v) => !itvOnly || itvClass(v.next_itv_date) !== '')
     .filter((v) => !insuranceOnly || dueClass(v.insurance_expiry_date) !== '')
+  const flotaRows = vehicleRows.filter((v) => !v.is_substitute)
+  const subRows = vehicleRows.filter((v) => v.is_substitute)
+
+  // Personas por rol, filtradas en cliente (activo/inactivo + búsqueda).
+  const term = search.trim().toLowerCase()
+  const peopleOf = (role: 'supervisor' | 'driver') =>
+    users
+      .filter((u) => u.roles.includes(role))
+      .filter((u) => (showInactive ? !u.is_active : u.is_active))
+      .filter(
+        (u) =>
+          !term ||
+          `${u.name} ${u.username} ${u.email} ${u.phone} ${u.dni ?? ''}`
+            .toLowerCase()
+            .includes(term),
+      )
+  const supervisorRows = peopleOf('supervisor')
+  const driverRows = peopleOf('driver')
+
+  // Contadores de pestaña (activos/vigentes, no filtrados).
+  const flotaCount = allVehicles.filter((v) => !v.is_substitute && v.state !== BAJA_STATE).length
+  const subCount = allVehicles.filter((v) => v.is_substitute && v.state !== BAJA_STATE).length
+  const supCount = users.filter((u) => u.roles.includes('supervisor') && u.is_active).length
+  const drvCount = users.filter((u) => u.roles.includes('driver') && u.is_active).length
 
   const active = summary?.by_state?.active ?? 0
   const shop = (summary?.by_state?.maintenance ?? 0) + (summary?.by_state?.broken ?? 0)
@@ -185,6 +410,19 @@ export function DashboardPage() {
   const shownAlerts =
     alertTab === 'all' ? alerts : alerts.filter((a) => ALERT_CATEGORY[a.type] === alertTab)
 
+  // Incidencias por tipo: mismo patrón que las alertas.
+  const incidentCatCount = (cat: string) =>
+    cat === 'all' ? incidents.length : incidents.filter((i) => i.type === cat).length
+  const incidentTabs = ['all', ...INCIDENT_TAB_ORDER].filter(
+    (cat) => cat === 'all' || incidentCatCount(cat) > 0,
+  )
+  const shownIncidents =
+    incidentTab === 'all' ? incidents : incidents.filter((i) => i.type === incidentTab)
+  const seriousIncidents = incidents.filter(
+    (i) => i.type === 'breakdown' || i.type === 'accident',
+  ).length
+  const otherIncidents = incidents.length - seriousIncidents
+
   const m = t.home.manage
   const f = t.home.filters
 
@@ -193,11 +431,81 @@ export function DashboardPage() {
     use: m.useTitle,
     cost: m.costTitle,
     itv: m.itvTitle,
+    insurance: m.insuranceTitle,
     alerts: m.alertsTitle,
+    incidents: m.incidentsTitle,
+  }
+
+  // Enlace a la ficha de una persona.
+  const personLink = (u: ManagedUserFull) => (
+    <>
+      <Link to={`/conductores/${u.id}`} className="cell-link">
+        <strong>{u.name}</strong>
+      </Link>
+      <div className="muted">{u.username}</div>
+    </>
+  )
+  const contactCell = (u: ManagedUserFull) => (
+    <>
+      {u.email || '—'}
+      {u.phone ? <div className="muted">{u.phone}</div> : null}
+    </>
+  )
+  const statusCell = (u: ManagedUserFull) => (
+    <Badge tone={u.is_active ? 'success' : 'neutral'}>
+      {u.is_active ? t.home.statusActive : t.home.statusInactive}
+    </Badge>
+  )
+
+  // Vencido = la fecha ya pasó; si no y está en la lista (dueClass≠''), es próximo.
+  const isOverdue = (date: string | null) => date != null && date < todayIso()
+  const plateLink = (v: Vehicle) => (
+    <Link to={`/vehiculos/${v.id}`} className="cell-link">
+      <strong>{v.plate}</strong>
+    </Link>
+  )
+
+  // Destino del botón "vista concreta" de una alerta: km → Kilometraje; el resto
+  // (ITV, seguro, sin conductor) → Flota.
+  const alertTargetView = (a: Alert) =>
+    ALERT_CATEGORY[a.type] === 'km'
+      ? { path: '/kilometraje', label: t.home.alertGo.mileage }
+      : { path: '/vehiculos', label: t.home.alertGo.fleet }
+
+  // Columnas de los desgloses de vencimientos (ITV / seguro), ordenables.
+  const dueColumns = (kind: 'itv' | 'insurance'): Array<TableWithPanelColumn<Vehicle>> => {
+    const dateOf = (v: Vehicle) => (kind === 'itv' ? v.next_itv_date : v.insurance_expiry_date)
+    const cls = (v: Vehicle) => (kind === 'itv' ? itvClass(dateOf(v)) : dueClass(dateOf(v)))
+    return [
+      { key: 'plate', label: t.home.thPlate, getValue: (v) => v.plate, render: plateLink },
+      {
+        key: 'vehicle',
+        label: t.home.thVehicle,
+        getValue: (v) => `${v.brand} ${v.model}`,
+        render: (v) => `${v.brand} ${v.model}`,
+      },
+      {
+        key: 'status',
+        label: t.home.thState,
+        getValue: (v) => (isOverdue(dateOf(v)) ? 0 : 1),
+        render: (v) => {
+          const over = isOverdue(dateOf(v))
+          const label = kind === 'itv' ? (over ? m.itvOverdue : m.itvSoon) : over ? m.insOverdue : m.insSoon
+          return <Badge tone={over ? 'danger' : 'warning'}>{label}</Badge>
+        },
+      },
+      {
+        key: 'date',
+        label: kind === 'itv' ? t.home.thItv : t.home.thInsurance,
+        isDate: true,
+        getValue: (v) => dateOf(v) ?? '',
+        render: (v) => <span className={cls(v)}>{fmtDate(dateOf(v), language)}</span>,
+      },
+    ]
   }
 
   // Listado de flota con el estilo unificado (TableWithPanel).
-  const columns: Array<TableWithPanelColumn<Vehicle>> = [
+  const vehicleColumns: Array<TableWithPanelColumn<Vehicle>> = [
     {
       key: 'plate',
       label: t.home.thPlate,
@@ -258,6 +566,115 @@ export function DashboardPage() {
     },
   ]
 
+  // Acciones de vehículo: mismo menú (⋮) que la vista de Vehículos.
+  const vehicleActionsColumn: TableWithPanelColumn<Vehicle> = {
+    key: 'actions',
+    label: vt.columns.actions,
+    align: 'right',
+    searchable: false,
+    sortable: false,
+    render: (v) => {
+      const items: RowAction[] = []
+      if (!v.is_substitute) {
+        items.push({ key: 'email', label: vt.email.btn, icon: <Mail size={15} />, onClick: () => setEmailVehicle(v) })
+        items.push({ key: 'driver', label: vt.driverModal.btn, icon: <UserCog size={15} />, onClick: () => setDriverVehicle(v) })
+      }
+      items.push({ key: 'invoices', label: vt.invoices.btn, icon: <Receipt size={15} />, onClick: () => setInvoicesVehicle(v) })
+      if (v.is_substitute && !activeMainOfSub.has(v.id)) {
+        items.push({ key: 'convert', label: vt.convert.btn, icon: <ArrowRightLeft size={15} />, onClick: () => handleConvertToFleet(v) })
+      }
+      items.push({ key: 'state', label: vt.ops.actionTitle, icon: <Wrench size={15} />, onClick: () => setOpsVehicle(v) })
+      items.push({ key: 'edit', label: vt.edit, icon: <Pencil size={15} />, onClick: () => navigate(`/vehiculos/${v.id}/editar`) })
+      items.push({ key: 'delete', label: vt.delete, icon: <Trash2 size={15} />, danger: true, onClick: () => handleDelete(v) })
+      return <RowActionsMenu items={items} ariaLabel={vt.columns.actions} />
+    },
+  }
+
+  // Acciones de persona: mismos botones que la vista de Conductores.
+  const peopleActionsColumn: TableWithPanelColumn<ManagedUserFull> = {
+    key: 'actions',
+    label: ut.columns.actions,
+    align: 'right',
+    searchable: false,
+    sortable: false,
+    render: (u) => (
+      <div className="row-actions">
+        <IconButton
+          aria-label={ut.edit}
+          title={ut.edit}
+          onClick={() => {
+            setEditingUser(u)
+            setUserModalOpen(true)
+          }}
+        >
+          <Pencil size={15} />
+        </IconButton>
+        <Button variant={u.is_active ? 'danger' : 'primary'} size="sm" onClick={() => toggleUserActive(u)}>
+          {u.is_active ? ut.deactivate : ut.reactivate}
+        </Button>
+      </div>
+    ),
+  }
+
+  const supervisorColumns: Array<TableWithPanelColumn<ManagedUserFull>> = [
+    { key: 'name', label: t.home.thName, getValue: (u) => `${u.name} ${u.username}`, render: personLink },
+    { key: 'contact', label: t.home.thContact, getValue: (u) => `${u.email} ${u.phone}`, render: contactCell },
+    {
+      key: 'vehicles',
+      label: t.home.thVehiclesCount,
+      align: 'right',
+      getValue: (u) => supervisedBy(u.id).length,
+      render: (u) => String(supervisedBy(u.id).length),
+    },
+    { key: 'status', label: t.home.thStatus, getValue: (u) => (u.is_active ? t.home.statusActive : t.home.statusInactive), render: statusCell },
+  ]
+
+  const driverColumns: Array<TableWithPanelColumn<ManagedUserFull>> = [
+    { key: 'name', label: t.home.thName, getValue: (u) => `${u.name} ${u.username}`, render: personLink },
+    { key: 'contact', label: t.home.thContact, getValue: (u) => `${u.email} ${u.phone}`, render: contactCell },
+    {
+      key: 'assigned',
+      label: t.home.thAssigned,
+      getValue: (u) => drivenBy(u.id).map((v) => v.plate).join(', '),
+      render: (u) => {
+        const vs = drivenBy(u.id)
+        if (vs.length === 0) return <span className="muted">—</span>
+        return (
+          <span>
+            {vs.map((v, i) => (
+              <span key={v.id}>
+                {i > 0 ? ', ' : ''}
+                <Link to={`/vehiculos/${v.id}`} className="cell-link">
+                  <strong>{v.plate}</strong>
+                </Link>
+              </span>
+            ))}
+          </span>
+        )
+      },
+    },
+    { key: 'license', label: t.home.thLicense, getValue: (u) => u.license_type, render: (u) => u.license_type || '—' },
+    { key: 'status', label: t.home.thStatus, getValue: (u) => (u.is_active ? t.home.statusActive : t.home.statusInactive), render: statusCell },
+  ]
+
+  // Datos de la pestaña activa (filas, recuento, vacío, exportación).
+  const activeCount =
+    tab === 'flota'
+      ? flotaRows.length
+      : tab === 'substitute'
+        ? subRows.length
+        : tab === 'supervisors'
+          ? supervisorRows.length
+          : driverRows.length
+  const activeLoading = isVehicleTab ? loading : usersLoading
+
+  function runExport() {
+    if (tab === 'flota') exportCsv('flota', vehicleColumns, flotaRows)
+    else if (tab === 'substitute') exportCsv('sustitucion', vehicleColumns, subRows)
+    else if (tab === 'supervisors') exportCsv('supervisores', supervisorColumns, supervisorRows)
+    else exportCsv('conductores', driverColumns, driverRows)
+  }
+
   return (
     <div>
       <PageHeader
@@ -268,6 +685,7 @@ export function DashboardPage() {
             ? [
                 { value: summary.total, label: t.home.statVehicles },
                 { value: alerts.length, label: t.home.statAlerts },
+                { value: incidents.length, label: t.home.statIncidents },
               ]
             : undefined
         }
@@ -319,7 +737,7 @@ export function DashboardPage() {
             type="button"
             className="kpi-btn"
             title={t.home.manageHint}
-            onClick={() => filterList({ insurance: true })}
+            onClick={() => setManage('insurance')}
           >
             <StatCard
               label={t.home.kpiInsurance}
@@ -335,133 +753,284 @@ export function DashboardPage() {
         </div>
       )}
 
-      {alerts.length > 0 && (
-        <div className="alerts-strip">
-          <button
-            type="button"
-            className="alerts-strip-lead"
-            title={t.home.manageHint}
-            onClick={() => openAlerts('all')}
-          >
-            <strong>{t.home.alertsTitle}</strong>
-            <span className="alerts-strip-badges">
-              {critical > 0 && <Badge tone="danger">{critical}</Badge>}
-              {warning > 0 && <Badge tone="warning">{warning}</Badge>}
-              {alerts.length - critical - warning > 0 && (
-                <Badge tone="info">{alerts.length - critical - warning}</Badge>
-              )}
-            </span>
-          </button>
-          {/* Desglose por tipo: cada chip abre el modal filtrado a ese tipo. */}
-          <div className="alerts-strip-types">
-            {alertTabs
-              .filter((cat) => cat !== 'all')
-              .map((cat) => (
-                <Chip key={cat} count={alertCatCount(cat)} onClick={() => openAlerts(cat)}>
-                  {t.home.alertTabs[cat]}
-                </Chip>
-              ))}
-          </div>
-          <button
-            type="button"
-            className="alerts-strip-hint"
-            onClick={() => openAlerts('all')}
-          >
-            {t.home.alertsOpen(alerts.length)} →
-          </button>
+      {(alerts.length > 0 || incidents.length > 0) && (
+        <div className="attention-strips">
+          {alerts.length > 0 && (
+            <div className="alerts-strip">
+              <button
+                type="button"
+                className="alerts-strip-lead"
+                title={t.home.manageHint}
+                onClick={() => openAlerts('all')}
+              >
+                <strong>{t.home.alertsTitle}</strong>
+                <span className="alerts-strip-badges">
+                  {critical > 0 && <Badge tone="danger">{critical}</Badge>}
+                  {warning > 0 && <Badge tone="warning">{warning}</Badge>}
+                  {alerts.length - critical - warning > 0 && (
+                    <Badge tone="info">{alerts.length - critical - warning}</Badge>
+                  )}
+                </span>
+              </button>
+              {/* Desglose por tipo: cada chip abre el modal filtrado a ese tipo. */}
+              <div className="alerts-strip-types">
+                {alertTabs
+                  .filter((cat) => cat !== 'all')
+                  .map((cat) => (
+                    <Chip key={cat} count={alertCatCount(cat)} onClick={() => openAlerts(cat)}>
+                      {t.home.alertTabs[cat]}
+                    </Chip>
+                  ))}
+              </div>
+              <button type="button" className="alerts-strip-hint" onClick={() => openAlerts('all')}>
+                {t.home.alertsOpen(alerts.length)} →
+              </button>
+            </div>
+          )}
+
+          {incidents.length > 0 && (
+            <div className="alerts-strip alerts-strip--incidents">
+              <button
+                type="button"
+                className="alerts-strip-lead"
+                title={t.home.manageHint}
+                onClick={() => openIncidents('all')}
+              >
+                <strong>{t.home.incidentsTitle}</strong>
+                <span className="alerts-strip-badges">
+                  {seriousIncidents > 0 && <Badge tone="danger">{seriousIncidents}</Badge>}
+                  {otherIncidents > 0 && <Badge tone="warning">{otherIncidents}</Badge>}
+                </span>
+              </button>
+              <div className="alerts-strip-types">
+                {incidentTabs
+                  .filter((cat) => cat !== 'all')
+                  .map((cat) => (
+                    <Chip key={cat} count={incidentCatCount(cat)} onClick={() => openIncidents(cat)}>
+                      {t.home.incidentTabs[cat]}
+                    </Chip>
+                  ))}
+              </div>
+              <button type="button" className="alerts-strip-hint" onClick={() => openIncidents('all')}>
+                {t.home.incidentsOpen(incidents.length)} →
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       <section>
-        <div className="dash-toolbar">
-          <input
-            className="search-input"
-            type="search"
-            aria-label={t.home.searchLabel}
-            placeholder={t.home.searchPlaceholder}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <div className="dash-filters">
-            <div className="chips-row chips-inline">
-              <Chip active={!anyFilter} onClick={resetFilters}>
-                {t.home.chips.all}
-              </Chip>
-              <Chip active={itvOnly} onClick={() => setItvOnly((v) => !v)}>
-                {t.home.chips.itv}
-              </Chip>
-              <Chip active={insuranceOnly} onClick={() => setInsuranceOnly((v) => !v)}>
-                {t.home.chips.insurance}
-              </Chip>
-            </div>
-            <SelectField
-              aria-label={f.use}
-              containerClassName="dash-filter"
-              required
-              options={[
-                { value: '', label: f.useAll },
-                { value: 'personal', label: f.usePersonal },
-                { value: 'works', label: f.useWorks },
-                { value: 'on_project', label: f.useProject },
-              ]}
-              value={useFilter}
-              onValueChange={setUseFilter}
-            />
-            <SelectField
-              aria-label={f.assign}
-              containerClassName="dash-filter"
-              required
-              options={[
-                { value: '', label: f.assignAll },
-                { value: 'assigned', label: f.assigned },
-                { value: 'unassigned', label: f.unassigned },
-              ]}
-              value={assignFilter}
-              onValueChange={setAssignFilter}
-            />
-            <SelectField
-              aria-label={f.state}
-              containerClassName="dash-filter"
-              required
-              options={[
-                { value: '', label: f.stateAll },
-                { value: 'active', label: f.stateActive },
-                { value: 'maintenance', label: f.stateMaintenance },
-                { value: 'itv', label: f.stateItv },
-                { value: 'broken', label: f.stateBroken },
-              ]}
-              value={stateFilter}
-              onValueChange={setStateFilter}
-            />
-          </div>
-          <label className="baja-toggle">
-            <input
-              type="checkbox"
-              checked={showBaja}
-              onChange={(e) => setShowBaja(e.target.checked)}
-            />
-            {t.home.showRetired}
-          </label>
-          <Button
-            variant="secondary"
-            disabled={rows.length === 0}
-            onClick={() => exportCsv('flota', columns, rows)}
-          >
-            Exportar CSV
-          </Button>
+        {/* Pestañas del listado: vehículos (flota/sustitución) + personas. */}
+        <div className="veh-tabs" role="tablist" aria-label={t.home.title}>
+          {(
+            [
+              ['flota', t.home.tabs.fleet, flotaCount],
+              ['substitute', t.home.tabs.substitute, subCount],
+              ['supervisors', t.home.tabs.supervisors, supCount],
+              ['drivers', t.home.tabs.drivers, drvCount],
+            ] as const
+          ).map(([key, label, count]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              className={`veh-tab${tab === key ? ' is-active' : ''}`}
+              onClick={() => switchTab(key)}
+            >
+              {label} <span className="veh-tab-count">{count}</span>
+            </button>
+          ))}
         </div>
 
-        {loading ? (
+        {/* Acordeón: búsqueda + filtros + exportación (colapsado por defecto).
+            Los filtros de vehículos solo aparecen en las pestañas de vehículos. */}
+        <div className="dash-tools">
+          <button
+            type="button"
+            className={`dash-tools-toggle${toolsOpen ? ' is-open' : ''}`}
+            aria-expanded={toolsOpen}
+            onClick={() => setToolsOpen((o) => !o)}
+          >
+            <ChevronDown size={16} aria-hidden className="dash-tools-caret" />
+            <span>{t.home.toolsToggle}</span>
+            <span className="dash-tools-summary">{t.home.toolsSummary(activeCount)}</span>
+          </button>
+
+          {toolsOpen && (
+            <div className="filters-bar filters-bar--panel table-info-bar filters-bar--inline">
+              {/* 1 · Nº de registros (tras los filtros). */}
+              <div className="filter-field filter-field--count">
+                <label>{t.home.lblRecords}</label>
+                <div className="filter-count">{activeCount}</div>
+              </div>
+
+              {/* 2 · Búsqueda (el ámbito depende de la pestaña). */}
+              <div className="filter-field filter-field--search">
+                <label htmlFor="dash-search">
+                  {isVehicleTab ? t.home.searchLabel : t.home.searchPeopleLabel}
+                </label>
+                <div className="filter-search">
+                  <input
+                    id="dash-search"
+                    type="search"
+                    aria-label={isVehicleTab ? t.home.searchLabel : t.home.searchPeopleLabel}
+                    placeholder={isVehicleTab ? t.home.searchPlaceholder : t.home.searchPeoplePlaceholder}
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                  <MiniToolsButtons
+                    size="xs"
+                    showLock={false}
+                    showSearch={false}
+                    showSort={false}
+                    showDelete
+                    onDelete={() => setSearch('')}
+                  />
+                </div>
+              </div>
+
+              {isVehicleTab && (
+                <>
+                  {/* 3 · Uso. */}
+                  <div className="filter-field filter-field--role">
+                    <label>{f.use}</label>
+                    <SelectField
+                      aria-label={f.use}
+                      containerClassName="role-filter"
+                      required
+                      options={[
+                        { value: '', label: f.useAll },
+                        { value: 'personal', label: f.usePersonal },
+                        { value: 'works', label: f.useWorks },
+                        { value: 'on_project', label: f.useProject },
+                      ]}
+                      value={useFilter}
+                      onValueChange={setUseFilter}
+                    />
+                  </div>
+
+                  {/* 4 · Asignación. */}
+                  <div className="filter-field filter-field--role">
+                    <label>{f.assign}</label>
+                    <SelectField
+                      aria-label={f.assign}
+                      containerClassName="role-filter"
+                      required
+                      options={[
+                        { value: '', label: f.assignAll },
+                        { value: 'assigned', label: f.assigned },
+                        { value: 'unassigned', label: f.unassigned },
+                      ]}
+                      value={assignFilter}
+                      onValueChange={setAssignFilter}
+                    />
+                  </div>
+
+                  {/* 5 · Estado. */}
+                  <div className="filter-field filter-field--role">
+                    <label>{f.state}</label>
+                    <SelectField
+                      aria-label={f.state}
+                      containerClassName="role-filter"
+                      required
+                      options={[
+                        { value: '', label: f.stateAll },
+                        { value: 'active', label: f.stateActive },
+                        { value: 'maintenance', label: f.stateMaintenance },
+                        { value: 'itv', label: f.stateItv },
+                        { value: 'broken', label: f.stateBroken },
+                      ]}
+                      value={stateFilter}
+                      onValueChange={setStateFilter}
+                    />
+                  </div>
+
+                  {/* 6 · Interruptores: vencimientos próximos + bajas. */}
+                  <div className="filter-toggles">
+                    <label className="baja-toggle">
+                      <input type="checkbox" checked={itvOnly} onChange={(e) => setItvOnly(e.target.checked)} />
+                      {t.home.chips.itv}
+                    </label>
+                    <label className="baja-toggle">
+                      <input
+                        type="checkbox"
+                        checked={insuranceOnly}
+                        onChange={(e) => setInsuranceOnly(e.target.checked)}
+                      />
+                      {t.home.chips.insurance}
+                    </label>
+                    <label className="baja-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showBaja}
+                        onChange={(e) => setShowBaja(e.target.checked)}
+                      />
+                      {t.home.showRetired}
+                    </label>
+                  </div>
+                </>
+              )}
+
+              {!isVehicleTab && (
+                <div className="filter-toggles">
+                  <label className="baja-toggle">
+                    <input
+                      type="checkbox"
+                      checked={showInactive}
+                      onChange={(e) => setShowInactive(e.target.checked)}
+                    />
+                    {t.home.showInactive}
+                  </label>
+                </div>
+              )}
+
+              {/* 7 · Acciones. */}
+              <div className="table-info-bar-actions">
+                {isVehicleTab && anyFilter && (
+                  <button type="button" className="linklike" onClick={resetFilters}>
+                    {t.home.clearFilters}
+                  </button>
+                )}
+                <Button variant="secondary" disabled={activeCount === 0} onClick={runExport}>
+                  {t.home.exportCsv}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {activeLoading ? (
           <p className="loading-state" role="status">{t.common.loading}</p>
-        ) : (
+        ) : tab === 'flota' || tab === 'substitute' ? (
           <TableWithPanel<Vehicle>
-            rows={rows}
-            columns={columns}
+            // Remonta por pestaña: TableWithPanel conserva su orden de columnas
+            // interno y, al reusar la instancia entre pestañas, "Acciones" dejaría
+            // de quedar la última. El key fuerza el orden que pasamos (actions al final).
+            key={tab}
+            rows={tab === 'flota' ? flotaRows : subRows}
+            columns={[...vehicleColumns, vehicleActionsColumn]}
             rowKey={(v) => String(v.id)}
+            enableColumnSort
+            showControlPanel={false}
             enablePagination
             defaultPageSize={50}
             pageSizeOptions={[25, 50, 100]}
             emptyStateLabel={t.home.empty}
+          />
+        ) : (
+          <TableWithPanel<ManagedUserFull>
+            key={tab}
+            rows={tab === 'supervisors' ? supervisorRows : driverRows}
+            columns={[...(tab === 'supervisors' ? supervisorColumns : driverColumns), peopleActionsColumn]}
+            rowKey={(u) => String(u.id)}
+            rowClassName={(u) => (u.is_active ? '' : 'row-muted')}
+            enableColumnSort
+            showControlPanel={false}
+            enablePagination
+            defaultPageSize={50}
+            pageSizeOptions={[25, 50, 100]}
+            emptyStateLabel={t.home.emptyPeople}
           />
         )}
       </section>
@@ -471,6 +1040,7 @@ export function DashboardPage() {
         open={manage !== null}
         title={manage ? MANAGE_TITLE[manage] : ''}
         onClose={() => setManage(null)}
+        wide={manage === 'itv' || manage === 'insurance'}
       >
         {manage === 'vehicles' && summary && (
           <div className="mng">
@@ -576,7 +1146,7 @@ export function DashboardPage() {
               )}
             </div>
             <div className="mng-actions">
-              <Button variant="primary" onClick={() => navigate('/facturas')}>
+              <Button variant="primary" onClick={() => navigate('/informes?tab=facturas')}>
                 {m.seeInvoices}
               </Button>
               <Button variant="secondary" onClick={() => navigate('/informes')}>
@@ -594,25 +1164,77 @@ export function DashboardPage() {
             ) : itvList.length === 0 ? (
               <p className="muted">{m.itvEmpty}</p>
             ) : (
-              <div className="mng-rows">
-                {itvList.map((v) => (
-                  <Link key={v.id} className="mng-row" to={`/vehiculos/${v.id}`}>
-                    <strong>{v.plate}</strong>
-                    <span className="mng-grow">
-                      {v.brand} {v.model}
-                    </span>
-                    <Badge tone={itvClass(v.next_itv_date) === 'itv-overdue' ? 'danger' : 'warning'}>
-                      {itvClass(v.next_itv_date) === 'itv-overdue' ? m.itvOverdue : m.itvSoon}
-                    </Badge>
-                    <span className={itvClass(v.next_itv_date)}>
-                      {fmtDate(v.next_itv_date, language)}
-                    </span>
-                  </Link>
-                ))}
-              </div>
+              <>
+                <div className="chips-row" role="group" aria-label={m.itvTitle}>
+                  {(
+                    [
+                      ['all', m.segAll, itvList.length],
+                      ['overdue', m.segOverdue, itvList.filter((v) => isOverdue(v.next_itv_date)).length],
+                      ['soon', m.segSoon, itvList.filter((v) => !isOverdue(v.next_itv_date)).length],
+                    ] as const
+                  ).map(([key, label, count]) => (
+                    <Chip key={key} active={itvSeg === key} count={count} onClick={() => setItvSeg(key)}>
+                      {label}
+                    </Chip>
+                  ))}
+                </div>
+                <TableWithPanel<Vehicle>
+                  rows={itvList.filter(
+                    (v) => itvSeg === 'all' || (itvSeg === 'overdue') === isOverdue(v.next_itv_date),
+                  )}
+                  columns={dueColumns('itv')}
+                  rowKey={(v) => String(v.id)}
+                  enableColumnSort
+                  showControlPanel={false}
+                  emptyStateLabel={m.itvEmpty}
+                />
+              </>
             )}
             <div className="mng-actions">
               <Button variant="secondary" onClick={() => filterList({ itv: true })}>
+                {m.filterInList}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {manage === 'insurance' && (
+          <div className="mng">
+            <p className="mng-hint">{m.insuranceDesc}</p>
+            {insList === null ? (
+              <p className="loading-state" role="status">{t.common.loading}</p>
+            ) : insList.length === 0 ? (
+              <p className="muted">{m.insuranceEmpty}</p>
+            ) : (
+              <>
+                <div className="chips-row" role="group" aria-label={m.insuranceTitle}>
+                  {(
+                    [
+                      ['all', m.insSegAll, insList.length],
+                      ['overdue', m.insSegOverdue, insList.filter((v) => isOverdue(v.insurance_expiry_date)).length],
+                      ['soon', m.insSegSoon, insList.filter((v) => !isOverdue(v.insurance_expiry_date)).length],
+                    ] as const
+                  ).map(([key, label, count]) => (
+                    <Chip key={key} active={insSeg === key} count={count} onClick={() => setInsSeg(key)}>
+                      {label}
+                    </Chip>
+                  ))}
+                </div>
+                <TableWithPanel<Vehicle>
+                  rows={insList.filter(
+                    (v) =>
+                      insSeg === 'all' || (insSeg === 'overdue') === isOverdue(v.insurance_expiry_date),
+                  )}
+                  columns={dueColumns('insurance')}
+                  rowKey={(v) => String(v.id)}
+                  enableColumnSort
+                  showControlPanel={false}
+                  emptyStateLabel={m.insuranceEmpty}
+                />
+              </>
+            )}
+            <div className="mng-actions">
+              <Button variant="secondary" onClick={() => filterList({ insurance: true })}>
                 {m.filterInList}
               </Button>
             </div>
@@ -638,15 +1260,16 @@ export function DashboardPage() {
             </div>
             <div className="mng-rows">
               {shownAlerts.map((alert) => (
-                <Link
+                <button
                   key={alert.id}
+                  type="button"
                   className="mng-row"
-                  to={alert.vehicle ? `/vehiculos/${alert.vehicle}` : '/alertas'}
+                  onClick={() => setSelectedAlert(alert)}
                 >
                   <Badge tone={alertLevelTone(alert.level)}>{alert.level_display}</Badge>
                   <strong>{alert.vehicle_plate || m.noVehicle}</strong>
                   <span className="mng-grow mng-truncate">{alert.message}</span>
-                </Link>
+                </button>
               ))}
             </div>
             <div className="mng-actions">
@@ -656,7 +1279,167 @@ export function DashboardPage() {
             </div>
           </div>
         )}
+
+        {manage === 'incidents' && (
+          <div className="mng">
+            <p className="mng-hint">{m.incidentsDesc}</p>
+            {/* Pestañas por tipo: Averías, Mantenimiento, ITV, Accidentes (solo
+                las que tienen incidencias). "Todas" siempre disponible. */}
+            <div className="chips-row" role="group" aria-label={t.home.incidentsTitle}>
+              {incidentTabs.map((cat) => (
+                <Chip
+                  key={cat}
+                  active={incidentTab === cat}
+                  count={incidentCatCount(cat)}
+                  onClick={() => setIncidentTab(cat)}
+                >
+                  {t.home.incidentTabs[cat]}
+                </Chip>
+              ))}
+            </div>
+            {incidents.length === 0 ? (
+              <p className="muted">{m.incidentsEmpty}</p>
+            ) : (
+              <div className="mng-rows">
+                {shownIncidents.map((inc) => (
+                  <Link key={inc.id} className="mng-row" to={`/vehiculos/${inc.vehicle}`}>
+                    <Badge tone={INCIDENT_TYPE_TONE[inc.type]}>{inc.type_display}</Badge>
+                    <strong>{plateOf(inc.vehicle)}</strong>
+                    <span className="mng-grow mng-truncate">{inc.description || '—'}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+            <div className="mng-actions">
+              <Button variant="primary" onClick={() => navigate('/incidencias')}>
+                {m.seeAllIncidents}
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
+
+      {/* Detalle de una alerta concreta: ir a Alertas o a su vista concreta. */}
+      <Modal
+        open={Boolean(selectedAlert)}
+        title={selectedAlert?.type_display ?? ''}
+        onClose={() => setSelectedAlert(null)}
+      >
+        {selectedAlert && (
+          <div className="mng">
+            <div className="alert-detail">
+              <div className="alert-detail-row">
+                <span className="muted">{t.home.alertDetail.level}</span>
+                <Badge tone={alertLevelTone(selectedAlert.level)}>{selectedAlert.level_display}</Badge>
+              </div>
+              <div className="alert-detail-row">
+                <span className="muted">{t.home.alertDetail.vehicle}</span>
+                {selectedAlert.vehicle ? (
+                  <Link to={`/vehiculos/${selectedAlert.vehicle}`} className="cell-link">
+                    <strong>{selectedAlert.vehicle_plate || `#${selectedAlert.vehicle}`}</strong>
+                  </Link>
+                ) : (
+                  <span>{t.home.alertDetail.noVehicle}</span>
+                )}
+              </div>
+              {selectedAlert.due_date && (
+                <div className="alert-detail-row">
+                  <span className="muted">{t.home.alertDetail.dueDate}</span>
+                  <span>{fmtDate(selectedAlert.due_date, language)}</span>
+                </div>
+              )}
+              <div className="alert-detail-msg">{selectedAlert.message}</div>
+            </div>
+            <div className="mng-actions">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSelectedAlert(null)
+                  navigate('/alertas')
+                }}
+              >
+                {t.home.alertGo.alerts}
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  const target = alertTargetView(selectedAlert)
+                  setSelectedAlert(null)
+                  navigate(target.path)
+                }}
+              >
+                {alertTargetView(selectedAlert).label}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Operación de vehículo: estado + sustitución + comunicado. */}
+      <Modal
+        open={Boolean(opsVehicle)}
+        title={opsVehicle ? vt.ops.title(opsVehicle.plate) : ''}
+        onClose={() => setOpsVehicle(null)}
+        wide
+      >
+        {opsVehicle && (
+          <VehicleStateModal
+            vehicle={opsVehicle}
+            allVehicles={allVehicles}
+            links={links}
+            onClose={() => setOpsVehicle(null)}
+            onDone={reloadVehicles}
+          />
+        )}
+      </Modal>
+
+      {/* Correo agrupado del vehículo. */}
+      <Modal
+        open={Boolean(emailVehicle)}
+        title={emailVehicle ? vt.email.title(emailVehicle.plate) : ''}
+        onClose={() => setEmailVehicle(null)}
+        wide
+      >
+        {emailVehicle && (
+          <VehicleEmailModal vehicle={emailVehicle} onClose={() => setEmailVehicle(null)} onDone={reloadVehicles} />
+        )}
+      </Modal>
+
+      {/* Cambio de conductor + supervisor. */}
+      <Modal
+        open={Boolean(driverVehicle)}
+        title={driverVehicle ? vt.driverModal.title(driverVehicle.plate) : ''}
+        onClose={() => setDriverVehicle(null)}
+        wide
+      >
+        {driverVehicle && (
+          <VehicleDriverModal vehicle={driverVehicle} onClose={() => setDriverVehicle(null)} onDone={reloadVehicles} />
+        )}
+      </Modal>
+
+      {/* Gestión de facturas del vehículo. */}
+      <Modal
+        open={Boolean(invoicesVehicle)}
+        title={invoicesVehicle ? vt.invoices.title(invoicesVehicle.plate) : ''}
+        onClose={() => setInvoicesVehicle(null)}
+        xl
+        height="88dvh"
+      >
+        {invoicesVehicle && (
+          <VehicleInvoicesModal vehicle={invoicesVehicle} onClose={() => setInvoicesVehicle(null)} />
+        )}
+      </Modal>
+
+      {/* Edición de persona (mismo formulario que Conductores). */}
+      <UserFormModal
+        open={userModalOpen}
+        editing={editingUser}
+        onClose={() => setUserModalOpen(false)}
+        onDone={() => {
+          setUserModalOpen(false)
+          loadUsers()
+        }}
+      />
     </div>
   )
 }

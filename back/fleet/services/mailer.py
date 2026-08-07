@@ -64,6 +64,57 @@ def render(text: str, context: dict[str, object]) -> str:
     return _VAR_RE.sub(_sub, text)
 
 
+def vehicle_notice_context(vehicle, message: str = "", template_key: str = "") -> dict[str, object]:
+    """Contexto de variables `{{...}}` para un aviso de vehículo (ITV / seguro /
+    comunicado). `fecha_vencimiento` se elige según el tipo de plantilla."""
+    driver = current_driver_map([vehicle.id]).get(vehicle.id)
+    contract = (
+        vehicle.contracts.filter(end_date__isnull=True)
+        .select_related("renting")
+        .order_by("-start_date")
+        .first()
+    )
+    renting = contract.renting if contract is not None else None
+    if template_key == EmailTemplateKey.ITV_DUE:
+        due = vehicle.next_itv_date
+    elif template_key == EmailTemplateKey.INSURANCE_DUE:
+        due = vehicle.insurance_expiry_date
+    else:
+        due = None
+    return {
+        "matricula": vehicle.plate,
+        "conductor": (driver.get_full_name() or driver.get_username()) if driver else "",
+        "empresa": renting.name if renting else "",
+        "fecha_vencimiento": due.isoformat() if due else "",
+        "km_exceso": "",
+        "mensaje": message,
+    }
+
+
+def render_vehicle_notice(vehicle, template_key: str, message: str = "") -> tuple[str, str, str]:
+    """(asunto, cuerpo_html, clave_usada) de un aviso de vehículo tirando de la
+    plantilla `template_key` si existe; si no, un texto por defecto con el
+    `mensaje` libre. Nunca lanza por falta de plantilla."""
+    context = vehicle_notice_context(vehicle, message, template_key)
+    template = (
+        EmailTemplate.objects.filter(key=template_key, is_active=True)
+        .select_related("signature")
+        .first()
+    )
+    if template is not None:
+        subject = render(template.subject, context)
+        body = render(template.body_html, context)
+        if template.signature is not None and template.signature.is_active:
+            body += template.signature.body_html
+        return subject, body, template.key
+    # Sin plantilla definida: texto neutro con el mensaje libre (no rompe el envío).
+    plate = html.escape(vehicle.plate)
+    safe = html.escape(message).replace("\n", "<br>")
+    subject = f"[Flota] {vehicle.plate} · Aviso"
+    body = f"<p>Aviso sobre el vehículo <strong>{plate}</strong>:</p><p>{safe}</p>"
+    return subject, body, ""
+
+
 def _template_for(alert_type: str) -> EmailTemplate | None:
     template = EmailTemplate.objects.filter(key=alert_type, is_active=True).first()
     if template is None:

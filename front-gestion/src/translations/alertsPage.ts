@@ -10,6 +10,10 @@ const es = {
   registerItv: 'Registrar ITV',
   resolve: 'Resolver',
   dismiss: 'Descartar',
+  records: 'Registros',
+  searchLabel: 'Buscar',
+  searchPlaceholder: 'Matrícula, tipo o mensaje…',
+  viewMessage: 'Ver mensaje',
   emptyState: 'Sin alertas con estos filtros. 🎉',
   closedNotice: (subject: string, resolved: boolean) =>
     `Alerta de ${subject} ${resolved ? 'resuelta' : 'descartada'}.`,
@@ -78,6 +82,10 @@ const en: typeof es = {
   registerItv: 'Register MOT',
   resolve: 'Resolve',
   dismiss: 'Dismiss',
+  records: 'Records',
+  searchLabel: 'Search',
+  searchPlaceholder: 'Plate, type or message…',
+  viewMessage: 'View message',
   emptyState: 'No alerts with these filters. 🎉',
   closedNotice: (subject, resolved) =>
     `Alert for ${subject} ${resolved ? 'resolved' : 'dismissed'}.`,

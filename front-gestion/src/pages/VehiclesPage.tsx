@@ -1,17 +1,146 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Badge, Button, IconButton, PageHeader } from '@flota/ui/ui'
+import {
+  Badge,
+  Button,
+  DateMiniFilter,
+  IconButton,
+  MiniToolsButtons,
+  Modal,
+  PageHeader,
+  SelectField,
+} from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { Download, Pencil, Trash2 } from 'lucide-react'
+import {
+  ArrowRightLeft,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Mail,
+  Pencil,
+  Receipt,
+  Trash2,
+  Upload,
+  UserCog,
+  Wrench,
+} from 'lucide-react'
 
-import { deleteVehicle, listAll, listVehicles } from '../api.ts'
+import {
+  convertToFleet,
+  deleteVehicle,
+  listAll,
+  listVehicleLinks,
+  listVehicles,
+} from '../api.ts'
+import { BulkImportModal } from '../components/bulk-import/BulkImportModal.tsx'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
+import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
+import { VehicleForm } from '../components/VehicleForm.tsx'
+import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
+import { VehicleStateModal } from '../components/VehicleStateModal.tsx'
+import { RowActionsMenu, type RowAction } from '../components/RowActionsMenu.tsx'
 import { exportCsv } from '../csv.ts'
-import { fmtDate, itvClass, vehicleStateTone } from '../format.ts'
+import { dueClass, fmtDate, itvClass, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
-import type { Vehicle } from '../types.ts'
+import type { Vehicle, VehicleLinkRow } from '../types.ts'
+
+// Estado que representa la baja del vehículo (VehicleState.BAJA = 'retired').
+const BAJA_STATE = 'retired'
+
+// Orden por defecto de las columnas y cuáles arrancan ocultas ("faltantes").
+const COLUMN_KEYS = [
+  'plate',
+  'vehicle',
+  'state',
+  'driver_name',
+  'supervisor',
+  'next_itv_date',
+  'insurance_expiry_date',
+  'year',
+  'fuel',
+  'company_display',
+  'created_at',
+]
+const DEFAULT_HIDDEN = ['year', 'fuel', 'company_display', 'created_at']
+
+// "Próximo" = mismo semáforo de vencimiento (≤30 días) o ya vencido.
+const isDueSoon = (date: string | null) => date != null && dueClass(date) !== ''
+
+// Fecha local (YYYY-MM-DD) de hace N días (preset "Últimos 30 días").
+function isoDaysAgo(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
+type VehTab = 'fleet' | 'substitute'
+
+// Valor especial del filtro «Estado»: vehículos con coche de sustitución vigente.
+const HAS_SUB = '__has_sub'
+
+interface VehFilter {
+  tab: VehTab
+  search: string
+  state: string
+  supervisor: string
+  dueItv: boolean
+  dueInsurance: boolean
+  showBajas: boolean
+  from: string
+  to: string
+  /** Ids de vehículos de flota con sustituto vigente (para el filtro HAS_SUB). */
+  subIds: Set<number>
+}
+
+// Filtrado en cliente compartido por la barra y por el modal de exportación.
+function filterVehicles(list: Vehicle[], f: VehFilter): Vehicle[] {
+  const term = f.search.trim().toLowerCase()
+  const wantSub = f.tab === 'substitute'
+  return list.filter((v) => {
+    // Pestaña: flota (no sustitución) vs vehículos de sustitución.
+    if (v.is_substitute !== wantSub) return false
+    const isBaja = v.state === BAJA_STATE
+    // "Mostrar bajas": ON → solo bajas; OFF → solo no-baja.
+    if (f.showBajas ? !isBaja : isBaja) return false
+    // Estado: valor normal (state) o el especial «con coche de sustitución».
+    if (f.state === HAS_SUB) {
+      if (!f.subIds.has(v.id)) return false
+    } else if (f.state && v.state !== f.state) {
+      return false
+    }
+    if (f.supervisor) {
+      if (f.supervisor === 'none') {
+        if (v.supervisor != null) return false
+      } else if (String(v.supervisor) !== f.supervisor) {
+        return false
+      }
+    }
+    // Vencimientos próximos (checkboxes independientes; unión si ambos).
+    if (f.dueItv || f.dueInsurance) {
+      const hit =
+        (f.dueItv && isDueSoon(v.next_itv_date)) ||
+        (f.dueInsurance && isDueSoon(v.insurance_expiry_date))
+      if (!hit) return false
+    }
+    if (term) {
+      const hay =
+        `${v.plate} ${v.brand} ${v.model} ${v.supervisor_name} ${v.vin} ${v.driver_name}`.toLowerCase()
+      if (!hay.includes(term)) return false
+    }
+    if (f.from || f.to) {
+      const d = (v.created_at || '').slice(0, 10) // 'YYYY-MM-DD'
+      if (!d) return false
+      if (f.from && d < f.from) return false
+      if (f.to && d > f.to) return false
+    }
+    return true
+  })
+}
 
 /** Administración de vehículos. El alta/edición seccionada vive en
  * /vehiculos/nuevo y /vehiculos/:id/editar (G3); aquí queda el inventario
@@ -22,14 +151,56 @@ export function VehiclesPage() {
   const t = useVehiclesCopy()
   const confirm = useConfirm()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [links, setLinks] = useState<VehicleLinkRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // Pestaña activa (flota / sustitución) y modales.
+  const [tab, setTab] = useState<VehTab>('fleet')
+  const [createOpen, setCreateOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [opsVehicle, setOpsVehicle] = useState<Vehicle | null>(null)
+  // Botones de Acciones: correo agrupado, conductor/supervisor, facturas.
+  const [emailVehicle, setEmailVehicle] = useState<Vehicle | null>(null)
+  const [driverVehicle, setDriverVehicle] = useState<Vehicle | null>(null)
+  const [invoicesVehicle, setInvoicesVehicle] = useState<Vehicle | null>(null)
+
+  // Filtros de la barra.
+  const [search, setSearch] = useState('')
+  const [stateFilter, setStateFilter] = useState('')
+  const [supervisorFilter, setSupervisorFilter] = useState('')
+  const [dueItv, setDueItv] = useState(false)
+  const [dueInsurance, setDueInsurance] = useState(false)
+  const [showBajas, setShowBajas] = useState(false)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [appliedFrom, setAppliedFrom] = useState('')
+  const [appliedTo, setAppliedTo] = useState('')
+
+  // Columnas: orden + ocultas + menú desplegable.
+  const [colOrder, setColOrder] = useState<string[]>(() => [...COLUMN_KEYS])
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => new Set(DEFAULT_HIDDEN))
+  const [colMenuOpen, setColMenuOpen] = useState(false)
+
+  // Modal de exportación (mismos filtros que la barra + columnas).
+  const [exportOpen, setExportOpen] = useState(false)
+  const [expSearch, setExpSearch] = useState('')
+  const [expState, setExpState] = useState('')
+  const [expSupervisor, setExpSupervisor] = useState('')
+  const [expDueItv, setExpDueItv] = useState(false)
+  const [expDueInsurance, setExpDueInsurance] = useState(false)
+  const [expBajas, setExpBajas] = useState(false)
+  const [expFrom, setExpFrom] = useState('')
+  const [expTo, setExpTo] = useState('')
+  const [expCols, setExpCols] = useState<Set<string>>(() => new Set())
+
   const load = useCallback(() => {
     setLoading(true)
-    listAll(listVehicles({ include_baja: 1 }))
-      .then((rows) => {
+    // Vehículos + vínculos de sustitución (para pintar coche sustituto / libre-ocupado).
+    Promise.all([listAll(listVehicles({ include_baja: 1 })), listAll(listVehicleLinks({}))])
+      .then(([rows, linkRows]) => {
         setVehicles(rows)
+        setLinks(linkRows)
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, t.loadError)))
@@ -51,7 +222,138 @@ export function VehiclesPage() {
     [confirm, load, t],
   )
 
-  const columns: Array<TableWithPanelColumn<Vehicle>> = [
+  // Convertir un coche de sustitución en coche de flota: acción seria e
+  // irreversible desde la UI → TRIPLE aviso antes de ejecutarla.
+  const handleConvertToFleet = useCallback(
+    async (v: Vehicle) => {
+      const c = t.convert
+      if (!(await confirm({ title: c.title, message: c.warn1(v.plate), confirmLabel: c.continue, tone: 'warning' })))
+        return
+      if (!(await confirm({ title: c.title, message: c.warn2, confirmLabel: c.continue, tone: 'warning' })))
+        return
+      if (!(await confirm({ title: c.title, message: c.warn3(v.plate), confirmLabel: c.confirm, tone: 'danger' })))
+        return
+      try {
+        await convertToFleet(v.id)
+        load()
+      } catch (err) {
+        setError(asErrorMessage(err, c.error))
+      }
+    },
+    [confirm, load, t],
+  )
+
+  // Ids de vehículos de flota con sustituto vigente (para el filtro y la celda).
+  const subMainIds = useMemo(() => {
+    const s = new Set<number>()
+    for (const l of links) if (l.end_date === null) s.add(l.main_vehicle)
+    return s
+  }, [links])
+
+  // Opciones de estado (excluye la baja: se controla con "Mostrar bajas").
+  // En la pestaña de flota se añade «Con coche de sustitución».
+  const stateOptions = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const v of vehicles) {
+      if (v.state && v.state !== BAJA_STATE) seen.set(v.state, v.state_display || v.state)
+    }
+    return [
+      { value: '', label: t.stateAll },
+      ...[...seen.entries()]
+        .sort((a, b) => a[1].localeCompare(b[1]))
+        .map(([value, label]) => ({ value, label })),
+      ...(tab === 'fleet' ? [{ value: HAS_SUB, label: t.stateHasSubstitute }] : []),
+    ]
+  }, [vehicles, t, tab])
+
+  // Opciones de supervisor (derivadas de los vehículos cargados).
+  const supervisorOptions = useMemo(() => {
+    const seen = new Map<number, string>()
+    for (const v of vehicles) {
+      if (v.supervisor != null) seen.set(v.supervisor, v.supervisor_name || `#${v.supervisor}`)
+    }
+    return [
+      { value: '', label: t.supervisorAll },
+      ...[...seen.entries()]
+        .sort((a, b) => a[1].localeCompare(b[1]))
+        .map(([id, name]) => ({ value: String(id), label: name })),
+      { value: 'none', label: t.supervisorNone },
+    ]
+  }, [vehicles, t])
+
+  // Recuentos por pestaña (excluye bajas, como la vista por defecto).
+  const fleetCount = useMemo(
+    () => vehicles.filter((v) => !v.is_substitute && v.state !== BAJA_STATE).length,
+    [vehicles],
+  )
+  const subCount = useMemo(
+    () => vehicles.filter((v) => v.is_substitute && v.state !== BAJA_STATE).length,
+    [vehicles],
+  )
+
+  const rows = useMemo(
+    () =>
+      filterVehicles(vehicles, {
+        tab,
+        search,
+        state: stateFilter,
+        supervisor: supervisorFilter,
+        dueItv,
+        dueInsurance,
+        showBajas,
+        from: appliedFrom,
+        to: appliedTo,
+        subIds: subMainIds,
+      }),
+    [vehicles, tab, search, stateFilter, supervisorFilter, dueItv, dueInsurance, showBajas, appliedFrom, appliedTo, subMainIds],
+  )
+
+  const exportRows = useMemo(
+    () =>
+      filterVehicles(vehicles, {
+        tab,
+        search: expSearch,
+        state: expState,
+        supervisor: expSupervisor,
+        dueItv: expDueItv,
+        dueInsurance: expDueInsurance,
+        showBajas: expBajas,
+        from: expFrom,
+        to: expTo,
+        subIds: subMainIds,
+      }),
+    [vehicles, tab, expSearch, expState, expSupervisor, expDueItv, expDueInsurance, expBajas, expFrom, expTo, subMainIds],
+  )
+
+  // Índice por id + vínculos activos (end_date === null) en ambos sentidos.
+  const byId = useMemo(() => new Map(vehicles.map((v) => [v.id, v])), [vehicles])
+  const activeSubOfMain = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const l of links) if (l.end_date === null) m.set(l.main_vehicle, l.substitute_vehicle)
+    return m
+  }, [links])
+  const activeMainOfSub = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const l of links) if (l.end_date === null) m.set(l.substitute_vehicle, l.main_vehicle)
+    return m
+  }, [links])
+
+  // Enlace a la ficha de un usuario (conductor o supervisor) si hay id.
+  const userLink = (id: number | null, name: string) =>
+    name ? (
+      id != null ? (
+        <Link to={`/conductores/${id}`} className="cell-link">
+          {name}
+        </Link>
+      ) : (
+        name
+      )
+    ) : (
+      '—'
+    )
+
+  // Definición de TODAS las columnas (el orden/visibilidad se aplica luego).
+  const allColumns: Array<TableWithPanelColumn<Vehicle>> = [
     {
       key: 'plate',
       label: t.columns.plate,
@@ -66,20 +368,64 @@ export function VehiclesPage() {
     {
       key: 'vehicle',
       label: t.columns.vehicle,
-      getValue: (v) => `${v.brand} ${v.model}`,
-      render: (v) => `${v.brand} ${v.model}`.trim() || '—',
+      getValue: (v) => `${v.brand} - ${v.model}`,
+      render: (v) => `${v.brand} - ${v.model}`.replace(/^ - | - $/g, '').trim() || '—',
     },
     {
       key: 'state',
       label: t.columns.state,
       getValue: (v) => v.state_display,
-      render: (v) => <Badge tone={vehicleStateTone(v.state)}>{v.state_display || '—'}</Badge>,
+      render: (v) => {
+        const badge = <Badge tone={vehicleStateTone(v.state)}>{v.state_display || '—'}</Badge>
+        if (!v.is_substitute) {
+          // Vehículo de flota: si tiene sustituto vigente, lo muestra bajo el estado.
+          const sub = byId.get(activeSubOfMain.get(v.id) ?? -1)
+          return (
+            <div className="state-cell">
+              {badge}
+              {sub && (
+                <Link to={`/vehiculos/${sub.id}`} className="state-sub cell-link">
+                  🔁 {t.hasSubstitute}: <strong>{sub.plate}</strong>
+                </Link>
+              )}
+            </div>
+          )
+        }
+        // Coche de sustitución: libre / ocupado + coche de flota asociado y su gente.
+        const main = byId.get(activeMainOfSub.get(v.id) ?? -1)
+        return (
+          <div className="state-cell">
+            {badge}
+            {main ? (
+              <div className="state-sub">
+                <Badge tone="warning">{t.busy}</Badge>{' '}
+                <Link to={`/vehiculos/${main.id}`} className="cell-link">
+                  <strong>{main.plate}</strong>
+                </Link>
+                <div className="state-sub-meta muted">
+                  {t.columns.driver}: {userLink(main.driver_id, main.driver_name)}
+                  {' · '}
+                  {t.columns.supervisor}: {userLink(main.supervisor, main.supervisor_name)}
+                </div>
+              </div>
+            ) : (
+              <Badge tone="success">{t.free}</Badge>
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      key: 'driver_name',
+      label: t.columns.driver,
+      getValue: (v) => v.driver_name,
+      render: (v) => userLink(v.driver_id, v.driver_name),
     },
     {
       key: 'supervisor',
       label: t.columns.supervisor,
       getValue: (v) => v.supervisor_name,
-      render: (v) => v.supervisor_name || '—',
+      render: (v) => userLink(v.supervisor, v.supervisor_name),
     },
     {
       key: 'next_itv_date',
@@ -91,32 +437,145 @@ export function VehiclesPage() {
       ),
     },
     {
-      key: 'actions',
-      label: t.columns.actions,
-      align: 'right',
-      searchable: false,
-      sortable: false,
+      key: 'insurance_expiry_date',
+      label: t.columns.insurance,
+      isDate: true,
+      getValue: (v) => v.insurance_expiry_date,
       render: (v) => (
-        <div className="row-actions">
-          <IconButton
-            aria-label={t.edit}
-            title={t.edit}
-            onClick={() => navigate(`/vehiculos/${v.id}/editar`)}
-          >
-            <Pencil size={15} />
-          </IconButton>
-          <IconButton
-            variant="danger"
-            aria-label={t.delete}
-            title={t.delete}
-            onClick={() => handleDelete(v)}
-          >
-            <Trash2 size={15} />
-          </IconButton>
-        </div>
+        <span className={dueClass(v.insurance_expiry_date)}>
+          {fmtDate(v.insurance_expiry_date, language)}
+        </span>
       ),
     },
+    {
+      key: 'year',
+      label: t.columns.year,
+      align: 'right',
+      getValue: (v) => v.year ?? '',
+      render: (v) => (v.year != null ? String(v.year) : '—'),
+    },
+    {
+      key: 'fuel',
+      label: t.columns.fuel,
+      getValue: (v) => v.fuel,
+      render: (v) => v.fuel || '—',
+    },
+    {
+      key: 'company_display',
+      label: t.columns.company,
+      getValue: (v) => v.company_display,
+      render: (v) => v.company_display || '—',
+    },
+    {
+      key: 'created_at',
+      label: t.columns.created,
+      isDate: true,
+      getValue: (v) => v.created_at,
+      render: (v) => fmtDate(v.created_at, language),
+    },
   ]
+
+  const colByKey = new Map(allColumns.map((c) => [c.key, c]))
+
+  const actionsColumn: TableWithPanelColumn<Vehicle> = {
+    key: 'actions',
+    label: t.columns.actions,
+    align: 'right',
+    searchable: false,
+    sortable: false,
+    render: (v) => {
+      // Todas las acciones en un menú (⋮) para que quepan siempre.
+      const items: RowAction[] = []
+      // Correo y conductor: no aplican a coches de sustitución.
+      if (!v.is_substitute) {
+        items.push({ key: 'email', label: t.email.btn, icon: <Mail size={15} />, onClick: () => setEmailVehicle(v) })
+        items.push({ key: 'driver', label: t.driverModal.btn, icon: <UserCog size={15} />, onClick: () => setDriverVehicle(v) })
+      }
+      // Facturas: también en sustitutos.
+      items.push({ key: 'invoices', label: t.invoices.btn, icon: <Receipt size={15} />, onClick: () => setInvoicesVehicle(v) })
+      // Convertir sustituto → flota: solo si no está cubriendo a ningún coche.
+      if (v.is_substitute && !activeMainOfSub.has(v.id)) {
+        items.push({ key: 'convert', label: t.convert.btn, icon: <ArrowRightLeft size={15} />, onClick: () => handleConvertToFleet(v) })
+      }
+      items.push({ key: 'state', label: t.ops.actionTitle, icon: <Wrench size={15} />, onClick: () => setOpsVehicle(v) })
+      items.push({ key: 'edit', label: t.edit, icon: <Pencil size={15} />, onClick: () => navigate(`/vehiculos/${v.id}/editar`) })
+      items.push({ key: 'delete', label: t.delete, icon: <Trash2 size={15} />, danger: true, onClick: () => handleDelete(v) })
+      return <RowActionsMenu items={items} ariaLabel={t.columns.actions} />
+    },
+  }
+
+  // Columnas visibles en el orden elegido + acciones al final.
+  const tableColumns: Array<TableWithPanelColumn<Vehicle>> = [
+    ...colOrder
+      .filter((key) => !hiddenCols.has(key))
+      .map((key) => colByKey.get(key))
+      .filter((c): c is TableWithPanelColumn<Vehicle> => Boolean(c)),
+    actionsColumn,
+  ]
+
+  const visibleColCount = colOrder.filter((key) => !hiddenCols.has(key)).length
+
+  function toggleColumn(key: string) {
+    setHiddenCols((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function moveColumn(key: string, dir: 'up' | 'down') {
+    setColOrder((order) => {
+      const i = order.indexOf(key)
+      const j = dir === 'up' ? i - 1 : i + 1
+      if (i < 0 || j < 0 || j >= order.length) return order
+      const next = [...order]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    })
+  }
+
+  function openExport() {
+    // Prellenar con lo que hay en la barra; el usuario lo ajusta en el modal.
+    setExpSearch(search)
+    setExpState(stateFilter)
+    setExpSupervisor(supervisorFilter)
+    setExpDueItv(dueItv)
+    setExpDueInsurance(dueInsurance)
+    setExpBajas(showBajas)
+    setExpFrom(appliedFrom)
+    setExpTo(appliedTo)
+    setExpCols(new Set(colOrder.filter((key) => !hiddenCols.has(key))))
+    setExportOpen(true)
+  }
+
+  function runExport() {
+    // Exporta en el orden elegido y solo las columnas marcadas.
+    const cols = colOrder
+      .filter((key) => expCols.has(key))
+      .map((key) => colByKey.get(key))
+      .filter((c): c is TableWithPanelColumn<Vehicle> => Boolean(c))
+    exportCsv('vehiculos', cols, exportRows)
+    setExportOpen(false)
+  }
+
+  function switchTab(next: VehTab) {
+    if (next === tab) return
+    setTab(next)
+    // Filtros independientes por pestaña: al cambiar se limpian, así los de
+    // flota no influyen en los de sustitución (ni al revés).
+    setSearch('')
+    setStateFilter('')
+    setSupervisorFilter('')
+    setDueItv(false)
+    setDueInsurance(false)
+    setShowBajas(false)
+    setDateFrom('')
+    setDateTo('')
+    setAppliedFrom('')
+    setAppliedTo('')
+    setColMenuOpen(false)
+  }
 
   return (
     <div>
@@ -125,19 +584,220 @@ export function VehiclesPage() {
         subtitle={t.subtitle}
         actions={
           <>
-            <Button
-              variant="secondary"
-              disabled={vehicles.length === 0}
-              onClick={() => exportCsv('vehiculos', columns, vehicles)}
-            >
+            <Button variant="secondary" disabled={vehicles.length === 0} onClick={openExport}>
               <Download size={16} aria-hidden /> {t.exportCsv}
             </Button>
-            <Button variant="primary" onClick={() => navigate('/vehiculos/nuevo')}>
+            <Button variant="secondary" onClick={() => setImportOpen(true)}>
+              <Upload size={16} aria-hidden /> {t.importBtn}
+            </Button>
+            <Button variant="primary" onClick={() => setCreateOpen(true)}>
               {t.newVehicle}
             </Button>
           </>
         }
       />
+
+      {/* Pestañas: vehículos de flota vs. de sustitución. */}
+      <div className="veh-tabs" role="tablist" aria-label={t.title}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'fleet'}
+          className={`veh-tab${tab === 'fleet' ? ' is-active' : ''}`}
+          onClick={() => switchTab('fleet')}
+        >
+          {t.tabFleet} <span className="veh-tab-count">{fleetCount}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'substitute'}
+          className={`veh-tab${tab === 'substitute' ? ' is-active' : ''}`}
+          onClick={() => switchTab('substitute')}
+        >
+          {t.tabSubstitute} <span className="veh-tab-count">{subCount}</span>
+        </button>
+      </div>
+
+      <div className="filters-bar filters-bar--panel">
+        {/* 1 · Nº de registros. */}
+        <div className="filter-field filter-field--count">
+          <label>{t.lblRecords}</label>
+          <div className="filter-count">{rows.length}</div>
+        </div>
+
+        {/* 2 · Búsqueda. */}
+        <div className="filter-field filter-field--search">
+          <label htmlFor="veh-search">{t.lblSearch}</label>
+          <div className="filter-search">
+            <input
+              id="veh-search"
+              type="search"
+              aria-label={t.lblSearch}
+              placeholder={t.searchPlaceholder}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <MiniToolsButtons
+              size="xs"
+              showLock={false}
+              showSearch={false}
+              showSort={false}
+              showDelete
+              onDelete={() => setSearch('')}
+            />
+          </div>
+        </div>
+
+        {/* 3 · Estado del vehículo. */}
+        <div className="filter-field filter-field--role">
+          <label>{t.lblState}</label>
+          <SelectField
+            aria-label={t.lblState}
+            containerClassName="role-filter"
+            required
+            options={stateOptions}
+            value={stateFilter}
+            onValueChange={setStateFilter}
+          />
+        </div>
+
+        {/* 4 · Supervisor. */}
+        <div className="filter-field filter-field--role">
+          <label>{t.lblSupervisor}</label>
+          <SelectField
+            aria-label={t.lblSupervisor}
+            containerClassName="role-filter"
+            required
+            options={supervisorOptions}
+            value={supervisorFilter}
+            onValueChange={setSupervisorFilter}
+          />
+        </div>
+
+        {/* 5 · Fecha de alta. */}
+        <div className="filter-field filter-field--date">
+          <label>{t.lblCreated}</label>
+          <DateMiniFilter
+            fromLabel={t.dateFrom}
+            toLabel={t.dateTo}
+            startDate={dateFrom}
+            endDate={dateTo}
+            onStartDateChange={setDateFrom}
+            onEndDateChange={setDateTo}
+            onApply={() => {
+              setAppliedFrom(dateFrom)
+              setAppliedTo(dateTo)
+            }}
+            onClear={() => {
+              setDateFrom('')
+              setDateTo('')
+              setAppliedFrom('')
+              setAppliedTo('')
+            }}
+            onApplyLast30Days={() => {
+              const from = isoDaysAgo(30)
+              const to = isoDaysAgo(0)
+              setDateFrom(from)
+              setDateTo(to)
+              setAppliedFrom(from)
+              setAppliedTo(to)
+            }}
+          />
+        </div>
+
+        {/* 6 · Columnas (mostrar/ocultar + ordenar). */}
+        <div className="filter-field filter-field--cols">
+          <label>{t.lblColumns}</label>
+          <div className="cols-dropdown">
+            <button
+              type="button"
+              className="cols-trigger"
+              onClick={() => setColMenuOpen((o) => !o)}
+              aria-expanded={colMenuOpen}
+            >
+              {t.columnsBtn(visibleColCount, colOrder.length)}
+              <ChevronDown size={14} aria-hidden />
+            </button>
+            {colMenuOpen && (
+              <>
+                <div className="cols-menu-overlay" onClick={() => setColMenuOpen(false)} />
+                <div className="cols-menu" role="menu">
+                  {colOrder.map((key, index) => {
+                    const col = colByKey.get(key)
+                    if (!col) return null
+                    return (
+                      <div key={key} className="cols-menu-item">
+                        <label className="baja-toggle">
+                          <input
+                            type="checkbox"
+                            checked={!hiddenCols.has(key)}
+                            onChange={() => toggleColumn(key)}
+                          />
+                          {col.label}
+                        </label>
+                        <span className="cols-menu-actions">
+                          <IconButton
+                            variant="default"
+                            size="xs"
+                            disabled={index === 0}
+                            aria-label={t.colMoveUp}
+                            title={t.colMoveUp}
+                            onClick={() => moveColumn(key, 'up')}
+                          >
+                            <ChevronUp size={12} />
+                          </IconButton>
+                          <IconButton
+                            variant="default"
+                            size="xs"
+                            disabled={index === colOrder.length - 1}
+                            aria-label={t.colMoveDown}
+                            title={t.colMoveDown}
+                            onClick={() => moveColumn(key, 'down')}
+                          >
+                            <ChevronDown size={12} />
+                          </IconButton>
+                        </span>
+                      </div>
+                    )
+                  })}
+                  <button
+                    type="button"
+                    className="linklike"
+                    onClick={() => setHiddenCols(new Set())}
+                  >
+                    {t.columnsAll}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* 7 · Interruptores: vencimientos próximos + bajas. */}
+        <div className="filter-toggles">
+          <label className="baja-toggle">
+            <input type="checkbox" checked={dueItv} onChange={(e) => setDueItv(e.target.checked)} />
+            {t.dueItv}
+          </label>
+          <label className="baja-toggle">
+            <input
+              type="checkbox"
+              checked={dueInsurance}
+              onChange={(e) => setDueInsurance(e.target.checked)}
+            />
+            {t.dueInsurance}
+          </label>
+          <label className="baja-toggle">
+            <input
+              type="checkbox"
+              checked={showBajas}
+              onChange={(e) => setShowBajas(e.target.checked)}
+            />
+            {t.showBajas}
+          </label>
+        </div>
+      </div>
 
       {error && <div role="alert" className="form-error">{error}</div>}
 
@@ -145,16 +805,279 @@ export function VehiclesPage() {
         <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<Vehicle>
-          rows={vehicles}
-          columns={columns}
+          // Remonta al cambiar orden/visibilidad: TableWithPanel guarda su propio
+          // orden interno (mergeColumnOrder) e ignoraría el reordenado por props.
+          key={`${colOrder.join(',')}|${[...hiddenCols].sort().join(',')}`}
+          rows={rows}
+          columns={tableColumns}
           rowKey={(v) => String(v.id)}
+          rowClassName={(v) => (v.state === BAJA_STATE ? 'row-muted' : '')}
           enableColumnSort
+          showControlPanel={false}
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
           emptyStateLabel={t.empty}
         />
       )}
+
+      {/* Operación: estado + sustitución + comunicado (desde Acciones). */}
+      <Modal
+        open={Boolean(opsVehicle)}
+        title={opsVehicle ? t.ops.title(opsVehicle.plate) : ''}
+        onClose={() => setOpsVehicle(null)}
+        wide
+      >
+        {opsVehicle && (
+          <VehicleStateModal
+            vehicle={opsVehicle}
+            allVehicles={vehicles}
+            links={links}
+            onClose={() => setOpsVehicle(null)}
+            onDone={load}
+          />
+        )}
+      </Modal>
+
+      {/* Correo agrupado: comunicado / ITV / seguro (desde Acciones). */}
+      <Modal
+        open={Boolean(emailVehicle)}
+        title={emailVehicle ? t.email.title(emailVehicle.plate) : ''}
+        onClose={() => setEmailVehicle(null)}
+        wide
+      >
+        {emailVehicle && (
+          <VehicleEmailModal
+            vehicle={emailVehicle}
+            onClose={() => setEmailVehicle(null)}
+            onDone={load}
+          />
+        )}
+      </Modal>
+
+      {/* Cambio de conductor + supervisor (desde Acciones). */}
+      <Modal
+        open={Boolean(driverVehicle)}
+        title={driverVehicle ? t.driverModal.title(driverVehicle.plate) : ''}
+        onClose={() => setDriverVehicle(null)}
+        wide
+      >
+        {driverVehicle && (
+          <VehicleDriverModal
+            vehicle={driverVehicle}
+            onClose={() => setDriverVehicle(null)}
+            onDone={load}
+          />
+        )}
+      </Modal>
+
+      {/* Gestión de facturas del vehículo (desde Acciones; también sustitutos). */}
+      <Modal
+        open={Boolean(invoicesVehicle)}
+        title={invoicesVehicle ? t.invoices.title(invoicesVehicle.plate) : ''}
+        onClose={() => setInvoicesVehicle(null)}
+        xl
+        height="88dvh"
+      >
+        {invoicesVehicle && (
+          <VehicleInvoicesModal
+            vehicle={invoicesVehicle}
+            onClose={() => setInvoicesVehicle(null)}
+          />
+        )}
+      </Modal>
+
+      {/* Alta de vehículo en modal (antes era una vista aparte). El tipo se
+          preselecciona según la pestaña activa; se puede cambiar dentro. */}
+      <Modal
+        open={createOpen}
+        title={t.newVehicle}
+        onClose={() => setCreateOpen(false)}
+        xl
+        height="88dvh"
+      >
+        <VehicleForm
+          mode="create"
+          defaultSubstitute={tab === 'substitute'}
+          onSuccess={(id) => {
+            setCreateOpen(false)
+            navigate(`/vehiculos/${id}`)
+          }}
+          onCancel={() => setCreateOpen(false)}
+        />
+      </Modal>
+
+      {/* Importación masiva: la pestaña activa preselecciona flota/sustitución
+          para las filas que no mapeen esa columna (IMPORTACION_MASIVA.md §9). */}
+      <BulkImportModal
+        open={importOpen}
+        entity="vehicles"
+        defaults={{ is_substitute: tab === 'substitute' }}
+        onClose={() => setImportOpen(false)}
+        onDone={load}
+      />
+
+      <Modal open={exportOpen} title={t.exportTitle} onClose={() => setExportOpen(false)} wide>
+        <div className="export-form">
+          <p className="muted" style={{ margin: 0 }}>{t.exportIntro}</p>
+
+          <div className="filters-bar">
+            <div className="filter-field filter-field--search">
+              <label htmlFor="veh-export-search">{t.lblSearch}</label>
+              <div className="filter-search">
+                <input
+                  id="veh-export-search"
+                  type="search"
+                  aria-label={t.lblSearch}
+                  placeholder={t.searchPlaceholder}
+                  value={expSearch}
+                  onChange={(e) => setExpSearch(e.target.value)}
+                />
+                <MiniToolsButtons
+                  size="xs"
+                  showLock={false}
+                  showSearch={false}
+                  showSort={false}
+                  showDelete
+                  onDelete={() => setExpSearch('')}
+                />
+              </div>
+            </div>
+
+            <div className="filter-field filter-field--role">
+              <label>{t.lblState}</label>
+              <SelectField
+                aria-label={t.lblState}
+                containerClassName="role-filter"
+                required
+                options={stateOptions}
+                value={expState}
+                onValueChange={setExpState}
+              />
+            </div>
+
+            <div className="filter-field filter-field--role">
+              <label>{t.lblSupervisor}</label>
+              <SelectField
+                aria-label={t.lblSupervisor}
+                containerClassName="role-filter"
+                required
+                options={supervisorOptions}
+                value={expSupervisor}
+                onValueChange={setExpSupervisor}
+              />
+            </div>
+
+            <div className="filter-field filter-field--date">
+              <label>{t.lblCreated}</label>
+              <DateMiniFilter
+                fromLabel={t.dateFrom}
+                toLabel={t.dateTo}
+                startDate={expFrom}
+                endDate={expTo}
+                onStartDateChange={setExpFrom}
+                onEndDateChange={setExpTo}
+                onClear={() => {
+                  setExpFrom('')
+                  setExpTo('')
+                }}
+                onApplyLast30Days={() => {
+                  setExpFrom(isoDaysAgo(30))
+                  setExpTo(isoDaysAgo(0))
+                }}
+              />
+            </div>
+
+            <div className="filter-toggles">
+              <label className="baja-toggle">
+                <input
+                  type="checkbox"
+                  checked={expDueItv}
+                  onChange={(e) => setExpDueItv(e.target.checked)}
+                />
+                {t.dueItv}
+              </label>
+              <label className="baja-toggle">
+                <input
+                  type="checkbox"
+                  checked={expDueInsurance}
+                  onChange={(e) => setExpDueInsurance(e.target.checked)}
+                />
+                {t.dueInsurance}
+              </label>
+              <label className="baja-toggle">
+                <input
+                  type="checkbox"
+                  checked={expBajas}
+                  onChange={(e) => setExpBajas(e.target.checked)}
+                />
+                {t.showBajas}
+              </label>
+            </div>
+          </div>
+
+          <div className="export-cols">
+            <div className="export-cols-head">
+              <span className="doc-attach-label">{t.exportColumns}</span>
+              <span className="export-cols-actions">
+                <button
+                  type="button"
+                  className="linklike"
+                  onClick={() => setExpCols(new Set(COLUMN_KEYS))}
+                >
+                  {t.exportSelectAll}
+                </button>
+                <button type="button" className="linklike" onClick={() => setExpCols(new Set())}>
+                  {t.exportSelectNone}
+                </button>
+              </span>
+            </div>
+            <div className="export-cols-list">
+              {colOrder.map((key) => {
+                const col = colByKey.get(key)
+                if (!col) return null
+                return (
+                  <label key={key} className="baja-toggle">
+                    <input
+                      type="checkbox"
+                      checked={expCols.has(key)}
+                      onChange={() =>
+                        setExpCols((current) => {
+                          const next = new Set(current)
+                          if (next.has(key)) next.delete(key)
+                          else next.add(key)
+                          return next
+                        })
+                      }
+                    />
+                    {col.label}
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+
+          <p className="export-summary">
+            {t.exportSummaryLabel}{' '}
+            <span className="export-num">{exportRows.length}</span> {t.exportSummaryOf}{' '}
+            <span className="export-num">{vehicles.length}</span> {t.exportSummaryTail}
+          </p>
+
+          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+            <Button type="button" variant="secondary" onClick={() => setExportOpen(false)}>
+              {t.cancel}
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={exportRows.length === 0 || expCols.size === 0}
+              onClick={runExport}
+            >
+              <Download size={16} aria-hidden /> {t.exportRun}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

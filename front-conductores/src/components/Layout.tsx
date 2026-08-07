@@ -4,7 +4,6 @@ import { Bell, Car, CloudOff, LogOut, PlusCircle, RefreshCw, Users } from 'lucid
 import { LanguageToggleButton } from '@flota/ui/ui'
 
 import { useAuth } from '../auth.ts'
-import { InstallBanner } from './InstallBanner.tsx'
 import { useLang } from '../i18n.tsx'
 import { useOfflineQueue } from '../offline/useOfflineQueue.ts'
 import type { FlushResult } from '../offline/queue.ts'
@@ -102,7 +101,6 @@ export function Layout() {
           {queueNotice}
         </button>
       )}
-      <InstallBanner />
       <main className="app-main">
         <Outlet />
       </main>

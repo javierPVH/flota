@@ -183,7 +183,7 @@ export function GroupPage() {
       <section className="card">
         <div className="panel-head">
           <h3 className="panel-title">{t.group.incidents}</h3>
-          <Link to="/grupo/incidencias/nueva">
+          <Link to="/incidencias/nueva?desde=grupo">
             <Button size="sm">
               <Plus size={16} aria-hidden /> {t.group.newIncident}
             </Button>

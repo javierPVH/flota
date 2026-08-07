@@ -1,7 +1,7 @@
 """N8 — ventanas temporales del registro de km y estimación de faltantes.
 
 - 8a: el personal de campo (no gestión) solo puede REGISTRAR del día
-  `FLEET_KM_WINDOW_START` (23 por defecto en producción) al último día del mes.
+  `FLEET_KM_WINDOW_START` (20 por defecto en producción) al último día del mes.
 - 8b: la administración, del 1 al `FLEET_KM_ESTIMATE_WINDOW_END` (10), puede
   completar las lecturas que faltaron el mes anterior con la media mensual de
   los N últimos meses (lecturas marcadas `estimated=True`; nunca retroceden;

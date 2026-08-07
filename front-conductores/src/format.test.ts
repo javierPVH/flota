@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { fmtDate, fmtKm, itvClass, pendingThisMonth } from './format.ts'
+import { daysUntil, fmtDate, fmtKm, itvClass, pendingThisMonth, todayIso } from './format.ts'
 import type { VehicleSummary } from './types.ts'
 
-function summaryWith(date: string | null): VehicleSummary {
-  return { km_reading_date: date } as VehicleSummary
+function summaryWith(date: string | null, unlimited = false): VehicleSummary {
+  return { km_reading_date: date, unlimited_km: unlimited } as VehicleSummary
 }
 
 function isoDaysFromNow(days: number): string {
@@ -35,6 +35,39 @@ describe('pendingThisMonth (HU-3.2)', () => {
   })
   it('lectura de otro mes → pendiente', () => {
     expect(pendingThisMonth(summaryWith('2020-01-15'))).toBe(true)
+  })
+  it('km ILIMITADOS → nunca pendiente, aunque no haya lectura (X2)', () => {
+    // Sin cupo que vigilar no hay lectura que reclamar: ni píldora, ni recuento.
+    expect(pendingThisMonth(summaryWith(null, true))).toBe(false)
+    expect(pendingThisMonth(summaryWith('2020-01-15', true))).toBe(false)
+  })
+})
+
+describe('daysUntil (cuenta atrás de los avisos del inicio)', () => {
+  it('sin fecha o fecha ilegible → null', () => {
+    expect(daysUntil(null)).toBeNull()
+    expect(daysUntil('no-es-fecha')).toBeNull()
+  })
+  it('cuenta días naturales desde un ancla explícita', () => {
+    expect(daysUntil('2026-08-31', '2026-08-06')).toBe(25)
+    expect(daysUntil('2026-08-06', '2026-08-06')).toBe(0)
+    expect(daysUntil('2026-08-07', '2026-08-06')).toBe(1)
+  })
+  it('fecha pasada → negativo', () => {
+    expect(daysUntil('2026-08-01', '2026-08-06')).toBe(-5)
+  })
+  it('cruza el cambio de hora sin desviarse (marzo y octubre)', () => {
+    // El salto DST deja 23,04 / 24,96 días: `round` lo devuelve al entero.
+    expect(daysUntil('2026-04-01', '2026-03-25')).toBe(7)
+    expect(daysUntil('2026-11-01', '2026-10-25')).toBe(7)
+  })
+  it('por defecto ancla en hoy (local, no UTC)', () => {
+    // `todayIso()` y no `toISOString()`: de madrugada este último da "ayer" y
+    // el test saldría -1 (misma trampa E2/E6 que el helper esquiva).
+    const today = todayIso()
+    expect(daysUntil(today)).toBe(0)
+    // Omitir el ancla equivale a pasar `todayIso()` a mano.
+    expect(daysUntil('2026-12-31')).toBe(daysUntil('2026-12-31', today))
   })
 })
 

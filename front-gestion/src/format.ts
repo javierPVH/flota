@@ -21,7 +21,9 @@ export function fmtDate(iso: string | null | undefined, lang: AppLanguage = 'es'
 }
 
 export function fmtKm(value: number, lang: AppLanguage = 'es'): string {
-  return `${value.toLocaleString(LOCALE[lang])} km`
+  // useGrouping: true → SIEMPRE separador de miles (por defecto "min2" deja los
+  // 4 dígitos sin punto: 3628 vs 53.730). Humanizamos todas las cifras.
+  return `${value.toLocaleString(LOCALE[lang], { useGrouping: true })} km`
 }
 
 // DX3: helpers y tonos de dominio COMPARTIDOS — única copia en el DS.

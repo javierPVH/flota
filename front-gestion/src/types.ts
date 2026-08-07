@@ -93,6 +93,8 @@ export interface Vehicle {
   next_itv_date: string | null
   /** Conductor con asignación aceptada vigente (lo resuelve el back en bloque). */
   driver_name: string
+  /** Id del conductor vigente (para enlazar a su ficha); null si no hay. */
+  driver_id: number | null
   /** Carpeta documental del vehículo en Google Drive (Fase A3). */
   drive_folder_url: string
   drive_folder_id: string
@@ -146,6 +148,8 @@ export interface VehicleSummary {
   } | null
   km_current: number | null
   km_reading_date: string | null
+  /** ¿La última lectura fue generada automáticamente (estimada)? */
+  km_estimated: boolean
   km_driven: number | null
   driver: { id: number; name: string } | null
   contract: {
@@ -156,6 +160,8 @@ export interface VehicleSummary {
     penalty_per_km: string | null
     start_date: string
     planned_end_date: string
+    /** Enlace al contrato en Google Drive (carpeta o fichero). */
+    drive_url: string
   } | null
   projection: {
     km_remaining: number
@@ -201,12 +207,18 @@ export interface FlotaEvent {
   details: Record<string, unknown> | null
 }
 
-/** Entrada de auditoría de campos (GET /vehicles/{id}/history/). */
+/** Entrada de auditoría de campos (GET /vehicles/{id}/history/).
+ * El histórico es exhaustivo: `model` indica el modelo de origen del cambio
+ * (vehicle/contract/assignment/kmreading/document/invoice/…). */
 export interface AuditEntry {
   id: number
   action: string
   actor: string
   changes: Record<string, [string, string]>
+  /** Modelo de origen del cambio (para etiquetar de dónde viene). */
+  model: string
+  /** Representación del objeto modificado (p. ej. la matrícula, el nº de factura). */
+  object_repr: string
   timestamp: string
 }
 

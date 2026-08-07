@@ -11,6 +11,7 @@ from django_filters.widgets import BooleanWidget
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -23,6 +24,7 @@ from accounts.permissions import (
     IsAdmin,
     IsDriver,
     IsManagement,
+    IsManagementOrDriverCreate,
     IsManagementOrDriverReadOnly,
     ManagementOrDriverReadWrite,
     ManagementReadWrite,
@@ -57,6 +59,7 @@ from .models import (
 )
 from .models.enums import (
     AlertStatus,
+    AlertType,
     AssignmentStatus,
     DocumentStatus,
     VehicleRequestStatus,
@@ -93,7 +96,7 @@ from .serializers import (
     VehicleSerializer,
     VehicleUsageSerializer,
 )
-from .services import events, metrics, reports
+from .services import events, importer, metrics, reports
 from .services.archiver import archive_document
 
 
@@ -279,11 +282,106 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     reason=str(self.request.data.get("change_reason", "")),
                 )
 
+    # --- Importación masiva (IMPORTACION_MASIVA.md) -------------------------
+    # detect-columns → preview-import → bulk-create (tandas del cliente).
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="detect-columns",
+        permission_classes=[IsAdmin],
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def detect_columns(self, request):
+        """POST multipart {file} → cabeceras + auto-mapeo por alias."""
+        parsed = importer.read_uploaded_file(request.FILES.get("file"))
+        return Response(
+            {
+                "columns": parsed["headers"],
+                "auto_mapping": importer.detect_mapping(
+                    parsed["headers"], importer.VEHICLE_ALIASES
+                ),
+                "total_rows": parsed["total_rows"],
+                "omitted_count": parsed["omitted_count"],
+                "sheet_names": parsed["sheet_names"],
+            }
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="preview-import",
+        permission_classes=[IsAdmin],
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def preview_import(self, request):
+        """POST multipart {file, mapping, defaults} → valida SIN escribir.
+
+        Devuelve `records` (solo filas válidas, con `_row`) listos para
+        reenviarse por tandas a `bulk-create`, y los avisos por cubos.
+        """
+        parsed = importer.read_uploaded_file(request.FILES.get("file"))
+        normalizer = importer.VehicleRowNormalizer()
+        mapping = importer.parse_client_mapping(
+            request.data.get("mapping"), set(importer.VEHICLE_ALIASES)
+        )
+        defaults = importer.parse_client_defaults(request.data.get("defaults"))
+        return Response(importer.build_preview(parsed, mapping, defaults, normalizer))
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="bulk-create",
+        permission_classes=[IsAdmin],
+    )
+    def bulk_create(self, request):
+        """POST {rows} (≤1000) → crea con savepoint por fila + evento de alta."""
+        result = importer.run_bulk_create(
+            request.data.get("rows"),
+            lambda data: self.get_serializer(data=data),
+            on_created=events.emit_vehicle_created,
+        )
+        return Response(result)
+
     @action(detail=True, methods=["get"], permission_classes=[IsManagement])
     def history(self, request, pk=None):
-        """GET /api/vehicles/{id}/history/ — auditoría de campos del vehículo."""
+        """GET /api/vehicles/{id}/history/ — auditoría EXHAUSTIVA del vehículo.
+
+        Además de los cambios en la propia ficha (Vehicle), agrega la auditoría
+        de los modelos relacionados (contrato, lecturas de km, conductor/reparto,
+        vínculos de sustitución, facturas, incidencias y documentos) para que el
+        histórico refleje cualquier modificación que afecte al vehículo, no solo
+        las de su tabla. Cada entrada incluye el modelo de origen (`model`).
+        """
         vehicle = self.get_object()
-        entries = LogEntry.objects.get_for_object(vehicle).select_related("actor")
+        # Cambios en la propia ficha + en todo lo colgado del vehículo.
+        related_querysets = (
+            Contract.objects.filter(vehicle=vehicle),
+            KmReading.objects.filter(vehicle=vehicle),
+            Assignment.objects.filter(vehicle=vehicle),
+            VehicleUsage.objects.filter(vehicle=vehicle),
+            Invoice.objects.filter(vehicle=vehicle),
+            Incident.objects.filter(vehicle=vehicle),
+            Document.objects.filter(vehicle=vehicle),
+            VehicleLink.objects.filter(
+                models.Q(main_vehicle=vehicle) | models.Q(substitute_vehicle=vehicle)
+            ),
+        )
+        # Recolecta los ids de LogEntry de cada modelo y filtra una sola vez:
+        # `get_for_object` (query única) y `get_for_objects` (query múltiple) no
+        # se pueden combinar con `|`, así que unimos por clave primaria.
+        entry_ids: set[int] = set(
+            LogEntry.objects.get_for_object(vehicle).values_list("pk", flat=True)
+        )
+        for related in related_querysets:
+            entry_ids.update(
+                LogEntry.objects.get_for_objects(related).values_list("pk", flat=True)
+            )
+        entries = (
+            LogEntry.objects.filter(pk__in=entry_ids)
+            .select_related("actor", "content_type")
+            .order_by("-timestamp")
+        )
         page = self.paginate_queryset(entries)
         if page is not None:
             return self.get_paginated_response(LogEntrySerializer(page, many=True).data)
@@ -344,6 +442,172 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         vehicle.save(update_fields=["is_substitute", "updated_at"])
         return Response(self.get_serializer(vehicle).data)
 
+    @action(detail=True, methods=["post"], permission_classes=[IsManagement])
+    def notify(self, request, pk=None):
+        """POST /api/v1/vehicles/{id}/notify/ — envía un comunicado por email al
+        conductor vigente y/o al supervisor del vehículo.
+
+        Best-effort (como el mailer de alertas): un fallo de SMTP no lanza 500;
+        cada intento queda trazado en `EmailLog`. Devuelve qué se envió y qué se
+        omitió (sin email / correo deshabilitado / fallo)."""
+        import html
+
+        from django.core.mail import EmailMultiAlternatives
+        from django.utils.html import strip_tags
+
+        from .selectors import current_driver_map
+        from .services import mailer
+
+        vehicle = self.get_object()
+        message = (request.data.get("message") or "").strip()
+        # `template_key`: si se informa, asunto/cuerpo salen de la plantilla de
+        # correo (10b) y el mensaje libre es opcional (variable {{mensaje}}). Sin
+        # plantilla, el texto libre es el cuerpo y es obligatorio.
+        template_key = (request.data.get("template_key") or "").strip()
+        if not template_key and not message:
+            raise ValidationError({"message": "El comunicado no puede estar vacío."})
+        to_driver = bool(request.data.get("to_driver"))
+        to_supervisor = bool(request.data.get("to_supervisor"))
+        to_admin = bool(request.data.get("to_admin"))
+        # `to_renting`: email de la compañía de renting del contrato vigente
+        # (destinatario típico del aviso de seguro, N10a).
+        to_renting = bool(request.data.get("to_renting"))
+        extra_email = (request.data.get("email") or "").strip()
+        if not (to_driver or to_supervisor or to_admin or to_renting or extra_email):
+            raise ValidationError({"detail": "Elige al menos un destinatario."})
+
+        targets = []  # (rol, email)
+        if to_driver:
+            driver = current_driver_map([vehicle.id]).get(vehicle.id)
+            targets.append(("driver", driver.email if driver else ""))
+        if to_supervisor:
+            sup = vehicle.supervisor
+            targets.append(("supervisor", sup.email if sup else ""))
+        if to_admin:
+            # Todos los administradores activos (incluye superusuarios).
+            from django.contrib.auth import get_user_model
+            from django.db.models import Q
+
+            from accounts.models import Role
+
+            admin_emails = list(
+                get_user_model()
+                .objects.filter(is_active=True)
+                .filter(Q(roles__role=Role.ADMIN) | Q(is_superuser=True))
+                .exclude(email="")
+                .values_list("email", flat=True)
+                .distinct()
+            )
+            if admin_emails:
+                targets.extend(("admin", e) for e in admin_emails)
+            else:
+                targets.append(("admin", ""))
+        if to_renting:
+            contract = (
+                vehicle.contracts.filter(end_date__isnull=True)
+                .order_by("-start_date")
+                .first()
+                or vehicle.contracts.order_by("-start_date").first()
+            )
+            renting = contract.renting if contract else None
+            targets.append(("renting", renting.email if renting else ""))
+        if extra_email:
+            targets.append(("otro", extra_email))
+
+        if template_key:
+            # Asunto/cuerpo desde la plantilla (o texto por defecto si no existe).
+            subject, body_html, log_key = mailer.render_vehicle_notice(
+                vehicle, template_key, message
+            )
+            override = (request.data.get("subject") or "").strip()
+            if override:
+                subject = override
+            subject = subject[:200]
+        else:
+            log_key = "comunicado"
+            subject = (
+                request.data.get("subject") or f"[Flota] {vehicle.plate} · Comunicado"
+            ).strip()[:200]
+            safe = html.escape(message).replace("\n", "<br>")
+            body_html = (
+                f"<p>Comunicado sobre el vehículo <strong>{html.escape(vehicle.plate)}</strong> "
+                f"(estado: {html.escape(vehicle.get_state_display())}):</p>"
+                f"<p>{safe}</p>"
+            )
+
+        enabled = mailer.email_enabled()
+        sent, skipped, seen = [], [], set()
+        for role, email in targets:
+            if not email:
+                skipped.append({"role": role, "reason": "sin_email"})
+                EmailLog.objects.create(
+                    template_key=log_key,
+                    recipient="",
+                    subject=subject,
+                    status=EmailLog.Status.SKIPPED,
+                    error=f"{role} sin email",
+                )
+                continue
+            if email in seen:
+                continue
+            seen.add(email)
+            if not enabled:
+                skipped.append({"role": role, "email": email, "reason": "correo_deshabilitado"})
+                EmailLog.objects.create(
+                    template_key=log_key,
+                    recipient=email,
+                    subject=subject,
+                    status=EmailLog.Status.SKIPPED,
+                    error="Correo saliente no configurado (EMAIL_HOST).",
+                )
+                continue
+            try:
+                msg = EmailMultiAlternatives(
+                    subject=subject,
+                    body=strip_tags(body_html),
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    to=[email],
+                )
+                msg.attach_alternative(body_html, "text/html")
+                msg.send(fail_silently=False)
+                sent.append({"role": role, "email": email})
+                EmailLog.objects.create(
+                    template_key=log_key,
+                    recipient=email,
+                    subject=subject,
+                    status=EmailLog.Status.SENT,
+                )
+            except Exception as exc:  # noqa: BLE001 — best-effort por diseño
+                skipped.append({"role": role, "email": email, "reason": "fallo_envio"})
+                EmailLog.objects.create(
+                    template_key=log_key,
+                    recipient=email,
+                    subject=subject,
+                    status=EmailLog.Status.FAILED,
+                    error=str(exc)[:1000],
+                )
+        return Response({"sent": sent, "skipped": skipped})
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[IsManagement],
+        url_path="notice-preview",
+    )
+    def notice_preview(self, request, pk=None):
+        """POST /api/v1/vehicles/{id}/notice-preview/ — asunto y cuerpo (HTML)
+        que se enviarían con la plantilla indicada, para la vista previa del
+        modal de correo. No envía nada."""
+        from .services import mailer
+
+        vehicle = self.get_object()
+        template_key = (request.data.get("template_key") or "").strip()
+        message = (request.data.get("message") or "").strip()
+        subject, body_html, used = mailer.render_vehicle_notice(vehicle, template_key, message)
+        return Response(
+            {"subject": subject, "body_html": body_html, "has_template": bool(used)}
+        )
+
 
 # --- Recursos que cuelgan del vehículo -----------------------------------
 
@@ -400,11 +664,13 @@ class KmReadingViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.
         today = timezone.localdate()
         return Response(
             {
-                "open": km_window.field_window_open(today) or request.user.is_management,
+                # Exento el admin, NO el supervisor (es campo) — ver el
+                # validador de `KmReadingSerializer`, que manda de verdad.
+                "open": km_window.field_window_open(today) or request.user.is_admin,
                 "start_day": settings.FLEET_KM_WINDOW_START,
                 "last_day": km_window.last_day_of_month(today),
                 "today": today,
-                "management_exempt": request.user.is_management,
+                "admin_exempt": request.user.is_admin,
             }
         )
 
@@ -431,7 +697,10 @@ class KmReadingViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.
                     "missing": [{"vehicle": v.id, "plate": v.plate} for v in missing],
                 }
             )
-        if not window_open:
+        # `override`: la administración puede forzar el cálculo fuera de la
+        # ventana (p. ej. tras confirmar las advertencias en la interfaz).
+        override = bool(request.data.get("override", False))
+        if not window_open and not override:
             raise ValidationError(
                 {
                     "detail": (
@@ -719,11 +988,16 @@ class DocumentPermission(BasePermission):
 
 
 class IncidentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
-    """Incidencias / mantenimiento. Escribe gestión (admin toda; supervisor su
-    grupo); el conductor LEE las de sus vehículos (ficha de campo)."""
+    """Incidencias / mantenimiento. Gestión escribe todo (admin toda la flota;
+    supervisor su grupo); el conductor LEE las de sus vehículos y CREA las suyas
+    (C3: comunicar una avería desde la app de campo), pero no las cierra."""
 
     serializer_class = IncidentSerializer
-    permission_classes = [IsManagementOrDriverReadOnly]
+    permission_classes = [IsManagementOrDriverCreate]
+    # Front público (internet): el alta del conductor va acotada, como la de
+    # documentos — es la misma superficie expuesta a la red abierta.
+    throttle_classes = [UserRateThrottle, PublicWriteThrottle]
+    throttle_scope = "public_write"
     queryset = Incident.objects.select_related("vehicle")
     filterset_fields = ["vehicle", "type", "status"]
     ordering_fields = ["date", "created_at"]
@@ -784,6 +1058,19 @@ class AlertViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
     filterset_fields = ["vehicle", "type", "level", "status"]
     ordering_fields = ["created_at", "due_date", "level_rank"]
     ordering = ["-created_at"]
+
+    def get_queryset(self):
+        """X1: el seguro es asunto de administración — fuera de la app de campo.
+
+        `insurance_due` se emite sobre el VEHÍCULO (no sobre un usuario), y el
+        scoping del mixin es por vehículo: sin este filtro, el conductor y el
+        supervisor veían en su bandeja el vencimiento del seguro de su coche.
+        El admin la sigue viendo entera (su front y su flujo con el renting).
+        """
+        qs = super().get_queryset()
+        if not self.request.user.is_admin:
+            qs = qs.exclude(type=AlertType.INSURANCE_DUE)
+        return qs
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
     def resolve(self, request, pk=None):

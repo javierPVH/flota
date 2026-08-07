@@ -15,6 +15,8 @@ import {
 } from '../api.ts'
 import { exportCsv } from '../csv.ts'
 import { alertLevelTone, todayIso } from '../format.ts'
+import { TableInfoBar } from '../components/TableInfoBar.tsx'
+import { TextCell } from '../components/TextCell.tsx'
 import { useAlertsPageCopy } from '../translations/alertsPage.ts'
 import type { Alert, Vehicle } from '../types.ts'
 
@@ -61,7 +63,7 @@ export function AlertsPage() {
       { value: 'open', label: t.statusOptions.open },
       { value: 'resolved', label: t.statusOptions.resolved },
       { value: 'dismissed', label: t.statusOptions.dismissed },
-      { value: '', label: t.statusOptions.all },
+      { value: 'all', label: t.statusOptions.all },
     ],
     [t],
   )
@@ -79,6 +81,8 @@ export function AlertsPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busyId, setBusyId] = useState<number | null>(null)
+  // Búsqueda en cliente (la franja); el estado va como pestañas (subtab).
+  const [search, setSearch] = useState('')
 
   const [itvModal, setItvModal] = useState(false)
   const [itvVehicle, setItvVehicle] = useState('')
@@ -92,7 +96,7 @@ export function AlertsPage() {
   const load = useCallback(() => {
     setLoading(true)
     listAll(listAlerts({
-      status: statusFilter || undefined,
+      status: statusFilter && statusFilter !== 'all' ? statusFilter : undefined,
       type: typeFilter || undefined,
       level: levelFilter || undefined,
     }))
@@ -165,6 +169,17 @@ export function AlertsPage() {
     }
   }
 
+  // Búsqueda en cliente sobre lo ya cargado (estado/tipo/nivel filtran en servidor).
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return alerts
+    return alerts.filter((a) =>
+      `${a.vehicle_plate ?? ''} ${a.type_display} ${a.level_display} ${a.message ?? ''}`
+        .toLowerCase()
+        .includes(term),
+    )
+  }, [alerts, search])
+
   const columns: Array<TableWithPanelColumn<Alert>> = [
     {
       key: 'level',
@@ -194,8 +209,9 @@ export function AlertsPage() {
     {
       key: 'message',
       label: t.columns.message,
+      sortable: false,
       getValue: (a) => a.message,
-      render: (a) => a.message || '—',
+      render: (a) => <TextCell text={a.message} title={t.columns.message} label={t.viewMessage} />,
     },
     {
       key: 'due_date',
@@ -248,15 +264,39 @@ export function AlertsPage() {
 
   return (
     <div>
-      <PageHeader
-        title={t.title}
-        subtitle={t.subtitle}
+      <PageHeader title={t.title} subtitle={t.subtitle} />
+
+      {/* Pestañas por estado (subtabs). */}
+      <div className="veh-tabs settings-tabs" role="tablist" aria-label={t.filters.status}>
+        {statusOptions.map((o) => (
+          <button
+            key={o.value || 'all'}
+            type="button"
+            role="tab"
+            aria-selected={statusFilter === o.value}
+            className={`veh-tab${statusFilter === o.value ? ' is-active' : ''}`}
+            onClick={() => setFilter('status', o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Franja de opciones (como en Vehículos): registros + buscar + filtros + acciones. */}
+      <TableInfoBar
+        inline
+        count={visible.length}
+        recordsLabel={t.records}
+        searchLabel={t.searchLabel}
+        searchPlaceholder={t.searchPlaceholder}
+        search={search}
+        onSearchChange={setSearch}
         actions={
           <>
             <Button
               variant="secondary"
-              disabled={alerts.length === 0}
-              onClick={() => exportCsv('alertas', columns, alerts)}
+              disabled={visible.length === 0}
+              onClick={() => exportCsv('alertas', columns, visible)}
             >
               <Download size={16} aria-hidden /> {t.exportCsv}
             </Button>
@@ -265,28 +305,32 @@ export function AlertsPage() {
             </Button>
           </>
         }
-      />
-
-      <div className="filters-row">
-        <SelectField
-          label={t.filters.type}
-          options={typeOptions}
-          value={typeFilter}
-          onValueChange={(value) => setFilter('type', value)}
-        />
-        <SelectField
-          label={t.filters.level}
-          options={levelOptions}
-          value={levelFilter}
-          onValueChange={(value) => setFilter('level', value)}
-        />
-        <SelectField
-          label={t.filters.status}
-          options={statusOptions}
-          value={statusFilter}
-          onValueChange={(value) => setFilter('status', value)}
-        />
-      </div>
+      >
+        <div className="filter-field filter-field--role">
+          <label>{t.filters.type}</label>
+          <SelectField
+            aria-label={t.filters.type}
+            containerClassName="role-filter"
+            required
+            enableSearchFilter
+            options={typeOptions}
+            value={typeFilter}
+            onValueChange={(value) => setFilter('type', value)}
+          />
+        </div>
+        <div className="filter-field filter-field--role">
+          <label>{t.filters.level}</label>
+          <SelectField
+            aria-label={t.filters.level}
+            containerClassName="role-filter"
+            required
+            enableSearchFilter
+            options={levelOptions}
+            value={levelFilter}
+            onValueChange={(value) => setFilter('level', value)}
+          />
+        </div>
+      </TableInfoBar>
 
       {notice && <div role="status" className="notice-ok">{notice}</div>}
       {error && <div role="alert" className="form-error">{error}</div>}
@@ -295,11 +339,12 @@ export function AlertsPage() {
         <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<Alert>
-          rows={alerts}
+          rows={visible}
           columns={columns}
           rowKey={(a) => String(a.id)}
           rowClassName={(a) => (isOverdueItv(a) ? 'row-overdue' : '')}
           enableColumnSort
+          showControlPanel={false}
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}

@@ -96,6 +96,8 @@ Nunca crees un registro cuya FK aún no se ha sembrado.
    el arranque.
 5. Añade/ajusta los asserts de `fleet/tests/test_seed.py` (¡sin depender de las
    alertas exactas: las regenera el motor!).
+6. Si el modelo trae un enumerado nuevo, añádelo a la tabla de
+   `SeedCoverageTests.test_every_enum_variant_is_seeded` — ver §6bis.
 
 ## 6. Datos fijos que ya asume el sistema (no los rompas)
 
@@ -111,46 +113,114 @@ renombras rompes la cadena. Contraseña de prueba de TODOS: **`flota-dev-2026`**
 | `david` | driver | **SIN coche** → prueba el portón; solicitud `pending` con ticket **`FLT-123`** |
 | `nuevo` | *(sin rol)* | Simula el auto-alta por Google → prueba el portón desde cero |
 
-**Vehículos**: `1234KLM` (activo, proyección de km **en exceso**, ITV a 10 días),
-`5678BCD` (en taller, **ITV vencida**, vínculo de sustitución activo), `7890NPQ`
-(sin lectura de km este mes → alerta), `4567JKL` (sustitución), `0000ZZZ` (baja).
+**Vehículos**: `1234KLM` (activo, proyección de km **en exceso**, ITV a 10 días,
+**seguro a 20 días**, timeline con los 18 tipos de evento y póliza versionada),
+`5678BCD` (en taller, **ITV y seguro vencidos**, vínculo de sustitución activo),
+`7890NPQ` (**km ilimitados**: sin proyección y, desde X2, tampoco recordatorio
+de lectura), `4567JKL` (sustitución), `0000ZZZ` (baja, con `km_end` y acta de
+devolución).
+
+⚠️ El seguro de `1234KLM` se fija en DOS sitios que deben coincidir: la ficha
+(`seed_vehicles`) y su documento de seguro (`seed_operations`). La señal de N2
+denormaliza el documento sobre la ficha **solo hacia adelante**, así que si el
+documento llevara una fecha posterior se comería el aviso de los 30 días. Lo
+vigila `SeedCoverageTests.test_reference_layer_invariants_hold`.
 
 **Capa de VOLUMEN** (constantes `BULK_*` en `seed.py`) — encima de la
 referencia, cada seed añade datos masivos **deterministas** (aritmética modular
 sobre el índice, sin `random`): la supervisora `marta`, **12 conductores**
 (`pedro`, `ana`, `jorge`, `elena`, `raul`, `marina`, `sergio`, `nuria`, `ivan`,
-`paula`, `oscar`, `teresa` — misma contraseña), 3 CECOs, 6 proyectos, 2 rentings
-y 2 unidades más, y **30 vehículos** con matrículas `2000???`…`2029???`
-(`_bulk_plate(i)`), repartidos entre los grupos de `sara`/`marta`/sin
-supervisor, con estados, tipos, usos y combustibles variados (los 2 últimos en
-baja, 2 sustitutos). Cada uno arrastra: contrato de renting (si aplica) con
-**ritmos ~70/100/130%** del km contratado (proyecciones repartidas entre los
-tres niveles), **hasta 12 meses de lecturas** mensuales (1 de cada 4 con la
-última "vieja" → alerta de lectura pendiente), conductor vigente (1 de cada 5
-sin conductor → alerta; históricos finalizados y propuestas sueltas), ITV
-vencida/próxima/lejana, **14 incidencias**, seguro (algunos caducados) + fichas
-técnicas + fotos pendientes de archivar, **3 meses de facturas** con reparto
-100% a proyecto o CECO, y 7 solicitudes de Jira en todos los estados
-(`FLT-201`…`FLT-207`, sin solicitante: "Conceder" queda deshabilitado a
-propósito). El seguro de cada vehículo se decide en su DOCUMENTO de seguro
-(la señal lo denormaliza a `Vehicle.insurance_expiry_date`): vencido (i%8==5),
-próximo a <30 días (i%8 in 1,2) o lejano → bandeja de alertas de seguro (N2)
-con los tres niveles. 1 de cada 5 vehículos lleva su última lectura de km
-**estimada** (N8b, trazo diferenciado en la gráfica). No dependas de los datos
-de volumen en asserts finos; para eso está la referencia.
+`paula`, `oscar`, `teresa` — misma contraseña, y entre los 12 recorren los **6
+tipos de permiso**), 3 CECOs, 6 proyectos, 2 rentings y 2 unidades más, y **30
+vehículos** con matrículas `2000???`…`2029???` (`_bulk_plate(i)`), repartidos
+entre los grupos de `sara`/`marta`/sin supervisor. Los 16 modelos de
+`BULK_MODELS` cubren entre todos los 4 tipos, los 5 combustibles, los 3 tamaños
+y los **9 segmentos de mercado**; cada vehículo lleva además bastidor, fecha de
+matriculación, versión y consumo, y 1 de cada 4 ya tiene carpeta de Drive.
+
+Los **7 estados** salen del reparto por índice (los 2 últimos en baja —con
+`km_end`—, más mantenimiento, ITV, averiado, accidentado y no activo), y hay **4
+sustitutos** (índices 2, 9, 16 y 23), uno por cada motivo de vínculo.
+
+Cada vehículo arrastra: contrato de renting (si aplica) con **ritmos
+~70/100/130%** del km contratado (proyecciones repartidas entre los tres
+niveles) y 1 de cada 8 con un contrato anterior ya cerrado; **hasta 12 meses de
+lecturas** mensuales (1 de cada 4 con la última "vieja" → alerta de lectura
+pendiente); conductor vigente (1 de cada 5 sin conductor → alerta; históricos
+finalizados, propuestas y alguna **rechazada**); ITV vencida/próxima/lejana;
+**14 incidencias**; documentos de los **9 tipos** (seguro —1 de cada 6 con la
+póliza anterior encadenada por `replaces`—, ficha técnica, permiso, contrato,
+actas, parte de accidente, fotos pendientes de archivar y "otros"); **3 meses de
+facturas** con reparto 100% a proyecto o CECO y alguno **mixto 70/30**; y
+solicitudes de Jira en **los 5 estados** (`FLT-201`…`FLT-207` sin solicitante —
+"Conceder" queda deshabilitado a propósito— y `FLT-208`…`FLT-211` **con**
+solicitante, incluida una ya `assigned` sobre un vehículo real).
+
+El seguro de cada vehículo se decide en su DOCUMENTO de seguro (la señal lo
+denormaliza a `Vehicle.insurance_expiry_date`): vencido (i%8==5), próximo a <30
+días (i%8 in 1,2) o lejano → bandeja de alertas de seguro (N2) con los tres
+niveles. 1 de cada 5 vehículos lleva su última lectura de km **estimada** (N8b,
+trazo diferenciado en la gráfica). Además, cada vehículo suma **3 eventos** que
+recorren los 18 tipos y reparten los subtipos (sanciones pagadas y sin pagar,
+cambios de cuota, de proyecto, de ubicación, de CECO y de conductor).
+
+No dependas de los datos de volumen en asserts finos; para eso está la
+referencia.
+
+## 6bis. Cobertura total (el contrato del seed)
+
+El seed garantiza que **toda tabla del dominio tiene filas** y que **toda
+variante de todo enumerado aparece al menos una vez**. Lo verifica
+`SeedCoverageTests` en [`fleet/tests/test_seed.py`](./fleet/tests/test_seed.py),
+que comprueba presencia —nunca cantidades exactas, para que el volumen se pueda
+reajustar sin romper nada:
+
+| Test | Qué garantiza |
+|------|----------------|
+| `test_every_enum_variant_is_seeded` | Las 25 parejas modelo/campo tienen todas sus variantes. |
+| `test_every_domain_table_has_rows` | Ninguna tabla de `fleet`/`accounts` se queda vacía. |
+| `test_every_event_subtype_is_seeded` | Los 7 subtipos 1-a-1 de `Event`, no solo la ITV. |
+| `test_erratas_space_has_one_of_each_type` | Los 15 tipos desactivables + bajas + usuarios. |
+| `test_reference_layer_invariants_hold` | Los datos de referencia de §6 siguen en pie. |
+
+**Única excepción declarada**: `accounts.GoogleCredential` se queda vacía a
+propósito. Guarda los tokens OAuth de Google (cifrados en reposo) que solo
+escribe el consentimiento real del usuario; sembrar uno falso haría creer al
+front que Drive está conectado y las llamadas al Picker fallarían con 401 en vez
+de degradar limpiamente a "sin conectar".
+
+Si añades un valor a un enumerado o un modelo nuevo, el test falla hasta que lo
+siembres: es intencionado.
 
 Casi al final corre `seed_alerts`, que **borra las alertas y ejecuta el motor
 real** (`alerts.run_all()`): la bandeja refleja exactamente lo sembrado. No
-escribas asserts que dependan del número exacto de alertas.
+escribas asserts que dependan del número exacto de alertas. Como el motor solo
+crea alertas **abiertas**, después se cierran dos a mano (una `resolved` y otra
+`dismissed`, elegidas de forma determinista por `dedup_key` entre los tipos más
+numerosos) para que el filtro por estado de la bandeja tenga contenido en los
+tres valores.
 
-**Erratas y comunicaciones** (los dos últimos pasos): `seed_erratas` puebla el
-espacio de erratas con una incidencia, una lectura de km, la marca `Saab`, la
-firma "Firma antigua (2024)" (todas desactivadas con motivo) y el usuario
-inactivo `expedro`; junto con los vehículos en baja, la página de Erratas
-enseña TODOS los mecanismos. `seed_comms` deja 4 `EmailLog` (enviado ×2,
-fallido y omitido, ligados a alertas reales) y una `PushSubscription` ficticia
-de `carlos` (endpoint falso: sin claves VAPID nadie la usa, y con ellas el
-push service la poda al primer 404/410).
+**Erratas y comunicaciones** (los dos últimos pasos): `seed_erratas` deja **un
+ejemplo desactivado de cada uno de los 15 tipos** de `fleet.erratas.DEACTIVATABLE`
+— una incidencia, una lectura de km, un documento, una factura, un reparto, y
+para los catálogos una fila huérfana creada a propósito (la marca `Saab` y su
+modelo, la sociedad `GS-OLD`, `Renting Histórico`, el CECO `4900`, la obra
+`Z-99`, la unidad `OLD`, `Andorra`) más la firma "Firma antigua (2024)" y la
+plantilla genérica — y el usuario inactivo `expedro`; junto con los vehículos en
+baja, la página de Erratas enseña TODOS sus grupos.
+
+> Se desactiva siempre algo **sin uso**: si se retirara un catálogo en uso, los
+> listados que filtran por `is_active` dejarían huecos raros en otras pantallas.
+> La excepción obligada es `EmailTemplate`, cuya `key` es única (una fila por
+> tipo): se retira la **genérica**, que es el comodín para avisos sin plantilla
+> propia — los tres tipos que envían correo ya tienen la suya activa, así que
+> nadie se queda mudo.
+
+`seed_comms` deja **7 `EmailLog`** que cubren los tres estados (enviado, fallido
+y omitido) y las **6 claves de plantilla**, algunos ligados a alertas reales, y
+**3 `PushSubscription`** ficticias (`carlos` con móvil y tablet, `sara` con el
+suyo — endpoints falsos: sin claves VAPID nadie las usa, y con ellas el push
+service las poda al primer 404/410).
 
 ## 7. Login de desarrollo en los fronts (saltarse Google)
 

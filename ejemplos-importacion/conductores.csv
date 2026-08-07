@@ -1,0 +1,7 @@
+Email;Nombre;Apellidos;Usuario;DNI;Teléfono;Carné;Tarjeta combustible;Roles
+laura.demo@example.com;Laura;Ejemplo Uno;;00000001A;600000001;B;sí;conductor
+mario.demo@example.com;Mario;Ejemplo Dos;;00000002B;600000002;B;no;conductor
+carmen.demo@example.com;Carmen;Ejemplo Tres;;00000003C;600000003;C1;sí;conductor, supervisor
+pablo.demo@example.com;Pablo;Ejemplo Cuatro;pablo.demo;00000004D;600000004;C;no;conductor
+irene.demo@example.com;Irene;Ejemplo Cinco;;00000005E;600000005;B;no;supervisor
+hector.demo@example.com;Héctor;Ejemplo Seis;;00000006F;600000006;C+E;sí;conductor

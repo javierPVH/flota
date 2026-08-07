@@ -41,9 +41,17 @@ if not SECRET_KEY:
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS")
 if not ALLOWED_HOSTS:
     if DEBUG:
-        ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+        ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
     else:
         raise ImproperlyConfigured("ALLOWED_HOSTS es obligatorio cuando DEBUG=False.")
+elif DEBUG:
+    # En dev garantizamos SIEMPRE los loopback: Vite puede servir los fronts en
+    # IPv6 ([::1]:5173) y su proxy reenvía ese Host a Django (changeOrigin:false);
+    # si [::1] no estuviera permitido, /auth/config/ daría DisallowedHost (400) y
+    # el login se quedaría sin el selector de desarrollo.
+    for _loopback in ("localhost", "127.0.0.1", "[::1]"):
+        if _loopback not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(_loopback)
 if not DEBUG and "*" in ALLOWED_HOSTS:
     raise ImproperlyConfigured("ALLOWED_HOSTS no puede ser '*' cuando DEBUG=False.")
 
@@ -363,9 +371,10 @@ EMAIL_BACKEND = (
 FLEET_EMAIL_ENABLED = bool(EMAIL_HOST) or env_bool("FLEET_EMAIL_FORCE_ENABLED", False)
 
 # N8a: día del mes desde el que el personal de campo (no gestión) puede
-# registrar km, hasta fin de mes. 0 = sin ventana. En dev/tests queda
-# desactivada para no romper flujos con fechas libres.
-FLEET_KM_WINDOW_START = max(0, env_int("FLEET_KM_WINDOW_START", 0 if DEBUG else 23))
+# registrar km, hasta fin de mes. 0 = sin ventana. En dev/tests el DEFAULT la
+# deja desactivada para no romper flujos con fechas libres, pero `.env` la
+# activa a 20 para poder probar el bloqueo y el aviso del front.
+FLEET_KM_WINDOW_START = max(0, env_int("FLEET_KM_WINDOW_START", 0 if DEBUG else 20))
 # N8b: último día del mes (incluido) en el que el admin puede completar los km
 # faltantes del mes anterior. 0 = siempre disponible (dev).
 FLEET_KM_ESTIMATE_WINDOW_END = max(0, env_int("FLEET_KM_ESTIMATE_WINDOW_END", 0 if DEBUG else 10))

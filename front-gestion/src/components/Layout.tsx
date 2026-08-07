@@ -15,10 +15,11 @@ const GO_KEYS = [
   { key: 'p', path: '/propuestas', nav: 'proposals' },
   { key: 'k', path: '/kilometraje', nav: 'mileage' },
   { key: 's', path: '/solicitudes', nav: 'requests' },
-  { key: 'f', path: '/facturas', nav: 'invoices' },
+  { key: 'f', path: '/informes?tab=facturas', nav: 'invoices' },
   { key: 'c', path: '/conductores', nav: 'drivers' },
   { key: 'm', path: '/informes', nav: 'reports' },
-  { key: 't', path: '/catalogos', nav: 'catalogs' },
+  { key: 'j', path: '/ajustes', nav: 'settings' },
+  { key: 't', path: '/ajustes/catalogos', nav: 'catalogs' },
 ] as const
 
 export function Layout() {

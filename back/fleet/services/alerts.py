@@ -224,10 +224,16 @@ def check_insurance(today: date | None = None) -> int:
 
 
 def check_km_readings(today: date | None = None) -> int:
-    """Recordatorio mensual de km (HU-3.2): vehículo activo sin lectura este mes."""
+    """Recordatorio mensual de km (HU-3.2): vehículo activo sin lectura este mes.
+
+    X2: los vehículos con `unlimited_km` quedan FUERA — sin cupo que vigilar no
+    hay nada que recordar, y el aviso solo generaba ruido (a su conductor le
+    llegaba alerta y correo por una lectura que no sirve para nada). Mismo
+    criterio que `check_km_overage`, que ya los excluía.
+    """
     today = _today(today)
     period = f"{today.year:04d}-{today.month:02d}"
-    vehicles = list(_active_vehicles())
+    vehicles = list(_active_vehicles().filter(unlimited_km=False))
     ids = [v.id for v in vehicles]
     # Bulk (evita N+1): vehículos con lectura este mes y conductores en curso.
     with_reading = set(

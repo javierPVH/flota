@@ -569,43 +569,6 @@ a {
 .km-saved-queued { color: var(--color-warning); }
 .push-row { display: flex; align-items: center; gap: 0.6rem; }
 
-/* Aviso de instalación PWA (mejora 🟡): solo si el navegador lo ofrece. */
-.install-banner {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  min-height: 44px;
-  padding: 0.45rem 0.9rem;
-  border-bottom: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-brand) 9%, var(--color-surface));
-  color: var(--color-ink);
-  font-size: 0.88rem;
-  animation: slide-down 180ms ease;
-}
-.install-text { flex: 1; }
-.install-btn {
-  border: 0;
-  border-radius: var(--radius-md);
-  min-height: 36px;
-  padding: 0 0.9rem;
-  background: var(--color-brand);
-  color: #fff;
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-.install-close {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  min-height: 36px;
-  border: 0;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-}
-
 /* --- M6: modo supervisor (grupo, reparto, proyección, incidencias) ------- */
 .km-progress {
   height: 10px;
@@ -680,6 +643,121 @@ a {
   text-align: center;
 }
 .closed-title { margin: 1.4rem 0 0.7rem; font-size: 1rem; }
+
+/* --- Acordeón de advertencias del inicio (km / ITV) ----------------------- */
+/* X1: el seguro no está aquí a propósito — es asunto de administración.
+   Misma familia visual que .quick-action (borde + radio 12 + objetivo táctil),
+   con el tono del vencimiento a la izquierda, como .form-warn/.form-error. */
+.deadlines {
+  margin-bottom: 1rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-text-muted);
+  border-radius: 12px;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+/* El borde de la cabecera lleva el tono del aviso MÁS GRAVE del grupo. */
+.deadlines-danger { border-left-color: var(--color-danger); }
+.deadlines-warning { border-left-color: var(--color-warning); }
+.deadlines-info { border-left-color: var(--color-info); }
+
+.deadlines-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  min-height: 56px;
+  padding: 0.6rem 0.85rem;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+.deadlines-head-icon { display: grid; place-items: center; flex: none; }
+.deadlines-danger .deadlines-head-icon { color: var(--color-danger); }
+.deadlines-warning .deadlines-head-icon { color: var(--color-warning); }
+.deadlines-info .deadlines-head-icon { color: var(--color-info); }
+.deadlines-head-text { display: flex; flex-direction: column; gap: 0.1rem; flex: 1; min-width: 0; }
+.deadlines-head-count { font-size: 0.8rem; color: var(--color-text-muted); }
+.deadlines-chevron { flex: none; color: var(--color-text-muted); transition: transform 150ms ease; }
+.deadlines-chevron.is-open { transform: rotate(180deg); }
+
+.deadlines-panel {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0 0.6rem 0.6rem;
+}
+/* `hidden` en un display:grid no oculta — hay que ganarle en especificidad. */
+.deadlines-panel[hidden] { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .deadlines-chevron { transition: none; }
+}
+.deadline {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 56px; /* objetivo táctil: se usa a pie de vehículo */
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-text-muted);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+  transition: transform 120ms ease;
+}
+.deadline:active { transform: scale(0.98); }
+.deadline-icon { display: grid; place-items: center; flex: none; }
+.deadline-body { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.deadline-label {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.deadline-count { font-size: 0.98rem; font-weight: 700; }
+.deadline-detail { font-size: 0.78rem; color: var(--color-text-muted); }
+
+.deadline-danger {
+  border-color: var(--color-danger-soft);
+  border-left-color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+.deadline-danger .deadline-icon,
+.deadline-danger .deadline-count { color: var(--color-danger); }
+
+.deadline-warning {
+  border-color: var(--color-warning-border);
+  border-left-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.deadline-warning .deadline-icon,
+.deadline-warning .deadline-count { color: var(--color-warning); }
+
+.deadline-info {
+  border-color: var(--color-info-border);
+  border-left-color: var(--color-info);
+  background: var(--color-info-soft);
+}
+.deadline-info .deadline-icon,
+.deadline-info .deadline-count { color: var(--color-info); }
+
+/* En pantallas anchas (tablet en horizontal) caben dos por fila. */
+@media (min-width: 620px) {
+  .deadlines-panel { grid-template-columns: 1fr 1fr; }
+}
+
+/* Histórico de lecturas al pie de "Registrar km": sección propia, no una nota
+   dentro del panel de referencia. */
+.km-history { margin-top: 1.4rem; }
+.km-history .panel-title { margin: 0 0 0.5rem; }
+
+/* C1 — inicio de un conductor con UN coche: la ficha manda, sin lista previa.
+   Reutiliza .card y .plate-lg; solo sube el aire y separa de las acciones. */
+.vehicle-hero { margin-bottom: 0.8rem; }
+.vehicle-hero .vehicle-meta { margin-top: 0.2rem; row-gap: 0.35rem; }
 
 /* --- M3: registro de odómetro + accesos directos ------------------------- */
 .quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }

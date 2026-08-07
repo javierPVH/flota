@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, Modal, PageHeader, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import { useAppLang } from '@flota/ui/i18n'
+import { ExternalLink } from 'lucide-react'
 
 import {
   closeVehicleLink,
@@ -17,12 +18,14 @@ import {
   listKmReadings,
   listVehicleLinks,
   listVehicles,
+  updateContract,
   updateVehicleFields,
 } from '../api.ts'
 import { fmtEur, fmtKm, isoDateOf, kmLevelTone, todayIso, vehicleStateTone } from '../format.ts'
 import { useVehicleDetailCopy } from '../translations/vehicleDetail.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { VehicleAssignmentsPanel } from '../components/VehicleAssignmentsPanel.tsx'
+import { VehicleInvoicesCard } from '../components/VehicleInvoicesCard.tsx'
 import { KmChart } from '../components/KmChart.tsx'
 import { DocumentsPanel } from '../components/DocumentsPanel.tsx'
 import {
@@ -51,6 +54,9 @@ import type {
 
 const today = todayIso
 
+/** Solo enlaces http(s): corta javascript:/data: aunque el back ya sanea. */
+const safeHref = (url: string) => (/^https?:\/\//i.test(url) ? url : '')
+
 function daysUntil(dateStr: string): number {
   return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86_400_000)
 }
@@ -61,17 +67,49 @@ function label(map: Record<string, string>, value: string): string {
 
 // --- Histórico: eventos de negocio + auditoría de campos --------------------
 
+// Tono del badge de origen de cada movimiento del histórico.
+const SOURCE_TONE: Record<string, 'info' | 'success' | 'warning' | 'danger' | 'neutral'> = {
+  event: 'info',
+  vehicle: 'neutral',
+  contract: 'info',
+  assignment: 'success',
+  vehicleusage: 'info',
+  vehiclelink: 'warning',
+  kmreading: 'info',
+  invoice: 'info',
+  incident: 'danger',
+  document: 'neutral',
+}
+const sourceTone = (source: string) => SOURCE_TONE[source] ?? 'neutral'
+
 interface TimelineItem {
   key: string
   date: string
+  /** Texto principal (título del evento o etiqueta de la acción de auditoría). */
   title: string
   sub: string
   /** Desglose "campo: viejo → nuevo" para el modal de la línea temporal. */
   detail?: string[]
   kind: 'event' | 'audit'
+  /** Modelo de origen (event/vehicle/contract/assignment/…), para etiqueta y filtro. */
+  source: string
+  /** Acción de auditoría cruda (create/update/delete) — para el render de la lista. */
+  action?: string
 }
 
-function buildTimeline(events: FlotaEvent[], audit: AuditEntry[]): TimelineItem[] {
+interface TimelineLabels {
+  modelLabel: (model: string) => string
+  actionLabel: (action: string) => string
+  fieldLabel: (field: string) => string
+  byActor: (name: string) => string
+  systemActor: string
+}
+
+function buildTimeline(
+  events: FlotaEvent[],
+  audit: AuditEntry[],
+  labels: TimelineLabels,
+): TimelineItem[] {
   const items: TimelineItem[] = [
     ...events.map((e) => ({
       key: `e${e.id}`,
@@ -79,19 +117,25 @@ function buildTimeline(events: FlotaEvent[], audit: AuditEntry[]): TimelineItem[
       title: e.event_type_display,
       sub: e.notes,
       kind: 'event' as const,
+      source: 'event',
     })),
-    ...audit.map((a) => ({
-      key: `a${a.id}`,
-      date: isoDateOf(a.timestamp),
-      title: `${a.action}${a.actor ? ` · ${a.actor}` : ''}`,
-      sub: Object.keys(a.changes ?? {})
-        .slice(0, 4)
-        .join(', '),
-      detail: Object.entries(a.changes ?? {}).map(
-        ([field, pair]) => `${field}: ${pair?.[0] || '—'} → ${pair?.[1] || '—'}`,
-      ),
-      kind: 'audit' as const,
-    })),
+    ...audit.map((a) => {
+      const source = a.model || 'vehicle'
+      const actor = a.actor || labels.systemActor
+      return {
+        key: `a${a.id}`,
+        date: isoDateOf(a.timestamp),
+        // Título legible para la línea temporal y su modal: "Contrato · Modificación".
+        title: `${labels.modelLabel(source)} · ${labels.actionLabel(a.action)}`,
+        sub: labels.byActor(actor),
+        detail: Object.entries(a.changes ?? {}).map(
+          ([field, pair]) => `${labels.fieldLabel(field)}: ${pair?.[0] || '—'} → ${pair?.[1] || '—'}`,
+        ),
+        kind: 'audit' as const,
+        source,
+        action: a.action,
+      }
+    }),
   ]
   return items.sort((a, b) => (a.date < b.date ? 1 : -1))
 }
@@ -134,10 +178,29 @@ export function VehicleDetailPage() {
   const [linkReason, setLinkReason] = useState('breakdown')
   const [linkStart, setLinkStart] = useState(today())
   const [candidates, setCandidates] = useState<Vehicle[]>([])
+  // Sustitutos con un vínculo ACTIVO (ya en uso) → no disponibles en el select.
+  const [busySubIds, setBusySubIds] = useState<Set<number>>(() => new Set())
   const [plateMap, setPlateMap] = useState<Record<number, string>>({})
 
   // Acordeón de secciones (mejora): desplegadas por defecto.
-  const accordion = useAccordion(['km', 'tech', 'contract', 'assignments', 'documents', 'history'])
+  const accordion = useAccordion([
+    'km',
+    'tech',
+    'contract',
+    'invoices',
+    'assignments',
+    'documents',
+    'history',
+  ])
+
+  // Histórico: filtro por origen ('' = todos).
+  const [historySource, setHistorySource] = useState('')
+
+  // Contrato: edición del enlace de Drive (solo admin).
+  const [driveModal, setDriveModal] = useState(false)
+  const [driveUrl, setDriveUrl] = useState('')
+  const [driveSaving, setDriveSaving] = useState(false)
+  const [driveError, setDriveError] = useState('')
 
   // Día seleccionado en la línea temporal de cambios (solo admin).
   const [timelineDay, setTimelineDay] = useState<TimelineDay | null>(null)
@@ -235,7 +298,28 @@ export function VehicleDetailPage() {
 
   useEffect(load, [load])
 
-  const timeline = useMemo(() => buildTimeline(events, audit), [events, audit])
+  const timeline = useMemo(
+    () =>
+      buildTimeline(events, audit, {
+        modelLabel: (m) => t.auditModels[m] ?? t.auditModelOther,
+        actionLabel: (a) => t.auditActions[a] ?? a,
+        fieldLabel: (f) => t.fieldLabels[f] ?? f,
+        byActor: t.byActor,
+        systemActor: t.systemActor,
+      }),
+    [events, audit, t],
+  )
+
+  // Orígenes presentes en el histórico (para el filtro) + histórico filtrado.
+  const historySources = useMemo(() => {
+    const seen = new Set<string>()
+    for (const item of timeline) seen.add(item.source)
+    return [...seen]
+  }, [timeline])
+  const filteredTimeline = useMemo(
+    () => (historySource ? timeline.filter((i) => i.source === historySource) : timeline),
+    [timeline, historySource],
+  )
 
   // Formateadores y etiquetas conscientes de idioma (UX1).
   const eur = (value: string | number) => fmtEur(value, lang)
@@ -260,13 +344,20 @@ export function VehicleDetailPage() {
       setLinkSubstitute('')
       setLinkReason('breakdown')
       setLinkStart(today())
-      // Candidatos a sustituto + mapa de matrículas para el histórico.
-      listAll(listVehicles())
-        .then((rows) => {
+      // Candidatos a sustituto + mapa de matrículas + sustitutos ya en uso
+      // (vínculo activo = end_date null): esos salen en gris (no disponibles).
+      Promise.all([listAll(listVehicles()), listAll(listVehicleLinks({}))])
+        .then(([rows, links]) => {
           setCandidates(rows.filter((v) => v.id !== vehicleId))
           setPlateMap(Object.fromEntries(rows.map((v) => [v.id, v.plate])))
+          setBusySubIds(
+            new Set(links.filter((l) => l.end_date === null).map((l) => l.substitute_vehicle)),
+          )
         })
-        .catch(() => setCandidates([]))
+        .catch(() => {
+          setCandidates([])
+          setBusySubIds(new Set())
+        })
     }
     setOpsModal(kind)
   }
@@ -355,6 +446,29 @@ export function VehicleDetailPage() {
       setOpsError(asErrorMessage(err, t.errCloseLink))
     } finally {
       setOpsSaving(false)
+    }
+  }
+
+  function openDriveModal() {
+    setDriveUrl(summary?.contract?.drive_url ?? '')
+    setDriveError('')
+    setDriveModal(true)
+  }
+
+  async function submitContractDrive(event: FormEvent) {
+    event.preventDefault()
+    const c = summary?.contract
+    if (!c) return
+    setDriveSaving(true)
+    setDriveError('')
+    try {
+      await updateContract(c.id, { drive_url: driveUrl.trim() })
+      setDriveModal(false)
+      load()
+    } catch (err) {
+      setDriveError(asErrorMessage(err, t.errContractDrive))
+    } finally {
+      setDriveSaving(false)
     }
   }
 
@@ -482,37 +596,65 @@ export function VehicleDetailPage() {
         }
       />
 
-      <div className="detail-badges">
-        <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
-        {vehicle.is_substitute && <Badge tone="info">{t.substituteBadge}</Badge>}
-        {vehicle.unlimited_km && <Badge tone="info">{t.unlimitedKmBadge}</Badge>}
-        {vehicle.driver_name ? (
-          <Badge tone="success">{t.driverBadge(vehicle.driver_name)}</Badge>
-        ) : (
-          <Badge tone="neutral">{t.noDriverBadge}</Badge>
+      <div className="detail-top">
+        <div className="detail-top-main">
+          <div className="detail-badges">
+            <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+            {vehicle.is_substitute && <Badge tone="info">{t.substituteBadge}</Badge>}
+            {vehicle.unlimited_km && <Badge tone="info">{t.unlimitedKmBadge}</Badge>}
+            {vehicle.driver_name ? (
+              <Badge tone="success">{t.driverBadge(vehicle.driver_name)}</Badge>
+            ) : (
+              <Badge tone="neutral">{t.noDriverBadge}</Badge>
+            )}
+            {/* Supervisor solo si lo tiene (si no, nada). */}
+            {vehicle.supervisor_name && (
+              <Badge tone="info">{t.supervisorBadge(vehicle.supervisor_name)}</Badge>
+            )}
+          </div>
+        </div>
+
+        {/* Callout destacado a la derecha: cuando NO está activo o tiene un
+            vínculo de sustitución. Reúne lo más relevante de un vistazo. */}
+        {(vehicle.state !== 'active' || linkInfo || summary?.blocked_by_link) && (
+          <aside className={`status-callout tone-${vehicleStateTone(vehicle.state)}`} role="status">
+            <div className="status-callout-head">
+              <span className="status-callout-label">{t.statusLabel}</span>
+              <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+            </div>
+            <div className="status-callout-facts">
+              {summary?.blocked_by_link ? (
+                <div className="status-callout-row">
+                  🔒 {t.substitutedBy}{' '}
+                  <Link to={`/vehiculos/${summary.blocked_by_link.substitute_id}`}>
+                    <strong>{summary.blocked_by_link.plate}</strong>
+                  </Link>{' '}
+                  {t.sinceDate(summary.blocked_by_link.since)}
+                </div>
+              ) : linkInfo ? (
+                <div className="status-callout-row">
+                  🔁 {linkInfo.role === 'main' ? t.substitutedBy : t.substitutes}{' '}
+                  <Link to={`/vehiculos/${linkInfo.otherId}`}>
+                    <strong>{linkInfo.plate}</strong>
+                  </Link>{' '}
+                  {t.sinceDate(linkInfo.since)}
+                </div>
+              ) : null}
+              <div className="status-callout-row muted">
+                {vehicle.driver_name ? t.driverBadge(vehicle.driver_name) : t.noDriverBadge}
+              </div>
+              {vehicle.supervisor_name && (
+                <div className="status-callout-row muted">
+                  {t.supervisorBadge(vehicle.supervisor_name)}
+                </div>
+              )}
+              {summary?.blocked_by_link && (
+                <div className="status-callout-note muted">{t.blockedBannerNote}</div>
+              )}
+            </div>
+          </aside>
         )}
       </div>
-
-      {/* N9: principal BLOQUEADO por sustitución — banner destacado. */}
-      {summary?.blocked_by_link ? (
-        <div className="blocked-banner" role="status">
-          🔒 {t.blockedBanner(summary.blocked_by_link.reason.toLowerCase(), summary.blocked_by_link.since)}{' '}
-          <Link to={`/vehiculos/${summary.blocked_by_link.substitute_id}`}>
-            <strong>{summary.blocked_by_link.plate}</strong>
-          </Link>
-          . {t.blockedBannerNote}
-        </div>
-      ) : (
-        linkInfo && (
-          <div className="link-banner">
-            {linkInfo.role === 'main' ? t.substitutedBy : t.substitutes}{' '}
-            <Link to={`/vehiculos/${linkInfo.otherId}`}>
-              <strong>{linkInfo.plate}</strong>
-            </Link>{' '}
-            {t.sinceDate(linkInfo.since)}
-          </div>
-        )
-      )}
 
       {partialError && (
         <div className="link-banner" role="status">
@@ -594,30 +736,38 @@ export function VehicleDetailPage() {
           accordion={accordion}
           title={t.contractedKmTitle}
           actions={
-            view && (
-              <div className="km-card-actions">
-                <div className="km-switch" role="group" aria-label={t.kmSwitchAria}>
-                  <button
-                    type="button"
-                    className={kmView === 'annual' ? 'is-active' : ''}
-                    aria-pressed={kmView === 'annual'}
-                    onClick={() => setKmView('annual')}
-                  >
-                    {t.annualView}
-                  </button>
-                  <button
-                    type="button"
-                    className={kmView === 'contract' ? 'is-active' : ''}
-                    aria-pressed={kmView === 'contract'}
-                    onClick={() => setKmView('contract')}
-                  >
-                    {t.contractView}
-                  </button>
+            accordion.isOpen('km') ? (
+              view && (
+                <div className="km-card-actions">
+                  <div className="km-switch" role="group" aria-label={t.kmSwitchAria}>
+                    <button
+                      type="button"
+                      className={kmView === 'annual' ? 'is-active' : ''}
+                      aria-pressed={kmView === 'annual'}
+                      onClick={() => setKmView('annual')}
+                    >
+                      {t.annualView}
+                    </button>
+                    <button
+                      type="button"
+                      className={kmView === 'contract' ? 'is-active' : ''}
+                      aria-pressed={kmView === 'contract'}
+                      onClick={() => setKmView('contract')}
+                    >
+                      {t.contractView}
+                    </button>
+                  </div>
+                  <Badge tone={kmLevelTone(view.level)}>
+                    {t.levelLabel[view.level] ?? t.levelLabel.over}
+                  </Badge>
                 </div>
-                <Badge tone={kmLevelTone(view.level)}>
-                  {t.levelLabel[view.level] ?? t.levelLabel.over}
-                </Badge>
-              </div>
+              )
+            ) : (
+              // Resumen al colapsar: km actual + proyección.
+              <span className="acc-summary">
+                {summary?.km_current != null ? km(summary.km_current) : '—'}
+                {view ? ` · ${view.pct}%` : ''}
+              </span>
             )
           }
         >
@@ -707,7 +857,18 @@ export function VehicleDetailPage() {
       )}
 
       <div className="detail-grid">
-        <CollapsibleCard id="tech" accordion={accordion} title={t.techTitle}>
+        <CollapsibleCard
+          id="tech"
+          accordion={accordion}
+          title={t.techTitle}
+          actions={
+            !accordion.isOpen('tech') && (
+              <span className="acc-summary">
+                {(vehicle.year ?? '—') + ' · ' + label(t.fuelLabel, vehicle.fuel)}
+              </span>
+            )
+          }
+        >
           <dl className="detail-dl">
             <dt>{t.vin}</dt>
             <dd>{vehicle.vin || '—'}</dd>
@@ -728,7 +889,20 @@ export function VehicleDetailPage() {
           </dl>
         </CollapsibleCard>
 
-        <CollapsibleCard id="contract" accordion={accordion} title={t.contractTitle}>
+        <CollapsibleCard
+          id="contract"
+          accordion={accordion}
+          title={t.contractTitle}
+          actions={
+            !accordion.isOpen('contract') && (
+              <span className="acc-summary">
+                {label(t.propertyLabel, vehicle.property)}
+                {contract?.month_fee ? ` · ${eur(contract.month_fee)}` : ''}
+                {contract?.planned_end_date ? ` · ${contract.planned_end_date}` : ''}
+              </span>
+            )
+          }
+        >
           {contract ? (
             <dl className="detail-dl">
               <dt>{t.ownership}</dt>
@@ -750,12 +924,33 @@ export function VehicleDetailPage() {
               </dd>
               <dt>{t.penalty}</dt>
               <dd>{contract.penalty_per_km ? `${contract.penalty_per_km} €/km` : '—'}</dd>
+              <dt>{t.contractDrive}</dt>
+              <dd className="contract-drive-cell">
+                {safeHref(contract.drive_url) ? (
+                  <a
+                    href={safeHref(contract.drive_url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="cell-link"
+                  >
+                    <ExternalLink size={13} aria-hidden /> {t.contractDriveOpen}
+                  </a>
+                ) : (
+                  <span className="muted">{t.contractDriveNone}</span>
+                )}
+                {isAdmin && (
+                  <button type="button" className="linklike" onClick={openDriveModal}>
+                    {contract.drive_url ? t.contractDriveEdit : t.contractDriveAdd}
+                  </button>
+                )}
+              </dd>
             </dl>
           ) : (
             <p className="muted">{t.noActiveContractDot}</p>
           )}
         </CollapsibleCard>
 
+        <VehicleInvoicesCard vehicle={vehicle} accordion={accordion} />
       </div>
 
       <VehicleAssignmentsPanel vehicle={vehicle} onChanged={load} accordion={accordion} />
@@ -767,26 +962,75 @@ export function VehicleDetailPage() {
         accordion={accordion}
         title={t.historyTitle}
         actions={
-          timeline.length > 10 && (
-            <Button variant="secondary" size="sm" onClick={() => setShowAllHistory((v) => !v)}>
-              {showAllHistory ? t.showLess : t.showFullHistory(timeline.length)}
-            </Button>
+          accordion.isOpen('history') ? (
+            filteredTimeline.length > 12 && (
+              <Button variant="secondary" size="sm" onClick={() => setShowAllHistory((v) => !v)}>
+                {showAllHistory ? t.showLess : t.showFullHistory(filteredTimeline.length)}
+              </Button>
+            )
+          ) : (
+            <span className="acc-summary">
+              {t.historyCount(timeline.length)}
+              {timeline[0]?.date ? ` · ${timeline[0].date}` : ''}
+            </span>
           )
         }
       >
         {/* Línea temporal con muescas (solo admin): hover = qué cambió,
             click = detalle del día en modal. */}
-        {isAdmin && <TimelineChart items={timeline} onSelectDay={setTimelineDay} />}
+        {isAdmin && <TimelineChart items={filteredTimeline} onSelectDay={setTimelineDay} />}
+
+        {/* Filtro por origen del cambio (vehículo, contrato, conductor, km…). */}
+        {timeline.length > 0 && historySources.length > 1 && (
+          <div className="history-toolbar">
+            <div className="filter-field filter-field--role">
+              <label>{t.historyFilterLabel}</label>
+              <SelectField
+                aria-label={t.historyFilterLabel}
+                containerClassName="role-filter"
+                required
+                options={[
+                  { value: '', label: t.historyAll },
+                  ...historySources.map((s) => ({
+                    value: s,
+                    label: t.auditModels[s] ?? t.auditModelOther,
+                  })),
+                ]}
+                value={historySource}
+                onValueChange={setHistorySource}
+              />
+            </div>
+          </div>
+        )}
+
         {timeline.length === 0 ? (
           <p className="muted">{t.noEventsYet}</p>
+        ) : filteredTimeline.length === 0 ? (
+          <p className="muted">{t.noMatchingHistory}</p>
         ) : (
           <ul className="timeline">
-            {(showAllHistory ? timeline : timeline.slice(0, 10)).map((item) => (
+            {(showAllHistory ? filteredTimeline : filteredTimeline.slice(0, 12)).map((item) => (
               <li key={item.key} className={`timeline-item kind-${item.kind}`}>
                 <span className="timeline-date">{item.date || '—'}</span>
-                <div>
-                  <strong>{item.title}</strong>
-                  {item.sub && <p>{item.sub}</p>}
+                <div className="timeline-body">
+                  <div className="timeline-head">
+                    <Badge tone={sourceTone(item.source)}>
+                      {t.auditModels[item.source] ?? t.auditModelOther}
+                    </Badge>
+                    <strong>
+                      {item.kind === 'audit' && item.action
+                        ? t.auditActions[item.action] ?? item.action
+                        : item.title}
+                    </strong>
+                  </div>
+                  {item.sub && <p className="timeline-sub muted">{item.sub}</p>}
+                  {item.detail && item.detail.length > 0 && (
+                    <ul className="timeline-changes">
+                      {item.detail.map((line, index) => (
+                        <li key={index}>{line}</li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </li>
             ))}
@@ -902,12 +1146,21 @@ export function VehicleDetailPage() {
               label={t.substituteVehicle}
               options={[
                 { value: '', label: t.choosePlaceholder },
-                // Los marcados como sustitución, primero.
-                ...[...candidates]
-                  .sort((a, b) => Number(b.is_substitute) - Number(a.is_substitute))
-                  .map((v) => ({
+                // Solo vehículos de sustitución. Los DISPONIBLES (sin vínculo
+                // activo) en color normal y primero; los ocupados, en gris
+                // (disabled) y al final.
+                ...candidates
+                  .filter((v) => v.is_substitute)
+                  .map((v) => ({ v, available: !busySubIds.has(v.id) }))
+                  .sort(
+                    (a, b) =>
+                      Number(b.available) - Number(a.available) ||
+                      a.v.plate.localeCompare(b.v.plate),
+                  )
+                  .map(({ v, available }) => ({
                     value: String(v.id),
-                    label: `${v.plate} · ${v.brand} ${v.model}${v.is_substitute ? ' 🔁' : ''}`,
+                    label: `${v.plate} · ${v.brand} ${v.model} 🔁${available ? '' : ` · ${t.unavailable}`}`,
+                    disabled: !available,
                   })),
               ]}
               value={linkSubstitute}
@@ -1000,6 +1253,31 @@ export function VehicleDetailPage() {
             </Button>
             <Button type="submit" variant="primary" disabled={kmSaving}>
               {kmSaving ? t.saving : t.saveReading}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Contrato · enlace de Drive (solo admin) */}
+      <Modal
+        open={driveModal}
+        title={t.contractDriveModalTitle}
+        onClose={() => setDriveModal(false)}
+      >
+        <form className="modal-form" onSubmit={submitContractDrive}>
+          <TextInputField
+            label={t.contractDriveFieldLabel}
+            value={driveUrl}
+            placeholder={t.contractDrivePlaceholder}
+            onChange={(e) => setDriveUrl(e.target.value)}
+          />
+          {driveError && <div role="alert" className="form-error">{driveError}</div>}
+          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+            <Button type="button" variant="secondary" onClick={() => setDriveModal(false)}>
+              {t.cancel}
+            </Button>
+            <Button type="submit" variant="primary" disabled={driveSaving}>
+              {driveSaving ? t.saving : t.contractDriveSave}
             </Button>
           </div>
         </form>

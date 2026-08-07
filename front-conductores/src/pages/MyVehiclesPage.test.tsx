@@ -59,18 +59,43 @@ describe('MyVehiclesPage (M1)', () => {
     mocks.roles = ['driver']
   })
 
-  it('pinta la tarjeta con km y píldora de lectura pendiente', async () => {
+  it('con UN coche el inicio es la ficha, sin lista intermedia (C1)', async () => {
     mocks.listVehicles.mockResolvedValue({ count: 1, results: [vehicle(1, '1234KLM')] })
     // Lectura de otro mes → pendiente. El bulk (O2) devuelve la lista entera.
     mocks.fetchVehicleSummaries.mockResolvedValue([summary(1, 31000, '2020-01-02')])
 
     renderPage()
-    expect(await screen.findByText('Mis vehículos')).toBeInTheDocument()
+    // Título en singular y sin las cifras de flota ("Vehículos 1" no informa).
+    expect(await screen.findByText('Mi vehículo')).toBeInTheDocument()
+    expect(screen.queryByText('Vehículos')).not.toBeInTheDocument()
     expect(await screen.findByText('1234KLM')).toBeInTheDocument()
     expect(await screen.findByText('31.000 km')).toBeInTheDocument()
     expect(screen.getByText('lectura pendiente')).toBeInTheDocument()
     // La tarjeta enlaza a la ficha de campo (M2).
     expect(screen.getByRole('link', { name: /1234KLM/ })).toHaveAttribute('href', '/vehiculos/1')
+  })
+
+  it('ofrece las cuatro acciones de campo, con el coche ya preseleccionado', async () => {
+    mocks.listVehicles.mockResolvedValue({ count: 1, results: [vehicle(7, '1234KLM')] })
+    mocks.fetchVehicleSummaries.mockResolvedValue([summary(7, 31000, '2020-01-02')])
+
+    renderPage()
+    await screen.findByText('Mi vehículo')
+
+    // Subir documento y las dos altas son VISTAS propias, no la ficha.
+    expect(screen.getByRole('link', { name: /Subir documento/ })).toHaveAttribute(
+      'href',
+      '/documentos/nuevo?vehiculo=7',
+    )
+    expect(screen.getByRole('link', { name: /Avería/ })).toHaveAttribute(
+      'href',
+      '/incidencias/nueva?tipo=breakdown&vehiculo=7',
+    )
+    expect(screen.getByRole('link', { name: /Incidencia/ })).toHaveAttribute(
+      'href',
+      '/incidencias/nueva?vehiculo=7',
+    )
+    expect(screen.getByRole('link', { name: /Registrar km/ })).toHaveAttribute('href', '/registrar')
   })
 
   it('el buscador filtra en cliente y el título cambia para el supervisor', async () => {

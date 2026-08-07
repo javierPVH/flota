@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DashboardPage } from './DashboardPage.tsx'
+import { ConfirmProvider } from '../components/ConfirmDialog.tsx'
 import { LanguageProvider } from '../i18n.tsx'
 
 const mocks = vi.hoisted(() => ({
@@ -50,7 +51,9 @@ function renderHome() {
   return render(
     <MemoryRouter>
       <LanguageProvider>
-        <DashboardPage />
+        <ConfirmProvider>
+          <DashboardPage />
+        </ConfirmProvider>
       </LanguageProvider>
     </MemoryRouter>,
   )
@@ -103,6 +106,8 @@ describe('DashboardPage (vista general)', () => {
   it('el filtro "Sin conductor" pide assigned=false al back', async () => {
     renderHome()
     await screen.findAllByText('1234KLM')
+    // La franja de filtros es un acordeón colapsado: hay que abrirlo primero.
+    await userEvent.click(screen.getByRole('button', { name: /Buscar y exportar/i }))
     await userEvent.selectOptions(
       screen.getByRole('combobox', { name: 'Filtrar por asignación' }),
       'unassigned',

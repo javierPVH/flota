@@ -23,6 +23,8 @@ from django.core.cache import cache
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -380,6 +382,67 @@ class UserViewSet(viewsets.ModelViewSet):
             user.save(update_fields=["is_active"])
             security_logger.info("usuario desactivado user=%s por=%s", user.pk, request.user.pk)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # --- Importación masiva (IMPORTACION_MASIVA.md) -------------------------
+    # Mismo asistente que vehículos: detect-columns → preview-import → bulk-create.
+    # Los helpers compartidos viven en fleet.services.importer (accounts → fleet;
+    # fleet no importa accounts.views, así que no hay ciclo).
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="detect-columns",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def detect_columns(self, request):
+        """POST multipart {file} → cabeceras + auto-mapeo por alias."""
+        from fleet.services import importer
+
+        parsed = importer.read_uploaded_file(request.FILES.get("file"))
+        return Response(
+            {
+                "columns": parsed["headers"],
+                "auto_mapping": importer.detect_mapping(parsed["headers"], importer.USER_ALIASES),
+                "total_rows": parsed["total_rows"],
+                "omitted_count": parsed["omitted_count"],
+                "sheet_names": parsed["sheet_names"],
+            }
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="preview-import",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def preview_import(self, request):
+        """POST multipart {file, mapping, defaults} → valida SIN escribir."""
+        from fleet.services import importer
+
+        parsed = importer.read_uploaded_file(request.FILES.get("file"))
+        normalizer = importer.UserRowNormalizer()
+        mapping = importer.parse_client_mapping(
+            request.data.get("mapping"), set(importer.USER_ALIASES)
+        )
+        defaults = importer.parse_client_defaults(request.data.get("defaults"))
+        return Response(importer.build_preview(parsed, mapping, defaults, normalizer))
+
+    @action(detail=False, methods=["post"], url_path="bulk-create")
+    def bulk_create(self, request):
+        """POST {rows} (≤1000) → alta por fila con savepoint (sin contraseña →
+        entrará por Google o se la fijará un admin, como el alta manual)."""
+        from fleet.services import importer
+
+        result = importer.run_bulk_create(
+            request.data.get("rows"), lambda data: self.get_serializer(data=data)
+        )
+        security_logger.info(
+            "importación masiva de usuarios por=%s creados=%s errores=%s",
+            request.user.pk,
+            result["created"],
+            len(result["errors"]),
+        )
+        return Response(result)
 
 
 # --- Login de DESARROLLO (selector de usuarios de prueba) ------------------

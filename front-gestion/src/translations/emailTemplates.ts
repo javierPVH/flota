@@ -6,6 +6,8 @@ const es = {
     'Respuestas genéricas de los avisos: seguro → empresa de renting, km → conductor. Texto enriquecido, firmas, imágenes y documentos.',
   templateKeys: {
     insurance_due: 'Seguro (a la empresa de renting)',
+    itv_due: 'ITV próxima (aviso de ITV)',
+    state_notice: 'Comunicado de estado',
     km_overage: 'Exceso de km (al conductor)',
     km_reading_pending: 'Lectura pendiente (al conductor)',
     generic: 'Genérica',
@@ -46,8 +48,12 @@ const es = {
   sanitizeHint: 'El HTML se sanea en servidor al guardar. Variables disponibles:',
   logsTitle: 'Últimos envíos',
   logsEmpty: 'Sin envíos registrados todavía.',
+  records: 'Registros',
+  searchLabel: 'Buscar',
+  logsSearchPlaceholder: 'Destinatario, asunto o estado…',
   logColumns: {
     date: 'Fecha',
+    template: 'Plantilla',
     recipient: 'Destinatario',
     subject: 'Asunto',
     status: 'Estado',
@@ -68,6 +74,8 @@ const en: typeof es = {
     'Standard replies to alerts: insurance → renting company, km → driver. Rich text, signatures, images and documents.',
   templateKeys: {
     insurance_due: 'Insurance (to the renting company)',
+    itv_due: 'MOT due (MOT notice)',
+    state_notice: 'Status notice',
     km_overage: 'Km overage (to the driver)',
     km_reading_pending: 'Pending reading (to the driver)',
     generic: 'Generic',
@@ -108,8 +116,12 @@ const en: typeof es = {
   sanitizeHint: 'The HTML is sanitized on the server when saving. Available variables:',
   logsTitle: 'Latest sends',
   logsEmpty: 'No sends recorded yet.',
+  records: 'Records',
+  searchLabel: 'Search',
+  logsSearchPlaceholder: 'Recipient, subject or status…',
   logColumns: {
     date: 'Date',
+    template: 'Template',
     recipient: 'Recipient',
     subject: 'Subject',
     status: 'Status',

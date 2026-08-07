@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { Button, PageHeader, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
@@ -11,12 +11,18 @@ import { useLang } from '../i18n.tsx'
 import type { Vehicle } from '../types.ts'
 
 // Tipos de incidencia (lista cerrada del back, Épica 6); etiquetas en i18n.
-const INCIDENT_TYPES = ['breakdown', 'accident', 'maintenance', 'inspection']
+// `inspection` (ITV) la registra gestión, no se ofrece en el alta de campo.
+const INCIDENT_TYPES = ['breakdown', 'accident', 'maintenance']
 
 /**
- * M6 — Nueva incidencia del grupo (Épica 6): avería/accidente con fotos desde
- * el móvil. Las fotos se suben como documentos `damage_photos` ligados a la
- * incidencia (multipart → el back archiva en Drive, Fase A3).
+ * Alta de avería / incidencia con fotos desde el móvil (Épica 6 + C3). Las
+ * fotos se suben como documentos `damage_photos` ligados a la incidencia
+ * (multipart → el back archiva en Drive, Fase A3).
+ *
+ * C3: la usa TAMBIÉN el conductor, no solo el supervisor — el back le permite
+ * crear sobre sus vehículos, pero no cerrar. `?tipo=` preselecciona (el inicio
+ * tiene un acceso para "Avería" y otro para "Incidencia") y `?vehiculo=` el
+ * coche.
  */
 export function NewIncidentPage() {
   const { user } = useAuth()
@@ -25,10 +31,14 @@ export function NewIncidentPage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
 
+  // De dónde vino: el supervisor entra desde su grupo; el conductor, del inicio.
+  const origin = isSupervisor && params.get('desde') === 'grupo' ? '/grupo' : '/'
+
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const requestedType = params.get('tipo') ?? ''
   const [form, setForm] = useState({
     vehicle: params.get('vehiculo') ?? '',
-    type: 'breakdown',
+    type: INCIDENT_TYPES.includes(requestedType) ? requestedType : 'breakdown',
     date: todayIso(),
     description: '',
   })
@@ -37,13 +47,21 @@ export function NewIncidentPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!isSupervisor) return
+    let alive = true
     listVehicles()
-      .then((page) => setVehicles(page.results))
-      .catch(() => setVehicles([]))
-  }, [isSupervisor])
-
-  if (!isSupervisor) return <Navigate to="/" replace />
+      .then((page) => {
+        if (!alive) return
+        setVehicles(page.results)
+        // Con un solo coche no se elige de una lista de uno.
+        if (!params.get('vehiculo') && page.results.length === 1) {
+          setForm((f) => ({ ...f, vehicle: String(page.results[0].id) }))
+        }
+      })
+      .catch(() => alive && setVehicles([]))
+    return () => {
+      alive = false
+    }
+  }, [params])
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -75,7 +93,7 @@ export function NewIncidentPage() {
         setSaving(false)
         return
       }
-      navigate('/grupo', { replace: true })
+      navigate(origin, { replace: true })
     } catch (err) {
       setError(asErrorMessage(err, t.newIncident.createError))
       setSaving(false)
@@ -86,26 +104,28 @@ export function NewIncidentPage() {
     <div className="field-page">
       <PageHeader
         breadcrumb={
-          <Link to="/grupo" className="back-link">
+          <Link to={origin} className="back-link">
             <ArrowLeft size={16} aria-hidden /> {t.newIncident.back}
           </Link>
         }
-        title={t.newIncident.title}
+        title={form.type === 'breakdown' ? t.newIncident.titleBreakdown : t.newIncident.title}
       />
 
       <form className="modal-form" onSubmit={handleSubmit}>
-        <SelectField
-          label={t.newIncident.vehicle}
-          options={[
-            { value: '', label: t.newIncident.choose },
-            ...vehicles.map((v) => ({
-              value: String(v.id),
-              label: `${v.plate} · ${v.brand} ${v.model}`,
-            })),
-          ]}
-          value={form.vehicle}
-          onValueChange={(value) => setForm((f) => ({ ...f, vehicle: value }))}
-        />
+        {vehicles.length > 1 && (
+          <SelectField
+            label={t.newIncident.vehicle}
+            options={[
+              { value: '', label: t.newIncident.choose },
+              ...vehicles.map((v) => ({
+                value: String(v.id),
+                label: `${v.plate} · ${v.brand} ${v.model}`,
+              })),
+            ]}
+            value={form.vehicle}
+            onValueChange={(value) => setForm((f) => ({ ...f, vehicle: value }))}
+          />
+        )}
         <SelectField
           label={t.newIncident.type}
           options={INCIDENT_TYPES.map((value) => ({
@@ -144,7 +164,7 @@ export function NewIncidentPage() {
         </label>
         {error && <div role="alert" className="form-error">{error}</div>}
         <div className="form-actions">
-          <Button type="button" variant="secondary" onClick={() => navigate('/grupo')}>
+          <Button type="button" variant="secondary" onClick={() => navigate(origin)}>
             {t.common.cancel}
           </Button>
           <Button type="submit" disabled={saving || !form.vehicle}>

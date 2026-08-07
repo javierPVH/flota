@@ -3,7 +3,7 @@
  * Marca (izquierda) + bloque de usuario, campana, idioma y menú de navegación
  * en popover (derecha). Réplica del patrón de la referencia (GList).
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -16,25 +16,23 @@ import {
   Home,
   Inbox,
   LogOut,
-  Mail,
   Menu,
-  Receipt,
-  Tags,
-  Trash2,
+  Settings,
   Users,
   Wrench,
 } from 'lucide-react'
 import { Badge, LanguageToggleButton } from '@flota/ui/ui'
 
-import { listAlerts } from '../api.ts'
+import { listAlerts, listIncidents } from '../api.ts'
 import { useAuth } from '../auth.ts'
-import { alertLevelTone } from '../format.ts'
+import { alertLevelTone, incidentStatusTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import type { Alert } from '../types.ts'
+import type { Alert, Incident } from '../types.ts'
 import logoUrl from '../assets/img/gransolar-logo.png'
 
 // Crítica primero, como en la bandeja de alertas.
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
+type BellTab = 'alerts' | 'incidents'
 
 export function AppHeader() {
   const { user, logout } = useAuth()
@@ -46,25 +44,50 @@ export function AppHeader() {
   // Posición del menú (anclado al botón, en coordenadas de viewport para el portal).
   const [menuPos, setMenuPos] = useState({ top: 88, right: 20, maxHeight: 640 })
 
-  // Campana real (mejora 🔴): alertas abiertas, ordenadas por gravedad.
-  const [alerts, setAlerts] = useState<Alert[]>([])
+  // Campana: bandeja unificada de Incidencias y Alertas, con pestañas + subtabs.
   const [bellOpen, setBellOpen] = useState(false)
+  const [bellTab, setBellTab] = useState<BellTab>('alerts')
+  const [alertSub, setAlertSub] = useState('open')
+  const [incidentSub, setIncidentSub] = useState('open')
+  const [openAlerts, setOpenAlerts] = useState(0)
+  const [openIncidents, setOpenIncidents] = useState(0)
+  const [bellAlerts, setBellAlerts] = useState<Alert[]>([])
+  const [bellIncidents, setBellIncidents] = useState<Incident[]>([])
+  const [bellError, setBellError] = useState(false)
   const bellBtnRef = useRef<HTMLButtonElement | null>(null)
   const [bellPos, setBellPos] = useState({ top: 88, right: 20, maxHeight: 480 })
+  const bellCount = openAlerts + openIncidents
 
-  // UX5: un fallo de carga se muestra en el popover (antes: silencio y "0").
-  const [bellError, setBellError] = useState(false)
-  const loadAlerts = () =>
-    listAlerts('open')
-      .then((page) => {
-        setAlerts([...page.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]))
-        setBellError(false)
-      })
-      .catch(() => setBellError(true))
+  // Recuentos "abiertas" para las pestañas y el contador del icono.
+  const loadCounts = () => {
+    listAlerts({ status: 'open' }).then((p) => setOpenAlerts(p.count)).catch(() => {})
+    listIncidents({ status: 'open' }).then((p) => setOpenIncidents(p.count)).catch(() => {})
+  }
+
+  // Lista de la vista activa (pestaña + subtab), primera página.
+  const loadBellView = useCallback(() => {
+    setBellError(false)
+    if (bellTab === 'alerts') {
+      listAlerts({ status: alertSub })
+        .then((p) =>
+          setBellAlerts([...p.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])),
+        )
+        .catch(() => setBellError(true))
+    } else {
+      listIncidents({ status: incidentSub })
+        .then((p) => setBellIncidents(p.results))
+        .catch(() => setBellError(true))
+    }
+  }, [bellTab, alertSub, incidentSub])
 
   useEffect(() => {
-    void loadAlerts()
+    loadCounts()
   }, [])
+
+  // Al abrir la campana o cambiar de vista, refresca la lista.
+  useEffect(() => {
+    if (bellOpen) loadBellView()
+  }, [bellOpen, loadBellView])
 
   // Cerrar el menú/campana al navegar: no dependemos solo del onClick del enlace
   // (que se ejecuta mientras el portal se desmonta). Al cambiar la ruta, cerramos.
@@ -124,7 +147,7 @@ export function AppHeader() {
         right: Math.round(Math.max(8, window.innerWidth - rect.right)),
         maxHeight: Math.round(window.innerHeight - rect.bottom - 24),
       })
-      void loadAlerts() // refresco al abrir: la campana muestra el estado real
+      loadCounts() // refresco al abrir: los contadores muestran el estado real
     }
     setBellOpen((open) => !open)
   }
@@ -155,6 +178,17 @@ export function AppHeader() {
 
   const nav = t.shell.nav
   const groups = t.shell.navGroups
+  const bell = t.shell.bell
+  const alertSubs = [
+    { key: 'open', label: bell.open },
+    { key: 'resolved', label: bell.resolved },
+    { key: 'dismissed', label: bell.dismissed },
+  ]
+  const incidentSubs = [
+    { key: 'open', label: bell.open },
+    { key: 'on_going', label: bell.onGoing },
+    { key: 'closed', label: bell.closed },
+  ]
   const navGroups: Array<{
     title: string
     items: Array<{ to: string; label: string; icon: ReactNode; end?: boolean }>
@@ -166,6 +200,11 @@ export function AppHeader() {
         { to: '/vehiculos', label: nav.vehicles, icon: <Car size={16} /> },
         { to: '/conductores', label: nav.drivers, icon: <Users size={16} /> },
         { to: '/kilometraje', label: nav.mileage, icon: <Gauge size={16} /> },
+      ],
+    },
+    {
+      title: groups.tracking,
+      items: [
         { to: '/incidencias', label: nav.incidents, icon: <Wrench size={16} /> },
         { to: '/alertas', label: nav.alerts, icon: <AlertTriangle size={16} /> },
       ],
@@ -180,10 +219,7 @@ export function AppHeader() {
     {
       title: groups.admin,
       items: [
-        { to: '/facturas', label: nav.invoices, icon: <Receipt size={16} /> },
-        { to: '/catalogos', label: nav.catalogs, icon: <Tags size={16} /> },
-        { to: '/erratas', label: nav.erratas, icon: <Trash2 size={16} /> },
-        { to: '/plantillas', label: nav.emailTemplates, icon: <Mail size={16} /> },
+        { to: '/ajustes', label: nav.settings, icon: <Settings size={16} /> },
         { to: '/informes', label: nav.reports, icon: <FileText size={16} /> },
       ],
     },
@@ -218,9 +254,9 @@ export function AppHeader() {
           onClick={toggleBell}
         >
           <Bell size={18} />
-          {alerts.length > 0 && (
+          {bellCount > 0 && (
             <span className="shell-bell-count" aria-hidden="true">
-              {alerts.length > 99 ? '99+' : alerts.length}
+              {bellCount > 99 ? '99+' : bellCount}
             </span>
           )}
         </button>
@@ -249,37 +285,101 @@ export function AppHeader() {
               onClick={(event) => event.stopPropagation()}
             >
               <span className="shell-navgroup-title">{t.shell.notifications}</span>
+
+              {/* Pestañas generales: Alertas / Incidencias (con recuento abierto). */}
+              <div className="shell-bell-tabs" role="tablist" aria-label={t.shell.notifications}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={bellTab === 'alerts'}
+                  className={`shell-bell-tab${bellTab === 'alerts' ? ' is-active' : ''}`}
+                  onClick={() => setBellTab('alerts')}
+                >
+                  {bell.alerts}
+                  {openAlerts > 0 && <span className="shell-bell-tabcount">{openAlerts}</span>}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={bellTab === 'incidents'}
+                  className={`shell-bell-tab${bellTab === 'incidents' ? ' is-active' : ''}`}
+                  onClick={() => setBellTab('incidents')}
+                >
+                  {bell.incidents}
+                  {openIncidents > 0 && <span className="shell-bell-tabcount">{openIncidents}</span>}
+                </button>
+              </div>
+
+              {/* Subtabs por estado de la pestaña activa. */}
+              <div className="shell-bell-subtabs" role="tablist">
+                {(bellTab === 'alerts' ? alertSubs : incidentSubs).map((s) => {
+                  const active = (bellTab === 'alerts' ? alertSub : incidentSub) === s.key
+                  return (
+                    <button
+                      key={s.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      className={`shell-bell-subtab${active ? ' is-active' : ''}`}
+                      onClick={() => (bellTab === 'alerts' ? setAlertSub(s.key) : setIncidentSub(s.key))}
+                    >
+                      {s.label}
+                    </button>
+                  )
+                })}
+              </div>
+
               {bellError ? (
                 <p className="shell-alert-empty">
                   {t.shell.alertsLoadError}{' '}
-                  <button type="button" className="link-btn" onClick={() => void loadAlerts()}>
+                  <button type="button" className="link-btn" onClick={loadBellView}>
                     {t.shell.alertsRetry}
                   </button>
                 </p>
-              ) : alerts.length === 0 ? (
-                <p className="shell-alert-empty">{t.shell.noAlerts}</p>
+              ) : bellTab === 'alerts' ? (
+                bellAlerts.length === 0 ? (
+                  <p className="shell-alert-empty">{t.shell.noAlerts}</p>
+                ) : (
+                  bellAlerts.slice(0, 8).map((alert) => (
+                    <NavLink
+                      key={alert.id}
+                      to={alert.vehicle ? `/vehiculos/${alert.vehicle}` : '/alertas'}
+                      className="shell-alertitem"
+                      onClick={() => setBellOpen(false)}
+                    >
+                      <Badge tone={alertLevelTone(alert.level)}>{alert.level_display}</Badge>
+                      <span className="shell-alertitem-body">
+                        <strong>{alert.vehicle_plate || alert.type_display}</strong>
+                        <span className="shell-alertitem-msg">{alert.message}</span>
+                      </span>
+                    </NavLink>
+                  ))
+                )
+              ) : bellIncidents.length === 0 ? (
+                <p className="shell-alert-empty">{t.shell.noIncidents}</p>
               ) : (
-                alerts.slice(0, 6).map((alert) => (
+                bellIncidents.slice(0, 8).map((incident) => (
                   <NavLink
-                    key={alert.id}
-                    to={alert.vehicle ? `/vehiculos/${alert.vehicle}` : '/alertas'}
+                    key={incident.id}
+                    to={`/vehiculos/${incident.vehicle}`}
                     className="shell-alertitem"
                     onClick={() => setBellOpen(false)}
                   >
-                    <Badge tone={alertLevelTone(alert.level)}>{alert.level_display}</Badge>
+                    <Badge tone={incidentStatusTone(incident.status)}>{incident.status_display}</Badge>
                     <span className="shell-alertitem-body">
-                      <strong>{alert.vehicle_plate || alert.type_display}</strong>
-                      <span className="shell-alertitem-msg">{alert.message}</span>
+                      <strong>{incident.type_display}</strong>
+                      <span className="shell-alertitem-msg">{incident.description}</span>
                     </span>
                   </NavLink>
                 ))
               )}
+
               <NavLink
-                to="/alertas"
+                to={bellTab === 'alerts' ? '/alertas' : '/incidencias'}
                 className="shell-alertpop-all"
                 onClick={() => setBellOpen(false)}
               >
-                {t.shell.seeAllAlerts}
+                {bellTab === 'alerts' ? t.shell.seeAllAlerts : t.shell.seeAllIncidents}
               </NavLink>
             </div>
           </div>,
