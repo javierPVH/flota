@@ -29,10 +29,13 @@ pywebpush>=2.0,<3.0
 # PostgreSQL (activa con DB_ENGINE=postgres). Driver psycopg 3 con libpq incluida.
 psycopg[binary]>=3.2,<4.0
 
+# Cliente de Redis: NO es opcional en el despliegue Docker. El compose fija
+# REDIS_URL en `back` y `jobs`, y settings conmuta la caché a RedisCache, que
+# hace `import redis` — sin este paquete TODA petición con throttling revienta
+# con ModuleNotFoundError (500 ya en el login: /auth/csrf/, /auth/config/).
+redis>=5.0,<6.0
+
 # --- Opcionales (descomentar según necesidad) ----------------------------
-# Cache/rate-limit exactos entre workers (activa con REDIS_URL):
-# Cache/rate-limit exactos entre workers (activa con REDIS_URL):
-# redis>=5.0,<6.0
 # Cobertura de tests en CI:
 # coverage>=7.5,<8.0
 # Captura de errores en producción (activa con SENTRY_DSN):
