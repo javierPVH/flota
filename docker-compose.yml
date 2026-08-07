@@ -158,9 +158,14 @@ services:
     volumes:
       - ${DATA_DIR:-./data}:/data:ro
     ports:
-      # Loopback FIJO a propósito: la única puerta pública es el Cloudflare
-      # Tunnel (http://localhost:8092). No lo abras a otras interfaces.
-      - "127.0.0.1:${CONDUCTORES_PORT:-8092}:80"
+      # OJO: el Cloudflare Tunnel entra por http://localhost:8092, así que el
+      # bind DEBE seguir cubriendo el loopback. Docker publica en UNA sola
+      # dirección, no en varias a la vez:
+      #   127.0.0.1 -> solo el propio servidor (túnel sí, VPN no).   [por defecto]
+      #   0.0.0.0   -> todas las interfaces: el túnel SIGUE bien y además llega la VPN.
+      #   10.3.4.6  -> solo la VPN, y entonces el loopback DEJA de publicarse:
+      #                habría que repuntar cloudflared a http://10.3.4.6:8092.
+      - "${CONDUCTORES_BIND:-127.0.0.1}:${CONDUCTORES_PORT:-8092}:80"
 
 volumes:
   flota_pgdata:
