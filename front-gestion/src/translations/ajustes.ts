@@ -7,6 +7,7 @@ const es = {
     catalogs: 'Catálogos',
     deletions: 'Borrado definitivo',
     templates: 'Plantillas de correo',
+    notifications: 'Notificaciones',
     invoices: 'Facturas',
   },
 }
@@ -18,6 +19,7 @@ const en: typeof es = {
     catalogs: 'Catalogs',
     deletions: 'Permanent deletion',
     templates: 'Email templates',
+    notifications: 'Notifications',
     invoices: 'Invoices',
   },
 }

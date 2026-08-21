@@ -8,11 +8,11 @@ por issue de Jira). La gestión le asigna un vehículo (`status` → `assigned`)
 from django.conf import settings
 from django.db import models
 
-from .base import TimeStampedModel
+from .base import DeactivatableModel, TimeStampedModel
 from .enums import VehicleRequestStatus, VehicleType
 
 
-class VehicleRequest(TimeStampedModel):
+class VehicleRequest(DeactivatableModel, TimeStampedModel):
     requester = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -54,9 +54,11 @@ class VehicleRequest(TimeStampedModel):
         ordering = ["-created_at"]
         constraints = [
             # Una solicitud por issue de Jira (idempotencia de la importación).
+            # N7: una solicitud desactivada libera su clave de Jira (si no,
+            # el issue no se podría reimportar nunca).
             models.UniqueConstraint(
                 fields=["jira_key"],
-                condition=~models.Q(jira_key=""),
+                condition=~models.Q(jira_key="") & models.Q(is_active=True),
                 name="unique_jira_key",
             )
         ]

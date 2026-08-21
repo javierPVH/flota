@@ -1,22 +1,34 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { Badge, Button, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
-import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
-import { asErrorMessage } from '@flota/ui/http'
-import { Download } from 'lucide-react'
-
 import {
-  dismissAlert,
-  listAlerts,
-  listAll,
-  listVehicles,
-  registerItv,
-  resolveAlert,
-} from '../api.ts'
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FocusEvent,
+  type FormEvent,
+  type MouseEvent,
+} from 'react'
+import { createPortal } from 'react-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import {
+  Badge,
+  Button,
+  IconButton,
+  Modal,
+  PageHeader,
+  SelectField,
+  TextInputField,
+} from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
+import { asErrorMessage, isAbortError } from '@flota/ui/http'
+import { AlertTriangle, Check, Download, Mail } from 'lucide-react'
+
+import { listAlerts, listAll, listVehicles, registerItv, resolveAlert } from '../api.ts'
 import { exportCsv } from '../csv.ts'
-import { alertLevelTone, todayIso } from '../format.ts'
+import { alertLevelTone, fmtDate, todayIso } from '../format.ts'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { TextCell } from '../components/TextCell.tsx'
+import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
+import { useLang } from '../i18n.tsx'
 import { useAlertsPageCopy } from '../translations/alertsPage.ts'
 import type { Alert, Vehicle } from '../types.ts'
 
@@ -31,9 +43,85 @@ function isOverdueItv(alert: Alert): boolean {
   )
 }
 
+/** Tipo de alerta → tipo de correo del modal compartido con Vehículos.
+ * Los tres avisos que ya tienen plantilla propia abren directos en ella; el
+ * resto (exceso de km, sin conductor) cae en el comunicado de estado. */
+const EMAIL_KIND: Record<Alert['type'], 'state_notice' | 'itv_due' | 'insurance_due' | 'km_reading_pending'> = {
+  itv_due: 'itv_due',
+  insurance_due: 'insurance_due',
+  km_reading_pending: 'km_reading_pending',
+  km_overage: 'state_notice',
+  no_driver: 'state_notice',
+}
+
+/** Bocadillo de ayuda que NO lo recorta la celda.
+ *
+ * Dentro del `<td>` el globo quedaba cortado: el contenedor de la tabla tiene
+ * scroll horizontal y recorta a sus hijos posicionados. Se pinta en un portal
+ * con coordenadas `fixed` tomadas del icono — el mismo recurso que usa el globo
+ * propio de `TableWithPanel`. El `title=""` silencia además el tooltip nativo
+ * que la tabla pone en cada celda, que si no salía a la vez que este.
+ */
+function HintBubble({ text, label }: { text: string; label: string }) {
+  const [rect, setRect] = useState<DOMRect | null>(null)
+  const show = (event: MouseEvent<HTMLElement> | FocusEvent<HTMLElement>) =>
+    setRect(event.currentTarget.getBoundingClientRect())
+
+  return (
+    <>
+      <span
+        className="hint-bubble"
+        title=""
+        tabIndex={0}
+        role="note"
+        aria-label={label}
+        onMouseEnter={show}
+        onMouseLeave={() => setRect(null)}
+        onFocus={show}
+        onBlur={() => setRect(null)}
+      >
+        <AlertTriangle size={14} aria-hidden />
+      </span>
+      {rect &&
+        createPortal(
+          <span
+            className="hint-bubble-pop"
+            style={{
+              top: rect.bottom + 8,
+              // Anclado al icono pero sin salirse por la derecha de la ventana.
+              left: Math.max(8, Math.min(rect.left - 120, window.innerWidth - 312)),
+            }}
+          >
+            {text}
+          </span>,
+          document.body,
+        )}
+    </>
+  )
+}
+
+/** ¿La cerró una de las dos personas del vehículo, o alguien ajeno?
+ *
+ * `null` en `resolved_by` no es "un tercero": son los cierres AUTOMÁTICOS de
+ * las señales del back (ITV registrada, póliza nueva, lectura del mes), que no
+ * tienen actor y no pueden pintarse como un cierre sospechoso. */
+type ResolverKind = 'driver' | 'supervisor' | 'auto' | 'outsider'
+
+function resolverKind(a: Alert): ResolverKind {
+  if (a.resolved_by == null) return 'auto'
+  // `user` es el destinatario de la alerta (el conductor al que se le pidió la
+  // lectura). Cuenta como coincidencia además del conductor VIGENTE: si el coche
+  // cambió de manos después, quien la cerró seguía siendo el conductor de aquel
+  // aviso y pintarlo en rojo sería una falsa alarma.
+  if (a.resolved_by === a.driver_id || a.resolved_by === a.user) return 'driver'
+  if (a.resolved_by === a.supervisor_id) return 'supervisor'
+  return 'outsider'
+}
+
 /** Panel de alertas (G8, HU-5.1/3.3/3.5/1.7) + Registrar ITV. */
 export function AlertsPage() {
   const t = useAlertsPageCopy()
+  const { language } = useLang()
   const [searchParams, setSearchParams] = useSearchParams()
   const typeFilter = searchParams.get('type') ?? ''
   const levelFilter = searchParams.get('level') ?? ''
@@ -62,7 +150,6 @@ export function AlertsPage() {
     () => [
       { value: 'open', label: t.statusOptions.open },
       { value: 'resolved', label: t.statusOptions.resolved },
-      { value: 'dismissed', label: t.statusOptions.dismissed },
       { value: 'all', label: t.statusOptions.all },
     ],
     [t],
@@ -84,6 +171,10 @@ export function AlertsPage() {
   // Búsqueda en cliente (la franja); el estado va como pestañas (subtab).
   const [search, setSearch] = useState('')
 
+  // Correo desde la fila: el mismo modal que Vehículos y el panel, abierto ya en
+  // el tipo de aviso de la alerta.
+  const [emailAlert, setEmailAlert] = useState<Alert | null>(null)
+
   const [itvModal, setItvModal] = useState(false)
   const [itvVehicle, setItvVehicle] = useState('')
   const [itvResult, setItvResult] = useState('done')
@@ -93,22 +184,45 @@ export function AlertsPage() {
   const [itvError, setItvError] = useState('')
   const [itvSaving, setItvSaving] = useState(false)
 
-  const load = useCallback(() => {
-    setLoading(true)
-    listAll(listAlerts({
-      status: statusFilter && statusFilter !== 'all' ? statusFilter : undefined,
-      type: typeFilter || undefined,
-      level: levelFilter || undefined,
-    }))
-      .then((rows) => {
-        setAlerts([...rows].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]))
-        setError('')
-      })
-      .catch((err) => setError(asErrorMessage(err, t.loadError)))
-      .finally(() => setLoading(false))
-  }, [statusFilter, typeFilter, levelFilter, t])
+  const load = useCallback(
+    (signal?: AbortSignal) => {
+      setLoading(true)
+      const req = { signal }
+      listAll(
+        listAlerts(
+          {
+            status: statusFilter && statusFilter !== 'all' ? statusFilter : undefined,
+            type: typeFilter || undefined,
+            level: levelFilter || undefined,
+          },
+          req,
+        ),
+        req,
+      )
+        .then((rows) => {
+          setAlerts([...rows].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]))
+          setError('')
+        })
+        .catch((err) => {
+          if (isAbortError(err)) return
+          setError(asErrorMessage(err, t.loadError))
+        })
+        .finally(() => {
+          if (!signal?.aborted) setLoading(false)
+        })
+    },
+    [statusFilter, typeFilter, levelFilter, t],
+  )
 
-  useEffect(load, [load])
+  // M14: cada carga aborta la anterior; la última en vuelo muere al desmontar.
+  // Sin esto, cambiar de filtro dejaba varias peticiones compitiendo y la que
+  // contestara última —no la última pedida— se quedaba en la pantalla.
+  useEffect(() => {
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
+  }, [load])
+
   useEffect(() => {
     listAll(listVehicles()).then(setVehicles).catch(() => setVehicles([]))
   }, [])
@@ -120,12 +234,13 @@ export function AlertsPage() {
     setSearchParams(next, { replace: true })
   }
 
-  async function close(alert: Alert, resolve: boolean) {
+  /** Resolver es el ÚNICO cierre: descartar se retiró del dominio. */
+  async function close(alert: Alert) {
     setBusyId(alert.id)
     setNotice('')
     try {
-      await (resolve ? resolveAlert(alert.id) : dismissAlert(alert.id))
-      setNotice(t.closedNotice(alert.vehicle_plate || alert.type_display, resolve))
+      await resolveAlert(alert.id)
+      setNotice(t.closedNotice(alert.vehicle_plate || alert.type_display))
       load()
     } catch (err) {
       setError(asErrorMessage(err, t.closeError))
@@ -157,7 +272,13 @@ export function AlertsPage() {
         vehicle: Number(itvVehicle),
         event_date: itvDate,
         notes: itvNotes || undefined,
-        itv: { result: itvResult, next_due: itvNextDue || null },
+        // A13/C5: la próxima fecha solo acompaña a una ITV FAVORABLE. Con
+        // resultado "no pasada" no hay próxima ITV que apuntar (y el back la
+        // rechaza), y el aviso sigue abierto a propósito.
+        itv: {
+          result: itvResult,
+          next_due: itvResult === 'done' ? itvNextDue : null,
+        },
       })
       setItvModal(false)
       setNotice(t.itvModal.savedNotice)
@@ -170,15 +291,79 @@ export function AlertsPage() {
   }
 
   // Búsqueda en cliente sobre lo ya cargado (estado/tipo/nivel filtran en servidor).
+  // Incluye a las personas: en la práctica se busca «alertas de Carlos».
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase()
     if (!term) return alerts
     return alerts.filter((a) =>
-      `${a.vehicle_plate ?? ''} ${a.type_display} ${a.level_display} ${a.message ?? ''}`
+      `${a.vehicle_plate ?? ''} ${a.type_display} ${a.level_display} ${a.message ?? ''} ${
+        a.driver_name
+      } ${a.supervisor_name} ${a.resolved_by_name}`
         .toLowerCase()
         .includes(term),
     )
   }, [alerts, search])
+
+  // El vehículo completo hace falta para el modal de correo (destinatarios y
+  // datos que lo justifican); las alertas solo traen id y matrícula.
+  const vehicleById = useMemo(() => new Map(vehicles.map((v) => [v.id, v])), [vehicles])
+  const emailVehicle = emailAlert?.vehicle ? vehicleById.get(emailAlert.vehicle) : undefined
+
+  // Conductor y responsable van en todas las pestañas: en las abiertas dicen a
+  // quién llamar y en las resueltas contra quién se compara el que cerró.
+  // Las dos columnas del cierre solo aparecen donde hay cierre que contar.
+  const showClosing = statusFilter !== 'open'
+  // En resueltas no queda nada que accionar sobre la alerta: la columna se va.
+  const showActions = statusFilter !== 'resolved'
+  // Y el histórico se lee por meses, en acordeón.
+  const groupByMonth = statusFilter === 'resolved'
+
+  /** Persona con enlace a su ficha; «—» si el vehículo no tiene a nadie. */
+  const personCell = (id: number | null, name: string) => {
+    if (!name) return <span className="muted">—</span>
+    return id ? (
+      <Link to={`/conductores/${id}`} className="cell-link">
+        {name}
+      </Link>
+    ) : (
+      <>{name}</>
+    )
+  }
+
+  /** Quién resolvió, con el semáforo de si era gente del coche o no. */
+  const resolverCell = (a: Alert) => {
+    if (a.status !== 'resolved') return <span className="muted">—</span>
+    const kind = resolverKind(a)
+    if (kind === 'auto') {
+      return (
+        <span className="resolver resolver--auto" title={t.resolver.automaticTip}>
+          {t.resolver.automatic}
+        </span>
+      )
+    }
+    const who = a.resolved_by_name || t.resolver.unknown
+    if (kind === 'driver' || kind === 'supervisor') {
+      return (
+        <span
+          className="resolver resolver--match"
+          title={kind === 'driver' ? t.resolver.driverMatch : t.resolver.supervisorMatch}
+        >
+          <Check size={14} aria-hidden /> {who}
+        </span>
+      )
+    }
+    // Ajeno al vehículo: se dice quién SÍ lo era, que es lo que hay que revisar.
+    const tip =
+      a.driver_name || a.supervisor_name
+        ? t.resolver.mismatch(a.driver_name || '—', a.supervisor_name || '—')
+        : t.resolver.mismatchNoPeople
+    return (
+      <span className="resolver resolver--mismatch">
+        {who}
+        <HintBubble text={tip} label={`${t.resolver.mismatchTitle}. ${tip}`} />
+      </span>
+    )
+  }
 
   const columns: Array<TableWithPanelColumn<Alert>> = [
     {
@@ -207,6 +392,18 @@ export function AlertsPage() {
         ),
     },
     {
+      key: 'driver',
+      label: t.columns.driver,
+      getValue: (a) => a.driver_name,
+      render: (a) => personCell(a.driver_id, a.driver_name),
+    },
+    {
+      key: 'supervisor',
+      label: t.columns.supervisor,
+      getValue: (a) => a.supervisor_name,
+      render: (a) => personCell(a.supervisor_id, a.supervisor_name),
+    },
+    {
       key: 'message',
       label: t.columns.message,
       sortable: false,
@@ -218,11 +415,34 @@ export function AlertsPage() {
       label: t.columns.dueDate,
       isDate: true,
       getValue: (a) => a.due_date,
+      // El valor ordenable sigue siendo el ISO; lo que se ve va con el mismo
+      // formato que el resto de fechas de la tabla.
       render: (a) => (
-        <span className={isOverdueItv(a) ? 'itv-overdue' : undefined}>{a.due_date ?? '—'}</span>
+        <span className={isOverdueItv(a) ? 'itv-overdue' : undefined}>
+          {a.due_date ? fmtDate(a.due_date, language) : '—'}
+        </span>
       ),
     },
-    {
+    ...(showClosing
+      ? ([
+          {
+            key: 'resolved_at',
+            label: t.columns.resolvedAt,
+            isDate: true,
+            getValue: (a) => a.resolved_at,
+            render: (a) =>
+              a.resolved_at ? fmtDate(a.resolved_at, language) : <span className="muted">—</span>,
+          },
+          {
+            key: 'resolved_by',
+            label: t.columns.resolvedBy,
+            getValue: (a) => a.resolved_by_name,
+            render: resolverCell,
+          },
+        ] as Array<TableWithPanelColumn<Alert>>)
+      : []),
+    ...(showActions
+      ? ([{
       key: 'actions',
       label: t.columns.actions,
       align: 'right',
@@ -235,31 +455,32 @@ export function AlertsPage() {
               {t.registerItv}
             </Button>
           )}
+          {/* Correo: el mismo modal que en Vehículos y el panel. */}
+          <IconButton
+            size="sm"
+            title={t.sendEmail}
+            aria-label={t.sendEmail}
+            disabled={!a.vehicle || !vehicleById.has(a.vehicle)}
+            onClick={() => setEmailAlert(a)}
+          >
+            <Mail size={15} aria-hidden />
+          </IconButton>
           {a.status === 'open' ? (
-            <>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={busyId === a.id}
-                onClick={() => close(a, true)}
-              >
-                {t.resolve}
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={busyId === a.id}
-                onClick={() => close(a, false)}
-              >
-                {t.dismiss}
-              </Button>
-            </>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={busyId === a.id}
+              onClick={() => close(a)}
+            >
+              {t.resolve}
+            </Button>
           ) : (
             <span className="muted">{a.status_display}</span>
           )}
         </div>
       ),
-    },
+        }] as Array<TableWithPanelColumn<Alert>>)
+      : []),
   ]
 
   return (
@@ -349,6 +570,12 @@ export function AlertsPage() {
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
           emptyStateLabel={t.emptyState}
+          // Resueltas: el histórico se lee por año y, dentro, por mes. Las dos
+          // filas separadoras van DENTRO de la tabla, ocupan todas las columnas
+          // y se pliegan; el orden lo marca la fecha de resolución (lo más
+          // reciente arriba).
+          groupRowsByYearMonth={groupByMonth}
+          monthSortDateColumnKey={groupByMonth ? 'resolved_at' : undefined}
         />
       )}
 
@@ -383,8 +610,11 @@ export function AlertsPage() {
           <TextInputField
             label={t.itvModal.nextDue}
             type="date"
-            value={itvNextDue}
+            value={itvResult === 'done' ? itvNextDue : ''}
             onChange={(e) => setItvNextDue(e.target.value)}
+            // A13: obligatoria si la ITV se pasó; deshabilitada si no.
+            required={itvResult === 'done'}
+            disabled={itvResult !== 'done'}
           />
           <TextInputField
             label={t.itvModal.notes}
@@ -406,6 +636,23 @@ export function AlertsPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Correo desde la fila (N10): abre en el tipo de aviso de la alerta. */}
+      <Modal
+        open={Boolean(emailVehicle)}
+        title={emailVehicle ? t.emailModalTitle(emailVehicle.plate) : ''}
+        onClose={() => setEmailAlert(null)}
+        wide
+      >
+        {emailVehicle && emailAlert && (
+          <VehicleEmailModal
+            vehicle={emailVehicle}
+            initialKind={EMAIL_KIND[emailAlert.type]}
+            onClose={() => setEmailAlert(null)}
+            onDone={load}
+          />
+        )}
       </Modal>
     </div>
   )

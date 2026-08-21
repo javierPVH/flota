@@ -83,3 +83,57 @@ class ThrottleConfigTests(TestCase):
         self.assertIn(ScopedRateThrottle, views.RegisterView.throttle_classes)
         self.assertEqual(views.GoogleLoginView.throttle_scope, "google")
         self.assertIn(ScopedRateThrottle, views.GoogleLoginView.throttle_classes)
+
+
+class SuperuserProtectionTests(TestCase):
+    """C2: el superusuario del purge N7 no se toca desde un admin normal.
+
+    Es el único rol que puede BORRAR de verdad (`/erratas/purge/`). Sin esta
+    frontera, un admin le fijaba una contraseña, entraba como él y purgaba.
+    """
+
+    def setUp(self):
+        from accounts.models import Role, UserRole
+
+        self.superuser = User.objects.create_superuser(username="root", password="root-pass-123456")
+        self.admin = User.objects.create_user(username="adm", password="adm-pass-123456")
+        UserRole.objects.create(user=self.admin, role=Role.ADMIN)
+        self.url = reverse("user-detail", args=[self.superuser.pk])
+
+    def test_admin_cannot_set_superuser_password(self):
+        self.client.force_login(self.admin)
+        resp = self.client.patch(
+            self.url, {"password": "otra-pass-123456"}, content_type="application/json"
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.superuser.refresh_from_db()
+        self.assertTrue(self.superuser.check_password("root-pass-123456"))
+
+    def test_admin_cannot_deactivate_superuser(self):
+        self.client.force_login(self.admin)
+        resp = self.client.patch(self.url, {"is_active": False}, content_type="application/json")
+        self.assertEqual(resp.status_code, 400)
+        resp = self.client.delete(self.url)
+        self.assertEqual(resp.status_code, 403)
+        self.superuser.refresh_from_db()
+        self.assertTrue(self.superuser.is_active)
+
+    def test_admin_cannot_strip_superuser_roles(self):
+        self.client.force_login(self.admin)
+        resp = self.client.patch(self.url, {"roles": []}, content_type="application/json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_superuser_can_still_manage_itself(self):
+        self.client.force_login(self.superuser)
+        resp = self.client.patch(self.url, {"phone": "600000000"}, content_type="application/json")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_admin_can_still_manage_normal_users(self):
+        other = User.objects.create_user(username="pepe", password="pepe-pass-123456")
+        self.client.force_login(self.admin)
+        resp = self.client.patch(
+            reverse("user-detail", args=[other.pk]),
+            {"password": "nueva-pass-123456"},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)

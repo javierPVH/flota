@@ -13,21 +13,30 @@ export interface ImportProgress {
 }
 
 /** Paso 3 — barra de progreso de las tandas. Con 0 errores el orquestador
- * cierra solo; con errores se muestra el resumen + descarga del CSV. */
+ * cierra solo; con errores se muestra el resumen + descarga del CSV.
+ *
+ * B3: mientras corre se puede DETENER. La importación va por tandas y no era
+ * cancelable: con 1.000 filas mal mapeadas solo quedaba esperar a que
+ * terminara de escribirlas (cerrar el modal estaba bloqueado a propósito).
+ * Detener corta entre tandas — lo ya creado se queda creado, y se dice. */
 export function StepProgress({
   t,
   progress,
   finished,
+  cancelled = false,
   error,
   onDownloadErrors,
   onClose,
+  onStop,
 }: {
   t: Copy
   progress: ImportProgress
   finished: boolean
+  cancelled?: boolean
   error: string
   onDownloadErrors: () => void
   onClose: () => void
+  onStop?: () => void
 }) {
   const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 100
   return (
@@ -50,12 +59,21 @@ export function StepProgress({
         )}
       </div>
       {error && <div role="alert" className="form-error">{error}</div>}
+      {!finished && onStop && (
+        <div className="imp-actions">
+          <Button variant="danger" onClick={onStop}>
+            {t.stop}
+          </Button>
+        </div>
+      )}
       {finished && (
         <>
           <p className="imp-done">
-            {progress.errors.length === 0
-              ? t.doneOk(progress.created)
-              : t.doneWithErrors(progress.created, progress.errors.length)}
+            {cancelled
+              ? t.doneCancelled(progress.created, progress.total - progress.done)
+              : progress.errors.length === 0
+                ? t.doneOk(progress.created)
+                : t.doneWithErrors(progress.created, progress.errors.length)}
           </p>
           <div className="imp-actions">
             {progress.errors.length > 0 && (

@@ -1,73 +1,43 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Panel, TextInputField } from '@flota/ui/ui'
-import { asErrorMessage } from '@flota/ui/http'
+import { Button, Panel } from '@flota/ui/ui'
 
 import { useAuth } from '../auth.ts'
-import { listMyRequests, submitMyRequest } from '../api.ts'
+import { fetchAuthConfig } from '../api.ts'
 import { useLang } from '../i18n.tsx'
-import type { MyVehicleRequest } from '../types.ts'
-
-const STATUS_TONE: Record<string, 'info' | 'success' | 'warning' | 'danger'> = {
-  pending: 'info',
-  approved: 'success',
-  assigned: 'success',
-  rejected: 'danger',
-  closed: 'warning',
-}
 
 /**
- * Portón de acceso (M0 + Fase A2): el usuario sin vehículo abre un ticket de
- * Jira, registra aquí su clave y sigue el estado de su solicitud. Cuando la
- * administración le concede el coche, "Volver a comprobar" le deja entrar.
+ * Portón de acceso: el usuario que todavía no forma parte de la aplicación.
+ *
+ * Aquí solo se le enlaza a Jira para que abra su solicitud. **Jira no se
+ * gestiona desde la aplicación**: no se registra la clave del ticket ni se
+ * sigue su estado. Cuando la solicitud se aprueba allí, es la administración
+ * quien activa al usuario a mano en la aplicación de admin; con «Volver a
+ * comprobar» el usuario reintenta la entrada.
+ *
+ * La dirección la publica GET /auth/config/ (`FLEET_JIRA_REQUEST_URL`), para
+ * poder cambiarla sin reconstruir la PWA. Si no está configurada, se explica
+ * el trámite sin pintar un enlace roto.
  */
 export function RequestAccessPage() {
   const { user, logout } = useAuth()
   const { t } = useLang()
   const navigate = useNavigate()
-  const [requests, setRequests] = useState<MyVehicleRequest[]>([])
+  const [jiraUrl, setJiraUrl] = useState('')
   const [loading, setLoading] = useState(true)
-  const [jiraKey, setJiraKey] = useState('')
-  const [notes, setNotes] = useState('')
-  const [error, setError] = useState('')
-  const [okMsg, setOkMsg] = useState('')
-  const [busy, setBusy] = useState(false)
 
-  const load = useCallback(() => {
-    setLoading(true)
-    listMyRequests()
-      .then((rows) => {
-        setRequests(rows)
-        const open = rows.find((r) => r.status === 'pending' || r.status === 'approved')
-        if (open) {
-          setJiraKey(open.jira_key)
-          setNotes(open.notes)
-        }
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchAuthConfig({ signal: controller.signal })
+      .then((cfg) => setJiraUrl(cfg.jira_request_url || ''))
+      // Sin URL no hay nada que reintentar: se cae al aviso de «no configurada»,
+      // que ya dice a quién avisar. No merece un error en rojo.
+      .catch(() => setJiraUrl(''))
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
       })
-      .catch((err) => setError(asErrorMessage(err, t.request.loadError)))
-      .finally(() => setLoading(false))
-  }, [t])
-
-  useEffect(load, [load])
-
-  const open = requests.find((r) => r.status === 'pending' || r.status === 'approved')
-  const granted = requests.find((r) => r.status === 'assigned')
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault()
-    setError('')
-    setOkMsg('')
-    setBusy(true)
-    try {
-      await submitMyRequest({ jira_key: jiraKey.trim(), notes })
-      setOkMsg(open ? t.request.updated : t.request.registered)
-      load()
-    } catch (err) {
-      setError(asErrorMessage(err, t.request.saveError))
-    } finally {
-      setBusy(false)
-    }
-  }
+    return () => controller.abort()
+  }, [])
 
   return (
     <div className="login-scene">
@@ -76,70 +46,43 @@ export function RequestAccessPage() {
         <p className="sub">{t.request.hello(user?.first_name || user?.username || '')}</p>
 
         {loading ? (
-          <p role="status" className="gate-checking">{t.common.loading}</p>
+          <p role="status" className="gate-checking">
+            {t.common.loading}
+          </p>
         ) : (
           <>
-            {granted && (
-              <Panel tone="success">
-                <p style={{ margin: 0 }}>
-                  🎉 {t.request.granted} <strong>{granted.vehicle_plate}</strong>.
-                </p>
-              </Panel>
-            )}
+            <Panel tone="info">
+              <p style={{ margin: 0 }}>
+                {t.request.howTo}
+                <br />
+                {t.request.afterApproval}
+              </p>
+            </Panel>
 
-            {open ? (
-              <Panel tone={STATUS_TONE[open.status] ?? 'info'}>
-                <p style={{ margin: 0 }}>
-                  {t.request.statusIs} <strong>{open.status_display.toLowerCase()}</strong>
-                  {open.jira_key ? (
-                    <>
-                      {' '}
-                      ({t.request.ticketWord} <strong>{open.jira_key}</strong>)
-                    </>
-                  ) : (
-                    <> {t.request.registerHint}</>
-                  )}
-                  .
-                </p>
-              </Panel>
+            {jiraUrl ? (
+              // Sale de la aplicación: pestaña nueva y `noopener` para que la
+              // página de destino no pueda tocar esta.
+              <a
+                className="jira-link"
+                href={jiraUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {t.request.openJira}
+              </a>
             ) : (
-              !granted && (
-                <Panel tone="info">
-                  <p style={{ margin: 0 }}>
-                    {t.request.howTo1}
-                    <br />
-                    {t.request.howTo2}
-                  </p>
-                </Panel>
-              )
+              <div role="alert" className="form-error">
+                {t.request.noUrl}
+              </div>
             )}
-
-            {!granted && (
-              <form onSubmit={handleSubmit} className="request-form">
-                <TextInputField
-                  label={t.request.jiraLabel}
-                  placeholder="FLT-123"
-                  value={jiraKey}
-                  onChange={(e) => setJiraKey(e.target.value)}
-                />
-                <TextInputField
-                  label={t.request.notesLabel}
-                  placeholder={t.request.notesPlaceholder}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-                <Button type="submit" variant="primary" fullWidth disabled={busy}>
-                  {busy ? t.request.saving : open ? t.request.update : t.request.register}
-                </Button>
-              </form>
-            )}
-
-            {okMsg && <div role="status" className="form-ok">{okMsg}</div>}
-            {error && <div role="alert" className="form-error">{error}</div>}
 
             <div className="request-actions">
-              <Button variant="secondary" fullWidth onClick={() => navigate('/', { replace: true })}>
-                {granted ? t.request.enter : t.request.recheck}
+              <Button
+                variant="secondary"
+                fullWidth
+                onClick={() => navigate('/', { replace: true })}
+              >
+                {t.request.recheck}
               </Button>
               <Button variant="secondary" fullWidth onClick={logout}>
                 {t.common.logout}

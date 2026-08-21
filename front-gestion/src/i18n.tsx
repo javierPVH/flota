@@ -46,7 +46,6 @@ const es = {
       alerts: 'Alertas',
       open: 'Abiertas',
       resolved: 'Resueltas',
-      dismissed: 'Descartadas',
       onGoing: 'En curso',
       closed: 'Cerradas',
     },
@@ -126,6 +125,9 @@ const es = {
   home: {
     title: 'Vista general',
     subtitle: 'Resumen de la flota: KPIs, alertas y últimos vehículos.',
+    // B4: los errores del panel estaban en castellano dentro del JSX.
+    errSummary: 'No se pudo cargar el resumen.',
+    errList: 'No se pudo cargar el listado.',
     addVehicle: '+ Añadir vehículo',
     kpiVehicles: 'Vehículos',
     kpiVehiclesSub: (active: number, shop: number) => `${active} activos · ${shop} en taller`,
@@ -320,7 +322,6 @@ const en: typeof es = {
       alerts: 'Alerts',
       open: 'Open',
       resolved: 'Resolved',
-      dismissed: 'Dismissed',
       onGoing: 'In progress',
       closed: 'Closed',
     },
@@ -400,6 +401,8 @@ const en: typeof es = {
   home: {
     title: 'Overview',
     subtitle: 'Fleet overview: KPIs, alerts and latest vehicles.',
+    errSummary: 'Could not load the summary.',
+    errList: 'Could not load the listing.',
     addVehicle: '+ Add vehicle',
     kpiVehicles: 'Vehicles',
     kpiVehiclesSub: (active, shop) => `${active} active · ${shop} in shop`,

@@ -50,8 +50,12 @@ class ManualEventTests(APITestCase):
         self.admin = make_user("admin", Role.ADMIN)
         self.driver = make_user("driver", Role.DRIVER)
         self.vehicle = Vehicle.objects.create(plate="EVT1", brand="a", model="b")
+        # C1: solo la asignación ACEPTADA da ámbito (el default es `proposed`).
         Assignment.objects.create(
-            vehicle=self.vehicle, driver=self.driver, start_date=date(2026, 1, 1)
+            vehicle=self.vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
         )
         self.foreign = Vehicle.objects.create(plate="EVT2", brand="a", model="b")
         self.url = reverse("event-list")
@@ -106,7 +110,7 @@ class ManualEventTests(APITestCase):
             {
                 "vehicle": self.foreign.pk,
                 "event_type": EventType.ITV,
-                "itv": {"next_due": "2027-07-01"},
+                "itv": {"result": "done", "next_due": "2027-07-01"},
             },
             format="json",
         )
@@ -335,8 +339,13 @@ class InvoiceAllocateTests(APITestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        allocations = InvoiceAllocation.objects.filter(invoice=self.invoice)
-        self.assertEqual(allocations.count(), 2)  # las viejas se sustituyen
+        # A2/R0: el reparto anterior se DESACTIVA (queda en erratas), no se borra:
+        # es la traza de a qué proyecto/CECO se imputó antes.
+        allocations = InvoiceAllocation.objects.filter(invoice=self.invoice, is_active=True)
+        self.assertEqual(allocations.count(), 2)
+        self.assertEqual(
+            InvoiceAllocation.objects.filter(invoice=self.invoice, is_active=False).count(), 1
+        )
         amounts = sorted(a.amount for a in allocations)
         self.assertEqual(amounts, [Decimal("398.80"), Decimal("598.20")])
 

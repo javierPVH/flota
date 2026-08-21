@@ -177,8 +177,7 @@ Enum alert_level_enum {
 
 Enum alert_status_enum {
   open
-  resolved
-  dismissed
+  resolved  // el único cierre: descartar se retiró
 }
 
 Enum vehicle_request_status_enum {

@@ -204,7 +204,17 @@ X_FRAME_OPTIONS = "DENY"
 
 # La cookie CSRF NO es httponly a propósito (la SPA la lee para X-CSRFToken), así
 # que silenciamos ese aviso de `check --deploy`; es una decisión de diseño.
-SILENCED_SYSTEM_CHECKS = ["security.W017"]
+SILENCED_SYSTEM_CHECKS = [
+    "security.W017",
+    # B18: los avisos de drf-spectacular son de NOMBRADO del esquema OpenAPI
+    # (W001: colisiones de enums; W002: no puede inferir el serializer de una
+    # `APIView` suelta — sondas, /me, informes, erratas…, que a propósito no son
+    # genéricas). Son cosméticos y el esquema solo se sirve en dev. Silenciarlos
+    # permite que la CI use `check --deploy --fail-level WARNING` como puerta
+    # real de la configuración de seguridad, sin ruido que la deje en rojo.
+    "drf_spectacular.W001",
+    "drf_spectacular.W002",
+]
 
 # --- CORS -----------------------------------------------------------------
 # El front (SPA) va en otro origen en dev y usa cookies ⇒ credentials + orígenes.
@@ -305,6 +315,28 @@ if not DEBUG:
         raise ImproperlyConfigured(
             "AUTH_GOOGLE_ENABLED=True requiere definir GOOGLE_OAUTH_CLIENT_ID."
         )
+    # C4: auto-alta por Google SIN dominios permitidos = cualquier cuenta de
+    # Gmail del mundo se crea un usuario y queda "autenticada" (y lo autenticado
+    # alcanza /media y los endpoints de sesión). Se exige el corralito.
+    if AUTH_GOOGLE_ENABLED and GOOGLE_AUTO_CREATE_USERS and not GOOGLE_ALLOWED_DOMAINS:
+        raise ImproperlyConfigured(
+            "GOOGLE_AUTO_CREATE_USERS=True exige GOOGLE_ALLOWED_DOMAINS "
+            "(sin dominios, cualquier cuenta de Google se autoprovisiona)."
+        )
+    # B9: `FIELD_ENCRYPTION_KEYS` con un placeholder no es una clave Fernet
+    # válida: la app arrancaba y reventaba en el primer uso de Drive. Se
+    # valida el formato al arrancar (32 bytes en base64 urlsafe).
+    for _key in FIELD_ENCRYPTION_KEYS:
+        try:
+            from base64 import urlsafe_b64decode
+
+            if len(urlsafe_b64decode(_key.encode())) != 32:
+                raise ValueError
+        except Exception as _exc:
+            raise ImproperlyConfigured(
+                'FIELD_ENCRYPTION_KEYS contiene una clave que no es Fernet válida. Genera una con: python -c "from cryptography.fernet import '
+                'Fernet; print(Fernet.generate_key().decode())"'
+            ) from _exc
     if GOOGLE_OAUTH_ENABLED and not (GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET):
         raise ImproperlyConfigured(
             "GOOGLE_OAUTH_ENABLED=True requiere GOOGLE_OAUTH_CLIENT_ID y "
@@ -354,10 +386,19 @@ FLEET_ITV_ALERT_DAYS = sorted(
     {int(x) for x in env_list("FLEET_ITV_ALERT_DAYS", ["30", "15", "7"]) if x.isdigit()},
     reverse=True,
 ) or [30, 15, 7]
+# C5: horizonte máximo de la próxima ITV al registrarla. Sin cota, una fecha
+# disparatada (2099) sacaba el vehículo de la vigilancia de ITV para siempre.
+# 800 días ≈ el periodo máximo real (2 años) con margen.
+FLEET_ITV_MAX_HORIZON_DAYS = max(1, env_int("FLEET_ITV_MAX_HORIZON_DAYS", 800))
 # --- N10a: correo saliente (SMTP por .env; sin host → deshabilitado limpio,
 # patrón Drive/push: la app funciona igual y el mailer es un no-op con log).
 EMAIL_HOST = env_str("EMAIL_HOST", "")
 EMAIL_PORT = env_int("EMAIL_PORT", 587)
+# A4: sin timeout, `smtplib` abre el socket SIN plazo. Un SMTP que no responde
+# se llevaba por delante un worker de gunicorn (`notify`, envío de prueba) y
+# colgaba el contenedor `jobs`, que no tiene watchdog: el motor de alertas
+# dejaba de generar avisos en silencio.
+EMAIL_TIMEOUT = max(1, env_int("EMAIL_TIMEOUT", 10))
 EMAIL_HOST_USER = env_str("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env_str("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
@@ -369,15 +410,25 @@ EMAIL_BACKEND = (
 )
 # Interruptor real del envío (los tests usan locmem vía override).
 FLEET_EMAIL_ENABLED = bool(EMAIL_HOST) or env_bool("FLEET_EMAIL_FORCE_ENABLED", False)
+# M6: cola de salida. El motor de alertas encola y `send_email_outbox` entrega,
+# así un SMTP lento no frena los chequeos y un fallo se reintenta en vez de
+# perderse. Tope de intentos por correo y tamaño de la tanda de cada pasada.
+FLEET_EMAIL_MAX_ATTEMPTS = max(1, env_int("FLEET_EMAIL_MAX_ATTEMPTS", 3))
+
+# Envíos programados por el usuario (Ajustes → Notificaciones). Interruptor
+# para poder apagar la función en un despliegue sin borrar lo configurado.
+FLEET_NOTIFICATIONS_ENABLED = env_bool("FLEET_NOTIFICATIONS_ENABLED", True)
+FLEET_EMAIL_OUTBOX_BATCH = max(1, env_int("FLEET_EMAIL_OUTBOX_BATCH", 200))
 
 # N8a: día del mes desde el que el personal de campo (no gestión) puede
-# registrar km, hasta fin de mes. 0 = sin ventana. En dev/tests el DEFAULT la
-# deja desactivada para no romper flujos con fechas libres, pero `.env` la
-# activa a 20 para poder probar el bloqueo y el aviso del front.
-FLEET_KM_WINDOW_START = max(0, env_int("FLEET_KM_WINDOW_START", 0 if DEBUG else 20))
+# registrar km, hasta fin de mes. **0 = sin ventana (por defecto)**: se registra
+# cualquier día y los fronts ocultan todo lo relativo al plazo. Para activarla,
+# `FLEET_KM_WINDOW_START=20` en el entorno.
+FLEET_KM_WINDOW_START = max(0, env_int("FLEET_KM_WINDOW_START", 0))
 # N8b: último día del mes (incluido) en el que el admin puede completar los km
-# faltantes del mes anterior. 0 = siempre disponible (dev).
-FLEET_KM_ESTIMATE_WINDOW_END = max(0, env_int("FLEET_KM_ESTIMATE_WINDOW_END", 0 if DEBUG else 10))
+# faltantes del mes anterior. **0 = siempre disponible (por defecto)**; para
+# activar la ventana, `FLEET_KM_ESTIMATE_WINDOW_END=10`.
+FLEET_KM_ESTIMATE_WINDOW_END = max(0, env_int("FLEET_KM_ESTIMATE_WINDOW_END", 0))
 
 # Días antes del vencimiento del seguro en los que se avisa (N2, escalonado).
 FLEET_INSURANCE_ALERT_DAYS = sorted(
@@ -414,6 +465,14 @@ GOOGLE_DRIVE_ENABLED = env_bool("GOOGLE_DRIVE_ENABLED", False)
 FLEET_JIRA_ENABLED = env_bool("FLEET_JIRA_ENABLED", False)
 FLEET_JIRA_URL = env_str("FLEET_JIRA_URL", "")
 FLEET_JIRA_TOKEN = env_str("FLEET_JIRA_TOKEN", "")
+
+# Dirección PÚBLICA donde un usuario sin vehículo abre su solicitud (formulario
+# o proyecto de Jira). El portón de `front-conductores` solo la enlaza: Jira no
+# se gestiona desde la aplicación, y cuando la solicitud se aprueba allí es la
+# administración quien activa al usuario a mano. Distinta de `FLEET_JIRA_URL`,
+# que es la API con token que usa el job de importación.
+# Vacía = el portón explica el trámite sin pintar un enlace roto.
+FLEET_JIRA_REQUEST_URL = env_str("FLEET_JIRA_REQUEST_URL", "")
 
 # --- OpenAPI (drf-spectacular): solo dev/staging --------------------------
 OPENAPI_DOCS_ENABLED = DEBUG or env_bool("OPENAPI_DOCS_ENABLED", False)

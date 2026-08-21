@@ -9,14 +9,15 @@ const es = {
   exportCsv: 'Exportar CSV',
   registerItv: 'Registrar ITV',
   resolve: 'Resolver',
-  dismiss: 'Descartar',
+  sendEmail: 'Mandar correo',
   records: 'Registros',
   searchLabel: 'Buscar',
-  searchPlaceholder: 'Matrícula, tipo o mensaje…',
+  searchPlaceholder: 'Matrícula, tipo, persona o mensaje…',
   viewMessage: 'Ver mensaje',
   emptyState: 'Sin alertas con estos filtros. 🎉',
-  closedNotice: (subject: string, resolved: boolean) =>
-    `Alerta de ${subject} ${resolved ? 'resuelta' : 'descartada'}.`,
+  closedNotice: (subject: string) => `Alerta de ${subject} resuelta.`,
+  emailModalTitle: (plate: string) => `Correo · ${plate}`,
+  noVehicle: 'Sin vehículo',
   filters: {
     type: 'Tipo',
     level: 'Nivel',
@@ -38,16 +39,36 @@ const es = {
   statusOptions: {
     open: 'Abiertas',
     resolved: 'Resueltas',
-    dismissed: 'Descartadas',
     all: 'Todas',
   },
   columns: {
     level: 'Nivel',
     type: 'Tipo',
     vehicle: 'Vehículo',
+    driver: 'Conductor',
+    supervisor: 'Responsable',
     message: 'Mensaje',
     dueDate: 'Fecha límite',
+    resolvedAt: 'Resuelta el',
+    resolvedBy: 'Resuelta por',
     actions: 'Acciones',
+  },
+  resolver: {
+    /** Cerró quien tenía el coche: se pinta en verde. */
+    driverMatch: 'Cerrada por el conductor del vehículo.',
+    supervisorMatch: 'Cerrada por el responsable del vehículo.',
+    /** Y cuando no lo era: bocadillo del icono de aviso. */
+    mismatchTitle: 'Cerrada por alguien ajeno al vehículo',
+    mismatch: (driver: string, supervisor: string) =>
+      `No es el conductor (${driver}) ni el responsable (${supervisor}) de este vehículo. ` +
+      'Comprueba que quien la cerró sabía lo que pasaba con el coche.',
+    mismatchNoPeople:
+      'El vehículo no tiene conductor ni responsable asignado, así que nadie del coche pudo cerrarla.',
+    /** Sin actor: la cerró el propio sistema, no una persona. */
+    automatic: 'Cierre automático',
+    automaticTip:
+      'La cerró el sistema al registrarse la ITV, la póliza de seguro o la lectura de km del periodo.',
+    unknown: 'Sin registrar',
   },
   itvModal: {
     title: 'Registrar ITV',
@@ -81,14 +102,15 @@ const en: typeof es = {
   exportCsv: 'Export CSV',
   registerItv: 'Register MOT',
   resolve: 'Resolve',
-  dismiss: 'Dismiss',
+  sendEmail: 'Send email',
   records: 'Records',
   searchLabel: 'Search',
-  searchPlaceholder: 'Plate, type or message…',
+  searchPlaceholder: 'Plate, type, person or message…',
   viewMessage: 'View message',
   emptyState: 'No alerts with these filters. 🎉',
-  closedNotice: (subject, resolved) =>
-    `Alert for ${subject} ${resolved ? 'resolved' : 'dismissed'}.`,
+  closedNotice: (subject) => `Alert for ${subject} resolved.`,
+  emailModalTitle: (plate) => `Email · ${plate}`,
+  noVehicle: 'No vehicle',
   filters: {
     type: 'Type',
     level: 'Level',
@@ -110,16 +132,33 @@ const en: typeof es = {
   statusOptions: {
     open: 'Open',
     resolved: 'Resolved',
-    dismissed: 'Dismissed',
     all: 'All',
   },
   columns: {
     level: 'Level',
     type: 'Type',
     vehicle: 'Vehicle',
+    driver: 'Driver',
+    supervisor: 'Owner',
     message: 'Message',
     dueDate: 'Due date',
+    resolvedAt: 'Resolved on',
+    resolvedBy: 'Resolved by',
     actions: 'Actions',
+  },
+  resolver: {
+    driverMatch: 'Closed by the vehicle’s driver.',
+    supervisorMatch: 'Closed by the vehicle’s owner.',
+    mismatchTitle: 'Closed by someone outside the vehicle',
+    mismatch: (driver, supervisor) =>
+      `Neither the driver (${driver}) nor the owner (${supervisor}) of this vehicle. ` +
+      'Check that whoever closed it knew what was going on with the car.',
+    mismatchNoPeople:
+      'The vehicle has no driver or owner assigned, so nobody from the car could have closed it.',
+    automatic: 'Closed automatically',
+    automaticTip:
+      'The system closed it when the MOT, the insurance policy or the period’s km reading was registered.',
+    unknown: 'Not recorded',
   },
   itvModal: {
     title: 'Register MOT',

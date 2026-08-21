@@ -7,6 +7,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import Role
 from fleet.models import Assignment, Pep, Vehicle
+from fleet.models.enums import AssignmentStatus
 
 from .helpers import make_user
 
@@ -22,8 +23,13 @@ class ResourceScopeTests(APITestCase):
             plate="5678XYZ", brand="a", model="b", supervisor=self.supervisor
         )
         self.foreign = Vehicle.objects.create(plate="0000ZZZ", brand="a", model="b")
+        # C1: el ámbito del conductor exige asignación ACEPTADA — el default del
+        # modelo es `proposed`, que ya no da acceso (y antes sí, por error).
         Assignment.objects.create(
-            vehicle=self.my_vehicle, driver=self.driver, start_date=date(2026, 1, 1)
+            vehicle=self.my_vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
         )
 
     # --- Asignación: el usuario debe tener rol de conductor (HU-2.1) --

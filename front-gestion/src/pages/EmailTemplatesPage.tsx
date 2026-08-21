@@ -75,11 +75,29 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
-  // Editor
+  // Editor. Cada plantilla tiene dos versiones —castellana e inglesa— y se
+  // editan en la misma caja: el idioma inactivo se guarda en su buffer para no
+  // perderlo al cambiar de pestaña, y al guardar se mandan las dos.
+  const [editLang, setEditLang] = useState<'es' | 'en'>('es')
   const [subject, setSubject] = useState('')
+  const [subjectEn, setSubjectEn] = useState('')
+  const [bodyEs, setBodyEs] = useState('')
+  const [bodyEn, setBodyEn] = useState('')
   const [signatureId, setSignatureId] = useState('')
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const [saving, setSaving] = useState(false)
+  /**
+   * A9 — ¿hay cambios sin guardar?
+   *
+   * El cuerpo vivía SOLO en el DOM del `contentEditable` y se leía al guardar,
+   * mientras que el efecto de hidratación reescribía `innerHTML` cada vez que
+   * cambiaba la plantilla activa... y `activa` se recalcula con cada `load()`.
+   * Resultado: guardar una firma, o simplemente que llegara una recarga,
+   * borraba sin avisar lo que estuvieras escribiendo. Ahora el contenido va a
+   * estado en cada pulsación, la hidratación solo ocurre al cambiar de
+   * plantilla, y salir con cambios pendientes pide confirmación.
+   */
+  const [dirty, setDirty] = useState(false)
   const [preview, setPreview] = useState<{ subject: string; body_html: string } | null>(null)
 
   // Firmas
@@ -157,18 +175,67 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     },
   ]
 
-  // Vuelca la plantilla activa al editor al cambiar de pestaña o recargar.
+  // Vuelca la plantilla activa al editor al cambiar DE PLANTILLA (no en cada
+  // recarga: A9). Se vuelve siempre al castellano: es la versión de referencia.
+  const hydrated = useRef<string>('')
   useEffect(() => {
+    const stamp = `${activeTab}:${active?.id ?? 'nueva'}`
+    if (hydrated.current === stamp) return
+    hydrated.current = stamp
     setSubject(active?.subject ?? '')
+    setSubjectEn(active?.subject_en ?? '')
+    setBodyEs(active?.body_html ?? '')
+    setBodyEn(active?.body_html_en ?? '')
+    setEditLang('es')
     setSignatureId(active?.signature != null ? String(active.signature) : '')
     if (bodyRef.current) bodyRef.current.innerHTML = active?.body_html ?? ''
+    setDirty(false)
     setNotice('')
-  }, [active])
+  }, [active, activeTab])
+
+  // A9: aviso del navegador al recargar/cerrar con cambios sin guardar.
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
+
+  /** Cambia de pestaña pidiendo confirmación si hay cambios sin guardar. */
+  function switchTab(next: string) {
+    if (next === activeTab) return
+    if (dirty && !window.confirm(t.unsavedWarning)) return
+    setDirty(false)
+    setActiveTab(next)
+  }
+
+  /** Cambia de idioma guardando lo escrito antes de cargar la otra versión. */
+  function switchLang(next: 'es' | 'en') {
+    if (next === editLang) return
+    const current = bodyRef.current?.innerHTML ?? ''
+    if (editLang === 'es') setBodyEs(current)
+    else setBodyEn(current)
+    setEditLang(next)
+    if (bodyRef.current) bodyRef.current.innerHTML = next === 'es' ? bodyEs : bodyEn
+  }
+
+  /**
+   * A9 — lo escrito en la caja pasa a estado en cada cambio (tecla o comando de
+   * la barra). No se reescribe `innerHTML` desde el estado, así que el cursor no
+   * se mueve; lo que se gana es que el contenido deja de vivir solo en el DOM.
+   */
+  function syncBody() {
+    const html = bodyRef.current?.innerHTML ?? ''
+    if (editLang === 'es') setBodyEs(html)
+    else setBodyEn(html)
+    setDirty(true)
+  }
 
   /** Comando del editor (contentEditable). El saneado real es del servidor. */
   function exec(command: string, value?: string) {
     bodyRef.current?.focus()
     document.execCommand(command, false, value)
+    syncBody()
   }
 
   function insertVariable(name: string) {
@@ -189,9 +256,16 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     setSaving(true)
     setError('')
     try {
+      // Lo que hay en la caja pertenece al idioma activo; la otra versión sale
+      // de su buffer. Así se guardan las dos aunque solo se haya tocado una.
+      // (A9: se relee el DOM por si el último cambio no pasó por `onInput`,
+      // p. ej. un pegado con formato en algún navegador.)
+      const inBox = bodyRef.current?.innerHTML ?? (editLang === 'es' ? bodyEs : bodyEn)
       const payload = {
         subject,
-        body_html: bodyRef.current?.innerHTML ?? '',
+        body_html: editLang === 'es' ? inBox : bodyEs,
+        subject_en: subjectEn,
+        body_html_en: editLang === 'en' ? inBox : bodyEn,
         signature: signatureId ? Number(signatureId) : null,
       }
       if (active) {
@@ -200,6 +274,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         await createEmailTemplate({ key: activeTab, ...payload })
       }
       setNotice(t.templateSaved)
+      setDirty(false)
       load()
     } catch (err) {
       setError(asErrorMessage(err, t.saveTemplateError))
@@ -211,7 +286,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   async function handlePreview() {
     if (!active) return
     try {
-      setPreview(await previewEmailTemplate(active.id))
+      setPreview(await previewEmailTemplate(active.id, editLang))
     } catch (err) {
       setError(asErrorMessage(err, t.previewError))
     }
@@ -220,7 +295,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   async function handleTest() {
     if (!active) return
     try {
-      const result = await sendTestEmail(active.id)
+      const result = await sendTestEmail(active.id, editLang)
       setNotice(t.testSent(result.sent_to))
     } catch (err) {
       setError(asErrorMessage(err, t.testError))
@@ -262,7 +337,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
       <SettingsSubtabs
         ariaLabel={t.title}
         active={activeTab}
-        onChange={setActiveTab}
+        onChange={switchTab}
         items={[
           { key: LOGS_TAB, label: t.logsTitle },
           ...TEMPLATE_KEYS.map((key) => ({
@@ -297,11 +372,55 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         </section>
       ) : (
       <section className="card">
-        <TextInputField
-          label={t.subjectLabel}
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-        />
+        {/* Qué versión se está editando. El castellano es la de referencia y
+            siempre se usa; la inglesa, si está vacía, cae a ella al enviar. */}
+        <div className="tpl-lang">
+          <div className="seg-switch" role="group" aria-label={t.langLabel}>
+            <button
+              type="button"
+              aria-pressed={editLang === 'es'}
+              className={editLang === 'es' ? 'is-active' : ''}
+              onClick={() => switchLang('es')}
+            >
+              {t.langEs}
+            </button>
+            <button
+              type="button"
+              aria-pressed={editLang === 'en'}
+              className={editLang === 'en' ? 'is-active' : ''}
+              onClick={() => switchLang('en')}
+            >
+              {t.langEn}
+              {!(subjectEn.trim() || bodyEn.trim()) && (
+                <span className="tpl-lang-empty">{t.langEmpty}</span>
+              )}
+            </button>
+          </div>
+          <p className="muted tpl-lang-note">
+            {editLang === 'en' ? t.langEnNote : t.langEsNote}
+          </p>
+        </div>
+
+        {editLang === 'es' ? (
+          <TextInputField
+            label={t.subjectLabel}
+            value={subject}
+            onChange={(e) => {
+              setSubject(e.target.value)
+              setDirty(true)
+            }}
+          />
+        ) : (
+          <TextInputField
+            label={t.subjectLabelEn}
+            value={subjectEn}
+            placeholder={subject}
+            onChange={(e) => {
+              setSubjectEn(e.target.value)
+              setDirty(true)
+            }}
+          />
+        )}
 
         {/* Barra de herramientas del editor propio */}
         <div className="editor-toolbar" role="toolbar" aria-label={t.toolbarLabel}>
@@ -336,6 +455,8 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
           aria-multiline="true"
           aria-label={t.bodyLabel}
           suppressContentEditableWarning
+          onInput={syncBody}
+          onBlur={syncBody}
         />
 
         <div className="editor-footer">
@@ -346,7 +467,10 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
               ...signatures.map((s) => ({ value: String(s.id), label: s.name })),
             ]}
             value={signatureId}
-            onValueChange={setSignatureId}
+            onValueChange={(value) => {
+              setSignatureId(value)
+              setDirty(true)
+            }}
           />
           <div className="editor-actions">
             <Button variant="secondary" onClick={() => openSignature(null)}>
@@ -368,6 +492,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
             <Button variant="secondary" disabled={!active} onClick={handleTest}>
               {t.sendTest}
             </Button>
+            {dirty && <span className="tpl-dirty">{t.unsavedBadge}</span>}
             <Button variant="primary" disabled={saving || !subject.trim()} onClick={handleSave}>
               {saving ? t.saving : t.saveTemplate}
             </Button>

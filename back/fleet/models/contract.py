@@ -6,7 +6,7 @@ from django.db import models
 from .base import DeactivatableModel, TimeStampedModel
 
 
-class Contract(TimeStampedModel):
+class Contract(DeactivatableModel, TimeStampedModel):
     """DBML `contracts` — contrato (renting/propiedad) asociado a un vehículo."""
 
     vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="contracts")

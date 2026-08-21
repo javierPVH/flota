@@ -10,6 +10,7 @@ from .models import (
     Country,
     Document,
     EmailLog,
+    EmailOutbox,
     EmailSignature,
     EmailTemplate,
     Event,
@@ -24,6 +25,7 @@ from .models import (
     Invoice,
     InvoiceAllocation,
     KmReading,
+    NotificationSchedule,
     Pep,
     Project,
     Renting,
@@ -232,3 +234,24 @@ class EmailLogAdmin(admin.ModelAdmin):
     list_filter = ("status", "template_key")
     search_fields = ("recipient", "subject")
     readonly_fields = [f.name for f in EmailLog._meta.fields]
+
+
+@admin.register(EmailOutbox)
+class EmailOutboxAdmin(admin.ModelAdmin):
+    """M6: la cola de salida — para soporte, "¿por qué no ha salido el correo?"."""
+
+    list_display = ("created_at", "recipient", "status", "attempts", "sent_at")
+    list_filter = ("status", "template_key")
+    search_fields = ("recipient", "subject")
+    readonly_fields = [f.name for f in EmailOutbox._meta.fields]
+
+
+@admin.register(NotificationSchedule)
+class NotificationScheduleAdmin(admin.ModelAdmin):
+    """Envíos programados. Solo soporte: el usuario los gestiona en Ajustes."""
+
+    list_display = ("name", "user", "content", "frequency", "send_at", "enabled", "last_status")
+    list_filter = ("enabled", "content", "frequency", "last_status")
+    search_fields = ("name", "user__username", "user__email", "extra_recipients")
+    autocomplete_fields = ("user",)
+    readonly_fields = ("last_run_at", "last_status", "last_error", "created_at", "updated_at")

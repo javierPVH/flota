@@ -517,6 +517,12 @@ class UserRowNormalizer:
             for d in User.objects.exclude(dni=None).values_list("dni", flat=True)
             if d
         }
+        # A5: el email también es identidad (login por email, Google, Jira). Se
+        # deduplicaba solo por username, así que la misma persona en dos filas
+        # con usuarios distintos creaba dos cuentas con el mismo email.
+        self._existing_emails = {
+            e.strip().lower() for e in User.objects.values_list("email", flat=True) if e
+        }
 
     def unique_key(self, data: dict) -> str | None:
         username = data.get("username") or data.get("email")
@@ -576,6 +582,8 @@ class UserRowNormalizer:
             data["username"] = data["email"]
         if data.get("dni") and normalize_header(data["dni"]) in self._existing_dnis:
             errors.append("dni: ya existe")
+        if data.get("email") and str(data["email"]).strip().lower() in self._existing_emails:
+            errors.append("email: ya está asignado a otro usuario")
         return data, errors
 
 

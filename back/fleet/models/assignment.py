@@ -9,11 +9,11 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from .base import TimeStampedModel
+from .base import DeactivatableModel, TimeStampedModel
 from .enums import AssignmentStatus, LinkReason, VehicleState
 
 
-class Assignment(TimeStampedModel):
+class Assignment(DeactivatableModel, TimeStampedModel):
     """DBML `assignments` — conductor asignado a un vehículo en un periodo.
 
     `end_date` NULL = asignación en curso. `status` sigue el ciclo
@@ -50,9 +50,14 @@ class Assignment(TimeStampedModel):
         constraints = [
             # HU-2.1/2.2: una sola asignación ACEPTADA en curso por vehículo.
             # (Las propuestas pueden coexistir con la vigente.)
+            # N7: una asignación DESACTIVADA no puede seguir bloqueando el
+            # hueco de "aceptada en curso" (si no, desactivarla dejaría el
+            # vehículo sin conductor y sin poder asignar otro).
             models.UniqueConstraint(
                 fields=["vehicle"],
-                condition=models.Q(status=AssignmentStatus.ACCEPTED, end_date__isnull=True),
+                condition=models.Q(
+                    status=AssignmentStatus.ACCEPTED, end_date__isnull=True, is_active=True
+                ),
                 name="unique_active_assignment_per_vehicle",
             )
         ]
@@ -66,7 +71,7 @@ class Assignment(TimeStampedModel):
             raise ValidationError("No se puede asignar un conductor a un vehículo en baja.")
 
 
-class VehicleUsage(TimeStampedModel):
+class VehicleUsage(DeactivatableModel, TimeStampedModel):
     """DBML `vehicle_usage` — reparto de uso por porcentaje.
 
     La suma por vehículo y periodo debería ser 100 (se valida en el endpoint de
@@ -99,7 +104,7 @@ class VehicleUsage(TimeStampedModel):
             raise ValidationError({"usage_percent": "El porcentaje debe estar entre 0 y 100."})
 
 
-class VehicleLink(TimeStampedModel):
+class VehicleLink(DeactivatableModel, TimeStampedModel):
     """DBML `vehicle_links` — vínculo entre vehículo principal y su sustituto."""
 
     main_vehicle = models.ForeignKey(
@@ -124,9 +129,10 @@ class VehicleLink(TimeStampedModel):
         ordering = ["-start_date"]
         constraints = [
             # HU-1.8: un principal solo tiene un sustituto activo a la vez.
+            # N7: ídem — un vínculo desactivado no bloquea al principal.
             models.UniqueConstraint(
                 fields=["main_vehicle"],
-                condition=models.Q(end_date__isnull=True),
+                condition=models.Q(end_date__isnull=True, is_active=True),
                 name="unique_active_substitute_per_main",
             )
         ]

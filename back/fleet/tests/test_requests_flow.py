@@ -12,7 +12,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role, User
-from fleet.models import Assignment, Vehicle, VehicleRequest
+from fleet.models import Assignment, Event, Vehicle, VehicleRequest
 from fleet.models.enums import (
     AssignmentStatus,
     VehicleRequestStatus,
@@ -221,3 +221,93 @@ class SupervisorWithoutFleetTests(APITestCase):
         resp = self.client.get(reverse("vehicle-list"))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["count"], 0)
+
+
+class SetDriverTests(APITestCase):
+    """A6: cambio de conductor en UNA transacción (sustituye al apaño del front).
+
+    Antes eran tres llamadas desde el modal (PATCH del supervisor → crear
+    propuesta → aceptar) con un `deleteAssignment` de compensación: podía dejar
+    propuestas huérfanas (que además daban ámbito, C1), guardar el supervisor a
+    solas, y borraba físicamente una asignación desde la ficha.
+    """
+
+    def setUp(self):
+        self.admin = make_user("sd-admin", Role.ADMIN)
+        self.driver = make_user("sd-driver", Role.DRIVER)
+        self.nuevo = make_user("sd-nuevo", Role.DRIVER)
+        self.no_driver = make_user("sd-nadie")
+        self.supervisor = make_user("sd-sup", Role.SUPERVISOR)
+        self.vehicle = Vehicle.objects.create(plate="SD-1", brand="a", model="b")
+        self.current = Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.url = reverse("vehicle-set-driver", args=[self.vehicle.pk])
+        self.client.force_authenticate(self.admin)
+
+    def test_changes_driver_closing_the_current_one(self):
+        resp = self.client.post(self.url, {"driver": self.nuevo.pk, "start_date": "2026-08-01"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.current.refresh_from_db()
+        self.assertEqual(self.current.status, AssignmentStatus.FINISHED)
+        self.assertEqual(self.current.end_date, date(2026, 8, 1))
+        nueva = Assignment.objects.get(vehicle=self.vehicle, driver=self.nuevo)
+        self.assertEqual(nueva.status, AssignmentStatus.ACCEPTED)
+        self.assertIsNone(nueva.end_date)
+        # Y el evento de negocio narra old → new una sola vez.
+        evento = Event.objects.filter(vehicle=self.vehicle, event_type="driver_change").get()
+        self.assertEqual(evento.driver_change.old_driver_id, self.driver.pk)
+        self.assertEqual(evento.driver_change.new_driver_id, self.nuevo.pk)
+
+    def test_releasing_the_vehicle(self):
+        resp = self.client.post(self.url, {"driver": None}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.current.refresh_from_db()
+        self.assertEqual(self.current.status, AssignmentStatus.FINISHED)
+        self.assertFalse(
+            Assignment.objects.filter(
+                vehicle=self.vehicle, status=AssignmentStatus.ACCEPTED, end_date__isnull=True
+            ).exists()
+        )
+
+    def test_supervisor_and_driver_in_one_shot(self):
+        resp = self.client.post(
+            self.url, {"driver": self.nuevo.pk, "supervisor": self.supervisor.pk}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.supervisor_id, self.supervisor.pk)
+
+    def test_invalid_driver_leaves_everything_untouched(self):
+        resp = self.client.post(
+            self.url, {"driver": self.no_driver.pk, "supervisor": self.supervisor.pk}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.vehicle.refresh_from_db()
+        # El supervisor NO se guarda a solas: o todo o nada.
+        self.assertIsNone(self.vehicle.supervisor_id)
+        self.current.refresh_from_db()
+        self.assertEqual(self.current.status, AssignmentStatus.ACCEPTED)
+
+    def test_no_orphan_proposals_are_created(self):
+        self.client.post(self.url, {"driver": self.nuevo.pk})
+        self.assertFalse(Assignment.objects.filter(status=AssignmentStatus.PROPOSED).exists())
+
+    def test_stale_expected_updated_at_gives_409(self):
+        resp = self.client.post(
+            self.url,
+            {"driver": self.nuevo.pk, "expected_updated_at": "2020-01-01T00:00:00Z"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+
+    def test_baja_vehicle_is_rejected(self):
+        self.vehicle.state = VehicleState.BAJA
+        self.vehicle.save(update_fields=["state"])
+        resp = self.client.post(self.url, {"driver": self.nuevo.pk})
+        # 404 porque el listado por defecto excluye los `baja` (el guardarraíl
+        # del propio endpoint cubre el acceso con `?include_baja=1`).
+        self.assertIn(resp.status_code, (status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND))
+        self.assertFalse(Assignment.objects.filter(driver=self.nuevo).exists())

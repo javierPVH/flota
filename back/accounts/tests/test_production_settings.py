@@ -66,3 +66,26 @@ class ProductionHardeningTests(SimpleTestCase):
         data = _load_settings(SECURE_BEHIND_PROXY="True")
         self.assertIsNotNone(data["proxy_header"])
         self.assertTrue(data["xff_host"])
+
+
+class GoogleAutoCreateGuardTests(SimpleTestCase):
+    """C4: en producción, auto-alta por Google exige lista de dominios.
+
+    Con `GOOGLE_AUTO_CREATE_USERS=True` y `GOOGLE_ALLOWED_DOMAINS` vacío,
+    cualquier cuenta de Google se autoprovisiona un usuario y pasa a estar
+    autenticada (y lo autenticado alcanza /media). El arranque debe fallar.
+    """
+
+    ENV = {
+        "AUTH_GOOGLE_ENABLED": "True",
+        "GOOGLE_OAUTH_CLIENT_ID": "client-id.apps.googleusercontent.com",
+        "GOOGLE_AUTO_CREATE_USERS": "True",
+    }
+
+    def test_autocreate_without_domains_aborts(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            _load_settings(**self.ENV, GOOGLE_ALLOWED_DOMAINS="")
+
+    def test_autocreate_with_domains_is_allowed(self):
+        data = _load_settings(**self.ENV, GOOGLE_ALLOWED_DOMAINS="gransolar.com")
+        self.assertTrue(data["session_secure"])

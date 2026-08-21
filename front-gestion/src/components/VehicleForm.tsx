@@ -8,9 +8,10 @@ import {
   convertToFleet,
   createCatalogEntry,
   createVehicleFull,
-  listUsers,
+  listSupervisors,
   fetchVehicle,
-  listCatalog,
+  fetchCatalogs,
+  listAll,
   listDrivers,
   listVehicleModels,
   previewVehicle,
@@ -284,21 +285,21 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
   useEffect(() => {
     const loads: Array<Promise<unknown>> = [
       listDrivers().then(setDrivers),
-      // Supervisores (HU-2.7): usuarios activos con ese rol.
-      listUsers().then((page) =>
-        setSupervisors(
-          page.results
-            .filter((u) => u.is_active && u.roles.includes('supervisor'))
-            .map((u) => ({ id: u.id, name: u.name })),
-        ),
-      ),
-      listCatalog('projects').then((p) => setProjects(p.results)),
-      listCatalog('peps').then((p) => setPeps(p.results)),
-      listCatalog('business-units').then((p) => setUnits(p.results)),
-      listCatalog('rentings').then((p) => setRentings(p.results)),
-      listCatalog('countries').then((p) => setCountries(p.results)),
-      listCatalog('brands').then((p) => setBrands(p.results)),
-      listCatalog('companies').then((p) => setCompanies(p.results)),
+      // Supervisores (HU-2.7): usuarios activos con ese rol. M12: filtrados en
+      // servidor (`?roles__role=supervisor`), no la lista entera en cliente.
+      listSupervisors().then(setSupervisors),
+      // Los siete catálogos en UNA petición, completos (antes eran siete
+      // llamadas, y además cada una se quedaba en su primera página: un
+      // proyecto o CECO más allá de la fila 500 no se podía elegir).
+      fetchCatalogs().then((c) => {
+        setProjects(c.projects)
+        setPeps(c.peps)
+        setUnits(c['business-units'])
+        setRentings(c.rentings)
+        setCountries(c.countries)
+        setBrands(c.brands)
+        setCompanies(c.companies)
+      }),
     ]
     void Promise.allSettled(loads).then((results) =>
       setCatalogError(results.some((r) => r.status === 'rejected')),
@@ -311,9 +312,15 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
       setModels([])
       return
     }
-    listVehicleModels(Number(form.brand_ref))
-      .then((p) => setModels(p.results))
-      .catch(() => setModels([]))
+    listAll(listVehicleModels(Number(form.brand_ref)))
+      .then(setModels)
+      .catch(() => {
+        // A17: UX5 cubrió los 9 catálogos del alta con `Promise.allSettled`,
+        // pero este desplegable DEPENDIENTE quedó fuera: sin aviso, "no hay
+        // modelos de esta marca" y "no se pudo cargar" se veían igual.
+        setModels([])
+        setCatalogError(true)
+      })
   }, [form.brand_ref])
 
   useEffect(() => {
@@ -881,8 +888,7 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                 brand: form.brand_ref,
                 name: newModelName.trim(),
               })
-              const page = await listVehicleModels(Number(form.brand_ref))
-              setModels(page.results)
+              setModels(await listAll(listVehicleModels(Number(form.brand_ref))))
               setForm((f) => ({ ...f, model_ref: String(created.id) }))
               setAddingModel(false)
             } catch (err) {

@@ -23,11 +23,9 @@ const VehiclesPage = page(() => import('./pages/VehiclesPage.tsx'), 'VehiclesPag
 const VehicleDetailPage = page(() => import('./pages/VehicleDetailPage.tsx'), 'VehicleDetailPage')
 const VehicleFormPage = page(() => import('./pages/VehicleFormPage.tsx'), 'VehicleFormPage')
 const IncidentsPage = page(() => import('./pages/IncidentsPage.tsx'), 'IncidentsPage')
-const ProposalsPage = page(() => import('./pages/ProposalsPage.tsx'), 'ProposalsPage')
 const MileagePage = page(() => import('./pages/MileagePage.tsx'), 'MileagePage')
 const AlertsPage = page(() => import('./pages/AlertsPage.tsx'), 'AlertsPage')
 const ReportsPage = page(() => import('./pages/ReportsPage.tsx'), 'ReportsPage')
-const RequestsPage = page(() => import('./pages/RequestsPage.tsx'), 'RequestsPage')
 const UsersPage = page(() => import('./pages/UsersPage.tsx'), 'UsersPage')
 const UserDetailPage = page(() => import('./pages/UserDetailPage.tsx'), 'UserDetailPage')
 // Ajustes agrupa Catálogos, Borrado definitivo, Plantillas de correo y Facturas
@@ -70,11 +68,9 @@ export default function App() {
           <Route path="/vehiculos/:id" element={<VehicleDetailPage />} />
           <Route path="/vehiculos/:id/editar" element={<VehicleFormPage />} />
           <Route path="/incidencias" element={<IncidentsPage />} />
-          <Route path="/propuestas" element={<ProposalsPage />} />
           <Route path="/kilometraje" element={<MileagePage />} />
           <Route path="/alertas" element={<AlertsPage />} />
           <Route path="/informes" element={<ReportsPage />} />
-          <Route path="/solicitudes" element={<RequestsPage />} />
           {/* Ajustes (2 iconos de administración): pestañas en la URL. */}
           <Route path="/ajustes" element={<Navigate to="/ajustes/catalogos" replace />} />
           {/* Facturas ya no está en Ajustes: vive en Informes. */}

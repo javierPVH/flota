@@ -57,7 +57,11 @@ def _penalty(overage_km: int, penalty_per_km) -> Decimal | None:
 
 def _active_contract(vehicle: Vehicle) -> Contract | None:
     """Contrato vigente (sin fecha de fin real), el más reciente."""
-    return vehicle.contracts.filter(end_date__isnull=True).order_by("-start_date").first()
+    return (
+        vehicle.contracts.filter(end_date__isnull=True, is_active=True)
+        .order_by("-start_date")
+        .first()
+    )
 
 
 def _latest_reading(vehicle: Vehicle) -> KmReading | None:
@@ -78,7 +82,7 @@ def vehicle_summary(vehicle: Vehicle, today: date | None = None) -> dict:
         _latest_reading(vehicle),
         current_driver_map([vehicle.id]).get(vehicle.id),
         today,
-        link=active_link_blocking(vehicle),
+        link=active_link_blocking(vehicle, today),
     )
 
 
@@ -100,9 +104,9 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
     ids = [v.id for v in vehicles]
 
     contracts: dict[int, Contract] = {}
-    for contract in Contract.objects.filter(vehicle_id__in=ids, end_date__isnull=True).order_by(
-        "vehicle_id", "-start_date"
-    ):
+    for contract in Contract.objects.filter(
+        vehicle_id__in=ids, end_date__isnull=True, is_active=True
+    ).order_by("vehicle_id", "-start_date"):
         contracts.setdefault(contract.vehicle_id, contract)
 
     latest: dict[int, KmReading] = {}
@@ -114,7 +118,7 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
         latest.setdefault(reading.vehicle_id, reading)
 
     drivers = current_driver_map(ids)
-    links = active_substitution_map(ids)  # N9: principales bloqueados (1 query)
+    links = active_substitution_map(ids, today)  # N9: principales bloqueados (1 query)
     return [
         _compose_summary(
             v,
@@ -290,7 +294,10 @@ def fleet_summary(user, today: date | None = None) -> dict:
     assigned = len(current_driver_map(ids))
 
     monthly_cost = Contract.objects.filter(
-        vehicle_id__in=ids, end_date__isnull=True, month_fee__isnull=False
+        vehicle_id__in=ids,
+        end_date__isnull=True,
+        month_fee__isnull=False,
+        is_active=True,
     ).aggregate(total=Sum("month_fee"))["total"] or Decimal("0")
 
     month_start = today.replace(day=1)

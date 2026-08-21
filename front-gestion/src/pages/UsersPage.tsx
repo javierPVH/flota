@@ -12,7 +12,7 @@ import {
 } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { ChevronDown, ChevronUp, Download, Pencil, Upload } from 'lucide-react'
+import { Download, Pencil, Upload } from 'lucide-react'
 
 import {
   type ManagedUserFull,
@@ -21,6 +21,7 @@ import {
   listUsers,
   updateUser,
 } from '../api.ts'
+import { ColumnsPicker } from '../components/ColumnsPicker.tsx'
 import { exportCsv } from '../csv.ts'
 import { BulkImportModal } from '../components/bulk-import/BulkImportModal.tsx'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
@@ -94,7 +95,6 @@ export function UsersPage() {
   // Columnas: orden + ocultas + menú desplegable (como en Vehículos).
   const [colOrder, setColOrder] = useState<string[]>(() => [...COLUMN_KEYS])
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => new Set(DEFAULT_HIDDEN))
-  const [colMenuOpen, setColMenuOpen] = useState(false)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<ManagedUserFull | null>(null)
@@ -296,36 +296,14 @@ export function UsersPage() {
 
   const colByKey = new Map(allColumns.map((c) => [c.key, c]))
 
-  // Columnas visibles en el orden elegido + acciones al final.
+  // M15: todas las columnas; el orden y las ocultas van CONTROLADOS a la tabla
+  // (ver VehiclesPage), así que ya no hace falta remontarla en cada cambio.
   const tableColumns: Array<TableWithPanelColumn<ManagedUserFull>> = [
     ...colOrder
-      .filter((key) => !hiddenCols.has(key))
       .map((key) => colByKey.get(key))
       .filter((c): c is TableWithPanelColumn<ManagedUserFull> => Boolean(c)),
     actionsColumn,
   ]
-
-  const visibleColCount = colOrder.filter((key) => !hiddenCols.has(key)).length
-
-  function toggleColumn(key: string) {
-    setHiddenCols((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  function moveColumn(key: string, dir: 'up' | 'down') {
-    setColOrder((order) => {
-      const i = order.indexOf(key)
-      const j = dir === 'up' ? i - 1 : i + 1
-      if (i < 0 || j < 0 || j >= order.length) return order
-      const next = [...order]
-      ;[next[i], next[j]] = [next[j], next[i]]
-      return next
-    })
-  }
 
   // Columnas exportables (las de acciones no tienen valor).
   const exportableColumns = allColumns.filter((c) => c.getValue)
@@ -454,73 +432,21 @@ export function UsersPage() {
           />
         </div>
 
-        {/* 5 · Columnas (mostrar/ocultar + ordenar). */}
-        <div className="filter-field filter-field--cols">
-          <label>{t.lblColumns}</label>
-          <div className="cols-dropdown">
-            <button
-              type="button"
-              className="cols-trigger"
-              onClick={() => setColMenuOpen((o) => !o)}
-              aria-expanded={colMenuOpen}
-            >
-              {t.columnsBtn(visibleColCount, colOrder.length)}
-              <ChevronDown size={14} aria-hidden />
-            </button>
-            {colMenuOpen && (
-              <>
-                <div className="cols-menu-overlay" onClick={() => setColMenuOpen(false)} />
-                <div className="cols-menu" role="menu">
-                  {colOrder.map((key, index) => {
-                    const col = colByKey.get(key)
-                    if (!col) return null
-                    return (
-                      <div key={key} className="cols-menu-item">
-                        <label className="baja-toggle">
-                          <input
-                            type="checkbox"
-                            checked={!hiddenCols.has(key)}
-                            onChange={() => toggleColumn(key)}
-                          />
-                          {col.label}
-                        </label>
-                        <span className="cols-menu-actions">
-                          <IconButton
-                            variant="default"
-                            size="xs"
-                            disabled={index === 0}
-                            aria-label={t.colMoveUp}
-                            title={t.colMoveUp}
-                            onClick={() => moveColumn(key, 'up')}
-                          >
-                            <ChevronUp size={12} />
-                          </IconButton>
-                          <IconButton
-                            variant="default"
-                            size="xs"
-                            disabled={index === colOrder.length - 1}
-                            aria-label={t.colMoveDown}
-                            title={t.colMoveDown}
-                            onClick={() => moveColumn(key, 'down')}
-                          >
-                            <ChevronDown size={12} />
-                          </IconButton>
-                        </span>
-                      </div>
-                    )
-                  })}
-                  <button
-                    type="button"
-                    className="linklike"
-                    onClick={() => setHiddenCols(new Set())}
-                  >
-                    {t.columnsAll}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        {/* 5 · Columnas (mostrar/ocultar + ordenar) — M18: componente compartido. */}
+        <ColumnsPicker
+          order={colOrder}
+          hidden={hiddenCols}
+          labelOf={(key) => colByKey.get(key)?.label}
+          copy={{
+            label: t.lblColumns,
+            button: t.columnsBtn,
+            moveUp: t.colMoveUp,
+            moveDown: t.colMoveDown,
+            showAll: t.columnsAll,
+          }}
+          onOrderChange={setColOrder}
+          onHiddenChange={setHiddenCols}
+        />
 
         {/* 6 · Interruptores: mostrar desactivados. */}
         <div className="filter-toggles">
@@ -541,11 +467,12 @@ export function UsersPage() {
         <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<ManagedUserFull>
-          // Remonta al cambiar orden/visibilidad: TableWithPanel guarda su propio
-          // orden interno (mergeColumnOrder) e ignoraría el reordenado por props.
-          key={`${colOrder.join(',')}|${[...hiddenCols].sort().join(',')}`}
           rows={rows}
           columns={tableColumns}
+          columnOrder={[...colOrder, actionsColumn.key]}
+          onColumnOrderChange={(keys) => setColOrder(keys.filter((k) => k !== actionsColumn.key))}
+          hiddenColumns={[...hiddenCols]}
+          onHiddenColumnsChange={(keys) => setHiddenCols(new Set(keys))}
           rowKey={(u) => String(u.id)}
           rowClassName={(u) => (u.is_active ? '' : 'row-muted')}
           enableColumnSort

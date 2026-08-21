@@ -11,6 +11,7 @@ export {
   ApiError,
   ReauthRequiredError,
   isReauthRequired,
+  isAbortError,
   setReauthHandler,
   isAuthCookieMode,
   getCookie,

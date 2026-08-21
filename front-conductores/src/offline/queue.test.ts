@@ -119,6 +119,31 @@ describe('cola offline (M7)', () => {
     expect(isTransientError(new Error('cualquiera'))).toBe(false)
   })
 
+  // --- C8: la sesión caducada llega como 403 con código, no como 401 --------
+
+  it('403 not_authenticated es transitorio; 403 de permiso es definitivo', () => {
+    const expirada = new ApiError('Sesión caducada.', 403, 'not_authenticated')
+    const sinPermiso = new ApiError('El vehículo está fuera de tu ámbito.', 403)
+    expect(isTransientError(expirada)).toBe(true)
+    expect(isTransientError(sinPermiso)).toBe(false)
+  })
+
+  it('la sesión caducada (403 con código) CONSERVA el km encolado', async () => {
+    mocks.createKmReading.mockRejectedValue(
+      new ApiError('Sesión caducada.', 403, 'not_authenticated'),
+    )
+    await enqueue(KM)
+    await flush()
+    expect(await queueSize()).toBe(1)
+  })
+
+  it('un 403 de ámbito descarta el elemento (no se reintentará nunca)', async () => {
+    mocks.createKmReading.mockRejectedValue(new ApiError('Fuera de tu ámbito.', 403))
+    await enqueue(KM)
+    await flush()
+    expect(await queueSize()).toBe(0)
+  })
+
   it('un 502 transitorio CONSERVA el elemento (antes se destruía)', async () => {
     mocks.createKmReading.mockRejectedValue(new ApiError('Bad gateway', 502))
     await enqueue(KM)

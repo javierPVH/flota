@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, CalendarPlus, Camera, ClipboardCheck, ExternalLink, FileText, Gauge, Wrench } from 'lucide-react'
+import { ArrowLeft, Camera, ClipboardCheck, ExternalLink, FileText, Gauge, Wrench } from 'lucide-react'
 import { Badge, Button, Modal, Panel, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
   fetchVehicle,
   fetchVehicleSummary,
-  listAssignments,
   listDocuments,
   listIncidents,
-  proposeAssignment,
   registerItv,
 } from '../api.ts'
-import { useAuth } from '../auth.ts'
 import {
   AccordionTools,
   CollapsibleCard,
@@ -31,7 +28,7 @@ import {
   vehicleStateTone,
 } from '../format.ts'
 import { isNetworkError, safeEnqueue } from '../offline/queue.ts'
-import type { AssignmentRow, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
+import type { FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
 
 /** Solo enlaces http(s): corta javascript:/data: aunque el back ya sanea. */
 function safeHref(url: string): string {
@@ -54,12 +51,11 @@ const ITV_RESULT_VALUES = ['done', 'not done'] as const
 export function VehicleFieldPage() {
   const { id } = useParams()
   const vehicleId = Number(id)
-  const { user } = useAuth()
   const { t } = useLang()
 
   // Acordeón de tarjetas (mejora): desplegadas por defecto; en móvil plegar
   // ahorra mucho scroll.
-  const accordion = useAccordion(['proposals', 'situation', 'incidents', 'documents'])
+  const accordion = useAccordion(['situation', 'incidents', 'documents'])
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [summary, setSummary] = useState<VehicleSummary | null>(null)
@@ -70,12 +66,9 @@ export function VehicleFieldPage() {
 
   const [saving, setSaving] = useState(false)
 
-  // M4: propuesta de fechas (HU-2.3) y registro de ITV (HU-5.1)
-  const [myProposals, setMyProposals] = useState<AssignmentRow[]>([])
-  const [proposeOpen, setProposeOpen] = useState(false)
-  const [proposeForm, setProposeForm] = useState({ start_date: todayIso(), end_date: '' })
-  const [proposeError, setProposeError] = useState('')
-  const [proposeOk, setProposeOk] = useState('')
+  // M4: registro de ITV (HU-5.1). La propuesta de fechas (HU-2.3) se retiró:
+  // su bandeja de confirmación ya no existe en gestión, así que enviarlas solo
+  // dejaba al conductor esperando una respuesta que nadie podía dar.
   const [itvOpen, setItvOpen] = useState(false)
   const [itvForm, setItvForm] = useState({ event_date: todayIso(), result: 'done', next_due: '' })
   const [itvError, setItvError] = useState('')
@@ -113,41 +106,6 @@ export function VehicleFieldPage() {
       .catch(() => setIncidents([]))
   }, [vehicleId])
 
-  // Propuestas de fechas PROPIAS pendientes de confirmación (HU-2.3).
-  const loadProposals = useCallback(() => {
-    if (!user) return
-    listAssignments(vehicleId, 'proposed')
-      .then((page) => setMyProposals(page.results.filter((a) => a.driver === user.id)))
-      .catch(() => setMyProposals([]))
-  }, [vehicleId, user])
-
-  useEffect(loadProposals, [loadProposals])
-
-  async function handlePropose(event: FormEvent) {
-    event.preventDefault()
-    if (proposeForm.end_date && proposeForm.end_date < proposeForm.start_date) {
-      setProposeError(t.vehicle.proposeEndBeforeStart)
-      return
-    }
-    setSaving(true)
-    setProposeError('')
-    try {
-      await proposeAssignment({
-        vehicle: vehicleId,
-        start_date: proposeForm.start_date,
-        end_date: proposeForm.end_date || null,
-      })
-      setProposeOpen(false)
-      setProposeForm({ start_date: todayIso(), end_date: '' })
-      setProposeOk(t.vehicle.proposeOk)
-      loadProposals()
-    } catch (err) {
-      setProposeError(asErrorMessage(err, t.vehicle.proposeError))
-    } finally {
-      setSaving(false)
-    }
-  }
-
   async function handleItv(event: FormEvent) {
     event.preventDefault()
     setSaving(true)
@@ -155,7 +113,11 @@ export function VehicleFieldPage() {
     const payload = {
       vehicle: vehicleId,
       event_date: itvForm.event_date,
-      itv: { result: itvForm.result, next_due: itvForm.next_due || null },
+      // A13/C5: la próxima ITV solo acompaña al resultado FAVORABLE.
+      itv: {
+        result: itvForm.result,
+        next_due: itvForm.result === 'done' ? itvForm.next_due : null,
+      },
     }
     try {
       await registerItv(payload)
@@ -250,17 +212,6 @@ export function VehicleFieldPage() {
           type="button"
           className="quick-action"
           onClick={() => {
-            setProposeOk('')
-            setProposeError('')
-            setProposeOpen(true)
-          }}
-        >
-          <CalendarPlus size={20} aria-hidden /> {t.vehicle.quickPropose}
-        </button>
-        <button
-          type="button"
-          className="quick-action"
-          onClick={() => {
             setItvOk('')
             setItvError('')
             setItvOpen(true)
@@ -270,31 +221,9 @@ export function VehicleFieldPage() {
         </button>
       </div>
 
-      {proposeOk && <p role="status" className="form-ok">{proposeOk}</p>}
       {itvOk && <p role="status" className="form-ok">{itvOk}</p>}
 
       <AccordionTools accordion={accordion} />
-
-      {/* Propuestas propias pendientes (HU-2.3): NO alteran la vigente. */}
-      {myProposals.length > 0 && (
-        <CollapsibleCard id="proposals" headingClassName="panel-title" accordion={accordion} title={t.vehicle.proposalsTitle}>
-          <ul className="doc-list">
-            {myProposals.map((p) => (
-              <li key={p.id} className="doc-item">
-                <CalendarPlus size={18} aria-hidden className="doc-icon" />
-                <div className="doc-info">
-                  <strong>
-                    {t.vehicle.proposalFrom(fmtDate(p.start_date))}
-                    {p.end_date ? t.vehicle.proposalUntil(fmtDate(p.end_date)) : t.vehicle.proposalOpenEnd}
-                  </strong>
-                  <span className="doc-sub">{t.vehicle.proposalNote}</span>
-                </div>
-                <Badge tone="warning">{t.vehicle.proposalPending}</Badge>
-              </li>
-            ))}
-          </ul>
-        </CollapsibleCard>
-      )}
 
       {/* Tres atributos independientes (HU-1.6), en solo lectura. */}
       <CollapsibleCard id="situation" headingClassName="panel-title" accordion={accordion} title={t.vehicle.situationTitle}>
@@ -387,39 +316,6 @@ export function VehicleFieldPage() {
           })}
         </ul>
 
-        <Modal
-          open={proposeOpen}
-          title={t.vehicle.proposeTitle(vehicle.plate)}
-          onClose={() => setProposeOpen(false)}
-        >
-          <form className="modal-form" onSubmit={handlePropose}>
-            <p className="doc-sub">{t.vehicle.proposeHint}</p>
-            <TextInputField
-              label={t.vehicle.proposeFrom}
-              type="date"
-              value={proposeForm.start_date}
-              onChange={(e) => setProposeForm((f) => ({ ...f, start_date: e.target.value }))}
-              required
-            />
-            <TextInputField
-              label={t.vehicle.proposeUntil}
-              type="date"
-              min={proposeForm.start_date}
-              value={proposeForm.end_date}
-              onChange={(e) => setProposeForm((f) => ({ ...f, end_date: e.target.value }))}
-            />
-            {proposeError && <div role="alert" className="form-error">{proposeError}</div>}
-            <div className="form-actions">
-              <Button type="button" variant="secondary" onClick={() => setProposeOpen(false)}>
-                {t.common.cancel}
-              </Button>
-              <Button type="submit" disabled={saving || !proposeForm.start_date}>
-                {saving ? t.vehicle.proposeSending : t.vehicle.proposeSend}
-              </Button>
-            </div>
-          </form>
-        </Modal>
-
         <Modal open={itvOpen} title={t.vehicle.itvTitle(vehicle.plate)} onClose={() => setItvOpen(false)}>
           <form className="modal-form" onSubmit={handleItv}>
             <TextInputField
@@ -443,8 +339,13 @@ export function VehicleFieldPage() {
               label={t.vehicle.itvNextDue}
               type="date"
               min={itvForm.event_date}
-              value={itvForm.next_due}
+              value={itvForm.result === 'done' ? itvForm.next_due : ''}
               onChange={(e) => setItvForm((f) => ({ ...f, next_due: e.target.value }))}
+              // A13: obligatoria si la ITV se pasó; deshabilitada si no. Antes
+              // se podía enviar vacía (400) y, sin red, se encolaba para ser
+              // descartada en el flush: pérdida de trabajo de campo.
+              required={itvForm.result === 'done'}
+              disabled={itvForm.result !== 'done'}
             />
             <p className="doc-sub">{t.vehicle.itvAutoClose}</p>
             {itvError && <div role="alert" className="form-error">{itvError}</div>}

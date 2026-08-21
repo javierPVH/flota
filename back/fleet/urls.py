@@ -1,12 +1,13 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .erratas import ErratasPurgeView, ErratasRestoreView, ErratasView
+from .erratas import ErratasItemsView, ErratasPurgeView, ErratasRestoreView, ErratasView
 from .views import (
     AlertViewSet,
     AssignmentViewSet,
     BrandViewSet,
     BusinessUnitViewSet,
+    CatalogsBundleView,
     CompanyViewSet,
     ContractViewSet,
     CountryViewSet,
@@ -20,6 +21,7 @@ from .views import (
     InvoiceAllocationViewSet,
     InvoiceViewSet,
     KmReadingViewSet,
+    NotificationScheduleViewSet,
     PepViewSet,
     ProjectViewSet,
     RentingViewSet,
@@ -60,16 +62,23 @@ router.register("companies", CompanyViewSet, basename="company")
 router.register("email-templates", EmailTemplateViewSet, basename="emailtemplate")
 router.register("email-signatures", EmailSignatureViewSet, basename="emailsignature")
 router.register("email-logs", EmailLogViewSet, basename="emaillog")
+router.register(
+    "notification-schedules", NotificationScheduleViewSet, basename="notificationschedule"
+)
 
 urlpatterns = [
     path("reports/", ReportsView.as_view(), name="reports"),
     # N7: espacio de erratas (desactivados) — restaurar (admin) / purgar (superusuario).
     path("erratas/", ErratasView.as_view(), name="erratas"),
+    # M5: los registros de un tipo, paginados (el índice solo trae recuentos).
+    path("erratas/items/", ErratasItemsView.as_view(), name="erratas-items"),
     path("erratas/restore/", ErratasRestoreView.as_view(), name="erratas-restore"),
     path("erratas/purge/", ErratasPurgeView.as_view(), name="erratas-purge"),
     # Agregados del dashboard (Fase A1); acotado por rol.
     path("summary/", FleetSummaryView.as_view(), name="fleet-summary"),
     # Summaries de todo el ámbito en una respuesta (O2): evita el N+1 de campo.
     path("summary/vehicles/", VehicleSummariesView.as_view(), name="vehicle-summaries"),
+    # Los catálogos del alta de vehículo juntos: 7 peticiones → 1.
+    path("catalogs/", CatalogsBundleView.as_view(), name="catalogs-bundle"),
     *router.urls,
 ]

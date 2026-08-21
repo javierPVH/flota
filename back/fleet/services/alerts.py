@@ -18,12 +18,13 @@ from django.conf import settings
 from django.utils import timezone
 
 from accounts import push as webpush
-from fleet.models import Alert, Assignment, EventItv, KmReading, Vehicle
+from fleet.models import Alert, Assignment, Contract, EventItv, KmReading, Vehicle
 from fleet.models.enums import (
     AlertLevel,
     AlertStatus,
     AlertType,
     AssignmentStatus,
+    ItvResult,
 )
 from fleet.selectors import current_driver_map
 
@@ -68,9 +69,11 @@ def upsert_alert(
         _notify_alert(alert)
         # N10a: email best-effort (seguro → renting; km → conductor). Import
         # perezoso para evitar ciclos alerts ↔ mailer.
+        # M6: se ENCOLA. El chequeo no abre sockets SMTP: la entrega la hace
+        # `mailer.send_outbox()` al final de `run_all` (o el comando suelto).
         from fleet.services import mailer
 
-        mailer.send_for_alert(alert)
+        mailer.queue_for_alert(alert)
     if not created and alert.status == AlertStatus.OPEN:
         changed = False
         for field, value in (("level", level), ("message", message), ("due_date", due_date)):
@@ -91,6 +94,11 @@ def _notify_alert(alert: Alert) -> None:
     nuevas: el refresco de una abierta no re-notifica.
     """
     if not webpush.push_enabled():
+        return
+    # A16/X1: el seguro es asunto de administración y la bandeja se lo oculta al
+    # conductor y al supervisor (`AlertViewSet.get_queryset`). Notificárselo por
+    # push era un aviso sin destino: al abrir la app no existía.
+    if alert.type == AlertType.INSURANCE_DUE:
         return
     recipients = set()
     if alert.user_id:
@@ -115,21 +123,30 @@ def _notify_alert(alert: Alert) -> None:
 
 
 def refresh_next_itv_dates() -> int:
-    """Recalcula `Vehicle.next_itv_date` desde el último `EventItv.next_due`.
+    """Recalcula `Vehicle.next_itv_date` desde el último `EventItv` FAVORABLE.
 
     Denormaliza para no derivar la próxima ITV en cada consulta/alerta. Devuelve
-    cuántos vehículos cambiaron. PR2: en BULK — 2 consultas fijas en vez de una
-    por vehículo.
-    """
-    from django.db.models import Max
+    cuántos vehículos cambiaron. Dos consultas fijas (los `save` son solo de los
+    que cambian), sin N+1.
 
-    latest_by_vehicle = dict(
+    C5: se toma el registro más RECIENTE (por fecha de evento) y solo si el
+    resultado fue favorable — igual que `signals.on_itv_registered`. Antes se
+    usaba `Max("next_due")`, así que una fecha disparatada ganaba para siempre y
+    este job la reafirmaba en cada pasada, deshaciendo cualquier corrección.
+    B16: los vehículos de baja quedan fuera (no hay ITV que vigilar).
+    """
+    latest_by_vehicle: dict[int, date] = {}
+    rows = (
         EventItv.objects.filter(next_due__isnull=False)
-        .values_list("event__vehicle")
-        .annotate(latest=Max("next_due"))
+        .exclude(result=ItvResult.NOT_DONE)
+        .order_by("event__vehicle_id", "-event__event_date", "-event_id")
+        .values_list("event__vehicle_id", "next_due")
     )
+    for vehicle_id, next_due in rows:
+        latest_by_vehicle.setdefault(vehicle_id, next_due)
+
     updated = 0
-    for vehicle in Vehicle.objects.all():
+    for vehicle in _active_vehicles():
         new_value = latest_by_vehicle.get(vehicle.id)
         if vehicle.next_itv_date != new_value:
             vehicle.next_itv_date = new_value
@@ -269,13 +286,16 @@ def check_no_driver(today: date | None = None) -> int:
     # Bulk (evita N+1): con conductor en curso y con asignación reciente (gracia).
     has_current = set(
         Assignment.objects.filter(
-            vehicle_id__in=ids, end_date__isnull=True, status=AssignmentStatus.ACCEPTED
+            vehicle_id__in=ids,
+            end_date__isnull=True,
+            status=AssignmentStatus.ACCEPTED,
+            is_active=True,
         ).values_list("vehicle_id", flat=True)
     )
     recently_assigned = set(
-        Assignment.objects.filter(vehicle_id__in=ids, end_date__gt=cutoff).values_list(
-            "vehicle_id", flat=True
-        )
+        Assignment.objects.filter(
+            vehicle_id__in=ids, end_date__gt=cutoff, is_active=True
+        ).values_list("vehicle_id", flat=True)
     )
     created = 0
     for vehicle in vehicles:
@@ -297,36 +317,61 @@ def check_km_overage(today: date | None = None) -> int:
     Proyecta linealmente los km recorridos (última lectura − km inicial) al
     ritmo observado hasta el fin previsto del contrato. Si la proyección supera
     los km contratados (con margen `FLEET_KM_OVERAGE_MARGIN`), avisa.
+
+    M3: era el único chequeo que seguía resolviendo por fila —contrato vigente y
+    última lectura, dos consultas POR VEHÍCULO: ~1.000 cada 15 minutos en una
+    flota de 500—. Ahora son dos consultas ordenadas + `setdefault`, el mismo
+    patrón que `refresh_next_itv_dates` y `check_no_driver`.
     """
     today = _today(today)
     margin = settings.FLEET_KM_OVERAGE_MARGIN
     period = f"{today.year:04d}-{today.month:02d}"
-    created = 0
     # N3: los vehículos con km ilimitados no proyectan ni generan exceso.
-    for vehicle in _active_vehicles().filter(unlimited_km=False):
-        contract = (
-            vehicle.contracts.filter(end_date__isnull=True)
-            .exclude(contract_km__isnull=True)
-            .order_by("-start_date")
-            .first()
+    vehicles = list(_active_vehicles().filter(unlimited_km=False))
+    ids = [v.id for v in vehicles]
+    if not ids:
+        return 0
+    # Contrato vigente por vehículo: el de `start_date` más reciente (mismo
+    # criterio que el `order_by("-start_date").first()` de antes; una fila con
+    # `start_date` nulo gana y se descarta después, como entonces).
+    contracts: dict[int, Contract] = {}
+    for contract in (
+        Contract.objects.filter(
+            vehicle_id__in=ids,
+            end_date__isnull=True,
+            is_active=True,
+            contract_km__isnull=False,
         )
-        if not contract or not contract.contract_km:
+        .only("id", "vehicle_id", "contract_km", "start_date", "planned_end_date")
+        .order_by("vehicle_id", "-start_date")
+    ):
+        contracts.setdefault(contract.vehicle_id, contract)
+    # Última lectura válida por vehículo (fecha desc, id como desempate).
+    latest_readings: dict[int, tuple[date, int]] = {}
+    for vehicle_id, reading_date, km_reading in (
+        KmReading.objects.filter(vehicle_id__in=ids, km_reading__isnull=False, is_active=True)
+        .exclude(reading_date__isnull=True)
+        .order_by("vehicle_id", "-reading_date", "-id")
+        .values_list("vehicle_id", "reading_date", "km_reading")
+    ):
+        latest_readings.setdefault(vehicle_id, (reading_date, km_reading))
+
+    created = 0
+    for vehicle in vehicles:
+        contract = contracts.get(vehicle.id)
+        if contract is None or not contract.contract_km:
             continue
         if not (contract.start_date and contract.planned_end_date):
             continue
-        latest = (
-            KmReading.objects.filter(vehicle=vehicle, km_reading__isnull=False, is_active=True)
-            .exclude(reading_date__isnull=True)
-            .order_by("-reading_date", "-id")
-            .first()
-        )
-        if not latest:
+        latest = latest_readings.get(vehicle.id)
+        if latest is None:
             continue
+        reading_date, km_reading = latest
         total_days = (contract.planned_end_date - contract.start_date).days
-        elapsed_days = (latest.reading_date - contract.start_date).days
+        elapsed_days = (reading_date - contract.start_date).days
         if total_days <= 0 or elapsed_days <= 0:
             continue
-        km_driven = latest.km_reading - (vehicle.km_start or 0)
+        km_driven = km_reading - (vehicle.km_start or 0)
         if km_driven <= 0:
             continue
         projected = km_driven / elapsed_days * total_days
@@ -354,8 +399,15 @@ def check_km_overage(today: date | None = None) -> int:
 
 
 def run_all(today: date | None = None) -> dict[str, int]:
-    """Ejecuta el refresco de ITV y todos los chequeos. Devuelve el resumen."""
-    return {
+    """Ejecuta el refresco de ITV, todos los chequeos y vacía la cola de correo.
+
+    M6: la entrega va AL FINAL y fuera de los chequeos, así que un SMTP lento no
+    retrasa ni interrumpe la generación de alertas; lo que no salga hoy se
+    reintenta en la siguiente pasada del bucle de `jobs`.
+    """
+    from fleet.services import mailer
+
+    summary = {
         "next_itv_refreshed": refresh_next_itv_dates(),
         "itv": check_itv(today),
         "insurance": check_insurance(today),
@@ -363,3 +415,8 @@ def run_all(today: date | None = None) -> dict[str, int]:
         "no_driver": check_no_driver(today),
         "km_overage": check_km_overage(today),
     }
+    delivery = mailer.send_outbox()
+    summary["emails_sent"] = delivery["sent"]
+    summary["emails_retry"] = delivery["retry"]
+    summary["emails_failed"] = delivery["failed"]
+    return summary

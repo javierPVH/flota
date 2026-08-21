@@ -40,6 +40,28 @@ class BusinessEventTests(APITestCase):
         event = Event.objects.get(vehicle=vehicle, event_type=EventType.MAINTENANCE)
         self.assertEqual(event.notes, "revisión programada")
 
+    def test_state_change_accepts_an_effective_date(self):
+        """B4: la fecha del cambio es un DATO (`change_date`), no prosa dentro
+        del motivo — la baja puede tener efecto en un día anterior."""
+        vehicle = Vehicle.objects.create(plate="ST333", brand="a", model="b", state="active")
+        resp = self.client.patch(
+            reverse("vehicle-detail", args=[vehicle.pk]),
+            {"state": "retired", "change_reason": "fin de renting", "change_date": "2026-06-30"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        event = Event.objects.get(vehicle=vehicle, event_type=EventType.DEACTIVATION)
+        self.assertEqual(event.event_date.isoformat(), "2026-06-30")
+        self.assertEqual(event.notes, "fin de renting")
+
+    def test_state_change_without_date_uses_today(self):
+        vehicle = Vehicle.objects.create(plate="ST444", brand="a", model="b", state="active")
+        self.client.patch(
+            reverse("vehicle-detail", args=[vehicle.pk]),
+            {"state": "maintenance", "change_reason": "taller"},
+        )
+        event = Event.objects.get(vehicle=vehicle, event_type=EventType.MAINTENANCE)
+        self.assertEqual(event.event_date, timezone.localdate())
+
     def test_no_event_when_state_unchanged(self):
         vehicle = Vehicle.objects.create(plate="ST222", brand="a", model="b", state="active")
         self.client.patch(reverse("vehicle-detail", args=[vehicle.pk]), {"brand": "b"})

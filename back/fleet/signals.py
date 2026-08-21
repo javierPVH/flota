@@ -13,17 +13,28 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from .models import Alert, Document, EventItv, KmReading
-from .models.enums import AlertStatus, AlertType, DocumentType
+from .models.enums import AlertStatus, AlertType, DocumentType, ItvResult
 
 
 @receiver(post_save, sender=EventItv, dispatch_uid="fleet_itv_registered")
 def on_itv_registered(sender, instance: EventItv, **kwargs):
+    """C5: refresca la próxima ITV y cierra sus alertas — con dos candados.
+
+    1. Se toma el `EventItv` **más reciente por fecha de evento**, no el de
+       `next_due` mayor. Ordenar por `-next_due` convertía una sola fecha
+       disparatada (un `2099-01-01` teclado por cualquiera con acceso al
+       vehículo) en la próxima ITV definitiva: ganaba para siempre, y el job
+       `refresh_next_itv` la reafirmaba en cada pasada.
+    2. Solo un resultado FAVORABLE actualiza el denormalizado y cierra las
+       alertas. Una ITV "no favorable" no exime de nada: el aviso sigue abierto.
+    """
     vehicle = instance.event.vehicle
 
-    # 1) Refresca la próxima ITV desde el último `EventItv` del vehículo.
+    # 1) Próxima ITV = la del último registro FAVORABLE del vehículo.
     latest = (
         EventItv.objects.filter(event__vehicle=vehicle, next_due__isnull=False)
-        .order_by("-next_due")
+        .exclude(result=ItvResult.NOT_DONE)
+        .order_by("-event__event_date", "-event_id")
         .first()
     )
     new_value = latest.next_due if latest else None
@@ -31,10 +42,11 @@ def on_itv_registered(sender, instance: EventItv, **kwargs):
         vehicle.next_itv_date = new_value
         vehicle.save(update_fields=["next_itv_date", "updated_at"])
 
-    # 2) Cierra las alertas de ITV abiertas del vehículo (ya se registró la ITV).
-    Alert.objects.filter(vehicle=vehicle, type=AlertType.ITV_DUE, status=AlertStatus.OPEN).update(
-        status=AlertStatus.RESOLVED, resolved_at=timezone.now()
-    )
+    # 2) Las alertas se cierran solo si la ITV se pasó de verdad.
+    if instance.is_favourable:
+        Alert.objects.filter(
+            vehicle=vehicle, type=AlertType.ITV_DUE, status=AlertStatus.OPEN
+        ).update(status=AlertStatus.RESOLVED, resolved_at=timezone.now())
 
 
 @receiver(post_save, sender=Document, dispatch_uid="fleet_insurance_document_saved")

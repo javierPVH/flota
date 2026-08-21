@@ -2,13 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Chip, IconButton, MiniToolsButtons, Modal, PageHeader, SelectField, StatCard } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
-import { asErrorMessage } from '@flota/ui/http'
-import { ArrowRightLeft, ChevronDown, Mail, Pencil, Receipt, Trash2, UserCog, Wrench } from 'lucide-react'
+import { asErrorMessage, isAbortError } from '@flota/ui/http'
+import { ChevronDown, Pencil } from 'lucide-react'
 
 import {
-  convertToFleet,
   deactivateUser,
-  deleteVehicle,
   fetchFleetSummary,
   listAlerts,
   listAll,
@@ -23,7 +21,7 @@ import {
 import { alertLevelTone, dueClass, fmtDate, fmtEur, itvClass, todayIso, vehicleStateTone } from '../format.ts'
 import { exportCsv } from '../csv.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
-import { RowActionsMenu, type RowAction } from '../components/RowActionsMenu.tsx'
+import { useVehicleActions } from '../components/useVehicleActions.tsx'
 import { UserFormModal } from '../components/UserFormModal.tsx'
 import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
 import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
@@ -34,21 +32,7 @@ import { useUsersCopy } from '../translations/users.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import type { Alert, FleetSummary, Incident, IncidentType, Vehicle, VehicleLinkRow } from '../types.ts'
 
-const USE_LABEL: Record<string, string> = {
-  on_project: 'Proyecto',
-  personal: 'Personal',
-  works: 'Obras',
-}
-
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
-
-const STATE_LABEL: Record<string, string> = {
-  active: 'Activo',
-  maintenance: 'En mantenimiento',
-  itv: 'En ITV',
-  broken: 'Averiado',
-  retired: 'Baja',
-}
 
 // Estado que representa la baja del vehículo (VehicleState.BAJA = 'retired').
 const BAJA_STATE = 'retired'
@@ -117,7 +101,12 @@ export function DashboardPage() {
 
   const [tab, setTab] = useState<DashTab>('flota')
   const [toolsOpen, setToolsOpen] = useState(false) // acordeón de búsqueda/filtros
-  const [search, setSearch] = useState('')
+  // M16: DOS búsquedas, una por grupo de pestañas. Con una sola compartida,
+  // teclear en Supervisores/Conductores (que filtran en cliente) disparaba una
+  // recarga de vehículos EN SERVIDOR por cada pausa de tecleo, y cambiar de
+  // pestaña obligaba a borrar lo escrito para no arrastrar el filtro del otro.
+  const [vehicleSearch, setVehicleSearch] = useState('')
+  const [peopleSearch, setPeopleSearch] = useState('')
   const [query, setQuery] = useState('') // búsqueda de vehículos con debounce aplicado
   // Filtros de vehículos combinables: tres selects + dos cortes de vencimiento
   // (ITV/seguro próximos, en cliente) + mostrar bajas (recarga del back).
@@ -173,7 +162,7 @@ export function DashboardPage() {
   useEffect(() => {
     fetchFleetSummary()
       .then(setSummary)
-      .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar el resumen.')))
+      .catch((err) => setError(asErrorMessage(err, t.home.errSummary)))
     listAlerts('open')
       .then((result) =>
         setAlerts([...result.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])),
@@ -184,55 +173,75 @@ export function DashboardPage() {
       .catch(() => setIncidents([]))
     loadCore()
     loadUsers()
-  }, [loadCore, loadUsers])
+  }, [loadCore, loadUsers, t])
 
-  // ITV: carga perezosa al abrir su modal (ordenado por fecha, corte en cliente).
+  // ITV: carga perezosa al abrir su modal.
+  // C6/C7: `ordering=next_itv_date` NO estaba en `ordering_fields` del back, y
+  // DRF descarta en silencio el orden inválido → el modal listaba la primera
+  // página ordenada por MATRÍCULA y la presentaba como "las más próximas a
+  // vencer". Ahora el campo existe en el back y se recorren todas las páginas
+  // (`listAll`), así que no se pierde ningún vencimiento.
   useEffect(() => {
     if (manage !== 'itv' || itvList !== null) return
-    listVehicles({ ordering: 'next_itv_date' })
-      .then((result) => setItvList(result.results.filter((v) => itvClass(v.next_itv_date) !== '')))
+    listAll(listVehicles({ ordering: 'next_itv_date' }))
+      .then((rows) => setItvList(rows.filter((v) => itvClass(v.next_itv_date) !== '')))
       .catch(() => setItvList([]))
   }, [manage, itvList])
 
   // Seguros: carga perezosa análoga a la de ITV.
   useEffect(() => {
     if (manage !== 'insurance' || insList !== null) return
-    listVehicles({ ordering: 'insurance_expiry_date' })
-      .then((result) =>
-        setInsList(result.results.filter((v) => dueClass(v.insurance_expiry_date) !== '')),
-      )
+    listAll(listVehicles({ ordering: 'insurance_expiry_date' }))
+      .then((rows) => setInsList(rows.filter((v) => dueClass(v.insurance_expiry_date) !== '')))
       .catch(() => setInsList([]))
   }, [manage, insList])
 
-  // Debounce: una petición por pausa de tecleo, no por tecla.
+  // Debounce: una petición por pausa de tecleo, no por tecla. Solo la búsqueda
+  // de vehículos va al servidor; la de personas filtra la lista ya cargada.
   useEffect(() => {
-    const timer = setTimeout(() => setQuery(search.trim()), 300)
+    const timer = setTimeout(() => setQuery(vehicleSearch.trim()), 300)
     return () => clearTimeout(timer)
-  }, [search])
+  }, [vehicleSearch])
 
-  const load = useCallback(() => {
-    setLoading(true)
-    const filters: VehicleFilters = {
-      business_use: useFilter || undefined,
-      state: stateFilter || undefined,
-      assigned: assignFilter ? assignFilter === 'assigned' : undefined,
-      search: query || undefined,
-      include_baja: showBaja ? 1 : undefined,
-    }
-    // Carga completa en cliente (todas las páginas): la tabla unificada
-    // (TableWithPanel) se encarga de paginar, ordenar y buscar.
-    listAll(listVehicles(filters))
-      .then((result) => {
-        setVehicles(result)
-        setError('')
-      })
-      .catch((err) => setError(asErrorMessage(err, 'No se pudo cargar el listado.')))
-      .finally(() => setLoading(false))
-  }, [useFilter, stateFilter, assignFilter, query, showBaja])
+  const load = useCallback(
+    (signal?: AbortSignal) => {
+      setLoading(true)
+      const filters: VehicleFilters = {
+        business_use: useFilter || undefined,
+        state: stateFilter || undefined,
+        assigned: assignFilter ? assignFilter === 'assigned' : undefined,
+        search: query || undefined,
+        include_baja: showBaja ? 1 : undefined,
+      }
+      // Carga completa en cliente (todas las páginas): la tabla unificada
+      // (TableWithPanel) se encarga de paginar, ordenar y buscar.
+      listAll(listVehicles(filters, { signal }), { signal })
+        .then((result) => {
+          setVehicles(result)
+          setError('')
+        })
+        .catch((err) => {
+          // M14: al cambiar de filtro se aborta la carga anterior; eso no es un
+          // error que mostrar (y su respuesta tardía ya no pisa la nueva).
+          if (isAbortError(err)) return
+          setError(asErrorMessage(err, t.home.errList))
+        })
+        .finally(() => {
+          if (!signal?.aborted) setLoading(false)
+        })
+    },
+    [useFilter, stateFilter, assignFilter, query, showBaja, t],
+  )
 
-  useEffect(load, [load])
+  // M14: cada carga aborta la anterior y la última en vuelo muere al desmontar.
+  useEffect(() => {
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
+  }, [load])
 
   // Tras una acción que muta un vehículo: recarga listado + datos transversales.
+  // (Sin señal: es una recarga puntual, no la del efecto de filtros.)
   const reloadVehicles = useCallback(() => {
     load()
     loadCore()
@@ -246,11 +255,17 @@ export function DashboardPage() {
     setInsuranceOnly(false)
   }
 
-  /** Cambia de pestaña y limpia búsqueda + filtros (independientes por pestaña). */
+  /** Cambia de pestaña y limpia filtros (la búsqueda es propia de cada grupo). */
   function switchTab(next: DashTab) {
     if (next === tab) return
+    const changesGroup = (next === 'flota' || next === 'substitute') !== isVehicleTab
     setTab(next)
-    setSearch('')
+    // M16: al saltar de vehículos a personas (o al revés) se limpia la búsqueda
+    // del grupo de destino; entre pestañas del MISMO grupo se conserva.
+    if (changesGroup) {
+      if (next === 'flota' || next === 'substitute') setVehicleSearch('')
+      else setPeopleSearch('')
+    }
     resetFilters()
     setShowBaja(false)
     setShowInactive(false)
@@ -288,39 +303,6 @@ export function DashboardPage() {
     setManage('incidents')
   }
 
-  const handleDelete = useCallback(
-    async (v: Vehicle) => {
-      if (!(await confirm({ message: vt.confirmDelete(v.plate) }))) return
-      try {
-        await deleteVehicle(v.id)
-        reloadVehicles()
-      } catch (err) {
-        setError(asErrorMessage(err, vt.deleteError))
-      }
-    },
-    [confirm, reloadVehicles, vt],
-  )
-
-  // Convertir sustitución → flota: irreversible desde la UI → triple aviso.
-  const handleConvertToFleet = useCallback(
-    async (v: Vehicle) => {
-      const c = vt.convert
-      if (!(await confirm({ title: c.title, message: c.warn1(v.plate), confirmLabel: c.continue, tone: 'warning' })))
-        return
-      if (!(await confirm({ title: c.title, message: c.warn2, confirmLabel: c.continue, tone: 'warning' })))
-        return
-      if (!(await confirm({ title: c.title, message: c.warn3(v.plate), confirmLabel: c.confirm, tone: 'danger' })))
-        return
-      try {
-        await convertToFleet(v.id)
-        reloadVehicles()
-      } catch (err) {
-        setError(asErrorMessage(err, c.error))
-      }
-    },
-    [confirm, reloadVehicles, vt],
-  )
-
   async function toggleUserActive(u: ManagedUserFull) {
     try {
       if (u.is_active) {
@@ -349,21 +331,51 @@ export function DashboardPage() {
     return map
   }, [links])
 
-  // Cruce personas ↔ flota (excluye bajas): vehículos supervisados / conducidos.
-  const supervisedBy = (uid: number) =>
-    allVehicles.filter((v) => v.supervisor === uid && v.state !== BAJA_STATE)
-  const drivenBy = (uid: number) =>
-    allVehicles.filter((v) => v.driver_id === uid && v.state !== BAJA_STATE)
+  // M9 — cruce personas ↔ flota (excluye bajas) en DOS mapas memoizados.
+  // Antes se filtraba `allVehicles` dentro de `getValue`, es decir una pasada
+  // por la flota completa POR FILA y otra por cada comparación de la ordenación:
+  // en una flota de 500 con 100 personas eran decenas de miles de iteraciones
+  // en cada render de la pestaña de personas.
+  const [vehiclesBySupervisor, vehiclesByDriver] = useMemo(() => {
+    const bySupervisor = new Map<number, Vehicle[]>()
+    const byDriver = new Map<number, Vehicle[]>()
+    const push = (map: Map<number, Vehicle[]>, key: number | null | undefined, v: Vehicle) => {
+      if (key == null) return
+      const list = map.get(key)
+      if (list) list.push(v)
+      else map.set(key, [v])
+    }
+    for (const v of allVehicles) {
+      if (v.state === BAJA_STATE) continue
+      push(bySupervisor, v.supervisor, v)
+      push(byDriver, v.driver_id, v)
+    }
+    return [bySupervisor, byDriver] as const
+  }, [allVehicles])
+  const supervisedBy = useCallback(
+    (uid: number) => vehiclesBySupervisor.get(uid) ?? [],
+    [vehiclesBySupervisor],
+  )
+  const drivenBy = useCallback(
+    (uid: number) => vehiclesByDriver.get(uid) ?? [],
+    [vehiclesByDriver],
+  )
 
-  // "ITV/seguros próximos": cortes en cliente sobre la página cargada.
-  const vehicleRows = vehicles
-    .filter((v) => !itvOnly || itvClass(v.next_itv_date) !== '')
-    .filter((v) => !insuranceOnly || dueClass(v.insurance_expiry_date) !== '')
-  const flotaRows = vehicleRows.filter((v) => !v.is_substitute)
-  const subRows = vehicleRows.filter((v) => v.is_substitute)
+  // M16 — UNA sola fuente derivada de los vehículos cargados: los cortes de
+  // vencimiento se aplican una vez y de ahí salen las dos pestañas y sus
+  // contadores (antes se recalculaban por separado en varios sitios).
+  const vehicleRows = useMemo(
+    () =>
+      vehicles
+        .filter((v) => !itvOnly || itvClass(v.next_itv_date) !== '')
+        .filter((v) => !insuranceOnly || dueClass(v.insurance_expiry_date) !== ''),
+    [vehicles, itvOnly, insuranceOnly],
+  )
+  const flotaRows = useMemo(() => vehicleRows.filter((v) => !v.is_substitute), [vehicleRows])
+  const subRows = useMemo(() => vehicleRows.filter((v) => v.is_substitute), [vehicleRows])
 
-  // Personas por rol, filtradas en cliente (activo/inactivo + búsqueda).
-  const term = search.trim().toLowerCase()
+  // Personas por rol, filtradas en cliente (activo/inactivo + búsqueda propia).
+  const term = peopleSearch.trim().toLowerCase()
   const peopleOf = (role: 'supervisor' | 'driver') =>
     users
       .filter((u) => u.roles.includes(role))
@@ -528,8 +540,8 @@ export function DashboardPage() {
     {
       key: 'use',
       label: t.home.thUse,
-      getValue: (v) => USE_LABEL[v.business_use] ?? (v.business_use || ''),
-      render: (v) => USE_LABEL[v.business_use] ?? (v.business_use || '—'),
+      getValue: (v) => vt.useLabel[v.business_use] ?? (v.business_use || ''),
+      render: (v) => vt.useLabel[v.business_use] ?? (v.business_use || '—'),
     },
     {
       key: 'state',
@@ -566,29 +578,17 @@ export function DashboardPage() {
     },
   ]
 
-  // Acciones de vehículo: mismo menú (⋮) que la vista de Vehículos.
-  const vehicleActionsColumn: TableWithPanelColumn<Vehicle> = {
-    key: 'actions',
-    label: vt.columns.actions,
-    align: 'right',
-    searchable: false,
-    sortable: false,
-    render: (v) => {
-      const items: RowAction[] = []
-      if (!v.is_substitute) {
-        items.push({ key: 'email', label: vt.email.btn, icon: <Mail size={15} />, onClick: () => setEmailVehicle(v) })
-        items.push({ key: 'driver', label: vt.driverModal.btn, icon: <UserCog size={15} />, onClick: () => setDriverVehicle(v) })
-      }
-      items.push({ key: 'invoices', label: vt.invoices.btn, icon: <Receipt size={15} />, onClick: () => setInvoicesVehicle(v) })
-      if (v.is_substitute && !activeMainOfSub.has(v.id)) {
-        items.push({ key: 'convert', label: vt.convert.btn, icon: <ArrowRightLeft size={15} />, onClick: () => handleConvertToFleet(v) })
-      }
-      items.push({ key: 'state', label: vt.ops.actionTitle, icon: <Wrench size={15} />, onClick: () => setOpsVehicle(v) })
-      items.push({ key: 'edit', label: vt.edit, icon: <Pencil size={15} />, onClick: () => navigate(`/vehiculos/${v.id}/editar`) })
-      items.push({ key: 'delete', label: vt.delete, icon: <Trash2 size={15} />, danger: true, onClick: () => handleDelete(v) })
-      return <RowActionsMenu items={items} ariaLabel={vt.columns.actions} />
-    },
-  }
+  // M18: el mismo menú (⋮) y las mismas dos operaciones serias que el
+  // inventario, sin una segunda copia de sus avisos (ver `useVehicleActions`).
+  const { actionsColumn: vehicleActionsColumn } = useVehicleActions({
+    onEmail: setEmailVehicle,
+    onDriver: setDriverVehicle,
+    onInvoices: setInvoicesVehicle,
+    onOps: setOpsVehicle,
+    activeMainOfSub,
+    onDone: reloadVehicles,
+    onError: setError,
+  })
 
   // Acciones de persona: mismos botones que la vista de Conductores.
   const peopleActionsColumn: TableWithPanelColumn<ManagedUserFull> = {
@@ -865,7 +865,10 @@ export function DashboardPage() {
                 <div className="filter-count">{activeCount}</div>
               </div>
 
-              {/* 2 · Búsqueda (el ámbito depende de la pestaña). */}
+              {/* 2 · Búsqueda. M16: una por grupo de pestañas — la de vehículos
+                  va al servidor (con debounce) y la de personas filtra en
+                  cliente, así que teclear en una no dispara peticiones de la
+                  otra ni se pierde al cambiar de pestaña dentro del grupo. */}
               <div className="filter-field filter-field--search">
                 <label htmlFor="dash-search">
                   {isVehicleTab ? t.home.searchLabel : t.home.searchPeopleLabel}
@@ -876,8 +879,10 @@ export function DashboardPage() {
                     type="search"
                     aria-label={isVehicleTab ? t.home.searchLabel : t.home.searchPeopleLabel}
                     placeholder={isVehicleTab ? t.home.searchPlaceholder : t.home.searchPeoplePlaceholder}
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    value={isVehicleTab ? vehicleSearch : peopleSearch}
+                    onChange={(e) =>
+                      (isVehicleTab ? setVehicleSearch : setPeopleSearch)(e.target.value)
+                    }
                   />
                   <MiniToolsButtons
                     size="xs"
@@ -885,7 +890,7 @@ export function DashboardPage() {
                     showSearch={false}
                     showSort={false}
                     showDelete
-                    onDelete={() => setSearch('')}
+                    onDelete={() => (isVehicleTab ? setVehicleSearch('') : setPeopleSearch(''))}
                   />
                 </div>
               </div>
@@ -1048,7 +1053,7 @@ export function DashboardPage() {
             <h4 className="mng-subtitle">{m.byState}</h4>
             <div className="mng-rows">
               {Object.entries(summary.by_state).map(([state, n]) => {
-                const label = STATE_LABEL[state] ?? state
+                const label = vt.stateLabel[state] ?? state
                 const clickable = FILTERABLE_STATES.has(state)
                 return (
                   <button

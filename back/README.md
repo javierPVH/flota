@@ -110,10 +110,16 @@ coincide con el actual, responde `409 Conflict`.
 | `check_no_driver` | diaria | Vehículo activo sin conductor > N días — HU-1.7. |
 | `remind_km_readings` | mensual | Vehículo activo sin lectura de km este mes — HU-3.2. |
 | `check_km_overage` | mensual | Proyección de km sobre los contratados — HU-3.4. |
-| `run_fleet_jobs` | — | Ejecuta el refresco + todos los chequeos de una vez. |
+| `send_email_outbox` | 15 min | M6: entrega la cola de correo (`EmailOutbox`) con reintento. |
+| `run_fleet_jobs` | — | Ejecuta el refresco, todos los chequeos y la entrega de correo. |
 
 Cada aviso lleva una `dedup_key` única, así que re-ejecutar un job **no duplica**
-alertas ya abiertas (escalar la ITV 30→15→7 sí crea avisos nuevos). Los umbrales
+alertas ya abiertas (escalar la ITV 30→15→7 sí crea avisos nuevos). El correo de
+las alertas **no sale desde el chequeo** (M6): `mailer.queue_for_alert` lo deja
+renderizado en `EmailOutbox` y la entrega ocurre al final de `run_fleet_jobs` (o
+en `send_email_outbox`), con reintento hasta `FLEET_EMAIL_MAX_ATTEMPTS` y tandas
+de `FLEET_EMAIL_OUTBOX_BATCH`. Así un SMTP lento no retrasa la generación de
+avisos y un fallo puntual no pierde el aviso. Los umbrales
 son configurables por entorno: `FLEET_ITV_ALERT_DAYS` (`30,15,7`),
 `FLEET_NO_DRIVER_ALERT_DAYS` (`30`), `FLEET_INSURANCE_ALERT_DAYS` (`30,15,7`) y
 `FLEET_KM_OVERAGE_MARGIN` (`0.05`). En Docker no hace falta cron: el servicio
@@ -195,13 +201,16 @@ logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
 | CRUD   | `/api/v1/incidents/`     | gestiónᵃ | Incidencias / mantenimiento (Épica 6) |
 | CRUD   | `/api/v1/documents/`     | ✔ᵃ | Documentos del vehículo. Conductor sube los suyos; borra solo gestión (Épica 4). Acepta **multipart** (`file`, máx. `FLEET_DOCUMENT_MAX_MB`, foto/PDF) o `drive_url` — Fase A1 |
 | GET    | `/api/v1/alerts/`        | ✔ᵃ | Bandeja de alertas (ITV, km, sin conductor). Solo lectura (los jobs las crean) |
-| POST   | `/api/v1/alerts/{id}/{resolve,dismiss}/` | gestión | Cierra la alerta (resuelta/descartada) |
+| POST   | `/api/v1/alerts/{id}/resolve/` | gestión | Cierra la alerta. Es el **único** cierre: una alerta solo está abierta o resuelta |
 | CRUD   | `/api/v1/vehicle-requests/` | gestión | Solicitudes de vehículo (importadas de Jira o self-service) — Épica 8 |
 | GET/POST | `/api/v1/vehicle-requests/mine/` | ✔ (cualquier autenticado) | **Portón de acceso** (Fase A2): el usuario sin coche registra su solicitud `pending` con la **clave del ticket Jira** y consulta su estado; el 2º POST actualiza la abierta |
 | POST   | `/api/v1/vehicle-requests/{id}/grant/` | admin | **Concede el coche** `{vehicle}`: rol conductor + asignación aceptada + evento + `assigned` (vía manual si Jira no confirma) — Fase A2 |
 | POST   | `/api/v1/vehicle-requests/{id}/reject/` | admin | Rechaza la solicitud a mano — Fase A2 |
 | GET    | `/api/v1/reports/?kind=&fmt=` | gestión | Descarga informe Excel/CSV (flota/alertas/costes), acotado por rol — Épica 10 |
-| CRUD   | `/api/v1/{countries,business-units,projects,peps,rentings}/` | gestión / admin | Catálogos (lectura gestión, escritura admin) |
+| CRUD   | `/api/v1/{countries,business-units,projects,peps,rentings,brands,vehicle-models,companies}/` | gestión / admin | Catálogos (lectura gestión, escritura admin). Unicidad **sin distinguir mayúsculas** y contando los desactivados: si el nombre lo ocupa uno dado de baja, responde **409** `inactive_conflict` con `context: {kind, id}` para ofrecer restaurarlo en vez de un «ya existe» sobre algo invisible |
+| CRUD   | `/api/v1/notification-schedules/` | gestión | **Envíos programados** del propio usuario (Ajustes → Notificaciones): resumen o cualquiera de los **7 informes de la pantalla de Informes** (Flota, Kilometraje, Documentos, Alertas, Facturas, Costes, Conductores) **en CSV** (`fmt` solo admite `csv`; la descarga a mano sigue ofreciendo Excel), **con sus mismos filtros** (`filters`, validados contra `reports.REPORT_FILTERS`), a una hora, por correo y/o a una carpeta de Drive. `name_with_date`/`name_with_time` añaden fecha u hora al asunto y al fichero. El correo va **solo** a `extra_recipients` (obligatorio si `send_email`): la dirección del dueño no se añade por su cuenta, la prellena el formulario. Cada uno ve SOLO los suyos y el contenido se genera con SU ámbito. `DELETE` borra de verdad (es configuración, no histórico) |
+| POST   | `/api/v1/notification-schedules/{id}/run/` | gestión | Lo envía ahora, para probarlo |
+| GET    | `/api/v1/catalogs/`      | gestión | Los siete catálogos del alta de vehículo en **una** respuesta (antes eran 7 peticiones). Mismos objetos que los endpoints sueltos, solo activos, sin paginar. No incluye `vehicle-models`: se piden por marca |
 
 ᵃ **Acotado por rol** (`fleet/scoping.py` + `accounts/permissions.py`): el admin
 ve/gestiona toda la flota; el **supervisor** solo su grupo (`Vehicle.supervisor`);

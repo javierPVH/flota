@@ -3,6 +3,7 @@ from functools import cached_property
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.db.models.functions import Lower
 
 from .fields import EncryptedTextField
 
@@ -46,6 +47,24 @@ class User(AbstractUser):
     license_type = models.CharField(
         "Tipo de permiso", max_length=5, choices=LicenseType.choices, blank=True
     )
+
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            # A5: el email es CLAVE DE IDENTIDAD en tres caminos —login por
+            # email, login con Google y resolución del solicitante de Jira—, y
+            # los tres resuelven con `filter(email__iexact=…).first()`. Sin
+            # unicidad, dos cuentas con el mismo email hacían que se entrara en
+            # una arbitraria (la de menor pk), con roles posiblemente distintos.
+            #
+            # Constraint PARCIAL y case-insensitive: el email sigue siendo
+            # opcional (varios usuarios pueden no tener ninguno, `""`), pero si
+            # está, es único ignorando mayúsculas.
+            models.UniqueConstraint(
+                Lower("email"),
+                condition=~models.Q(email=""),
+                name="unique_user_email_ci",
+            )
+        ]
 
     # --- Roles ------------------------------------------------------------
     @cached_property

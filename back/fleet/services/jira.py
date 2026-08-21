@@ -77,9 +77,23 @@ class HttpJiraClient(BaseJiraClient):  # pragma: no cover - requiere credenciale
 
 
 def get_jira_client() -> BaseJiraClient:
-    if getattr(settings, "FLEET_JIRA_ENABLED", False):
-        return HttpJiraClient()
-    return NullJiraClient()
+    """Cliente de Jira según configuración.
+
+    M7: `HttpJiraClient` es todavía un STUB que lanza `NotImplementedError`
+    en cuanto hay credenciales, así que activar la integración hacía fallar
+    `sync_jira_requests` e `import_vehicle_requests` cada 15 minutos. Hasta
+    que la consulta JQL exista de verdad, se avisa en el log y se degrada al
+    cliente nulo (mismo patrón que Drive y push).
+    """
+    if not getattr(settings, "FLEET_JIRA_ENABLED", False):
+        return NullJiraClient()
+    if settings.FLEET_JIRA_URL and settings.FLEET_JIRA_TOKEN:
+        logger.error(
+            "FLEET_JIRA_ENABLED con credenciales, pero el cliente HTTP de Jira "
+            "sigue siendo un stub: las solicitudes NO se sincronizan."
+        )
+        return NullJiraClient()
+    return HttpJiraClient()
 
 
 def _resolve_requester(email: str | None):
@@ -120,9 +134,9 @@ def sync_request_statuses(client: BaseJiraClient | None = None) -> dict[str, int
     """
     client = client or get_jira_client()
     summary = {"approved": 0, "rejected": 0, "unknown": 0}
-    pending = VehicleRequest.objects.filter(status=VehicleRequestStatus.PENDING).exclude(
-        jira_key=""
-    )
+    pending = VehicleRequest.objects.filter(
+        status=VehicleRequestStatus.PENDING, is_active=True
+    ).exclude(jira_key="")
     for request in pending:
         status = client.fetch_status(request.jira_key)
         if status == "approved":

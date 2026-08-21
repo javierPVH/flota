@@ -76,16 +76,18 @@ describe('AlertsPage (M5)', () => {
       '/registrar?vehiculo=7',
     )
     expect(screen.queryByRole('button', { name: 'Resolver' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Descartar' })).not.toBeInTheDocument()
   })
 
-  it('el supervisor además resuelve/descarta y ve las lecturas pendientes del grupo', async () => {
+  it('el supervisor además resuelve y ve las lecturas pendientes del grupo', async () => {
     mocks.roles = ['driver', 'supervisor']
     renderPage()
     expect(await screen.findByRole('button', { name: 'Resolver' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Descartar' })).toBeInTheDocument()
+    // Resolver es el único cierre: descartar ya no existe en el dominio.
+    expect(screen.queryByRole('button', { name: 'Descartar' })).not.toBeInTheDocument()
     expect(await screen.findByText('Lecturas pendientes del grupo')).toBeInTheDocument()
     expect(await screen.findByText('Nunca ha registrado lectura')).toBeInTheDocument()
+    // M12: pide el summary SOLO de los vehículos con lectura pendiente.
+    expect(mocks.fetchVehicleSummaries).toHaveBeenCalledWith([7])
   })
 
   it('sin alertas abiertas, estado vacío amable', async () => {

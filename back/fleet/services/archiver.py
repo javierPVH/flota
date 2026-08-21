@@ -175,6 +175,77 @@ class GoogleDriveArchiver(BaseArchiver):
         return created.get("webViewLink") or None
 
 
+#: Formas en que un usuario puede pegar una carpeta de Drive en el formulario.
+_FOLDER_URL_PATTERNS = (
+    r"/folders/([A-Za-z0-9_-]+)",  # .../drive/folders/<id>
+    r"[?&]id=([A-Za-z0-9_-]+)",  # ...open?id=<id>
+)
+
+
+def folder_id_from(reference: str) -> str:
+    """Id de carpeta a partir de lo que haya escrito el usuario.
+
+    Acepta el id pelado o una URL de Drive: en el formulario de Ajustes la gente
+    pega el enlace de la barra del navegador, no el id.
+    """
+    import re
+
+    reference = (reference or "").strip()
+    for pattern in _FOLDER_URL_PATTERNS:
+        found = re.search(pattern, reference)
+        if found:
+            return found.group(1)
+    # Un id no lleva barras ni espacios; si los lleva, no es utilizable.
+    return reference if reference and not re.search(r"[/\s]", reference) else ""
+
+
+def upload_bytes(
+    name: str, content: bytes, folder_reference: str, *, archiver: BaseArchiver | None = None
+) -> str | None:
+    """Sube un fichero en memoria a una carpeta de Drive. Devuelve su enlace.
+
+    Existe aparte de `GoogleDriveArchiver.archive`, que está atado a `Document`
+    y a la carpeta del vehículo: los informes programados no son documentos de
+    un vehículo y su carpeta la elige el usuario en cada envío.
+
+    Devuelve `None` —sin lanzar— si Drive no está configurado o la carpeta no es
+    utilizable: el envío por correo del mismo aviso no debe caerse por eso.
+    """
+    if not getattr(settings, "GOOGLE_DRIVE_ENABLED", False):
+        logger.info("Drive no configurado: no se guarda %s.", name)
+        return None
+    folder_id = folder_id_from(folder_reference)
+    if not folder_id:
+        logger.warning(
+            "Carpeta de Drive no utilizable (%r): no se guarda %s.", folder_reference, name
+        )
+        return None
+
+    drive = archiver if isinstance(archiver, GoogleDriveArchiver) else GoogleDriveArchiver()
+    service = drive._get_service()
+    if not service:
+        logger.info("Sin cuenta de servicio: no se guarda %s.", name)
+        return None
+
+    import io
+    import mimetypes
+
+    from googleapiclient.http import MediaIoBaseUpload
+
+    mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    created = (
+        service.files()
+        .create(
+            body={"name": name, "parents": [folder_id]},
+            media_body=MediaIoBaseUpload(io.BytesIO(content), mimetype=mime),
+            fields="id,webViewLink",
+            supportsAllDrives=True,
+        )
+        .execute(num_retries=drive._num_retries())
+    )
+    return created.get("webViewLink") or None
+
+
 def get_archiver() -> BaseArchiver:
     """Devuelve el archivador según `FLEET_ARCHIVE_BACKEND`."""
     backend = getattr(settings, "FLEET_ARCHIVE_BACKEND", "none")

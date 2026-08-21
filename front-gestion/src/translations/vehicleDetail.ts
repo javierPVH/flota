@@ -10,11 +10,22 @@ const es = {
   substitution: 'Sustitución',
   convertToFleet: 'Convertir en flota',
   convertToFleetTitle: 'El tipo se fija al crear; esta es la única vía sustituto → flota',
+  // Modal de conversión sustituto → flota (operación sin vuelta atrás).
+  convertModalTitle: (plate: string) => `Convertir ${plate} en vehículo de flota`,
+  convertIntro:
+    'El vehículo dejará de ser de sustitución y pasará a ser uno más de la flota: podrá tener conductor asignado y sus propias sustituciones.',
+  convertIrreversible:
+    'No tiene vuelta atrás: el tipo se fija al crear el vehículo y esta es la única vía sustituto → flota.',
+  convertBlockedByLink: (plate: string) =>
+    `Ahora mismo está en un vínculo de sustitución con ${plate}. Cierra ese vínculo antes de convertirlo.`,
+  convertConfirm: 'Convertir en flota',
+  converting: 'Convirtiendo…',
   retire: 'Dar de baja',
   blockedTooltip: (plate: string) => `Bloqueado por sustitución — registra los km sobre ${plate}`,
 
   // --- Badges ----------------------------------------------------------------
   substituteBadge: '🔁 Vehículo de sustitución',
+  substituteFrame: 'Vehículo de sustitución',
   unlimitedKmBadge: '∞ km ilimitados',
   driverBadge: (name: string) => `Conductor: ${name}`,
   noDriverBadge: 'Sin conductor',
@@ -50,6 +61,28 @@ const es = {
     const unit = abs >= 60 ? `${Math.round(abs / 30)} meses` : `${abs} día${abs === 1 ? '' : 's'}`
     return days >= 0 ? `en ${unit}` : `hace ${unit}`
   },
+
+  // --- Modal de detalle de un KPI (clic en una tarjeta) ----------------------
+  kpiHint: 'Ver detalle e histórico',
+  kpiTitle: (label: string, plate: string) => `${label} · ${plate}`,
+  kpiCurrentData: 'Datos actuales',
+  kpiRelatedHistory: 'Movimientos relacionados',
+  kpiNoHistory: 'Sin movimientos relacionados todavía.',
+  kpiMoreInHistory: (n: number) => `y ${n} más en el histórico completo…`,
+  kpiClose: 'Cerrar',
+  // Coste mensual
+  kpiCostTotal: 'Coste total del contrato',
+  kpiCostTotalSub: 'estimado: cuota × duración',
+  kpiCostPenalty: 'Penalización estimada por exceso de km',
+  kpiCostInvoicesNote: 'Las facturas emitidas están en el bloque «Facturas» de la ficha.',
+  // ITV
+  kpiItvLast: 'Última ITV registrada',
+  kpiItvResult: 'Resultado',
+  kpiItvNone: 'Sin ITV registradas.',
+  // Seguro
+  kpiInsuranceLast: 'Última renovación registrada',
+  kpiInsuranceNone: 'Sin renovaciones registradas.',
+  kpiInsuranceDocsNote: 'La póliza y sus documentos están en el bloque «Documentos» de la ficha.',
 
   // --- Tarjeta de km contratados --------------------------------------------
   contractedKmTitle: 'Kilómetros contratados',
@@ -112,7 +145,18 @@ const es = {
   historyFilterLabel: 'Origen',
   historyAll: 'Todos',
   byActor: (name: string) => `Por ${name}`,
+  doneByLabel: 'Realizado por',
   systemActor: 'Sistema',
+  // Desglose de campos: plegado por defecto en las altas (vuelcan la ficha
+  // entera) y en los cambios largos.
+  historyChanges: (n: number) => `${n} campo${n === 1 ? '' : 's'} modificado${n === 1 ? '' : 's'}`,
+  historyCreateFields: (n: number) => `Datos del alta (${n})`,
+  // Ráfagas del mismo tipo el mismo día (p. ej. 11 lecturas sembradas de golpe).
+  historyGroupTitle: (n: number, action: string) => `${n} × ${action}`,
+  historyGroupOpen: (n: number) => `Ver el detalle (${n})`,
+  historyDayItems: (n: number) => `${n} movimiento${n === 1 ? '' : 's'}`,
+  boolYes: 'Sí',
+  boolNo: 'No',
   auditModels: {
     vehicle: 'Vehículo',
     contract: 'Contrato',
@@ -151,6 +195,9 @@ const es = {
     property: 'Propiedad',
     business_use: 'Uso',
     consumption: 'Consumo',
+    market_segment: 'Segmento',
+    size: 'Tamaño',
+    veh_use: 'Uso del vehículo',
     unlimited_km: 'Km ilimitados',
     is_substitute: 'De sustitución',
     registration_date: 'Matriculación',
@@ -178,6 +225,9 @@ const es = {
     reason: 'Motivo',
     description: 'Descripción',
     cost: 'Coste',
+    paid: 'Pagada',
+    result: 'Resultado',
+    next_due: 'Próxima ITV',
   } as Record<string, string>,
 
   // --- Tarjeta de facturas ---------------------------------------------------
@@ -258,14 +308,30 @@ const es = {
 
   // --- Modal de vinculación --------------------------------------------------
   linkModalTitle: (plate: string) => `Sustitución de ${plate}`,
-  linkActive: {
-    pre: 'Vínculo ',
-    bold: 'activo',
-    post: (date: string, reason: string) => ` desde ${date} (${reason}): `,
-  },
+  // Cabecera del vínculo vigente (tarjeta de datos, no párrafo).
+  linkActiveTitle: 'Vínculo activo',
+  linkSinceDays: (date: string, days: number) =>
+    `Desde ${date} · ${days} día${days === 1 ? '' : 's'}`,
   onlyOneSubstitute: 'Solo puede haber un sustituto activo por principal.',
-  closeLinkEndsToday: 'Cerrar vínculo (fin hoy)',
   closing: 'Cerrando…',
+  // Cierre del vínculo: hoy, con fecha anterior o programado a futuro.
+  closeSectionTitle: 'Cerrar el vínculo',
+  closeWhenLabel: 'Cuándo',
+  closeToday: 'Hoy',
+  closeOtherDate: 'Otra fecha',
+  closeDateLabel: 'Fecha de fin',
+  closeHintPast: 'Cierre con efecto retroactivo: el vínculo constará como terminado ese día.',
+  closeHintToday: 'El sustituto deja de cubrir hoy mismo.',
+  closeHintFuture:
+    'Cierre programado: el sustituto sigue cubriendo hasta esa fecha y el principal continúa bloqueado.',
+  closeBeforeStart: (date: string) => `La fecha de fin no puede ser anterior al inicio (${date}).`,
+  closeDateRequired: 'Indica la fecha de fin.',
+  closeMinDate: (date: string) =>
+    `El calendario empieza el ${date}: un vínculo no puede terminar antes de empezar.`,
+  scheduledClose: (date: string) => `Cierre programado para el ${date}.`,
+  cancelScheduledClose: 'Anular el cierre programado',
+  confirmCancelScheduled: '¿Anular el cierre programado y dejar el vínculo abierto?',
+  errCancelScheduled: 'No se pudo anular el cierre programado.',
   substituteVehicle: 'Vehículo de sustitución',
   choosePlaceholder: '— Elegir —',
   unavailable: 'no disponible',
@@ -273,6 +339,7 @@ const es = {
   linkVerb: 'Vincular',
   linking: 'Vinculando…',
   linkHistoryTitle: 'Histórico de vínculos',
+  linkNoEnd: 'sin cerrar',
   activeWord: 'activo',
   confirmCloseLink: '¿Cerrar el vínculo de sustitución con fecha de hoy?',
   closeLink: 'Cerrar vínculo',
@@ -284,6 +351,23 @@ const es = {
   odometerLabel: 'Odómetro (km acumulados)',
   dateLabel: 'Fecha',
   saveReading: 'Guardar lectura',
+  // Aviso de antigüedad de la última lectura (verde / ámbar / rojo).
+  kmStaleDays: (n: number) => `${n} día${n === 1 ? '' : 's'} sin lectura`,
+  kmStaleSince: (date: string) => `Última lectura el ${date}.`,
+  kmStaleNever: 'Sin ninguna lectura registrada',
+  kmStaleNeverSub: 'Este vehículo no tiene todavía ninguna lectura de odómetro.',
+  kmStaleOk: 'Al día.',
+  kmStaleWarn: 'Conviene reclamar una lectura al conductor.',
+  kmStaleDanger: 'Lectura vencida: reclámala al conductor.',
+  kmClaimByEmail: 'Reclamar por correo',
+  kmEmailModalTitle: (plate: string) => `Reclamar lectura · ${plate}`,
+  // Listado de lecturas agrupadas por año.
+  kmReadingsTotal: (n: number) => `${n} lectura${n === 1 ? '' : 's'} registradas`,
+  kmYearCount: (n: number) => `${n} lectura${n === 1 ? '' : 's'}`,
+  kmYearDelta: (kmStr: string) => `+${kmStr} en el año`,
+  kmNoReadings: 'Sin lecturas todavía.',
+  kmNewReadingTitle: 'Nueva lectura',
+  kmEstimatedTag: 'estimada',
 
   // --- Errores ---------------------------------------------------------------
   errLoadVehicle: 'No se pudo cargar el vehículo.',
@@ -309,11 +393,21 @@ const en: typeof es = {
   substitution: 'Substitution',
   convertToFleet: 'Convert to fleet',
   convertToFleetTitle: 'Type is set at creation; this is the only substitute → fleet path',
+  convertModalTitle: (plate) => `Convert ${plate} into a fleet vehicle`,
+  convertIntro:
+    'The vehicle stops being a substitute and becomes a regular fleet vehicle: it can have an assigned driver and its own substitutions.',
+  convertIrreversible:
+    'This cannot be undone: the type is set when the vehicle is created and this is the only substitute → fleet path.',
+  convertBlockedByLink: (plate) =>
+    `It is currently in a substitution link with ${plate}. Close that link before converting it.`,
+  convertConfirm: 'Convert to fleet',
+  converting: 'Converting…',
   retire: 'Retire',
   blockedTooltip: (plate) => `Blocked by substitution — log mileage on ${plate}`,
 
   // --- Badges ----------------------------------------------------------------
   substituteBadge: '🔁 Substitute vehicle',
+  substituteFrame: 'Substitute vehicle',
   unlimitedKmBadge: '∞ Unlimited km',
   driverBadge: (name) => `Driver: ${name}`,
   noDriverBadge: 'No driver',
@@ -348,6 +442,28 @@ const en: typeof es = {
     const unit = abs >= 60 ? `${Math.round(abs / 30)} months` : `${abs} day${abs === 1 ? '' : 's'}`
     return days >= 0 ? `in ${unit}` : `${unit} ago`
   },
+
+  // --- KPI detail modal (click on a card) -----------------------------------
+  kpiHint: 'View detail and history',
+  kpiTitle: (label, plate) => `${label} · ${plate}`,
+  kpiCurrentData: 'Current data',
+  kpiRelatedHistory: 'Related activity',
+  kpiNoHistory: 'No related activity yet.',
+  kpiMoreInHistory: (n) => `and ${n} more in the full history…`,
+  kpiClose: 'Close',
+  // Monthly cost
+  kpiCostTotal: 'Total contract cost',
+  kpiCostTotalSub: 'estimated: fee × duration',
+  kpiCostPenalty: 'Estimated penalty for excess km',
+  kpiCostInvoicesNote: 'Issued invoices live in the “Invoices” block of this page.',
+  // MOT
+  kpiItvLast: 'Last MOT logged',
+  kpiItvResult: 'Result',
+  kpiItvNone: 'No MOT logged.',
+  // Insurance
+  kpiInsuranceLast: 'Last renewal logged',
+  kpiInsuranceNone: 'No renewals logged.',
+  kpiInsuranceDocsNote: 'The policy and its documents live in the “Documents” block of this page.',
 
   // --- Contracted mileage card ----------------------------------------------
   contractedKmTitle: 'Contracted mileage',
@@ -408,7 +524,15 @@ const en: typeof es = {
   historyFilterLabel: 'Source',
   historyAll: 'All',
   byActor: (name) => `By ${name}`,
+  doneByLabel: 'Performed by',
   systemActor: 'System',
+  historyChanges: (n) => `${n} field${n === 1 ? '' : 's'} changed`,
+  historyCreateFields: (n) => `Creation data (${n})`,
+  historyGroupTitle: (n, action) => `${n} × ${action}`,
+  historyGroupOpen: (n) => `View details (${n})`,
+  historyDayItems: (n) => `${n} entr${n === 1 ? 'y' : 'ies'}`,
+  boolYes: 'Yes',
+  boolNo: 'No',
   auditModels: {
     vehicle: 'Vehicle',
     contract: 'Contract',
@@ -447,6 +571,9 @@ const en: typeof es = {
     property: 'Ownership',
     business_use: 'Use',
     consumption: 'Consumption',
+    market_segment: 'Segment',
+    size: 'Size',
+    veh_use: 'Vehicle use',
     unlimited_km: 'Unlimited km',
     is_substitute: 'Substitute',
     registration_date: 'Registration',
@@ -474,6 +601,9 @@ const en: typeof es = {
     reason: 'Reason',
     description: 'Description',
     cost: 'Cost',
+    paid: 'Paid',
+    result: 'Result',
+    next_due: 'Next MOT',
   },
 
   // --- Invoices card ---------------------------------------------------------
@@ -554,14 +684,27 @@ const en: typeof es = {
 
   // --- Substitution modal ----------------------------------------------------
   linkModalTitle: (plate) => `Substitution for ${plate}`,
-  linkActive: {
-    pre: '',
-    bold: 'Active',
-    post: (date, reason) => ` link since ${date} (${reason}): `,
-  },
+  linkActiveTitle: 'Active link',
+  linkSinceDays: (date, days) => `Since ${date} · ${days} day${days === 1 ? '' : 's'}`,
   onlyOneSubstitute: 'Only one active substitute is allowed per main vehicle.',
-  closeLinkEndsToday: 'Close link (ends today)',
   closing: 'Closing…',
+  closeSectionTitle: 'Close the link',
+  closeWhenLabel: 'When',
+  closeToday: 'Today',
+  closeOtherDate: 'Another date',
+  closeDateLabel: 'End date',
+  closeHintPast: 'Backdated close: the link will show as ended on that day.',
+  closeHintToday: 'The substitute stops covering today.',
+  closeHintFuture:
+    'Scheduled close: the substitute keeps covering until that date and the main vehicle stays blocked.',
+  closeBeforeStart: (date) => `The end date cannot be earlier than the start (${date}).`,
+  closeDateRequired: 'Enter the end date.',
+  closeMinDate: (date) =>
+    `The calendar starts on ${date}: a link cannot end before it began.`,
+  scheduledClose: (date) => `Close scheduled for ${date}.`,
+  cancelScheduledClose: 'Cancel the scheduled close',
+  confirmCancelScheduled: 'Cancel the scheduled close and leave the link open?',
+  errCancelScheduled: 'Could not cancel the scheduled close.',
   substituteVehicle: 'Substitute vehicle',
   choosePlaceholder: '— Choose —',
   unavailable: 'unavailable',
@@ -569,6 +712,7 @@ const en: typeof es = {
   linkVerb: 'Link',
   linking: 'Linking…',
   linkHistoryTitle: 'Link history',
+  linkNoEnd: 'open',
   activeWord: 'active',
   confirmCloseLink: 'Close the substitution link as of today?',
   closeLink: 'Close link',
@@ -580,6 +724,21 @@ const en: typeof es = {
   odometerLabel: 'Odometer (cumulative km)',
   dateLabel: 'Date',
   saveReading: 'Save reading',
+  kmStaleDays: (n) => `${n} day${n === 1 ? '' : 's'} without a reading`,
+  kmStaleSince: (date) => `Last reading on ${date}.`,
+  kmStaleNever: 'No reading logged yet',
+  kmStaleNeverSub: 'This vehicle has no odometer reading yet.',
+  kmStaleOk: 'Up to date.',
+  kmStaleWarn: 'Worth chasing the driver for a reading.',
+  kmStaleDanger: 'Reading overdue: chase the driver.',
+  kmClaimByEmail: 'Request by email',
+  kmEmailModalTitle: (plate) => `Request reading · ${plate}`,
+  kmReadingsTotal: (n) => `${n} reading${n === 1 ? '' : 's'} logged`,
+  kmYearCount: (n) => `${n} reading${n === 1 ? '' : 's'}`,
+  kmYearDelta: (kmStr) => `+${kmStr} in the year`,
+  kmNoReadings: 'No readings yet.',
+  kmNewReadingTitle: 'New reading',
+  kmEstimatedTag: 'estimated',
 
   // --- Errors ----------------------------------------------------------------
   errLoadVehicle: 'Could not load the vehicle.',

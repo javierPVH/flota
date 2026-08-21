@@ -35,8 +35,16 @@ def emit_vehicle_created(vehicle) -> Event:
     )
 
 
-def emit_vehicle_state_change(vehicle, old_state, new_state, reason: str = "") -> Event | None:
-    """Evento de cambio de estado (HU-1.5/1.6). Devuelve None si no cambió."""
+def emit_vehicle_state_change(
+    vehicle, old_state, new_state, reason: str = "", when=None
+) -> Event | None:
+    """Evento de cambio de estado (HU-1.5/1.6). Devuelve None si no cambió.
+
+    B4: `when` es la fecha con efecto del cambio (p. ej. el día de la baja).
+    Antes solo existía "hoy", así que el front tenía que meter la fecha DENTRO
+    del motivo («Baja el 2026-08-20: …»), en castellano y a mano: una prosa que
+    quedaba guardada tal cual, sin traducir y sin poder consultarse como dato.
+    """
     if old_state == new_state:
         return None
     event_type = _STATE_EVENT.get(new_state)
@@ -45,7 +53,7 @@ def emit_vehicle_state_change(vehicle, old_state, new_state, reason: str = "") -
     return Event.objects.create(
         vehicle=vehicle,
         event_type=event_type,
-        event_date=timezone.localdate(),
+        event_date=when or timezone.localdate(),
         notes=reason or f"Cambio de estado a «{vehicle.get_state_display()}».",
     )
 

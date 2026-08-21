@@ -10,7 +10,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import Role
 from fleet.models import Assignment, Document, Vehicle, VehicleRequest
-from fleet.models.enums import DocumentStatus, VehicleRequestStatus
+from fleet.models.enums import AssignmentStatus, DocumentStatus, VehicleRequestStatus
 from fleet.services import archiver, jira
 
 from .helpers import make_user
@@ -61,7 +61,12 @@ class DocumentArchiveOnUploadTests(APITestCase):
         # guardado pero el documento pendiente de archivar (reintento por job).
         driver = make_user("driver", Role.DRIVER)
         vehicle = Vehicle.objects.create(plate="UP1", brand="a", model="b")
-        Assignment.objects.create(vehicle=vehicle, driver=driver, start_date="2026-01-01")
+        Assignment.objects.create(
+            vehicle=vehicle,
+            driver=driver,
+            start_date="2026-01-01",
+            status=AssignmentStatus.ACCEPTED,  # C1: solo la aceptada da ámbito
+        )
         self.client.force_authenticate(driver)
         upload = SimpleUploadedFile("parte.jpg", b"\xff\xd8\xff fake-jpg", "image/jpeg")
         with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
@@ -78,7 +83,12 @@ class DocumentArchiveOnUploadTests(APITestCase):
         # Si el front trae ya la URL externa, el documento nace archivado.
         driver = make_user("driver2", Role.DRIVER)
         vehicle = Vehicle.objects.create(plate="UP2", brand="a", model="b")
-        Assignment.objects.create(vehicle=vehicle, driver=driver, start_date="2026-01-01")
+        Assignment.objects.create(
+            vehicle=vehicle,
+            driver=driver,
+            start_date="2026-01-01",
+            status=AssignmentStatus.ACCEPTED,  # C1: solo la aceptada da ámbito
+        )
         self.client.force_authenticate(driver)
         resp = self.client.post(
             reverse("document-list"),

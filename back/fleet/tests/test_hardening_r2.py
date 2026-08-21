@@ -1,5 +1,7 @@
 """Endurecimiento del paso 15 (PLAN_EVOLUCION.md): SEC3/SEC8, BG11, PR6."""
 
+from datetime import date
+
 from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
@@ -8,30 +10,64 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Alert, Vehicle
+from fleet.models import Alert, Assignment, Document, Vehicle
+from fleet.models.enums import AssignmentStatus
 
 from .helpers import make_user
 
 
 class ProtectedMediaTests(APITestCase):
-    """SEC3: /media exige sesión; en producción responde X-Accel-Redirect."""
+    """SEC3 + C3: /media exige sesión Y ámbito; en prod responde X-Accel-Redirect."""
+
+    PATH = "documents/2026/08/foto.jpg"
+
+    def setUp(self):
+        self.admin = make_user("media-admin", Role.ADMIN)
+        self.mine = make_user("media-driver", Role.DRIVER)
+        self.other = make_user("media-otro", Role.DRIVER)
+        self.vehicle = Vehicle.objects.create(plate="MED1", brand="a", model="b")
+        Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=self.mine,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        # El binario cuelga siempre de un Document (único FileField del proyecto).
+        Document.objects.create(vehicle=self.vehicle, type="accident_report", file=self.PATH)
 
     def test_anonymous_cannot_fetch_media(self):
-        resp = self.client.get("/media/documents/foto.jpg")
+        resp = self.client.get(f"/media/{self.PATH}")
         self.assertIn(resp.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
 
     @override_settings(DEBUG=False)
-    def test_authenticated_gets_accel_redirect(self):
-        user = make_user("driver", Role.DRIVER)
-        self.client.force_authenticate(user)
-        resp = self.client.get("/media/documents/foto.jpg")
+    def test_owner_gets_accel_redirect(self):
+        self.client.force_authenticate(self.mine)
+        resp = self.client.get(f"/media/{self.PATH}")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp["X-Accel-Redirect"], "/_protected_media/documents/foto.jpg")
+        self.assertEqual(resp["X-Accel-Redirect"], f"/_protected_media/{self.PATH}")
+
+    @override_settings(DEBUG=False)
+    def test_admin_gets_accel_redirect(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(f"/media/{self.PATH}")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @override_settings(DEBUG=False)
+    def test_authenticated_out_of_scope_is_404(self):
+        """C3: estar autenticado no basta — el parte de accidente es de su vehículo."""
+        self.client.force_authenticate(self.other)
+        resp = self.client.get(f"/media/{self.PATH}")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @override_settings(DEBUG=False)
+    def test_orphan_file_is_404_for_non_admin(self):
+        self.client.force_authenticate(self.mine)
+        resp = self.client.get("/media/documents/2026/08/huerfano.jpg")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
     @override_settings(DEBUG=False)
     def test_path_traversal_is_rejected(self):
-        user = make_user("driver", Role.DRIVER)
-        self.client.force_authenticate(user)
+        self.client.force_authenticate(self.admin)
         resp = self.client.get("/media/..%2F..%2Fetc%2Fpasswd")
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 

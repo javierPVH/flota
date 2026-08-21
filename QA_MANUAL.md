@@ -72,13 +72,27 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
 ### Alertas
 - [ ] Hay alertas de ITV, **seguro (A6/N2)**, km y "sin conductor" sembradas.
 - [ ] Las de seguro (~12) mezclan los tres niveles: **vencidas (críticas)**, a <15 días y a <30 — comprobar que el nivel/color acompaña al mensaje.
-- [ ] Resolver/reabrir una alerta.
+- [ ] Pestañas de estado: solo **Abiertas / Resueltas / Todas**. No existe "Descartadas" ni botón de descartar: resolver es el único cierre.
+- [ ] Columnas de **Conductor** y **Responsable** en todas las pestañas, con enlace a su ficha (o "—" si el coche no tiene a nadie).
+- [ ] Acciones de la fila (solo en Abiertas y Todas): el botón de **correo** (sobre) abre el mismo modal que Vehículos, ya en el tipo de aviso de la alerta (ITV → aviso de ITV, lectura pendiente → reclamar lectura).
+- [ ] Todas las fechas de la tabla con el mismo formato ("31 ago 2026"), incluida **Fecha límite** — nunca el ISO crudo.
+- [ ] En **Resueltas**: el histórico va **agrupado DENTRO de la tabla en dos niveles plegables** — una fila para el **año** y, debajo, una por cada **mes**, ambas ocupando todas las columnas y con su chevron. Lo más reciente arriba. **No hay columna de Acciones**.
+- [ ] Plegar un **mes** esconde solo sus filas; plegar un **año** esconde también sus meses. El recuento del año suma el de sus meses.
+- [ ] **Conductor** y **Responsable** se ven también en Resueltas (junto a las dos columnas del cierre).
+- [ ] En **Resueltas**: columnas **Resuelta el** y **Resuelta por**. El seed deja una de cada caso:
+  - en **verde** la que cerró el responsable del propio vehículo;
+  - en **rojo con triángulo** la que cerró `admin`, ajeno al coche — al pasar el ratón (o tabular hasta el icono) sale el bocadillo diciendo quién sí era el conductor y el responsable. **Debe verse entero, sin recortarse por la celda ni salir a la vez que el tooltip del navegador**;
+  - las cerradas por el sistema al registrar ITV/póliza/lectura salen como *Cierre automático* (gris), no en rojo.
+- [ ] Resolver una alerta abierta: pasa a Resueltas con la fecha de hoy y tu nombre, en el grupo del mes en curso.
 
-### Incidencias, propuestas, solicitudes, facturas, informes
+### Incidencias, facturas, informes
 - [ ] Crear una incidencia y cambiarle el estado.
-- [ ] Aprobar o rechazar una propuesta de km.
-- [ ] Ver una solicitud y su estado; facturas: abrir una y ver el reparto.
+- [ ] Facturas: abrir una y ver el reparto.
 - [ ] Informes: generar/descargar uno.
+- [ ] **Propuestas y solicitudes están ocultas**: no aparecen en el menú ni en la
+      navegación, y los atajos `g p` / `g s` ya no llevan a ninguna parte. La PWA
+      tampoco permite ya enviar propuestas de fechas, así que no se acumulan sin
+      resolver.
 
 ### Catálogos y usuarios
 - [ ] Crear una marca o sociedad; el validador de email/URL del formulario avisa con valores malos.
@@ -130,11 +144,75 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
       vencido). Sin nada urgente, la tira no existe. Cada aviso enlaza a su destino.
 - [ ] Crear una incidencia con foto.
 - [ ] Subir un documento.
+- [ ] **Ya no se proponen fechas**: en la ficha del vehículo no hay acción "Proponer
+      fechas" ni tarjeta de propuestas propias. Se retiró junto con su bandeja de
+      confirmación en gestión, para no dejar al conductor esperando una respuesta que
+      nadie podía dar. (El seed sigue sembrando asignaciones `proposed`: es normal que
+      existan en la BD sin pantalla donde verse.)
 - [ ] Gráfica de km con overlay (A11: el shim re-exporta los tipos — si compila y pinta, OK).
 - [ ] Conmutador de idioma ES/EN: pasada rápida por todas las pantallas en EN.
 
+### Catálogos (Ajustes → Catálogos)
+- [ ] Crear una entrada en **cada** catálogo (país, unidad de negocio, proyecto, CECO,
+      renting, marca, modelo, sociedad): las ocho altas deben funcionar.
+- [ ] **Duplicado por mayúsculas**: con "Seat" creada, intentar "SEAT" o "seat" → lo
+      rechaza indicando el campo. Antes convivían las tres.
+- [ ] **Duplicado exacto** en país, unidad de negocio, proyecto, CECO o renting → lo
+      rechaza. Antes esos cinco no tenían ninguna restricción.
+- [ ] **Nombre ocupado por un registro desactivado**: desactivar la marca "Seat" (pasa a
+      erratas y desaparece del listado) e intentar crearla otra vez → sale el aviso de
+      que existe pero está desactivada y el botón **«Restaurar el existente»**; al
+      pulsarlo, la marca vuelve al catálogo. Igual con sociedad (código) y modelo.
+- [ ] Crear un CECO y, sin recargar la página, ir a Proyectos: el select de centro de
+      coste ya lo ofrece.
+
+### Ajustes → Notificaciones
+- [ ] La pestaña **Notificaciones** aparece en Ajustes y lista los envíos sembrados
+      (resumen diario de `admin`, informe semanal con Drive, y el mensual de `sara`
+      en pausa — este último solo lo ve ella: cada usuario ve **solo los suyos**).
+- [ ] El formulario sale en **cuatro bloques numerados** (qué se envía, cuándo, a quién
+      y cómo se llama) y en el pie, junto a los botones, una línea de **resumen** que
+      cambia al vuelo: «Flota (CSV) · cada lunes a las 07:30 · a 2 destinatarios».
+- [ ] Crear un envío de cada frecuencia: diaria, semanal (pide día de la semana) y
+      mensual (pide día del mes, 1–28). El formulario oculta lo que no aplica, y
+      frecuencia + día + hora van en una fila.
+- [ ] Elegir **Resumen de la flota**: desaparecen los filtros y la opción de Drive (no
+      genera adjunto, y se explica por qué). Elegir un informe: reaparecen.
+- [ ] El desplegable ofrece **los mismos 7 informes que Informes** (Flota, Kilometraje,
+      Documentos, Alertas, Facturas, Costes, Conductores) y, al elegir uno, salen **sus
+      filtros**: marca y estado en Flota, vehículo en Kilometraje, vehículo/tipo/estado
+      en Documentos, estado y nivel en Alertas, rol en Conductores…
+- [ ] Programar «Flota» filtrado por una marca y usar **Enviar ahora**: el fichero trae
+      solo esa marca, igual que la descarga a mano desde Informes.
+- [ ] Casillas **Añadir la fecha / Añadir la hora**: la línea de ejemplo bajo el nombre
+      cambia al marcarlas, y el correo llega con ese asunto y ese nombre de fichero (la
+      hora va con guion, no con dos puntos: es un nombre de fichero).
+- [ ] El campo **Destinatarios** aparece con el correo del usuario ya puesto al crear un
+      envío nuevo, y admite varias direcciones separadas por comas.
+- [ ] **Cambiar el destinatario por otro** (quitando el propio) y usar «Enviar ahora»: el
+      correo llega **solo** a esa dirección; al usuario que lo configuró no le llega nada.
+      Dejar el campo vacío con «Enviar por correo» marcado → el formulario lo rechaza.
+- [ ] No hay selector de formato: los informes se adjuntan **en CSV** y así se indica.
+- [ ] **Enviar ahora** en uno con correo: llega el mensaje. Con un informe, llega con el
+      adjunto en `.csv` (con el nombre del envío); con el resumen, los datos van en el
+      cuerpo.
+- [ ] **Pausar** un envío: la fila se atenúa, la columna «Próximo envío» pasa a «—» y
+      deja de despacharse.
+- [ ] Validaciones: semanal sin día, sin ningún destino, correo sin destinatarios, Drive
+      sin carpeta, o un destinatario que no sea un correo → el formulario lo rechaza
+      explicando qué falla (el mensaje sale en el pie, junto a los botones).
+- [ ] Con `sara` (supervisora), un informe programado trae **solo sus vehículos**: el
+      ámbito es el del dueño del envío, no el del job que lo manda.
+- [ ] Eliminar un envío: se borra de verdad y **no** aparece en Borrado definitivo (es
+      configuración personal, no un registro de negocio).
+
 ### Portones de acceso
 - [ ] `david` (sin coche): pantalla clara de "sin vehículo asignado", sin errores.
+- [ ] Usuario **sin rol** (`nuevo`): el portón ofrece un **enlace a Jira** para abrir
+      la solicitud (se abre en pestaña nueva) y explica que la activación la hace la
+      administración a mano. No hay formulario ni clave de ticket: Jira no se gestiona
+      desde la aplicación. Sin `FLEET_JIRA_REQUEST_URL` configurada debe salir el aviso
+      de "no configurada", nunca un enlace roto.
 - [ ] `sara` (supervisora): ve su vista de supervisión, no la de conductor.
 - [ ] `sara` **también** está sujeta a la ventana de km (es campo): fuera de plazo se
       le bloquea igual que a `carlos`. Solo el `admin` queda exento.

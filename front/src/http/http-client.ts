@@ -118,8 +118,28 @@ export function setAuthExpirationHandler(handler: AuthExpirationHandler | null):
   authExpirationHandler = handler
 }
 
-export function handleAuthExpiration(status: number): void {
-  if (status !== 401 || typeof window === 'undefined') return
+/**
+ * [ES] ¿La respuesta dice "no estás autenticado"? (C8)
+ *
+ * Con auth por SESIÓN, DRF NO devuelve 401: `SessionAuthentication` no publica
+ * cabecera `WWW-Authenticate`, así que `NotAuthenticated` se degrada a **403**,
+ * el mismo código que "no tienes permiso". El backend marca ese caso con
+ * `code: 'not_authenticated'` para poder distinguirlos; el 401 se mantiene por
+ * compatibilidad con el transporte por token.
+ * [EN] True when the response means "session expired / not logged in".
+ */
+export function isNotAuthenticated(status: number, payload?: unknown): boolean {
+  if (status === 401) return true
+  return (
+    status === 403
+    && !!payload
+    && typeof payload === 'object'
+    && (payload as { code?: unknown }).code === 'not_authenticated'
+  )
+}
+
+export function handleAuthExpiration(status: number, payload?: unknown): void {
+  if (!isNotAuthenticated(status, payload) || typeof window === 'undefined') return
   clearToken()
   if (authExpirationHandler) {
     authExpirationHandler()
@@ -181,19 +201,63 @@ async function requestReauth(): Promise<boolean> {
 export class ApiError extends Error {
   readonly status: number
 
-  constructor(message: string, status: number) {
+  /**
+   * [ES] Código de la envoltura de error del backend (`{detail, code}`), cuando
+   * lo trae. Permite separar casos que comparten status — sobre todo el 403 de
+   * `not_authenticated` (sesión caducada: se reintenta) del 403 de permiso o de
+   * ámbito (definitivo: se descarta). C8.
+   * [EN] Machine-readable error code from the backend envelope, when present.
+   */
+  readonly code: string
+
+  /**
+   * [ES] Datos que el backend adjunta para que la UI pueda ofrecer una acción
+   * concreta en vez de un mensaje sin salida (envoltorio `{detail, code,
+   * context}`). Ejemplo: el alta de un catálogo cuyo nombre lo ocupa un
+   * registro desactivado devuelve aquí su tipo e id, y la pantalla ofrece
+   * restaurarlo. Vacío cuando el error no trae contexto.
+   * [EN] Extra data the backend attaches so the UI can offer a concrete action.
+   */
+  readonly context: Record<string, unknown>
+
+  constructor(message: string, status: number, code = '', context: Record<string, unknown> = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
+    this.context = context
   }
 }
 
+function payloadCode(payload: unknown): string {
+  if (payload && typeof payload === 'object') {
+    const code = (payload as { code?: unknown }).code
+    if (typeof code === 'string') return code
+  }
+  return ''
+}
+
+function payloadContext(payload: unknown): Record<string, unknown> {
+  if (payload && typeof payload === 'object') {
+    const context = (payload as { context?: unknown }).context
+    if (context && typeof context === 'object' && !Array.isArray(context)) {
+      return context as Record<string, unknown>
+    }
+  }
+  return {}
+}
+
 function raiseApiError(status: number, payload: unknown, fallbackMessage: string): never {
-  handleAuthExpiration(status)
+  handleAuthExpiration(status, payload)
   if (isReauthRequired(status, payload)) {
     throw new ReauthRequiredError(asErrorMessage(payload, fallbackMessage))
   }
-  throw new ApiError(asErrorMessage(payload, fallbackMessage), status)
+  throw new ApiError(
+    asErrorMessage(payload, fallbackMessage),
+    status,
+    payloadCode(payload),
+    payloadContext(payload),
+  )
 }
 
 /**
@@ -205,6 +269,22 @@ function raiseApiError(status: number, payload: unknown, fallbackMessage: string
  * se usa el transporte por token en localStorage (compatibilidad con clientes API
  * / móvil que envían `Authorization: Token ...`).
  */
+/**
+ * M14 — ¿este error es una cancelación nuestra y no un fallo del servidor?
+ *
+ * `fetch` rechaza con `DOMException: AbortError` cuando se aborta la petición,
+ * y ese rechazo NO pasa por `raiseApiError` (no hay respuesta): llega crudo al
+ * `catch` de la pantalla, que lo pintaba como "no se pudo cargar". Al cambiar
+ * de filtro o desmontar, la carga anterior se aborta a propósito: eso no es un
+ * error que mostrar.
+ */
+export function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === 'AbortError')
+    || (error instanceof Error && error.name === 'AbortError')
+  )
+}
+
 export function isAuthCookieMode(): boolean {
   return String(import.meta.env.VITE_AUTH_COOKIE ?? 'true').trim().toLowerCase() !== 'false'
 }

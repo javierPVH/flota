@@ -22,8 +22,6 @@ export interface ConfirmOptions {
   confirmLabel?: string
   /** Tono del CTA: `danger` (borrar) o `warning` (acciones reversibles serias). */
   tone?: 'danger' | 'warning'
-  /** N7: muestra un campo de motivo; su valor llega en el resultado. */
-  withReason?: boolean
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>

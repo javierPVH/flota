@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Badge, Button, Modal, PageHeader, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
+import { Link, useParams } from 'react-router-dom'
+import {
+  Badge,
+  Button,
+  IconButton,
+  Modal,
+  PageHeader,
+  SelectField,
+  StatCard,
+  TextInputField,
+} from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import { useAppLang } from '@flota/ui/i18n'
-import { ExternalLink } from 'lucide-react'
+import { ChevronDown, ExternalLink, Mail, UserRound } from 'lucide-react'
 
 import {
   closeVehicleLink,
@@ -18,13 +27,17 @@ import {
   listKmReadings,
   listVehicleLinks,
   listVehicles,
+  reopenVehicleLink,
   updateContract,
   updateVehicleFields,
 } from '../api.ts'
-import { fmtEur, fmtKm, isoDateOf, kmLevelTone, todayIso, vehicleStateTone } from '../format.ts'
+import { fmtDate, fmtEur, fmtKm, kmLevelTone, todayIso, vehicleStateTone } from '../format.ts'
 import { useVehicleDetailCopy } from '../translations/vehicleDetail.ts'
+import { useVehicleFormCopy } from '../translations/vehicleForm.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { VehicleAssignmentsPanel } from '../components/VehicleAssignmentsPanel.tsx'
+import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
+import { VehicleForm } from '../components/VehicleForm.tsx'
 import { VehicleInvoicesCard } from '../components/VehicleInvoicesCard.tsx'
 import { KmChart } from '../components/KmChart.tsx'
 import { DocumentsPanel } from '../components/DocumentsPanel.tsx'
@@ -54,91 +67,23 @@ import type {
 
 const today = todayIso
 
-/** Solo enlaces http(s): corta javascript:/data: aunque el back ya sanea. */
-const safeHref = (url: string) => (/^https?:\/\//i.test(url) ? url : '')
-
-function daysUntil(dateStr: string): number {
-  return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86_400_000)
-}
-
-function label(map: Record<string, string>, value: string): string {
-  return map[value] ?? (value || '—')
-}
-
-// --- Histórico: eventos de negocio + auditoría de campos --------------------
-
-// Tono del badge de origen de cada movimiento del histórico.
-const SOURCE_TONE: Record<string, 'info' | 'success' | 'warning' | 'danger' | 'neutral'> = {
-  event: 'info',
-  vehicle: 'neutral',
-  contract: 'info',
-  assignment: 'success',
-  vehicleusage: 'info',
-  vehiclelink: 'warning',
-  kmreading: 'info',
-  invoice: 'info',
-  incident: 'danger',
-  document: 'neutral',
-}
-const sourceTone = (source: string) => SOURCE_TONE[source] ?? 'neutral'
-
-interface TimelineItem {
-  key: string
-  date: string
-  /** Texto principal (título del evento o etiqueta de la acción de auditoría). */
-  title: string
-  sub: string
-  /** Desglose "campo: viejo → nuevo" para el modal de la línea temporal. */
-  detail?: string[]
-  kind: 'event' | 'audit'
-  /** Modelo de origen (event/vehicle/contract/assignment/…), para etiqueta y filtro. */
-  source: string
-  /** Acción de auditoría cruda (create/update/delete) — para el render de la lista. */
-  action?: string
-}
-
-interface TimelineLabels {
-  modelLabel: (model: string) => string
-  actionLabel: (action: string) => string
-  fieldLabel: (field: string) => string
-  byActor: (name: string) => string
-  systemActor: string
-}
-
-function buildTimeline(
-  events: FlotaEvent[],
-  audit: AuditEntry[],
-  labels: TimelineLabels,
-): TimelineItem[] {
-  const items: TimelineItem[] = [
-    ...events.map((e) => ({
-      key: `e${e.id}`,
-      date: e.event_date ?? '',
-      title: e.event_type_display,
-      sub: e.notes,
-      kind: 'event' as const,
-      source: 'event',
-    })),
-    ...audit.map((a) => {
-      const source = a.model || 'vehicle'
-      const actor = a.actor || labels.systemActor
-      return {
-        key: `a${a.id}`,
-        date: isoDateOf(a.timestamp),
-        // Título legible para la línea temporal y su modal: "Contrato · Modificación".
-        title: `${labels.modelLabel(source)} · ${labels.actionLabel(a.action)}`,
-        sub: labels.byActor(actor),
-        detail: Object.entries(a.changes ?? {}).map(
-          ([field, pair]) => `${labels.fieldLabel(field)}: ${pair?.[0] || '—'} → ${pair?.[1] || '—'}`,
-        ),
-        kind: 'audit' as const,
-        source,
-        action: a.action,
-      }
-    }),
-  ]
-  return items.sort((a, b) => (a.date < b.date ? 1 : -1))
-}
+import {
+  KPI_HISTORY,
+  UNDATED_YEAR,
+  buildTimeline,
+  daysSince,
+  daysUntil,
+  groupTimeline,
+  hhmm,
+  kmStaleTone,
+  label,
+  pickKpiHistory,
+  safeHref,
+  sourceTone,
+  type KpiKey,
+  type TimelineItem,
+  type TimelineRun,
+} from '../vehicleTimeline.ts'
 
 // ---------------------------------------------------------------------------
 
@@ -146,11 +91,11 @@ export function VehicleDetailPage() {
   const confirm = useConfirm()
   const lang = useAppLang()
   const t = useVehicleDetailCopy()
+  const tForm = useVehicleFormCopy()
   const { user } = useAuth()
   const isAdmin = user?.roles.includes('admin') ?? false
   const { id } = useParams()
   const vehicleId = Number(id)
-  const navigate = useNavigate()
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [summary, setSummary] = useState<VehicleSummary | null>(null)
@@ -165,9 +110,13 @@ export function VehicleDetailPage() {
   // vínculos) falló — banner con reintento en vez de huecos silenciosos.
   const [partialError, setPartialError] = useState(false)
   const [showAllHistory, setShowAllHistory] = useState(false)
+  // Edición de la ficha en modal (antes navegaba a /vehiculos/:id/editar).
+  const [editOpen, setEditOpen] = useState(false)
+  // KPI abierto en el modal de detalle (null = cerrado).
+  const [kpiModal, setKpiModal] = useState<KpiKey | null>(null)
 
   // Operaciones G4 (estado / baja / vinculación)
-  const [opsModal, setOpsModal] = useState<'state' | 'baja' | 'link' | null>(null)
+  const [opsModal, setOpsModal] = useState<'state' | 'baja' | 'link' | 'convert' | null>(null)
   const [opsError, setOpsError] = useState('')
   const [opsSaving, setOpsSaving] = useState(false)
   const [stateValue, setStateValue] = useState('active')
@@ -177,21 +126,22 @@ export function VehicleDetailPage() {
   const [linkSubstitute, setLinkSubstitute] = useState('')
   const [linkReason, setLinkReason] = useState('breakdown')
   const [linkStart, setLinkStart] = useState(today())
+  // Cierre del vínculo: hoy (por defecto) o una fecha elegida — anterior
+  // (retroactivo) o futura (programado).
+  const [closeMode, setCloseMode] = useState<'today' | 'date'>('today')
+  const [closeDate, setCloseDate] = useState(today())
   const [candidates, setCandidates] = useState<Vehicle[]>([])
   // Sustitutos con un vínculo ACTIVO (ya en uso) → no disponibles en el select.
   const [busySubIds, setBusySubIds] = useState<Set<number>>(() => new Set())
   const [plateMap, setPlateMap] = useState<Record<number, string>>({})
 
   // Acordeón de secciones (mejora): desplegadas por defecto.
-  const accordion = useAccordion([
-    'km',
-    'tech',
-    'contract',
-    'invoices',
-    'assignments',
-    'documents',
-    'history',
-  ])
+  // Documentos e histórico arrancan plegados: son los dos bloques largos y no
+  // se leen en cada visita (el resumen del encabezado ya dice si hay algo).
+  const accordion = useAccordion(
+    ['km', 'tech', 'contract', 'invoices', 'assignments', 'documents', 'history'],
+    ['documents', 'history'],
+  )
 
   // Histórico: filtro por origen ('' = todos).
   const [historySource, setHistorySource] = useState('')
@@ -210,6 +160,10 @@ export function VehicleDetailPage() {
   const [kmView, setKmView] = useState<'annual' | 'contract'>('annual')
 
   const [kmModal, setKmModal] = useState(false)
+  // Reclamación de lectura por correo (se abre desde el aviso del modal de km).
+  const [kmEmailOpen, setKmEmailOpen] = useState(false)
+  // El aviso de antigüedad cabe en una línea; al desplegarlo se ve completo.
+  const [staleOpen, setStaleOpen] = useState(false)
   const [kmValue, setKmValue] = useState('')
   const [kmDate, setKmDate] = useState(todayIso)
   const [kmError, setKmError] = useState('')
@@ -233,14 +187,14 @@ export function VehicleDetailPage() {
         flagPartial()
         if (alive) setSummary(null)
       })
-    listKmReadings(vehicleId)
+    // Todas las páginas: el total y el acordeón por años necesitan el
+    // histórico completo, no las 50 primeras filas de DRF.
+    listAll(listKmReadings(vehicleId))
       .then(
-        (page) =>
+        (rows) =>
           alive &&
           setReadings(
-            [...page.results].sort((a, b) =>
-              (a.reading_date ?? '') < (b.reading_date ?? '') ? -1 : 1,
-            ),
+            [...rows].sort((a, b) => ((a.reading_date ?? '') < (b.reading_date ?? '') ? -1 : 1)),
           ),
       )
       .catch(() => {
@@ -267,10 +221,25 @@ export function VehicleDetailPage() {
     ])
       .then(async ([asMain, asSubstitute]) => {
         if (!alive) return
-        const merged = [...asMain.results, ...asSubstitute.results]
+        const merged = [...asMain.results, ...asSubstitute.results].sort((a, b) =>
+          a.start_date < b.start_date ? 1 : -1,
+        )
         setAllLinks(merged)
-        const activeMain = asMain.results.find((l) => l.end_date === null)
-        const activeSub = asSubstitute.results.find((l) => l.end_date === null)
+        // M11: las matrículas vienen en el propio vínculo; ya no hace falta un
+        // índice de toda la flota para traducir dos ids en el histórico.
+        setPlateMap(
+          Object.fromEntries(
+            merged.flatMap((l) => [
+              [l.main_vehicle, l.main_vehicle_plate],
+              [l.substitute_vehicle, l.substitute_vehicle_plate],
+            ]),
+          ),
+        )
+        // Vigente = sin fin, o con un cierre PROGRAMADO que aún no ha llegado
+        // (mismo criterio que `selectors.active_link_q` en el back).
+        const isActive = (l: VehicleLinkRow) => !l.end_date || l.end_date > today()
+        const activeMain = asMain.results.find(isActive)
+        const activeSub = asSubstitute.results.find(isActive)
         const link = activeMain ?? activeSub ?? null
         setActiveLink(link)
         if (!link) {
@@ -298,17 +267,101 @@ export function VehicleDetailPage() {
 
   useEffect(load, [load])
 
-  const timeline = useMemo(
-    () =>
-      buildTimeline(events, audit, {
-        modelLabel: (m) => t.auditModels[m] ?? t.auditModelOther,
-        actionLabel: (a) => t.auditActions[a] ?? a,
-        fieldLabel: (f) => t.fieldLabels[f] ?? f,
-        byActor: t.byActor,
-        systemActor: t.systemActor,
-      }),
-    [events, audit, t],
+  const timelineLabels = useMemo(
+    () => ({
+      modelLabel: (m: string) => t.auditModels[m] ?? t.auditModelOther,
+      actionLabel: (a: string) => t.auditActions[a] ?? a,
+      // Sin etiqueta = campo interno del back: `usefulChanges` lo descarta.
+      fieldLabel: (f: string) => t.fieldLabels[f],
+      byActor: t.byActor,
+      systemActor: t.systemActor,
+      boolYes: t.boolYes,
+      boolNo: t.boolNo,
+      valueLabel: (source: string, field: string, value: string) => {
+        const dict: Record<string, string> | null =
+          field === 'state'
+            ? Object.fromEntries(t.stateOptions.map((o) => [o.value, o.label]))
+            : field === 'fuel'
+              ? t.fuelLabel
+              : field === 'property'
+                ? t.propertyLabel
+                : field === 'business_use'
+                  ? t.useLabel
+                  : field === 'type' && source === 'vehicle'
+                    ? t.typeLabel
+                    : field === 'size'
+                      ? tForm.sizeLabels
+                      : field === 'market_segment'
+                        ? tForm.segmentLabels
+                        : field === 'veh_use'
+                          ? tForm.vehUseLabels
+                          : field === 'reason' && source === 'vehiclelink'
+                            ? Object.fromEntries(t.linkReasonOptions.map((o) => [o.value, o.label]))
+                            : null
+        return dict?.[value] ?? value
+      },
+    }),
+    [t, tForm],
   )
+
+  const timeline = useMemo(
+    () => buildTimeline(events, audit, timelineLabels),
+    [events, audit, timelineLabels],
+  )
+
+  // Fecha de la última lectura y días transcurridos desde ella (semáforo del
+  // modal de km). `readings` va en orden ascendente, así que la última es la
+  // más reciente; si aún no ha llegado, tira del resumen.
+  const lastReading = [...readings].reverse().find((r) => r.reading_date) ?? null
+  const lastReadingDate = lastReading?.reading_date ?? summary?.km_reading_date ?? null
+  const lastReadingKm = lastReading?.km_reading ?? summary?.km_current ?? null
+  const daysWithoutReading = lastReadingDate ? daysSince(lastReadingDate) : null
+  const staleTone = kmStaleTone(daysWithoutReading)
+
+  // Lecturas agrupadas por año, de más reciente a más antiguo (y dentro de
+  // cada año, también descendente). El delta de cada año es lo rodado en él:
+  // su odómetro final menos el del cierre del año anterior (no el rango
+  // interno, que se dejaría fuera lo recorrido entre el 31/12 y la 1ª lectura).
+  const readingsByYear = useMemo(() => {
+    const groups = new Map<string, KmReading[]>()
+    for (const r of readings) {
+      const year = (r.reading_date ?? '').slice(0, 4) || UNDATED_YEAR
+      const bucket = groups.get(year)
+      if (bucket) bucket.push(r)
+      else groups.set(year, [r])
+    }
+    // `readings` va en orden ascendente, así que recorremos los años de más
+    // antiguo a más nuevo arrastrando el odómetro de cierre del anterior.
+    const dated = [...groups.entries()]
+      .filter(([year]) => year !== UNDATED_YEAR)
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    const withDelta: Array<{ year: string; rows: KmReading[]; delta: number | null }> = []
+    let previousEnd: number | null = null
+    for (const [year, rows] of dated) {
+      const values = rows.map((r) => r.km_reading).filter((v): v is number => v != null)
+      const end = values.length > 0 ? Math.max(...values) : null
+      const base = previousEnd ?? (values.length > 1 ? Math.min(...values) : null)
+      withDelta.push({
+        year,
+        rows: [...rows].reverse(),
+        delta: end != null && base != null ? end - base : null,
+      })
+      if (end != null) previousEnd = end
+    }
+    // Sin fecha: al final, y sin delta que calcular.
+    const undated = groups.get(UNDATED_YEAR)
+    return [
+      ...withDelta.reverse(),
+      ...(undated ? [{ year: UNDATED_YEAR, rows: [...undated].reverse(), delta: null }] : []),
+    ]
+  }, [readings])
+
+  // Histórico acotado al KPI abierto (cambios de cuota, ITVs, seguro…).
+  const kpiTimeline = useMemo(() => {
+    if (!kpiModal) return []
+    const picked = pickKpiHistory(KPI_HISTORY[kpiModal], events, audit)
+    return buildTimeline(picked.events, picked.audit, timelineLabels)
+  }, [kpiModal, events, audit, timelineLabels])
 
   // Orígenes presentes en el histórico (para el filtro) + histórico filtrado.
   const historySources = useMemo(() => {
@@ -330,8 +383,10 @@ export function VehicleDetailPage() {
     [t],
   )
 
-  function openOps(kind: 'state' | 'baja' | 'link') {
+  function openOps(kind: 'state' | 'baja' | 'link' | 'convert') {
     setOpsError('')
+    setCloseMode('today')
+    setCloseDate(today())
     if (kind === 'state' && vehicle) {
       setStateValue(t.stateOptions.some((o) => o.value === vehicle.state) ? vehicle.state : 'active')
       setStateReason('')
@@ -344,14 +399,24 @@ export function VehicleDetailPage() {
       setLinkSubstitute('')
       setLinkReason('breakdown')
       setLinkStart(today())
-      // Candidatos a sustituto + mapa de matrículas + sustitutos ya en uso
-      // (vínculo activo = end_date null): esos salen en gris (no disponibles).
-      Promise.all([listAll(listVehicles()), listAll(listVehicleLinks({}))])
+      // Candidatos a sustituto + sustitutos ya en uso (vínculo activo =
+      // end_date null): esos salen en gris (no disponibles).
+      // M11: se piden SOLO los vehículos de sustitución (`?is_substitute=true`)
+      // y solo los vínculos que los tienen ocupados. Antes se traía la flota
+      // completa y todos los vínculos de la empresa para llenar un desplegable
+      // de sustitutos, y el filtro `is_substitute` se aplicaba en cliente.
+      Promise.all([
+        listAll(listVehicles({ is_substitute: true })),
+        listAll(listVehicleLinks({})),
+      ])
         .then(([rows, links]) => {
           setCandidates(rows.filter((v) => v.id !== vehicleId))
-          setPlateMap(Object.fromEntries(rows.map((v) => [v.id, v.plate])))
           setBusySubIds(
-            new Set(links.filter((l) => l.end_date === null).map((l) => l.substitute_vehicle)),
+            new Set(
+              links
+                .filter((l) => !l.end_date || l.end_date > today())
+                .map((l) => l.substitute_vehicle),
+            ),
           )
         })
         .catch(() => {
@@ -391,7 +456,11 @@ export function VehicleDetailPage() {
     try {
       await updateVehicleFields(vehicle.id, {
         state: 'retired',
-        change_reason: `Baja el ${bajaDate}: ${bajaReason}`,
+        // B4: el motivo va tal cual lo escribe la persona y la fecha viaja como
+        // DATO (`change_date`). Antes se guardaba «Baja el <fecha>: <motivo>»,
+        // prosa castellana persistida que el histórico enseñaba igual en inglés.
+        change_reason: bajaReason,
+        change_date: bajaDate,
         expected_updated_at: vehicle.updated_at,
       })
       setOpsModal(null)
@@ -429,9 +498,21 @@ export function VehicleDetailPage() {
 
   async function handleCloseLink() {
     if (!activeLink) return
+    const endDate = closeMode === 'today' ? today() : closeDate
+    if (!endDate) {
+      setOpsError(t.closeDateRequired)
+      return
+    }
+    // El back lo valida también; aquí se evita el viaje y se explica mejor.
+    if (endDate < activeLink.start_date) {
+      setOpsError(t.closeBeforeStart(activeLink.start_date))
+      return
+    }
+    setOpsError('')
     if (
       !(await confirm({
-        message: t.confirmCloseLink,
+        // Programar un cierre no libera el vehículo hoy: conviene decirlo.
+        message: endDate > today() ? t.closeHintFuture : t.confirmCloseLink,
         confirmLabel: t.closeLink,
         tone: 'warning',
       }))
@@ -439,11 +520,50 @@ export function VehicleDetailPage() {
       return
     setOpsSaving(true)
     try {
-      await closeVehicleLink(activeLink.id, today())
+      await closeVehicleLink(activeLink.id, endDate)
       setOpsModal(null)
       load()
     } catch (err) {
       setOpsError(asErrorMessage(err, t.errCloseLink))
+    } finally {
+      setOpsSaving(false)
+    }
+  }
+
+  /** Sustituto → flota. El error se queda en el modal: `setError` es el fallo
+   * fatal de carga y dejaría la ficha reducida a un cartel rojo. */
+  async function handleConvertToFleet() {
+    setOpsSaving(true)
+    setOpsError('')
+    try {
+      await convertToFleet(vehicleId)
+      setOpsModal(null)
+      load()
+    } catch (err) {
+      setOpsError(asErrorMessage(err, t.errConvertFleet))
+    } finally {
+      setOpsSaving(false)
+    }
+  }
+
+  /** Deshace un cierre programado que todavía no ha llegado. */
+  async function handleCancelScheduledClose() {
+    if (!activeLink) return
+    if (
+      !(await confirm({
+        message: t.confirmCancelScheduled,
+        confirmLabel: t.cancelScheduledClose,
+        tone: 'warning',
+      }))
+    )
+      return
+    setOpsSaving(true)
+    try {
+      await reopenVehicleLink(activeLink.id)
+      setOpsModal(null)
+      load()
+    } catch (err) {
+      setOpsError(asErrorMessage(err, t.errCancelScheduled))
     } finally {
       setOpsSaving(false)
     }
@@ -535,8 +655,258 @@ export function VehicleDetailPage() {
       : null
   const totalYears = projection ? Math.max(1, Math.ceil(projection.contract_years)) : 0
 
+  // Etiqueta de cada KPI clicable (título de su modal).
+  const kpiLabel: Record<KpiKey, string> = {
+    cost: t.monthlyCost,
+    itv: t.nextItv,
+    insurance: t.insuranceExpiry,
+    contract: t.contractEnd,
+  }
+
+  /** Último evento de un tipo (los eventos vienen sin orden garantizado). */
+  const lastEventOf = (type: string) =>
+    events
+      .filter((e) => e.event_type === type)
+      .sort((a, b) => ((a.event_date ?? '') < (b.event_date ?? '') ? 1 : -1))[0] ?? null
+
+  const dateWithRelative = (value: string | null) =>
+    value ? `${value} · ${relative(value)}` : t.noDateRecorded
+
+  /** Cifras del KPI abierto: lo que hay que saber sin bajar a las tarjetas. */
+  const kpiFacts = (kind: KpiKey) => {
+    if (kind === 'cost') {
+      const total =
+        contract?.month_fee && contract.contract_time
+          ? Number(contract.month_fee) * contract.contract_time
+          : null
+      return (
+        <>
+          <dt>{t.monthlyFee}</dt>
+          <dd>{contract?.month_fee ? eur(contract.month_fee) : '—'}</dd>
+          <dt>{t.penalty}</dt>
+          <dd>{contract?.penalty_per_km ? `${contract.penalty_per_km} €/km` : '—'}</dd>
+          <dt>{t.duration}</dt>
+          <dd>{contract?.contract_time ? t.months(contract.contract_time) : '—'}</dd>
+          <dt>{t.kpiCostTotal}</dt>
+          <dd>
+            {total != null ? `${eur(total)} · ${t.kpiCostTotalSub}` : '—'}
+          </dd>
+          <dt>{t.kpiCostPenalty}</dt>
+          <dd>{projection?.estimated_penalty ? eur(projection.estimated_penalty) : '—'}</dd>
+        </>
+      )
+    }
+    if (kind === 'itv') {
+      const last = lastEventOf('itv')
+      const result = typeof last?.details?.result === 'string' ? last.details.result : ''
+      return (
+        <>
+          <dt>{t.nextItv}</dt>
+          <dd>{dateWithRelative(vehicle.next_itv_date)}</dd>
+          <dt>{t.kpiItvLast}</dt>
+          <dd>{last ? last.event_date ?? '—' : t.kpiItvNone}</dd>
+          {result && (
+            <>
+              <dt>{t.kpiItvResult}</dt>
+              <dd>{result}</dd>
+            </>
+          )}
+        </>
+      )
+    }
+    if (kind === 'insurance') {
+      const last = lastEventOf('insurance_renewal')
+      return (
+        <>
+          <dt>{t.insuranceExpiry}</dt>
+          <dd>{dateWithRelative(vehicle.insurance_expiry_date)}</dd>
+          <dt>{t.kpiInsuranceLast}</dt>
+          <dd>{last ? last.event_date ?? '—' : t.kpiInsuranceNone}</dd>
+        </>
+      )
+    }
+    return (
+      <>
+        <dt>{t.ownership}</dt>
+        <dd>{label(t.propertyLabel, vehicle.property)}</dd>
+        <dt>{t.start}</dt>
+        <dd>{contract?.start_date ?? '—'}</dd>
+        <dt>{t.plannedEnd}</dt>
+        <dd>{contract ? dateWithRelative(contract.planned_end_date) : '—'}</dd>
+        <dt>{t.duration}</dt>
+        <dd>{contract?.contract_time ? t.months(contract.contract_time) : '—'}</dd>
+        <dt>{t.contractedKm}</dt>
+        <dd>{contract?.contract_km ? km(contract.contract_km) : '—'}</dd>
+        <dt>{t.monthlyFee}</dt>
+        <dd>{contract?.month_fee ? eur(contract.month_fee) : '—'}</dd>
+        <dt>{t.contractDrive}</dt>
+        <dd>
+          {contract && safeHref(contract.drive_url) ? (
+            <a
+              href={safeHref(contract.drive_url)}
+              target="_blank"
+              rel="noreferrer"
+              className="cell-link"
+            >
+              <ExternalLink size={13} aria-hidden /> {t.contractDriveOpen}
+            </a>
+          ) : (
+            <span className="muted">{t.contractDriveNone}</span>
+          )}
+        </dd>
+      </>
+    )
+  }
+
+  /** Una entrada del histórico. El alta es el caso especial: vuelca la ficha
+   * entera, así que sus campos van plegados y sin flecha (no hay valor
+   * anterior que enseñar). */
+  const renderItem = (item: TimelineItem) => {
+    const isCreate = item.action === 'create'
+    // Plegado en el alta y en los cambios largos; los cortos se leen sin abrir.
+    const changesOpen = !isCreate && item.changes.length <= 3
+    return (
+      <li
+        key={item.key}
+        className={`timeline-item kind-${item.kind}${isCreate ? ' is-create' : ''}`}
+      >
+        <span className="timeline-time">{item.hasTime ? hhmm(item.at) : ''}</span>
+        <div className="timeline-body">
+          <div className="timeline-head">
+            <Badge tone={sourceTone(item.source)}>
+              {t.auditModels[item.source] ?? t.auditModelOther}
+            </Badge>
+            <strong>
+              {item.kind === 'audit' && item.action
+                ? t.auditActions[item.action] ?? item.action
+                : item.title}
+            </strong>
+            {/* Qué objeto se tocó: distingue el alta del vehículo de la del
+                contrato o la de cada factura. */}
+            {item.repr && <span className="tl-repr">{item.repr}</span>}
+          </div>
+          {item.actor && (
+            <p className="timeline-actor">
+              <UserRound size={13} aria-hidden />
+              {t.doneByLabel} <strong>{item.actor}</strong>
+            </p>
+          )}
+          {item.note && <p className="timeline-sub muted">{item.note}</p>}
+          {item.changes.length > 0 && (
+            <details className="timeline-changes-acc" open={changesOpen}>
+              <summary className="timeline-changes-summary">
+                {isCreate
+                  ? t.historyCreateFields(item.changes.length)
+                  : t.historyChanges(item.changes.length)}
+              </summary>
+              <ul className="timeline-changes">
+                {item.changes.map((change) => (
+                  <li key={change.field}>
+                    <span className="tl-field">{change.field}</span>
+                    {!isCreate && (
+                      <>
+                        <span className="tl-before">{change.before}</span>
+                        <span className="tl-arrow" aria-hidden>
+                          →
+                        </span>
+                      </>
+                    )}
+                    <strong className="tl-after">{change.after}</strong>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      </li>
+    )
+  }
+
+  /** Ráfaga del mismo modelo y acción en un día: una fila con el recuento y el
+   * desglose plegado, en vez de once filas calcadas. */
+  const renderRun = (run: TimelineRun) => {
+    const first = run.items[0]
+    const actionLabel = run.action ? t.auditActions[run.action] ?? run.action : first.title
+    const actors = new Set(run.items.map((i) => i.actor))
+    return (
+      <li key={run.key} className="timeline-item kind-audit is-run">
+        <span className="timeline-time">{first.hasTime ? hhmm(first.at) : ''}</span>
+        <div className="timeline-body">
+          <div className="timeline-head">
+            <Badge tone={sourceTone(run.source)}>
+              {t.auditModels[run.source] ?? t.auditModelOther}
+            </Badge>
+            <strong>{t.historyGroupTitle(run.items.length, actionLabel)}</strong>
+          </div>
+          {actors.size === 1 && first.actor && (
+            <p className="timeline-actor">
+              <UserRound size={13} aria-hidden />
+              {t.doneByLabel} <strong>{first.actor}</strong>
+            </p>
+          )}
+          <details className="timeline-changes-acc">
+            <summary className="timeline-changes-summary">
+              {t.historyGroupOpen(run.items.length)}
+            </summary>
+            <ul className="tl-run-items">
+              {run.items.map((item) => (
+                <li key={item.key}>
+                  <span className="tl-run-time">{item.hasTime ? hhmm(item.at) : ''}</span>
+                  <span className="tl-run-repr">{item.repr || item.title}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      </li>
+    )
+  }
+
+  /** Histórico completo: un bloque por día (la fecha deja de repetirse en cada
+   * fila) y dentro, las entradas ya agrupadas. Lo comparten la ficha y los KPIs. */
+  const renderTimeline = (items: TimelineItem[]) => (
+    <div className="timeline">
+      {groupTimeline(items).map((day) => (
+        <section className="tl-day" key={day.date || 'sin-fecha'}>
+          <h4 className="tl-day-head">
+            <span className="tl-day-date">{day.date ? fmtDate(day.date, lang) : '—'}</span>
+            <span className="tl-day-count">{t.historyDayItems(day.count)}</span>
+          </h4>
+          <ul className="tl-day-items">
+            {day.runs.map((run) => (run.items.length === 1 ? renderItem(run.items[0]) : renderRun(run)))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  )
+
+  // Marcas que enmarcan la ficha entera: cosas que hay que ver antes de leer
+  // nada, aunque se llegue por un enlace directo. En una baja no tener
+  // conductor es lo normal, así que ahí no se avisa.
+  // Fecha con la que se cerraría el vínculo ahora mismo (gobierna el aviso).
+  const closeEnd = closeMode === 'today' ? today() : closeDate
+
+  const driverless = !vehicle.driver_name && vehicle.state !== 'retired'
+  const framed = vehicle.is_substitute || driverless
+
   return (
-    <div className="vehicle-detail">
+    <div
+      className={
+        `vehicle-detail${framed ? ' has-marks' : ''}` +
+        `${vehicle.is_substitute ? ' is-substitute' : ''}` +
+        `${driverless ? ' is-driverless' : ''}`
+      }
+    >
+      {/* Rótulos montados sobre el borde del marco. */}
+      {framed && (
+        <div className="detail-marks">
+          {vehicle.is_substitute && (
+            <span className="detail-mark mark-substitute">{t.substituteFrame}</span>
+          )}
+          {driverless && <span className="detail-mark mark-driverless">{t.noDriverBadge}</span>}
+        </div>
+      )}
+
       {/* Cabecera: tres atributos diferenciados (HU-1.2/1.6) */}
       <PageHeader
         breadcrumb={<Link to="/">{t.backToOverview}</Link>}
@@ -560,7 +930,7 @@ export function VehicleDetailPage() {
             >
               {t.registerKm}
             </Button>
-            <Button variant="secondary" onClick={() => navigate(`/vehiculos/${vehicleId}/editar`)}>
+            <Button variant="secondary" onClick={() => setEditOpen(true)}>
               {t.edit}
             </Button>
             {vehicle.state !== 'retired' && (
@@ -575,14 +945,7 @@ export function VehicleDetailPage() {
                   <Button
                     variant="secondary"
                     title={t.convertToFleetTitle}
-                    onClick={async () => {
-                      try {
-                        await convertToFleet(vehicle.id)
-                        load()
-                      } catch (err) {
-                        setError(asErrorMessage(err, t.errConvertFleet))
-                      }
-                    }}
+                    onClick={() => openOps('convert')}
                   >
                     {t.convertToFleet}
                   </Button>
@@ -614,8 +977,8 @@ export function VehicleDetailPage() {
           </div>
         </div>
 
-        {/* Callout destacado a la derecha: cuando NO está activo o tiene un
-            vínculo de sustitución. Reúne lo más relevante de un vistazo. */}
+        {/* Callout de estado a todo el ancho, bajo los badges: cuando NO está
+            activo o tiene un vínculo de sustitución. Reúne lo más relevante. */}
         {(vehicle.state !== 'active' || linkInfo || summary?.blocked_by_link) && (
           <aside className={`status-callout tone-${vehicleStateTone(vehicle.state)}`} role="status">
             <div className="status-callout-head">
@@ -667,12 +1030,19 @@ export function VehicleDetailPage() {
 
       {/* KPIs (HU-1.2) */}
       <div className="stat-grid">
-        <StatCard
-          label={t.monthlyCost}
-          value={contract?.month_fee ? eur(contract.month_fee) : '—'}
-          sub={contract?.penalty_per_km ? t.penaltySub(contract.penalty_per_km) : t.contractFeeSub}
-          accent="navy"
-        />
+        <button
+          type="button"
+          className="kpi-btn"
+          title={t.kpiHint}
+          onClick={() => setKpiModal('cost')}
+        >
+          <StatCard
+            label={t.monthlyCost}
+            value={contract?.month_fee ? eur(contract.month_fee) : '—'}
+            sub={contract?.penalty_per_km ? t.penaltySub(contract.penalty_per_km) : t.contractFeeSub}
+            accent="navy"
+          />
+        </button>
         {/* KPI clicable (patrón de la home): abre el modal de km con las
             lecturas recientes y el alta. */}
         <button
@@ -688,43 +1058,64 @@ export function VehicleDetailPage() {
             accent="teal"
           />
         </button>
-        <StatCard
-          label={t.nextItv}
-          value={vehicle.next_itv_date ?? '—'}
-          sub={vehicle.next_itv_date ? relative(vehicle.next_itv_date) : t.noDateRecorded}
-          accent={
-            vehicle.next_itv_date && daysUntil(vehicle.next_itv_date) < 0
-              ? 'danger'
-              : vehicle.next_itv_date && daysUntil(vehicle.next_itv_date) <= 30
-                ? 'warning'
-                : 'info'
-          }
-        />
-        <StatCard
-          label={t.insuranceExpiry}
-          value={vehicle.insurance_expiry_date ?? '—'}
-          sub={
-            vehicle.insurance_expiry_date
-              ? relative(vehicle.insurance_expiry_date)
-              : t.noDateRecorded
-          }
-          accent={
-            vehicle.insurance_expiry_date && daysUntil(vehicle.insurance_expiry_date) < 0
-              ? 'danger'
-              : vehicle.insurance_expiry_date && daysUntil(vehicle.insurance_expiry_date) <= 30
-                ? 'warning'
-                : 'info'
-          }
-        />
-        <StatCard
-          label={t.contractEnd}
-          value={contract?.planned_end_date ?? '—'}
-          sub={
-            contract
-              ? `${contract.contract_time ? `${t.months(contract.contract_time)} · ` : ''}${relative(contract.planned_end_date)}`
-              : t.noActiveContract
-          }
-        />
+        <button
+          type="button"
+          className="kpi-btn"
+          title={t.kpiHint}
+          onClick={() => setKpiModal('itv')}
+        >
+          <StatCard
+            label={t.nextItv}
+            value={vehicle.next_itv_date ?? '—'}
+            sub={vehicle.next_itv_date ? relative(vehicle.next_itv_date) : t.noDateRecorded}
+            accent={
+              vehicle.next_itv_date && daysUntil(vehicle.next_itv_date) < 0
+                ? 'danger'
+                : vehicle.next_itv_date && daysUntil(vehicle.next_itv_date) <= 30
+                  ? 'warning'
+                  : 'info'
+            }
+          />
+        </button>
+        <button
+          type="button"
+          className="kpi-btn"
+          title={t.kpiHint}
+          onClick={() => setKpiModal('insurance')}
+        >
+          <StatCard
+            label={t.insuranceExpiry}
+            value={vehicle.insurance_expiry_date ?? '—'}
+            sub={
+              vehicle.insurance_expiry_date
+                ? relative(vehicle.insurance_expiry_date)
+                : t.noDateRecorded
+            }
+            accent={
+              vehicle.insurance_expiry_date && daysUntil(vehicle.insurance_expiry_date) < 0
+                ? 'danger'
+                : vehicle.insurance_expiry_date && daysUntil(vehicle.insurance_expiry_date) <= 30
+                  ? 'warning'
+                  : 'info'
+            }
+          />
+        </button>
+        <button
+          type="button"
+          className="kpi-btn"
+          title={t.kpiHint}
+          onClick={() => setKpiModal('contract')}
+        >
+          <StatCard
+            label={t.contractEnd}
+            value={contract?.planned_end_date ?? '—'}
+            sub={
+              contract
+                ? `${contract.contract_time ? `${t.months(contract.contract_time)} · ` : ''}${relative(contract.planned_end_date)}`
+                : t.noActiveContract
+            }
+          />
+        </button>
       </div>
 
       <AccordionTools accordion={accordion} />
@@ -971,7 +1362,7 @@ export function VehicleDetailPage() {
           ) : (
             <span className="acc-summary">
               {t.historyCount(timeline.length)}
-              {timeline[0]?.date ? ` · ${timeline[0].date}` : ''}
+              {timeline[0]?.at ? ` · ${fmtDate(timeline[0].at, lang)}` : ''}
             </span>
           )
         }
@@ -1008,33 +1399,7 @@ export function VehicleDetailPage() {
         ) : filteredTimeline.length === 0 ? (
           <p className="muted">{t.noMatchingHistory}</p>
         ) : (
-          <ul className="timeline">
-            {(showAllHistory ? filteredTimeline : filteredTimeline.slice(0, 12)).map((item) => (
-              <li key={item.key} className={`timeline-item kind-${item.kind}`}>
-                <span className="timeline-date">{item.date || '—'}</span>
-                <div className="timeline-body">
-                  <div className="timeline-head">
-                    <Badge tone={sourceTone(item.source)}>
-                      {t.auditModels[item.source] ?? t.auditModelOther}
-                    </Badge>
-                    <strong>
-                      {item.kind === 'audit' && item.action
-                        ? t.auditActions[item.action] ?? item.action
-                        : item.title}
-                    </strong>
-                  </div>
-                  {item.sub && <p className="timeline-sub muted">{item.sub}</p>}
-                  {item.detail && item.detail.length > 0 && (
-                    <ul className="timeline-changes">
-                      {item.detail.map((line, index) => (
-                        <li key={index}>{line}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
+          renderTimeline(showAllHistory ? filteredTimeline : filteredTimeline.slice(0, 25))
         )}
       </CollapsibleCard>
 
@@ -1112,6 +1477,45 @@ export function VehicleDetailPage() {
         </form>
       </Modal>
 
+      {/* N9 · Sustituto → flota. Todo el flujo vive aquí: qué implica, si está
+          bloqueado por un vínculo y el error del back si lo rechaza. */}
+      <Modal
+        open={opsModal === 'convert'}
+        title={t.convertModalTitle(vehicle.plate)}
+        onClose={() => setOpsModal(null)}
+      >
+        <div className="modal-form">
+          <p style={{ margin: 0 }}>{t.convertIntro}</p>
+
+          {/* El back rechaza convertir un sustituto que está cubriendo: se
+              avisa antes de gastar el viaje y se desactiva el botón. */}
+          {linkInfo ? (
+            <div className="form-warn" role="status">
+              ⚠️ {t.convertBlockedByLink(linkInfo.plate)}
+            </div>
+          ) : (
+            <div className="form-warn" role="status">
+              ⚠️ {t.convertIrreversible}
+            </div>
+          )}
+
+          {opsError && <div role="alert" className="form-error">{opsError}</div>}
+
+          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+            <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
+              {t.cancel}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={opsSaving || Boolean(linkInfo)}
+              onClick={handleConvertToFleet}
+            >
+              {opsSaving ? t.converting : t.convertConfirm}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* G4 · Vinculación principal ↔ sustitución (HU-1.8) */}
       <Modal
         open={opsModal === 'link'}
@@ -1120,25 +1524,110 @@ export function VehicleDetailPage() {
       >
         {activeLink ? (
           <div className="modal-form">
-            <p style={{ margin: 0 }}>
-              {t.linkActive.pre}
-              <strong>{t.linkActive.bold}</strong>
-              {t.linkActive.post(
-                activeLink.start_date,
-                linkReasonLabel[activeLink.reason] ?? activeLink.reason,
-              )}
-              <strong>{plateMap[activeLink.main_vehicle] ?? `#${activeLink.main_vehicle}`}</strong> ↔{' '}
-              <strong>
-                {plateMap[activeLink.substitute_vehicle] ?? `#${activeLink.substitute_vehicle}`}
-              </strong>
-              . {t.onlyOneSubstitute}
-            </p>
-            {opsError && <div role="alert" className="form-error">{opsError}</div>}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <Button variant="danger" disabled={opsSaving} onClick={handleCloseLink}>
-                {opsSaving ? t.closing : t.closeLinkEndsToday}
-              </Button>
+            {/* Qué hay montado ahora mismo, de un vistazo: las dos matrículas
+                (enlazadas a su ficha), el motivo y desde cuándo. */}
+            <div className="link-active">
+              <div className="link-active-head">
+                <Badge tone="success">{t.linkActiveTitle}</Badge>
+                <Badge tone="neutral">
+                  {linkReasonLabel[activeLink.reason] ?? activeLink.reason}
+                </Badge>
+              </div>
+              <p className="link-pair">
+                <Link to={`/vehiculos/${activeLink.main_vehicle}`}>
+                  {plateMap[activeLink.main_vehicle] ?? `#${activeLink.main_vehicle}`}
+                </Link>
+                <span aria-hidden>↔</span>
+                <Link to={`/vehiculos/${activeLink.substitute_vehicle}`}>
+                  {plateMap[activeLink.substitute_vehicle] ?? `#${activeLink.substitute_vehicle}`}
+                </Link>
+              </p>
+              <p className="link-active-since muted">
+                {t.linkSinceDays(activeLink.start_date, daysSince(activeLink.start_date))}
+              </p>
             </div>
+            <p className="muted link-active-note">{t.onlyOneSubstitute}</p>
+            {/* Cierre ya programado: se avisa y se puede anular. */}
+            {activeLink.end_date && (
+              <div className="link-scheduled" role="status">
+                <span>{t.scheduledClose(activeLink.end_date)}</span>
+                <button
+                  type="button"
+                  className="linklike"
+                  disabled={opsSaving}
+                  onClick={handleCancelScheduledClose}
+                >
+                  {t.cancelScheduledClose}
+                </button>
+              </div>
+            )}
+
+            <section className="link-close">
+              <h4 className="link-close-title">{t.closeSectionTitle}</h4>
+              {/* Hoy, una fecha anterior (retroactivo) o una futura (programado). */}
+              <div className="link-close-row">
+                <div className="link-close-field">
+                  <span className="link-close-label">{t.closeWhenLabel}</span>
+                  <div className="km-switch" role="group" aria-label={t.closeWhenLabel}>
+                    <button
+                      type="button"
+                      className={closeMode === 'today' ? 'is-active' : ''}
+                      aria-pressed={closeMode === 'today'}
+                      onClick={() => setCloseMode('today')}
+                    >
+                      {t.closeToday}
+                    </button>
+                    <button
+                      type="button"
+                      className={closeMode === 'date' ? 'is-active' : ''}
+                      aria-pressed={closeMode === 'date'}
+                      onClick={() => setCloseMode('date')}
+                    >
+                      {t.closeOtherDate}
+                    </button>
+                  </div>
+                </div>
+                {closeMode === 'date' && (
+                  <TextInputField
+                    label={t.closeDateLabel}
+                    type="date"
+                    min={activeLink.start_date}
+                    value={closeDate}
+                    onChange={(e) => setCloseDate(e.target.value)}
+                    containerClassName="link-close-date"
+                  />
+                )}
+              </div>
+              {/* El calendario corta en el inicio del vínculo: se dice, para
+                  que los días en gris no se lean como un fallo. */}
+              {closeMode === 'date' && (
+                <p className="muted link-close-min">{t.closeMinDate(activeLink.start_date)}</p>
+              )}
+              {/* El aviso lleva el tono del efecto: programar a futuro no es lo
+                  mismo que cerrar hoy, y retroactivo tampoco. */}
+              <p
+                className={`link-close-hint tone-${
+                  closeEnd > today() ? 'info' : closeEnd < today() ? 'warn' : 'neutral'
+                }`}
+              >
+                {closeEnd > today()
+                  ? t.closeHintFuture
+                  : closeEnd < today()
+                    ? t.closeHintPast
+                    : t.closeHintToday}
+              </p>
+              {opsError && <div role="alert" className="form-error">{opsError}</div>}
+              <div className="link-close-actions">
+                <Button
+                  variant="danger"
+                  fullWidth
+                  disabled={opsSaving}
+                  onClick={handleCloseLink}
+                >
+                  {opsSaving ? t.closing : t.closeLink}
+                </Button>
+              </div>
+            </section>
           </div>
         ) : (
           <form className="modal-form" onSubmit={submitLink}>
@@ -1168,6 +1657,7 @@ export function VehicleDetailPage() {
             />
             <SelectField
               label={t.reason}
+              required
               options={t.linkReasonOptions}
               value={linkReason}
               onValueChange={setLinkReason}
@@ -1191,61 +1681,141 @@ export function VehicleDetailPage() {
           </form>
         )}
 
+        {/* Histórico plegado: contexto a un clic, sin robar sitio al cierre. */}
         {allLinks.length > 0 && (
-          <div className="link-history">
-            <h4>{t.linkHistoryTitle}</h4>
-            <ul>
-              {allLinks.map((l) => (
-                <li key={l.id}>
-                  {plateMap[l.main_vehicle] ?? `#${l.main_vehicle}`} ↔{' '}
-                  {plateMap[l.substitute_vehicle] ?? `#${l.substitute_vehicle}`} ·{' '}
-                  {linkReasonLabel[l.reason] ?? l.reason} · {l.start_date} →{' '}
-                  {l.end_date ?? t.activeWord}
-                </li>
-              ))}
-            </ul>
-          </div>
+          <details className="link-history">
+            <summary className="link-history-head">
+              {t.linkHistoryTitle}
+              <span className="link-history-count">{allLinks.length}</span>
+            </summary>
+            <div className="mng-rows link-history-rows">
+              {allLinks.map((l) => {
+                const stillActive = !l.end_date || l.end_date > today()
+                return (
+                  <div className="mng-row is-static" key={l.id}>
+                    <span className="link-history-pair">
+                      {plateMap[l.main_vehicle] ?? `#${l.main_vehicle}`} ↔{' '}
+                      {plateMap[l.substitute_vehicle] ?? `#${l.substitute_vehicle}`}
+                    </span>
+                    <Badge tone="neutral">{linkReasonLabel[l.reason] ?? l.reason}</Badge>
+                    <span className="mng-grow link-history-dates">
+                      {l.start_date} → {l.end_date ?? t.linkNoEnd}
+                    </span>
+                    {stillActive && <Badge tone="success">{t.activeWord}</Badge>}
+                  </div>
+                )
+              })}
+            </div>
+          </details>
         )}
       </Modal>
 
-      <Modal open={kmModal} title={t.kmModalTitle(vehicle.plate)} onClose={() => setKmModal(false)}>
-        {/* Lecturas recientes (mejora 🟡): contexto antes del alta — una errata
-            de un dígito se ve al momento. `readings` viene ordenado ascendente. */}
-        {readings.length > 0 && (
-          <div className="mng-rows km-modal-recent">
-            {readings
-              .slice(-6)
-              .reverse()
-              .map((r) => (
-                <div className="mng-row is-static" key={r.id}>
-                  <span>{r.reading_date ?? '—'}</span>
-                  <strong>{r.km_reading != null ? km(r.km_reading) : '—'}</strong>
+      <Modal
+        open={kmModal}
+        title={t.kmModalTitle(vehicle.plate)}
+        onClose={() => setKmModal(false)}
+        wide
+      >
+        {/* Semáforo de antigüedad: verde <15 días, ámbar 15-30, rojo >30 (o sin
+            ninguna lectura). Ocupa una línea (el texto sobrante elide) y actúa
+            de acordeón: al pulsarlo se despliega entero. En ámbar y rojo lleva
+            el botón de reclamar la lectura por correo. */}
+        <div
+          className={`km-stale tone-${staleTone}${staleOpen ? ' is-open' : ''}`}
+          role="status"
+        >
+          <button
+            type="button"
+            className="km-stale-toggle"
+            aria-expanded={staleOpen}
+            onClick={() => setStaleOpen((open) => !open)}
+          >
+            <ChevronDown size={14} aria-hidden className="km-stale-chevron" />
+            <strong className="km-stale-value">
+              {daysWithoutReading === null ? t.kmStaleNever : t.kmStaleDays(daysWithoutReading)}
+            </strong>
+            <span className="km-stale-sub">
+              {lastReadingDate && lastReadingKm != null ? (
+                <>
+                  {t.lastReadingLabel} <strong>{km(lastReadingKm)}</strong> ({lastReadingDate}) ·{' '}
+                  {t.odometerNote}{' '}
+                </>
+              ) : lastReadingDate ? (
+                <>{t.kmStaleSince(lastReadingDate)} </>
+              ) : (
+                <>{t.kmStaleNeverSub} </>
+              )}
+              {staleTone === 'ok'
+                ? t.kmStaleOk
+                : staleTone === 'warn'
+                  ? t.kmStaleWarn
+                  : t.kmStaleDanger}
+            </span>
+          </button>
+          {staleTone !== 'ok' && (
+            <IconButton
+              aria-label={t.kmClaimByEmail}
+              title={t.kmClaimByEmail}
+              size="sm"
+              onClick={() => {
+                setKmModal(false)
+                setKmEmailOpen(true)
+              }}
+            >
+              <Mail size={16} aria-hidden />
+            </IconButton>
+          )}
+        </div>
+
+        {/* Histórico completo agrupado por año: el más reciente desplegado. */}
+        <p className="km-readings-total">{t.kmReadingsTotal(readings.length)}</p>
+        {readingsByYear.length === 0 ? (
+          <p className="muted">{t.kmNoReadings}</p>
+        ) : (
+          <div className="km-years">
+            {readingsByYear.map((group, index) => (
+              <details className="km-year" key={group.year} open={index === 0}>
+                <summary className="km-year-head">
+                  <span className="km-year-title">{group.year}</span>
+                  <span className="km-year-meta">
+                    {t.kmYearCount(group.rows.length)}
+                    {group.delta != null ? ` · ${t.kmYearDelta(km(group.delta))}` : ''}
+                  </span>
+                </summary>
+                <div className="mng-rows km-year-rows">
+                  {group.rows.map((r) => (
+                    <div className="mng-row is-static" key={r.id}>
+                      <span>{r.reading_date ?? '—'}</span>
+                      {r.estimated && <Badge tone="neutral">{t.kmEstimatedTag}</Badge>}
+                      <strong>{r.km_reading != null ? km(r.km_reading) : '—'}</strong>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </details>
+            ))}
           </div>
         )}
+
+        <h4 className="kpi-modal-h">{t.kmNewReadingTitle}</h4>
         <form className="modal-form" onSubmit={handleKmSubmit}>
-          {summary?.km_current != null && (
-            <p className="muted" style={{ margin: 0 }}>
-              {t.lastReadingLabel} <strong>{km(summary.km_current)}</strong> ({summary.km_reading_date}).{' '}
-              {t.odometerNote}
-            </p>
-          )}
-          <TextInputField
-            label={t.odometerLabel}
-            type="number"
-            inputMode="numeric"
-            value={kmValue}
-            onChange={(e) => setKmValue(e.target.value)}
-            required
-          />
-          <TextInputField
-            label={t.dateLabel}
-            type="date"
-            value={kmDate}
-            onChange={(e) => setKmDate(e.target.value)}
-            required
-          />
+          {/* Odómetro y fecha en la misma fila. */}
+          <div className="km-form-row">
+            <TextInputField
+              label={t.odometerLabel}
+              type="number"
+              inputMode="numeric"
+              value={kmValue}
+              onChange={(e) => setKmValue(e.target.value)}
+              required
+            />
+            <TextInputField
+              label={t.dateLabel}
+              type="date"
+              value={kmDate}
+              onChange={(e) => setKmDate(e.target.value)}
+              required
+            />
+          </div>
           {kmError && <div role="alert" className="form-error">{kmError}</div>}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
             <Button type="button" variant="secondary" onClick={() => setKmModal(false)}>
@@ -1256,6 +1826,23 @@ export function VehicleDetailPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Reclamación de la lectura al conductor (plantilla `km_reading_pending`). */}
+      <Modal
+        open={kmEmailOpen}
+        title={t.kmEmailModalTitle(vehicle.plate)}
+        onClose={() => setKmEmailOpen(false)}
+        wide
+      >
+        {kmEmailOpen && (
+          <VehicleEmailModal
+            vehicle={vehicle}
+            initialKind="km_reading_pending"
+            onClose={() => setKmEmailOpen(false)}
+            onDone={load}
+          />
+        )}
       </Modal>
 
       {/* Contrato · enlace de Drive (solo admin) */}
@@ -1281,6 +1868,74 @@ export function VehicleDetailPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Detalle de un KPI: las cifras que lo componen + los movimientos del
+          histórico que lo mueven (cambios de cuota, ITVs, seguro, contrato). */}
+      <Modal
+        open={kpiModal !== null}
+        title={kpiModal ? t.kpiTitle(kpiLabel[kpiModal], vehicle.plate) : ''}
+        onClose={() => setKpiModal(null)}
+        wide
+      >
+        {kpiModal && (
+          <div className="kpi-modal">
+            <h4 className="kpi-modal-h">{t.kpiCurrentData}</h4>
+            <dl className="detail-dl">{kpiFacts(kpiModal)}</dl>
+            {kpiModal === 'insurance' && <p className="muted">{t.kpiInsuranceDocsNote}</p>}
+            {kpiModal === 'cost' && <p className="muted">{t.kpiCostInvoicesNote}</p>}
+
+            {/* El histórico entra plegado: lo primero del modal son las cifras,
+                los movimientos son el porqué y se consultan si hacen falta. */}
+            {kpiTimeline.length === 0 ? (
+              <>
+                <h4 className="kpi-modal-h">{t.kpiRelatedHistory}</h4>
+                <p className="muted">{t.kpiNoHistory}</p>
+              </>
+            ) : (
+              <details className="kpi-history">
+                <summary className="kpi-history-head">
+                  {t.kpiRelatedHistory}
+                  <span className="kpi-history-count">{kpiTimeline.length}</span>
+                </summary>
+                <div className="kpi-history-body">
+                  {renderTimeline(kpiTimeline.slice(0, 15))}
+                  {kpiTimeline.length > 15 && (
+                    <p className="muted">{t.kpiMoreInHistory(kpiTimeline.length - 15)}</p>
+                  )}
+                </div>
+              </details>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+              <Button variant="secondary" onClick={() => setKpiModal(null)}>
+                {t.kpiClose}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Edición de la ficha en modal: mismo formulario que el alta del
+          inventario, en modo edición. Al guardar se recarga la ficha. */}
+      <Modal
+        open={editOpen}
+        title={tForm.editTitle(vehicle.plate)}
+        onClose={() => setEditOpen(false)}
+        xl
+        height="88dvh"
+      >
+        {editOpen && (
+          <VehicleForm
+            mode="edit"
+            vehicleId={vehicleId}
+            onSuccess={() => {
+              setEditOpen(false)
+              load()
+            }}
+            onCancel={() => setEditOpen(false)}
+          />
+        )}
       </Modal>
 
       <TimelineDayModal day={timelineDay} onClose={() => setTimelineDay(null)} />

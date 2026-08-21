@@ -9,7 +9,7 @@ from django.conf import settings
 from django.db import models
 
 from .base import TimeStampedModel
-from .enums import EventType
+from .enums import EventType, ItvResult
 
 
 class Event(TimeStampedModel):
@@ -76,13 +76,28 @@ class EventItv(models.Model):
         Event, on_delete=models.CASCADE, primary_key=True, related_name="itv"
     )
     result = models.CharField(
-        "Resultado", max_length=50, blank=True, help_text="p. ej. 'done' / 'not done'."
+        "Resultado",
+        max_length=50,
+        blank=True,
+        choices=ItvResult.choices,
+        help_text="C5: lista cerrada. Solo el resultado FAVORABLE refresca la "
+        "próxima ITV del vehículo y cierra sus alertas.",
     )
     next_due = models.DateField("Próxima ITV", null=True, blank=True)
 
     class Meta:
         verbose_name = "ITV"
         verbose_name_plural = "ITVs"
+
+    @property
+    def is_favourable(self) -> bool:
+        """¿La ITV se pasó? Solo entonces hay una próxima fecha que valga.
+
+        Se comprueba por exclusión (`!= NOT_DONE`) a propósito: los registros
+        legados no llevaban resultado y deben seguir contando como favorables.
+        Lo que nunca vale es un «no favorable» explícito.
+        """
+        return self.result != ItvResult.NOT_DONE
 
 
 class EventProjectChange(models.Model):

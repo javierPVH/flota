@@ -23,6 +23,14 @@ class AlertLevel(models.TextChoices):
 
 
 class AlertStatus(models.TextChoices):
+    """Ciclo de vida de una alerta: o está abierta o está resuelta.
+
+    No hay "descartada": descartar era decir "esto no me interesa" sin que el
+    problema dejara de existir, y dejaba la bandeja con dos formas distintas de
+    silenciar lo mismo. Cerrar una alerta es siempre RESOLVED, con su
+    `resolved_at`/`resolved_by`; si el aviso no aplicaba, se resuelve igual y el
+    histórico dice quién lo decidió.
+    """
+
     OPEN = "open", "Abierta"
     RESOLVED = "resolved", "Resuelta"
-    DISMISSED = "dismissed", "Descartada"

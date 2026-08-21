@@ -195,10 +195,12 @@ siembres: es intencionado.
 Casi al final corre `seed_alerts`, que **borra las alertas y ejecuta el motor
 real** (`alerts.run_all()`): la bandeja refleja exactamente lo sembrado. No
 escribas asserts que dependan del número exacto de alertas. Como el motor solo
-crea alertas **abiertas**, después se cierran dos a mano (una `resolved` y otra
-`dismissed`, elegidas de forma determinista por `dedup_key` entre los tipos más
-numerosos) para que el filtro por estado de la bandeja tenga contenido en los
-tres valores.
+crea alertas **abiertas**, después se cierran dos a mano —elegidas de forma
+determinista por `dedup_key` entre los tipos más numerosos— para que la pestaña
+de resueltas tenga contenido: una la cierra el **responsable del propio
+vehículo** (la bandeja la marca en verde) y la otra `admin`, que no conduce ni
+supervisa ese coche (en rojo, con el bocadillo de aviso). Los únicos estados son
+`open` y `resolved`.
 
 **Erratas y comunicaciones** (los dos últimos pasos): `seed_erratas` deja **un
 ejemplo desactivado de cada uno de los 15 tipos** de `fleet.erratas.DEACTIVATABLE`

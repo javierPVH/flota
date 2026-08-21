@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
+  ApiError,
   getJson,
   postJson,
   toUrl,
@@ -70,6 +71,36 @@ describe('peticiones JSON', () => {
   it('lanza Error con el mensaje del backend ante respuesta no-ok', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Falló' }, { status: 400 })))
     await expect(getJson('/api/x')).rejects.toThrow('Falló')
+  })
+
+  it('el error lleva code y context para que la UI ofrezca una acción', async () => {
+    // Envoltorio del backend: un alta que choca con un registro desactivado
+    // devuelve 409 con lo necesario para ofrecer restaurarlo.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            detail: '«Seat» ya existe, pero está desactivado.',
+            code: 'inactive_conflict',
+            context: { kind: 'brands', id: 12, label: 'Seat' },
+          },
+          { status: 409 },
+        ),
+      ),
+    )
+    const error = await postJson('/api/x', {}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(ApiError)
+    const apiError = error as ApiError
+    expect(apiError.status).toBe(409)
+    expect(apiError.code).toBe('inactive_conflict')
+    expect(apiError.context).toEqual({ kind: 'brands', id: 12, label: 'Seat' })
+  })
+
+  it('sin context el error lo deja vacío, no undefined', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'No' }, { status: 400 })))
+    const error = (await getJson('/api/x').catch((e: unknown) => e)) as ApiError
+    expect(error.context).toEqual({})
   })
 
   it('POST en modo cookie añade cabecera X-CSRFToken', async () => {
