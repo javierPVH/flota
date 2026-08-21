@@ -227,8 +227,8 @@ class SeedCoverageTests(APITestCase):
 
         missing = [
             key
-            for key, (model, _label) in DEACTIVATABLE.items()
-            if not model.objects.filter(is_active=False).exists()
+            for key, spec in DEACTIVATABLE.items()
+            if not spec.model.objects.filter(is_active=False).exists()
         ]
         self.assertEqual(missing, [], f"Tipos de errata sin ejemplo → {missing}")
         # Integrados en el mismo espacio sin duplicar mecanismo.

@@ -41,6 +41,16 @@ jobs:
       - name: Django system check
         run: python manage.py check
 
+      # B18: la suite corre con DEBUG=True, así que las validaciones de
+      # producción (SECRET_KEY, ALLOWED_HOSTS, cookies, HSTS, claves Fernet,
+      # auto-alta de Google sin dominios…) no se ejercitaban NUNCA en CI.
+      - name: Django deploy check (DEBUG=False)
+        env:
+          DEBUG: "False"
+          SECRET_KEY: ci-only-not-a-real-secret-Ab1${{ github.sha }}
+          ALLOWED_HOSTS: flota.example.com
+        run: python manage.py check --deploy --fail-level WARNING
+
       - name: Migrations up to date
         run: python manage.py makemigrations --check --dry-run
 

@@ -104,6 +104,17 @@ const es = {
     result: (sent: number, skipped: number) => `Enviados: ${sent}. Omitidos: ${skipped}.`,
     bulkResult: (sent: number, skipped: number, failed: number) =>
       `Enviados: ${sent}. Omitidos: ${skipped}. Fallidos: ${failed}.`,
+    // B3: progreso y parada del envío masivo.
+    bulkProgress: (done: number, total: number) => `Enviando ${done} de ${total}…`,
+    bulkStop: 'Detener el envío',
+    bulkCancelled: (
+      done: number,
+      total: number,
+      sent: number,
+      skipped: number,
+      failed: number,
+    ) =>
+      `Envío detenido en ${done} de ${total}. Enviados: ${sent}. Omitidos: ${skipped}. Fallidos: ${failed}. Lo ya enviado no se puede deshacer.`,
     sendError: 'No se pudo enviar el correo.',
   },
   pendingSection: 'Lecturas pendientes de este mes',
@@ -132,6 +143,10 @@ const es = {
     running: 'Calculando…',
     run: 'Completar faltantes',
     runError: 'No se pudieron completar los km faltantes.',
+    // A7: sin el estado de la ventana no se puede decidir si hace falta
+    // forzar el cálculo — antes un fallo de red lo forzaba solo.
+    previewMissing:
+      'No se pudo comprobar el plazo del cálculo. Recarga la página antes de completar los km.',
   },
 }
 
@@ -237,6 +252,10 @@ const en: typeof es = {
     noRecipients: 'Choose at least one recipient.',
     result: (sent, skipped) => `Sent: ${sent}. Skipped: ${skipped}.`,
     bulkResult: (sent, skipped, failed) => `Sent: ${sent}. Skipped: ${skipped}. Failed: ${failed}.`,
+    bulkProgress: (done, total) => `Sending ${done} of ${total}…`,
+    bulkStop: 'Stop sending',
+    bulkCancelled: (done, total, sent, skipped, failed) =>
+      `Sending stopped at ${done} of ${total}. Sent: ${sent}. Skipped: ${skipped}. Failed: ${failed}. Already-sent emails cannot be undone.`,
     sendError: 'Could not send the email.',
   },
   pendingSection: 'Readings pending this month',
@@ -265,6 +284,8 @@ const en: typeof es = {
     running: 'Calculating…',
     run: 'Fill missing',
     runError: 'Could not fill the missing km.',
+    previewMissing:
+      'Could not check the calculation window. Reload the page before filling in the km.',
   },
 }
 

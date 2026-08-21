@@ -50,3 +50,31 @@ class ThrottleConfigTests(TestCase):
 
         self.assertEqual(KmReadingViewSet.throttle_scope, "public_write")
         self.assertEqual(DocumentViewSet.throttle_scope, "public_write")
+
+
+class ErrorEnvelopeTests(TestCase):
+    """C8: el 403 de "no autenticado" se distingue del de "sin permiso".
+
+    `SessionAuthentication` no publica `WWW-Authenticate`, así que DRF degrada
+    `NotAuthenticated` a 403 y el cliente no podía separar "vuelve a entrar" de
+    "esto no es tuyo": el transporte no redirigía al login y la cola offline de
+    la PWA descartaba escrituras de campo ya confirmadas al usuario.
+    """
+
+    def test_unauthenticated_403_carries_code(self):
+        resp = self.client.get(reverse("vehicle-list"))
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json().get("code"), "not_authenticated")
+
+    def test_permission_denied_403_has_no_auth_code(self):
+        from django.contrib.auth import get_user_model
+
+        from accounts.models import Role, UserRole
+
+        user = get_user_model().objects.create_user(username="d", password="pw-123456789")
+        UserRole.objects.create(user=user, role=Role.DRIVER)
+        self.client.force_login(user)
+        # Un conductor no alcanza el gestor de plantillas (IsAdmin).
+        resp = self.client.get(reverse("emailtemplate-list"))
+        self.assertEqual(resp.status_code, 403)
+        self.assertNotIn("code", resp.json())

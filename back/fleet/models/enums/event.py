@@ -24,3 +24,16 @@ class EventType(models.TextChoices):
     ITV = "itv", "ITV"
     MAINTENANCE = "maintenance", "Mantenimiento"
     DRIVER_CHANGE = "driver_change", "Cambio de conductor"
+
+
+class ItvResult(models.TextChoices):
+    """C5 — resultado de una ITV registrada.
+
+    Los valores se mantienen EXACTAMENTE como los venían enviando los fronts y
+    el seed (`done` / `not done`, con espacio) para no romper datos ni clientes:
+    lo que se añade es la lista cerrada. Solo un resultado FAVORABLE refresca
+    `Vehicle.next_itv_date` y cierra las alertas de ITV.
+    """
+
+    DONE = "done", "Favorable"
+    NOT_DONE = "not done", "No favorable"

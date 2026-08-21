@@ -9,6 +9,7 @@ import {
   formatDateShort,
   getMonthKey,
   getMonthLabel,
+  getMonthNameLabel,
   mergeColumnOrder,
   normalizeString,
   parseDateBoundary,
@@ -69,6 +70,16 @@ export interface TableWithPanelProps<RowType extends object> {
   monthSortDateColumnKey?: string
   monthSortDirectionDefault?: TableMonthSortDirection
   groupRowsByMonth?: boolean
+  /**
+   * Agrupa en DOS niveles plegables dentro del propio listado: una fila para el
+   * año y, debajo, una por cada mes, ambas a todo el ancho y con su chevron.
+   * Plegar un año esconde sus meses; plegar un mes, sus filas.
+   *
+   * Alternativa a `groupRowsByMonth` (un solo nivel, sin plegar); si se activan
+   * las dos, manda esta. Necesita también una columna de fecha
+   * (`monthSortDateColumnKey`), que es la que decide el grupo.
+   */
+  groupRowsByYearMonth?: boolean
   summaryLeadingSlot?: ReactNode
   panelTrailingSlot?: ReactNode
   enableColumnSort?: boolean
@@ -83,6 +94,21 @@ export interface TableWithPanelProps<RowType extends object> {
   fixedHeight?: boolean
   fixedHeightPx?: number
   defaultHiddenColumnKeys?: string[]
+  /**
+   * M15 — orden de columnas CONTROLADO por el consumidor (claves en orden).
+   *
+   * Sin esto, la tabla guardaba su orden interno y lo reimponía con
+   * `mergeColumnOrder`, así que una página con su propio gestor de columnas
+   * (Vehículos, Usuarios) solo conseguía aplicar el reordenado remontando la
+   * tabla entera con `key=`: se perdían paginación, orden de filas, búsqueda y
+   * anchos en cada clic. Si se pasa, la tabla no guarda orden propio y avisa
+   * por `onColumnOrderChange` cuando el usuario mueve una columna.
+   */
+  columnOrder?: string[]
+  onColumnOrderChange?: (columnKeys: string[]) => void
+  /** M15 — columnas ocultas controladas (análogo a `columnOrder`). */
+  hiddenColumns?: string[]
+  onHiddenColumnsChange?: (columnKeys: string[]) => void
   rowClassName?: (row: RowType, index: number) => string | undefined
   rowTitle?: (row: RowType, index: number) => string | undefined
   /** N4: fila expandible — al pulsar la fila se despliega este contenido con
@@ -101,6 +127,14 @@ interface GroupedRows<RowType extends object> {
   key: string
   title: string
   rows: RowType[]
+}
+
+/** Nivel superior del agrupado en dos niveles: un año y sus meses. */
+interface YearGroup<RowType extends object> {
+  key: string
+  title: string
+  months: Array<GroupedRows<RowType>>
+  count: number
 }
 
 interface TableWithPanelCopy {
@@ -287,6 +321,7 @@ export function TableWithPanel<RowType extends object>({
   monthSortDateColumnKey,
   monthSortDirectionDefault = 'desc',
   groupRowsByMonth = false,
+  groupRowsByYearMonth = false,
   summaryLeadingSlot,
   panelTrailingSlot,
   enableColumnSort = true,
@@ -301,6 +336,10 @@ export function TableWithPanel<RowType extends object>({
   fixedHeight = false,
   fixedHeightPx = 400,
   defaultHiddenColumnKeys,
+  columnOrder,
+  onColumnOrderChange,
+  hiddenColumns,
+  onHiddenColumnsChange,
   rowClassName,
   rowTitle,
   renderExpandedRow,
@@ -378,8 +417,16 @@ export function TableWithPanel<RowType extends object>({
   const [columnLockOrders, setColumnLockOrders] = useState<Record<string, number>>({})
   const [pageSize, setPageSize] = useState(resolvedDefaultPageSize)
   const [currentPage, setCurrentPage] = useState(1)
-  const [orderedColumnKeys, setOrderedColumnKeys] = useState(() => columns.map((column) => column.key))
-  const [hiddenColumnKeys, setHiddenColumnKeys] = useState<Set<string>>(() => new Set(defaultHiddenColumnKeys))
+  // M15: estado interno SOLO si el consumidor no controla estas dos cosas.
+  const isOrderControlled = columnOrder !== undefined
+  const isHiddenControlled = hiddenColumns !== undefined
+  const [internalOrderedColumnKeys, setInternalOrderedColumnKeys] = useState(() =>
+    columns.map((column) => column.key),
+  )
+  const [internalHiddenColumnKeys, setInternalHiddenColumnKeys] = useState<Set<string>>(
+    () => new Set(defaultHiddenColumnKeys),
+  )
+  const orderedColumnKeys = columnOrder ?? internalOrderedColumnKeys
   // Cabeceras cuyas herramientas (candado + orden) están desplegadas. Por defecto
   // ocultas tras un chevron: se muestran solo al pulsarlo (patrón de las visuales).
   const [expandedHeaders, setExpandedHeaders] = useState<Set<string>>(() => new Set())
@@ -413,6 +460,10 @@ export function TableWithPanel<RowType extends object>({
   const effectiveOrderedColumnKeys = useMemo(
     () => mergeColumnOrder(orderedColumnKeys, columnKeys),
     [columnKeys, orderedColumnKeys],
+  )
+  const hiddenColumnKeys = useMemo(
+    () => (hiddenColumns ? new Set(hiddenColumns) : internalHiddenColumnKeys),
+    [hiddenColumns, internalHiddenColumnKeys],
   )
   const effectiveHiddenColumnKeys = useMemo(() => {
     const next = new Set<string>()
@@ -606,7 +657,7 @@ export function TableWithPanel<RowType extends object>({
   }, [effectiveCurrentPage, effectivePageSize, enablePagination, columnSortedRows])
 
   const groupedRows = useMemo<Array<GroupedRows<RowType>>>(() => {
-    if (!groupRowsByMonth || !monthSortColumn) {
+    if (!(groupRowsByMonth || groupRowsByYearMonth) || !monthSortColumn) {
       return []
     }
 
@@ -641,7 +692,47 @@ export function TableWithPanel<RowType extends object>({
       title: getMonthLabel(monthKey, language, copy.monthNoDate),
       rows: grouped.get(monthKey) ?? [],
     }))
-  }, [copy.monthNoDate, groupRowsByMonth, language, monthSortColumn, monthSortDirection, paginatedRows])
+  }, [
+    copy.monthNoDate,
+    groupRowsByMonth,
+    groupRowsByYearMonth,
+    language,
+    monthSortColumn,
+    monthSortDirection,
+    paginatedRows,
+  ])
+
+  // Dos niveles: los meses ya vienen ordenados, así que agrupar por año
+  // respetando ese recorrido deja también los años en orden.
+  const yearGroups = useMemo<Array<YearGroup<RowType>>>(() => {
+    if (!groupRowsByYearMonth) {
+      return []
+    }
+    const byYear = new Map<string, Array<GroupedRows<RowType>>>()
+    groupedRows.forEach((month) => {
+      const yearKey = month.key === 'sin-fecha' ? 'sin-fecha' : month.key.slice(0, 4)
+      byYear.set(yearKey, [...(byYear.get(yearKey) ?? []), month])
+    })
+    return [...byYear.entries()].map(([yearKey, months]) => ({
+      key: yearKey,
+      title: yearKey === 'sin-fecha' ? copy.monthNoDate : yearKey,
+      months: months.map((month) => ({
+        ...month,
+        title: getMonthNameLabel(month.key, language, copy.monthNoDate),
+      })),
+      count: months.reduce((total, month) => total + month.rows.length, 0),
+    }))
+  }, [copy.monthNoDate, groupRowsByYearMonth, groupedRows, language])
+
+  /** Grupos plegados (año o mes). Vacío = todo desplegado. */
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set())
+  const toggleGroup = (key: string) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
   const paginationRange = useMemo(() => {
     if (sortedRows.length === 0) {
@@ -681,9 +772,25 @@ export function TableWithPanel<RowType extends object>({
     )
   }, [copy, filteredRows, monthSortColumn, rows.length])
 
+  /** M15: aplica el cambio al estado interno o lo delega si viene controlado. */
+  function updateColumnOrder(compute: (previous: string[]) => string[]) {
+    if (isOrderControlled) {
+      onColumnOrderChange?.(compute(mergeColumnOrder(orderedColumnKeys, columnKeys)))
+      return
+    }
+    setInternalOrderedColumnKeys((previous) => compute(mergeColumnOrder(previous, columnKeys)))
+  }
+
+  function updateHiddenColumns(compute: (previous: Set<string>) => Set<string>) {
+    if (isHiddenControlled) {
+      onHiddenColumnsChange?.([...compute(hiddenColumnKeys)])
+      return
+    }
+    setInternalHiddenColumnKeys((previous) => compute(previous))
+  }
+
   function moveColumn(columnKey: string, direction: 'up' | 'down') {
-    setOrderedColumnKeys((previous) => {
-      const normalizedPrevious = mergeColumnOrder(previous, columnKeys)
+    updateColumnOrder((normalizedPrevious) => {
       const index = normalizedPrevious.indexOf(columnKey)
       if (index < 0) {
         return normalizedPrevious
@@ -702,7 +809,7 @@ export function TableWithPanel<RowType extends object>({
   }
 
   function toggleColumnVisibility(columnKey: string) {
-    setHiddenColumnKeys((previous) => {
+    updateHiddenColumns((previous) => {
       const next = new Set(previous)
       if (next.has(columnKey)) {
         next.delete(columnKey)
@@ -720,7 +827,7 @@ export function TableWithPanel<RowType extends object>({
   }
 
   function showAllColumns() {
-    setHiddenColumnKeys(new Set())
+    updateHiddenColumns(() => new Set())
   }
 
   function applyDateFilter() {
@@ -940,6 +1047,50 @@ export function TableWithPanel<RowType extends object>({
 
   /** Fila de datos + (si aplica) su fila expandida animada. Compartido por el
    * render agrupado por meses y el plano. */
+  /** Fila separadora de un grupo (año o mes): ocupa TODAS las columnas y pliega.
+   *
+   * El botón lleva el `aria-expanded`, así que el estado de plegado se anuncia;
+   * la fila entera es pulsable porque el botón la cubre. */
+  function renderGroupDivider({
+    groupKey,
+    title,
+    count,
+    open,
+    level,
+  }: {
+    groupKey: string
+    title: string
+    count: number
+    open: boolean
+    level: 'year' | 'month'
+  }): ReactNode {
+    return (
+      <tr
+        className={cx(
+          styles.monthDividerRow,
+          level === 'year' ? styles.yearDividerRow : styles.monthLevelDividerRow,
+        )}
+      >
+        <td colSpan={bodyColSpan}>
+          <button
+            type="button"
+            className={styles.groupDividerToggle}
+            aria-expanded={open}
+            onClick={() => toggleGroup(groupKey)}
+          >
+            <ChevronDown
+              size={15}
+              aria-hidden
+              className={cx(styles.groupDividerChevron, !open && styles.groupDividerChevronClosed)}
+            />
+            <span className={styles.monthDividerTitle}>{title}</span>
+            <span className={styles.monthDividerCount}>{copy.monthRecordCount(count)}</span>
+          </button>
+        </td>
+      </tr>
+    )
+  }
+
   function renderBodyRow(row: RowType, index: number, resolvedRowKey: string): ReactNode {
     const isOpen = openExpandedRows.has(resolvedRowKey)
     return (
@@ -1379,26 +1530,61 @@ export function TableWithPanel<RowType extends object>({
             )}
 
             {visibleColumns.length > 0 && paginatedRows.length > 0 && (
-              groupRowsByMonth && monthSortColumn
-                ? groupedRows.map((group) => (
-                  <Fragment key={group.key}>
-                    <tr className={styles.monthDividerRow}>
-                      <td colSpan={bodyColSpan}>
-                        <div className={styles.monthDividerContent}>
-                          <span className={styles.monthDividerTitle}>{group.title}</span>
-                          <span className={styles.monthDividerCount}>
-                            {copy.monthRecordCount(group.rows.length)}
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
+              groupRowsByYearMonth && monthSortColumn
+                // Dos niveles plegables: fila del año y, dentro, fila de cada mes.
+                ? yearGroups.map((year) => {
+                  const yearOpen = !collapsedGroups.has(year.key)
+                  return (
+                    <Fragment key={year.key}>
+                      {renderGroupDivider({
+                        groupKey: year.key,
+                        title: year.title,
+                        count: year.count,
+                        open: yearOpen,
+                        level: 'year',
+                      })}
 
-                    {group.rows.map((row, index) =>
-                      renderBodyRow(row, index, `${group.key}-${rowKey(row, index)}`),
-                    )}
-                  </Fragment>
-                ))
-                : paginatedRows.map((row, index) => renderBodyRow(row, index, rowKey(row, index)))
+                      {yearOpen && year.months.map((month) => {
+                        const monthOpen = !collapsedGroups.has(month.key)
+                        return (
+                          <Fragment key={month.key}>
+                            {renderGroupDivider({
+                              groupKey: month.key,
+                              title: month.title,
+                              count: month.rows.length,
+                              open: monthOpen,
+                              level: 'month',
+                            })}
+
+                            {monthOpen && month.rows.map((row, index) =>
+                              renderBodyRow(row, index, `${month.key}-${rowKey(row, index)}`),
+                            )}
+                          </Fragment>
+                        )
+                      })}
+                    </Fragment>
+                  )
+                })
+                : groupRowsByMonth && monthSortColumn
+                  ? groupedRows.map((group) => (
+                    <Fragment key={group.key}>
+                      <tr className={styles.monthDividerRow}>
+                        <td colSpan={bodyColSpan}>
+                          <div className={styles.monthDividerContent}>
+                            <span className={styles.monthDividerTitle}>{group.title}</span>
+                            <span className={styles.monthDividerCount}>
+                              {copy.monthRecordCount(group.rows.length)}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {group.rows.map((row, index) =>
+                        renderBodyRow(row, index, `${group.key}-${rowKey(row, index)}`),
+                      )}
+                    </Fragment>
+                  ))
+                  : paginatedRows.map((row, index) => renderBodyRow(row, index, rowKey(row, index)))
             )}
           </tbody>
         </table>

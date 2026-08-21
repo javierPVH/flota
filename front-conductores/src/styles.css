@@ -359,8 +359,24 @@ a {
   border: 2px solid var(--color-surface);
 }
 
-.request-form { display: grid; gap: 0.6rem; margin-top: 0.8rem; }
 .request-actions { display: grid; gap: 0.5rem; margin-top: 1rem; }
+/* Enlace a Jira del portón. Sale de la aplicación, así que es un <a> de verdad
+ * y no el `Button` de la librería, que siempre pinta un <button>; el aspecto es
+ * el de la acción principal de la tarjeta. */
+.jira-link {
+  display: block;
+  margin-top: 0.8rem;
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: var(--color-surface);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+}
+.jira-link:hover { filter: brightness(1.08); }
+.jira-link:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 /* Banner de éxito (Fase 5, patrón gestión Fase 8): pareja del .form-error. */
 .form-ok {
   padding: 0.55rem 0.9rem;

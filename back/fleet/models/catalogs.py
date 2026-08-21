@@ -1,6 +1,18 @@
-"""Catálogos maestros (tablas de referencia del DBML)."""
+"""Catálogos maestros (tablas de referencia del DBML).
+
+Todos llevan una unicidad que NO distingue mayúsculas (`Lower(...)`): son los
+maestros que alimentan los selects de la aplicación, y «Seat», «SEAT» y «seat»
+como tres marcas distintas ensuciaban el alta de vehículo. Cinco de ellos
+(país, unidad de negocio, proyecto, CECO y renting) no tenían restricción
+alguna y admitían duplicados exactos.
+
+La restricción cuenta también las filas desactivadas (aquí nada se borra, N7),
+así que el alta de un nombre ya usado por un registro dado de baja se responde
+con un 409 que ofrece restaurarlo — ver `CatalogUniqueMixin` en `serializers`.
+"""
 
 from django.db import models
+from django.db.models.functions import Lower
 
 from .base import DeactivatableModel, TimeStampedModel
 
@@ -14,6 +26,9 @@ class Country(DeactivatableModel, TimeStampedModel):
         verbose_name = "país"
         verbose_name_plural = "países"
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(Lower("name"), name="uniq_country_name_ci"),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -29,6 +44,9 @@ class BusinessUnit(DeactivatableModel, TimeStampedModel):
         verbose_name = "unidad de negocio"
         verbose_name_plural = "unidades de negocio"
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(Lower("name"), name="uniq_business_unit_name_ci"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.code} · {self.name}" if self.code else self.name
@@ -55,6 +73,9 @@ class Project(DeactivatableModel, TimeStampedModel):
         verbose_name = "proyecto"
         verbose_name_plural = "proyectos"
         ordering = ["project_name"]
+        constraints = [
+            models.UniqueConstraint(Lower("project_name"), name="uniq_project_name_ci"),
+        ]
 
     def __str__(self) -> str:
         return self.project_name
@@ -70,6 +91,9 @@ class Pep(DeactivatableModel, TimeStampedModel):
         verbose_name = "PEP / CECO"
         verbose_name_plural = "PEP / CECO"
         ordering = ["code", "name"]
+        constraints = [
+            models.UniqueConstraint(Lower("name"), name="uniq_pep_name_ci"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.code} · {self.name}" if self.code else self.name
@@ -87,6 +111,9 @@ class Renting(DeactivatableModel, TimeStampedModel):
         verbose_name = "renting"
         verbose_name_plural = "rentings"
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(Lower("name"), name="uniq_renting_name_ci"),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -95,12 +122,15 @@ class Renting(DeactivatableModel, TimeStampedModel):
 class Brand(DeactivatableModel, TimeStampedModel):
     """N5: marca del vehículo (catálogo; antes texto libre en `Vehicle.brand`)."""
 
-    name = models.CharField("Nombre", max_length=50, unique=True)
+    name = models.CharField("Nombre", max_length=50)
 
     class Meta:
         verbose_name = "marca"
         verbose_name_plural = "marcas"
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(Lower("name"), name="uniq_brand_name_ci"),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -122,7 +152,7 @@ class VehicleModel(DeactivatableModel, TimeStampedModel):
         verbose_name_plural = "modelos"
         ordering = ["brand__name", "name"]
         constraints = [
-            models.UniqueConstraint(fields=["brand", "name"], name="uniq_model_per_brand"),
+            models.UniqueConstraint("brand", Lower("name"), name="uniq_model_per_brand_ci"),
         ]
 
     def __str__(self) -> str:
@@ -132,7 +162,7 @@ class VehicleModel(DeactivatableModel, TimeStampedModel):
 class Company(DeactivatableModel, TimeStampedModel):
     """N5: sociedad titular (código, nombre y descripción)."""
 
-    code = models.CharField("Código", max_length=30, unique=True)
+    code = models.CharField("Código", max_length=30)
     name = models.CharField("Nombre", max_length=150)
     description = models.TextField("Descripción", blank=True)
 
@@ -140,6 +170,9 @@ class Company(DeactivatableModel, TimeStampedModel):
         verbose_name = "sociedad"
         verbose_name_plural = "sociedades"
         ordering = ["code", "name"]
+        constraints = [
+            models.UniqueConstraint(Lower("code"), name="uniq_company_code_ci"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.code} · {self.name}"

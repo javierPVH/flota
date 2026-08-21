@@ -112,8 +112,10 @@ describe('DashboardPage (vista general)', () => {
       screen.getByRole('combobox', { name: 'Filtrar por asignación' }),
       'unassigned',
     )
+    // M14: el segundo argumento es el transporte (`signal`) de la carga en curso.
     expect(mocks.listVehicles).toHaveBeenLastCalledWith(
       expect.objectContaining({ assigned: false }),
+      expect.objectContaining({ signal: expect.anything() }),
     )
   })
 })

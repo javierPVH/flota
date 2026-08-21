@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useSearchParams } from 'react-router-dom'
 import { Badge, Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
-import { asErrorMessage } from '@flota/ui/http'
+import { asErrorMessage, isAbortError } from '@flota/ui/http'
 import { Download, FileText, Pencil } from 'lucide-react'
 
 import {
@@ -87,21 +87,44 @@ export function IncidentsPage() {
 
   // El estado se filtra en cliente (chips con contador): los contadores
   // muestran el reparto abierta/en curso/cerrada del recorte vehículo+tipo.
-  const load = useCallback(() => {
-    setLoading(true)
-    listAll(listIncidents({
-      vehicle: vehicleFilter ? Number(vehicleFilter) : undefined,
-      type: typeFilter || undefined,
-    }))
-      .then((rows) => {
-        setIncidents(rows)
-        setError('')
-      })
-      .catch((err) => setError(asErrorMessage(err, t.loadError)))
-      .finally(() => setLoading(false))
-  }, [vehicleFilter, typeFilter, t])
+  const load = useCallback(
+    (signal?: AbortSignal) => {
+      setLoading(true)
+      const req = { signal }
+      listAll(
+        listIncidents(
+          {
+            vehicle: vehicleFilter ? Number(vehicleFilter) : undefined,
+            type: typeFilter || undefined,
+          },
+          req,
+        ),
+        req,
+      )
+        .then((rows) => {
+          setIncidents(rows)
+          setError('')
+        })
+        .catch((err) => {
+          if (isAbortError(err)) return
+          setError(asErrorMessage(err, t.loadError))
+        })
+        .finally(() => {
+          if (!signal?.aborted) setLoading(false)
+        })
+    },
+    [vehicleFilter, typeFilter, t],
+  )
 
-  useEffect(load, [load])
+  // M14: cada carga aborta la anterior; la última en vuelo muere al desmontar.
+  // Sin esto, cambiar de filtro dejaba varias peticiones compitiendo y la que
+  // contestara última —no la última pedida— se quedaba en la pantalla.
+  useEffect(() => {
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
+  }, [load])
+
 
   function setFilter(key: string, value: string) {
     const next = new URLSearchParams(searchParams)

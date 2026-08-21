@@ -1,4 +1,12 @@
-import { deleteJson, getJson, patchJson, postForm, postJson, toUrl } from '@flota/ui/http'
+import {
+  deleteJson,
+  getJson,
+  patchJson,
+  postForm,
+  postJson,
+  toUrl,
+  type ApiTransportOptions,
+} from '@flota/ui/http'
 
 import type {
   Alert,
@@ -21,10 +29,24 @@ import type {
   VehicleLinkRow,
   VehicleSummary,
 } from './types'
+import type { NoticeLang } from './emailPrefs.ts'
+
+import type { ReportKindKey } from './reportFilters.ts'
 
 // API de negocio versionada (G0): auth en /api/v1/auth/, dominio en /api/v1/.
 const AUTH = '/api/v1/auth'
 const API = '/api/v1'
+
+/**
+ * M14 — opciones de transporte de una LECTURA (hoy solo `signal`).
+ *
+ * El transporte del DS ya aceptaba `signal` y nadie se lo pasaba: ninguna carga
+ * se cancelaba, así que al cambiar de filtro (o salir de la pantalla) seguían
+ * en vuelo las peticiones anteriores y la última en contestar pisaba el estado
+ * — no siempre la última pedida. Las escrituras NO lo llevan a propósito:
+ * abortar un POST a medias deja la duda de si el servidor lo aplicó.
+ */
+export type ReqOpts = Pick<ApiTransportOptions, 'signal'>
 
 /** Fija la cookie CSRF antes de cualquier POST/PATCH/DELETE. */
 export const ensureCsrf = () => getJson(`${AUTH}/csrf/`)
@@ -67,29 +89,86 @@ export interface VehicleFilters {
   assigned?: boolean
   /** Los `baja` no salen por defecto; 1 = incluirlos. */
   include_baja?: 1
+  /** M11: N9 — solo vehículos de sustitución (o solo de flota con `false`). */
+  is_substitute?: boolean
   page?: number
   ordering?: string
+  page_size?: number
 }
 
-export const listVehicles = (filters: VehicleFilters = {}) =>
-  getJson<Paginated<Vehicle>>(`${API}/vehicles/${listQs({ ...filters })}`)
+export const listVehicles = (filters: VehicleFilters = {}, req: ReqOpts = {}) =>
+  getJson<Paginated<Vehicle>>(`${API}/vehicles/${listQs({ ...filters })}`, req)
+
+/** M13: páginas simultáneas por tanda (no dejamos 36 peticiones a la vez). */
+const PAGE_CONCURRENCY = 6
 
 /**
- * Carga TODAS las páginas de un listado DRF siguiendo `next` (mejora 🔴).
+ * Carga TODAS las páginas de un listado DRF (mejora 🔴).
  * Los listados con `TableWithPanel` paginan/buscan en cliente: sin esto solo
- * verían la primera página (50 filas) sin aviso. `next` llega como URL
- * absoluta: se reduce a path+query para pasar por el transporte normal.
+ * verían la primera página (50 filas) sin aviso.
+ *
+ * M13/PF4: `count` de DRF dice cuántas páginas hay, así que en cuanto llega la
+ * primera se piden las demás EN PARALELO (en tandas de `PAGE_CONCURRENCY`).
+ * Antes se encadenaban de una en una siguiendo `next`: con 18.000 lecturas de
+ * km eran 36  idas y vueltas en serie, y el usuario esperaba la suma de todas.
+ * Si el servidor no da `count` utilizable se sigue `next` como antes.
  */
-export async function listAll<T>(first: Promise<Paginated<T>>): Promise<T[]> {
-  const results: T[] = []
-  let page = await first
-  results.push(...page.results)
-  while (page.next) {
-    const url = new URL(page.next, window.location.origin)
-    page = await getJson<Paginated<T>>(`${url.pathname}${url.search}`)
-    results.push(...page.results)
+export async function listAll<T>(
+  first: Promise<Paginated<T>>,
+  req: ReqOpts = {},
+): Promise<T[]> {
+  const page = await first
+  if (!page.next) return page.results
+  const url = new URL(page.next, window.location.origin)
+  const pageSize = page.results.length
+  const pageCount = pageSize > 0 ? Math.ceil(page.count / pageSize) : 0
+  if (pageCount < 2) {
+    // Sin `count` fiable: recorrido secuencial siguiendo `next` (como antes).
+    const results = [...page.results]
+    let next: string | null = page.next
+    while (next) {
+      const nextUrl: URL = new URL(next, window.location.origin)
+      const current: Paginated<T> = await getJson<Paginated<T>>(
+        `${nextUrl.pathname}${nextUrl.search}`,
+        req,
+      )
+      results.push(...current.results)
+      next = current.next
+    }
+    return results
   }
-  return results
+  const pages: Array<T[]> = [page.results]
+  for (let from = 2; from <= pageCount; from += PAGE_CONCURRENCY) {
+    const batch: Array<Promise<Paginated<T>>> = []
+    for (let n = from; n < from + PAGE_CONCURRENCY && n <= pageCount; n += 1) {
+      const target = new URL(url)
+      target.searchParams.set('page', String(n))
+      batch.push(getJson<Paginated<T>>(`${target.pathname}${target.search}`, req))
+    }
+    for (const result of await Promise.all(batch)) pages.push(result.results)
+  }
+  return pages.flat()
+}
+
+/**
+ * C6 — ¿la página trae TODO lo que hay? (`count` vs `results.length`).
+ *
+ * `listQs` pide 500 filas por defecto y apuesta a que caben en una petición,
+ * pero nada comprobaba cuándo la apuesta falla: al pasar de 500 la interfaz
+ * mostraba menos datos **sin decirlo** (la traza de correos, el histórico de la
+ * ficha, las alertas del panel…). Devuelve `null` si está completa o el total
+ * real si se ha truncado, para que la vista lo avise.
+ */
+export function truncatedAt<T>(page: Paginated<T>): number | null {
+  return page.count > page.results.length ? page.count : null
+}
+
+/** Igual que `truncatedAt` pero sobre la promesa, para usar en cadena. */
+export async function withCompleteness<T>(
+  promise: Promise<Paginated<T>>,
+): Promise<{ rows: T[]; total: number; truncated: number | null }> {
+  const page = await promise
+  return { rows: page.results, total: page.count, truncated: truncatedAt(page) }
 }
 
 export type VehicleInput = Partial<
@@ -101,7 +180,9 @@ export const createVehicle = (data: VehicleInput) => postJson<Vehicle>(`${API}/v
 export const updateVehicle = (id: number, data: VehicleInput) =>
   patchJson<Vehicle>(`${API}/vehicles/${id}/`, data)
 
-export const deleteVehicle = (id: number) => deleteJson(`${API}/vehicles/${id}/`)
+/** N7: no borra el vehículo — el back lo pasa a «baja» (restaurable en erratas). */
+export const deactivateVehicle = (id: number, reason = '') =>
+  deleteJson(`${API}/vehicles/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
 
 /** N9: sustituto → flota (vía explícita; solo sin vínculo activo). */
 export const convertToFleet = (id: number) =>
@@ -167,8 +248,21 @@ export type CatalogResource =
   | 'vehicle-models'
   | 'companies'
 
-export const listCatalog = (resource: CatalogResource) =>
-  getJson<Paginated<CatalogEntry>>(`${API}/${resource}/${listQs({})}`)
+export const listCatalog = (resource: CatalogResource, req: ReqOpts = {}) =>
+  getJson<Paginated<CatalogEntry>>(`${API}/${resource}/${listQs({})}`, req)
+
+/** Los catálogos del alta de vehículo en UNA petición (antes eran siete).
+ *
+ * No trae `vehicle-models`: dependen de la marca elegida y se piden con
+ * `listVehicleModels(brand)`. Los objetos son los mismos que devuelven los
+ * endpoints individuales, así que los selects no cambian. Sin paginar. */
+export type CatalogsBundle = Record<
+  Exclude<CatalogResource, 'vehicle-models'>,
+  CatalogEntry[]
+>
+
+export const fetchCatalogs = (req: ReqOpts = {}) =>
+  getJson<CatalogsBundle>(`${API}/catalogs/`, req)
 
 /** N5: modelos de una marca (desplegable dependiente del alta de vehículo). */
 export const listVehicleModels = (brand: number) =>
@@ -197,14 +291,14 @@ export interface AlertFilters {
   vehicle?: number
 }
 
-export const listAlerts = (filters: AlertFilters | string = 'open') =>
+export const listAlerts = (filters: AlertFilters | string = 'open', req: ReqOpts = {}) =>
   getJson<Paginated<Alert>>(
     `${API}/alerts/${listQs(typeof filters === 'string' ? { status: filters } : { ...filters })}`,
+    req,
   )
 
+/** Cierra la alerta. Es el ÚNICO cierre: no hay descartar. */
 export const resolveAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/resolve/`, {})
-
-export const dismissAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/dismiss/`, {})
 
 // --- G8: registrar ITV + informes -------------------------------------------
 
@@ -217,7 +311,8 @@ export const registerItv = (data: {
   itv: { result: string; next_due: string | null }
 }) => postJson<FlotaEvent>(`${API}/events/`, { ...data, event_type: 'itv' })
 
-export type ReportKind = 'fleet' | 'alerts' | 'costs'
+/** Informes exportables; las claves las comparte el servidor. */
+export type ReportKind = ReportKindKey
 export type ReportFormat = 'xlsx' | 'csv'
 
 /** URL de descarga de un informe (navegación con cookies, mismo origen). */
@@ -230,19 +325,38 @@ export const fetchVehicleSummary = (id: number) =>
   getJson<VehicleSummary>(`${API}/vehicles/${id}/summary/`)
 
 /** Summaries de TODO el ámbito en una petición (O2 de
- * OPTIMIZACION_Y_ERRORES.md): evita el GET por vehículo del Kilometraje. */
-export const fetchVehicleSummaries = () =>
-  getJson<VehicleSummary[]>(`${API}/summary/vehicles/`)
+ * OPTIMIZACION_Y_ERRORES.md): evita el GET por vehículo del Kilometraje.
+ * M12: con `ids` acota la respuesta a esos vehículos — el servidor ya lo
+ * soporta (`?ids=`) y quien necesita cuatro fichas no se trae la flota. */
+export const fetchVehicleSummaries = (ids?: number[], req: ReqOpts = {}) =>
+  getJson<VehicleSummary[]>(
+    `${API}/summary/vehicles/${buildQs({ ids: ids?.length ? ids.join(',') : undefined })}`,
+    req,
+  )
 
 export const listKmReadings = (vehicle: number) =>
   getJson<Paginated<KmReading>>(
     `${API}/km-readings/${listQs({ vehicle, ordering: 'reading_date' })}`,
   )
 
-/** Lecturas de km de toda la flota (o de un vehículo) — para el informe de km. */
-export const listKmReadingsAll = (filters: { vehicle?: number } = {}) =>
+/**
+ * Lecturas de km de la flota (o de un vehículo), opcionalmente acotadas por
+ * fecha. M10: la pantalla de Kilometraje trabaja mes a mes y se traía el
+ * histórico COMPLETO de la flota en cada carga; con `from`/`to` pide solo la
+ * ventana que pinta (el back filtra con `reading_date__gte/lte`).
+ */
+export const listKmReadingsAll = (
+  filters: { vehicle?: number; from?: string; to?: string } = {},
+  req: ReqOpts = {},
+) =>
   getJson<Paginated<KmReading>>(
-    `${API}/km-readings/${listQs({ ...filters, ordering: '-reading_date' })}`,
+    `${API}/km-readings/${listQs({
+      vehicle: filters.vehicle,
+      reading_date__gte: filters.from,
+      reading_date__lte: filters.to,
+      ordering: '-reading_date',
+    })}`,
+    req,
   )
 
 export const createKmReading = (data: { vehicle: number; km_reading: number; reading_date: string }) =>
@@ -252,6 +366,9 @@ export const createKmReading = (data: { vehicle: number; km_reading: number; rea
 
 export interface KmEstimatePreview {
   open: boolean
+  /** N8b: ¿hay ventana configurada? (`FLEET_KM_ESTIMATE_WINDOW_END=0` → false).
+   * Con `false` la acción está siempre disponible y no se enseñan plazos. */
+  window_enabled: boolean
   window_end_day: number
   missing_count: number
   missing: Array<{ vehicle: number; plate: string }>
@@ -270,11 +387,14 @@ export const fetchKmEstimatePreview = () =>
 export const runKmEstimate = (months: number, override = false) =>
   postJson<KmEstimateResult>(`${API}/km-readings/estimate/`, { months, override })
 
-export const listEvents = (vehicle: number) =>
-  getJson<Paginated<FlotaEvent>>(`${API}/events/${listQs({ vehicle, ordering: '-event_date' })}`)
+export const listEvents = (vehicle: number, req: ReqOpts = {}) =>
+  getJson<Paginated<FlotaEvent>>(
+    `${API}/events/${listQs({ vehicle, ordering: '-event_date' })}`,
+    req,
+  )
 
-export const fetchVehicleHistory = (id: number) =>
-  getJson<Paginated<AuditEntry>>(`${API}/vehicles/${id}/history/${listQs({})}`)
+export const fetchVehicleHistory = (id: number, req: ReqOpts = {}) =>
+  getJson<Paginated<AuditEntry>>(`${API}/vehicles/${id}/history/${listQs({})}`, req)
 
 /** Editar campos de un contrato (p. ej. el enlace del contrato en Drive). */
 export const updateContract = (id: number, data: Record<string, unknown>) =>
@@ -282,10 +402,13 @@ export const updateContract = (id: number, data: Record<string, unknown>) =>
 
 export const listAssignments = (
   filters: { vehicle?: number; driver?: number; status?: string } = {},
-) => getJson<Paginated<AssignmentRow>>(`${API}/assignments/${listQs({ ...filters })}`)
+  req: ReqOpts = {},
+) => getJson<Paginated<AssignmentRow>>(`${API}/assignments/${listQs({ ...filters })}`, req)
 
-export const listVehicleLinks = (filters: { main_vehicle?: number; substitute_vehicle?: number }) =>
-  getJson<Paginated<VehicleLinkRow>>(`${API}/vehicle-links/${listQs({ ...filters })}`)
+export const listVehicleLinks = (
+  filters: { main_vehicle?: number; substitute_vehicle?: number },
+  req: ReqOpts = {},
+) => getJson<Paginated<VehicleLinkRow>>(`${API}/vehicle-links/${listQs({ ...filters })}`, req)
 
 // --- G4: estados, baja y vinculación ---------------------------------------
 
@@ -299,8 +422,14 @@ export const createVehicleLink = (data: {
 }) => postJson<VehicleLinkRow>(`${API}/vehicle-links/`, data)
 
 /** Cerrar el vínculo activo: fin = fecha dada (HU-1.8). */
+/** Cierra el vínculo con la fecha indicada. Una fecha FUTURA lo deja
+ * programado: sigue cubriendo (y bloqueando al principal) hasta ese día. */
 export const closeVehicleLink = (id: number, end_date: string) =>
   patchJson<VehicleLinkRow>(`${API}/vehicle-links/${id}/`, { end_date })
+
+/** Anula un cierre programado: el vínculo vuelve a quedar abierto. */
+export const reopenVehicleLink = (id: number) =>
+  patchJson<VehicleLinkRow>(`${API}/vehicle-links/${id}/`, { end_date: null })
 
 /** Resultado del comunicado por email (best-effort, trazado en EmailLog). */
 export interface NotifyResult {
@@ -322,17 +451,19 @@ export const notifyVehicle = (
     /** Email libre («otro email que se especifique»). */
     email?: string
     subject?: string
-    /** Clave de plantilla (state_notice · itv_due · insurance_due). */
+    /** Clave de plantilla; vacía = se envía solo el mensaje libre. */
     template_key?: string
+    /** Idioma de la plantilla; `both` manda las dos versiones en un correo. */
+    lang?: NoticeLang
   },
 ) => postJson<NotifyResult>(`${API}/vehicles/${id}/notify/`, data)
 
 /** Vista previa (asunto + cuerpo HTML) de un aviso con una plantilla, sin enviar. */
 export const noticePreviewVehicle = (
   id: number,
-  data: { template_key: string; message?: string },
+  data: { template_key: string; message?: string; lang?: NoticeLang },
 ) =>
-  postJson<{ subject: string; body_html: string; has_template: boolean }>(
+  postJson<{ subject: string; body_html: string; has_template: boolean; has_en: boolean }>(
     `${API}/vehicles/${id}/notice-preview/`,
     data,
   )
@@ -352,7 +483,26 @@ export const createAssignment = (data: {
 export const updateAssignment = (id: number, data: Partial<AssignmentRow>) =>
   patchJson<AssignmentRow>(`${API}/assignments/${id}/`, data)
 
-export const deleteAssignment = (id: number) => deleteJson(`${API}/assignments/${id}/`)
+/**
+ * A6 — cambio de conductor en UNA llamada atómica.
+ *
+ * Sustituye al apaño de tres pasos (PATCH del supervisor → crear propuesta →
+ * aceptarla, con `deleteAssignment` de compensación si algo fallaba): dejaba
+ * propuestas huérfanas, podía guardar el supervisor a solas y **borraba
+ * físicamente** una asignación desde la ficha, cuando el borrado definitivo
+ * vive solo en Ajustes.
+ *
+ * `driver: null` libera el vehículo. `supervisor` solo se envía si cambia.
+ */
+export const setVehicleDriver = (
+  id: number,
+  data: {
+    driver?: number | null
+    start_date?: string
+    supervisor?: number | null
+    expected_updated_at?: string
+  },
+) => postJson<Vehicle>(`${API}/vehicles/${id}/set-driver/`, data)
 
 /** Confirma una propuesta: cierra la vigente + emite el evento (HU-2.4). */
 export const acceptAssignment = (id: number) =>
@@ -406,8 +556,32 @@ export interface ManagedUserInput {
   password?: string
 }
 
-export const listUsers = (filters: { search?: string; is_active?: boolean } = {}) =>
-  getJson<Paginated<ManagedUserFull>>(`${AUTH}/users/${listQs({ ...filters })}`)
+export const listUsers = (
+  filters: { search?: string; is_active?: boolean; role?: string } = {},
+  req: ReqOpts = {},
+) =>
+  getJson<Paginated<ManagedUserFull>>(
+    // M12: `roles__role` lo filtra el servidor (ya estaba en `filterset_fields`).
+    `${AUTH}/users/${listQs({
+      search: filters.search,
+      is_active: filters.is_active,
+      roles__role: filters.role,
+    })}`,
+    req,
+  )
+
+/**
+ * M12 — supervisores para un desplegable: activos y con ese rol, filtrados
+ * EN SERVIDOR. Había tres copias del mismo filtro en cliente (ficha, alta de
+ * vehículo y panel), y las tres se traían la lista completa de usuarios para
+ * quedarse con unos pocos.
+ */
+export async function listSupervisors(
+  req: ReqOpts = {},
+): Promise<Array<{ id: number; name: string }>> {
+  const page = await listUsers({ role: 'supervisor', is_active: true }, req)
+  return page.results.map((u) => ({ id: u.id, name: u.name }))
+}
 
 export const createUser = (data: ManagedUserInput) =>
   postJson<ManagedUserFull>(`${AUTH}/users/`, data)
@@ -469,8 +643,8 @@ export interface AllocationRow {
   amount: string
 }
 
-export const listInvoices = (filters: { vehicle?: number } = {}) =>
-  getJson<Paginated<InvoiceRow>>(`${API}/invoices/${listQs({ ...filters })}`)
+export const listInvoices = (filters: { vehicle?: number } = {}, req: ReqOpts = {}) =>
+  getJson<Paginated<InvoiceRow>>(`${API}/invoices/${listQs({ ...filters })}`, req)
 
 export interface InvoiceInput {
   code?: string
@@ -583,8 +757,8 @@ export interface IncidentFilters {
   status?: string
 }
 
-export const listIncidents = (filters: IncidentFilters = {}) =>
-  getJson<Paginated<Incident>>(`${API}/incidents/${listQs({ ...filters })}`)
+export const listIncidents = (filters: IncidentFilters = {}, req: ReqOpts = {}) =>
+  getJson<Paginated<Incident>>(`${API}/incidents/${listQs({ ...filters })}`, req)
 
 export interface IncidentInput {
   vehicle: number
@@ -623,21 +797,52 @@ export interface ErrataItem {
   reason: string
 }
 
+/**
+ * M5 — el índice de erratas trae SOLO recuentos por tipo. Antes venía con todos
+ * los registros desactivados de los veintiún tipos en la misma respuesta (cada
+ * etiqueta es un `__str__` que toca relaciones): abrir Ajustes recorría el
+ * histórico completo de la flota para pintar unas pestañas con un número.
+ */
 export interface ErrataGroup {
   type: string
   label: string
   count: number
-  items: ErrataItem[]
 }
 
-export const listErratas = () => getJson<ErrataGroup[]>(`${API}/erratas/`)
+export const listErratas = (req: ReqOpts = {}) =>
+  getJson<ErrataGroup[]>(`${API}/erratas/`, req)
+
+/** Página de registros de UN tipo de errata (búsqueda y paginación en servidor). */
+export const listErrataItems = (
+  params: { type: string; search?: string; page?: number; page_size?: number },
+  req: ReqOpts = {},
+) => getJson<Paginated<ErrataItem>>(`${API}/erratas/items/${buildQs({ ...params })}`, req)
 
 export const restoreErrata = (type: string, id: number) =>
   postJson<{ restored: boolean }>(`${API}/erratas/restore/`, { type, id })
 
-/** Borrado REAL — solo el superusuario (el back lo revalida). */
-export const purgeErrata = (type: string, id: number) =>
-  postJson<{ purged: boolean }>(`${API}/erratas/purge/`, { type, id })
+/** Línea del informe de impacto del borrado definitivo (A3). */
+export interface CascadeLine {
+  label: string
+  count: number
+}
+
+export interface PurgeResult {
+  purged: boolean
+  requires_confirmation?: boolean
+  label?: string
+  /** Qué se llevaría (o se llevó) la cascada, por modelo. */
+  cascade: CascadeLine[]
+}
+
+/**
+ * Borrado REAL — solo el superusuario (el back lo revalida). Dos pasos (A3):
+ * sin `confirm` el back NO borra y devuelve el informe de impacto de la
+ * cascada; con `confirm` borra. Purgar un usuario se lleva sus asignaciones y
+ * purgar un vehículo su histórico completo: hay que verlo antes de aceptar.
+ */
+export const purgeErrata = (type: string, id: number, confirm = false) =>
+  postJson<PurgeResult>(`${API}/erratas/purge/`, { type, id, confirm })
 
 // --- N10: gestor maestro de plantillas de correo ----------------------------
 
@@ -653,8 +858,15 @@ export interface EmailTemplateRow {
   key_display: string
   subject: string
   body_html: string
+  /** Versión inglesa; vacía = se usa la castellana. */
+  subject_en: string
+  body_html_en: string
+  /** true si hay versión inglesa propia (asunto o cuerpo). */
+  has_en: boolean
   signature: number | null
   signature_name: string
+  /** Las borradas se desactivan (soft delete): siguen listándose pero no se usan. */
+  is_active: boolean
   updated_at: string
 }
 
@@ -680,11 +892,14 @@ export const createEmailTemplate = (data: Partial<EmailTemplateRow>) =>
 export const updateEmailTemplate = (id: number, data: Partial<EmailTemplateRow>) =>
   patchJson<EmailTemplateRow>(`${API}/email-templates/${id}/`, data)
 
-export const previewEmailTemplate = (id: number) =>
-  postJson<{ subject: string; body_html: string }>(`${API}/email-templates/${id}/preview/`, {})
+/** `lang`: versión que se está editando (es/en), para no previsualizar la otra. */
+export const previewEmailTemplate = (id: number, lang: 'es' | 'en' = 'es') =>
+  postJson<{ subject: string; body_html: string }>(`${API}/email-templates/${id}/preview/`, {
+    lang,
+  })
 
-export const sendTestEmail = (id: number) =>
-  postJson<{ sent_to: string }>(`${API}/email-templates/${id}/test/`, {})
+export const sendTestEmail = (id: number, lang: 'es' | 'en' = 'es') =>
+  postJson<{ sent_to: string }>(`${API}/email-templates/${id}/test/`, { lang })
 
 export const listEmailSignatures = () =>
   getJson<Paginated<EmailSignatureRow>>(`${API}/email-signatures/${listQs({})}`)
@@ -772,3 +987,74 @@ export function computeBatchSize(total: number): number {
   if (total <= 5000) return 250
   return 500
 }
+
+// --- Envíos programados (Ajustes → Notificaciones) -------------------------
+
+/** Un envío programado del usuario. `user_email` es el destinatario por defecto. */
+export interface NotificationSchedule {
+  id: number
+  name: string
+  /** Añaden fecha y/u hora del envío al nombre (asunto y fichero adjunto). */
+  name_with_date: boolean
+  name_with_time: boolean
+  /** El resumen, o cualquiera de los informes de la pantalla de Informes. */
+  content: 'summary' | ReportKindKey
+  content_display: string
+  /** Los envíos programados van siempre en CSV (la descarga a mano, no). */
+  fmt: 'csv'
+  /** Filtros del informe, con las claves de `REPORT_FILTERS`. */
+  filters: Record<string, string>
+  frequency: 'daily' | 'weekly' | 'monthly'
+  frequency_display: string
+  weekday: number | null
+  day_of_month: number | null
+  /** "HH:MM:SS" (hora local del servidor). */
+  send_at: string
+  enabled: boolean
+  send_email: boolean
+  extra_recipients: string
+  save_to_drive: boolean
+  drive_folder: string
+  user_email: string
+  next_run_at: string | null
+  last_run_at: string | null
+  last_status: '' | 'ok' | 'failed'
+  last_error: string
+}
+
+export interface NotificationScheduleInput {
+  name: string
+  name_with_date: boolean
+  name_with_time: boolean
+  content: string
+  filters: Record<string, string>
+  frequency: string
+  weekday?: number | null
+  day_of_month?: number | null
+  send_at: string
+  enabled: boolean
+  send_email: boolean
+  extra_recipients: string
+  save_to_drive: boolean
+  drive_folder: string
+}
+
+export const listNotificationSchedules = (req: ReqOpts = {}) =>
+  getJson<Paginated<NotificationSchedule>>(`${API}/notification-schedules/${listQs({})}`, req)
+
+export const createNotificationSchedule = (data: NotificationScheduleInput) =>
+  postJson<NotificationSchedule>(`${API}/notification-schedules/`, data)
+
+export const updateNotificationSchedule = (id: number, data: Partial<NotificationScheduleInput>) =>
+  patchJson<NotificationSchedule>(`${API}/notification-schedules/${id}/`, data)
+
+/** Borra de verdad: es configuración propia, no un registro de negocio (N7). */
+export const deleteNotificationSchedule = (id: number) =>
+  deleteJson(`${API}/notification-schedules/${id}/`)
+
+/** «Enviar ahora», para probar el envío sin esperar a su hora. */
+export const runNotificationSchedule = (id: number) =>
+  postJson<{ queued: boolean; drive_url: string | null; error: string; last_status: string }>(
+    `${API}/notification-schedules/${id}/run/`,
+    {},
+  )

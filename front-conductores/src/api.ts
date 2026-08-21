@@ -25,7 +25,8 @@ const API = '/api/v1'
 /** Fija la cookie CSRF antes de cualquier POST. */
 export const ensureCsrf = () => getJson(`${AUTH}/csrf/`)
 
-export const fetchAuthConfig = () => getJson<AuthConfig>(`${AUTH}/config/`)
+export const fetchAuthConfig = (opts: { signal?: AbortSignal } = {}) =>
+  getJson<AuthConfig>(`${AUTH}/config/`, opts)
 
 export const fetchMe = () => getJson<FlotaUser>(`${AUTH}/me/`)
 
@@ -59,10 +60,17 @@ export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${
 export const fetchVehicleSummary = (id: number) =>
   getJson<VehicleSummary>(`${API}/vehicles/${id}/summary/`)
 
-/** Summaries de TODO el ámbito en una petición (O2): antes era un GET por
- * coche — en 4G la latencia por petición dominaba el tiempo de carga. */
-export const fetchVehicleSummaries = () =>
-  getJson<VehicleSummary[]>(`${API}/summary/vehicles/`)
+/** Summaries del ámbito en una petición (O2): antes era un GET por coche — en
+ * 4G la latencia por petición dominaba el tiempo de carga.
+ *
+ * M12: con `ids` se piden SOLO esos vehículos (el back ya acepta `?ids=`).
+ * La bandeja de alertas necesitaba el summary de los tres coches con lectura
+ * pendiente y se traía el de todo el grupo del supervisor para descartarlos
+ * en cliente. */
+export const fetchVehicleSummaries = (ids?: number[]) =>
+  getJson<VehicleSummary[]>(
+    `${API}/summary/vehicles/${ids?.length ? `?ids=${ids.join(',')}` : ''}`,
+  )
 
 // --- M8: notificaciones push (Web Push/VAPID) ------------------------------
 export interface PushConfig {
@@ -95,7 +103,6 @@ export const listAlerts = (status: string) =>
 
 /** Solo gestión (supervisor/admin); el conductor no ve estos botones. */
 export const resolveAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/resolve/`, {})
-export const dismissAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/dismiss/`, {})
 
 // --- M4: aportaciones del conductor (HU-2.3, 5.1) --------------------------
 
@@ -128,6 +135,9 @@ export const createKmReading = (data: { vehicle: number; km_reading: number; rea
  * cuenta. Solo el admin queda exento (el supervisor es campo). */
 export interface KmWindow {
   open: boolean
+  /** N8a: ¿hay ventana configurada? (`FLEET_KM_WINDOW_START=0` → false). Con
+   * `false` no hay plazo y la interfaz no enseña nada sobre él. */
+  enabled: boolean
   start_day: number
   last_day: number
   today: string

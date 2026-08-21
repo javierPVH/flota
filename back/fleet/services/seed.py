@@ -23,7 +23,7 @@ por Google). Contraseña de prueba de todos: `flota-dev-2026`.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from decimal import Decimal
 
 from django.utils import timezone
@@ -39,6 +39,7 @@ from fleet.models import (
     Country,
     Document,
     EmailLog,
+    EmailOutbox,
     EmailSignature,
     EmailTemplate,
     EmailTemplateKey,
@@ -54,6 +55,7 @@ from fleet.models import (
     Invoice,
     InvoiceAllocation,
     KmReading,
+    NotificationSchedule,
     Pep,
     Project,
     Renting,
@@ -138,38 +140,166 @@ BULK_LICENSES = [
 # Los 16 modelos cubren entre todos los 4 tipos, los 5 combustibles, los 3
 # tamaños y los 9 segmentos de mercado.
 BULK_MODELS = [
-    ("Peugeot", "Partner", VehicleType.FURGONETA, Fuel.DIESEL,
-     VehicleSize.LARGE, MarketSegment.MPV, "1.5 BlueHDi 100 Pro", 5),
-    ("Citroën", "Berlingo Van", VehicleType.FURGONETA, Fuel.DIESEL,
-     VehicleSize.MEDIUM, MarketSegment.MPV, "1.5 BlueHDi 130 Control", 5),
-    ("Ford", "Transit Custom", VehicleType.FURGONETA, Fuel.DIESEL,
-     VehicleSize.LARGE, MarketSegment.MPV, "2.0 EcoBlue 136 Trend", 7),
-    ("Volkswagen", "Caddy Cargo", VehicleType.FURGONETA, Fuel.DIESEL,
-     VehicleSize.MEDIUM, MarketSegment.MPV, "2.0 TDI 102 Pro", 5),
-    ("Toyota", "Corolla Touring", VehicleType.TURISMO, Fuel.HYBRID,
-     VehicleSize.MEDIUM, MarketSegment.UPPER_MEDIUM, "1.8 125H Advance", 4),
-    ("Seat", "León ST", VehicleType.TURISMO, Fuel.GASOLINE,
-     VehicleSize.MEDIUM, MarketSegment.LOWER_MEDIUM, "1.5 TSI 130 Style", 5),
-    ("Renault", "Clio", VehicleType.TURISMO, Fuel.GASOLINE,
-     VehicleSize.SMALL, MarketSegment.SUPERMINI, "1.0 TCe 90 Evolution", 5),
-    ("Dacia", "Duster GLP", VehicleType.TURISMO, Fuel.LPG,
-     VehicleSize.MEDIUM, MarketSegment.DUAL_4X4, "1.0 ECO-G 100 Expression", 7),
-    ("Kia", "Sportage", VehicleType.TURISMO, Fuel.HYBRID,
-     VehicleSize.LARGE, MarketSegment.DUAL_4X4, "1.6 T-GDi 230 HEV Drive", 5),
-    ("Hyundai", "Kona EV", VehicleType.TURISMO, Fuel.OTHER,
-     VehicleSize.MEDIUM, MarketSegment.LOWER_MEDIUM, "65 kWh Maxx", 16),
-    ("Iveco", "Daily 35S", VehicleType.CAMION, Fuel.DIESEL,
-     VehicleSize.LARGE, MarketSegment.MPV, "35S14 Furgón 12 m³", 10),
-    ("Yamaha", "Tricity 300", VehicleType.MOTOCICLETA, Fuel.GASOLINE,
-     VehicleSize.SMALL, MarketSegment.MINI, "300 ABS", 3),
-    ("Fiat", "500", VehicleType.TURISMO, Fuel.GASOLINE,
-     VehicleSize.SMALL, MarketSegment.MINI, "1.0 Hybrid Dolcevita", 4),
-    ("BMW", "Serie 5 Touring", VehicleType.TURISMO, Fuel.HYBRID,
-     VehicleSize.LARGE, MarketSegment.EXECUTIVE, "530e xDrive", 6),
-    ("Mercedes-Benz", "Clase S", VehicleType.TURISMO, Fuel.HYBRID,
-     VehicleSize.LARGE, MarketSegment.LUXURY, "S 580 e L 4MATIC", 8),
-    ("Cupra", "Formentor", VehicleType.TURISMO, Fuel.GASOLINE,
-     VehicleSize.MEDIUM, MarketSegment.SPORT, "VZ 2.0 TSI 310 DSG 4Drive", 8),
+    (
+        "Peugeot",
+        "Partner",
+        VehicleType.FURGONETA,
+        Fuel.DIESEL,
+        VehicleSize.LARGE,
+        MarketSegment.MPV,
+        "1.5 BlueHDi 100 Pro",
+        5,
+    ),
+    (
+        "Citroën",
+        "Berlingo Van",
+        VehicleType.FURGONETA,
+        Fuel.DIESEL,
+        VehicleSize.MEDIUM,
+        MarketSegment.MPV,
+        "1.5 BlueHDi 130 Control",
+        5,
+    ),
+    (
+        "Ford",
+        "Transit Custom",
+        VehicleType.FURGONETA,
+        Fuel.DIESEL,
+        VehicleSize.LARGE,
+        MarketSegment.MPV,
+        "2.0 EcoBlue 136 Trend",
+        7,
+    ),
+    (
+        "Volkswagen",
+        "Caddy Cargo",
+        VehicleType.FURGONETA,
+        Fuel.DIESEL,
+        VehicleSize.MEDIUM,
+        MarketSegment.MPV,
+        "2.0 TDI 102 Pro",
+        5,
+    ),
+    (
+        "Toyota",
+        "Corolla Touring",
+        VehicleType.TURISMO,
+        Fuel.HYBRID,
+        VehicleSize.MEDIUM,
+        MarketSegment.UPPER_MEDIUM,
+        "1.8 125H Advance",
+        4,
+    ),
+    (
+        "Seat",
+        "León ST",
+        VehicleType.TURISMO,
+        Fuel.GASOLINE,
+        VehicleSize.MEDIUM,
+        MarketSegment.LOWER_MEDIUM,
+        "1.5 TSI 130 Style",
+        5,
+    ),
+    (
+        "Renault",
+        "Clio",
+        VehicleType.TURISMO,
+        Fuel.GASOLINE,
+        VehicleSize.SMALL,
+        MarketSegment.SUPERMINI,
+        "1.0 TCe 90 Evolution",
+        5,
+    ),
+    (
+        "Dacia",
+        "Duster GLP",
+        VehicleType.TURISMO,
+        Fuel.LPG,
+        VehicleSize.MEDIUM,
+        MarketSegment.DUAL_4X4,
+        "1.0 ECO-G 100 Expression",
+        7,
+    ),
+    (
+        "Kia",
+        "Sportage",
+        VehicleType.TURISMO,
+        Fuel.HYBRID,
+        VehicleSize.LARGE,
+        MarketSegment.DUAL_4X4,
+        "1.6 T-GDi 230 HEV Drive",
+        5,
+    ),
+    (
+        "Hyundai",
+        "Kona EV",
+        VehicleType.TURISMO,
+        Fuel.OTHER,
+        VehicleSize.MEDIUM,
+        MarketSegment.LOWER_MEDIUM,
+        "65 kWh Maxx",
+        16,
+    ),
+    (
+        "Iveco",
+        "Daily 35S",
+        VehicleType.CAMION,
+        Fuel.DIESEL,
+        VehicleSize.LARGE,
+        MarketSegment.MPV,
+        "35S14 Furgón 12 m³",
+        10,
+    ),
+    (
+        "Yamaha",
+        "Tricity 300",
+        VehicleType.MOTOCICLETA,
+        Fuel.GASOLINE,
+        VehicleSize.SMALL,
+        MarketSegment.MINI,
+        "300 ABS",
+        3,
+    ),
+    (
+        "Fiat",
+        "500",
+        VehicleType.TURISMO,
+        Fuel.GASOLINE,
+        VehicleSize.SMALL,
+        MarketSegment.MINI,
+        "1.0 Hybrid Dolcevita",
+        4,
+    ),
+    (
+        "BMW",
+        "Serie 5 Touring",
+        VehicleType.TURISMO,
+        Fuel.HYBRID,
+        VehicleSize.LARGE,
+        MarketSegment.EXECUTIVE,
+        "530e xDrive",
+        6,
+    ),
+    (
+        "Mercedes-Benz",
+        "Clase S",
+        VehicleType.TURISMO,
+        Fuel.HYBRID,
+        VehicleSize.LARGE,
+        MarketSegment.LUXURY,
+        "S 580 e L 4MATIC",
+        8,
+    ),
+    (
+        "Cupra",
+        "Formentor",
+        VehicleType.TURISMO,
+        Fuel.GASOLINE,
+        VehicleSize.MEDIUM,
+        MarketSegment.SPORT,
+        "VZ 2.0 TSI 310 DSG 4Drive",
+        8,
+    ),
 ]
 
 # Ubicaciones para los eventos de cambio de ubicación (EventLocationChange).
@@ -1533,27 +1663,52 @@ def seed_alerts(stdout=None) -> None:
     volumen, lecturas pendientes y vehículos sin conductor.
 
     El motor solo crea alertas ABIERTAS, así que después se cierran dos a mano
-    (una resuelta y otra descartada) para que el filtro por estado de la bandeja
-    tenga contenido en los tres valores. Se eligen de los tipos más numerosos y
-    de forma determinista (por `dedup_key`), así que no dejan ningún tipo vacío.
+    —los dos únicos estados son abierta y resuelta— para que la pestaña de
+    resueltas tenga contenido, y **una de cada clase** de resolutor: una cerrada
+    por el responsable del propio vehículo (la bandeja la marca en verde) y otra
+    por un tercero (en rojo, con el aviso al pasar por encima). Se eligen de
+    forma determinista por `dedup_key`, así que no dejan ningún tipo vacío.
     """
     wipe(Alert, stdout)
     summary = alerts.run_all()
 
-    admin = User.objects.get(username="admin")
-    for alert_type, new_status in (
-        (AlertType.ITV_DUE, AlertStatus.RESOLVED),
-        (AlertType.KM_READING_PENDING, AlertStatus.DISMISSED),
-    ):
-        alert = (
-            Alert.objects.filter(type=alert_type, status=AlertStatus.OPEN)
-            .order_by("dedup_key")
-            .first()
+    closed = 0
+    # 1) Cerrada por el responsable del vehículo → coincide (verde).
+    by_supervisor = (
+        Alert.objects.filter(
+            type=AlertType.ITV_DUE,
+            status=AlertStatus.OPEN,
+            vehicle__supervisor__isnull=False,
         )
-        if alert:
-            alert.close(status=new_status, by=admin)
+        .order_by("dedup_key")
+        .first()
+    )
+    if by_supervisor:
+        by_supervisor.close(status=AlertStatus.RESOLVED, by=by_supervisor.vehicle.supervisor)
+        closed += 1
+
+    # 2) Cerrada por administración, que no conduce ni supervisa ese coche → no
+    #    coincide (rojo). Se excluyen los vehículos donde `admin` sí sería una de
+    #    las dos personas, para que el caso rojo lo sea de verdad.
+    admin = User.objects.get(username="admin")
+    driven_by_admin = set(
+        Assignment.objects.filter(
+            driver=admin, end_date__isnull=True, status=AssignmentStatus.ACCEPTED, is_active=True
+        ).values_list("vehicle_id", flat=True)
+    )
+    by_third_party = (
+        Alert.objects.filter(type=AlertType.KM_READING_PENDING, status=AlertStatus.OPEN)
+        .exclude(vehicle__supervisor=admin)
+        .exclude(vehicle_id__in=driven_by_admin)
+        .order_by("dedup_key")
+        .first()
+    )
+    if by_third_party:
+        by_third_party.close(status=AlertStatus.RESOLVED, by=admin)
+        closed += 1
+
     if stdout:
-        stdout.write(f"  - Alertas regeneradas: {summary} (+1 resuelta, +1 descartada)")
+        stdout.write(f"  - Alertas regeneradas: {summary} (+{closed} resueltas)")
 
 
 # --- 8) Erratas (N7): registros desactivados de varios tipos ---------------
@@ -1618,6 +1773,38 @@ def seed_erratas(stdout=None) -> None:
     )
     retirar(reparto, "Imputada al CECO equivocado")
 
+    # -- A1: los cinco recursos que antes se BORRABAN de verdad --------------
+    # Contrato, asignación, reparto, vínculo y solicitud pasaron a desactivables
+    # (su borrado definitivo vive ahora solo en Ajustes → Borrado). Se retira
+    # siempre una fila YA CERRADA —nunca la vigente— para no dejar un vehículo
+    # sin contrato o sin conductor por sembrar una errata.
+    retirar(
+        Contract.objects.filter(end_date__isnull=False, is_active=True).order_by("id").first(),
+        "Contrato duplicado del mismo renting",
+    )
+    retirar(
+        Assignment.objects.filter(
+            status=AssignmentStatus.FINISHED, is_active=True, end_date__isnull=False
+        )
+        .order_by("id")
+        .first(),
+        "Asignación registrada con el conductor equivocado",
+    )
+    retirar(
+        VehicleUsage.objects.filter(end_date__isnull=False, is_active=True).order_by("id").first(),
+        "Reparto de uso con porcentajes mal repartidos",
+    )
+    retirar(
+        VehicleLink.objects.filter(end_date__isnull=False, is_active=True).order_by("id").first(),
+        "Vínculo de sustitución abierto por error",
+    )
+    retirar(
+        VehicleRequest.objects.filter(status=VehicleRequestStatus.CLOSED, is_active=True)
+        .order_by("id")
+        .first(),
+        "Solicitud duplicada del mismo ticket de Jira",
+    )
+
     # -- Catálogos: se crean filas huérfanas y se retiran --------------------
     saab, _ = Brand.objects.get_or_create(name="Saab")
     retirar(saab, "Marca sin vehículos en flota")
@@ -1671,33 +1858,43 @@ def seed_erratas(stdout=None) -> None:
     ex_driver, created = User.objects.get_or_create(
         username="expedro",
         defaults={
-            "email": "pedro@flota.dev",
             "first_name": "Pedro",
             "last_name": "Saliente",
         },
     )
     if created:
         ex_driver.set_password(DEV_PASSWORD)
+    # A5: email PROPIO, y se reasigna también en las filas que ya existían.
+    # Reutilizar el de `pedro` creaba dos cuentas con el mismo email, y el email
+    # es clave de identidad en el login por email, en el de Google y en la
+    # resolución de solicitantes de Jira: con duplicados,
+    # `filter(email__iexact=...).first()` entraba en una cuenta arbitraria.
+    # Dentro de `defaults` solo arreglaba las bases nuevas: las sembradas antes
+    # de este cambio conservaban el email duplicado y dejaban la migración de
+    # unicidad (accounts.0004) sin poder aplicarse.
+    ex_driver.email = "expedro@flota.dev"
     ex_driver.is_active = False
     ex_driver.save()
     if stdout:
-        stdout.write(
-            "  - Erratas: un ejemplo desactivado de cada tipo + usuario inactivo."
-        )
+        stdout.write("  - Erratas: un ejemplo desactivado de cada tipo + usuario inactivo.")
 
 
 # --- 9) Comunicaciones (N9 push / N10 correo) ------------------------------
 
 
 def seed_comms(stdout=None) -> None:
-    """Traza de correos enviados por los jobs y una suscripción push.
+    """Traza de correos enviados por los jobs, cola de salida y una push.
 
     `EmailLog` es SET_NULL respecto a `Alert`: sin wipe propio se acumularía
     entre resembrados. La suscripción push usa un endpoint ficticio — sin
     claves VAPID el envío es no-op, y con ellas el push service la poda
     limpiamente al primer 404/410.
+
+    M6: `EmailOutbox` se siembra con los tres estados (pendiente, entregado y
+    fallido tras agotar intentos) para poder ver la cola sin esperar a un job.
     """
     wipe(EmailLog, stdout)
+    wipe(EmailOutbox, stdout)
     wipe(PushSubscription, stdout)
     today = _today()
 
@@ -1757,6 +1954,86 @@ def seed_comms(stdout=None) -> None:
         error="SMTPRecipientsRefused: 550 mailbox unavailable",
     )
 
+    # M6: la cola de salida, con un correo en cada estado.
+    EmailOutbox.objects.create(
+        alert=insurance_alert,
+        template_key=EmailTemplateKey.INSURANCE_DUE,
+        recipient="flota@ald.example",
+        subject=f"Seguro próximo a vencer — {plate}",
+        body_html="<p>El seguro del vehículo vence en breve.</p>",
+    )
+    EmailOutbox.objects.create(
+        alert=km_alert,
+        template_key=EmailTemplateKey.KM_READING_PENDING,
+        recipient="carlos@flota.dev",
+        subject=f"Lectura de km pendiente ({today:%m/%Y})",
+        body_html="<p>Falta tu lectura de km de este mes.</p>",
+        status=EmailOutbox.Status.SENT,
+        attempts=1,
+        sent_at=timezone.now(),
+    )
+    EmailOutbox.objects.create(
+        template_key=EmailTemplateKey.KM_OVERAGE,
+        recipient="soporte@northgate.example",
+        subject="Proyección de km sobre lo contratado",
+        body_html="<p>La proyección supera los km contratados.</p>",
+        status=EmailOutbox.Status.FAILED,
+        attempts=3,
+        last_error="SMTPConnectError: connection refused (smtp.example.com:587)",
+    )
+
+    # Envíos programados (Ajustes → Notificaciones): uno de cada frecuencia y
+    # los tres destinos posibles, para poder ver la pantalla llena sin esperar.
+    wipe(NotificationSchedule, stdout)
+    admin = User.objects.get(username="admin")
+    sara = User.objects.get(username="sara")
+    NotificationSchedule.objects.create(
+        user=admin,
+        name="Resumen diario de la flota",
+        content=NotificationSchedule.Content.SUMMARY,
+        frequency=NotificationSchedule.Frequency.DAILY,
+        send_at=time(8, 0),
+        send_email=True,
+        # El correo va solo a las direcciones escritas, así que todo envío
+        # sembrado lleva las suyas (si no, «Enviar ahora» fallaría en dev).
+        extra_recipients="admin@flota.dev",
+        last_run_at=timezone.now(),
+        last_status=NotificationSchedule.Status.OK,
+    )
+    NotificationSchedule.objects.create(
+        user=admin,
+        name="Informe de flota de los lunes",
+        content=NotificationSchedule.Content.FLEET,
+        # Con la fecha en el nombre, las entregas semanales no se pisan en Drive.
+        name_with_date=True,
+        frequency=NotificationSchedule.Frequency.WEEKLY,
+        weekday=0,
+        send_at=time(7, 30),
+        send_email=True,
+        # Dos destinatarios y ninguno es el dueño: el caso que antes no se podía.
+        extra_recipients="admin@flota.dev, direccion@flota.dev",
+        save_to_drive=True,
+        drive_folder="https://drive.google.com/drive/folders/EJEMPLO-CARPETA-INFORMES",
+    )
+    NotificationSchedule.objects.create(
+        user=sara,
+        name="Costes del mes (día 1)",
+        content=NotificationSchedule.Content.COSTS,
+        # Un envío con filtro, para ver la pantalla con el caso completo.
+        filters={"brand": "Seat"},
+        frequency=NotificationSchedule.Frequency.MONTHLY,
+        day_of_month=1,
+        send_at=time(9, 0),
+        send_email=True,
+        extra_recipients="direccion@flota.dev",
+        enabled=False,
+        last_run_at=timezone.now(),
+        last_status=NotificationSchedule.Status.FAILED,
+        last_error="SMTPConnectError: connection refused (smtp.example.com:587)",
+    )
+    if stdout:
+        stdout.write("  - Notificaciones: 3 envíos programados (diario, semanal y mensual).")
+
     # Varias suscripciones: un conductor con DOS dispositivos (móvil y tablet) y
     # la supervisora con el suyo — el envío recorre todos los del usuario.
     for username, slug, agent in (
@@ -1772,7 +2049,10 @@ def seed_comms(stdout=None) -> None:
             user_agent=agent,
         )
     if stdout:
-        stdout.write("  - Comms: 7 EmailLog (sent/failed/skipped) y 3 PushSubscription.")
+        stdout.write(
+            "  - Comms: 7 EmailLog (sent/failed/skipped), 3 EmailOutbox "
+            "(pending/sent/failed) y 3 PushSubscription."
+        )
 
 
 # --- Cadena completa -------------------------------------------------------

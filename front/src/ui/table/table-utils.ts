@@ -116,6 +116,32 @@ export function getMonthLabel(monthKey: string, language: TableLanguage, monthWi
   }).format(monthDate)
 }
 
+/** Clave `YYYY-MM` → nombre del mes con inicial alta ("Agosto" / "August").
+ *
+ * En la agrupación de dos niveles el año ya tiene su propia fila, así que el
+ * separador del mes no lo repite. `es-ES` da el mes en minúscula. */
+export function getMonthNameLabel(
+  monthKey: string,
+  language: TableLanguage,
+  monthWithoutDate: string,
+): string {
+  if (monthKey === 'sin-fecha') {
+    return monthWithoutDate
+  }
+
+  const [yearPart, monthPart] = monthKey.split('-')
+  const year = Number(yearPart)
+  const month = Number(monthPart)
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    return monthWithoutDate
+  }
+
+  const text = new Intl.DateTimeFormat(language === 'en' ? 'en-GB' : 'es-ES', {
+    month: 'long',
+  }).format(new Date(year, month - 1, 1))
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
 export function toComparableMonthKey(monthKey: string): number | null {
   if (monthKey === 'sin-fecha') {
     return null

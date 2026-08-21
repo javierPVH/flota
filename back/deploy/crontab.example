@@ -31,3 +31,13 @@ PYTHON=/srv/flota/back/.venv/bin/python
 # registradas por los usuarios (Fase A2). Sin credenciales es un no-op y
 # decide la administración a mano (grant/reject).
 30 * * * *   cd $PROJECT && $PYTHON manage.py sync_jira_requests
+
+# Cada 15 min — entrega la cola de correo de las alertas (M6). El chequeo solo
+# encola: sin esto los avisos por email no salen (en `run_fleet_jobs` ya va
+# incluido al final, así que la alternativa de un único job no lo necesita).
+# Envíos programados por el usuario (Ajustes → Notificaciones). Ya va dentro
+# de `run_fleet_jobs`; esta línea solo hace falta si NO se usa ese agrupador.
+# La hora configurada se cumple con la precisión de esta cadencia.
+# */15 * * * *   cd $PROJECT && $PYTHON manage.py send_notifications
+
+*/15 * * * *   cd $PROJECT && $PYTHON manage.py send_email_outbox

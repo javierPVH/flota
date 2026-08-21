@@ -10,14 +10,12 @@ import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
 import { TableInfoBar } from './TableInfoBar.tsx'
 
 import {
-  acceptAssignment,
-  createAssignment,
-  deleteAssignment,
   fetchManagedUser,
   listAssignments,
   listDrivers,
   listVehicleUsages,
   setUsageSplit,
+  setVehicleDriver,
   updateAssignment,
   type VehicleUsageRow,
 } from '../api.ts'
@@ -156,23 +154,19 @@ export function VehicleAssignmentsPanel({
     }
     setSaving(true)
     setModalError('')
-    // HU-2.1/2.2: crear como propuesta y confirmarla — accept cierra la vigente
-    // (fin = inicio de la nueva) y emite el evento old→new, todo atómico.
-    let proposalId: number | null = null
+    // A6: HU-2.1/2.2 en UNA llamada atómica. El back cierra la vigente (fin =
+    // inicio de la nueva), crea la aceptada y emite el evento old→new. Antes
+    // era crear propuesta + aceptar, con un borrado físico de compensación que
+    // podía dejar propuestas huérfanas (y esas daban ámbito al conductor, C1).
     try {
-      const proposal = await createAssignment({
-        vehicle: vehicle.id,
+      await setVehicleDriver(vehicle.id, {
         driver: Number(newDriver),
         start_date: startDate,
-        status: 'proposed',
       })
-      proposalId = proposal.id
-      await acceptAssignment(proposal.id)
       setModal(null)
       load()
       onChanged()
     } catch (err) {
-      if (proposalId) await deleteAssignment(proposalId).catch(() => {})
       setModalError(asErrorMessage(err, t.changeError))
     } finally {
       setSaving(false)

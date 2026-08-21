@@ -98,3 +98,49 @@ class UsersApiTests(APITestCase):
         )
         self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
         self.assertTrue(User.objects.get(username="p2").check_password("correcto-y-largo-99"))
+
+
+class UniqueEmailTests(APITestCase):
+    """A5: el email es identidad — no puede repetirse entre cuentas."""
+
+    def setUp(self):
+        self.admin = make_user("email-admin", Role.ADMIN)
+        self.existing = make_user("email-uno", Role.DRIVER)
+        self.existing.email = "Persona@Flota.dev"
+        self.existing.save(update_fields=["email"])
+        self.client.force_authenticate(self.admin)
+
+    def test_create_with_duplicate_email_is_rejected(self):
+        resp = self.client.post(
+            reverse("user-list"),
+            {
+                "username": "email-dos",
+                "email": "persona@flota.dev",  # mismo email en minúsculas
+                "first_name": "P",
+                "last_name": "D",
+            },
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_patch_to_duplicate_email_is_rejected(self):
+        other = make_user("email-tres", Role.DRIVER)
+        resp = self.client.patch(
+            reverse("user-detail", args=[other.pk]), {"email": "PERSONA@flota.dev"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_keeping_its_own_email_is_allowed(self):
+        resp = self.client.patch(
+            reverse("user-detail", args=[self.existing.pk]),
+            {"email": "Persona@Flota.dev", "phone": "600111222"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_empty_email_can_repeat(self):
+        """El email sigue siendo opcional: varios usuarios pueden no tener."""
+        for name in ("sin-email-1", "sin-email-2"):
+            resp = self.client.post(
+                reverse("user-list"),
+                {"username": name, "first_name": "S", "last_name": "E"},
+            )
+            self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)

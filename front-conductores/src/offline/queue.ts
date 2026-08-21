@@ -92,11 +92,20 @@ export function isNetworkError(err: unknown): boolean {
 }
 
 /** BG3: ¿error TRANSITORIO del servidor? Se conserva y se reintenta con tope.
- * 401 (sesión caducada: al reautenticarse el flush lo enviará), 408, 429
- * (throttle) y 5xx (p. ej. 502 de nginx durante un deploy). */
+ *
+ * Sesión caducada (al reautenticarse el flush lo enviará), 408, 429 (throttle) y
+ * 5xx (p. ej. 502 de nginx durante un deploy).
+ *
+ * C8: la sesión caducada NO llega como 401. Con auth por sesión, DRF degrada
+ * `NotAuthenticated` a **403**, el mismo código que "no tienes permiso" o "fuera
+ * de tu ámbito" — que sí son definitivos. Antes se comprobaba `status === 401`,
+ * que con este backend nunca se cumple: el km o la foto encolados se
+ * DESCARTABAN justo en el caso para el que se escribió esta función. Ahora se
+ * decide por el `code` de la envoltura del backend. */
 export function isTransientError(err: unknown): boolean {
   if (!(err instanceof ApiError)) return false
-  return err.status === 401 || err.status === 408 || err.status === 429 || err.status >= 500
+  if (err.status === 401 || err.code === 'not_authenticated') return true
+  return err.status === 408 || err.status === 429 || err.status >= 500
 }
 
 const listeners = new Set<() => void>()

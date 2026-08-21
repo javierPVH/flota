@@ -39,6 +39,10 @@ const es = {
   progressCreated: (n: number) => `${n} creados`,
   progressErrors: (n: number) => `${n} errores`,
   doneOk: (n: number) => `Importados ${n} registros.`,
+  // B3: parada de la importación por tandas.
+  stop: 'Detener la importación',
+  doneCancelled: (created: number, pending: number) =>
+    `Importación detenida: ${created} registros creados y ${pending} sin importar. Lo creado no se deshace.`,
   doneWithErrors: (created: number, failed: number) =>
     `Importados ${created} registros · ${failed} con errores.`,
   close: 'Cerrar',
@@ -140,6 +144,9 @@ const en: typeof es = {
   progressCreated: (n) => `${n} created`,
   progressErrors: (n) => `${n} errors`,
   doneOk: (n) => `${n} records imported.`,
+  stop: 'Stop the import',
+  doneCancelled: (created, pending) =>
+    `Import stopped: ${created} records created and ${pending} not imported. What was created is not undone.`,
   doneWithErrors: (created, failed) => `${created} records imported · ${failed} failed.`,
   close: 'Close',
   cancel: 'Cancel',

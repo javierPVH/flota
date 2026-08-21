@@ -7,7 +7,7 @@ aquí, dentro de `models/`, y se reexportan para poder importar cualquiera con
 
 from .alert import AlertLevel, AlertStatus, AlertType
 from .document import DocumentStatus, DocumentType
-from .event import EventType
+from .event import EventType, ItvResult
 from .incident import IncidentStatus, IncidentType
 from .invoice import AllocationTarget
 from .operations import AssignmentStatus, LinkReason
@@ -35,6 +35,7 @@ __all__ = [
     "AssignmentStatus",
     "LinkReason",
     "EventType",
+    "ItvResult",
     "AllocationTarget",
     "DocumentType",
     "DocumentStatus",

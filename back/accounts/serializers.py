@@ -102,6 +102,25 @@ class ManagedUserSerializer(serializers.ModelSerializer):
             validate_password(value)
         return value
 
+    def validate_email(self, value):
+        """A5: el email, si se informa, es único (ignorando mayúsculas).
+
+        El alta que se usa de verdad es esta (el CRUD del admin) y no validaba
+        unicidad, así que se podían crear dos cuentas con el mismo email — y el
+        email decide identidad en el login por email, en el de Google y en Jira.
+        Se valida aquí además de la constraint para devolver un 400 legible en
+        vez de un IntegrityError (500).
+        """
+        value = (value or "").strip()
+        if not value:
+            return value
+        clash = User.objects.filter(email__iexact=value)
+        if self.instance is not None:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise serializers.ValidationError("Ese email ya está asignado a otro usuario.")
+        return value
+
     def validate(self, attrs):
         # Guardarraíl anti-bloqueo: el admin no puede desactivarse ni quitarse
         # el rol admin a sí mismo (evita quedarse fuera de la app).
@@ -115,6 +134,24 @@ class ManagedUserSerializer(serializers.ModelSerializer):
             if roles is not None and Role.ADMIN not in roles and not self.instance.is_superuser:
                 raise serializers.ValidationError(
                     {"roles": "No puedes quitarte el rol de administrador a ti mismo."}
+                )
+        # C2: el SUPERUSUARIO solo se toca a sí mismo o lo toca otro superusuario.
+        # Es el único rol que puede PURGAR erratas (N7): sin esta frontera,
+        # cualquier admin podía fijarle una contraseña, entrar como él y borrar
+        # de verdad — la separación admin/superusuario quedaba en el papel.
+        if (
+            self.instance
+            and self.instance.is_superuser
+            and request
+            and not request.user.is_superuser
+        ):
+            protected = {"password", "is_active", "roles", "username", "email"} & set(attrs)
+            if protected:
+                raise serializers.ValidationError(
+                    dict.fromkeys(
+                        sorted(protected),
+                        "Solo un superusuario puede modificar este campo de un superusuario.",
+                    )
                 )
         return attrs
 
@@ -165,14 +202,19 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ["username", "email", "password", "first_name", "last_name"]
 
+    # B13: mensaje ÚNICO y genérico. Distinguir "ese usuario ya existe" de
+    # "ese email ya está registrado" confirmaba a un desconocido qué cuentas
+    # hay en el sistema (el alta libre es un endpoint sin autenticar).
+    TAKEN = "Esos datos no se pueden usar para el alta."
+
     def validate_username(self, value):
         if User.objects.filter(username__iexact=value).exists():
-            raise serializers.ValidationError("Ese nombre de usuario ya existe.")
+            raise serializers.ValidationError(self.TAKEN)
         return value
 
     def validate_email(self, value):
         if value and User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("Ese email ya está registrado.")
+            raise serializers.ValidationError(self.TAKEN)
         return value
 
     def validate_password(self, value):

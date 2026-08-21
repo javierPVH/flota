@@ -1,7 +1,7 @@
 // DX4: primeros tests de la tabla unificada (1.654 líneas, 13 usos) — cubren
 // el contrato básico y la fila expandible de N4.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { TableWithPanel, type TableWithPanelColumn } from './TableWithPanel.tsx'
 
@@ -66,6 +66,54 @@ describe('TableWithPanel', () => {
     expect(screen.getByText('Nada que ver')).toBeInTheDocument()
   })
 
+  it('M15: con `columnOrder` controlado respeta el orden del consumidor', () => {
+    const { rerender } = render(
+      <TableWithPanel<Row>
+        rows={ROWS}
+        columns={COLUMNS}
+        rowKey={(r) => String(r.id)}
+        columnOrder={['plate', 'km']}
+      />,
+    )
+    const headerText = () => screen.getAllByRole('columnheader').map((th) => th.textContent?.trim())
+    expect(headerText()).toEqual(['Matrícula', 'Km'])
+    // Sin remontar (misma instancia): el nuevo orden se aplica igualmente.
+    rerender(
+      <TableWithPanel<Row>
+        rows={ROWS}
+        columns={COLUMNS}
+        rowKey={(r) => String(r.id)}
+        columnOrder={['km', 'plate']}
+      />,
+    )
+    expect(headerText()).toEqual(['Km', 'Matrícula'])
+  })
+
+  it('M15: `hiddenColumns` controlado oculta y NO guarda estado propio', () => {
+    const onHiddenColumnsChange = vi.fn()
+    render(
+      <TableWithPanel<Row>
+        rows={ROWS}
+        columns={COLUMNS}
+        rowKey={(r) => String(r.id)}
+        hiddenColumns={['km']}
+        onHiddenColumnsChange={onHiddenColumnsChange}
+        showControlPanel
+        showColumnsToggle
+      />,
+    )
+    expect(screen.getAllByRole('columnheader').map((th) => th.textContent?.trim())).toEqual([
+      'Matrícula',
+    ])
+    // Al marcar la casilla, la tabla AVISA en vez de cambiarlo por su cuenta.
+    fireEvent.click(screen.getByRole('button', { name: 'Opciones' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar orden de columnas' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Km' }))
+    expect(onHiddenColumnsChange).toHaveBeenCalledWith([])
+    // Sigue oculta: manda la prop, no un estado interno.
+    expect(screen.getAllByRole('columnheader')).toHaveLength(1)
+  })
+
   it('N4: la fila expandible despliega su contenido y lo mantiene montado', async () => {
     render(
       <TableWithPanel<Row>
@@ -93,5 +141,55 @@ describe('TableWithPanel', () => {
       expect(screen.getAllByRole('button', { name: 'Desplegar fila' })).toHaveLength(2)
     })
     expect(screen.getByTestId('hist-1')).toBeInTheDocument()
+  })
+
+  it('agrupa en dos niveles plegables (año → mes) con filas a todo el ancho', () => {
+    interface DatedRow {
+      id: number
+      plate: string
+      closed: string
+    }
+    const rows: DatedRow[] = [
+      { id: 1, plate: 'AGO26', closed: '2026-08-21' },
+      { id: 2, plate: 'JUL26', closed: '2026-07-03' },
+      { id: 3, plate: 'DIC25', closed: '2025-12-30' },
+    ]
+    const columns: Array<TableWithPanelColumn<DatedRow>> = [
+      { key: 'plate', label: 'Matrícula', getValue: (r) => r.plate },
+      { key: 'closed', label: 'Cierre', isDate: true, getValue: (r) => r.closed },
+    ]
+    render(
+      <TableWithPanel<DatedRow>
+        rows={rows}
+        columns={columns}
+        rowKey={(r) => String(r.id)}
+        groupRowsByYearMonth
+        monthSortDateColumnKey="closed"
+      />,
+    )
+
+    // Un separador por año y otro por mes, lo más reciente arriba.
+    const dividers = [...document.querySelectorAll('tbody button[aria-expanded]')]
+    const titleOf = (divider: Element) => divider.querySelectorAll('span')[0]?.textContent
+    expect(dividers.map(titleOf)).toEqual(['2026', 'Agosto', 'Julio', '2025', 'Diciembre'])
+    // El año suma las filas de sus meses.
+    expect(dividers[0].textContent).toContain('2 registros')
+    expect(dividers[1].textContent).toContain('1 registro')
+    // Cada separador ocupa todas las columnas.
+    dividers.forEach((divider) => {
+      expect(divider.closest('td')?.getAttribute('colspan')).toBe('2')
+    })
+
+    // Plegar el mes esconde solo sus filas.
+    fireEvent.click(dividers[1])
+    expect(screen.queryByText('AGO26')).not.toBeInTheDocument()
+    expect(screen.getByText('JUL26')).toBeInTheDocument()
+
+    // Plegar el año esconde sus meses (y con ellos sus filas).
+    fireEvent.click(dividers[0])
+    expect(screen.queryByText('Julio')).not.toBeInTheDocument()
+    expect(screen.queryByText('JUL26')).not.toBeInTheDocument()
+    // El otro año no se entera.
+    expect(screen.getByText('DIC25')).toBeInTheDocument()
   })
 })

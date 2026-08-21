@@ -1,13 +1,16 @@
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
 from auditlog.models import LogEntry
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 from django.utils import timezone
 from rest_framework import serializers
 
+from .exceptions import InactiveConflict
 from .models import (
     Alert,
     Assignment,
@@ -28,6 +31,7 @@ from .models import (
     Invoice,
     InvoiceAllocation,
     KmReading,
+    NotificationSchedule,
     Pep,
     Project,
     Renting,
@@ -41,6 +45,7 @@ from .models.enums import (
     AllocationTarget,
     AssignmentStatus,
     EventType,
+    ItvResult,
     UseType,
     VehicleState,
 )
@@ -306,7 +311,15 @@ class ContractSerializer(serializers.ModelSerializer):
     class Meta:
         model = Contract
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "is_active",
+            "deactivated_at",
+            "deactivated_by",
+            "deactivation_reason",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class KmReadingSerializer(serializers.ModelSerializer):
@@ -392,7 +405,15 @@ class AssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Assignment
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "is_active",
+            "deactivated_at",
+            "deactivated_by",
+            "deactivation_reason",
+            "created_at",
+            "updated_at",
+        ]
 
     def get_driver_name(self, obj) -> str:
         return obj.driver.get_full_name() or obj.driver.get_username()
@@ -446,10 +467,60 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
 
 class VehicleUsageSerializer(serializers.ModelSerializer):
+    """A11: el reparto individual también respeta el invariante de HU-2.5.
+
+    La suma exacta de 100 se valida en el endpoint compuesto
+    (`/vehicle-usages/set/`), que es por donde entra la interfaz. Pero el CRUD
+    genérico quedaba sin ninguna validación —`Model.clean()` no lo llama DRF—,
+    así que un `POST` suelto admitía un 500 % o un porcentaje negativo y rompía
+    el invariante fila a fila.
+    """
+
+    def validate_usage_percent(self, value):
+        if value is not None and not (Decimal("0") <= value <= Decimal("100")):
+            raise serializers.ValidationError("El porcentaje debe estar entre 0 y 100.")
+        return value
+
+    def validate(self, attrs):
+        vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
+        percent = attrs.get("usage_percent", getattr(self.instance, "usage_percent", None))
+        end_date = attrs.get("end_date", getattr(self.instance, "end_date", None))
+        start = attrs.get("start_date", getattr(self.instance, "start_date", None))
+        if start and end_date and end_date < start:
+            raise serializers.ValidationError(
+                {"end_date": "La fecha de fin no puede ser anterior a la de inicio."}
+            )
+        # La suma de los repartos vigentes del vehículo no puede pasar de 100.
+        if vehicle is not None and percent is not None and end_date is None:
+            current = VehicleUsage.objects.filter(
+                vehicle=vehicle, end_date__isnull=True, is_active=True
+            )
+            if self.instance is not None:
+                current = current.exclude(pk=self.instance.pk)
+            total = sum((row.usage_percent or Decimal("0")) for row in current) + percent
+            if total > Decimal("100"):
+                raise serializers.ValidationError(
+                    {
+                        "usage_percent": (
+                            f"La suma de los repartos vigentes sería {total} %. "
+                            "Usa /vehicle-usages/set/ para aplicar el reparto completo."
+                        )
+                    }
+                )
+        return attrs
+
     class Meta:
         model = VehicleUsage
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "is_active",
+            "deactivated_at",
+            "deactivated_by",
+            "deactivation_reason",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class UsageSplitItemSerializer(serializers.Serializer):
@@ -491,13 +562,35 @@ class UsageSplitSerializer(serializers.Serializer):
         return attrs
 
 
+# `active_link_q` vive en selectors: importado aquí dentro para no crear
+# un ciclo selectors -> serializers en tiempo de importación.
 class VehicleLinkSerializer(serializers.ModelSerializer):
+    # M11: las matrículas de los dos extremos, como en el resto de listados
+    # (`vehicle_plate`). Sin ellas, la ficha se traía TODA la flota solo para
+    # poder traducir dos ids a matrículas en el histórico de vínculos.
+    main_vehicle_plate = serializers.CharField(
+        source="main_vehicle.plate", read_only=True, default=""
+    )
+    substitute_vehicle_plate = serializers.CharField(
+        source="substitute_vehicle.plate", read_only=True, default=""
+    )
+
     class Meta:
         model = VehicleLink
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "is_active",
+            "deactivated_at",
+            "deactivated_by",
+            "deactivation_reason",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate(self, attrs):
+        from .selectors import active_link_q
+
         # HU-1.8: validar aquí lo que la constraint garantiza en BD, para que el
         # cliente reciba un 400 legible y no un IntegrityError (500).
         main = attrs.get("main_vehicle", getattr(self.instance, "main_vehicle", None))
@@ -518,17 +611,28 @@ class VehicleLinkSerializer(serializers.ModelSerializer):
                 {"main_vehicle": "Un vehículo de sustitución no puede tener sustituto."}
             )
         end_date = attrs.get("end_date", getattr(self.instance, "end_date", None))
-        if main is not None and end_date is None:
-            existing = VehicleLink.objects.filter(main_vehicle=main, end_date__isnull=True)
+        start_date = attrs.get("start_date", getattr(self.instance, "start_date", None))
+        # El cierre no puede ser anterior al inicio (se puede cerrar con fecha
+        # pasada, pero no antes de que el vínculo existiera).
+        if end_date is not None and start_date is not None and end_date < start_date:
+            raise serializers.ValidationError(
+                {"end_date": "La fecha de fin no puede ser anterior a la de inicio."}
+            )
+        # Un cierre PROGRAMADO (fecha futura) sigue cubriendo: hasta que llegue
+        # ese día, el vínculo cuenta como activo para todos los efectos.
+        today = timezone.localdate()
+        still_active = end_date is None or end_date > today
+        if main is not None and still_active:
+            existing = VehicleLink.objects.filter(active_link_q(today), main_vehicle=main)
             if self.instance is not None:
                 existing = existing.exclude(pk=self.instance.pk)
             if existing.exists():
                 raise serializers.ValidationError(
                     "El vehículo ya tiene un sustituto activo; cierra ese vínculo primero."
                 )
-        if substitute is not None and end_date is None:
+        if substitute is not None and still_active:
             # N9: un sustituto vinculado no puede asignarse a otro coche a la vez.
-            busy = VehicleLink.objects.filter(substitute_vehicle=substitute, end_date__isnull=True)
+            busy = VehicleLink.objects.filter(active_link_q(today), substitute_vehicle=substitute)
             if self.instance is not None:
                 busy = busy.exclude(pk=self.instance.pk)
             if busy.exists():
@@ -542,7 +646,7 @@ class VehicleLinkSerializer(serializers.ModelSerializer):
                 )
         # N9: el vínculo solo se crea con el principal en estado NO activo
         # (avería, taller, ITV…): si el coche funciona, no hay sustitución.
-        if self.instance is None and main is not None and end_date is None:
+        if self.instance is None and main is not None and still_active:
             if main.state in (VehicleState.ACTIVE, VehicleState.BAJA):
                 raise serializers.ValidationError(
                     {
@@ -642,12 +746,59 @@ class EventSerializer(serializers.ModelSerializer):
                 {"event_type": "El conductor solo puede registrar ITV."}
             )
         if event_type == EventType.ITV:
-            itv = attrs.get("itv")
-            if not itv or not itv.get("next_due"):
-                raise serializers.ValidationError(
-                    {"itv": "Registrar una ITV requiere `itv.next_due` (próxima fecha)."}
-                )
+            self._validate_itv(attrs)
         return attrs
+
+    @staticmethod
+    def _validate_itv(attrs) -> None:
+        """C5/A13: reglas de una ITV registrada a mano.
+
+        - Con resultado FAVORABLE, `next_due` es obligatoria (es el dato que
+          alimenta la vigilancia) y tiene que caer dentro de un horizonte
+          razonable: sin cota, un `2099-01-01` sacaba el vehículo del radar de
+          ITV para siempre (y el job lo reafirmaba en cada pasada).
+        - Con resultado NO favorable no se pide fecha: no hay próxima ITV que
+          apuntar, y el aviso debe seguir abierto. Esto es lo que hace coherente
+          la opción «no pasada» que ofrecen los dos fronts.
+        """
+        itv = attrs.get("itv") or {}
+        result = itv.get("result") or ""
+        next_due = itv.get("next_due")
+        event_date = attrs.get("event_date") or timezone.localdate()
+
+        # El resultado es obligatorio al registrar: es lo que decide si la ITV
+        # exime (y refresca la próxima fecha) o no.
+        if result not in (ItvResult.DONE, ItvResult.NOT_DONE):
+            raise serializers.ValidationError(
+                {"itv": "Indica el resultado de la ITV ('done' o 'not done')."}
+            )
+
+        if result != ItvResult.DONE:
+            if next_due is not None:
+                raise serializers.ValidationError(
+                    {"itv": "Una ITV no favorable no fija próxima fecha."}
+                )
+            return
+
+        if not next_due:
+            raise serializers.ValidationError(
+                {"itv": "Registrar una ITV favorable requiere `itv.next_due` (próxima fecha)."}
+            )
+        if next_due <= event_date:
+            raise serializers.ValidationError(
+                {"itv": "La próxima ITV debe ser posterior a la fecha de la inspección."}
+            )
+        horizon = event_date + timedelta(days=settings.FLEET_ITV_MAX_HORIZON_DAYS)
+        if next_due > horizon:
+            raise serializers.ValidationError(
+                {
+                    "itv": (
+                        "La próxima ITV no puede ir más allá de "
+                        f"{settings.FLEET_ITV_MAX_HORIZON_DAYS} días desde la inspección "
+                        f"(máximo {horizon.isoformat()})."
+                    )
+                }
+            )
 
     def create(self, validated_data):
         itv = validated_data.pop("itv", None)
@@ -852,12 +1003,20 @@ class AlertSerializer(serializers.ModelSerializer):
     level_display = serializers.CharField(source="get_level_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True, default="")
+    # Las dos personas del aviso: quién conduce el coche y quién responde por él.
+    # La bandeja las pinta en las abiertas (a quién hay que llamar) y las usa en
+    # las resueltas para decidir si quien cerró era de los implicados.
+    driver_id = serializers.SerializerMethodField()
+    driver_name = serializers.SerializerMethodField()
+    supervisor_id = serializers.SerializerMethodField()
+    supervisor_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Alert
         fields = "__all__"
         # Las alertas las generan los trabajos programados; por API solo se
-        # cambian de estado (resolver/descartar) vía acciones dedicadas.
+        # cambian de estado (resolver) vía la acción dedicada.
         read_only_fields = [
             "id",
             "type",
@@ -874,6 +1033,43 @@ class AlertSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    @staticmethod
+    def _person_name(person) -> str:
+        return (person.get_full_name() or person.get_username()) if person else ""
+
+    def _current_driver(self, obj: Alert):
+        """Conductor vigente del vehículo de la alerta, en bloque.
+
+        Mismo patrón que `VehicleSerializer._current_driver`: el mapa se resuelve
+        UNA vez por respuesta y se cachea en el context, así que una bandeja de
+        200 alertas no dispara 200 consultas de asignaciones (PR2).
+        """
+        if not obj.vehicle_id:
+            return None
+        drivers = self.context.get("_alert_current_drivers")
+        if drivers is None:
+            instance = self.parent.instance if self.parent is not None else obj
+            rows = instance if isinstance(instance, list | models.QuerySet) else [obj]
+            drivers = current_driver_map([a.vehicle_id for a in rows if a.vehicle_id])
+            self.context["_alert_current_drivers"] = drivers
+        return drivers.get(obj.vehicle_id)
+
+    def get_driver_id(self, obj: Alert) -> int | None:
+        driver = self._current_driver(obj)
+        return driver.id if driver else None
+
+    def get_driver_name(self, obj: Alert) -> str:
+        return self._person_name(self._current_driver(obj))
+
+    def get_supervisor_id(self, obj: Alert) -> int | None:
+        return obj.vehicle.supervisor_id if obj.vehicle_id else None
+
+    def get_supervisor_name(self, obj: Alert) -> str:
+        return self._person_name(obj.vehicle.supervisor) if obj.vehicle_id else ""
+
+    def get_resolved_by_name(self, obj: Alert) -> str:
+        return self._person_name(obj.resolved_by)
+
 
 # --- Solicitudes de vehículo (Épica 8) -----------------------------------
 
@@ -888,7 +1084,16 @@ class VehicleRequestSerializer(serializers.ModelSerializer):
         # SEC2: `status` solo cambia por grant/reject (IsAdmin) o la sincronización
         # con Jira — nunca por POST/PATCH directo (un supervisor podía marcar
         # `assigned` saltándose el grant).
-        read_only_fields = ["id", "status", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "status",
+            "is_active",
+            "deactivated_at",
+            "deactivated_by",
+            "deactivation_reason",
+            "created_at",
+            "updated_at",
+        ]
 
     def get_requester_name(self, obj) -> str:
         user = obj.requester
@@ -952,21 +1157,216 @@ class VehicleRequestMineSerializer(serializers.ModelSerializer):
 # --- Catálogos ------------------------------------------------------------
 
 
-class CountrySerializer(serializers.ModelSerializer):
+class NotificationScheduleSerializer(serializers.ModelSerializer):
+    """Envío programado del propio usuario (Ajustes → Notificaciones).
+
+    `user` es de solo lectura y lo fija la vista con quien hace la petición: el
+    contenido se genera con SU ámbito, así que dejar elegir el dueño sería una
+    vía para leer datos de otro.
+    """
+
+    user_email = serializers.EmailField(source="user.email", read_only=True)
+    content_display = serializers.CharField(source="get_content_display", read_only=True)
+    frequency_display = serializers.CharField(source="get_frequency_display", read_only=True)
+    #: Cuándo saldría la próxima vez, para que la pantalla no repita el cálculo.
+    next_run_at = serializers.SerializerMethodField()
+
+    class Meta:
+        model = NotificationSchedule
+        fields = [
+            "id",
+            "name",
+            "content",
+            "content_display",
+            "fmt",
+            "filters",
+            "name_with_date",
+            "name_with_time",
+            "frequency",
+            "frequency_display",
+            "weekday",
+            "day_of_month",
+            "send_at",
+            "enabled",
+            "send_email",
+            "extra_recipients",
+            "save_to_drive",
+            "drive_folder",
+            "user_email",
+            "next_run_at",
+            "last_run_at",
+            "last_status",
+            "last_error",
+        ]
+        read_only_fields = ["last_run_at", "last_status", "last_error"]
+
+    def get_next_run_at(self, obj) -> str | None:
+        from fleet.services import notifications
+
+        if not obj.enabled:
+            return None
+        # `previous_due` mira hacia atrás; el siguiente turno es ese más un periodo.
+        siguiente = notifications.next_due(obj)
+        return siguiente.isoformat() if siguiente else None
+
+    def validate_filters(self, value):
+        """Los filtros son un objeto plano de cadenas; los vacíos se descartan.
+
+        Se limpian aquí para que la fila no guarde `{"vehicle": ""}`, que luego
+        obligaría a distinguir «sin filtrar» de «filtrado por vacío».
+        """
+        if value in (None, ""):
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Los filtros deben ser un objeto.")
+        limpio = {}
+        for clave, valor in value.items():
+            if valor in (None, ""):
+                continue
+            if isinstance(valor, dict | list):
+                raise serializers.ValidationError(f"El filtro «{clave}» no admite ese valor.")
+            limpio[str(clave)] = str(valor)
+        return limpio
+
+    def validate_extra_recipients(self, value: str) -> str:
+        """Direcciones separadas por comas, validadas una a una."""
+        from django.core.validators import validate_email
+
+        limpias = []
+        for addr in value.split(","):
+            addr = addr.strip()
+            if not addr:
+                continue
+            try:
+                validate_email(addr)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError(f"«{addr}» no es un correo válido.") from exc
+            limpias.append(addr)
+        return ", ".join(limpias)
+
+    def validate(self, attrs):
+        """Delega en `NotificationSchedule.clean` para no duplicar las reglas."""
+        attrs = super().validate(attrs)
+        instance = self.instance
+        datos = {
+            campo: attrs.get(campo, getattr(instance, campo, None))
+            for campo in (
+                "content",
+                "frequency",
+                "weekday",
+                "day_of_month",
+                "send_email",
+                "extra_recipients",
+                "save_to_drive",
+                "drive_folder",
+                "filters",
+            )
+        }
+        datos["extra_recipients"] = datos["extra_recipients"] or ""
+        candidato = NotificationSchedule(**datos)
+        try:
+            candidato.clean()
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict) from exc
+        return attrs
+
+
+class CatalogUniqueMixin:
+    """Unicidad de catálogos que no distingue mayúsculas y ve los desactivados.
+
+    Los catálogos alimentan los selects de toda la aplicación, así que «Seat»,
+    «SEAT» y «seat» como tres marcas distintas son un defecto, no una opción; y
+    cinco de ellos no tenían restricción alguna.
+
+    La comprobación se hace aquí y no solo con la constraint de BD por dos
+    razones: da un mensaje de campo en vez de un IntegrityError (que saldría
+    como 500), y permite distinguir el caso importante —que quien ocupa el
+    nombre esté DESACTIVADO (N7)—. Ese registro no aparece en ningún listado,
+    de modo que un «ya existe» a secas era incomprensible: se responde 409 con
+    su id para que la gestión lo restaure.
+
+    Subclases: `catalog_key` (campos que forman la clave; los de texto se
+    comparan sin distinguir mayúsculas) y `catalog_kind` (clave del espacio de
+    erratas, que coincide con el recurso de la API).
+    """
+
+    catalog_key: tuple[str, ...] = ()
+    catalog_kind: str = ""
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        model = self.Meta.model
+        instance = getattr(self, "instance", None)
+
+        # En PATCH parcial los campos ausentes se toman de la instancia: si solo
+        # se edita el email de un renting, la clave sigue siendo su nombre.
+        valores = {}
+        for campo in self.catalog_key:
+            if campo in attrs:
+                valores[campo] = attrs[campo]
+            elif instance is not None:
+                valores[campo] = getattr(instance, campo)
+            else:
+                # Falta un campo de la clave y no hay instancia: que lo cante el
+                # `required` del propio campo, no esta comprobación.
+                return attrs
+
+        criterio = {}
+        for campo, valor in valores.items():
+            if isinstance(valor, str):
+                criterio[f"{campo}__iexact"] = valor.strip()
+            else:
+                criterio[campo] = valor
+
+        choque = model.objects.filter(**criterio)
+        if instance is not None:
+            choque = choque.exclude(pk=instance.pk)
+        choque = choque.first()
+        if choque is None:
+            return attrs
+
+        etiqueta = str(choque)
+        if not choque.is_active:
+            raise InactiveConflict(
+                f"«{etiqueta}» ya existe, pero está desactivado. Restáuralo en vez de "
+                f"crearlo de nuevo.",
+                kind=self.catalog_kind,
+                pk=choque.pk,
+                label=etiqueta,
+            )
+
+        # Activo: error de campo normal, sobre el primero de la clave que sea texto.
+        campo_error = next(
+            (c for c in self.catalog_key if isinstance(valores.get(c), str)),
+            self.catalog_key[0],
+        )
+        raise serializers.ValidationError({campo_error: f"«{etiqueta}» ya existe."})
+
+
+class CountrySerializer(CatalogUniqueMixin, serializers.ModelSerializer):
+    catalog_key = ("name",)
+    catalog_kind = "countries"
+
     class Meta:
         model = Country
         fields = ["id", "name", "is_active"]
         read_only_fields = ["is_active"]
 
 
-class BusinessUnitSerializer(serializers.ModelSerializer):
+class BusinessUnitSerializer(CatalogUniqueMixin, serializers.ModelSerializer):
+    catalog_key = ("name",)
+    catalog_kind = "business-units"
+
     class Meta:
         model = BusinessUnit
         fields = ["id", "code", "name", "is_active"]
         read_only_fields = ["is_active"]
 
 
-class ProjectSerializer(serializers.ModelSerializer):
+class ProjectSerializer(CatalogUniqueMixin, serializers.ModelSerializer):
+    catalog_key = ("project_name",)
+    catalog_kind = "projects"
+
     # Obligatorio en altas (el modelo es nullable solo por las filas legacy).
     # En PATCH parcial no se exige, así los proyectos antiguos siguen editables.
     cost_center = serializers.PrimaryKeyRelatedField(
@@ -980,14 +1380,20 @@ class ProjectSerializer(serializers.ModelSerializer):
         read_only_fields = ["is_active"]
 
 
-class PepSerializer(serializers.ModelSerializer):
+class PepSerializer(CatalogUniqueMixin, serializers.ModelSerializer):
+    catalog_key = ("name",)
+    catalog_kind = "peps"
+
     class Meta:
         model = Pep
         fields = ["id", "code", "name", "is_active"]
         read_only_fields = ["is_active"]
 
 
-class RentingSerializer(serializers.ModelSerializer):
+class RentingSerializer(CatalogUniqueMixin, serializers.ModelSerializer):
+    catalog_key = ("name",)
+    catalog_kind = "rentings"
+
     class Meta:
         model = Renting
         # N10a: email/contacto de la empresa — destinatario del aviso de seguro.
@@ -995,14 +1401,21 @@ class RentingSerializer(serializers.ModelSerializer):
         read_only_fields = ["is_active"]
 
 
-class BrandSerializer(serializers.ModelSerializer):
+class BrandSerializer(CatalogUniqueMixin, serializers.ModelSerializer):
+    catalog_key = ("name",)
+    catalog_kind = "brands"
+
     class Meta:
         model = Brand
         fields = ["id", "name", "is_active"]
         read_only_fields = ["is_active"]
 
 
-class VehicleModelSerializer(serializers.ModelSerializer):
+class VehicleModelSerializer(CatalogUniqueMixin, serializers.ModelSerializer):
+    # La clave es (marca, nombre): el mismo modelo puede existir en otra marca.
+    catalog_key = ("brand", "name")
+    catalog_kind = "vehicle-models"
+
     # N5: el modelo DEPENDE de la marca — obligatoria en el alta.
     brand = serializers.PrimaryKeyRelatedField(
         queryset=Brand.objects.all(), required=True, allow_null=False
@@ -1015,7 +1428,10 @@ class VehicleModelSerializer(serializers.ModelSerializer):
         read_only_fields = ["is_active"]
 
 
-class CompanySerializer(serializers.ModelSerializer):
+class CompanySerializer(CatalogUniqueMixin, serializers.ModelSerializer):
+    catalog_key = ("code",)
+    catalog_kind = "companies"
+
     class Meta:
         model = Company
         fields = ["id", "code", "name", "description", "is_active"]
@@ -1080,6 +1496,7 @@ class EmailSignatureSerializer(serializers.ModelSerializer):
 class EmailTemplateSerializer(serializers.ModelSerializer):
     key_display = serializers.CharField(source="get_key_display", read_only=True)
     signature_name = serializers.StringRelatedField(source="signature", read_only=True)
+    has_en = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = EmailTemplate
@@ -1089,6 +1506,9 @@ class EmailTemplateSerializer(serializers.ModelSerializer):
             "key_display",
             "subject",
             "body_html",
+            "subject_en",
+            "body_html_en",
+            "has_en",
             "signature",
             "signature_name",
             "is_active",
@@ -1097,6 +1517,10 @@ class EmailTemplateSerializer(serializers.ModelSerializer):
         read_only_fields = ["is_active", "updated_at"]
 
     def validate_body_html(self, value):
+        return sanitize_email_html(value)
+
+    def validate_body_html_en(self, value):
+        # La versión inglesa pasa por el mismo saneado: viene del mismo editor.
         return sanitize_email_html(value)
 
 

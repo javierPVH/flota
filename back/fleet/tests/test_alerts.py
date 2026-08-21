@@ -235,8 +235,12 @@ class AlertApiTests(APITestCase):
         self.driver = make_user("driver", Role.DRIVER)
         self.my_vehicle = Vehicle.objects.create(plate="API1", brand="a", model="b")
         self.foreign = Vehicle.objects.create(plate="API2", brand="a", model="b")
+        # C1: solo la asignación ACEPTADA da ámbito (el default es `proposed`).
         Assignment.objects.create(
-            vehicle=self.my_vehicle, driver=self.driver, start_date=date(2026, 1, 1)
+            vehicle=self.my_vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
         )
         self.mine = Alert.objects.create(
             type=AlertType.NO_DRIVER, vehicle=self.my_vehicle, dedup_key="k-mine"
@@ -310,3 +314,73 @@ class AlertApiTests(APITestCase):
         self.client.force_authenticate(self.driver)
         resp = self.client.get(reverse("alert-detail", args=[alert.pk]))
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    # --- Solo dos estados: abierta o resuelta -----------------------------
+
+    def test_dismiss_endpoint_no_longer_exists(self):
+        """Descartar se retiró: cerrar una alerta es siempre resolverla."""
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(f"/api/v1/alerts/{self.mine.pk}/dismiss/")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_status_choices_are_only_open_and_resolved(self):
+        self.assertEqual([c[0] for c in AlertStatus.choices], ["open", "resolved"])
+
+    # --- Personas de la alerta (bandeja de gestión) -----------------------
+
+    def test_row_carries_driver_supervisor_and_resolver(self):
+        """La fila trae conductor vigente, responsable y quién resolvió.
+
+        La bandeja los pinta en las abiertas (a quién llamar) y compara el
+        resolutor con esas dos personas en las resueltas.
+        """
+        supervisor = make_user("sup2", Role.SUPERVISOR)
+        self.my_vehicle.supervisor = supervisor
+        self.my_vehicle.save(update_fields=["supervisor"])
+        self.mine.close(status=AlertStatus.RESOLVED, by=supervisor)
+
+        self.client.force_authenticate(self.admin)
+        row = self.client.get(reverse("alert-detail", args=[self.mine.pk])).data
+        self.assertEqual(row["driver_id"], self.driver.pk)
+        self.assertEqual(row["driver_name"], self.driver.get_username())
+        self.assertEqual(row["supervisor_id"], supervisor.pk)
+        self.assertEqual(row["supervisor_name"], supervisor.get_username())
+        self.assertEqual(row["resolved_by"], supervisor.pk)
+        self.assertEqual(row["resolved_by_name"], supervisor.get_username())
+        self.assertIsNotNone(row["resolved_at"])
+
+    def test_listing_resolves_drivers_in_bulk(self):
+        """PR2: el conductor de cada fila NO cuesta una consulta por alerta."""
+        for i in range(6):
+            vehicle = Vehicle.objects.create(plate=f"BULK{i}", brand="a", model="b")
+            Assignment.objects.create(
+                vehicle=vehicle,
+                driver=self.driver,
+                start_date=date(2026, 1, 1),
+                status=AssignmentStatus.ACCEPTED,
+            )
+            Alert.objects.create(type=AlertType.NO_DRIVER, vehicle=vehicle, dedup_key=f"k-bulk-{i}")
+        self.client.force_authenticate(self.admin)
+        # Roles del actor, count, página (con los joins de vehículo/supervisor/
+        # resolutor) y UNA de asignaciones para todos los conductores.
+        with self.assertNumQueries(4):
+            resp = self.client.get(self.list_url)
+        self.assertEqual(resp.data["count"], 8)
+        self.assertTrue(all(r["driver_id"] == self.driver.pk for r in resp.data["results"][:6]))
+
+    def test_resolved_listing_does_not_query_per_resolver(self):
+        """El nombre de quien resolvió va en el join, no en una consulta por fila."""
+        supervisor = make_user("sup3", Role.SUPERVISOR)
+        for i in range(5):
+            vehicle = Vehicle.objects.create(plate=f"RES{i}", brand="a", model="b")
+            alert = Alert.objects.create(
+                type=AlertType.NO_DRIVER, vehicle=vehicle, dedup_key=f"k-res-{i}"
+            )
+            alert.close(status=AlertStatus.RESOLVED, by=supervisor)
+        self.client.force_authenticate(self.admin)
+        with self.assertNumQueries(4):
+            resp = self.client.get(self.list_url, {"status": AlertStatus.RESOLVED})
+        self.assertEqual(resp.data["count"], 5)
+        self.assertTrue(
+            all(r["resolved_by_name"] == supervisor.get_username() for r in resp.data["results"])
+        )

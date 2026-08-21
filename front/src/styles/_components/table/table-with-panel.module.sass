@@ -835,6 +835,63 @@
   flex: 0 0 auto
   font-weight: 800
 
+// --- Agrupado en dos niveles (año → mes), ambos plegables ------------------
+// Sin `sticky`: dos niveles fijados a top: 0 se solaparían entre ellos.
+.yearDividerRow,
+.monthLevelDividerRow
+  td
+    position: static
+    padding: 0
+
+.yearDividerRow
+  td
+    background: #1e293b !important
+
+.monthLevelDividerRow
+  td
+    background: #475569 !important
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .1)
+
+// El botón cubre la fila entera: se pliega pulsando en cualquier punto.
+.groupDividerToggle
+  display: flex
+  align-items: center
+  gap: .5rem
+  width: 100%
+  padding: .5rem .72rem
+  border: 0
+  background: transparent
+  color: inherit
+  font: inherit
+  font-weight: 800
+  cursor: pointer
+  text-align: left
+
+.yearDividerRow .groupDividerToggle
+  font-size: .95rem
+  letter-spacing: .02em
+
+.monthLevelDividerRow .groupDividerToggle
+  padding-left: 1.9rem
+  font-size: .84rem
+  font-weight: 700
+
+.groupDividerToggle:focus-visible
+  outline: 2px solid #ffffff
+  outline-offset: -2px
+
+.groupDividerChevron
+  flex: 0 0 auto
+  transition: transform .15s ease
+
+.groupDividerChevronClosed
+  transform: rotate(-90deg)
+
+// En este modo el título va a la izquierda, junto al chevron.
+.yearDividerRow .monthDividerTitle,
+.monthLevelDividerRow .monthDividerTitle
+  text-align: left
+
 .emptyCell
   text-align: center
   padding: .82rem !important

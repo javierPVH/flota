@@ -3,7 +3,13 @@
  * la política de verdad; esto solo evita que el usuario siga viendo la UI de una
  * sesión ya caducada.
  *
- * IMPORTANTE: estos valores deben COINCIDIR con los timeouts del backend.
+ * IMPORTANTE: el cliente es MÁS ESTRICTO que el backend a propósito, no un
+ * espejo suyo. Hoy el backend usa sesión DESLIZANTE de 2 h
+ * (`SESSION_COOKIE_AGE` + `SESSION_SAVE_EVERY_REQUEST`) y no tiene tope
+ * absoluto; aquí se corta antes (30 min de inactividad, 6 h de sesión) para
+ * no dejar la interfaz de una sesión olvidada abierta en un puesto
+ * compartido. Si el backend se hace MÁS estricto que estos valores, hay que
+ * bajarlos: la autoridad es siempre el servidor.
  * Base-neutral: clave `gs_base_login_at`.
  */
 export const IDLE_MS = 30 * 60 * 1000 // 30 min sin actividad

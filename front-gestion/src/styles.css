@@ -1,5 +1,12 @@
 /* Estilos mínimos de la app de gestión. El grueso viene de @flota/ui/base.css
    y los tokens de @flota/ui/styles/tokens.css. */
+
+:root {
+  /* Acento propio de "vehículo de sustitución": los semánticos ya significan
+     estado (verde/ámbar/rojo), el teal es la acción y el azul los enlaces, así
+     que la sustitución necesita un color que no se confunda con ninguno. */
+  --color-substitute: #7c3aed;
+}
 * {
   box-sizing: border-box;
 }
@@ -743,18 +750,17 @@ table.data tbody tr:hover {
 /* Cabecera de la ficha: badges a la izquierda + callout de estado a la derecha. */
 .detail-top {
   display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  align-items: flex-start;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.7rem;
   margin: -0.4rem 0 1.1rem;
 }
-.detail-top-main { flex: 1 1 320px; min-width: 0; }
+.detail-top-main { min-width: 0; }
 .detail-top .detail-badges { margin: 0; }
 
 /* Callout destacado del estado (vehículo no activo / con sustitución). */
 .status-callout {
-  flex: 0 1 340px;
+  width: 100%;
   border: 1px solid var(--color-border);
   border-left: 4px solid var(--color-border-strong);
   border-radius: var(--radius-md);
@@ -770,9 +776,8 @@ table.data tbody tr:hover {
 .status-callout-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.4rem;
 }
 .status-callout-label {
   font-size: 0.72rem;
@@ -781,9 +786,18 @@ table.data tbody tr:hover {
   font-weight: 700;
   color: var(--color-text-muted);
 }
-.status-callout-facts { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.9rem; }
+/* A todo el ancho los datos caben en fila; solo envuelven si no entran. */
+.status-callout-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1.4rem;
+  font-size: 0.9rem;
+}
 .status-callout-row.muted,
 .status-callout-note { color: var(--color-text-muted); font-size: 0.85rem; }
+/* La nota explicativa siempre en su propia línea. */
+.status-callout-note { flex: 1 1 100%; }
 
 /* Resumen de una tarjeta colapsada (junto al título, en el hueco de acciones). */
 .acc-summary { font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500; }
@@ -924,11 +938,16 @@ table.data tbody tr:hover {
 /* Tira compacta de alertas: bloque líder (título + contadores por nivel) +
    chips por tipo (cada uno abre el modal filtrado a ese tipo) + enlace al
    total. Ya no es un único botón: cada zona es accionable por separado. */
+/* Dos filas FIJAS: arriba el título con sus contadores, abajo el desglose por
+   tipo y el enlace al listado. Antes era un `flex-wrap` y la disposición
+   dependía de si los chips cabían: en alertas (cuatro tipos largos) bajaban a
+   la segunda fila, pero en incidencias caben y se quedaban arriba, así que las
+   dos tiras —que son la misma cosa— no se leían igual. */
 .alerts-strip {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.6rem 0.8rem;
+  gap: 0.5rem 0.8rem;
   width: 100%;
   margin-bottom: 0.9rem;
   padding: 0.5rem 0.9rem;
@@ -1019,6 +1038,8 @@ table.data tbody tr:hover {
   line-height: 1.4;
 }
 .alerts-strip-lead {
+  /* Fila 1 completa: el título y sus contadores no comparten fila con nada. */
+  grid-column: 1 / -1;
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
@@ -1037,12 +1058,19 @@ table.data tbody tr:hover {
   gap: 0.35rem;
 }
 .alerts-strip-types {
+  grid-column: 1;
   display: inline-flex;
   flex-wrap: wrap;
   gap: 0.4rem;
 }
+/* Sin tipos que desglosar no debe quedar una fila en blanco. */
+.alerts-strip-types:empty {
+  display: none;
+}
 .alerts-strip-hint {
-  margin-left: auto;
+  /* Fila 2, pegado al borde derecho (en grid no hace falta `margin-left`). */
+  grid-column: 2;
+  justify-self: end;
   padding: 0.15rem 0;
   border: 0;
   background: none;
@@ -1327,6 +1355,132 @@ table.data tbody tr:hover {
 @media (max-width: 620px) {
   .ops-sub-row { grid-template-columns: 1fr; }
 }
+/* Interruptor: casilla con aspecto de switch. El input real sigue ahí (es lo
+   que da teclado y `role="switch"` a los lectores de pantalla); solo se oculta. */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.switch-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-soft);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.3);
+  transition: transform 0.15s ease;
+}
+.switch input:checked + .switch-track {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+}
+.switch input:checked + .switch-track::after { transform: translateX(16px); }
+.switch input:focus-visible + .switch-track { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.switch input:disabled + .switch-track { opacity: 0.55; }
+
+/* Cómo se compone el correo: interruptor de plantilla + idioma. */
+.email-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1.2rem;
+}
+.email-lang { display: inline-flex; align-items: center; gap: 0.5rem; }
+.email-lang-label {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+/* La nota ocupa su propia línea, debajo de los dos controles. */
+.email-options-note { flex: 1 0 100%; margin: 0; font-size: 0.84rem; }
+.email-options-note.tone-warn { color: var(--color-warning); font-weight: 600; }
+.ops-note.tone-warn { color: var(--color-warning); font-weight: 600; }
+
+/* Editor de plantillas: qué versión (castellano / inglés) se está editando. */
+.tpl-lang { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; }
+.tpl-lang-note { margin: 0; font-size: 0.84rem; }
+.tpl-lang-empty {
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.seg-switch button.is-active .tpl-lang-empty { background: rgba(255, 255, 255, 0.25); color: #fff; }
+
+/* Datos del vehículo que justifican el correo elegido (modal Enviar correo):
+   una fila de hechos con semáforo, para no tener que ir a la ficha. */
+.email-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+}
+.email-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--fact-accent, var(--color-border-strong));
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
+  font-size: 0.86rem;
+}
+.email-fact-label { color: var(--color-text-muted); }
+.email-fact-value { color: var(--color-text); }
+.email-fact-when { color: var(--fact-accent, var(--color-text-muted)); font-weight: 600; }
+.email-fact.tone-ok { --fact-accent: var(--color-success); }
+.email-fact.tone-warn { --fact-accent: var(--color-warning); }
+.email-fact.tone-danger { --fact-accent: var(--color-danger); }
+
+/* Vista previa del comunicado dentro del modal de estado: plegada, para no
+   competir con las otras secciones. */
+.com-preview-head {
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  list-style: none;
+}
+.com-preview-head::-webkit-details-marker { display: none; }
+.com-preview-head::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 0.35rem;
+  color: var(--color-text-muted);
+}
+.com-preview[open] > .com-preview-head::before { content: '▾'; }
+.com-preview-head:hover { text-decoration: underline; }
+.com-preview[open] > .email-preview { margin-top: 0.5rem; }
+
 .ops-activelink {
   display: flex;
   align-items: center;
@@ -1489,7 +1643,7 @@ table.data tbody tr:hover {
 }
 
 /* --- Ajustes / Informes: pestañas principales + sub-página embebida -------- */
-/* Muchas pestañas (p. ej. Informes: Facturas + tipos de documento) → envuelven. */
+/* Pocas pestañas de primer nivel; envuelven solo en pantallas estrechas. */
 .settings-tabs { flex-wrap: wrap; }
 /* La sub-página se renderiza sin su propia cabecera, bajo las pestañas. */
 .settings-body { margin-top: 0.3rem; }
@@ -1561,37 +1715,235 @@ table.data tbody tr:hover {
   margin-bottom: 0.9rem;
 }
 
-/* Centro de descargas (Informes): rejilla de tarjetas por categoría, todas a la
-   misma altura (stretch) para una cuadrícula homogénea. */
+/* --- Informes · Descargas -------------------------------------------------
+   Rejilla de bloques por categoría, todos a la misma altura (stretch) para una
+   cuadrícula homogénea. Cada bloque cuenta lo mismo y en el mismo orden:
+   qué es y cuánto hay → con qué filtros → comprobar y descargar. */
+.downloads-lead {
+  margin: 0 0 0.9rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
 .export-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 1rem;
   align-items: stretch;
 }
-.export-card { display: flex; flex-direction: column; gap: 0.7rem; height: 100%; }
-.export-card h3 { margin: 0; font-size: 1rem; }
-.export-card-desc { margin: 0; font-size: 0.86rem; }
-/* Los filtros ocupan el espacio flexible: así las acciones quedan siempre
-   ancladas abajo y todas las tarjetas cuadran a la misma altura. */
+.export-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+  /* Franja de color arriba: identifica la categoría de un vistazo. */
+  border-top: 3px solid var(--export-accent, var(--color-border-strong));
+}
+
+/* Acentos por categoría (solo icono y franja; el fondo sigue siendo neutro). */
+.export-card--brand {
+  --export-accent: var(--color-brand);
+  --export-accent-soft: color-mix(in srgb, var(--color-brand) 13%, #fff);
+}
+.export-card--info { --export-accent: var(--color-primary); --export-accent-soft: var(--color-info-soft); }
+.export-card--success { --export-accent: var(--color-success); --export-accent-soft: var(--color-success-soft); }
+.export-card--warning { --export-accent: var(--color-warning); --export-accent-soft: var(--color-warning-soft); }
+.export-card--danger {
+  --export-accent: var(--color-danger);
+  --export-accent-soft: color-mix(in srgb, var(--color-danger) 12%, #fff);
+}
+.export-card--neutral { --export-accent: var(--color-text-muted); --export-accent-soft: var(--color-surface-soft); }
+
+/* 1 · Cabecera: icono + qué contiene + cuántos registros salen. */
+.export-card-head { display: flex; align-items: flex-start; gap: 0.65rem; }
+.export-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--export-accent-soft, var(--color-surface-soft));
+  color: var(--export-accent, var(--color-text-muted));
+}
+.export-card-id { flex: 1 1 auto; min-width: 0; }
+.export-card-id h3 { margin: 0; font-size: 1rem; line-height: 1.25; }
+.export-card-desc {
+  margin: 0.2rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+/* Solo aparece cuando ya se sabe cuántas filas trae el filtro actual. */
+.export-card-count {
+  flex: 0 0 auto;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* 2 · Filtros: ocupan el espacio flexible, así las acciones quedan ancladas
+   abajo y todos los bloques cuadran a la misma altura. */
+.export-card-filters-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  flex: 1 1 auto;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
+}
+.export-card-filters-head { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
+.export-card-filters-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.export-card-filters-count {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--color-brand);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.export-card-filters-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.export-card-filters-clear:hover { text-decoration: underline; }
+.export-card-filters-clear:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; border-radius: 4px; }
 .export-card-filters {
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 0.5rem 0.7rem;
-  flex: 1 1 auto;
 }
 .export-card-filters .filter-field { flex: 1 1 140px; min-width: 0; }
+.export-card-filters .filter-field > label { font-size: 0.75rem; }
+
+/* 3 · Acciones: comprobar y descargar (esta última, la principal). Van en dos
+   grupos —herramientas y ejecución— para que se alineen entre sí y, cuando no
+   caben a lo ancho, el salto caiga entre grupos y no parta la fila. */
 .export-card-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
-  margin-top: auto;
-  padding-top: 0.2rem;
+  padding-top: 0.1rem;
+}
+.export-card-tools,
+.export-card-run {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+/* Todo lo de la fila comparte la altura del Button `md` del sistema (34px). */
+.export-card-actions button { min-height: 34px; }
+.export-card-busy { color: var(--color-text-muted); font-size: 0.82rem; }
+
+/* Interrogación junto a «Columnas»: abre el modal con el significado de cada
+   una. Cuadrada, con la misma caja que el botón de al lado. */
+.export-cols-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.export-cols-help:hover { background: var(--color-surface-soft); color: var(--color-brand); }
+.export-cols-help:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+
+/* Modal de ayuda: una columna por fila, con su explicación debajo. */
+.export-help-list { margin: 0.8rem 0 0; }
+.export-help-item {
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--color-border);
+}
+.export-help-item dt {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+.export-help-item dd {
+  margin: 0.2rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+.export-help-item.is-off dt { color: var(--color-text-muted); }
+.export-help-off {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: lowercase;
 }
 
-/* Selector de columnas de la tarjeta: elige qué columnas se previsualizan y
+/* 4 · Salida a la vista donde se gestionan estos datos: enlace, no botón, para
+   que no compita con la descarga. */
+.export-card-manage {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.export-card-manage:hover { text-decoration: underline; }
+.export-card-manage:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; border-radius: 4px; }
+
+/* Pie de la previsualización: lo que se va a descargar + descargarlo sin volver. */
+.export-preview-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  width: 100%;
+}
+.export-preview-count { color: var(--color-text-muted); font-size: 0.88rem; font-weight: 600; }
+
+/* Selector de columnas del bloque: elige qué columnas se previsualizan y
    exportan. Botón (igual que un Button secundario `md`) + desplegable. */
 .export-cols { position: relative; display: inline-flex; }
 .export-cols-trigger {
@@ -1627,7 +1979,7 @@ table.data tbody tr:hover {
   z-index: 40;
   bottom: calc(100% + 4px);
   left: 0;
-  min-width: 200px;
+  min-width: 220px;
   max-height: 280px;
   overflow-y: auto;
   display: flex;
@@ -1637,6 +1989,12 @@ table.data tbody tr:hover {
   border-radius: var(--radius-md);
   background: var(--color-surface);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+}
+.export-cols-hint {
+  margin: 0.15rem 0.5rem 0.4rem;
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+  line-height: 1.3;
 }
 .export-cols-item {
   display: flex;
@@ -1651,6 +2009,67 @@ table.data tbody tr:hover {
 .export-cols-item input { width: 1rem; height: 1rem; accent-color: var(--color-brand); cursor: pointer; }
 .export-cols-item input:disabled { cursor: not-allowed; }
 .export-cols-item span { flex: 1 1 auto; min-width: 0; }
+
+/* --- Informes · Documentos ------------------------------------------------
+   Línea de ayuda sobre las sub-pestañas y resumen por estado, que además
+   funciona como filtro de un clic. */
+.reports-hint {
+  margin: 0 0 0.7rem;
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+}
+.doc-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.7rem;
+}
+.doc-status-strip-label {
+  margin-right: 0.15rem;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.doc-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem 0.25rem 0.3rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.83rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.doc-status-chip:hover { border-color: var(--color-border-strong); }
+.doc-status-chip:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.doc-status-chip-count {
+  min-width: 1.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--chip-soft, var(--color-surface-soft));
+  color: var(--chip-ink, var(--color-text-muted));
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-align: center;
+}
+.doc-status-chip.tone-success { --chip-soft: var(--color-success-soft); --chip-ink: var(--color-success); }
+.doc-status-chip.tone-warning { --chip-soft: var(--color-warning-soft); --chip-ink: var(--color-warning); }
+.doc-status-chip.tone-danger { --chip-soft: var(--color-danger-soft); --chip-ink: var(--color-danger); }
+.doc-status-chip.tone-info { --chip-soft: var(--color-info-soft); --chip-ink: var(--color-primary); }
+.doc-status-chip.tone-neutral { --chip-soft: var(--color-surface-soft); --chip-ink: var(--color-text-muted); }
+.doc-status-chip.is-on {
+  border-color: var(--chip-ink, var(--color-border-strong));
+  background: var(--chip-soft, var(--color-surface-soft));
+  color: var(--chip-ink, var(--color-text));
+}
+.doc-status-chip.is-on .doc-status-chip-count { background: var(--color-surface); }
 
 /* Combobox de vehículo (matrícula + marca/modelo) con buscador y acordeones por
    marca. Se comporta como un control más de la franja (misma altura, 40px). */
@@ -2127,6 +2546,43 @@ table.data tbody tr:hover {
 
 .vehicle-detail section { margin-bottom: 1.2rem; }
 
+/* Marcas de la ficha: sustitución y/o sin conductor enmarcan la página entera
+   y se rotulan sobre el borde, para que no haya duda de qué se está mirando
+   aunque se llegue por un enlace directo. */
+.vehicle-detail.has-marks {
+  position: relative;
+  margin-top: 0.85rem;
+  padding: 1.5rem 1.1rem 0.6rem;
+  border: 2px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+}
+/* Un solo borde para las dos marcas: si además es sustituto, manda ese color
+   (identidad del vehículo) sobre el de la carencia. El orden es la regla. */
+.vehicle-detail.is-driverless { border-color: var(--color-warning); }
+.vehicle-detail.is-substitute { border-color: var(--color-substitute); }
+
+.detail-marks {
+  position: absolute;
+  top: 0;
+  left: 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  transform: translateY(-50%);
+}
+.detail-mark {
+  padding: 0.15rem 0.65rem;
+  border-radius: var(--radius-pill);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mark-substitute { background: var(--color-substitute); }
+.mark-driverless { background: var(--color-warning); }
+
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -2142,6 +2598,255 @@ table.data tbody tr:hover {
 }
 .detail-dl dt { color: var(--color-text-muted); }
 .detail-dl dd { margin: 0; font-weight: 600; }
+
+/* Modal de detalle de un KPI: bloque de cifras + histórico acotado. */
+.kpi-modal .detail-dl { margin-top: 0; }
+.kpi-modal .timeline { max-height: 46vh; overflow-y: auto; }
+/* Histórico del KPI: acordeón plegado, con el mismo aire que los rótulos. */
+.kpi-history { margin-top: 1.1rem; }
+.kpi-history-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  list-style: none;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.kpi-history-head::-webkit-details-marker { display: none; }
+.kpi-history-head::before {
+  content: '▸';
+  letter-spacing: normal;
+  transition: transform 0.12s ease;
+}
+.kpi-history[open] > .kpi-history-head::before { display: inline-block; transform: rotate(90deg); }
+.kpi-history-head:hover { color: var(--color-text); }
+.kpi-history-count {
+  padding: 0.02rem 0.45rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-soft);
+  letter-spacing: normal;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-history-body { margin-top: 0.6rem; }
+.kpi-modal .tl-day-head { position: sticky; top: 0; background: var(--color-surface); }
+.kpi-modal-h {
+  margin: 1.1rem 0 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.kpi-modal-h:first-child { margin-top: 0; }
+
+/* --- Modal de sustitución: cierre del vínculo ------------------------------ */
+/* Aviso de un cierre ya programado (aún no ha llegado la fecha). */
+.link-scheduled {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--color-warning-border);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-size: 0.85rem;
+}
+.link-scheduled .linklike { margin-left: auto; color: inherit; }
+
+/* Tarjeta del vínculo vigente: las dos matrículas mandan. */
+.link-active {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-success);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
+}
+.link-active-head { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.link-pair {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.4rem 0 0.1rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--color-ink);
+}
+.link-pair a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.link-pair span { color: var(--color-text-muted); font-weight: 500; }
+.link-active-since { margin: 0; font-size: 0.84rem; }
+.link-active-note { margin: -0.3rem 0 0; font-size: 0.82rem; }
+
+.link-close { margin: 0; }
+.link-close-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+/* Conmutador y fecha alineados: ambos llevan etiqueta encima. */
+.link-close-row { display: flex; align-items: flex-end; gap: 0.8rem; flex-wrap: wrap; }
+.link-close-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.link-close-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.link-close-field .km-switch { height: 38px; }
+.link-close-date { flex: 0 1 190px; }
+.link-close-min { margin: 0.4rem 0 0; font-size: 0.8rem; }
+/* Cerrar vínculo: acción principal de la sección, a todo el ancho. */
+.link-close-actions { margin-top: 0.2rem; }
+/* El aviso toma el tono del efecto del cierre elegido. */
+.link-close-hint {
+  margin: 0.6rem 0 0.8rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--color-border-strong);
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
+  font-size: 0.84rem;
+}
+.link-close-hint.tone-info {
+  border-left-color: var(--color-info);
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+.link-close-hint.tone-warn {
+  border-left-color: var(--color-warning);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+/* --- Modal de kilometraje -------------------------------------------------- */
+/* Semáforo de antigüedad de la última lectura: verde <15 días, ámbar 15-30,
+   rojo >30. En ámbar y rojo lleva el botón de reclamarla por correo. */
+.km-stale {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 0.8rem;
+  font-size: 0.82rem;
+}
+.km-stale.is-open { align-items: flex-start; }
+
+/* Toda la línea de texto es el disparador del acordeón. */
+.km-stale-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.km-stale.is-open .km-stale-toggle { align-items: flex-start; white-space: normal; }
+.km-stale-toggle:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.km-stale-chevron { flex: 0 0 auto; transition: transform 0.12s ease; }
+.km-stale.is-open .km-stale-chevron { transform: rotate(180deg); }
+
+.km-stale-value { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+/* Plegado: este texto es el que elide (nunca la cifra ni el botón). */
+.km-stale-sub {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+.km-stale.is-open .km-stale-sub { overflow: visible; text-overflow: clip; }
+/* Reclamar por correo: solo el icono (la etiqueta va en aria-label/title). */
+.km-stale > .km-stale-toggle ~ button { flex: 0 0 auto; }
+.km-stale.tone-ok {
+  border-color: var(--color-success-border);
+  border-left-color: var(--color-success);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.km-stale.tone-warn {
+  border-color: var(--color-warning-border);
+  border-left-color: var(--color-warning);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+.km-stale.tone-danger {
+  border-color: var(--color-danger-soft);
+  border-left-color: var(--color-danger);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.km-readings-total {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+/* Lecturas por año: un <details> por año, el más reciente abierto. */
+.km-years { display: flex; flex-direction: column; gap: 0.4rem; }
+.km-year {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.km-year-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.9rem;
+}
+.km-year-head::-webkit-details-marker { display: none; }
+.km-year-head::before {
+  content: '▸';
+  margin-right: 0.35rem;
+  color: var(--color-text-muted);
+  transition: transform 0.12s ease;
+}
+.km-year[open] > .km-year-head::before { transform: rotate(90deg); display: inline-block; }
+.km-year-head:hover { background: var(--color-surface-soft); }
+.km-year-title { font-weight: 700; margin-right: auto; }
+.km-year-meta { color: var(--color-text-muted); font-size: 0.83rem; }
+.km-year-rows { max-height: 32dvh; padding: 0 0.5rem 0.5rem; }
+
+/* Odómetro y fecha en la misma fila (la fecha, más estrecha). */
+.km-form-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 0.9rem;
+  align-items: start;
+}
+@media (max-width: 520px) {
+  .km-form-row { grid-template-columns: 1fr; }
+}
 
 .km-progress {
   height: 12px;
@@ -2216,7 +2921,8 @@ table.data tbody tr:hover {
 .km-card-actions { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 
 /* Switch segmentado Anual / Contrato completo (no es un tab). */
-.km-switch {
+.km-switch,
+.seg-switch {
   display: inline-flex;
   padding: 3px;
   gap: 2px;
@@ -2224,7 +2930,8 @@ table.data tbody tr:hover {
   border: 1px solid var(--color-border);
   border-radius: 999px;
 }
-.km-switch button {
+.km-switch button,
+.seg-switch button {
   border: 0;
   background: transparent;
   padding: 0.32rem 0.85rem;
@@ -2235,11 +2942,18 @@ table.data tbody tr:hover {
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.km-switch button:hover { color: var(--color-text); }
-.km-switch button.is-active {
+.km-switch button:hover,
+.seg-switch button:hover { color: var(--color-text); }
+.km-switch button.is-active,
+.seg-switch button.is-active {
   background: var(--color-brand);
   color: #fff;
 }
+.seg-switch button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.seg-switch button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
 .km-view-caption { margin: 0 0 0.6rem; font-size: 0.85rem; }
 
 /* Barra de filtro del histórico (por origen del cambio). */
@@ -2256,15 +2970,54 @@ table.data tbody tr:hover {
 .timeline-body { flex: 1 1 auto; min-width: 0; }
 .timeline-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .timeline-sub { margin: 0.2rem 0 0; }
+
+/* Quién lo hizo: con icono, para que no se confunda con una nota. */
+.timeline-actor {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+.timeline-actor strong { color: var(--color-text); font-weight: 600; }
+
+/* Desglose de campos en acordeón (el alta vuelca la ficha entera). */
+.timeline-changes-acc { margin-top: 0.4rem; }
+.timeline-changes-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  list-style: none;
+  cursor: pointer;
+  color: var(--color-primary);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.timeline-changes-summary::-webkit-details-marker { display: none; }
+.timeline-changes-summary::before {
+  content: '▸';
+  transition: transform 0.12s ease;
+}
+.timeline-changes-acc[open] > .timeline-changes-summary::before {
+  display: inline-block;
+  transform: rotate(90deg);
+}
+.timeline-changes-summary:hover { text-decoration: underline; }
+
 .timeline-changes {
   list-style: none;
-  margin: 0.4rem 0 0;
+  margin: 0.35rem 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
 }
 .timeline-changes li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   font-size: 0.82rem;
   color: var(--color-text);
   padding: 0.15rem 0.5rem;
@@ -2272,20 +3025,83 @@ table.data tbody tr:hover {
   border-radius: var(--radius-sm);
   font-variant-numeric: tabular-nums;
 }
+/* Etiqueta a la izquierda con ancho estable: los valores quedan alineados. */
+.tl-field { flex: 0 0 auto; min-width: 9rem; color: var(--color-text-muted); }
+.tl-before { color: var(--color-text-muted); text-decoration: line-through; }
+.tl-arrow { color: var(--color-text-muted); }
+.tl-after { font-weight: 600; }
 
-.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline { display: flex; flex-direction: column; gap: 0.9rem; }
+/* El gap manda: neutraliza el margen global de `.vehicle-detail section`. */
+.tl-day { margin-bottom: 0; }
+
+/* Un bloque por día: la fecha se escribe una vez, no en cada fila. */
+.tl-day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin: 0 0 0.25rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.tl-day-date { font-size: 0.86rem; font-weight: 700; color: var(--color-ink); }
+.tl-day-count { font-size: 0.78rem; color: var(--color-text-muted); font-weight: 500; }
+.tl-day-items { list-style: none; margin: 0; padding: 0; }
+
 .timeline-item {
   display: flex;
-  gap: 1rem;
-  padding: 0.6rem 0;
+  gap: 0.8rem;
+  padding: 0.5rem 0;
   border-bottom: 1px solid #eef2f7;
   font-size: 0.9rem;
 }
 .timeline-item:last-child { border-bottom: none; }
 .timeline-item p { margin: 0.15rem 0 0; color: var(--color-text-muted); font-size: 0.84rem; }
-.timeline-date { min-width: 90px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+/* Solo la hora en la columna izquierda: el día lo pone la cabecera. */
+.timeline-time {
+  flex: 0 0 auto;
+  min-width: 42px;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
 .timeline-item.kind-event strong { color: var(--color-ink); }
 .timeline-item.kind-audit strong { color: var(--color-text); font-weight: 600; }
+/* Qué objeto se tocó, junto al título. */
+.tl-repr {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+/* El alta abre el histórico: se marca con su propio filete. */
+.timeline-item.is-create { border-left: 3px solid var(--color-success); padding-left: 0.6rem; }
+
+/* Ráfaga plegada (N entradas iguales del mismo día). */
+.tl-run-items {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.tl-run-items li {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.tl-run-time { flex: 0 0 auto; color: var(--color-text-muted); }
+.tl-run-repr { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Contrato · celda del enlace de Drive (link + acción de editar). */
 .contract-drive-cell { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
@@ -2374,12 +3190,38 @@ table.data tbody tr:hover {
 .baja-warnings p { margin: 0.15rem 0; }
 
 .link-history {
-  margin-top: 1.1rem;
-  padding-top: 0.8rem;
+  margin-top: 1rem;
+  padding-top: 0.7rem;
   border-top: 1px dashed var(--color-border);
 }
-.link-history h4 { margin: 0 0 0.4rem; font-size: 0.9rem; }
-.link-history ul { margin: 0; padding-left: 1.2rem; font-size: 0.86rem; color: var(--color-text); }
+.link-history-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  list-style: none;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.link-history-head::-webkit-details-marker { display: none; }
+.link-history-head::before { content: '▸'; color: var(--color-text-muted); transition: transform 0.12s ease; }
+.link-history[open] > .link-history-head::before { display: inline-block; transform: rotate(90deg); }
+.link-history-count {
+  padding: 0.02rem 0.45rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.link-history-rows { margin-top: 0.5rem; max-height: 34vh; }
+.link-history-pair { flex: 0 0 auto; font-weight: 700; color: var(--color-ink); }
+.link-history-dates {
+  color: var(--color-text-muted);
+  font-size: 0.83rem;
+  font-variant-numeric: tabular-nums;
+}
 
 /* --- G5: asignaciones, conductores y reparto ------------------------------- */
 .assign-grid {
@@ -3247,4 +4089,241 @@ kbd {
 .imp-done {
   margin: 0;
   font-weight: 600;
+}
+
+/* M5: paginación EN SERVIDOR del espacio de erratas (la tabla solo tiene una
+   página, así que los controles viven fuera de ella). */
+.errata-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* B3: progreso del envío masivo de correos (Kilometraje) y de la importación. */
+.bulk-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bulk-progress progress {
+  flex: 1;
+  height: 8px;
+}
+
+/* A9: aviso de cambios sin guardar en el editor de plantillas. */
+.tpl-dirty {
+  align-self: center;
+  font-size: 0.8rem;
+  color: var(--color-warning-text, #8a5a00);
+}
+
+/* --- Bandeja de alertas: quién resolvió ------------------------------------
+   Verde si la cerró el conductor o el responsable del vehículo, rojo con
+   bocadillo si fue alguien ajeno, y neutro cuando la cerró el sistema (las
+   señales del back no dejan actor). */
+.resolver {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.resolver--match { color: var(--color-success); }
+.resolver--mismatch { color: var(--color-danger); }
+
+.resolver--auto {
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-style: italic;
+}
+
+/* Bocadillo al pasar por encima (o al enfocar con el teclado). El icono lleva
+   el texto en `aria-label`, así que el lector de pantalla no depende del hover.
+
+   El globo NO es un pseudoelemento del icono: dentro de la celda lo recortaba el
+   contenedor con scroll de la tabla. Lo pinta un portal en <body> con posición
+   `fixed` (`.hint-bubble-pop`), igual que el globo propio del DS. */
+.hint-bubble {
+  display: inline-flex;
+  align-items: center;
+  cursor: help;
+  color: var(--color-danger);
+}
+
+.hint-bubble-pop {
+  position: fixed;
+  z-index: 60;
+  display: block;
+  width: max-content;
+  max-width: 19rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  background: var(--color-text, #16324f);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-style: normal;
+  line-height: 1.35;
+  white-space: normal;
+  text-align: left;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 22%);
+  pointer-events: none;
+}
+
+/* Ajustes → Notificaciones: envíos programados. Tabla propia (son pocas filas y
+   no necesita el panel de columnas de `TableWithPanel`); mismo lenguaje visual
+   que la de importación masiva. */
+.notif-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.notif-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+.notif-table th {
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+.notif-table td {
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+.notif-table tbody tr:last-child td {
+  border-bottom: none;
+}
+/* En pausa: la fila se atenúa, pero el nombre y su etiqueta siguen legibles. */
+.notif-table tr.is-paused td {
+  color: var(--color-text-muted);
+}
+.notif-table .row-actions {
+  justify-content: flex-end;
+}
+
+/* Las dos casillas de fecha/hora del nombre, en fila bajo el campo. */
+.notif-name-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1.2rem;
+  margin-top: -0.2rem;
+}
+
+/* El formulario del envío, en cuatro bloques: qué, cuándo, a quién y cómo se
+   llama. Era una única columna de quince controles seguidos, y con las casillas
+   y los campos condicionales no se veía dónde acababa una decisión y empezaba
+   la siguiente. */
+.notif-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  counter-reset: notif-paso;
+}
+.notif-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  /* Un fieldset no encoge por defecto y desbordaría la rejilla de dentro. */
+  min-width: 0;
+  margin: 0;
+  padding: 0.5rem 0.9rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+}
+.notif-step-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  /* La leyenda de un fieldset no es un item flex: el `gap` no la separa. */
+  margin-bottom: 0.15rem;
+}
+/* El número del paso lo pone un contador: el orden es del CSS, no de la
+   traducción, así que reordenar bloques no obliga a tocar los textos. */
+.notif-step-title::before {
+  counter-increment: notif-paso;
+  content: counter(notif-paso);
+  display: grid;
+  place-items: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  background: var(--color-brand);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+/* Los campos que son una sola decisión (los filtros, y frecuencia + día + hora)
+   van en fila mientras quepan. */
+.notif-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.55rem 0.7rem;
+}
+/* Aclaraciones bajo un campo: sin margen propio, que las junte el `gap`. */
+.notif-hint {
+  margin: 0;
+  font-size: 0.79rem;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
+/* Vista previa del nombre: se lee como el asunto que va a llegar. */
+.notif-preview {
+  margin: 0;
+  padding: 0.35rem 0.55rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  font-size: 0.8rem;
+  color: var(--color-text);
+}
+.notif-enabled {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* Pie del modal: el resumen de lo elegido a la izquierda y los botones a la
+   derecha, para no tener que repasar los cuatro bloques antes de guardar. */
+.notif-foot {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem 0.9rem;
+  min-width: 0;
+}
+.notif-review,
+.notif-foot-error {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
+.notif-review strong {
+  color: var(--color-text);
+}
+.notif-foot-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-left: auto;
 }

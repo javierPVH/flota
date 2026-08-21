@@ -4,7 +4,7 @@ import { BellOff, BellRing, Gauge } from 'lucide-react'
 import { Badge, Button, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { dismissAlert, fetchVehicleSummaries, listAlerts, resolveAlert } from '../api.ts'
+import { fetchVehicleSummaries, listAlerts, resolveAlert } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { alertLevelTone, fmtDate } from '../format.ts'
 import { useLang } from '../i18n.tsx'
@@ -75,14 +75,11 @@ export function AlertsPage() {
             ),
           ]
           // Summaries en UNA petición (O2): antes era un GET por pendiente.
-          const wanted = new Set(pendingVehicles)
-          fetchVehicleSummaries()
+          // M12: y solo de los vehículos pendientes (`?ids=`), no de todo el
+          // ámbito para tirar el resto en cliente.
+          fetchVehicleSummaries(pendingVehicles)
             .then((summaries) =>
-              setLastReadings(
-                Object.fromEntries(
-                  summaries.filter((s) => wanted.has(s.vehicle)).map((s) => [s.vehicle, s]),
-                ),
-              ),
+              setLastReadings(Object.fromEntries(summaries.map((s) => [s.vehicle, s]))),
             )
             .catch(() => setLastReadings({}))
         }
@@ -93,13 +90,12 @@ export function AlertsPage() {
 
   useEffect(load, [load])
 
-  async function close(alert: Alert, action: 'resolve' | 'dismiss') {
+  /** Resolver es el ÚNICO cierre: descartar se retiró del dominio. */
+  async function close(alert: Alert) {
     setNotice('')
     try {
-      if (action === 'resolve') await resolveAlert(alert.id)
-      else await dismissAlert(alert.id)
-      const plate = alert.vehicle_plate || t.alerts.fleet
-      setNotice(action === 'resolve' ? t.alerts.resolved(plate) : t.alerts.dismissed(plate))
+      await resolveAlert(alert.id)
+      setNotice(t.alerts.resolved(alert.vehicle_plate || t.alerts.fleet))
       load()
     } catch (err) {
       setError(asErrorMessage(err, t.alerts.closeError))
@@ -226,7 +222,7 @@ function AlertCard({
 }: {
   alert: Alert
   isSupervisor: boolean
-  onClose: (alert: Alert, action: 'resolve' | 'dismiss') => void
+  onClose: (alert: Alert) => void
 }) {
   const { t } = useLang()
   const isOpen = alert.status === 'open'
@@ -263,14 +259,9 @@ function AlertCard({
               </Link>
             )}
             {isSupervisor && (
-              <>
-                <Button size="sm" variant="secondary" onClick={() => onClose(alert, 'resolve')}>
-                  {t.alerts.resolve}
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => onClose(alert, 'dismiss')}>
-                  {t.alerts.dismiss}
-                </Button>
-              </>
+              <Button size="sm" variant="secondary" onClick={() => onClose(alert)}>
+                {t.alerts.resolve}
+              </Button>
             )}
           </div>
         )}

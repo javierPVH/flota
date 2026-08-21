@@ -46,7 +46,7 @@ a un rol ajeno.
 
 ```bash
 cd back
-python -m venv .venv && source .venv/bin/activate   # (el repo ya trae uno)
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt                      # si creas el venv de cero
 cp .env.example .env                                 # DEBUG=True por defecto
 python manage.py migrate

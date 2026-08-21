@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config'
 import { loadEnv } from 'vite'
-import react from '@vitejs/plugin-react'
+import react, { reactCompilerPreset } from '@vitejs/plugin-react'
+import babel from '@rolldown/plugin-babel'
 
 // Front de gestión (VPN). Puerto 5173. Habla con el back por cookies de sesión
 // + CSRF, que exigen MISMO ORIGEN: en dev, vite hace de proxy hacia Django
@@ -22,7 +23,10 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react()],
+    // Compilador de React (mismo montaje que el DS en front/vite.config.ts):
+    // memoiza los componentes automáticamente. El lint ya avisaba con sus
+    // reglas; aquí es donde el trabajo se aprovecha de verdad.
+    plugins: [react(), babel({ presets: [reactCompilerPreset()] })],
     server: { port: 5173, proxy },
     preview: { port: 5173, proxy },
     test: {

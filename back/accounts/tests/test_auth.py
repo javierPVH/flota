@@ -106,6 +106,18 @@ class AuthConfigTests(TestCase):
         self.assertFalse(data["google_enabled"])
         self.assertEqual(data["google_client_id"], "")
 
+    @override_settings(FLEET_JIRA_REQUEST_URL="https://jira.example/crear")
+    def test_config_publishes_jira_request_url(self):
+        """El portón de conductores enlaza esta dirección; se sirve sin sesión."""
+        data = self.client.get(reverse("auth-config")).json()
+        self.assertEqual(data["jira_request_url"], "https://jira.example/crear")
+
+    @override_settings(FLEET_JIRA_REQUEST_URL="")
+    def test_config_jira_request_url_may_be_empty(self):
+        """Sin configurar, el portón explica el trámite sin pintar un enlace roto."""
+        data = self.client.get(reverse("auth-config")).json()
+        self.assertEqual(data["jira_request_url"], "")
+
 
 @override_settings(AUTH_PASSWORD_ENABLED=False, AUTH_GOOGLE_ENABLED=True)
 class PasswordDisabledTests(TestCase):

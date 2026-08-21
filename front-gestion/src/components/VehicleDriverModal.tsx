@@ -1,16 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Button, SelectField, TextInputField } from '@flota/ui/ui'
-import { asErrorMessage } from '@flota/ui/http'
+import { ApiError, asErrorMessage } from '@flota/ui/http'
 
 import {
-  acceptAssignment,
-  createAssignment,
-  deleteAssignment,
   listAssignments,
   listDrivers,
-  listUsers,
-  updateAssignment,
-  updateVehicleFields,
+  listSupervisors,
+  setVehicleDriver,
 } from '../api.ts'
 import { todayIso } from '../format.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
@@ -28,8 +24,9 @@ const NOCHANGE = '__nochange__'
 const RELEASE = '__release__'
 const NONE = '__none__'
 
-/** Cambio de conductor (flujo de asignaciones: propuesta + aceptar) y del
- * supervisor del vehículo, en un solo modal desde el inventario. */
+/** Cambio de conductor y de supervisor del vehículo, en un solo modal desde
+ * el inventario. A6: una sola llamada atómica (`/vehicles/{id}/set-driver/`);
+ * antes eran tres pasos con compensación por borrado físico. */
 export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
   const t = useVehiclesCopy().driverModal
 
@@ -46,18 +43,27 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // A17: fallo al cargar las listas (≠ "no hay datos").
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
-    listDrivers().then(setDrivers).catch(() => setDrivers([]))
-    listUsers()
-      .then((page) =>
-        setSupervisors(
-          page.results
-            .filter((u) => u.is_active && u.roles.includes('supervisor'))
-            .map((u) => ({ id: u.id, name: u.name })),
-        ),
-      )
-      .catch(() => setSupervisors([]))
+    // A17: un desplegable vacío por fallo de red era indistinguible de "no hay
+    // conductores" — y aquí se decide quién conduce el coche. Se avisa.
+    setLoadError('')
+    listDrivers()
+      .then(setDrivers)
+      .catch(() => {
+        setDrivers([])
+        setLoadError(t.errListsIncomplete)
+      })
+    // M12: los supervisores los filtra el SERVIDOR (`?roles__role=supervisor`);
+    // antes se traía la lista completa de usuarios para quedarse con unos pocos.
+    listSupervisors()
+      .then(setSupervisors)
+      .catch(() => {
+        setSupervisors([])
+        setLoadError(t.errListsIncomplete)
+      })
     listAssignments({ vehicle: vehicle.id })
       .then((page) =>
         setCurrent(
@@ -65,14 +71,14 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
         ),
       )
       .catch(() => setCurrent(null))
-  }, [vehicle.id])
+  }, [vehicle.id, t])
 
   const driverOptions = useMemo(() => {
     const opts = [{ value: NOCHANGE, label: t.noChange }]
     for (const d of drivers) {
       opts.push({
         value: String(d.id),
-        label: current && d.id === current.driver ? `${d.name} ${t.current}` : d.name,
+        label: current && d.id === current.driver ? `${d.name} ${t.currentTag}` : d.name,
       })
     }
     if (current) opts.push({ value: RELEASE, label: t.release })
@@ -112,42 +118,28 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
     }
     setSaving(true)
     try {
-      // 1) Supervisor (PATCH con bloqueo optimista).
-      if (supervisorChanged) {
-        await updateVehicleFields(vehicle.id, {
-          supervisor: supervisor === NONE ? null : Number(supervisor),
-          expected_updated_at: vehicle.updated_at,
-        })
-      }
-      // 2) Conductor.
-      if (driverChanged) {
-        if (releasing) {
-          if (current) {
-            await updateAssignment(current.id, { end_date: todayIso(), status: 'finished' })
-          }
-        } else {
-          // Propuesta + aceptar: cierra la vigente y emite el evento old→new
-          // de forma atómica (mismo flujo que la ficha del vehículo).
-          let proposalId: number | null = null
-          try {
-            const proposal = await createAssignment({
-              vehicle: vehicle.id,
-              driver: Number(driverValue),
-              start_date: startDate,
-              status: 'proposed',
-            })
-            proposalId = proposal.id
-            await acceptAssignment(proposal.id)
-          } catch (err) {
-            if (proposalId) await deleteAssignment(proposalId).catch(() => {})
-            throw err
-          }
-        }
-      }
+      // A6: UNA llamada atómica. El back cierra la asignación vigente, crea la
+      // nueva aceptada, ajusta el supervisor y emite el evento old→new — o no
+      // hace nada. Antes eran tres llamadas con compensación por borrado
+      // físico: podía dejar el supervisor guardado sin conductor, o una
+      // propuesta huérfana que además daba ámbito al conductor (C1).
+      await setVehicleDriver(vehicle.id, {
+        ...(driverChanged ? { driver: releasing ? null : Number(driverValue) } : {}),
+        ...(driverChanged && !releasing ? { start_date: startDate } : {}),
+        ...(supervisorChanged
+          ? { supervisor: supervisor === NONE ? null : Number(supervisor) }
+          : {}),
+        expected_updated_at: vehicle.updated_at,
+      })
       onDone()
       onClose()
     } catch (err) {
-      setError(asErrorMessage(err, t.errGeneric))
+      // El 409 del bloqueo optimista tiene mensaje propio: la ficha cambió.
+      setError(
+        err instanceof ApiError && err.status === 409
+          ? t.errConflict
+          : asErrorMessage(err, t.errGeneric),
+      )
     } finally {
       setSaving(false)
     }
@@ -192,6 +184,7 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
         />
       </section>
 
+      {loadError && <div role="alert" className="form-error">{loadError}</div>}
       {error && <div role="alert" className="form-error">{error}</div>}
 
       <div className="ops-actions">

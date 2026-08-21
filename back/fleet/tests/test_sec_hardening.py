@@ -181,3 +181,61 @@ class KmReadingAppendOnlyTests(APITestCase):
             reverse("kmreading-detail", args=[self.reading.pk]), {"km_reading": 5100}
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+
+class ProposalScopeTests(APITestCase):
+    """C1: una propuesta (pendiente o rechazada) NO da ámbito al conductor.
+
+    `scoping.vehicles_for` filtraba solo por `end_date IS NULL`, sin mirar el
+    estado, y `reject` no cerraba la asignación: cualquier propuesta abría al
+    conductor el vehículo y todo lo que cuelga de él, para siempre.
+    """
+
+    def setUp(self):
+        self.driver = make_user("prop-driver", Role.DRIVER)
+        self.admin = make_user("prop-admin", Role.ADMIN)
+        self.foreign = Vehicle.objects.create(plate="9999PRO", brand="a", model="b")
+        self.proposal = Assignment.objects.create(
+            vehicle=self.foreign,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.PROPOSED,
+        )
+        # Datos colgados del vehículo ajeno: nada de esto debe verse.
+        Incident.objects.create(
+            vehicle=self.foreign, type="breakdown", date=date(2026, 2, 1), description="x"
+        )
+        KmReading.objects.create(
+            vehicle=self.foreign, reading_date=date(2026, 2, 1), km_reading=1000
+        )
+
+    def _assert_out_of_scope(self):
+        self.client.force_authenticate(self.driver)
+        detail = self.client.get(reverse("vehicle-detail", args=[self.foreign.pk]))
+        self.assertEqual(detail.status_code, status.HTTP_404_NOT_FOUND)
+        summary = self.client.get(reverse("vehicle-summary", args=[self.foreign.pk]))
+        self.assertEqual(summary.status_code, status.HTTP_404_NOT_FOUND)
+        listado = self.client.get(reverse("vehicle-list"))
+        self.assertEqual(listado.data["count"], 0)
+        for route in ("document-list", "incident-list", "kmreading-list", "event-list"):
+            resp = self.client.get(reverse(route), {"vehicle": self.foreign.pk})
+            self.assertEqual(resp.data["count"], 0, route)
+
+    def test_pending_proposal_does_not_grant_scope(self):
+        self._assert_out_of_scope()
+
+    def test_rejected_proposal_does_not_grant_scope(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse("assignment-reject", args=[self.proposal.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.proposal.refresh_from_db()
+        # El rechazo CIERRA la asignación (y nunca antes de su inicio).
+        self.assertIsNotNone(self.proposal.end_date)
+        self.assertGreaterEqual(self.proposal.end_date, self.proposal.start_date)
+        self._assert_out_of_scope()
+
+    def test_accepted_assignment_still_grants_scope(self):
+        Assignment.objects.filter(pk=self.proposal.pk).update(status=AssignmentStatus.ACCEPTED)
+        self.client.force_authenticate(self.driver)
+        detail = self.client.get(reverse("vehicle-detail", args=[self.foreign.pk]))
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)

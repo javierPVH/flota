@@ -26,6 +26,8 @@ export interface AuthConfig {
   google_client_id: string
   /** Solo desarrollo (DEBUG + FLEET_SEED_DATA): selector de usuarios de prueba. */
   dev_login_enabled: boolean
+  /** Dirección pública donde pedir vehículo (Jira). Vacía = sin configurar. */
+  jira_request_url: string
 }
 
 /** Usuario del selector de desarrollo (GET /auth/dev-login/). */
@@ -141,7 +143,8 @@ export interface VehicleSummary {
 
 /** Alerta del motor de avisos (Épica 10). Solo lectura + resolver/descartar. */
 export type AlertLevel = 'info' | 'warning' | 'critical'
-export type AlertStatus = 'open' | 'resolved' | 'dismissed'
+/** Solo dos estados: o está abierta o se resolvió (descartar se retiró). */
+export type AlertStatus = 'open' | 'resolved'
 
 export interface Alert {
   id: number

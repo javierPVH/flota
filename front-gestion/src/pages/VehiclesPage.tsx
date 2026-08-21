@@ -4,7 +4,6 @@ import {
   Badge,
   Button,
   DateMiniFilter,
-  IconButton,
   MiniToolsButtons,
   Modal,
   PageHeader,
@@ -12,35 +11,21 @@ import {
 } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import {
-  ArrowRightLeft,
-  ChevronDown,
-  ChevronUp,
-  Download,
-  Mail,
-  Pencil,
-  Receipt,
-  Trash2,
-  Upload,
-  UserCog,
-  Wrench,
-} from 'lucide-react'
+import { Download, Upload } from 'lucide-react'
 
 import {
-  convertToFleet,
-  deleteVehicle,
   listAll,
   listVehicleLinks,
   listVehicles,
 } from '../api.ts'
 import { BulkImportModal } from '../components/bulk-import/BulkImportModal.tsx'
-import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
 import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleForm } from '../components/VehicleForm.tsx'
 import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
 import { VehicleStateModal } from '../components/VehicleStateModal.tsx'
-import { RowActionsMenu, type RowAction } from '../components/RowActionsMenu.tsx'
+import { useVehicleActions } from '../components/useVehicleActions.tsx'
+import { ColumnsPicker } from '../components/ColumnsPicker.tsx'
 import { exportCsv } from '../csv.ts'
 import { dueClass, fmtDate, itvClass, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
@@ -149,7 +134,6 @@ export function VehiclesPage() {
   const navigate = useNavigate()
   const { language } = useLang()
   const t = useVehiclesCopy()
-  const confirm = useConfirm()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [links, setLinks] = useState<VehicleLinkRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -180,7 +164,6 @@ export function VehiclesPage() {
   // Columnas: orden + ocultas + menú desplegable.
   const [colOrder, setColOrder] = useState<string[]>(() => [...COLUMN_KEYS])
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => new Set(DEFAULT_HIDDEN))
-  const [colMenuOpen, setColMenuOpen] = useState(false)
 
   // Modal de exportación (mismos filtros que la barra + columnas).
   const [exportOpen, setExportOpen] = useState(false)
@@ -208,40 +191,6 @@ export function VehiclesPage() {
   }, [t])
 
   useEffect(load, [load])
-
-  const handleDelete = useCallback(
-    async (v: Vehicle) => {
-      if (!(await confirm({ message: t.confirmDelete(v.plate) }))) return
-      try {
-        await deleteVehicle(v.id)
-        load()
-      } catch (err) {
-        setError(asErrorMessage(err, t.deleteError))
-      }
-    },
-    [confirm, load, t],
-  )
-
-  // Convertir un coche de sustitución en coche de flota: acción seria e
-  // irreversible desde la UI → TRIPLE aviso antes de ejecutarla.
-  const handleConvertToFleet = useCallback(
-    async (v: Vehicle) => {
-      const c = t.convert
-      if (!(await confirm({ title: c.title, message: c.warn1(v.plate), confirmLabel: c.continue, tone: 'warning' })))
-        return
-      if (!(await confirm({ title: c.title, message: c.warn2, confirmLabel: c.continue, tone: 'warning' })))
-        return
-      if (!(await confirm({ title: c.title, message: c.warn3(v.plate), confirmLabel: c.confirm, tone: 'danger' })))
-        return
-      try {
-        await convertToFleet(v.id)
-        load()
-      } catch (err) {
-        setError(asErrorMessage(err, c.error))
-      }
-    },
-    [confirm, load, t],
-  )
 
   // Ids de vehículos de flota con sustituto vigente (para el filtro y la celda).
   const subMainIds = useMemo(() => {
@@ -477,63 +426,28 @@ export function VehiclesPage() {
 
   const colByKey = new Map(allColumns.map((c) => [c.key, c]))
 
-  const actionsColumn: TableWithPanelColumn<Vehicle> = {
-    key: 'actions',
-    label: t.columns.actions,
-    align: 'right',
-    searchable: false,
-    sortable: false,
-    render: (v) => {
-      // Todas las acciones en un menú (⋮) para que quepan siempre.
-      const items: RowAction[] = []
-      // Correo y conductor: no aplican a coches de sustitución.
-      if (!v.is_substitute) {
-        items.push({ key: 'email', label: t.email.btn, icon: <Mail size={15} />, onClick: () => setEmailVehicle(v) })
-        items.push({ key: 'driver', label: t.driverModal.btn, icon: <UserCog size={15} />, onClick: () => setDriverVehicle(v) })
-      }
-      // Facturas: también en sustitutos.
-      items.push({ key: 'invoices', label: t.invoices.btn, icon: <Receipt size={15} />, onClick: () => setInvoicesVehicle(v) })
-      // Convertir sustituto → flota: solo si no está cubriendo a ningún coche.
-      if (v.is_substitute && !activeMainOfSub.has(v.id)) {
-        items.push({ key: 'convert', label: t.convert.btn, icon: <ArrowRightLeft size={15} />, onClick: () => handleConvertToFleet(v) })
-      }
-      items.push({ key: 'state', label: t.ops.actionTitle, icon: <Wrench size={15} />, onClick: () => setOpsVehicle(v) })
-      items.push({ key: 'edit', label: t.edit, icon: <Pencil size={15} />, onClick: () => navigate(`/vehiculos/${v.id}/editar`) })
-      items.push({ key: 'delete', label: t.delete, icon: <Trash2 size={15} />, danger: true, onClick: () => handleDelete(v) })
-      return <RowActionsMenu items={items} ariaLabel={t.columns.actions} />
-    },
-  }
+  // M18: el menú de acciones y sus dos operaciones serias (baja con motivo y
+  // conversión a flota) los da el hook compartido con el panel.
+  const { actionsColumn } = useVehicleActions({
+    onEmail: setEmailVehicle,
+    onDriver: setDriverVehicle,
+    onInvoices: setInvoicesVehicle,
+    onOps: setOpsVehicle,
+    activeMainOfSub,
+    onDone: load,
+    onError: setError,
+  })
 
-  // Columnas visibles en el orden elegido + acciones al final.
+  // M15: TODAS las columnas + el orden y las ocultas como props CONTROLADAS.
+  // Antes se le pasaba la lista ya filtrada y ordenada y había que remontar la
+  // tabla con `key=` para que no reimpusiera su orden interno: cada clic en el
+  // gestor de columnas perdía página, orden de filas, búsqueda y anchos.
   const tableColumns: Array<TableWithPanelColumn<Vehicle>> = [
     ...colOrder
-      .filter((key) => !hiddenCols.has(key))
       .map((key) => colByKey.get(key))
       .filter((c): c is TableWithPanelColumn<Vehicle> => Boolean(c)),
     actionsColumn,
   ]
-
-  const visibleColCount = colOrder.filter((key) => !hiddenCols.has(key)).length
-
-  function toggleColumn(key: string) {
-    setHiddenCols((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  function moveColumn(key: string, dir: 'up' | 'down') {
-    setColOrder((order) => {
-      const i = order.indexOf(key)
-      const j = dir === 'up' ? i - 1 : i + 1
-      if (i < 0 || j < 0 || j >= order.length) return order
-      const next = [...order]
-      ;[next[i], next[j]] = [next[j], next[i]]
-      return next
-    })
-  }
 
   function openExport() {
     // Prellenar con lo que hay en la barra; el usuario lo ajusta en el modal.
@@ -574,7 +488,6 @@ export function VehiclesPage() {
     setDateTo('')
     setAppliedFrom('')
     setAppliedTo('')
-    setColMenuOpen(false)
   }
 
   return (
@@ -706,73 +619,21 @@ export function VehiclesPage() {
           />
         </div>
 
-        {/* 6 · Columnas (mostrar/ocultar + ordenar). */}
-        <div className="filter-field filter-field--cols">
-          <label>{t.lblColumns}</label>
-          <div className="cols-dropdown">
-            <button
-              type="button"
-              className="cols-trigger"
-              onClick={() => setColMenuOpen((o) => !o)}
-              aria-expanded={colMenuOpen}
-            >
-              {t.columnsBtn(visibleColCount, colOrder.length)}
-              <ChevronDown size={14} aria-hidden />
-            </button>
-            {colMenuOpen && (
-              <>
-                <div className="cols-menu-overlay" onClick={() => setColMenuOpen(false)} />
-                <div className="cols-menu" role="menu">
-                  {colOrder.map((key, index) => {
-                    const col = colByKey.get(key)
-                    if (!col) return null
-                    return (
-                      <div key={key} className="cols-menu-item">
-                        <label className="baja-toggle">
-                          <input
-                            type="checkbox"
-                            checked={!hiddenCols.has(key)}
-                            onChange={() => toggleColumn(key)}
-                          />
-                          {col.label}
-                        </label>
-                        <span className="cols-menu-actions">
-                          <IconButton
-                            variant="default"
-                            size="xs"
-                            disabled={index === 0}
-                            aria-label={t.colMoveUp}
-                            title={t.colMoveUp}
-                            onClick={() => moveColumn(key, 'up')}
-                          >
-                            <ChevronUp size={12} />
-                          </IconButton>
-                          <IconButton
-                            variant="default"
-                            size="xs"
-                            disabled={index === colOrder.length - 1}
-                            aria-label={t.colMoveDown}
-                            title={t.colMoveDown}
-                            onClick={() => moveColumn(key, 'down')}
-                          >
-                            <ChevronDown size={12} />
-                          </IconButton>
-                        </span>
-                      </div>
-                    )
-                  })}
-                  <button
-                    type="button"
-                    className="linklike"
-                    onClick={() => setHiddenCols(new Set())}
-                  >
-                    {t.columnsAll}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        {/* 6 · Columnas (mostrar/ocultar + ordenar) — M18: componente compartido. */}
+        <ColumnsPicker
+          order={colOrder}
+          hidden={hiddenCols}
+          labelOf={(key) => colByKey.get(key)?.label}
+          copy={{
+            label: t.lblColumns,
+            button: t.columnsBtn,
+            moveUp: t.colMoveUp,
+            moveDown: t.colMoveDown,
+            showAll: t.columnsAll,
+          }}
+          onOrderChange={setColOrder}
+          onHiddenChange={setHiddenCols}
+        />
 
         {/* 7 · Interruptores: vencimientos próximos + bajas. */}
         <div className="filter-toggles">
@@ -805,11 +666,12 @@ export function VehiclesPage() {
         <p className="loading-state" role="status">{t.loading}</p>
       ) : (
         <TableWithPanel<Vehicle>
-          // Remonta al cambiar orden/visibilidad: TableWithPanel guarda su propio
-          // orden interno (mergeColumnOrder) e ignoraría el reordenado por props.
-          key={`${colOrder.join(',')}|${[...hiddenCols].sort().join(',')}`}
           rows={rows}
           columns={tableColumns}
+          columnOrder={[...colOrder, actionsColumn.key]}
+          onColumnOrderChange={(keys) => setColOrder(keys.filter((k) => k !== actionsColumn.key))}
+          hiddenColumns={[...hiddenCols]}
+          onHiddenColumnsChange={(keys) => setHiddenCols(new Set(keys))}
           rowKey={(v) => String(v.id)}
           rowClassName={(v) => (v.state === BAJA_STATE ? 'row-muted' : '')}
           enableColumnSort

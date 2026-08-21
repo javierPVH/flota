@@ -57,7 +57,9 @@ function buildDeadlines(
     const summary = summaries[v.id]
     return summary && !summary.blocked_by_link && pendingThisMonth(summary)
   })
-  if (kmWindow && kmPending) {
+  // N8a desactivada (`enabled: false`): no hay plazo, así que no se avisa de
+  // cuánto queda ni de cuándo abre.
+  if (kmWindow?.enabled && kmPending) {
     // El día lo manda el BACK: es quien valida la ventana (misma zona horaria).
     const day = Number(kmWindow.today.slice(8, 10))
     if (kmWindow.open) {

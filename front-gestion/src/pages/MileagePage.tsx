@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge, Button, Modal, PageHeader, Panel, SelectField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
-import { asErrorMessage } from '@flota/ui/http'
+import { asErrorMessage, isAbortError } from '@flota/ui/http'
 import { todayIso } from '@flota/ui/domain'
 import { useAppLang, type AppLanguage } from '@flota/ui/i18n'
 import { AlertTriangle, ChevronLeft, ChevronRight, Download, Mail } from 'lucide-react'
@@ -50,6 +50,23 @@ function shiftMonth(ym: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
+/** Último día real del mes (YYYY-MM-DD) — no vale un `-31` a ciegas. */
+function monthEnd(ym: string): string {
+  const [y, m] = ym.split('-').map(Number)
+  return `${ym}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`
+}
+
+/**
+ * M10 — meses de lecturas que se piden al servidor: el mes mostrado y los 11
+ * anteriores. La pantalla trabaja mes a mes pero se traía el histórico COMPLETO
+ * de la flota en cada carga (con `page_size=500`, decenas de páginas). Con la
+ * ventana, lo que se pide crece con el nº de vehículos, no con la antigüedad de
+ * la flota. Un vehículo sin ninguna lectura en la ventana cae al dato del
+ * `summary` (que es la última lectura absoluta) y, si tampoco sirve, se queda
+ * sin "pendiente desde hace N días" — igual que uno que nunca tuvo lectura.
+ */
+const WINDOW_MONTHS = 12
+
 export function MileagePage() {
   const t = useMileageCopy()
   const lang = useAppLang()
@@ -62,6 +79,12 @@ export function MileagePage() {
   const [rows, setRows] = useState<Row[]>([])
   const [allReadings, setAllReadings] = useState<KmReading[]>([])
   const [loading, setLoading] = useState(true)
+  // M10: al navegar de mes se recarga la ventana de lecturas. La pantalla
+  // completa solo se sustituye por "Cargando" en la PRIMERA carga; después se
+  // mantiene la tabla y solo se bloquean las flechas del mes (si no, cambiar de
+  // mes parpadeaba a pantalla vacía y se perdía el sitio).
+  const [refreshing, setRefreshing] = useState(false)
+  const firstLoad = useRef(true)
   const [error, setError] = useState('')
 
   // Pestañas + filtros de la franja (estilo Vehículos).
@@ -95,18 +118,24 @@ export function MileagePage() {
   const [emailToDriver, setEmailToDriver] = useState(true)
   const [emailToSupervisor, setEmailToSupervisor] = useState(false)
   const [emailSending, setEmailSending] = useState(false)
+  // B3: progreso y cancelación del envío masivo (un correo por vehículo).
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null)
+  const bulkCancel = useRef(false)
   const [emailError, setEmailError] = useState('')
   const [emailResult, setEmailResult] = useState<string | null>(null)
   const [emailPreview, setEmailPreview] = useState<{ subject: string; body_html: string } | null>(null)
   const [previewing, setPreviewing] = useState(false)
 
   // Ventana del botón: desde 2 días antes del fin de mes hasta 4 días después.
-  const withinWindow = useMemo(() => {
+  const withinCalendarWindow = useMemo(() => {
     const now = new Date()
     const day = now.getDate()
     const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
     return day <= 4 || day >= lastDay - 2
   }, [])
+  // N8b desactivada por configuración (`window_enabled: false`): la acción está
+  // siempre abierta y no se enseña nada del plazo.
+  const withinWindow = !preview?.window_enabled || withinCalendarWindow
 
   useEffect(() => {
     fetchKmEstimatePreview()
@@ -134,37 +163,75 @@ export function MileagePage() {
     setWarnOpen(true)
   }
 
-  // Summaries + vehículos + TODAS las lecturas (para el cálculo por mes) en
+  // Summaries + vehículos + las lecturas de la VENTANA del mes mostrado, en
   // paralelo. Los summaries aportan contrato/proyección para su pestaña.
-  const load = useCallback(() => {
-    Promise.all([
-      listAll(listVehicles()),
-      fetchVehicleSummaries(),
-      listAll(listKmReadingsAll({})),
-    ])
-      .then(([vehicles, summaries, readings]) => {
-        const byId = new Map(summaries.map((s) => [s.vehicle, s]))
-        setRows(
-          vehicles.flatMap((v) => {
-            const summary = byId.get(v.id)
-            return summary ? [{ vehicle: v, summary }] : []
-          }),
-        )
-        setAllReadings(readings)
-        setError('')
-      })
-      .catch((err) => setError(asErrorMessage(err, t.loadError)))
-      .finally(() => setLoading(false))
-  }, [t])
+  const load = useCallback(
+    (signal?: AbortSignal) => {
+      const req = { signal }
+      if (firstLoad.current) setLoading(true)
+      setRefreshing(true)
+      Promise.all([
+        listAll(listVehicles({}, req), req),
+        fetchVehicleSummaries(undefined, req),
+        // M10: solo la ventana que pinta la pantalla, no el histórico entero.
+        listAll(
+          listKmReadingsAll(
+            {
+              from: `${shiftMonth(month, -(WINDOW_MONTHS - 1))}-01`,
+              to: monthEnd(month),
+            },
+            req,
+          ),
+          req,
+        ),
+      ])
+        .then(([vehicles, summaries, readings]) => {
+          const byId = new Map(summaries.map((s) => [s.vehicle, s]))
+          setRows(
+            vehicles.flatMap((v) => {
+              const summary = byId.get(v.id)
+              return summary ? [{ vehicle: v, summary }] : []
+            }),
+          )
+          setAllReadings(readings)
+          setError('')
+        })
+        .catch((err) => {
+          if (isAbortError(err)) return
+          setError(asErrorMessage(err, t.loadError))
+        })
+        .finally(() => {
+          if (signal?.aborted) return
+          firstLoad.current = false
+          setRefreshing(false)
+          setLoading(false)
+        })
+    },
+    [month, t],
+  )
 
-  useEffect(load, [load])
+  // M14: al navegar de mes se aborta la carga anterior (si no, la respuesta
+  // tardía del mes que ya no se ve pisaba las lecturas del mes actual).
+  useEffect(() => {
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
+  }, [load])
 
   async function handleEstimate() {
+    // A7: `override` solo cuando SABEMOS que la ventana está cerrada. Antes se
+    // enviaba `!preview?.open`, así que si la carga del preview fallaba
+    // (`preview === null`) un error de red se convertía en un salto automático
+    // de la ventana N8b: se creaban lecturas estimadas fuera de plazo sin que
+    // nadie lo decidiera.
+    if (!preview) {
+      setEstimateError(t.modal.previewMissing)
+      return
+    }
     setRunning(true)
     setEstimateError('')
     try {
-      // Fuera de la ventana del backend (días 1-10) se fuerza con override.
-      const result = await runKmEstimate(Number(months), !preview?.open)
+      const result = await runKmEstimate(Number(months), !preview.open)
       setEstimateResult(result)
       const refreshed = await fetchKmEstimatePreview().catch(() => null)
       if (refreshed) setPreview(refreshed)
@@ -176,18 +243,24 @@ export function MileagePage() {
     }
   }
 
-  function openEmail(target: { kind: 'single'; row: Row } | { kind: 'bulk' }) {
-    setEmailMode(target)
-    // Por defecto, la plantilla de "lectura de km pendiente"; si no, la primera.
-    const preferred = templates.find((tp) => tp.key === 'km_reading_pending') ?? templates[0]
-    setEmailTemplate(preferred?.key ?? '')
-    setEmailMessage('')
-    setEmailToDriver(true)
-    setEmailToSupervisor(false)
-    setEmailError('')
-    setEmailResult(null)
-    setEmailPreview(null)
-  }
+  // Estable entre renders: la usa el memo de columnas, que si no tendría que
+  // recalcularse en cada uno (era el motivo del `eslint-disable` que impedía al
+  // compilador de React optimizar la página entera).
+  const openEmail = useCallback(
+    (target: { kind: 'single'; row: Row } | { kind: 'bulk' }) => {
+      setEmailMode(target)
+      // Por defecto, la plantilla de "lectura de km pendiente"; si no, la primera.
+      const preferred = templates.find((tp) => tp.key === 'km_reading_pending') ?? templates[0]
+      setEmailTemplate(preferred?.key ?? '')
+      setEmailMessage('')
+      setEmailToDriver(true)
+      setEmailToSupervisor(false)
+      setEmailError('')
+      setEmailResult(null)
+      setEmailPreview(null)
+    },
+    [templates],
+  )
 
   async function previewEmail() {
     if (emailMode?.kind !== 'single' || !emailTemplate) return
@@ -230,10 +303,18 @@ export function MileagePage() {
         setEmailResult(t.email.result(res.sent.length, res.skipped.length))
       } else {
         // Masivo: un envío por cada vehículo pendiente (secuencial, best-effort).
+        // B3: con progreso y cancelación. Antes era un bucle mudo de N envíos:
+        // con 200 pendientes la pantalla se quedaba "Enviando…" varios minutos
+        // sin decir por dónde iba ni dejar pararlo, y cerrar el modal no
+        // detenía nada (seguía mandando correos de verdad).
+        bulkCancel.current = false
         let sent = 0
         let skipped = 0
         let failed = 0
+        let done = 0
+        setBulkProgress({ done: 0, total: pending.length })
         for (const r of pending) {
+          if (bulkCancel.current) break
           try {
             const res = await notifyVehicle(r.vehicle.id, data)
             sent += res.sent.length
@@ -241,26 +322,37 @@ export function MileagePage() {
           } catch {
             failed += 1
           }
+          done += 1
+          setBulkProgress({ done, total: pending.length })
         }
-        setEmailResult(t.email.bulkResult(sent, skipped, failed))
+        setEmailResult(
+          bulkCancel.current
+            ? t.email.bulkCancelled(done, pending.length, sent, skipped, failed)
+            : t.email.bulkResult(sent, skipped, failed),
+        )
       }
     } catch (err) {
       setEmailError(asErrorMessage(err, t.email.sendError))
     } finally {
       setEmailSending(false)
+      setBulkProgress(null)
+      bulkCancel.current = false
     }
   }
 
   // Lecturas por vehículo, ordenadas de la más reciente a la más antigua.
   const readingsByVehicle = useMemo(() => {
+    // Se ordena la lista COMPLETA una vez y luego se reparte por vehículo: así
+    // el mapa no se muta después de construirlo (el compilador de React no
+    // podía preservar la memoización de lo que dependiera de él).
+    const sorted = [...allReadings].sort((a, b) =>
+      (a.reading_date ?? '') < (b.reading_date ?? '') ? 1 : -1,
+    )
     const map = new Map<number, KmReading[]>()
-    for (const r of allReadings) {
+    for (const r of sorted) {
       const arr = map.get(r.vehicle)
       if (arr) arr.push(r)
       else map.set(r.vehicle, [r])
-    }
-    for (const arr of map.values()) {
-      arr.sort((a, b) => (a.reading_date ?? '') < (b.reading_date ?? '') ? 1 : -1)
     }
     return map
   }, [allReadings])
@@ -271,10 +363,30 @@ export function MileagePage() {
       readingsByVehicle.get(vid)?.find((r) => (r.reading_date ?? '').startsWith(ym)),
     [readingsByVehicle],
   )
-  // Última lectura a fin del mes seleccionado (para "pendiente desde").
+  /**
+   * Última lectura a fin del mes seleccionado (para "pendiente desde").
+   *
+   * M10: se busca en la ventana cargada y, si no hay nada, se usa la última
+   * lectura absoluta del `summary` **si es anterior al fin de ese mes** — en
+   * ese caso es exactamente la respuesta, aunque quede fuera de la ventana.
+   */
   const lastAsOf = useCallback(
-    (vid: number, ym: string) =>
-      readingsByVehicle.get(vid)?.find((r) => (r.reading_date ?? '') <= `${ym}-31`),
+    (row: Row, ym: string): KmReading | undefined => {
+      const limit = monthEnd(ym)
+      const found = readingsByVehicle
+        .get(row.vehicle.id)
+        ?.find((r) => (r.reading_date ?? '') <= limit)
+      if (found) return found
+      const { km_reading_date, km_current, km_estimated } = row.summary
+      if (!km_reading_date || km_reading_date > limit) return undefined
+      return {
+        id: -row.vehicle.id,
+        vehicle: row.vehicle.id,
+        reading_date: km_reading_date,
+        km_reading: km_current,
+        estimated: km_estimated,
+      } as KmReading
+    },
     [readingsByVehicle],
   )
   // Última lectura REAL (no estimada) anterior a una fecha.
@@ -371,11 +483,12 @@ export function MileagePage() {
         key: 'month_state',
         label: t.columns.monthState,
         // Ordena: "Al día" primero (-1) y luego los pendientes por días.
-        getValue: ({ vehicle }) =>
-          monthReading(vehicle.id, month) ? -1 : daysSince(lastAsOf(vehicle.id, month)?.reading_date),
-        render: ({ vehicle }) => {
+        getValue: (row) =>
+          monthReading(row.vehicle.id, month) ? -1 : daysSince(lastAsOf(row, month)?.reading_date),
+        render: (row) => {
+          const { vehicle } = row
           if (monthReading(vehicle.id, month)) return <Badge tone="success">{t.statusUpToDate}</Badge>
-          const days = daysSince(lastAsOf(vehicle.id, month)?.reading_date)
+          const days = daysSince(lastAsOf(row, month)?.reading_date)
           return (
             <span className="km-month-state">
               <Badge tone="warning">{t.statusPending}</Badge>
@@ -407,15 +520,15 @@ export function MileagePage() {
       {
         key: 'last_reading',
         label: t.columns.lastReading,
-        getValue: ({ vehicle }) => lastAsOf(vehicle.id, month)?.km_reading ?? -1,
-        render: ({ vehicle }) => readingCell(lastAsOf(vehicle.id, month)),
+        getValue: (row) => lastAsOf(row, month)?.km_reading ?? -1,
+        render: (row) => readingCell(lastAsOf(row, month)),
       },
       {
         key: 'pending_since',
         label: t.columns.pendingSince,
-        getValue: ({ vehicle }) => daysSince(lastAsOf(vehicle.id, month)?.reading_date),
-        render: ({ vehicle }) => {
-          const last = lastAsOf(vehicle.id, month)
+        getValue: (row) => daysSince(lastAsOf(row, month)?.reading_date),
+        render: (row) => {
+          const last = lastAsOf(row, month)
           return (
             <span className="itv-soon">
               {last?.reading_date ? t.days(daysSince(last.reading_date)) : '—'}
@@ -436,8 +549,7 @@ export function MileagePage() {
         ),
       },
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [t, month, lastAsOf, readingCell, vehicleColumn],
+    [t, month, lastAsOf, openEmail, readingCell, vehicleColumn],
   )
 
   // Columnas de "Proyección": alternan fin de contrato ⇄ fin de año según el switch.
@@ -650,6 +762,7 @@ export function MileagePage() {
           type="button"
           className="month-nav-btn"
           aria-label={t.prevMonth}
+          disabled={refreshing}
           onClick={() => setMonth((m) => shiftMonth(m, -1))}
         >
           <ChevronLeft size={16} aria-hidden />
@@ -659,7 +772,7 @@ export function MileagePage() {
           type="button"
           className="month-nav-btn"
           aria-label={t.nextMonth}
-          disabled={month >= currentMonth}
+          disabled={refreshing || month >= currentMonth}
           onClick={() => setMonth((m) => shiftMonth(m, 1))}
         >
           <ChevronRight size={16} aria-hidden />
@@ -908,15 +1021,42 @@ export function MileagePage() {
             </div>
           )}
           {emailError && <div role="alert" className="form-error">{emailError}</div>}
+          {/* B3: el masivo manda un correo por vehículo; se ve por dónde va y
+              se puede parar (lo ya enviado no se deshace, y se dice cuánto). */}
+          {bulkProgress && (
+            <div className="bulk-progress" role="status" aria-live="polite">
+              <progress value={bulkProgress.done} max={bulkProgress.total} />
+              <span className="muted">
+                {t.email.bulkProgress(bulkProgress.done, bulkProgress.total)}
+              </span>
+            </div>
+          )}
           {emailResult && (
             <Panel tone="info">
               <p className="panel-note">{emailResult}</p>
             </Panel>
           )}
           <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
-            <Button type="button" variant="secondary" onClick={() => setEmailMode(null)}>
-              {emailResult ? t.email.close : t.email.cancel}
-            </Button>
+            {bulkProgress ? (
+              <Button
+                type="button"
+                variant="danger"
+                onClick={() => {
+                  bulkCancel.current = true
+                }}
+              >
+                {t.email.bulkStop}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={emailSending}
+                onClick={() => setEmailMode(null)}
+              >
+                {emailResult ? t.email.close : t.email.cancel}
+              </Button>
+            )}
             {!emailResult && (
               <Button
                 type="button"

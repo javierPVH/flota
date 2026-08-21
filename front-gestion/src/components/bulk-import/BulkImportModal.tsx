@@ -58,6 +58,9 @@ export function BulkImportModal({
   const [finished, setFinished] = useState(false)
   // La importación en curso no debe poder dispararse dos veces ni cerrarse.
   const runningRef = useRef(false)
+  // B3: parada pedida por el usuario (se atiende entre tandas).
+  const cancelRef = useRef(false)
+  const [cancelled, setCancelled] = useState(false)
 
   // Reset al abrir (cada importación arranca limpia).
   useEffect(() => {
@@ -116,6 +119,8 @@ export function BulkImportModal({
   async function runImport() {
     if (!preview || preview.ready_count === 0 || runningRef.current) return
     runningRef.current = true
+    cancelRef.current = false
+    setCancelled(false)
     setError('')
     setStep('run')
     setFinished(false)
@@ -125,8 +130,15 @@ export function BulkImportModal({
     const errors: ImportProgress['errors'] = []
     setProgress({ done: 0, total: records.length, created: 0, errors: [] })
     let requestFailed = false
+    let stopped = false
     try {
       for (let i = 0; i < records.length; i += batchSize) {
+        // B3: la parada se atiende ENTRE tandas — una tanda en vuelo se deja
+        // terminar para no dejar a medias lo que el servidor ya está creando.
+        if (cancelRef.current) {
+          stopped = true
+          break
+        }
         const result = await bulkCreateImport(entity, records.slice(i, i + batchSize))
         created += result.created
         errors.push(...result.errors.map((e) => ({ ...e, index: e.index + i })))
@@ -142,8 +154,9 @@ export function BulkImportModal({
       setError(asErrorMessage(err, t.importError))
     }
     runningRef.current = false
+    setCancelled(stopped)
     setFinished(true)
-    if (!requestFailed && errors.length === 0) {
+    if (!requestFailed && !stopped && errors.length === 0) {
       // Todo bien: cierra todos los modales y recarga el listado (§4 paso 3).
       onDone()
       onClose()
@@ -151,7 +164,8 @@ export function BulkImportModal({
   }
 
   function handleClose() {
-    if (runningRef.current) return // bloqueado durante la importación
+    // Bloqueado durante la importación: para salir hay que detenerla (B3).
+    if (runningRef.current) return
     // Si ya se importó algo (con errores), recarga igualmente al cerrar.
     if (finished && progress && progress.created > 0) onDone()
     onClose()
@@ -226,9 +240,13 @@ export function BulkImportModal({
           t={t}
           progress={progress}
           finished={finished}
+          cancelled={cancelled}
           error={error}
           onDownloadErrors={downloadRunErrors}
           onClose={handleClose}
+          onStop={() => {
+            cancelRef.current = true
+          }}
         />
       )}
     </Modal>

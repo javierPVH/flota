@@ -116,6 +116,49 @@ class SubstitutionRulesTests(APITestCase):
         )
         self.assertEqual(ok.status_code, status.HTTP_201_CREATED, ok.data)
 
+    # --- Cierre del vínculo: hoy, fecha anterior o programado ---------------
+
+    def test_close_link_rejects_end_before_start(self):
+        """Se puede cerrar con fecha pasada, pero nunca antes del inicio."""
+        self._link()
+        link = VehicleLink.objects.get(main_vehicle=self.main)
+        resp = self.client.patch(
+            reverse("vehiclelink-detail", args=[link.pk]), {"end_date": "2026-06-30"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        self.assertIn("end_date", resp.data["errors"])
+
+    def test_scheduled_close_keeps_the_link_active_until_that_day(self):
+        """Un cierre PROGRAMADO no libera el vehículo hasta que llega la fecha:
+        el principal sigue bloqueado y el sustituto sigue ocupado."""
+        self._link()
+        link = VehicleLink.objects.get(main_vehicle=self.main)
+        future = date(2026, 7, 31)
+        resp = self.client.patch(
+            reverse("vehiclelink-detail", args=[link.pk]), {"end_date": future.isoformat()}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+
+        # La víspera sigue cubriendo…
+        summary = metrics.vehicle_summary(self.main, today=date(2026, 7, 30))
+        self.assertIsNotNone(summary["blocked_by_link"])
+        self.assertEqual(summary["blocked_by_link"]["plate"], "2222BBB")
+        # …y el día del cierre (y a partir de él) ya no.
+        summary = metrics.vehicle_summary(self.main, today=future)
+        self.assertIsNone(summary["blocked_by_link"])
+
+    def test_scheduled_close_still_blocks_a_second_substitute(self):
+        """Mientras el cierre programado no llega, no se puede colgar otro
+        sustituto del mismo principal."""
+        self._link()
+        link = VehicleLink.objects.get(main_vehicle=self.main)
+        self.client.patch(reverse("vehiclelink-detail", args=[link.pk]), {"end_date": "2099-01-01"})
+        other_sub = Vehicle.objects.create(
+            plate="4444DDD", brand="a", model="b", state=VehicleState.ACTIVE, is_substitute=True
+        )
+        resp = self._link(substitute=other_sub)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+
     def test_summary_exposes_blocked_by_link(self):
         self._link()
         summary = metrics.vehicle_summary(self.main, today=date(2026, 7, 15))

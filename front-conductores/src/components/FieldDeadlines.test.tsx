@@ -44,6 +44,7 @@ function windowOpen(left: number): KmWindow {
   const day = 20
   return {
     open: true,
+    enabled: true,
     start_day: 20,
     last_day: day + left,
     today: `2026-08-${String(day).padStart(2, '0')}`,
@@ -55,6 +56,7 @@ function windowOpen(left: number): KmWindow {
 function windowClosed(toOpen: number): KmWindow {
   return {
     open: false,
+    enabled: true,
     start_day: 20,
     last_day: 31,
     today: `2026-08-${String(20 - toOpen).padStart(2, '0')}`,

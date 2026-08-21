@@ -166,6 +166,10 @@ class AuthConfigView(APIView):
                 # Google). Solo con DEBUG + FLEET_SEED_DATA; el front pinta el
                 # selector únicamente si viene a True.
                 "dev_login_enabled": getattr(settings, "FLEET_SEED_DATA", False),
+                # Dirección pública de Jira para pedir vehículo. Va aquí, en el
+                # único endpoint que el front consulta antes de tener sesión,
+                # para poder cambiarla sin reconstruir las SPAs.
+                "jira_request_url": getattr(settings, "FLEET_JIRA_REQUEST_URL", ""),
             }
         )
 
@@ -376,6 +380,12 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response(
                 {"detail": "No puedes desactivar tu propio usuario."},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        # C2: ni desactivar al superusuario del purge N7 desde un admin normal.
+        if user.is_superuser and not request.user.is_superuser:
+            return Response(
+                {"detail": "Solo un superusuario puede desactivar a otro superusuario."},
+                status=status.HTTP_403_FORBIDDEN,
             )
         if user.is_active:
             user.is_active = False

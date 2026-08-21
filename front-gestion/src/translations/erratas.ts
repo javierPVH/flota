@@ -15,9 +15,18 @@ const es = {
   confirmPurge: (label: string) =>
     `¿Eliminar DEFINITIVAMENTE "${label}"? Esta acción no se puede deshacer y queda auditada.`,
   purgeOk: (label: string) => `Eliminado definitivamente: ${label}`,
+  // A3: el borrado definitivo arrastra en cascada (purgar un usuario se
+  // lleva sus asignaciones; un vehículo, su histórico). Se enseña antes.
+  cascadeIntro: 'Se eliminarán además:',
+  cascadeNone: 'No arrastra ningún otro registro.',
   restore: 'Restaurar',
   purge: 'Eliminar definitivamente',
   exportCsv: 'Exportar CSV',
+  // M5: la tabla solo tiene la página en curso; exportar pide el resto.
+  exporting: 'Exportando…',
+  prevPage: 'Anterior',
+  nextPage: 'Siguiente',
+  pageOf: (page: number, total: number) => `Página ${page} de ${total}`,
   records: 'Registros',
   searchLabel: 'Buscar',
   searchPlaceholder: 'Registro, motivo o persona…',
@@ -48,9 +57,15 @@ const en: typeof es = {
   confirmPurge: (label) =>
     `PERMANENTLY delete "${label}"? This action cannot be undone and is audited.`,
   purgeOk: (label) => `Permanently deleted: ${label}`,
+  cascadeIntro: 'This will also delete:',
+  cascadeNone: 'No other records are affected.',
   restore: 'Restore',
   purge: 'Delete permanently',
   exportCsv: 'Export CSV',
+  exporting: 'Exporting…',
+  prevPage: 'Previous',
+  nextPage: 'Next',
+  pageOf: (page, total) => `Page ${page} of ${total}`,
   records: 'Records',
   searchLabel: 'Search',
   searchPlaceholder: 'Record, reason or person…',

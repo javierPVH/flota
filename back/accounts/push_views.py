@@ -56,6 +56,12 @@ class PushSubscriptionView(APIView):
                 {"detail": "Suscripción inválida: faltan endpoint o claves."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # B12: el endpoint identifica al DISPOSITIVO, pero `update_or_create`
+        # por endpoint permitía reasignarse la suscripción de otra persona
+        # (dejándola sin avisos). Solo se toca la propia o una libre.
+        existing = PushSubscription.objects.filter(endpoint=endpoint).first()
+        if existing is not None and existing.user_id != request.user.pk:
+            existing.delete()  # el dispositivo cambió de dueño: se re-crea
         PushSubscription.objects.update_or_create(
             endpoint=endpoint,
             defaults={

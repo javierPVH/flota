@@ -2,7 +2,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineConfig, type Plugin } from 'vitest/config'
 import { loadEnv } from 'vite'
-import react from '@vitejs/plugin-react'
+import react, { reactCompilerPreset } from '@vitejs/plugin-react'
+import babel from '@rolldown/plugin-babel'
 
 /** BG5: estampa un id de build único en dist/sw.js (versiona la caché del SW).
  * sw.js vive en public/ (Vite lo copia tal cual), así que el reemplazo se hace
@@ -41,7 +42,12 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), stampServiceWorker()],
+    // Compilador de React (mismo montaje que el DS en front/vite.config.ts).
+    plugins: [
+      react(),
+      babel({ presets: [reactCompilerPreset()] }),
+      stampServiceWorker(),
+    ],
     server: { port: 5175, proxy },
     preview: { port: 5175, proxy },
     test: {

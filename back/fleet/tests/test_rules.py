@@ -158,3 +158,93 @@ class VehicleProjectRuleTests(APITestCase):
             },
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+
+class ItvHorizonTests(APITestCase):
+    """C5: la próxima ITV no es un campo libre.
+
+    Sin cota superior ni criterio de resultado, cualquiera con acceso al
+    vehículo podía registrar `next_due=2099-01-01` y sacarlo de la vigilancia de
+    ITV para siempre (y el job `refresh_next_itv` reafirmaba la fecha en cada
+    pasada, porque tomaba el `Max(next_due)` en vez del registro más reciente).
+    """
+
+    def setUp(self):
+        self.admin = make_user("itv-admin", Role.ADMIN)
+        self.vehicle = Vehicle.objects.create(plate="ITV1", brand="a", model="b")
+        self.url = reverse("event-list")
+        self.client.force_authenticate(self.admin)
+
+    def _post(self, **itv):
+        return self.client.post(
+            self.url,
+            {
+                "vehicle": self.vehicle.pk,
+                "event_type": "itv",
+                "event_date": "2026-08-01",
+                "itv": itv,
+            },
+            format="json",
+        )
+
+    def test_far_future_next_due_is_rejected(self):
+        resp = self._post(result="done", next_due="2099-01-01")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.vehicle.refresh_from_db()
+        self.assertIsNone(self.vehicle.next_itv_date)
+
+    def test_next_due_before_inspection_is_rejected(self):
+        resp = self._post(result="done", next_due="2026-07-01")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_result_is_required(self):
+        resp = self._post(next_due="2027-07-01")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_favourable_itv_within_horizon_is_accepted(self):
+        resp = self._post(result="done", next_due="2027-07-01")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.next_itv_date, date(2027, 7, 1))
+
+    def test_unfavourable_itv_does_not_set_date_nor_close_alerts(self):
+        from fleet.models import Alert
+        from fleet.models.enums import AlertStatus, AlertType
+
+        alert = Alert.objects.create(
+            type=AlertType.ITV_DUE, vehicle=self.vehicle, dedup_key="itv:no-favorable"
+        )
+        resp = self._post(result="not done")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.vehicle.refresh_from_db()
+        self.assertIsNone(self.vehicle.next_itv_date)
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, AlertStatus.OPEN)
+
+    def test_unfavourable_itv_cannot_carry_next_due(self):
+        resp = self._post(result="not done", next_due="2027-07-01")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_most_recent_inspection_wins_not_the_farthest_date(self):
+        """Corregir una ITV con una fecha MENOR debe prevalecer."""
+        self.assertEqual(self._post(result="done", next_due="2028-01-01").status_code, 201)
+        resp = self.client.post(
+            self.url,
+            {
+                "vehicle": self.vehicle.pk,
+                "event_type": "itv",
+                "event_date": "2026-08-15",
+                "itv": {"result": "done", "next_due": "2027-02-01"},
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.next_itv_date, date(2027, 2, 1))
+
+        # Y el job tampoco debe volver a la fecha más lejana.
+        from fleet.services import alerts
+
+        alerts.refresh_next_itv_dates()
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.next_itv_date, date(2027, 2, 1))

@@ -10,11 +10,9 @@ import {
   AlertTriangle,
   Bell,
   Car,
-  ClipboardList,
   FileText,
   Gauge,
   Home,
-  Inbox,
   LogOut,
   Menu,
   Settings,
@@ -179,10 +177,10 @@ export function AppHeader() {
   const nav = t.shell.nav
   const groups = t.shell.navGroups
   const bell = t.shell.bell
+  // Solo dos estados: abierta o resuelta.
   const alertSubs = [
     { key: 'open', label: bell.open },
     { key: 'resolved', label: bell.resolved },
-    { key: 'dismissed', label: bell.dismissed },
   ]
   const incidentSubs = [
     { key: 'open', label: bell.open },
@@ -207,13 +205,6 @@ export function AppHeader() {
       items: [
         { to: '/incidencias', label: nav.incidents, icon: <Wrench size={16} /> },
         { to: '/alertas', label: nav.alerts, icon: <AlertTriangle size={16} /> },
-      ],
-    },
-    {
-      title: groups.requests,
-      items: [
-        { to: '/propuestas', label: nav.proposals, icon: <ClipboardList size={16} /> },
-        { to: '/solicitudes', label: nav.requests, icon: <Inbox size={16} /> },
       ],
     },
     {

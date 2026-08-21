@@ -53,7 +53,9 @@ export function RegisterKmPage() {
       .then(setWindow)
       .catch(() => setWindow(null))
   }, [])
-  const windowClosed = window_ !== null && !window_.open
+  // Sin ventana configurada (N8a desactivada) no hay plazo que cerrar: ni se
+  // bloquea el formulario ni se enseña el aviso.
+  const windowClosed = window_ !== null && window_.enabled && !window_.open
 
   /** Errores del servidor en claro: no-retroceso (400) y throttle (429).
    * El throttle se decide por STATUS (E5: la regex sobre el texto del back se

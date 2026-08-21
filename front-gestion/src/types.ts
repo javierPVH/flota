@@ -118,7 +118,8 @@ export interface Alert {
   type_display: string
   level: AlertLevel
   level_display: string
-  status: 'open' | 'resolved' | 'dismissed'
+  /** Solo dos estados: o está abierta o se resolvió (descartar se retiró). */
+  status: 'open' | 'resolved'
   status_display: string
   vehicle: number | null
   vehicle_plate: string
@@ -126,6 +127,16 @@ export interface Alert {
   message: string
   due_date: string | null
   created_at: string
+  /** Conductor vigente del vehículo (lo resuelve el back en bloque). */
+  driver_id: number | null
+  driver_name: string
+  /** Responsable del vehículo (`Vehicle.supervisor`). */
+  supervisor_id: number | null
+  supervisor_name: string
+  /** Cierre: cuándo y quién. Nulos mientras está abierta. */
+  resolved_at: string | null
+  resolved_by: number | null
+  resolved_by_name: string
 }
 
 // --- G2: ficha del vehículo -------------------------------------------------
@@ -237,6 +248,9 @@ export interface VehicleLinkRow {
   id: number
   main_vehicle: number
   substitute_vehicle: number
+  /** M11: matrículas de los dos extremos (las da el serializer del back). */
+  main_vehicle_plate: string
+  substitute_vehicle_plate: string
   reason: string
   start_date: string
   end_date: string | null

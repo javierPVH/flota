@@ -10,7 +10,7 @@ import {
 import { Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import type { CatalogCreateFieldDefinition } from '@flota/ui/forms'
-import { asErrorMessage } from '@flota/ui/http'
+import { ApiError, asErrorMessage, isAbortError } from '@flota/ui/http'
 import { Pencil, Trash2 } from 'lucide-react'
 
 import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
@@ -19,7 +19,10 @@ import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import {
   createCatalogEntry,
   deleteCatalogEntry,
+  fetchCatalogs,
+  listAll,
   listCatalog,
+  restoreErrata,
   updateCatalogEntry,
   type CatalogEntry,
   type CatalogResource,
@@ -146,6 +149,13 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [creating, setCreating] = useState(false)
   const [createValues, setCreateValues] = useState<Record<string, string>>({})
   const [createError, setCreateError] = useState('')
+  // El nombre lo ocupa un registro DESACTIVADO (409 del back): no se ve en el
+  // listado, así que repetir el alta nunca funcionaría. Se ofrece restaurarlo.
+  const [inactiveConflict, setInactiveConflict] = useState<{
+    kind: string
+    id: number
+    label: string
+  } | null>(null)
 
   // Edición (modal).
   const [editing, setEditing] = useState<CatalogEntry | null>(null)
@@ -153,12 +163,20 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [editError, setEditError] = useState('')
   const [saving, setSaving] = useState(false)
 
-  // Catálogo de CECO para el select de proyectos (proyecto → centro de coste).
+  // Los dos catálogos que alimentan selects de otras pestañas (CECO para
+  // proyectos, marca para modelos), en una sola petición.
   const [peps, setPeps] = useState<CatalogEntry[]>([])
+  const [brands, setBrands] = useState<CatalogEntry[]>([])
   useEffect(() => {
-    listCatalog('peps')
-      .then((page) => setPeps(page.results))
-      .catch(() => setPeps([]))
+    fetchCatalogs()
+      .then((c) => {
+        setPeps(c.peps)
+        setBrands(c.brands)
+      })
+      .catch(() => {
+        setPeps([])
+        setBrands([])
+      })
   }, [])
   const pepOptions = useMemo(
     () =>
@@ -169,13 +187,6 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
     [peps],
   )
 
-  // N5: catálogo de marcas para el select de modelos (modelo → marca).
-  const [brands, setBrands] = useState<CatalogEntry[]>([])
-  useEffect(() => {
-    listCatalog('brands')
-      .then((page) => setBrands(page.results))
-      .catch(() => setBrands([]))
-  }, [])
   const brandOptions = useMemo(
     () => brands.map((b) => ({ value: String(b.id), label: b.name ?? `#${b.id}` })),
     [brands],
@@ -193,20 +204,43 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
     [active, pepOptions, brandOptions],
   )
 
-  const load = useCallback(() => {
-    setLoading(true)
-    listCatalog(activeResource)
-      .then((page) => {
-        setEntries(page.results)
-        // Mantiene fresco el select de marcas de la pestaña Modelos.
-        if (activeResource === 'brands') setBrands(page.results)
-        setError('')
-      })
-      .catch((err) => setError(asErrorMessage(err, t.loadError)))
-      .finally(() => setLoading(false))
-  }, [activeResource, t.loadError])
+  const load = useCallback(
+    (signal?: AbortSignal) => {
+      setLoading(true)
+      // `listAll`: el listado y su buscador trabajaban sobre la PRIMERA página
+      // (500 filas). Con un catálogo más grande —proyectos o CECOs de una flota
+      // real— la tabla ocultaba filas y la búsqueda en cliente mentía, sin que
+      // nada lo indicara.
+      listAll(listCatalog(activeResource, { signal }), { signal })
+        .then((rows) => {
+          setEntries(rows)
+          // Mantiene frescos los selects que dependen de otro catálogo: si
+          // acabas de crear una marca o un CECO, el alta de modelo o de
+          // proyecto ya lo ofrece sin recargar la página.
+          if (activeResource === 'brands') setBrands(rows)
+          if (activeResource === 'peps') setPeps(rows)
+          setError('')
+        })
+        .catch((err) => {
+          if (isAbortError(err)) return
+          setError(asErrorMessage(err, t.loadError))
+        })
+        .finally(() => {
+          if (!signal?.aborted) setLoading(false)
+        })
+    },
+    [activeResource, t.loadError],
+  )
 
-  useEffect(load, [load])
+  // M14: cada carga aborta la anterior; la última en vuelo muere al desmontar.
+  // Sin esto, cambiar de filtro dejaba varias peticiones compitiendo y la que
+  // contestara última —no la última pedida— se quedaba en la pantalla.
+  useEffect(() => {
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
+  }, [load])
+
 
   function selectCatalog(catalog: CatalogDef) {
     setActiveResource(catalog.resource)
@@ -285,6 +319,7 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
   function openCreate() {
     setCreateValues(Object.fromEntries(activeFields.map((f) => [f.key, ''])))
     setCreateError('')
+    setInactiveConflict(null)
     setCreating(true)
   }
 
@@ -301,12 +336,37 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
     event.preventDefault()
     setSaving(true)
     setCreateError('')
+    setInactiveConflict(null)
     try {
       await createCatalogEntry(active.resource, cleanPayload(createValues))
       setCreating(false)
       load()
     } catch (err) {
       setCreateError(asErrorMessage(err, t.createError))
+      // El back manda tipo e id del registro desactivado que ocupa el nombre.
+      if (err instanceof ApiError && err.code === 'inactive_conflict') {
+        const { kind, id, label } = err.context
+        if (typeof kind === 'string' && typeof id === 'number') {
+          setInactiveConflict({ kind, id, label: typeof label === 'string' ? label : '' })
+        }
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Restaura el registro en conflicto y cierra el alta: el catálogo vuelve a
+  // tener esa entrada, que es lo que el usuario quería conseguir.
+  async function restoreConflict() {
+    if (!inactiveConflict) return
+    setSaving(true)
+    try {
+      await restoreErrata(inactiveConflict.kind, inactiveConflict.id)
+      setInactiveConflict(null)
+      setCreating(false)
+      load()
+    } catch (err) {
+      setCreateError(asErrorMessage(err, t.restoreError))
     } finally {
       setSaving(false)
     }
@@ -412,9 +472,15 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
             <Button type="button" variant="secondary" onClick={() => setCreating(false)}>
               {t.cancel}
             </Button>
-            <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? t.creating : t.create}
-            </Button>
+            {inactiveConflict ? (
+              <Button type="button" variant="primary" disabled={saving} onClick={restoreConflict}>
+                {saving ? t.restoring : t.restoreConflict}
+              </Button>
+            ) : (
+              <Button type="submit" variant="primary" disabled={saving}>
+                {saving ? t.creating : t.create}
+              </Button>
+            )}
           </div>
         </form>
       </Modal>

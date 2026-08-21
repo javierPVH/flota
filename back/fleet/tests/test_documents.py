@@ -6,6 +6,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import Role
 from fleet.models import Assignment, Document, Incident, Vehicle
+from fleet.models.enums import AssignmentStatus
 
 from .helpers import make_user
 
@@ -19,7 +20,10 @@ class DocumentTests(APITestCase):
         self.my_vehicle = Vehicle.objects.create(plate="1234ABC", brand="a", model="b")
         self.foreign = Vehicle.objects.create(plate="0000ZZZ", brand="a", model="b")
         Assignment.objects.create(
-            vehicle=self.my_vehicle, driver=self.driver, start_date=date(2026, 1, 1)
+            vehicle=self.my_vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
         )
         self.list_url = reverse("document-list")
 
@@ -78,7 +82,10 @@ class IncidentTests(APITestCase):
         )
         self.foreign = Vehicle.objects.create(plate="0000ZZZ", brand="a", model="b")
         Assignment.objects.create(
-            vehicle=self.group_vehicle, driver=self.driver, start_date=date(2026, 1, 1)
+            vehicle=self.group_vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
         )
         self.list_url = reverse("incident-list")
 

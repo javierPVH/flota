@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useSearchParams } from 'react-router-dom'
 import { Button, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
-import { asErrorMessage } from '@flota/ui/http'
+import { asErrorMessage, isAbortError } from '@flota/ui/http'
 import { useAppLang, type AppLanguage } from '@flota/ui/i18n'
 import { Download, ExternalLink } from 'lucide-react'
 
@@ -12,9 +12,9 @@ import {
   createInvoice,
   deleteInvoice,
   fetchPickerConfig,
+  fetchCatalogs,
   listAll,
   listAllocations,
-  listCatalog,
   listInvoices,
   listVehicles,
   updateInvoice,
@@ -108,23 +108,49 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [lines, setLines] = useState<Line[]>([])
   const [allocError, setAllocError] = useState('')
 
-  const load = useCallback(() => {
-    setLoading(true)
-    listAll(listInvoices({ vehicle: vehicleFilter ? Number(vehicleFilter) : undefined }))
-      .then((rows) => {
-        setInvoices(rows)
-        setError('')
-      })
-      .catch((err) => setError(asErrorMessage(err, t.loadError)))
-      .finally(() => setLoading(false))
-    listAll(listAllocations()).then(setAllocations).catch(() => setAllocations([]))
-  }, [vehicleFilter, t.loadError])
+  const load = useCallback(
+    (signal?: AbortSignal) => {
+      setLoading(true)
+      const req = { signal }
+      listAll(
+        listInvoices({ vehicle: vehicleFilter ? Number(vehicleFilter) : undefined }, req),
+        req,
+      )
+        .then((rows) => {
+          setInvoices(rows)
+          setError('')
+        })
+        .catch((err) => {
+          if (isAbortError(err)) return
+          setError(asErrorMessage(err, t.loadError))
+        })
+        .finally(() => {
+          if (!signal?.aborted) setLoading(false)
+        })
+      listAll(listAllocations()).then(setAllocations).catch(() => setAllocations([]))
+    },
+    [vehicleFilter, t.loadError],
+  )
 
-  useEffect(load, [load])
+  // M14: cada carga aborta la anterior; la última en vuelo muere al desmontar.
+  // Sin esto, cambiar de filtro dejaba varias peticiones compitiendo y la que
+  // contestara última —no la última pedida— se quedaba en la pantalla.
+  useEffect(() => {
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
+  }, [load])
+
   useEffect(() => {
     listVehicles({ include_baja: 1 }).then((p) => setVehicles(p.results)).catch(() => {})
-    listCatalog('projects').then((p) => setProjects(p.results)).catch(() => {})
-    listCatalog('peps').then((p) => setPeps(p.results)).catch(() => {})
+    // Proyectos y CECOs del reparto, en una sola petición y completos (antes
+    // eran dos llamadas y cada una se quedaba en su primera página).
+    fetchCatalogs()
+      .then((c) => {
+        setProjects(c.projects)
+        setPeps(c.peps)
+      })
+      .catch(() => {})
     fetchPickerConfig().then(setPicker).catch(() => setPicker({ enabled: false }))
   }, [])
 
