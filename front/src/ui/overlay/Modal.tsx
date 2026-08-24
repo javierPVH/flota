@@ -29,7 +29,15 @@ const FOCUSABLE =
 export function Modal({ open, title, onClose, children, footer, wide = false, xl = false, maxWidth, height }: ModalProps) {
   const titleId = useId()
   const cardRef = useRef<HTMLDivElement | null>(null)
+  const onCloseRef = useRef(onClose)
   const copy = useUiCopy().modal
+
+  // `onClose` suele declararse inline en los consumidores. Conservamos el
+  // callback más reciente sin convertir cada cambio de identidad en un nuevo
+  // ciclo del efecto de foco (que devolvería el foco al disparador y luego a X).
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   // UX2: foco inicial dentro del diálogo, trampa de Tab, retorno del foco al
   // disparador al cerrar y bloqueo del scroll de fondo.
@@ -49,7 +57,7 @@ export function Modal({ open, title, onClose, children, footer, wide = false, xl
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose()
+        onCloseRef.current()
         return
       }
       if (e.key !== 'Tab') return
@@ -81,7 +89,7 @@ export function Modal({ open, title, onClose, children, footer, wide = false, xl
       document.body.style.overflow = previousOverflow
       previouslyFocused?.focus?.()
     }
-  }, [open, onClose])
+  }, [open])
 
   return createPortal(
     <AnimatePresence>
