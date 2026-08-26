@@ -176,3 +176,86 @@ class Company(DeactivatableModel, TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.code} · {self.name}"
+
+
+class FuelType(DeactivatableModel, TimeStampedModel):
+    """GAP-1: tipo de combustible (catálogo; antes un enum de 5 valores).
+
+    La lista que necesita HSE es la de factores de emisión (~30 tipos) y se
+    revisa oficialmente cada año: catálogo desactivable, no enum, para que
+    ampliarla o retirar entradas no exija migración + despliegue. El factor
+    convierte la serie de litros (`FuelConsumption`) en emisiones.
+    """
+
+    name = models.CharField("Nombre", max_length=60)
+    co2_factor = models.DecimalField(
+        "Factor de emisión (kg CO₂/l o kWh)",
+        max_digits=8,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text="Opcional: kg de CO₂ por litro (o kWh). Litros × factor = emisiones.",
+    )
+
+    class Meta:
+        verbose_name = "tipo de combustible"
+        verbose_name_plural = "tipos de combustible"
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(Lower("name"), name="uniq_fuel_type_name_ci"),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Workshop(DeactivatableModel, TimeStampedModel):
+    """Taller o estación de ITV: dónde se cita el vehículo (revisión, ruedas, ITV).
+
+    Catálogo de gestión: los sitios habituales a los que se lleva un coche. El
+    `kind` distingue el taller mecánico de la estación de ITV (o ambos).
+    """
+
+    class Kind(models.TextChoices):
+        WORKSHOP = "workshop", "Taller"
+        ITV = "itv", "Estación ITV"
+        BOTH = "both", "Taller + ITV"
+
+    name = models.CharField("Nombre", max_length=150)
+    kind = models.CharField("Tipo", max_length=20, choices=Kind.choices, default=Kind.WORKSHOP)
+    address = models.CharField("Dirección", max_length=200, blank=True)
+    postal_code = models.CharField("Código postal", max_length=12, blank=True)
+    phone = models.CharField("Teléfono", max_length=30, blank=True)
+
+    class Meta:
+        verbose_name = "taller / estación ITV"
+        verbose_name_plural = "talleres y estaciones ITV"
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(Lower("name"), name="uniq_workshop_name_ci"),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Site(DeactivatableModel, TimeStampedModel):
+    """GAP-4: sede/oficina — dónde está el vehículo cuando no está en una obra.
+
+    El campo del Excel «Proyecto obra/sede» se resuelve así: si el uso es
+    proyecto se muestra el proyecto, si no, la sede. `EventLocationChange`
+    registraba cambios de una ubicación que el vehículo ni siquiera guardaba.
+    """
+
+    name = models.CharField("Nombre", max_length=150)
+
+    class Meta:
+        verbose_name = "sede"
+        verbose_name_plural = "sedes"
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(Lower("name"), name="uniq_site_name_ci"),
+        ]
+
+    def __str__(self) -> str:
+        return self.name

@@ -39,6 +39,11 @@ const es = {
     brands: { title: 'Marcas', singular: 'marca' },
     vehicleModels: { title: 'Modelos', singular: 'modelo' },
     companies: { title: 'Sociedades', singular: 'sociedad' },
+    // GAP-1/GAP-4: combustibles (lista HSE) y sedes.
+    fuelTypes: { title: 'Combustibles', singular: 'tipo de combustible' },
+    sites: { title: 'Sedes', singular: 'sede' },
+    // Talleres y estaciones de ITV: dónde se cita el vehículo.
+    workshops: { title: 'Talleres e ITV', singular: 'taller / estación ITV' },
   },
   fields: {
     projectName: 'Nombre del proyecto',
@@ -49,7 +54,17 @@ const es = {
     contactName: 'Persona de contacto',
     brand: 'Marca',
     description: 'Descripción',
+    co2Factor: 'Factor CO₂ (kg/l o kWh)',
+    kind: 'Tipo',
+    address: 'Dirección',
+    postalCode: 'Código postal',
+    phone: 'Teléfono',
   },
+  workshopKinds: [
+    { value: 'workshop', label: 'Taller' },
+    { value: 'itv', label: 'Estación ITV' },
+    { value: 'both', label: 'Taller + ITV' },
+  ],
 }
 
 const en: typeof es = {
@@ -90,6 +105,9 @@ const en: typeof es = {
     brands: { title: 'Brands', singular: 'brand' },
     vehicleModels: { title: 'Models', singular: 'model' },
     companies: { title: 'Companies', singular: 'company' },
+    fuelTypes: { title: 'Fuels', singular: 'fuel type' },
+    sites: { title: 'Sites', singular: 'site' },
+    workshops: { title: 'Workshops & MOT', singular: 'workshop / MOT station' },
   },
   fields: {
     projectName: 'Project name',
@@ -100,7 +118,17 @@ const en: typeof es = {
     contactName: 'Contact person',
     brand: 'Brand',
     description: 'Description',
+    co2Factor: 'CO₂ factor (kg/l or kWh)',
+    kind: 'Type',
+    address: 'Address',
+    postalCode: 'Postal code',
+    phone: 'Phone',
   },
+  workshopKinds: [
+    { value: 'workshop', label: 'Workshop' },
+    { value: 'itv', label: 'MOT station' },
+    { value: 'both', label: 'Workshop + MOT' },
+  ],
 }
 
 const dict = { es, en }

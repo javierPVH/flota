@@ -12,7 +12,7 @@ PYTHON=/srv/flota/back/.venv/bin/python
 
 # Diario 06:00 — refresca la próxima ITV, avisa de ITV (30/15/7/vencida) y de
 # vehículos sin conductor.
-0 6 * * *   cd $PROJECT && $PYTHON manage.py refresh_next_itv && $PYTHON manage.py check_itv && $PYTHON manage.py check_insurance && $PYTHON manage.py check_no_driver
+0 6 * * *   cd $PROJECT && $PYTHON manage.py refresh_next_itv && $PYTHON manage.py check_itv && $PYTHON manage.py check_insurance && $PYTHON manage.py check_no_driver && $PYTHON manage.py check_maintenance
 
 # Mensual, día 1 a las 07:00 — recordatorio de lectura de km y proyección de km.
 0 7 1 * *   cd $PROJECT && $PYTHON manage.py remind_km_readings && $PYTHON manage.py check_km_overage

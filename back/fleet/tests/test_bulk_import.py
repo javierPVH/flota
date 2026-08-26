@@ -70,9 +70,7 @@ class VehicleBulkImportTests(APITestCase):
             format="multipart",
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            resp.data["columns"], ["Matrícula", "Columna 2", "Marca", "Marca (2)"]
-        )
+        self.assertEqual(resp.data["columns"], ["Matrícula", "Columna 2", "Marca", "Marca (2)"])
         self.assertEqual(resp.data["total_rows"], 1)
         self.assertEqual(resp.data["omitted_count"], 1)
 
@@ -102,22 +100,29 @@ class VehicleBulkImportTests(APITestCase):
         return self.client.post(reverse("vehicle-preview-import"), payload, format="multipart")
 
     def test_preview_validates_without_writing(self):
+        # GAP-1: el combustible ya no es un enum — es texto + enlace al
+        # catálogo, como la marca. Con catálogo casa (insensible a mayúsculas)
+        # y canoniza; sin catálogo el texto vale tal cual.
+        from fleet.models import FuelType
+
+        diesel = FuelType.objects.create(name="Diésel")
         text = (
             "Matrícula;Marca;Combustible\n"
-            "1234ABC;Ford;Diésel\n"      # válida (choice por etiqueta con tilde)
-            "5678DEF;Seat;Carbón\n"      # combustible inválido
-            "1234ABC;Ford;Gasolina\n"    # duplicada dentro del fichero
+            "1234ABC;Ford;diésel\n"  # casa con el catálogo → nombre canónico + fuel_ref
+            "5678DEF;Seat;Carbón\n"  # texto libre sin catálogo: vale (como la marca)
+            "1234ABC;Ford;Gasolina\n"  # duplicada dentro del fichero
         )
         resp = self._preview(csv_file(text), {"plate": 0, "brand": 1, "fuel": 2})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.data["ready_count"], 1)
+        self.assertEqual(resp.data["ready_count"], 2)
         self.assertEqual(resp.data["total_rows"], 3)
         record = resp.data["records"][0]
         self.assertEqual(record["plate"], "1234ABC")
-        self.assertEqual(record["fuel"], "diesel")
+        self.assertEqual(record["fuel"], "Diésel")
+        self.assertEqual(record["fuel_ref"], diesel.pk)
         self.assertEqual(record["_row"], 2)
+        self.assertEqual(resp.data["records"][1]["fuel"], "Carbón")
         messages = [(e["row"], e["field"]) for e in resp.data["warnings"]["data_errors"]]
-        self.assertIn((3, "fuel"), messages)
         self.assertIn((4, "matrícula"), messages)  # duplicado intra-fichero
         self.assertEqual(Vehicle.objects.count(), 0)  # NO escribe
 
@@ -163,9 +168,7 @@ class VehicleBulkImportTests(APITestCase):
                 ["3333DDD", 2021, date(2026, 12, 31)],
             ]
         )
-        resp = self._preview(
-            file, {"plate": 0, "year": 1, "insurance_expiry_date": 2}
-        )
+        resp = self._preview(file, {"plate": 0, "year": 1, "insurance_expiry_date": 2})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["ready_count"], 1)
         record = resp.data["records"][0]
@@ -197,14 +200,10 @@ class VehicleBulkImportTests(APITestCase):
 
     def test_bulk_create_caps_batch_size(self):
         rows = [{"plate": f"{i:04d}XYZ"} for i in range(1001)]
-        resp = self.client.post(
-            reverse("vehicle-bulk-create"), {"rows": rows}, format="json"
-        )
+        resp = self.client.post(reverse("vehicle-bulk-create"), {"rows": rows}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_bulk_create_rejects_non_admin(self):
         self.client.force_authenticate(self.supervisor)
-        resp = self.client.post(
-            reverse("vehicle-bulk-create"), {"rows": []}, format="json"
-        )
+        resp = self.client.post(reverse("vehicle-bulk-create"), {"rows": []}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

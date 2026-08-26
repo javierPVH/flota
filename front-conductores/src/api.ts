@@ -104,6 +104,63 @@ export const listAlerts = (status: string) =>
 /** Solo gestión (supervisor/admin); el conductor no ve estos botones. */
 export const resolveAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/resolve/`, {})
 
+// --- Actualización de campo del supervisor (km / mantenimiento / partes) ----
+
+/** Plan de mantenimiento preventivo (GAP-8), tal y como lo lista el back. */
+export interface MaintenancePlanRow {
+  id: number
+  vehicle: number
+  vehicle_plate: string
+  name: string
+  every_km: number | null
+  every_months: number | null
+  last_done_date: string | null
+  last_done_km: number | null
+}
+
+export const listMaintenancePlans = (vehicle: number) =>
+  getJson<Paginated<MaintenancePlanRow>>(`${API}/maintenance-plans/?vehicle=${vehicle}&${PS}`)
+
+/** «Realizado»: reancla el ciclo del plan y resuelve sus alertas abiertas. */
+export const markMaintenanceDone = (id: number, data: { date?: string; km?: number } = {}) =>
+  postJson<MaintenancePlanRow & { alerts_resolved: number }>(
+    `${API}/maintenance-plans/${id}/done/`,
+    data,
+  )
+
+/** Parte rápido sobre una incidencia: nota sellada (fecha + autor en el back)
+ * y, opcionalmente, cambio de estado. */
+export const reportIncident = (id: number, data: { text: string; status?: string }) =>
+  postJson<Incident>(`${API}/incidents/${id}/report/`, data)
+
+/** Fase 2 del ciclo: ubicación preferente para buscar el taller más cercano. */
+export const manageIncident = (
+  id: number,
+  data: { workshop_postal_code: string },
+) => postJson<Incident>(`${API}/incidents/${id}/manage/`, data)
+
+/** Fase 3: la SOLUCIÓN (sobrecoste, observaciones, tiempo parado). CIERRA. */
+export const resolveIncident = (
+  id: number,
+  data: { overcost?: string; observations?: string; downtime_days?: number },
+) => postJson<Incident>(`${API}/incidents/${id}/resolve/`, data)
+
+/** Recordatorio del supervisor al conductor: correo inmediato y/o alerta en la
+ * app (idempotente por día). El back acota por rol (management + su grupo). */
+export const remindVehicle = (
+  id: number,
+  data: {
+    kind: 'km_reading_pending' | 'itv_due' | 'maintenance_due'
+    send_email: boolean
+    create_alert: boolean
+    message?: string
+  },
+) =>
+  postJson<{ alert_created: boolean; email_sent: boolean; email_skipped: string }>(
+    `${API}/vehicles/${id}/remind/`,
+    data,
+  )
+
 // --- M4: aportaciones del conductor (HU-2.3, 5.1) --------------------------
 
 /** Propuesta de fechas: queda `proposed` SIN tocar la asignación vigente. */
@@ -178,6 +235,19 @@ export function uploadDocument(data: DocumentUploadInput, file: File): Promise<F
 export const listIncidents = (vehicle?: number) =>
   getJson<Paginated<Incident>>(`${API}/incidents/?${PS}${vehicle ? `&vehicle=${vehicle}` : ''}`)
 
+/** Catálogo de talleres y estaciones de ITV: alimenta los desplegables de la
+ * gestión de incidencias. Lo leen todos los roles; escribe administración. */
+export interface WorkshopRow {
+  id: number
+  name: string
+  kind: 'workshop' | 'itv' | 'both'
+  address: string
+  postal_code: string
+  phone: string
+}
+
+export const listWorkshops = () => getJson<Paginated<WorkshopRow>>(`${API}/workshops/?${PS}`)
+
 // --- M6: modo supervisor (HU-2.5, 3.4/3.6, Épica 6) ------------------------
 
 /** Conductores activos para los desplegables (solo gestión). */
@@ -200,6 +270,10 @@ export const createIncident = (data: {
   type: string
   date?: string | null
   description?: string
+  mileage?: number | null
+  workshop_postal_code?: string
+  cost?: string
+  details?: Record<string, unknown>
 }) => postJson<Incident>(`${API}/incidents/`, data)
 
 /** Histórico de lecturas para la gráfica de evolución (HU-3.6). */

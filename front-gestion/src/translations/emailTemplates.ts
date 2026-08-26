@@ -13,6 +13,10 @@ const es = {
     generic: 'Genérica',
   } as Record<string, string>,
   undefinedSuffix: '·  sin definir',
+  /** Aviso informativo de cabecera (misma posición que el de Borrado definitivo). */
+  alertTitle: 'Qué son las plantillas de correo',
+  alertBody:
+    'Aquí se redactan los correos que envía la aplicación (avisos de seguro, ITV, kilometraje…): asunto y cuerpo en castellano e inglés, con variables como {{matricula}} que se rellenan solas en cada envío, y firmas reutilizables. La pestaña «Últimos envíos» es la traza de lo que ha salido. Guardar una plantilla afecta a los próximos correos, nunca a los ya enviados.',
   loadTemplatesError: 'No se pudieron cargar las plantillas.',
   saveTemplateError: 'No se pudo guardar la plantilla.',
   previewError: 'No se pudo previsualizar.',
@@ -92,6 +96,9 @@ const en: typeof es = {
     generic: 'Generic',
   },
   undefinedSuffix: '·  not defined',
+  alertTitle: 'What email templates are',
+  alertBody:
+    'This is where the emails the application sends are written (insurance, MOT and mileage notices…): subject and body in Spanish and English, with variables such as {{matricula}} filled in automatically on every send, plus reusable signatures. The “Latest sends” tab is the trace of what has gone out. Saving a template affects future emails, never the ones already sent.',
   loadTemplatesError: 'Could not load the templates.',
   saveTemplateError: 'Could not save the template.',
   previewError: 'Could not generate the preview.',

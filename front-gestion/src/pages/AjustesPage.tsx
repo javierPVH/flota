@@ -5,9 +5,12 @@ import { useAjustesCopy } from '../translations/ajustes.ts'
 import { CatalogsPage } from './CatalogsPage.tsx'
 import { ErratasPage } from './ErratasPage.tsx'
 import { EmailTemplatesPage } from './EmailTemplatesPage.tsx'
-import { NotificationsPage } from './NotificationsPage.tsx'
 
-const TAB_KEYS = ['catalogos', 'borrado', 'plantillas', 'notificaciones'] as const
+// «Notificaciones» (envíos programados) está OCULTA a propósito: la página
+// (`NotificationsPage`) y su API siguen vivas por si se recupera; los envíos
+// ya programados siguen saliendo desde el back. Un enlace antiguo a
+// /ajustes/notificaciones cae en Catálogos.
+const TAB_KEYS = ['catalogos', 'borrado', 'plantillas'] as const
 type TabKey = (typeof TAB_KEYS)[number]
 
 /**
@@ -28,7 +31,6 @@ export function AjustesPage() {
     { key: 'catalogos', label: t.tabs.catalogs },
     { key: 'borrado', label: t.tabs.deletions },
     { key: 'plantillas', label: t.tabs.templates },
-    { key: 'notificaciones', label: t.tabs.notifications },
   ]
 
   return (
@@ -56,7 +58,6 @@ export function AjustesPage() {
         {active === 'catalogos' && <CatalogsPage embedded />}
         {active === 'borrado' && <ErratasPage embedded />}
         {active === 'plantillas' && <EmailTemplatesPage embedded />}
-        {active === 'notificaciones' && <NotificationsPage embedded />}
       </div>
     </div>
   )

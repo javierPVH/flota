@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, PageHeader } from '@flota/ui/ui'
+import { Button, PageHeader, SelectField } from '@flota/ui/ui'
 import { useAppLang } from '@flota/ui/i18n'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage, isAbortError } from '@flota/ui/http'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Info, RotateCcw, Trash2, X } from 'lucide-react'
 
 import {
   listAll,
@@ -18,7 +18,6 @@ import {
 import { useAuth } from '../auth.ts'
 import { fmtDate } from '../format.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
-import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { exportCsv } from '../csv.ts'
 import { useErratasCopy } from '../translations/erratas.ts'
@@ -117,6 +116,8 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
   const group = groups.find((g) => g.type === active) ?? null
   const isSuperuser = Boolean(user?.is_superuser)
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const totalRecords = groups.reduce((acc, g) => acc + g.count, 0)
+  const typesWithRecords = groups.filter((g) => g.count > 0).length
 
   /** Tras restaurar o purgar: recuentos e items al día (puede vaciar la página). */
   function reload() {
@@ -130,6 +131,7 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
     setPage(1)
     setSearch('')
     setQuery('')
+    setNotice('')
   }
 
   async function handleRestore(item: ErrataItem) {
@@ -203,7 +205,12 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
   }
 
   const columns: Array<TableWithPanelColumn<ErrataItem>> = [
-    { key: 'label', label: t.columns.label, getValue: (r) => r.label },
+    {
+      key: 'label',
+      label: t.columns.label,
+      getValue: (r) => r.label,
+      render: (r) => <strong>{r.label}</strong>,
+    },
     {
       key: 'deactivated_at',
       label: t.columns.deactivatedAt,
@@ -212,7 +219,12 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
       render: (r) => fmtDate(r.deactivated_at, lang),
     },
     { key: 'deactivated_by', label: t.columns.deactivatedBy, getValue: (r) => r.deactivated_by, render: (r) => r.deactivated_by || '—' },
-    { key: 'reason', label: t.columns.reason, getValue: (r) => r.reason, render: (r) => r.reason || '—' },
+    {
+      key: 'reason',
+      label: t.columns.reason,
+      getValue: (r) => r.reason,
+      render: (r) => (r.reason ? <span className="muted">{r.reason}</span> : '—'),
+    },
     {
       key: '__actions',
       label: t.columns.actions,
@@ -221,11 +233,11 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
       render: (item) => (
         <div className="row-actions">
           <Button variant="secondary" size="sm" onClick={() => handleRestore(item)}>
-            {t.restore}
+            <RotateCcw size={14} aria-hidden /> {t.restore}
           </Button>
           {isSuperuser && (
             <Button variant="danger" size="sm" onClick={() => handlePurge(item)}>
-              {t.purge}
+              <Trash2 size={14} aria-hidden /> {t.purge}
             </Button>
           )}
         </div>
@@ -247,7 +259,19 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
       </div>
 
       {error && <div role="alert" className="form-error">{error}</div>}
-      {notice && <p role="status" className="muted">{notice}</p>}
+      {notice && (
+        <div role="status" className="form-success">
+          <CheckCircle2 size={16} aria-hidden /> {notice}
+          <button
+            type="button"
+            className="form-success-close"
+            aria-label={t.dismiss}
+            onClick={() => setNotice('')}
+          >
+            <X size={14} aria-hidden />
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <p className="loading-state" role="status">{t.loading}</p>
@@ -255,12 +279,39 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
         <p className="muted">{t.empty}</p>
       ) : (
         <>
-          <SettingsSubtabs
-            ariaLabel={t.title}
-            items={groups.map((g) => ({ key: g.type, label: g.label, badge: g.count }))}
-            active={active}
-            onChange={switchType}
-          />
+          {/* Selector de tipo (cada línea con su recuento) + panel informativo
+              de la tabla elegida: 26 sub-pestañas eran tres filas de ruido. */}
+          <div className="errata-picker">
+            <div className="filter-field errata-picker-select">
+              <label>{t.typeLabel}</label>
+              <SelectField
+                aria-label={t.typeLabel}
+                containerClassName="role-filter"
+                required
+                enableSearchFilter
+                searchInputPlaceholder={t.typeSearchPlaceholder}
+                options={groups.map((g) => ({
+                  value: g.type,
+                  label: `${g.label} (${g.count})`,
+                }))}
+                value={active}
+                onValueChange={switchType}
+              />
+              <span className="muted errata-summary-line">
+                {t.summary(totalRecords, typesWithRecords)}
+              </span>
+            </div>
+            {group && (
+              <aside className="errata-info" aria-live="polite">
+                <div className="errata-info-head">
+                  <Info size={15} aria-hidden />
+                  <strong>{group.label}</strong>
+                  <span className="settings-subtab-badge">{group.count}</span>
+                </div>
+                <p>{t.typeInfo[group.type] ?? t.typeInfoFallback}</p>
+              </aside>
+            )}
+          </div>
           {group && (
             <>
               <TableInfoBar

@@ -7,19 +7,14 @@ import { useAppLang, type AppLanguage } from '@flota/ui/i18n'
 import { Download, ExternalLink } from 'lucide-react'
 
 import {
-  allocateInvoice,
   connectGoogleUrl,
   createInvoice,
   deleteInvoice,
   fetchPickerConfig,
-  fetchCatalogs,
   listAll,
-  listAllocations,
   listInvoices,
   listVehicles,
   updateInvoice,
-  type AllocationRow,
-  type CatalogEntry,
   type InvoiceInput,
   type InvoiceRow,
 } from '../api.ts'
@@ -43,8 +38,6 @@ function safeHref(url: string): string {
   return /^https?:\/\//i.test(url) ? url : ''
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100
-
 interface HeaderForm {
   code: string
   vehicle: string
@@ -65,15 +58,8 @@ const EMPTY_HEADER: HeaderForm = {
   pickedName: '',
 }
 
-interface Line {
-  target_type: 'proyecto' | 'pep'
-  project: string
-  cost_center: string
-  percentage: string
-  amount: string
-}
-
-/** Facturas + editor de refacturación (G10, Épica 7). El PDF vive en Drive. */
+/** Facturas (G10). El PDF vive en Drive. La refacturación (Épica 7) quedó
+ * fuera de la UI: el reparto sigue en la API y en los informes («Imputaciones»). */
 export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) {
   const t = useInvoicesCopy()
   const lang = useAppLang()
@@ -88,10 +74,7 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [driverFilter, setDriverFilter] = useState('')
   const [brandModelFilter, setBrandModelFilter] = useState('')
   const [supervisorFilter, setSupervisorFilter] = useState('')
-  const [allocations, setAllocations] = useState<AllocationRow[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [projects, setProjects] = useState<CatalogEntry[]>([])
-  const [peps, setPeps] = useState<CatalogEntry[]>([])
   const [picker, setPicker] = useState<PickerConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -102,11 +85,6 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [header, setHeader] = useState<HeaderForm>(EMPTY_HEADER)
   const [headerError, setHeaderError] = useState('')
   const [saving, setSaving] = useState(false)
-
-  // Refacturación
-  const [allocating, setAllocating] = useState<InvoiceRow | null>(null)
-  const [lines, setLines] = useState<Line[]>([])
-  const [allocError, setAllocError] = useState('')
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -127,7 +105,6 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
         .finally(() => {
           if (!signal?.aborted) setLoading(false)
         })
-      listAll(listAllocations()).then(setAllocations).catch(() => setAllocations([]))
     },
     [vehicleFilter, t.loadError],
   )
@@ -143,21 +120,12 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
 
   useEffect(() => {
     listVehicles({ include_baja: 1 }).then((p) => setVehicles(p.results)).catch(() => {})
-    // Proyectos y CECOs del reparto, en una sola petición y completos (antes
-    // eran dos llamadas y cada una se quedaba en su primera página).
-    fetchCatalogs()
-      .then((c) => {
-        setProjects(c.projects)
-        setPeps(c.peps)
-      })
-      .catch(() => {})
     fetchPickerConfig().then(setPicker).catch(() => setPicker({ enabled: false }))
   }, [])
 
   // O4: Map memoizada — el `find()` por celda era O(filas × vehículos).
   const vehicleById = useMemo(() => new Map(vehicles.map((v) => [v.id, v])), [vehicles])
   const vehicleOf = (id: number) => vehicleById.get(id)
-  const allocationsOf = (invoiceId: number) => allocations.filter((a) => a.invoice === invoiceId)
   const pickerReady = Boolean(picker?.enabled && picker.has_drive && picker.access_token)
 
   // --- Cabecera -------------------------------------------------------------
@@ -244,83 +212,6 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
     }
   }
 
-  // --- Refacturación --------------------------------------------------------
-
-  function openAllocate(invoice: InvoiceRow) {
-    const existing = allocationsOf(invoice.id)
-    if (existing.length) {
-      setLines(
-        existing.map((a) => ({
-          target_type: a.target_type,
-          project: a.project != null ? String(a.project) : '',
-          cost_center: a.cost_center != null ? String(a.cost_center) : '',
-          percentage: String(Number(a.percentage)),
-          amount: String(Number(a.amount)),
-        })),
-      )
-    } else {
-      // Propuesta inicial: el destino "natural" del vehículo al 100%.
-      const vehicle = vehicleOf(invoice.vehicle)
-      const total = invoice.amount != null ? String(Number(invoice.amount)) : ''
-      if (vehicle?.project) {
-        setLines([{ target_type: 'proyecto', project: String(vehicle.project), cost_center: '', percentage: '100', amount: total }])
-      } else if (vehicle?.cost_center) {
-        setLines([{ target_type: 'pep', project: '', cost_center: String(vehicle.cost_center), percentage: '100', amount: total }])
-      } else {
-        setLines([{ target_type: 'proyecto', project: '', cost_center: '', percentage: '100', amount: total }])
-      }
-    }
-    setAllocError('')
-    setAllocating(invoice)
-  }
-
-  const setLine = (index: number, patch: Partial<Line>) =>
-    setLines((ls) => ls.map((l, i) => (i === index ? { ...l, ...patch } : l)))
-
-  /** % ⇄ €: rellenar uno calcula el otro a partir del total de la factura. */
-  function onPercent(index: number, value: string) {
-    const total = Number(allocating?.amount ?? 0)
-    const patch: Partial<Line> = { percentage: value }
-    if (total > 0 && value !== '') patch.amount = String(round2((total * Number(value)) / 100))
-    setLine(index, patch)
-  }
-
-  function onAmount(index: number, value: string) {
-    const total = Number(allocating?.amount ?? 0)
-    const patch: Partial<Line> = { amount: value }
-    if (total > 0 && value !== '') patch.percentage = String(round2((Number(value) / total) * 100))
-    setLine(index, patch)
-  }
-
-  const sumPct = round2(lines.reduce((acc, l) => acc + (Number(l.percentage) || 0), 0))
-  const sumEur = round2(lines.reduce((acc, l) => acc + (Number(l.amount) || 0), 0))
-  const balanced = sumPct === 100
-
-  async function submitAllocate(event: FormEvent) {
-    event.preventDefault()
-    if (!allocating) return
-    setSaving(true)
-    setAllocError('')
-    try {
-      await allocateInvoice(
-        allocating.id,
-        lines.map((l) => ({
-          target_type: l.target_type,
-          project: l.target_type === 'proyecto' && l.project ? Number(l.project) : null,
-          cost_center: l.target_type === 'pep' && l.cost_center ? Number(l.cost_center) : null,
-          percentage: l.percentage,
-          amount: l.amount || null,
-        })),
-      )
-      setAllocating(null)
-      load()
-    } catch (err) {
-      setAllocError(asErrorMessage(err, t.allocSaveError))
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const columns: Array<TableWithPanelColumn<InvoiceRow>> = [
     {
       key: 'code',
@@ -376,14 +267,12 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
       sortable: false,
       render: (i) => (
         <div className="row-actions">
-          <Button variant="primary" size="sm" onClick={() => openAllocate(i)}>
-            {t.allocateAction}
-          </Button>
           <Button variant="secondary" size="sm" onClick={() => openHeader(i)}>
             {t.editAction}
           </Button>
+          {/* N7: nunca se elimina — la acción desactiva (erratas) con motivo. */}
           <Button variant="danger" size="sm" onClick={() => handleDelete(i)}>
-            {t.deleteAction}
+            {t.deactivateAction}
           </Button>
         </div>
       ),
@@ -636,137 +525,6 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
         </form>
       </Modal>
 
-      {/* Editor de refacturación (Épica 7): % ⇄ € y cuadre en vivo */}
-      <Modal
-        open={allocating !== null}
-        title={t.allocTitle(allocating?.code || `#${allocating?.id ?? ''}`)}
-        onClose={() => setAllocating(null)}
-        wide
-      >
-        {allocating && (
-          <form className="modal-form" onSubmit={submitAllocate}>
-            <p className="muted" style={{ margin: 0 }}>
-              {vehicleOf(allocating.vehicle)?.plate ?? `#${allocating.vehicle}`} ·{' '}
-              {allocating.date ?? t.noDate} · {t.totalAmountPrefix}{' '}
-              <strong>{allocating.amount != null ? eur(allocating.amount, lang) : '—'}</strong>
-            </p>
-
-            {lines.map((line, index) => (
-              <div className="alloc-line" key={index}>
-                <SelectField
-                  label={index === 0 ? t.targetLabel : ''}
-                  options={[
-                    { value: 'proyecto', label: t.targetProject },
-                    { value: 'pep', label: t.targetCeco },
-                  ]}
-                  value={line.target_type}
-                  onValueChange={(value) =>
-                    setLine(index, { target_type: value as Line['target_type'] })
-                  }
-                />
-                {line.target_type === 'proyecto' ? (
-                  <div>
-                    <SelectField
-                      label={index === 0 ? t.projectLabel : ''}
-                      options={[
-                        { value: '', label: t.choosePlaceholder },
-                        ...projects.map((p) => ({ value: String(p.id), label: p.project_name ?? `#${p.id}` })),
-                      ]}
-                      value={line.project}
-                      onValueChange={(value) => setLine(index, { project: value })}
-                    />
-                    {(() => {
-                      // El proyecto lleva su CECO asociado: se muestra y se
-                      // ofrece imputar la línea directamente a él (mejora 🔴).
-                      const proj = projects.find((p) => String(p.id) === line.project)
-                      if (!proj?.cost_center) return null
-                      return (
-                        <button
-                          type="button"
-                          className="alloc-ceco-hint"
-                          title={t.cecoHintTitle}
-                          onClick={() =>
-                            setLine(index, {
-                              target_type: 'pep',
-                              cost_center: String(proj.cost_center),
-                              project: '',
-                            })
-                          }
-                        >
-                          {t.cecoHint(proj.cost_center_display ?? `#${proj.cost_center}`)}
-                        </button>
-                      )
-                    })()}
-                  </div>
-                ) : (
-                  <SelectField
-                    label={index === 0 ? t.cecoLabel : ''}
-                    options={[
-                      { value: '', label: t.choosePlaceholder },
-                      ...peps.map((p) => ({
-                        value: String(p.id),
-                        label: p.code ? `${p.code} · ${p.name}` : (p.name ?? `#${p.id}`),
-                      })),
-                    ]}
-                    value={line.cost_center}
-                    onValueChange={(value) => setLine(index, { cost_center: value })}
-                  />
-                )}
-                <TextInputField
-                  label={index === 0 ? '%' : ''}
-                  type="number"
-                  value={line.percentage}
-                  onChange={(e) => onPercent(index, e.target.value)}
-                />
-                <TextInputField
-                  label={index === 0 ? '€' : ''}
-                  type="number"
-                  value={line.amount}
-                  onChange={(e) => onAmount(index, e.target.value)}
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setLines((ls) => ls.filter((_, i) => i !== index))}
-                  disabled={lines.length === 1}
-                >
-                  ✕
-                </Button>
-              </div>
-            ))}
-            <div>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() =>
-                  setLines((ls) => [
-                    ...ls,
-                    { target_type: 'proyecto', project: '', cost_center: '', percentage: '', amount: '' },
-                  ])
-                }
-              >
-                {t.addLine}
-              </Button>
-            </div>
-
-            <div className={`usage-sum ${balanced ? 'ok' : 'ko'}`}>
-              {balanced ? t.sumOk(eur(sumEur, lang)) : t.sumKo(sumPct, eur(sumEur, lang))}
-            </div>
-
-            {allocError && <div role="alert" className="form-error">{allocError}</div>}
-            <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
-              <Button type="button" variant="secondary" onClick={() => setAllocating(null)}>
-                {t.cancel}
-              </Button>
-              <Button type="submit" variant="primary" disabled={saving || !balanced}>
-                {saving ? t.saving : t.saveAllocation}
-              </Button>
-            </div>
-          </form>
-        )}
-      </Modal>
     </div>
   )
 }

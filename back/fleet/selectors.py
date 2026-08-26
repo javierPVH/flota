@@ -57,6 +57,31 @@ def active_substitution_map(
     return {link.main_vehicle_id: link for link in links}
 
 
+def active_substitution_by_substitute(
+    vehicle_ids: Iterable[int], today: date | None = None
+) -> dict[int, VehicleLink]:
+    """N9 al revés: `{substitute_vehicle_id: vínculo activo}`, en una consulta.
+
+    El mapa de `active_substitution_map` va del principal al vínculo, y sirve
+    para bloquearlo. Este es el reverso: lo necesita quien conduce el sustituto
+    para saber POR QUÉ coche está operando — sin él, la ficha del sustituto no
+    puede nombrar a su principal si ese principal cae fuera de su ámbito.
+    """
+    links = VehicleLink.objects.filter(
+        active_link_q(today), substitute_vehicle_id__in=list(vehicle_ids)
+    ).select_related("main_vehicle")
+    return {link.substitute_vehicle_id: link for link in links}
+
+
+def active_link_covered_by(vehicle, today: date | None = None) -> VehicleLink | None:
+    """Vínculo activo en el que `vehicle` es el SUSTITUTO (o None)."""
+    return (
+        VehicleLink.objects.filter(active_link_q(today), substitute_vehicle=vehicle)
+        .select_related("main_vehicle")
+        .first()
+    )
+
+
 def active_link_blocking(vehicle, today: date | None = None) -> VehicleLink | None:
     """Vínculo activo que bloquea a `vehicle` como principal (o None)."""
     return (

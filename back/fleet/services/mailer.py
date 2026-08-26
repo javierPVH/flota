@@ -60,6 +60,59 @@ def email_enabled() -> bool:
     return bool(settings.FLEET_EMAIL_ENABLED)
 
 
+def send_notice_now(
+    *, to: str, subject: str, body_html: str, template_key: str
+) -> tuple[bool, str]:
+    """Envía UN correo ya compuesto, ahora mismo y best-effort, con su traza en
+    `EmailLog`. Devuelve `(enviado, motivo_de_omisión)`. Nunca lanza: sin
+    destinatario o con el correo saliente deshabilitado queda `SKIPPED`, y un
+    fallo de SMTP queda `FAILED` (misma doctrina que el resto del mailer)."""
+    subject = subject[:200]
+    if not to:
+        EmailLog.objects.create(
+            template_key=template_key,
+            recipient="",
+            subject=subject,
+            status=EmailLog.Status.SKIPPED,
+            error="destinatario sin email",
+        )
+        return False, "sin_email"
+    if not email_enabled():
+        EmailLog.objects.create(
+            template_key=template_key,
+            recipient=to,
+            subject=subject,
+            status=EmailLog.Status.SKIPPED,
+            error="Correo saliente no configurado (EMAIL_HOST).",
+        )
+        return False, "correo_deshabilitado"
+    try:
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body=strip_tags(body_html),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[to],
+        )
+        msg.attach_alternative(body_html, "text/html")
+        msg.send(fail_silently=False)
+    except Exception as exc:  # noqa: BLE001 — best-effort por diseño
+        EmailLog.objects.create(
+            template_key=template_key,
+            recipient=to,
+            subject=subject,
+            status=EmailLog.Status.FAILED,
+            error=str(exc)[:1000],
+        )
+        return False, "fallo_envio"
+    EmailLog.objects.create(
+        template_key=template_key,
+        recipient=to,
+        subject=subject,
+        status=EmailLog.Status.SENT,
+    )
+    return True, ""
+
+
 def render(text: str, context: dict[str, object]) -> str:
     """Interpola `{{variable}}` con allowlist; los valores van escapados.
 

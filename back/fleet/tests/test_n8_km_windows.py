@@ -175,9 +175,7 @@ class EstimateMissingTests(APITestCase):
             self.skipTest("día 1: no se puede simular ventana cerrada")
         yesterday = max(1, timezone.localdate().day - 1)
         with override_settings(FLEET_KM_ESTIMATE_WINDOW_END=yesterday):
-            resp = self.client.post(
-                reverse("kmreading-estimate"), {"months": 2, "override": True}
-            )
+            resp = self.client.post(reverse("kmreading-estimate"), {"months": 2, "override": True})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         self.assertIn("1111AAA", {c["plate"] for c in resp.data["created"]})
 

@@ -45,29 +45,37 @@ from .models import (
     EmailSignature,
     EmailTemplate,
     Event,
+    FuelConsumption,
+    FuelType,
     Incident,
     Invoice,
     InvoiceAllocation,
     KmReading,
+    MaintenancePlan,
     NotificationSchedule,
     Pep,
     Project,
     Renting,
+    Site,
     Vehicle,
     VehicleLink,
     VehicleModel,
     VehicleRequest,
     VehicleUsage,
+    Workshop,
 )
 from .models.enums import (
+    AlertLevel,
     AlertStatus,
     AlertType,
     AssignmentStatus,
     DocumentStatus,
+    IncidentStatus,
+    IncidentType,
     VehicleRequestStatus,
     VehicleState,
 )
-from .scoping import vehicles_for
+from .scoping import users_for, vehicles_for
 from .serializers import (
     AlertSerializer,
     AssignmentSerializer,
@@ -81,16 +89,20 @@ from .serializers import (
     EmailSignatureSerializer,
     EmailTemplateSerializer,
     EventSerializer,
+    FuelConsumptionSerializer,
+    FuelTypeSerializer,
     IncidentSerializer,
     InvoiceAllocateSerializer,
     InvoiceAllocationSerializer,
     InvoiceSerializer,
     KmReadingSerializer,
     LogEntrySerializer,
+    MaintenancePlanSerializer,
     NotificationScheduleSerializer,
     PepSerializer,
     ProjectSerializer,
     RentingSerializer,
+    SiteSerializer,
     UsageSplitSerializer,
     VehicleLinkSerializer,
     VehicleModelSerializer,
@@ -98,8 +110,9 @@ from .serializers import (
     VehicleRequestSerializer,
     VehicleSerializer,
     VehicleUsageSerializer,
+    WorkshopSerializer,
 )
-from .services import events, importer, mailer, metrics, notifications, reports
+from .services import events, importer, mailer, metrics, notifications, reports, returns
 from .services.archiver import archive_document
 
 
@@ -137,6 +150,11 @@ class ScopedByVehicleMixin:
         user = self.request.user
         if user.is_admin:
             return qs
+        return self.scope_queryset(qs, user)
+
+    def scope_queryset(self, qs, user):
+        """Filtro de ámbito del NO-admin. Sobrescríbelo si el recurso puede
+        colgar de algo más que de un vehículo (p. ej. documentos personales)."""
         vehicle_ids = vehicles_for(user).values_list("id", flat=True)
         lookup = "id__in" if self.vehicle_lookup == "" else f"{self.vehicle_lookup}__in"
         return qs.filter(**{lookup: vehicle_ids})
@@ -280,7 +298,9 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         qs = (
             super()
             .get_queryset()
-            .select_related("supervisor", "business_unit", "project", "cost_center")
+            # GAP-4: `site` viaja como nombre (site_display) → sin el join
+            # sería una consulta por fila del listado.
+            .select_related("supervisor", "business_unit", "project", "cost_center", "site")
         )
         params = self.request.query_params
         include_baja = params.get("include_baja") in ("1", "true", "True")
@@ -304,9 +324,14 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             if parsed is None or parsed != instance.updated_at:
                 raise Conflict()
         old_state = instance.state
+        old_site = instance.site
         with transaction.atomic():
             super().perform_update(serializer)
             updated = serializer.instance
+            # GAP-4: cambiar la sede emite su evento con la ubicación anterior
+            # y la nueva (el subtipo existía; ahora por fin lo alimenta algo).
+            if updated.site != old_site:
+                events.emit_location_change(updated, old_site, updated.site)
             if updated.state != old_state:
                 # Cambio de estado → evento (HU-1.5/1.6), con motivo opcional.
                 # B4: `change_date` es la fecha CON EFECTO del cambio (la baja
@@ -403,6 +428,37 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             on_created=events.emit_vehicle_created,
         )
         return Response(result)
+
+    @action(detail=True, methods=["post"], url_path="return", permission_classes=[IsAdmin])
+    def return_vehicle(self, request, pk=None):
+        """POST /api/vehicles/{id}/return/ — devolución guiada (GAP-7).
+
+        Una sola operación transaccional: lectura final + `km_end`, cierre del
+        contrato vigente, fin de las asignaciones en curso, baja con su evento
+        y cálculo del exceso de km con su penalización estimada. Cuerpo:
+        `{km_end?, end_date?, reason?}`.
+        """
+        vehicle = self.get_object()
+        data = request.data if isinstance(request.data, dict) else {}
+        km_end = data.get("km_end")
+        if km_end in ("", None):
+            km_end = None
+        else:
+            try:
+                km_end = int(km_end)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError({"km_end": "Debe ser un número entero de km."}) from exc
+            if km_end < 0:
+                raise ValidationError({"km_end": "Los km no pueden ser negativos."})
+        end_date = parse_date(str(data.get("end_date", "") or "")) or None
+        with transaction.atomic():
+            summary = returns.return_vehicle(
+                vehicle,
+                km_end=km_end,
+                end_date=end_date,
+                reason=str(data.get("reason", "") or ""),
+            )
+        return Response(summary)
 
     @action(detail=True, methods=["get"], permission_classes=[IsManagement])
     def history(self, request, pk=None):
@@ -757,6 +813,83 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 )
         return Response({"sent": sent, "skipped": skipped})
 
+    @action(detail=True, methods=["post"], permission_classes=[IsManagement])
+    def remind(self, request, pk=None):
+        """POST /api/v1/vehicles/{id}/remind/ — recordatorio al conductor por
+        los km sin registrar, la ITV o el mantenimiento (app de campo, M6).
+
+        Dos canales, cada uno opt-in: `send_email` (inmediato y best-effort,
+        con plantilla si existe y traza en `EmailLog`) y `create_alert` (alerta
+        en la app con su push, idempotente por día vía `dedup_key`). El correo
+        automático del motor de alertas NO se encola aquí (`queue_email=False`):
+        el email es la casilla del modal, encolar además lo duplicaría.
+        """
+        from .selectors import current_driver_map
+        from .services import alerts as alerts_service
+        from .services import mailer
+        from .services.metrics import _maintenance_due_map
+
+        vehicle = self.get_object()
+        kind = (request.data.get("kind") or "").strip()
+        if kind not in {AlertType.KM_READING_PENDING, AlertType.ITV_DUE, AlertType.MAINTENANCE_DUE}:
+            raise ValidationError({"kind": "Tipo de recordatorio no válido."})
+        send_email = bool(request.data.get("send_email"))
+        create_alert = bool(request.data.get("create_alert"))
+        if not send_email and not create_alert:
+            raise ValidationError({"detail": "Elige al menos un canal (correo o alerta)."})
+        message = (request.data.get("message") or "").strip()
+
+        today = timezone.localdate()
+        due = None
+        if kind == AlertType.ITV_DUE:
+            due = vehicle.next_itv_date
+        elif kind == AlertType.MAINTENANCE_DUE:
+            due = _maintenance_due_map([vehicle.id]).get(vehicle.id)
+
+        base = {
+            AlertType.KM_READING_PENDING: "Recordatorio: lectura de km pendiente este mes.",
+            AlertType.ITV_DUE: "Recordatorio: ITV del vehículo.",
+            AlertType.MAINTENANCE_DUE: "Recordatorio: mantenimiento programado.",
+        }[kind]
+        if due:
+            base += f" Vencimiento: {due.isoformat()}."
+        text = f"{base} {message}".strip()
+
+        driver = current_driver_map([vehicle.id]).get(vehicle.id)
+
+        alert_created = False
+        if create_alert:
+            alert_created = alerts_service.upsert_alert(
+                dedup_key=f"reminder:{kind}:{vehicle.pk}:{today.isoformat()}",
+                type=kind,
+                level=AlertLevel.WARNING,
+                message=text,
+                vehicle=vehicle,
+                user=driver,
+                due_date=due,
+                queue_email=False,
+            )
+
+        email_sent, email_skipped = False, ""
+        if send_email:
+            # Asunto/cuerpo de la plantilla del tipo si existe (10b); si no, el
+            # texto neutro del mailer con el mensaje compuesto. Va al conductor.
+            notice = mailer.render_vehicle_notice(vehicle, kind, text, "es")
+            email_sent, email_skipped = mailer.send_notice_now(
+                to=driver.email if driver else "",
+                subject=notice.subject,
+                body_html=notice.body_html,
+                template_key=notice.used_key or kind,
+            )
+
+        return Response(
+            {
+                "alert_created": alert_created,
+                "email_sent": email_sent,
+                "email_skipped": email_skipped,
+            }
+        )
+
     @action(
         detail=True,
         methods=["post"],
@@ -782,6 +915,84 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 # Para avisar en la UI de que la versión inglesa no existe y se
                 # está enseñando la castellana.
                 "has_en": notice.has_en,
+            }
+        )
+
+    @action(
+        detail=True,
+        methods=["get"],
+        permission_classes=[IsAdmin],
+        url_path="driver-candidates",
+    )
+    def driver_candidates(self, request, pk=None):
+        """GET /api/v1/vehicles/{id}/driver-candidates/ — conductores ordenados
+        por su media mensual de km, para el modal de resolver un exceso de km
+        proyectado (cambiar el coche a alguien que ruede menos).
+
+        La media de cada conductor es la SUMA de las medias mensuales observadas
+        de los vehículos que lleva ahora (la misma proyección de la ficha,
+        HU-3.4); sin coche o sin datos suficientes va como `null`, que para este
+        caso son los mejores candidatos. Solo admin: es la antesala de
+        `set-driver`, que también lo es.
+        """
+        from django.contrib.auth import get_user_model
+
+        from .selectors import current_driver_map
+
+        vehicle = self.get_object()
+        fleet_ids = list(vehicles_for(request.user).values_list("id", flat=True))
+        driver_map = current_driver_map(fleet_ids)  # vehículo → conductor vigente
+        by_driver: dict[int, list[int]] = {}
+        for vid, drv in driver_map.items():
+            by_driver.setdefault(drv.pk, []).append(vid)
+
+        # Solo hacen falta las métricas de los vehículos implicados (los que ya
+        # llevan los candidatos y el del aviso), no las de toda la flota.
+        involved = {vid for vids in by_driver.values() for vid in vids} | {vehicle.pk}
+        summaries = {
+            s["vehicle"]: s for s in metrics.vehicle_summaries(request.user, list(involved))
+        }
+
+        def monthly_avg(vid: int) -> int | None:
+            projection = (summaries.get(vid) or {}).get("projection")
+            return projection["monthly_avg"] if projection else None
+
+        current = driver_map.get(vehicle.pk)
+        candidates = []
+        for person in (
+            get_user_model()
+            .objects.filter(is_active=True, roles__role=Role.DRIVER)
+            .distinct()
+            .order_by("first_name", "last_name", "username")
+        ):
+            if current is not None and person.pk == current.pk:
+                continue
+            vids = [vid for vid in by_driver.get(person.pk, []) if vid in summaries]
+            averages = [avg for avg in (monthly_avg(vid) for vid in vids) if avg is not None]
+            candidates.append(
+                {
+                    "id": person.pk,
+                    "name": person.get_full_name() or person.username,
+                    "vehicles": [{"id": vid, "plate": summaries[vid]["plate"]} for vid in vids],
+                    "monthly_avg": sum(averages) if averages else None,
+                }
+            )
+        # Sin datos primero (no ruedan o no se les puede medir), luego de menos a más.
+        candidates.sort(key=lambda c: (c["monthly_avg"] is not None, c["monthly_avg"] or 0))
+
+        return Response(
+            {
+                "vehicle": {
+                    "id": vehicle.pk,
+                    "plate": vehicle.plate,
+                    "monthly_avg": monthly_avg(vehicle.pk),
+                    "driver": (
+                        {"id": current.pk, "name": current.get_full_name() or current.username}
+                        if current
+                        else None
+                    ),
+                },
+                "candidates": candidates,
             }
         )
 
@@ -1177,8 +1388,9 @@ class InvoiceAllocationViewSet(
 class DocumentPermission(BasePermission):
     """Lee/crea gestión o conductor; edita/borra solo gestión.
 
-    El conductor sube documentos de su vehículo (HU-4.1); la gestión los
-    administra (HU-4.4). El scoping por vehículo lo aplica el queryset.
+    El conductor sube documentos de su vehículo (HU-4.1) y los suyos personales
+    (permiso de conducir); la gestión los administra (HU-4.4). El scoping por
+    vehículo/usuario lo aplica el queryset.
     """
 
     message = "No tienes permiso para esta operación sobre documentos."
@@ -1203,27 +1415,130 @@ class IncidentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.M
     # documentos — es la misma superficie expuesta a la red abierta.
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
-    queryset = Incident.objects.select_related("vehicle")
+    queryset = Incident.objects.select_related("vehicle", "accident_report").prefetch_related(
+        "accident_report__third_parties", "accident_report__injured"
+    )
     filterset_fields = ["vehicle", "type", "status"]
     ordering_fields = ["date", "created_at"]
 
+    @action(detail=True, methods=["post"], permission_classes=[IsManagement])
+    def report(self, request, pk=None):
+        """POST /api/v1/incidents/{id}/report/ — añade una actualización a la
+        incidencia (sello de fecha y autor en la descripción) y, opcionalmente,
+        cambia el estado. Es el parte rápido del supervisor desde la app de
+        campo; el sello lo pone el servidor para que la autoría no se falsee.
+        """
+        incident = self.get_object()
+        text = (request.data.get("text") or "").strip()
+        new_status = (request.data.get("status") or "").strip()
+        if not text and not new_status:
+            raise ValidationError({"text": "La actualización no puede estar vacía."})
+        if new_status and new_status not in IncidentStatus.values:
+            raise ValidationError({"status": "Estado no válido."})
+        if text:
+            author = request.user.get_full_name() or request.user.get_username()
+            note = f"[{timezone.localdate().isoformat()} · {author}] {text}"
+            incident.description = f"{incident.description}\n\n{note}".strip()
+        if new_status:
+            incident.status = new_status
+        incident.save()
+        return Response(self.get_serializer(incident).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsManagement])
+    def manage(self, request, pk=None):
+        """POST /api/v1/incidents/{id}/manage/ — fase 2 del ciclo de una
+        incidencia (avería, mantenimiento, neumáticos…): la GESTIÓN. Guarda el
+        código postal de la ubicación preferente desde la que se buscará el
+        taller más cercano y deja la incidencia EN CURSO.
+        """
+        incident = self.get_object()
+        postal_code = (request.data.get("workshop_postal_code") or "").strip()
+        if not postal_code.isdigit() or len(postal_code) != 5:
+            raise ValidationError(
+                {"workshop_postal_code": "Indica un código postal de 5 cifras."}
+            )
+        incident.workshop_postal_code = postal_code
+        incident.status = IncidentStatus.IN_PROGRESS
+        incident.save()
+        return Response(self.get_serializer(incident).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsManagement])
+    def resolve(self, request, pk=None):
+        """POST /api/v1/incidents/{id}/resolve/ — fase 3 del ciclo: la
+        SOLUCIÓN. Guarda el sobrecoste, las observaciones y el tiempo que el
+        vehículo estuvo parado en `details.resolution`, y CIERRA la incidencia.
+        Todos los datos son opcionales: cerrar sin sobrecoste también es cerrar.
+        """
+        incident = self.get_object()
+        resolution: dict = {}
+        overcost = request.data.get("overcost")
+        if overcost not in (None, ""):
+            try:
+                resolution["overcost"] = str(Decimal(str(overcost)))
+            except ArithmeticError as exc:
+                raise ValidationError({"overcost": "Sobrecoste no válido."}) from exc
+        observations = (request.data.get("observations") or "").strip()
+        if observations:
+            resolution["observations"] = observations
+        downtime = request.data.get("downtime_days")
+        if downtime not in (None, ""):
+            try:
+                resolution["downtime_days"] = int(downtime)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError({"downtime_days": "Tiempo no válido."}) from exc
+        details = incident.details or {}
+        details["resolution"] = resolution
+        incident.details = details
+        incident.status = IncidentStatus.CLOSED
+        incident.save()
+        return Response(self.get_serializer(incident).data)
+
 
 class DocumentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
-    """Documentos del vehículo. El conductor sube los de su vehículo (HU-4.1)."""
+    """Documentos del vehículo o PERSONALES de un usuario (permiso de conducir).
+
+    El conductor sube los de su vehículo (HU-4.1) y los suyos propios; el
+    titular es un vehículo O un usuario, nunca ambos (lo valida el serializer).
+    """
 
     serializer_class = DocumentSerializer
     permission_classes = [DocumentPermission]
     # Front público (internet): acota la subida de documentos del conductor.
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
-    queryset = Document.objects.select_related("vehicle", "incident", "uploaded_by")
-    filterset_fields = ["vehicle", "type", "status", "incident"]
+    queryset = Document.objects.select_related("vehicle", "user", "incident", "uploaded_by")
+    filterset_fields = ["vehicle", "user", "type", "status", "incident"]
     ordering_fields = ["created_at", "expiry_date"]
+
+    def scope_queryset(self, qs, user):
+        # Además de los documentos de los vehículos del ámbito, cada uno ve los
+        # PERSONALES que le tocan: los suyos y, el supervisor, los de sus
+        # conductores en curso (`users_for`).
+        vehicle_ids = vehicles_for(user).values_list("id", flat=True)
+        user_ids = users_for(user).values_list("id", flat=True)
+        return qs.filter(models.Q(vehicle_id__in=vehicle_ids) | models.Q(user_id__in=user_ids))
+
+    def _assert_user_in_scope(self, serializer) -> None:
+        # SEC1 para el titular PERSONA: un conductor solo se sube documentos a
+        # sí mismo; un supervisor, a sí mismo o a sus conductores en curso.
+        request_user = self.request.user
+        if request_user.is_admin:
+            return
+        target = serializer.validated_data.get("user")
+        if target is None:
+            return
+        if not users_for(request_user).filter(pk=target.pk).exists():
+            raise PermissionDenied("El usuario está fuera de tu ámbito.")
+
+    def perform_update(self, serializer):
+        self._assert_user_in_scope(serializer)
+        super().perform_update(serializer)
 
     def extra_create_kwargs(self) -> dict:
         return {"uploaded_by": self.request.user}
 
     def perform_create(self, serializer):
+        self._assert_user_in_scope(serializer)
         # PR3: el archivado hace I/O de red (hasta >90 s con reintentos) — se
         # dispara en on_commit, FUERA de la transacción. Hasta entonces el
         # documento nace `pendiente_archivar` (estado veraz en la respuesta);
@@ -1286,9 +1601,13 @@ class AlertViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
     def resolve(self, request, pk=None):
-        """POST /api/alerts/{id}/resolve/ — marca la alerta como resuelta."""
+        """POST /api/alerts/{id}/resolve/ — marca la alerta como resuelta.
+
+        Admite `note` opcional (qué se hizo): queda en la bandeja de resueltas.
+        """
         alert = self.get_object()
-        alert.close(status=AlertStatus.RESOLVED, by=request.user)
+        note = str(request.data.get("note", "") or "").strip()[:255]
+        alert.close(status=AlertStatus.RESOLVED, by=request.user, note=note)
         return Response(self.get_serializer(alert).data)
 
 
@@ -1488,13 +1807,21 @@ class VehicleSummariesView(APIView):
 
 
 class ReportsView(APIView):
-    """GET /api/reports/?kind=&fmt= — descarga un informe (Excel/CSV).
+    """GET /api/reports/?kind=&fmt=&<filtros> — descarga un informe (Excel/CSV).
 
-    `kind` ∈ `reports.REPORT_KINDS` (los siete de la pantalla de Informes) y
-    `fmt` ∈ {xlsx, csv}. (Se usa `fmt` y no `format`, que DRF reserva para la
-    negociación de contenido.) Los envíos programados usan el mismo servicio,
-    pero solo en CSV. Acotado por rol: el admin exporta toda la flota; el
-    supervisor solo su grupo.
+    `kind` ∈ `reports.REPORT_KINDS` (`vehicles` es el documento completo, una
+    hoja por bloque) y `fmt` ∈ {xlsx, csv}. (Se usa `fmt` y no `format`, que DRF
+    reserva para la negociación de contenido.) Admite además los filtros del
+    informe pedido (`reports.REPORT_FILTERS[kind]`) como query params; el resto
+    se ignora. Los envíos programados usan el mismo servicio, pero solo en CSV.
+    Acotado por rol: el admin exporta toda la flota; el supervisor solo su grupo.
+
+    `fmt=json` no descarga: devuelve las MISMAS tablas del documento (título,
+    cabeceras y filas) para la vista previa de Descargas — lo que se ve es
+    exactamente lo que se baja, generado por el mismo código. `fmt=columns`
+    (solo `kind=vehicles`) tampoco: devuelve qué columnas aporta cada bloque
+    (resumen del súper registro + hoja de detalle) para la ayuda «?» del
+    selector de campos.
     """
 
     permission_classes = [IsManagement]
@@ -1508,12 +1835,39 @@ class ReportsView(APIView):
                 {"detail": f"Informe desconocido: {kind}. Válidos: {valid}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if fmt not in reports.FORMATS:
+        if fmt not in ("json", "columns") and fmt not in reports.FORMATS:
             return Response(
                 {"detail": f"Formato no soportado: {fmt}. Válidos: {', '.join(reports.FORMATS)}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        filename, content_type, payload = reports.render(kind, request.user, fmt)
+        if fmt == "columns":
+            if kind != "vehicles":
+                return Response(
+                    {"detail": "fmt=columns solo aplica al documento completo de vehículos."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return Response({"sections": reports.vehicle_report_columns(request.user)})
+        # Solo las claves que el informe declara: mismas que valida un envío
+        # programado, para que la descarga a mano y lo programado coincidan.
+        filters = {
+            key: request.query_params.get(key, "") for key in reports.REPORT_FILTERS.get(kind, ())
+        }
+        # `fields` es el selector de secciones del documento completo (columnas
+        # del súper registro + hojas de detalle). Solo en la descarga a mano:
+        # los envíos programados van SIEMPRE completos (no está en REPORT_FILTERS).
+        if kind == "vehicles":
+            filters["fields"] = request.query_params.get("fields", "")
+        if fmt == "json":
+            tables = reports.build_report(kind, request.user, filters)
+            return Response(
+                {
+                    "tables": [
+                        {"title": title, "headers": headers, "rows": rows}
+                        for title, headers, rows in tables
+                    ]
+                }
+            )
+        filename, content_type, payload = reports.render(kind, request.user, fmt, filters)
         response = HttpResponse(payload, content_type=content_type)
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
@@ -1581,6 +1935,131 @@ class CompanyViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     search_fields = ["code", "name", "description"]
 
 
+class FuelTypeViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
+    """GAP-1: catálogo de combustibles (lista HSE de factores de emisión)."""
+
+    queryset = FuelType.objects.all()
+    serializer_class = FuelTypeSerializer
+    permission_classes = [AdminWriteManagementRead]
+    search_fields = ["name"]
+
+
+class SiteViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
+    """GAP-4: catálogo de sedes/oficinas."""
+
+    queryset = Site.objects.all()
+    serializer_class = SiteSerializer
+    permission_classes = [AdminWriteManagementRead]
+    search_fields = ["name"]
+
+
+class WorkshopViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
+    """Catálogo de talleres y estaciones de ITV (dónde se cita el vehículo).
+
+    Lo lee también el CONDUCTOR: al lanzar una avería desde la app de campo
+    elige el taller en la fase de gestión, y el desplegable sale de aquí.
+    """
+
+    queryset = Workshop.objects.all()
+    serializer_class = WorkshopSerializer
+    permission_classes = [AdminWriteManagementOrDriverRead]
+    filterset_fields = ["kind"]
+    search_fields = ["name", "address", "postal_code"]
+
+
+class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
+    """GAP-2: consumo mensual de combustible.
+
+    Lo escribe la gestión (viene del extracto de la tarjeta, no del conductor);
+    la lectura queda acotada por el ámbito del rol como todo lo demás.
+    """
+
+    serializer_class = FuelConsumptionSerializer
+    permission_classes = [AdminWriteManagementRead]
+    queryset = FuelConsumption.objects.select_related("vehicle")
+    filterset_fields = {"vehicle": ["exact"], "period": ["exact", "gte", "lte"]}
+    ordering_fields = ["period", "liters"]
+    ordering = ["-period"]
+
+
+class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
+    """GAP-8: planes de mantenimiento preventivo (los vigila `check_maintenance`)."""
+
+    serializer_class = MaintenancePlanSerializer
+    permission_classes = [AdminWriteManagementRead]
+    queryset = MaintenancePlan.objects.select_related("vehicle")
+    filterset_fields = ["vehicle"]
+    search_fields = ["name", "vehicle__plate"]
+
+    @action(detail=True, methods=["post"], permission_classes=[IsManagement])
+    def done(self, request, pk=None):
+        """POST /api/v1/maintenance-plans/{id}/done/ — marca el plan como
+        realizado: reancla el ciclo (fecha dada o hoy y, si cicla por km, la
+        lectura dada o la última conocida) y RESUELVE las alertas de
+        mantenimiento abiertas del vehículo. Es el gesto de campo de «ya se
+        pasó la revisión» (gestión; supervisor solo su grupo) — editar el plan
+        sigue siendo de admin (`AdminWriteManagementRead`).
+
+        Admite `cost` (lo que costó el servicio) y `note` (qué se hizo). El
+        coste no tiene sitio en el plan: queda como incidencia de mantenimiento
+        CERRADA con la fecha y el km del servicio, que es donde viven los costes
+        de taller. La nota viaja al cierre de las alertas (`resolution_note`)."""
+        plan = self.get_object()
+        note = str(request.data.get("note", "") or "").strip()[:255]
+        cost = None
+        raw_cost = request.data.get("cost")
+        if raw_cost not in (None, ""):
+            try:
+                cost = Decimal(str(raw_cost))
+            except ArithmeticError as exc:
+                raise ValidationError({"cost": "Coste no válido."}) from exc
+            if cost < 0:
+                raise ValidationError({"cost": "El coste no puede ser negativo."})
+        plan.last_done_date = (
+            parse_date(str(request.data.get("date") or "")) or timezone.localdate()
+        )
+        if plan.every_km:
+            km = request.data.get("km")
+            if km in (None, ""):
+                latest = (
+                    KmReading.objects.filter(
+                        vehicle=plan.vehicle, km_reading__isnull=False, is_active=True
+                    )
+                    .order_by("-reading_date", "-id")
+                    .first()
+                )
+                km = latest.km_reading if latest else plan.last_done_km
+            try:
+                plan.last_done_km = int(km)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError({"km": "Kilometraje no válido."}) from exc
+        plan.save()
+        if cost is not None:
+            description = f"Mantenimiento realizado: {plan.name}."
+            if note:
+                description += f" {note}"
+            Incident.objects.create(
+                vehicle=plan.vehicle,
+                type=IncidentType.MAINTENANCE,
+                date=plan.last_done_date,
+                description=description,
+                mileage=plan.last_done_km,
+                status=IncidentStatus.CLOSED,
+                cost=cost,
+            )
+        # Lo que avisaba de este mantenimiento se cierra: el del motor (por km
+        # o por fecha) y los recordatorios manuales del supervisor.
+        closed = 0
+        for alerta in Alert.objects.filter(
+            vehicle=plan.vehicle, type=AlertType.MAINTENANCE_DUE, status=AlertStatus.OPEN
+        ):
+            alerta.close(status=AlertStatus.RESOLVED, by=request.user, note=note)
+            closed += 1
+        data = self.get_serializer(plan).data
+        data["alerts_resolved"] = closed
+        return Response(data)
+
+
 class CatalogsBundleView(APIView):
     """GET /api/v1/catalogs/ — los catálogos del alta de vehículo en UNA respuesta.
 
@@ -1623,6 +2102,11 @@ class CatalogsBundleView(APIView):
                 "companies": CompanySerializer(
                     Company.objects.filter(is_active=True), many=True
                 ).data,
+                # GAP-1/GAP-4: combustibles y sedes, también en el alta.
+                "fuel-types": FuelTypeSerializer(
+                    FuelType.objects.filter(is_active=True), many=True
+                ).data,
+                "sites": SiteSerializer(Site.objects.filter(is_active=True), many=True).data,
             }
         )
 

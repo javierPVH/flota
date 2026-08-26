@@ -5,7 +5,7 @@ import { RequireAuth } from './auth.ts'
 import { AccessGate } from './components/AccessGate.tsx'
 import { Layout } from './components/Layout.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
-import { MyVehiclesPage } from './pages/MyVehiclesPage.tsx'
+import { HomePage } from './pages/HomePage.tsx'
 
 // M7: rutas secundarias en chunks propios (presupuesto de JS móvil). Login y
 // "Mis vehículos" van en el bundle principal: son la primera pintura.
@@ -64,7 +64,7 @@ export default function App() {
             </RequireAuth>
           }
         >
-          <Route path="/" element={<MyVehiclesPage />} />
+          <Route path="/" element={<HomePage />} />
           <Route path="/vehiculos/:id" element={<VehicleFieldPage />} />
           <Route path="/registrar" element={<RegisterKmPage />} />
           <Route path="/alertas" element={<AlertsPage />} />

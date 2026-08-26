@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -245,15 +245,155 @@ describe('AlertsPage (bandeja de alertas)', () => {
     expect(screen.queryByRole('note')).not.toBeInTheDocument()
   })
 
-  it('resolver una alerta la cierra por la única vía que queda', async () => {
+  it('resolver abre su modal y cierra la alerta con la nota escrita', async () => {
     const resolveAlert = vi.fn().mockResolvedValue({})
     const api = await import('../api.ts')
     vi.spyOn(api, 'resolveAlert').mockImplementation(resolveAlert)
-    mocks.listAlerts.mockResolvedValue(page([alert({})]))
+    mocks.listAlerts.mockResolvedValue(
+      page([alert({ type: 'no_driver', type_display: 'Vehículo sin conductor' })]),
+    )
     renderPage()
+    // El botón de la fila ya no cierra: abre el modal de resolver.
     await userEvent.click(await screen.findByRole('button', { name: 'Resolver' }))
-    expect(resolveAlert).toHaveBeenCalledWith(1)
+    expect(resolveAlert).not.toHaveBeenCalled()
+    await userEvent.type(
+      screen.getByPlaceholderText(/taller avisado/i),
+      'Taller avisado',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Resolver alerta' }))
+    expect(resolveAlert).toHaveBeenCalledWith(1, 'Taller avisado')
     const [row] = await screen.findAllByRole('status')
     expect(within(row).getByText(/resuelta/i)).toBeInTheDocument()
+  })
+
+  it('en ITV, resolver abre directamente el modal de Registrar ITV', async () => {
+    mocks.listAlerts.mockResolvedValue(page([alert({})]))
+    renderPage()
+    // La fila ya no lleva su propio «Registrar ITV»: solo queda el de la barra.
+    await screen.findByRole('button', { name: 'Resolver' })
+    expect(screen.getAllByRole('button', { name: 'Registrar ITV' })).toHaveLength(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Resolver' }))
+    // Es el modal de ITV (resultado + registrar), no el de la nota.
+    expect(screen.getByRole('combobox', { name: 'Resultado' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Registrar' })).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/taller avisado/i)).not.toBeInTheDocument()
+    // Con el vehículo del aviso ya elegido.
+    expect(screen.getByRole('combobox', { name: 'Vehículo' })).toHaveValue('21')
+  })
+
+  it('la lectura pendiente se resuelve registrando la lectura', async () => {
+    const api = await import('../api.ts')
+    const createKmReading = vi.spyOn(api, 'createKmReading').mockResolvedValue({} as never)
+    const resolveAlert = vi.spyOn(api, 'resolveAlert').mockResolvedValue({} as never)
+    mocks.listAlerts.mockResolvedValue(
+      page([alert({ type: 'km_reading_pending', type_display: 'Lectura de km pendiente' })]),
+    )
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Resolver' }))
+    // La lectura es obligatoria: sin ella no se llama a nada.
+    await userEvent.type(screen.getByRole('spinbutton'), '45200')
+    await userEvent.click(screen.getByRole('button', { name: 'Registrar lectura y resolver' }))
+    expect(createKmReading).toHaveBeenCalledWith(
+      expect.objectContaining({ vehicle: 21, km_reading: 45200 }),
+    )
+    expect(resolveAlert).toHaveBeenCalledWith(1, '')
+  })
+
+  it('el exceso de km ofrece candidatos con menos media y cambia el conductor', async () => {
+    const api = await import('../api.ts')
+    vi.spyOn(api, 'fetchDriverCandidates').mockResolvedValue({
+      vehicle: {
+        id: 21,
+        plate: '1234KLM',
+        monthly_avg: 3200,
+        driver: { id: 5, name: 'Carlos Ruiz' },
+      },
+      candidates: [
+        { id: 11, name: 'Pedro Libre', vehicles: [], monthly_avg: null },
+        { id: 9, name: 'Laura Lenta', vehicles: [{ id: 30, plate: '9999ZZZ' }], monthly_avg: 700 },
+      ],
+    })
+    const setVehicleDriver = vi.spyOn(api, 'setVehicleDriver').mockResolvedValue({} as never)
+    const resolveAlert = vi.spyOn(api, 'resolveAlert').mockResolvedValue({} as never)
+    mocks.listAlerts.mockResolvedValue(
+      page([alert({ type: 'km_overage', type_display: 'Exceso de km proyectado' })]),
+    )
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Resolver' }))
+
+    // La media actual del coche y los candidatos, con la suya en la etiqueta.
+    expect(await screen.findByText(/Media mensual del coche/)).toBeInTheDocument()
+    const select = screen.getByRole('combobox', { name: 'Nuevo conductor' })
+    expect(within(select).getByText(/Pedro Libre · sin coche/)).toBeInTheDocument()
+    await userEvent.selectOptions(select, '9')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cambiar conductor y resolver' }))
+    expect(setVehicleDriver).toHaveBeenCalledWith(21, { driver: 9 })
+    // Sin nota escrita, el histórico registra al menos el cambio de manos.
+    expect(resolveAlert).toHaveBeenCalledWith(1, 'Cambio de conductor: Carlos Ruiz → Laura Lenta.')
+  })
+
+  it('el mantenimiento se resuelve registrando el servicio en su plan', async () => {
+    const api = await import('../api.ts')
+    vi.spyOn(api, 'listMaintenancePlans').mockResolvedValue(
+      page([
+        {
+          id: 4,
+          vehicle: 21,
+          vehicle_plate: '1234KLM',
+          name: 'Revisión general',
+          every_km: 30000,
+          every_months: 12,
+          last_done_date: '2025-06-01',
+          last_done_km: 10000,
+          notes: '',
+          created_at: '',
+          updated_at: '',
+        },
+      ]) as never,
+    )
+    const done = vi.spyOn(api, 'maintenancePlanDone').mockResolvedValue({} as never)
+    mocks.listAlerts.mockResolvedValue(
+      page([alert({ type: 'maintenance_due', type_display: 'Mantenimiento programado' })]),
+    )
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Resolver' }))
+
+    // El plan viene preseleccionado; el servicio lleva coste y nota.
+    expect(await screen.findByRole('combobox', { name: 'Plan de mantenimiento' })).toHaveValue('4')
+    const [, cost] = screen.getAllByRole('spinbutton') // [km del servicio, coste]
+    await userEvent.type(cost, '180.5')
+    await userEvent.type(screen.getByPlaceholderText(/taller avisado/i), 'Hecho en taller')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Registrar mantenimiento y resolver' }),
+    )
+    expect(done).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({ cost: '180.5', note: 'Hecho en taller' }),
+    )
+  })
+
+  it('el aviso de seguro permite mandar el correo a la renting desde resolver', async () => {
+    const api = await import('../api.ts')
+    vi.spyOn(api, 'noticePreviewVehicle').mockResolvedValue({
+      subject: 'Aviso de seguro',
+      body_html: '<p>vence</p>',
+      has_template: true,
+      has_en: true,
+    })
+    mocks.listAlerts.mockResolvedValue(
+      page([alert({ type: 'insurance_due', type_display: 'Seguro próximo / vencido' })]),
+    )
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Resolver' }))
+
+    // El atajo del tipo: abre el modal de correo con la renting premarcada.
+    await userEvent.click(screen.getByRole('button', { name: 'Mandar correo a la renting' }))
+    expect(await screen.findByRole('checkbox', { name: 'Empresa de renting' })).toBeChecked()
+    // Y el modal de resolver se retira (tras su animación de salida).
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText(/taller avisado/i)).not.toBeInTheDocument(),
+    )
   })
 })

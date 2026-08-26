@@ -100,6 +100,7 @@ Enum assignment_state_enum {
 Enum link_reason_enum {
   breakdown
   maintenance
+  tires        // GAP-6
   inspection
   accident
 }
@@ -139,6 +140,7 @@ Enum document_type_enum {
   return_report
   accident_report
   damage_photos
+  driving_license
   other
 }
 
@@ -151,6 +153,7 @@ Enum document_status_enum {
 Enum incident_type_enum {
   breakdown
   maintenance
+  tires        // GAP-6: cambio de neumáticos
   inspection
   accident
 }
@@ -167,6 +170,7 @@ Enum alert_type_enum {
   km_reading_pending
   km_overage
   no_driver
+  maintenance_due // GAP-8: mantenimiento preventivo próximo/vencido
 }
 
 Enum alert_level_enum {
@@ -186,14 +190,6 @@ Enum vehicle_request_status_enum {
   assigned
   rejected
   closed
-}
-
-Enum fuel_enum {
-  gasoline
-  diesel
-  LPG
-  hybrid
-  other
 }
 
 Enum email_template_key_enum {
@@ -309,6 +305,35 @@ Table companies {
   Note: 'N5: sociedad titular del vehículo.'
 }
 
+Table fuel_types {
+  id int [pk, increment]
+  name varchar [not null, unique]
+  co2_factor decimal [note: 'kg CO₂ por litro/kWh — litros × factor = emisiones']
+  Note: 'GAP-1: combustible por catálogo (lista HSE de factores de emisión); sustituye al fuel_enum.'
+}
+
+Table sites {
+  id int [pk, increment]
+  name varchar [not null, unique]
+  Note: 'GAP-4: sede/oficina — la ubicación del vehículo cuando no está en obra.'
+}
+
+Table workshops {
+  id int [pk, increment]
+  name varchar [not null, unique]
+  kind workshop_kind_enum [not null, default: 'workshop']
+  address varchar
+  postal_code varchar
+  phone varchar
+  Note: 'Talleres y estaciones de ITV: dónde se cita el vehículo (revisión, ruedas, ITV).'
+}
+
+enum workshop_kind_enum {
+  workshop [note: 'Taller']
+  itv [note: 'Estación ITV']
+  both [note: 'Taller + ITV']
+}
+
 // ---------------------------------------------------------------------------
 // Vehículo (entidad central)
 // ---------------------------------------------------------------------------
@@ -331,7 +356,10 @@ Table vehicles {
   country_id int [ref: > country.id]
   project_id int [ref: > projects.id, note: 'obligatorio si business_use=on_project']
   cost_center_id int [ref: > pep.id, note: 'CECO de imputación']
-  fuel fuel_enum
+  fuel varchar [note: 'GAP-1: legado denormalizado, se rellena desde fuel_ref (antes fuel_enum)']
+  fuel_ref_id int [ref: > fuel_types.id, note: 'GAP-1: combustible por catálogo (PROTECT)']
+  fuel_card boolean [not null, default: false, note: 'GAP-3: ¿reposta con tarjeta de combustible?']
+  site_id int [ref: > sites.id, note: 'GAP-4: sede cuando no está en obra; cambiarla emite event_location_changes']
   type type_enum
   size size_enum
   market_segment market_segment_enum
@@ -353,6 +381,28 @@ Table vehicles {
     insurance_expiry_date
   }
   Note: 'El conductor NO es un campo directo: va por assignments. supervisor_id es el responsable (opcional).'
+}
+
+Table fuel_consumptions {
+  id int [pk, increment]
+  vehicle_id int [not null, ref: > vehicles.id]
+  period date [not null, note: 'siempre día 1: la fila es EL MES']
+  liters decimal [not null]
+  amount decimal [note: 'importe €, si el extracto lo trae']
+  source varchar [not null, note: 'fuel_card | manual | import']
+  Note: 'GAP-2: serie mensual de litros por vehículo (dato de actividad del informe de emisiones). Única por (vehicle, period) entre filas vivas.'
+}
+
+Table maintenance_plans {
+  id int [pk, increment]
+  vehicle_id int [not null, ref: > vehicles.id]
+  name varchar [not null]
+  every_km int [note: 'ciclo por km (ancla: last_done_km)']
+  every_months int [note: 'ciclo por meses (ancla: last_done_date)']
+  last_done_date date
+  last_done_km int
+  notes text
+  Note: 'GAP-8: mantenimiento preventivo; lo vigila check_maintenance con alertas maintenance_due.'
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +504,7 @@ Table event_itvs {
   event_id int [pk, ref: - events.id]
   result varchar [note: "'done' / 'not done'"]
   next_due date [note: 'al registrarse cierra las alertas de ITV del vehículo (HU-5.1)']
+  cost decimal [note: 'coste de la inspección (opcional; lo pide el modal de resolver)']
 }
 
 Table event_project_changes {
@@ -517,11 +568,55 @@ Table incidents {
   cost decimal
 }
 
+// Parte de accidente materializado desde `Incident.details` (report_version=1;
+// el mismo parte guiado de la PWA y de gestión) — ver services/accidents.py.
+Table accident_reports {
+  id int [pk, increment]
+  incident_id int [not null, unique, ref: - incidents.id]
+  street varchar [not null]
+  street_number varchar
+  postal_code varchar
+  locality varchar [not null]
+  province varchar
+  occurred_at datetime [not null]
+  phone varchar
+  police_report_ref varchar [note: 'referencia del atestado']
+}
+
+Table accident_third_parties {
+  id int [pk, increment]
+  report_id int [not null, ref: > accident_reports.id]
+  name varchar
+  plate varchar
+  brand varchar
+  model varchar
+  phone varchar
+  insurance_company varchar
+  policy_number varchar
+  damage_description text
+}
+
+Enum accident_seat_enum {
+  driver
+  passenger
+}
+
+Table accident_injured {
+  id int [pk, increment]
+  report_id int [not null, ref: > accident_reports.id]
+  name varchar
+  phone varchar
+  email varchar
+  plate varchar
+  seat accident_seat_enum [not null, default: 'driver']
+}
+
 Table documents {
   id int [pk, increment]
-  vehicle_id int [not null, ref: > vehicles.id]
+  vehicle_id int [ref: > vehicles.id, note: 'titular coche — XOR con user_id (constraint)']
+  user_id int [ref: > drivers.id, note: 'titular persona (permiso de conducir…) — XOR con vehicle_id']
   type document_type_enum [not null]
-  incident_id int [ref: > incidents.id, note: 'documento ligado a incidencia (acta/parte/fotos)']
+  incident_id int [ref: > incidents.id, note: 'documento ligado a incidencia (acta/parte/fotos); solo con titular coche']
   drive_url varchar [note: 'webViewLink en Google Drive (Fase A3)']
   drive_file_id varchar [note: 'ID del fichero en Drive (Picker o archivador)']
   file varchar [note: 'staging local del multipart (Fase A1); se borra al archivar en Drive']
@@ -533,6 +628,7 @@ Table documents {
 
   indexes {
     (vehicle_id, status)
+    (user_id, status)
   }
 }
 
@@ -551,6 +647,7 @@ Table alerts {
   dedup_key varchar [not null, unique, note: 'idempotencia de los jobs: no duplica avisos abiertos']
   resolved_at datetime
   resolved_by_id int [ref: > drivers.id]
+  resolution_note varchar [note: 'qué se hizo al resolverla (solo la escribe la acción resolve)']
 
   indexes {
     (type, status)

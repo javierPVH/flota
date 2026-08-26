@@ -23,6 +23,7 @@ import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
 import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleForm } from '../components/VehicleForm.tsx'
 import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
+import { AccidentModal } from '../components/AccidentModal.tsx'
 import { VehicleStateModal } from '../components/VehicleStateModal.tsx'
 import { useVehicleActions } from '../components/useVehicleActions.tsx'
 import { ColumnsPicker } from '../components/ColumnsPicker.tsx'
@@ -144,6 +145,7 @@ export function VehiclesPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [opsVehicle, setOpsVehicle] = useState<Vehicle | null>(null)
+  const [accidentVehicle, setAccidentVehicle] = useState<Vehicle | null>(null)
   // Botones de Acciones: correo agrupado, conductor/supervisor, facturas.
   const [emailVehicle, setEmailVehicle] = useState<Vehicle | null>(null)
   const [driverVehicle, setDriverVehicle] = useState<Vehicle | null>(null)
@@ -433,6 +435,7 @@ export function VehiclesPage() {
     onDriver: setDriverVehicle,
     onInvoices: setInvoicesVehicle,
     onOps: setOpsVehicle,
+    onAccident: setAccidentVehicle,
     activeMainOfSub,
     onDone: load,
     onError: setError,
@@ -696,6 +699,22 @@ export function VehiclesPage() {
             allVehicles={vehicles}
             links={links}
             onClose={() => setOpsVehicle(null)}
+            onDone={load}
+          />
+        )}
+      </Modal>
+
+      {/* Comunicación de accidente: el parte guiado (terceros, lesionados…). */}
+      <Modal
+        open={Boolean(accidentVehicle)}
+        title={accidentVehicle ? t.accident.title(accidentVehicle.plate) : ''}
+        onClose={() => setAccidentVehicle(null)}
+        wide
+      >
+        {accidentVehicle && (
+          <AccidentModal
+            vehicle={accidentVehicle}
+            onClose={() => setAccidentVehicle(null)}
             onDone={load}
           />
         )}

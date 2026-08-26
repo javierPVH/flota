@@ -13,7 +13,6 @@ from .invoice import AllocationTarget
 from .operations import AssignmentStatus, LinkReason
 from .request import VehicleRequestStatus
 from .vehicle import (
-    Fuel,
     MarketSegment,
     PropertyType,
     UseType,
@@ -31,7 +30,6 @@ __all__ = [
     "VehUse",
     "PropertyType",
     "UseType",
-    "Fuel",
     "AssignmentStatus",
     "LinkReason",
     "EventType",

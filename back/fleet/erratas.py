@@ -31,18 +31,23 @@ from .models import (
     Document,
     EmailSignature,
     EmailTemplate,
+    FuelConsumption,
+    FuelType,
     Incident,
     Invoice,
     InvoiceAllocation,
     KmReading,
+    MaintenancePlan,
     Pep,
     Project,
     Renting,
+    Site,
     Vehicle,
     VehicleLink,
     VehicleModel,
     VehicleRequest,
     VehicleUsage,
+    Workshop,
 )
 from .models.enums import VehicleState
 
@@ -108,8 +113,17 @@ DEACTIVATABLE: dict[str, ErrataType] = {
         ("requester",),
         ("jira_key", "requester__username", "requester__first_name", "requester__last_name"),
     ),
-    "documents": ErrataType(Document, "Documentos", ("vehicle",), ("vehicle__plate",)),
+    "documents": ErrataType(
+        Document, "Documentos", ("vehicle", "user"), ("vehicle__plate", "user__username")
+    ),
     "incidents": ErrataType(Incident, "Incidencias", ("vehicle",), ("vehicle__plate",)),
+    # GAP-2/GAP-8: consumos y planes de mantenimiento, desactivables como todo.
+    "fuel-consumptions": ErrataType(
+        FuelConsumption, "Consumos de combustible", ("vehicle",), ("vehicle__plate",)
+    ),
+    "maintenance-plans": ErrataType(
+        MaintenancePlan, "Planes de mantenimiento", ("vehicle",), ("name", "vehicle__plate")
+    ),
     "invoices": ErrataType(Invoice, "Facturas", ("vehicle",), ("code", "vehicle__plate")),
     "invoice-allocations": ErrataType(
         InvoiceAllocation,
@@ -125,6 +139,10 @@ DEACTIVATABLE: dict[str, ErrataType] = {
     "peps": ErrataType(Pep, "PEP / CECO", (), ("code", "name")),
     "business-units": ErrataType(BusinessUnit, "Unidades de negocio", (), ("code", "name")),
     "countries": ErrataType(Country, "Países", (), ("name",)),
+    # GAP-1/GAP-4: catálogos de combustible y sedes.
+    "fuel-types": ErrataType(FuelType, "Tipos de combustible", (), ("name",)),
+    "sites": ErrataType(Site, "Sedes", (), ("name",)),
+    "workshops": ErrataType(Workshop, "Talleres e ITV", (), ("name", "address", "postal_code")),
     # A2: sin esto, una plantilla/firma "borrada" era irrecuperable por API.
     "email-templates": ErrataType(EmailTemplate, "Plantillas de correo", (), ("key",)),
     "email-signatures": ErrataType(EmailSignature, "Firmas de correo", (), ("name",)),

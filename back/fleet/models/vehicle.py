@@ -6,7 +6,6 @@ from django.db import models
 
 from .base import TimeStampedModel
 from .enums import (
-    Fuel,
     MarketSegment,
     PropertyType,
     UseType,
@@ -96,7 +95,20 @@ class Vehicle(TimeStampedModel):
         related_name="vehicles",
         verbose_name="País",
     )
-    fuel = models.CharField("Combustible", max_length=40, choices=Fuel.choices, blank=True)
+    # GAP-1: combustible por catálogo (FK) — el CharField queda como legado
+    # denormalizado (se rellena desde la FK en el serializer), igual que brand.
+    fuel = models.CharField("Combustible", max_length=60, blank=True)
+    fuel_ref = models.ForeignKey(
+        "fleet.FuelType",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="vehicles",
+        verbose_name="Combustible (catálogo)",
+    )
+    # GAP-3: el Excel de HSE lo pide por vehículo («¿reposta con tarjeta?»);
+    # el booleano del conductor (User.fuel_card) dice otra cosa: quién la tiene.
+    fuel_card = models.BooleanField("Tarjeta de combustible", default=False)
     type = models.CharField("Tipo", max_length=20, choices=VehicleType.choices, blank=True)
     size = models.CharField("Tamaño", max_length=20, choices=VehicleSize.choices, blank=True)
     market_segment = models.CharField(
@@ -123,6 +135,16 @@ class Vehicle(TimeStampedModel):
         related_name="vehicles",
         verbose_name="Proyecto",
         help_text="Obligatorio si el uso empresarial es 'Proyecto'.",
+    )
+    # GAP-4: sede/oficina donde vive el vehículo cuando no está en una obra.
+    # Cambiarla emite un EventLocationChange (ver VehicleViewSet.perform_update).
+    site = models.ForeignKey(
+        "fleet.Site",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="vehicles",
+        verbose_name="Sede",
     )
     cost_center = models.ForeignKey(
         "fleet.Pep",

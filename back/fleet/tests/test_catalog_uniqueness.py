@@ -16,13 +16,25 @@ from rest_framework.test import APITestCase
 
 from accounts.models import Role
 from fleet.exceptions import INACTIVE_CONFLICT_CODE
-from fleet.models import Brand, BusinessUnit, Company, Country, Pep, Project, Renting, VehicleModel
+from fleet.models import (
+    Brand,
+    BusinessUnit,
+    Company,
+    Country,
+    FuelType,
+    Pep,
+    Project,
+    Renting,
+    Site,
+    VehicleModel,
+    Workshop,
+)
 
 from .helpers import make_user
 
 
 class CatalogCreateSmokeTests(APITestCase):
-    """Las ocho altas funcionan con el payload que manda el front (todo texto)."""
+    """Las altas funcionan con el payload que manda el front (todo texto)."""
 
     def setUp(self):
         self.admin = make_user("admin", Role.ADMIN)
@@ -40,6 +52,16 @@ class CatalogCreateSmokeTests(APITestCase):
             ("brand-list", {"name": "MarcaNueva"}),
             ("vehiclemodel-list", {"brand": str(brand.pk), "name": "ModeloNuevo"}),
             ("company-list", {"code": "S1", "name": "Sociedad", "description": "d"}),
+            (
+                "workshop-list",
+                {
+                    "name": "Taller Centro",
+                    "kind": "itv",
+                    "address": "Calle de Ejemplo, 12",
+                    "postal_code": "28001",
+                    "phone": "910 000 001",
+                },
+            ),
         ]
         for nombre, payload in casos:
             with self.subTest(catalogo=nombre):
@@ -113,6 +135,11 @@ class CatalogsWithoutConstraintTests(APITestCase):
                 lambda: Project.objects.create(project_name="Obra X", cost_center=pep),
             ),
             ("pep-list", {"name": "Ceco dos"}, lambda: Pep.objects.create(name="Ceco dos")),
+            (
+                "workshop-list",
+                {"name": "TALLER UNO"},
+                lambda: Workshop.objects.create(name="Taller Uno"),
+            ),
         ]
         for nombre, payload, sembrar in casos:
             with self.subTest(catalogo=nombre):
@@ -214,6 +241,9 @@ class CatalogsBundleTests(APITestCase):
         Renting.objects.create(name="Renting SA")
         Brand.objects.create(name="Toyota")
         Company.objects.create(code="S1", name="Sociedad")
+        # GAP-1/GAP-4: los dos catálogos nuevos también viajan en el bundle.
+        FuelType.objects.create(name="Diésel")
+        Site.objects.create(name="Oficina Almería")
 
     def test_bundle_brings_every_catalog_in_one_response(self):
         self.client.force_authenticate(self.admin)
@@ -221,7 +251,17 @@ class CatalogsBundleTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(
             sorted(resp.data),
-            ["brands", "business-units", "companies", "countries", "peps", "projects", "rentings"],
+            [
+                "brands",
+                "business-units",
+                "companies",
+                "countries",
+                "fuel-types",
+                "peps",
+                "projects",
+                "rentings",
+                "sites",
+            ],
         )
         for clave in resp.data:
             self.assertEqual(len(resp.data[clave]), 1, clave)
@@ -255,8 +295,9 @@ class CatalogsBundleTests(APITestCase):
     def test_bundle_costs_one_query_per_catalog(self):
         """Sin N+1: una consulta por catálogo, y el proyecto trae su CECO.
 
-        Son 8: los siete catálogos más la de los roles del usuario que hace el
-        permiso. Añadir proyectos con CECOs distintos no sube la cuenta porque
+        Son 10: los nueve catálogos (los siete originales más combustibles y
+        sedes, GAP-1/GAP-4) y la de los roles del usuario que hace el permiso.
+        Añadir proyectos con CECOs distintos no sube la cuenta porque
         `ProjectSerializer` los resuelve con `select_related`; sin él, cada
         `cost_center_display` sería una consulta más.
         """
@@ -265,5 +306,5 @@ class CatalogsBundleTests(APITestCase):
             Project.objects.create(
                 project_name=f"Obra {i}", cost_center=Pep.objects.create(name=f"Ceco {i}")
             )
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(10):
             self.client.get(reverse("catalogs-bundle"))

@@ -674,10 +674,7 @@ export function MileagePage() {
   }, [rows, search, supervisorFilter])
 
   // Pendientes = sin lectura en el mes reflejado.
-  const pending = useMemo(
-    () => base.filter((r) => !monthReading(r.vehicle.id, month)),
-    [base, month, monthReading],
-  )
+  const pending = base.filter((r) => !monthReading(r.vehicle.id, month))
   const withProjection = useMemo(
     () => base.filter((r) => r.summary.projection && r.summary.contract),
     [base],

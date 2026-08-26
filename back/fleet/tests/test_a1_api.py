@@ -27,6 +27,7 @@ from fleet.models import (
     Invoice,
     InvoiceAllocation,
     KmReading,
+    MaintenancePlan,
     Pep,
     Project,
     Vehicle,
@@ -39,6 +40,7 @@ from fleet.models.enums import (
     EventType,
     VehicleState,
 )
+from fleet.services.alerts import add_months
 
 from .helpers import make_user
 
@@ -431,6 +433,56 @@ class SummaryTests(APITestCase):
         self.client.force_authenticate(self.driver)
         resp = self.client.get(reverse("fleet-summary"))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_fleet_summary_annual_maintenance(self):
+        """GAP-8: el mantenimiento es OBLIGATORIO una vez al año.
+
+        El bloque del dashboard clasifica cada vehículo activo: vencido,
+        próximo (≤30 días), al día o «sin plan» (sin ancla de fecha que
+        acredite la anual). Un ciclo a más de 12 meses no exime: se recorta
+        a 12. Un plan solo por km no cuenta como acreditación.
+        """
+        today = timezone.localdate()
+        # SUM1: plan anual vencido (última vez hace 13 meses).
+        MaintenancePlan.objects.create(
+            vehicle=self.vehicle,
+            name="Revisión general",
+            every_months=12,
+            last_done_date=add_months(today, -13),
+        )
+        # Próximo: cada 24 meses NO exime de la anual → vence a los 12 meses
+        # del ancla; con la última hace 11 meses y medio, cae en la ventana.
+        proximo = Vehicle.objects.create(plate="SUM4", brand="a", model="b")
+        MaintenancePlan.objects.create(
+            vehicle=proximo,
+            name="Revisión larga",
+            every_months=24,
+            last_done_date=add_months(today, -12) + timedelta(days=15),
+        )
+        # Al día: hecho hace un mes.
+        al_dia = Vehicle.objects.create(plate="SUM5", brand="a", model="b")
+        MaintenancePlan.objects.create(
+            vehicle=al_dia,
+            name="Revisión general",
+            every_months=12,
+            last_done_date=add_months(today, -1),
+        )
+        # Sin plan acreditable: solo por km, sin fecha (SUM2 queda sin nada).
+        solo_km = Vehicle.objects.create(plate="SUM6", brand="a", model="b")
+        MaintenancePlan.objects.create(
+            vehicle=solo_km, name="Neumáticos", every_km=40000, last_done_km=0
+        )
+        Vehicle.objects.create(plate="SUM2", brand="a", model="b")
+        # La baja no cuenta en ninguna categoría.
+        Vehicle.objects.create(plate="SUM7", brand="a", model="b", state=VehicleState.BAJA)
+
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse("fleet-summary"))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["maintenance_overdue"], 1)
+        self.assertEqual(resp.data["maintenance_next_30d"], 1)
+        self.assertEqual(resp.data["maintenance_ok"], 1)
+        self.assertEqual(resp.data["maintenance_no_plan"], 2)  # SUM2 y el solo-km
 
 
 class DocumentUploadValidationTests(APITestCase):

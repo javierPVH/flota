@@ -74,8 +74,10 @@ const es = {
   // Los mismos informes que la pantalla de Informes, con sus mismos nombres.
   content: {
     summary: 'Resumen de la flota',
+    vehicles: 'Vehículos (completo)',
     fleet: 'Flota',
     kmreadings: 'Kilometraje',
+    fuel: 'Consumo de combustible',
     documents: 'Documentos',
     alerts: 'Alertas',
     invoices: 'Facturas',
@@ -202,8 +204,10 @@ const en: typeof es = {
 
   content: {
     summary: 'Fleet summary',
+    vehicles: 'Vehicles (full)',
     fleet: 'Fleet',
     kmreadings: 'Mileage',
+    fuel: 'Fuel consumption',
     documents: 'Documents',
     alerts: 'Alerts',
     invoices: 'Invoices',

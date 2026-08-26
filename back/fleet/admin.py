@@ -1,6 +1,9 @@
 from django.contrib import admin
 
 from .models import (
+    AccidentInjured,
+    AccidentReport,
+    AccidentThirdParty,
     Alert,
     Assignment,
     Brand,
@@ -21,19 +24,24 @@ from .models import (
     EventPenalty,
     EventPepChange,
     EventProjectChange,
+    FuelConsumption,
+    FuelType,
     Incident,
     Invoice,
     InvoiceAllocation,
     KmReading,
+    MaintenancePlan,
     NotificationSchedule,
     Pep,
     Project,
     Renting,
+    Site,
     Vehicle,
     VehicleLink,
     VehicleModel,
     VehicleRequest,
     VehicleUsage,
+    Workshop,
 )
 
 
@@ -100,6 +108,38 @@ class AssignmentInline(admin.TabularInline):
     model = Assignment
     extra = 0
     autocomplete_fields = ("driver",)
+
+
+@admin.register(FuelType)
+class FuelTypeAdmin(admin.ModelAdmin):
+    list_display = ("name", "co2_factor", "is_active")
+    search_fields = ("name",)
+
+
+@admin.register(Site)
+class SiteAdmin(admin.ModelAdmin):
+    list_display = ("name", "is_active")
+    search_fields = ("name",)
+
+
+@admin.register(Workshop)
+class WorkshopAdmin(admin.ModelAdmin):
+    list_display = ("name", "kind", "postal_code", "phone", "is_active")
+    list_filter = ("kind",)
+    search_fields = ("name", "address", "postal_code")
+
+
+@admin.register(FuelConsumption)
+class FuelConsumptionAdmin(admin.ModelAdmin):
+    list_display = ("vehicle", "period", "liters", "amount", "source", "is_active")
+    list_filter = ("source",)
+    search_fields = ("vehicle__plate",)
+
+
+@admin.register(MaintenancePlan)
+class MaintenancePlanAdmin(admin.ModelAdmin):
+    list_display = ("vehicle", "name", "every_km", "every_months", "is_active")
+    search_fields = ("vehicle__plate", "name")
 
 
 @admin.register(Vehicle)
@@ -189,12 +229,33 @@ class IncidentAdmin(admin.ModelAdmin):
     autocomplete_fields = ("vehicle",)
 
 
+class AccidentThirdPartyInline(admin.TabularInline):
+    model = AccidentThirdParty
+    extra = 0
+
+
+class AccidentInjuredInline(admin.TabularInline):
+    model = AccidentInjured
+    extra = 0
+
+
+@admin.register(AccidentReport)
+class AccidentReportAdmin(admin.ModelAdmin):
+    """Parte de accidente materializado desde `Incident.details` (solo consulta:
+    el dato canónico es el JSON de la incidencia y la señal lo reescribe)."""
+
+    list_display = ("incident", "occurred_at", "locality", "province", "police_report_ref")
+    search_fields = ("incident__vehicle__plate", "locality", "street")
+    autocomplete_fields = ("incident",)
+    inlines = [AccidentThirdPartyInline, AccidentInjuredInline]
+
+
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):
-    list_display = ("vehicle", "type", "status", "expiry_date", "uploaded_by")
+    list_display = ("vehicle", "user", "type", "status", "expiry_date", "uploaded_by")
     list_filter = ("type", "status")
-    search_fields = ("vehicle__plate",)
-    autocomplete_fields = ("vehicle", "incident", "uploaded_by", "replaces")
+    search_fields = ("vehicle__plate", "user__username")
+    autocomplete_fields = ("vehicle", "user", "incident", "uploaded_by", "replaces")
 
 
 # --- Solicitudes de vehículo ----------------------------------------------

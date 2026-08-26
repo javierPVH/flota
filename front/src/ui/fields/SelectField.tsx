@@ -29,6 +29,13 @@ export interface SelectFieldOption {
   value: string
   label: string
   disabled?: boolean
+  /**
+   * [ES] Grupo del desplegable (optgroup): las opciones CONSECUTIVAS con el
+   * mismo grupo se envuelven juntas; sin grupo, la opción queda suelta.
+   * [EN] Optgroup label: CONSECUTIVE options sharing it are wrapped together;
+   * ungrouped options stay top-level.
+   */
+  group?: string
 }
 
 interface RenderedOption extends SelectFieldOption {
@@ -204,6 +211,23 @@ export function SelectField({
     flagRows,
   ])
 
+  // [ES] Optgroups: tramos CONSECUTIVOS con el mismo `group`; los flags y
+  // divisores no llevan grupo y quedan sueltos. [EN] Consecutive same-group
+  // chunks become <optgroup>; flag/divider rows stay top-level.
+  const groupedRenderedOptions = useMemo(() => {
+    const chunks: Array<{ group: string | null; options: RenderedOption[] }> = []
+    for (const option of renderedOptions) {
+      const group = option.group || null
+      const last = chunks[chunks.length - 1]
+      if (last && last.group === group) {
+        last.options.push(option)
+      } else {
+        chunks.push({ group, options: [option] })
+      }
+    }
+    return chunks
+  }, [renderedOptions])
+
   const resolvedDefaultValue = useMemo(() => {
     if (!useDefaultOnLoad) {
       return undefined
@@ -376,15 +400,31 @@ export function SelectField({
             required={required}
             {...props}
           >
-            {renderedOptions.map((option) => (
-              <option
-                key={option.value}
-                value={option.value}
-                disabled={option.disabled}
-              >
-                {option.label}
-              </option>
-            ))}
+            {groupedRenderedOptions.map((chunk, chunkIndex) =>
+              chunk.group === null ? (
+                chunk.options.map((option) => (
+                  <option
+                    key={option.value}
+                    value={option.value}
+                    disabled={option.disabled}
+                  >
+                    {option.label}
+                  </option>
+                ))
+              ) : (
+                <optgroup key={`group-${chunkIndex}-${chunk.group}`} label={chunk.group}>
+                  {chunk.options.map((option) => (
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      disabled={option.disabled}
+                    >
+                      {option.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ),
+            )}
           </select>
         </div>
       </div>

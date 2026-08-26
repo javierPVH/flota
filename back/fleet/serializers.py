@@ -12,6 +12,9 @@ from rest_framework import serializers
 
 from .exceptions import InactiveConflict
 from .models import (
+    AccidentInjured,
+    AccidentReport,
+    AccidentThirdParty,
     Alert,
     Assignment,
     Brand,
@@ -27,19 +30,24 @@ from .models import (
     EventFeeChange,
     EventItv,
     EventLocationChange,
+    FuelConsumption,
+    FuelType,
     Incident,
     Invoice,
     InvoiceAllocation,
     KmReading,
+    MaintenancePlan,
     NotificationSchedule,
     Pep,
     Project,
     Renting,
+    Site,
     Vehicle,
     VehicleLink,
     VehicleModel,
     VehicleRequest,
     VehicleUsage,
+    Workshop,
 )
 from .models.enums import (
     AllocationTarget,
@@ -115,6 +123,9 @@ class VehicleSerializer(serializers.ModelSerializer):
     # (se rellenan desde las FKs); los fronts leen brand/model como siempre.
     brand = serializers.CharField(required=False, allow_blank=False, max_length=50)
     model = serializers.CharField(required=False, allow_blank=False, max_length=50)
+    # GAP-1: combustible por catálogo — mismo esquema que brand/brand_ref.
+    fuel = serializers.CharField(required=False, allow_blank=True, max_length=60)
+    site_display = serializers.StringRelatedField(source="site", read_only=True)
     company_display = serializers.StringRelatedField(source="company", read_only=True)
     # Alta transaccional (HU-1.3): contrato y conductor OPCIONALES en el POST;
     # con `km_start` se registra además la primera lectura. Solo en el alta —
@@ -151,7 +162,11 @@ class VehicleSerializer(serializers.ModelSerializer):
             "country",
             "project",
             "cost_center",
+            "site",
+            "site_display",
             "fuel",
+            "fuel_ref",
+            "fuel_card",
             "type",
             "size",
             "market_segment",
@@ -271,6 +286,10 @@ class VehicleSerializer(serializers.ModelSerializer):
             attrs["brand"] = brand_ref.name
         if model_ref is not None:
             attrs["model"] = model_ref.name
+        # GAP-1: la FK manda — el texto denormalizado siempre es su nombre.
+        fuel_ref = attrs.get("fuel_ref", getattr(self.instance, "fuel_ref", None))
+        if fuel_ref is not None and "fuel_ref" in attrs:
+            attrs["fuel"] = fuel_ref.name
         if self.instance is None and not attrs.get("brand"):
             raise serializers.ValidationError({"brand": "Indica la marca (catálogo o texto)."})
         if self.instance is None and not attrs.get("model"):
@@ -396,6 +415,100 @@ class KmReadingSerializer(serializers.ModelSerializer):
                         )
                     }
                 )
+        return attrs
+
+
+class FuelConsumptionSerializer(serializers.ModelSerializer):
+    """GAP-2: litros de un vehículo en un mes (serie para el informe HSE)."""
+
+    vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True)
+    source_display = serializers.CharField(source="get_source_display", read_only=True)
+
+    class Meta:
+        model = FuelConsumption
+        fields = [
+            "id",
+            "vehicle",
+            "vehicle_plate",
+            "period",
+            "liters",
+            "amount",
+            "source",
+            "source_display",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_period(self, value):
+        """La fila es EL MES: siempre día 1, y nunca un mes futuro."""
+        value = value.replace(day=1)
+        if value > timezone.localdate().replace(day=1):
+            raise serializers.ValidationError("El mes no puede ser futuro.")
+        return value
+
+    def validate_liters(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Los litros no pueden ser negativos.")
+        return value
+
+    def validate_amount(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("El importe no puede ser negativo.")
+        return value
+
+    def validate(self, attrs):
+        # La constraint de BD daría un IntegrityError (500); aquí es un 400 de
+        # campo. Solo cuentan las filas VIVAS: la corrección típica es
+        # desactivar la equivocada y crear la buena.
+        vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
+        period = attrs.get("period", getattr(self.instance, "period", None))
+        if vehicle is not None and period is not None:
+            clash = FuelConsumption.objects.filter(vehicle=vehicle, period=period, is_active=True)
+            if self.instance is not None:
+                clash = clash.exclude(pk=self.instance.pk)
+            if clash.exists():
+                raise serializers.ValidationError(
+                    {"period": f"Ya hay un consumo de {period:%Y-%m} para ese vehículo."}
+                )
+        return attrs
+
+
+class MaintenancePlanSerializer(serializers.ModelSerializer):
+    """GAP-8: plan de mantenimiento preventivo de un vehículo."""
+
+    vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True)
+
+    class Meta:
+        model = MaintenancePlan
+        fields = [
+            "id",
+            "vehicle",
+            "vehicle_plate",
+            "name",
+            "every_km",
+            "every_months",
+            "last_done_date",
+            "last_done_km",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        """Delega en `MaintenancePlan.clean` para no duplicar las reglas."""
+        attrs = super().validate(attrs)
+        instance = self.instance
+        datos = {
+            campo: attrs.get(campo, getattr(instance, campo, None))
+            for campo in ("every_km", "every_months", "last_done_date", "last_done_km")
+        }
+        candidato = MaintenancePlan(**datos)
+        try:
+            candidato.clean()
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict) from exc
         return attrs
 
 
@@ -667,7 +780,7 @@ MANUAL_EVENT_TYPES = {EventType.ITV, EventType.FEE_CHANGE, EventType.LOCATION_CH
 class EventItvSerializer(serializers.ModelSerializer):
     class Meta:
         model = EventItv
-        fields = ["result", "next_due"]
+        fields = ["result", "next_due", "cost"]
 
 
 class EventFeeChangeSerializer(serializers.ModelSerializer):
@@ -707,7 +820,7 @@ class EventSerializer(serializers.ModelSerializer):
         # (RelatedObjectDoesNotExist hereda de AttributeError).
         itv = getattr(obj, "itv", None)
         if itv:
-            return {"kind": "itv", "result": itv.result, "next_due": itv.next_due}
+            return {"kind": "itv", "result": itv.result, "next_due": itv.next_due, "cost": itv.cost}
         fee = getattr(obj, "fee_change", None)
         if fee:
             return {"kind": "fee_change", "old_fee": fee.old_fee, "new_fee": fee.new_fee}
@@ -913,9 +1026,61 @@ class InvoiceAllocateSerializer(serializers.Serializer):
 # --- Documentación e incidencias (Épica 4 / 6) ---------------------------
 
 
+class AccidentThirdPartySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AccidentThirdParty
+        fields = [
+            "id",
+            "name",
+            "plate",
+            "brand",
+            "model",
+            "phone",
+            "insurance_company",
+            "policy_number",
+            "damage_description",
+        ]
+
+
+class AccidentInjuredSerializer(serializers.ModelSerializer):
+    seat_display = serializers.CharField(source="get_seat_display", read_only=True)
+
+    class Meta:
+        model = AccidentInjured
+        fields = ["id", "name", "phone", "email", "plate", "seat", "seat_display"]
+
+
+class AccidentReportSerializer(serializers.ModelSerializer):
+    """El parte de accidente materializado (tablas), de solo lectura.
+
+    El dato entra por `Incident.details` (parte guiado, `report_version = 1`) y
+    la señal lo vuelca aquí — ver `services/accidents.py`.
+    """
+
+    third_parties = AccidentThirdPartySerializer(many=True, read_only=True)
+    injured = AccidentInjuredSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = AccidentReport
+        fields = [
+            "street",
+            "street_number",
+            "postal_code",
+            "locality",
+            "province",
+            "occurred_at",
+            "phone",
+            "police_report_ref",
+            "third_parties",
+            "injured",
+        ]
+
+
 class IncidentSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source="get_type_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
+    # Parte de accidente materializado (null en el resto de incidencias).
+    accident_report = AccidentReportSerializer(read_only=True)
 
     class Meta:
         model = Incident
@@ -930,6 +1095,106 @@ class IncidentSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    @staticmethod
+    def _required(details, names):
+        return [name for name in names if not str(details.get(name, "")).strip()]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        incident_type = attrs.get("type", getattr(self.instance, "type", ""))
+        details = attrs.get("details", getattr(self.instance, "details", {})) or {}
+        mileage = attrs.get("mileage", getattr(self.instance, "mileage", None))
+        postal_code = attrs.get(
+            "workshop_postal_code", getattr(self.instance, "workshop_postal_code", "")
+        )
+
+        if not isinstance(details, dict):
+            raise serializers.ValidationError({"details": "Debe ser un objeto."})
+        guided_report = details.get("report_version") == 1
+        if postal_code and (not postal_code.isdigit() or len(postal_code) != 5):
+            raise serializers.ValidationError(
+                {"workshop_postal_code": "Indica un código postal de 5 cifras."}
+            )
+
+        errors = {}
+        if guided_report and incident_type in ("breakdown", "tires"):
+            if mileage is None:
+                errors["mileage"] = "Indica el kilometraje actual."
+            if not postal_code:
+                errors["workshop_postal_code"] = "Indica el código postal del taller."
+
+        if (
+            guided_report
+            and incident_type == "breakdown"
+            and not str(attrs.get("description", getattr(self.instance, "description", ""))).strip()
+        ):
+            errors["description"] = "Describe la avería."
+
+        if guided_report and incident_type == "tires":
+            missing = self._required(details, ("change_reason",))
+            reason = details.get("change_reason")
+            if reason not in ("wear", "puncture"):
+                missing.append("change_reason")
+            if reason == "wear":
+                scope = details.get("wheel_scope")
+                if scope not in ("front", "rear", "all"):
+                    missing.append("wheel_scope")
+                if scope in ("front", "all") and not str(details.get("front_measure", "")).strip():
+                    missing.append("front_measure")
+                if scope in ("rear", "all") and not str(details.get("rear_measure", "")).strip():
+                    missing.append("rear_measure")
+            elif reason == "puncture":
+                if details.get("wheel") not in (
+                    "front_left",
+                    "front_right",
+                    "rear_left",
+                    "rear_right",
+                ):
+                    missing.append("wheel")
+                if not str(details.get("tire_measure", "")).strip():
+                    missing.append("tire_measure")
+            if missing:
+                faltan = ", ".join(sorted(set(missing)))
+                errors["details"] = f"Faltan datos de neumáticos: {faltan}."
+            elif details.get("preferred_at"):
+                try:
+                    serializers.DateTimeField().run_validation(details["preferred_at"])
+                except serializers.ValidationError:
+                    errors["details"] = "La fecha y hora de preferencia no es válida."
+
+        if guided_report and incident_type == "accident":
+            missing = self._required(
+                details,
+                (
+                    "street",
+                    "postal_code",
+                    "locality",
+                    "province",
+                    "occurred_at",
+                    "phone",
+                    "damage_description",
+                ),
+            )
+            accident_postal = str(details.get("postal_code", ""))
+            if accident_postal and (not accident_postal.isdigit() or len(accident_postal) != 5):
+                errors["details"] = "El código postal del accidente debe tener 5 cifras."
+            elif missing:
+                errors["details"] = f"Faltan datos del accidente: {', '.join(missing)}."
+            elif details.get("occurred_at"):
+                try:
+                    occurred_at = serializers.DateTimeField().run_validation(details["occurred_at"])
+                    if occurred_at > timezone.now():
+                        errors["details"] = "La fecha del accidente no puede ser futura."
+                except serializers.ValidationError:
+                    errors["details"] = "La fecha y hora del accidente no es válida."
+            for list_name in ("third_parties", "injured_people"):
+                if list_name in details and not isinstance(details[list_name], list):
+                    errors["details"] = f"{list_name} debe ser una lista."
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
 
 # Extensiones admitidas en la subida de documentos (fotos de cámara + PDF).
 DOCUMENT_ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "pdf"}
@@ -939,6 +1204,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source="get_type_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     uploaded_by_name = serializers.SerializerMethodField()
+    user_name = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -961,6 +1227,12 @@ class DocumentSerializer(serializers.ModelSerializer):
         if not user:
             return ""
         return user.get_full_name() or user.get_username()
+
+    def get_user_name(self, obj) -> str:
+        """Nombre del titular PERSONA (documentos personales); '' si es de coche."""
+        if not obj.user_id:
+            return ""
+        return obj.user.get_full_name() or obj.user.get_username()
 
     def get_file_url(self, obj) -> str:
         if not obj.file:
@@ -991,6 +1263,20 @@ class DocumentSerializer(serializers.ModelSerializer):
         if self.instance is None and not attrs.get("file") and not attrs.get("drive_url"):
             raise serializers.ValidationError(
                 "Adjunta un fichero (`file`) o indica la URL del documento (`drive_url`)."
+            )
+        # Titular único: un vehículo O un usuario. El permiso de conducir es de
+        # una persona; la ficha técnica, del coche. (En un PATCH parcial se
+        # completa con lo que ya tiene el documento.)
+        vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
+        user = attrs.get("user", getattr(self.instance, "user", None))
+        if (vehicle is None) == (user is None):
+            raise serializers.ValidationError(
+                "Indica el titular del documento: un vehículo o un usuario (solo uno)."
+            )
+        incident = attrs.get("incident", getattr(self.instance, "incident", None))
+        if incident is not None and vehicle is None:
+            raise serializers.ValidationError(
+                {"incident": "Solo un documento de vehículo puede ligarse a una incidencia."}
             )
         return attrs
 
@@ -1029,6 +1315,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "status",
             "resolved_at",
             "resolved_by",
+            "resolution_note",
             "created_at",
             "updated_at",
         ]
@@ -1341,6 +1628,41 @@ class CatalogUniqueMixin:
             self.catalog_key[0],
         )
         raise serializers.ValidationError({campo_error: f"«{etiqueta}» ya existe."})
+
+
+class FuelTypeSerializer(CatalogUniqueMixin, serializers.ModelSerializer):
+    """GAP-1: tipo de combustible; el factor convierte litros en emisiones."""
+
+    catalog_key = ("name",)
+    catalog_kind = "fuel-types"
+
+    class Meta:
+        model = FuelType
+        fields = ["id", "name", "co2_factor"]
+
+
+class SiteSerializer(CatalogUniqueMixin, serializers.ModelSerializer):
+    """GAP-4: sede/oficina para la ubicación de los vehículos sin obra."""
+
+    catalog_key = ("name",)
+    catalog_kind = "sites"
+
+    class Meta:
+        model = Site
+        fields = ["id", "name"]
+
+
+class WorkshopSerializer(CatalogUniqueMixin, serializers.ModelSerializer):
+    """Talleres y estaciones de ITV: dónde se cita el vehículo."""
+
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+
+    catalog_key = ("name",)
+    catalog_kind = "workshops"
+
+    class Meta:
+        model = Workshop
+        fields = ["id", "name", "kind", "kind_display", "address", "postal_code", "phone"]
 
 
 class CountrySerializer(CatalogUniqueMixin, serializers.ModelSerializer):

@@ -1345,6 +1345,141 @@ table.data tbody tr:hover {
   border-top: 1px solid var(--color-border);
 }
 .ops-section h4 { margin: 0; font-size: 0.95rem; }
+/* Sección que no aplica con la elección actual del modal de estado: sus campos
+   van `disabled`, y el atenuado lo hace evidente de un vistazo. */
+.ops-section.is-off { opacity: 0.55; }
+/* Fieldset «invisible»: aporta el disabled nativo en cascada y replica el
+   layout de la sección (un fieldset no admite display: contents). */
+.ops-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+/* Pestañas del modal de estado: «Nuevo estado» / «Estados abiertos». */
+.ops-form { display: flex; flex-direction: column; gap: 1rem; }
+/* El `display: flex` de autor pisa el `[hidden]` de la hoja del navegador:
+   sin esta regla, el formulario seguiría visible en «Estados abiertos». */
+.ops-form[hidden] { display: none; }
+.ops-tabs {
+  display: flex;
+  gap: 0.35rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.ops-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.ops-tab:hover { color: var(--color-text); }
+.ops-tab.is-active {
+  color: var(--color-brand);
+  border-bottom-color: var(--color-brand);
+}
+.ops-tab-count {
+  min-width: 1.4rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+}
+.ops-tab.is-active .ops-tab-count {
+  background: var(--color-brand);
+  color: #fff;
+}
+/* Acordeón del modal de estado: cada sección en su caja, con un color de borde
+   propio que la identifica. La cabecera pliega/despliega. */
+.ops-acc {
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--acc-color, var(--color-border-strong));
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+}
+.ops-acc.is-off { opacity: 0.55; }
+.ops-acc.tone-state { --acc-color: var(--color-info); }
+.ops-acc.tone-tires { --acc-color: var(--color-warning); }
+.ops-acc.tone-manage { --acc-color: var(--color-substitute); }
+.ops-acc.tone-sub { --acc-color: var(--color-brand); }
+.ops-acc.tone-docs { --acc-color: var(--color-success); }
+.ops-acc.tone-com { --acc-color: #b1508e; }
+.ops-acc-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+.ops-acc-title { font-size: 0.95rem; font-weight: 700; color: var(--color-text); }
+.ops-acc-chevron {
+  color: var(--acc-color, var(--color-text-muted));
+  font-size: 0.85rem;
+  transition: transform 0.15s ease;
+}
+.ops-acc-chevron.is-open { transform: rotate(90deg); }
+.ops-acc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0 0.75rem 0.75rem;
+}
+.ops-acc-body[hidden] { display: none; }
+/* Comunicación de accidente: bloques repetibles (terceros / lesionados). */
+.acc-repeat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-top: 0.3rem;
+}
+.acc-repeat-head h4 { margin: 0; font-size: 0.95rem; }
+.acc-repeat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-field);
+}
+.acc-repeat-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+/* Estados abiertos: una tarjeta por petición con sus tres acciones. */
+.ops-open-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.ops-open-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+}
+.ops-open-main { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.ops-open-desc { margin: 0; font-size: 0.85rem; white-space: pre-line; }
+.ops-open-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .ops-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.8rem; }
 /* Sustitución en una línea: vehículo (más ancho) + inicio + fin. */
 .ops-sub-row {
@@ -1725,12 +1860,48 @@ table.data tbody tr:hover {
   font-size: 0.9rem;
 }
 
+/* La descarga es un flujo único: primero se elige el dominio y después se
+   configuran sus filtros. Evita presentar dos formularios competidores. */
+.download-kind {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 0.9rem;
+}
+.download-kind-option {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.download-kind-option:hover { border-color: var(--color-border-strong); color: var(--color-text); }
+.download-kind-option.is-active {
+  border-color: var(--color-brand);
+  background: color-mix(in srgb, var(--color-brand) 7%, var(--color-surface));
+  color: var(--color-brand);
+  box-shadow: inset 0 0 0 1px var(--color-brand);
+}
+.download-kind-option:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.download-kind-option > span { display: flex; flex-direction: column; min-width: 0; }
+.download-kind-option strong { color: var(--color-text); font-size: 0.92rem; }
+.download-kind-option small { margin-top: 0.1rem; font-size: 0.76rem; line-height: 1.3; }
+
 .export-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 1rem;
   align-items: stretch;
 }
+.export-grid--single { grid-template-columns: minmax(0, 1fr); }
 .export-card {
   display: flex;
   flex-direction: column;
@@ -1785,6 +1956,115 @@ table.data tbody tr:hover {
   font-size: 0.76rem;
   font-weight: 700;
   white-space: nowrap;
+}
+
+/* Qué hojas trae el documento completo (rediseño: un documento por bloque). */
+.export-card-sheets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+}
+.export-card-sheet {
+  padding: 0.12rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* Selector de campos: cada bloque es un chip (hoja + columnas del súper
+   registro) que agrupa el botón de activar y la ayuda «?», y se ARRASTRA para
+   reordenar el documento. Apagado = fuera; la ficha no se puede quitar. */
+.export-card-sheet--toggle,
+.export-card-sheet.is-fixed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.export-card-sheet--toggle { cursor: grab; font-size: 0.74rem; font-weight: 600; }
+.export-card-sheet--toggle:not(.is-off) {
+  border-color: color-mix(in srgb, var(--color-brand) 45%, var(--color-border));
+  background: var(--export-accent-soft, var(--color-surface-soft));
+  color: var(--color-text);
+}
+.export-card-sheet--toggle:hover { border-color: var(--color-brand); }
+.export-card-sheet--toggle.is-off {
+  opacity: 0.55;
+  background: transparent;
+}
+.export-card-sheet--toggle.is-dragging { opacity: 0.35; }
+.export-card-sheet-toggle {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.export-card-sheet--toggle.is-off .export-card-sheet-toggle { text-decoration: line-through; }
+.export-card-sheet-help {
+  display: inline-grid;
+  place-items: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.export-card-sheet-help:hover { border-color: var(--color-brand); color: var(--color-brand); }
+.export-card-sheet.is-fixed { color: var(--color-text); }
+/* Documentos agrupados por matrícula: tabla interior de la fila expandida. */
+.docs-group-inner { padding: 0.35rem 0.25rem 0.6rem; }
+
+/* Modal «Resolver alerta»: resumen del aviso que se va a cerrar. */
+.resolve-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-brand);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+}
+.resolve-summary-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.resolve-summary p { margin: 0; font-size: 0.88rem; }
+/* Actuación lateral del tipo (p. ej. mandar el correo a la renting antes de
+   resolver el aviso de seguro): texto + botón secundario en su propia caja. */
+.resolve-side-action {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.6rem 0.9rem;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* Modal «?»: las columnas de un bloque, en lista compacta a varias columnas. */
+.sheet-columns-title { margin: 0.7rem 0 0.25rem; font-size: 0.8rem; }
+.sheet-columns-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  columns: 14rem;
+  column-gap: 1.5rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+.sheet-columns-list li { break-inside: avoid; }
+.export-card-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
 }
 
 /* 2 · Filtros: ocupan el espacio flexible, así las acciones quedan ancladas
@@ -1942,6 +2222,10 @@ table.data tbody tr:hover {
   width: 100%;
 }
 .export-preview-count { color: var(--color-text-muted); font-size: 0.88rem; font-weight: 600; }
+
+@media (max-width: 640px) {
+  .download-kind { grid-template-columns: 1fr; }
+}
 
 /* Selector de columnas del bloque: elige qué columnas se previsualizan y
    exportan. Botón (igual que un Button secundario `md`) + desplegable. */
@@ -2228,6 +2512,12 @@ table.data tbody tr:hover {
   background: var(--color-warning-soft);
 }
 .alert-note.tone-warning svg { color: var(--color-warning); }
+/* Variante informativa (p. ej. cabecera de Plantillas de correo). */
+.alert-note.tone-info {
+  border-left-color: var(--color-brand);
+  background: color-mix(in srgb, var(--color-brand) 6%, var(--color-surface));
+}
+.alert-note.tone-info svg { color: var(--color-brand); }
 
 /* Km ilimitados (sin proyección): bloque propio y destacado dentro de Propiedad. */
 .km-unlimited {
@@ -4099,6 +4389,64 @@ kbd {
   justify-content: center;
   gap: 12px;
   margin-top: 12px;
+}
+/* Borrado definitivo: selector de tipo (con recuento por línea) + panel
+   informativo de la tabla elegida. Sustituye a las 26 sub-pestañas. */
+.errata-picker {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0 0 0.9rem;
+}
+.errata-picker-select {
+  flex: 0 1 340px;
+  min-width: 240px;
+}
+.errata-summary-line { margin-top: 0.35rem; font-size: 0.78rem; }
+.errata-info {
+  flex: 1 1 320px;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-brand);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+}
+.errata-info-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.errata-info-head svg { color: var(--color-brand); }
+.errata-info p { margin: 0; color: var(--color-text-muted); font-size: 0.85rem; }
+/* Confirmación de restaurar/purgar: banner de éxito descartable (el texto
+   suelto en gris pasaba desapercibido justo tras una acción irreversible). */
+.form-success {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.9rem;
+  margin-bottom: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--color-success) 35%, var(--color-border));
+  border-left: 3px solid var(--color-success);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
+  color: var(--color-success);
+  font-size: var(--font-size-body);
+}
+.form-success-close {
+  display: inline-flex;
+  margin-left: auto;
+  padding: 0.1rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
 }
 
 /* B3: progreso del envío masivo de correos (Kilometraje) y de la importación. */

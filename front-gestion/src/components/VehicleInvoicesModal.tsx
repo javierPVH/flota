@@ -158,8 +158,8 @@ export function VehicleInvoicesModal({ vehicle, onClose }: { vehicle: Vehicle; o
           </IconButton>
           <IconButton
             variant="danger"
-            aria-label={t.deleteAction}
-            title={t.deleteAction}
+            aria-label={t.deactivateAction}
+            title={t.deactivateAction}
             onClick={() => handleDelete(i)}
           >
             <Trash2 size={15} />

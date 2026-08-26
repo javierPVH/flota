@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { listAll, listDocuments, listVehicles } from '../api.ts'
+import { listAll, listDocuments, listUsers, listVehicles } from '../api.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
 import { useReportsCopy } from '../translations/reports.ts'
 import { DocumentsReport } from '../components/DocumentsReport.tsx'
@@ -22,6 +22,7 @@ const DOC_TYPES = [
   'return_report',
   'accident_report',
   'damage_photos',
+  'driving_license',
   'other',
 ] as const
 
@@ -57,11 +58,19 @@ export function ReportsPage() {
   const [docsLoaded, setDocsLoaded] = useState(false)
   const [docsError, setDocsError] = useState('')
 
-  // Vehículos: matrícula por id para la columna "Vehículo" y filtro por vehículo.
+  // Vehículos: matrícula por id para la columna "Titular" y filtro por vehículo.
   useEffect(() => {
     listAll(listVehicles({ include_baja: 1 }))
       .then(setVehicles)
       .catch(() => {})
+  }, [])
+
+  // Usuarios: filtro por titular persona y alta de documento personal.
+  const [users, setUsers] = useState<Array<{ id: number; label: string }>>([])
+  useEffect(() => {
+    listAll(listUsers())
+      .then((rows) => setUsers(rows.map((u) => ({ id: u.id, label: u.name || u.username }))))
+      .catch(() => setUsers([]))
   }, [])
 
   // Documentos: una sola petición para TODOS los tipos, al entrar en la
@@ -133,7 +142,7 @@ export function ReportsPage() {
       </div>
 
       <div className="settings-body">
-        {tab === 'descargas' && <DownloadsTab onManageInvoices={() => setTab('facturas')} />}
+        {tab === 'descargas' && <DownloadsTab />}
         {tab === 'facturas' && <InvoicesPage embedded />}
         {tab === 'documentos' && (
           <>
@@ -152,6 +161,8 @@ export function ReportsPage() {
               vehicleLabel={t.vehicleColumn}
               plateById={plateById}
               vehicles={vehicles}
+              users={users}
+              onCreated={() => setDocsLoaded(false)}
             />
           </>
         )}

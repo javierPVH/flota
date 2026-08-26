@@ -70,7 +70,14 @@ export interface Vehicle {
   country: number | null
   project: number | null
   cost_center: number | null
+  /** GAP-4: sede/oficina cuando no está en obra. */
+  site: number | null
+  site_display: string
+  /** GAP-1: el texto queda denormalizado desde el catálogo (como brand). */
   fuel: string
+  fuel_ref: number | null
+  /** GAP-3: ¿reposta con tarjeta de combustible? */
+  fuel_card: boolean
   type: string
   size: string
   market_segment: string
@@ -109,6 +116,7 @@ export type AlertType =
   | 'insurance_due'
   | 'km_reading_pending'
   | 'km_overage'
+  | 'maintenance_due'
   | 'no_driver'
 export type AlertLevel = 'info' | 'warning' | 'critical'
 
@@ -133,10 +141,11 @@ export interface Alert {
   /** Responsable del vehículo (`Vehicle.supervisor`). */
   supervisor_id: number | null
   supervisor_name: string
-  /** Cierre: cuándo y quién. Nulos mientras está abierta. */
+  /** Cierre: cuándo, quién y qué se hizo. Nulos/vacía mientras está abierta. */
   resolved_at: string | null
   resolved_by: number | null
   resolved_by_name: string
+  resolution_note: string
 }
 
 // --- G2: ficha del vehículo -------------------------------------------------
@@ -278,13 +287,17 @@ export type DocumentType =
   | 'return_report'
   | 'accident_report'
   | 'damage_photos'
+  | 'driving_license'
   | 'other'
 
 export type DocumentStatus = 'valid' | 'expired' | 'pending_archive'
 
 export interface FlotaDocument {
   id: number
-  vehicle: number
+  /** Titular: un vehículo O un usuario (exactamente uno; el otro llega null). */
+  vehicle: number | null
+  user: number | null
+  user_name: string
   type: DocumentType
   type_display: string
   incident: number | null
@@ -306,8 +319,46 @@ export interface FlotaDocument {
   updated_at: string
 }
 
-export type IncidentType = 'breakdown' | 'maintenance' | 'inspection' | 'accident'
+export type IncidentType = 'breakdown' | 'maintenance' | 'tires' | 'inspection' | 'accident'
 export type IncidentStatus = 'open' | 'on_going' | 'closed'
+
+/** Tercero implicado en un accidente (tabla materializada del parte). */
+export interface AccidentThirdParty {
+  id: number
+  name: string
+  plate: string
+  brand: string
+  model: string
+  phone: string
+  insurance_company: string
+  policy_number: string
+  damage_description: string
+}
+
+/** Lesionado en un accidente. */
+export interface AccidentInjured {
+  id: number
+  name: string
+  phone: string
+  email: string
+  plate: string
+  seat: 'driver' | 'passenger'
+  seat_display: string
+}
+
+/** Parte de accidente materializado (solo lectura; el dato entra por `details`). */
+export interface AccidentReport {
+  street: string
+  street_number: string
+  postal_code: string
+  locality: string
+  province: string
+  occurred_at: string
+  phone: string
+  police_report_ref: string
+  third_parties: AccidentThirdParty[]
+  injured: AccidentInjured[]
+}
 
 export interface Incident {
   id: number
@@ -316,6 +367,13 @@ export interface Incident {
   type_display: string
   date: string | null
   description: string
+  /** Parte guiado (GAP-6): kilometraje y CP del taller. */
+  mileage: number | null
+  workshop_postal_code: string
+  /** Datos del parte + fases del ciclo (`management` / `resolution`). */
+  details: Record<string, unknown>
+  /** Solo accidentes con parte guiado; null en el resto. */
+  accident_report: AccidentReport | null
   status: IncidentStatus
   status_display: string
   cost: string | null
@@ -358,6 +416,13 @@ export interface FleetSummary {
   itv_overdue: number
   insurance_next_30d: number
   insurance_overdue: number
+  /** GAP-8: mantenimiento anual obligatorio — mismo criterio que las alertas
+   * (ciclo efectivo = mín(ciclo del plan, 12 meses); solo acreditan planes con
+   * ancla de fecha). `no_plan` = activos sin plan que acredite la anual. */
+  maintenance_next_30d: number
+  maintenance_overdue: number
+  maintenance_no_plan: number
+  maintenance_ok: number
   open_alerts: Record<string, number>
 }
 

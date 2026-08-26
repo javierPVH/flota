@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useOutletContext } from 'react-router-dom'
 import { BellOff, BellRing, Gauge } from 'lucide-react'
 import { Badge, Button, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchVehicleSummaries, listAlerts, resolveAlert } from '../api.ts'
 import { useAuth } from '../auth.ts'
+import type { LayoutContext } from '../components/Layout.tsx'
 import { alertLevelTone, fmtDate } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { disablePush, enablePush, pushState, type PushState } from '../push.ts'
@@ -23,6 +24,10 @@ export function AlertsPage() {
   const { user } = useAuth()
   const { t } = useLang()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
+  // Modo "Mi vehículo" del supervisor: la bandeja se acota a su pareja (coche
+  // propio + sustitución). Conductor o modo Flota: sin recorte.
+  const ctx = useOutletContext<LayoutContext | null>()
+  const ownIds = ctx && !ctx.fleetMode ? (ctx.ownPair?.ids ?? null) : null
 
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [showClosed, setShowClosed] = useState(false)
@@ -63,7 +68,12 @@ export function AlertsPage() {
     setLoading(true)
     listAlerts(showClosed ? '' : 'open')
       .then((page) => {
-        const sorted = [...page.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])
+        let sorted = [...page.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])
+        // Modo "Mi vehículo" del supervisor: solo lo de su pareja (coche
+        // propio + sustitución); en modo Flota se ve el grupo entero.
+        if (ownIds) {
+          sorted = sorted.filter((a) => a.vehicle !== null && ownIds.includes(a.vehicle))
+        }
         setAlerts(sorted)
         // HU-3.3 (supervisor): "desde cuándo" de cada lectura pendiente.
         if (isSupervisor) {
@@ -86,7 +96,7 @@ export function AlertsPage() {
       })
       .catch((err) => setError(asErrorMessage(err, t.alerts.loadError)))
       .finally(() => setLoading(false))
-  }, [showClosed, isSupervisor, t])
+  }, [showClosed, isSupervisor, ownIds, t])
 
   useEffect(load, [load])
 

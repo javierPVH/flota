@@ -64,6 +64,11 @@ class LocalArchiver(BaseArchiver):
         return url
 
     def archive(self, document: Document) -> str | None:
+        if document.vehicle_id is None:
+            # Documento personal: carpeta por usuario, separada de las de coche.
+            folder = self.base_dir / "usuarios" / document.user.get_username()
+            folder.mkdir(parents=True, exist_ok=True)
+            return f"{folder.resolve().as_uri()}/doc-{document.pk}-{document.type}"
         folder = self.ensure_folder(document.vehicle)
         return f"{folder}/doc-{document.pk}-{document.type}"
 
@@ -148,6 +153,12 @@ class GoogleDriveArchiver(BaseArchiver):
             return None
         if not document.file:
             return None  # sin binario no hay nada que subir (drive_url ya se trató)
+        if document.vehicle_id is None:
+            # Documento personal: sin carpeta de vehículo en Drive. Queda
+            # pendiente (el reintento del job es inocuo); en gestión se suben
+            # con URL o Picker, que no pasan por aquí.
+            logger.info("Documento personal %s sin carpeta de Drive: pendiente.", document.pk)
+            return None
         self.ensure_folder(document.vehicle)
         folder_id = document.vehicle.drive_folder_id
         if not folder_id:
@@ -293,7 +304,7 @@ def archive_pending(archiver: BaseArchiver | None = None) -> int:
     archiver = archiver or get_archiver()
     archived = 0
     pending = Document.objects.filter(status=DocumentStatus.PENDING_ARCHIVE).select_related(
-        "vehicle"
+        "vehicle", "user"
     )
     for document in pending:
         archive_document(document, archiver=archiver)

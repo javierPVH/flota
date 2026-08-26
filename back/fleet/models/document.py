@@ -1,8 +1,9 @@
-"""Documentación del vehículo (Épica 4).
+"""Documentación del vehículo o del usuario (Épica 4).
 
-Documentos generales del vehículo (permiso, ficha técnica, seguro, contrato…) o
-ligados a una incidencia (acta, parte, fotos). Se archivan en Drive y se guarda
-la URL; el archivado real es una integración (Épica 9, ver MEJORAS.md).
+Documentos generales del vehículo (permiso de circulación, ficha técnica,
+seguro, contrato…) o ligados a una incidencia (acta, parte, fotos), y documentos
+PERSONALES de un usuario (permiso de conducir…). Se archivan en Drive y se
+guarda la URL; el archivado real es una integración (Épica 9, ver MEJORAS.md).
 """
 
 from django.conf import settings
@@ -13,9 +14,25 @@ from .enums import DocumentStatus, DocumentType
 
 
 class Document(DeactivatableModel, TimeStampedModel):
-    """Documento asociado a un vehículo (y opcionalmente a una incidencia)."""
+    """Documento de un vehículo O de un usuario (exactamente un titular)."""
 
-    vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="documents")
+    vehicle = models.ForeignKey(
+        "fleet.Vehicle",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="documents",
+        verbose_name="Vehículo",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="personal_documents",
+        verbose_name="Usuario",
+        help_text="Titular del documento personal (permiso de conducir…).",
+    )
     type = models.CharField("Tipo", max_length=30, choices=DocumentType.choices)
     incident = models.ForeignKey(
         "fleet.Incident",
@@ -78,7 +95,23 @@ class Document(DeactivatableModel, TimeStampedModel):
         indexes = [
             # Filtro de documentos por vehículo y estado (p. ej. pendiente_archivar).
             models.Index(fields=["vehicle", "status"]),
+            # Documentos personales de un usuario (permiso de conducir…).
+            models.Index(fields=["user", "status"]),
+        ]
+        constraints = [
+            # Exactamente un titular: o vehículo o usuario, nunca ambos ni ninguno.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(vehicle__isnull=False, user__isnull=True)
+                    | models.Q(vehicle__isnull=True, user__isnull=False)
+                ),
+                name="document_owner_vehicle_xor_user",
+            ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.vehicle.plate} · {self.get_type_display()}"
+        if self.vehicle_id:
+            owner = self.vehicle.plate
+        else:
+            owner = self.user.get_username() if self.user_id else "?"
+        return f"{owner} · {self.get_type_display()}"

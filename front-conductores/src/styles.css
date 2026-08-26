@@ -332,16 +332,31 @@ a {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 8px 18px 6px;
-  min-width: 64px;
+  padding: 8px 6px 6px;
+  /* Reparten el ancho de la barra: con 5 pestañas (supervisor en modo
+     vehículo) ninguna empuja a las demás fuera de un móvil estrecho. */
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 48px; /* objetivo táctil ≥44px */
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--color-text-muted);
   text-decoration: none;
 }
+/* La etiqueta (último span) se recorta con elipsis antes que desbordar. */
+.bottom-tab span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .bottom-tab.active {
   color: var(--color-brand);
+}
+/* Acción sin objeto (supervisor en modo vehículo sin coche propio). */
+.bottom-tab.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 /* Punto de cola offline sobre el icono de la pestaña (mejora 🟡). */
 .tab-icon {
@@ -409,6 +424,285 @@ a {
   letter-spacing: 0.04em;
 }
 .vehicle-model { margin: 0.3rem 0 0.5rem; color: var(--color-text-muted); }
+/* Valor "vacío" de la ficha (sin lectura, sin proyección…): en apagado. */
+.meta-muted { color: var(--color-text-muted); }
+
+/* Altas de campo desde la propia tarjeta (avería / incidencia). */
+.card-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+.report-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 40px;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.report-btn:active { transform: translateY(1px); }
+/* Variante de solo icono (actualizar / recordatorio): el primero se pega a la
+   derecha de la fila y los siguientes se quedan a su lado. */
+.report-btn-icon {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+  margin-left: auto;
+  color: var(--color-brand);
+}
+.report-btn-follow { margin-left: 0; }
+
+/* --- Modal de actualización de campo (km / mantenimiento / partes) -------- */
+.update-notice {
+  margin: 0 0 0.8rem;
+  padding: 0.55rem 0.7rem;
+  border-left: 3px solid var(--color-warning);
+  border-radius: 0.45rem;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.update-tabs {
+  position: sticky;
+  top: -1rem;
+  z-index: 4;
+  display: flex;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.45rem 0;
+  margin-bottom: 0.7rem;
+  overflow-x: auto;
+  background: var(--color-surface);
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.update-tabs::-webkit-scrollbar { display: none; }
+.update-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.update-tab:hover {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+.update-tab.is-active {
+  border-color: var(--color-brand);
+  background: var(--color-primary-soft);
+  color: var(--color-brand);
+}
+.update-pane { display: grid; gap: 0.6rem; justify-items: start; width: 100%; }
+.update-input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 0.4rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  font: inherit;
+  background: var(--color-surface);
+}
+.update-hint { margin: -0.3rem 0 0; font-size: 0.8rem; color: var(--color-text-muted); }
+.update-km-last {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.6rem;
+  background: var(--color-primary-soft);
+  color: var(--color-text);
+  font-weight: 700;
+}
+.update-km-row { display: flex; align-items: flex-end; gap: 0.65rem; width: 100%; }
+.update-km-field { flex: 1; min-width: 0; }
+.update-km-row .update-input { margin-bottom: 0; }
+.update-plans { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; width: 100%; }
+.update-plan {
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  padding: 0.55rem 0.7rem;
+}
+.update-plan-main { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.update-plan-info { display: grid; gap: 2px; min-width: 0; }
+.update-plan-info small { color: var(--color-text-muted); }
+.update-plan-actions { display: flex; gap: 0.4rem; align-items: center; }
+.update-plan-actions svg { transition: transform 160ms ease; }
+.update-plan-actions svg.is-open { transform: rotate(180deg); }
+.update-plan-detail {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--color-border);
+  animation: step-in-right 180ms ease-out both;
+}
+.update-plan-detail dl,
+.update-incident-detail {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.45fr) 1fr;
+  gap: 0.35rem 0.7rem;
+  margin: 0;
+}
+.update-plan-detail dt,
+.update-incident-detail dt { font-weight: 700; }
+.update-plan-detail dd,
+.update-incident-detail dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.update-plan-chosen {
+  margin-top: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.55rem;
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  font-weight: 700;
+}
+.update-incidents { list-style: none; display: grid; gap: 0.55rem; width: 100%; margin: 0; padding: 0; }
+.update-incident {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.65rem;
+  background: var(--color-surface);
+}
+.update-incident.is-selected { border-color: var(--color-primary); }
+.update-incident-info { display: grid; gap: 0.15rem; min-width: 0; }
+.update-incident-info small { color: var(--color-text-muted); }
+.update-incident-info span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.update-incident-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; justify-content: flex-end; }
+.update-incident-panel {
+  display: grid;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.8rem;
+  border: 1px solid var(--color-primary);
+  border-radius: 0.7rem;
+  background: var(--color-surface);
+}
+.update-incident-panel-head { display: flex; justify-content: space-between; gap: 0.5rem; }
+.update-incident-panel-head span { color: var(--color-brand); font-weight: 700; }
+.update-action-form { display: grid; gap: 0.65rem; width: 100%; }
+.update-action-form .reminder-check { display: block; }
+@media (max-width: 560px) {
+  .update-km-row { align-items: stretch; }
+  .update-km-row > button { align-self: flex-end; }
+  .update-plan-main, .update-incident { grid-template-columns: 1fr; display: grid; }
+  .update-plan-actions, .update-incident-actions { justify-content: flex-start; }
+}
+/* La píldora de lectura pendiente, compacta bajo la cifra de km. */
+.pending-link { display: inline-flex; margin-left: 0.35rem; vertical-align: middle; }
+
+/* --- Modal de recordatorio (correo / alerta) del supervisor --------------- */
+.reminder-recipient { margin: 0 0 0.7rem; font-size: 0.9rem; color: var(--color-text-muted); }
+.reminder-nodriver { color: var(--color-warning); font-weight: 600; }
+.reminder-kinds { display: grid; gap: 0.4rem; border: 0; margin: 0 0 0.8rem; padding: 0; }
+.reminder-kinds legend { font-weight: 700; font-size: 0.85rem; margin-bottom: 0.4rem; padding: 0; }
+.reminder-kind {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  cursor: pointer;
+}
+.reminder-kind.is-active {
+  border-color: var(--color-brand);
+  background: var(--color-primary-soft);
+}
+.reminder-kind input { margin-top: 3px; }
+.reminder-kind span { display: grid; gap: 2px; }
+.reminder-kind small { color: var(--color-text-muted); }
+.reminder-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.35rem 0;
+  font-size: 0.92rem;
+}
+.reminder-message {
+  width: 100%;
+  min-height: 72px;
+  margin-top: 0.4rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  font: inherit;
+}
+.reminder-done { margin: 0; font-weight: 600; color: var(--color-success); }
+
+/* Adjuntar foto/documento: caja punteada, como el diseño de referencia. */
+.photo-attach {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-height: 56px;
+  padding: 0.6rem;
+  border: 2px dashed var(--color-border);
+  border-radius: 0.7rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+}
+.photo-attach input { display: none; }
+.photo-attach.has-file {
+  border-style: solid;
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
+/* Pasos del ciclo de una incidencia (lanzar → gestión → solución). */
+.flow-steps { display: flex; gap: 0.35rem; margin: 0.6rem 0; }
+.flow-step {
+  flex: 1;
+  text-align: center;
+  padding: 0.3rem 0.2rem;
+  border-radius: 0.5rem;
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.flow-step.is-done { background: var(--color-success-soft); color: var(--color-success); }
+.flow-step.is-current { background: var(--color-primary-soft); color: var(--color-brand); }
+/* Paso del modal de avería: el pane se remonta al cambiar de paso (key) y
+   entra deslizándose — por la derecha al avanzar, por la izquierda al volver. */
+.step-pane { animation: step-in-right 0.28s ease; }
+.step-pane.from-left { animation: step-in-left 0.28s ease; }
+@keyframes step-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes step-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .step-pane, .step-pane.from-left { animation: none; }
+}
 .vehicle-meta {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -478,7 +772,13 @@ a {
 .field-head { display: flex; align-items: center; gap: 0.7rem; }
 .plate-lg { font-size: 1.7rem; font-weight: 800; letter-spacing: 0.05em; }
 .field-page .vehicle-model { margin-top: -0.6rem; }
-.stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+/* Con mantenimiento (GAP-8) la ficha puede llevar 3 tarjetas: que quepan. */
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.7rem; }
+/* Acceso rápido sin objeto (principal bloqueado por sustitución, N9). */
+.quick-action.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .panel-title { margin: 0 0 0.6rem; font-size: 1rem; }
 .panel-note { margin: 0; font-weight: 600; }
 .panel-head {
@@ -587,15 +887,109 @@ a {
 
 /* --- M6: modo supervisor (grupo, reparto, proyección, incidencias) ------- */
 .km-progress {
-  height: 10px;
+  position: relative; /* ancla de la marca de avance temporal */
+  height: 12px;
   border-radius: 999px;
   background: var(--color-surface-soft);
-  overflow: hidden;
-  margin: 0.5rem 0 0.7rem;
+  margin: 0.5rem 0 0.35rem;
 }
 .km-progress-fill { height: 100%; border-radius: 999px; background: var(--color-success); }
 .km-progress-fill.level-watch { background: var(--color-warning); }
 .km-progress-fill.level-over { background: var(--color-danger); }
+
+/* Tarjeta de proyección: nivel en el borde, % grande y cifras en rejilla. */
+.km-card { border-left: 4px solid var(--color-border); }
+.km-card.km-level-within { border-left-color: var(--color-success); }
+.km-card.km-level-watch { border-left-color: var(--color-warning); }
+.km-card.km-level-over { border-left-color: var(--color-danger); }
+.km-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+.km-card-id {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.km-card-plate {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+/* Dentro de la cabecera el modelo respira solo con el gap de la rejilla:
+   se neutraliza el margen negativo genérico de .field-page. */
+.km-card .vehicle-model { margin: 0; }
+/* El bloque de identidad (flex: 1) ya empuja el KPI y el botón a la derecha. */
+.km-pct {
+  font-size: 1.25rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-success);
+}
+.km-chart-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-brand);
+  cursor: pointer;
+}
+.km-chart-btn[aria-expanded='true'] {
+  border-color: var(--color-brand);
+  background: var(--color-primary-soft);
+}
+.km-level-watch .km-pct { color: var(--color-warning); }
+.km-level-over .km-pct { color: var(--color-danger); }
+.km-progress-mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--color-text);
+  opacity: 0.55;
+}
+.km-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin: 0 0 0.7rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+.km-figures {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+.km-fig { display: grid; gap: 0.1rem; align-content: start; }
+.km-fig-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+.km-fig strong { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.km-fig-sub { font-size: 0.75rem; color: var(--color-text-muted); }
+.km-overage {
+  margin: 0.2rem 0 0.4rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.55rem;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
 .km-chart { margin-top: 0.7rem; }
 .km-chart svg { width: 100%; height: auto; }
 .km-chart-legend {
@@ -854,6 +1248,75 @@ a {
 .file-field input { font-size: 0.9rem; }
 .form-actions { display: flex; gap: 0.6rem; justify-content: flex-end; }
 
+.incident-section {
+  display: grid;
+  gap: 0.9rem;
+  padding-top: 0.25rem;
+}
+.incident-section > h2 {
+  margin: 0;
+  color: var(--color-primary-dark, var(--color-primary));
+  font-size: 1.05rem;
+}
+.incident-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+.incident-repeat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--color-border);
+}
+.incident-repeat-head h3 { margin: 0; font-size: 0.98rem; }
+.incident-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.42rem 0.65rem;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.incident-repeat-card {
+  position: relative;
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted, var(--color-surface));
+}
+.incident-remove {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--color-danger);
+  cursor: pointer;
+  z-index: 1;
+}
+@media (max-width: 560px) {
+  .incident-grid { grid-template-columns: 1fr; }
+  /* Mantiene “Qué ruedas” y la medida delantera en la misma fila también
+     dentro del modal móvil; la medida trasera salta a la siguiente. */
+  .incident-grid.tire-wheel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* --- Fase 6: transversales ------------------------------------------------- */
 
 /* Accesibilidad: anillo de foco visible homogéneo (patrón gestión Fase 8) para
@@ -971,6 +1434,93 @@ a {
   color: #b45309;
 }
 
+/* --- N9: el par sustituto ↔ principal en "Mis vehículos" -------------------
+   El sustituto es el coche que se está usando, así que manda: ocupa la fila
+   entera (también en tablet, donde la rejilla va a dos columnas) y el principal
+   al que cubre cuelga de él, plegado. */
+.sub-group {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.5rem;
+}
+
+/* Marca visual del coche de sustitución: franja lateral y fondo propio, para
+   que no se confunda con un coche cualquiera de la lista. */
+.card-substitute {
+  border-left: 4px solid var(--color-brand);
+  background: linear-gradient(
+    to right,
+    rgba(0, 148, 145, 0.07),
+    var(--color-surface) 45%
+  );
+}
+
+.sub-note {
+  margin: 0.25rem 0 0.45rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--color-brand);
+}
+
+/* Salto al otro coche de la pareja, a la IZQUIERDA de la matrícula. 44px de
+   lado: el objetivo táctil mínimo de la app en campo (se usa con guantes). */
+.sub-jump {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  margin-right: 0.1rem;
+  border: 1px solid var(--color-brand);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-brand);
+  cursor: pointer;
+}
+.sub-jump:hover {
+  background: var(--color-primary-soft);
+}
+.sub-jump:active {
+  transform: translateY(1px);
+}
+
+/* La cabecera reparte con `space-between`: con el botón delante, la matrícula
+   deja de estar pegada al borde y el chevron sigue al fondo. */
+.vehicle-card-head .sub-jump + .plate {
+  margin-right: auto;
+}
+
+/* El reel de la pareja: SOLO se ve una tarjeta. La pista lleva las dos lado a
+   lado (el original a la izquierda); mostrar el original desplaza la pista a la
+   derecha y él asoma desde la izquierda. */
+.sub-reel {
+  overflow: hidden;
+}
+
+.sub-track {
+  display: flex;
+  width: 200%;
+  transform: translateX(-50%); /* arranca enseñando el sustituto (derecha) */
+  transition: transform 0.28s ease;
+}
+
+.sub-track.show-original {
+  transform: translateX(0);
+}
+
+.sub-slide {
+  flex: 0 0 50%;
+  width: 50%;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sub-track {
+    transition: none;
+  }
+}
+
 /* --- KmChart rico del DS (overlay, hoy, tooltip) — portado de gestión ------ */
 .km-chart .ideal {
   stroke: var(--color-text-muted);
@@ -991,3 +1541,67 @@ a {
 .km-chart .km-tip text { fill: #fff; font-size: 11px; font-weight: 600; }
 .km-chart circle { transition: r 0.1s ease; }
 .km-chart-ideal-legend { color: var(--color-text-muted); }
+
+/* --- Flota a cargo: búsqueda y estado en una única barra ------------------ */
+.fleet-toolbar {
+  display: flex;
+  align-items: stretch;
+  gap: 0.65rem;
+  margin-bottom: 0.9rem;
+}
+
+.fleet-toolbar .card-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.fleet-state-select {
+  flex: 0 1 15rem;
+  min-width: 9.5rem;
+  min-height: 44px;
+  padding: 0.55rem 2.1rem 0.55rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* --- Switch del supervisor: Mi vehículo / Flota ----------------------------
+   Segmentado a lo ancho bajo el header. Es un MODO: cambia la home y el nav. */
+.mode-switch {
+  display: flex;
+  gap: 4px;
+  margin: 0.8rem auto 0;
+  padding: 4px;
+  width: calc(100% - 3rem);
+  max-width: 720px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+}
+
+.mode-switch-btn {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mode-switch-btn.is-active {
+  background: var(--color-primary-soft);
+  color: var(--color-brand);
+}

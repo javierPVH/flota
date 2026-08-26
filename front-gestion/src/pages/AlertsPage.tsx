@@ -22,9 +22,10 @@ import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage, isAbortError } from '@flota/ui/http'
 import { AlertTriangle, Check, Download, Mail } from 'lucide-react'
 
-import { listAlerts, listAll, listVehicles, registerItv, resolveAlert } from '../api.ts'
+import { listAlerts, listAll, listVehicles, registerItv } from '../api.ts'
 import { exportCsv } from '../csv.ts'
 import { alertLevelTone, fmtDate, todayIso } from '../format.ts'
+import { ResolveAlertModal } from '../components/ResolveAlertModal.tsx'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { TextCell } from '../components/TextCell.tsx'
 import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
@@ -51,6 +52,7 @@ const EMAIL_KIND: Record<Alert['type'], 'state_notice' | 'itv_due' | 'insurance_
   insurance_due: 'insurance_due',
   km_reading_pending: 'km_reading_pending',
   km_overage: 'state_notice',
+  maintenance_due: 'state_notice',
   no_driver: 'state_notice',
 }
 
@@ -133,6 +135,7 @@ export function AlertsPage() {
       { value: 'itv_due', label: t.typeOptions.itvDue },
       { value: 'km_reading_pending', label: t.typeOptions.kmReadingPending },
       { value: 'km_overage', label: t.typeOptions.kmOverage },
+      { value: 'maintenance_due', label: t.typeOptions.maintenanceDue },
       { value: 'no_driver', label: t.typeOptions.noDriver },
     ],
     [t],
@@ -167,7 +170,6 @@ export function AlertsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [busyId, setBusyId] = useState<number | null>(null)
   // Búsqueda en cliente (la franja); el estado va como pestañas (subtab).
   const [search, setSearch] = useState('')
 
@@ -175,11 +177,18 @@ export function AlertsPage() {
   // el tipo de aviso de la alerta.
   const [emailAlert, setEmailAlert] = useState<Alert | null>(null)
 
+  // Resolver: modal propio con el resumen del aviso, la actuación de cada tipo
+  // (lectura, conductor, servicio, correo a la renting) y la nota opcional.
+  const [resolving, setResolving] = useState<Alert | null>(null)
+  // Identidad estable a propósito: `Modal` engancha `onClose` a su efecto de foco.
+  const closeResolve = useCallback(() => setResolving(null), [])
+
   const [itvModal, setItvModal] = useState(false)
   const [itvVehicle, setItvVehicle] = useState('')
   const [itvResult, setItvResult] = useState('done')
   const [itvNextDue, setItvNextDue] = useState('')
   const [itvDate, setItvDate] = useState(today())
+  const [itvCost, setItvCost] = useState('')
   const [itvNotes, setItvNotes] = useState('')
   const [itvError, setItvError] = useState('')
   const [itvSaving, setItvSaving] = useState(false)
@@ -234,19 +243,16 @@ export function AlertsPage() {
     setSearchParams(next, { replace: true })
   }
 
-  /** Resolver es el ÚNICO cierre: descartar se retiró del dominio. */
-  async function close(alert: Alert) {
-    setBusyId(alert.id)
-    setNotice('')
-    try {
-      await resolveAlert(alert.id)
-      setNotice(t.closedNotice(alert.vehicle_plate || alert.type_display))
-      load()
-    } catch (err) {
-      setError(asErrorMessage(err, t.closeError))
-    } finally {
-      setBusyId(null)
+  /** Resolver es el ÚNICO cierre: descartar se retiró del dominio. Cada tipo
+   * abre su actuación: la ITV va directa al modal de «Registrar ITV» (la señal
+   * del back cierra el aviso) y el resto al modal de resolver por tipo. */
+  function openResolve(alert: Alert) {
+    if (alert.type === 'itv_due') {
+      openItv(alert)
+      return
     }
+    setNotice('')
+    setResolving(alert)
   }
 
   function openItv(alert?: Alert) {
@@ -254,6 +260,7 @@ export function AlertsPage() {
     setItvResult('done')
     setItvNextDue('')
     setItvDate(today())
+    setItvCost('')
     setItvNotes('')
     setItvError('')
     setItvModal(true)
@@ -278,6 +285,7 @@ export function AlertsPage() {
         itv: {
           result: itvResult,
           next_due: itvResult === 'done' ? itvNextDue : null,
+          ...(itvCost ? { cost: itvCost } : {}),
         },
       })
       setItvModal(false)
@@ -439,6 +447,22 @@ export function AlertsPage() {
             getValue: (a) => a.resolved_by_name,
             render: resolverCell,
           },
+          {
+            key: 'resolution_note',
+            label: t.columns.resolutionNote,
+            sortable: false,
+            getValue: (a) => a.resolution_note,
+            render: (a) =>
+              a.resolution_note ? (
+                <TextCell
+                  text={a.resolution_note}
+                  title={t.columns.resolutionNote}
+                  label={t.viewMessage}
+                />
+              ) : (
+                <span className="muted">—</span>
+              ),
+          },
         ] as Array<TableWithPanelColumn<Alert>>)
       : []),
     ...(showActions
@@ -450,11 +474,6 @@ export function AlertsPage() {
       sortable: false,
       render: (a) => (
         <div className="row-actions">
-          {a.type === 'itv_due' && a.status === 'open' && (
-            <Button variant="primary" size="sm" onClick={() => openItv(a)}>
-              {t.registerItv}
-            </Button>
-          )}
           {/* Correo: el mismo modal que en Vehículos y el panel. */}
           <IconButton
             size="sm"
@@ -466,12 +485,9 @@ export function AlertsPage() {
             <Mail size={15} aria-hidden />
           </IconButton>
           {a.status === 'open' ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={busyId === a.id}
-              onClick={() => close(a)}
-            >
+            // Un solo gesto de cierre: en ITV abre «Registrar ITV» y en el
+            // resto el modal de resolver con la actuación de su tipo.
+            <Button variant="secondary" size="sm" onClick={() => openResolve(a)}>
               {t.resolve}
             </Button>
           ) : (
@@ -584,6 +600,7 @@ export function AlertsPage() {
         <form className="modal-form" onSubmit={submitItv}>
           <SelectField
             label={t.itvModal.vehicle}
+            aria-label={t.itvModal.vehicle}
             options={[
               { value: '', label: t.itvModal.choose },
               ...vehicles.map((v) => ({
@@ -596,6 +613,7 @@ export function AlertsPage() {
           />
           <SelectField
             label={t.itvModal.result}
+            aria-label={t.itvModal.result}
             options={itvResultOptions}
             value={itvResult}
             onValueChange={setItvResult}
@@ -617,6 +635,14 @@ export function AlertsPage() {
             disabled={itvResult !== 'done'}
           />
           <TextInputField
+            label={t.itvModal.cost}
+            type="number"
+            min={0}
+            step="0.01"
+            value={itvCost}
+            onChange={(e) => setItvCost(e.target.value)}
+          />
+          <TextInputField
             label={t.itvModal.notes}
             value={itvNotes}
             onChange={(e) => setItvNotes(e.target.value)}
@@ -636,6 +662,39 @@ export function AlertsPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Resolver (modal propio): resumen del aviso + la actuación de su tipo
+          (lectura de km, cambio de conductor, servicio, correo a la renting)
+          + nota opcional de cierre. La ITV no pasa por aquí: abre directamente
+          «Registrar ITV». */}
+      <Modal
+        open={resolving !== null}
+        title={
+          resolving
+            ? t.resolveModal.title(resolving.vehicle_plate || resolving.type_display)
+            : ''
+        }
+        onClose={closeResolve}
+      >
+        {resolving && (
+          <ResolveAlertModal
+            alert={resolving}
+            onClose={closeResolve}
+            onDone={(text) => {
+              setResolving(null)
+              setNotice(text)
+              load()
+            }}
+            onEmailRenting={() => {
+              // El correo a la renting es el mismo modal de correo del
+              // vehículo, ya abierto en el aviso de seguro y con la empresa
+              // de renting premarcada como destinataria.
+              setEmailAlert(resolving)
+              setResolving(null)
+            }}
+          />
+        )}
       </Modal>
 
       {/* Correo desde la fila (N10): abre en el tipo de aviso de la alerta. */}

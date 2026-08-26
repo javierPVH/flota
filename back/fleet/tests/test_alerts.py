@@ -2,7 +2,8 @@
 
 from datetime import date, timedelta
 
-from django.test import TestCase
+from django.core import mail
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -16,6 +17,7 @@ from fleet.models import (
     Event,
     EventItv,
     KmReading,
+    MaintenancePlan,
     Vehicle,
 )
 from fleet.models.enums import (
@@ -269,6 +271,27 @@ class AlertApiTests(APITestCase):
         self.assertEqual(self.mine.status, AlertStatus.RESOLVED)
         self.assertEqual(self.mine.resolved_by, self.admin)
         self.assertIsNotNone(self.mine.resolved_at)
+        self.assertEqual(self.mine.resolution_note, "")
+
+    def test_resolve_accepts_an_optional_note(self):
+        """El modal de resolver permite anotar qué se hizo; queda en la fila."""
+        self.client.force_authenticate(self.admin)
+        url = reverse("alert-resolve", args=[self.mine.pk])
+        resp = self.client.post(url, {"note": "  Taller avisado y cita pedida.  "})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["resolution_note"], "Taller avisado y cita pedida.")
+        self.mine.refresh_from_db()
+        self.assertEqual(self.mine.resolution_note, "Taller avisado y cita pedida.")
+
+    def test_resolution_note_is_read_only_outside_resolve(self):
+        """La nota solo entra por la acción `resolve`, no por un PATCH."""
+        self.client.force_authenticate(self.admin)
+        url = reverse("alert-detail", args=[self.mine.pk])
+        resp = self.client.patch(url, {"resolution_note": "colada"})
+        self.mine.refresh_from_db()
+        self.assertEqual(self.mine.resolution_note, "")
+        # Da igual si el verbo está permitido o no: la nota no cambia.
+        self.assertIn(resp.status_code, (status.HTTP_200_OK, status.HTTP_405_METHOD_NOT_ALLOWED))
 
     def test_driver_cannot_resolve_alert(self):
         self.client.force_authenticate(self.driver)
@@ -384,3 +407,148 @@ class AlertApiTests(APITestCase):
         self.assertTrue(
             all(r["resolved_by_name"] == supervisor.get_username() for r in resp.data["results"])
         )
+
+
+@override_settings(
+    FLEET_EMAIL_ENABLED=True, EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend"
+)
+class VehicleRemindTests(APITestCase):
+    """POST /vehicles/{id}/remind/ — recordatorio manual del supervisor.
+
+    Dos canales opt-in (correo inmediato y alerta en la app); la alerta es
+    idempotente por dia via dedup_key y el correo del motor NO se encola aqui.
+    """
+
+    def setUp(self):
+        self.supervisor = make_user("rem-sup", Role.SUPERVISOR)
+        self.driver = make_user("rem-driver", Role.DRIVER)
+        self.driver.email = "driver@example.com"
+        self.driver.save(update_fields=["email"])
+        self.vehicle = Vehicle.objects.create(
+            plate="REM-1", brand="a", model="b", supervisor=self.supervisor
+        )
+        Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=self.driver,
+            start_date=timezone.localdate() - timedelta(days=10),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.url = reverse("vehicle-remind", args=[self.vehicle.pk])
+        self.client.force_authenticate(self.supervisor)
+
+    def test_creates_alert_and_sends_email_idempotently(self):
+        resp = self.client.post(
+            self.url, {"kind": "km_reading_pending", "create_alert": True, "send_email": True}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertTrue(resp.data["alert_created"])
+        self.assertTrue(resp.data["email_sent"])
+        alert = Alert.objects.get()
+        self.assertEqual(alert.type, AlertType.KM_READING_PENDING)
+        self.assertEqual(alert.user, self.driver)
+        self.assertEqual(alert.level, AlertLevel.WARNING)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["driver@example.com"])
+        # Mismo dia y mismo tipo: la alerta no se duplica (dedup_key).
+        resp = self.client.post(self.url, {"kind": "km_reading_pending", "create_alert": True})
+        self.assertFalse(resp.data["alert_created"])
+        self.assertEqual(Alert.objects.count(), 1)
+
+    def test_maintenance_reminder_carries_the_due_date(self):
+        MaintenancePlan.objects.create(
+            vehicle=self.vehicle,
+            name="Revision",
+            every_months=6,
+            last_done_date=date(2026, 3, 1),
+        )
+        resp = self.client.post(self.url, {"kind": "maintenance_due", "create_alert": True})
+        self.assertTrue(resp.data["alert_created"])
+        alert = Alert.objects.get()
+        self.assertEqual(alert.due_date, date(2026, 9, 1))
+        self.assertIn("2026-09-01", alert.message)
+
+    def test_requires_valid_kind_and_a_channel(self):
+        # El seguro es asunto de administracion: no es un recordatorio de campo.
+        resp = self.client.post(self.url, {"kind": "insurance_due", "create_alert": True})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        resp = self.client.post(self.url, {"kind": "itv_due"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_driver_cannot_remind_and_foreign_supervisor_gets_404(self):
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(self.url, {"kind": "itv_due", "create_alert": True})
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        otro = make_user("rem-sup2", Role.SUPERVISOR)
+        self.client.force_authenticate(otro)
+        resp = self.client.post(self.url, {"kind": "itv_due", "create_alert": True})
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class DriverCandidateTests(APITestCase):
+    """GET /vehicles/{id}/driver-candidates/ — candidatos al cambio de conductor
+    del modal de resolver un exceso de km proyectado (ordenados por su media
+    mensual observada; sin coche/sin datos primero)."""
+
+    def _vehicle(self, plate, *, driver=None, latest_km=15000):
+        today = timezone.localdate()
+        vehicle = Vehicle.objects.create(plate=plate, brand="a", model="b")
+        Contract.objects.create(
+            vehicle=vehicle,
+            contract_number=f"C-{plate}",
+            contract_time=12,
+            contract_km=40000,
+            start_date=today - timedelta(days=180),
+            planned_end_date=today + timedelta(days=185),
+        )
+        KmReading.objects.create(
+            vehicle=vehicle, reading_date=today - timedelta(days=10), km_reading=latest_km
+        )
+        if driver:
+            Assignment.objects.create(
+                vehicle=vehicle,
+                driver=driver,
+                start_date=today - timedelta(days=180),
+                status=AssignmentStatus.ACCEPTED,
+            )
+        return vehicle
+
+    def setUp(self):
+        self.admin = make_user("cand-admin", Role.ADMIN)
+        self.busy = make_user("cand-busy", Role.DRIVER)
+        self.calm = make_user("cand-calm", Role.DRIVER)
+        self.free = make_user("cand-free", Role.DRIVER)
+        # El del aviso rueda mucho; el candidato "calm" rueda poco; "free" no
+        # tiene coche (el mejor candidato posible).
+        self.target = self._vehicle("OVER111", driver=self.busy, latest_km=15000)
+        self._vehicle("CALM222", driver=self.calm, latest_km=1500)
+        self.url = reverse("vehicle-driver-candidates", args=[self.target.pk])
+        self.client.force_authenticate(self.admin)
+
+    def test_lists_candidates_sorted_by_monthly_average(self):
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+
+        # El vehículo del aviso viene con su ritmo y su conductor actual.
+        self.assertEqual(resp.data["vehicle"]["plate"], "OVER111")
+        self.assertEqual(resp.data["vehicle"]["driver"]["id"], self.busy.pk)
+        current_avg = resp.data["vehicle"]["monthly_avg"]
+        self.assertIsNotNone(current_avg)
+
+        # El conductor actual NO es candidato a sustituirse a sí mismo.
+        ids = [c["id"] for c in resp.data["candidates"]]
+        self.assertNotIn(self.busy.pk, ids)
+        # Sin coche primero (media desconocida), luego de menos a más km.
+        self.assertEqual(ids, [self.free.pk, self.calm.pk])
+
+        free_row, calm_row = resp.data["candidates"]
+        self.assertIsNone(free_row["monthly_avg"])
+        self.assertEqual(free_row["vehicles"], [])
+        self.assertEqual(calm_row["vehicles"][0]["plate"], "CALM222")
+        self.assertLess(calm_row["monthly_avg"], current_avg)
+
+    def test_only_admin_can_ask_for_candidates(self):
+        # Es la antesala de `set-driver` (solo admin): mismo candado.
+        for user in (make_user("cand-sup", Role.SUPERVISOR), self.busy):
+            self.client.force_authenticate(user)
+            resp = self.client.get(self.url)
+            self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

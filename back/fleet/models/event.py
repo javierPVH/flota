@@ -5,7 +5,10 @@ extensión 1-a-1 con la clave primaria compartida (los detalles propios de ese
 tipo de evento). Así un evento `penalty` tiene su `EventPenalty`, etc.
 """
 
+from decimal import Decimal
+
 from django.conf import settings
+from django.core.validators import MinValueValidator
 from django.db import models
 
 from .base import TimeStampedModel
@@ -84,6 +87,15 @@ class EventItv(models.Model):
         "próxima ITV del vehículo y cierra sus alertas.",
     )
     next_due = models.DateField("Próxima ITV", null=True, blank=True)
+    cost = models.DecimalField(
+        "Coste",
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0"))],
+        help_text="Lo que costó la inspección (opcional; se registra al resolver el aviso).",
+    )
 
     class Meta:
         verbose_name = "ITV"

@@ -12,8 +12,9 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .models import Alert, Document, EventItv, KmReading
+from .models import Alert, Document, EventItv, Incident, KmReading
 from .models.enums import AlertStatus, AlertType, DocumentType, ItvResult
+from .services import accidents
 
 
 @receiver(post_save, sender=EventItv, dispatch_uid="fleet_itv_registered")
@@ -60,6 +61,9 @@ def on_insurance_document_saved(sender, instance: Document, **kwargs):
     """
     if instance.type != DocumentType.INSURANCE or instance.expiry_date is None:
         return
+    # Un documento personal (de usuario) no tiene vehículo que denormalizar.
+    if instance.vehicle_id is None:
+        return
     vehicle = instance.vehicle
     current = vehicle.insurance_expiry_date
     if current is not None and instance.expiry_date <= current:
@@ -69,6 +73,16 @@ def on_insurance_document_saved(sender, instance: Document, **kwargs):
     Alert.objects.filter(
         vehicle=vehicle, type=AlertType.INSURANCE_DUE, status=AlertStatus.OPEN
     ).update(status=AlertStatus.RESOLVED, resolved_at=timezone.now())
+
+
+@receiver(post_save, sender=Incident, dispatch_uid="fleet_accident_report_materialized")
+def on_incident_saved(sender, instance: Incident, **kwargs):
+    """El parte de accidente del JSON `details` se materializa en sus tablas.
+
+    Idempotente y para TODOS los caminos de escritura (PWA, gestión, admin):
+    ver `services/accidents.py`. Para el resto de incidencias no hace nada.
+    """
+    accidents.sync_accident_report(instance)
 
 
 @receiver(post_save, sender=KmReading, dispatch_uid="fleet_km_reading_registered")

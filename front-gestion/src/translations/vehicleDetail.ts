@@ -78,6 +78,7 @@ const es = {
   // ITV
   kpiItvLast: 'Última ITV registrada',
   kpiItvResult: 'Resultado',
+  kpiItvCost: 'Coste',
   kpiItvNone: 'Sin ITV registradas.',
   // Seguro
   kpiInsuranceLast: 'Última renovación registrada',
@@ -262,6 +263,7 @@ const es = {
   linkReasonOptions: [
     { value: 'breakdown', label: 'Avería' },
     { value: 'maintenance', label: 'Mantenimiento' },
+    { value: 'tires', label: 'Neumáticos' },
     { value: 'inspection', label: 'ITV' },
     { value: 'accident', label: 'Accidente' },
   ],
@@ -287,6 +289,7 @@ const es = {
   stateModalNote:
     'El cambio queda registrado como evento con fecha. Algunos estados también los mueve el sistema (p. ej. avería desde incidencias). La baja tiene su propio flujo.',
   cancel: 'Cancelar',
+  save: 'Guardar',
   saving: 'Guardando…',
 
   // --- Modal de baja ---------------------------------------------------------
@@ -381,6 +384,81 @@ const es = {
   partialLoadError:
     'Algunos bloques de la ficha no se pudieron cargar (pueden verse vacíos).',
   partialLoadRetry: 'Reintentar',
+
+  // --- Ficha técnica: filas nuevas (GAP-3/GAP-4) -----------------------------
+  fuelCardRow: 'Tarjeta de combustible',
+  siteRow: 'Sede',
+  yes: 'Sí',
+  no: 'No',
+
+  // --- GAP-2 · Consumo de combustible -----------------------------------------
+  fuelConsumptionTitle: 'Consumo de combustible',
+  fuelAddMonth: 'Añadir mes',
+  fuelMonth: 'Mes',
+  fuelLiters: 'Litros',
+  fuelAmount: 'Importe (€)',
+  fuelSourceLabel: 'Origen',
+  fuelSourceOptions: [
+    { value: 'fuel_card', label: 'Tarjeta de combustible' },
+    { value: 'manual', label: 'Manual' },
+    { value: 'import', label: 'Importación' },
+  ],
+  noFuelRows: 'Sin consumos registrados. La serie mensual alimenta el informe de emisiones.',
+  fuelModalTitle: (plate: string) => `Consumo de ${plate}`,
+  fuelDeleteSubject: (mes: string) => `el consumo de ${mes}`,
+  fuelMonthsCount: (n: number) => `${n} ${n === 1 ? 'mes' : 'meses'}`,
+  errFuelSave: 'No se pudo guardar el consumo.',
+  errFuelDelete: 'No se pudo desactivar el consumo.',
+
+  // --- GAP-8 · Mantenimiento programado ---------------------------------------
+  maintenanceTitle: 'Mantenimiento programado',
+  maintenanceAdd: 'Nuevo plan',
+  maintenanceName: 'Nombre',
+  maintenanceNamePlaceholder: 'p. ej. Revisión general',
+  maintenanceEveryKm: 'Cada (km)',
+  maintenanceEveryMonths: 'Cada (meses)',
+  maintenanceLastDate: 'Último realizado (fecha)',
+  maintenanceLastKm: 'Último realizado (km)',
+  maintenanceNotes: 'Notas',
+  maintenanceCycle: (km: number | null, meses: number | null) => {
+    const partes = []
+    if (km) partes.push(`${km.toLocaleString()} km`)
+    if (meses) partes.push(`${meses} meses`)
+    return `cada ${partes.join(' / ') || '—'}`
+  },
+  maintenanceHint:
+    'El chequeo diario abre una alerta al acercarse el ciclo (por km o por meses) y la escala al vencer.',
+  noMaintenancePlans: 'Sin planes de mantenimiento.',
+  maintenanceModalTitle: (plate: string) => `Plan de mantenimiento de ${plate}`,
+  maintenanceDeleteSubject: (nombre: string) => `el plan «${nombre}»`,
+  maintenancePlansCount: (n: number) => `${n} ${n === 1 ? 'plan' : 'planes'}`,
+  errMaintenanceSave: 'No se pudo guardar el plan.',
+  errMaintenanceDelete: 'No se pudo desactivar el plan.',
+
+  // --- GAP-7 · Devolución guiada ----------------------------------------------
+  returnBtn: 'Devolver',
+  returnModalTitle: (plate: string) => `Devolver ${plate}`,
+  returnIntro:
+    'Una sola operación: registra la lectura final, cierra el contrato vigente, finaliza las asignaciones y da el vehículo de baja con su evento.',
+  returnKmEnd: 'Km de devolución',
+  returnDate: 'Fecha de devolución',
+  returnReason: 'Motivo',
+  returnReasonPlaceholder: 'p. ej. Fin del contrato de renting',
+  returnEstimate: (exceso: number, penalizacion: string | null) =>
+    exceso > 0
+      ? `Exceso estimado: ${exceso.toLocaleString()} km sobre lo contratado` +
+        (penalizacion ? ` → ~${penalizacion} € de penalización.` : '.')
+      : 'Dentro de los km contratados.',
+  returnConfirm: 'Devolver vehículo',
+  returning: 'Devolviendo…',
+  returnDoneTitle: 'Vehículo devuelto',
+  returnDoneKm: 'Km de devolución',
+  returnDoneAssignments: 'Asignaciones finalizadas',
+  returnDoneContract: 'Contrato cerrado',
+  returnDoneOverage: 'Exceso sobre lo contratado',
+  returnDonePenalty: 'Penalización estimada',
+  returnClose: 'Cerrar',
+  errReturn: 'No se pudo devolver el vehículo.',
 }
 
 const en: typeof es = {
@@ -459,6 +537,7 @@ const en: typeof es = {
   // MOT
   kpiItvLast: 'Last MOT logged',
   kpiItvResult: 'Result',
+  kpiItvCost: 'Cost',
   kpiItvNone: 'No MOT logged.',
   // Insurance
   kpiInsuranceLast: 'Last renewal logged',
@@ -638,6 +717,7 @@ const en: typeof es = {
   linkReasonOptions: [
     { value: 'breakdown', label: 'Breakdown' },
     { value: 'maintenance', label: 'Maintenance' },
+    { value: 'tires', label: 'Tyres' },
     { value: 'inspection', label: 'MOT' },
     { value: 'accident', label: 'Accident' },
   ],
@@ -663,6 +743,7 @@ const en: typeof es = {
   stateModalNote:
     'The change is recorded as a dated event. Some statuses are also set by the system (e.g. breakdown from incidents). Retirement has its own flow.',
   cancel: 'Cancel',
+  save: 'Save',
   saving: 'Saving…',
 
   // --- Retirement modal ------------------------------------------------------
@@ -751,6 +832,77 @@ const en: typeof es = {
   errChooseSubstitute: 'Choose the substitute vehicle.',
   partialLoadError: 'Some blocks of this page failed to load (they may look empty).',
   partialLoadRetry: 'Retry',
+
+  fuelCardRow: 'Fuel card',
+  siteRow: 'Site',
+  yes: 'Yes',
+  no: 'No',
+
+  fuelConsumptionTitle: 'Fuel consumption',
+  fuelAddMonth: 'Add month',
+  fuelMonth: 'Month',
+  fuelLiters: 'Litres',
+  fuelAmount: 'Amount (€)',
+  fuelSourceLabel: 'Source',
+  fuelSourceOptions: [
+    { value: 'fuel_card', label: 'Fuel card' },
+    { value: 'manual', label: 'Manual' },
+    { value: 'import', label: 'Import' },
+  ],
+  noFuelRows: 'No consumption recorded yet. The monthly series feeds the emissions report.',
+  fuelModalTitle: (plate) => `Fuel consumption for ${plate}`,
+  fuelDeleteSubject: (mes) => `the ${mes} consumption`,
+  fuelMonthsCount: (n) => `${n} ${n === 1 ? 'month' : 'months'}`,
+  errFuelSave: 'Could not save the consumption.',
+  errFuelDelete: 'Could not deactivate the consumption.',
+
+  maintenanceTitle: 'Scheduled maintenance',
+  maintenanceAdd: 'New plan',
+  maintenanceName: 'Name',
+  maintenanceNamePlaceholder: 'e.g. General service',
+  maintenanceEveryKm: 'Every (km)',
+  maintenanceEveryMonths: 'Every (months)',
+  maintenanceLastDate: 'Last done (date)',
+  maintenanceLastKm: 'Last done (km)',
+  maintenanceNotes: 'Notes',
+  maintenanceCycle: (km, meses) => {
+    const partes = []
+    if (km) partes.push(`${km.toLocaleString()} km`)
+    if (meses) partes.push(`${meses} months`)
+    return `every ${partes.join(' / ') || '—'}`
+  },
+  maintenanceHint:
+    'The daily check opens an alert as the cycle approaches (by km or months) and escalates it when due.',
+  noMaintenancePlans: 'No maintenance plans.',
+  maintenanceModalTitle: (plate) => `Maintenance plan for ${plate}`,
+  maintenanceDeleteSubject: (nombre) => `the plan “${nombre}”`,
+  maintenancePlansCount: (n) => `${n} ${n === 1 ? 'plan' : 'plans'}`,
+  errMaintenanceSave: 'Could not save the plan.',
+  errMaintenanceDelete: 'Could not deactivate the plan.',
+
+  returnBtn: 'Return',
+  returnModalTitle: (plate) => `Return ${plate}`,
+  returnIntro:
+    'One operation: records the final reading, closes the current contract, ends the assignments and retires the vehicle with its event.',
+  returnKmEnd: 'Return odometer (km)',
+  returnDate: 'Return date',
+  returnReason: 'Reason',
+  returnReasonPlaceholder: 'e.g. Leasing contract ended',
+  returnEstimate: (exceso, penalizacion) =>
+    exceso > 0
+      ? `Estimated overage: ${exceso.toLocaleString()} km over the contract` +
+        (penalizacion ? ` → ~€${penalizacion} penalty.` : '.')
+      : 'Within the contracted km.',
+  returnConfirm: 'Return vehicle',
+  returning: 'Returning…',
+  returnDoneTitle: 'Vehicle returned',
+  returnDoneKm: 'Return odometer',
+  returnDoneAssignments: 'Assignments ended',
+  returnDoneContract: 'Contract closed',
+  returnDoneOverage: 'Overage vs contract',
+  returnDonePenalty: 'Estimated penalty',
+  returnClose: 'Close',
+  errReturn: 'Could not return the vehicle.',
 }
 
 const dict = { es, en }

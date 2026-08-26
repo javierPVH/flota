@@ -77,7 +77,8 @@ las FK. Si añades un modelo, insértalo en el punto correcto:
 ```
 users → catalogs → vehicles → contracts (y lecturas de km)
       → assignments (reparto de uso, vínculos de sustitución)
-      → operations (eventos/ITV, incidencias, documentos, facturas, solicitudes)
+      → operations (eventos/ITV, incidencias, consumos de combustible,
+                    planes de mantenimiento, documentos, facturas, solicitudes)
       → erratas (N7: desactivaciones de varios tipos + usuario inactivo)
       → alerts (el MOTOR REAL regenera la bandeja sobre lo sembrado)
       → comms (N9/N10: traza de correos ligada a alertas reales + push)
@@ -109,7 +110,7 @@ renombras rompes la cadena. Contraseña de prueba de TODOS: **`flota-dev-2026`**
 | `admin` | admin (superuser) | Administradora "Alicia" |
 | `sara`  | supervisor + driver | Su grupo: `1234KLM` y `5678BCD`; conduce `7890NPQ` |
 | `carlos`| driver | Conduce `1234KLM` (y tiene una **propuesta** pendiente) |
-| `lucia` | driver | Conduce `5678BCD` (en taller, cubierto por el Leaf de sustitución) |
+| `lucia` | driver | Conduce `5678BCD` (en taller, cubierto por el Leaf) **y el propio Leaf `4567JKL`**: es el par sustituto↔principal de la app de campo |
 | `david` | driver | **SIN coche** → prueba el portón; solicitud `pending` con ticket **`FLT-123`** |
 | `nuevo` | *(sin rol)* | Simula el auto-alta por Google → prueba el portón desde cero |
 
@@ -177,10 +178,10 @@ reajustar sin romper nada:
 
 | Test | Qué garantiza |
 |------|----------------|
-| `test_every_enum_variant_is_seeded` | Las 25 parejas modelo/campo tienen todas sus variantes. |
+| `test_every_enum_variant_is_seeded` | Todas las parejas modelo/campo del listado tienen todas sus variantes. |
 | `test_every_domain_table_has_rows` | Ninguna tabla de `fleet`/`accounts` se queda vacía. |
 | `test_every_event_subtype_is_seeded` | Los 7 subtipos 1-a-1 de `Event`, no solo la ITV. |
-| `test_erratas_space_has_one_of_each_type` | Los 15 tipos desactivables + bajas + usuarios. |
+| `test_erratas_space_has_one_of_each_type` | Todos los tipos desactivables (`fleet.erratas.DEACTIVATABLE`) + bajas + usuarios. |
 | `test_reference_layer_invariants_hold` | Los datos de referencia de §6 siguen en pie. |
 
 **Única excepción declarada**: `accounts.GoogleCredential` se queda vacía a
@@ -203,7 +204,9 @@ supervisa ese coche (en rojo, con el bocadillo de aviso). Los únicos estados so
 `open` y `resolved`.
 
 **Erratas y comunicaciones** (los dos últimos pasos): `seed_erratas` deja **un
-ejemplo desactivado de cada uno de los 15 tipos** de `fleet.erratas.DEACTIVATABLE`
+ejemplo desactivado de cada tipo** de `fleet.erratas.DEACTIVATABLE` (el test
+`test_erratas_space_has_one_of_each_type` lo exige: si añades un tipo, añade su
+errata aquí)
 — una incidencia, una lectura de km, un documento, una factura, un reparto, y
 para los catálogos una fila huérfana creada a propósito (la marca `Saab` y su
 modelo, la sociedad `GS-OLD`, `Renting Histórico`, el CECO `4900`, la obra

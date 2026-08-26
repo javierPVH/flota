@@ -30,9 +30,19 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
-from ..models import Brand, BusinessUnit, Company, Country, Pep, Project, Vehicle, VehicleModel
+from ..models import (
+    Brand,
+    BusinessUnit,
+    Company,
+    Country,
+    FuelType,
+    Pep,
+    Project,
+    Site,
+    Vehicle,
+    VehicleModel,
+)
 from ..models.enums import (
-    Fuel,
     MarketSegment,
     PropertyType,
     UseType,
@@ -93,7 +103,9 @@ def _read_csv(data: bytes) -> tuple[list[object], list[list[object]]]:
     # Heurística de delimitador sobre la primera línea (como la referencia).
     first_line = text.splitlines()[0] if text.splitlines() else ""
     delimiter = ";" if first_line.count(";") >= first_line.count(",") else ","
-    if "\t" in first_line and first_line.count("\t") > max(first_line.count(";"), first_line.count(",")):
+    if "\t" in first_line and first_line.count("\t") > max(
+        first_line.count(";"), first_line.count(",")
+    ):
         delimiter = "\t"
     rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
     if not rows:
@@ -176,7 +188,9 @@ def normalize_header(value: str) -> str:
     return "".join(ch for ch in text.lower() if ch.isalnum())
 
 
-def detect_mapping(headers: list[str], aliases: dict[str, tuple[str, ...]]) -> dict[str, int | None]:
+def detect_mapping(
+    headers: list[str], aliases: dict[str, tuple[str, ...]]
+) -> dict[str, int | None]:
     """Auto-mapeo campo → índice de columna por alias exacto tras normalizar."""
     normalized = {normalize_header(h): i for i, h in enumerate(headers) if h}
     mapping: dict[str, int | None] = {}
@@ -214,7 +228,7 @@ def coerce_int(value: object) -> int | None:
         return None
     if isinstance(value, bool):
         raise ValueError("no es un número")
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return int(value)
     text = str(value).strip().replace(" ", "")
     # separadores de miles habituales en ficheros españoles
@@ -232,7 +246,7 @@ def coerce_date(value: object) -> str | None:
         return value.date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
+    if isinstance(value, int | float) and not isinstance(value, bool):
         # Serial de Excel (días desde 1899-12-30) — solo rangos plausibles.
         if 1 < value < 200_000:
             return (_EXCEL_EPOCH + timedelta(days=int(value))).isoformat()
@@ -251,7 +265,7 @@ def coerce_bool(value: object) -> bool | None:
         return None
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return bool(value)
     text = normalize_header(str(value))
     if text in {normalize_header(w) for w in _TRUE_WORDS if w}:
@@ -293,7 +307,7 @@ def flatten_error(exc: Exception) -> str:
                 head = f"{prefix}{key}: " if str(key) != "non_field_errors" else prefix
                 out.extend(_flat(val, head))
             return out
-        if isinstance(node, (list, tuple)):
+        if isinstance(node, list | tuple):
             out = []
             for item in node:
                 out.extend(_flat(item, prefix))
@@ -316,14 +330,22 @@ VEHICLE_ALIASES: dict[str, tuple[str, ...]] = {
     "project": ("proyecto", "project", "obra"),
     "company": ("sociedad", "empresa", "company"),
     "cost_center": ("ceco", "centro de coste", "pep", "cost center", "ceco de imputacion"),
-    "fuel": ("combustible", "fuel"),
+    "fuel": ("combustible", "fuel", "tipo de combustible"),
+    # GAP-3/GAP-4: tarjeta y sede, columnas del levantamiento HSE.
+    "fuel_card": ("tarjeta combustible", "tarjeta de combustible", "fuel card"),
+    "site": ("sede", "oficina", "ubicacion", "ubicación", "proyecto obra/sede"),
     "type": ("tipo", "type"),
     "size": ("tamaño", "tamano", "size"),
     "veh_use": ("uso vehiculo", "pasajeros/mercancia", "veh use"),
     "market_segment": ("segmento", "segmento de mercado", "market segment"),
     "property": ("propiedad", "property"),
     "unlimited_km": ("km ilimitados", "kilometros ilimitados", "unlimited km"),
-    "insurance_expiry_date": ("vencimiento seguro", "vto seguro", "seguro", "vencimiento del seguro"),
+    "insurance_expiry_date": (
+        "vencimiento seguro",
+        "vto seguro",
+        "seguro",
+        "vencimiento del seguro",
+    ),
     "registration_date": ("fecha matriculacion", "f matriculacion", "fecha de matriculacion"),
     "km_start": ("km inicial", "km inicio", "km start", "km"),
     "is_substitute": ("sustitucion", "vehiculo de sustitucion", "es sustituto", "sustituto"),
@@ -347,9 +369,7 @@ class VehicleRowNormalizer:
 
     def __init__(self):
         User = get_user_model()
-        self._projects = {
-            normalize_header(p.project_name): p.id for p in Project.objects.all()
-        }
+        self._projects = {normalize_header(p.project_name): p.id for p in Project.objects.all()}
         self._companies: dict[str, int] = {}
         for c in Company.objects.all():
             self._companies[normalize_header(c.name)] = c.id
@@ -367,9 +387,13 @@ class VehicleRowNormalizer:
             if b.code:
                 self._business_units[normalize_header(b.code)] = b.id
         self._brands = {normalize_header(b.name): b.id for b in Brand.objects.all()}
+        # GAP-1/GAP-4: combustible (nombre canónico + id) y sedes.
+        self._fuel_types = {
+            normalize_header(f.name): (f.id, f.name) for f in FuelType.objects.all()
+        }
+        self._sites = {normalize_header(x.name): x.id for x in Site.objects.all()}
         self._models = {
-            (m.brand_id, normalize_header(m.name)): m.id
-            for m in VehicleModel.objects.all()
+            (m.brand_id, normalize_header(m.name)): m.id for m in VehicleModel.objects.all()
         }
         self._users_by_key: dict[str, int] = {}
         for u in User.objects.filter(is_active=True):
@@ -379,7 +403,6 @@ class VehicleRowNormalizer:
         self._choices = {
             "state": choice_lookup(VehicleState),
             "business_use": choice_lookup(UseType),
-            "fuel": choice_lookup(Fuel),
             "type": choice_lookup(VehicleType),
             "size": choice_lookup(VehicleSize),
             "veh_use": choice_lookup(VehUse),
@@ -433,22 +456,35 @@ class VehicleRowNormalizer:
         put("insurance_expiry_date", coerce_date)
         put("unlimited_km", coerce_bool)
         put("is_substitute", coerce_bool)
+        put("fuel", coerce_text)
+        put("fuel_card", coerce_bool)
         for field, label in (
             ("state", "estado"),
             ("business_use", "uso empresarial"),
-            ("fuel", "combustible"),
             ("type", "tipo"),
             ("size", "tamaño"),
             ("veh_use", "uso (pasajeros/mercancía)"),
             ("market_segment", "segmento"),
             ("property", "tipo de propiedad"),
         ):
-            put(field, lambda v, f=field, l=label: coerce_choice(v, self._choices[f], l))
+            put(
+                field,
+                lambda v, f=field, choice_label=label: coerce_choice(
+                    v, self._choices[f], choice_label
+                ),
+            )
         put("project", lambda v: self._fk(self._projects, v, "El proyecto"))
+        put("site", lambda v: self._fk(self._sites, v, "La sede"))
         put("company", lambda v: self._fk(self._companies, v, "La sociedad"))
         put("cost_center", lambda v: self._fk(self._peps, v, "El CECO"))
         put("supervisor", lambda v: self._fk(self._users_by_key, v, "El supervisor"))
         put("driver", lambda v: self._fk(self._users_by_key, v, "El conductor"))
+
+        # GAP-1: como la marca — el texto de combustible vale tal cual; si además
+        # está en el catálogo se enlaza la FK y el texto pasa al nombre canónico.
+        fuel_match = self._fuel_types.get(normalize_header(data.get("fuel", "")))
+        if fuel_match:
+            data["fuel_ref"], data["fuel"] = fuel_match
 
         # brand/model como texto ya valen (serializer legado); si además existen
         # en el catálogo se enlazan las refs para mantenerlo consistente (N5).
@@ -634,7 +670,7 @@ def build_preview(parsed: dict, mapping: dict[str, int | None], defaults: dict, 
     Cada record lleva `_row` (fila real del fichero, cabecera=1) para que el
     informe de errores de `bulk-create` pueda señalar la fila original.
     """
-    headers, rows = parsed["headers"], parsed["rows"]
+    rows = parsed["rows"]
     mapping_errors: list[dict] = []
     data_errors: list[dict] = []
     records: list[dict] = []
