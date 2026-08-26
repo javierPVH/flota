@@ -145,14 +145,13 @@ const es = {
   saveError: 'No se pudo guardar.',
   createModelError: 'No se pudo crear el modelo.',
 
+  // GAP-1: el combustible viene del catálogo; para fichas legadas sin FK se
+  // enseña el texto guardado.
+  fuelLegacyNote: (texto: string) => `Guardado como texto: «${texto}». Elige uno del catálogo.`,
+  fuelCard: 'Tarjeta de combustible',
+  site: 'Sede',
+  siteHint: 'Dónde vive el vehículo cuando no está asociado a una obra.',
   // Opciones de selects cerrados (el value viaja al back; la label es local)
-  fuelLabels: {
-    gasoline: 'Gasolina',
-    diesel: 'Diésel',
-    LPG: 'GLP',
-    hybrid: 'Híbrido',
-    other: 'Otro',
-  },
   typeLabels: {
     car: 'Turismo',
     van: 'Furgoneta',
@@ -205,6 +204,9 @@ const es = {
     business_unit: 'Unidad de negocio',
     cost_center: 'CECO',
     country: 'País',
+    site: 'Sede',
+    fuel_ref: 'Combustible',
+    fuel_card: 'Tarjeta de combustible',
     property: 'Propiedad',
     supervisor: 'Supervisor',
     registration_date: 'Matriculación',
@@ -345,13 +347,10 @@ const en: typeof es = {
   saveError: 'Could not save.',
   createModelError: 'Could not create the model.',
 
-  fuelLabels: {
-    gasoline: 'Petrol',
-    diesel: 'Diesel',
-    LPG: 'LPG',
-    hybrid: 'Hybrid',
-    other: 'Other',
-  },
+  fuelLegacyNote: (texto) => `Stored as text: “${texto}”. Pick one from the catalog.`,
+  fuelCard: 'Fuel card',
+  site: 'Site',
+  siteHint: 'Where the vehicle lives when not assigned to a project site.',
   typeLabels: {
     car: 'Car',
     van: 'Van',
@@ -403,6 +402,9 @@ const en: typeof es = {
     business_unit: 'Business unit',
     cost_center: 'Cost center',
     country: 'Country',
+    site: 'Site',
+    fuel_ref: 'Fuel',
+    fuel_card: 'Fuel card',
     property: 'Ownership',
     supervisor: 'Supervisor',
     registration_date: 'Registration date',

@@ -5,7 +5,10 @@
 - Conductor: solo los vehículos con asignación ACEPTADA en curso a su nombre.
 """
 
-from .models import Vehicle
+from django.contrib.auth import get_user_model
+from django.db.models import Q
+
+from .models import Assignment, Vehicle
 from .models.enums import AssignmentStatus
 
 
@@ -29,3 +32,29 @@ def vehicles_for(user):
             assignments__is_active=True,
         ).distinct()
     return qs.none()
+
+
+def users_for(user):
+    """Queryset de usuarios cuyos documentos PERSONALES puede ver `user`.
+
+    Mismo espíritu que `vehicles_for`: el admin ve a todos; el supervisor, a sí
+    mismo y a los conductores con asignación ACEPTADA en curso sobre sus
+    vehículos; cualquier otro, solo a sí mismo (su permiso de conducir…).
+    """
+    User = get_user_model()
+    qs = User.objects.all()
+    if user.is_admin:
+        return qs
+    if user.is_supervisor:
+        drivers = (
+            Assignment.objects.filter(
+                vehicle__supervisor=user,
+                status=AssignmentStatus.ACCEPTED,
+                end_date__isnull=True,
+                is_active=True,
+            )
+            .exclude(driver__isnull=True)
+            .values("driver_id")
+        )
+        return qs.filter(Q(pk=user.pk) | Q(pk__in=drivers))
+    return qs.filter(pk=user.pk)

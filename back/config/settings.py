@@ -437,6 +437,10 @@ FLEET_INSURANCE_ALERT_DAYS = sorted(
 ) or [30, 15, 7]
 # Días que un vehículo activo puede estar sin conductor antes de avisar.
 FLEET_NO_DRIVER_ALERT_DAYS = max(0, env_int("FLEET_NO_DRIVER_ALERT_DAYS", 30))
+# GAP-8: mantenimiento preventivo — días de antelación del aviso por tiempo y
+# margen de km con el que se avisa antes de llegar al ciclo por km.
+FLEET_MAINTENANCE_ALERT_DAYS = max(0, env_int("FLEET_MAINTENANCE_ALERT_DAYS", 30))
+FLEET_MAINTENANCE_KM_MARGIN = max(0, env_int("FLEET_MAINTENANCE_KM_MARGIN", 1000))
 # Margen sobre los km contratados a partir del cual la proyección alerta (0.05 = 5%).
 FLEET_KM_OVERAGE_MARGIN = max(0.0, float(env_str("FLEET_KM_OVERAGE_MARGIN", "0.05")))
 # Umbral "a vigilar" de la proyección (0.95 = 95% del límite) — nivel intermedio.

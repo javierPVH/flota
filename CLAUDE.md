@@ -65,8 +65,10 @@ la BD (`FleetConfig.ready()` → `seed_dev_data` → cadena de `reset_*` en
 Google).
 
 Usuarios sembrados (contraseña `flota-dev-2026`): `admin` (superuser), `sara`
-(supervisor+driver), `carlos`/`lucia` (driver), `david` (driver sin coche →
-prueba el portón de acceso), `nuevo` (sin rol). Muchos seeds resuelven
+(supervisor+driver), `marta` (segunda supervisora, con plantilla de conductores
+en bloque), `carlos`/`lucia` (driver), `david` (driver sin coche → prueba el
+portón de acceso), `nuevo` (sin rol) y `expedro` (usuario desactivado). Muchos
+seeds resuelven
 dependencias con `get(username=...)` / `get(plate=...)`: **el orden de
 `SEED_CHAIN` y esos identificadores fijos no se pueden romper**. Detalle y
 checklist para añadir un seed en [back/SEED_DEV.md](back/SEED_DEV.md).
@@ -113,14 +115,22 @@ Dos capas que van **siempre juntas**:
 - **Lógica de negocio en `fleet/services/`**, testeable sin la capa HTTP:
   `alerts.py` (motor de alertas con `dedup_key` idempotente), `metrics.py`
   (resúmenes y proyección de km `within/watch/over`), `km_window.py` (N8:
-  ventanas de registro/estimación), `mailer.py` (N10: correo best-effort,
-  nunca lanza, traza en `EmailLog`), `reports.py` (Excel/CSV acotado por rol),
-  `archiver.py` (backends `none|local|gdrive` + reintento), `jira.py`,
-  `importer.py`, `events.py`, `seed.py`.
-- **Trabajos programados**: `management/commands/` (`check_itv`,
-  `check_insurance`, `check_no_driver`, `remind_km_readings`,
-  `check_km_overage`, `refresh_next_itv`, `archive_pending_documents`,
-  `sync_jira_requests`) y `run_fleet_jobs` que los agrupa. En Docker los ejecuta
+  ventanas de registro/estimación), `mailer.py` (N10/M6: correo best-effort en
+  dos fases — `queue_for_alert` renderiza y encola en `EmailOutbox`, la entrega
+  con reintento va al final de `run_fleet_jobs`; nunca lanza, traza en
+  `EmailLog`), `notifications.py` (envíos programados de Ajustes →
+  Notificaciones: informes por correo y/o Drive según `NotificationSchedule`),
+  `returns.py` (GAP-7: devolución de vehículo como operación única — lectura
+  final, cierre de contrato, fin de asignaciones, baja y exceso de km),
+  `reports.py` (Excel/CSV acotado por rol), `archiver.py` (backends
+  `none|local|gdrive` + reintento), `jira.py`, `importer.py`, `events.py`,
+  `seed.py`.
+- **Trabajos programados**: `management/commands/` (`refresh_next_itv`,
+  `check_itv`, `check_insurance`, `check_no_driver`, `remind_km_readings`,
+  `check_km_overage`, `check_maintenance`, `archive_pending_documents`,
+  `sync_jira_requests`, `import_vehicle_requests`, `send_notifications`,
+  `send_email_outbox`) y `run_fleet_jobs` que los agrupa en orden: chequeos →
+  envíos programados → entrega de la cola de correo. En Docker los ejecuta
   el servicio `jobs` en bucle (`deploy/jobs-loop.sh`); son idempotentes.
 - **Eventos + auditoría** son cosas distintas y coexisten: `Event` (+ subtipos
   1-a-1) es el histórico de negocio que emite `services/events.py`;
@@ -166,9 +176,22 @@ Dos capas que van **siempre juntas**:
 - [ERD.md](ERD.md) / [schema.dbml](schema.dbml) — esquema de datos.
 - [PLAN_EVOLUCION.md](PLAN_EVOLUCION.md) — el trabajo se referencia con códigos
   que aparecen en comentarios y nombres de test: **N1–N10** (funcionalidades),
-  **BG/SEC/PR/PF/UX** (bugs, seguridad, rendimiento back/front, UX) y **HU-x.y**
-  (historias de usuario). Al tocar código marcado con uno de esos códigos,
-  búscalo ahí para el contexto.
+  **BG/SEC/PR/PF/UX/DX** (bugs, seguridad, rendimiento back/front, UX, DX) y
+  **HU-x.y** (historias de usuario). Al tocar código marcado con uno de esos
+  códigos, búscalo ahí para el contexto.
+- [ANALISIS_GAP.md](ANALISIS_GAP.md) — códigos **GAP-n**: carencias frente al
+  Excel de HSE/renting (`analizar.xlsx`). GAP-1..8 implementados (tests en
+  `fleet/tests/test_gap_hse.py`) salvo GAP-5, descartado.
+- [PLAN_CORRECCIONES.md](PLAN_CORRECCIONES.md) — códigos de auditoría
+  **C/A/M/B** (auditoría 2026-08-20). Ojo: la «M» de aquí no es la de los
+  hitos M1–M8 de PLAN_FRONT_CONDUCTORES.md.
+- [AUDITORIA_BACK.md](AUDITORIA_BACK.md) — códigos **R3-nn** (auditoría de
+  código 2026-08-25, documento vivo): Parte I backend y Parte II front — bugs,
+  concurrencia, rendimiento y consistencia pendientes de ejecutar.
+- [PLAN_MANTENIMIENTOS_ANUALES.md](PLAN_MANTENIMIENTOS_ANUALES.md) — rediseño
+  **planificado, aún no implementado**, de `MaintenancePlan` (ciclos por
+  km/meses) hacia mantenimientos anuales obligatorios + neumáticos de
+  sustitución; léelo antes de tocar el mantenimiento preventivo.
 - [QA_MANUAL.md](QA_MANUAL.md) — guion de prueba manual sobre el seed.
 - [IMPORTACION_MASIVA.md](IMPORTACION_MASIVA.md) — importación masiva
   (`fleet/services/importer.py` + `front-gestion/src/components/bulk-import/`).

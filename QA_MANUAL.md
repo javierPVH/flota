@@ -57,6 +57,13 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
 - [ ] Panel de opciones: mostrar/ocultar columnas, reordenar (subir/bajar), redimensionar arrastrando el borde de una cabecera.
 - [ ] Fila expandible: desplegar, ver el contenido, plegar (no pierde el estado).
 - [ ] Exportar a Excel y abrir el fichero.
+- [ ] **Modal «Estado · matrícula»**: dos pestañas — **«Nuevo estado»** y **«Estados abiertos»** (con contador). En «Nuevo estado», cada sección va en su **caja con borde de color** y funciona como **acordeón** (la cabecera pliega/despliega sin perder lo escrito). Abre en **«— Sin cambios —»** con todo desactivado y Guardar apagado (no existe la fila «-- Ignorar --»). El selector va **agrupado**: Disponibilidad (Activo / No activo), Mantenimiento (En mantenimiento / Cambio de neumáticos), Avería (Averiado) e ITV (En ITV) — **sin «Accidentado»** (el accidente se comunica con su parte, menú ⋮). Elegir **«Activo»** solo activa la descripción; un estado **no activo** enciende descripción, gestión, sustitución, archivos y comunicado. Las secciones que no aplican se ven **atenuadas**.
+- [ ] **Sección «Gestión · taller y cita»**: se enciende cuando el guardado abre una petición (neumáticos o un estado con parte: mantenimiento, ITV, avería, accidente). El **taller sale del catálogo** (Ajustes → Catálogos → Talleres e ITV); con «En ITV» solo ofrece **estaciones de ITV** (y «Taller + ITV»), con el resto solo talleres. Al guardar con taller/cita/coste, la petición queda **En curso**.
+- [ ] **«— Otro taller (escribir) —»** (en la sección Gestión y en el modal Gestión de «Estados abiertos»): abre el campo **Nombre del taller** y el check **«Añadir este taller al catálogo»**. Al guardar, la gestión guarda el nombre escrito y, con el check, el taller **entra en el catálogo** (tipo «Taller»; «Estación ITV» si venía de una ITV) y aparece ya en los selectores. Si el alta falla (p. ej. ya existe), la gestión **no se pierde** y se avisa.
+- [ ] **Cambiar a un estado con parte** (p. ej. «Averiado») **abre además su petición** (incidencia del tipo equivalente) y la pantalla de éxito lo dice («Petición abierta: …»). El contador de «Estados abiertos» sube.
+- [ ] **Pestaña «Estados abiertos»**: lista **solo las peticiones sin resolver** (abiertas/en curso) del vehículo, con fecha, estado y la gestión guardada (taller · cita). Cada línea tiene tres botones que abren su modal: **Modificar** (fecha, kilometraje, CP, descripción), **Gestión** (taller del catálogo + cita + coste → «En curso») y **Resolver** (sobrecoste, observaciones, días parado — todo opcional → **cierra** y desaparece de la lista).
+- [ ] **«Cambio de neumáticos»** en el mismo selector: **habilita todo** — su parte guiado como el de la PWA (kilometraje, CP del taller, fecha y hora de preferencia, motivo desgaste/pinchazo con sus ruedas y medidas), la descripción (hace de comentario del parte), gestión, archivos (tipo sugerido «Fotos de daños») y comunicado; la sustitución solo si el coche NO está activo ahora (el back rechaza sustituto de un coche activo). Al guardar se crea una **incidencia de neumáticos** (el estado del coche no cambia) y se ve en Incidencias y en «Estados abiertos».
+- [ ] **Menú ⋮ → «Comunicar accidente»** (junto a «Estado, sustitución y comunicado», en Vehículos y en el Panel): el parte guiado de la PWA — calle/número/CP/localidad/provincia, fecha y hora (no futura), teléfono, CP del taller, **descripción de los daños**, **terceros implicados** y **lesionados** con «+ Añadir»/quitar, referencia del atestado y archivo del parte (opcionales). La casilla **«Marcar el vehículo como “Accidentado”»** viene marcada (no aparece si ya lo está). Al enviar: se abre la **petición de accidente** (visible en «Estados abiertos» e Incidencias), el estado cambia si la casilla sigue marcada, y en el **admin → Partes de accidente** están las tablas con terceros y lesionados materializados.
 
 ### Detalle de vehículo
 - [ ] Acordeones abren/cierran con animación; datos, contrato, asignaciones.
@@ -84,6 +91,13 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
   - en **rojo con triángulo** la que cerró `admin`, ajeno al coche — al pasar el ratón (o tabular hasta el icono) sale el bocadillo diciendo quién sí era el conductor y el responsable. **Debe verse entero, sin recortarse por la celda ni salir a la vez que el tooltip del navegador**;
   - las cerradas por el sistema al registrar ITV/póliza/lectura salen como *Cierre automático* (gris), no en rojo.
 - [ ] Resolver una alerta abierta: pasa a Resueltas con la fecha de hoy y tu nombre, en el grupo del mes en curso.
+- [ ] **Resolver abre la actuación de cada tipo** (la fila ya no lleva botón propio de «Registrar ITV»):
+  - **ITV** → directamente el modal de **Registrar ITV** con el vehículo del aviso ya elegido y un campo de **coste** opcional; al registrarla favorable el aviso se cierra solo (*Cierre automático*).
+  - **Lectura de km pendiente** → pide fecha y **lectura** («Registrar lectura y resolver»): crea la lectura y resuelve a tu nombre con la nota.
+  - **Exceso de km proyectado** → enseña la **media mensual del coche** y un select de **candidatos** ordenados por su media (los «sin coche» primero); al elegir uno, «Cambiar conductor y resolver» hace el cambio atómico y, sin nota escrita, guarda «Cambio de conductor: X → Y».
+  - **Mantenimiento** → el **plan** del vehículo preseleccionado + fecha, km y **coste** del servicio («Registrar mantenimiento y resolver»): reancla el plan, deja el coste como **incidencia de mantenimiento cerrada** y resuelve con la nota.
+  - **Seguro** → botón «**Mandar correo a la renting**» que abre el modal de correo ya en el aviso de seguro con la **empresa de renting premarcada** como destinataria.
+- [ ] En **Resueltas** hay columna **Nota de cierre** con lo anotado al resolver.
 
 ### Incidencias, facturas, informes
 - [ ] Crear una incidencia y cambiarle el estado.
@@ -97,6 +111,7 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
 ### Catálogos y usuarios
 - [ ] Crear una marca o sociedad; el validador de email/URL del formulario avisa con valores malos.
 - [ ] Borrar la que acabas de crear → confirma → desaparece.
+- [ ] **Talleres e ITV** (catálogo nuevo): el seed trae 3 de ejemplo («Taller Centro», «Neumáticos Sur», «Estación ITV Norte»). Crear uno con tipo **Estación ITV**, dirección, CP y teléfono; la columna Tipo enseña la etiqueta («Taller», «Estación ITV», «Taller + ITV»), y un nombre repetido con otras mayúsculas se rechaza (o, si lo ocupa uno desactivado, ofrece **restaurarlo**).
 - [ ] Usuarios: abrir el detalle de `carlos`, ver sus asignaciones.
 - [ ] `expedro` figura como inactivo (o no figura en el listado activo), pero SÍ en Erratas.
 
@@ -144,6 +159,137 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
       vencido). Sin nada urgente, la tira no existe. Cada aviso enlaza a su destino.
 - [ ] Crear una incidencia con foto.
 - [ ] Subir un documento.
+- [ ] **Sin buscador**: como conductor, "Mis vehículos" NO tiene caja de búsqueda
+      (aunque lleve varios coches).
+- [ ] **Modo supervisor (`sara`)** — bajo el header hay un **switch** con dos vistas
+      (se recuerda por dispositivo y girarlo te planta en su inicio):
+  - [ ] **Mi vehículo**: la home carga directa la ficha de SU coche (el que conduce),
+        sin lista del grupo, sin buscador y **sin accesos rápidos** (van en el nav).
+        El nav inferior es: **Inicio · Alertas · Registrar km · Avería · Incidencia**,
+        y en este modo TODO va **sobre su coche o el de su sustitución**: los
+        formularios de km/avería/incidencia abren con el coche operativo de la
+        pareja preseleccionado y el selector solo ofrece esa pareja; la bandeja de
+        alertas se acota a ella (el grupo entero se ve en modo Flota). Si no
+        condujera ninguno: aviso en la home con botón que gira el switch a Flota,
+        y esas cuatro acciones del nav aparecen **desactivadas** (apagadas, sin
+        enlace, con "Sin vehículo asignado" al mantenerlas pulsadas).
+  - [ ] **Flota**: la home es la lista a cargo, **separada por grupos de estado que
+        funcionan como pestañas** (Todos · Activo · En taller · …), cada una con su
+        recuento; el buscador vive aquí y las pestañas se recalculan sobre lo buscado.
+        Cada tarjeta añade los **datos de gestión**: conductor, **última lectura**
+        (o "Sin lectura", en apagado) y **proyección** (chapa "NN% · nivel"; sin
+        contrato no hay fila, con km ilimitados dice "∞"). Si el coche tiene un plan
+        de mantenimiento anclado, sale **Próx. mantenimiento** con el mismo semáforo
+        de cercanía que la ITV (también en la ficha hero y para el conductor), y al
+        pie de cada tarjeta hay botones **Avería** / **Incidencia** que abren su
+        **modal** con ese coche ya decidido (el principal bloqueado por sustitución
+        no los ofrece: se registra sobre el sustituto).
+  - [ ] **Incidencia (botón de cada tarjeta)**: modal con un **selector de tipo** —
+        **Cambio de neumáticos · General · Mantenimiento** — y, elegido uno, su
+        **div informativo**: neumáticos (desgaste o pinchazo; taller y cita se
+        concretan en la gestión), **General** (solicitudes que quizá no tienen que
+        ver con el vehículo: documentación, tarjetas, dudas…) y **Mantenimiento**
+        (cosas rotas o cambios necesarios que **no impiden conducir**; sin
+        urgencia). Debajo, fecha, descripción y la caja punteada de adjuntar
+        documento o foto (opcional). Sin tipo o sin descripción no deja comunicar.
+        La incidencia entra en el mismo ciclo (gestión → solución) y sube la marca
+        🔧 de la tarjeta.
+  - [ ] **Recordatorio (✉ en cada tarjeta, solo supervisor)**: abre un modal con el
+        motivo (**Lectura de km sin registrar · ITV · Mantenimiento**, cada uno con
+        su dato debajo) y dos canales — **enviar correo** al conductor y **crear
+        alerta en la app** (con push). Repetir el mismo día no duplica la alerta
+        ("la alerta de hoy ya estaba abierta"); sin conductor o sin email el modal
+        lo avisa y el correo queda omitido con su motivo. La píldora ámbar de
+        lectura pendiente es ahora compacta (tamaño `sm`).
+  - [ ] **Actualizar datos (📋 en cada tarjeta, solo supervisor)**: modal con tres
+        pestañas — **Km** (registrar la lectura de hoy), **Mantenimiento** (los
+        planes del coche con su ciclo y último realizado; "Realizado hoy" reancla
+        el ciclo y **resuelve las alertas de mantenimiento abiertas**) y
+        **Averías / Incidencias** con el **ciclo en tres fases**. Sobre las
+        tres pestañas hay un **aviso fijo**: la responsabilidad de estos registros
+        es del conductor, no del responsable — esto se usa en su lugar y queda a
+        nombre de quien lo hace. Tras guardar, la lista de la flota se refresca.
+  - [ ] **Ciclo de toda incidencia (avería, mantenimiento, neumáticos…), en 3 fases**:
+    - [ ] **Lanzar**: el botón **Avería** de la tarjeta (y de la ficha) abre un
+          **modal en dos pasos**. Primero los datos: **coche fijado (selector
+          deshabilitado)**, fecha, descripción y la caja punteada **"📷 Adjuntar
+          foto (opcional)"** (al elegir foto se marca con el nombre). Aquí no se
+          comunica nada: **Continuar** pasa **con una animación de deslizamiento**
+          al paso de **Gestión**, con los **mismos campos que la gestión del
+          ciclo**: el **taller de averías** del catálogo (las estaciones solo-ITV
+          no salen; "Atrás" vuelve sin perder lo escrito) **o especificado a
+          mano** ("Otro taller…" abre el campo de nombre), **día y hora**,
+          **coste** y **adjuntar documento o foto** — y **todo es opcional**: la
+          avería **se puede comunicar sin taller** (el desplegable abre en "— Sin
+          taller —") y completarse después en el 📋. Lo rellenado queda ya en la
+          gestión de la incidencia (taller y cita precargados, coste guardado).
+          Al comunicarla, la tarjeta luce la **marca 🔧 N** de incidencias
+          abiertas (tooltip con el recuento).
+    - [ ] **Gestión** (pestaña Averías/Incidencias del 📋): elegida la incidencia
+          se ve el **hilo de fases** (Lanzada ✓ · Gestión · Solución) con su fecha
+          y descripción; el **taller se elige del catálogo o se especifica otro**
+          (desplegable; para una incidencia de ITV salen las estaciones, para el
+          resto los talleres; "Otro taller…" abre el campo de nombre y un taller ya
+          guardado que no esté en el catálogo se conserva como opción) y
+          se rellena **día y hora, coste** y se puede **adjuntar documento o
+          foto**; "Guardar gestión" la deja **En curso**. Reabrir el modal precarga
+          lo ya guardado.
+    - [ ] **Solución**: **sobrecoste** (opcional), **observaciones** y **tiempo
+          parado (días)**; "Cerrar incidencia" la cierra, desaparece de la lista
+          de abiertas y la marca 🔧 de la tarjeta baja (o se va). No hay botón a `/grupo`:
+        el acceso a la proyección es solo el del nav inferior, que queda en
+        **Inicio · Alertas · Proyección km**. "Inicio" vuelve siempre a la home de
+        la vista activa según el switch.
+  - [ ] El conductor no tiene switch ni pestaña "Inicio": su nav sigue siendo
+        Vehículos · Registrar km · Alertas, y conserva los accesos rápidos de la home.
+- [ ] **Proyección de km (`sara`, `/grupo` desde el nav en modo Flota)**:
+  - [ ] Cabecera con recuento (**Vehículos · A vigilar · En riesgo**) y, si hay más de
+        un nivel, **pestañas de filtro** (Todos · Riesgo exceso · A vigilar · Dentro ·
+        Sin proyección) con su recuento.
+  - [ ] Tarjetas **ordenadas por urgencia** (exceso primero), con franja lateral del
+        color del nivel y el **% consumido en grande** a la derecha.
+  - [ ] La barra lleva una **marca vertical con el avance temporal del contrato**
+        (tooltip al mantenerla pulsada); debajo, "X de Y contratados" y "Contrato al
+        N%". Cifras en rejilla: media mensual (con el ritmo contratado), proyección a
+        fin (con la fecha de fin) y km restantes. Si hay exceso, aviso rojo con los km
+        y la penalización estimada. "Ver evolución" es un **botón de solo icono** junto
+        al % (despliega la gráfica en la propia tarjeta); el **reparto de uso ya no
+        está aquí** — se gestiona desde el front de gestión (panel de asignaciones).
+- [ ] **Par de sustitución (N9), como `lucia`** — lleva el Leaf `4567JKL` que cubre a
+      su `5678BCD`, en taller:
+  - [ ] El sustituto se ve **marcado** (chapa "🔁 Sustitución", franja lateral y la
+        nota "Cubriendo a 5678BCD · Mantenimiento") y **ocupa la fila entera**, también
+        en tablet, donde el resto va a dos columnas.
+  - [ ] El principal **no se ve en la lista**: solo hay una tarjeta para la pareja.
+  - [ ] **A la izquierda de la matrícula** del sustituto, un botón (chevron): al pulsarlo
+        la tarjeta **se desliza a la derecha, como un reel, y el original asoma desde la
+        izquierda** — atenuado con candado 🔒 y el motivo ("sustituido por 4567JKL.
+        Registra los km y documentos sobre el sustituto").
+  - [ ] En el original hay el botón simétrico junto a su matrícula, que desliza de
+        vuelta al sustituto. Con "reducir movimiento" activado en el sistema no hay
+        animación (cambia en seco).
+  - [ ] Tocar la tarjeta visible abre SU ficha; el coche oculto no captura toques ni
+        tabulador.
+  - [ ] Si el otro coche de la pareja no es de los tuyos, la marca sigue pero **no hay
+        reel ni botón** (no hay carta que asomar).
+  - [ ] Al **abrir la ficha del principal**, arriba de todo un panel de aviso
+        "🔒 Bloqueado por sustitución" con enlace al sustituto; en la ficha del
+        sustituto, el panel "🔁 Coche de sustitución" diciendo a quién cubre.
+- [ ] **Ficha del vehículo, al día**:
+  - [ ] La cabecera lleva las mismas chapas que las tarjetas: estado, "🔁 Sustitución"
+        si toca y "🔒 Bloqueado" si está cubierto.
+  - [ ] Tres tarjetas de datos: km, próxima ITV y **Próx. mantenimiento** (GAP-8,
+        solo si hay plan anclado), las tres con su semáforo.
+  - [ ] Como `sara` (supervisora): cuadro de **Proyección** compacto (chapa de nivel,
+        % grande, barra y "X de Y contratados") y una segunda fila de acciones con
+        **Actualizar datos** y **Enviar recordatorio** — los mismos modales de las
+        tarjetas; al guardar desde "Actualizar datos" la ficha refresca sus cifras.
+        Como conductor no aparecen ni el cuadro ni esas herramientas.
+  - [ ] En el **principal bloqueado**: Registrar km, Subir documento y Avería van
+        **apagados** (con "Bloqueado por sustitución…" al mantener pulsado);
+        **Registrar ITV sigue activo** — la ITV es del coche físico.
+  - [ ] **Registrar ITV abre aunque la tarjeta de Documentos esté plegada** (antes el
+        modal vivía dentro de esa tarjeta y, plegada, el botón no hacía nada).
 - [ ] **Ya no se proponen fechas**: en la ficha del vehículo no hay acción "Proponer
       fechas" ni tarjeta de propuestas propias. Se retiró junto con su bandeja de
       confirmación en gestión, para no dejar al conductor esperando una respuesta que
@@ -165,6 +311,38 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
       pulsarlo, la marca vuelve al catálogo. Igual con sociedad (código) y modelo.
 - [ ] Crear un CECO y, sin recargar la página, ir a Proyectos: el select de centro de
       coste ya lo ofrece.
+
+### GAP-1…8: catálogos HSE, consumo, devolución y mantenimiento
+- [ ] **Catálogos** tiene dos pestañas nuevas: **Combustibles** (con factor CO₂
+      opcional) y **Sedes**. El seed trae ~14 combustibles y 3 oficinas; en
+      Erratas hay un combustible («Queroseno de Aviación») y una sede
+      («Oficina Valencia») desactivados y restaurables.
+- [ ] En el alta/edición del vehículo, **Combustible** es un desplegable del
+      catálogo; en una ficha legada sin catálogo se avisa del texto guardado.
+      Hay casilla **Tarjeta de combustible** y desplegable **Sede**.
+- [ ] Cambiar la **sede** de un vehículo deja un evento «Cambio de ubicación»
+      en su histórico con la sede anterior y la nueva.
+- [ ] La ficha técnica muestra **Tarjeta de combustible** (Sí/No) y **Sede**.
+- [ ] Ficha del vehículo → tarjeta **Consumo de combustible** (plegada): la serie
+      mensual con litros, importe y origen. Añadir un mes ya existente → error de
+      campo (no un 500); desactivar la cifra mala libera el mes. `1234KLM` trae
+      6 meses sembrados.
+- [ ] Informes → Descargas permite elegir **Vehículos** o **Personas**. Vehículos
+      genera un único Excel multihoja con ficha, contratos, asignaciones, reparto,
+      sustituciones, km, consumo, eventos, incidencias, solicitudes, documentos,
+      alertas, facturas, imputaciones, costes y mantenimiento. Comprobar los filtros
+      de marca/modelo, activo/baja y flota/sustitución. Personas filtra por
+      activo/desactivado y rol. Ajustes → Notificaciones mantiene los informes
+      programables individuales, incluido consumo de combustible.
+- [ ] Incidencias (gestión y app de conductores) ofrecen el tipo **Neumáticos**.
+- [ ] Ficha → tarjeta **Mantenimiento programado**: `1234KLM` trae una revisión
+      anual VENCIDA (alerta crítica en la bandeja) y «Neumáticos» a ~500 km del
+      objetivo (aviso). El plan exige al menos un ciclo y su ancla.
+- [ ] Ficha → botón **Devolver** (junto a «Dar de baja»): pide km, fecha y motivo,
+      estima el exceso sobre lo contratado en vivo y, al confirmar, muestra el
+      resumen (asignaciones finalizadas, contrato cerrado, penalización estimada).
+      El vehículo queda de BAJA con su lectura final y su evento; unos km por
+      debajo de la última lectura se rechazan sin dejar nada a medias.
 
 ### Ajustes → Notificaciones
 - [ ] La pestaña **Notificaciones** aparece en Ajustes y lista los envíos sembrados

@@ -39,8 +39,10 @@ class NotificationSchedule(TimeStampedModel):
         """
 
         SUMMARY = "summary", "Resumen de la flota"
+        VEHICLES = "vehicles", "Vehículos (completo)"
         FLEET = "fleet", "Flota"
         KMREADINGS = "kmreadings", "Kilometraje"
+        FUEL = "fuel", "Consumo de combustible"
         DOCUMENTS = "documents", "Documentos"
         ALERTS = "alerts", "Alertas"
         INVOICES = "invoices", "Facturas"

@@ -102,6 +102,10 @@ export interface VehicleSummary {
   plate: string
   state: VehicleState
   next_itv_date: string | null
+  /** GAP-8: vencimiento más cercano de sus planes de mantenimiento anclados. */
+  next_maintenance_date: string | null
+  /** Incidencias sin cerrar (avería, mantenimiento, neumáticos…): la marca. */
+  open_incidents: number
   // X1: `insurance_expiry_date` viaja en el payload (el endpoint lo comparte el
   // front de gestión) pero NO se declara aquí a propósito: el seguro es asunto
   // de administración y en campo no se pinta. Dejarlo fuera del tipo es lo que
@@ -112,6 +116,13 @@ export interface VehicleSummary {
   /** N9: principal bloqueado mientras el sustituto opera por él. */
   blocked_by_link: {
     substitute_id: number
+    plate: string
+    reason: string
+    since: string
+  } | null
+  /** N9 al revés: si este coche ES el sustituto, el principal que cubre. */
+  substituting_for: {
+    main_id: number
     plate: string
     reason: string
     since: string
@@ -141,7 +152,7 @@ export interface VehicleSummary {
   } | null
 }
 
-/** Alerta del motor de avisos (Épica 10). Solo lectura + resolver/descartar. */
+/** Alerta del motor de avisos (Épica 10). Solo lectura + resolver. */
 export type AlertLevel = 'info' | 'warning' | 'critical'
 /** Solo dos estados: o está abierta o se resolvió (descartar se retiró). */
 export type AlertStatus = 'open' | 'resolved'
@@ -227,8 +238,12 @@ export interface Incident {
   type_display: string
   date: string | null
   description: string
+  mileage: number | null
+  workshop_postal_code: string
+  details: Record<string, unknown>
   status: string
   status_display: string
+  cost: string | null
 }
 
 // --- M6: modo supervisor (HU-2.5, 3.4/3.6, Épica 6) ------------------------

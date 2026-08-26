@@ -65,6 +65,7 @@ export function IncidentsPage() {
     () => [
       { value: 'breakdown', label: t.types.breakdown },
       { value: 'maintenance', label: t.types.maintenance },
+      { value: 'tires', label: t.types.tires },
       { value: 'inspection', label: t.types.inspection },
       { value: 'accident', label: t.types.accident },
     ],

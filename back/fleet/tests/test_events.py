@@ -1,6 +1,7 @@
 """Tests de la Fase B1: eventos de negocio, auto-cierre de ITV y bloqueo optimista."""
 
 from datetime import timedelta
+from decimal import Decimal
 
 from django.urls import reverse
 from django.utils import timezone
@@ -101,6 +102,42 @@ class BusinessEventTests(APITestCase):
         self.assertFalse(
             Event.objects.filter(vehicle=vehicle, event_type=EventType.DRIVER_CHANGE).exists()
         )
+
+
+class ItvCostTests(APITestCase):
+    """El modal de resolver una alerta de ITV registra también lo que costó."""
+
+    def setUp(self):
+        self.admin = make_user("itv-admin", Role.ADMIN)
+        self.client.force_authenticate(self.admin)
+        self.vehicle = Vehicle.objects.create(plate="ITVC01", brand="a", model="b")
+
+    def _payload(self, **itv_extra):
+        return {
+            "vehicle": self.vehicle.pk,
+            "event_type": "itv",
+            "event_date": timezone.localdate().isoformat(),
+            "itv": {
+                "result": "done",
+                "next_due": (timezone.localdate() + timedelta(days=365)).isoformat(),
+                **itv_extra,
+            },
+        }
+
+    def test_registering_itv_keeps_the_cost_and_shows_it_in_details(self):
+        resp = self.client.post(reverse("event-list"), self._payload(cost="45.20"), format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        itv = EventItv.objects.get(event__vehicle=self.vehicle)
+        self.assertEqual(itv.cost, Decimal("45.20"))
+        self.assertEqual(str(resp.data["details"]["cost"]), "45.20")
+
+    def test_cost_is_optional_and_never_negative(self):
+        resp = self.client.post(reverse("event-list"), self._payload(), format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertIsNone(EventItv.objects.get(event__vehicle=self.vehicle).cost)
+
+        resp = self.client.post(reverse("event-list"), self._payload(cost="-1"), format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class ItvAutoCloseTests(APITestCase):

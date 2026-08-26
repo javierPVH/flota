@@ -327,7 +327,8 @@ Modelo `ImportHeaderConfig(entity, name, columns[JSON], mapping[JSON])` + endpoi
 - **date**: `datetime`/`date` nativos, `YYYY-MM-DD`, `DD/MM/YYYY` y serial de Excel → ISO.
 - **boolean**: `sí/si/x/true/1` → `True`; `no/false/0/""` → `False`.
 - **choice**: casar contra `value` **o** `get_..._display()` (insensible a
-  mayúsculas/tildes). Ej. `fuel` "Diésel" → `diesel`. Desconocido → `data_error`.
+  mayúsculas/tildes). Ej. `type` "Turismo" → `car`. Desconocido → `data_error`.
+  (GAP-1: `fuel` ya no es choice — es texto + enlace al catálogo, como la marca.)
 - **list** (`roles`): separar por `,`/`;`; mapear a `Role`; por defecto `driver`.
 - **FK por nombre** (company, project, cost_center, brand_ref, model_ref, country,
   business_unit): buscar por nombre exacto (insensible). Desconocido → `data_error`
@@ -352,7 +353,10 @@ Modelo `ImportHeaderConfig(entity, name, columns[JSON], mapping[JSON])` + endpoi
 | `project` | Proyecto | condic. | FK | por nombre |
 | `company` | Sociedad | — | FK | por nombre |
 | `cost_center` | CECO (PEP) | — | FK | por nombre |
-| `fuel`/`type`/`size`/`veh_use`/`market_segment`/`property` | — | — | choice | enums de `vehicle.py` |
+| `fuel` | Combustible | — | text | GAP-1: texto libre; si casa (insensible) con el catálogo `fuel-types`, se enlaza `fuel_ref` y el texto pasa al nombre canónico |
+| `fuel_card` | Tarjeta combustible | — | boolean | GAP-3 |
+| `site` | Sede / oficina | — | FK | GAP-4: por nombre en el catálogo `sites` |
+| `type`/`size`/`veh_use`/`market_segment`/`property` | — | — | choice | enums de `vehicle.py` |
 | `unlimited_km` | Km ilimitados | — | boolean | |
 | `insurance_expiry_date` | Vto. seguro | — | date | |
 | `registration_date` | F. matriculación | — | date | |

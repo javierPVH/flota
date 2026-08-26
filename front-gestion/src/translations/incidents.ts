@@ -13,6 +13,7 @@ const es = {
   types: {
     breakdown: 'Avería',
     maintenance: 'Mantenimiento',
+    tires: 'Neumáticos',
     inspection: 'ITV',
     accident: 'Accidente',
   },
@@ -70,6 +71,7 @@ const en: typeof es = {
   types: {
     breakdown: 'Breakdown',
     maintenance: 'Maintenance',
+    tires: 'Tyres',
     inspection: 'MOT',
     accident: 'Accident',
   },

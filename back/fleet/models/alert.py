@@ -59,6 +59,12 @@ class Alert(TimeStampedModel):
         related_name="+",
         verbose_name="Resuelta por",
     )
+    resolution_note = models.CharField(
+        "Nota de resolución",
+        max_length=255,
+        blank=True,
+        help_text="Qué se hizo al resolverla (los cierres manuales desde la bandeja).",
+    )
 
     class Meta:
         verbose_name = "alerta"
@@ -73,9 +79,12 @@ class Alert(TimeStampedModel):
         plate = self.vehicle.plate if self.vehicle_id else "—"
         return f"[{self.get_level_display()}] {self.get_type_display()} · {plate}"
 
-    def close(self, *, status: str, by=None) -> None:
-        """Marca la alerta como resuelta/descartada, registrando quién y cuándo."""
+    def close(self, *, status: str, by=None, note: str = "") -> None:
+        """Marca la alerta como resuelta/descartada: quién, cuándo y (opcional) qué se hizo."""
         self.status = status
         self.resolved_at = timezone.now()
         self.resolved_by = by
-        self.save(update_fields=["status", "resolved_at", "resolved_by", "updated_at"])
+        self.resolution_note = note
+        self.save(
+            update_fields=["status", "resolved_at", "resolved_by", "resolution_note", "updated_at"]
+        )

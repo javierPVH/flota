@@ -11,10 +11,12 @@ import {
   listAlerts,
   listAll,
   listIncidents,
+  listMaintenancePlans,
   listUsers,
   listVehicleLinks,
   listVehicles,
   updateUser,
+  type MaintenancePlan,
   type ManagedUserFull,
   type VehicleFilters,
 } from '../api.ts'
@@ -26,6 +28,7 @@ import { UserFormModal } from '../components/UserFormModal.tsx'
 import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
 import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
+import { AccidentModal } from '../components/AccidentModal.tsx'
 import { VehicleStateModal } from '../components/VehicleStateModal.tsx'
 import { useLang } from '../i18n.tsx'
 import { useUsersCopy } from '../translations/users.ts'
@@ -48,9 +51,10 @@ const ALERT_CATEGORY: Record<string, string> = {
   insurance_due: 'insurance',
   km_reading_pending: 'km',
   km_overage: 'km',
+  maintenance_due: 'maintenance',
   no_driver: 'no_driver',
 }
-const ALERT_TAB_ORDER = ['all', 'itv', 'insurance', 'km', 'no_driver']
+const ALERT_TAB_ORDER = ['all', 'itv', 'insurance', 'km', 'maintenance', 'no_driver']
 
 // Incidencias: el tipo ES la categoría (avería/mantenimiento/ITV/accidente).
 // Averías y accidentes son las "serias" (semáforo rojo en la tira/KPI).
@@ -58,13 +62,77 @@ const INCIDENT_TYPE_TONE: Record<IncidentType, 'danger' | 'warning' | 'info'> = 
   breakdown: 'danger',
   accident: 'danger',
   maintenance: 'warning',
+  tires: 'warning',
   inspection: 'info',
 }
-const INCIDENT_TAB_ORDER: IncidentType[] = ['breakdown', 'maintenance', 'inspection', 'accident']
+const INCIDENT_TAB_ORDER: IncidentType[] = [
+  'breakdown',
+  'maintenance',
+  'tires',
+  'inspection',
+  'accident',
+]
 
-type ManageKind = 'vehicles' | 'use' | 'cost' | 'itv' | 'insurance' | 'alerts' | 'incidents'
+type ManageKind = 'vehicles' | 'use' | 'cost' | 'itv' | 'insurance' | 'maintenance' | 'alerts' | 'incidents'
 // Corte de un desglose de vencimientos (ITV / seguro).
 type DueSeg = 'all' | 'overdue' | 'soon'
+// Corte del desglose de mantenimiento anual (GAP-8): añade «sin plan» y «al día».
+type MaintSeg = 'all' | 'overdue' | 'soon' | 'no_plan' | 'ok'
+
+/** Fila del desglose de mantenimiento anual: vehículo + su próximo vencimiento. */
+interface MaintRow {
+  vehicle: Vehicle
+  /** Plan que marca el próximo vencimiento ('' si no hay plan con fecha). */
+  plan: string
+  due: string | null
+  status: Exclude<MaintSeg, 'all'>
+}
+
+/** `iso` + `months` meses, recortando al último día del mes (como el back). */
+function addMonthsIso(iso: string, months: number): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  const total = m - 1 + months
+  const year = y + Math.floor(total / 12)
+  const month = total % 12 // 0-index
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(Math.min(d, lastDay)).padStart(2, '0')}`
+}
+
+function addDaysIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
+}
+
+/**
+ * GAP-8: clasifica cada vehículo activo frente a la obligación de mantenimiento
+ * ANUAL, con el mismo criterio que `fleet_summary` en el back: ciclo efectivo =
+ * mín(ciclo del plan, 12 meses) y solo acreditan los planes con ancla de fecha.
+ */
+function buildMaintRows(vehicles: Vehicle[], plans: MaintenancePlan[]): MaintRow[] {
+  const best = new Map<number, { due: string; plan: string }>()
+  for (const p of plans) {
+    if (!p.last_done_date) continue
+    const due = addMonthsIso(p.last_done_date, Math.min(p.every_months ?? 12, 12))
+    const cur = best.get(p.vehicle)
+    if (!cur || due < cur.due) best.set(p.vehicle, { due, plan: p.name })
+  }
+  const today = todayIso()
+  const soon = addDaysIso(today, 30)
+  const rank: Record<MaintRow['status'], number> = { overdue: 0, no_plan: 1, soon: 2, ok: 3 }
+  return vehicles
+    .map((vehicle): MaintRow => {
+      const hit = best.get(vehicle.id)
+      if (!hit) return { vehicle, plan: '', due: null, status: 'no_plan' }
+      const status = hit.due < today ? 'overdue' : hit.due <= soon ? 'soon' : 'ok'
+      return { vehicle, plan: hit.plan, due: hit.due, status }
+    })
+    .sort(
+      (a, b) =>
+        rank[a.status] - rank[b.status] ||
+        (a.due ?? '9999').localeCompare(b.due ?? '9999') ||
+        a.vehicle.plate.localeCompare(b.vehicle.plate),
+    )
+}
 // Pestañas del listado: dos de vehículos (flota / sustitución) y dos de personas
 // (supervisores / conductores).
 type DashTab = 'flota' | 'substitute' | 'supervisors' | 'drivers'
@@ -127,12 +195,16 @@ export function DashboardPage() {
   const [insList, setInsList] = useState<Vehicle[] | null>(null)
   const [itvSeg, setItvSeg] = useState<DueSeg>('all') // corte del desglose de ITV
   const [insSeg, setInsSeg] = useState<DueSeg>('all') // corte del desglose de seguros
+  // GAP-8: desglose del mantenimiento anual (vencido/próximo/sin plan/al día).
+  const [maintList, setMaintList] = useState<MaintRow[] | null>(null)
+  const [maintSeg, setMaintSeg] = useState<MaintSeg>('all')
   const [alertTab, setAlertTab] = useState('all') // pestaña de tipo del modal de alertas
   const [incidentTab, setIncidentTab] = useState('all') // pestaña de tipo del modal de incidencias
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null) // detalle de una alerta
 
   // Modales de acciones por fila (vehículos y personas).
   const [opsVehicle, setOpsVehicle] = useState<Vehicle | null>(null)
+  const [accidentVehicle, setAccidentVehicle] = useState<Vehicle | null>(null)
   const [emailVehicle, setEmailVehicle] = useState<Vehicle | null>(null)
   const [driverVehicle, setDriverVehicle] = useState<Vehicle | null>(null)
   const [invoicesVehicle, setInvoicesVehicle] = useState<Vehicle | null>(null)
@@ -195,6 +267,16 @@ export function DashboardPage() {
       .then((rows) => setInsList(rows.filter((v) => dueClass(v.insurance_expiry_date) !== '')))
       .catch(() => setInsList([]))
   }, [manage, insList])
+
+  // Mantenimiento anual (GAP-8): carga perezosa al abrir su modal. Se piden los
+  // activos (sin bajas) y TODOS los planes vivos, y se clasifica en cliente con
+  // el mismo criterio que el KPI (`fleet_summary`).
+  useEffect(() => {
+    if (manage !== 'maintenance' || maintList !== null) return
+    Promise.all([listAll(listVehicles({})), listAll(listMaintenancePlans())])
+      .then(([vs, plans]) => setMaintList(buildMaintRows(vs, plans)))
+      .catch(() => setMaintList([]))
+  }, [manage, maintList])
 
   // Debounce: una petición por pausa de tecleo, no por tecla. Solo la búsqueda
   // de vehículos va al servidor; la de personas filtra la lista ya cargada.
@@ -444,6 +526,7 @@ export function DashboardPage() {
     cost: m.costTitle,
     itv: m.itvTitle,
     insurance: m.insuranceTitle,
+    maintenance: m.maintenanceTitle,
     alerts: m.alertsTitle,
     incidents: m.incidentsTitle,
   }
@@ -516,6 +599,43 @@ export function DashboardPage() {
     ]
   }
 
+  // Columnas del desglose de mantenimiento anual (GAP-8), ordenables.
+  const MAINT_TONE: Record<MaintRow['status'], 'danger' | 'warning' | 'success'> = {
+    overdue: 'danger',
+    no_plan: 'danger', // sin plan = incumple la anual, tan grave como vencido
+    soon: 'warning',
+    ok: 'success',
+  }
+  const MAINT_LABEL: Record<MaintRow['status'], string> = {
+    overdue: m.maintOverdue,
+    no_plan: m.maintNoPlan,
+    soon: m.maintSoon,
+    ok: m.maintOk,
+  }
+  const maintColumns: Array<TableWithPanelColumn<MaintRow>> = [
+    { key: 'plate', label: t.home.thPlate, getValue: (r) => r.vehicle.plate, render: (r) => plateLink(r.vehicle) },
+    {
+      key: 'vehicle',
+      label: t.home.thVehicle,
+      getValue: (r) => `${r.vehicle.brand} ${r.vehicle.model}`,
+    },
+    { key: 'plan', label: m.maintPlanColumn, getValue: (r) => r.plan, render: (r) => r.plan || '—' },
+    {
+      key: 'status',
+      label: m.maintStateColumn,
+      getValue: (r) => ['overdue', 'no_plan', 'soon', 'ok'].indexOf(r.status),
+      render: (r) => <Badge tone={MAINT_TONE[r.status]}>{MAINT_LABEL[r.status]}</Badge>,
+    },
+    {
+      key: 'due',
+      label: m.maintDueColumn,
+      isDate: true,
+      getValue: (r) => r.due ?? '',
+      render: (r) =>
+        r.due ? <span className={dueClass(r.due)}>{fmtDate(r.due, language)}</span> : '—',
+    },
+  ]
+
   // Listado de flota con el estilo unificado (TableWithPanel).
   const vehicleColumns: Array<TableWithPanelColumn<Vehicle>> = [
     {
@@ -585,6 +705,7 @@ export function DashboardPage() {
     onDriver: setDriverVehicle,
     onInvoices: setInvoicesVehicle,
     onOps: setOpsVehicle,
+    onAccident: setAccidentVehicle,
     activeMainOfSub,
     onDone: reloadVehicles,
     onError: setError,
@@ -748,6 +869,34 @@ export function DashboardPage() {
                   : t.home.kpiInsuranceOk
               }
               accent={summary.insurance_overdue ? 'danger' : 'info'}
+            />
+          </button>
+          {/* GAP-8: obligación de mantenimiento ANUAL — vencidos y sin plan
+              son incumplimientos, así que tiñen la tarjeta de rojo. */}
+          <button
+            type="button"
+            className="kpi-btn"
+            title={t.home.manageHint}
+            onClick={() => setManage('maintenance')}
+          >
+            <StatCard
+              label={t.home.kpiMaintenance}
+              value={summary.maintenance_next_30d}
+              sub={
+                [
+                  summary.maintenance_overdue
+                    ? t.home.kpiMaintenanceOverdue(summary.maintenance_overdue)
+                    : '',
+                  summary.maintenance_no_plan
+                    ? t.home.kpiMaintenanceNoPlan(summary.maintenance_no_plan)
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || t.home.kpiMaintenanceOk
+              }
+              accent={
+                summary.maintenance_overdue || summary.maintenance_no_plan ? 'danger' : 'info'
+              }
             />
           </button>
         </div>
@@ -1045,7 +1194,7 @@ export function DashboardPage() {
         open={manage !== null}
         title={manage ? MANAGE_TITLE[manage] : ''}
         onClose={() => setManage(null)}
-        wide={manage === 'itv' || manage === 'insurance'}
+        wide={manage === 'itv' || manage === 'insurance' || manage === 'maintenance'}
       >
         {manage === 'vehicles' && summary && (
           <div className="mng">
@@ -1246,6 +1395,56 @@ export function DashboardPage() {
           </div>
         )}
 
+        {/* GAP-8: obligación de mantenimiento anual, vehículo a vehículo. */}
+        {manage === 'maintenance' && (
+          <div className="mng">
+            <p className="mng-hint">{m.maintenanceDesc}</p>
+            {maintList === null ? (
+              <p className="loading-state" role="status">{t.common.loading}</p>
+            ) : maintList.length === 0 ? (
+              <p className="muted">{m.maintenanceEmpty}</p>
+            ) : (
+              <>
+                <div className="chips-row" role="group" aria-label={m.maintenanceTitle}>
+                  {(
+                    [
+                      ['all', m.maintSegAll],
+                      ['overdue', m.maintSegOverdue],
+                      ['soon', m.maintSegSoon],
+                      ['no_plan', m.maintSegNoPlan],
+                      ['ok', m.maintSegOk],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <Chip
+                      key={key}
+                      active={maintSeg === key}
+                      count={
+                        key === 'all'
+                          ? maintList.length
+                          : maintList.filter((r) => r.status === key).length
+                      }
+                      onClick={() => setMaintSeg(key)}
+                    >
+                      {label}
+                    </Chip>
+                  ))}
+                </div>
+                <TableWithPanel<MaintRow>
+                  rows={maintList.filter((r) => maintSeg === 'all' || r.status === maintSeg)}
+                  columns={maintColumns}
+                  rowKey={(r) => String(r.vehicle.id)}
+                  enableColumnSort
+                  showControlPanel={false}
+                  emptyStateLabel={m.maintenanceEmpty}
+                />
+                {maintList.some((r) => r.status === 'no_plan') && (
+                  <p className="muted">{m.maintNoPlanHint}</p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         {manage === 'alerts' && (
           <div className="mng">
             <p className="mng-hint">{m.alertsDesc}</p>
@@ -1393,6 +1592,22 @@ export function DashboardPage() {
             allVehicles={allVehicles}
             links={links}
             onClose={() => setOpsVehicle(null)}
+            onDone={reloadVehicles}
+          />
+        )}
+      </Modal>
+
+      {/* Comunicación de accidente: el parte guiado (terceros, lesionados…). */}
+      <Modal
+        open={Boolean(accidentVehicle)}
+        title={accidentVehicle ? vt.accident.title(accidentVehicle.plate) : ''}
+        onClose={() => setAccidentVehicle(null)}
+        wide
+      >
+        {accidentVehicle && (
+          <AccidentModal
+            vehicle={accidentVehicle}
+            onClose={() => setAccidentVehicle(null)}
             onDone={reloadVehicles}
           />
         )}

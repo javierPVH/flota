@@ -18,7 +18,15 @@ from django.conf import settings
 from django.utils import timezone
 
 from accounts import push as webpush
-from fleet.models import Alert, Assignment, Contract, EventItv, KmReading, Vehicle
+from fleet.models import (
+    Alert,
+    Assignment,
+    Contract,
+    EventItv,
+    KmReading,
+    MaintenancePlan,
+    Vehicle,
+)
 from fleet.models.enums import (
     AlertLevel,
     AlertStatus,
@@ -47,12 +55,17 @@ def upsert_alert(
     vehicle: Vehicle | None = None,
     user=None,
     due_date: date | None = None,
+    queue_email: bool = True,
 ) -> bool:
     """Crea la alerta si su `dedup_key` no existe. Devuelve True si la creó.
 
     Si ya existe y sigue **abierta**, refresca los campos volátiles (nivel,
     mensaje, fecha) por si los datos han cambiado; si estaba resuelta/descartada
     no la reabre (respeta la decisión de la gestión).
+
+    `queue_email=False` crea la alerta (con su push) SIN encolar el correo
+    automático: lo usa el recordatorio manual del supervisor, donde el envío
+    de email es una casilla aparte y encolar aquí lo duplicaría.
     """
     alert, created = Alert.objects.get_or_create(
         dedup_key=dedup_key,
@@ -67,13 +80,14 @@ def upsert_alert(
     )
     if created:
         _notify_alert(alert)
-        # N10a: email best-effort (seguro → renting; km → conductor). Import
-        # perezoso para evitar ciclos alerts ↔ mailer.
-        # M6: se ENCOLA. El chequeo no abre sockets SMTP: la entrega la hace
-        # `mailer.send_outbox()` al final de `run_all` (o el comando suelto).
-        from fleet.services import mailer
+        if queue_email:
+            # N10a: email best-effort (seguro → renting; km → conductor). Import
+            # perezoso para evitar ciclos alerts ↔ mailer.
+            # M6: se ENCOLA. El chequeo no abre sockets SMTP: la entrega la hace
+            # `mailer.send_outbox()` al final de `run_all` (o el comando suelto).
+            from fleet.services import mailer
 
-        mailer.queue_for_alert(alert)
+            mailer.queue_for_alert(alert)
     if not created and alert.status == AlertStatus.OPEN:
         changed = False
         for field, value in (("level", level), ("message", message), ("due_date", due_date)):
@@ -398,6 +412,110 @@ def check_km_overage(today: date | None = None) -> int:
     return created
 
 
+def add_months(day: date, months: int) -> date:
+    """`day` + `months` meses, recortando al último día del mes si no existe.
+
+    Pública: también la usa `metrics.fleet_summary` para el vencimiento del
+    mantenimiento anual en el dashboard, con el mismo calendario que las alertas.
+    """
+    import calendar
+
+    month = day.month - 1 + months
+    year = day.year + month // 12
+    month = month % 12 + 1
+    return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
+
+
+def check_maintenance(today: date | None = None) -> int:
+    """GAP-8: mantenimiento preventivo próximo o vencido, por meses y/o por km.
+
+    Cada plan dice cada cuánto toca desde su ancla (`last_done_date` /
+    `last_done_km`). El ciclo por tiempo avisa `FLEET_MAINTENANCE_ALERT_DAYS`
+    días antes y pasa a crítica al vencer; el por km avisa a
+    `FLEET_MAINTENANCE_KM_MARGIN` km del objetivo y pasa a crítica al llegar.
+    La `dedup_key` incluye el objetivo (fecha o km): al registrar el trabajo y
+    actualizar el ancla, el siguiente ciclo genera SU aviso propio.
+    """
+    today = _today(today)
+    warn_days = settings.FLEET_MAINTENANCE_ALERT_DAYS
+    km_margin = settings.FLEET_MAINTENANCE_KM_MARGIN
+    plans = list(
+        MaintenancePlan.objects.filter(
+            is_active=True, vehicle__in=_active_vehicles()
+        ).select_related("vehicle")
+    )
+    if not plans:
+        return 0
+    # Última lectura por vehículo, para los ciclos por km (mismo patrón bulk
+    # que check_km_overage: una consulta, no una por plan).
+    latest_km: dict[int, int] = {}
+    for vehicle_id, km_reading in (
+        KmReading.objects.filter(
+            vehicle_id__in={p.vehicle_id for p in plans},
+            km_reading__isnull=False,
+            is_active=True,
+        )
+        .order_by("vehicle_id", "-reading_date", "-id")
+        .values_list("vehicle_id", "km_reading")
+    ):
+        latest_km.setdefault(vehicle_id, km_reading)
+
+    created = 0
+    for plan in plans:
+        if plan.every_months and plan.last_done_date:
+            due = add_months(plan.last_done_date, plan.every_months)
+            days_left = (due - today).days
+            if days_left < 0:
+                created += upsert_alert(
+                    dedup_key=f"maintenance:{plan.pk}:{due.isoformat()}:overdue",
+                    type=AlertType.MAINTENANCE_DUE,
+                    level=AlertLevel.CRITICAL,
+                    message=(
+                        f"{plan.name}: vencido hace {-days_left} día(s) "
+                        f"(tocaba el {due.isoformat()})."
+                    ),
+                    vehicle=plan.vehicle,
+                    due_date=due,
+                )
+            elif days_left <= warn_days:
+                created += upsert_alert(
+                    dedup_key=f"maintenance:{plan.pk}:{due.isoformat()}:due",
+                    type=AlertType.MAINTENANCE_DUE,
+                    level=AlertLevel.WARNING,
+                    message=f"{plan.name}: toca en {days_left} día(s) (el {due.isoformat()}).",
+                    vehicle=plan.vehicle,
+                    due_date=due,
+                )
+        if plan.every_km and plan.last_done_km is not None:
+            current = latest_km.get(plan.vehicle_id)
+            if current is None:
+                continue  # sin lecturas no hay ciclo por km que vigilar
+            target = plan.last_done_km + plan.every_km
+            if current >= target:
+                created += upsert_alert(
+                    dedup_key=f"maintenance:{plan.pk}:{target}:km-overdue",
+                    type=AlertType.MAINTENANCE_DUE,
+                    level=AlertLevel.CRITICAL,
+                    message=(
+                        f"{plan.name}: superado el objetivo de {target} km "
+                        f"(odómetro: {current} km)."
+                    ),
+                    vehicle=plan.vehicle,
+                )
+            elif current >= target - km_margin:
+                created += upsert_alert(
+                    dedup_key=f"maintenance:{plan.pk}:{target}:km-due",
+                    type=AlertType.MAINTENANCE_DUE,
+                    level=AlertLevel.WARNING,
+                    message=(
+                        f"{plan.name}: quedan {target - current} km para el objetivo "
+                        f"de {target} km."
+                    ),
+                    vehicle=plan.vehicle,
+                )
+    return created
+
+
 def run_all(today: date | None = None) -> dict[str, int]:
     """Ejecuta el refresco de ITV, todos los chequeos y vacía la cola de correo.
 
@@ -414,6 +532,7 @@ def run_all(today: date | None = None) -> dict[str, int]:
         "km_readings": check_km_readings(today),
         "no_driver": check_no_driver(today),
         "km_overage": check_km_overage(today),
+        "maintenance": check_maintenance(today),
     }
     delivery = mailer.send_outbox()
     summary["emails_sent"] = delivery["sent"]

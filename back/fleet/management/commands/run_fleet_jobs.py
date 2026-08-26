@@ -1,7 +1,8 @@
 """Ejecuta todos los trabajos programados de flota de una vez.
 
-Refresca `next_itv_date`, lanza los cinco chequeos (ITV, seguro, km pendientes,
-sin conductor, exceso de km), despacha los envíos programados que hayan vencido
+Refresca `next_itv_date`, lanza los seis chequeos (ITV, seguro, km pendientes,
+sin conductor, exceso de km y mantenimiento preventivo), despacha los envíos
+programados que hayan vencido
 (Ajustes → Notificaciones) y, al final, vacía la cola de correo (M6). Útil para
 un único cron diario o para pruebas. Uso:
 

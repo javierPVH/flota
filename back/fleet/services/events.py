@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from django.utils import timezone
 
-from fleet.models import Event, EventDriverChange
+from fleet.models import Event, EventDriverChange, EventLocationChange
 from fleet.models.enums import EventType, VehicleState
 
 # Estado nuevo → tipo de evento de negocio que lo narra.
@@ -67,6 +67,27 @@ def emit_driver_change(vehicle, old_driver, new_driver) -> Event:
         notes="Cambio de conductor.",
     )
     EventDriverChange.objects.create(event=event, old_driver=old_driver, new_driver=new_driver)
+    return event
+
+
+def emit_location_change(vehicle, old_site, new_site) -> Event:
+    """GAP-4: cambio de sede, con su subtipo `EventLocationChange`.
+
+    El subtipo existía desde el DBML pero nada lo emitía: registraba cambios de
+    una ubicación que el vehículo no guardaba. Ahora narra el paso de una sede
+    a otra (u obra ↔ sede, cuando la sede se pone o se quita).
+    """
+    event = Event.objects.create(
+        vehicle=vehicle,
+        event_type=EventType.LOCATION_CHANGE,
+        event_date=timezone.localdate(),
+        notes="Cambio de sede.",
+    )
+    EventLocationChange.objects.create(
+        event=event,
+        old_location=str(old_site) if old_site else "",
+        new_location=str(new_site) if new_site else "",
+    )
     return event
 
 

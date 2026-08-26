@@ -20,5 +20,8 @@ class LinkReason(models.TextChoices):
 
     BREAKDOWN = "breakdown", "Avería"
     MAINTENANCE = "maintenance", "Mantenimiento"
+    # GAP-6: mismo valor que en IncidentType — un cambio de neumáticos también
+    # puede motivar una sustitución.
+    TIRES = "tires", "Neumáticos"
     ITV = "inspection", "ITV"
     ACCIDENT = "accident", "Accidente"

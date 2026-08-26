@@ -47,7 +47,7 @@ class UserBulkImportTests(APITestCase):
             "Email;Nombre;Apellidos;Roles;Carné\n"
             "ana.import@example.com;Ana;García;conductor, supervisor;B\n"
             "admin@example.com;Otro;Usuario;conductor;B\n"  # username 'admin' NO choca (email≠username)
-            ";Sin;Email;conductor;B\n"                       # email obligatorio
+            ";Sin;Email;conductor;B\n"  # email obligatorio
         )
         mapping = {"email": 0, "first_name": 1, "last_name": 2, "roles": 3, "license_type": 4}
         resp = self.client.post(
@@ -78,7 +78,7 @@ class UserBulkImportTests(APITestCase):
         existing.save(update_fields=["dni"])
         text = (
             "Email;Nombre;Apellidos;DNI\n"
-            "ana@example.com;Ana;García;\n"        # username (email) ya existe
+            "ana@example.com;Ana;García;\n"  # username (email) ya existe
             "otra@example.com;Otra;Pérez;12345678z\n"  # dni ya existe (insensible)
         )
         resp = self.client.post(

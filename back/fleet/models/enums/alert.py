@@ -14,6 +14,8 @@ class AlertType(models.TextChoices):
     KM_READING_PENDING = "km_reading_pending", "Lectura de km pendiente"
     KM_OVERAGE = "km_overage", "Exceso de km proyectado"
     NO_DRIVER = "no_driver", "Vehículo sin conductor"
+    # GAP-8: mantenimiento preventivo (por km o por meses) próximo o vencido.
+    MAINTENANCE_DUE = "maintenance_due", "Mantenimiento programado"
 
 
 class AlertLevel(models.TextChoices):

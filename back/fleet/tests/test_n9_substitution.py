@@ -159,6 +159,38 @@ class SubstitutionRulesTests(APITestCase):
         resp = self._link(substitute=other_sub)
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
 
+    def test_summary_exposes_substituting_for_on_the_substitute(self):
+        """El reverso: el sustituto dice a qué principal está cubriendo.
+
+        Sin esto la app de campo no puede emparejarlos cuando el principal cae
+        fuera del ámbito de quien conduce el sustituto.
+        """
+        self._link()
+        summary = metrics.vehicle_summary(self.substitute, today=date(2026, 7, 15))
+        covering = summary["substituting_for"]
+        self.assertEqual(covering["main_id"], self.main.pk)
+        self.assertEqual(covering["plate"], self.main.plate)
+        self.assertEqual(covering["since"], date(2026, 7, 1))
+        # El principal no "sustituye" a nadie: solo está bloqueado.
+        self.assertIsNone(
+            metrics.vehicle_summary(self.main, today=date(2026, 7, 15))["substituting_for"]
+        )
+        # Y al cerrar el vínculo deja de cubrir.
+        link = VehicleLink.objects.get(main_vehicle=self.main, end_date__isnull=True)
+        link.end_date = date(2026, 7, 20)
+        link.save(update_fields=["end_date"])
+        summary = metrics.vehicle_summary(self.substitute, today=date(2026, 7, 21))
+        self.assertIsNone(summary["substituting_for"])
+
+    def test_bulk_summaries_pair_both_sides_without_extra_queries(self):
+        """El listado trae las dos caras del vínculo con consultas acotadas."""
+        self._link()
+        rows = {row["vehicle"]: row for row in metrics.vehicle_summaries(self.admin)}
+        self.assertEqual(rows[self.substitute.pk]["substituting_for"]["plate"], self.main.plate)
+        self.assertEqual(rows[self.main.pk]["blocked_by_link"]["plate"], self.substitute.plate)
+        self.assertIsNone(rows[self.main.pk]["substituting_for"])
+        self.assertIsNone(rows[self.substitute.pk]["blocked_by_link"])
+
     def test_summary_exposes_blocked_by_link(self):
         self._link()
         summary = metrics.vehicle_summary(self.main, today=date(2026, 7, 15))

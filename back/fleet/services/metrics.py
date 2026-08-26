@@ -6,8 +6,9 @@ Dos consultas de solo lectura que la API expone en JSON:
   consumidos/contratados/restantes, proyección lineal a fin de contrato con
   nivel en tres tramos (`within` / `watch` / `over`) y penalización estimada.
 - `fleet_summary(user)` → agregados del dashboard (G1): totales por estado y
-  uso, coste mensual, facturado del mes vs el anterior, ITV próximas y alertas
-  abiertas. Acotado por rol vía `vehicles_for(user)`.
+  uso, coste mensual, facturado del mes vs el anterior, ITV próximas, el
+  mantenimiento anual obligatorio (GAP-8) y alertas abiertas. Acotado por rol
+  vía `vehicles_for(user)`.
 
 La proyección usa el mismo criterio lineal que `alerts.check_km_overage`
 (km recorridos / días transcurridos × días totales del contrato).
@@ -23,10 +24,17 @@ from django.conf import settings
 from django.db.models import Count, Sum
 from django.utils import timezone
 
-from fleet.models import Alert, Contract, Invoice, KmReading, Vehicle
-from fleet.models.enums import AlertStatus, VehicleState
+from fleet.models import Alert, Contract, Incident, Invoice, KmReading, MaintenancePlan, Vehicle
+from fleet.models.enums import AlertStatus, IncidentStatus, VehicleState
 from fleet.scoping import vehicles_for
-from fleet.selectors import active_link_blocking, active_substitution_map, current_driver_map
+from fleet.selectors import (
+    active_link_blocking,
+    active_link_covered_by,
+    active_substitution_by_substitute,
+    active_substitution_map,
+    current_driver_map,
+)
+from fleet.services.alerts import add_months
 
 # Niveles de proyección (semáforo de tres tramos de las visuales).
 LEVEL_WITHIN = "within"  # dentro de lo contratado
@@ -73,6 +81,26 @@ def _latest_reading(vehicle: Vehicle) -> KmReading | None:
     )
 
 
+def _maintenance_due_map(ids: list[int]) -> dict[int, date]:
+    """GAP-8: próximo mantenimiento por vehículo (el plan que antes venza).
+
+    Misma doctrina que el dashboard y `check_maintenance`: el ciclo efectivo es
+    min(ciclo del plan, 12 meses) —la anual es obligatoria, un plan a más de 12
+    meses no exime— y solo acredita un plan con ancla de FECHA. Vehículo sin
+    plan anclado = sin clave en el mapa.
+    """
+    due_map: dict[int, date] = {}
+    for vehicle_id, every_months, last_done in MaintenancePlan.objects.filter(
+        vehicle_id__in=ids, is_active=True
+    ).values_list("vehicle_id", "every_months", "last_done_date"):
+        if last_done is None:
+            continue
+        due = add_months(last_done, min(every_months or 12, 12))
+        if vehicle_id not in due_map or due < due_map[vehicle_id]:
+            due_map[vehicle_id] = due
+    return due_map
+
+
 def vehicle_summary(vehicle: Vehicle, today: date | None = None) -> dict:
     """Métricas de la ficha del vehículo (HU-1.2/3.4). Todo puede ser None si faltan datos."""
     today = today or timezone.localdate()
@@ -83,6 +111,11 @@ def vehicle_summary(vehicle: Vehicle, today: date | None = None) -> dict:
         current_driver_map([vehicle.id]).get(vehicle.id),
         today,
         link=active_link_blocking(vehicle, today),
+        covering=active_link_covered_by(vehicle, today),
+        maintenance_due=_maintenance_due_map([vehicle.id]).get(vehicle.id),
+        open_incidents=Incident.objects.filter(vehicle=vehicle, is_active=True)
+        .exclude(status=IncidentStatus.CLOSED)
+        .count(),
     )
 
 
@@ -92,8 +125,9 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
 
     Consultas ACOTADAS sea cual sea el tamaño de la flota: 1 de vehículos +
     1 de contratos vigentes + 1 de últimas lecturas + 1 de conductores
-    (`current_driver_map` ya es bulk). El "primero por vehículo" se resuelve
-    en Python con `setdefault` sobre un orden estable.
+    (`current_driver_map` ya es bulk) + 1 de planes de mantenimiento (GAP-8).
+    El "primero por vehículo" se resuelve en Python con `setdefault` sobre un
+    orden estable.
     """
     today = timezone.localdate()
     scope = vehicles_for(user).exclude(state=VehicleState.BAJA)
@@ -119,6 +153,18 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
 
     drivers = current_driver_map(ids)
     links = active_substitution_map(ids, today)  # N9: principales bloqueados (1 query)
+    # Y el reverso, también en una: qué principal cubre cada sustituto.
+    covering = active_substitution_by_substitute(ids, today)
+    maintenance = _maintenance_due_map(ids)  # GAP-8: próximo mantenimiento (1 query)
+    # Incidencias abiertas por vehiculo (averia, mantenimiento...), en UNA
+    # consulta: la tarjeta de campo pinta con esto su marca.
+    open_incidents = dict(
+        Incident.objects.filter(vehicle_id__in=ids, is_active=True)
+        .exclude(status=IncidentStatus.CLOSED)
+        .values_list("vehicle_id")
+        .annotate(n=Count("id"))
+        .order_by()
+    )
     return [
         _compose_summary(
             v,
@@ -127,6 +173,9 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
             drivers.get(v.id),
             today,
             link=links.get(v.id),
+            covering=covering.get(v.id),
+            maintenance_due=maintenance.get(v.id),
+            open_incidents=open_incidents.get(v.id, 0),
         )
         for v in vehicles
     ]
@@ -140,6 +189,9 @@ def _compose_summary(
     today: date | None = None,
     *,
     link=None,
+    covering=None,
+    maintenance_due: date | None = None,
+    open_incidents: int = 0,
 ) -> dict:
     """Compone el summary desde datos ya resueltos (compartido single/bulk)."""
     today = today or timezone.localdate()
@@ -153,6 +205,11 @@ def _compose_summary(
         "plate": vehicle.plate,
         "state": vehicle.state,
         "next_itv_date": vehicle.next_itv_date,
+        # GAP-8: el vencimiento más cercano de sus planes anclados (o None).
+        "next_maintenance_date": maintenance_due,
+        # Incidencias sin cerrar (averia, mantenimiento, neumaticos...): la
+        # tarjeta de campo pinta con esto su marca de "algo abierto".
+        "open_incidents": open_incidents,
         "insurance_expiry_date": vehicle.insurance_expiry_date,
         "unlimited_km": vehicle.unlimited_km,
         "is_substitute": vehicle.is_substitute,
@@ -165,6 +222,18 @@ def _compose_summary(
                 "since": link.start_date,
             }
             if link is not None
+            else None
+        ),
+        # N9 al revés: el sustituto dice a QUÉ principal está cubriendo, para que
+        # la app de campo pueda emparejarlos aunque el principal no sea suyo.
+        "substituting_for": (
+            {
+                "main_id": covering.main_vehicle_id,
+                "plate": covering.main_vehicle.plate,
+                "reason": covering.get_reason_display(),
+                "since": covering.start_date,
+            }
+            if covering is not None
             else None
         ),
         "km_current": km_current,
@@ -335,6 +404,15 @@ def fleet_summary(user, today: date | None = None) -> dict:
         .order_by()
     )
 
+    # GAP-8: mantenimiento OBLIGATORIO una vez al año. La doctrina (min del
+    # ciclo y 12 meses, solo planes con ancla de fecha) vive en
+    # `_maintenance_due_map`, compartida con los summaries de la app de campo.
+    next_due = _maintenance_due_map(ids)
+    maintenance_overdue = sum(1 for d in next_due.values() if d < today)
+    maintenance_next_30d = sum(
+        1 for d in next_due.values() if today <= d <= today + timedelta(days=30)
+    )
+
     return {
         "total": active.count(),
         "by_state": by_state,
@@ -348,5 +426,9 @@ def fleet_summary(user, today: date | None = None) -> dict:
         "itv_overdue": itv_overdue,
         "insurance_next_30d": insurance_next_30d,
         "insurance_overdue": insurance_overdue,
+        "maintenance_next_30d": maintenance_next_30d,
+        "maintenance_overdue": maintenance_overdue,
+        "maintenance_no_plan": len(ids) - len(next_due),
+        "maintenance_ok": len(next_due) - maintenance_overdue - maintenance_next_30d,
         "open_alerts": open_alerts,
     }

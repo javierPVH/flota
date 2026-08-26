@@ -26,6 +26,10 @@ erDiagram
     BRAND ||--o{ VEHICLE : "marca (catálogo)"
     VEHICLE_MODEL ||--o{ VEHICLE : "modelo (catálogo)"
     COMPANY ||--o{ VEHICLE : "sociedad titular"
+    FUEL_TYPE ||--o{ VEHICLE : "combustible (catálogo) — GAP-1"
+    SITE ||--o{ VEHICLE : "sede — GAP-4"
+    VEHICLE ||--o{ FUEL_CONSUMPTION : "consume — GAP-2"
+    VEHICLE ||--o{ MAINTENANCE_PLAN : "planifica — GAP-8"
 
     VEHICLE ||--o{ CONTRACT : "tiene"
     RENTING ||--o{ CONTRACT : "provee"
@@ -39,7 +43,11 @@ erDiagram
     VEHICLE ||--o{ INCIDENT : "sufre"
     VEHICLE ||--o{ DOCUMENT : "documenta"
     INCIDENT ||--o{ DOCUMENT : "adjunta"
+    INCIDENT ||--o| ACCIDENT_REPORT : "parte de accidente"
+    ACCIDENT_REPORT ||--o{ ACCIDENT_THIRD_PARTY : "terceros"
+    ACCIDENT_REPORT ||--o{ ACCIDENT_INJURED : "lesionados"
     USER ||--o{ DOCUMENT : "sube"
+    USER ||--o{ DOCUMENT : "titular (personal)"
     VEHICLE ||--o{ ALERT : "genera"
     USER ||--o{ ALERT : "destinatario"
     USER ||--o{ VEHICLE_REQUEST : "solicita"
@@ -122,6 +130,41 @@ erDiagram
         string name
         string description
     }
+    FUEL_TYPE {
+        int id PK
+        string name UK "lista HSE de combustibles (GAP-1)"
+        decimal co2_factor "kg CO2 por litro o kWh (emisiones)"
+    }
+    SITE {
+        int id PK
+        string name UK "sede u oficina (GAP-4)"
+    }
+    WORKSHOP {
+        int id PK
+        string name UK "taller o estacion de ITV"
+        enum kind "workshop | itv | both"
+        string address
+        string postal_code
+        string phone
+    }
+    FUEL_CONSUMPTION {
+        int id PK
+        int vehicle_id FK
+        date period "dia 1: la fila es EL MES (GAP-2)"
+        decimal liters
+        decimal amount "importe si el extracto lo trae"
+        string source "fuel_card | manual | import"
+    }
+    MAINTENANCE_PLAN {
+        int id PK
+        int vehicle_id FK
+        string name
+        int every_km "ciclo por km (GAP-8)"
+        int every_months "ciclo por meses"
+        date last_done_date "ancla del ciclo por tiempo"
+        int last_done_km "ancla del ciclo por km"
+        string notes
+    }
 
     VEHICLE {
         int id PK
@@ -142,7 +185,10 @@ erDiagram
         int country_id FK
         int project_id FK
         int cost_center_id FK "PEP (CECO)"
-        enum fuel "fuel_enum"
+        int site_id FK "SITE (SET_NULL) — GAP-4"
+        string fuel "legado denormalizado; se rellena desde fuel_ref — GAP-1"
+        int fuel_ref_id FK "FUEL_TYPE (PROTECT, null) — GAP-1"
+        bool fuel_card "GAP-3: reposta con tarjeta"
         enum type "type_enum"
         enum size "size_enum"
         enum market_segment "market_segment_enum"
@@ -231,6 +277,7 @@ erDiagram
         int event_id PK "FK EVENT"
         string result "done | not done"
         date next_due
+        decimal cost "coste de la inspeccion (opcional)"
     }
     EVENT_PROJECT_CHANGE {
         int event_id PK "FK EVENT"
@@ -281,9 +328,36 @@ erDiagram
         enum status "incident_status"
         decimal cost
     }
+    ACCIDENT_REPORT {
+        int id PK
+        int incident_id FK "1-a-1; materializado desde details"
+        string street "calle + numero"
+        string postal_code
+        string locality
+        string province
+        datetime occurred_at
+        string phone
+        string police_report_ref "referencia del atestado"
+    }
+    ACCIDENT_THIRD_PARTY {
+        int id PK
+        int report_id FK
+        string name
+        string plate "y marca-modelo"
+        string insurance_company "y n. de poliza"
+        string damage_description
+    }
+    ACCIDENT_INJURED {
+        int id PK
+        int report_id FK
+        string name "y telefono-email"
+        string plate
+        enum seat "driver-passenger"
+    }
     DOCUMENT {
         int id PK
-        int vehicle_id FK
+        int vehicle_id FK "titular coche (XOR con user_id)"
+        int user_id FK "USER titular persona (permiso de conducir)"
         enum type "document_type"
         int incident_id FK
         string drive_url "webViewLink en Drive (A3)"
@@ -307,6 +381,7 @@ erDiagram
         string dedup_key UK "idempotencia de los jobs"
         datetime resolved_at
         int resolved_by_id FK "USER"
+        string resolution_note "que se hizo al resolverla (cierres manuales)"
     }
     VEHICLE_REQUEST {
         int id PK
@@ -377,7 +452,7 @@ erDiagram
   `updated_at` (vía `TimeStampedModel`); se omiten en el diagrama por brevedad.
 - **Soft-delete (N7) — `DeactivatableModel`:** `is_active`, `deactivated_at`,
   `deactivated_by` FK→`USER`, `deactivation_reason` — presente en: los 8
-  catálogos (`COUNTRY`, `BUSINESS_UNIT`, `PROJECT`, `PEP`, `RENTING`, `BRAND`,
+  catálogos (`COUNTRY`, `BUSINESS_UNIT`, `PROJECT`, `PEP`, `RENTING`, `BRAND`, `FUEL_TYPE`, `SITE`,
   `VEHICLE_MODEL`, `COMPANY`), `DOCUMENT`, `INCIDENT`, `INVOICE`,
   `INVOICE_ALLOCATION`, `KM_READING`, `EMAIL_TEMPLATE`, `EMAIL_SIGNATURE`.
   Se omite en el diagrama por brevedad: nada se borra, se desactiva (espacio de
@@ -407,7 +482,7 @@ en SQLite Django los emula donde puede.
 | `assignments` | índices `(vehicle,end_date,status)`, `(driver,end_date)` | conductor en curso / histórico |
 | `vehicle_links` | **único parcial** `(main_vehicle)` con `end_date NULL` | un solo sustituto activo por principal (HU-1.8) |
 | `kms` | índice `(vehicle, reading_date)` | última lectura / periodo |
-| `documents` | índice `(vehicle, status)` | filtro `pending_archive` |
+| `documents` | índices `(vehicle, status)`, `(user, status)` · **check** `vehicle XOR user` | filtro `pending_archive`; titular único (coche o persona) |
 | `alerts` | **único** `dedup_key` · índices `(type,status)`, `(vehicle,status)` | idempotencia de los jobs |
 | `vehicle_requests` | **único parcial** `jira_key` (cuando ≠ '') | una solicitud por issue de Jira |
 
@@ -430,17 +505,17 @@ obligatorio si `business_use=on_project` (`vehicles`).
 | `property_type_enum` | `propio`, `renting` |
 | `use_type_enum` | `on_project`, `personal`, `works` |
 | `assignment_state_enum` | `proposed`, `accepted`, `rejected`, `finished` |
-| `link_reason_enum` | `breakdown`, `maintenance`, `inspection`, `accident` |
+| `link_reason_enum` | `breakdown`, `maintenance`, `tires` (GAP-6), `inspection`, `accident` |
 | `allocation_target_enum` | `proyecto`, `pep` |
-| `document_type` | `registration_certificate`, `technical_datasheet`, `insurance`, `contract`, `delivery_report`, `return_report`, `accident_report`, `damage_photos`, `other` |
+| `document_type` | `registration_certificate`, `technical_datasheet`, `insurance`, `contract`, `delivery_report`, `return_report`, `accident_report`, `damage_photos`, `driving_license`, `other` |
 | `document_status` | `valid`, `expired`, `pending_archive` |
-| `incident_type` | `breakdown`, `maintenance`, `inspection`, `accident` |
+| `incident_type` | `breakdown`, `maintenance`, `tires` (GAP-6), `inspection`, `accident` |
 | `incident_status` | `open`, `on_going`, `closed` |
-| `alert_type` | `itv_due`, `insurance_due`, `km_reading_pending`, `km_overage`, `no_driver` |
+| `alert_type` | `itv_due`, `insurance_due`, `km_reading_pending`, `km_overage`, `no_driver`, `maintenance_due` (GAP-8) |
 | `alert_level` | `info`, `warning`, `critical` |
 | `alert_status` | `open`, `resolved` (los dos únicos: descartar se retiró) |
 | `vehicle_request_status` | `pending` (self-service, Fase A2), `approved`, `assigned`, `rejected`, `closed` |
 | `events_enum` | `creation`, `activation`, `deactivation`, `invoice`, `immobilization`, `reactivation`, `insurance_renewal`, `penalty`, `location_change`, `project_change`, `breakdown`, `km_reading`, `contract_change`, `fee_change`, `ceco_change`, `itv`, `maintenance`, `driver_change` |
-| `fuel_enum` | `gasoline`, `diesel`, `LPG`, `hybrid`, `other` |
+| ~~`fuel_enum`~~ | Retirado (GAP-1): el combustible es el catálogo `FUEL_TYPE` |
 | `email_template_key` | `insurance_due`, `km_overage`, `km_reading_pending`, `generic` |
 | `email_log_status` | `sent`, `failed`, `skipped` |

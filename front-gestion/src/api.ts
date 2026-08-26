@@ -213,6 +213,22 @@ export const createVehicleFull = (data: VehicleFullInput) =>
 export const updateVehicleFields = (id: number, data: Record<string, unknown>) =>
   patchJson<Vehicle>(`${API}/vehicles/${id}/`, data)
 
+/** GAP-7: devolución guiada — una operación transaccional con su resumen. */
+export interface VehicleReturnResult {
+  km_end: number | null
+  assignments_finished: number
+  contract_closed: number | null
+  contract_km: number | null
+  overage_km: number | null
+  penalty_per_km: string | null
+  penalty_estimate: string | null
+}
+
+export const returnVehicle = (
+  id: number,
+  data: { km_end?: number | null; end_date?: string; reason?: string },
+) => postJson<VehicleReturnResult>(`${API}/vehicles/${id}/return/`, data)
+
 /** POST /vehicles/{id}/preview/ — diff campo a campo sin guardar (HU-1.4). */
 export const previewVehicle = (id: number, data: Record<string, unknown>) =>
   postJson<{ changes: Record<string, [unknown, unknown]> }>(
@@ -236,6 +252,14 @@ export interface CatalogEntry {
   /** Solo `rentings` (N10a): destinatario de los avisos de seguro. */
   email?: string
   contact_name?: string
+  /** Solo `fuel-types` (GAP-1): kg CO₂ por litro/kWh, para emisiones. */
+  co2_factor?: string | null
+  /** Solo `workshops`: taller / estación ITV / ambos, con sus señas. */
+  kind?: string
+  kind_display?: string
+  address?: string
+  postal_code?: string
+  phone?: string
 }
 
 export type CatalogResource =
@@ -246,18 +270,24 @@ export type CatalogResource =
   | 'countries'
   | 'brands'
   | 'vehicle-models'
+  // GAP-1/GAP-4: combustibles (lista HSE) y sedes.
+  | 'fuel-types'
+  | 'sites'
   | 'companies'
+  // Talleres y estaciones de ITV: dónde se cita el vehículo.
+  | 'workshops'
 
 export const listCatalog = (resource: CatalogResource, req: ReqOpts = {}) =>
   getJson<Paginated<CatalogEntry>>(`${API}/${resource}/${listQs({})}`, req)
 
 /** Los catálogos del alta de vehículo en UNA petición (antes eran siete).
  *
- * No trae `vehicle-models`: dependen de la marca elegida y se piden con
- * `listVehicleModels(brand)`. Los objetos son los mismos que devuelven los
- * endpoints individuales, así que los selects no cambian. Sin paginar. */
+ * No trae `vehicle-models` (dependen de la marca elegida y se piden con
+ * `listVehicleModels(brand)`) ni `workshops` (no participa en el alta). Los
+ * objetos son los mismos que devuelven los endpoints individuales, así que los
+ * selects no cambian. Sin paginar. */
 export type CatalogsBundle = Record<
-  Exclude<CatalogResource, 'vehicle-models'>,
+  Exclude<CatalogResource, 'vehicle-models' | 'workshops'>,
   CatalogEntry[]
 >
 
@@ -279,6 +309,95 @@ export const updateCatalogEntry = (
 ) => patchJson<CatalogEntry>(`${API}/${resource}/${id}/`, data)
 
 // N7: DELETE desactiva en el back; el motivo viaja como query.
+// --- GAP-2: consumo mensual de combustible ---------------------------------
+
+export interface FuelConsumption {
+  id: number
+  vehicle: number
+  vehicle_plate: string
+  /** Día 1 del mes (la fila es EL MES). */
+  period: string
+  liters: string
+  amount: string | null
+  source: 'fuel_card' | 'manual' | 'import'
+  source_display: string
+  created_at: string
+  updated_at: string
+}
+
+export interface FuelConsumptionInput extends Record<string, unknown> {
+  vehicle: number
+  period: string
+  liters: string
+  amount?: string | null
+  source?: string
+}
+
+export const listFuelConsumptions = (
+  params: { vehicle?: number | string } = {},
+  req: ReqOpts = {},
+) => getJson<Paginated<FuelConsumption>>(`${API}/fuel-consumptions/${listQs(params)}`, req)
+
+export const createFuelConsumption = (data: FuelConsumptionInput) =>
+  postJson<FuelConsumption>(`${API}/fuel-consumptions/`, data)
+
+export const updateFuelConsumption = (id: number, data: Partial<FuelConsumptionInput>) =>
+  patchJson<FuelConsumption>(`${API}/fuel-consumptions/${id}/`, data)
+
+export const deleteFuelConsumption = (id: number, reason = '') =>
+  deleteJson(`${API}/fuel-consumptions/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
+
+// --- GAP-8: planes de mantenimiento preventivo ------------------------------
+
+export interface MaintenancePlan {
+  id: number
+  vehicle: number
+  vehicle_plate: string
+  name: string
+  every_km: number | null
+  every_months: number | null
+  last_done_date: string | null
+  last_done_km: number | null
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export interface MaintenancePlanInput extends Record<string, unknown> {
+  vehicle: number
+  name: string
+  every_km?: number | null
+  every_months?: number | null
+  last_done_date?: string | null
+  last_done_km?: number | null
+  notes?: string
+}
+
+export const listMaintenancePlans = (
+  params: { vehicle?: number | string } = {},
+  req: ReqOpts = {},
+) => getJson<Paginated<MaintenancePlan>>(`${API}/maintenance-plans/${listQs(params)}`, req)
+
+export const createMaintenancePlan = (data: MaintenancePlanInput) =>
+  postJson<MaintenancePlan>(`${API}/maintenance-plans/`, data)
+
+export const updateMaintenancePlan = (id: number, data: Partial<MaintenancePlanInput>) =>
+  patchJson<MaintenancePlan>(`${API}/maintenance-plans/${id}/`, data)
+
+/** «Ya se pasó la revisión»: reancla el ciclo del plan y resuelve las alertas
+ * de mantenimiento del vehículo. `cost` queda como incidencia de mantenimiento
+ * cerrada (fecha y km del servicio); `note` viaja al cierre de las alertas. */
+export const maintenancePlanDone = (
+  id: number,
+  data: { date?: string; km?: number; cost?: string; note?: string } = {},
+) => postJson<MaintenancePlan & { alerts_resolved: number }>(
+  `${API}/maintenance-plans/${id}/done/`,
+  data,
+)
+
+export const deleteMaintenancePlan = (id: number, reason = '') =>
+  deleteJson(`${API}/maintenance-plans/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
+
 export const deleteCatalogEntry = (resource: CatalogResource, id: number, reason = '') =>
   deleteJson(`${API}/${resource}/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
 
@@ -297,27 +416,87 @@ export const listAlerts = (filters: AlertFilters | string = 'open', req: ReqOpts
     req,
   )
 
-/** Cierra la alerta. Es el ÚNICO cierre: no hay descartar. */
-export const resolveAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/resolve/`, {})
+/** Cierra la alerta (único cierre: no hay descartar). `note` opcional: qué se
+ * hizo al resolverla — queda visible en el histórico de resueltas. */
+export const resolveAlert = (id: number, note = '') =>
+  postJson<Alert>(`${API}/alerts/${id}/resolve/`, { note })
+
+/** Candidato al cambio de conductor (resolver un exceso de km proyectado). */
+export interface DriverCandidate {
+  id: number
+  name: string
+  /** Vehículos que lleva ahora (vacío = sin coche, el mejor candidato). */
+  vehicles: Array<{ id: number; plate: string }>
+  /** Suma de las medias mensuales observadas de sus coches; null = sin datos. */
+  monthly_avg: number | null
+}
+
+export interface DriverCandidatesResult {
+  vehicle: {
+    id: number
+    plate: string
+    monthly_avg: number | null
+    driver: { id: number; name: string } | null
+  }
+  candidates: DriverCandidate[]
+}
+
+/** Conductores ordenados por su media mensual de km (sin coche primero), para
+ * el modal de resolver un exceso de km proyectado. Solo admin. */
+export const fetchDriverCandidates = (vehicleId: number, req: ReqOpts = {}) =>
+  getJson<DriverCandidatesResult>(`${API}/vehicles/${vehicleId}/driver-candidates/`, req)
 
 // --- G8: registrar ITV + informes -------------------------------------------
 
 /** Registrar ITV (HU-5.1): la señal del back cierra los avisos y refresca
- * `next_itv_date`. */
+ * `next_itv_date`. `itv.cost`: lo que costó la inspección (opcional). */
 export const registerItv = (data: {
   vehicle: number
   event_date: string
   notes?: string
-  itv: { result: string; next_due: string | null }
+  itv: { result: string; next_due: string | null; cost?: string }
 }) => postJson<FlotaEvent>(`${API}/events/`, { ...data, event_type: 'itv' })
 
 /** Informes exportables; las claves las comparte el servidor. */
 export type ReportKind = ReportKindKey
 export type ReportFormat = 'xlsx' | 'csv'
 
-/** URL de descarga de un informe (navegación con cookies, mismo origen). */
-export const reportUrl = (kind: ReportKind, fmt: ReportFormat) =>
-  toUrl(`${API}/reports/${buildQs({ kind, fmt })}`)
+/** URL de descarga de un informe (navegación con cookies, mismo origen).
+ * `filters` admite las claves de `REPORT_FILTERS[kind]`; vacío = sin filtrar. */
+export const reportUrl = (
+  kind: ReportKind,
+  fmt: ReportFormat,
+  filters: Record<string, string> = {},
+) => toUrl(`${API}/reports/${buildQs({ ...filters, kind, fmt })}`)
+
+/** Una tabla del informe tal como la genera el servidor (hoja del documento). */
+export interface ReportTable {
+  title: string
+  headers: string[]
+  rows: Array<Array<string | number | null>>
+}
+
+/** Vista previa de un informe: las MISMAS tablas del fichero, en JSON. */
+export const fetchReportPreview = (
+  kind: ReportKind,
+  filters: Record<string, string> = {},
+  req: ReqOpts = {},
+) => getJson<{ tables: ReportTable[] }>(`${API}/reports/${buildQs({ ...filters, kind, fmt: 'json' })}`, req)
+
+/** Columnas que aporta un bloque del documento completo (la ayuda «?» del
+ * selector de campos): las del resumen por coche y las de su hoja de detalle. */
+export interface ReportSectionColumns {
+  key: string
+  title: string
+  summary: string[]
+  detail: string[]
+}
+
+export const fetchReportColumns = (req: ReqOpts = {}) =>
+  getJson<{ sections: ReportSectionColumns[] }>(
+    `${API}/reports/${buildQs({ kind: 'vehicles', fmt: 'columns' })}`,
+    req,
+  )
 
 // --- G2: ficha del vehículo -------------------------------------------------
 
@@ -710,6 +889,8 @@ function buildQs(
 
 export interface DocumentFilters {
   vehicle?: number
+  /** Documentos PERSONALES de un usuario (permiso de conducir…). */
+  user?: number
   type?: string
   status?: string
   incident?: number
@@ -720,7 +901,9 @@ export const listDocuments = (filters: DocumentFilters = {}) =>
 
 /** Alta con referencia de Drive (Picker) o URL manual — sin binario. */
 export interface DocumentInput {
-  vehicle: number
+  /** Titular: un vehículo O un usuario (exactamente uno). */
+  vehicle?: number
+  user?: number
   type: string
   drive_url?: string
   drive_file_id?: string
@@ -767,6 +950,12 @@ export interface IncidentInput {
   description?: string
   status?: string
   cost?: string | null
+  /** Parte guiado (GAP-6): kilometraje y CP del taller, obligatorios en
+   * avería/neumáticos cuando `details.report_version = 1`. */
+  mileage?: number | null
+  workshop_postal_code?: string
+  /** Datos estructurados del parte (neumáticos, avería, accidente). */
+  details?: Record<string, unknown>
 }
 
 export const createIncident = (data: IncidentInput) =>
@@ -774,6 +963,18 @@ export const createIncident = (data: IncidentInput) =>
 
 export const updateIncident = (id: number, data: Partial<IncidentInput>) =>
   patchJson<Incident>(`${API}/incidents/${id}/`, data)
+
+/** Fase 2: ubicación preferente para buscar el taller más cercano → EN CURSO. */
+export const manageIncident = (
+  id: number,
+  data: { workshop_postal_code: string },
+) => postJson<Incident>(`${API}/incidents/${id}/manage/`, data)
+
+/** Fase 3 (la SOLUCIÓN): sobrecoste, observaciones y tiempo parado. CIERRA. */
+export const resolveIncident = (
+  id: number,
+  data: { overcost?: string; observations?: string; downtime_days?: number },
+) => postJson<Incident>(`${API}/incidents/${id}/resolve/`, data)
 
 // --- G7: Google Drive / Picker (Fase A3) -----------------------------------
 

@@ -17,21 +17,26 @@ from .views import (
     EmailTemplateViewSet,
     EventViewSet,
     FleetSummaryView,
+    FuelConsumptionViewSet,
+    FuelTypeViewSet,
     IncidentViewSet,
     InvoiceAllocationViewSet,
     InvoiceViewSet,
     KmReadingViewSet,
+    MaintenancePlanViewSet,
     NotificationScheduleViewSet,
     PepViewSet,
     ProjectViewSet,
     RentingViewSet,
     ReportsView,
+    SiteViewSet,
     VehicleLinkViewSet,
     VehicleModelViewSet,
     VehicleRequestViewSet,
     VehicleSummariesView,
     VehicleUsageViewSet,
     VehicleViewSet,
+    WorkshopViewSet,
 )
 
 router = DefaultRouter()
@@ -45,6 +50,9 @@ router.register("events", EventViewSet, basename="event")
 router.register("invoices", InvoiceViewSet, basename="invoice")
 router.register("invoice-allocations", InvoiceAllocationViewSet, basename="invoiceallocation")
 router.register("incidents", IncidentViewSet, basename="incident")
+# GAP-2/GAP-8: consumo mensual de combustible y mantenimiento preventivo.
+router.register("fuel-consumptions", FuelConsumptionViewSet, basename="fuelconsumption")
+router.register("maintenance-plans", MaintenancePlanViewSet, basename="maintenanceplan")
 router.register("documents", DocumentViewSet, basename="document")
 router.register("alerts", AlertViewSet, basename="alert")
 router.register("vehicle-requests", VehicleRequestViewSet, basename="vehiclerequest")
@@ -58,6 +66,11 @@ router.register("rentings", RentingViewSet, basename="renting")
 router.register("brands", BrandViewSet, basename="brand")
 router.register("vehicle-models", VehicleModelViewSet, basename="vehiclemodel")
 router.register("companies", CompanyViewSet, basename="company")
+# GAP-1/GAP-4: combustibles (lista HSE) y sedes/oficinas.
+router.register("fuel-types", FuelTypeViewSet, basename="fueltype")
+router.register("sites", SiteViewSet, basename="site")
+# Talleres y estaciones de ITV: dónde se cita el vehículo.
+router.register("workshops", WorkshopViewSet, basename="workshop")
 # N10: gestor maestro de correo (plantillas, firmas y traza de envíos).
 router.register("email-templates", EmailTemplateViewSet, basename="emailtemplate")
 router.register("email-signatures", EmailSignatureViewSet, basename="emailsignature")

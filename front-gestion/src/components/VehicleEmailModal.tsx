@@ -51,7 +51,8 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
   // La reclamación de lectura va al conductor: se premarca al abrir con ese tipo.
   const [toDriver, setToDriver] = useState(initialKind === 'km_reading_pending')
   const [toSupervisor, setToSupervisor] = useState(false)
-  const [toRenting, setToRenting] = useState(false)
+  // Y el aviso de seguro, a la empresa de renting (N10a: es su destinatario).
+  const [toRenting, setToRenting] = useState(initialKind === 'insurance_due')
   const [otherEmail, setOtherEmail] = useState('')
   const [message, setMessage] = useState('')
 

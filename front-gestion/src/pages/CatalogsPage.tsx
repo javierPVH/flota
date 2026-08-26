@@ -42,10 +42,11 @@ function entryLabel(entry: CatalogEntry): string {
   return entry.project_name ?? (entry.code ? `${entry.code} · ${entry.name}` : (entry.name ?? `#${entry.id}`))
 }
 
-/** Valor a mostrar de un campo del catálogo (resuelve displays de FKs). */
+/** Valor a mostrar de un campo del catálogo (resuelve displays de FKs y enums). */
 function cellValue(entry: CatalogEntry, key: string): string {
   if (key === 'cost_center') return entry.cost_center_display || ''
   if (key === 'brand') return entry.brand_display || ''
+  if (key === 'kind') return entry.kind_display || ''
   return String((entry as unknown as Record<string, unknown>)[key] ?? '')
 }
 
@@ -132,6 +133,23 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
           { key: 'description', label: t.fields.description },
         ],
       },
+      // GAP-1: combustibles (lista HSE); el factor convierte litros en CO₂.
+      {
+        resource: 'fuel-types',
+        title: t.catalogs.fuelTypes.title,
+        singular: t.catalogs.fuelTypes.singular,
+        fields: [
+          { key: 'name', label: t.fields.name, required: true },
+          { key: 'co2_factor', label: t.fields.co2Factor },
+        ],
+      },
+      // GAP-4: sedes/oficinas — la ubicación de los vehículos sin obra.
+      {
+        resource: 'sites',
+        title: t.catalogs.sites.title,
+        singular: t.catalogs.sites.singular,
+        fields: [{ key: 'name', label: t.fields.name, required: true }],
+      },
     ],
     [t],
   )
@@ -192,16 +210,18 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
     [brands],
   )
 
-  // Inyecta las opciones de las FKs en la definición declarativa del catálogo.
+  // Inyecta las opciones de las FKs (y las listas cerradas) en la definición
+  // declarativa del catálogo.
   const activeFields = useMemo(
     () =>
       active.fields.map((f) => {
         if (f.kind !== 'select') return f
         if (f.key === 'cost_center') return { ...f, options: pepOptions }
         if (f.key === 'brand') return { ...f, options: brandOptions }
+        if (f.key === 'kind') return { ...f, options: t.workshopKinds }
         return f
       }),
-    [active, pepOptions, brandOptions],
+    [active, pepOptions, brandOptions, t.workshopKinds],
   )
 
   const load = useCallback(
@@ -507,5 +527,6 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
 function cellValueForEdit(entry: CatalogEntry, key: string): string {
   if (key === 'cost_center') return entry.cost_center != null ? String(entry.cost_center) : ''
   if (key === 'brand') return entry.brand != null ? String(entry.brand) : ''
+  if (key === 'kind') return entry.kind ?? ''
   return String((entry as unknown as Record<string, unknown>)[key] ?? '')
 }

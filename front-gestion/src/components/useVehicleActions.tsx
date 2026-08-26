@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { asErrorMessage } from '@flota/ui/http'
 import type { TableWithPanelColumn } from '@flota/ui/table'
-import { Archive, ArrowRightLeft, Mail, Pencil, Receipt, UserCog, Wrench } from 'lucide-react'
+import { Archive, ArrowRightLeft, Mail, Pencil, Receipt, Siren, UserCog, Wrench } from 'lucide-react'
 
 import { convertToFleet, deactivateVehicle } from '../api.ts'
 import { useConfirm, useDeactivateConfirm } from './ConfirmDialog.tsx'
@@ -31,6 +31,8 @@ export interface VehicleActionsOptions {
   onInvoices: (vehicle: Vehicle) => void
   /** Abre el modal de operación (estado / sustitución / comunicado). */
   onOps: (vehicle: Vehicle) => void
+  /** Abre la comunicación de accidente (parte guiado). */
+  onAccident: (vehicle: Vehicle) => void
   /**
    * Sustituto → principal al que está cubriendo AHORA. Un sustituto que cubre a
    * alguien no se puede convertir en coche de flota.
@@ -52,6 +54,7 @@ export function useVehicleActions({
   onDriver,
   onInvoices,
   onOps,
+  onAccident,
   activeMainOfSub,
   onDone,
   onError,
@@ -121,6 +124,8 @@ export function useVehicleActions({
         items.push({ key: 'convert', label: t.convert.btn, icon: <ArrowRightLeft size={15} />, onClick: () => convert(v) })
       }
       items.push({ key: 'state', label: t.ops.actionTitle, icon: <Wrench size={15} />, onClick: () => onOps(v) })
+      // Comunicación de accidente: el parte guiado, junto al modal de estado.
+      items.push({ key: 'accident', label: t.accident.btn, icon: <Siren size={15} />, onClick: () => onAccident(v) })
       items.push({ key: 'edit', label: t.edit, icon: <Pencil size={15} />, onClick: () => navigate(`/vehiculos/${v.id}/editar`) })
       items.push({ key: 'deactivate', label: t.deactivate, icon: <Archive size={15} />, danger: true, onClick: () => deactivate(v) })
       return <RowActionsMenu items={items} ariaLabel={t.columns.actions} />

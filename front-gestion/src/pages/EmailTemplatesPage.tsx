@@ -6,6 +6,7 @@ import {
   Bold,
   Heading2,
   Image,
+  Info,
   Italic,
   Link2,
   List,
@@ -330,6 +331,16 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   return (
     <div>
       {!embedded && <PageHeader title={t.title} subtitle={t.subtitle} />}
+
+      {/* Aviso informativo: qué es esta sección (misma posición que el de
+          «Qué es el borrado definitivo» en Erratas). */}
+      <div className="alert-note tone-info" role="note">
+        <Info size={18} aria-hidden />
+        <div>
+          <strong>{t.alertTitle}</strong>
+          <p>{t.alertBody}</p>
+        </div>
+      </div>
 
       {error && <div role="alert" className="form-error">{error}</div>}
       {notice && <p role="status" className="muted">{notice}</p>}

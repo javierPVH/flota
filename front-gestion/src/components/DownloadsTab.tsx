@@ -1,45 +1,49 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Badge, SelectField } from '@flota/ui/ui'
-import type { TableWithPanelColumn } from '@flota/ui/table'
-import { Banknote, BellRing, Car, FileText, Gauge, Receipt, Users } from 'lucide-react'
+import { Button, Chip, Modal, SelectField } from '@flota/ui/ui'
+import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
+import { asErrorMessage, isAbortError } from '@flota/ui/http'
+import { ArrowUpRight, Car, Download, Eye, SlidersHorizontal, Users, X } from 'lucide-react'
 
 import {
+  fetchReportColumns,
+  fetchReportPreview,
   listAll,
-  listAlerts,
-  listDocuments,
-  listInvoices,
-  listKmReadingsAll,
   listUsers,
   listVehicles,
-  type InvoiceRow,
+  reportUrl,
   type ManagedUserFull,
+  type ReportSectionColumns,
+  type ReportTable,
 } from '../api.ts'
 import {
-  ALERT_LEVELS,
-  ALERT_STATUSES,
-  DOC_STATUSES,
-  DOC_TYPES,
   ROLES,
+  USER_STATUSES,
+  VEHICLE_CATEGORIES,
+  VEHICLE_REPORT_SECTIONS,
+  VEHICLE_STATUSES,
+  type VehicleReportSection,
 } from '../reportFilters.ts'
-import { usePanelsCopy } from '../translations/panels.ts'
 import { useReportsCopy } from '../translations/reports.ts'
-import { ExportCard, type ExportCardCopy } from './ExportCard.tsx'
-import { VehicleSelect } from './VehicleSelect.tsx'
-import type { Alert, FlotaDocument, KmReading, Vehicle } from '../types.ts'
+import type { Vehicle } from '../types.ts'
 
+type DownloadKind = 'vehicles' | 'users'
+
+/** Una fila de la vista previa: los valores crudos de la hoja del servidor. */
+type PreviewRow = Array<string | number | null>
+
+/** Un bloque del documento completo con ayuda «?»: las secciones y la ficha. */
+type SheetKey = VehicleReportSection | 'vehicles'
 
 /** Nº de filtros con valor, para anunciarlo en la cabecera del bloque. */
 const countActive = (...values: string[]) => values.filter(Boolean).length
 
-/** Fila de la tarjeta Costes: facturación agregada por vehículo. */
-interface CostRow {
-  vehicle: number
-  plate: string
-  brandModel: string
-  brand: string
-  invoiceCount: number
-  billed: number
+/** Comparación laxa de textos de ficha (el servidor filtra con `iexact`). */
+const norm = (value: string | null | undefined) => (value ?? '').trim().toLowerCase()
+
+/** Descarga navegando a la URL del informe (cookies de sesión, mismo origen). */
+function descargar(url: string) {
+  window.location.assign(url)
 }
 
 /** Un filtro tipo select (con buscador integrado) dentro de una tarjeta. */
@@ -70,19 +74,142 @@ function FilterSelect({
   )
 }
 
+/** Textos comunes de las dos tarjetas (los pone `DownloadsTab`). */
+interface DescargaCopy {
+  goTo: (where: string) => string
+  preview: string
+  downloadXlsx: string
+  downloadCsv: string
+  rows: (n: number) => string
+  rowsHint: string
+  filtersLabel: string
+  filtersActive: (n: number) => string
+  clearFilters: string
+  sheetsLabel: string
+}
+
 /**
- * Centro de descargas (pestaña de Informes): un bloque por listado exportable.
- *
- * El orden de los bloques sigue el de la cabeza del gestor —primero el vehículo
- * y su día a día, luego el dinero, y al final las personas— en vez del orden en
- * que se fueron añadiendo. Cada bloque cuenta lo mismo: qué contiene, con qué
- * filtros y cuántos registros salen.
+ * Una de las dos tarjetas del centro de Descargas (rediseño): identifica el
+ * documento, enseña qué hojas trae, sus filtros y las dos descargas. El fichero
+ * lo genera el SERVIDOR (`/reports/`), re-consultando la BD con estos filtros:
+ * la vista previa solo comprueba qué registros entran.
  */
-export function DownloadsTab({ onManageInvoices }: { onManageInvoices: () => void }) {
+function DescargaCard({
+  icon,
+  title,
+  description,
+  sheets,
+  sheetsHint,
+  note,
+  count,
+  filters,
+  activeFilters,
+  onResetFilters,
+  onPreview,
+  xlsxUrl,
+  csvUrl,
+  manageLabel,
+  onManage,
+  copy,
+}: {
+  icon: ReactNode
+  title: string
+  description: string
+  /** Selector de secciones del documento (solo el completo de vehículos). */
+  sheets?: ReactNode
+  sheetsHint?: ReactNode
+  note?: string
+  count: number | null
+  filters: ReactNode
+  activeFilters: number
+  onResetFilters: () => void
+  onPreview: () => void
+  xlsxUrl: string
+  csvUrl: string
+  manageLabel: string
+  onManage: () => void
+  copy: DescargaCopy
+}) {
+  return (
+    <section className="card export-card export-card--brand">
+      <header className="export-card-head">
+        <span className="export-card-icon" aria-hidden>{icon}</span>
+        <div className="export-card-id">
+          <h3>{title}</h3>
+          <p className="export-card-desc">{description}</p>
+        </div>
+        {count !== null && (
+          <span className="export-card-count" title={copy.rowsHint}>{copy.rows(count)}</span>
+        )}
+      </header>
+
+      {sheets && (
+        <>
+          <div className="export-card-sheets">
+            <span className="export-card-sheet"><strong>{copy.sheetsLabel}</strong></span>
+            {sheets}
+          </div>
+          {sheetsHint && <p className="export-card-note">{sheetsHint}</p>}
+        </>
+      )}
+
+      <div className="export-card-filters-box">
+        <div className="export-card-filters-head">
+          <span className="export-card-filters-label">
+            <SlidersHorizontal size={13} aria-hidden /> {copy.filtersLabel}
+          </span>
+          {activeFilters > 0 && (
+            <>
+              <span className="export-card-filters-count">{copy.filtersActive(activeFilters)}</span>
+              <button type="button" className="export-card-filters-clear" onClick={onResetFilters}>
+                <X size={12} aria-hidden /> {copy.clearFilters}
+              </button>
+            </>
+          )}
+        </div>
+        <div className="export-card-filters">{filters}</div>
+      </div>
+
+      <div className="export-card-actions">
+        <div className="export-card-run">
+          <Button variant="secondary" onClick={onPreview}>
+            <Eye size={15} aria-hidden /> {copy.preview}
+          </Button>
+          <Button variant="primary" onClick={() => descargar(xlsxUrl)}>
+            <Download size={15} aria-hidden /> {copy.downloadXlsx}
+          </Button>
+          <Button variant="secondary" onClick={() => descargar(csvUrl)}>
+            <Download size={15} aria-hidden /> {copy.downloadCsv}
+          </Button>
+        </div>
+      </div>
+      {note && <p className="export-card-note">{note}</p>}
+
+      <button type="button" className="export-card-manage" onClick={onManage}>
+        {copy.goTo(manageLabel)} <ArrowUpRight size={14} aria-hidden />
+      </button>
+    </section>
+  )
+}
+
+/**
+ * Centro de descargas (pestaña de Informes), rediseñado: DOS documentos en vez
+ * de un bloque por listado.
+ *
+ * - **Vehículos**: un solo fichero con toda la información de la flota (ficha
+ *   completa + una hoja por bloque), filtrable por marca, modelo, estado
+ *   (activos/de baja) y tipo (flota/sustitución).
+ * - **Personas**: el listado de usuarios, filtrable por estado
+ *   (activos/desactivados) y rol.
+ *
+ * Los listados sueltos de antes siguen disponibles como envío programado
+ * (Ajustes → Notificaciones) y como export CSV de cada pantalla.
+ */
+export function DownloadsTab() {
   const t = useReportsCopy()
   const d = t.downloads
-  const docCopy = usePanelsCopy().documents
   const navigate = useNavigate()
+  const [kind, setKind] = useState<DownloadKind>('vehicles')
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   useEffect(() => {
@@ -90,55 +217,85 @@ export function DownloadsTab({ onManageInvoices }: { onManageInvoices: () => voi
       .then(setVehicles)
       .catch(() => setVehicles([]))
   }, [])
-  const plateById = useMemo(() => new Map(vehicles.map((v) => [v.id, v.plate])), [vehicles])
-  const plate = (id: number) => plateById.get(id) ?? `#${id}`
 
-  // Estados de filtro por bloque.
-  const [invVehicle, setInvVehicle] = useState('')
-  const [docType, setDocType] = useState('')
-  const [docStatus, setDocStatus] = useState('')
-  const [docVehicle, setDocVehicle] = useState('')
-  const [userRole, setUserRole] = useState('')
-  const [kmVehicle, setKmVehicle] = useState('')
-  const [fleetState, setFleetState] = useState('')
-  const [fleetBrand, setFleetBrand] = useState('')
-  const [alertStatus, setAlertStatus] = useState('')
-  const [alertLevel, setAlertLevel] = useState('')
-  const [costVehicle, setCostVehicle] = useState('')
-  const [costBrand, setCostBrand] = useState('')
+  const [users, setUsers] = useState<ManagedUserFull[]>([])
+  useEffect(() => {
+    listAll(listUsers())
+      .then(setUsers)
+      .catch(() => setUsers([]))
+  }, [])
 
-  const vehicleCopy = { all: d.all, searchPlaceholder: d.vehicleSearchPlaceholder, noResults: d.noResults }
+  // Filtros del documento de vehículos y del listado de personas.
+  const [vBrand, setVBrand] = useState('')
+  const [vModel, setVModel] = useState('')
+  const [vStatus, setVStatus] = useState('')
+  const [vCategory, setVCategory] = useState('')
+  const [uStatus, setUStatus] = useState('')
+  const [uRole, setURole] = useState('')
 
-  const cardCopy: ExportCardCopy = {
-    goTo: d.goTo,
-    preview: d.preview,
-    export: d.export,
-    loading: d.loading,
-    columns: d.columnsLabel,
-    columnsHint: d.columnsHint,
-    columnsHelp: d.columnsHelp,
-    columnsHelpTitle: d.columnsHelpTitle,
-    columnsHelpLead: d.columnsHelpLead,
-    columnsHelpHidden: d.columnsHelpHidden,
-    filtersLabel: d.filtersLabel,
-    filtersActive: d.filtersActive,
-    clearFilters: d.clearFilters,
-    loadError: d.loadError,
-    emptyPreview: d.emptyPreview,
-    previewTitle: d.previewTitle,
-    rows: d.rows,
-    rowsHint: d.rowsHint,
-  }
+  const [vehiclePreview, setVehiclePreview] = useState(false)
+  const [userPreview, setUserPreview] = useState(false)
+
+  // Selector de campos del documento completo: qué secciones van (por defecto,
+  // todas). Cada sección quita/añade su hoja de detalle Y sus columnas resumen
+  // del súper registro; la ficha viaja siempre.
+  const [offSections, setOffSections] = useState<ReadonlySet<VehicleReportSection>>(
+    () => new Set<VehicleReportSection>(),
+  )
+  // Orden de los bloques (chips arrastrables): manda sobre el documento — el
+  // servidor ordena hojas y grupos de columnas del súper registro según `fields`.
+  const [sectionOrder, setSectionOrder] = useState<VehicleReportSection[]>(() => [
+    ...VEHICLE_REPORT_SECTIONS,
+  ])
+  const [dragSection, setDragSection] = useState<VehicleReportSection | null>(null)
+  const orderChanged = sectionOrder.some((s, i) => s !== VEHICLE_REPORT_SECTIONS[i])
+  const activeSections = sectionOrder.filter((s) => !offSections.has(s))
+  // Vacío = todas en orden canónico (default del servidor); ninguna, la ficha sola.
+  const fieldsParam =
+    offSections.size === 0 && !orderChanged
+      ? ''
+      : activeSections.length === 0
+        ? 'vehicles'
+        : activeSections.join(',')
+  const toggleSection = (section: VehicleReportSection) =>
+    setOffSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(section)) next.delete(section)
+      else next.add(section)
+      return next
+    })
+  const moveSection = (from: VehicleReportSection, to: VehicleReportSection) =>
+    setSectionOrder((prev) => {
+      const fromIndex = prev.indexOf(from)
+      const toIndex = prev.indexOf(to)
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return prev
+      const next = [...prev]
+      next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, from)
+      return next
+    })
+
+  // Ayuda «?» de cada bloque: qué columnas aporta (resumen + hoja de detalle).
+  // El esquema se pide UNA vez al abrir la primera ayuda; lo generan las mismas
+  // funciones que el informe, así no puede desincronizarse del documento.
+  const [columnsFor, setColumnsFor] = useState<SheetKey | null>(null)
+  const [columnsSchema, setColumnsSchema] = useState<ReportSectionColumns[] | null>(null)
+  const [columnsError, setColumnsError] = useState('')
+  const closeColumns = useCallback(() => setColumnsFor(null), [])
+  useEffect(() => {
+    if (columnsFor === null || columnsSchema !== null) return
+    const controller = new AbortController()
+    fetchReportColumns({ signal: controller.signal })
+      .then((result) => setColumnsSchema(result.sections))
+      .catch((err) => {
+        if (!isAbortError(err)) setColumnsError(asErrorMessage(err, d.loadError))
+      })
+    return () => controller.abort()
+  }, [columnsFor, columnsSchema, d.loadError])
+  const columnsSection =
+    columnsFor !== null ? (columnsSchema?.find((s) => s.key === columnsFor) ?? null) : null
 
   const all = { value: '', label: d.all }
-  const fleetStateOptions = useMemo(() => {
-    const seen = new Map<string, string>()
-    for (const v of vehicles) if (v.state) seen.set(v.state, v.state_display || v.state)
-    return [
-      { value: '', label: d.all },
-      ...[...seen.entries()].map(([value, label]) => ({ value, label })),
-    ]
-  }, [vehicles, d.all])
   const brandOptions = useMemo(() => {
     const seen = new Set<string>()
     for (const v of vehicles) if (v.brand?.trim()) seen.add(v.brand.trim())
@@ -147,327 +304,432 @@ export function DownloadsTab({ onManageInvoices }: { onManageInvoices: () => voi
       ...[...seen].sort((a, b) => a.localeCompare(b)).map((b) => ({ value: b, label: b })),
     ]
   }, [vehicles, d.all])
+  // Los modelos se acotan a la marca elegida: sin acotar, la lista mezcla todo.
+  const modelOptions = useMemo(() => {
+    const seen = new Set<string>()
+    for (const v of vehicles) {
+      if (vBrand && norm(v.brand) !== norm(vBrand)) continue
+      if (v.model?.trim()) seen.add(v.model.trim())
+    }
+    return [
+      { value: '', label: d.all },
+      ...[...seen].sort((a, b) => a.localeCompare(b)).map((m) => ({ value: m, label: m })),
+    ]
+  }, [vehicles, vBrand, d.all])
 
-  // --- Columnas por categoría --------------------------------------------
-  const invoiceColumns: Array<TableWithPanelColumn<InvoiceRow>> = [
-    { key: 'vehicle', label: t.vehicleColumn, getValue: (i) => plate(i.vehicle), render: (i) => <strong>{plate(i.vehicle)}</strong> },
-    { key: 'code', label: d.columns.code, getValue: (i) => i.code || `#${i.id}` },
-    { key: 'date', label: d.columns.date, isDate: true, getValue: (i) => i.date ?? '', render: (i) => i.date ?? '—' },
-    { key: 'amount', label: d.columns.amount, align: 'right', getValue: (i) => (i.amount != null ? Number(i.amount) : ''), render: (i) => (i.amount != null ? i.amount : '—') },
-  ]
-  const documentColumns: Array<TableWithPanelColumn<FlotaDocument>> = [
-    { key: 'vehicle', label: t.vehicleColumn, getValue: (r) => plate(r.vehicle), render: (r) => <strong>{plate(r.vehicle)}</strong> },
-    { key: 'type', label: d.columns.type, getValue: (r) => r.type_display },
-    { key: 'created', label: docCopy.columns.uploaded, isDate: true, getValue: (r) => r.created_at.slice(0, 10) },
-    { key: 'by', label: docCopy.columns.by, getValue: (r) => r.uploaded_by_name || '', render: (r) => r.uploaded_by_name || '—' },
-    { key: 'expiry', label: docCopy.columns.expiry, isDate: true, getValue: (r) => r.expiry_date ?? '', render: (r) => r.expiry_date ?? '—' },
-    { key: 'status', label: d.columns.state, getValue: (r) => r.status_display },
-  ]
+  // Identidad estable a propósito: `Modal` engancha `onClose` a su efecto de
+  // foco y una función nueva por render lo rehace en cada tecleo.
+  const closeVehiclePreview = useCallback(() => setVehiclePreview(false), [])
+  const closeUserPreview = useCallback(() => setUserPreview(false), [])
+
+  // Vista previa de vehículos: el documento REAL (mismas tablas que el fichero,
+  // vía `fmt=json`), con una pestaña por hoja. Se pide al abrir, con los
+  // filtros y campos del momento; si cambian con el modal abierto, se repide.
+  const [previewTables, setPreviewTables] = useState<ReportTable[] | null>(null)
+  const [previewSheet, setPreviewSheet] = useState(0)
+  const [previewError, setPreviewError] = useState('')
+  useEffect(() => {
+    if (!vehiclePreview) return
+    setPreviewTables(null)
+    setPreviewError('')
+    setPreviewSheet(0)
+    const controller = new AbortController()
+    fetchReportPreview(
+      'vehicles',
+      { brand: vBrand, model: vModel, status: vStatus, category: vCategory, fields: fieldsParam },
+      { signal: controller.signal },
+    )
+      .then((result) => setPreviewTables(result.tables))
+      .catch((err) => {
+        if (!isAbortError(err)) setPreviewError(asErrorMessage(err, d.loadError))
+      })
+    return () => controller.abort()
+  }, [vehiclePreview, vBrand, vModel, vStatus, vCategory, fieldsParam, d.loadError])
+
+  const previewTable = previewTables?.[previewSheet] ?? null
+  // Columnas genéricas desde las cabeceras de la hoja elegida: la vista previa
+  // enseña TODO lo que lleva el documento, columna a columna.
+  const previewColumns = useMemo<Array<TableWithPanelColumn<PreviewRow>>>(() => {
+    if (!previewTable) return []
+    return previewTable.headers.map((header, index) => ({
+      key: String(index),
+      label: header,
+      getValue: (row: PreviewRow) => row[index] ?? '',
+      render: (row: PreviewRow) => {
+        const value = row[index]
+        return value === null || value === '' ? '—' : String(value)
+      },
+    }))
+  }, [previewTable])
+
+  // Réplica en cliente de los filtros del servidor, solo para la vista previa
+  // y el recuento: la descarga real la filtra el back con las mismas claves.
+  const filteredVehicles = useMemo(
+    () =>
+      vehicles.filter(
+        (v) =>
+          (!vBrand || norm(v.brand) === norm(vBrand)) &&
+          (!vModel || norm(v.model) === norm(vModel)) &&
+          (vStatus !== 'in_service' || v.state !== 'retired') &&
+          (vStatus !== 'retired' || v.state === 'retired') &&
+          (vCategory !== 'fleet' || !v.is_substitute) &&
+          (vCategory !== 'substitute' || v.is_substitute),
+      ),
+    [vehicles, vBrand, vModel, vStatus, vCategory],
+  )
+  const filteredUsers = useMemo(
+    () =>
+      users.filter(
+        (u) =>
+          (uStatus !== 'active' || u.is_active) &&
+          (uStatus !== 'inactive' || !u.is_active) &&
+          (!uRole || (u.roles as string[]).includes(uRole)),
+      ),
+    [users, uStatus, uRole],
+  )
+
+  const vehicleFilters = {
+    brand: vBrand,
+    model: vModel,
+    status: vStatus,
+    category: vCategory,
+    fields: fieldsParam,
+  }
+  const userFilters = { role: uRole, status: uStatus }
+
+  const cardCopy = {
+    goTo: d.goTo,
+    preview: d.preview,
+    downloadXlsx: d.downloadXlsx,
+    downloadCsv: d.downloadCsv,
+    rows: d.rows,
+    rowsHint: d.rowsHint,
+    filtersLabel: d.filtersLabel,
+    filtersActive: d.filtersActive,
+    clearFilters: d.clearFilters,
+    sheetsLabel: d.sheetsLabel,
+  }
+
   const userColumns: Array<TableWithPanelColumn<ManagedUserFull>> = [
+    { key: 'username', label: d.columns.username, getValue: (u) => u.username },
     { key: 'name', label: d.columns.name, getValue: (u) => u.name || u.username },
     { key: 'email', label: d.columns.email, getValue: (u) => u.email || '', render: (u) => u.email || '—' },
+    { key: 'phone', label: d.columns.phone, getValue: (u) => u.phone || '', render: (u) => u.phone || '—' },
     { key: 'dni', label: d.columns.dni, getValue: (u) => u.dni ?? '', render: (u) => u.dni || '—' },
     { key: 'roles', label: d.columns.roles, getValue: (u) => u.roles.map((r) => d.roleLabels[r] ?? r).join(', ') },
     { key: 'license', label: d.columns.license, getValue: (u) => u.license_type || '', render: (u) => u.license_type || '—' },
-  ]
-  const kmColumns: Array<TableWithPanelColumn<KmReading>> = [
-    { key: 'vehicle', label: t.vehicleColumn, getValue: (k) => plate(k.vehicle), render: (k) => <strong>{plate(k.vehicle)}</strong> },
-    { key: 'date', label: d.columns.date, isDate: true, getValue: (k) => k.reading_date ?? '', render: (k) => k.reading_date ?? '—' },
-    { key: 'odometer', label: d.columns.odometer, align: 'right', getValue: (k) => k.km_reading ?? '', render: (k) => (k.km_reading != null ? k.km_reading : '—') },
-    { key: 'estimated', label: d.columns.estimated, getValue: (k) => (k.estimated ? d.yes : d.no) },
-  ]
-  const fleetColumns: Array<TableWithPanelColumn<Vehicle>> = [
-    { key: 'plate', label: t.vehicleColumn, getValue: (v) => v.plate, render: (v) => <strong>{v.plate}</strong> },
-    { key: 'brandModel', label: d.columns.brandModel, getValue: (v) => `${v.brand} ${v.model}`.trim() },
-    { key: 'state', label: d.columns.state, getValue: (v) => v.state_display },
-    { key: 'driver', label: d.columns.driver, getValue: (v) => v.driver_name || '', render: (v) => v.driver_name || '—' },
-    { key: 'supervisor', label: d.columns.supervisor, getValue: (v) => v.supervisor_name || '', render: (v) => v.supervisor_name || '—' },
-    { key: 'nextItv', label: d.columns.nextItv, isDate: true, getValue: (v) => v.next_itv_date ?? '', render: (v) => v.next_itv_date ?? '—' },
-  ]
-  const alertColumns: Array<TableWithPanelColumn<Alert>> = [
-    { key: 'type', label: d.columns.type, getValue: (a) => a.type_display },
-    { key: 'level', label: d.columns.level, getValue: (a) => a.level_display, render: (a) => <Badge tone={a.level === 'critical' ? 'danger' : a.level === 'warning' ? 'warning' : 'info'}>{a.level_display}</Badge> },
-    { key: 'status', label: d.columns.state, getValue: (a) => a.status_display },
-    { key: 'vehicle', label: t.vehicleColumn, getValue: (a) => a.vehicle_plate || '', render: (a) => a.vehicle_plate || '—' },
-    { key: 'message', label: d.columns.message, getValue: (a) => a.message },
-    { key: 'date', label: d.columns.date, isDate: true, getValue: (a) => a.created_at.slice(0, 10) },
-  ]
-  const costColumns: Array<TableWithPanelColumn<CostRow>> = [
-    { key: 'vehicle', label: t.vehicleColumn, getValue: (r) => r.plate, render: (r) => <strong>{r.plate}</strong> },
-    { key: 'brandModel', label: d.columns.brandModel, getValue: (r) => r.brandModel },
-    { key: 'invoiceCount', label: d.columns.invoiceCount, align: 'right', getValue: (r) => r.invoiceCount },
-    { key: 'billed', label: d.columns.billed, align: 'right', getValue: (r) => r.billed, render: (r) => r.billed.toFixed(2) },
+    { key: 'fuelCard', label: d.columns.fuelCard, getValue: (u) => (u.fuel_card ? d.yes : d.no) },
+    { key: 'dateJoined', label: d.columns.dateJoined, isDate: true, getValue: (u) => u.date_joined || '' },
+    { key: 'active', label: d.columns.active, getValue: (u) => (u.is_active ? d.yes : d.no) },
   ]
 
   return (
     <>
       <p className="downloads-lead">{d.lead}</p>
 
-      <div className="export-grid">
-        {/* Flota — el inventario, punto de partida de todo lo demás. */}
-        <ExportCard<Vehicle>
-          title={d.cards.fleet.title}
-          description={d.cards.fleet.description}
+      <div className="download-kind" role="tablist" aria-label={d.kindLabel}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={kind === 'vehicles'}
+          className={`download-kind-option${kind === 'vehicles' ? ' is-active' : ''}`}
+          onClick={() => setKind('vehicles')}
+        >
+          <Car size={18} aria-hidden />
+          <span><strong>{d.cards.vehicles.title}</strong><small>{d.kindVehiclesHint}</small></span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={kind === 'users'}
+          className={`download-kind-option${kind === 'users' ? ' is-active' : ''}`}
+          onClick={() => setKind('users')}
+        >
+          <Users size={18} aria-hidden />
+          <span><strong>{d.cards.users.title}</strong><small>{d.kindUsersHint}</small></span>
+        </button>
+      </div>
+
+      <div className="export-grid export-grid--single">
+        {/* Vehículos: UN documento con todo (una hoja por bloque). */}
+        {kind === 'vehicles' && <DescargaCard
           icon={<Car size={18} />}
-          tone="brand"
-          copy={cardCopy}
-          csvName="flota"
-          manageLabel={d.cards.fleet.manage}
-          onManage={() => navigate('/vehiculos')}
-          activeFilters={countActive(fleetState, fleetBrand)}
-          onResetFilters={() => {
-            setFleetState('')
-            setFleetBrand('')
-          }}
-          filtersKey={`${fleetState}|${fleetBrand}`}
-          filters={
+          title={d.cards.vehicles.title}
+          description={d.cards.vehicles.description}
+          sheets={
             <>
-              <FilterSelect label={d.filterStatus} value={fleetState} onChange={setFleetState} options={fleetStateOptions} />
-              <FilterSelect label={d.filterBrand} value={fleetBrand} onChange={setFleetBrand} options={brandOptions} />
+              {/* La ficha (súper registro) no se puede quitar: es el registro base. */}
+              <span className="export-card-sheet is-fixed" title={d.sheetsFixedHint}>
+                {d.sheets.vehicles}
+                <button
+                  type="button"
+                  className="export-card-sheet-help"
+                  aria-label={d.sheetColumnsAria(d.sheets.vehicles)}
+                  onClick={() => setColumnsFor('vehicles')}
+                >
+                  ?
+                </button>
+              </span>
+              {sectionOrder.map((section) => {
+                const on = !offSections.has(section)
+                return (
+                  <span
+                    key={section}
+                    className={`export-card-sheet export-card-sheet--toggle${on ? '' : ' is-off'}${
+                      dragSection === section ? ' is-dragging' : ''
+                    }`}
+                    draggable
+                    onDragStart={(event) => {
+                      // Firefox no arranca el arrastre sin datos en el evento.
+                      event.dataTransfer.setData('text/plain', section)
+                      event.dataTransfer.effectAllowed = 'move'
+                      setDragSection(section)
+                    }}
+                    onDragEnd={() => setDragSection(null)}
+                    onDragOver={(event) => {
+                      if (dragSection && dragSection !== section) event.preventDefault()
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault()
+                      if (dragSection) moveSection(dragSection, section)
+                      setDragSection(null)
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="export-card-sheet-toggle"
+                      aria-pressed={on}
+                      onClick={() => toggleSection(section)}
+                    >
+                      {d.sheets[section]}
+                    </button>
+                    <button
+                      type="button"
+                      className="export-card-sheet-help"
+                      aria-label={d.sheetColumnsAria(d.sheets[section])}
+                      onClick={() => setColumnsFor(section)}
+                    >
+                      ?
+                    </button>
+                  </span>
+                )
+              })}
             </>
           }
-          columns={fleetColumns}
-          columnHelp={d.columnHelp.fleet}
-          fetchRows={async () =>
-            vehicles.filter(
-              (v) => (!fleetState || v.state === fleetState) && (!fleetBrand || v.brand?.trim() === fleetBrand),
-            )
-          }
-        />
-
-        {/* Kilometraje */}
-        <ExportCard<KmReading>
-          title={d.cards.km.title}
-          description={d.cards.km.description}
-          icon={<Gauge size={18} />}
-          tone="brand"
-          copy={cardCopy}
-          csvName="kilometraje"
-          manageLabel={d.cards.km.manage}
-          onManage={() => navigate('/kilometraje')}
-          activeFilters={countActive(kmVehicle)}
-          onResetFilters={() => setKmVehicle('')}
-          filtersKey={kmVehicle}
-          filters={
-            <VehicleSelect
-              label={d.filterVehicle}
-              vehicles={vehicles}
-              value={kmVehicle}
-              onChange={setKmVehicle}
-              copy={vehicleCopy}
-            />
-          }
-          columns={kmColumns}
-          columnHelp={d.columnHelp.km}
-          fetchRows={() => listAll(listKmReadingsAll({ vehicle: kmVehicle ? Number(kmVehicle) : undefined }))}
-        />
-
-        {/* Documentos */}
-        <ExportCard<FlotaDocument>
-          title={d.cards.documents.title}
-          description={d.cards.documents.description}
-          icon={<FileText size={18} />}
-          tone="info"
-          copy={cardCopy}
-          csvName="documentos"
-          manageLabel={d.cards.documents.manage}
-          onManage={() => navigate('/vehiculos')}
-          activeFilters={countActive(docVehicle, docType, docStatus)}
-          onResetFilters={() => {
-            setDocVehicle('')
-            setDocType('')
-            setDocStatus('')
-          }}
-          filtersKey={`${docVehicle}|${docType}|${docStatus}`}
-          filters={
+          sheetsHint={
             <>
-              <VehicleSelect
-                label={d.filterVehicle}
-                vehicles={vehicles}
-                value={docVehicle}
-                onChange={setDocVehicle}
-                copy={vehicleCopy}
-              />
-              <FilterSelect
-                label={d.filterType}
-                value={docType}
-                onChange={setDocType}
-                options={[all, ...DOC_TYPES.map((dt) => ({ value: dt, label: docCopy.typeOptions[dt] }))]}
-              />
-              <FilterSelect
-                label={d.filterStatus}
-                value={docStatus}
-                onChange={setDocStatus}
-                options={[all, ...DOC_STATUSES.map((s) => ({ value: s, label: d.docStatus[s] ?? s }))]}
-              />
+              {d.sheetsHint}{' '}
+              {(offSections.size > 0 || orderChanged) && (
+                <button
+                  type="button"
+                  className="export-card-filters-clear"
+                  onClick={() => {
+                    setOffSections(new Set())
+                    setSectionOrder([...VEHICLE_REPORT_SECTIONS])
+                  }}
+                >
+                  <X size={12} aria-hidden /> {d.sheetsRestore}
+                </button>
+              )}
             </>
           }
-          columns={documentColumns}
-          columnHelp={d.columnHelp.documents}
-          fetchRows={() =>
-            listAll(
-              listDocuments({
-                vehicle: docVehicle ? Number(docVehicle) : undefined,
-                type: docType || undefined,
-                status: docStatus || undefined,
-              }),
-            )
-          }
-        />
-
-        {/* Alertas */}
-        <ExportCard<Alert>
-          title={d.cards.alerts.title}
-          description={d.cards.alerts.description}
-          icon={<BellRing size={18} />}
-          tone="warning"
-          copy={cardCopy}
-          csvName="alertas"
-          manageLabel={d.cards.alerts.manage}
-          onManage={() => navigate('/alertas')}
-          activeFilters={countActive(alertStatus, alertLevel)}
+          note={d.cards.vehicles.csvNote}
+          count={filteredVehicles.length}
+          activeFilters={countActive(vBrand, vModel, vStatus, vCategory)}
           onResetFilters={() => {
-            setAlertStatus('')
-            setAlertLevel('')
+            setVBrand('')
+            setVModel('')
+            setVStatus('')
+            setVCategory('')
           }}
-          filtersKey={`${alertStatus}|${alertLevel}`}
           filters={
             <>
+              <FilterSelect
+                label={d.filterBrand}
+                value={vBrand}
+                onChange={(value) => {
+                  setVBrand(value)
+                  // Los modelos dependen de la marca: el elegido deja de valer.
+                  setVModel('')
+                }}
+                options={brandOptions}
+              />
+              <FilterSelect label={d.filterModel} value={vModel} onChange={setVModel} options={modelOptions} />
               <FilterSelect
                 label={d.filterStatus}
-                value={alertStatus}
-                onChange={setAlertStatus}
-                options={[all, ...ALERT_STATUSES.map((s) => ({ value: s, label: d.alertStatus[s] ?? s }))]}
+                value={vStatus}
+                onChange={setVStatus}
+                options={[all, ...VEHICLE_STATUSES.map((s) => ({ value: s, label: d.statusVehicle[s] ?? s }))]}
               />
               <FilterSelect
-                label={d.filterLevel}
-                value={alertLevel}
-                onChange={setAlertLevel}
-                options={[all, ...ALERT_LEVELS.map((lv) => ({ value: lv, label: d.alertLevel[lv] ?? lv }))]}
+                label={d.filterCategory}
+                value={vCategory}
+                onChange={setVCategory}
+                options={[all, ...VEHICLE_CATEGORIES.map((c) => ({ value: c, label: d.categoryLabels[c] ?? c }))]}
               />
             </>
           }
-          columns={alertColumns}
-          columnHelp={d.columnHelp.alerts}
-          fetchRows={async () => {
-            const rows = await listAll(listAlerts(alertStatus ? { status: alertStatus } : {}))
-            return alertLevel ? rows.filter((a) => a.level === alertLevel) : rows
-          }}
-        />
-
-        {/* Facturas */}
-        <ExportCard<InvoiceRow>
-          title={d.cards.invoices.title}
-          description={d.cards.invoices.description}
-          icon={<Receipt size={18} />}
-          tone="success"
+          onPreview={() => setVehiclePreview(true)}
+          xlsxUrl={reportUrl('vehicles', 'xlsx', vehicleFilters)}
+          csvUrl={reportUrl('vehicles', 'csv', vehicleFilters)}
+          manageLabel={d.cards.vehicles.manage}
+          onManage={() => navigate('/vehiculos')}
           copy={cardCopy}
-          csvName="facturas"
-          manageLabel={d.cards.invoices.manage}
-          onManage={onManageInvoices}
-          activeFilters={countActive(invVehicle)}
-          onResetFilters={() => setInvVehicle('')}
-          filtersKey={invVehicle}
-          filters={
-            <VehicleSelect
-              label={d.filterVehicle}
-              vehicles={vehicles}
-              value={invVehicle}
-              onChange={setInvVehicle}
-              copy={vehicleCopy}
-            />
-          }
-          columns={invoiceColumns}
-          columnHelp={d.columnHelp.invoices}
-          fetchRows={() => listAll(listInvoices({ vehicle: invVehicle ? Number(invVehicle) : undefined }))}
-        />
+        />}
 
-        {/* Costes: facturación agregada por vehículo (dataset en cliente). */}
-        <ExportCard<CostRow>
-          title={d.cards.costs.title}
-          description={d.cards.costs.description}
-          icon={<Banknote size={18} />}
-          tone="success"
-          copy={cardCopy}
-          csvName="costes"
-          manageLabel={d.cards.costs.manage}
-          onManage={onManageInvoices}
-          activeFilters={countActive(costVehicle, costBrand)}
-          onResetFilters={() => {
-            setCostVehicle('')
-            setCostBrand('')
-          }}
-          filtersKey={`${costVehicle}|${costBrand}`}
-          filters={
-            <>
-              <VehicleSelect
-                label={d.filterVehicle}
-                vehicles={vehicles}
-                value={costVehicle}
-                onChange={setCostVehicle}
-                copy={vehicleCopy}
-              />
-              <FilterSelect label={d.filterBrand} value={costBrand} onChange={setCostBrand} options={brandOptions} />
-            </>
-          }
-          columns={costColumns}
-          columnHelp={d.columnHelp.costs}
-          fetchRows={async () => {
-            const invs = await listAll(listInvoices({}))
-            const agg = new Map<number, { count: number; total: number }>()
-            for (const i of invs) {
-              const cur = agg.get(i.vehicle) ?? { count: 0, total: 0 }
-              cur.count += 1
-              cur.total += i.amount != null ? Number(i.amount) : 0
-              agg.set(i.vehicle, cur)
-            }
-            return vehicles
-              .filter(
-                (v) => (!costVehicle || String(v.id) === costVehicle) && (!costBrand || v.brand?.trim() === costBrand),
-              )
-              .map((v) => {
-                const a = agg.get(v.id)
-                return {
-                  vehicle: v.id,
-                  plate: v.plate,
-                  brandModel: `${v.brand} ${v.model}`.trim(),
-                  brand: v.brand,
-                  invoiceCount: a?.count ?? 0,
-                  billed: a?.total ?? 0,
-                }
-              })
-          }}
-        />
-
-        {/* Personas */}
-        <ExportCard<ManagedUserFull>
+        {/* Personas: el listado de usuarios. */}
+        {kind === 'users' && <DescargaCard
+          icon={<Users size={18} />}
           title={d.cards.users.title}
           description={d.cards.users.description}
-          icon={<Users size={18} />}
-          tone="neutral"
-          copy={cardCopy}
-          csvName="usuarios"
+          count={filteredUsers.length}
+          activeFilters={countActive(uStatus, uRole)}
+          onResetFilters={() => {
+            setUStatus('')
+            setURole('')
+          }}
+          filters={
+            <>
+              <FilterSelect
+                label={d.filterStatus}
+                value={uStatus}
+                onChange={setUStatus}
+                options={[all, ...USER_STATUSES.map((s) => ({ value: s, label: d.statusUser[s] ?? s }))]}
+              />
+              <FilterSelect
+                label={d.filterRole}
+                value={uRole}
+                onChange={setURole}
+                options={[all, ...ROLES.map((r) => ({ value: r, label: d.roleLabels[r] ?? r }))]}
+              />
+            </>
+          }
+          onPreview={() => setUserPreview(true)}
+          xlsxUrl={reportUrl('users', 'xlsx', userFilters)}
+          csvUrl={reportUrl('users', 'csv', userFilters)}
           manageLabel={d.cards.users.manage}
           onManage={() => navigate('/conductores')}
-          activeFilters={countActive(userRole)}
-          onResetFilters={() => setUserRole('')}
-          filtersKey={userRole}
-          filters={
-            <FilterSelect
-              label={d.filterRole}
-              value={userRole}
-              onChange={setUserRole}
-              options={[all, ...ROLES.map((r) => ({ value: r, label: d.roleLabels[r] ?? r }))]}
-            />
-          }
-          columns={userColumns}
-          columnHelp={d.columnHelp.users}
-          fetchRows={async () => {
-            const rows = await listAll(listUsers())
-            return userRole ? rows.filter((u) => (u.roles as string[]).includes(userRole)) : rows
-          }}
-        />
+          copy={cardCopy}
+        />}
       </div>
+
+      <Modal
+        open={vehiclePreview}
+        title={d.previewTitle(d.cards.vehicles.title)}
+        onClose={closeVehiclePreview}
+        wide
+        footer={
+          <div className="export-preview-foot">
+            <span className="export-preview-count">
+              {previewTable ? d.rows(previewTable.rows.length) : d.loading}
+            </span>
+            <Button variant="primary" onClick={() => descargar(reportUrl('vehicles', 'xlsx', vehicleFilters))}>
+              <Download size={15} aria-hidden /> {d.downloadXlsx}
+            </Button>
+          </div>
+        }
+      >
+        <p className="muted">{d.cards.vehicles.previewNote}</p>
+        {previewError ? (
+          <div role="alert" className="form-error">{previewError}</div>
+        ) : previewTables === null ? (
+          <p className="loading-state" role="status">{d.loading}</p>
+        ) : (
+          <>
+            {/* Una pestaña por hoja del documento: se revisa TODO, hoja a hoja. */}
+            {previewTables.length > 1 && (
+              <div className="chips-row" role="group" aria-label={d.sheetsLabel}>
+                {previewTables.map((table, index) => (
+                  <Chip
+                    key={table.title}
+                    active={previewSheet === index}
+                    count={table.rows.length}
+                    onClick={() => setPreviewSheet(index)}
+                  >
+                    {table.title}
+                  </Chip>
+                ))}
+              </div>
+            )}
+            {previewTable && (
+              <TableWithPanel<PreviewRow>
+                rows={previewTable.rows}
+                columns={previewColumns}
+                rowKey={(_, index) => String(index)}
+                showControlPanel={false}
+                enableColumnSort
+                enablePagination
+                defaultPageSize={10}
+                pageSizeOptions={[10, 25, 50]}
+                emptyStateLabel={d.emptyPreview}
+              />
+            )}
+          </>
+        )}
+      </Modal>
+
+      <Modal
+        open={userPreview}
+        title={d.previewTitle(d.cards.users.title)}
+        onClose={closeUserPreview}
+        wide
+        footer={
+          <div className="export-preview-foot">
+            <span className="export-preview-count">{d.rows(filteredUsers.length)}</span>
+            <Button variant="primary" onClick={() => descargar(reportUrl('users', 'xlsx', userFilters))}>
+              <Download size={15} aria-hidden /> {d.downloadXlsx}
+            </Button>
+          </div>
+        }
+      >
+        <TableWithPanel<ManagedUserFull>
+          rows={filteredUsers}
+          columns={userColumns}
+          rowKey={(u) => String(u.id)}
+          showControlPanel={false}
+          enableColumnSort
+          enablePagination
+          defaultPageSize={10}
+          pageSizeOptions={[10, 25, 50]}
+          emptyStateLabel={d.emptyPreview}
+        />
+      </Modal>
+
+      {/* Ayuda «?» de un bloque: sus columnas, tal cual las genera el servidor. */}
+      <Modal
+        open={columnsFor !== null}
+        title={columnsFor !== null ? d.sheetColumnsTitle(d.sheets[columnsFor]) : ''}
+        onClose={closeColumns}
+      >
+        {columnsError ? (
+          <div role="alert" className="form-error">{columnsError}</div>
+        ) : columnsSection === null ? (
+          <p className="loading-state" role="status">{d.loading}</p>
+        ) : (
+          <>
+            {columnsSection.summary.length > 0 && (
+              <>
+                <h4 className="sheet-columns-title">
+                  {d.sheetColumnsSummary} · {columnsSection.summary.length}
+                </h4>
+                <ul className="sheet-columns-list">
+                  {columnsSection.summary.map((column) => <li key={column}>{column}</li>)}
+                </ul>
+              </>
+            )}
+            {columnsSection.detail.length > 0 && (
+              <>
+                <h4 className="sheet-columns-title">
+                  {d.sheetColumnsDetail} · {columnsSection.detail.length}
+                </h4>
+                <ul className="sheet-columns-list">
+                  {columnsSection.detail.map((column) => <li key={column}>{column}</li>)}
+                </ul>
+              </>
+            )}
+          </>
+        )}
+      </Modal>
     </>
   )
 }

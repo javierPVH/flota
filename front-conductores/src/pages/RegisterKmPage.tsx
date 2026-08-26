@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import { CheckCircle2, Gauge } from 'lucide-react'
 import { Button, PageHeader, Panel, SelectField } from '@flota/ui/ui'
 import { ApiError, asErrorMessage } from '@flota/ui/http'
@@ -12,6 +12,7 @@ import {
   listVehicles,
   type KmWindow,
 } from '../api.ts'
+import type { LayoutContext } from '../components/Layout.tsx'
 import { fmtDate, fmtKm, pendingThisMonth, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, safeEnqueue } from '../offline/queue.ts'
@@ -35,6 +36,10 @@ export function RegisterKmPage() {
   const { t } = useLang()
   const [params] = useSearchParams()
   const preselected = params.get('vehiculo') ?? ''
+  // Modo "Mi vehículo" del supervisor: el registro queda acotado a su pareja
+  // (coche propio + sustitución). Conductor o modo Flota: sin recorte.
+  const ctx = useOutletContext<LayoutContext | null>()
+  const ownIds = ctx && !ctx.fleetMode ? (ctx.ownPair?.ids ?? null) : null
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [vehicleId, setVehicleId] = useState(preselected)
@@ -108,6 +113,17 @@ export function RegisterKmPage() {
       alive = false
     }
   }, [vehicleId])
+
+  const selectable = useMemo(
+    () => (ownIds ? vehicles.filter((v) => ownIds.includes(v.id)) : vehicles),
+    [vehicles, ownIds],
+  )
+  // El recorte puede dejar UNA opción (se elige sola) o invalidar la elegida.
+  useEffect(() => {
+    if (!ownIds) return
+    if (vehicleId && !ownIds.includes(Number(vehicleId))) setVehicleId('')
+    else if (!vehicleId && selectable.length === 1) setVehicleId(String(selectable[0].id))
+  }, [ownIds, selectable, vehicleId])
 
   const vehicle = useMemo(
     () => vehicles.find((v) => String(v.id) === vehicleId) ?? null,
@@ -196,12 +212,12 @@ export function RegisterKmPage() {
         </Panel>
       )}
 
-      {vehicles.length > 1 ? (
+      {selectable.length > 1 ? (
         <SelectField
           label={t.km.vehicle}
           options={[
             { value: '', label: t.km.choose },
-            ...vehicles.map((v) => ({
+            ...selectable.map((v) => ({
               value: String(v.id),
               label: `${v.plate} · ${v.brand} ${v.model}`,
             })),

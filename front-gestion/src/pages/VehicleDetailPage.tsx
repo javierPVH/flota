@@ -39,6 +39,9 @@ import { VehicleAssignmentsPanel } from '../components/VehicleAssignmentsPanel.t
 import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleForm } from '../components/VehicleForm.tsx'
 import { VehicleInvoicesCard } from '../components/VehicleInvoicesCard.tsx'
+import { FuelConsumptionCard } from '../components/FuelConsumptionCard.tsx'
+import { MaintenancePlansCard } from '../components/MaintenancePlansCard.tsx'
+import { VehicleReturnModal } from '../components/VehicleReturnModal.tsx'
 import { KmChart } from '../components/KmChart.tsx'
 import { DocumentsPanel } from '../components/DocumentsPanel.tsx'
 import {
@@ -117,6 +120,8 @@ export function VehicleDetailPage() {
 
   // Operaciones G4 (estado / baja / vinculación)
   const [opsModal, setOpsModal] = useState<'state' | 'baja' | 'link' | 'convert' | null>(null)
+  // GAP-7: devolución guiada (lectura final + contrato + asignaciones + baja).
+  const [returnOpen, setReturnOpen] = useState(false)
   const [opsError, setOpsError] = useState('')
   const [opsSaving, setOpsSaving] = useState(false)
   const [stateValue, setStateValue] = useState('active')
@@ -139,8 +144,10 @@ export function VehicleDetailPage() {
   // Documentos e histórico arrancan plegados: son los dos bloques largos y no
   // se leen en cada visita (el resumen del encabezado ya dice si hay algo).
   const accordion = useAccordion(
-    ['km', 'tech', 'contract', 'invoices', 'assignments', 'documents', 'history'],
-    ['documents', 'history'],
+    // GAP-2/GAP-8: consumo y mantenimiento — plegados por defecto, como los
+    // otros bloques que no se leen en cada visita.
+    ['km', 'tech', 'contract', 'invoices', 'fuel', 'maintenance', 'assignments', 'documents', 'history'],
+    ['fuel', 'maintenance', 'documents', 'history'],
   )
 
   // Histórico: filtro por origen ('' = todos).
@@ -699,6 +706,8 @@ export function VehicleDetailPage() {
     if (kind === 'itv') {
       const last = lastEventOf('itv')
       const result = typeof last?.details?.result === 'string' ? last.details.result : ''
+      // Lo que costó la inspección (se registra al resolver el aviso de ITV).
+      const cost = last?.details?.cost
       return (
         <>
           <dt>{t.nextItv}</dt>
@@ -709,6 +718,12 @@ export function VehicleDetailPage() {
             <>
               <dt>{t.kpiItvResult}</dt>
               <dd>{result}</dd>
+            </>
+          )}
+          {(typeof cost === 'string' || typeof cost === 'number') && (
+            <>
+              <dt>{t.kpiItvCost}</dt>
+              <dd>{eur(cost)}</dd>
             </>
           )}
         </>
@@ -950,6 +965,11 @@ export function VehicleDetailPage() {
                     {t.convertToFleet}
                   </Button>
                 )}
+                {/* GAP-7: devolución guiada — la baja «a secas» sigue para
+                    los casos sin devolución (siniestro total, venta…). */}
+                <Button variant="warning" onClick={() => setReturnOpen(true)}>
+                  {t.returnBtn}
+                </Button>
                 <Button variant="danger" onClick={() => openOps('baja')}>
                   {t.retire}
                 </Button>
@@ -1273,6 +1293,11 @@ export function VehicleDetailPage() {
             <dd>{label(t.typeLabel, vehicle.type)}</dd>
             <dt>{t.consumption}</dt>
             <dd>{vehicle.consumption != null ? `${vehicle.consumption} l/100km` : '—'}</dd>
+            <dt>{t.fuelCardRow}</dt>
+            <dd>{vehicle.fuel_card ? t.yes : t.no}</dd>
+            {/* GAP-4: «obra/sede» — en obra se enseña el proyecto; si no, la sede. */}
+            <dt>{t.siteRow}</dt>
+            <dd>{vehicle.site_display || '—'}</dd>
             <dt>{t.initialOdometer}</dt>
             <dd>{vehicle.km_start != null ? km(vehicle.km_start) : '—'}</dd>
             <dt>{t.supervisor}</dt>
@@ -1342,6 +1367,10 @@ export function VehicleDetailPage() {
         </CollapsibleCard>
 
         <VehicleInvoicesCard vehicle={vehicle} accordion={accordion} />
+
+        <FuelConsumptionCard vehicle={vehicle} accordion={accordion} />
+
+        <MaintenancePlansCard vehicle={vehicle} accordion={accordion} />
       </div>
 
       <VehicleAssignmentsPanel vehicle={vehicle} onChanged={load} accordion={accordion} />
@@ -1402,6 +1431,18 @@ export function VehicleDetailPage() {
           renderTimeline(showAllHistory ? filteredTimeline : filteredTimeline.slice(0, 25))
         )}
       </CollapsibleCard>
+
+      {/* GAP-7 · Devolución guiada */}
+      <VehicleReturnModal
+        open={returnOpen}
+        vehicle={vehicle}
+        contract={contract}
+        onClose={() => setReturnOpen(false)}
+        onReturned={() => {
+          setReturnOpen(false)
+          void load()
+        }}
+      />
 
       {/* G4 · Cambio de estado (HU-1.6) */}
       <Modal

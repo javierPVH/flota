@@ -75,13 +75,3 @@ class UseType(models.TextChoices):
     ON_PROJECT = "on_project", "Proyecto"
     PERSONAL = "personal", "Personal"
     WORKS = "works", "Obras"
-
-
-class Fuel(models.TextChoices):
-    """DBML `fuel_enum`. Lista simplificada de combustibles / vectores energéticos."""
-
-    GASOLINE = "gasoline", "Gasolina"
-    DIESEL = "diesel", "Diésel"
-    LPG = "LPG", "GLP"
-    HYBRID = "hybrid", "Híbrido"
-    OTHER = "other", "Otro"

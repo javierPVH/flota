@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Camera, ClipboardCheck, ExternalLink, FileText, Gauge, Wrench } from 'lucide-react'
+import {
+  ArrowLeft,
+  Camera,
+  ClipboardCheck,
+  ClipboardList,
+  ExternalLink,
+  FileText,
+  Gauge,
+  Mail,
+  Wrench,
+} from 'lucide-react'
 import { Badge, Button, Modal, Panel, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
@@ -11,11 +21,15 @@ import {
   listIncidents,
   registerItv,
 } from '../api.ts'
+import { useAuth } from '../auth.ts'
 import {
   AccordionTools,
   CollapsibleCard,
   useAccordion,
 } from '../components/CollapsibleCard.tsx'
+import { BreakdownModal } from '../components/BreakdownModal.tsx'
+import { ReminderModal } from '../components/ReminderModal.tsx'
+import { VehicleUpdateModal } from '../components/VehicleUpdateModal.tsx'
 import { useLang } from '../i18n.tsx'
 import {
   documentStatusTone,
@@ -23,6 +37,7 @@ import {
   fmtKm,
   incidentStatusTone,
   itvClass,
+  kmLevelTone,
   todayIso,
   pendingThisMonth,
   vehicleStateTone,
@@ -51,7 +66,9 @@ const ITV_RESULT_VALUES = ['done', 'not done'] as const
 export function VehicleFieldPage() {
   const { id } = useParams()
   const vehicleId = Number(id)
-  const { t } = useLang()
+  const { t, language } = useLang()
+  const { user } = useAuth()
+  const isSupervisor = user?.roles.includes('supervisor') ?? false
 
   // Acordeón de tarjetas (mejora): desplegadas por defecto; en móvil plegar
   // ahorra mucho scroll.
@@ -73,6 +90,20 @@ export function VehicleFieldPage() {
   const [itvForm, setItvForm] = useState({ event_date: todayIso(), result: 'done', next_due: '' })
   const [itvError, setItvError] = useState('')
   const [itvOk, setItvOk] = useState('')
+
+  // Herramientas del supervisor (las mismas de las tarjetas de la flota).
+  const [remindOpen, setRemindOpen] = useState(false)
+  const [updateOpen, setUpdateOpen] = useState(false)
+  const [breakdownOpen, setBreakdownOpen] = useState(false)
+
+  // Tras guardar algo desde el modal de actualización: datos frescos.
+  const reload = useCallback(() => {
+    fetchVehicle(vehicleId).then(setVehicle, () => {})
+    fetchVehicleSummary(vehicleId).then(setSummary, () => {})
+    listIncidents(vehicleId)
+      .then((page) => setIncidents(page.results.filter((i) => i.status !== 'closed')))
+      .catch(() => {})
+  }, [vehicleId])
 
   const loadDocuments = useCallback(() => {
     listDocuments(vehicleId)
@@ -144,6 +175,9 @@ export function VehicleFieldPage() {
   if (error || !vehicle) return <div role="alert" className="form-error">{error || t.vehicle.notFound}</div>
 
   const kmPending = summary ? pendingThisMonth(summary) : false
+  const blocked = summary?.blocked_by_link ?? null
+  const projection = summary?.projection ?? null
+  const contract = summary?.contract ?? null
 
   return (
     <div className="field-page">
@@ -154,6 +188,11 @@ export function VehicleFieldPage() {
       <header className="field-head">
         <span className="plate plate-lg">{vehicle.plate}</span>
         <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+        {/* Las marcas N9, como en las tarjetas: se ven sin bajar a los paneles. */}
+        {(vehicle.is_substitute || summary?.substituting_for) && (
+          <Badge tone="info">{t.home.substituteTag}</Badge>
+        )}
+        {blocked && <Badge tone="warning">🔒 {t.home.blocked}</Badge>}
       </header>
       <p className="vehicle-model">
         {vehicle.brand} {vehicle.model}
@@ -163,10 +202,10 @@ export function VehicleFieldPage() {
       <div className="stat-row">
         <StatCard
           label={t.vehicle.kmLabel}
-          value={summary ? fmtKm(summary.km_current) : '—'}
+          value={summary ? fmtKm(summary.km_current, language) : '—'}
           sub={
             summary?.km_reading_date
-              ? t.vehicle.readingOf(fmtDate(summary.km_reading_date))
+              ? t.vehicle.readingOf(fmtDate(summary.km_reading_date, language))
               : t.vehicle.noReadings
           }
           accent={kmPending ? 'warning' : 'teal'}
@@ -174,7 +213,9 @@ export function VehicleFieldPage() {
         <StatCard
           label={t.vehicle.nextItv}
           value={
-            <span className={itvClass(vehicle.next_itv_date)}>{fmtDate(vehicle.next_itv_date)}</span>
+            <span className={itvClass(vehicle.next_itv_date)}>
+              {fmtDate(vehicle.next_itv_date, language)}
+            </span>
           }
           sub={
             itvClass(vehicle.next_itv_date) === 'itv-overdue'
@@ -185,7 +226,103 @@ export function VehicleFieldPage() {
           }
           accent={itvClass(vehicle.next_itv_date) ? 'warning' : 'primary'}
         />
+        {/* GAP-8: el próximo mantenimiento, con el mismo semáforo que la ITV. */}
+        {summary?.next_maintenance_date && (
+          <StatCard
+            label={t.home.nextMaintenance}
+            value={
+              <span className={itvClass(summary.next_maintenance_date)}>
+                {fmtDate(summary.next_maintenance_date, language)}
+              </span>
+            }
+            sub={
+              itvClass(summary.next_maintenance_date) === 'itv-overdue'
+                ? t.vehicle.itvOverdue
+                : itvClass(summary.next_maintenance_date) === 'itv-soon'
+                  ? t.vehicle.itvSoon
+                  : ' '
+            }
+            accent={itvClass(summary.next_maintenance_date) ? 'warning' : 'primary'}
+          />
+        )}
       </div>
+
+      {/* Proyección contra el contrato (solo supervisor): el mismo cuadro
+          compacto de la vista del grupo, aquí para UN coche. */}
+      {isSupervisor && projection && contract && (
+        <section className={`card km-card km-level-${projection.level}`}>
+          <div className="km-card-head">
+            <div className="km-card-id">
+              <div className="km-card-plate">
+                <strong>{t.home.projection}</strong>
+                <Badge tone={kmLevelTone(projection.level)}>
+                  {t.group.levels[projection.level] ?? projection.level}
+                </Badge>
+              </div>
+            </div>
+            <span className="km-pct">{Math.round(projection.pct_of_limit)}%</span>
+          </div>
+          <div
+            className="km-progress"
+            role="progressbar"
+            aria-valuenow={Math.min(100, Math.round(projection.pct_of_limit))}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={t.group.progressLabel(Math.round(projection.pct_of_limit))}
+          >
+            <div
+              className={`km-progress-fill ${
+                projection.level === 'watch'
+                  ? 'level-watch'
+                  : projection.level === 'over'
+                    ? 'level-over'
+                    : 'level-ok'
+              }`}
+              style={{ width: `${Math.min(100, Math.round(projection.pct_of_limit))}%` }}
+            />
+          </div>
+          <div className="km-caption">
+            <span>
+              {t.group.consumedOf(
+                fmtKm(summary?.km_driven, language),
+                fmtKm(contract.contract_km, language),
+              )}
+            </span>
+          </div>
+        </section>
+      )}
+
+      {/* N9: al abrir la ficha hay que ver de inmediato en qué lado del vínculo
+          de sustitución está este coche. Va ANTES de todo lo accionable: si está
+          bloqueado, lo que se registre aquí no es lo que toca. */}
+      {summary?.blocked_by_link && (
+        <Panel tone="warning">
+          <p className="panel-note">
+            <strong>{t.vehicle.blockedTitle}</strong>
+            <br />
+            {t.vehicle.blockedPanel(
+              summary.blocked_by_link.reason,
+              summary.blocked_by_link.plate,
+            )}{' '}
+            <Link to={`/vehiculos/${summary.blocked_by_link.substitute_id}`}>
+              {summary.blocked_by_link.plate}
+            </Link>
+          </p>
+        </Panel>
+      )}
+
+      {summary?.substituting_for && (
+        <Panel tone="info">
+          <p className="panel-note">
+            <strong>{t.vehicle.coveringTitle}</strong>
+            <br />
+            {t.vehicle.coveringPanel(
+              summary.substituting_for.plate,
+              summary.substituting_for.reason,
+            )}
+          </p>
+        </Panel>
+      )}
 
       {kmPending && (
         <Panel tone="warning">
@@ -196,18 +333,40 @@ export function VehicleFieldPage() {
         </Panel>
       )}
 
-      {/* Accesos directos de campo (M2 + M4). */}
+      {/* Accesos directos de campo (M2 + M4). En un principal bloqueado (N9)
+          se apagan: km, documentos y averías van sobre el sustituto. La ITV
+          sigue viva — es del coche físico, esté cubierto o no. */}
       <div className="quick-actions">
-        <Link to={`/registrar?vehiculo=${vehicle.id}`} className="quick-action">
-          <Gauge size={20} aria-hidden /> {t.common.registerKm}
-        </Link>
-        <Link to={`/documentos/nuevo?vehiculo=${vehicle.id}`} className="quick-action">
-          <Camera size={20} aria-hidden /> {t.vehicle.quickUpload}
-        </Link>
-        {/* C3: comunicar avería desde la propia ficha, con el coche ya elegido. */}
-        <Link to={`/incidencias/nueva?tipo=breakdown&vehiculo=${vehicle.id}`} className="quick-action">
-          <Wrench size={20} aria-hidden /> {t.home.quickBreakdown}
-        </Link>
+        {blocked ? (
+          <>
+            <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
+              <Gauge size={20} aria-hidden /> {t.common.registerKm}
+            </span>
+            <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
+              <Camera size={20} aria-hidden /> {t.vehicle.quickUpload}
+            </span>
+            <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
+              <Wrench size={20} aria-hidden /> {t.home.quickBreakdown}
+            </span>
+          </>
+        ) : (
+          <>
+            <Link to={`/registrar?vehiculo=${vehicle.id}`} className="quick-action">
+              <Gauge size={20} aria-hidden /> {t.common.registerKm}
+            </Link>
+            <Link to={`/documentos/nuevo?vehiculo=${vehicle.id}`} className="quick-action">
+              <Camera size={20} aria-hidden /> {t.vehicle.quickUpload}
+            </Link>
+            {/* C3: comunicar avería desde la propia ficha, con el coche ya elegido. */}
+            <button
+              type="button"
+              className="quick-action"
+              onClick={() => setBreakdownOpen(true)}
+            >
+              <Wrench size={20} aria-hidden /> {t.home.quickBreakdown}
+            </button>
+          </>
+        )}
         <button
           type="button"
           className="quick-action"
@@ -220,6 +379,19 @@ export function VehicleFieldPage() {
           <ClipboardCheck size={20} aria-hidden /> {t.vehicle.quickItv}
         </button>
       </div>
+
+      {/* Herramientas del supervisor: las mismas que en las tarjetas de la
+          flota, para no tener que volver a la lista. */}
+      {isSupervisor && (
+        <div className="quick-actions">
+          <button type="button" className="quick-action" onClick={() => setUpdateOpen(true)}>
+            <ClipboardList size={20} aria-hidden /> {t.carUpdate.button}
+          </button>
+          <button type="button" className="quick-action" onClick={() => setRemindOpen(true)}>
+            <Mail size={20} aria-hidden /> {t.reminder.button}
+          </button>
+        </div>
+      )}
 
       {itvOk && <p role="status" className="form-ok">{itvOk}</p>}
 
@@ -258,7 +430,7 @@ export function VehicleFieldPage() {
                 <div className="doc-info">
                   <strong>{i.type_display}</strong>
                   <span className="doc-sub">
-                    {i.date ? fmtDate(i.date) : t.vehicle.noDate}
+                    {i.date ? fmtDate(i.date, language) : t.vehicle.noDate}
                     {i.description ? ` · ${i.description}` : ''}
                   </span>
                 </div>
@@ -295,8 +467,8 @@ export function VehicleFieldPage() {
                 <div className="doc-info">
                   <strong>{doc.type_display}</strong>
                   <span className="doc-sub">
-                    {fmtDate(doc.created_at)}
-                    {doc.expiry_date ? t.vehicle.expires(fmtDate(doc.expiry_date)) : ''}
+                    {fmtDate(doc.created_at, language)}
+                    {doc.expiry_date ? t.vehicle.expires(fmtDate(doc.expiry_date, language)) : ''}
                   </span>
                 </div>
                 <Badge tone={documentStatusTone(doc.status)}>{doc.status_display}</Badge>
@@ -316,6 +488,10 @@ export function VehicleFieldPage() {
           })}
         </ul>
 
+      </CollapsibleCard>
+
+      {/* El modal de ITV vive en la RAIZ de la pagina, no dentro de la
+          tarjeta de documentos: plegada, el modal no se montaba (BG). */}
         <Modal open={itvOpen} title={t.vehicle.itvTitle(vehicle.plate)} onClose={() => setItvOpen(false)}>
           <form className="modal-form" onSubmit={handleItv}>
             <TextInputField
@@ -360,7 +536,31 @@ export function VehicleFieldPage() {
           </form>
         </Modal>
 
-      </CollapsibleCard>
+      {breakdownOpen && (
+        <BreakdownModal
+          vehicle={vehicle}
+          onClose={() => setBreakdownOpen(false)}
+          onSaved={() => {
+            reload()
+            loadDocuments()
+          }}
+        />
+      )}
+      {remindOpen && (
+        <ReminderModal
+          vehicle={vehicle}
+          summary={summary ?? undefined}
+          onClose={() => setRemindOpen(false)}
+        />
+      )}
+      {updateOpen && (
+        <VehicleUpdateModal
+          vehicle={vehicle}
+          summary={summary ?? undefined}
+          onClose={() => setUpdateOpen(false)}
+          onSaved={reload}
+        />
+      )}
     </div>
   )
 }

@@ -85,7 +85,9 @@ class AuditApiTests(APITestCase):
         self.assertIn("contract", models_seen)
         self.assertIn("vehicle", models_seen)
         # Cada entrada trae su modelo de origen y la representación del objeto.
-        self.assertTrue(all("model" in row and "object_repr" in row for row in resp.data["results"]))
+        self.assertTrue(
+            all("model" in row and "object_repr" in row for row in resp.data["results"])
+        )
 
     def test_preview_returns_diff_without_saving(self):
         self.client.force_login(self.manager)

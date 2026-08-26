@@ -4,7 +4,8 @@ from django.db import models
 
 
 class DocumentType(models.TextChoices):
-    """Tipo de documento del vehículo (general o ligado a incidencia)."""
+    """Tipo de documento del vehículo (general o ligado a incidencia) o del
+    usuario (personal, como el permiso de conducir)."""
 
     REGISTRATION = "registration_certificate", "Permiso de circulación"
     TECHNICAL_SHEET = "technical_datasheet", "Ficha técnica"
@@ -14,6 +15,7 @@ class DocumentType(models.TextChoices):
     RETURN_ACT = "return_report", "Acta de devolución"
     ACCIDENT_REPORT = "accident_report", "Parte de accidente"
     DAMAGE_PHOTOS = "damage_photos", "Fotos de daños"
+    DRIVING_LICENSE = "driving_license", "Permiso de conducir"
     OTHER = "other", "Otro"
 
 

@@ -29,7 +29,6 @@ function toOptions(labels: Record<string, string>) {
 function closedListOptions(t: VehicleFormCopy) {
   const empty = { value: '', label: '—' }
   return {
-    fuel: toOptions(t.fuelLabels),
     type: toOptions(t.typeLabels),
     size: [empty, ...toOptions(t.sizeLabels)],
     segment: [empty, ...toOptions(t.segmentLabels)],
@@ -50,7 +49,9 @@ interface FormState {
   version: string
   year: string
   registration_date: string
-  fuel: string
+  // GAP-1/GAP-3: combustible por catálogo y tarjeta.
+  fuel_ref: string
+  fuel_card: boolean
   type: string
   size: string
   market_segment: string
@@ -62,6 +63,8 @@ interface FormState {
   business_unit: string
   cost_center: string
   country: string
+  // GAP-4: sede/oficina (para los que no van a obra).
+  site: string
   property: string
   supervisor: string
   driver: string
@@ -93,7 +96,8 @@ const EMPTY: FormState = {
   version: '',
   year: '',
   registration_date: '',
-  fuel: 'diesel',
+  fuel_ref: '',
+  fuel_card: false,
   type: 'car',
   size: '',
   market_segment: '',
@@ -105,6 +109,7 @@ const EMPTY: FormState = {
   business_unit: '',
   cost_center: '',
   country: '',
+  site: '',
   property: 'renting',
   supervisor: '',
   driver: '',
@@ -134,7 +139,8 @@ function fromVehicle(v: Vehicle): FormState {
     version: v.version,
     year: v.year != null ? String(v.year) : '',
     registration_date: v.registration_date ?? '',
-    fuel: v.fuel || 'diesel',
+    fuel_ref: v.fuel_ref != null ? String(v.fuel_ref) : '',
+    fuel_card: v.fuel_card ?? false,
     type: v.type || 'car',
     size: v.size,
     market_segment: v.market_segment,
@@ -146,6 +152,7 @@ function fromVehicle(v: Vehicle): FormState {
     business_unit: v.business_unit != null ? String(v.business_unit) : '',
     cost_center: v.cost_center != null ? String(v.cost_center) : '',
     country: v.country != null ? String(v.country) : '',
+    site: v.site != null ? String(v.site) : '',
     property: v.property || 'renting',
     supervisor: v.supervisor != null ? String(v.supervisor) : '',
     is_substitute: v.is_substitute,
@@ -177,7 +184,10 @@ function vehiclePayload(form: FormState): Record<string, unknown> {
     version: form.version,
     year: form.year ? Number(form.year) : null,
     registration_date: form.registration_date || null,
-    fuel: form.fuel,
+    // GAP-1: solo la FK; el texto denormalizado lo escribe el back. Sin
+    // elección no viaja nada (la ficha legada conserva su texto).
+    ...(form.fuel_ref ? { fuel_ref: Number(form.fuel_ref) } : {}),
+    fuel_card: form.fuel_card,
     type: form.type,
     size: form.size,
     market_segment: form.market_segment,
@@ -188,6 +198,7 @@ function vehiclePayload(form: FormState): Record<string, unknown> {
     business_unit: form.business_unit ? Number(form.business_unit) : null,
     cost_center: form.cost_center ? Number(form.cost_center) : null,
     country: form.country ? Number(form.country) : null,
+    site: form.site ? Number(form.site) : null,
     property: form.property,
     supervisor: form.supervisor ? Number(form.supervisor) : null,
     is_substitute: form.is_substitute,
@@ -270,6 +281,8 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
   const [brands, setBrands] = useState<CatalogEntry[]>([])
   const [models, setModels] = useState<CatalogEntry[]>([])
   const [companies, setCompanies] = useState<CatalogEntry[]>([])
+  const [fuelTypes, setFuelTypes] = useState<CatalogEntry[]>([])
+  const [sites, setSites] = useState<CatalogEntry[]>([])
   // Alta rápida de modelo (admin) sin salir del formulario.
   const [addingModel, setAddingModel] = useState(false)
   const [newModelName, setNewModelName] = useState('')
@@ -299,6 +312,8 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
         setCountries(c.countries)
         setBrands(c.brands)
         setCompanies(c.companies)
+        setFuelTypes(c['fuel-types'])
+        setSites(c.sites)
       }),
     ]
     void Promise.allSettled(loads).then((results) =>
@@ -584,7 +599,18 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
         <section className="card">
           <h3>{t.technicalTitle}{form.is_substitute && <span className="substitute-badge">{t.substituteBadge}</span>}</h3>
           <div className="form-grid">
-            <SelectField label={t.fuel} requiredVisual options={opts.fuel} value={form.fuel} onValueChange={set('fuel')} />
+            <div>
+              <SelectField
+                label={t.fuel}
+                options={catalogOptions(fuelTypes)}
+                value={form.fuel_ref}
+                onValueChange={set('fuel_ref')}
+              />
+              {/* Ficha legada: combustible como texto sin entrada de catálogo. */}
+              {editing && !form.fuel_ref && vehicle?.fuel ? (
+                <p className="muted">{t.fuelLegacyNote(vehicle.fuel)}</p>
+              ) : null}
+            </div>
             <SelectField label={t.type} requiredVisual options={opts.type} value={form.type} onValueChange={set('type')} />
             <SelectField label={t.size} options={opts.size} value={form.size} onValueChange={set('size')} />
             <SelectField
@@ -605,6 +631,14 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
               value={form.consumption}
               onChange={setInput('consumption')}
             />
+            <label className="baja-toggle" style={{ alignSelf: 'end', paddingBottom: '0.55rem' }}>
+              <input
+                type="checkbox"
+                checked={form.fuel_card}
+                onChange={(e) => setForm((f) => ({ ...f, fuel_card: e.target.checked }))}
+              />
+              {t.fuelCard}
+            </label>
             <Labeled badge={editing ? 'locked' : undefined}>
               <TextInputField
                 label={t.kmStart}
@@ -695,6 +729,13 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
               options={catalogOptions(countries)}
               value={form.country}
               onValueChange={set('country')}
+            />
+            <SelectField
+              label={t.site}
+              options={catalogOptions(sites)}
+              value={form.site}
+              onValueChange={set('site')}
+              title={t.siteHint}
             />
           </div>
         </section>

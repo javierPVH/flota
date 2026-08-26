@@ -51,19 +51,24 @@ from fleet.models import (
     EventPenalty,
     EventPepChange,
     EventProjectChange,
+    FuelConsumption,
+    FuelType,
     Incident,
     Invoice,
     InvoiceAllocation,
     KmReading,
+    MaintenancePlan,
     NotificationSchedule,
     Pep,
     Project,
     Renting,
+    Site,
     Vehicle,
     VehicleLink,
     VehicleModel,
     VehicleRequest,
     VehicleUsage,
+    Workshop,
 )
 from fleet.models.enums import (
     AlertStatus,
@@ -73,7 +78,6 @@ from fleet.models.enums import (
     DocumentStatus,
     DocumentType,
     EventType,
-    Fuel,
     IncidentStatus,
     IncidentType,
     LinkReason,
@@ -137,14 +141,14 @@ BULK_LICENSES = [
 ]
 
 # (marca, modelo, tipo, combustible, tamaño, segmento, versión, consumo l/100km)
-# Los 16 modelos cubren entre todos los 4 tipos, los 5 combustibles, los 3
-# tamaños y los 9 segmentos de mercado.
+# Los 16 modelos cubren entre todos los 4 tipos, varios combustibles del
+# catálogo (GAP-1), los 3 tamaños y los 9 segmentos de mercado.
 BULK_MODELS = [
     (
         "Peugeot",
         "Partner",
         VehicleType.FURGONETA,
-        Fuel.DIESEL,
+        "Diésel",
         VehicleSize.LARGE,
         MarketSegment.MPV,
         "1.5 BlueHDi 100 Pro",
@@ -154,7 +158,7 @@ BULK_MODELS = [
         "Citroën",
         "Berlingo Van",
         VehicleType.FURGONETA,
-        Fuel.DIESEL,
+        "Diésel",
         VehicleSize.MEDIUM,
         MarketSegment.MPV,
         "1.5 BlueHDi 130 Control",
@@ -164,7 +168,7 @@ BULK_MODELS = [
         "Ford",
         "Transit Custom",
         VehicleType.FURGONETA,
-        Fuel.DIESEL,
+        "Diésel",
         VehicleSize.LARGE,
         MarketSegment.MPV,
         "2.0 EcoBlue 136 Trend",
@@ -174,7 +178,7 @@ BULK_MODELS = [
         "Volkswagen",
         "Caddy Cargo",
         VehicleType.FURGONETA,
-        Fuel.DIESEL,
+        "Diésel",
         VehicleSize.MEDIUM,
         MarketSegment.MPV,
         "2.0 TDI 102 Pro",
@@ -184,7 +188,7 @@ BULK_MODELS = [
         "Toyota",
         "Corolla Touring",
         VehicleType.TURISMO,
-        Fuel.HYBRID,
+        "Híbrido",
         VehicleSize.MEDIUM,
         MarketSegment.UPPER_MEDIUM,
         "1.8 125H Advance",
@@ -194,7 +198,7 @@ BULK_MODELS = [
         "Seat",
         "León ST",
         VehicleType.TURISMO,
-        Fuel.GASOLINE,
+        "Gasolina",
         VehicleSize.MEDIUM,
         MarketSegment.LOWER_MEDIUM,
         "1.5 TSI 130 Style",
@@ -204,7 +208,7 @@ BULK_MODELS = [
         "Renault",
         "Clio",
         VehicleType.TURISMO,
-        Fuel.GASOLINE,
+        "Gasolina",
         VehicleSize.SMALL,
         MarketSegment.SUPERMINI,
         "1.0 TCe 90 Evolution",
@@ -214,7 +218,7 @@ BULK_MODELS = [
         "Dacia",
         "Duster GLP",
         VehicleType.TURISMO,
-        Fuel.LPG,
+        "GLP",
         VehicleSize.MEDIUM,
         MarketSegment.DUAL_4X4,
         "1.0 ECO-G 100 Expression",
@@ -224,7 +228,7 @@ BULK_MODELS = [
         "Kia",
         "Sportage",
         VehicleType.TURISMO,
-        Fuel.HYBRID,
+        "Híbrido",
         VehicleSize.LARGE,
         MarketSegment.DUAL_4X4,
         "1.6 T-GDi 230 HEV Drive",
@@ -234,7 +238,7 @@ BULK_MODELS = [
         "Hyundai",
         "Kona EV",
         VehicleType.TURISMO,
-        Fuel.OTHER,
+        "Otro",
         VehicleSize.MEDIUM,
         MarketSegment.LOWER_MEDIUM,
         "65 kWh Maxx",
@@ -244,7 +248,7 @@ BULK_MODELS = [
         "Iveco",
         "Daily 35S",
         VehicleType.CAMION,
-        Fuel.DIESEL,
+        "Diésel",
         VehicleSize.LARGE,
         MarketSegment.MPV,
         "35S14 Furgón 12 m³",
@@ -254,7 +258,7 @@ BULK_MODELS = [
         "Yamaha",
         "Tricity 300",
         VehicleType.MOTOCICLETA,
-        Fuel.GASOLINE,
+        "Gasolina",
         VehicleSize.SMALL,
         MarketSegment.MINI,
         "300 ABS",
@@ -264,7 +268,7 @@ BULK_MODELS = [
         "Fiat",
         "500",
         VehicleType.TURISMO,
-        Fuel.GASOLINE,
+        "Gasolina",
         VehicleSize.SMALL,
         MarketSegment.MINI,
         "1.0 Hybrid Dolcevita",
@@ -274,7 +278,7 @@ BULK_MODELS = [
         "BMW",
         "Serie 5 Touring",
         VehicleType.TURISMO,
-        Fuel.HYBRID,
+        "Híbrido",
         VehicleSize.LARGE,
         MarketSegment.EXECUTIVE,
         "530e xDrive",
@@ -284,7 +288,7 @@ BULK_MODELS = [
         "Mercedes-Benz",
         "Clase S",
         VehicleType.TURISMO,
-        Fuel.HYBRID,
+        "Híbrido",
         VehicleSize.LARGE,
         MarketSegment.LUXURY,
         "S 580 e L 4MATIC",
@@ -294,7 +298,7 @@ BULK_MODELS = [
         "Cupra",
         "Formentor",
         VehicleType.TURISMO,
-        Fuel.GASOLINE,
+        "Gasolina",
         VehicleSize.MEDIUM,
         MarketSegment.SPORT,
         "VZ 2.0 TSI 310 DSG 4Drive",
@@ -461,6 +465,32 @@ def seed_catalogs(stdout=None) -> None:
         Project.objects.create(project_name=name, cost_center=ceco)
     Renting.objects.create(name="Alphabet")
     Renting.objects.create(name="Arval")
+    # GAP-4: sedes/oficinas — la ubicación de los vehículos que no van a obra.
+    wipe(Site, stdout)
+    for name in ("Oficina Madrid", "Oficina Almería", "Oficina Sevilla"):
+        Site.objects.create(name=name)
+    # Talleres y estaciones de ITV — dónde se cita el vehículo (datos de ejemplo).
+    wipe(Workshop, stdout)
+    Workshop.objects.create(
+        name="Taller Centro (ejemplo)",
+        kind=Workshop.Kind.WORKSHOP,
+        address="Calle de Ejemplo, 12",
+        postal_code="28001",
+        phone="910 000 001",
+    )
+    Workshop.objects.create(
+        name="Neumáticos Sur (ejemplo)",
+        kind=Workshop.Kind.WORKSHOP,
+        address="Polígono de Ejemplo, nave 3",
+        postal_code="41001",
+        phone="950 000 002",
+    )
+    Workshop.objects.create(
+        name="Estación ITV Norte (ejemplo)",
+        kind=Workshop.Kind.ITV,
+        address="Carretera de Ejemplo, km 2",
+        postal_code="28100",
+    )
 
     # -- N10b: plantillas de correo por defecto + firmas de ejemplo.
     # Se siembran las SEIS claves de `EmailTemplateKey` (la clave es única, así
@@ -541,9 +571,30 @@ def seed_catalogs(stdout=None) -> None:
 
 def seed_vehicles(stdout=None) -> None:
     wipe(Vehicle, stdout)  # cascada: contratos, km, eventos, documentos…
-    # N5: tras vaciar Vehicle ya no hay FKs PROTECT → resiembra marca/modelo/sociedad.
-    for model in (VehicleModel, Brand, Company):
+    # N5/GAP-1: tras vaciar Vehicle ya no hay FKs PROTECT → resiembra
+    # marca/modelo/sociedad y el catálogo de combustibles.
+    for model in (VehicleModel, Brand, Company, FuelType):
         wipe(model, stdout)
+    # GAP-1: la lista HSE (factores de emisión) — el subconjunto que aplica a
+    # una flota de carretera; el resto se da de alta desde Catálogos si llega
+    # a hacer falta. Factores orientativos SOLO para dev (kg CO₂ por litro).
+    for name, factor in (
+        ("Gasolina", "2.3000"),
+        ("Gasolina (E5)", "2.2500"),
+        ("Gasolina (E10)", "2.2100"),
+        ("Diésel", "2.6800"),
+        ("Diésel (B7)", "2.6500"),
+        ("Diésel (B10)", "2.6200"),
+        ("Gasóleo B", "2.6800"),
+        ("GLP", "1.6600"),
+        ("CNG", "2.7500"),
+        ("Gas natural licuado", "2.7500"),
+        ("Híbrido", "2.0000"),
+        ("Vehículo Híbrido Enchufable", "1.2000"),
+        ("Vehículo Eléctrico de Batería", None),
+        ("Otro", None),
+    ):
+        FuelType.objects.create(name=name, co2_factor=factor)
     Company.objects.create(code="GS-ES", name="Gransolar España", description="Sociedad matriz")
     Company.objects.create(code="GS-PT", name="Gransolar Portugal")
     sara = User.objects.get(username="sara")
@@ -563,7 +614,7 @@ def seed_vehicles(stdout=None) -> None:
         vin="WDB9061331N123456",
         registration_date=date(2023, 3, 14),
         state=VehicleState.ACTIVE,
-        fuel=Fuel.DIESEL,
+        fuel="Diésel",
         type=VehicleType.FURGONETA,
         size=VehicleSize.LARGE,
         market_segment=MarketSegment.MPV,
@@ -593,7 +644,7 @@ def seed_vehicles(stdout=None) -> None:
         vin="VF1MA000X67890123",
         registration_date=date(2022, 6, 2),
         state=VehicleState.MAINTENANCE,
-        fuel=Fuel.DIESEL,
+        fuel="Diésel",
         type=VehicleType.FURGONETA,
         size=VehicleSize.LARGE,
         market_segment=MarketSegment.MPV,
@@ -616,7 +667,7 @@ def seed_vehicles(stdout=None) -> None:
         vin="5YJ3E1EA7PF345678",
         registration_date=date(2024, 1, 22),
         state=VehicleState.ACTIVE,
-        fuel=Fuel.OTHER,
+        fuel="Otro",
         type=VehicleType.TURISMO,
         size=VehicleSize.MEDIUM,
         market_segment=MarketSegment.UPPER_MEDIUM,
@@ -637,7 +688,7 @@ def seed_vehicles(stdout=None) -> None:
         vin="SJNFAAZE1U0567890",
         registration_date=date(2021, 9, 8),
         state=VehicleState.ACTIVE,
-        fuel=Fuel.HYBRID,
+        fuel="Híbrido",
         type=VehicleType.TURISMO,
         size=VehicleSize.SMALL,
         market_segment=MarketSegment.LOWER_MEDIUM,
@@ -658,7 +709,7 @@ def seed_vehicles(stdout=None) -> None:
         vin="WF0XXXTTGXJY67890",
         registration_date=date(2018, 4, 30),
         state=VehicleState.BAJA,  # para probar el filtro include_baja
-        fuel=Fuel.DIESEL,
+        fuel="Diésel",
         type=VehicleType.FURGONETA,
         size=VehicleSize.LARGE,
         market_segment=MarketSegment.MPV,
@@ -742,6 +793,8 @@ def seed_vehicles(stdout=None) -> None:
     # -- N5: puebla Marca/Modelo desde el texto sembrado y enlaza las FKs
     # (mismo criterio que la migración de datos 0014) + sociedad titular.
     companies = list(Company.objects.order_by("code"))
+    fuel_types = {f.name: f for f in FuelType.objects.all()}
+    sites = list(Site.objects.order_by("name"))  # las creó seed_catalogs
     for idx, vehicle in enumerate(Vehicle.objects.all().order_by("id")):
         brand, _ = Brand.objects.get_or_create(name=vehicle.brand.strip())
         model_ref = None
@@ -752,7 +805,23 @@ def seed_vehicles(stdout=None) -> None:
         vehicle.brand_ref = brand
         vehicle.model_ref = model_ref
         vehicle.company = companies[idx % len(companies)] if companies else None
-        vehicle.save(update_fields=["brand_ref", "model_ref", "company", "updated_at"])
+        # GAP-1: el texto sembrado coincide con el catálogo → se enlaza la FK.
+        vehicle.fuel_ref = fuel_types.get(vehicle.fuel)
+        # GAP-3/GAP-4: tarjeta en 1 de cada 3, y sede para los que no van a obra.
+        vehicle.fuel_card = idx % 3 == 0
+        if vehicle.project_id is None and sites:
+            vehicle.site = sites[idx % len(sites)]
+        vehicle.save(
+            update_fields=[
+                "brand_ref",
+                "model_ref",
+                "company",
+                "fuel_ref",
+                "fuel_card",
+                "site",
+                "updated_at",
+            ]
+        )
 
 
 # --- 4) Contratos y lecturas de km ----------------------------------------
@@ -989,6 +1058,16 @@ def seed_assignments(stdout=None) -> None:
         reason=LinkReason.MAINTENANCE,
         start_date=today - timedelta(days=5),
     )
+    # Y el sustituto lo conduce QUIEN se quedó sin coche: lucia mantiene su v2
+    # (bloqueado) y opera con el Leaf. Sin esta asignación el sustituto no salía
+    # en "Mis vehículos" de nadie y el par principal↔sustituto no se podía ver
+    # en la app de campo.
+    Assignment.objects.create(
+        vehicle=substitute,
+        driver=lucia,
+        start_date=today - timedelta(days=5),
+        status=AssignmentStatus.ACCEPTED,
+    )
 
     # -- Volumen: conductor vigente para el grueso de la flota nueva, algunos
     # SIN conductor (alerta no_driver), históricos finalizados y propuestas.
@@ -1052,7 +1131,7 @@ def seed_assignments(stdout=None) -> None:
     Assignment.objects.filter(vehicle=shared, status=AssignmentStatus.ACCEPTED).update(
         usage_percent=Decimal("70")
     )
-    # Vínculos de sustitución: uno por cada MOTIVO del enumerado. El estado del
+    # Vínculos de sustitución: uno por cada MOTIVO del enumerado (los 5). El estado del
     # principal casa con el motivo (averiado→avería, en ITV→ITV…) y cada
     # sustituto cubre a uno solo (la restricción es un activo por principal).
     for main_index, substitute_index, reason, started, ended in (
@@ -1060,6 +1139,7 @@ def seed_assignments(stdout=None) -> None:
         (7, 23, LinkReason.ITV, 3, None),  # en ITV
         (10, 16, LinkReason.ACCIDENT, 12, None),  # accidentado
         (4, 2, LinkReason.MAINTENANCE, 60, 40),  # histórico ya cerrado
+        (4, 9, LinkReason.TIRES, 95, 93),  # GAP-6: histórico, cambio de neumáticos
     ):
         VehicleLink.objects.create(
             main_vehicle=Vehicle.objects.get(plate=_bulk_plate(main_index)),
@@ -1078,7 +1158,8 @@ def seed_assignments(stdout=None) -> None:
     )
 
 
-# --- 6) Operación: eventos/ITV, incidencias, documentos, facturas, solicitudes
+# --- 6) Operación: eventos/ITV, incidencias, consumos, planes, documentos,
+# facturas y solicitudes
 
 # Tipos de evento SIN la ITV: esa se siembra aparte porque su subtipo dispara la
 # señal que denormaliza `Vehicle.next_itv_date` (y hay fechas de referencia que
@@ -1311,6 +1392,29 @@ def seed_operations(stdout=None) -> None:
         status=DocumentStatus.VALID,
         notes="Contrato de la tarjeta de recarga eléctrica.",
     )
+    # Documentos PERSONALES (titular = usuario, no coche): el permiso de
+    # conducir de cada conductor. Uno vigente y otro caducado, para que la
+    # pantalla de Documentos enseñe ambos estados y el filtro por usuario.
+    Document.objects.create(
+        user=carlos,
+        type=DocumentType.DRIVING_LICENSE,
+        drive_url="https://drive.example/permiso-conducir-carlos",
+        drive_file_id="drv-file-permiso-carlos",
+        uploaded_by=carlos,
+        expiry_date=today + timedelta(days=400),
+        status=DocumentStatus.VALID,
+        notes="Permiso B.",
+    )
+    Document.objects.create(
+        user=lucia,
+        type=DocumentType.DRIVING_LICENSE,
+        drive_url="https://drive.example/permiso-conducir-lucia",
+        drive_file_id="drv-file-permiso-lucia",
+        uploaded_by=admin,
+        expiry_date=today - timedelta(days=15),
+        status=DocumentStatus.EXPIRED,
+        notes="Permiso B — pendiente de renovar.",
+    )
 
     # Facturas de v1: mes actual y anterior (tendencia del dashboard) + reparto.
     invoice_now = Invoice.objects.create(
@@ -1413,8 +1517,10 @@ def seed_operations(stdout=None) -> None:
     inc_types = [
         IncidentType.BREAKDOWN,
         IncidentType.MAINTENANCE,
+        IncidentType.TIRES,  # GAP-6
         IncidentType.ITV,
         IncidentType.ACCIDENT,
+        IncidentType.GENERAL,  # solicitudes de la app de campo (modal de incidencia)
     ]
     inc_status = [IncidentStatus.OPEN, IncidentStatus.IN_PROGRESS, IncidentStatus.CLOSED]
     inc_descriptions = [
@@ -1431,11 +1537,184 @@ def seed_operations(stdout=None) -> None:
         vehicle = Vehicle.objects.get(plate=_bulk_plate((j * 2) % BULK_VEHICLES))
         Incident.objects.create(
             vehicle=vehicle,
-            type=inc_types[j % 4],
+            type=inc_types[j % len(inc_types)],
             date=today - timedelta(days=4 + j * 6),
             description=inc_descriptions[j % len(inc_descriptions)],
             status=inc_status[j % 3],
             cost=Decimal(str(80 + j * 45)) if j % 3 != 0 else None,
+        )
+
+    # Partes GUIADOS del conductor (report_version=1): uno por variante del
+    # asistente — avería, neumáticos por desgaste, por pinchazo y accidente —
+    # con los campos estructurados (`mileage`, CP del taller y `details`), para
+    # que gestión vea el parte completo además de las incidencias simples.
+    guiadas = [
+        (
+            IncidentType.BREAKDOWN,
+            IncidentStatus.OPEN,
+            "No arranca: hace clic al girar la llave.",
+            48210,
+            "28850",
+            {"report_version": 1},
+        ),
+        (
+            IncidentType.TIRES,
+            IncidentStatus.IN_PROGRESS,
+            "Cambio por desgaste tras aviso del taller.",
+            32500,
+            "41015",
+            {
+                "report_version": 1,
+                "preferred_at": (timezone.now() + timedelta(days=3)).isoformat(),
+                "change_reason": "wear",
+                "wheel_scope": "front",
+                "front_measure": "2,1 mm",
+            },
+        ),
+        (
+            IncidentType.TIRES,
+            IncidentStatus.OPEN,
+            "Pinchazo en el polígono, rueda sin presión.",
+            15800,
+            "08040",
+            {
+                "report_version": 1,
+                "preferred_at": (timezone.now() + timedelta(days=1)).isoformat(),
+                "change_reason": "puncture",
+                "wheel": "rear_left",
+                "tire_measure": "205/55 R16",
+            },
+        ),
+        (
+            IncidentType.ACCIDENT,
+            IncidentStatus.IN_PROGRESS,
+            "Alcance leve en una rotonda, sin heridos.",
+            60420,
+            "",  # el CP del taller solo lo exige el parte de avería/neumáticos
+            {
+                "report_version": 1,
+                "street": "Av. de la Industria, 12",
+                "postal_code": "28108",
+                "locality": "Alcobendas",
+                "province": "Madrid",
+                "occurred_at": (timezone.now() - timedelta(days=2)).isoformat(),
+                # Datos de EJEMPLO (nunca personales reales) — política GRS.
+                "phone": "600 000 001",
+                "damage_description": "Paragolpes trasero rayado y piloto roto.",
+                "third_parties": [{"name": "Conductora de ejemplo", "plate": "0000XXX"}],
+                # Un lesionado de EJEMPLO para que la tabla no quede sin sembrar.
+                "injured_people": [{"name": "Pasajero de ejemplo", "seat": "passenger"}],
+            },
+        ),
+    ]
+    for k, (tipo, estado, descripcion, km, cp, details) in enumerate(guiadas):
+        Incident.objects.create(
+            vehicle=Vehicle.objects.get(plate=_bulk_plate((k * 5 + 1) % BULK_VEHICLES)),
+            type=tipo,
+            date=today - timedelta(days=2 + k),
+            description=descripcion,
+            status=estado,
+            mileage=km,
+            workshop_postal_code=cp,
+            details=details,
+        )
+
+    # GAP-2: consumo mensual de combustible — 6 meses de serie para el vehículo
+    # de referencia y 4 para tres de volumen con tarjeta, con importe en la
+    # mayoría (el extracto lo trae) y algún mes solo con litros.
+    wipe(FuelConsumption, stdout)
+    v1 = Vehicle.objects.get(plate="1234KLM")
+    primero_de_mes = today.replace(day=1)
+    for back_months, liters, amount in (
+        (1, "512.40", "742.98"),
+        (2, "498.10", "722.24"),
+        (3, "531.75", "770.15"),
+        (4, "455.00", None),  # mes sin importe: la tarjeta no lo trajo
+        (5, "506.20", "731.90"),
+        (6, "489.90", "708.30"),
+    ):
+        mes = primero_de_mes
+        for _ in range(back_months):
+            mes = (mes - timedelta(days=1)).replace(day=1)
+        FuelConsumption.objects.create(
+            vehicle=v1,
+            period=mes,
+            liters=Decimal(liters),
+            amount=Decimal(amount) if amount else None,
+            source=FuelConsumption.Source.FUEL_CARD,
+        )
+    for i in (0, 3, 6):  # vehículos de volumen con tarjeta (idx % 3 == 0)
+        vehiculo = Vehicle.objects.get(plate=_bulk_plate(i))
+        for back_months in range(1, 5):
+            mes = primero_de_mes
+            for _ in range(back_months):
+                mes = (mes - timedelta(days=1)).replace(day=1)
+            FuelConsumption.objects.create(
+                vehicle=vehiculo,
+                period=mes,
+                liters=Decimal(str(120 + i * 15 + back_months * 7)),
+                amount=Decimal(str((120 + i * 15 + back_months * 7) * 1.45)).quantize(
+                    Decimal("0.01")
+                ),
+                # Uno manual, el resto de la tarjeta: se ven ambos orígenes.
+                source=(
+                    FuelConsumption.Source.MANUAL
+                    if back_months == 4
+                    else FuelConsumption.Source.FUEL_CARD
+                ),
+            )
+
+    # GAP-8: planes de mantenimiento — uno VENCIDO por fecha (alerta crítica en
+    # seed_alerts), uno a punto por km (aviso) y uno sano (sin alerta).
+    wipe(MaintenancePlan, stdout)
+    MaintenancePlan.objects.create(
+        vehicle=v1,
+        name="Revisión general",
+        every_months=12,
+        last_done_date=today - timedelta(days=400),  # tocaba hace ~35 días
+        notes="Revisión anual del fabricante.",
+    )
+    ultima_v1 = (
+        KmReading.objects.filter(vehicle=v1, km_reading__isnull=False, is_active=True)
+        .order_by("-reading_date", "-id")
+        .first()
+    )
+    km_actual_v1 = ultima_v1.km_reading if ultima_v1 else 0
+    # El ciclo se deriva del odómetro real para que el objetivo quede SIEMPRE
+    # a 500 km (dentro del margen de aviso de 1000): con una cifra fija, un
+    # odómetro bajo dejaba el plan lejos del objetivo y sin aviso que enseñar.
+    MaintenancePlan.objects.create(
+        vehicle=v1,
+        name="Neumáticos",
+        every_km=max(1000, km_actual_v1 + 500),
+        last_done_km=0,
+        notes="Cambio de neumáticos por desgaste.",
+    )
+    MaintenancePlan.objects.create(
+        vehicle=Vehicle.objects.get(plate=_bulk_plate(0)),
+        name="Revisión general",
+        every_months=12,
+        last_done_date=today - timedelta(days=30),  # sano: sin alerta
+    )
+    # La obligación es ANUAL (KPI «Mantenimiento anual» de la vista general):
+    # buena parte de la flota de volumen lleva su plan con anclas escalonadas
+    # para que el desglose enseñe los cuatro estados con datos — al día,
+    # próximo (vence en ~2 semanas), vencido (tocaba hace ~2 semanas) — y los
+    # vehículos que se saltan el bucle quedan «sin plan» (incumplen y se ve).
+    for i in range(1, BULK_VEHICLES):
+        if i % 4 == 0:
+            continue  # sin plan anual: el KPI lo marca como incumplimiento
+        if i % 4 == 1:
+            ancla = today - timedelta(days=40 + (i * 23) % 180)  # al día
+        elif i % 4 == 2:
+            ancla = today - timedelta(days=351)  # próximo (~14 días)
+        else:
+            ancla = today - timedelta(days=380)  # vencido (~15 días)
+        MaintenancePlan.objects.create(
+            vehicle=Vehicle.objects.get(plate=_bulk_plate(i)),
+            name="Revisión anual",
+            every_months=12,
+            last_done_date=ancla,
         )
 
     # Documentos: seguro para todos — la señal denormaliza su expiry_date a
@@ -1839,6 +2118,29 @@ def seed_erratas(stdout=None) -> None:
     pais_sin_flota, _ = Country.objects.get_or_create(name="Andorra")
     retirar(pais_sin_flota, "País sin vehículos matriculados")
 
+    # GAP-1/GAP-4: un combustible que no aplica a flota de carretera y una
+    # sede cerrada — filas huérfanas creadas a propósito, como el resto.
+    queroseno, _ = FuelType.objects.get_or_create(name="Queroseno de Aviación")
+    retirar(queroseno, "De la lista HSE, pero no aplica a una flota de carretera")
+    sede_cerrada, _ = Site.objects.get_or_create(name="Oficina Valencia")
+    retirar(sede_cerrada, "Oficina cerrada en la reorganización")
+    # Talleres e ITV: un taller que ya no existe, para que el grupo tenga errata.
+    taller_cerrado, _ = Workshop.objects.get_or_create(
+        name="Taller Poniente (cerrado)",
+        defaults={"kind": Workshop.Kind.WORKSHOP, "address": "Calle de Ejemplo, 99"},
+    )
+    retirar(taller_cerrado, "Taller cerrado: ya no se cita allí")
+
+    # GAP-2/GAP-8: un consumo tecleado dos veces y un plan duplicado.
+    consumo_viejo = FuelConsumption.objects.filter(is_active=True).order_by("period", "id").first()
+    retirar(consumo_viejo, "Cifra duplicada al volcar el extracto de la tarjeta")
+    plan_duplicado, _ = MaintenancePlan.objects.get_or_create(
+        vehicle=Vehicle.objects.filter(state=VehicleState.ACTIVE).order_by("plate").first(),
+        name="Revisión general (duplicado)",
+        defaults={"every_months": 12, "last_done_date": _today()},
+    )
+    retirar(plan_duplicado, "Plan duplicado: ya existía la revisión general")
+
     # -- Correo (A2): una firma antigua y la plantilla genérica --------------
     firma_vieja, _ = EmailSignature.objects.get_or_create(
         name="Firma antigua (2024)",
@@ -2016,6 +2318,21 @@ def seed_comms(stdout=None) -> None:
         drive_folder="https://drive.google.com/drive/folders/EJEMPLO-CARPETA-INFORMES",
     )
     NotificationSchedule.objects.create(
+        user=admin,
+        name="Informe completo de vehículos",
+        # El documento del rediseño de Descargas: todas las hojas en un Excel…
+        # por correo va el CSV plano del súper registro, como el resto de
+        # envíos. Con filtro de categoría para ver el caso en pantalla.
+        content=NotificationSchedule.Content.VEHICLES,
+        filters={"category": "fleet"},
+        name_with_date=True,
+        frequency=NotificationSchedule.Frequency.MONTHLY,
+        day_of_month=1,
+        send_at=time(7, 0),
+        send_email=True,
+        extra_recipients="admin@flota.dev",
+    )
+    NotificationSchedule.objects.create(
         user=sara,
         name="Costes del mes (día 1)",
         content=NotificationSchedule.Content.COSTS,
@@ -2032,7 +2349,7 @@ def seed_comms(stdout=None) -> None:
         last_error="SMTPConnectError: connection refused (smtp.example.com:587)",
     )
     if stdout:
-        stdout.write("  - Notificaciones: 3 envíos programados (diario, semanal y mensual).")
+        stdout.write("  - Notificaciones: 4 envíos programados (diario, semanal y dos mensuales).")
 
     # Varias suscripciones: un conductor con DOS dispositivos (móvil y tablet) y
     # la supervisora con el suyo — el envío recorre todos los del usuario.

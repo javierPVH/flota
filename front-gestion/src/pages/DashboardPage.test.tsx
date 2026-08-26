@@ -31,6 +31,11 @@ const SUMMARY = {
   invoiced_previous_month: '940.00',
   itv_next_30d: 1,
   itv_overdue: 1,
+  // GAP-8: obligación de mantenimiento anual (KPI propio en la vista general).
+  maintenance_next_30d: 1,
+  maintenance_overdue: 1,
+  maintenance_no_plan: 2,
+  maintenance_ok: 1,
   open_alerts: { itv_due: 2 },
 }
 
@@ -92,6 +97,9 @@ describe('DashboardPage (vista general)', () => {
     renderHome()
     expect(await screen.findByText('Vista general')).toBeInTheDocument()
     expect(await screen.findByText('3 activos · 1 en taller')).toBeInTheDocument()
+    // GAP-8: el KPI de mantenimiento anual anuncia los incumplimientos.
+    expect(screen.getByText('Mantenimiento anual (30 días)')).toBeInTheDocument()
+    expect(screen.getByText('1 vencido · 2 sin plan')).toBeInTheDocument()
     // El listado muestra la matrícula (una vez) y el conductor.
     expect(await screen.findByText('Carlos Ruiz')).toBeInTheDocument()
     expect(screen.getByText('1234KLM')).toBeInTheDocument()

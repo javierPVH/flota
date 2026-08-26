@@ -32,6 +32,9 @@ import {
   DOC_TYPES,
   REPORT_FILTERS,
   ROLES,
+  USER_STATUSES,
+  VEHICLE_CATEGORIES,
+  VEHICLE_STATUSES,
   type ReportFilterKey,
   type ReportKindKey,
 } from '../reportFilters.ts'
@@ -46,8 +49,10 @@ const FORM_ID = 'notif-form'
 /** Contenidos ofrecidos, en el mismo orden que la pantalla de Informes. */
 const CONTENIDOS: Array<'summary' | ReportKindKey> = [
   'summary',
+  'vehicles',
   'fleet',
   'kmreadings',
+  'fuel',
   'documents',
   'alerts',
   'invoices',
@@ -197,6 +202,28 @@ export function NotificationsPage({ embedded = false }: { embedded?: boolean } =
       )
       return [todos, ...marcas.map((b) => ({ value: String(b), label: String(b) }))]
     }
+    if (key === 'model') {
+      // Modelos acotados a la marca elegida en el propio formulario, si la hay.
+      const marca = (values.filters['brand'] ?? '').trim().toLowerCase()
+      const modelos = [
+        ...new Set(
+          vehicles
+            .filter((v) => !marca || (v.brand ?? '').trim().toLowerCase() === marca)
+            .map((v) => v.model?.trim())
+            .filter(Boolean),
+        ),
+      ].sort((a, b) => String(a).localeCompare(String(b)))
+      return [todos, ...modelos.map((m) => ({ value: String(m), label: String(m) }))]
+    }
+    if (key === 'category') {
+      return [
+        todos,
+        ...VEHICLE_CATEGORIES.map((c) => ({
+          value: c,
+          label: r.downloads.categoryLabels[c] ?? c,
+        })),
+      ]
+    }
     if (key === 'state') {
       const estados = new Map<string, string>()
       for (const v of vehicles) if (v.state) estados.set(v.state, v.state_display || v.state)
@@ -214,7 +241,19 @@ export function NotificationsPage({ embedded = false }: { embedded?: boolean } =
     if (key === 'role') {
       return [todos, ...ROLES.map((x) => ({ value: x, label: r.downloads.roleLabels[x] ?? x }))]
     }
-    // `status` significa una cosa en documentos y otra en alertas.
+    // `status` significa una cosa distinta según el informe.
+    if (values.content === 'vehicles') {
+      return [
+        todos,
+        ...VEHICLE_STATUSES.map((x) => ({ value: x, label: r.downloads.statusVehicle[x] ?? x })),
+      ]
+    }
+    if (values.content === 'users') {
+      return [
+        todos,
+        ...USER_STATUSES.map((x) => ({ value: x, label: r.downloads.statusUser[x] ?? x })),
+      ]
+    }
     const lista = values.content === 'documents' ? DOC_STATUSES : ALERT_STATUSES
     const etiquetas =
       values.content === 'documents' ? r.downloads.docStatus : r.downloads.alertStatus
@@ -225,6 +264,8 @@ export function NotificationsPage({ embedded = false }: { embedded?: boolean } =
     const d = r.downloads
     if (key === 'vehicle') return r.vehicleColumn
     if (key === 'brand') return d.filterBrand
+    if (key === 'model') return d.filterModel
+    if (key === 'category') return d.filterCategory
     if (key === 'state') return d.filterStatus
     if (key === 'type') return d.filterType
     if (key === 'level') return d.filterLevel
