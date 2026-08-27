@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import { LineChart, Plus } from 'lucide-react'
-import { Badge, Button, PageHeader } from '@flota/ui/ui'
+import { LineChart } from 'lucide-react'
+import { Badge, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { fetchVehicleSummaries, listIncidents, listKmReadings, listVehicles } from '../api.ts'
+import { fetchVehicleSummaries, listKmReadings, listVehicles } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { KmChart } from '../components/KmChart.tsx'
-import { fmtDate, fmtKm, incidentStatusTone, kmLevelTone } from '../format.ts'
+import { fmtDate, fmtKm, kmLevelTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import type { Incident, KmReading, Vehicle, VehicleSummary } from '../types.ts'
+import type { KmReading, Vehicle, VehicleSummary } from '../types.ts'
 
 // Tres niveles de gestión de la proyección (HU-3.4); etiquetas en t.group.levels.
 const LEVEL_CLASS: Record<string, string> = {
@@ -49,8 +49,8 @@ function elapsedPct(contract: VehicleSummary['contract']): number | null {
  * M6 — Modo supervisor (HU-2.5, 2.8, 3.4, 3.6, Épica 6): proyección de km del
  * grupo. Ordenada por urgencia (exceso → a vigilar → dentro → sin proyección),
  * con recuento en cabecera, filtro por nivel y, en cada tarjeta, la barra de
- * consumo con la marca del avance temporal del contrato. Reparto de uso e
- * incidencias del grupo debajo. El back acota todo al grupo del supervisor.
+ * consumo con la marca del avance temporal del contrato. El back acota todo
+ * al grupo del supervisor.
  */
 export function GroupPage() {
   const { user } = useAuth()
@@ -58,7 +58,6 @@ export function GroupPage() {
   const isSupervisor = user?.roles.includes('supervisor') ?? false
 
   const [rows, setRows] = useState<GroupRow[]>([])
-  const [incidents, setIncidents] = useState<Incident[]>([])
   const [tab, setTab] = useState<Level | ''>('')
   const [chartOpen, setChartOpen] = useState<number | null>(null)
   const [readings, setReadings] = useState<Record<number, KmReading[]>>({})
@@ -70,11 +69,9 @@ export function GroupPage() {
     // Summaries en UNA petición (O2): antes era un GET por vehículo del grupo.
     Promise.all([
       listVehicles(),
-      listIncidents(),
       fetchVehicleSummaries().catch(() => [] as VehicleSummary[]),
     ])
-      .then(([vehiclesPage, incidentsPage, summaries]) => {
-        setIncidents(incidentsPage.results)
+      .then(([vehiclesPage, summaries]) => {
         const byId = new Map(summaries.map((s) => [s.vehicle, s]))
         setRows(
           vehiclesPage.results.map(
@@ -296,39 +293,6 @@ export function GroupPage() {
           </section>
         )
       })}
-
-      {/* Incidencias del grupo (Épica 6). */}
-      <section className="card">
-        <div className="panel-head">
-          <h3 className="panel-title">{t.group.incidents}</h3>
-          <Link to="/incidencias/nueva?desde=grupo">
-            <Button size="sm">
-              <Plus size={16} aria-hidden /> {t.group.newIncident}
-            </Button>
-          </Link>
-        </div>
-        {incidents.length === 0 && <p className="empty-note">{t.group.noIncidents}</p>}
-        <ul className="doc-list">
-          {incidents.map((incident) => {
-            const plate = rows.find((r) => r.vehicle.id === incident.vehicle)?.vehicle.plate ?? ''
-            return (
-              <li key={incident.id} className="doc-item">
-                <div className="doc-info">
-                  <strong>
-                    {plate && `${plate} · `}
-                    {incident.type_display}
-                  </strong>
-                  <span className="doc-sub">
-                    {incident.date ? `${fmtDate(incident.date, language)} · ` : ''}
-                    {incident.description || t.group.noDescription}
-                  </span>
-                </div>
-                <Badge tone={incidentStatusTone(incident.status)}>{incident.status_display}</Badge>
-              </li>
-            )
-          })}
-        </ul>
-      </section>
 
     </div>
   )

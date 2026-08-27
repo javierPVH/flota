@@ -85,7 +85,7 @@ const es = {
     noReading: 'Sin lectura',
     projection: 'Proyección',
     openIncidents: (n: number) =>
-      n === 1 ? '1 incidencia abierta' : `${n} incidencias abiertas`,
+      n === 1 ? '1 avería abierta' : `${n} averías abiertas`,
     substitute: '🔁 sustitución',
     blocked: 'Bloqueado',
     blockedNote: (reason: string, plate: string) =>
@@ -264,6 +264,13 @@ const es = {
     showClosed: 'Ver cerradas',
     onlyOpen: 'Solo abiertas',
     fleet: 'flota',
+    /* Acordeón por coche: total y desglose por tipo en la cabecera. */
+    groupFleet: 'Flota',
+    groupCount: (n: number) => (n === 1 ? '1 alerta' : `${n} alertas`),
+    /* Clasificadores por tipo: el global de la bandeja y el de cada coche. */
+    tabAll: 'Todas',
+    typeFilter: 'Filtrar por tipo de alerta',
+    classifyLabel: 'Clasificar las alertas por tipo',
     resolved: (plate: string) => `Alerta de ${plate} resuelta.`,
     loadError: 'No se pudieron cargar las alertas.',
     closeError: 'No se pudo cerrar la alerta.',
@@ -277,12 +284,19 @@ const es = {
     pushDisable: 'Desactivar',
     pushError: 'No se pudo cambiar el estado de los avisos.',
     empty: 'Sin alertas abiertas. Todo al día.',
-    pendingTitle: 'Lecturas pendientes del grupo',
-    noReadingSince: (d: string) => `Sin lectura desde el ${d}`,
-    neverRead: 'Nunca ha registrado lectura',
     due: (d: string) => `Vence: ${d}`,
     created: (d: string) => `Creada el ${d}`,
     resolve: 'Resolver',
+    /* Modal de resolución personalizado por tipo (solo gestión). */
+    resolveTitle: (plate: string) => `Resolver alerta · ${plate}`,
+    resolveSubmit: 'Resolver alerta',
+    resolveNoteLabel: 'Observaciones (opcional, quedan en la alerta resuelta)',
+    resolveKmTitle: (plate: string) => `Registrar km · ${plate}`,
+    resolveKmIntro: 'Registrar la lectura de este mes resuelve la alerta.',
+    resolveKmLabel: 'Lectura del cuentakilómetros',
+    resolveKmLast: (v: string, d: string) => `Última conocida: ${v} (${d})`,
+    resolveKmSubmit: 'Registrar y resolver',
+    resolveKmNote: (v: string) => `Lectura registrada: ${v}`,
     closedTitle: 'Resueltas',
   },
   group: {
@@ -385,9 +399,9 @@ const es = {
     kind: 'Tipo',
     kindChoose: 'Elige el tipo…',
     kinds: {
-      tires: 'Cambio de neumáticos',
       general: 'General',
-      maintenance: 'Mantenimiento',
+      tires: 'Cambio de neumático',
+      maintenance: 'Propuesta de mejora',
     },
     info: {
       tires:
@@ -410,13 +424,14 @@ const es = {
     submit: 'Comunicar incidencia',
     saved: 'Incidencia comunicada.',
     savedUploadFailed: 'Incidencia comunicada; el adjunto no se pudo subir.',
-    error: 'No se pudo comunicar la incidencia.',
+    error: 'No se pudo comunicar la avería.',
     close: 'Cerrar',
   },
   // Actualización de campo del supervisor: km, mantenimiento y partes de
   // incidencia EN NOMBRE del conductor (el aviso de responsabilidad lo deja claro).
   carUpdate: {
     button: 'Actualizar datos',
+    maintenanceButton: 'Actualizar mantenimiento',
     title: (plate: string) => `Actualizar · ${plate}`,
     notice:
       'La responsabilidad de registrar los km, el mantenimiento y las averías es ' +
@@ -478,6 +493,8 @@ const es = {
     overcost: 'Sobrecoste (€, opcional)',
     observations: 'Observaciones',
     downtime: 'Tiempo parado (días)',
+    resolutionDate: 'Fecha de solución',
+    calculatedDowntime: (n: number) => `Tiempo parado calculado: ${n === 1 ? '1 día' : `${n} días`}`,
     resolveSubmit: 'Cerrar incidencia',
     resolvedNote: 'Incidencia cerrada.',
     incidentsEmpty: 'Sin incidencias abiertas.',
@@ -507,10 +524,11 @@ const es = {
     choose: 'Elige un vehículo…',
     type: 'Tipo',
     types: {
+      general: 'General',
       breakdown: 'Avería',
       accident: 'Accidente',
-      maintenance: 'Mantenimiento',
-      tires: 'Neumáticos',
+      maintenance: 'Propuesta de mejora',
+      tires: 'Cambio de neumático',
       inspection: 'Revisión',
     } as Record<string, string>,
     date: 'Fecha',
@@ -675,7 +693,7 @@ const en: typeof es = {
     lastReading: 'Last reading',
     noReading: 'No readings',
     projection: 'Projection',
-    openIncidents: (n) => (n === 1 ? '1 open incident' : `${n} open incidents`),
+    openIncidents: (n) => (n === 1 ? '1 open breakdown' : `${n} open breakdowns`),
     substitute: '🔁 substitute',
     blocked: 'Blocked',
     blockedNote: (reason, plate) =>
@@ -845,6 +863,11 @@ const en: typeof es = {
     showClosed: 'Show closed',
     onlyOpen: 'Open only',
     fleet: 'fleet',
+    groupFleet: 'Fleet',
+    groupCount: (n) => (n === 1 ? '1 alert' : `${n} alerts`),
+    tabAll: 'All',
+    typeFilter: 'Filter by alert type',
+    classifyLabel: 'Classify alerts by type',
     resolved: (plate) => `Alert for ${plate} resolved.`,
     loadError: 'Could not load the alerts.',
     closeError: 'Could not close the alert.',
@@ -858,12 +881,18 @@ const en: typeof es = {
     pushDisable: 'Disable',
     pushError: 'Could not change the notification state.',
     empty: 'No open alerts. All clear.',
-    pendingTitle: 'Pending readings in the group',
-    noReadingSince: (d) => `No reading since ${d}`,
-    neverRead: 'Never logged a reading',
     due: (d) => `Due: ${d}`,
     created: (d) => `Created on ${d}`,
     resolve: 'Resolve',
+    resolveTitle: (plate) => `Resolve alert · ${plate}`,
+    resolveSubmit: 'Resolve alert',
+    resolveNoteLabel: 'Notes (optional, kept on the resolved alert)',
+    resolveKmTitle: (plate) => `Register km · ${plate}`,
+    resolveKmIntro: "Registering this month's reading resolves the alert.",
+    resolveKmLabel: 'Odometer reading',
+    resolveKmLast: (v, d) => `Last known: ${v} (${d})`,
+    resolveKmSubmit: 'Register and resolve',
+    resolveKmNote: (v) => `Reading registered: ${v}`,
     closedTitle: 'Resolved',
   },
   group: {
@@ -955,9 +984,9 @@ const en: typeof es = {
     kind: 'Type',
     kindChoose: 'Choose the type…',
     kinds: {
-      tires: 'Tyre change',
       general: 'General',
-      maintenance: 'Maintenance',
+      tires: 'Tyre change',
+      maintenance: 'Improvement proposal',
     },
     info: {
       tires:
@@ -980,11 +1009,12 @@ const en: typeof es = {
     submit: 'Send request',
     saved: 'Request sent.',
     savedUploadFailed: 'Request sent; the attachment could not be uploaded.',
-    error: 'Could not send the request.',
+    error: 'Could not report the breakdown.',
     close: 'Close',
   },
   carUpdate: {
     button: 'Update data',
+    maintenanceButton: 'Update maintenance',
     title: (plate) => `Update · ${plate}`,
     notice:
       'Logging km, maintenance and breakdowns is the responsibility of the driver, ' +
@@ -1045,6 +1075,8 @@ const en: typeof es = {
     overcost: 'Extra cost (€, optional)',
     observations: 'Notes',
     downtime: 'Days out of service',
+    resolutionDate: 'Resolution date',
+    calculatedDowntime: (n) => `Calculated downtime: ${n === 1 ? '1 day' : `${n} days`}`,
     resolveSubmit: 'Close incident',
     resolvedNote: 'Incident closed.',
     incidentsEmpty: 'No open incidents.',
@@ -1072,10 +1104,11 @@ const en: typeof es = {
     choose: 'Choose a vehicle…',
     type: 'Type',
     types: {
+      general: 'General',
       breakdown: 'Breakdown',
       accident: 'Accident',
-      maintenance: 'Maintenance',
-      tires: 'Tyres',
+      maintenance: 'Improvement proposal',
+      tires: 'Tyre change',
       inspection: 'Inspection',
     },
     date: 'Date',

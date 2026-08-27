@@ -86,25 +86,12 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
     expect(screen.queryByText('5678BCD')).not.toBeInTheDocument()
 
-    // Nav en modo vehículo: inicio, alertas, registrar km, avería e incidencia.
-    // Las acciones van SOBRE su coche: el shell preselecciona el suyo (id 3).
-    expect(screen.getByRole('link', { name: 'Inicio' })).toHaveAttribute('href', '/')
-    expect(screen.getByRole('link', { name: 'Alertas' })).toBeInTheDocument()
-    await waitFor(() =>
-      expect(screen.getByRole('link', { name: 'Registrar km' })).toHaveAttribute(
-        'href',
-        '/registrar?vehiculo=3',
-      ),
-    )
-    expect(screen.getByRole('link', { name: 'Avería' })).toHaveAttribute(
-      'href',
-      '/incidencias/nueva?tipo=breakdown&vehiculo=3',
-    )
-    expect(screen.getByRole('link', { name: 'Incidencia' })).toHaveAttribute(
-      'href',
-      '/incidencias/nueva?vehiculo=3',
-    )
-    expect(screen.queryByRole('link', { name: 'Proyección km' })).not.toBeInTheDocument()
+    // La barra personal contiene exactamente las mismas cinco acciones.
+    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
+    await waitFor(() => expect(within(nav).getByRole('button', { name: 'Registrar km' })).toBeEnabled())
+    expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
+      'Registrar km', 'Registrar ITV', 'Actualizar mantenimiento', 'Avería', 'Subir documento',
+    ])
   })
 
   it('en Flota: la home es la lista a cargo y el nav queda en Alertas + Proyección', async () => {
@@ -127,14 +114,14 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(screen.getByRole('link', { name: 'Inicio' })).toHaveAttribute('href', '/')
     expect(screen.getByRole('link', { name: 'Alertas' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Proyección km' })).toHaveAttribute('href', '/grupo')
-    expect(screen.queryByRole('link', { name: 'Registrar km' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Avería' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Registrar km' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Avería' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Incidencia' })).not.toBeInTheDocument()
 
     // Y de vuelta a Mi vehículo.
     await userEvent.click(screen.getByRole('button', { name: 'Mi vehículo' }))
     expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Registrar km' })).toBeInTheDocument()
+    expect(within(screen.getByRole('navigation')).getByRole('button', { name: 'Registrar km' })).toBeInTheDocument()
   })
 
   it('sin coche propio, las acciones del nav van desactivadas', async () => {
@@ -154,12 +141,8 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     await waitFor(() =>
       expect(screen.queryByRole('link', { name: 'Registrar km' })).not.toBeInTheDocument(),
     )
-    expect(screen.queryByRole('link', { name: 'Avería' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Incidencia' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Alertas' })).not.toBeInTheDocument()
-    expect(document.querySelectorAll('.bottom-tab.is-disabled').length).toBe(4)
-    // Inicio sigue vivo (desde ahí se gira el switch a Flota).
-    expect(screen.getByRole('link', { name: 'Inicio' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Avería' })).not.toBeInTheDocument()
+    expect(document.querySelectorAll('.bottom-tab.is-disabled').length).toBe(5)
   })
 
   it('el modo se recuerda por dispositivo', async () => {
@@ -170,15 +153,19 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(localStorage.getItem('flota:vista')).toBe('flota')
   })
 
-  it('el conductor no tiene switch y conserva su nav de siempre', async () => {
+  it('el conductor solo tiene Mi vehículo y las mismas cinco acciones sin aviso', async () => {
     mocks.roles = ['driver']
+    localStorage.setItem('flota:vista', 'flota')
     renderShell()
     expect(screen.queryByRole('button', { name: 'Flota' })).not.toBeInTheDocument()
-    // Su pestaña de inicio es "Vehículos": no hay un "Inicio" aparte.
-    expect(screen.queryByRole('link', { name: 'Inicio' })).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Vehículos' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Registrar km' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Alertas' })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Avería' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mi vehículo' })).toHaveAttribute('aria-pressed', 'true')
+    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
+    await waitFor(() => expect(within(nav).getByRole('button', { name: 'Registrar km' })).toBeEnabled())
+    expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
+      'Registrar km', 'Registrar ITV', 'Actualizar mantenimiento', 'Avería', 'Subir documento',
+    ])
+    await userEvent.click(within(nav).getByRole('button', { name: 'Registrar km' }))
+    expect(screen.getByRole('dialog', { name: 'Registrar km · 7890NPQ' })).toBeInTheDocument()
+    expect(screen.queryByText(/responsabilidad de registrar los km/)).not.toBeInTheDocument()
   })
 })

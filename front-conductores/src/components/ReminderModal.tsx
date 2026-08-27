@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Button, Modal } from '@flota/ui/ui'
+import { Button } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { remindVehicle } from '../api.ts'
 import { fmtDate } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
+import { SupervisorModal } from './SupervisorModal.tsx'
 
 type ReminderKind = 'km_reading_pending' | 'itv_due' | 'maintenance_due'
 
@@ -84,7 +85,7 @@ export function ReminderModal({
   }
 
   return (
-    <Modal
+    <SupervisorModal
       open
       title={t.reminder.title(vehicle.plate)}
       onClose={onClose}
@@ -166,6 +167,6 @@ export function ReminderModal({
           )}
         </>
       )}
-    </Modal>
+    </SupervisorModal>
   )
 }

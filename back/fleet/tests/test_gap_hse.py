@@ -608,7 +608,10 @@ class MaintenanceDoneAndIncidentReportTests(APITestCase):
         from fleet.models import Incident
 
         incident = Incident.objects.create(
-            vehicle=self.vehicle, type=IncidentType.BREAKDOWN, description="No arranca."
+            vehicle=self.vehicle,
+            type=IncidentType.BREAKDOWN,
+            date=timezone.localdate() - timedelta(days=3),
+            description="No arranca.",
         )
         # Lanzada: cuenta como abierta en el summary (marca de la tarjeta).
         self.assertEqual(metrics.vehicle_summary(self.vehicle)["open_incidents"], 1)
@@ -623,28 +626,36 @@ class MaintenanceDoneAndIncidentReportTests(APITestCase):
         self.assertEqual(incident.status, "on_going")
         self.assertEqual(incident.workshop_postal_code, "28001")
 
-        # Fase 3 (solucion): sobrecoste, observaciones y tiempo parado -> CERRADA.
+        # Fase 3: la fecha de solución calcula el tiempo parado y CIERRA.
         resp = self.client.post(
             reverse("incident-resolve", args=[incident.pk]),
-            {"overcost": "40", "observations": "Bateria fuera de garantia.", "downtime_days": 3},
+            {
+                "resolution_date": timezone.localdate().isoformat(),
+                "observations": "Bateria fuera de garantia.",
+            },
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         incident.refresh_from_db()
         self.assertEqual(incident.status, "closed")
-        self.assertEqual(incident.details["resolution"]["overcost"], "40")
+        self.assertEqual(
+            incident.details["resolution"]["resolution_date"],
+            timezone.localdate().isoformat(),
+        )
         self.assertEqual(incident.details["resolution"]["downtime_days"], 3)
         self.assertIn("garantia", incident.details["resolution"]["observations"])
         # Cerrada: la marca de la tarjeta desaparece.
         self.assertEqual(metrics.vehicle_summary(self.vehicle)["open_incidents"], 0)
 
-        # La gestion sin ningun dato es un 400; cerrar sin datos es valido.
-        otra = Incident.objects.create(vehicle=self.vehicle, type=IncidentType.TIRES)
+        # Tanto la gestión como la solución exigen sus datos mínimos.
+        otra = Incident.objects.create(
+            vehicle=self.vehicle, type=IncidentType.TIRES, date=timezone.localdate()
+        )
         resp = self.client.post(reverse("incident-manage", args=[otra.pk]), {})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         resp = self.client.post(reverse("incident-resolve", args=[otra.pk]), {})
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         otra.refresh_from_db()
-        self.assertEqual(otra.status, "closed")
+        self.assertNotEqual(otra.status, "closed")
 
     def test_report_appends_a_stamped_note_and_can_change_status(self):
         from fleet.models import Incident

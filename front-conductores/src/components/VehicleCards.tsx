@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, ClipboardList, Gauge, Mail, Siren, TriangleAlert, Wrench } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ClipboardList, Gauge, Mail, Siren, Wrench } from 'lucide-react'
 import { Badge } from '@flota/ui/ui'
 
 import { fmtDate, fmtKm, itvClass, kmLevelTone, pendingThisMonth, vehicleStateTone } from '../format.ts'
@@ -8,9 +8,8 @@ import { useLang } from '../i18n.tsx'
 import { pairedWith } from '../substitution.ts'
 import { AccidentModal } from './AccidentModal.tsx'
 import { BreakdownModal } from './BreakdownModal.tsx'
-import { IncidentModal } from './IncidentModal.tsx'
 import { ReminderModal } from './ReminderModal.tsx'
-import { VehicleUpdateModal } from './VehicleUpdateModal.tsx'
+import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 
 /**
@@ -44,10 +43,8 @@ export function VehicleCardList({
   // Actualización de campo (km / mantenimiento / partes), también del supervisor.
   const [updateFor, setUpdateFor] = useState<Vehicle | null>(null)
   const onUpdate = isSupervisor ? setUpdateFor : undefined
-  // Lanzar una averia (fase 1 del ciclo): modal con el coche fijado, para todos.
+  // Comunicar una avería, un cambio de neumáticos o una propuesta de mejora.
   const [breakdownFor, setBreakdownFor] = useState<Vehicle | null>(null)
-  // Nueva incidencia (neumáticos / general / mantenimiento): también en modal.
-  const [incidentFor, setIncidentFor] = useState<Vehicle | null>(null)
   // El parte de accidente completo de Gestión, disponible solo al supervisor.
   const [accidentFor, setAccidentFor] = useState<Vehicle | null>(null)
   const onAccident = isSupervisor ? setAccidentFor : undefined
@@ -78,7 +75,6 @@ export function VehicleCardList({
                 onRemind={onRemind}
                 onUpdate={onUpdate}
                 onBreakdown={setBreakdownFor}
-                onIncident={setIncidentFor}
                 onAccident={onAccident}
               />
             )
@@ -97,7 +93,6 @@ export function VehicleCardList({
                 onRemind={onRemind}
                 onUpdate={onUpdate}
                 onBreakdown={setBreakdownFor}
-                onIncident={setIncidentFor}
                 onAccident={onAccident}
               />
             </div>
@@ -115,7 +110,6 @@ export function VehicleCardList({
                 onRemind={onRemind}
                 onUpdate={onUpdate}
                 onBreakdown={setBreakdownFor}
-                onIncident={setIncidentFor}
                 onAccident={onAccident}
               />
             </div>
@@ -130,7 +124,6 @@ export function VehicleCardList({
             onRemind={onRemind}
             onUpdate={onUpdate}
             onBreakdown={setBreakdownFor}
-            onIncident={setIncidentFor}
             onAccident={onAccident}
           />
         )
@@ -143,9 +136,8 @@ export function VehicleCardList({
         />
       )}
       {updateFor && (
-        <VehicleUpdateModal
+        <MaintenanceUpdateModal
           vehicle={updateFor}
-          summary={summaries[updateFor.id]}
           onClose={() => setUpdateFor(null)}
           onSaved={onRefresh}
         />
@@ -154,13 +146,6 @@ export function VehicleCardList({
         <BreakdownModal
           vehicle={breakdownFor}
           onClose={() => setBreakdownFor(null)}
-          onSaved={onRefresh}
-        />
-      )}
-      {incidentFor && (
-        <IncidentModal
-          vehicle={incidentFor}
-          onClose={() => setIncidentFor(null)}
           onSaved={onRefresh}
         />
       )}
@@ -193,7 +178,6 @@ function SubstitutionReel({
   onRemind,
   onUpdate,
   onBreakdown,
-  onIncident,
   onAccident,
 }: {
   substitute: Vehicle
@@ -204,7 +188,6 @@ function SubstitutionReel({
   onRemind?: (vehicle: Vehicle) => void
   onUpdate?: (vehicle: Vehicle) => void
   onBreakdown?: (vehicle: Vehicle) => void
-  onIncident?: (vehicle: Vehicle) => void
   onAccident?: (vehicle: Vehicle) => void
 }) {
   const { t } = useLang()
@@ -237,7 +220,6 @@ function SubstitutionReel({
               onRemind={onRemind}
               onUpdate={onUpdate}
               onBreakdown={onBreakdown}
-              onIncident={onIncident}
               onAccident={onAccident}
               reelButton={{
                 label: t.home.showOriginal(pair.plate),
@@ -269,7 +251,6 @@ function VehicleCard({
   onRemind,
   onUpdate,
   onBreakdown,
-  onIncident,
   onAccident,
 }: {
   vehicle: Vehicle
@@ -285,12 +266,10 @@ function VehicleCard({
   reelButton?: { label: string; dir: 'left' | 'right'; onClick: () => void }
   /** Abre el modal de recordatorio (correo/alerta) — solo supervisor. */
   onRemind?: (vehicle: Vehicle) => void
-  /** Abre el modal de actualización (km/mantenimiento/partes) — solo supervisor. */
+  /** Abre el modal exclusivo de mantenimiento — solo supervisor. */
   onUpdate?: (vehicle: Vehicle) => void
-  /** Abre el modal de avería (fase 1 del ciclo), con este coche fijado. */
+  /** Abre el modal de avería unificado, con este coche fijado. */
   onBreakdown?: (vehicle: Vehicle) => void
-  /** Abre el modal de nueva incidencia (neumáticos/general/mantenimiento). */
-  onIncident?: (vehicle: Vehicle) => void
   /** Abre el parte guiado de accidente — solo supervisor. */
   onAccident?: (vehicle: Vehicle) => void
 }) {
@@ -332,11 +311,21 @@ function VehicleCard({
             <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
             {tag}
             {blocked && <Badge tone="warning">🔒 {t.home.blocked}</Badge>}
-            {/* La marca de "algo abierto": averías/incidencias sin cerrar. */}
+            {/* Marca visible de averías abiertas: icono vectorial con contraste,
+                en lugar del emoji pequeño que variaba según el dispositivo. */}
             {(summary?.open_incidents ?? 0) > 0 && (
-              <span title={t.home.openIncidents(summary?.open_incidents ?? 0)}>
-                <Badge tone="warning" size="sm">
-                  🔧 {summary?.open_incidents}
+              <span
+                className="open-breakdowns-mark"
+                title={t.home.openIncidents(summary?.open_incidents ?? 0)}
+                aria-label={t.home.openIncidents(summary?.open_incidents ?? 0)}
+              >
+                <Badge
+                  tone="warning"
+                  variant="solid"
+                  icon={<Wrench size={14} strokeWidth={2.5} />}
+                  className="open-breakdowns-badge"
+                >
+                  {t.shell.tabs.breakdown} {summary?.open_incidents}
                 </Badge>
               </span>
             )}
@@ -432,7 +421,7 @@ function VehicleCard({
           {/* Altas de campo de ESTE coche, ya preseleccionado. Son <button>
               (la tarjeta entera es un enlace) y hay que frenar el clic para no
               abrir la ficha. El principal bloqueado no las ofrece: avería e
-              incidencia se registran sobre su sustituto (N9). */}
+              se registra sobre su sustituto (N9). */}
           {!blocked && (
             <div className="card-report-actions">
               <button
@@ -442,24 +431,11 @@ function VehicleCard({
                 onClick={(e) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  // Fase 1 del ciclo: modal con el coche fijado, no la vista.
+                  // Modal unificado: general, neumáticos o propuesta de mejora.
                   onBreakdown?.(vehicle)
                 }}
               >
                 <Wrench size={15} aria-hidden /> {t.shell.tabs.breakdown}
-              </button>
-              <button
-                type="button"
-                className="report-btn"
-                title={`${t.shell.tabs.incident} · ${vehicle.plate}`}
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  // Modal con selector de tipo (neumáticos/general/mantenimiento).
-                  onIncident?.(vehicle)
-                }}
-              >
-                <TriangleAlert size={15} aria-hidden /> {t.shell.tabs.incident}
               </button>
               {onAccident && (
                 <button
@@ -476,13 +452,12 @@ function VehicleCard({
                 </button>
               )}
               {onUpdate && (
-                // Actualización de campo en nombre del conductor: km,
-                // mantenimiento y partes de incidencia.
+                // Actualización de mantenimiento en nombre del conductor.
                 <button
                   type="button"
                   className="report-btn report-btn-icon"
-                  aria-label={t.carUpdate.button}
-                  title={`${t.carUpdate.button} · ${vehicle.plate}`}
+                  aria-label={t.carUpdate.maintenanceButton}
+                  title={`${t.carUpdate.maintenanceButton} · ${vehicle.plate}`}
                   onClick={(e) => {
                     e.preventDefault()
                     e.stopPropagation()

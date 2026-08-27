@@ -11,7 +11,7 @@ import { todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle } from '../types.ts'
 
-const INCIDENT_TYPES = ['breakdown', 'accident', 'maintenance', 'tires']
+const INCIDENT_TYPES = ['general', 'tires', 'maintenance']
 const nowLocalDateTime = () => {
   const now = new Date()
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
@@ -32,7 +32,7 @@ const emptyInjuredPerson = (): InjuredPerson => ({
   full_name: '', phone: '', email: '', plate: '', seat: 'driver',
 })
 
-/** Parte guiado para conductores: avería, neumáticos, accidente o mantenimiento. */
+/** Alta unificada de avería: general, neumáticos o propuesta de mejora. */
 export function NewIncidentPage() {
   const { user } = useAuth()
   const { t } = useLang()
@@ -48,7 +48,7 @@ export function NewIncidentPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [form, setForm] = useState({
     vehicle: params.get('vehiculo') ?? '',
-    type: INCIDENT_TYPES.includes(requestedType) ? requestedType : 'breakdown',
+    type: INCIDENT_TYPES.includes(requestedType) ? requestedType : 'general',
     date: todayIso(), description: '', mileage: '', workshopPostalCode: '',
   })
   const [details, setDetails] = useState<Record<string, string>>({
@@ -146,9 +146,7 @@ export function NewIncidentPage() {
     }
   }
 
-  const title = form.type === 'breakdown' ? t.newIncident.titleBreakdown
-    : form.type === 'accident' ? t.newIncident.titleAccident
-      : form.type === 'tires' ? t.newIncident.titleTires : t.newIncident.title
+  const title = t.newIncident.titleBreakdown
 
   return (
     <div className="field-page">
@@ -166,21 +164,20 @@ export function NewIncidentPage() {
           onValueChange={(vehicle) => setForm((current) => ({ ...current, vehicle }))}
           required
         />}
-        <SelectField
-          label={t.newIncident.type}
-          options={INCIDENT_TYPES.map((value) => ({ value, label: t.newIncident.types[value] ?? value }))}
-          value={form.type}
-          onValueChange={(type) => setForm((current) => ({ ...current, type }))}
-          required
-        />
+        <div className="incident-grid breakdown-kind-date">
+          <SelectField
+            label={t.newIncident.type}
+            options={INCIDENT_TYPES.map((value) => ({ value, label: t.newIncident.types[value] ?? value }))}
+            value={form.type}
+            onValueChange={(type) => setForm((current) => ({ ...current, type }))}
+            required
+          />
+          <TextInputField label={t.newIncident.date} type="date" max={todayIso()} value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} required />
+        </div>
 
         {form.type === 'tires' && <section className="incident-section" aria-labelledby="tires-data-title">
           <h2 id="tires-data-title">{t.newIncident.tiresData}</h2>
-          <div className="incident-grid">
-            <TextInputField label={t.newIncident.workshopPostalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={form.workshopPostalCode} onChange={(event) => setForm((current) => ({ ...current, workshopPostalCode: event.target.value }))} required />
-            <TextInputField label={t.newIncident.mileage} type="number" min={0} value={form.mileage} onChange={(event) => setForm((current) => ({ ...current, mileage: event.target.value }))} required />
-          </div>
-          <TextInputField label={t.newIncident.preferredAt} type="datetime-local" value={details.preferred_at} onChange={(event) => setDetail('preferred_at', event.target.value)} required />
+          <TextInputField label={t.newIncident.mileage} type="number" min={0} value={form.mileage} onChange={(event) => setForm((current) => ({ ...current, mileage: event.target.value }))} required />
           <SelectField label={t.newIncident.changeReason} options={[
             { value: '', label: t.newIncident.choose }, { value: 'wear', label: t.newIncident.wear },
             { value: 'puncture', label: t.newIncident.puncture },
@@ -260,9 +257,8 @@ export function NewIncidentPage() {
           <label className="file-field"><span>{t.newIncident.accidentReport}</span><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => setAccidentReport(event.target.files?.[0] ?? null)} />{accidentReport && <span className="doc-sub">{accidentReport.name}</span>}</label>
         </section>}
 
-        {form.type === 'maintenance' && <>
-          <TextInputField label={t.newIncident.date} type="date" max={todayIso()} value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} required />
-          <TextAreaField label={t.newIncident.description} rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder={t.newIncident.descPlaceholder} />
+        {(form.type === 'general' || form.type === 'maintenance') && <>
+          <TextAreaField label={t.newIncident.description} rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder={t.newIncident.descPlaceholder} required />
         </>}
         {form.type !== 'maintenance' && <label className="file-field"><span>{t.newIncident.photos}</span><input type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple onChange={(event) => setPhotos(Array.from(event.target.files ?? []))} />{photos.length > 0 && <span className="doc-sub">{t.newIncident.photosSelected(photos.length)}</span>}</label>}
         {error && <div role="alert" className="form-error">{error}</div>}

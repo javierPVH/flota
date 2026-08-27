@@ -9,7 +9,6 @@ import type { Role, VehicleSummary } from '../types.ts'
 
 const mocks = vi.hoisted(() => ({
   listVehicles: vi.fn(),
-  listIncidents: vi.fn(),
   listKmReadings: vi.fn(),
   fetchVehicleSummaries: vi.fn(),
   roles: ['driver', 'supervisor'] as Role[],
@@ -18,7 +17,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   listVehicles: mocks.listVehicles,
-  listIncidents: mocks.listIncidents,
   listKmReadings: mocks.listKmReadings,
   fetchVehicleSummaries: mocks.fetchVehicleSummaries,
 }))
@@ -108,7 +106,6 @@ describe('GroupPage (proyección de km del grupo)', () => {
       summary(1, 'within', { pct_of_limit: 16.7 }),
       summary(2, 'over', { overage_km: 18000, estimated_penalty: '2700.00' }),
     ])
-    mocks.listIncidents.mockResolvedValue({ count: 0, results: [] })
     mocks.listKmReadings.mockResolvedValue({ count: 0, results: [] })
   })
 

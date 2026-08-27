@@ -101,8 +101,10 @@ export async function deletePushSubscription(endpoint: string): Promise<void> {
 export const listAlerts = (status: string) =>
   getJson<Paginated<Alert>>(`${API}/alerts/?status=${status}&${PS}`)
 
-/** Solo gestión (supervisor/admin); el conductor no ve estos botones. */
-export const resolveAlert = (id: number) => postJson<Alert>(`${API}/alerts/${id}/resolve/`, {})
+/** Solo gestión (supervisor/admin); el conductor no ve estos botones. La nota
+ * opcional (qué se hizo) queda visible en la bandeja de resueltas. */
+export const resolveAlert = (id: number, note?: string) =>
+  postJson<Alert>(`${API}/alerts/${id}/resolve/`, note ? { note } : {})
 
 // --- Actualización de campo del supervisor (km / mantenimiento / partes) ----
 
@@ -139,10 +141,10 @@ export const manageIncident = (
   data: { workshop_postal_code: string },
 ) => postJson<Incident>(`${API}/incidents/${id}/manage/`, data)
 
-/** Fase 3: la SOLUCIÓN (sobrecoste, observaciones, tiempo parado). CIERRA. */
+/** Fase 3: fecha de solución; el servidor calcula el tiempo parado y CIERRA. */
 export const resolveIncident = (
   id: number,
-  data: { overcost?: string; observations?: string; downtime_days?: number },
+  data: { resolution_date: string; observations?: string },
 ) => postJson<Incident>(`${API}/incidents/${id}/resolve/`, data)
 
 /** Recordatorio del supervisor al conductor: correo inmediato y/o alerta en la
