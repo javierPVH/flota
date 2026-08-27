@@ -168,7 +168,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
 
     // Altas de campo por tarjeta, con el coche ya preseleccionado.
     expect(screen.getAllByRole('button', { name: 'Avería' }).length).toBe(3)
-    expect(screen.getAllByRole('button', { name: 'Incidencia' }).length).toBe(3)
+    expect(screen.queryByRole('button', { name: 'Incidencia' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Accidente' }).length).toBe(3)
 
     // El acceso a la proyección del grupo vive en el bottom-nav, no aquí.
@@ -203,7 +203,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     expect(await screen.findByText(/Alerta creada en la app\. Correo enviado\./)).toBeInTheDocument()
   })
 
-  it('el modal de actualización registra km, mantenimiento y partes en nombre del conductor', async () => {
+  it('el modal personalizado solo actualiza mantenimiento en nombre del conductor', async () => {
     mocks.createKmReading.mockResolvedValue({})
     mocks.listMaintenancePlans.mockResolvedValue({
       count: 1,
@@ -255,23 +255,16 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
 
     renderPage()
     await screen.findByText('1111AAA')
-    await userEvent.click(screen.getAllByRole('button', { name: 'Actualizar datos' })[0])
+    await userEvent.click(screen.getAllByRole('button', { name: 'Actualizar mantenimiento' })[0])
 
     // El div informativo: la responsabilidad es del conductor, no del responsable.
     expect(screen.getByText(/responsabilidad de registrar los km/)).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Actualizar mantenimiento · 1111AAA' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Lectura del cuentakilómetros/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Averías / Incidencias')).not.toBeInTheDocument()
 
-    // Km: registra la lectura de hoy para ESTE coche.
-    expect(screen.getByText('Última lectura: 1000 km · 10/8/2026')).toBeInTheDocument()
-    const kmRow = screen.getByLabelText(/Lectura del cuentakilómetros/).closest('.update-km-row')
-    expect(kmRow).toContainElement(screen.getByRole('button', { name: 'Registrar lectura' }))
-    await userEvent.type(screen.getByLabelText(/Lectura del cuentakilómetros/), '4750')
-    await userEvent.click(screen.getByRole('button', { name: 'Registrar lectura' }))
-    expect(mocks.createKmReading).toHaveBeenCalledWith(
-      expect.objectContaining({ vehicle: 1, km_reading: 4750 }),
-    )
-
-    // Mantenimiento: lista los planes y "Realizado hoy" reancla y cierra alertas.
-    await userEvent.click(screen.getByRole('tab', { name: 'Mantenimiento' }))
+    // Solo lista los planes y permite registrar su fecha de realización.
     expect(await screen.findByText('Revisión general')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Más información' }))
     expect(screen.getByText('Periodicidad')).toBeInTheDocument()
@@ -287,49 +280,24 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     expect(await screen.findByText('Mantenimiento realizado el 24/8/2026.')).toBeInTheDocument()
     expect(await screen.findByText(/2 alertas resueltas/)).toBeInTheDocument()
 
-    // El ciclo de la avería: fase 2 (ubicación preferente) y fase 3 (solución).
-    await userEvent.click(screen.getByRole('tab', { name: 'Averías / Incidencias' }))
-    expect(await screen.findByRole('button', { name: 'Ver' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Gestión' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Solucionar' })).toBeInTheDocument()
-    // El nav del modal sigue visible mientras se abre cada acción.
-    expect(screen.getByRole('tab', { name: 'Km' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Ver' }))
-    const viewDialog = screen.getByRole('dialog', { name: 'Detalle · Avería' })
-    expect(screen.getAllByText('No arranca.')).toHaveLength(2)
-    await userEvent.click(within(viewDialog).getAllByRole('button', { name: 'Cerrar' })[0])
-    await userEvent.click(screen.getByRole('button', { name: 'Gestión' }))
-    const manageDialog = screen.getByRole('dialog', { name: 'Gestión · Avería' })
-    const preferredCp = within(manageDialog).getByLabelText('Código postal de la ubicación preferente')
-    expect(within(manageDialog).queryByLabelText('Taller')).toBeNull()
-    await userEvent.type(preferredCp, '28001')
-    await userEvent.click(within(manageDialog).getByRole('button', { name: 'Guardar gestión' }))
-    expect(mocks.manageIncident).toHaveBeenCalledWith(4, {
-      workshop_postal_code: '28001',
-    })
-    expect(await screen.findByText(/queda en curso/)).toBeInTheDocument()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Solucionar' }))
-    const resolveDialog = screen.getByRole('dialog', { name: 'Solución · Avería' })
-    await userEvent.type(within(resolveDialog).getByLabelText('Tiempo parado (días)'), '3')
-    await userEvent.click(within(resolveDialog).getByRole('button', { name: 'Cerrar incidencia' }))
-    expect(mocks.resolveIncident).toHaveBeenCalledWith(4, { downtime_days: 3 })
-    expect(await screen.findByText('Incidencia cerrada.')).toBeInTheDocument()
   })
 
   it('el botón Avería abre el modal en dos pasos y solo pide la ubicación preferente', async () => {
-    mocks.createIncident.mockResolvedValue({ id: 30, vehicle: 1, type: 'breakdown' })
+    mocks.createIncident.mockResolvedValue({ id: 30, vehicle: 1, type: 'general' })
     renderPage()
     await screen.findByText('1111AAA')
 
-    // La marca 🔧 de incidencias abiertas (el 2222BBB trae dos).
-    expect(screen.getByTitle('2 incidencias abiertas')).toBeInTheDocument()
+    // La marca 🔧 de averías abiertas (el 2222BBB trae dos).
+    expect(screen.getByTitle('2 averías abiertas')).toHaveTextContent('Avería 2')
 
     await userEvent.click(screen.getAllByRole('button', { name: 'Avería' })[0])
     expect(screen.getByText('Comunicar avería · 1111AAA')).toBeInTheDocument()
-    // El coche viene decidido por la tarjeta: el selector va deshabilitado.
     const breakdownDialog = screen.getByRole('dialog', { name: 'Comunicar avería · 1111AAA' })
-    expect(within(breakdownDialog).getByRole('combobox')).toBeDisabled()
+    const typeSelect = within(breakdownDialog).getByLabelText('Tipo')
+    expect(typeSelect).toHaveValue('general')
+    expect(within(typeSelect).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'General', 'Cambio de neumático', 'Propuesta de mejora',
+    ])
     // En el primer paso no se comunica nada: se pasa a la gestión.
     expect(screen.queryByRole('button', { name: 'Comunicar avería' })).toBeNull()
 
@@ -351,7 +319,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Comunicar avería' }))
     expect(mocks.createIncident).toHaveBeenCalledWith({
       vehicle: 1,
-      type: 'breakdown',
+      type: 'general',
       date: expect.any(String),
       description: 'No arranca.',
       workshop_postal_code: '28001',
@@ -359,51 +327,47 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     expect(await screen.findByText('Avería comunicada.')).toBeInTheDocument()
   })
 
-  it('el botón Incidencia abre el parte y después pasa a Gestión', async () => {
+  it('Avería permite registrar una propuesta de mejora y después pasa a Gestión', async () => {
     mocks.createIncident.mockResolvedValue({ id: 31, vehicle: 1, type: 'general' })
     renderPage()
     await screen.findByText('1111AAA')
 
-    await userEvent.click(screen.getAllByRole('button', { name: 'Incidencia' })[0])
-    expect(screen.getByText('Incidencia · 1111AAA')).toBeInTheDocument()
+    await userEvent.click(screen.getAllByRole('button', { name: 'Avería' })[0])
+    expect(screen.getByText('Comunicar avería · 1111AAA')).toBeInTheDocument()
 
-    // Sin tipo (y sin descripción) no permite pasar a Gestión.
+    // General es el tipo predeterminado; sin descripción no permite continuar.
     expect(screen.getByRole('button', { name: 'Continuar' })).toBeDisabled()
-    expect(screen.queryByRole('button', { name: 'Comunicar incidencia' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Comunicar avería' })).toBeNull()
 
     // Cada tipo trae su div informativo.
     const kindSelect = screen.getByLabelText('Tipo')
-    await userEvent.selectOptions(kindSelect, 'tires')
-    expect(screen.getByText(/desgaste o pinchazo/)).toBeInTheDocument()
     await userEvent.selectOptions(kindSelect, 'maintenance')
     expect(screen.getByText(/no impiden conducir/)).toBeInTheDocument()
-    await userEvent.selectOptions(kindSelect, 'general')
-    expect(screen.getByText(/quizá no tienen que ver con el vehículo/)).toBeInTheDocument()
 
     await userEvent.type(
       screen.getByLabelText('Descripción'),
-      'Necesito la tarjeta de combustible.',
+      'Instalar una baliza adicional.',
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
     const preferredCp = await screen.findByLabelText('Código postal de la ubicación preferente')
     expect(screen.queryByLabelText('Taller')).toBeNull()
     await userEvent.type(preferredCp, '28001')
-    await userEvent.click(screen.getByRole('button', { name: 'Comunicar incidencia' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Comunicar avería' }))
     expect(mocks.createIncident).toHaveBeenCalledWith({
       vehicle: 1,
-      type: 'general',
+      type: 'maintenance',
       date: expect.any(String),
-      description: 'Necesito la tarjeta de combustible.',
+      description: 'Instalar una baliza adicional.',
       workshop_postal_code: '28001',
     })
-    expect(await screen.findByText('Incidencia comunicada.')).toBeInTheDocument()
+    expect(await screen.findByText('Avería comunicada.')).toBeInTheDocument()
   })
 
   it('Neumáticos usa los mismos campos y contrato guiado que Gestión', async () => {
     mocks.createIncident.mockResolvedValue({ id: 32, vehicle: 1, type: 'tires' })
     renderPage()
     await screen.findByText('1111AAA')
-    await userEvent.click(screen.getAllByRole('button', { name: 'Incidencia' })[0])
+    await userEvent.click(screen.getAllByRole('button', { name: 'Avería' })[0])
 
     await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'tires')
     // CP y fecha/hora ya no están en el parte inicial: viven en Gestión.
@@ -423,9 +387,9 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
     const preferredCp = await screen.findByLabelText('Código postal de la ubicación preferente')
-    expect(screen.getByRole('button', { name: 'Comunicar incidencia' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Comunicar avería' })).toBeDisabled()
     await userEvent.type(preferredCp, '28001')
-    await userEvent.click(screen.getByRole('button', { name: 'Comunicar incidencia' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Comunicar avería' }))
 
     expect(mocks.createIncident).toHaveBeenCalledWith({
       vehicle: 1,

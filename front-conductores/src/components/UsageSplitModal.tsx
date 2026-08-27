@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
-import { Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Button, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { listVehicleUsages, setUsageSplit } from '../api.ts'
 import { fmtDate, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Driver, Vehicle, VehicleUsageRow } from '../types.ts'
+import { SupervisorModal } from './SupervisorModal.tsx'
 
 interface Line {
   driver: string
@@ -88,7 +89,7 @@ export function UsageSplitModal({
   const history = usages.filter((u) => u.end_date)
 
   return (
-    <Modal open title={t.split.title(vehicle.plate)} onClose={onClose}>
+    <SupervisorModal open title={t.split.title(vehicle.plate)} onClose={onClose}>
       <form className="modal-form" onSubmit={handleSubmit}>
         <p className="doc-sub">{t.split.hint}</p>
 
@@ -175,6 +176,6 @@ export function UsageSplitModal({
           </div>
         )}
       </form>
-    </Modal>
+    </SupervisorModal>
   )
 }

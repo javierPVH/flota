@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { Camera, Plus, Trash2 } from 'lucide-react'
-import { Button, Modal, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
+import { Button, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { createIncident, uploadDocument } from '../api.ts'
 import { todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle } from '../types.ts'
+import { SupervisorModal } from './SupervisorModal.tsx'
 
 const nowLocalDateTime = () => {
   const now = new Date()
@@ -115,7 +116,7 @@ export function AccidentModal({
   }
 
   return (
-    <Modal
+    <SupervisorModal
       open
       title={t.accidentModal.title(vehicle.plate)}
       onClose={onClose}
@@ -186,7 +187,7 @@ export function AccidentModal({
           </div>
         </form>
       )}
-    </Modal>
+    </SupervisorModal>
   )
 }
 

@@ -1,20 +1,21 @@
 import { useState } from 'react'
 import { Camera } from 'lucide-react'
-import { Button, Modal, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
+import { Button, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { createIncident, uploadDocument } from '../api.ts'
 import { todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle } from '../types.ts'
+import { SupervisorModal } from './SupervisorModal.tsx'
 
-type IncidentKind = 'tires' | 'general' | 'maintenance'
+type IncidentKind = 'general' | 'tires' | 'maintenance'
 type Step = 'launch' | 'manage'
-const KINDS: IncidentKind[] = ['tires', 'general', 'maintenance']
+const KINDS: IncidentKind[] = ['general', 'tires', 'maintenance']
 
-/** Incidencia en dos fases, igual que Avería. Neumáticos usa exactamente el
+/** Avería unificada en dos fases. Neumáticos usa exactamente el
  * parte guiado de Gestión (`report_version: 1`) y sus mismos nombres de campo. */
-export function IncidentModal({
+export function BreakdownModal({
   vehicle,
   onClose,
   onSaved,
@@ -28,7 +29,7 @@ export function IncidentModal({
   const b = t.breakdown
   const [step, setStep] = useState<Step>('launch')
   const [cameBack, setCameBack] = useState(false)
-  const [kind, setKind] = useState<'' | IncidentKind>('')
+  const [kind, setKind] = useState<IncidentKind>('general')
   const [date, setDate] = useState(todayIso())
   const [description, setDescription] = useState('')
   const [launchFile, setLaunchFile] = useState<File | null>(null)
@@ -56,7 +57,7 @@ export function IncidentModal({
         ((wheelScope !== 'rear' && wheelScope !== 'all') || rearMeasure.trim())
       : changeReason === 'puncture' && wheel && tireMeasure.trim()),
   )
-  const launchValid = Boolean(kind && (kind === 'tires' ? tiresValid : description.trim()))
+  const launchValid = Boolean(kind === 'tires' ? tiresValid : description.trim())
   const managementValid = /^[0-9]{5}$/.test(managementPostalCode)
 
   function goTo(next: Step) {
@@ -82,7 +83,6 @@ export function IncidentModal({
   }
 
   async function handleSend() {
-    if (!kind) return
     setSaving(true)
     setError('')
     try {
@@ -98,7 +98,7 @@ export function IncidentModal({
         } : {}),
         ...(Object.keys(guided).length > 0 ? { details: guided } : {}),
       })
-      let notice = t.incidentModal.saved
+      let notice = b.saved
       const uploads = [
         ...(launchFile ? [{ file: launchFile, type: kind === 'tires' ? 'damage_photos' : 'other' }] : []),
       ]
@@ -109,7 +109,7 @@ export function IncidentModal({
             upload.file,
           )
         } catch {
-          notice = t.incidentModal.savedUploadFailed
+          notice = b.savedUploadFailed
         }
       }
       setDone(notice)
@@ -122,9 +122,9 @@ export function IncidentModal({
   }
 
   return (
-    <Modal
+    <SupervisorModal
       open
-      title={t.incidentModal.title(vehicle.plate)}
+      title={b.title(vehicle.plate)}
       onClose={onClose}
       footer={done ? (
         <Button type="button" onClick={onClose}>{t.incidentModal.close}</Button>
@@ -136,30 +136,33 @@ export function IncidentModal({
       ) : (
         <>
           <Button type="button" onClick={() => goTo('launch')}>{b.back}</Button>
-          <Button type="button" onClick={handleSend} disabled={saving || !managementValid}>{t.incidentModal.submit}</Button>
+          <Button type="button" onClick={handleSend} disabled={saving || !managementValid}>{b.submit}</Button>
         </>
       )}
     >
       {done ? <p className="reminder-done" role="status">{done}</p> : (
         <>
           <div className="flow-steps" aria-hidden>
-            <span className={`flow-step ${step === 'launch' ? 'is-current' : 'is-done'}`}>{t.shell.tabs.incident}</span>
+            <span className={`flow-step ${step === 'launch' ? 'is-current' : 'is-done'}`}>{t.shell.tabs.breakdown}</span>
             <span className={`flow-step${step === 'manage' ? ' is-current' : ''}`}>{b.stepManage}</span>
           </div>
           <div key={step} className={`step-pane${cameBack ? ' from-left' : ''}`}>
             {step === 'launch' ? (
               <div className="modal-form">
-                <SelectField
-                  label={t.incidentModal.kind}
-                  aria-label={t.incidentModal.kind}
-                  options={KINDS.map((value) => ({ value, label: t.incidentModal.kinds[value] }))}
-                  value={kind}
-                  onValueChange={(value) => setKind(value as '' | IncidentKind)}
-                  required
-                  includeSelectFlag
-                  selectFlagLabel={t.incidentModal.kindChoose}
-                />
-                {kind && <p className="update-notice">{t.incidentModal.info[kind]}</p>}
+                <div className="incident-grid breakdown-kind-date">
+                  <SelectField
+                    label={t.incidentModal.kind}
+                    aria-label={t.incidentModal.kind}
+                    options={KINDS.map((value) => ({ value, label: t.incidentModal.kinds[value] }))}
+                    value={kind}
+                    onValueChange={(value) => setKind(value as IncidentKind)}
+                    required
+                  />
+                  <TextInputField label={t.incidentModal.date} aria-label={t.incidentModal.date} type="date" max={todayIso()} value={date} onChange={(e) => setDate(e.target.value)} required />
+                </div>
+                {kind !== 'general' && (
+                  <p className="update-notice">{t.incidentModal.info[kind]}</p>
+                )}
 
                 {kind === 'tires' ? (
                   <>
@@ -195,7 +198,6 @@ export function IncidentModal({
                   </>
                 ) : kind ? (
                   <>
-                    <TextInputField label={t.incidentModal.date} aria-label={t.incidentModal.date} type="date" max={todayIso()} value={date} onChange={(e) => setDate(e.target.value)} required />
                     <TextAreaField label={t.incidentModal.description} aria-label={t.incidentModal.description} value={description} onChange={(e) => setDescription(e.target.value)} required />
                   </>
                 ) : null}
@@ -215,6 +217,6 @@ export function IncidentModal({
           </div>
         </>
       )}
-    </Modal>
+    </SupervisorModal>
   )
 }

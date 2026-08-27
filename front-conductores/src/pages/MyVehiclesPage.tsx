@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Camera, ChevronRight, Gauge, TriangleAlert, Users, Wrench } from 'lucide-react'
+import { ChevronRight, Gauge, Users } from 'lucide-react'
 import { Badge, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
@@ -8,6 +8,7 @@ import { fetchKmWindow, fetchVehicleSummaries, listVehicles, type KmWindow } fro
 import { useAuth } from '../auth.ts'
 import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
+import { VehicleActionButtons } from '../components/VehicleActionButtons.tsx'
 import { pairedWith } from '../substitution.ts'
 import { fmtDate, fmtKm, itvClass, pendingThisMonth, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
@@ -69,6 +70,14 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
   const onlyVehicle = ownVehicles.length === 1 ? ownVehicles[0] : null
   const single = onlyVehicle && !pairedWith(summaries[onlyVehicle.id]) ? onlyVehicle : null
   const singleSummary = single ? summaries[single.id] : undefined
+  const operatingVehicle = single ?? ownVehicles.find((vehicle) => summaries[vehicle.id]?.substituting_for) ?? null
+  const operatingSummary = operatingVehicle ? summaries[operatingVehicle.id] : undefined
+
+  function refreshSummaries() {
+    fetchVehicleSummaries()
+      .then((loaded) => setSummaries(Object.fromEntries(loaded.map((item) => [item.vehicle, item]))))
+      .catch(() => {})
+  }
 
   if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
   if (error) return <div role="alert" className="form-error">{error}</div>
@@ -169,30 +178,14 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
         </Link>
       )}
 
-      {/* Acciones rápidas: los cuatro viajes frecuentes de campo, a un toque.
-          Cada una es su propia VISTA; con un solo coche ya va preseleccionado.
-          El supervisor NO las tiene aquí: su bottom-nav en modo vehículo ya
-          lleva alertas, registrar km, avería e incidencia. */}
-      {!isSupervisor && (
+      {/* Las mismas cinco acciones de la barra de Mi vehículo. */}
+      {operatingVehicle && (
       <div className="quick-actions home-quick">
-        <Link to="/registrar" className="quick-action">
-          <Gauge size={18} aria-hidden /> {t.home.quickRegister}
-        </Link>
-        <Link to={single ? `/documentos/nuevo?vehiculo=${single.id}` : '/documentos/nuevo'} className="quick-action">
-          <Camera size={18} aria-hidden /> {t.home.quickUpload}
-        </Link>
-        <Link
-          to={`/incidencias/nueva?tipo=breakdown${single ? `&vehiculo=${single.id}` : ''}`}
-          className="quick-action"
-        >
-          <Wrench size={18} aria-hidden /> {t.home.quickBreakdown}
-        </Link>
-        <Link
-          to={`/incidencias/nueva${single ? `?vehiculo=${single.id}` : ''}`}
-          className="quick-action"
-        >
-          <TriangleAlert size={18} aria-hidden /> {t.home.quickIncident}
-        </Link>
+        <VehicleActionButtons
+          vehicle={operatingVehicle}
+          summary={operatingSummary}
+          onSaved={refreshSummaries}
+        />
       </div>
       )}
 

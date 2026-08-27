@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
-import { Button, Modal } from '@flota/ui/ui'
+import { Button } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
@@ -15,6 +15,7 @@ import {
 import { fmtDate, fmtKm, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Incident, Vehicle, VehicleSummary } from '../types.ts'
+import { SupervisorModal } from './SupervisorModal.tsx'
 
 type Tab = 'km' | 'maintenance' | 'incidents'
 type IncidentAction = 'view' | 'manage' | 'resolve'
@@ -31,15 +32,18 @@ export function VehicleUpdateModal({
   summary,
   onClose,
   onSaved,
+  initialTab = 'km',
 }: {
   vehicle: Vehicle
   summary: VehicleSummary | undefined
   onClose: () => void
   /** Algo se guardó: la página puede refrescar sus datos. */
   onSaved?: () => void
+  /** La ficha puede abrir directamente el mantenimiento. */
+  initialTab?: Tab
 }) {
   const { t, language } = useLang()
-  const [tab, setTab] = useState<Tab>('km')
+  const [tab, setTab] = useState<Tab>(initialTab)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -60,7 +64,7 @@ export function VehicleUpdateModal({
   const [incidentId, setIncidentId] = useState('')
   const [incidentAction, setIncidentAction] = useState<IncidentAction | null>(null)
   const [managementPostalCode, setManagementPostalCode] = useState('')
-  const [resolution, setResolution] = useState({ overcost: '', observations: '', downtime: '' })
+  const [resolution, setResolution] = useState({ date: todayIso(), observations: '' })
   const [savingFlow, setSavingFlow] = useState(false)
 
   const current = (incidents ?? []).find((i) => String(i.id) === incidentId) ?? null
@@ -70,7 +74,7 @@ export function VehicleUpdateModal({
     setIncidentId(id)
     const incident = list.find((i) => String(i.id) === id) ?? null
     setManagementPostalCode(incident?.workshop_postal_code ?? '')
-    setResolution({ overcost: '', observations: '', downtime: '' })
+    setResolution({ date: todayIso(), observations: '' })
   }
 
   function openIncidentAction(incident: Incident, action: IncidentAction) {
@@ -166,15 +170,24 @@ export function VehicleUpdateModal({
       .finally(() => setSavingFlow(false))
   }
 
-  /** Fase 3 — solución: sobrecoste, observaciones y tiempo parado → CIERRA. */
+  /** Días naturales entre la avería y su solución, calculados sin hora/DST. */
+  function resolutionDowntime(): number | null {
+    if (!current?.date || !resolution.date) return null
+    const start = Date.parse(`${current.date}T00:00:00Z`)
+    const end = Date.parse(`${resolution.date}T00:00:00Z`)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null
+    return Math.floor((end - start) / 86_400_000)
+  }
+
+  /** Fase 3 — fecha de solución y observaciones → calcula el paro y CIERRA. */
   function saveResolve() {
     if (!current) return
     setSavingFlow(true)
     setError('')
-    const payload: { overcost?: string; observations?: string; downtime_days?: number } = {}
-    if (resolution.overcost.trim()) payload.overcost = resolution.overcost.trim()
+    const payload: { resolution_date: string; observations?: string } = {
+      resolution_date: resolution.date,
+    }
     if (resolution.observations.trim()) payload.observations = resolution.observations.trim()
-    if (resolution.downtime.trim()) payload.downtime_days = Number(resolution.downtime)
     resolveIncident(current.id, payload)
       .then((updated) => {
         const rest = (incidents ?? []).filter((i) => i.id !== updated.id)
@@ -191,7 +204,7 @@ export function VehicleUpdateModal({
   const TABS: Tab[] = ['km', 'maintenance', 'incidents']
 
   return (
-    <Modal
+    <SupervisorModal
       open
       title={t.carUpdate.title(vehicle.plate)}
       onClose={onClose}
@@ -215,10 +228,6 @@ export function VehicleUpdateModal({
           </button>
         ))}
       </div>
-
-      {/* El aviso vive SOBRE las tres pestañas: se lea la que se lea, la
-          responsabilidad del registro queda dicha. */}
-      <p className="update-notice">{t.carUpdate.notice}</p>
 
       {notice && (
         <p className="reminder-done" role="status">
@@ -350,7 +359,7 @@ export function VehicleUpdateModal({
           </ul>
 
           {current && incidentAction && (
-            <Modal
+            <SupervisorModal
               open
               title={`${t.carUpdate.actions[incidentAction]} · ${current.type_display}`}
               onClose={() => setIncidentAction(null)}
@@ -369,7 +378,7 @@ export function VehicleUpdateModal({
                     </Button>
                   )}
                   {incidentAction === 'resolve' && (
-                    <Button type="button" onClick={saveResolve} disabled={savingFlow}>
+                    <Button type="button" onClick={saveResolve} disabled={savingFlow || !resolution.date || resolutionDowntime() === null}>
                       {t.carUpdate.resolveSubmit}
                     </Button>
                   )}
@@ -395,17 +404,17 @@ export function VehicleUpdateModal({
               </div>}
 
               {incidentAction === 'resolve' && <div className="update-action-form">
-                <label className="reminder-check">{t.carUpdate.overcost}<input type="number" min={0} step="0.01" className="update-input" value={resolution.overcost} onChange={(e) => setResolution((r) => ({ ...r, overcost: e.target.value }))} /></label>
+                <label className="reminder-check">{t.carUpdate.resolutionDate}<input type="date" min={current.date ?? undefined} max={todayIso()} className="update-input" value={resolution.date} onChange={(e) => setResolution((r) => ({ ...r, date: e.target.value }))} required /></label>
+                {resolutionDowntime() !== null && <div className="update-km-last">{t.carUpdate.calculatedDowntime(resolutionDowntime() ?? 0)}</div>}
                 <label className="reminder-check">{t.carUpdate.observations}<textarea className="reminder-message" value={resolution.observations} onChange={(e) => setResolution((r) => ({ ...r, observations: e.target.value }))} /></label>
-                <label className="reminder-check">{t.carUpdate.downtime}<input type="number" min={0} className="update-input" value={resolution.downtime} onChange={(e) => setResolution((r) => ({ ...r, downtime: e.target.value }))} /></label>
               </div>}
-            </Modal>
+            </SupervisorModal>
           )}
         </div>
       )}
 
       {planDateFor && (
-        <Modal
+        <SupervisorModal
           open
           title={t.carUpdate.planDateTitle(planDateFor.name)}
           onClose={() => setPlanDateFor(null)}
@@ -439,8 +448,8 @@ export function VehicleUpdateModal({
               {t.carUpdate.planToday}
             </Button>
           </div>
-        </Modal>
+        </SupervisorModal>
       )}
-    </Modal>
+    </SupervisorModal>
   )
 }

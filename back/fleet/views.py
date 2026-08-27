@@ -1465,27 +1465,28 @@ class IncidentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.M
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
     def resolve(self, request, pk=None):
         """POST /api/v1/incidents/{id}/resolve/ — fase 3 del ciclo: la
-        SOLUCIÓN. Guarda el sobrecoste, las observaciones y el tiempo que el
-        vehículo estuvo parado en `details.resolution`, y CIERRA la incidencia.
-        Todos los datos son opcionales: cerrar sin sobrecoste también es cerrar.
+        SOLUCIÓN. Guarda la fecha, calcula el tiempo que el vehículo estuvo
+        parado desde la fecha de la avería y CIERRA la incidencia.
         """
         incident = self.get_object()
-        resolution: dict = {}
-        overcost = request.data.get("overcost")
-        if overcost not in (None, ""):
-            try:
-                resolution["overcost"] = str(Decimal(str(overcost)))
-            except ArithmeticError as exc:
-                raise ValidationError({"overcost": "Sobrecoste no válido."}) from exc
+        resolution_date = parse_date(str(request.data.get("resolution_date") or ""))
+        if resolution_date is None:
+            raise ValidationError({"resolution_date": "Indica la fecha de solución."})
+        if resolution_date > timezone.localdate():
+            raise ValidationError(
+                {"resolution_date": "La fecha de solución no puede ser futura."}
+            )
+        if incident.date and resolution_date < incident.date:
+            raise ValidationError(
+                {"resolution_date": "La solución no puede ser anterior a la avería."}
+            )
+
+        resolution: dict = {"resolution_date": resolution_date.isoformat()}
+        if incident.date:
+            resolution["downtime_days"] = (resolution_date - incident.date).days
         observations = (request.data.get("observations") or "").strip()
         if observations:
             resolution["observations"] = observations
-        downtime = request.data.get("downtime_days")
-        if downtime not in (None, ""):
-            try:
-                resolution["downtime_days"] = int(downtime)
-            except (TypeError, ValueError) as exc:
-                raise ValidationError({"downtime_days": "Tiempo no válido."}) from exc
         details = incident.details or {}
         details["resolution"] = resolution
         incident.details = details

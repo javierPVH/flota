@@ -82,27 +82,24 @@ describe('MyVehiclesPage (M1)', () => {
     expect(screen.getByRole('link', { name: /1234KLM/ })).toHaveAttribute('href', '/vehiculos/1')
   })
 
-  it('ofrece las cuatro acciones de campo, con el coche ya preseleccionado', async () => {
+  it('ofrece las acciones de campo con la avería unificada y el coche preseleccionado', async () => {
     mocks.listVehicles.mockResolvedValue({ count: 1, results: [vehicle(7, '1234KLM')] })
     mocks.fetchVehicleSummaries.mockResolvedValue([summary(7, 31000, '2020-01-02')])
 
     renderPage()
     await screen.findByText('Mi vehículo')
 
-    // Subir documento y las dos altas son VISTAS propias, no la ficha.
-    expect(screen.getByRole('link', { name: /Subir documento/ })).toHaveAttribute(
-      'href',
-      '/documentos/nuevo?vehiculo=7',
-    )
-    expect(screen.getByRole('link', { name: /Avería/ })).toHaveAttribute(
-      'href',
-      '/incidencias/nueva?tipo=breakdown&vehiculo=7',
-    )
-    expect(screen.getByRole('link', { name: /Incidencia/ })).toHaveAttribute(
-      'href',
-      '/incidencias/nueva?vehiculo=7',
-    )
-    expect(screen.getByRole('link', { name: /Registrar km/ })).toHaveAttribute('href', '/registrar')
+    const actions = document.querySelector('.home-quick')
+    expect(Array.from(actions?.children ?? []).map((item) => item.textContent?.trim())).toEqual([
+      'Registrar km',
+      'Registrar ITV',
+      'Actualizar mantenimiento',
+      'Avería',
+      'Subir documento',
+    ])
+    await userEvent.click(screen.getByRole('button', { name: 'Registrar km' }))
+    expect(screen.getByRole('dialog', { name: 'Registrar km · 1234KLM' })).toBeInTheDocument()
+    expect(screen.queryByText(/responsabilidad de registrar los km/)).not.toBeInTheDocument()
     // El parte modal de accidente es una herramienta del supervisor.
     expect(screen.queryByRole('button', { name: 'Accidente' })).not.toBeInTheDocument()
   })
@@ -126,9 +123,12 @@ describe('MyVehiclesPage (M1)', () => {
     // Los del equipo NO están aquí (viven en "Flota"), ni hay buscador.
     expect(screen.queryByText('5678BCD')).not.toBeInTheDocument()
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
-    // Y sin accesos rápidos: su nav en modo vehículo ya los lleva.
-    expect(screen.queryByRole('link', { name: /Avería/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Registrar km/ })).not.toBeInTheDocument()
+    // En Mi vehículo aparecen exactamente las mismas cinco acciones de la barra.
+    expect(screen.getByRole('button', { name: 'Registrar km' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Registrar ITV' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Actualizar mantenimiento' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Avería' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Subir documento' })).toBeInTheDocument()
   })
 
   it('el supervisor sin coche propio: aviso y salto al modo flota', async () => {

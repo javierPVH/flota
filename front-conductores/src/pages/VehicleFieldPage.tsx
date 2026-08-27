@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -11,15 +11,15 @@ import {
   Mail,
   Wrench,
 } from 'lucide-react'
-import { Badge, Button, Modal, Panel, SelectField, StatCard, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Panel, StatCard } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
   fetchVehicle,
   fetchVehicleSummary,
+  listAlerts,
   listDocuments,
   listIncidents,
-  registerItv,
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import {
@@ -28,8 +28,13 @@ import {
   useAccordion,
 } from '../components/CollapsibleCard.tsx'
 import { BreakdownModal } from '../components/BreakdownModal.tsx'
+import { AlertResolveModal } from '../components/AlertResolveModal.tsx'
+import { RegisterKmModal } from '../components/RegisterKmModal.tsx'
 import { ReminderModal } from '../components/ReminderModal.tsx'
-import { VehicleUpdateModal } from '../components/VehicleUpdateModal.tsx'
+import { MaintenanceUpdateModal } from '../components/MaintenanceUpdateModal.tsx'
+import { UploadDocumentModal } from '../components/UploadDocumentModal.tsx'
+import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
+import { AlertCard } from './AlertsPage.tsx'
 import { useLang } from '../i18n.tsx'
 import {
   documentStatusTone,
@@ -38,12 +43,10 @@ import {
   incidentStatusTone,
   itvClass,
   kmLevelTone,
-  todayIso,
   pendingThisMonth,
   vehicleStateTone,
 } from '../format.ts'
-import { isNetworkError, safeEnqueue } from '../offline/queue.ts'
-import type { FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
+import type { Alert, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
 
 /** Solo enlaces http(s): corta javascript:/data: aunque el back ya sanea. */
 function safeHref(url: string): string {
@@ -54,9 +57,6 @@ function safeHref(url: string): string {
 function documentHref(doc: FlotaDocument): string {
   return safeHref(doc.drive_url) || safeHref(doc.file_url)
 }
-
-// Resultado de la ITV: valores libres del back, consensuados con gestión.
-const ITV_RESULT_VALUES = ['done', 'not done'] as const
 
 /**
  * M2 — Ficha de campo (HU-1.2 lectura, 4.1, 4.3): consulta rápida a pie de
@@ -72,29 +72,29 @@ export function VehicleFieldPage() {
 
   // Acordeón de tarjetas (mejora): desplegadas por defecto; en móvil plegar
   // ahorra mucho scroll.
-  const accordion = useAccordion(['situation', 'incidents', 'documents'])
+  const accordion = useAccordion(['situation', 'alerts', 'incidents', 'documents'])
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [summary, setSummary] = useState<VehicleSummary | null>(null)
   const [documents, setDocuments] = useState<FlotaDocument[]>([])
   const [incidents, setIncidents] = useState<Incident[]>([])
+  const [alerts, setAlerts] = useState<Alert[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-
-  const [saving, setSaving] = useState(false)
 
   // M4: registro de ITV (HU-5.1). La propuesta de fechas (HU-2.3) se retiró:
   // su bandeja de confirmación ya no existe en gestión, así que enviarlas solo
   // dejaba al conductor esperando una respuesta que nadie podía dar.
   const [itvOpen, setItvOpen] = useState(false)
-  const [itvForm, setItvForm] = useState({ event_date: todayIso(), result: 'done', next_due: '' })
-  const [itvError, setItvError] = useState('')
   const [itvOk, setItvOk] = useState('')
 
   // Herramientas del supervisor (las mismas de las tarjetas de la flota).
   const [remindOpen, setRemindOpen] = useState(false)
   const [updateOpen, setUpdateOpen] = useState(false)
   const [breakdownOpen, setBreakdownOpen] = useState(false)
+  const [documentOpen, setDocumentOpen] = useState(false)
+  const [kmOpen, setKmOpen] = useState(false)
+  const [resolveAlert, setResolveAlert] = useState<Alert | null>(null)
 
   // Tras guardar algo desde el modal de actualización: datos frescos.
   const reload = useCallback(() => {
@@ -102,6 +102,9 @@ export function VehicleFieldPage() {
     fetchVehicleSummary(vehicleId).then(setSummary, () => {})
     listIncidents(vehicleId)
       .then((page) => setIncidents(page.results.filter((i) => i.status !== 'closed')))
+      .catch(() => {})
+    listAlerts('open')
+      .then((page) => setAlerts(page.results.filter((alert) => alert.vehicle === vehicleId)))
       .catch(() => {})
   }, [vehicleId])
 
@@ -137,39 +140,12 @@ export function VehicleFieldPage() {
       .catch(() => setIncidents([]))
   }, [vehicleId])
 
-  async function handleItv(event: FormEvent) {
-    event.preventDefault()
-    setSaving(true)
-    setItvError('')
-    const payload = {
-      vehicle: vehicleId,
-      event_date: itvForm.event_date,
-      // A13/C5: la próxima ITV solo acompaña al resultado FAVORABLE.
-      itv: {
-        result: itvForm.result,
-        next_due: itvForm.result === 'done' ? itvForm.next_due : null,
-      },
-    }
-    try {
-      await registerItv(payload)
-      setItvOpen(false)
-      setItvForm({ event_date: todayIso(), result: 'done', next_due: '' })
-      setItvOk(t.vehicle.itvOk)
-      // La señal del back refresca next_itv_date: recarga la cabecera.
-      fetchVehicle(vehicleId).then(setVehicle, () => {})
-    } catch (err) {
-      // Sin red (M7): a la cola offline — se enviará al reconectar.
-      if (isNetworkError(err) && (await safeEnqueue({ kind: 'itv', payload }))) {
-        setItvOpen(false)
-        setItvForm({ event_date: todayIso(), result: 'done', next_due: '' })
-        setItvOk(t.vehicle.itvOffline)
-      } else {
-        setItvError(asErrorMessage(err, t.vehicle.itvError))
-      }
-    } finally {
-      setSaving(false)
-    }
-  }
+  useEffect(() => {
+    listAlerts('open')
+      .then((page) => setAlerts(page.results.filter((alert) => alert.vehicle === vehicleId)))
+      .catch(() => setAlerts([]))
+  }, [vehicleId])
+
 
   if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
   if (error || !vehicle) return <div role="alert" className="form-error">{error || t.vehicle.notFound}</div>
@@ -328,70 +304,67 @@ export function VehicleFieldPage() {
         <Panel tone="warning">
           <p className="panel-note">
             {t.vehicle.kmPending}{' '}
-            <Link to={`/registrar?vehiculo=${vehicle.id}`}>{t.vehicle.kmPendingCta}</Link>
+            <button type="button" className="link-btn" onClick={() => setKmOpen(true)}>{t.vehicle.kmPendingCta}</button>
           </p>
         </Panel>
       )}
 
-      {/* Accesos directos de campo (M2 + M4). En un principal bloqueado (N9)
-          se apagan: km, documentos y averías van sobre el sustituto. La ITV
-          sigue viva — es del coche físico, esté cubierto o no. */}
+      {/* Acciones en el orden operativo solicitado. En un principal bloqueado
+          se apagan km, avería y documentos; la ITV sigue disponible. */}
       <div className="quick-actions">
         {blocked ? (
-          <>
-            <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
-              <Gauge size={20} aria-hidden /> {t.common.registerKm}
-            </span>
-            <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
-              <Camera size={20} aria-hidden /> {t.vehicle.quickUpload}
-            </span>
-            <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
-              <Wrench size={20} aria-hidden /> {t.home.quickBreakdown}
-            </span>
-          </>
+          <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
+            <Gauge size={20} aria-hidden /> {t.common.registerKm}
+          </span>
         ) : (
-          <>
-            <Link to={`/registrar?vehiculo=${vehicle.id}`} className="quick-action">
-              <Gauge size={20} aria-hidden /> {t.common.registerKm}
-            </Link>
-            <Link to={`/documentos/nuevo?vehiculo=${vehicle.id}`} className="quick-action">
-              <Camera size={20} aria-hidden /> {t.vehicle.quickUpload}
-            </Link>
-            {/* C3: comunicar avería desde la propia ficha, con el coche ya elegido. */}
-            <button
-              type="button"
-              className="quick-action"
-              onClick={() => setBreakdownOpen(true)}
-            >
-              <Wrench size={20} aria-hidden /> {t.home.quickBreakdown}
-            </button>
-          </>
+          <button type="button" className="quick-action" onClick={() => setKmOpen(true)}>
+            <Gauge size={20} aria-hidden /> {t.common.registerKm}
+          </button>
         )}
+
         <button
           type="button"
           className="quick-action"
           onClick={() => {
             setItvOk('')
-            setItvError('')
             setItvOpen(true)
           }}
         >
           <ClipboardCheck size={20} aria-hidden /> {t.vehicle.quickItv}
         </button>
-      </div>
 
-      {/* Herramientas del supervisor: las mismas que en las tarjetas de la
-          flota, para no tener que volver a la lista. */}
-      {isSupervisor && (
-        <div className="quick-actions">
+        {isSupervisor && (
           <button type="button" className="quick-action" onClick={() => setUpdateOpen(true)}>
-            <ClipboardList size={20} aria-hidden /> {t.carUpdate.button}
+            <ClipboardList size={20} aria-hidden /> {t.carUpdate.maintenanceButton}
           </button>
+        )}
+
+        {blocked ? (
+          <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
+            <Wrench size={20} aria-hidden /> {t.home.quickBreakdown}
+          </span>
+        ) : (
+          <button type="button" className="quick-action" onClick={() => setBreakdownOpen(true)}>
+            <Wrench size={20} aria-hidden /> {t.home.quickBreakdown}
+          </button>
+        )}
+
+        {blocked ? (
+          <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
+            <Camera size={20} aria-hidden /> {t.vehicle.quickUpload}
+          </span>
+        ) : (
+          <button type="button" className="quick-action" onClick={() => setDocumentOpen(true)}>
+            <Camera size={20} aria-hidden /> {t.vehicle.quickUpload}
+          </button>
+        )}
+
+        {isSupervisor && (
           <button type="button" className="quick-action" onClick={() => setRemindOpen(true)}>
             <Mail size={20} aria-hidden /> {t.reminder.button}
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {itvOk && <p role="status" className="form-ok">{itvOk}</p>}
 
@@ -417,6 +390,33 @@ export function VehicleFieldPage() {
           <dt>{t.vehicle.use}</dt>
           <dd>{vehicle.business_use || '—'}</dd>
         </dl>
+      </CollapsibleCard>
+
+      <CollapsibleCard
+        id="alerts"
+        headingClassName="panel-title"
+        className="vehicle-alerts-panel"
+        accordion={accordion}
+        title={t.alerts.title}
+      >
+        {alerts.length === 0 ? (
+          <div className="alerts-empty vehicle-alerts-empty">
+            <p>{t.alerts.empty}</p>
+          </div>
+        ) : (
+          <div className="alert-group-body vehicle-alerts-list">
+            {alerts.map((alert) => (
+              <AlertCard
+                key={alert.id}
+                alert={alert}
+                isSupervisor={isSupervisor}
+                onClose={setResolveAlert}
+                onRegisterKm={() => setKmOpen(true)}
+                showPlate={false}
+              />
+            ))}
+          </div>
+        )}
       </CollapsibleCard>
 
       {/* Incidencias abiertas (mejora 🟡): el conductor ve qué le pasa a SU
@@ -492,49 +492,16 @@ export function VehicleFieldPage() {
 
       {/* El modal de ITV vive en la RAIZ de la pagina, no dentro de la
           tarjeta de documentos: plegada, el modal no se montaba (BG). */}
-        <Modal open={itvOpen} title={t.vehicle.itvTitle(vehicle.plate)} onClose={() => setItvOpen(false)}>
-          <form className="modal-form" onSubmit={handleItv}>
-            <TextInputField
-              label={t.vehicle.itvDate}
-              type="date"
-              max={todayIso()}
-              value={itvForm.event_date}
-              onChange={(e) => setItvForm((f) => ({ ...f, event_date: e.target.value }))}
-              required
-            />
-            <SelectField
-              label={t.vehicle.itvResult}
-              options={[
-                { value: ITV_RESULT_VALUES[0], label: t.vehicle.itvResultDone },
-                { value: ITV_RESULT_VALUES[1], label: t.vehicle.itvResultNotDone },
-              ]}
-              value={itvForm.result}
-              onValueChange={(value) => setItvForm((f) => ({ ...f, result: value }))}
-            />
-            <TextInputField
-              label={t.vehicle.itvNextDue}
-              type="date"
-              min={itvForm.event_date}
-              value={itvForm.result === 'done' ? itvForm.next_due : ''}
-              onChange={(e) => setItvForm((f) => ({ ...f, next_due: e.target.value }))}
-              // A13: obligatoria si la ITV se pasó; deshabilitada si no. Antes
-              // se podía enviar vacía (400) y, sin red, se encolaba para ser
-              // descartada en el flush: pérdida de trabajo de campo.
-              required={itvForm.result === 'done'}
-              disabled={itvForm.result !== 'done'}
-            />
-            <p className="doc-sub">{t.vehicle.itvAutoClose}</p>
-            {itvError && <div role="alert" className="form-error">{itvError}</div>}
-            <div className="form-actions">
-              <Button type="button" variant="secondary" onClick={() => setItvOpen(false)}>
-                {t.common.cancel}
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? t.vehicle.itvSubmitting : t.vehicle.itvSubmit}
-              </Button>
-            </div>
-          </form>
-        </Modal>
+      {itvOpen && (
+        <RegisterItvModal
+          vehicle={vehicle}
+          onClose={() => setItvOpen(false)}
+          onSaved={(message) => {
+            setItvOk(message)
+            reload()
+          }}
+        />
+      )}
 
       {breakdownOpen && (
         <BreakdownModal
@@ -546,6 +513,32 @@ export function VehicleFieldPage() {
           }}
         />
       )}
+      {kmOpen && (
+        <RegisterKmModal
+          vehicle={vehicle}
+          summary={summary}
+          onClose={() => setKmOpen(false)}
+          onSaved={reload}
+        />
+      )}
+      {documentOpen && (
+        <UploadDocumentModal
+          vehicle={vehicle}
+          onClose={() => setDocumentOpen(false)}
+          onSaved={loadDocuments}
+        />
+      )}
+      {resolveAlert && (
+        <AlertResolveModal
+          alert={resolveAlert}
+          summary={summary ?? undefined}
+          onClose={() => setResolveAlert(null)}
+          onResolved={() => {
+            setResolveAlert(null)
+            reload()
+          }}
+        />
+      )}
       {remindOpen && (
         <ReminderModal
           vehicle={vehicle}
@@ -554,9 +547,8 @@ export function VehicleFieldPage() {
         />
       )}
       {updateOpen && (
-        <VehicleUpdateModal
+        <MaintenanceUpdateModal
           vehicle={vehicle}
-          summary={summary ?? undefined}
           onClose={() => setUpdateOpen(false)}
           onSaved={reload}
         />

@@ -159,6 +159,46 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
       vencido). Sin nada urgente, la tira no existe. Cada aviso enlaza a su destino.
 - [ ] Crear una incidencia con foto.
 - [ ] Subir un documento.
+- [ ] **Resolver con modal personalizado por tipo (solo supervisor)**: el botón
+      **Resolver** de una alerta ya no cierra a ciegas — abre un modal según el
+      tipo. En **lectura de km pendiente** sale el **formulario de registrar
+      km** (la vista de registro, en modal): guardar la lectura resuelve la
+      alerta y deja la traza «Lectura registrada: N km» en la resuelta; además,
+      para el supervisor **desaparece el botón suelto de «Registrar km»** de esa
+      alerta (el conductor lo conserva, él no tiene Resolver). En el resto de
+      tipos, el modal pide **observaciones opcionales** que quedan visibles en
+      la bandeja de resueltas.
+- [ ] **Clasificador global de la bandeja**: al inicio, sobre los acordeones, un
+      **select** («Todas (N)» por defecto + una opción por tipo abierto con su
+      recuento global) clasifica toda la bandeja. Elegir un tipo deja **solo las
+      alertas de ese tipo**: los coches sin él desaparecen y los que quedan
+      pierden su select interno y sus secciones (lista plana). Con un solo tipo
+      abierto el select no se pinta; volver a «Todas» restaura la bandeja
+      completa con sus clasificadores por coche.
+- [ ] **Clasificador por tipo en cada acordeón**: desplegado un coche, arriba de
+      sus alertas hay un **select** (mismo estilo que el de grupos de la flota)
+      con **«Todas (N)» por defecto** y una opción por tipo presente con su
+      recuento («Lectura de km pendiente (1)», «ITV próxima (1)»…). Elegir un
+      tipo recorta la lista de ESE coche (la cabecera no cambia); con un solo
+      tipo el select no se pinta. Cada acordeón recuerda su propia selección.
+      **En «Todas»** las alertas del coche van **seccionadas por tipo**: una
+      **línea horizontal** divide los grupos y cada uno lleva su **título
+      plegable** («Lectura de km pendiente ×1» con chevrón) que abre/cierra solo
+      su grupo. Los subgrupos nacen **encogidos**: al abrir el coche se ve el
+      índice de tipos y se despliega el que interese; dentro de la sección, la
+      tarjeta ya no repite el tipo.
+- [ ] **Alertas agrupadas por coche**: la bandeja es un **acordeón por vehículo,
+      plegado por defecto** (las de flota, sin coche, van juntas en el suyo). La
+      cabecera resume: matrícula, chapa con el **total** («N alertas», con el color
+      del peor nivel) y el **desglose por tipo** («Lectura de km pendiente ×2 ·
+      ITV próxima ×1»). El orden es por urgencia (crítica primero). Desplegado,
+      cada alerta lleva una **franja izquierda con el color de su nivel** (rojo
+      crítica, ámbar aviso), el tipo como título con su chapa, y el pie con las
+      fechas (el **vencimiento ya pasado sale en rojo**) y las acciones ligeras a
+      la derecha (**Registrar km** en las de lectura; **Resolver** si eres
+      supervisor). **«Ver ficha» sale UNA vez por coche**, al pie del acordeón —
+      no repetido en cada alerta — y dentro no se repite la matrícula. Con «Ver
+      cerradas», las cerradas siguen saliendo en lista plana.
 - [ ] **Sin buscador**: como conductor, "Mis vehículos" NO tiene caja de búsqueda
       (aunque lleve varios coches).
 - [ ] **Modo supervisor (`sara`)** — bajo el header hay un **switch** con dos vistas
