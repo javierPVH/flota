@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useOutletContext, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Camera,
@@ -11,15 +11,17 @@ import {
   Mail,
   Wrench,
 } from 'lucide-react'
-import { Badge, Button, Panel, StatCard } from '@flota/ui/ui'
+import { Badge, Button, Panel } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
+  fetchKmWindow,
   fetchVehicle,
   fetchVehicleSummary,
   listAlerts,
   listDocuments,
   listIncidents,
+  type KmWindow,
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import {
@@ -29,21 +31,25 @@ import {
 } from '../components/CollapsibleCard.tsx'
 import { BreakdownModal } from '../components/BreakdownModal.tsx'
 import { AlertResolveModal } from '../components/AlertResolveModal.tsx'
+import { IncidentResolveModal } from '../components/IncidentResolveModal.tsx'
+import { KmStatCard } from '../components/KmStatCard.tsx'
+import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
 import { RegisterKmModal } from '../components/RegisterKmModal.tsx'
 import { ReminderModal } from '../components/ReminderModal.tsx'
 import { MaintenanceUpdateModal } from '../components/MaintenanceUpdateModal.tsx'
 import { UploadDocumentModal } from '../components/UploadDocumentModal.tsx'
 import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
 import { AlertCard } from './AlertsPage.tsx'
+import type { LayoutContext } from '../components/Layout.tsx'
 import { useLang } from '../i18n.tsx'
 import {
   documentStatusTone,
   fmtDate,
   fmtKm,
   incidentStatusTone,
-  itvClass,
   kmLevelTone,
   pendingThisMonth,
+  tireReportSummary,
   vehicleStateTone,
 } from '../format.ts'
 import type { Alert, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
@@ -69,13 +75,24 @@ export function VehicleFieldPage() {
   const { t, language } = useLang()
   const { user } = useAuth()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
+  // En modo "Mi vehículo", el nav inferior ya lleva las cinco acciones SOBRE
+  // el coche operativo: su ficha no las repite. El principal bloqueado (el nav
+  // apunta al sustituto) y las fichas en modo Flota conservan las suyas.
+  const ctx = useOutletContext<LayoutContext | null>()
+  const actionsInNav = Boolean(ctx && !ctx.fleetMode && ctx.ownPair?.target === vehicleId)
 
   // Acordeón de tarjetas (mejora): desplegadas por defecto; en móvil plegar
   // ahorra mucho scroll.
-  const accordion = useAccordion(['situation', 'alerts', 'incidents', 'documents'])
+  const accordion = useAccordion(['situation', 'alerts', 'documents'])
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [summary, setSummary] = useState<VehicleSummary | null>(null)
+  // N8a: la ventana de registro — pinta el "mejor día" del div de km. Si
+  // falla, solo desaparece esa línea.
+  const [kmWindow, setKmWindow] = useState<KmWindow | null>(null)
+  useEffect(() => {
+    fetchKmWindow().then(setKmWindow, () => setKmWindow(null))
+  }, [])
   const [documents, setDocuments] = useState<FlotaDocument[]>([])
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [alerts, setAlerts] = useState<Alert[]>([])
@@ -95,6 +112,21 @@ export function VehicleFieldPage() {
   const [documentOpen, setDocumentOpen] = useState(false)
   const [kmOpen, setKmOpen] = useState(false)
   const [resolveAlert, setResolveAlert] = useState<Alert | null>(null)
+  // Solucionar una incidencia desde la tarjeta fusionada (solo supervisor).
+  const [resolveIncidentFor, setResolveIncidentFor] = useState<Incident | null>(null)
+
+  /** Resolver una alerta por TIPO, como en la bandeja: la de ITV abre el
+   * MISMO modal de «Registrar ITV» que el botón de la página/nav (la señal
+   * del back cierra la alerta al registrarla); lectura pendiente → registrar
+   * km; mantenimiento → «Actualizar mantenimiento» (marcar el plan realizado
+   * resuelve sus alertas). El resto (seguro, exceso…) no tiene registro que
+   * hacer: va al modal genérico de resolución con observaciones. */
+  function resolveAlertByType(alert: Alert) {
+    if (alert.type === 'itv_due') setItvOpen(true)
+    else if (alert.type === 'km_reading_pending') setKmOpen(true)
+    else if (alert.type === 'maintenance_due') setUpdateOpen(true)
+    else setResolveAlert(alert)
+  }
 
   // Tras guardar algo desde el modal de actualización: datos frescos.
   const reload = useCallback(() => {
@@ -146,6 +178,15 @@ export function VehicleFieldPage() {
       .catch(() => setAlerts([]))
   }, [vehicleId])
 
+  // Los modales del bottom-nav viven FUERA de la página: sin esto, registrar
+  // la ITV (o los km) desde el nav dejaba la ficha con la cita ya cumplida.
+  const dataVersion = ctx?.dataVersion ?? 0
+  useEffect(() => {
+    if (dataVersion === 0) return // 0 = aún no se ha guardado nada
+    reload()
+    loadDocuments()
+  }, [dataVersion, reload, loadDocuments])
+
 
   if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
   if (error || !vehicle) return <div role="alert" className="form-error">{error || t.vehicle.notFound}</div>
@@ -176,52 +217,14 @@ export function VehicleFieldPage() {
       </p>
 
       <div className="stat-row">
-        <StatCard
-          label={t.vehicle.kmLabel}
-          value={summary ? fmtKm(summary.km_current, language) : '—'}
-          sub={
-            summary?.km_reading_date
-              ? t.vehicle.readingOf(fmtDate(summary.km_reading_date, language))
-              : t.vehicle.noReadings
-          }
-          accent={kmPending ? 'warning' : 'teal'}
-        />
-        <StatCard
-          label={t.vehicle.nextItv}
-          value={
-            <span className={itvClass(vehicle.next_itv_date)}>
-              {fmtDate(vehicle.next_itv_date, language)}
-            </span>
-          }
-          sub={
-            itvClass(vehicle.next_itv_date) === 'itv-overdue'
-              ? t.vehicle.itvOverdue
-              : itvClass(vehicle.next_itv_date) === 'itv-soon'
-                ? t.vehicle.itvSoon
-                : ' '
-          }
-          accent={itvClass(vehicle.next_itv_date) ? 'warning' : 'primary'}
-        />
-        {/* GAP-8: el próximo mantenimiento, con el mismo semáforo que la ITV. */}
-        {summary?.next_maintenance_date && (
-          <StatCard
-            label={t.home.nextMaintenance}
-            value={
-              <span className={itvClass(summary.next_maintenance_date)}>
-                {fmtDate(summary.next_maintenance_date, language)}
-              </span>
-            }
-            sub={
-              itvClass(summary.next_maintenance_date) === 'itv-overdue'
-                ? t.vehicle.itvOverdue
-                : itvClass(summary.next_maintenance_date) === 'itv-soon'
-                  ? t.vehicle.itvSoon
-                  : ' '
-            }
-            accent={itvClass(summary.next_maintenance_date) ? 'warning' : 'primary'}
-          />
-        )}
+        {/* El MISMO div de km que el tablero de la home (KmStatCard): última
+            lectura, mejor día para registrar y píldora de pendiente. */}
+        <KmStatCard summary={summary} window={kmWindow} />
       </div>
+
+      {/* Y las MISMAS «Próximas citas» que el tablero: lectura de km, ITV y
+          mantenimiento, cada una con su fecha y cuántos días faltan. */}
+      <UpcomingDatesCard vehicle={vehicle} summary={summary} window={kmWindow} />
 
       {/* Proyección contra el contrato (solo supervisor): el mismo cuadro
           compacto de la vista del grupo, aquí para UN coche. */}
@@ -311,6 +314,7 @@ export function VehicleFieldPage() {
 
       {/* Acciones en el orden operativo solicitado. En un principal bloqueado
           se apagan km, avería y documentos; la ITV sigue disponible. */}
+      {!actionsInNav && (
       <div className="quick-actions">
         {blocked ? (
           <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
@@ -365,6 +369,7 @@ export function VehicleFieldPage() {
           </button>
         )}
       </div>
+      )}
 
       {itvOk && <p role="status" className="form-ok">{itvOk}</p>}
 
@@ -392,54 +397,69 @@ export function VehicleFieldPage() {
         </dl>
       </CollapsibleCard>
 
+      {/* Alertas e incidencias, JUNTAS en una tarjeta: todo lo que reclama
+          acción sobre el coche, y todo resoluble desde aquí — las alertas con
+          su modal de resolución y las incidencias abiertas con «Solucionar»
+          (solo supervisor: cerrar incidencias es de gestión). */}
       <CollapsibleCard
         id="alerts"
         headingClassName="panel-title"
         className="vehicle-alerts-panel"
         accordion={accordion}
-        title={t.alerts.title}
+        title={t.vehicle.alertsIncidentsTitle}
       >
-        {alerts.length === 0 ? (
+        {alerts.length === 0 && incidents.length === 0 ? (
           <div className="alerts-empty vehicle-alerts-empty">
-            <p>{t.alerts.empty}</p>
+            <p>{t.vehicle.alertsIncidentsEmpty}</p>
           </div>
         ) : (
-          <div className="alert-group-body vehicle-alerts-list">
-            {alerts.map((alert) => (
-              <AlertCard
-                key={alert.id}
-                alert={alert}
-                isSupervisor={isSupervisor}
-                onClose={setResolveAlert}
-                onRegisterKm={() => setKmOpen(true)}
-                showPlate={false}
-              />
-            ))}
-          </div>
+          <>
+            {alerts.length > 0 && (
+              <div className="alert-group-body vehicle-alerts-list">
+                {alerts.map((alert) => (
+                  <AlertCard
+                    key={alert.id}
+                    alert={alert}
+                    isSupervisor={isSupervisor}
+                    onClose={resolveAlertByType}
+                    onRegisterKm={() => setKmOpen(true)}
+                    showPlate={false}
+                  />
+                ))}
+              </div>
+            )}
+            {incidents.length > 0 && (
+              <ul className="doc-list vehicle-incidents-list">
+                {incidents.map((i) => (
+                  <li key={i.id} className="doc-item">
+                    <Wrench size={18} aria-hidden className="doc-icon" />
+                    <div className="doc-info">
+                      <strong>{i.type_display}</strong>
+                      {/* Neumáticos: motivo y rueda, que es el dato del parte
+                          (el comentario ahí es opcional). */}
+                      {tireReportSummary(i, t.newIncident) && (
+                        <span className="doc-sub incident-tire-line">
+                          {tireReportSummary(i, t.newIncident)}
+                        </span>
+                      )}
+                      <span className="doc-sub">
+                        {i.date ? fmtDate(i.date, language) : t.vehicle.noDate}
+                        {i.description ? ` · ${i.description}` : ''}
+                      </span>
+                    </div>
+                    <Badge tone={incidentStatusTone(i.status)}>{i.status_display}</Badge>
+                    {isSupervisor && (
+                      <Button type="button" size="sm" onClick={() => setResolveIncidentFor(i)}>
+                        {t.carUpdate.actionResolve}
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </CollapsibleCard>
-
-      {/* Incidencias abiertas (mejora 🟡): el conductor ve qué le pasa a SU
-          vehículo; la gestión (cerrar, coste…) sigue en el front de gestión. */}
-      {incidents.length > 0 && (
-        <CollapsibleCard id="incidents" headingClassName="panel-title" accordion={accordion} title={t.vehicle.incidentsTitle}>
-          <ul className="doc-list">
-            {incidents.map((i) => (
-              <li key={i.id} className="doc-item">
-                <Wrench size={18} aria-hidden className="doc-icon" />
-                <div className="doc-info">
-                  <strong>{i.type_display}</strong>
-                  <span className="doc-sub">
-                    {i.date ? fmtDate(i.date, language) : t.vehicle.noDate}
-                    {i.description ? ` · ${i.description}` : ''}
-                  </span>
-                </div>
-                <Badge tone={incidentStatusTone(i.status)}>{i.status_display}</Badge>
-              </li>
-            ))}
-          </ul>
-        </CollapsibleCard>
-      )}
 
       {/* Documentos (HU-4.1/4.3): viven en Drive; aquí solo la referencia. */}
       <CollapsibleCard
@@ -495,6 +515,7 @@ export function VehicleFieldPage() {
       {itvOpen && (
         <RegisterItvModal
           vehicle={vehicle}
+          nextItvDate={summary?.next_itv_date ?? vehicle.next_itv_date}
           onClose={() => setItvOpen(false)}
           onSaved={(message) => {
             setItvOk(message)
@@ -506,6 +527,7 @@ export function VehicleFieldPage() {
       {breakdownOpen && (
         <BreakdownModal
           vehicle={vehicle}
+          kmCurrent={summary?.km_current ?? null}
           onClose={() => setBreakdownOpen(false)}
           onSaved={() => {
             reload()
@@ -535,6 +557,16 @@ export function VehicleFieldPage() {
           onClose={() => setResolveAlert(null)}
           onResolved={() => {
             setResolveAlert(null)
+            reload()
+          }}
+        />
+      )}
+      {resolveIncidentFor && (
+        <IncidentResolveModal
+          incident={resolveIncidentFor}
+          onClose={() => setResolveIncidentFor(null)}
+          onResolved={() => {
+            setResolveIncidentFor(null)
             reload()
           }}
         />

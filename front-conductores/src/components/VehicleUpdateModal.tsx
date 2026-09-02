@@ -254,7 +254,7 @@ export function VehicleUpdateModal({
           </div>
           <div className="update-km-row">
             <label className="reminder-check update-km-field">
-              {t.carUpdate.kmLabel}
+              {t.carUpdate.kmLabel} <span className="req-badge" aria-hidden>{t.common.required}</span>
               <input
                 type="number"
                 inputMode="numeric"
@@ -262,6 +262,7 @@ export function VehicleUpdateModal({
                 className="update-input"
                 value={km}
                 onChange={(e) => setKm(e.target.value)}
+                required
               />
             </label>
             <Button type="button" onClick={saveKm} disabled={savingKm || !km.trim()}>
@@ -398,13 +399,13 @@ export function VehicleUpdateModal({
 
               {incidentAction === 'manage' && <div className="update-action-form">
                 <label className="reminder-check">
-                  {t.carUpdate.preferredPostalCode}
+                  {t.carUpdate.preferredPostalCode} <span className="req-badge" aria-hidden>{t.common.required}</span>
                   <input type="text" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} className="update-input" value={managementPostalCode} onChange={(e) => setManagementPostalCode(e.target.value)} required />
                 </label>
               </div>}
 
               {incidentAction === 'resolve' && <div className="update-action-form">
-                <label className="reminder-check">{t.carUpdate.resolutionDate}<input type="date" min={current.date ?? undefined} max={todayIso()} className="update-input" value={resolution.date} onChange={(e) => setResolution((r) => ({ ...r, date: e.target.value }))} required /></label>
+                <label className="reminder-check">{t.carUpdate.resolutionDate} <span className="req-badge" aria-hidden>{t.common.required}</span><input type="date" min={current.date ?? undefined} max={todayIso()} className="update-input" value={resolution.date} onChange={(e) => setResolution((r) => ({ ...r, date: e.target.value }))} required /></label>
                 {resolutionDowntime() !== null && <div className="update-km-last">{t.carUpdate.calculatedDowntime(resolutionDowntime() ?? 0)}</div>}
                 <label className="reminder-check">{t.carUpdate.observations}<textarea className="reminder-message" value={resolution.observations} onChange={(e) => setResolution((r) => ({ ...r, observations: e.target.value }))} /></label>
               </div>}
@@ -435,13 +436,14 @@ export function VehicleUpdateModal({
         >
           <div className="modal-form">
             <label className="reminder-check">
-              {t.carUpdate.planDateLabel}
+              {t.carUpdate.planDateLabel} <span className="req-badge" aria-hidden>{t.common.required}</span>
               <input
                 type="date"
                 max={todayIso()}
                 className="update-input"
                 value={planDate}
                 onChange={(event) => setPlanDate(event.target.value)}
+                required
               />
             </label>
             <Button type="button" variant="secondary" onClick={() => setPlanDate(todayIso())}>

@@ -4,7 +4,6 @@ import {
   useMemo,
   useState,
   type FocusEvent,
-  type FormEvent,
   type MouseEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
@@ -16,15 +15,15 @@ import {
   Modal,
   PageHeader,
   SelectField,
-  TextInputField,
 } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage, isAbortError } from '@flota/ui/http'
 import { AlertTriangle, Check, Download, Mail } from 'lucide-react'
 
-import { listAlerts, listAll, listVehicles, registerItv } from '../api.ts'
+import { listAlerts, listAll, listVehicles } from '../api.ts'
 import { exportCsv } from '../csv.ts'
 import { alertLevelTone, fmtDate, todayIso } from '../format.ts'
+import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
 import { ResolveAlertModal } from '../components/ResolveAlertModal.tsx'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { TextCell } from '../components/TextCell.tsx'
@@ -157,14 +156,6 @@ export function AlertsPage() {
     ],
     [t],
   )
-  const itvResultOptions = useMemo(
-    () => [
-      { value: 'done', label: t.itvModal.resultPass },
-      { value: 'not done', label: t.itvModal.resultFail },
-    ],
-    [t],
-  )
-
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
@@ -183,15 +174,9 @@ export function AlertsPage() {
   // Identidad estable a propósito: `Modal` engancha `onClose` a su efecto de foco.
   const closeResolve = useCallback(() => setResolving(null), [])
 
+  // Registrar ITV: componente compartido con el Panel (RegisterItvModal).
   const [itvModal, setItvModal] = useState(false)
-  const [itvVehicle, setItvVehicle] = useState('')
-  const [itvResult, setItvResult] = useState('done')
-  const [itvNextDue, setItvNextDue] = useState('')
-  const [itvDate, setItvDate] = useState(today())
-  const [itvCost, setItvCost] = useState('')
-  const [itvNotes, setItvNotes] = useState('')
-  const [itvError, setItvError] = useState('')
-  const [itvSaving, setItvSaving] = useState(false)
+  const [itvInitialVehicle, setItvInitialVehicle] = useState<number | null>(null)
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -256,46 +241,8 @@ export function AlertsPage() {
   }
 
   function openItv(alert?: Alert) {
-    setItvVehicle(alert?.vehicle ? String(alert.vehicle) : '')
-    setItvResult('done')
-    setItvNextDue('')
-    setItvDate(today())
-    setItvCost('')
-    setItvNotes('')
-    setItvError('')
+    setItvInitialVehicle(alert?.vehicle ?? null)
     setItvModal(true)
-  }
-
-  async function submitItv(event: FormEvent) {
-    event.preventDefault()
-    if (!itvVehicle) {
-      setItvError(t.itvModal.chooseVehicleError)
-      return
-    }
-    setItvSaving(true)
-    setItvError('')
-    try {
-      await registerItv({
-        vehicle: Number(itvVehicle),
-        event_date: itvDate,
-        notes: itvNotes || undefined,
-        // A13/C5: la próxima fecha solo acompaña a una ITV FAVORABLE. Con
-        // resultado "no pasada" no hay próxima ITV que apuntar (y el back la
-        // rechaza), y el aviso sigue abierto a propósito.
-        itv: {
-          result: itvResult,
-          next_due: itvResult === 'done' ? itvNextDue : null,
-          ...(itvCost ? { cost: itvCost } : {}),
-        },
-      })
-      setItvModal(false)
-      setNotice(t.itvModal.savedNotice)
-      load()
-    } catch (err) {
-      setItvError(asErrorMessage(err, t.itvModal.saveError))
-    } finally {
-      setItvSaving(false)
-    }
   }
 
   // Búsqueda en cliente sobre lo ya cargado (estado/tipo/nivel filtran en servidor).
@@ -596,73 +543,17 @@ export function AlertsPage() {
       )}
 
       {/* Registrar ITV (HU-5.1): la señal del back cierra los avisos */}
-      <Modal open={itvModal} title={t.itvModal.title} onClose={() => setItvModal(false)}>
-        <form className="modal-form" onSubmit={submitItv}>
-          <SelectField
-            label={t.itvModal.vehicle}
-            aria-label={t.itvModal.vehicle}
-            options={[
-              { value: '', label: t.itvModal.choose },
-              ...vehicles.map((v) => ({
-                value: String(v.id),
-                label: `${v.plate} · ${v.brand} ${v.model}`,
-              })),
-            ]}
-            value={itvVehicle}
-            onValueChange={setItvVehicle}
-          />
-          <SelectField
-            label={t.itvModal.result}
-            aria-label={t.itvModal.result}
-            options={itvResultOptions}
-            value={itvResult}
-            onValueChange={setItvResult}
-          />
-          <TextInputField
-            label={t.itvModal.inspectionDate}
-            type="date"
-            value={itvDate}
-            onChange={(e) => setItvDate(e.target.value)}
-            required
-          />
-          <TextInputField
-            label={t.itvModal.nextDue}
-            type="date"
-            value={itvResult === 'done' ? itvNextDue : ''}
-            onChange={(e) => setItvNextDue(e.target.value)}
-            // A13: obligatoria si la ITV se pasó; deshabilitada si no.
-            required={itvResult === 'done'}
-            disabled={itvResult !== 'done'}
-          />
-          <TextInputField
-            label={t.itvModal.cost}
-            type="number"
-            min={0}
-            step="0.01"
-            value={itvCost}
-            onChange={(e) => setItvCost(e.target.value)}
-          />
-          <TextInputField
-            label={t.itvModal.notes}
-            value={itvNotes}
-            onChange={(e) => setItvNotes(e.target.value)}
-          />
-          <p className="muted" style={{ margin: 0 }}>
-            {t.itvModal.note1}
-            <strong>{t.itvModal.noteStrong}</strong>
-            {t.itvModal.note2}
-          </p>
-          {itvError && <div role="alert" className="form-error">{itvError}</div>}
-          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
-            <Button type="button" variant="secondary" onClick={() => setItvModal(false)}>
-              {t.itvModal.cancel}
-            </Button>
-            <Button type="submit" variant="primary" disabled={itvSaving}>
-              {itvSaving ? t.itvModal.saving : t.itvModal.save}
-            </Button>
-          </div>
-        </form>
-      </Modal>
+      <RegisterItvModal
+        open={itvModal}
+        vehicles={vehicles}
+        initialVehicleId={itvInitialVehicle}
+        onClose={() => setItvModal(false)}
+        onSaved={() => {
+          setItvModal(false)
+          setNotice(t.itvModal.savedNotice)
+          load()
+        }}
+      />
 
       {/* Resolver (modal propio): resumen del aviso + la actuación de su tipo
           (lectura de km, cambio de conductor, servicio, correo a la renting)

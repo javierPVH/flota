@@ -63,6 +63,8 @@ from .models import (
     VehicleRequest,
     VehicleUsage,
     Workshop,
+    driver_assignment_clash,
+    driver_clash_message,
 )
 from .models.enums import (
     AlertLevel,
@@ -651,6 +653,17 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     current.end_date = start
                     current.save(update_fields=["status", "end_date", "updated_at"])
                 if driver is not None:
+                    # Un coche por conductor a la vez (+ sustituto aparte): si
+                    # ya lleva otro, la gestión debe cerrarlo (o devolverlo)
+                    # antes — no se le quita en silencio.
+                    clash = driver_assignment_clash(
+                        driver.pk,
+                        is_substitute=vehicle.is_substitute,
+                        start_date=start,
+                        exclude_vehicle_id=vehicle.pk,
+                    )
+                    if clash:
+                        raise ValidationError({"driver": driver_clash_message(clash)})
                     Assignment.objects.create(
                         vehicle=vehicle,
                         driver=driver,
@@ -1173,6 +1186,20 @@ class AssignmentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets
             assignment.status = AssignmentStatus.ACCEPTED
             if not assignment.start_date:
                 assignment.start_date = timezone.localdate()
+            # Un coche por conductor a la vez (+ sustituto aparte). Se mira
+            # DESPUÉS de cerrar la vigente del vehículo: un relevo del mismo
+            # conductor en su coche no debe chocar consigo mismo. El atomic
+            # revierte ese cierre si la regla corta aquí.
+            clash = driver_assignment_clash(
+                assignment.driver_id,
+                is_substitute=assignment.vehicle.is_substitute,
+                start_date=assignment.start_date,
+                end_date=assignment.end_date,
+                exclude_pk=assignment.pk,
+                exclude_vehicle_id=assignment.vehicle_id,
+            )
+            if clash:
+                raise ValidationError({"driver": driver_clash_message(clash)})
             assignment.save(update_fields=["status", "start_date", "updated_at"])
             events.emit_driver_change(
                 assignment.vehicle, old_driver=old_driver, new_driver=assignment.driver
@@ -1454,9 +1481,7 @@ class IncidentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.M
         incident = self.get_object()
         postal_code = (request.data.get("workshop_postal_code") or "").strip()
         if not postal_code.isdigit() or len(postal_code) != 5:
-            raise ValidationError(
-                {"workshop_postal_code": "Indica un código postal de 5 cifras."}
-            )
+            raise ValidationError({"workshop_postal_code": "Indica un código postal de 5 cifras."})
         incident.workshop_postal_code = postal_code
         incident.status = IncidentStatus.IN_PROGRESS
         incident.save()
@@ -1473,9 +1498,7 @@ class IncidentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.M
         if resolution_date is None:
             raise ValidationError({"resolution_date": "Indica la fecha de solución."})
         if resolution_date > timezone.localdate():
-            raise ValidationError(
-                {"resolution_date": "La fecha de solución no puede ser futura."}
-            )
+            raise ValidationError({"resolution_date": "La fecha de solución no puede ser futura."})
         if incident.date and resolution_date < incident.date:
             raise ValidationError(
                 {"resolution_date": "La solución no puede ser anterior a la avería."}
@@ -1735,6 +1758,17 @@ class VehicleRequestViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
                 current.status = AssignmentStatus.FINISHED
                 current.end_date = start
                 current.save(update_fields=["status", "end_date", "updated_at"])
+            # Un coche por conductor a la vez: si el solicitante ya lleva otro
+            # en ese periodo, se resuelve ese primero (el atomic revierte).
+            clash = driver_assignment_clash(
+                requester.pk,
+                is_substitute=vehicle.is_substitute,
+                start_date=start,
+                end_date=vehicle_request.end_date,
+                exclude_vehicle_id=vehicle.pk,
+            )
+            if clash:
+                raise ValidationError({"driver": driver_clash_message(clash)})
             Assignment.objects.create(
                 vehicle=vehicle,
                 driver=requester,

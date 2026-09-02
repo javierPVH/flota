@@ -28,12 +28,20 @@ def on_itv_registered(sender, instance: EventItv, **kwargs):
        `refresh_next_itv` la reafirmaba en cada pasada.
     2. Solo un resultado FAVORABLE actualiza el denormalizado y cierra las
        alertas. Una ITV "no favorable" no exime de nada: el aviso sigue abierto.
+
+    2026-08-31: manda la última favorable **aunque venga sin `next_due`** (la
+    fecha del informe es opcional desde el registro en campo). Conservar la
+    fecha anterior dejaba al coche citado para una ITV que acababa de pasar:
+    seguía pintada en amarillo/rojo en las fichas y, al llegar el día,
+    `check_itv` levantaba una crítica de "ITV vencida" con la alerta anterior ya
+    cerrada. Sin fecha no hay cita: se vacía y la repone el registro que traiga
+    el informe.
     """
     vehicle = instance.event.vehicle
 
     # 1) Próxima ITV = la del último registro FAVORABLE del vehículo.
     latest = (
-        EventItv.objects.filter(event__vehicle=vehicle, next_due__isnull=False)
+        EventItv.objects.filter(event__vehicle=vehicle)
         .exclude(result=ItvResult.NOT_DONE)
         .order_by("-event__event_date", "-event_id")
         .first()

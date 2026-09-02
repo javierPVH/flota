@@ -43,6 +43,9 @@ export function AlertsPage() {
   // propio + sustitución). Conductor o modo Flota: sin recorte.
   const ctx = useOutletContext<LayoutContext | null>()
   const ownIds = ctx && !ctx.fleetMode ? (ctx.ownPair?.ids ?? null) : null
+  // Registrar desde el bottom-nav cierra alertas (ITV, lectura de km): la
+  // bandeja tiene que releerse aunque el modal no sea suyo.
+  const dataVersion = ctx?.dataVersion ?? 0
 
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [showClosed, setShowClosed] = useState(false)
@@ -114,7 +117,8 @@ export function AlertsPage() {
       .finally(() => setLoading(false))
   }, [showClosed, isSupervisor, ownIds, t])
 
-  useEffect(load, [load])
+  // `dataVersion`: registrar desde el nav cierra alertas — hay que releerlas.
+  useEffect(load, [load, dataVersion])
 
   // Resolver es el ÚNICO cierre (descartar se retiró del dominio) y pasa por
   // un modal PERSONALIZADO por tipo: en lectura pendiente, registrar la
@@ -312,6 +316,8 @@ export function AlertsPage() {
       {resolveFor && resolveFor.vehicle !== null && resolveFor.type === 'itv_due' && (
         <RegisterItvModal
           vehicle={{ id: resolveFor.vehicle, plate: resolveFor.vehicle_plate } as Vehicle}
+          // La cita la trae el propio aviso: sin pedir el resumen del coche.
+          nextItvDate={resolveFor.due_date}
           onClose={() => setResolveFor(null)}
           onSaved={() => resolved(resolveFor)}
         />

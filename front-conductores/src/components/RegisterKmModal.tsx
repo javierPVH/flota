@@ -80,11 +80,15 @@ export function RegisterKmModal({
           </Panel>
         )}
         <label className="file-field">
-          <span>{t.km.date}</span>
+          <span>
+            {t.km.date} <span className="req-badge" aria-hidden>{t.common.required}</span>
+          </span>
           <input type="date" value={date} max={todayIso()} onChange={(event) => setDate(event.target.value)} required />
         </label>
         <label className="km-input-label">
-          <span>{t.km.odometer}</span>
+          <span>
+            {t.km.odometer} <span className="req-badge" aria-hidden>{t.common.required}</span>
+          </span>
           <input
             className="km-input"
             type="text"
@@ -94,6 +98,7 @@ export function RegisterKmModal({
             value={km}
             onChange={(event) => setKm(event.target.value.replace(/\D/g, ''))}
             autoFocus
+            required
           />
         </label>
         {goesBack && <div role="alert" className="form-error">{t.km.noGoBack(fmtKm(summary?.km_current, language))}</div>}

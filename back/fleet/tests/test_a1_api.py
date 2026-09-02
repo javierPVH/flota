@@ -83,7 +83,9 @@ class ManualEventTests(APITestCase):
         self.vehicle.refresh_from_db()
         self.assertEqual(self.vehicle.next_itv_date, date(2027, 7, 1))
 
-    def test_itv_requires_next_due(self):
+    def test_itv_requires_result(self):
+        # Sin `itv.result` no hay registro; la fecha en cambio es opcional
+        # (viene del informe y puede llegar después — ver ItvHorizonTests).
         self.client.force_authenticate(self.admin)
         resp = self.client.post(
             self.url,
@@ -470,7 +472,7 @@ class SummaryTests(APITestCase):
         # Sin plan acreditable: solo por km, sin fecha (SUM2 queda sin nada).
         solo_km = Vehicle.objects.create(plate="SUM6", brand="a", model="b")
         MaintenancePlan.objects.create(
-            vehicle=solo_km, name="Neumáticos", every_km=40000, last_done_km=0
+            vehicle=solo_km, name="Cambio de aceite", every_km=40000, last_done_km=0
         )
         Vehicle.objects.create(plate="SUM2", brand="a", model="b")
         # La baja no cuenta en ninguna categoría.

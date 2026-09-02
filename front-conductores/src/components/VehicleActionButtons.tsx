@@ -29,13 +29,24 @@ export function VehicleActionButtons({
   const [open, setOpen] = useState<Action | null>(null)
   const className = variant === 'nav' ? 'bottom-tab' : 'quick-action'
   const iconSize = variant === 'nav' ? 22 : 18
-  const labels: Record<Action, string> = {
-    km: t.common.registerKm,
-    itv: t.vehicle.quickItv,
-    maintenance: t.carUpdate.maintenanceButton,
-    breakdown: t.home.quickBreakdown,
-    document: t.vehicle.quickUpload,
-  }
+  // En el nav las etiquetas van CORTAS (Km · ITV · Mantenimiento): seis
+  // pestañas en un móvil estrecho no perdonan verbos.
+  const labels: Record<Action, string> =
+    variant === 'nav'
+      ? {
+          km: t.shell.tabs.km,
+          itv: t.shell.tabs.itv,
+          maintenance: t.shell.tabs.maintenance,
+          breakdown: t.shell.tabs.breakdown,
+          document: t.vehicle.quickUpload,
+        }
+      : {
+          km: t.common.registerKm,
+          itv: t.vehicle.quickItv,
+          maintenance: t.carUpdate.maintenanceButton,
+          breakdown: t.home.quickBreakdown,
+          document: t.vehicle.quickUpload,
+        }
   const actions: Array<{ key: Action; icon: typeof Gauge }> = [
     { key: 'km', icon: Gauge },
     { key: 'itv', icon: ClipboardCheck },
@@ -76,13 +87,23 @@ export function VehicleActionButtons({
         <RegisterKmModal vehicle={vehicle} summary={summary ?? null} onClose={() => setOpen(null)} onSaved={saved} />
       )}
       {vehicle && open === 'itv' && (
-        <RegisterItvModal vehicle={vehicle} onClose={() => setOpen(null)} onSaved={saved} />
+        <RegisterItvModal
+          vehicle={vehicle}
+          nextItvDate={summary?.next_itv_date ?? vehicle.next_itv_date}
+          onClose={() => setOpen(null)}
+          onSaved={saved}
+        />
       )}
       {vehicle && open === 'maintenance' && (
         <MaintenanceUpdateModal vehicle={vehicle} onClose={() => setOpen(null)} onSaved={saved} />
       )}
       {vehicle && open === 'breakdown' && (
-        <BreakdownModal vehicle={vehicle} onClose={() => setOpen(null)} onSaved={saved} />
+        <BreakdownModal
+          vehicle={vehicle}
+          kmCurrent={summary?.km_current ?? null}
+          onClose={() => setOpen(null)}
+          onSaved={saved}
+        />
       )}
       {vehicle && open === 'document' && (
         <UploadDocumentModal vehicle={vehicle} onClose={() => setOpen(null)} onSaved={saved} />

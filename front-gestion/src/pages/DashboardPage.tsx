@@ -29,6 +29,8 @@ import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
 import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
 import { AccidentModal } from '../components/AccidentModal.tsx'
+import { MaintenanceDoneModal } from '../components/MaintenanceDoneModal.tsx'
+import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
 import { VehicleStateModal } from '../components/VehicleStateModal.tsx'
 import { useLang } from '../i18n.tsx'
 import { useUsersCopy } from '../translations/users.ts'
@@ -84,6 +86,8 @@ interface MaintRow {
   vehicle: Vehicle
   /** Plan que marca el próximo vencimiento ('' si no hay plan con fecha). */
   plan: string
+  /** Id de ese plan (para «Registrar servicio»); null sin plan. */
+  planId: number | null
   due: string | null
   status: Exclude<MaintSeg, 'all'>
 }
@@ -109,12 +113,12 @@ function addDaysIso(iso: string, days: number): string {
  * mín(ciclo del plan, 12 meses) y solo acreditan los planes con ancla de fecha.
  */
 function buildMaintRows(vehicles: Vehicle[], plans: MaintenancePlan[]): MaintRow[] {
-  const best = new Map<number, { due: string; plan: string }>()
+  const best = new Map<number, { due: string; plan: string; planId: number }>()
   for (const p of plans) {
     if (!p.last_done_date) continue
     const due = addMonthsIso(p.last_done_date, Math.min(p.every_months ?? 12, 12))
     const cur = best.get(p.vehicle)
-    if (!cur || due < cur.due) best.set(p.vehicle, { due, plan: p.name })
+    if (!cur || due < cur.due) best.set(p.vehicle, { due, plan: p.name, planId: p.id })
   }
   const today = todayIso()
   const soon = addDaysIso(today, 30)
@@ -122,9 +126,9 @@ function buildMaintRows(vehicles: Vehicle[], plans: MaintenancePlan[]): MaintRow
   return vehicles
     .map((vehicle): MaintRow => {
       const hit = best.get(vehicle.id)
-      if (!hit) return { vehicle, plan: '', due: null, status: 'no_plan' }
+      if (!hit) return { vehicle, plan: '', planId: null, due: null, status: 'no_plan' }
       const status = hit.due < today ? 'overdue' : hit.due <= soon ? 'soon' : 'ok'
-      return { vehicle, plan: hit.plan, due: hit.due, status }
+      return { vehicle, plan: hit.plan, planId: hit.planId, due: hit.due, status }
     })
     .sort(
       (a, b) =>
@@ -206,6 +210,11 @@ export function DashboardPage() {
   const [opsVehicle, setOpsVehicle] = useState<Vehicle | null>(null)
   const [accidentVehicle, setAccidentVehicle] = useState<Vehicle | null>(null)
   const [emailVehicle, setEmailVehicle] = useState<Vehicle | null>(null)
+  // Correo abierto ya en un tipo (aviso de seguro desde su desglose).
+  const [emailKind, setEmailKind] = useState<'insurance_due' | undefined>(undefined)
+  // Acciones de los desgloses: registrar ITV y registrar servicio (GAP-8).
+  const [itvRegVehicle, setItvRegVehicle] = useState<Vehicle | null>(null)
+  const [maintDone, setMaintDone] = useState<MaintRow | null>(null)
   const [driverVehicle, setDriverVehicle] = useState<Vehicle | null>(null)
   const [invoicesVehicle, setInvoicesVehicle] = useState<Vehicle | null>(null)
   const [userModalOpen, setUserModalOpen] = useState(false)
@@ -596,6 +605,33 @@ export function DashboardPage() {
         getValue: (v) => dateOf(v) ?? '',
         render: (v) => <span className={cls(v)}>{fmtDate(dateOf(v), language)}</span>,
       },
+      // La actuación que RESUELVE cada vencimiento, en la propia fila:
+      // registrar la ITV (la señal del back cierra sus avisos) o mandar el
+      // aviso de seguro a la empresa de renting.
+      {
+        key: 'actions',
+        label: t.home.thActions,
+        align: 'right',
+        searchable: false,
+        sortable: false,
+        render: (v) =>
+          kind === 'itv' ? (
+            <Button size="sm" variant="secondary" onClick={() => setItvRegVehicle(v)}>
+              {m.actionRegisterItv}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setEmailKind('insurance_due')
+                setEmailVehicle(v)
+              }}
+            >
+              {m.actionSendInsuranceEmail}
+            </Button>
+          ),
+      },
     ]
   }
 
@@ -633,6 +669,23 @@ export function DashboardPage() {
       getValue: (r) => r.due ?? '',
       render: (r) =>
         r.due ? <span className={dueClass(r.due)}>{fmtDate(r.due, language)}</span> : '—',
+    },
+    // Registrar el servicio reancla el plan y cierra sus alertas; «sin plan»
+    // no tiene servicio que registrar (el hint manda a crear el plan).
+    {
+      key: 'actions',
+      label: t.home.thActions,
+      align: 'right',
+      searchable: false,
+      sortable: false,
+      render: (r) =>
+        r.planId !== null ? (
+          <Button size="sm" variant="secondary" onClick={() => setMaintDone(r)}>
+            {m.actionMarkService}
+          </Button>
+        ) : (
+          '—'
+        ),
     },
   ]
 
@@ -701,7 +754,11 @@ export function DashboardPage() {
   // M18: el mismo menú (⋮) y las mismas dos operaciones serias que el
   // inventario, sin una segunda copia de sus avisos (ver `useVehicleActions`).
   const { actionsColumn: vehicleActionsColumn } = useVehicleActions({
-    onEmail: setEmailVehicle,
+    // El correo desde el menú ⋮ abre en su tipo por defecto (comunicado).
+    onEmail: (v) => {
+      setEmailKind(undefined)
+      setEmailVehicle(v)
+    },
     onDriver: setDriverVehicle,
     onInvoices: setInvoicesVehicle,
     onOps: setOpsVehicle,
@@ -1194,7 +1251,9 @@ export function DashboardPage() {
         open={manage !== null}
         title={manage ? MANAGE_TITLE[manage] : ''}
         onClose={() => setManage(null)}
-        wide={manage === 'itv' || manage === 'insurance' || manage === 'maintenance'}
+        // Los desgloses con tabla + columna de acciones necesitan más ancho
+        // para verse enteros sin scroll horizontal.
+        xl={manage === 'itv' || manage === 'insurance' || manage === 'maintenance'}
       >
         {manage === 'vehicles' && summary && (
           <div className="mng">
@@ -1617,13 +1676,52 @@ export function DashboardPage() {
       <Modal
         open={Boolean(emailVehicle)}
         title={emailVehicle ? vt.email.title(emailVehicle.plate) : ''}
-        onClose={() => setEmailVehicle(null)}
+        onClose={() => {
+          setEmailVehicle(null)
+          setEmailKind(undefined)
+        }}
         wide
       >
         {emailVehicle && (
-          <VehicleEmailModal vehicle={emailVehicle} onClose={() => setEmailVehicle(null)} onDone={reloadVehicles} />
+          <VehicleEmailModal
+            vehicle={emailVehicle}
+            initialKind={emailKind}
+            onClose={() => {
+              setEmailVehicle(null)
+              setEmailKind(undefined)
+            }}
+            onDone={reloadVehicles}
+          />
         )}
       </Modal>
+
+      {/* Registrar ITV desde el desglose (mismo componente que Alertas). */}
+      <RegisterItvModal
+        open={Boolean(itvRegVehicle)}
+        vehicles={allVehicles}
+        initialVehicleId={itvRegVehicle?.id ?? null}
+        onClose={() => setItvRegVehicle(null)}
+        onSaved={() => {
+          setItvRegVehicle(null)
+          // El desglose se recarga solo (carga perezosa sobre `null`).
+          setItvList(null)
+          reloadVehicles()
+        }}
+      />
+
+      {/* Registrar servicio de mantenimiento desde el desglose (GAP-8). */}
+      <MaintenanceDoneModal
+        open={Boolean(maintDone)}
+        plate={maintDone?.vehicle.plate ?? ''}
+        planId={maintDone?.planId ?? null}
+        planName={maintDone?.plan ?? ''}
+        onClose={() => setMaintDone(null)}
+        onSaved={() => {
+          setMaintDone(null)
+          setMaintList(null)
+          reloadVehicles()
+        }}
+      />
 
       {/* Cambio de conductor + supervisor. */}
       <Modal

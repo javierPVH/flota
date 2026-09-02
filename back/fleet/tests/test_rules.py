@@ -64,6 +64,132 @@ class AssignmentRuleTests(TestCase):
         self.assertEqual(self.v.assignments.count(), 2)
 
 
+class OneCarPerDriverRuleTests(APITestCase):
+    """Un conductor lleva UN coche a la vez; solo suma el de SUSTITUCIÓN.
+
+    La regla vive en `driver_assignment_clash` y se aplica en Model.clean(),
+    el serializer y las acciones de negocio (accept / set-driver / conceder
+    solicitud): dos aceptadas en curso sobre vehículos normales no conviven.
+    """
+
+    def setUp(self):
+        self.admin = make_user("adm", Role.ADMIN)
+        self.driver = make_user("drv", Role.DRIVER)
+        self.other = make_user("otr", Role.DRIVER)
+        self.v1 = Vehicle.objects.create(plate="C-1", brand="a", model="b")
+        self.v2 = Vehicle.objects.create(plate="C-2", brand="a", model="b")
+        self.substitute = Vehicle.objects.create(
+            plate="C-S", brand="a", model="b", is_substitute=True
+        )
+        self.current = Assignment.objects.create(
+            vehicle=self.v1,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.client.force_authenticate(self.admin)
+
+    def test_model_clean_rejects_second_car(self):
+        second = Assignment(
+            vehicle=self.v2,
+            driver=self.driver,
+            start_date=date(2026, 2, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        with self.assertRaises(ValidationError):
+            second.full_clean()
+
+    def test_substitute_coexists_with_main(self):
+        # Su coche se avería: el sustituto se suma sin chocar con el principal.
+        Assignment(
+            vehicle=self.substitute,
+            driver=self.driver,
+            start_date=date(2026, 2, 1),
+            status=AssignmentStatus.ACCEPTED,
+        ).full_clean()  # no debe lanzar
+        # …pero dos sustitutos a la vez tampoco se puede.
+        Assignment.objects.create(
+            vehicle=self.substitute,
+            driver=self.driver,
+            start_date=date(2026, 2, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        another_substitute = Vehicle.objects.create(
+            plate="C-S2", brand="a", model="b", is_substitute=True
+        )
+        with self.assertRaises(ValidationError):
+            Assignment(
+                vehicle=another_substitute,
+                driver=self.driver,
+                start_date=date(2026, 3, 1),
+                status=AssignmentStatus.ACCEPTED,
+            ).full_clean()
+
+    def test_api_create_accepted_returns_400(self):
+        response = self.client.post(
+            reverse("assignment-list"),
+            {"vehicle": self.v2.pk, "driver": self.driver.pk, "status": "accepted"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("driver", response.data["errors"])
+
+    def test_accept_proposal_for_busy_driver_returns_400_and_rolls_back(self):
+        proposal = Assignment.objects.create(
+            vehicle=self.v2, driver=self.driver, status=AssignmentStatus.PROPOSED
+        )
+        # El otro coche tiene su propio vigente, que el accept cerraría.
+        other_current = Assignment.objects.create(
+            vehicle=self.v2,
+            driver=self.other,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        response = self.client.post(reverse("assignment-accept", args=[proposal.pk]))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Atómico: el vigente del coche NO quedó cerrado por el intento fallido.
+        other_current.refresh_from_db()
+        self.assertEqual(other_current.status, AssignmentStatus.ACCEPTED)
+        self.assertIsNone(other_current.end_date)
+
+    def test_accept_renewal_same_driver_same_vehicle_ok(self):
+        # Relevo consigo mismo en SU coche (renovación de fechas): permitido.
+        renewal = Assignment.objects.create(
+            vehicle=self.v1,
+            driver=self.driver,
+            start_date=date(2026, 6, 1),
+            status=AssignmentStatus.PROPOSED,
+        )
+        response = self.client.post(reverse("assignment-accept", args=[renewal.pk]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_set_driver_with_busy_driver_returns_400(self):
+        response = self.client.post(
+            reverse("vehicle-set-driver", args=[self.v2.pk]), {"driver": self.driver.pk}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("driver", response.data["errors"])
+        self.assertEqual(self.v2.assignments.count(), 0)
+
+    def test_handover_boundary_allows_same_day_switch(self):
+        # La anterior cierra el MISMO día que empieza la nueva (relevo): válido.
+        self.current.status = AssignmentStatus.FINISHED
+        self.current.end_date = date(2026, 5, 1)
+        self.current.save(update_fields=["status", "end_date"])
+        Assignment.objects.create(
+            vehicle=self.v2,
+            driver=self.driver,
+            start_date=date(2026, 4, 1),
+            end_date=date(2026, 5, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        Assignment(
+            vehicle=self.v1,
+            driver=self.driver,
+            start_date=date(2026, 5, 1),
+            status=AssignmentStatus.ACCEPTED,
+        ).full_clean()  # no debe lanzar: fin == inicio es el relevo válido
+
+
 class VehicleLinkRuleTests(TestCase):
     def test_unique_active_substitute_per_main(self):
         main = Vehicle.objects.create(plate="M-1", brand="a", model="b")
@@ -224,6 +350,63 @@ class ItvHorizonTests(APITestCase):
     def test_unfavourable_itv_cannot_carry_next_due(self):
         resp = self._post(result="not done", next_due="2027-07-01")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_favourable_itv_without_next_due_clears_the_appointment(self):
+        """La fecha del informe puede no estar a mano al registrar (2026-08-31).
+
+        Una favorable SIN fecha cierra el aviso (la ITV se pasó de verdad) y
+        deja el coche SIN cita: la cita anterior acaba de cumplirse, así que
+        conservarla lo dejaba pintado en rojo y `check_itv` levantaba después
+        una crítica de "ITV vencida" por una inspección ya hecha. El job de
+        refresco tampoco debe reponer la fecha vieja.
+        """
+        from fleet.models import Alert
+        from fleet.models.enums import AlertStatus, AlertType
+        from fleet.services import alerts
+
+        self.assertEqual(self._post(result="done", next_due="2026-09-12").status_code, 201)
+        alert = Alert.objects.create(
+            type=AlertType.ITV_DUE, vehicle=self.vehicle, dedup_key="itv:sin-fecha"
+        )
+        resp = self.client.post(
+            self.url,
+            {
+                "vehicle": self.vehicle.pk,
+                "event_type": "itv",
+                "event_date": "2026-08-31",
+                "itv": {"result": "done"},
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, AlertStatus.RESOLVED)
+        self.vehicle.refresh_from_db()
+        self.assertIsNone(self.vehicle.next_itv_date)
+        alerts.refresh_next_itv_dates()
+        self.vehicle.refresh_from_db()
+        self.assertIsNone(self.vehicle.next_itv_date)
+        # Y sin cita no hay nada que vigilar: ni un aviso más por esa ITV.
+        self.assertEqual(alerts.check_itv(date(2026, 9, 13)), 0)
+
+    def test_report_logged_later_restores_the_appointment(self):
+        """Registrar la favorable sin fecha y completar el informe después."""
+        self.assertEqual(self._post(result="done").status_code, 201)
+        self.vehicle.refresh_from_db()
+        self.assertIsNone(self.vehicle.next_itv_date)
+        resp = self.client.post(
+            self.url,
+            {
+                "vehicle": self.vehicle.pk,
+                "event_type": "itv",
+                "event_date": "2026-08-05",
+                "itv": {"result": "done", "next_due": "2028-08-01"},
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.next_itv_date, date(2028, 8, 1))
 
     def test_most_recent_inspection_wins_not_the_farthest_date(self):
         """Corregir una ITV con una fecha MENOR debe prevalecer."""

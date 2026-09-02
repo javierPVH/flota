@@ -48,6 +48,8 @@ from .models import (
     VehicleRequest,
     VehicleUsage,
     Workshop,
+    driver_assignment_clash,
+    driver_clash_message,
 )
 from .models.enums import (
     AllocationTarget,
@@ -294,6 +296,17 @@ class VehicleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"brand": "Indica la marca (catálogo o texto)."})
         if self.instance is None and not attrs.get("model"):
             raise serializers.ValidationError({"model": "Indica el modelo (catálogo o texto)."})
+        # El alta con conductor crea una asignación aceptada desde hoy: la
+        # regla "un coche por conductor" se comprueba antes de crear nada.
+        alta_driver = attrs.get("driver")
+        if self.instance is None and alta_driver is not None:
+            clash = driver_assignment_clash(
+                alta_driver.pk,
+                is_substitute=attrs.get("is_substitute", False),
+                start_date=timezone.localdate(),
+            )
+            if clash:
+                raise serializers.ValidationError({"driver": driver_clash_message(clash)})
         return attrs
 
     def create(self, validated_data):
@@ -566,6 +579,21 @@ class AssignmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"end_date": "La fecha de fin no puede ser anterior a la de inicio."}
             )
+        # Un coche por conductor a la vez (más el de sustitución aparte). Se
+        # valida sobre el estado FINAL (create de una aceptada o PATCH que la
+        # reabra/mueva de fechas); Model.clean() no lo llama DRF.
+        status_final = attrs.get("status", getattr(self.instance, "status", None))
+        if driver is not None and vehicle is not None and status_final == AssignmentStatus.ACCEPTED:
+            clash = driver_assignment_clash(
+                driver.pk,
+                is_substitute=vehicle.is_substitute,
+                start_date=start,
+                end_date=end,
+                exclude_pk=self.instance.pk if self.instance else None,
+                exclude_vehicle_id=vehicle.pk,
+            )
+            if clash:
+                raise serializers.ValidationError({"driver": driver_clash_message(clash)})
         # SEC2: la máquina de estados no se salta por PATCH. La única transición
         # directa permitida es cerrar (→ finished, como hace la gestión); aceptar
         # o rechazar una propuesta va por las acciones accept/reject, que son la
@@ -866,11 +894,16 @@ class EventSerializer(serializers.ModelSerializer):
     def _validate_itv(attrs) -> None:
         """C5/A13: reglas de una ITV registrada a mano.
 
-        - Con resultado FAVORABLE, `next_due` es obligatoria (es el dato que
-          alimenta la vigilancia) y tiene que caer dentro de un horizonte
-          razonable: sin cota, un `2099-01-01` sacaba el vehículo del radar de
-          ITV para siempre (y el job lo reafirmaba en cada pasada).
-        - Con resultado NO favorable no se pide fecha: no hay próxima ITV que
+        - Con resultado FAVORABLE, `next_due` es OPCIONAL (2026-08-31: la fecha
+          viene del informe y en campo puede no estar a mano; se registra la ITV
+          pasada y la fecha llega en un registro posterior). Si se envía, tiene
+          que caer dentro de un horizonte razonable: sin cota, un `2099-01-01`
+          sacaba el vehículo del radar de ITV para siempre (y el job lo
+          reafirmaba en cada pasada). Sin fecha, el vehículo se queda SIN cita
+          (`next_itv_date` a nulo): la inspección de hoy cumple la anterior, así
+          que arrastrarla solo produce avisos falsos — ver
+          `signals.on_itv_registered`.
+        - Con resultado NO favorable no se admite fecha: no hay próxima ITV que
           apuntar, y el aviso debe seguir abierto. Esto es lo que hace coherente
           la opción «no pasada» que ofrecen los dos fronts.
         """
@@ -894,9 +927,7 @@ class EventSerializer(serializers.ModelSerializer):
             return
 
         if not next_due:
-            raise serializers.ValidationError(
-                {"itv": "Registrar una ITV favorable requiere `itv.next_due` (próxima fecha)."}
-            )
+            return  # Favorable sin fecha: válida — el informe puede venir después.
         if next_due <= event_date:
             raise serializers.ValidationError(
                 {"itv": "La próxima ITV debe ser posterior a la fecha de la inspección."}

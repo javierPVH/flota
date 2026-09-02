@@ -215,6 +215,7 @@ export function RegisterKmPage() {
       {selectable.length > 1 ? (
         <SelectField
           label={t.km.vehicle}
+          requiredVisual
           options={[
             { value: '', label: t.km.choose },
             ...selectable.map((v) => ({
@@ -255,11 +256,15 @@ export function RegisterKmPage() {
           {/* La FECHA va primero: es lo que decide de qué mes es la lectura, y
               en la ventana del día 20 se registra a veces con fecha atrasada. */}
           <label className="file-field">
-            <span>{t.km.date}</span>
-            <input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} />
+            <span>
+              {t.km.date} <span className="req-badge" aria-hidden>{t.common.required}</span>
+            </span>
+            <input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} required />
           </label>
           <label className="km-input-label">
-            <span>{t.km.odometer}</span>
+            <span>
+              {t.km.odometer} <span className="req-badge" aria-hidden>{t.common.required}</span>
+            </span>
             <input
               className="km-input"
               type="text"
@@ -269,6 +274,7 @@ export function RegisterKmPage() {
               value={km}
               onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))}
               autoFocus
+              required
             />
           </label>
           {goesBack && (

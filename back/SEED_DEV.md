@@ -108,7 +108,7 @@ renombras rompes la cadena. Contraseña de prueba de TODOS: **`flota-dev-2026`**
 | Usuario | Rol(es) | Situación sembrada |
 |---------|---------|--------------------|
 | `admin` | admin (superuser) | Administradora "Alicia" |
-| `sara`  | supervisor + driver | Su grupo: `1234KLM` y `5678BCD`; conduce `7890NPQ` |
+| `sara`  | supervisor + driver | Su grupo: `1234KLM` y `5678BCD`; conduce `7890NPQ` (su tablero de campo trae alertas, documentos y mantenimiento con variantes) |
 | `carlos`| driver | Conduce `1234KLM` (y tiene una **propuesta** pendiente) |
 | `lucia` | driver | Conduce `5678BCD` (en taller, cubierto por el Leaf) **y el propio Leaf `4567JKL`**: es el par sustituto↔principal de la app de campo |
 | `david` | driver | **SIN coche** → prueba el portón; solicitud `pending` con ticket **`FLT-123`** |
@@ -118,8 +118,15 @@ renombras rompes la cadena. Contraseña de prueba de TODOS: **`flota-dev-2026`**
 **seguro a 20 días**, timeline con los 18 tipos de evento y póliza versionada),
 `5678BCD` (en taller, **ITV y seguro vencidos**, vínculo de sustitución activo),
 `7890NPQ` (**km ilimitados**: sin proyección y, desde X2, tampoco recordatorio
-de lectura), `4567JKL` (sustitución), `0000ZZZ` (baja, con `km_end` y acta de
-devolución).
+de lectura; es el coche de `sara` y el **escaparate del tablero de campo**:
+ITV a 12 días, seguro a 15 con la póliza anterior encadenada por `replaces`,
+revisión anual a ~14 días, revisión de frenos por km **ya superada** —alerta
+crítica; los neumáticos nunca son un plan: siempre son una avería—,
+documentos de 6 tipos con estados variados, uno pendiente de archivar — su
+documento «otros» es el que retira `seed_erratas` — y **dos averías sin
+cerrar** (avería y neumáticos) más una incidencia de mantenimiento que el
+acordeón «Averías» del tablero de campo debe filtrar), `4567JKL` (sustitución),
+`0000ZZZ` (baja, con `km_end` y acta de devolución).
 
 ⚠️ El seguro de `1234KLM` se fija en DOS sitios que deben coincidir: la ficha
 (`seed_vehicles`) y su documento de seguro (`seed_operations`). La señal de N2
@@ -129,10 +136,13 @@ vigila `SeedCoverageTests.test_reference_layer_invariants_hold`.
 
 **Capa de VOLUMEN** (constantes `BULK_*` en `seed.py`) — encima de la
 referencia, cada seed añade datos masivos **deterministas** (aritmética modular
-sobre el índice, sin `random`): la supervisora `marta`, **12 conductores**
+sobre el índice, sin `random`): la supervisora `marta`, **20 conductores**
 (`pedro`, `ana`, `jorge`, `elena`, `raul`, `marina`, `sergio`, `nuria`, `ivan`,
-`paula`, `oscar`, `teresa` — misma contraseña, y entre los 12 recorren los **6
-tipos de permiso**), 3 CECOs, 6 proyectos, 2 rentings y 2 unidades más, y **30
+`paula`, `oscar`, `teresa`, `hugo`, `celia`, `dario`, `alba`, `mario`, `irene`,
+`victor`, `laura` — misma contraseña, y entre los 20 recorren los **6
+tipos de permiso**; son exactamente uno por vehículo de volumen elegible,
+porque la regla de negocio impone **un coche por conductor a la vez**, con el
+de sustitución aparte), 3 CECOs, 6 proyectos, 2 rentings y 2 unidades más, y **30
 vehículos** con matrículas `2000???`…`2029???` (`_bulk_plate(i)`), repartidos
 entre los grupos de `sara`/`marta`/sin supervisor. Los 16 modelos de
 `BULK_MODELS` cubren entre todos los 4 tipos, los 5 combustibles, los 3 tamaños

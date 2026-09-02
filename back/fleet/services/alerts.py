@@ -147,16 +147,20 @@ def refresh_next_itv_dates() -> int:
     resultado fue favorable — igual que `signals.on_itv_registered`. Antes se
     usaba `Max("next_due")`, así que una fecha disparatada ganaba para siempre y
     este job la reafirmaba en cada pasada, deshaciendo cualquier corrección.
+    Una favorable SIN fecha (informe pendiente) también manda: deja el vehículo
+    sin cita en vez de arrastrar la anterior, ya cumplida.
     B16: los vehículos de baja quedan fuera (no hay ITV que vigilar).
     """
-    latest_by_vehicle: dict[int, date] = {}
+    latest_by_vehicle: dict[int, date | None] = {}
     rows = (
-        EventItv.objects.filter(next_due__isnull=False)
-        .exclude(result=ItvResult.NOT_DONE)
+        EventItv.objects.exclude(result=ItvResult.NOT_DONE)
         .order_by("event__vehicle_id", "-event__event_date", "-event_id")
         .values_list("event__vehicle_id", "next_due")
     )
     for vehicle_id, next_due in rows:
+        # `setdefault`: la primera fila de cada vehículo es la más reciente —
+        # también cuando su `next_due` es None (la clave queda con None y no la
+        # pisa ninguna fecha anterior).
         latest_by_vehicle.setdefault(vehicle_id, next_due)
 
     updated = 0

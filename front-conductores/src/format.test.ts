@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { daysUntil, fmtDate, fmtKm, itvClass, pendingThisMonth, todayIso } from './format.ts'
-import type { VehicleSummary } from './types.ts'
+import {
+  daysUntil,
+  fmtDate,
+  fmtKm,
+  itvClass,
+  pendingThisMonth,
+  tireReportSummary,
+  todayIso,
+} from './format.ts'
+import type { Incident, VehicleSummary } from './types.ts'
 
 function summaryWith(date: string | null, unlimited = false): VehicleSummary {
   return { km_reading_date: date, unlimited_km: unlimited } as VehicleSummary
@@ -68,6 +76,80 @@ describe('daysUntil (cuenta atrás de los avisos del inicio)', () => {
     expect(daysUntil(today)).toBe(0)
     // Omitir el ancla equivale a pasar `todayIso()` a mano.
     expect(daysUntil('2026-12-31')).toBe(daysUntil('2026-12-31', today))
+  })
+})
+
+describe('tireReportSummary (motivo y neumático del parte guiado)', () => {
+  const copy = {
+    wear: 'Desgaste',
+    puncture: 'Pinchazo',
+    front: 'Delanteras',
+    rear: 'Traseras',
+    allWheels: 'Las 4 ruedas',
+    frontLeft: 'Delantera izquierda',
+    frontRight: 'Delantera derecha',
+    rearLeft: 'Trasera izquierda',
+    rearRight: 'Trasera derecha',
+  }
+  const incident = (type: string, details: Record<string, unknown>) =>
+    ({ type, details } as Incident)
+
+  it('desgaste: motivo, qué ruedas y la medida', () => {
+    expect(
+      tireReportSummary(
+        incident('tires', {
+          report_version: 1,
+          change_reason: 'wear',
+          wheel_scope: 'front',
+          front_measure: '205/55 R16',
+        }),
+        copy,
+      ),
+    ).toBe('Desgaste · Delanteras · 205/55 R16')
+  })
+
+  it('las 4 ruedas a la misma medida no la repiten', () => {
+    expect(
+      tireReportSummary(
+        incident('tires', {
+          change_reason: 'wear',
+          wheel_scope: 'all',
+          front_measure: '205/55 R16',
+          rear_measure: '205/55 R16',
+        }),
+        copy,
+      ),
+    ).toBe('Desgaste · Las 4 ruedas · 205/55 R16')
+    // Distintas, las dos.
+    expect(
+      tireReportSummary(
+        incident('tires', {
+          change_reason: 'wear',
+          wheel_scope: 'all',
+          front_measure: '205/55 R16',
+          rear_measure: '225/45 R17',
+        }),
+        copy,
+      ),
+    ).toBe('Desgaste · Las 4 ruedas · 205/55 R16 / 225/45 R17')
+  })
+
+  it('pinchazo: motivo, qué rueda y la medida', () => {
+    expect(
+      tireReportSummary(
+        incident('tires', {
+          change_reason: 'puncture',
+          wheel: 'rear_right',
+          tire_measure: '205/55 R16',
+        }),
+        copy,
+      ),
+    ).toBe('Pinchazo · Trasera derecha · 205/55 R16')
+  })
+
+  it('otro tipo de avería, o un parte antiguo sin detalles → cadena vacía', () => {
+    expect(tireReportSummary(incident('breakdown', { change_reason: 'wear' }), copy)).toBe('')
+    expect(tireReportSummary(incident('tires', {}), copy)).toBe('')
   })
 })
 

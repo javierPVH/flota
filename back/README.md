@@ -94,7 +94,10 @@ de documento). Los cambios relevantes emiten un `Event` de negocio
 (`fleet/services/events.py`: alta, cambio de estado —con `change_reason`—, cambio
 de conductor, lectura de km), que convive con la auditoría de campos. Registrar
 una ITV (`EventItv`) refresca `next_itv_date` y **cierra** las alertas de ITV
-abiertas del vehículo (`fleet/signals.py`, HU-5.1). La edición de la ficha admite
+abiertas del vehículo (`fleet/signals.py`, HU-5.1). Manda siempre la **última
+favorable**: `itv.next_due` es opcional y, si no viene, el vehículo se queda sin
+próxima cita (arrastrar la anterior —ya cumplida por esa inspección— dejaba la
+fecha vieja avisando); la repone el registro que traiga el informe. La edición de la ficha admite
 **bloqueo optimista** opt-in: enviar `expected_updated_at` en el `PATCH`; si no
 coincide con el actual, responde `409 Conflict`.
 
@@ -232,8 +235,10 @@ logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
 | GET    | `/api/v1/catalogs/`      | gestión | Los catálogos del alta de vehículo en **una** respuesta (incluye `fuel-types` y `sites`). Mismos objetos que los endpoints sueltos, solo activos, sin paginar. No incluye `vehicle-models`: se piden por marca |
 
 ᵃ **Acotado por rol** (`fleet/scoping.py` + `accounts/permissions.py`): el admin
-ve/gestiona toda la flota; el **supervisor** solo su grupo (`Vehicle.supervisor`);
-el **conductor** solo sus vehículos asignados. Escritura de vehículos y
+ve/gestiona toda la flota; el **supervisor** su grupo (`Vehicle.supervisor`);
+el **conductor** sus vehículos asignados. Los roles son multi-valor y los
+ámbitos se **suman**: una supervisora que además conduce ve su grupo **y** su
+propio coche aunque lo supervise otra persona. Escritura de vehículos y
 asignaciones = solo admin; reparto de uso = admin o supervisor de su grupo;
 lecturas de km = también el conductor de su vehículo. El listado de vehículos
 soporta búsqueda (`?search=`), filtros (`?state=&business_use=&assigned=`) y orden

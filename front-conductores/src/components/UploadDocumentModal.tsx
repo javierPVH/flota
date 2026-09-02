@@ -116,7 +116,9 @@ export function UploadDocumentModal({
             onValueChange={(value) => setForm((current) => ({ ...current, type: value }))}
           />
           <label className="file-field">
-            <span>{doc.filePick}</span>
+            <span>
+              {doc.filePick} <span className="req-badge" aria-hidden>{t.common.required}</span>
+            </span>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
