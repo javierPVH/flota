@@ -145,6 +145,7 @@ export function VehicleCardList({
       {breakdownFor && (
         <BreakdownModal
           vehicle={breakdownFor}
+          kmCurrent={summaries[breakdownFor.id]?.km_current ?? null}
           onClose={() => setBreakdownFor(null)}
           onSaved={onRefresh}
         />

@@ -685,9 +685,12 @@ Ya existe, aunque parte todavía está sin confirmar en Git:
 - Documentación parcial en `ERD.md`, `schema.dbml`, `back/README.md` y
   `QA_MANUAL.md`.
 
-También hay un `MaintenancePlan` de seed llamado «Neumáticos» que avisa por
-kilómetros. Ese plan pertenece a la lógica preventiva antigua y no constituye
-un historial de sustituciones.
+Había además un `MaintenancePlan` de seed llamado «Neumáticos» que avisaba por
+kilómetros. **Resuelto (2026-08-28)**: negocio fijó la regla «los neumáticos
+siempre son una avería» y el seed ya no modela neumáticos como plan — los
+ciclos por km de ejemplo usan conceptos de taller («Cambio de aceite y
+filtros», «Revisión de frenos») y el `help_text` del modelo ya no sugiere
+«Neumáticos» como nombre de plan.
 
 Lo que **no** está implementado:
 
@@ -939,9 +942,10 @@ validación, no como creación directa de `TireReplacement`.
    intervención.
 4. No generar sustituciones históricas automáticamente desde descripciones
    libres.
-5. Retirar el `MaintenancePlan` «Neumáticos» solo después de definir si habrá
-   una futura política de aviso por kilómetros. Mientras tanto, marcarlo como
-   legado para impedir que el nuevo mantenimiento anual lo absorba.
+5. ~~Retirar el `MaintenancePlan` «Neumáticos»~~ **Hecho (2026-08-28)**: por la
+   regla «los neumáticos siempre son una avería», el seed ya no crea planes de
+   neumáticos (los ciclos por km de ejemplo son de taller). Queda pendiente
+   solo la política futura de aviso por km/desgaste (§12.10.4).
 6. Actualizar `ANALISIS_GAP.md`: GAP-6 pasa de «enum e i18n» a «registro técnico
    completo» únicamente al terminar esta extensión.
 

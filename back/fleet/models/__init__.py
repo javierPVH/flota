@@ -5,7 +5,13 @@ descubra y para poder importar `from fleet.models import Vehicle, ...`.
 """
 
 from .alert import Alert
-from .assignment import Assignment, VehicleLink, VehicleUsage
+from .assignment import (
+    Assignment,
+    VehicleLink,
+    VehicleUsage,
+    driver_assignment_clash,
+    driver_clash_message,
+)
 from .catalogs import (
     Brand,
     BusinessUnit,
@@ -65,6 +71,8 @@ __all__ = [
     "Assignment",
     "VehicleLink",
     "VehicleUsage",
+    "driver_assignment_clash",
+    "driver_clash_message",
     "Event",
     "EventPenalty",
     "EventFeeChange",

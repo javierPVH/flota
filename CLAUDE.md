@@ -100,7 +100,8 @@ Dos capas que van **siempre juntas**:
    `AdminWriteManagementRead`, `ManagementOrDriverReadWrite`, `IsSuperuser`…).
 2. **Scope** — `fleet/scoping.py::vehicles_for(user)` (admin = toda la flota,
    supervisor = su grupo `Vehicle.supervisor`, driver = sus asignaciones en
-   curso), aplicado vía `ScopedByVehicleMixin` en `fleet/views.py`. El mixin
+   curso; los roles se **suman**: supervisor+driver ve su grupo ∪ su coche),
+   aplicado vía `ScopedByVehicleMixin` en `fleet/views.py`. El mixin
    valida también `perform_create`/`perform_update` para que un `PATCH
    {"vehicle": <ajeno>}` no saque un recurso del ámbito (SEC1).
 

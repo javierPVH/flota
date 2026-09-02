@@ -23,6 +23,7 @@ from fleet.models import (
     Incident,
     InvoiceAllocation,
     KmReading,
+    MaintenancePlan,
     Vehicle,
     VehicleLink,
     VehicleRequest,
@@ -253,6 +254,55 @@ class SeedCoverageTests(APITestCase):
         polizas = Document.objects.filter(vehicle=v1, type=DocumentType.INSURANCE).order_by("id")
         self.assertEqual(polizas.count(), 2)
         self.assertEqual(polizas.last().replaces_id, polizas.first().id)
+        # El coche de la supervisora (7890NPQ) es el escaparate del tablero de
+        # campo: ITV a 12 días, seguro a 15 (denormalizado desde su documento),
+        # dos planes de mantenimiento (uno a punto y otro vencido por km) y
+        # documentos de varios tipos → sara ve alertas abiertas de los tres
+        # frentes sin salir de su coche.
+        v3 = Vehicle.objects.get(plate="7890NPQ")
+        self.assertEqual(v3.next_itv_date, today + timedelta(days=12))
+        self.assertEqual(v3.insurance_expiry_date, today + timedelta(days=15))
+        self.assertEqual(MaintenancePlan.objects.filter(vehicle=v3, is_active=True).count(), 2)
+        self.assertGreaterEqual(
+            Document.objects.filter(vehicle=v3, is_active=True).values("type").distinct().count(),
+            5,
+        )
+        for alert_type in (AlertType.ITV_DUE, AlertType.INSURANCE_DUE, AlertType.MAINTENANCE_DUE):
+            self.assertTrue(
+                Alert.objects.filter(vehicle=v3, type=alert_type, status=AlertStatus.OPEN).exists(),
+                f"7890NPQ sin alerta abierta {alert_type}",
+            )
+        # Averías sin cerrar (avería + neumáticos): alimentan el acordeón
+        # «Averías» del tablero de la app de campo.
+        self.assertTrue(
+            Incident.objects.filter(
+                vehicle=v3,
+                type__in=(IncidentType.BREAKDOWN, IncidentType.TIRES),
+                is_active=True,
+            )
+            .exclude(status=IncidentStatus.CLOSED)
+            .exists()
+        )
+        # La de neumáticos trae el PARTE GUIADO: las listas de campo enseñan
+        # con él el motivo del cambio y la rueda (el comentario es opcional).
+        neumaticos = Incident.objects.filter(
+            vehicle=v3, type=IncidentType.TIRES, is_active=True
+        ).exclude(status=IncidentStatus.CLOSED)
+        self.assertTrue(
+            all(
+                inc.details.get("report_version") == 1 and inc.details.get("change_reason")
+                for inc in neumaticos
+            ),
+            "las incidencias de neumáticos del escaparate deben traer `details` del parte",
+        )
+        # Y de las dos de mantenimiento, una es crítica (km superados) y otra
+        # aviso (revisión anual a ~14 días).
+        niveles = set(
+            Alert.objects.filter(
+                vehicle=v3, type=AlertType.MAINTENANCE_DUE, status=AlertStatus.OPEN
+            ).values_list("level", flat=True)
+        )
+        self.assertEqual(niveles, {AlertLevel.WARNING, AlertLevel.CRITICAL})
 
 
 class DevLoginTests(APITestCase):

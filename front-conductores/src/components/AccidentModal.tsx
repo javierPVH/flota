@@ -128,16 +128,16 @@ export function AccidentModal({
         <form className="modal-form" onSubmit={submit}>
           <p className="update-hint">{a.accidentData}</p>
           <div className="incident-grid">
-            <TextInputField label={a.street} aria-label={a.street} value={details.street} onChange={(e) => setDetail('street', e.target.value)} required />
+            <TextInputField label={a.street} aria-label={a.street} value={details.street} onChange={(e) => setDetail('street', e.target.value)} required requiredVisual />
             <TextInputField label={a.streetNumber} aria-label={a.streetNumber} value={details.street_number} onChange={(e) => setDetail('street_number', e.target.value)} />
-            <TextInputField label={a.postalCode} aria-label={a.postalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={details.postal_code} onChange={(e) => setDetail('postal_code', e.target.value)} required />
-            <TextInputField label={a.locality} aria-label={a.locality} value={details.locality} onChange={(e) => setDetail('locality', e.target.value)} required />
-            <TextInputField label={a.province} aria-label={a.province} value={details.province} onChange={(e) => setDetail('province', e.target.value)} required />
-            <TextInputField label={a.accidentAt} aria-label={a.accidentAt} type="datetime-local" max={nowLocalDateTime()} value={details.occurred_at} onChange={(e) => setDetail('occurred_at', e.target.value)} required />
-            <TextInputField label={a.phone} aria-label={a.phone} type="tel" value={details.phone} onChange={(e) => setDetail('phone', e.target.value)} required />
+            <TextInputField label={a.postalCode} aria-label={a.postalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={details.postal_code} onChange={(e) => setDetail('postal_code', e.target.value)} required requiredVisual />
+            <TextInputField label={a.locality} aria-label={a.locality} value={details.locality} onChange={(e) => setDetail('locality', e.target.value)} required requiredVisual />
+            <TextInputField label={a.province} aria-label={a.province} value={details.province} onChange={(e) => setDetail('province', e.target.value)} required requiredVisual />
+            <TextInputField label={a.accidentAt} aria-label={a.accidentAt} type="datetime-local" max={nowLocalDateTime()} value={details.occurred_at} onChange={(e) => setDetail('occurred_at', e.target.value)} required requiredVisual />
+            <TextInputField label={a.phone} aria-label={a.phone} type="tel" value={details.phone} onChange={(e) => setDetail('phone', e.target.value)} required requiredVisual />
             <TextInputField label={a.workshopPostalCodeOptional} aria-label={a.workshopPostalCodeOptional} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={details.workshop_postal_code} onChange={(e) => setDetail('workshop_postal_code', e.target.value)} />
           </div>
-          <TextAreaField label={a.damageDescription} aria-label={a.damageDescription} rows={4} value={details.damage_description} onChange={(e) => setDetail('damage_description', e.target.value)} required />
+          <TextAreaField label={a.damageDescription} aria-label={a.damageDescription} rows={4} value={details.damage_description} onChange={(e) => setDetail('damage_description', e.target.value)} required requiredVisual />
 
           <RepeatableHeader title={a.thirdParties} addLabel={a.add} onAdd={() => setThirdParties((rows) => [...rows, emptyThirdParty()])} />
           {thirdParties.map((row, index) => (

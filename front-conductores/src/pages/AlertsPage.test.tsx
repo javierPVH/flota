@@ -226,7 +226,7 @@ describe('AlertsPage (M5)', () => {
     await userEvent.click(within(kmCard).getByRole('button', { name: 'Resolver' }))
     const kmDialog = screen.getByRole('dialog', { name: 'Registrar km · 7890NPQ' })
     expect(kmDialog).toBeInTheDocument()
-    await userEvent.type(within(kmDialog).getByLabelText('Odómetro (km totales del cuadro)'), '4750')
+    await userEvent.type(within(kmDialog).getByLabelText(/Odómetro/), '4750')
     await userEvent.click(within(kmDialog).getByRole('button', { name: 'Guardar lectura' }))
     expect(mocks.createKmReading).toHaveBeenCalledWith({
       vehicle: 7,
@@ -244,7 +244,7 @@ describe('AlertsPage (M5)', () => {
       .closest('.alert-card') as HTMLElement
     await userEvent.click(within(itvCard).getByRole('button', { name: 'Resolver' }))
     const itvDialog = screen.getByRole('dialog', { name: 'Registrar ITV · 7890NPQ' })
-    fireEvent.change(within(itvDialog).getByLabelText('Próxima ITV (fecha del informe)'), {
+    fireEvent.change(within(itvDialog).getByLabelText('Próxima ITV (opcional)'), {
       target: { value: '2027-09-01' },
     })
     await userEvent.click(within(itvDialog).getByRole('button', { name: 'Registrar ITV' }))

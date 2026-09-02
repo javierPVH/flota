@@ -1,6 +1,6 @@
 import { todayIso } from '@flota/ui/domain'
 import type { AppLanguage } from '@flota/ui/i18n'
-import type { VehicleSummary } from './types'
+import type { Incident, VehicleSummary } from './types'
 
 const LOCALE: Record<AppLanguage, string> = { es: 'es-ES', en: 'en-GB' }
 
@@ -27,6 +27,78 @@ export function pendingThisMonth(summary: VehicleSummary): boolean {
   const month = todayIso().slice(0, 7) // mes LOCAL, no UTC (doctrina E2/E6)
   return !summary.km_reading_date || !summary.km_reading_date.startsWith(month)
 }
+
+/** ¿Es una AVERÍA sin cerrar? Tipos relacionados con averías: parte de avería,
+ * general, neumáticos y accidente — mantenimiento e ITV van por su vía. Es el
+ * filtro del acordeón «Averías» del tablero y de la sección de averías del
+ * modal de Actualizar mantenimiento: misma lista en los dos sitios. */
+const BREAKDOWN_INCIDENT_TYPES = ['breakdown', 'general', 'tires', 'accident']
+export function isOpenBreakdown(incident: Incident): boolean {
+  return incident.status !== 'closed' && BREAKDOWN_INCIDENT_TYPES.includes(incident.type)
+}
+
+/** Etiquetas del parte de neumáticos — las de `t.newIncident` valen tal cual. */
+export interface TireReportCopy {
+  wear: string
+  puncture: string
+  front: string
+  rear: string
+  allWheels: string
+  frontLeft: string
+  frontRight: string
+  rearLeft: string
+  rearRight: string
+}
+
+const WHEEL_KEYS = {
+  front_left: 'frontLeft',
+  front_right: 'frontRight',
+  rear_left: 'rearLeft',
+  rear_right: 'rearRight',
+} as const
+const SCOPE_KEYS = { front: 'front', rear: 'rear', all: 'allWheels' } as const
+
+/**
+ * Resumen del parte guiado de neumáticos: **motivo del cambio y qué
+ * neumático** («Desgaste · Delanteras · 205/55 R16», «Pinchazo · Delantera
+ * izquierda · 205/55 R16»).
+ *
+ * Las listas de averías enseñaban solo la observación, que en este parte es un
+ * comentario OPCIONAL: una incidencia de neumáticos salía sin un dato útil
+ * aunque el parte estuviera completo. Cadena vacía si no es de neumáticos o si
+ * el parte no trae detalles (los de antes de `report_version: 1`).
+ */
+export function tireReportSummary(incident: Incident, copy: TireReportCopy): string {
+  if (incident.type !== 'tires') return ''
+  const details = incident.details ?? {}
+  const text = (key: string) =>
+    typeof details[key] === 'string' ? (details[key] as string).trim() : ''
+  const parts: string[] = []
+  const reason = text('change_reason')
+  if (reason === 'wear') {
+    parts.push(copy.wear)
+    const scope = SCOPE_KEYS[text('wheel_scope') as keyof typeof SCOPE_KEYS]
+    if (scope) parts.push(copy[scope])
+    // Con las 4 ruedas a la misma medida, repetirla no aporta nada.
+    const measures = [...new Set([text('front_measure'), text('rear_measure')].filter(Boolean))]
+    if (measures.length > 0) parts.push(measures.join(' / '))
+  } else if (reason === 'puncture') {
+    parts.push(copy.puncture)
+    const wheel = WHEEL_KEYS[text('wheel') as keyof typeof WHEEL_KEYS]
+    if (wheel) parts.push(copy[wheel])
+    const measure = text('tire_measure')
+    if (measure) parts.push(measure)
+  }
+  return parts.join(' · ')
+}
+
+/** Horizonte de «cita próxima», en días: por encima no hay nada que hacer aún.
+ *
+ * Es el umbral con el que ya trabaja todo lo demás — el semáforo `dueClass` del
+ * DS (≤30 días → ámbar) y los avisos del back (`FLEET_ITV_ALERT_DAYS` 30/15/7,
+ * `FLEET_MAINTENANCE_ALERT_DAYS` 30) —, así que lo que sale en «Próximas
+ * citas» es exactamente lo que tiene (o va a tener) aviso. */
+export const SOON_DAYS = 30
 
 /** Días naturales de hoy a `dateStr` (negativo = ya pasó, 0 = hoy).
  *

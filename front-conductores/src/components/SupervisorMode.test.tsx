@@ -11,6 +11,9 @@ import type { Role } from '../types.ts'
 const mocks = vi.hoisted(() => ({
   listVehicles: vi.fn(),
   fetchVehicleSummaries: vi.fn(),
+  listAlerts: vi.fn(),
+  listIncidents: vi.fn(),
+  listDocuments: vi.fn(),
   roles: ['driver', 'supervisor'] as Role[],
 }))
 
@@ -18,6 +21,9 @@ vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   listVehicles: mocks.listVehicles,
   fetchVehicleSummaries: mocks.fetchVehicleSummaries,
+  listAlerts: mocks.listAlerts,
+  listIncidents: mocks.listIncidents,
+  listDocuments: mocks.listDocuments,
 }))
 
 vi.mock('../auth.ts', async (importOriginal) => ({
@@ -67,6 +73,9 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     localStorage.clear() // el modo se recuerda por dispositivo
     document.documentElement.lang = 'es'
     mocks.roles = ['driver', 'supervisor']
+    mocks.listAlerts.mockResolvedValue({ count: 0, results: [] })
+    mocks.listIncidents.mockResolvedValue({ count: 0, results: [] })
+    mocks.listDocuments.mockResolvedValue({ count: 0, results: [] })
     mocks.listVehicles.mockResolvedValue({ count: 2, results: [OWN, TEAM] })
     mocks.fetchVehicleSummaries.mockResolvedValue([
       { vehicle: 3, km_current: 1000, km_reading_date: null, driver: { id: 1, name: 'Sara S' } },
@@ -86,12 +95,20 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
     expect(screen.queryByText('5678BCD')).not.toBeInTheDocument()
 
-    // La barra personal contiene exactamente las mismas cinco acciones.
+    // La barra personal: Inicio primero (como en Flota) + las cinco acciones,
+    // con sus etiquetas CORTAS (Km · ITV · Mantenimiento).
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
-    await waitFor(() => expect(within(nav).getByRole('button', { name: 'Registrar km' })).toBeEnabled())
+    await waitFor(() => expect(within(nav).getByRole('button', { name: 'Km' })).toBeEnabled())
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Registrar km', 'Registrar ITV', 'Actualizar mantenimiento', 'Avería', 'Subir documento',
+      'Inicio', 'Km', 'ITV', 'Mantenimiento', 'Avería', 'Subir documento',
     ])
+    expect(within(nav).getByRole('link', { name: 'Inicio' })).toHaveAttribute('href', '/')
+
+    // En Mi vehículo actúa sobre SU coche: el aviso de "quedará registrado a
+    // tu nombre" (que sí sale en Flota) aquí no pinta nada.
+    await userEvent.click(within(nav).getByRole('button', { name: 'Km' }))
+    expect(screen.getByRole('dialog', { name: 'Registrar km · 7890NPQ' })).toBeInTheDocument()
+    expect(screen.queryByText(/responsabilidad de registrar los km/)).not.toBeInTheDocument()
   })
 
   it('en Flota: la home es la lista a cargo y el nav queda en Alertas + Proyección', async () => {
@@ -114,14 +131,14 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(screen.getByRole('link', { name: 'Inicio' })).toHaveAttribute('href', '/')
     expect(screen.getByRole('link', { name: 'Alertas' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Proyección km' })).toHaveAttribute('href', '/grupo')
-    expect(screen.queryByRole('button', { name: 'Registrar km' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Km' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Avería' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Incidencia' })).not.toBeInTheDocument()
 
     // Y de vuelta a Mi vehículo.
     await userEvent.click(screen.getByRole('button', { name: 'Mi vehículo' }))
     expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
-    expect(within(screen.getByRole('navigation')).getByRole('button', { name: 'Registrar km' })).toBeInTheDocument()
+    expect(within(screen.getByRole('navigation')).getByRole('button', { name: 'Km' })).toBeInTheDocument()
   })
 
   it('sin coche propio, las acciones del nav van desactivadas', async () => {
@@ -139,7 +156,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
 
     // Sin objeto sobre el que actuar: dejan de ser enlaces y van apagadas.
     await waitFor(() =>
-      expect(screen.queryByRole('link', { name: 'Registrar km' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('link', { name: 'Km' })).not.toBeInTheDocument(),
     )
     expect(screen.queryByRole('button', { name: 'Avería' })).not.toBeInTheDocument()
     expect(document.querySelectorAll('.bottom-tab.is-disabled').length).toBe(5)
@@ -160,11 +177,11 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(screen.queryByRole('button', { name: 'Flota' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Mi vehículo' })).toHaveAttribute('aria-pressed', 'true')
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
-    await waitFor(() => expect(within(nav).getByRole('button', { name: 'Registrar km' })).toBeEnabled())
+    await waitFor(() => expect(within(nav).getByRole('button', { name: 'Km' })).toBeEnabled())
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Registrar km', 'Registrar ITV', 'Actualizar mantenimiento', 'Avería', 'Subir documento',
+      'Inicio', 'Km', 'ITV', 'Mantenimiento', 'Avería', 'Subir documento',
     ])
-    await userEvent.click(within(nav).getByRole('button', { name: 'Registrar km' }))
+    await userEvent.click(within(nav).getByRole('button', { name: 'Km' }))
     expect(screen.getByRole('dialog', { name: 'Registrar km · 7890NPQ' })).toBeInTheDocument()
     expect(screen.queryByText(/responsabilidad de registrar los km/)).not.toBeInTheDocument()
   })

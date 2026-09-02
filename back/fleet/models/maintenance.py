@@ -21,8 +21,10 @@ class MaintenancePlan(DeactivatableModel, TimeStampedModel):
         related_name="maintenance_plans",
         verbose_name="Vehículo",
     )
+    # Los neumáticos NO son un plan: siempre se comunican como AVERÍA
+    # (incidencia `tires`) — regla de dominio, ver PLAN_MANTENIMIENTOS_ANUALES.
     name = models.CharField(
-        "Nombre", max_length=120, help_text="P. ej. «Revisión general» o «Neumáticos»."
+        "Nombre", max_length=120, help_text="P. ej. «Revisión general» o «Cambio de aceite»."
     )
     every_km = models.PositiveIntegerField(
         "Cada (km)", null=True, blank=True, help_text="Vacío = no aplica el ciclo por km."

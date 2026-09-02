@@ -4,10 +4,10 @@ import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import { Button, PageHeader, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { createIncident, listVehicles, uploadDocument } from '../api.ts'
+import { createIncident, fetchVehicleSummary, listVehicles, uploadDocument } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
-import { todayIso } from '../format.ts'
+import { fmtKm, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle } from '../types.ts'
 
@@ -35,7 +35,7 @@ const emptyInjuredPerson = (): InjuredPerson => ({
 /** Alta unificada de avería: general, neumáticos o propuesta de mejora. */
 export function NewIncidentPage() {
   const { user } = useAuth()
-  const { t } = useLang()
+  const { t, language } = useLang()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -95,6 +95,30 @@ export function NewIncidentPage() {
       return current
     })
   }, [ownIds, selectable])
+
+  // Odómetro conocido del coche elegido: precarga «Kilometraje actual» — el
+  // mismo dato que ya enseña el tablero, para no bajar a mirar el cuadro. El
+  // campo SIGUE al coche: al cambiarlo se repone con el suyo.
+  // Indexado por coche: sin selección no hay km que enseñar, y volver a uno ya
+  // consultado no arrastra el número del anterior.
+  const [kmByVehicle, setKmByVehicle] = useState<Record<string, number | null>>({})
+  const kmCurrent = form.vehicle ? kmByVehicle[form.vehicle] ?? null : null
+  useEffect(() => {
+    if (!form.vehicle) return
+    const chosen = form.vehicle
+    let alive = true
+    fetchVehicleSummary(Number(chosen))
+      .then((summary) => {
+        if (!alive) return
+        const km = summary.km_current ?? null
+        setKmByVehicle((rows) => ({ ...rows, [chosen]: km }))
+        setForm((current) => ({ ...current, mileage: km != null ? String(km) : '' }))
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [form.vehicle])
 
   const setDetail = (name: string, value: string) => setDetails((current) => ({ ...current, [name]: value }))
   const updateThirdParty = (index: number, patch: Partial<ThirdParty>) => setThirdParties(
@@ -163,6 +187,7 @@ export function NewIncidentPage() {
           value={form.vehicle}
           onValueChange={(vehicle) => setForm((current) => ({ ...current, vehicle }))}
           required
+          requiredVisual
         />}
         <div className="incident-grid breakdown-kind-date">
           <SelectField
@@ -171,33 +196,37 @@ export function NewIncidentPage() {
             value={form.type}
             onValueChange={(type) => setForm((current) => ({ ...current, type }))}
             required
+            requiredVisual
           />
-          <TextInputField label={t.newIncident.date} type="date" max={todayIso()} value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} required />
+          <TextInputField label={t.newIncident.date} type="date" max={todayIso()} value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} required requiredVisual />
         </div>
 
         {form.type === 'tires' && <section className="incident-section" aria-labelledby="tires-data-title">
           <h2 id="tires-data-title">{t.newIncident.tiresData}</h2>
-          <TextInputField label={t.newIncident.mileage} type="number" min={0} value={form.mileage} onChange={(event) => setForm((current) => ({ ...current, mileage: event.target.value }))} required />
+          <TextInputField label={t.newIncident.mileage} type="number" min={0} value={form.mileage} onChange={(event) => setForm((current) => ({ ...current, mileage: event.target.value }))} required requiredVisual />
+          {kmCurrent != null && (
+            <p className="update-hint">{t.newIncident.mileageFromReading(fmtKm(kmCurrent, language))}</p>
+          )}
           <SelectField label={t.newIncident.changeReason} options={[
             { value: '', label: t.newIncident.choose }, { value: 'wear', label: t.newIncident.wear },
             { value: 'puncture', label: t.newIncident.puncture },
-          ]} value={details.change_reason} onValueChange={(value) => setDetail('change_reason', value)} required />
+          ]} value={details.change_reason} onValueChange={(value) => setDetail('change_reason', value)} required requiredVisual />
           {details.change_reason === 'wear' && <>
             <SelectField label={t.newIncident.whichWheels} options={[
               { value: 'front', label: t.newIncident.front }, { value: 'rear', label: t.newIncident.rear },
               { value: 'all', label: t.newIncident.allWheels },
-            ]} value={details.wheel_scope} onValueChange={(value) => setDetail('wheel_scope', value)} required />
+            ]} value={details.wheel_scope} onValueChange={(value) => setDetail('wheel_scope', value)} required requiredVisual />
             <div className="incident-grid">
-              {(details.wheel_scope === 'front' || details.wheel_scope === 'all') && <TextInputField label={t.newIncident.frontMeasure} placeholder="205/55 R16" value={details.front_measure} onChange={(event) => setDetail('front_measure', event.target.value)} required />}
-              {(details.wheel_scope === 'rear' || details.wheel_scope === 'all') && <TextInputField label={t.newIncident.rearMeasure} placeholder="205/55 R16" value={details.rear_measure} onChange={(event) => setDetail('rear_measure', event.target.value)} required />}
+              {(details.wheel_scope === 'front' || details.wheel_scope === 'all') && <TextInputField label={t.newIncident.frontMeasure} placeholder="205/55 R16" value={details.front_measure} onChange={(event) => setDetail('front_measure', event.target.value)} required requiredVisual />}
+              {(details.wheel_scope === 'rear' || details.wheel_scope === 'all') && <TextInputField label={t.newIncident.rearMeasure} placeholder="205/55 R16" value={details.rear_measure} onChange={(event) => setDetail('rear_measure', event.target.value)} required requiredVisual />}
             </div>
           </>}
           {details.change_reason === 'puncture' && <div className="incident-grid">
             <SelectField label={t.newIncident.whichWheel} options={[
               { value: 'front_left', label: t.newIncident.frontLeft }, { value: 'front_right', label: t.newIncident.frontRight },
               { value: 'rear_left', label: t.newIncident.rearLeft }, { value: 'rear_right', label: t.newIncident.rearRight },
-            ]} value={details.wheel} onValueChange={(value) => setDetail('wheel', value)} required />
-            <TextInputField label={t.newIncident.tireMeasure} placeholder="205/55 R16" value={details.tire_measure} onChange={(event) => setDetail('tire_measure', event.target.value)} required />
+            ]} value={details.wheel} onValueChange={(value) => setDetail('wheel', value)} required requiredVisual />
+            <TextInputField label={t.newIncident.tireMeasure} placeholder="205/55 R16" value={details.tire_measure} onChange={(event) => setDetail('tire_measure', event.target.value)} required requiredVisual />
           </div>}
           <TextAreaField label={t.newIncident.comment} rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
         </section>}
@@ -205,25 +234,28 @@ export function NewIncidentPage() {
         {form.type === 'breakdown' && <section className="incident-section" aria-labelledby="breakdown-data-title">
           <h2 id="breakdown-data-title">{t.newIncident.breakdownData}</h2>
           <div className="incident-grid">
-            <TextInputField label={t.newIncident.mileage} type="number" min={0} value={form.mileage} onChange={(event) => setForm((current) => ({ ...current, mileage: event.target.value }))} required />
-            <TextInputField label={t.newIncident.workshopPostalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={form.workshopPostalCode} onChange={(event) => setForm((current) => ({ ...current, workshopPostalCode: event.target.value }))} required />
+            <TextInputField label={t.newIncident.mileage} type="number" min={0} value={form.mileage} onChange={(event) => setForm((current) => ({ ...current, mileage: event.target.value }))} required requiredVisual />
+            <TextInputField label={t.newIncident.workshopPostalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={form.workshopPostalCode} onChange={(event) => setForm((current) => ({ ...current, workshopPostalCode: event.target.value }))} required requiredVisual />
           </div>
-          <TextAreaField label={t.newIncident.description} rows={4} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder={t.newIncident.breakdownPlaceholder} required />
+          {kmCurrent != null && (
+            <p className="update-hint">{t.newIncident.mileageFromReading(fmtKm(kmCurrent, language))}</p>
+          )}
+          <TextAreaField label={t.newIncident.description} rows={4} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder={t.newIncident.breakdownPlaceholder} required requiredVisual />
         </section>}
 
         {form.type === 'accident' && <section className="incident-section" aria-labelledby="accident-data-title">
           <h2 id="accident-data-title">{t.newIncident.accidentData}</h2>
           <div className="incident-grid">
-            <TextInputField label={t.newIncident.street} value={details.street} onChange={(event) => setDetail('street', event.target.value)} required />
+            <TextInputField label={t.newIncident.street} value={details.street} onChange={(event) => setDetail('street', event.target.value)} required requiredVisual />
             <TextInputField label={t.newIncident.streetNumber} value={details.street_number} onChange={(event) => setDetail('street_number', event.target.value)} />
-            <TextInputField label={t.newIncident.postalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={details.postal_code} onChange={(event) => setDetail('postal_code', event.target.value)} required />
-            <TextInputField label={t.newIncident.locality} value={details.locality} onChange={(event) => setDetail('locality', event.target.value)} required />
-            <TextInputField label={t.newIncident.province} value={details.province} onChange={(event) => setDetail('province', event.target.value)} required />
-            <TextInputField label={t.newIncident.accidentAt} type="datetime-local" max={nowLocalDateTime()} value={details.occurred_at} onChange={(event) => setDetail('occurred_at', event.target.value)} required />
-            <TextInputField label={t.newIncident.phone} type="tel" value={details.phone} onChange={(event) => setDetail('phone', event.target.value)} required />
+            <TextInputField label={t.newIncident.postalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={details.postal_code} onChange={(event) => setDetail('postal_code', event.target.value)} required requiredVisual />
+            <TextInputField label={t.newIncident.locality} value={details.locality} onChange={(event) => setDetail('locality', event.target.value)} required requiredVisual />
+            <TextInputField label={t.newIncident.province} value={details.province} onChange={(event) => setDetail('province', event.target.value)} required requiredVisual />
+            <TextInputField label={t.newIncident.accidentAt} type="datetime-local" max={nowLocalDateTime()} value={details.occurred_at} onChange={(event) => setDetail('occurred_at', event.target.value)} required requiredVisual />
+            <TextInputField label={t.newIncident.phone} type="tel" value={details.phone} onChange={(event) => setDetail('phone', event.target.value)} required requiredVisual />
             <TextInputField label={t.newIncident.workshopPostalCodeOptional} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={form.workshopPostalCode} onChange={(event) => setForm((current) => ({ ...current, workshopPostalCode: event.target.value }))} />
           </div>
-          <TextAreaField label={t.newIncident.damageDescription} rows={4} value={details.damage_description} onChange={(event) => setDetail('damage_description', event.target.value)} required />
+          <TextAreaField label={t.newIncident.damageDescription} rows={4} value={details.damage_description} onChange={(event) => setDetail('damage_description', event.target.value)} required requiredVisual />
 
           <RepeatableHeader title={t.newIncident.thirdParties} addLabel={t.newIncident.add} onAdd={() => setThirdParties((rows) => [...rows, emptyThirdParty()])} />
           {thirdParties.map((row, index) => <div className="incident-repeat-card" key={`third-${index}`}>
@@ -258,7 +290,7 @@ export function NewIncidentPage() {
         </section>}
 
         {(form.type === 'general' || form.type === 'maintenance') && <>
-          <TextAreaField label={t.newIncident.description} rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder={t.newIncident.descPlaceholder} required />
+          <TextAreaField label={t.newIncident.description} rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder={t.newIncident.descPlaceholder} required requiredVisual />
         </>}
         {form.type !== 'maintenance' && <label className="file-field"><span>{t.newIncident.photos}</span><input type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple onChange={(event) => setPhotos(Array.from(event.target.files ?? []))} />{photos.length > 0 && <span className="doc-sub">{t.newIncident.photosSelected(photos.length)}</span>}</label>}
         {error && <div role="alert" className="form-error">{error}</div>}

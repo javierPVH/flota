@@ -19,6 +19,10 @@ const es = {
       breakdown: 'Avería',
       incident: 'Incidencia',
       projection: 'Proyección km',
+      /* Etiquetas CORTAS de las acciones del nav de "Mi vehículo". */
+      km: 'Km',
+      itv: 'ITV',
+      maintenance: 'Mantenimiento',
     },
     // Switch del supervisor: o estás en tu coche o estás en la flota.
     mode: {
@@ -47,6 +51,9 @@ const es = {
     registerKm: 'Registrar km',
     expandAll: 'Desplegar todo',
     collapseAll: 'Plegar todo',
+    /** Marca de campo OBLIGATORIO en los inputs artesanales — la misma
+     * pastilla que pone `requiredVisual` en los campos del DS. */
+    required: 'Obligatorio',
   },
   login: {
     brand: 'Flota',
@@ -67,8 +74,6 @@ const es = {
   },
   home: {
     myVehicles: 'Mis vehículos',
-    /** C1: título en singular cuando el conductor solo tiene un coche. */
-    myVehicle: 'Mi vehículo',
     myGroup: 'Mi grupo',
     searchPlaceholder: 'Buscar por matrícula o modelo…',
     searchLabel: 'Buscar vehículo',
@@ -77,8 +82,17 @@ const es = {
     pendingReading: 'lectura pendiente',
     /** Con última lectura conocida, la píldora dice desde cuándo falta. */
     pendingSince: (d: string) => `lectura pendiente desde el ${d}`,
+    /** «Próximas citas» (home + ficha): lectura, ITV y mantenimiento con
+     * fecha, semáforo y cuántos días faltan. */
+    upcomingTitle: 'Próximas citas',
+    kmDateLabel: 'Lectura de km',
+    kmDateDay: (d: number) => `el día ${d}`,
     nextItv: 'Próx. ITV',
     nextMaintenance: 'Próx. mantenimiento',
+    /** Acordeón del tablero: SOLO lo relacionado con averías (partes de
+     * avería, neumáticos y accidentes abiertos; mantenimiento e ITV, no). */
+    breakdownsTitle: 'Averías',
+    noBreakdowns: 'Sin averías abiertas.',
     driver: 'Conductor',
     /* Datos de gestión de la tarjeta (solo supervisor). */
     lastReading: 'Última lectura',
@@ -171,6 +185,8 @@ const es = {
     kmLabel: 'Km actual',
     readingOf: (d: string) => `Lectura del ${d}`,
     noReadings: 'Sin lecturas',
+    /** N8a: el último día de la ventana es el mejor para la lectura mensual. */
+    bestKmDay: (d: number) => `Mejor día para registrar los km: el ${d}`,
     nextItv: 'Próxima ITV',
     itvOverdue: 'Vencida',
     itvSoon: 'Próxima (≤30 días)',
@@ -187,7 +203,10 @@ const es = {
     noDriver: 'Sin conductor asignado',
     supervisor: 'Supervisor',
     use: 'Uso',
-    incidentsTitle: 'Incidencias abiertas',
+    /** Tarjeta fusionada de la ficha: alertas + incidencias abiertas, todo
+     * resoluble desde ahí (las incidencias, solo por el supervisor). */
+    alertsIncidentsTitle: 'Alertas e incidencias',
+    alertsIncidentsEmpty: 'Sin alertas ni incidencias abiertas. Todo al día.',
     noDate: 'Sin fecha',
     documentsTitle: 'Documentos',
     upload: 'Subir',
@@ -199,8 +218,10 @@ const es = {
     itvResult: 'Resultado',
     itvResultDone: 'Favorable',
     itvResultNotDone: 'Desfavorable',
-    itvNextDue: 'Próxima ITV (fecha del informe)',
+    itvNextDue: 'Próxima ITV (opcional)',
+    itvAnyDate: 'Se puede registrar antes o después de esa fecha.',
     itvAutoClose: 'Al registrarla, los avisos de ITV del vehículo se cierran automáticamente.',
+    itvNotDoneNote: 'Una ITV desfavorable no cierra los avisos: la cita sigue pendiente.',
     itvSubmit: 'Registrar ITV',
     itvSubmitting: 'Registrando…',
     itvOk: 'ITV registrada. Los avisos asociados se cierran y la próxima fecha queda actualizada.',
@@ -539,6 +560,8 @@ const es = {
     breakdownData: 'Datos de la avería',
     accidentData: 'Datos del accidente',
     mileage: 'Kilometraje actual',
+    /** Pista bajo el odómetro cuando viene precargado del resumen del coche. */
+    mileageFromReading: (value: string) => `Última lectura conocida: ${value}`,
     workshopPostalCode: 'Código postal del taller',
     workshopPostalCodeOptional: 'CP del taller (opcional)',
     preferredAt: 'Fecha y hora de preferencia',
@@ -635,6 +658,9 @@ const en: typeof es = {
       breakdown: 'Breakdown',
       incident: 'Incident',
       projection: 'Km projection',
+      km: 'Km',
+      itv: 'MOT',
+      maintenance: 'Maintenance',
     },
     mode: {
       label: 'Switch view',
@@ -659,6 +685,7 @@ const en: typeof es = {
     registerKm: 'Log km',
     expandAll: 'Expand all',
     collapseAll: 'Collapse all',
+    required: 'Required',
   },
   login: {
     brand: 'Fleet',
@@ -679,7 +706,6 @@ const en: typeof es = {
   },
   home: {
     myVehicles: 'My vehicles',
-    myVehicle: 'My vehicle',
     myGroup: 'My group',
     searchPlaceholder: 'Search by plate or model…',
     searchLabel: 'Search vehicle',
@@ -687,8 +713,13 @@ const en: typeof es = {
     km: 'Km',
     pendingReading: 'reading due',
     pendingSince: (d) => `reading due since ${d}`,
+    upcomingTitle: 'Upcoming dates',
+    kmDateLabel: 'Km reading',
+    kmDateDay: (d) => `day ${d}`,
     nextItv: 'Next MOT',
     nextMaintenance: 'Next service',
+    breakdownsTitle: 'Breakdowns',
+    noBreakdowns: 'No open breakdowns.',
     driver: 'Driver',
     lastReading: 'Last reading',
     noReading: 'No readings',
@@ -771,6 +802,7 @@ const en: typeof es = {
     kmLabel: 'Current km',
     readingOf: (d) => `Reading from ${d}`,
     noReadings: 'No readings',
+    bestKmDay: (d) => `Best day to log the km: day ${d}`,
     nextItv: 'Next MOT',
     itvOverdue: 'Overdue',
     itvSoon: 'Due soon (≤30 days)',
@@ -787,7 +819,8 @@ const en: typeof es = {
     noDriver: 'No driver assigned',
     supervisor: 'Supervisor',
     use: 'Use',
-    incidentsTitle: 'Open incidents',
+    alertsIncidentsTitle: 'Alerts & incidents',
+    alertsIncidentsEmpty: 'No open alerts or incidents. All clear.',
     noDate: 'No date',
     documentsTitle: 'Documents',
     upload: 'Upload',
@@ -799,8 +832,10 @@ const en: typeof es = {
     itvResult: 'Result',
     itvResultDone: 'Passed',
     itvResultNotDone: 'Failed',
-    itvNextDue: 'Next MOT (report date)',
+    itvNextDue: 'Next MOT (optional)',
+    itvAnyDate: 'It can be logged before or after that date.',
     itvAutoClose: "Logging it automatically closes the vehicle's MOT alerts.",
+    itvNotDoneNote: 'A failed MOT does not close the alerts: the appointment stays open.',
     itvSubmit: 'Log MOT',
     itvSubmitting: 'Logging…',
     itvOk: 'MOT logged. Related alerts are closed and the next date is updated.',
@@ -1119,6 +1154,7 @@ const en: typeof es = {
     breakdownData: 'Breakdown details',
     accidentData: 'Accident details',
     mileage: 'Current mileage',
+    mileageFromReading: (value) => `Last known reading: ${value}`,
     workshopPostalCode: 'Workshop postal code',
     workshopPostalCodeOptional: 'Workshop postal code (optional)',
     preferredAt: 'Preferred date and time',

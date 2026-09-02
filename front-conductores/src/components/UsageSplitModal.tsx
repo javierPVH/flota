@@ -144,6 +144,7 @@ export function UsageSplitModal({
           value={startDate}
           onChange={(e) => setStartDate(e.target.value)}
           required
+          requiredVisual
         />
 
         {error && <div role="alert" className="form-error">{error}</div>}

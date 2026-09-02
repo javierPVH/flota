@@ -90,7 +90,7 @@ export function AlertResolveModal({
           <>
             <p className="update-hint">{t.alerts.resolveKmIntro}</p>
             <label className="reminder-check" style={{ display: 'block' }}>
-              {t.alerts.resolveKmLabel}
+              {t.alerts.resolveKmLabel} <span className="req-badge" aria-hidden>{t.common.required}</span>
               <input
                 type="number"
                 inputMode="numeric"
@@ -98,6 +98,7 @@ export function AlertResolveModal({
                 className="update-input"
                 value={km}
                 onChange={(e) => setKm(e.target.value)}
+                required
               />
             </label>
             {summary?.km_current !== null && summary?.km_current !== undefined && (

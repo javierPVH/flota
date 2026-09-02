@@ -48,8 +48,10 @@ from .models import (
     VehicleRequest,
     VehicleUsage,
     Workshop,
+    driver_assignment_clash,
+    driver_clash_message,
 )
-from .models.enums import VehicleState
+from .models.enums import AssignmentStatus, VehicleState
 
 
 @dataclass(frozen=True)
@@ -307,6 +309,22 @@ class ErratasRestoreView(APIView):
             obj.is_active = True
             obj.save(update_fields=["is_active"])
         else:
+            # Un coche por conductor a la vez: revivir una asignación aceptada
+            # EN CURSO no puede darle un segundo coche al conductor. (El lado
+            # del vehículo ya lo protege la unique parcial de la BD.)
+            if (
+                isinstance(obj, Assignment)
+                and obj.status == AssignmentStatus.ACCEPTED
+                and obj.end_date is None
+            ):
+                clash = driver_assignment_clash(
+                    obj.driver_id,
+                    is_substitute=obj.vehicle.is_substitute,
+                    start_date=obj.start_date,
+                    exclude_pk=obj.pk,
+                )
+                if clash:
+                    raise ValidationError({"detail": driver_clash_message(clash)})
             obj.restore()
         return Response({"restored": True, "type": kind, "id": obj.pk})
 

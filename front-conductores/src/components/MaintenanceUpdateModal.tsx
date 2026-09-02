@@ -3,13 +3,23 @@ import { ChevronDown } from 'lucide-react'
 import { Button } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { listMaintenancePlans, markMaintenanceDone, type MaintenancePlanRow } from '../api.ts'
-import { fmtDate, fmtKm, todayIso } from '../format.ts'
+import {
+  listIncidents,
+  listMaintenancePlans,
+  markMaintenanceDone,
+  type MaintenancePlanRow,
+} from '../api.ts'
+import { useAuth } from '../auth.ts'
+import { fmtDate, fmtKm, isOpenBreakdown, tireReportSummary, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import type { Vehicle } from '../types.ts'
+import type { Incident, Vehicle } from '../types.ts'
+import { IncidentResolveModal } from './IncidentResolveModal.tsx'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
-/** Gestión exclusiva del mantenimiento, sin accesos a km ni averías. */
+/** Gestión del mantenimiento (planes) y, debajo, las AVERÍAS sin cerrar del
+ * coche — las mismas del acordeón del tablero — para poder SOLUCIONARLAS aquí
+ * mismo. Cerrar incidencias es cosa de gestión (el back exige IsManagement),
+ * así que el botón solo sale al supervisor; el conductor las ve. */
 export function MaintenanceUpdateModal({
   vehicle,
   onClose,
@@ -20,6 +30,8 @@ export function MaintenanceUpdateModal({
   onSaved?: () => void
 }) {
   const { t, language } = useLang()
+  const { user } = useAuth()
+  const isSupervisor = user?.roles.includes('supervisor') ?? false
   const [plans, setPlans] = useState<MaintenancePlanRow[] | null>(null)
   const [savingPlan, setSavingPlan] = useState<number | null>(null)
   const [expandedPlan, setExpandedPlan] = useState<number | null>(null)
@@ -29,10 +41,17 @@ export function MaintenanceUpdateModal({
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
+  // Averías sin cerrar y su solución (el modal compartido las cierra).
+  const [incidents, setIncidents] = useState<Incident[] | null>(null)
+  const [resolveFor, setResolveFor] = useState<Incident | null>(null)
+
   useEffect(() => {
     listMaintenancePlans(vehicle.id)
       .then((page) => setPlans(page.results))
       .catch(() => setError(t.carUpdate.loadError))
+    listIncidents(vehicle.id)
+      .then((page) => setIncidents(page.results.filter(isOpenBreakdown)))
+      .catch(() => setIncidents([]))
   }, [vehicle.id, t])
 
   function planCycle(plan: MaintenancePlanRow): string {
@@ -126,6 +145,54 @@ export function MaintenanceUpdateModal({
         ))}
       </ul>
 
+      {/* AVERÍAS sin cerrar (las del acordeón del tablero): el supervisor las
+          soluciona aquí con su fecha; el conductor las ve, sin botón. */}
+      <h3 className="panel-title update-subtitle">{t.home.breakdownsTitle}</h3>
+      {incidents !== null && incidents.length === 0 && (
+        <p className="empty-note">{t.home.noBreakdowns}</p>
+      )}
+      <ul className="update-incidents">
+        {(incidents ?? []).map((incident) => (
+          <li key={incident.id} className="update-incident">
+            <div className="update-incident-info">
+              <strong>{incident.type_display}</strong>
+              <small>
+                {incident.date ? fmtDate(incident.date, language) : t.carUpdate.noDate}
+                {' · '}{incident.status_display}
+              </small>
+              {/* Neumáticos: motivo del cambio y rueda — en ese parte la
+                  observación es opcional, así que no puede ser el único dato. */}
+              {tireReportSummary(incident, t.newIncident) && (
+                <span className="incident-tire-line">
+                  {tireReportSummary(incident, t.newIncident)}
+                </span>
+              )}
+              {incident.description && <span>{incident.description}</span>}
+            </div>
+            {isSupervisor && (
+              <div className="update-incident-actions">
+                <Button type="button" size="sm" onClick={() => setResolveFor(incident)}>
+                  {t.carUpdate.actionResolve}
+                </Button>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {resolveFor && (
+        <IncidentResolveModal
+          incident={resolveFor}
+          onClose={() => setResolveFor(null)}
+          onResolved={() => {
+            setIncidents((rows) => (rows ?? []).filter((item) => item.id !== resolveFor.id))
+            setResolveFor(null)
+            setNotice(t.carUpdate.resolvedNote)
+            onSaved?.()
+          }}
+        />
+      )}
+
       {planDateFor && (
         <SupervisorModal
           open
@@ -140,8 +207,8 @@ export function MaintenanceUpdateModal({
         >
           <div className="modal-form">
             <label className="reminder-check">
-              {t.carUpdate.planDateLabel}
-              <input type="date" max={todayIso()} className="update-input" value={planDate} onChange={(event) => setPlanDate(event.target.value)} />
+              {t.carUpdate.planDateLabel} <span className="req-badge" aria-hidden>{t.common.required}</span>
+              <input type="date" max={todayIso()} className="update-input" value={planDate} onChange={(event) => setPlanDate(event.target.value)} required />
             </label>
             <Button type="button" variant="secondary" onClick={() => setPlanDate(todayIso())}>{t.carUpdate.planToday}</Button>
           </div>

@@ -272,7 +272,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Realizado en:' }))
     const dateDialog = screen.getByRole('dialog', { name: /Realizar mantenimiento/ })
     expect(within(dateDialog).getByRole('button', { name: 'Realizado hoy' })).toBeInTheDocument()
-    fireEvent.change(within(dateDialog).getByLabelText('Fecha de realización'), {
+    fireEvent.change(within(dateDialog).getByLabelText(/Fecha de realización/), {
       target: { value: '2026-08-24' },
     })
     await userEvent.click(within(dateDialog).getByRole('button', { name: 'Aceptar fecha' }))
@@ -373,7 +373,13 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     // CP y fecha/hora ya no están en el parte inicial: viven en Gestión.
     expect(screen.queryByLabelText('Código postal del taller')).toBeNull()
     expect(screen.queryByLabelText('Fecha y hora de preferencia')).toBeNull()
-    await userEvent.type(screen.getByLabelText('Kilometraje actual'), '45000')
+    // El odómetro viene PRECARGADO con la última lectura conocida del coche
+    // (y se dice de dónde sale); el conductor lo corrige si ha rodado más.
+    const mileage = screen.getByLabelText('Kilometraje actual')
+    expect(mileage).toHaveValue(1000)
+    expect(screen.getByText(/Última lectura conocida/)).toBeInTheDocument()
+    await userEvent.clear(mileage)
+    await userEvent.type(mileage, '45000')
     // En desgaste, selector y primera medida comparten fila.
     await userEvent.selectOptions(screen.getByLabelText('Motivo del cambio'), 'wear')
     expect(screen.getByLabelText('¿Qué ruedas?').closest('.incident-grid')).toContainElement(

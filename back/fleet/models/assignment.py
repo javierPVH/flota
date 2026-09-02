@@ -13,6 +13,55 @@ from .base import DeactivatableModel, TimeStampedModel
 from .enums import AssignmentStatus, LinkReason, VehicleState
 
 
+def driver_assignment_clash(
+    driver_id,
+    *,
+    is_substitute: bool,
+    start_date=None,
+    end_date=None,
+    exclude_pk=None,
+    exclude_vehicle_id=None,
+):
+    """Asignación ACEPTADA del conductor que choca con una nueva (o ``None``).
+
+    Regla de negocio: **un conductor lleva UN coche a la vez** y, si el suyo se
+    avería, puede sumar SOLO el de sustitución. Se compara por clase
+    (`Vehicle.is_substitute`): principal + sustituto conviven; dos principales
+    (o dos sustitutos) a la vez, no.
+
+    El solape es por fechas con el criterio del dominio: fin NULL = en curso, y
+    fin == inicio de la siguiente es un relevo válido (así cierra la gestión la
+    vigente al aceptar la nueva). El mismo vehículo se excluye: el relevo
+    dentro de un coche ya lo gobiernan `accept`/`set_driver` y la constraint
+    `unique_active_assignment_per_vehicle`.
+    """
+    qs = Assignment.objects.filter(
+        driver_id=driver_id,
+        status=AssignmentStatus.ACCEPTED,
+        is_active=True,
+        vehicle__is_substitute=is_substitute,
+    ).select_related("vehicle")
+    if exclude_pk is not None:
+        qs = qs.exclude(pk=exclude_pk)
+    if exclude_vehicle_id is not None:
+        qs = qs.exclude(vehicle_id=exclude_vehicle_id)
+    # Sin inicio explícito, la nueva empieza "ya" (mismo default que accept).
+    if start_date is not None:
+        qs = qs.filter(models.Q(end_date__isnull=True) | models.Q(end_date__gt=start_date))
+    if end_date is not None:
+        qs = qs.filter(models.Q(start_date__isnull=True) | models.Q(start_date__lt=end_date))
+    return qs.first()
+
+
+def driver_clash_message(clash) -> str:
+    """Mensaje único para la regla, allá donde se valide."""
+    kind = "el sustituto" if clash.vehicle.is_substitute else "el"
+    return (
+        f"El conductor ya lleva {kind} {clash.vehicle.plate} en ese periodo: "
+        "un coche por conductor a la vez (más el de sustitución si el suyo está parado)."
+    )
+
+
 class Assignment(DeactivatableModel, TimeStampedModel):
     """DBML `assignments` — conductor asignado a un vehículo en un periodo.
 
@@ -69,6 +118,21 @@ class Assignment(DeactivatableModel, TimeStampedModel):
         # HU-2.1: no se puede asignar un conductor a un vehículo en baja.
         if self.vehicle_id and self.vehicle.state == VehicleState.BAJA:
             raise ValidationError("No se puede asignar un conductor a un vehículo en baja.")
+        # Un coche por conductor a la vez (+ el sustituto aparte). También en
+        # el admin: DRF no llama a clean(), así que los serializers y las
+        # acciones repiten esta misma comprobación vía driver_assignment_clash.
+        if self.driver_id and self.vehicle_id and self.is_active:
+            if self.status == AssignmentStatus.ACCEPTED:
+                clash = driver_assignment_clash(
+                    self.driver_id,
+                    is_substitute=self.vehicle.is_substitute,
+                    start_date=self.start_date,
+                    end_date=self.end_date,
+                    exclude_pk=self.pk,
+                    exclude_vehicle_id=self.vehicle_id,
+                )
+                if clash:
+                    raise ValidationError({"driver": driver_clash_message(clash)})
 
 
 class VehicleUsage(DeactivatableModel, TimeStampedModel):

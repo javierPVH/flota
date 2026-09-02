@@ -406,6 +406,8 @@ refresca tras registrar una ITV.
 ## A13 · `itv.next_due` obligatorio en el back, opcional en los formularios 🟠 (S) — ✅ IMPLEMENTADA
 
 > **Cómo quedó**: paso 3: `next_due` obligatoria y habilitada SOLO con resultado favorable en los dos fronts, y no se envía con «no pasada» (coherente con la regla decidida en C5).
+>
+> **Revisión 2026-08-31**: `next_due` pasa a **opcional también con favorable** (la fecha viene del informe y en campo puede no estar a mano): el back la acepta ausente y el formulario de conductores ya no la marca ni la exige. Consecuencia decidida el mismo día: manda **la última favorable aunque venga sin fecha**, así que registrar sin ella deja el coche **sin cita** (`next_itv_date` a nulo) en vez de arrastrar la anterior — conservarla dejaba la fecha vieja pintada en ámbar/rojo en las fichas y `check_itv` levantaba después una crítica de «ITV vencida» por una inspección ya hecha (`signals.on_itv_registered` y `alerts.refresh_next_itv_dates` ya no filtran los nulos). Las cotas de C5 (posterior a la inspección, dentro del horizonte) siguen aplicando cuando se envía; front-gestion la mantiene obligatoria en su formulario, que es la vía por la que entra el informe. El modal de conductores abre además con un aviso de qué cita se está atendiendo y de que se puede registrar antes o después. Tests: `test_rules.ItvHorizonTests` (`…without_next_due_clears_the_appointment`, `…report_logged_later_restores_the_appointment`), `RegisterItvModal.test.tsx`.
 
 - [back/fleet/serializers.py:659-664](back/fleet/serializers.py#L659-L664) ·
   [AlertsPage.tsx:383-388](front-gestion/src/pages/AlertsPage.tsx#L383-L388) ·

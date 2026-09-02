@@ -3,13 +3,13 @@ import { Link } from 'react-router-dom'
 import { CalendarClock, ChevronDown, Gauge } from 'lucide-react'
 
 import type { KmWindow } from '../api.ts'
-import { daysUntil, fmtDate, pendingThisMonth } from '../format.ts'
+import { SOON_DAYS, daysUntil, fmtDate, pendingThisMonth } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 
 /** Umbrales de "queda poco": por debajo de esto el aviso aparece en el inicio.
  * Encima, nada — el acordeón solo debe salir cuando hay algo que hacer YA. */
-const ITV_SOON_DAYS = 30 // mismo umbral que el semáforo `dueClass` del DS
+const ITV_SOON_DAYS = SOON_DAYS // el horizonte común de «cita próxima»
 const URGENT_DAYS = 7 // ≤ 7 días (o ya vencido) → rojo en vez de naranja
 const KM_CLOSING_SOON_DAYS = 5 // quedan ≤ 5 días de ventana y falta la lectura
 const KM_OPENING_SOON_DAYS = 3 // la ventana abre en ≤ 3 días y falta la lectura

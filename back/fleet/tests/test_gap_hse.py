@@ -362,7 +362,7 @@ class MaintenancePlanTests(APITestCase):
         # Un segundo plan más cercano manda sobre el anterior.
         MaintenancePlan.objects.create(
             vehicle=self.vehicle,
-            name="Neumáticos",
+            name="Revisión de frenos",
             every_months=6,
             last_done_date=date(2026, 3, 1),
         )
@@ -394,7 +394,7 @@ class MaintenancePlanTests(APITestCase):
 
     def test_km_cycle_warns_inside_the_margin_and_escalates_on_target(self):
         plan = MaintenancePlan.objects.create(
-            vehicle=self.vehicle, name="Neumáticos", every_km=10000, last_done_km=0
+            vehicle=self.vehicle, name="Cambio de aceite", every_km=10000, last_done_km=0
         )
         KmReading.objects.create(
             vehicle=self.vehicle, reading_date=timezone.localdate(), km_reading=9500

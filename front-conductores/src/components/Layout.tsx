@@ -14,6 +14,7 @@ import { LanguageToggleButton } from '@flota/ui/ui'
 
 import { fetchVehicleSummaries, listVehicles } from '../api.ts'
 import { useAuth } from '../auth.ts'
+import { FleetModeContext } from '../fleetMode.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 import { VehicleActionButtons } from './VehicleActionButtons.tsx'
@@ -39,6 +40,14 @@ export interface LayoutContext {
   setFleetMode: (fleet: boolean) => void
   /** null = conductor (su ámbito ya es el suyo) o aún cargando. */
   ownPair: OwnPair | null
+  /**
+   * Contador que sube cada vez que se GUARDA algo desde el bottom-nav (km,
+   * ITV, mantenimiento, avería, documento). Los modales del nav viven FUERA
+   * del Outlet, así que la página no se enteraba: la home seguía anunciando
+   * «Próx. ITV» de una ITV ya registrada hasta recargar a mano. Métete este
+   * número en las dependencias de tu carga y se refresca sola.
+   */
+  dataVersion: number
 }
 
 const MODE_KEY = 'flota:vista'
@@ -85,6 +94,9 @@ export function Layout() {
   const [ownPair, setOwnPair] = useState<OwnPair | null>(null)
   const [actionVehicle, setActionVehicle] = useState<Vehicle | null>(null)
   const [actionSummary, setActionSummary] = useState<VehicleSummary | null>(null)
+  // Guardar desde el nav refresca al propio shell (su resumen alimenta la
+  // cita de ITV del modal y el punto de "km pendiente") y avisa a la página.
+  const [dataVersion, setDataVersion] = useState(0)
   useEffect(() => {
     if (!user) return
     let alive = true
@@ -124,7 +136,7 @@ export function Layout() {
     return () => {
       alive = false
     }
-  }, [isSupervisor, user])
+  }, [isSupervisor, user, dataVersion])
 
   const onFlushed = useCallback(
     (result: FlushResult) => {
@@ -156,6 +168,10 @@ export function Layout() {
   ).toUpperCase()
 
   return (
+    // El modo va por contexto propio: también lo leen los modales del nav
+    // inferior, que viven fuera del Outlet (p. ej. para callar el aviso de
+    // "quedará registrado a tu nombre" en Mi vehículo).
+    <FleetModeContext.Provider value={fleetMode}>
     <div className="app-shell mobile">
       {/* Header claro corporativo compacto (Fase 1): logo + marca a la izquierda;
           idioma, avatar y salir a la derecha. La navegación vive en el bottom-nav. */}
@@ -233,16 +249,24 @@ export function Layout() {
         )}
       </div>
       <main className="app-main">
-        <Outlet context={{ fleetMode, setFleetMode, ownPair } satisfies LayoutContext} />
+        <Outlet context={{ fleetMode, setFleetMode, ownPair, dataVersion } satisfies LayoutContext} />
       </main>
       <nav className="bottom-nav" aria-label={t.shell.navLabel}>
         {!fleetMode && (
-          <VehicleActionButtons
-            vehicle={noCar ? null : actionVehicle}
-            summary={actionSummary}
-            variant="nav"
-            pending={pending > 0}
-          />
+          <>
+            {/* Inicio primero, como en el nav de Flota: vuelve a la tarjeta. */}
+            <NavLink to="/" end className="bottom-tab">
+              <Home size={22} strokeWidth={2.4} aria-hidden />
+              <span>{t.shell.tabs.home}</span>
+            </NavLink>
+            <VehicleActionButtons
+              vehicle={noCar ? null : actionVehicle}
+              summary={actionSummary}
+              variant="nav"
+              pending={pending > 0}
+              onSaved={() => setDataVersion((version) => version + 1)}
+            />
+          </>
         )}
         {isSupervisor && fleetMode && (
           <>
@@ -262,5 +286,6 @@ export function Layout() {
         )}
       </nav>
     </div>
+    </FleetModeContext.Provider>
   )
 }

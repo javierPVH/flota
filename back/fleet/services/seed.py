@@ -115,6 +115,9 @@ _DNI_LETTERS = "TRWAGMYFPDXBNJZSQVHL"
 # Letras válidas de un VIN (la norma ISO 3779 excluye I, O y Q).
 _VIN_LETTERS = "ABCDEFGHJKLMNPRSTUVWXYZ"
 
+# 20 conductores: uno por cada vehículo de volumen que recibe asignación
+# vigente (regla "un coche por conductor a la vez" — Assignment.clean()).
+# Nombres de EJEMPLO (nunca personales reales) — política GRS.
 BULK_DRIVERS = [
     ("pedro", "Pedro", "Alonso"),
     ("ana", "Ana", "Castro"),
@@ -128,9 +131,17 @@ BULK_DRIVERS = [
     ("paula", "Paula", "Reyes"),
     ("oscar", "Óscar", "Molina"),
     ("teresa", "Teresa", "Gil"),
+    ("hugo", "Hugo", "Ortega"),
+    ("celia", "Celia", "Ramos"),
+    ("dario", "Darío", "Fuentes"),
+    ("alba", "Alba", "Pascual"),
+    ("mario", "Mario", "Lozano"),
+    ("irene", "Irene", "Salas"),
+    ("victor", "Víctor", "Cabrera"),
+    ("laura", "Laura", "Bravo"),
 ]
 
-# Los 12 conductores de volumen recorren los 6 tipos de permiso (dos vueltas).
+# Los 20 conductores de volumen recorren los 6 tipos de permiso (3+ vueltas).
 BULK_LICENSES = [
     LicenseType.B,
     LicenseType.C1,
@@ -417,7 +428,7 @@ def seed_users(stdout=None) -> None:
             first_name=first,
             last_name=last,
             dni=f"44{i:06d}{_DNI_LETTERS[i % 20]}",
-            # Recorre los 6 tipos de permiso (12 conductores = dos vueltas).
+            # Recorre los 6 tipos de permiso (20 conductores = 3+ vueltas).
             license_type=BULK_LICENSES[i % len(BULK_LICENSES)],
             fuel_card=i % 3 == 0,
             phone=_phone(10 + i),
@@ -1071,14 +1082,20 @@ def seed_assignments(stdout=None) -> None:
 
     # -- Volumen: conductor vigente para el grueso de la flota nueva, algunos
     # SIN conductor (alerta no_driver), históricos finalizados y propuestas.
+    # Regla "un coche por conductor a la vez": cada conductor de volumen recibe
+    # UNA asignación vigente como mucho (BULK_DRIVERS tiene exactamente uno por
+    # coche elegible; si sobran coches, quedan sin conductor).
     drivers = [User.objects.get(username=username) for username, _, _ in BULK_DRIVERS]
+    libres = iter(drivers)
     for i in range(BULK_VEHICLES):
         vehicle = Vehicle.objects.get(plate=_bulk_plate(i))
         if vehicle.state == VehicleState.BAJA or vehicle.is_substitute:
             continue
         if i % 5 == 3:
             continue  # sin conductor a propósito → alerta no_driver
-        driver = drivers[i % len(drivers)]
+        driver = next(libres, None)
+        if driver is None:
+            continue  # sin conductores libres → coche sin asignar
         start = today - timedelta(days=30 + (i * 11) % 300)
         # 1 de cada 6 tuvo otro conductor antes (histórico de la ficha).
         if i % 6 == 2:
@@ -1257,6 +1274,7 @@ def seed_operations(stdout=None) -> None:
     carlos = User.objects.get(username="carlos")
     lucia = User.objects.get(username="lucia")
     david = User.objects.get(username="david")
+    sara = User.objects.get(username="sara")
     v1 = Vehicle.objects.get(plate="1234KLM")
     v2 = Vehicle.objects.get(plate="5678BCD")
     v3 = Vehicle.objects.get(plate="7890NPQ")
@@ -1267,11 +1285,12 @@ def seed_operations(stdout=None) -> None:
     all_cecos = list(Pep.objects.order_by("code"))
 
     # ITV: la señal refresca next_itv_date. v1 a 10 días (aviso), v2 VENCIDA,
-    # v3 lejos (sin aviso).
+    # v3 a 12 días — el coche de la supervisora enseña la cita y su alerta en
+    # el tablero de «Mi vehículo» de la app de campo.
     for vehicle, next_due in (
         (v1, today + timedelta(days=10)),
         (v2, today - timedelta(days=6)),
-        (v3, today + timedelta(days=200)),
+        (v3, today + timedelta(days=12)),
     ):
         event = Event.objects.create(
             vehicle=vehicle,
@@ -1391,6 +1410,102 @@ def seed_operations(stdout=None) -> None:
         uploaded_by=admin,
         status=DocumentStatus.VALID,
         notes="Contrato de la tarjeta de recarga eléctrica.",
+    )
+    # El coche de la supervisora (7890NPQ) es el ESCAPARATE del tablero de
+    # «Mi vehículo» de la app de campo: documentos de varios tipos y estados,
+    # seguro a 15 días (la señal N2 lo denormaliza a la ficha → alerta), ITV a
+    # 12 días (arriba) y dos planes de mantenimiento (más abajo). Así `sara` ve
+    # alertas, documentos y mantenimiento con variantes sin salir de su coche.
+    # Ojo: su documento «OTRO» de la tarjeta de recarga lo retira `seed_erratas`
+    # (es el primero de ese tipo por id) — estos otros no se tocan.
+    poliza_vieja_v3 = Document.objects.create(
+        vehicle=v3,
+        type=DocumentType.INSURANCE,
+        drive_url="https://drive.example/seguro-7890NPQ-2025",
+        drive_file_id="drv-file-seguro-7890NPQ-2025",
+        uploaded_by=admin,
+        expiry_date=today - timedelta(days=350),
+        status=DocumentStatus.EXPIRED,
+        notes="Póliza de la anualidad anterior.",
+    )
+    Document.objects.create(
+        vehicle=v3,
+        type=DocumentType.INSURANCE,
+        drive_url="https://drive.example/seguro-7890NPQ",
+        drive_file_id="drv-file-seguro-7890NPQ",
+        uploaded_by=admin,
+        expiry_date=today + timedelta(days=15),
+        status=DocumentStatus.VALID,
+        replaces=poliza_vieja_v3,
+    )
+    Document.objects.create(
+        vehicle=v3,
+        type=DocumentType.TECHNICAL_SHEET,
+        drive_url="https://drive.example/ficha-7890NPQ",
+        drive_file_id="drv-file-ficha-7890NPQ",
+        uploaded_by=admin,
+        status=DocumentStatus.VALID,
+    )
+    Document.objects.create(
+        vehicle=v3,
+        type=DocumentType.REGISTRATION,
+        drive_url="https://drive.example/permiso-7890NPQ",
+        drive_file_id="drv-file-permiso-7890NPQ",
+        uploaded_by=admin,
+        status=DocumentStatus.VALID,
+    )
+    Document.objects.create(
+        vehicle=v3,
+        type=DocumentType.HANDOVER_ACT,
+        drive_url="https://drive.example/acta-entrega-7890NPQ",
+        drive_file_id="drv-file-entrega-7890NPQ",
+        uploaded_by=sara,
+        status=DocumentStatus.VALID,
+        notes="Acta de entrega firmada al recoger el coche.",
+    )
+    Document.objects.create(
+        vehicle=v3,
+        type=DocumentType.DAMAGE_PHOTOS,
+        drive_url="",
+        uploaded_by=sara,
+        status=DocumentStatus.PENDING_ARCHIVE,  # se ve el estado "pendiente"
+        notes="Rozadura en la llanta delantera derecha.",
+    )
+    # Y sus AVERÍAS abiertas: el acordeón «Averías» del tablero de campo lista
+    # los partes de avería/neumáticos/accidente sin cerrar. La incidencia de
+    # MANTENIMIENTO no debe salir ahí (va por su vía): sembrarla permite
+    # comprobar el filtro en QA.
+    Incident.objects.create(
+        vehicle=v3,
+        type=IncidentType.BREAKDOWN,
+        date=today - timedelta(days=3),
+        description="Testigo de batería encendido al arrancar.",
+        status=IncidentStatus.OPEN,
+    )
+    # Con el PARTE GUIADO completo (`report_version: 1`): las listas de averías
+    # de campo enseñan el motivo del cambio y la rueda a partir de estos
+    # detalles, no del comentario (que en este parte es opcional).
+    Incident.objects.create(
+        vehicle=v3,
+        type=IncidentType.TIRES,
+        date=today - timedelta(days=8),
+        description="Desgaste irregular en el neumático delantero izquierdo.",
+        status=IncidentStatus.IN_PROGRESS,
+        mileage=2450,
+        workshop_postal_code="28001",
+        details={
+            "report_version": 1,
+            "change_reason": "wear",
+            "wheel_scope": "front",
+            "front_measure": "205/55 R16",
+        },
+    )
+    Incident.objects.create(
+        vehicle=v3,
+        type=IncidentType.MAINTENANCE,
+        date=today - timedelta(days=15),
+        description="Revisión anual pendiente de cita con el taller.",
+        status=IncidentStatus.OPEN,
     )
     # Documentos PERSONALES (titular = usuario, no coche): el permiso de
     # conducir de cada conductor. Uno vigente y otro caducado, para que la
@@ -1683,12 +1798,39 @@ def seed_operations(stdout=None) -> None:
     # El ciclo se deriva del odómetro real para que el objetivo quede SIEMPRE
     # a 500 km (dentro del margen de aviso de 1000): con una cifra fija, un
     # odómetro bajo dejaba el plan lejos del objetivo y sin aviso que enseñar.
+    # REGLA de dominio: los neumáticos SIEMPRE son una avería (incidencia
+    # `tires`), nunca un plan de mantenimiento — ver PLAN_MANTENIMIENTOS_
+    # ANUALES §3.1/§12. Los ciclos por km del seed usan conceptos de taller.
     MaintenancePlan.objects.create(
         vehicle=v1,
-        name="Neumáticos",
+        name="Cambio de aceite y filtros",
         every_km=max(1000, km_actual_v1 + 500),
         last_done_km=0,
-        notes="Cambio de neumáticos por desgaste.",
+        notes="Cambio de aceite y filtros por kilometraje.",
+    )
+    # El coche de la supervisora (7890NPQ): ciclo por FECHA a ~14 días (aviso
+    # y fila de «Próximas citas» en su tablero) y ciclo por KM ya SUPERADO
+    # (alerta crítica). El objetivo se deriva del odómetro real, como en v1,
+    # para que quede siempre por detrás de la última lectura.
+    MaintenancePlan.objects.create(
+        vehicle=v3,
+        name="Revisión anual",
+        every_months=12,
+        last_done_date=today - timedelta(days=351),  # toca en ~14 días → aviso
+        notes="Revisión anual del fabricante.",
+    )
+    ultima_v3 = (
+        KmReading.objects.filter(vehicle=v3, km_reading__isnull=False, is_active=True)
+        .order_by("-reading_date", "-id")
+        .first()
+    )
+    km_actual_v3 = ultima_v3.km_reading if ultima_v3 else 0
+    MaintenancePlan.objects.create(
+        vehicle=v3,
+        name="Revisión de frenos",
+        every_km=max(1, km_actual_v3 - 300),  # objetivo ya superado → crítica
+        last_done_km=0,
+        notes="Revisión de frenos y discos por kilometraje.",
     )
     MaintenancePlan.objects.create(
         vehicle=Vehicle.objects.get(plate=_bulk_plate(0)),
@@ -1938,8 +2080,10 @@ def seed_alerts(stdout=None) -> None:
     """Borra las alertas y deja que el MOTOR REAL las regenere.
 
     Así la bandeja refleja exactamente lo sembrado: ITV a 10 días + vencida,
-    seguro a 20 días + vencido, exceso de km proyectado (v1) y, de la capa de
-    volumen, lecturas pendientes y vehículos sin conductor.
+    seguro a 20 días + vencido, exceso de km proyectado (v1), el coche de la
+    supervisora (7890NPQ) con ITV a 12 días, seguro a 15 y mantenimiento a
+    punto Y vencido (su tablero de campo enseña las cuatro alertas) y, de la
+    capa de volumen, lecturas pendientes y vehículos sin conductor.
 
     El motor solo crea alertas ABIERTAS, así que después se cierran dos a mano
     —los dos únicos estados son abierta y resuelta— para que la pestaña de

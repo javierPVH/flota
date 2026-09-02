@@ -239,3 +239,42 @@ class ProposalScopeTests(APITestCase):
         self.client.force_authenticate(self.driver)
         detail = self.client.get(reverse("vehicle-detail", args=[self.foreign.pk]))
         self.assertEqual(detail.status_code, status.HTTP_200_OK)
+
+
+class MultiRoleScopeTests(APITestCase):
+    """Los ámbitos por rol se SUMAN: supervisora que además conduce.
+
+    Antes `vehicles_for` cortaba en el primer rol (supervisor → solo su grupo)
+    y su propio coche quedaba FUERA si lo supervisaba otra persona (o nadie):
+    no podía verlo ni registrar sus km, y la app de campo le decía que no
+    tenía coche (el caso de `sara` en el seed).
+    """
+
+    def setUp(self):
+        self.sup = make_user("sup-drv", Role.SUPERVISOR, Role.DRIVER)
+        self.grouped = Vehicle.objects.create(
+            plate="1111GRP", brand="a", model="b", supervisor=self.sup
+        )
+        # Su coche propio, supervisado por NADIE (como 7890NPQ en el seed).
+        self.own = Vehicle.objects.create(plate="2222OWN", brand="a", model="b")
+        Assignment.objects.create(
+            vehicle=self.own,
+            driver=self.sup,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.client.force_authenticate(self.sup)
+
+    def test_scope_is_union_of_group_and_own_car(self):
+        listado = self.client.get(reverse("vehicle-list"))
+        plates = {row["plate"] for row in listado.data["results"]}
+        self.assertEqual(plates, {"1111GRP", "2222OWN"})
+        detail = self.client.get(reverse("vehicle-detail", args=[self.own.pk]))
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+
+    def test_can_register_km_on_own_car(self):
+        resp = self.client.post(
+            reverse("kmreading-list"),
+            {"vehicle": self.own.pk, "reading_date": "2026-08-28", "km_reading": 1234},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
