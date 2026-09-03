@@ -6,6 +6,7 @@ import {
   fmtKm,
   itvClass,
   pendingThisMonth,
+  scheduledActionAvailable,
   tireReportSummary,
   todayIso,
 } from './format.ts'
@@ -76,6 +77,20 @@ describe('daysUntil (cuenta atrás de los avisos del inicio)', () => {
     expect(daysUntil(today)).toBe(0)
     // Omitir el ancla equivale a pasar `todayIso()` a mano.
     expect(daysUntil('2026-12-31')).toBe(daysUntil('2026-12-31', today))
+  })
+})
+
+describe('scheduledActionAvailable (ventana de actuación)', () => {
+  const today = '2026-09-03'
+
+  it('se activa exactamente 30 días antes y permanece activa si está vencida', () => {
+    expect(scheduledActionAvailable('2026-10-03', today)).toBe(true)
+    expect(scheduledActionAvailable('2026-09-02', today)).toBe(true)
+  })
+
+  it('se desactiva si aún faltan más de 30 días o no hay fecha', () => {
+    expect(scheduledActionAvailable('2026-10-04', today)).toBe(false)
+    expect(scheduledActionAvailable(null, today)).toBe(false)
   })
 })
 

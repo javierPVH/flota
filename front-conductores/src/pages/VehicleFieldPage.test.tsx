@@ -263,13 +263,13 @@ describe('VehicleFieldPage (ficha de campo)', () => {
 
     expect(await screen.findByText('Desgaste · Traseras · 225/45 R17')).toBeInTheDocument()
     const situationTitle = screen.getByText('Situación')
-    const alertsTitle = screen.getByRole('heading', { name: 'Alertas e incidencias' })
+    const alertsTitle = screen.getByRole('heading', { name: 'Alertas y averías' })
     expect(situationTitle.compareDocumentPosition(alertsTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.getByText('La ITV vence pronto.').closest('.alert-card')).toHaveClass('level-warning')
     // La incidencia vive en la MISMA tarjeta que las alertas.
     expect(await screen.findByText(/Testigo de motor encendido/)).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Incidencias abiertas' })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Alertas e incidencias' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Alertas y averías' }))
     expect(screen.getByText('La ITV vence pronto.').closest('.acc-body')).toHaveAttribute('hidden')
     expect(screen.getByText(/Testigo de motor encendido/).closest('.acc-body')).toHaveAttribute('hidden')
   })
@@ -321,7 +321,7 @@ describe('VehicleFieldPage (ficha de campo)', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Solucionar' }))
     expect(screen.getByRole('dialog', { name: 'Solución · Avería' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Cerrar incidencia' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar avería' }))
 
     await waitFor(() =>
       expect(mocks.resolveIncident).toHaveBeenCalledWith(31, {

@@ -3,7 +3,15 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, ClipboardList, Gauge, Mail, Siren, Wrench } from 'lucide-react'
 import { Badge } from '@flota/ui/ui'
 
-import { fmtDate, fmtKm, itvClass, kmLevelTone, pendingThisMonth, vehicleStateTone } from '../format.ts'
+import {
+  fmtDate,
+  fmtKm,
+  itvClass,
+  kmLevelTone,
+  pendingThisMonth,
+  scheduledActionAvailable,
+  vehicleStateTone,
+} from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { pairedWith } from '../substitution.ts'
 import { AccidentModal } from './AccidentModal.tsx'
@@ -277,6 +285,7 @@ function VehicleCard({
   const { t, language } = useLang()
   const navigate = useNavigate()
   const kmPending = summary ? pendingThisMonth(summary) : false
+  const maintenanceAvailable = scheduledActionAvailable(summary?.next_maintenance_date)
   // N9: el principal con sustituto activo se ve BLOQUEADO (atenuado, candado y
   // motivo); el sustituto operativo queda ligado visualmente.
   const blocked = summary?.blocked_by_link ?? null
@@ -456,9 +465,16 @@ function VehicleCard({
                 // Actualización de mantenimiento en nombre del conductor.
                 <button
                   type="button"
-                  className="report-btn report-btn-icon"
+                  className={`report-btn report-btn-icon${
+                    maintenanceAvailable ? '' : ' is-disabled'
+                  }`}
+                  disabled={!maintenanceAvailable}
                   aria-label={t.carUpdate.maintenanceButton}
-                  title={`${t.carUpdate.maintenanceButton} · ${vehicle.plate}`}
+                  title={
+                    maintenanceAvailable
+                      ? `${t.carUpdate.maintenanceButton} · ${vehicle.plate}`
+                      : t.vehicle.scheduledActionUnavailable
+                  }
                   onClick={(e) => {
                     e.preventDefault()
                     e.stopPropagation()

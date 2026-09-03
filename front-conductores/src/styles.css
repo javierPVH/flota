@@ -494,6 +494,10 @@ button.bottom-tab {
   cursor: pointer;
 }
 .report-btn:active { transform: translateY(1px); }
+.report-btn.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 /* Variante de solo icono (actualizar / recordatorio): el primero se pega a la
    derecha de la fila y los siguientes se quedan a su lado. */
 .report-btn-icon {

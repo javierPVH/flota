@@ -132,6 +132,13 @@ describe('guardar desde el bottom-nav refresca la página', () => {
     expect(await screen.findByText('Próx. ITV')).toBeInTheDocument()
     expect(screen.getByText(/· en 12 días/)).toBeInTheDocument()
 
+    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
+    const itvButton = await waitFor(() => within(nav).getByRole('button', { name: 'ITV' }))
+    await waitFor(() => expect(itvButton).toBeEnabled())
+
+    await userEvent.click(itvButton)
+    const dialog = screen.getByRole('dialog', { name: 'Registrar ITV · 7890NPQ' })
+
     // El back deja el coche SIN cita al registrar la favorable sin fecha.
     mocks.listVehicles.mockResolvedValue({
       count: 1,
@@ -139,14 +146,12 @@ describe('guardar desde el bottom-nav refresca la página', () => {
     })
     mocks.fetchVehicleSummaries.mockResolvedValue([{ ...SUMMARY, next_itv_date: null }])
 
-    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
-    await userEvent.click(await waitFor(() => within(nav).getByRole('button', { name: 'ITV' })))
-    const dialog = screen.getByRole('dialog', { name: 'Registrar ITV · 7890NPQ' })
     await userEvent.click(within(dialog).getByRole('button', { name: 'Registrar ITV' }))
 
     await waitFor(() => expect(mocks.registerItv).toHaveBeenCalled())
     // La cita desaparece sola: ya se ha realizado.
     await waitFor(() => expect(screen.queryByText('Próx. ITV')).not.toBeInTheDocument())
+    expect(within(nav).getByRole('button', { name: 'ITV' })).toBeDisabled()
   })
 
   it('marcar el mantenimiento realizado quita su cita (el ciclo va a un año)', async () => {
@@ -162,16 +167,27 @@ describe('guardar desde el bottom-nav refresca la página', () => {
     expect(await screen.findByText('Próx. mantenimiento')).toBeInTheDocument()
     expect(screen.getByText(/· en 14 días/)).toBeInTheDocument()
 
+    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
+    const maintenanceButton = await waitFor(() =>
+      within(nav).getByRole('button', { name: 'Mantenimiento' }),
+    )
+    await waitFor(() => expect(maintenanceButton).toBeEnabled())
+
+    await userEvent.click(maintenanceButton)
+    const dialog = await screen.findByRole(
+      'dialog',
+      { name: 'Actualizar mantenimiento · 7890NPQ' },
+      { timeout: 3000 },
+    )
+    await userEvent.click(
+      await within(dialog).findByRole('button', { name: 'Realizado en:' }, { timeout: 3000 }),
+    )
+
     // Al reanclar el plan, el back devuelve la cita a 12 meses.
     mocks.fetchVehicleSummaries.mockResolvedValue([
       { ...SUMMARY, next_itv_date: null, next_maintenance_date: inDays(365) },
     ])
 
-    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
-    await userEvent.click(
-      await waitFor(() => within(nav).getByRole('button', { name: 'Mantenimiento' })),
-    )
-    await userEvent.click(await screen.findByRole('button', { name: 'Realizado en:' }))
     await userEvent.click(screen.getByRole('button', { name: 'Aceptar fecha' }))
 
     await waitFor(() => expect(mocks.markMaintenanceDone).toHaveBeenCalledWith(9, { date: inDays(0) }))
@@ -179,5 +195,25 @@ describe('guardar desde el bottom-nav refresca la página', () => {
     await waitFor(() =>
       expect(screen.queryByText('Próx. mantenimiento')).not.toBeInTheDocument(),
     )
+    expect(within(nav).getByRole('button', { name: 'Mantenimiento' })).toBeDisabled()
+  })
+
+  it('mantiene vencidas activas y desactiva las fechas a más de 30 días', async () => {
+    mocks.listVehicles.mockResolvedValue({
+      count: 1,
+      results: [{ ...VEHICLE, next_itv_date: inDays(-2) }],
+    })
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      {
+        ...SUMMARY,
+        next_itv_date: inDays(-2),
+        next_maintenance_date: inDays(31),
+      },
+    ])
+    renderShell()
+
+    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
+    expect(await waitFor(() => within(nav).getByRole('button', { name: 'ITV' }))).toBeEnabled()
+    expect(within(nav).getByRole('button', { name: 'Mantenimiento' })).toBeDisabled()
   })
 })

@@ -117,6 +117,18 @@ export function daysUntil(
   return Math.round((target - origin) / 86_400_000)
 }
 
+/** ¿La actuación programada ya puede registrarse?
+ *
+ * Se habilita desde 30 días antes y permanece habilitada si está vencida. Sin
+ * fecha no existe una actuación pendiente que completar. */
+export function scheduledActionAvailable(
+  dateStr: string | null | undefined,
+  from: string = todayIso(),
+): boolean {
+  const days = daysUntil(dateStr, from)
+  return days !== null && days <= SOON_DAYS
+}
+
 // --- Estado de dominio → tono de <Badge> (Fase 3) ---------------------------
 // Espejo de front-gestion/src/format.ts para paridad visual entre apps.
 // Candidatos a moverse a @flota/ui cuando se pueda recompilar la librería.

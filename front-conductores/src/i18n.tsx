@@ -17,7 +17,7 @@ const es = {
       registerKm: 'Registrar km',
       alerts: 'Alertas',
       breakdown: 'Avería',
-      incident: 'Incidencia',
+      incident: 'Avería',
       projection: 'Proyección km',
       /* Etiquetas CORTAS de las acciones del nav de "Mi vehículo". */
       km: 'Km',
@@ -117,7 +117,7 @@ const es = {
     quickRegister: 'Registrar km',
     quickUpload: 'Subir documento',
     quickBreakdown: 'Avería',
-    quickIncident: 'Incidencia',
+    quickIncident: 'Avería',
     loadError: 'No se pudieron cargar tus vehículos.',
     // Acordeón de advertencias del inicio: solo sale cuando queda poco.
     // X1: del seguro, nada — es asunto de administración.
@@ -194,6 +194,8 @@ const es = {
     kmPendingCta: 'Registrarla ahora',
     quickUpload: 'Subir documento',
     quickItv: 'Registrar ITV',
+    scheduledActionUnavailable:
+      'Disponible cuando falten 30 días o menos, o cuando la fecha esté vencida.',
     situationTitle: 'Situación',
     state: 'Estado',
     substitution: 'Sustitución',
@@ -205,8 +207,8 @@ const es = {
     use: 'Uso',
     /** Tarjeta fusionada de la ficha: alertas + incidencias abiertas, todo
      * resoluble desde ahí (las incidencias, solo por el supervisor). */
-    alertsIncidentsTitle: 'Alertas e incidencias',
-    alertsIncidentsEmpty: 'Sin alertas ni incidencias abiertas. Todo al día.',
+    alertsIncidentsTitle: 'Alertas y averías',
+    alertsIncidentsEmpty: 'Sin alertas ni averías abiertas. Todo al día.',
     noDate: 'Sin fecha',
     documentsTitle: 'Documentos',
     upload: 'Subir',
@@ -242,7 +244,7 @@ const es = {
     } as Record<string, string>,
     filePick: 'Foto o PDF (cámara / galería)',
     expiry: 'Caducidad (opcional)',
-    linkIncident: 'Ligado a incidencia (opcional)',
+    linkIncident: 'Ligado a avería (opcional)',
     linkNone: 'Ninguna',
     notes: 'Notas (opcional)',
     chooseFile: 'Elige una foto o un PDF.',
@@ -350,9 +352,9 @@ const es = {
     unlimitedNote: 'Km ilimitados: este vehículo no tiene proyección ni límite de km.',
     showChart: 'Ver evolución',
     hideChart: 'Ocultar evolución',
-    incidents: 'Incidencias',
+    incidents: 'Averías',
     newIncident: 'Nueva',
-    noIncidents: 'Sin incidencias registradas.',
+    noIncidents: 'Sin averías registradas.',
     noDescription: 'Sin descripción',
   },
   // Recordatorio del supervisor (correo y/o alerta) desde la tarjeta del coche.
@@ -416,7 +418,7 @@ const es = {
   // Nueva incidencia desde la tarjeta: selector de tipo (neumáticos / general /
   // mantenimiento), cada uno con su div informativo.
   incidentModal: {
-    title: (plate: string) => `Incidencia · ${plate}`,
+    title: (plate: string) => `Avería · ${plate}`,
     kind: 'Tipo',
     kindChoose: 'Elige el tipo…',
     kinds: {
@@ -427,7 +429,7 @@ const es = {
     info: {
       tires:
         'Cambio de neumáticos por desgaste o pinchazo. El taller y la cita se ' +
-        'concretan después, en la gestión de la incidencia.',
+        'concretan después, en la gestión de la avería.',
       general:
         'Solicitud general: peticiones que quizá no tienen que ver con el ' +
         'vehículo (documentación, tarjetas, dudas…).',
@@ -442,9 +444,9 @@ const es = {
     tireRequiredWear: 'En desgaste: qué ruedas y las medidas de los ejes elegidos.',
     tireRequiredPuncture: 'En pinchazo: qué rueda y medida del neumático.',
     tireManageRequired: 'Obligatorio para comunicar: código postal de la ubicación preferente.',
-    submit: 'Comunicar incidencia',
-    saved: 'Incidencia comunicada.',
-    savedUploadFailed: 'Incidencia comunicada; el adjunto no se pudo subir.',
+    submit: 'Comunicar avería',
+    saved: 'Avería comunicada.',
+    savedUploadFailed: 'Avería comunicada; el adjunto no se pudo subir.',
     error: 'No se pudo comunicar la avería.',
     close: 'Cerrar',
   },
@@ -458,7 +460,7 @@ const es = {
       'La responsabilidad de registrar los km, el mantenimiento y las averías es ' +
       'del conductor, no del responsable. Usa esto solo en su lugar cuando haga ' +
       'falta: quedará registrado a tu nombre.',
-    tabs: { km: 'Km', maintenance: 'Mantenimiento', incidents: 'Averías / Incidencias' },
+    tabs: { km: 'Km', maintenance: 'Mantenimiento', incidents: 'Averías' },
     kmLabel: 'Lectura del cuentakilómetros',
     kmCurrent: (v: string) => `Última conocida: ${v}`,
     kmLast: (value: string, date: string) => `Última lectura: ${value} · ${date}`,
@@ -484,7 +486,7 @@ const es = {
     planAlerts: (n: number) => (n === 1 ? '1 alerta resuelta.' : `${n} alertas resueltas.`),
     plansEmpty: 'Este vehículo no tiene planes de mantenimiento (los crea administración).',
     months: (n: number) => (n === 1 ? '1 mes' : `${n} meses`),
-    incidentLabel: 'Incidencia',
+    incidentLabel: 'Avería',
     actionView: 'Ver',
     actionManage: 'Gestión',
     actionResolve: 'Solucionar',
@@ -509,16 +511,16 @@ const es = {
     cost: 'Coste (€)',
     attachDoc: 'Adjuntar documento o foto (opcional)',
     manageSubmit: 'Guardar gestión',
-    managed: 'Gestión guardada: la incidencia queda en curso.',
+    managed: 'Gestión guardada: la avería queda en curso.',
     managedDocFailed: 'Gestión guardada; el adjunto no se pudo subir.',
     overcost: 'Sobrecoste (€, opcional)',
     observations: 'Observaciones',
     downtime: 'Tiempo parado (días)',
     resolutionDate: 'Fecha de solución',
     calculatedDowntime: (n: number) => `Tiempo parado calculado: ${n === 1 ? '1 día' : `${n} días`}`,
-    resolveSubmit: 'Cerrar incidencia',
-    resolvedNote: 'Incidencia cerrada.',
-    incidentsEmpty: 'Sin incidencias abiertas.',
+    resolveSubmit: 'Cerrar avería',
+    resolvedNote: 'Avería cerrada.',
+    incidentsEmpty: 'Sin averías abiertas.',
     loadError: 'No se pudo cargar.',
     error: 'No se pudo guardar.',
     close: 'Cerrar',
@@ -535,7 +537,7 @@ const es = {
     backHome: 'Volver al inicio',
   },
   newIncident: {
-    title: 'Nueva incidencia',
+    title: 'Nueva avería',
     /** El inicio tiene un acceso propio para "Avería": el título lo refleja. */
     titleBreakdown: 'Comunicar avería',
     titleAccident: 'Comunicar accidente',
@@ -609,11 +611,11 @@ const es = {
     photos: 'Fotos (cámara / galería, opcional)',
     photosSelected: (n: number) =>
       `${n} foto${n === 1 ? '' : 's'} seleccionada${n === 1 ? '' : 's'}`,
-    submit: 'Crear incidencia',
+    submit: 'Crear avería',
     submitting: 'Creando…',
-    createError: 'No se pudo crear la incidencia.',
+    createError: 'No se pudo crear la avería.',
     uploadFailed: (names: string) =>
-      `Incidencia creada, pero no se pudieron subir: ${names}. Puedes añadirlas desde la ` +
+      `Avería creada, pero no se pudieron subir: ${names}. Puedes añadirlas desde la ` +
       'ficha del vehículo.',
   },
   accidentModal: {
@@ -656,7 +658,7 @@ const en: typeof es = {
       registerKm: 'Log km',
       alerts: 'Alerts',
       breakdown: 'Breakdown',
-      incident: 'Incident',
+      incident: 'Breakdown',
       projection: 'Km projection',
       km: 'Km',
       itv: 'MOT',
@@ -740,7 +742,7 @@ const en: typeof es = {
     quickRegister: 'Log km',
     quickUpload: 'Upload document',
     quickBreakdown: 'Breakdown',
-    quickIncident: 'Incident',
+    quickIncident: 'Breakdown',
     loadError: 'Could not load your vehicles.',
     deadlines: {
       title: 'Due soon',
@@ -810,6 +812,8 @@ const en: typeof es = {
     kmPendingCta: 'Log it now',
     quickUpload: 'Upload document',
     quickItv: 'Log MOT',
+    scheduledActionUnavailable:
+      'Available when 30 days or less remain, or when the due date has passed.',
     situationTitle: 'Status',
     state: 'State',
     substitution: 'Substitution',
@@ -819,8 +823,8 @@ const en: typeof es = {
     noDriver: 'No driver assigned',
     supervisor: 'Supervisor',
     use: 'Use',
-    alertsIncidentsTitle: 'Alerts & incidents',
-    alertsIncidentsEmpty: 'No open alerts or incidents. All clear.',
+    alertsIncidentsTitle: 'Alerts & breakdowns',
+    alertsIncidentsEmpty: 'No open alerts or breakdowns. All clear.',
     noDate: 'No date',
     documentsTitle: 'Documents',
     upload: 'Upload',
@@ -856,7 +860,7 @@ const en: typeof es = {
     },
     filePick: 'Photo or PDF (camera / gallery)',
     expiry: 'Expiry (optional)',
-    linkIncident: 'Linked to incident (optional)',
+    linkIncident: 'Linked to breakdown (optional)',
     linkNone: 'None',
     notes: 'Notes (optional)',
     chooseFile: 'Choose a photo or a PDF.',
@@ -955,9 +959,9 @@ const en: typeof es = {
     unlimitedNote: 'Unlimited km: this vehicle has no projection or mileage cap.',
     showChart: 'Show trend',
     hideChart: 'Hide trend',
-    incidents: 'Incidents',
+    incidents: 'Breakdowns',
     newIncident: 'New',
-    noIncidents: 'No incidents recorded.',
+    noIncidents: 'No breakdowns recorded.',
     noDescription: 'No description',
   },
   reminder: {
@@ -1055,7 +1059,7 @@ const en: typeof es = {
       'Logging km, maintenance and breakdowns is the responsibility of the driver, ' +
       'not the supervisor. Use this only on their behalf when needed: it will be ' +
       'recorded under your name.',
-    tabs: { km: 'Km', maintenance: 'Maintenance', incidents: 'Breakdowns / Incidents' },
+    tabs: { km: 'Km', maintenance: 'Maintenance', incidents: 'Breakdowns' },
     kmLabel: 'Odometer reading',
     kmCurrent: (v) => `Last known: ${v}`,
     kmLast: (value, date) => `Last reading: ${value} · ${date}`,
@@ -1081,7 +1085,7 @@ const en: typeof es = {
     planAlerts: (n) => (n === 1 ? '1 alert resolved.' : `${n} alerts resolved.`),
     plansEmpty: 'This vehicle has no maintenance plans (administration creates them).',
     months: (n) => (n === 1 ? '1 month' : `${n} months`),
-    incidentLabel: 'Incident',
+    incidentLabel: 'Breakdown',
     actionView: 'View',
     actionManage: 'Handling',
     actionResolve: 'Resolve',
@@ -1105,16 +1109,16 @@ const en: typeof es = {
     cost: 'Cost (€)',
     attachDoc: 'Attach a document or photo (optional)',
     manageSubmit: 'Save handling',
-    managed: 'Handling saved: the incident is now in progress.',
+    managed: 'Handling saved: the breakdown is now in progress.',
     managedDocFailed: 'Handling saved; the attachment could not be uploaded.',
     overcost: 'Extra cost (€, optional)',
     observations: 'Notes',
     downtime: 'Days out of service',
     resolutionDate: 'Resolution date',
     calculatedDowntime: (n) => `Calculated downtime: ${n === 1 ? '1 day' : `${n} days`}`,
-    resolveSubmit: 'Close incident',
-    resolvedNote: 'Incident closed.',
-    incidentsEmpty: 'No open incidents.',
+    resolveSubmit: 'Close breakdown',
+    resolvedNote: 'Breakdown closed.',
+    incidentsEmpty: 'No open breakdowns.',
     loadError: 'Could not load.',
     error: 'Could not save.',
     close: 'Close',
@@ -1130,7 +1134,7 @@ const en: typeof es = {
     backHome: 'Back to home',
   },
   newIncident: {
-    title: 'New incident',
+    title: 'New breakdown',
     titleBreakdown: 'Report a breakdown',
     titleAccident: 'Report an accident',
     titleTires: 'Tyre replacement',
@@ -1201,11 +1205,11 @@ const en: typeof es = {
     accidentReport: 'Accident report file (optional)',
     photos: 'Photos (camera / gallery, optional)',
     photosSelected: (n) => `${n} photo${n === 1 ? '' : 's'} selected`,
-    submit: 'Create incident',
+    submit: 'Create breakdown',
     submitting: 'Creating…',
-    createError: 'Could not create the incident.',
+    createError: 'Could not create the breakdown.',
     uploadFailed: (names) =>
-      `Incident created, but these could not be uploaded: ${names}. You can add them from ` +
+      `Breakdown created, but these could not be uploaded: ${names}. You can add them from ` +
       "the vehicle's card.",
   },
   accidentModal: {

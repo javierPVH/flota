@@ -30,26 +30,24 @@ import {
   useAccordion,
 } from '../components/CollapsibleCard.tsx'
 import { BreakdownModal } from '../components/BreakdownModal.tsx'
-import { AlertResolveModal } from '../components/AlertResolveModal.tsx'
-import { IncidentResolveModal } from '../components/IncidentResolveModal.tsx'
 import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
+import { VehicleAlertsBreakdownsCard } from '../components/VehicleAlertsBreakdownsCard.tsx'
 import { RegisterKmModal } from '../components/RegisterKmModal.tsx'
 import { ReminderModal } from '../components/ReminderModal.tsx'
 import { MaintenanceUpdateModal } from '../components/MaintenanceUpdateModal.tsx'
 import { UploadDocumentModal } from '../components/UploadDocumentModal.tsx'
 import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
-import { AlertCard } from './AlertsPage.tsx'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { useLang } from '../i18n.tsx'
 import {
   documentStatusTone,
   fmtDate,
   fmtKm,
-  incidentStatusTone,
+  isOpenBreakdown,
   kmLevelTone,
   pendingThisMonth,
-  tireReportSummary,
+  scheduledActionAvailable,
   vehicleStateTone,
 } from '../format.ts'
 import type { Alert, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
@@ -75,6 +73,8 @@ export function VehicleFieldPage() {
   const { t, language } = useLang()
   const { user } = useAuth()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
+  const canManage =
+    user?.roles.some((role) => role === 'admin' || role === 'supervisor') ?? false
   // En modo "Mi vehículo", el nav inferior ya lleva las cinco acciones SOBRE
   // el coche operativo: su ficha no las repite. El principal bloqueado (el nav
   // apunta al sustituto) y las fichas en modo Flota conservan las suyas.
@@ -111,22 +111,6 @@ export function VehicleFieldPage() {
   const [breakdownOpen, setBreakdownOpen] = useState(false)
   const [documentOpen, setDocumentOpen] = useState(false)
   const [kmOpen, setKmOpen] = useState(false)
-  const [resolveAlert, setResolveAlert] = useState<Alert | null>(null)
-  // Solucionar una incidencia desde la tarjeta fusionada (solo supervisor).
-  const [resolveIncidentFor, setResolveIncidentFor] = useState<Incident | null>(null)
-
-  /** Resolver una alerta por TIPO, como en la bandeja: la de ITV abre el
-   * MISMO modal de «Registrar ITV» que el botón de la página/nav (la señal
-   * del back cierra la alerta al registrarla); lectura pendiente → registrar
-   * km; mantenimiento → «Actualizar mantenimiento» (marcar el plan realizado
-   * resuelve sus alertas). El resto (seguro, exceso…) no tiene registro que
-   * hacer: va al modal genérico de resolución con observaciones. */
-  function resolveAlertByType(alert: Alert) {
-    if (alert.type === 'itv_due') setItvOpen(true)
-    else if (alert.type === 'km_reading_pending') setKmOpen(true)
-    else if (alert.type === 'maintenance_due') setUpdateOpen(true)
-    else setResolveAlert(alert)
-  }
 
   // Tras guardar algo desde el modal de actualización: datos frescos.
   const reload = useCallback(() => {
@@ -195,6 +179,10 @@ export function VehicleFieldPage() {
   const blocked = summary?.blocked_by_link ?? null
   const projection = summary?.projection ?? null
   const contract = summary?.contract ?? null
+  const itvAvailable = scheduledActionAvailable(
+    summary?.next_itv_date ?? vehicle.next_itv_date,
+  )
+  const maintenanceAvailable = scheduledActionAvailable(summary?.next_maintenance_date)
 
   return (
     <div className="field-page">
@@ -328,7 +316,9 @@ export function VehicleFieldPage() {
 
         <button
           type="button"
-          className="quick-action"
+          className={`quick-action${itvAvailable ? '' : ' is-disabled'}`}
+          disabled={!itvAvailable}
+          title={!itvAvailable ? t.vehicle.scheduledActionUnavailable : undefined}
           onClick={() => {
             setItvOk('')
             setItvOpen(true)
@@ -338,7 +328,13 @@ export function VehicleFieldPage() {
         </button>
 
         {isSupervisor && (
-          <button type="button" className="quick-action" onClick={() => setUpdateOpen(true)}>
+          <button
+            type="button"
+            className={`quick-action${maintenanceAvailable ? '' : ' is-disabled'}`}
+            disabled={!maintenanceAvailable}
+            title={!maintenanceAvailable ? t.vehicle.scheduledActionUnavailable : undefined}
+            onClick={() => setUpdateOpen(true)}
+          >
             <ClipboardList size={20} aria-hidden /> {t.carUpdate.maintenanceButton}
           </button>
         )}
@@ -397,69 +393,15 @@ export function VehicleFieldPage() {
         </dl>
       </CollapsibleCard>
 
-      {/* Alertas e incidencias, JUNTAS en una tarjeta: todo lo que reclama
-          acción sobre el coche, y todo resoluble desde aquí — las alertas con
-          su modal de resolución y las incidencias abiertas con «Solucionar»
-          (solo supervisor: cerrar incidencias es de gestión). */}
-      <CollapsibleCard
-        id="alerts"
-        headingClassName="panel-title"
-        className="vehicle-alerts-panel"
+      <VehicleAlertsBreakdownsCard
+        vehicle={vehicle}
+        summary={summary}
+        alerts={alerts}
+        breakdowns={incidents.filter(isOpenBreakdown)}
+        canManage={canManage}
         accordion={accordion}
-        title={t.vehicle.alertsIncidentsTitle}
-      >
-        {alerts.length === 0 && incidents.length === 0 ? (
-          <div className="alerts-empty vehicle-alerts-empty">
-            <p>{t.vehicle.alertsIncidentsEmpty}</p>
-          </div>
-        ) : (
-          <>
-            {alerts.length > 0 && (
-              <div className="alert-group-body vehicle-alerts-list">
-                {alerts.map((alert) => (
-                  <AlertCard
-                    key={alert.id}
-                    alert={alert}
-                    isSupervisor={isSupervisor}
-                    onClose={resolveAlertByType}
-                    onRegisterKm={() => setKmOpen(true)}
-                    showPlate={false}
-                  />
-                ))}
-              </div>
-            )}
-            {incidents.length > 0 && (
-              <ul className="doc-list vehicle-incidents-list">
-                {incidents.map((i) => (
-                  <li key={i.id} className="doc-item">
-                    <Wrench size={18} aria-hidden className="doc-icon" />
-                    <div className="doc-info">
-                      <strong>{i.type_display}</strong>
-                      {/* Neumáticos: motivo y rueda, que es el dato del parte
-                          (el comentario ahí es opcional). */}
-                      {tireReportSummary(i, t.newIncident) && (
-                        <span className="doc-sub incident-tire-line">
-                          {tireReportSummary(i, t.newIncident)}
-                        </span>
-                      )}
-                      <span className="doc-sub">
-                        {i.date ? fmtDate(i.date, language) : t.vehicle.noDate}
-                        {i.description ? ` · ${i.description}` : ''}
-                      </span>
-                    </div>
-                    <Badge tone={incidentStatusTone(i.status)}>{i.status_display}</Badge>
-                    {isSupervisor && (
-                      <Button type="button" size="sm" onClick={() => setResolveIncidentFor(i)}>
-                        {t.carUpdate.actionResolve}
-                      </Button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
-      </CollapsibleCard>
+        onChanged={reload}
+      />
 
       {/* Documentos (HU-4.1/4.3): viven en Drive; aquí solo la referencia. */}
       <CollapsibleCard
@@ -548,27 +490,6 @@ export function VehicleFieldPage() {
           vehicle={vehicle}
           onClose={() => setDocumentOpen(false)}
           onSaved={loadDocuments}
-        />
-      )}
-      {resolveAlert && (
-        <AlertResolveModal
-          alert={resolveAlert}
-          summary={summary ?? undefined}
-          onClose={() => setResolveAlert(null)}
-          onResolved={() => {
-            setResolveAlert(null)
-            reload()
-          }}
-        />
-      )}
-      {resolveIncidentFor && (
-        <IncidentResolveModal
-          incident={resolveIncidentFor}
-          onClose={() => setResolveIncidentFor(null)}
-          onResolved={() => {
-            setResolveIncidentFor(null)
-            reload()
-          }}
         />
       )}
       {remindOpen && (

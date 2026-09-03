@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from .models import Alert, Document, EventItv, Incident, KmReading
 from .models.enums import AlertStatus, AlertType, DocumentType, ItvResult
-from .services import accidents
+from .services import accidents, alerts
 
 
 @receiver(post_save, sender=EventItv, dispatch_uid="fleet_itv_registered")
@@ -95,19 +95,13 @@ def on_incident_saved(sender, instance: Incident, **kwargs):
 
 @receiver(post_save, sender=KmReading, dispatch_uid="fleet_km_reading_registered")
 def on_km_reading_registered(sender, instance: KmReading, **kwargs):
-    """HU-3.2: la lectura del mes cierra el aviso 'lectura pendiente' del periodo.
+    """HU-3.2: una lectura cierra los avisos pendientes hasta su periodo.
 
-    La `dedup_key` del motor de alertas es `km_pending:{vehicle}:{YYYY-MM}`, así
-    que solo se cierra el aviso del mes de la lectura (una lectura atrasada de
-    junio no cierra el aviso de julio).
+    Una lectura posterior hace que los recordatorios anteriores dejen de ser
+    accionables. Una lectura atrasada no cierra avisos de meses posteriores.
     """
     if instance.reading_date is None or not instance.is_active:
         # N7: guardar una desactivación no debe cerrar el aviso del periodo.
         return
     period = f"{instance.reading_date.year:04d}-{instance.reading_date.month:02d}"
-    Alert.objects.filter(
-        vehicle=instance.vehicle,
-        type=AlertType.KM_READING_PENDING,
-        status=AlertStatus.OPEN,
-        dedup_key=f"km_pending:{instance.vehicle_id}:{period}",
-    ).update(status=AlertStatus.RESOLVED, resolved_at=timezone.now())
+    alerts.resolve_satisfied_km_reading_alerts({instance.vehicle_id: period})

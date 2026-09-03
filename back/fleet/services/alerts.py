@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from django.conf import settings
+from django.db.models import Max
 from django.utils import timezone
 
 from accounts import push as webpush
@@ -97,6 +98,47 @@ def upsert_alert(
         if changed:
             alert.save(update_fields=["level", "message", "due_date", "updated_at"])
     return created
+
+
+def resolve_satisfied_km_reading_alerts(latest_periods: dict[int, str]) -> int:
+    """Cierra avisos de km cuyo periodo ya cubre una lectura posterior.
+
+    Una lectura de septiembre satisface también un aviso que quedó abierto de
+    agosto. En cambio, una lectura atrasada de agosto no debe cerrar septiembre.
+    Las claves automáticas terminan en ``YYYY-MM`` y las de recordatorio manual
+    en ``YYYY-MM-DD``; en ambos casos los primeros siete caracteres identifican
+    el periodo mensual.
+    """
+    if not latest_periods:
+        return 0
+
+    to_resolve: list[int] = []
+    for alert_id, vehicle_id, dedup_key in Alert.objects.filter(
+        vehicle_id__in=latest_periods,
+        type=AlertType.KM_READING_PENDING,
+        status=AlertStatus.OPEN,
+    ).values_list("id", "vehicle_id", "dedup_key"):
+        prefixes = (
+            f"km_pending:{vehicle_id}:",
+            f"reminder:{AlertType.KM_READING_PENDING}:{vehicle_id}:",
+        )
+        alert_period = next(
+            (
+                dedup_key[len(prefix) : len(prefix) + 7]
+                for prefix in prefixes
+                if dedup_key.startswith(prefix)
+            ),
+            "",
+        )
+        if len(alert_period) == 7 and alert_period <= latest_periods[vehicle_id]:
+            to_resolve.append(alert_id)
+
+    if not to_resolve:
+        return 0
+    return Alert.objects.filter(pk__in=to_resolve).update(
+        status=AlertStatus.RESOLVED,
+        resolved_at=timezone.now(),
+    )
 
 
 def _notify_alert(alert: Alert) -> None:
@@ -278,6 +320,25 @@ def check_km_readings(today: date | None = None) -> int:
             reading_date__month=today.month,
             is_active=True,
         ).values_list("vehicle_id", flat=True)
+    )
+    # Reconciliación histórica: cierra tanto el periodo de la última lectura
+    # como cualquier aviso anterior que haya quedado abierto.
+    latest_readings = dict(
+        KmReading.objects.filter(
+            vehicle_id__in=ids,
+            reading_date__isnull=False,
+            reading_date__lte=today,
+            is_active=True,
+        )
+        .values("vehicle_id")
+        .annotate(latest_date=Max("reading_date"))
+        .values_list("vehicle_id", "latest_date")
+    )
+    resolve_satisfied_km_reading_alerts(
+        {
+            vehicle_id: f"{reading_date.year:04d}-{reading_date.month:02d}"
+            for vehicle_id, reading_date in latest_readings.items()
+        }
     )
     missing = [v for v in vehicles if v.id not in with_reading]
     drivers = current_driver_map([v.id for v in missing])

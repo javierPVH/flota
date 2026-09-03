@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, ExternalLink, FileText, Users, Wrench } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ExternalLink, FileText, Users } from 'lucide-react'
 import { Badge, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
   fetchKmWindow,
   fetchVehicleSummaries,
+  listAlerts,
   listDocuments,
   listIncidents,
   listVehicles,
@@ -14,21 +15,21 @@ import {
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
+import { useAccordion } from '../components/CollapsibleCard.tsx'
 import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
 import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
+import { VehicleAlertsBreakdownsCard } from '../components/VehicleAlertsBreakdownsCard.tsx'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
 import {
   documentStatusTone,
   fmtDate,
-  incidentStatusTone,
   isOpenBreakdown,
   pendingThisMonth,
-  tireReportSummary,
   vehicleStateTone,
 } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import type { FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
+import type { Alert, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
 
 /** Solo enlaces http(s), como en la ficha de campo (el back ya sanea). */
 function documentHref(doc: FlotaDocument): string {
@@ -85,14 +86,18 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
   }, [t, dataVersion])
 
   const isSupervisor = user?.roles.includes('supervisor')
+  const hasManagementScope = Boolean(
+    user?.roles.some((role) => role === 'admin' || role === 'supervisor'),
+  )
 
-  // El ámbito del supervisor trae TODO su grupo; aquí solo interesan los coches
-  // que conduce (asignación vigente = `summary.driver`). Al conductor el back
-  // ya le devuelve exactamente los suyos.
+  // El ámbito de gestión trae más que los coches propios: toda la flota para
+  // admin y todo su grupo para supervisor. Aquí solo interesan los que conduce
+  // el usuario (asignación vigente = `summary.driver`). Al conductor puro el
+  // back ya le devuelve exactamente los suyos.
   const ownVehicles = useMemo(() => {
-    if (!isSupervisor) return vehicles
+    if (!hasManagementScope) return vehicles
     return vehicles.filter((v) => summaries[v.id]?.driver?.id === user?.id)
-  }, [isSupervisor, vehicles, summaries, user?.id])
+  }, [hasManagementScope, vehicles, summaries, user?.id])
 
   // El tablero cubre el caso normal (regla "un coche por conductor"): un solo
   // coche, o el sustituto que conduce + su principal. Con varios coches
@@ -114,11 +119,21 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
   const dashKey = dashboard
     ? [dashboard.vehicle.id, ...(dashboard.original ? [dashboard.original.id] : [])].join(',')
     : ''
+  const [alerts, setAlerts] = useState<Alert[]>([])
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [documents, setDocuments] = useState<Record<number, FlotaDocument[]>>({})
   const loadPanelData = useCallback(() => {
     if (!dashKey) return
     const ids = dashKey.split(',').map(Number)
+    listAlerts('open')
+      .then((page) =>
+        setAlerts(
+          page.results.filter(
+            (alert) => alert.vehicle !== null && ids.includes(alert.vehicle),
+          ),
+        ),
+      )
+      .catch(() => setAlerts([]))
     // Solo lo relacionado con averías, y sin las ya cerradas (mismo filtro
     // que la sección de averías del modal de Actualizar mantenimiento).
     Promise.all(
@@ -158,9 +173,15 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
     <OwnVehiclePanel
       vehicle={vehicle}
       summary={summaries[vehicle.id]}
+      alerts={alerts.filter((alert) => alert.vehicle === vehicle.id)}
       incidents={incidents.filter((i) => i.vehicle === vehicle.id)}
       documents={documents[vehicle.id] ?? []}
       window={kmWindow}
+      canManage={hasManagementScope}
+      onChanged={() => {
+        refreshSummaries()
+        loadPanelData()
+      }}
       reelButton={reelButton}
     />
   )
@@ -266,20 +287,27 @@ interface ReelButton {
 function OwnVehiclePanel({
   vehicle,
   summary,
+  alerts,
   incidents,
   documents,
   window: kmWindow,
+  canManage,
+  onChanged,
   reelButton,
 }: {
   vehicle: Vehicle
   summary: VehicleSummary | undefined
+  alerts: Alert[]
   incidents: Incident[]
   documents: FlotaDocument[]
   window: KmWindow | null
+  canManage: boolean
+  onChanged: () => void
   /** Flecha junto a la matrícula: desliza al otro coche de la pareja. */
   reelButton?: ReelButton
 }) {
   const { t, language } = useLang()
+  const accordion = useAccordion(['alerts'], ['alerts'])
   const blocked = summary?.blocked_by_link ?? null
   const covering = summary?.substituting_for ?? null
 
@@ -332,52 +360,15 @@ function OwnVehiclePanel({
           que en la ficha, con la fecha y cuántos días faltan. */}
       <UpcomingDatesCard vehicle={vehicle} summary={summary} window={kmWindow} />
 
-      {/* Acordeón de AVERÍAS abiertas del coche: partes de avería, neumáticos
-          y accidentes (mismo listado que la ficha de campo; mantenimiento e
-          ITV van por su vía). Comunicar una nueva vive en el nav inferior. */}
-      <details className="card alert-group">
-        <summary className="alert-group-head">
-          <ChevronRight size={16} aria-hidden className="alert-group-chev" />
-          <div className="alert-group-info">
-            <div className="alert-group-title">
-              <strong>{t.home.breakdownsTitle}</strong>
-              <Badge tone={incidents.length > 0 ? 'warning' : 'success'} size="sm">
-                {incidents.length}
-              </Badge>
-            </div>
-          </div>
-        </summary>
-        <div className="alert-group-body">
-          {incidents.length === 0 ? (
-            <p className="empty-note">{t.home.noBreakdowns}</p>
-          ) : (
-            <ul className="doc-list">
-              {incidents.map((incident) => (
-                <li key={incident.id} className="doc-item">
-                  <Wrench size={18} aria-hidden className="doc-icon" />
-                  <div className="doc-info">
-                    <strong>{incident.type_display}</strong>
-                    {/* En neumáticos, el motivo y la rueda: el comentario de
-                        ese parte es opcional y la fila salía sin dato útil. */}
-                    {tireReportSummary(incident, t.newIncident) && (
-                      <span className="doc-sub incident-tire-line">
-                        {tireReportSummary(incident, t.newIncident)}
-                      </span>
-                    )}
-                    <span className="doc-sub">
-                      {incident.date ? fmtDate(incident.date, language) : t.vehicle.noDate}
-                      {incident.description ? ` · ${incident.description}` : ''}
-                    </span>
-                  </div>
-                  <Badge tone={incidentStatusTone(incident.status)}>
-                    {incident.status_display}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </details>
+      <VehicleAlertsBreakdownsCard
+        vehicle={vehicle}
+        summary={summary}
+        alerts={alerts}
+        breakdowns={incidents}
+        canManage={canManage}
+        accordion={accordion}
+        onChanged={onChanged}
+      />
 
       {/* Acordeón de documentos (los archivos viven en Drive; la subida, en el
           nav inferior). */}

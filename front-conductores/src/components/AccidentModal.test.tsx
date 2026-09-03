@@ -17,6 +17,11 @@ vi.mock('../api.ts', async (importOriginal) => ({
   uploadDocument: mocks.uploadDocument,
 }))
 
+vi.mock('../auth.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../auth.ts')>()),
+  useAuth: () => ({ user: { id: 1, username: 'sara', roles: ['supervisor'] } }),
+}))
+
 const VEHICLE = {
   id: 7,
   plate: '1234KLM',

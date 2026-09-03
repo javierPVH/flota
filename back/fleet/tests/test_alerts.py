@@ -151,6 +151,78 @@ class KmReadingAlertTests(TestCase):
         alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
         self.assertEqual(alert.status, AlertStatus.OPEN)
 
+    def test_newer_reading_closes_previous_month_alert(self):
+        vehicle = Vehicle.objects.create(plate="KM8", brand="a", model="b")
+        previous_month = self.today.replace(day=1) - timedelta(days=1)
+        alerts.check_km_readings(previous_month)
+
+        KmReading.objects.create(vehicle=vehicle, reading_date=self.today, km_reading=100)
+
+        alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
+        self.assertEqual(alert.status, AlertStatus.RESOLVED)
+        self.assertIsNotNone(alert.resolved_at)
+
+    def test_reading_closes_manual_reminders_from_same_and_previous_month(self):
+        vehicle = Vehicle.objects.create(plate="KM8", brand="a", model="b")
+        previous_month = self.today.replace(day=1) - timedelta(days=1)
+        current = Alert.objects.create(
+            type=AlertType.KM_READING_PENDING,
+            vehicle=vehicle,
+            dedup_key=(
+                f"reminder:{AlertType.KM_READING_PENDING}:"
+                f"{vehicle.pk}:{self.today.isoformat()}"
+            ),
+        )
+        previous = Alert.objects.create(
+            type=AlertType.KM_READING_PENDING,
+            vehicle=vehicle,
+            dedup_key=(
+                f"reminder:{AlertType.KM_READING_PENDING}:"
+                f"{vehicle.pk}:{previous_month.isoformat()}"
+            ),
+        )
+
+        KmReading.objects.create(vehicle=vehicle, reading_date=self.today, km_reading=100)
+
+        current.refresh_from_db()
+        previous.refresh_from_db()
+        self.assertEqual(current.status, AlertStatus.RESOLVED)
+        self.assertEqual(previous.status, AlertStatus.RESOLVED)
+
+    def test_job_reconciles_reminder_created_after_the_reading(self):
+        vehicle = Vehicle.objects.create(plate="KM9", brand="a", model="b")
+        KmReading.objects.create(vehicle=vehicle, reading_date=self.today, km_reading=100)
+        reminder = Alert.objects.create(
+            type=AlertType.KM_READING_PENDING,
+            vehicle=vehicle,
+            dedup_key=(
+                f"reminder:{AlertType.KM_READING_PENDING}:"
+                f"{vehicle.pk}:{self.today.isoformat()}"
+            ),
+        )
+
+        self.assertEqual(alerts.check_km_readings(self.today), 0)
+
+        reminder.refresh_from_db()
+        self.assertEqual(reminder.status, AlertStatus.RESOLVED)
+        self.assertIsNotNone(reminder.resolved_at)
+
+    def test_job_reconciles_previous_month_alert_created_after_newer_reading(self):
+        vehicle = Vehicle.objects.create(plate="KM10", brand="a", model="b")
+        previous_month = self.today.replace(day=1) - timedelta(days=1)
+        KmReading.objects.create(vehicle=vehicle, reading_date=self.today, km_reading=100)
+        previous = Alert.objects.create(
+            type=AlertType.KM_READING_PENDING,
+            vehicle=vehicle,
+            dedup_key=f"km_pending:{vehicle.pk}:{previous_month:%Y-%m}",
+        )
+
+        self.assertEqual(alerts.check_km_readings(self.today), 0)
+
+        previous.refresh_from_db()
+        self.assertEqual(previous.status, AlertStatus.RESOLVED)
+        self.assertIsNotNone(previous.resolved_at)
+
     def test_unlimited_km_vehicle_gets_no_reading_alert(self):
         # X2: sin cupo que vigilar no hay lectura que reclamar.
         Vehicle.objects.create(plate="KM5", brand="a", model="b", unlimited_km=True)

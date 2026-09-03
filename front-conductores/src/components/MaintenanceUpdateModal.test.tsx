@@ -124,7 +124,7 @@ describe('MaintenanceUpdateModal: planes + averías', () => {
       screen.getByLabelText('Observaciones'),
       'Cambiado el motor de arranque.',
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Cerrar incidencia' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar avería' }))
 
     await waitFor(() =>
       expect(mocks.resolveIncident).toHaveBeenCalledWith(21, {
@@ -133,7 +133,7 @@ describe('MaintenanceUpdateModal: planes + averías', () => {
       }),
     )
     // La avería sale de la lista, hay aviso y la página puede refrescar.
-    expect(await screen.findByText('Incidencia cerrada.')).toBeInTheDocument()
+    expect(await screen.findByText('Avería cerrada.')).toBeInTheDocument()
     expect(screen.queryByText('Testigo de batería encendido.')).not.toBeInTheDocument()
     expect(onSaved).toHaveBeenCalled()
   })
