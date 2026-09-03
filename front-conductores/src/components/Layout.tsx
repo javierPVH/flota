@@ -63,6 +63,8 @@ export function Layout() {
   const [queueNotice, setQueueNotice] = useState('')
 
   const isSupervisor = user?.roles.includes('supervisor') ?? false
+  const hasManagementScope =
+    user?.roles.some((role) => role === 'admin' || role === 'supervisor') ?? false
 
   // Switch del supervisor: "Mi vehículo" ↔ "Flota". Recordado por dispositivo;
   // en jsdom o con el almacenamiento vetado simplemente arranca en vehículo.
@@ -104,7 +106,7 @@ export function Layout() {
       .then(([page, summaries]) => {
         if (!alive) return
         const byId = new Map(summaries.map((s) => [s.vehicle, s]))
-        const own = isSupervisor
+        const own = hasManagementScope
           ? page.results.filter((v) => byId.get(v.id)?.driver?.id === user.id)
           : page.results
         const ids = new Set<number>()
@@ -136,7 +138,7 @@ export function Layout() {
     return () => {
       alive = false
     }
-  }, [isSupervisor, user, dataVersion])
+  }, [hasManagementScope, user, dataVersion])
 
   const onFlushed = useCallback(
     (result: FlushResult) => {

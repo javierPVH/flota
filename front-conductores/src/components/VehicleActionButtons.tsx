@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Camera, ClipboardCheck, ClipboardList, Gauge, Wrench } from 'lucide-react'
 
+import { scheduledActionAvailable } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 import { BreakdownModal } from './BreakdownModal.tsx'
@@ -54,6 +55,16 @@ export function VehicleActionButtons({
     { key: 'breakdown', icon: Wrench },
     { key: 'document', icon: Camera },
   ]
+  const itvAvailable = scheduledActionAvailable(
+    summary?.next_itv_date ?? vehicle?.next_itv_date,
+  )
+  const maintenanceAvailable = scheduledActionAvailable(summary?.next_maintenance_date)
+
+  function isUnavailable(key: Action): boolean {
+    if (key === 'itv') return !itvAvailable
+    if (key === 'maintenance') return !maintenanceAvailable
+    return false
+  }
 
   function saved() {
     onSaved?.()
@@ -62,7 +73,14 @@ export function VehicleActionButtons({
   return (
     <>
       {actions.map(({ key, icon: Icon }) => vehicle ? (
-        <button key={key} type="button" className={className} onClick={() => setOpen(key)}>
+        <button
+          key={key}
+          type="button"
+          className={`${className}${isUnavailable(key) ? ' is-disabled' : ''}`}
+          disabled={isUnavailable(key)}
+          title={isUnavailable(key) ? t.vehicle.scheduledActionUnavailable : undefined}
+          onClick={() => setOpen(key)}
+        >
           {variant === 'nav' && key === 'km' ? (
             <span className="tab-icon">
               <Icon size={iconSize} strokeWidth={2.4} aria-hidden />

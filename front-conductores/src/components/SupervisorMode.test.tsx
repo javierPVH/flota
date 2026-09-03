@@ -128,12 +128,13 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     ).toBeInTheDocument()
 
     // Nav en modo flota: inicio, alertas y proyección de km.
-    expect(screen.getByRole('link', { name: 'Inicio' })).toHaveAttribute('href', '/')
-    expect(screen.getByRole('link', { name: 'Alertas' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Proyección km' })).toHaveAttribute('href', '/grupo')
-    expect(screen.queryByRole('button', { name: 'Km' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Avería' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Incidencia' })).not.toBeInTheDocument()
+    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
+    expect(within(nav).getByRole('link', { name: 'Inicio' })).toHaveAttribute('href', '/')
+    expect(within(nav).getByRole('link', { name: 'Alertas' })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Proyección km' })).toHaveAttribute('href', '/grupo')
+    expect(within(nav).queryByRole('button', { name: 'Km' })).not.toBeInTheDocument()
+    expect(within(nav).queryByRole('button', { name: 'Avería' })).not.toBeInTheDocument()
+    expect(within(nav).queryByRole('link', { name: 'Incidencia' })).not.toBeInTheDocument()
 
     // Y de vuelta a Mi vehículo.
     await userEvent.click(screen.getByRole('button', { name: 'Mi vehículo' }))
@@ -172,6 +173,11 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
 
   it('el conductor solo tiene Mi vehículo y las mismas cinco acciones sin aviso', async () => {
     mocks.roles = ['driver']
+    // El endpoint del conductor devuelve únicamente sus vehículos.
+    mocks.listVehicles.mockResolvedValue({ count: 1, results: [OWN] })
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      { vehicle: 3, km_current: 1000, km_reading_date: null, driver: { id: 1, name: 'Sara S' } },
+    ])
     localStorage.setItem('flota:vista', 'flota')
     renderShell()
     expect(screen.queryByRole('button', { name: 'Flota' })).not.toBeInTheDocument()
@@ -184,5 +190,36 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     await userEvent.click(within(nav).getByRole('button', { name: 'Km' }))
     expect(screen.getByRole('dialog', { name: 'Registrar km · 7890NPQ' })).toBeInTheDocument()
     expect(screen.queryByText(/responsabilidad de registrar los km/)).not.toBeInTheDocument()
+  })
+
+  it('el administrador conductor habilita el nav sobre su coche, no sobre toda la flota', async () => {
+    mocks.roles = ['admin', 'driver']
+    const lauraCar = { ...OWN, plate: '5960JSF' }
+    const otherVehicles = [
+      { ...TEAM, id: 4, plate: '1234ASD' },
+      { ...TEAM, id: 5, plate: '3546LKR' },
+      { ...TEAM, id: 6, plate: '7198LRY' },
+      { ...TEAM, id: 7, plate: '9357MGD' },
+    ]
+    mocks.listVehicles.mockResolvedValue({
+      count: 5,
+      results: [lauraCar, ...otherVehicles],
+    })
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      { vehicle: 3, km_current: 1000, km_reading_date: null, driver: { id: 1, name: 'Laura' } },
+      ...otherVehicles.map((vehicle, index) => ({
+        vehicle: vehicle.id,
+        km_current: 2000 + index,
+        km_reading_date: null,
+        driver: { id: 10 + index, name: `Conductor ${index}` },
+      })),
+    ])
+
+    renderShell()
+    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
+    const km = await waitFor(() => within(nav).getByRole('button', { name: 'Km' }))
+    expect(km).toBeEnabled()
+    await userEvent.click(km)
+    expect(screen.getByRole('dialog', { name: 'Registrar km · 5960JSF' })).toBeInTheDocument()
   })
 })

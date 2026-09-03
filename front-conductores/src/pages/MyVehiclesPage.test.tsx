@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   listVehicles: vi.fn(),
   fetchVehicleSummaries: vi.fn(),
   fetchKmWindow: vi.fn(),
+  listAlerts: vi.fn(),
+  createKmReading: vi.fn(),
   listIncidents: vi.fn(),
   listDocuments: vi.fn(),
   roles: ['driver'] as Role[],
@@ -22,6 +24,8 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listVehicles: mocks.listVehicles,
   fetchVehicleSummaries: mocks.fetchVehicleSummaries,
   fetchKmWindow: mocks.fetchKmWindow,
+  listAlerts: mocks.listAlerts,
+  createKmReading: mocks.createKmReading,
   listIncidents: mocks.listIncidents,
   listDocuments: mocks.listDocuments,
 }))
@@ -69,6 +73,13 @@ describe('MyVehiclesPage (M1)', () => {
     vi.clearAllMocks()
     document.documentElement.lang = 'es'
     mocks.roles = ['driver']
+    mocks.listAlerts.mockResolvedValue({ count: 0, results: [] })
+    mocks.createKmReading.mockResolvedValue({
+      id: 20,
+      vehicle: 1,
+      km_reading: 32000,
+      reading_date: '2026-09-03',
+    })
     mocks.listIncidents.mockResolvedValue({ count: 0, results: [] })
     mocks.listDocuments.mockResolvedValue({ count: 0, results: [] })
     // N8a: ventana del 20 a fin de mes → el mejor día para registrar es el 31.
@@ -104,7 +115,7 @@ describe('MyVehiclesPage (M1)', () => {
     expect(screen.getByText('Lectura de km')).toBeInTheDocument()
     expect(screen.getByText('el día 31 · en 3 días')).toBeInTheDocument()
     // Los acordeones de averías y documentos, con su recuento.
-    expect(screen.getByText('Averías')).toBeInTheDocument()
+    expect(screen.getByText('Alertas y averías')).toBeInTheDocument()
     expect(screen.getByText('Documentos')).toBeInTheDocument()
     expect(mocks.listDocuments).toHaveBeenCalledWith(1)
     // La ficha enlaza a la ficha de campo (M2).
@@ -118,6 +129,24 @@ describe('MyVehiclesPage (M1)', () => {
   it('los acordeones nacen plegados y al abrirlos enseñan su contenido', async () => {
     mocks.listVehicles.mockResolvedValue({ count: 1, results: [vehicle(1, '1234KLM')] })
     mocks.fetchVehicleSummaries.mockResolvedValue([summary(1, 31000, null)])
+    mocks.listAlerts.mockResolvedValue({
+      count: 1,
+      results: [{
+        id: 8,
+        type: 'km_reading_pending',
+        type_display: 'Lectura de km pendiente',
+        level: 'warning',
+        level_display: 'Aviso',
+        status: 'open',
+        status_display: 'Abierta',
+        vehicle: 1,
+        vehicle_plate: '1234KLM',
+        user: null,
+        message: 'Falta la lectura de km de este mes.',
+        due_date: null,
+        created_at: '2026-08-20',
+      }],
+    })
     // Solo lo relacionado con averías: el mantenimiento y las cerradas se
     // quedan fuera del acordeón (mantenimiento e ITV van por su vía).
     const incident = (extra: Record<string, unknown>) => ({
@@ -188,8 +217,12 @@ describe('MyVehiclesPage (M1)', () => {
     await screen.findByText('1234KLM')
     // Plegados: el contenido no se ve hasta abrir cada acordeón.
     expect(await screen.findByText(/No arranca en frío/)).not.toBeVisible()
-    await userEvent.click(screen.getByText('Averías'))
+    await userEvent.click(screen.getByText('Alertas y averías'))
+    expect(screen.getByText('Falta la lectura de km de este mes.')).toBeVisible()
     expect(screen.getByText(/No arranca en frío/)).toBeVisible()
+    expect(screen.getByText('Falta la lectura de km de este mes.').closest('.acc')).toBe(
+      screen.getByText(/No arranca en frío/).closest('.acc'),
+    )
     expect(screen.getAllByText('Abierta')[0]).toBeVisible()
     // El neumático se explica sin comentario: motivo · rueda · medida.
     expect(screen.getByText('Pinchazo · Delantera izquierda · 205/55 R16')).toBeVisible()
@@ -200,6 +233,50 @@ describe('MyVehiclesPage (M1)', () => {
     expect(screen.getByText('Permiso de circulación')).not.toBeVisible()
     await userEvent.click(screen.getByText('Documentos'))
     expect(screen.getByText('Permiso de circulación')).toBeVisible()
+  })
+
+  it('al registrar los km refresca la tarjeta y elimina la alerta pendiente', async () => {
+    const pendingAlert = {
+      id: 8,
+      type: 'km_reading_pending',
+      type_display: 'Lectura de km pendiente',
+      level: 'warning',
+      level_display: 'Aviso',
+      status: 'open',
+      status_display: 'Abierta',
+      vehicle: 1,
+      vehicle_plate: '1234KLM',
+      user: null,
+      message: 'Falta la lectura de km de este mes.',
+      due_date: null,
+      created_at: '2026-09-01',
+    }
+    mocks.listVehicles.mockResolvedValue({ count: 1, results: [vehicle(1, '1234KLM')] })
+    mocks.fetchVehicleSummaries
+      .mockResolvedValueOnce([summary(1, 31000, '2026-08-31')])
+      .mockResolvedValue([summary(1, 32000, '2026-09-03')])
+    mocks.listAlerts
+      .mockResolvedValueOnce({ count: 1, results: [pendingAlert] })
+      .mockResolvedValue({ count: 0, results: [] })
+
+    renderPage()
+    await screen.findByText('1234KLM')
+    await userEvent.click(await screen.findByText('Alertas y averías'))
+    expect(await screen.findByText('Falta la lectura de km de este mes.')).toBeVisible()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Registrar km' }))
+    const dialog = screen.getByRole('dialog', { name: 'Registrar km · 1234KLM' })
+    await userEvent.type(
+      within(dialog).getByLabelText(/Odómetro \(km totales del cuadro\)/),
+      '32000',
+    )
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar lectura' }))
+
+    await waitFor(() => expect(mocks.createKmReading).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(screen.queryByText('Falta la lectura de km de este mes.')).not.toBeInTheDocument(),
+    )
+    expect(screen.getByText('Sin alertas ni averías abiertas. Todo al día.')).toBeVisible()
   })
 
   it('sin barra de acciones propia: las cinco acciones viven en el nav inferior', async () => {
@@ -237,9 +314,38 @@ describe('MyVehiclesPage (M1)', () => {
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
     // Km y acordeones del tablero; sin barra de acciones (nav del shell).
     expect(screen.getByText('31.000 km')).toBeInTheDocument()
-    expect(screen.getByText('Averías')).toBeInTheDocument()
+    expect(screen.getByText('Alertas y averías')).toBeInTheDocument()
     expect(screen.getByText('Documentos')).toBeInTheDocument()
     expect(document.querySelector('.home-quick')).toBeNull()
+  })
+
+  it('el administrador conductor ve solo su coche y no toda la flota administrada', async () => {
+    mocks.roles = ['admin', 'driver']
+    mocks.listVehicles.mockResolvedValue({
+      count: 5,
+      results: [
+        vehicle(1, '1234ASD'),
+        vehicle(2, '3546LKR'),
+        vehicle(3, '5960JSF'),
+        vehicle(4, '7198LRY'),
+        vehicle(5, '9357MGD'),
+      ],
+    })
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      { ...summary(1, 1000, null), driver: { id: 8, name: 'Otro conductor' } },
+      { ...summary(2, 2000, null), driver: null },
+      { ...summary(3, 3000, null), driver: { id: 1, name: 'Laura Martin' } },
+      { ...summary(4, 4000, null), driver: { id: 9, name: 'Otra conductora' } },
+      { ...summary(5, 5000, null), driver: null },
+    ])
+
+    renderPage()
+    expect(await screen.findByText('5960JSF')).toBeInTheDocument()
+    expect(screen.queryByText('1234ASD')).not.toBeInTheDocument()
+    expect(screen.queryByText('3546LKR')).not.toBeInTheDocument()
+    expect(screen.queryByText('7198LRY')).not.toBeInTheDocument()
+    expect(screen.queryByText('9357MGD')).not.toBeInTheDocument()
+    await waitFor(() => expect(mocks.listDocuments).toHaveBeenCalledWith(3))
   })
 
   it('el supervisor sin coche propio: aviso y salto al modo flota', async () => {
