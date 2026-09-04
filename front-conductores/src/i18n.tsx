@@ -24,6 +24,7 @@ const es = {
       itv: 'ITV',
       maintenance: 'Mantenimiento',
       fuel: 'Combustible',
+      accident: 'Accidente',
     },
     // Switch del supervisor: o estás en tu coche o estás en la flota.
     mode: {
@@ -698,6 +699,7 @@ const en: typeof es = {
       itv: 'MOT',
       maintenance: 'Maintenance',
       fuel: 'Fuel',
+      accident: 'Accident',
     },
     mode: {
       label: 'Switch view',

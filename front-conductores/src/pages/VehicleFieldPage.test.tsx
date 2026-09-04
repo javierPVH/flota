@@ -179,6 +179,7 @@ describe('VehicleFieldPage (ficha de campo)', () => {
       'Registrar ITV',
       'Actualizar mantenimiento',
       'Avería',
+      'Accidente',
       'Subir documento',
       'Enviar recordatorio',
     ])
@@ -196,6 +197,9 @@ describe('VehicleFieldPage (ficha de campo)', () => {
 
     expect(screen.queryByText('72%')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Actualizar mantenimiento' })).not.toBeInTheDocument()
+    // El parte de accidente de la ficha es de la supervisora; el conductor lo
+    // tiene en el nav, donde viven sus acciones.
+    expect(screen.queryByRole('button', { name: 'Accidente' })).not.toBeInTheDocument()
     // Registrar km permanece en la ficha y abre un modal.
     await userEvent.click(screen.getByRole('button', { name: /Registrar km/ }))
     expect(screen.getByRole('dialog', { name: 'Registrar km · 1234KLM' })).toBeInTheDocument()
@@ -387,9 +391,9 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     expect(screen.getByText('🔒 Bloqueado por sustitución')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Registrar km/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Subir documento/ })).not.toBeInTheDocument()
-    // Km, combustible, avería y documento apagados (4): sin coche operativo no
-    // se apunta nada de consumo. La ITV es del coche físico y sigue.
-    expect(document.querySelectorAll('.quick-action.is-disabled').length).toBe(4)
+    // Km, combustible, avería, accidente y documento apagados (5): sin coche
+    // operativo no se apunta nada de consumo. La ITV es del coche físico y sigue.
+    expect(document.querySelectorAll('.quick-action.is-disabled').length).toBe(5)
     // La ITV es del coche físico: sigue disponible aunque esté cubierto.
     expect(screen.getByRole('button', { name: 'Registrar ITV' })).toBeInTheDocument()
   })

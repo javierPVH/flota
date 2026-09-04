@@ -10,6 +10,7 @@ import {
   Fuel,
   Gauge,
   Mail,
+  Siren,
   Wrench,
 } from 'lucide-react'
 import { Badge, Button, Panel } from '@flota/ui/ui'
@@ -30,6 +31,7 @@ import {
   CollapsibleCard,
   useAccordion,
 } from '../components/CollapsibleCard.tsx'
+import { AccidentModal } from '../components/AccidentModal.tsx'
 import { BreakdownModal } from '../components/BreakdownModal.tsx'
 import { RegisterFuelModal } from '../components/RegisterFuelModal.tsx'
 import { KmStatCard } from '../components/KmStatCard.tsx'
@@ -116,6 +118,9 @@ export function VehicleFieldPage() {
   // GAP-2: gasto de combustible (aqui lo usa la supervisora; el conductor lo
   // tiene en el nav, donde viven sus acciones).
   const [fuelOpen, setFuelOpen] = useState(false)
+  // Parte guiado de accidente: la supervisora lo abre desde la ficha igual que
+  // desde las tarjetas de la flota (el conductor lo tiene en el nav).
+  const [accidentOpen, setAccidentOpen] = useState(false)
 
   // Tras guardar algo desde el modal de actualización: datos frescos.
   const reload = useCallback(() => {
@@ -364,6 +369,20 @@ export function VehicleFieldPage() {
           </button>
         )}
 
+        {/* Accidente, junto a la avería y con el MISMO aviso de bloqueo que
+            el resto: en un principal bloqueado, lo que se comunique aquí no es
+            lo que toca (el parte va sobre el coche que está circulando). */}
+        {isSupervisor &&
+          (blocked ? (
+            <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
+              <Siren size={20} aria-hidden /> {t.accidentModal.button}
+            </span>
+          ) : (
+            <button type="button" className="quick-action" onClick={() => setAccidentOpen(true)}>
+              <Siren size={20} aria-hidden /> {t.accidentModal.button}
+            </button>
+          ))}
+
         {blocked ? (
           <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
             <Camera size={20} aria-hidden /> {t.vehicle.quickUpload}
@@ -490,6 +509,16 @@ export function VehicleFieldPage() {
         />
       )}
 
+      {accidentOpen && (
+        <AccidentModal
+          vehicle={vehicle}
+          onClose={() => setAccidentOpen(false)}
+          onSaved={() => {
+            reload()
+            loadDocuments()
+          }}
+        />
+      )}
       {breakdownOpen && (
         <BreakdownModal
           vehicle={vehicle}
