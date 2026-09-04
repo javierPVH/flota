@@ -9,7 +9,9 @@ mantenimiento preventivo (GAP-8).
 
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest import mock
 
+from django.db.models import QuerySet
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -194,7 +196,8 @@ class FuelConsumptionTests(APITestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
 
-    def test_supervisor_reads_only_their_scope_and_cannot_write(self):
+    def test_supervisor_reads_and_writes_only_their_scope(self):
+        """El gasto también se apunta en campo: la gestión escribe SU ámbito."""
         FuelConsumption.objects.create(
             vehicle=self.mio, period=date(2026, 6, 1), liters=Decimal("80")
         )
@@ -208,7 +211,149 @@ class FuelConsumptionTests(APITestCase):
             reverse("fuelconsumption-list"),
             {"vehicle": self.mio.pk, "period": "2026-05-01", "liters": "10"},
         )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        # Fuera de su grupo, no (SEC1).
+        resp = self.client.post(
+            reverse("fuelconsumption-list"),
+            {"vehicle": self.ajeno.pk, "period": "2026-05-01", "liters": "10"},
+        )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_driver_adds_a_refuel_that_accumulates_in_the_month(self):
+        """El repostaje de campo SUMA al mes: la fila es el mes (una por coche).
+
+        Sin `add/`, el segundo repostaje del mes chocaba con la
+        `UniqueConstraint` y el conductor se comía un 400 por repostar dos
+        veces. La suma va en el back para que dos repostajes a la vez no se
+        pisen (lectura-modificación-escritura sin candado).
+        """
+        driver = make_user("fuel-driver", Role.DRIVER)
+        Assignment.objects.create(
+            vehicle=self.mio,
+            driver=driver,
+            start_date=timezone.localdate() - timedelta(days=10),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        mes = timezone.localdate().replace(day=1)
+        url = reverse("fuelconsumption-add")
+        self.client.force_authenticate(driver)
+
+        resp = self.client.post(url, {"vehicle": self.mio.pk, "liters": "45.5", "amount": "62.30"})
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["period"], mes.isoformat())
+        # Tecleado por una persona: el origen no es la tarjeta.
+        self.assertEqual(resp.data["source"], FuelConsumption.Source.MANUAL)
+
+        resp = self.client.post(url, {"vehicle": self.mio.pk, "liters": "10", "amount": "14.70"})
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        fila = FuelConsumption.objects.get(vehicle=self.mio, period=mes, is_active=True)
+        self.assertEqual(fila.liters, Decimal("55.50"))
+        self.assertEqual(fila.amount, Decimal("77.00"))
+        # Un repostaje sin ticket (solo litros) no borra el importe acumulado.
+        self.client.post(url, {"vehicle": self.mio.pk, "liters": "5"})
+        fila.refresh_from_db()
+        self.assertEqual(fila.liters, Decimal("60.50"))
+        self.assertEqual(fila.amount, Decimal("77.00"))
+
+    def test_driver_cannot_add_outside_scope_nor_edit_the_month(self):
+        driver = make_user("fuel-driver2", Role.DRIVER)
+        Assignment.objects.create(
+            vehicle=self.mio,
+            driver=driver,
+            start_date=timezone.localdate() - timedelta(days=10),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        fila = FuelConsumption.objects.create(
+            vehicle=self.mio, period=timezone.localdate().replace(day=1), liters=Decimal("30")
+        )
+        self.client.force_authenticate(driver)
+        # Coche ajeno: fuera de su ámbito (SEC1).
+        resp = self.client.post(
+            reverse("fuelconsumption-add"), {"vehicle": self.ajeno.pk, "liters": "10"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        # Append-only, como en las lecturas de km (SEC4): corregir es de gestión.
+        url = reverse("fuelconsumption-detail", args=[fila.pk])
+        self.assertEqual(
+            self.client.patch(url, {"liters": "1"}).status_code, status.HTTP_403_FORBIDDEN
+        )
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_negative_or_future_refuel_is_rejected(self):
+        self.client.force_authenticate(self.admin)
+        url = reverse("fuelconsumption-add")
+        self.assertEqual(
+            self.client.post(url, {"vehicle": self.mio.pk, "liters": "-1"}).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(
+            self.client.post(url, {"vehicle": self.mio.pk}).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        futuro = (timezone.localdate().replace(day=1) + timedelta(days=40)).replace(day=1)
+        self.assertEqual(
+            self.client.post(
+                url, {"vehicle": self.mio.pk, "liters": "10", "period": futuro.isoformat()}
+            ).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        # Un vehículo que no es ni un número: error de campo, no un 500.
+        self.assertEqual(
+            self.client.post(url, {"vehicle": "no-soy-un-id", "liters": "10"}).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_two_first_refuels_at_once_do_not_lose_one(self):
+        """Carrera en el PRIMER repostaje del mes: no hay fila que sumar y los
+        dos intentan crearla. La `UniqueConstraint` rechaza al segundo, que
+        reintenta la suma en vez de devolver un 500 (como `get_or_create`)."""
+        self.client.force_authenticate(self.admin)
+        mes = timezone.localdate().replace(day=1)
+        # La fila del otro repostaje, que "aterriza" justo después de nuestra
+        # primera suma: se simula haciendo que esa suma no vea nada.
+        FuelConsumption.objects.create(
+            vehicle=self.mio, period=mes, liters=Decimal("10.00"), amount=Decimal("15.00")
+        )
+        real_update, calls = QuerySet.update, []
+
+        def update_blind_once(self, **kwargs):
+            calls.append(1)
+            return 0 if len(calls) == 1 else real_update(self, **kwargs)
+
+        with mock.patch.object(QuerySet, "update", update_blind_once):
+            resp = self.client.post(
+                reverse("fuelconsumption-add"),
+                {"vehicle": self.mio.pk, "liters": "20", "amount": "28.00"},
+            )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        fila = FuelConsumption.objects.get(vehicle=self.mio, period=mes, is_active=True)
+        self.assertEqual(fila.liters, Decimal("30.00"))
+        self.assertEqual(fila.amount, Decimal("43.00"))
+
+    def test_summary_and_list_expose_the_month_spend(self):
+        """El div informativo y la columna de gestión leen de aquí."""
+        mes = timezone.localdate().replace(day=1)
+        FuelConsumption.objects.create(
+            vehicle=self.mio, period=mes, liters=Decimal("55.5"), amount=Decimal("77.00")
+        )
+        # Mes anterior: no debe contarse como el gasto del mes en curso.
+        FuelConsumption.objects.create(
+            vehicle=self.mio,
+            period=(mes - timedelta(days=1)).replace(day=1),
+            liters=Decimal("400"),
+            amount=Decimal("560"),
+        )
+        resumen = metrics.vehicle_summary(self.mio)
+        # Cadena con 2 decimales, igual que en el listado y en la propia serie.
+        self.assertEqual(resumen["fuel_month_liters"], "55.50")
+        self.assertEqual(resumen["fuel_month_amount"], "77.00")
+        self.assertIsNone(metrics.vehicle_summary(self.ajeno)["fuel_month_liters"])
+
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse("vehicle-list"))
+        fila = next(v for v in resp.data["results"] if v["plate"] == "FUEL-1")
+        self.assertEqual(fila["fuel_month_liters"], "55.50")
+        self.assertEqual(fila["fuel_month_amount"], "77.00")
 
     def test_fuel_report_lists_liters_and_respects_the_vehicle_filter(self):
         from fleet.services import reports

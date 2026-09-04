@@ -106,6 +106,10 @@ export interface VehicleSummary {
   next_maintenance_date: string | null
   /** Incidencias sin cerrar (avería, mantenimiento, neumáticos…): la marca. */
   open_incidents: number
+  /** GAP-2: gasto de combustible del MES en curso (la fila es el mes). Cadena
+   * con 2 decimales o null, igual que en el listado de vehículos. */
+  fuel_month_liters: string | null
+  fuel_month_amount: string | null
   // X1: `insurance_expiry_date` viaja en el payload (el endpoint lo comparte el
   // front de gestión) pero NO se declara aquí a propósito: el seguro es asunto
   // de administración y en campo no se pinta. Dejarlo fuera del tipo es lo que

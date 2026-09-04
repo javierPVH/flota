@@ -20,6 +20,7 @@ from fleet.models import (
     EmailTemplate,
     EmailTemplateKey,
     Event,
+    FuelConsumption,
     Incident,
     InvoiceAllocation,
     KmReading,
@@ -187,13 +188,17 @@ class SeedCoverageTests(APITestCase):
     def test_every_domain_table_has_rows(self):
         """Ninguna tabla del dominio se queda vacía.
 
-        `GoogleCredential` es la excepción declarada: guarda tokens OAuth
-        reales (cifrados) que solo escribe el consentimiento de Google. Sembrar
-        uno falso haría creer al front que Drive está conectado.
+        Excepciones declaradas:
+        - `GoogleCredential`: guarda tokens OAuth reales (cifrados) que solo
+          escribe el consentimiento de Google. Sembrar uno falso haría creer
+          al front que Drive está conectado.
+        - `IdempotencyRecord` (R3-34): recibo técnico que solo escribe un POST
+          real con `client_ref` — no es un dato de negocio que enseñar en QA y
+          además caduca solo a los 30 días.
         """
         from django.apps import apps
 
-        exempt = {"accounts.GoogleCredential"}
+        exempt = {"accounts.GoogleCredential", "fleet.IdempotencyRecord"}
         empty = []
         for model in apps.get_models():
             label = f"{model._meta.app_label}.{model.__name__}"
@@ -282,6 +287,14 @@ class SeedCoverageTests(APITestCase):
             )
             .exclude(status=IncidentStatus.CLOSED)
             .exists()
+        )
+        # GAP-2: gasto de combustible del MES EN CURSO — lo pintan el div
+        # informativo y la columna de gestión, y es la pista del modal de campo.
+        self.assertTrue(
+            FuelConsumption.objects.filter(
+                vehicle=v3, period=today.replace(day=1), is_active=True
+            ).exists(),
+            "7890NPQ sin gasto de combustible del mes en curso",
         )
         # La de neumáticos trae el PARTE GUIADO: las listas de campo enseñan
         # con él el motivo del cambio y la rueda (el comentario es opcional).

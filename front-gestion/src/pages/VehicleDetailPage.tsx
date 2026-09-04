@@ -31,7 +31,16 @@ import {
   updateContract,
   updateVehicleFields,
 } from '../api.ts'
-import { fmtDate, fmtEur, fmtKm, kmLevelTone, todayIso, vehicleStateTone } from '../format.ts'
+import {
+  fmtDate,
+  fmtEur,
+  fmtEurCents,
+  fmtKm,
+  fmtLiters,
+  kmLevelTone,
+  todayIso,
+  vehicleStateTone,
+} from '../format.ts'
 import { useVehicleDetailCopy } from '../translations/vehicleDetail.ts'
 import { useVehicleFormCopy } from '../translations/vehicleForm.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
@@ -167,6 +176,9 @@ export function VehicleDetailPage() {
   const [kmView, setKmView] = useState<'annual' | 'contract'>('annual')
 
   const [kmModal, setKmModal] = useState(false)
+  // GAP-2: el KPI de combustible pide el alta a la tarjeta de la serie (donde
+  // vive el formulario) subiendo este contador.
+  const [fuelCreate, setFuelCreate] = useState(0)
   // Reclamación de lectura por correo (se abre desde el aviso del modal de km).
   const [kmEmailOpen, setKmEmailOpen] = useState(false)
   // El aviso de antigüedad cabe en una línea; al desplegarlo se ve completo.
@@ -384,6 +396,9 @@ export function VehicleDetailPage() {
   // Formateadores y etiquetas conscientes de idioma (UX1).
   const eur = (value: string | number) => fmtEur(value, lang)
   const km = (value: number) => fmtKm(value, lang)
+  // GAP-2: litros e importe CON céntimos del gasto de combustible.
+  const liters = (value: string | null) => fmtLiters(value, lang)
+  const eurCents = (value: string | null) => fmtEurCents(value, lang)
   const relative = (dateStr: string) => t.relative(daysUntil(dateStr))
   const linkReasonLabel = useMemo(
     () => Object.fromEntries(t.linkReasonOptions.map((o) => [o.value, o.label])),
@@ -1078,6 +1093,31 @@ export function VehicleDetailPage() {
             accent="teal"
           />
         </button>
+        {/* GAP-2: gasto de combustible del MES en curso (litros e importe).
+            Clicable como el de km: abre el alta de la serie mensual. */}
+        <button
+          type="button"
+          className="kpi-btn"
+          title={t.fuelMonthHint}
+          onClick={() => setFuelCreate((n) => n + 1)}
+        >
+          <StatCard
+            label={t.fuelMonthTitle}
+            value={
+              summary?.fuel_month_liters != null
+                ? liters(summary.fuel_month_liters)
+                : '—'
+            }
+            sub={
+              summary?.fuel_month_liters == null
+                ? t.fuelMonthNone
+                : summary.fuel_month_amount
+                  ? eurCents(summary.fuel_month_amount)
+                  : t.fuelMonthNoAmount
+            }
+            accent="navy"
+          />
+        </button>
         <button
           type="button"
           className="kpi-btn"
@@ -1368,7 +1408,11 @@ export function VehicleDetailPage() {
 
         <VehicleInvoicesCard vehicle={vehicle} accordion={accordion} />
 
-        <FuelConsumptionCard vehicle={vehicle} accordion={accordion} />
+        <FuelConsumptionCard
+          vehicle={vehicle}
+          accordion={accordion}
+          createSignal={fuelCreate}
+        />
 
         <MaintenancePlansCard vehicle={vehicle} accordion={accordion} />
       </div>

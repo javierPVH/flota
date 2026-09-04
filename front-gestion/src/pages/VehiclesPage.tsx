@@ -28,7 +28,7 @@ import { VehicleStateModal } from '../components/VehicleStateModal.tsx'
 import { useVehicleActions } from '../components/useVehicleActions.tsx'
 import { ColumnsPicker } from '../components/ColumnsPicker.tsx'
 import { exportCsv } from '../csv.ts'
-import { dueClass, fmtDate, itvClass, vehicleStateTone } from '../format.ts'
+import { dueClass, fmtDate, fmtEurCents, fmtLiters, itvClass, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import type { Vehicle, VehicleLinkRow } from '../types.ts'
@@ -47,6 +47,7 @@ const COLUMN_KEYS = [
   'insurance_expiry_date',
   'year',
   'fuel',
+  'fuel_month',
   'company_display',
   'created_at',
 ]
@@ -410,6 +411,23 @@ export function VehiclesPage() {
       label: t.columns.fuel,
       getValue: (v) => v.fuel,
       render: (v) => v.fuel || '—',
+    },
+    {
+      // GAP-2: gasto de combustible del mes en curso. Ordena por IMPORTE (es
+      // la cifra que se compara); sin importe, por litros.
+      key: 'fuel_month',
+      label: t.columns.fuelMonth,
+      align: 'right',
+      getValue: (v) => Number(v.fuel_month_amount ?? v.fuel_month_liters ?? 0),
+      render: (v) =>
+        v.fuel_month_liters == null ? (
+          '—'
+        ) : (
+          <span className="fuel-cell">
+            <strong>{fmtLiters(v.fuel_month_liters, language)}</strong>
+            {v.fuel_month_amount ? ` · ${fmtEurCents(v.fuel_month_amount, language)}` : ''}
+          </span>
+        ),
     },
     {
       key: 'company_display',

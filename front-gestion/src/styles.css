@@ -2809,6 +2809,8 @@ table.data tbody tr:hover {
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
+/* GAP-2: celda del gasto de combustible del mes (litros en negrita + importe). */
+.fuel-cell { white-space: nowrap; }
 .itv-soon { color: var(--color-warning); font-weight: 700; }
 .itv-overdue { color: var(--color-danger); font-weight: 700; }
 

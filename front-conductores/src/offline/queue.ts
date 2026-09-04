@@ -1,6 +1,8 @@
 /**
  * M7 — Cola offline para las escrituras críticas de campo (HU-3.1/4.1/5.1):
- * registro de km, subida de documentos (con su binario) y registro de ITV.
+ * registro de km, gasto de combustible, subida de documentos (con su binario),
+ * registro de ITV y parte de incidencia con sus adjuntos (R3-27). La
+ * gasolinera es justo donde no hay cobertura.
  *
  * Diseño:
  * - IndexedDB (los `File` de la cámara no caben en localStorage).
@@ -15,18 +17,31 @@
 
 import { ApiError } from '@flota/ui/http'
 
-import { createKmReading, registerItv, uploadDocument } from '../api.ts'
-import type { DocumentUploadInput } from '../api.ts'
+import { addFuelEntry, createIncident, createKmReading, registerItv, uploadDocument } from '../api.ts'
+import type { DocumentUploadInput, FuelEntryInput, IncidentInput } from '../api.ts'
 
 export type QueuedItem =
-  | { kind: 'km'; payload: { vehicle: number; km_reading: number; reading_date: string } }
+  | {
+      kind: 'km'
+      payload: { vehicle: number; km_reading: number; reading_date: string; client_ref?: string }
+    }
+  | { kind: 'fuel'; payload: FuelEntryInput }
   | {
       kind: 'itv'
       payload: {
         vehicle: number
         event_date: string
         itv: { result: string; next_due: string | null }
+        client_ref?: string
       }
+    }
+  | {
+      /** R3-27: parte de incidencia capturado sin cobertura. Su `client_ref`
+       * hace doble papel: idempotencia en el back (R3-34) y referencia para
+       * que los adjuntos encolados con él (`incidentRef`) se enlacen al id
+       * real cuando el parte por fin se cree. */
+      kind: 'incident'
+      payload: IncidentInput & { client_ref: string }
     }
   | {
       kind: 'document'
@@ -36,6 +51,9 @@ export type QueuedItem =
       /** MIME explícito: el structured clone de IndexedDB no siempre conserva
        * el `type` del Blob (p. ej. implementaciones antiguas / polyfills). */
       fileType: string
+      /** R3-27: `client_ref` del parte encolado del que depende este adjunto;
+       * al crearse el parte se sustituye por el `payload.incident` real. */
+      incidentRef?: string
     }
 
 export interface StoredItem {
@@ -138,6 +156,44 @@ export async function safeEnqueue(item: QueuedItem): Promise<boolean> {
   }
 }
 
+/** R3-34: referencia de idempotencia extremo a extremo. Se genera UNA vez al
+ * capturar el dato y viaja igual en el intento directo y en el reenvío de la
+ * cola: si el POST llegó pero la respuesta se perdió por el camino, el back
+ * reconoce la referencia y devuelve la respuesta original sin repetir el
+ * efecto (sin doblar los litros del mes, sin duplicar la lectura). */
+export function newClientRef(): string {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    // Sin `randomUUID` (contexto no seguro): basta con que no se repita.
+    return `ref-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+}
+
+/** R3-27: encola un parte de incidencia con sus adjuntos, en orden FIFO (el
+ * parte primero). Devuelve `false` si ni siquiera el parte cupo en IndexedDB
+ * (BG4: la UI debe avisar de que NO quedó nada guardado); un adjunto que no
+ * quepa se pierde en silencio — el parte, que es lo crítico, ya está a salvo. */
+export async function enqueueIncidentWithFiles(
+  payload: IncidentInput & { client_ref: string },
+  files: Array<{ file: File; type: string }>,
+): Promise<boolean> {
+  if (!(await safeEnqueue({ kind: 'incident', payload }))) return false
+  for (const upload of files) {
+    await safeEnqueue({
+      kind: 'document',
+      // Sin `incident`: el id no existe aún — `incidentRef` lo resolverá el
+      // flush cuando el parte se cree.
+      payload: { vehicle: payload.vehicle, type: upload.type, client_ref: newClientRef() },
+      file: upload.file,
+      fileName: upload.file.name,
+      fileType: upload.file.type,
+      incidentRef: payload.client_ref,
+    })
+  }
+  return true
+}
+
 /** BG4: pedir almacenamiento persistente al arrancar — reduce el riesgo de
  * que el navegador purgue IndexedDB (y la cola) bajo presión de disco. */
 export function requestPersistentStorage(): void {
@@ -167,16 +223,49 @@ async function bumpAttempts(stored: StoredItem): Promise<number> {
   return attempts
 }
 
-async function send(item: QueuedItem): Promise<void> {
+/** Reenvía un elemento. Para un parte de incidencia devuelve el id creado
+ * (R3-27: sus adjuntos encolados lo esperan); el resto no devuelve nada. */
+async function send(item: QueuedItem): Promise<number | undefined> {
   if (item.kind === 'km') {
     await createKmReading(item.payload)
+  } else if (item.kind === 'fuel') {
+    await addFuelEntry(item.payload)
   } else if (item.kind === 'itv') {
     await registerItv(item.payload)
+  } else if (item.kind === 'incident') {
+    const incident = await createIncident(item.payload)
+    return incident.id
   } else {
+    const payload = { ...item.payload }
+    if (item.incidentRef) {
+      // R3-27: el parte del que dependía nunca llegó a crearse (el servidor lo
+      // rechazó y se descartó). El adjunto sube ligado solo al vehículo —
+      // mejor suelto que perdido.
+      payload.incident = null
+    }
     const file = new File([item.file], item.fileName || 'documento', {
       type: item.fileType || item.file.type || 'application/octet-stream',
     })
-    await uploadDocument(item.payload, file)
+    await uploadDocument(payload, file)
+  }
+  return undefined
+}
+
+/** R3-27: al crearse por fin un parte encolado, sus adjuntos pendientes pasan
+ * a apuntar al id real — en el array en memoria (este mismo flush los envía) y
+ * en IndexedDB (por si el flush se corta antes de llegar a ellos). */
+async function adoptIncident(items: StoredItem[], ref: string, incidentId: number): Promise<void> {
+  for (const stored of items) {
+    const item = stored.item
+    if (item.kind !== 'document' || item.incidentRef !== ref) continue
+    item.payload = { ...item.payload, incident: incidentId }
+    delete item.incidentRef
+    try {
+      await tx('readwrite', (store) => store.put({ ...stored }))
+    } catch {
+      // Best-effort: en memoria ya está enlazado para este flush; si además
+      // falla persistir y la app muere antes de enviarlo, subirá sin enlace.
+    }
   }
 }
 
@@ -199,7 +288,10 @@ export async function flush(): Promise<FlushResult> {
     const items = await queuedItems()
     for (const stored of items) {
       try {
-        await send(stored.item)
+        const createdIncident = await send(stored.item)
+        if (stored.item.kind === 'incident' && createdIncident !== undefined) {
+          await adoptIncident(items, stored.item.payload.client_ref, createdIncident)
+        }
         await remove(stored.id)
         result.sent += 1
       } catch (err) {

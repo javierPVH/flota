@@ -174,6 +174,8 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     const actions = document.querySelector('.quick-actions')
     expect(Array.from(actions?.children ?? []).map((action) => action.textContent?.trim())).toEqual([
       'Registrar km',
+      // GAP-2: el gasto de combustible va junto a los km (los dos son del mes).
+      'Gasto de combustible',
       'Registrar ITV',
       'Actualizar mantenimiento',
       'Avería',
@@ -203,6 +205,7 @@ describe('VehicleFieldPage (ficha de campo)', () => {
       vehicle: 1,
       km_reading: 5000,
       reading_date: expect.any(String),
+      client_ref: expect.any(String),
     })
   })
 
@@ -363,6 +366,7 @@ describe('VehicleFieldPage (ficha de campo)', () => {
       expiry_date: null,
       incident: null,
       notes: '',
+      client_ref: expect.any(String),
     }, file)
     expect(await screen.findByText('Documento subido')).toBeInTheDocument()
   })
@@ -383,7 +387,9 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     expect(screen.getByText('🔒 Bloqueado por sustitución')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Registrar km/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Subir documento/ })).not.toBeInTheDocument()
-    expect(document.querySelectorAll('.quick-action.is-disabled').length).toBe(3)
+    // Km, combustible, avería y documento apagados (4): sin coche operativo no
+    // se apunta nada de consumo. La ITV es del coche físico y sigue.
+    expect(document.querySelectorAll('.quick-action.is-disabled').length).toBe(4)
     // La ITV es del coche físico: sigue disponible aunque esté cubierto.
     expect(screen.getByRole('button', { name: 'Registrar ITV' })).toBeInTheDocument()
   })

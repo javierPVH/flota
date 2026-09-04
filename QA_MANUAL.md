@@ -290,16 +290,28 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
         **🔒 Bloqueado** (atenuado, borde discontinuo y el motivo); su flecha
         devuelve al sustituto. Debe quedar claro de un vistazo cuál está
         bloqueado y cuál es el de sustitución.
-  - [ ] El nav inferior de Mi vehículo es: **Inicio · Km · ITV · Mantenimiento ·
-        Avería · Subir documento** (etiquetas cortas; los modales conservan sus
+  - [ ] El nav inferior de Mi vehículo es: **Inicio · Km · Combustible · ITV ·
+        Mantenimiento · Avería · Subir documento** (etiquetas cortas; los modales conservan sus
         títulos completos) — Inicio primero, y las pestañas se ven IGUAL que
         las del nav de Flota (mismo estilo, sin cromo de botón). En este modo TODO va **sobre su coche o el
         de su sustitución**: los modales abren con el coche operativo de la
         pareja preseleccionado; la bandeja de alertas se acota a ella (el grupo
         entero se ve en modo Flota). Si no condujera ninguno: aviso en la home
-        con botón que gira el switch a Flota, y las cinco acciones del nav
+        con botón que gira el switch a Flota, y las seis acciones del nav
         aparecen **desactivadas** (apagadas, sin enlace, con "Sin vehículo
         asignado" al mantenerlas pulsadas); Inicio sigue activo.
+  - [ ] **Combustible (nav)** — el modal «Gasto de combustible» funciona como el
+        de km: arriba, en un panel, **lo que ya lleva el mes** («Este mes ya
+        llevas 58,40 l · 79,90 €» en el `7890NPQ` sembrado; «Sin gasto
+        registrado este mes.» si no hay), y debajo **Litros repostados**
+        (obligatorio) e **Importe (€)** (opcional: hay tickets que no se
+        guardan). Acepta coma o punto decimal (teclado del móvil). Al guardar,
+        el repostaje **se SUMA al total del mes** —la serie de consumo es
+        mensual, una fila por coche y mes— y el panel del modal, al reabrirlo,
+        ya enseña el total nuevo. Sin red entra en la **cola offline** (el punto
+        de la pestaña) y se envía al reconectar; un rechazo del servidor (litros
+        negativos) se muestra sin cerrar el modal. La supervisora lo tiene
+        además en la **ficha de campo** (misma barra de acciones que km/ITV).
   - [ ] **ITV (nav)** — el modal «Registrar ITV» abre con un **aviso azul** que
         dice de qué cita es el registro: «Próx. ITV ‹fecha› · en N días»
         (en rojo si ya venció, con «venció hace N días»), que **se puede
@@ -489,6 +501,17 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
       mensual con litros, importe y origen. Añadir un mes ya existente → error de
       campo (no un 500); desactivar la cifra mala libera el mes. `1234KLM` trae
       6 meses sembrados.
+- [ ] **KPI «Combustible (mes)»** en la ficha (div informativo, junto a coste y
+      kilometraje): litros del mes en curso y, debajo, el importe (o «Sin gasto
+      este mes» / «Sin importe registrado»). Es **clicable** como el de
+      kilometraje: abre la tarjeta de la serie con el formulario de alta del
+      mes ya desplegado. En `7890NPQ` marca **58,40 l · 79,90 €** (lo que el
+      seed apunta como gasto de campo del mes).
+- [ ] **Columna «Combustible (mes)»** en Vehículos (oculta por defecto, se
+      activa en el gestor de columnas): «58,40 l · 79,90 €» alineado a la
+      derecha, «—» sin gasto. **Ordena por importe** (y por litros cuando no
+      hay importe) y entra en el CSV/Excel como el resto de columnas. El
+      repostaje que apunta el conductor desde la PWA aparece aquí.
 - [ ] Informes → Descargas permite elegir **Vehículos** o **Personas**. Vehículos
       genera un único Excel multihoja con ficha, contratos, asignaciones, reparto,
       sustituciones, km, consumo, eventos, incidencias, solicitudes, documentos,

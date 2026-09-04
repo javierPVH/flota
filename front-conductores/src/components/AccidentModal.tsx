@@ -4,8 +4,10 @@ import { Button, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui
 import { asErrorMessage } from '@flota/ui/http'
 
 import { createIncident, uploadDocument } from '../api.ts'
+import type { IncidentInput } from '../api.ts'
 import { todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
+import { enqueueIncidentWithFiles, isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Vehicle } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
@@ -73,43 +75,78 @@ export function AccidentModal({
     event.preventDefault()
     setSaving(true)
     setError('')
+    const payload: IncidentInput & { client_ref: string } = {
+      vehicle: vehicle.id,
+      type: 'accident',
+      date: details.occurred_at ? details.occurred_at.slice(0, 10) : todayIso(),
+      description: details.damage_description.trim(),
+      workshop_postal_code: details.workshop_postal_code,
+      details: {
+        report_version: 1,
+        street: details.street,
+        street_number: details.street_number,
+        postal_code: details.postal_code,
+        locality: details.locality,
+        province: details.province,
+        occurred_at: details.occurred_at,
+        phone: details.phone,
+        damage_description: details.damage_description.trim(),
+        police_report_reference: details.police_report_reference,
+        third_parties: thirdParties,
+        injured_people: injuredPeople,
+      },
+      // R3-34: misma referencia en el intento directo y en el reenvío offline.
+      client_ref: newClientRef(),
+    }
     try {
-      const incident = await createIncident({
-        vehicle: vehicle.id,
-        type: 'accident',
-        date: details.occurred_at ? details.occurred_at.slice(0, 10) : todayIso(),
-        description: details.damage_description.trim(),
-        workshop_postal_code: details.workshop_postal_code,
-        details: {
-          report_version: 1,
-          street: details.street,
-          street_number: details.street_number,
-          postal_code: details.postal_code,
-          locality: details.locality,
-          province: details.province,
-          occurred_at: details.occurred_at,
-          phone: details.phone,
-          damage_description: details.damage_description.trim(),
-          police_report_reference: details.police_report_reference,
-          third_parties: thirdParties,
-          injured_people: injuredPeople,
-        },
-      })
+      const incident = await createIncident(payload)
       let notice = t.accidentModal.saved
       if (reportFile) {
+        const docPayload = {
+          vehicle: vehicle.id,
+          incident: incident.id,
+          type: 'accident_report',
+          client_ref: newClientRef(),
+        }
         try {
-          await uploadDocument(
-            { vehicle: vehicle.id, incident: incident.id, type: 'accident_report' },
-            reportFile,
-          )
-        } catch {
-          notice = t.accidentModal.savedUploadFailed(reportFile.name)
+          await uploadDocument(docPayload, reportFile)
+        } catch (err) {
+          // R3-27: sin red, el archivo del parte va a la cola de documentos en
+          // vez de quedarse en un aviso y no llegar nunca.
+          if (
+            isNetworkError(err) &&
+            (await safeEnqueue({
+              kind: 'document',
+              payload: docPayload,
+              file: reportFile,
+              fileName: reportFile.name,
+              fileType: reportFile.type,
+            }))
+          ) {
+            notice = t.accidentModal.savedUploadQueued(reportFile.name)
+          } else {
+            notice = t.accidentModal.savedUploadFailed(reportFile.name)
+          }
         }
       }
       setDone(notice)
       onSaved?.()
     } catch (err) {
-      setError(asErrorMessage(err, a.createError))
+      // R3-27: el escenario natural de un accidente en obra es SIN cobertura —
+      // el parte entero (dirección, terceros, heridos, archivo) queda en la
+      // cola en vez de perderse el formulario al cerrar.
+      if (
+        isNetworkError(err) &&
+        (await enqueueIncidentWithFiles(
+          payload,
+          reportFile ? [{ file: reportFile, type: 'accident_report' }] : [],
+        ))
+      ) {
+        setDone(t.accidentModal.queued)
+        onSaved?.()
+      } else {
+        setError(asErrorMessage(err, a.createError))
+      }
     } finally {
       setSaving(false)
     }

@@ -106,6 +106,7 @@ describe('RegisterItvModal: la próxima ITV es opcional', () => {
         vehicle: 3,
         event_date: todayIso(),
         itv: { result: 'done', next_due: null },
+        client_ref: expect.any(String),
       }),
     )
     expect(onSaved).toHaveBeenCalled()
@@ -124,6 +125,7 @@ describe('RegisterItvModal: la próxima ITV es opcional', () => {
         vehicle: 3,
         event_date: todayIso(),
         itv: { result: 'done', next_due: '2027-09-01' },
+        client_ref: expect.any(String),
       }),
     )
   })

@@ -95,12 +95,12 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
     expect(screen.queryByText('5678BCD')).not.toBeInTheDocument()
 
-    // La barra personal: Inicio primero (como en Flota) + las cinco acciones,
+    // La barra personal: Inicio primero (como en Flota) + las seis acciones,
     // con sus etiquetas CORTAS (Km · ITV · Mantenimiento).
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
     await waitFor(() => expect(within(nav).getByRole('button', { name: 'Km' })).toBeEnabled())
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Inicio', 'Km', 'ITV', 'Mantenimiento', 'Avería', 'Subir documento',
+      'Inicio', 'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Avería', 'Subir documento',
     ])
     expect(within(nav).getByRole('link', { name: 'Inicio' })).toHaveAttribute('href', '/')
 
@@ -119,8 +119,10 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(screen.getByRole('button', { name: 'Flota' })).toHaveAttribute('aria-pressed', 'true')
 
     // La home pasa a la flota, con sus grupos de estado como pestañas.
-    expect(await screen.findByText('Flota a cargo')).toBeInTheDocument()
-    expect(screen.getByText('5678BCD')).toBeInTheDocument()
+    // La home de flota es una página `lazy` (PF2): con la máquina cargada el
+    // segundo de cortesía de `findBy` no le da, y las filas llegan aún después.
+    expect(await screen.findByText('Flota a cargo', undefined, { timeout: 3000 })).toBeInTheDocument()
+    expect(await screen.findByText('5678BCD', undefined, { timeout: 3000 })).toBeInTheDocument()
     expect(
       within(screen.getByRole('combobox', { name: 'Grupos de la flota' })).getByRole('option', {
         name: /En taller/,
@@ -160,7 +162,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
       expect(screen.queryByRole('link', { name: 'Km' })).not.toBeInTheDocument(),
     )
     expect(screen.queryByRole('button', { name: 'Avería' })).not.toBeInTheDocument()
-    expect(document.querySelectorAll('.bottom-tab.is-disabled').length).toBe(5)
+    expect(document.querySelectorAll('.bottom-tab.is-disabled').length).toBe(6)
   })
 
   it('el modo se recuerda por dispositivo', async () => {
@@ -171,7 +173,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(localStorage.getItem('flota:vista')).toBe('flota')
   })
 
-  it('el conductor solo tiene Mi vehículo y las mismas cinco acciones sin aviso', async () => {
+  it('el conductor solo tiene Mi vehículo y las mismas seis acciones sin aviso', async () => {
     mocks.roles = ['driver']
     // El endpoint del conductor devuelve únicamente sus vehículos.
     mocks.listVehicles.mockResolvedValue({ count: 1, results: [OWN] })
@@ -185,7 +187,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
     await waitFor(() => expect(within(nav).getByRole('button', { name: 'Km' })).toBeEnabled())
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Inicio', 'Km', 'ITV', 'Mantenimiento', 'Avería', 'Subir documento',
+      'Inicio', 'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Avería', 'Subir documento',
     ])
     await userEvent.click(within(nav).getByRole('button', { name: 'Km' }))
     expect(screen.getByRole('dialog', { name: 'Registrar km · 7890NPQ' })).toBeInTheDocument()

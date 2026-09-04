@@ -232,6 +232,7 @@ describe('AlertsPage (M5)', () => {
       vehicle: 7,
       km_reading: 4750,
       reading_date: expect.any(String),
+      client_ref: expect.any(String),
     })
     expect(mocks.resolveAlert).not.toHaveBeenCalled()
     expect(await screen.findByText('Alerta de 7890NPQ resuelta.')).toBeInTheDocument()
@@ -252,6 +253,7 @@ describe('AlertsPage (M5)', () => {
       vehicle: 7,
       event_date: expect.any(String),
       itv: { result: 'done', next_due: '2027-09-01' },
+      client_ref: expect.any(String),
     })
   })
 

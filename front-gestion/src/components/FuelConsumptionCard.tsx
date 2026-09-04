@@ -33,9 +33,14 @@ const VACIO: FormValues = { period: '', liters: '', amount: '', source: 'fuel_ca
 export function FuelConsumptionCard({
   vehicle,
   accordion,
+  createSignal = 0,
 }: {
   vehicle: Vehicle
   accordion: AccordionState
+  /** Contador que sube cuando el KPI «Combustible del mes» pide registrar: el
+   * formulario vive AQUI (con su carga y su validacion), asi que el div de
+   * arriba solo hace una senal en vez de duplicarlo. */
+  createSignal?: number
 }) {
   const t = useVehicleDetailCopy()
   const deactivateConfirm = useDeactivateConfirm()
@@ -58,6 +63,19 @@ export function FuelConsumptionCard({
   }, [vehicle.id])
 
   useEffect(load, [load])
+
+  useEffect(() => {
+    if (createSignal > 0) {
+      if (!accordion.isOpen('fuel')) accordion.toggle('fuel')
+      setValues(VACIO)
+      setFormError('')
+      setEditing(null)
+      setCreating(true)
+    }
+    // `accordion` cambia en cada render (objeto nuevo): fuera de las deps a
+    // proposito — la senal es lo unico que debe disparar esto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createSignal])
 
   function openCreate() {
     setValues(VACIO)

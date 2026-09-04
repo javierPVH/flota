@@ -1,18 +1,19 @@
 import { useState } from 'react'
-import { Camera, ClipboardCheck, ClipboardList, Gauge, Wrench } from 'lucide-react'
+import { Camera, ClipboardCheck, ClipboardList, Fuel, Gauge, Wrench } from 'lucide-react'
 
 import { scheduledActionAvailable } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 import { BreakdownModal } from './BreakdownModal.tsx'
+import { RegisterFuelModal } from './RegisterFuelModal.tsx'
 import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
 import { RegisterItvModal } from './RegisterItvModal.tsx'
 import { RegisterKmModal } from './RegisterKmModal.tsx'
 import { UploadDocumentModal } from './UploadDocumentModal.tsx'
 
-type Action = 'km' | 'itv' | 'maintenance' | 'breakdown' | 'document'
+type Action = 'km' | 'fuel' | 'itv' | 'maintenance' | 'breakdown' | 'document'
 
-/** Las cinco acciones de Mi vehículo, compartidas por su barra y su pantalla. */
+/** Las acciones de Mi vehículo, compartidas por su barra y su pantalla. */
 export function VehicleActionButtons({
   vehicle,
   summary,
@@ -36,6 +37,7 @@ export function VehicleActionButtons({
     variant === 'nav'
       ? {
           km: t.shell.tabs.km,
+          fuel: t.shell.tabs.fuel,
           itv: t.shell.tabs.itv,
           maintenance: t.shell.tabs.maintenance,
           breakdown: t.shell.tabs.breakdown,
@@ -43,6 +45,7 @@ export function VehicleActionButtons({
         }
       : {
           km: t.common.registerKm,
+          fuel: t.fuel.title,
           itv: t.vehicle.quickItv,
           maintenance: t.carUpdate.maintenanceButton,
           breakdown: t.home.quickBreakdown,
@@ -50,6 +53,9 @@ export function VehicleActionButtons({
         }
   const actions: Array<{ key: Action; icon: typeof Gauge }> = [
     { key: 'km', icon: Gauge },
+    // GAP-2: el gasto de combustible, junto a los km (los dos se apuntan a la
+    // vuelta de la ruta y los dos son mensuales).
+    { key: 'fuel', icon: Fuel },
     { key: 'itv', icon: ClipboardCheck },
     { key: 'maintenance', icon: ClipboardList },
     { key: 'breakdown', icon: Wrench },
@@ -103,6 +109,14 @@ export function VehicleActionButtons({
 
       {vehicle && open === 'km' && (
         <RegisterKmModal vehicle={vehicle} summary={summary ?? null} onClose={() => setOpen(null)} onSaved={saved} />
+      )}
+      {vehicle && open === 'fuel' && (
+        <RegisterFuelModal
+          vehicle={vehicle}
+          summary={summary ?? null}
+          onClose={() => setOpen(null)}
+          onSaved={saved}
+        />
       )}
       {vehicle && open === 'itv' && (
         <RegisterItvModal

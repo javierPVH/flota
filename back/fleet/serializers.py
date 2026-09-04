@@ -121,6 +121,11 @@ class VehicleSerializer(serializers.ModelSerializer):
     supervisor_name = serializers.SerializerMethodField()
     driver_name = serializers.SerializerMethodField()
     driver_id = serializers.SerializerMethodField()
+    # GAP-2: gasto de combustible del mes en curso (litros e importe). Va en el
+    # LISTADO porque la tabla de gestion lo pinta como columna y no carga
+    # summaries; el mapa se calcula una vez por respuesta, como el conductor.
+    fuel_month_liters = serializers.SerializerMethodField()
+    fuel_month_amount = serializers.SerializerMethodField()
     # N5: marca/modelo por catálogo. Los CharField legados pasan a opcionales
     # (se rellenan desde las FKs); los fronts leen brand/model como siempre.
     brand = serializers.CharField(required=False, allow_blank=False, max_length=50)
@@ -183,6 +188,8 @@ class VehicleSerializer(serializers.ModelSerializer):
             "next_itv_date",
             "driver_name",
             "driver_id",
+            "fuel_month_liters",
+            "fuel_month_amount",
             "drive_folder_url",
             "drive_folder_id",
             "contract",
@@ -197,6 +204,8 @@ class VehicleSerializer(serializers.ModelSerializer):
             "id",
             "next_itv_date",
             "driver_id",
+            "fuel_month_liters",
+            "fuel_month_amount",
             "drive_folder_url",
             "drive_folder_id",
             "created_at",
@@ -209,20 +218,27 @@ class VehicleSerializer(serializers.ModelSerializer):
             return ""
         return sup.get_full_name() or sup.get_username()
 
-    def _current_driver(self, obj: Vehicle):
-        """Conductor vigente (HU-1.1). El mapa se calcula UNA vez por respuesta
-        (cacheado en el context) para no hacer una query por fila del listado."""
-        drivers = self.context.get("_current_drivers")
-        if drivers is None:
+    def _response_map(self, key: str, obj: Vehicle, build) -> dict:
+        """Mapa por vehículo calculado UNA vez por respuesta (cacheado en el
+        context) a partir de los ids de la página: lo que el listado necesita y
+        no sale del `select_related` (conductor vigente, gasto del mes) se
+        resuelve en bloque, no fila a fila — es el N+1 clásico de este modelo."""
+        cached = self.context.get(key)
+        if cached is None:
+            # En listado, `parent.instance` es la página; en detalle, el objeto.
             instance = self.parent.instance if self.parent is not None else obj
             ids = (
                 [v.id for v in instance]
                 if isinstance(instance, list | models.QuerySet)
                 else [obj.id]
             )
-            drivers = current_driver_map(ids)
-            self.context["_current_drivers"] = drivers
-        return drivers.get(obj.id)
+            cached = build(ids)
+            self.context[key] = cached
+        return cached
+
+    def _current_driver(self, obj: Vehicle):
+        """Conductor vigente (HU-1.1)."""
+        return self._response_map("_current_drivers", obj, current_driver_map).get(obj.id)
 
     def get_driver_name(self, obj: Vehicle) -> str:
         driver = self._current_driver(obj)
@@ -232,6 +248,29 @@ class VehicleSerializer(serializers.ModelSerializer):
         # Id del conductor vigente: permite enlazar a su ficha desde el listado.
         driver = self._current_driver(obj)
         return driver.id if driver else None
+
+    @staticmethod
+    def _fuel_month_map(ids: list[int]) -> dict[int, dict]:
+        """Gasto del mes ya en la forma que sale por la API: cadenas de dos
+        decimales, las MISMAS que emite el summary (`metrics.decimal_str`)."""
+        from .services.metrics import decimal_str, fuel_month_map
+
+        return {
+            vehicle_id: {
+                "liters": decimal_str(row["liters"]),
+                "amount": decimal_str(row["amount"]),
+            }
+            for vehicle_id, row in fuel_month_map(ids).items()
+        }
+
+    def _fuel_month(self, obj: Vehicle) -> dict:
+        return self._response_map("_fuel_month", obj, self._fuel_month_map).get(obj.id) or {}
+
+    def get_fuel_month_liters(self, obj: Vehicle) -> str | None:
+        return self._fuel_month(obj).get("liters")
+
+    def get_fuel_month_amount(self, obj: Vehicle) -> str | None:
+        return self._fuel_month(obj).get("amount")
 
     def validate(self, attrs):
         # HU-1.3: proyecto obligatorio cuando el uso empresarial es "proyecto".

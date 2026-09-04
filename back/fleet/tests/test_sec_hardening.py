@@ -9,6 +9,7 @@
 
 from datetime import date, timedelta
 
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -272,6 +273,10 @@ class MultiRoleScopeTests(APITestCase):
         detail = self.client.get(reverse("vehicle-detail", args=[self.own.pk]))
         self.assertEqual(detail.status_code, status.HTTP_200_OK)
 
+    # N8a: sin ventana de registro (FLEET_KM_WINDOW_START=0) — lo que se prueba
+    # aqui es el AMBITO, no el plazo. Con la ventana puesta, el test solo pasaba
+    # del dia 20 a fin de mes (el supervisor no esta exento).
+    @override_settings(FLEET_KM_WINDOW_START=0)
     def test_can_register_km_on_own_car(self):
         resp = self.client.post(
             reverse("kmreading-list"),
