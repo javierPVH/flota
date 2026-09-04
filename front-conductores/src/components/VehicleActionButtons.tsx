@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Camera, ClipboardCheck, ClipboardList, Fuel, Gauge, Wrench } from 'lucide-react'
+import { Camera, ClipboardCheck, ClipboardList, Fuel, Gauge, Siren, Wrench } from 'lucide-react'
 
 import { scheduledActionAvailable } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
+import { AccidentModal } from './AccidentModal.tsx'
 import { BreakdownModal } from './BreakdownModal.tsx'
 import { RegisterFuelModal } from './RegisterFuelModal.tsx'
 import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
@@ -11,7 +12,7 @@ import { RegisterItvModal } from './RegisterItvModal.tsx'
 import { RegisterKmModal } from './RegisterKmModal.tsx'
 import { UploadDocumentModal } from './UploadDocumentModal.tsx'
 
-type Action = 'km' | 'fuel' | 'itv' | 'maintenance' | 'breakdown' | 'document'
+type Action = 'km' | 'fuel' | 'itv' | 'maintenance' | 'breakdown' | 'accident' | 'document'
 
 /** Las acciones de Mi vehículo, compartidas por su barra y su pantalla. */
 export function VehicleActionButtons({
@@ -31,8 +32,9 @@ export function VehicleActionButtons({
   const [open, setOpen] = useState<Action | null>(null)
   const className = variant === 'nav' ? 'bottom-tab' : 'quick-action'
   const iconSize = variant === 'nav' ? 22 : 18
-  // En el nav las etiquetas van CORTAS (Km · ITV · Mantenimiento): seis
-  // pestañas en un móvil estrecho no perdonan verbos.
+  // En el nav las etiquetas van CORTAS (Km · ITV · Mantenimiento): siete
+  // pestañas en un móvil estrecho no perdonan verbos (y el CSS las recorta
+  // con elipsis antes que desbordar la barra).
   const labels: Record<Action, string> =
     variant === 'nav'
       ? {
@@ -41,6 +43,7 @@ export function VehicleActionButtons({
           itv: t.shell.tabs.itv,
           maintenance: t.shell.tabs.maintenance,
           breakdown: t.shell.tabs.breakdown,
+          accident: t.shell.tabs.accident,
           document: t.vehicle.quickUpload,
         }
       : {
@@ -49,6 +52,7 @@ export function VehicleActionButtons({
           itv: t.vehicle.quickItv,
           maintenance: t.carUpdate.maintenanceButton,
           breakdown: t.home.quickBreakdown,
+          accident: t.accidentModal.button,
           document: t.vehicle.quickUpload,
         }
   const actions: Array<{ key: Action; icon: typeof Gauge }> = [
@@ -59,6 +63,9 @@ export function VehicleActionButtons({
     { key: 'itv', icon: ClipboardCheck },
     { key: 'maintenance', icon: ClipboardList },
     { key: 'breakdown', icon: Wrench },
+    // El accidente va junto a la avería: son las dos comunicaciones urgentes
+    // desde el arcén, y el parte guiado es el mismo que usa Gestión.
+    { key: 'accident', icon: Siren },
     { key: 'document', icon: Camera },
   ]
   const itvAvailable = scheduledActionAvailable(
@@ -136,6 +143,9 @@ export function VehicleActionButtons({
           onClose={() => setOpen(null)}
           onSaved={saved}
         />
+      )}
+      {vehicle && open === 'accident' && (
+        <AccidentModal vehicle={vehicle} onClose={() => setOpen(null)} onSaved={saved} />
       )}
       {vehicle && open === 'document' && (
         <UploadDocumentModal vehicle={vehicle} onClose={() => setOpen(null)} onSaved={saved} />
