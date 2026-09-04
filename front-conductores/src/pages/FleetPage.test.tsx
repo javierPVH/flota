@@ -127,6 +127,9 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
   it('agrupa por estado en un selector con recuento, y el selector corta la lista', async () => {
     renderPage()
     expect(await screen.findByText('Flota a cargo')).toBeInTheDocument()
+    // El espacio de supervisor pide SOLO su grupo: los roles se suman y sin
+    // el filtro un supervisor-admin vería aquí toda la flota.
+    expect(mocks.listVehicles).toHaveBeenCalledWith({ supervisor: 1 })
 
     // "Todos" + un grupo por estado presente, cada uno con su recuento.
     const filter = screen.getByRole('combobox', { name: 'Grupos de la flota' })

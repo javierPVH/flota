@@ -1442,6 +1442,24 @@ table.data tbody tr:hover {
   padding: 0 0.75rem 0.75rem;
 }
 .ops-acc-body[hidden] { display: none; }
+/* Kilómetros y combustible: la serie mensual de un vistazo. */
+.kmfuel-months {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.kmfuel-months li {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  font-size: 0.85rem;
+}
 /* Comunicación de accidente: bloques repetibles (terceros / lesionados). */
 .acc-repeat-head {
   display: flex;

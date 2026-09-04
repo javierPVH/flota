@@ -64,6 +64,7 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
 - [ ] **Cambiar a un estado con parte** (p. ej. «Averiado») **abre además su petición** (incidencia del tipo equivalente) y la pantalla de éxito lo dice («Petición abierta: …»). El contador de «Estados abiertos» sube.
 - [ ] **Pestaña «Estados abiertos»**: lista **solo las peticiones sin resolver** (abiertas/en curso) del vehículo, con fecha, estado y la gestión guardada (taller · cita). Cada línea tiene tres botones que abren su modal: **Modificar** (fecha, kilometraje, CP, descripción), **Gestión** (taller del catálogo + cita + coste → «En curso») y **Resolver** (sobrecoste, observaciones, días parado — todo opcional → **cierra** y desaparece de la lista).
 - [ ] **«Cambio de neumáticos»** en el mismo selector: **habilita todo** — su parte guiado como el de la PWA (kilometraje, CP del taller, fecha y hora de preferencia, motivo desgaste/pinchazo con sus ruedas y medidas), la descripción (hace de comentario del parte), gestión, archivos (tipo sugerido «Fotos de daños») y comunicado; la sustitución solo si el coche NO está activo ahora (el back rechaza sustituto de un coche activo). Al guardar se crea una **incidencia de neumáticos** (el estado del coche no cambia) y se ve en Incidencias y en «Estados abiertos».
+- [ ] **Menú ⋮ → «Kilómetros y combustible»**: modal con dos pestañas. **Kilómetros**: enseña la última lectura (con «(estimada)» si lo es) y registra una nueva (fecha tope hoy; la del mes cierra su aviso de lectura pendiente). **Combustible** (GAP-2): serie MENSUAL — mes (tope el actual) y litros (sin campo de importe: eso va por la ficha), con los últimos meses listados; guardar sobre un **mes ya registrado lo actualiza** (solo litros: el importe guardado no se pisa) en vez de duplicarlo.
 - [ ] **Menú ⋮ → «Comunicar accidente»** (junto a «Estado, sustitución y comunicado», en Vehículos y en el Panel): el parte guiado de la PWA — calle/número/CP/localidad/provincia, fecha y hora (no futura), teléfono, CP del taller, **descripción de los daños**, **terceros implicados** y **lesionados** con «+ Añadir»/quitar, referencia del atestado y archivo del parte (opcionales). La casilla **«Marcar el vehículo como “Accidentado”»** viene marcada (no aparece si ya lo está). Al enviar: se abre la **petición de accidente** (visible en «Estados abiertos» e Incidencias), el estado cambia si la casilla sigue marcada, y en el **admin → Partes de accidente** están las tablas con terceros y lesionados materializados.
 
 ### Detalle de vehículo
@@ -345,6 +346,13 @@ traza (2 enviados, 1 fallido, 1 omitido) + 1 suscripción push de `carlos`.
   - [ ] **Flota**: la home es la lista a cargo, **separada por grupos de estado que
         funcionan como pestañas** (Todos · Activo · En taller · …), cada una con su
         recuento; el buscador vive aquí y las pestañas se recalculan sobre lo buscado.
+        El espacio de Flota enseña **solo los coches que se supervisan**, aunque se
+        acumulen más roles (los ámbitos por rol se suman: sin el filtro, un
+        supervisor+conductor vería además su coche y un supervisor+admin la flota
+        entera): si el coche que conduce `sara` lo supervisa otra persona, NO sale en
+        Flota (sí en «Mi vehículo»). Aplica igual a la proyección (`/grupo`) y a los
+        selectores de coche de registrar km / incidencia / documento abiertos en modo
+        Flota.
         Cada tarjeta añade los **datos de gestión**: conductor, **última lectura**
         (o "Sin lectura", en apagado) y **proyección** (chapa "NN% · nivel"; sin
         contrato no hay fila, con km ilimitados dice "∞"). Si el coche tiene un plan

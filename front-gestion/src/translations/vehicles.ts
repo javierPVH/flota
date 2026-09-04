@@ -281,6 +281,34 @@ const es = {
     btn: 'Gestionar facturas',
     title: (plate: string) => `Facturas · ${plate}`,
   },
+  // Kilómetros y combustible (botón de Acciones): lectura de km + consumo
+  // mensual (GAP-2) del vehículo, en un modal con dos pestañas.
+  kmFuel: {
+    btn: 'Kilómetros y combustible',
+    title: (plate: string) => `Kilómetros y combustible · ${plate}`,
+    tabKm: 'Kilómetros',
+    tabFuel: 'Combustible',
+    lastReading: 'Última lectura',
+    estimatedTag: '(estimada)',
+    noReadings: 'Sin lecturas registradas.',
+    kmLabel: 'Lectura de km',
+    dateLabel: 'Fecha de la lectura',
+    kmSave: 'Registrar lectura',
+    kmSaved: 'Lectura registrada.',
+    fuelHint:
+      'El consumo es una serie MENSUAL en litros: guardar sobre un mes ya registrado lo actualiza.',
+    monthLabel: 'Mes',
+    litersLabel: 'Litros',
+    fuelSave: 'Guardar consumo',
+    fuelSaved: 'Consumo del mes guardado.',
+    fuelUpdated: 'Consumo del mes actualizado.',
+    recentTitle: 'Últimos meses',
+    fuelEmpty: 'Sin consumos registrados.',
+    saving: 'Guardando…',
+    close: 'Cerrar',
+    cancel: 'Cancelar',
+    errGeneric: 'No se pudo guardar.',
+  },
   // Comunicación de accidente (botón de Acciones): el mismo parte guiado que
   // la PWA — abre una petición de accidente con sus tablas (terceros, lesionados).
   accident: {
@@ -645,6 +673,32 @@ const en: typeof es = {
   invoices: {
     btn: 'Manage invoices',
     title: (plate) => `Invoices · ${plate}`,
+  },
+  kmFuel: {
+    btn: 'Mileage & fuel',
+    title: (plate) => `Mileage & fuel · ${plate}`,
+    tabKm: 'Mileage',
+    tabFuel: 'Fuel',
+    lastReading: 'Last reading',
+    estimatedTag: '(estimated)',
+    noReadings: 'No readings registered.',
+    kmLabel: 'Km reading',
+    dateLabel: 'Reading date',
+    kmSave: 'Register reading',
+    kmSaved: 'Reading registered.',
+    fuelHint:
+      'Fuel is a MONTHLY series in litres: saving over an already registered month updates it.',
+    monthLabel: 'Month',
+    litersLabel: 'Litres',
+    fuelSave: 'Save consumption',
+    fuelSaved: 'Month consumption saved.',
+    fuelUpdated: 'Month consumption updated.',
+    recentTitle: 'Recent months',
+    fuelEmpty: 'No consumption registered.',
+    saving: 'Saving…',
+    close: 'Close',
+    cancel: 'Cancel',
+    errGeneric: 'It could not be saved.',
   },
   accident: {
     btn: 'Report accident',

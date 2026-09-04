@@ -12,6 +12,7 @@ import {
   listVehicles,
   type KmWindow,
 } from '../api.ts'
+import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { fmtDate, fmtKm, pendingThisMonth, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
@@ -34,12 +35,16 @@ interface SavedReading {
  */
 export function RegisterKmPage() {
   const { t } = useLang()
+  const { user } = useAuth()
   const [params] = useSearchParams()
   const preselected = params.get('vehiculo') ?? ''
   // Modo "Mi vehículo" del supervisor: el registro queda acotado a su pareja
-  // (coche propio + sustitución). Conductor o modo Flota: sin recorte.
+  // (coche propio + sustitución). Conductor: sin recorte (su ámbito ya es el
+  // suyo). Modo Flota: el selector pide al back SOLO los coches que supervisa
+  // (los roles se suman; sin filtro un supervisor-admin vería toda la flota).
   const ctx = useOutletContext<LayoutContext | null>()
   const ownIds = ctx && !ctx.fleetMode ? (ctx.ownPair?.ids ?? null) : null
+  const supervisedBy = ctx?.fleetMode ? user?.id ?? null : null
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [vehicleId, setVehicleId] = useState(preselected)
@@ -74,7 +79,7 @@ export function RegisterKmPage() {
 
   useEffect(() => {
     let alive = true
-    listVehicles()
+    listVehicles(supervisedBy !== null ? { supervisor: supervisedBy } : {})
       .then((page) => {
         if (!alive) return
         setVehicles(page.results)
@@ -86,7 +91,7 @@ export function RegisterKmPage() {
     return () => {
       alive = false
     }
-  }, [preselected, t])
+  }, [preselected, t, supervisedBy])
 
   // Historial reciente (mejora 🟡): las últimas lecturas a la vista ayudan a
   // detectar erratas en el momento (un dígito de más se ve al instante).

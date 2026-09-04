@@ -53,7 +53,13 @@ export async function devLogin(username: string): Promise<FlotaUser> {
 const PS = 'page_size=500'
 
 // --- Vehículos (el back acota: conductor los suyos; supervisor su grupo) --
-export const listVehicles = () => getJson<Paginated<Vehicle>>(`${API}/vehicles/?${PS}`)
+// Los roles se SUMAN (supervisor+conductor = su grupo ∪ su coche; +admin =
+// toda la flota): el espacio de supervisor pasa `supervisor=<yo>` para que
+// solo salgan los coches que supervisa, tenga los roles que tenga.
+export const listVehicles = (params: { supervisor?: number } = {}) =>
+  getJson<Paginated<Vehicle>>(
+    `${API}/vehicles/?${PS}${params.supervisor != null ? `&supervisor=${params.supervisor}` : ''}`,
+  )
 
 export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${id}/`)
 
