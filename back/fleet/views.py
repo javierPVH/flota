@@ -3,7 +3,8 @@ from decimal import Decimal
 from auditlog.models import LogEntry
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
+from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -32,6 +33,7 @@ from accounts.permissions import (
 )
 from core.throttling import PublicWriteThrottle
 
+from .idempotency import IdempotentCreateMixin, run_idempotent
 from .models import (
     Alert,
     Assignment,
@@ -1021,8 +1023,14 @@ class ContractViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.M
     ordering_fields = ["start_date", "planned_end_date"]
 
 
-class KmReadingViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
-    """Lecturas de km. El conductor registra las de su vehículo (HU-3.1)."""
+class KmReadingViewSet(
+    IdempotentCreateMixin, DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet
+):
+    """Lecturas de km. El conductor registra las de su vehículo (HU-3.1).
+
+    El alta acepta `client_ref` (R3-34): el reenvío de la cola offline de la
+    PWA no duplica la lectura si el POST original ya había llegado.
+    """
 
     serializer_class = KmReadingSerializer
     permission_classes = [ManagementOrDriverReadWrite]
@@ -1325,14 +1333,20 @@ class EventPermission(BasePermission):
         return False
 
 
-class EventViewSet(ScopedByVehicleMixin, mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
+class EventViewSet(
+    IdempotentCreateMixin,
+    ScopedByVehicleMixin,
+    mixins.CreateModelMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
     """Histórico de eventos + registro manual (Fase A1).
 
     Los procesos de negocio siguen emitiendo los suyos; por API solo se dan de
     alta los tipos manuales (`MANUAL_EVENT_TYPES`): **ITV** (HU-5.1 — al crearse
     su `EventItv`, la señal cierra las alertas y refresca `next_itv_date`),
     cambio de **cuota** y de **ubicación** (HU-1.4). El conductor solo ITV, de
-    sus vehículos (scoping).
+    sus vehículos (scoping). El alta acepta `client_ref` (R3-34): el reenvío
+    offline de una ITV no crea un segundo evento.
     """
 
     serializer_class = EventSerializer
@@ -1431,10 +1445,16 @@ class DocumentPermission(BasePermission):
         return user.is_management  # PUT / PATCH / DELETE
 
 
-class IncidentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
+class IncidentViewSet(
+    IdempotentCreateMixin, DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet
+):
     """Incidencias / mantenimiento. Gestión escribe todo (admin toda la flota;
     supervisor su grupo); el conductor LEE las de sus vehículos y CREA las suyas
-    (C3: comunicar una avería desde la app de campo), pero no las cierra."""
+    (C3: comunicar una avería desde la app de campo), pero no las cierra.
+
+    El alta acepta `client_ref` (R3-34/R3-27): el parte encolado sin cobertura
+    se reenvía sin riesgo de crear dos incidencias idénticas.
+    """
 
     serializer_class = IncidentSerializer
     permission_classes = [IsManagementOrDriverCreate]
@@ -1518,11 +1538,15 @@ class IncidentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.M
         return Response(self.get_serializer(incident).data)
 
 
-class DocumentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
+class DocumentViewSet(
+    IdempotentCreateMixin, DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet
+):
     """Documentos del vehículo o PERSONALES de un usuario (permiso de conducir).
 
     El conductor sube los de su vehículo (HU-4.1) y los suyos propios; el
     titular es un vehículo O un usuario, nunca ambos (lo valida el serializer).
+    La subida acepta `client_ref` (R3-34): el reenvío offline no duplica el
+    documento (ni su archivado en Drive).
     """
 
     serializer_class = DocumentSerializer
@@ -2005,16 +2029,119 @@ class WorkshopViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
 class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
     """GAP-2: consumo mensual de combustible.
 
-    Lo escribe la gestión (viene del extracto de la tarjeta, no del conductor);
-    la lectura queda acotada por el ámbito del rol como todo lo demás.
+    La serie mensual la vuelca la gestión del extracto de la tarjeta, pero el
+    gasto también se apunta **en campo**: el conductor registra su repostaje
+    desde la PWA (`add/`) igual que registra los km. De ahí que escriba tanto
+    la gestión como el conductor, siempre con el ámbito del rol acotando.
+
+    Como en las lecturas de km (SEC4), para el conductor el registro es
+    **append-only**: editar o borrar la cifra de un mes es cosa de gestión.
     """
 
     serializer_class = FuelConsumptionSerializer
-    permission_classes = [AdminWriteManagementRead]
+    permission_classes = [ManagementOrDriverReadWrite]
+    # Front público (internet): acota las escrituras del conductor, igual que
+    # en las lecturas de km.
+    throttle_classes = [UserRateThrottle, PublicWriteThrottle]
+    throttle_scope = "public_write"
     queryset = FuelConsumption.objects.select_related("vehicle")
     filterset_fields = {"vehicle": ["exact"], "period": ["exact", "gte", "lte"]}
     ordering_fields = ["period", "liters"]
     ordering = ["-period"]
+
+    def _require_management(self):
+        if not self.request.user.is_management:
+            raise PermissionDenied("Solo la gestión puede modificar o borrar el consumo.")
+
+    def perform_update(self, serializer):
+        self._require_management()
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        self._require_management()
+        super().perform_destroy(instance)
+
+    @action(detail=False, methods=["post"])
+    def add(self, request):
+        """POST /api/v1/fuel-consumptions/add/ — el repostaje de campo.
+
+        `{vehicle, liters, amount?, period?, client_ref?}` **suma** al mes (por
+        defecto el actual) y crea la fila si no existía. La fila es EL MES (una
+        por vehículo y periodo, con `UniqueConstraint`), así que un segundo
+        repostaje no puede ser una fila nueva: o se acumula aquí, o el
+        conductor se comía un 400 al repostar dos veces en el mismo mes.
+
+        Va en el back y no en el front a propósito: leer-sumar-escribir desde
+        el cliente pierde repostajes cuando coinciden dos (el clásico
+        lectura-modificación-escritura sin candado). Aquí la suma la hace la
+        propia base con `F()`, así que dos repostajes simultáneos se suman los
+        dos sin bloquear la fila.
+
+        `client_ref` (R3-34) es aquí donde más importa: como la operación SUMA,
+        un reenvío de la cola offline sin él doblaría litros e importe del mes.
+        """
+        return run_idempotent(request, lambda: self._add_refuel(request))
+
+    def _add_refuel(self, request):
+        try:
+            vehicle_id = int(request.data.get("vehicle") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"vehicle": "Vehículo no válido."}) from exc
+        # Se resuelve YA acotado (SEC1): en el camino bueno es UNA consulta, y
+        # solo cuando falla se distingue "no existe" (400) de "no es tuyo" (403).
+        vehicle = vehicles_for(request.user).filter(pk=vehicle_id).first()
+        if vehicle is None:
+            if Vehicle.objects.filter(pk=vehicle_id).exists():
+                raise PermissionDenied("El vehículo está fuera de tu ámbito.")
+            raise ValidationError({"vehicle": "Vehículo no válido."})
+        period = parse_date(str(request.data.get("period") or "")) or timezone.localdate()
+        period = period.replace(day=1)
+        if period > timezone.localdate().replace(day=1):
+            raise ValidationError({"period": "El mes no puede ser futuro."})
+
+        def decimal_or_error(field: str, *, required: bool):
+            raw = request.data.get(field)
+            if raw in (None, ""):
+                if required:
+                    raise ValidationError({field: "Este campo es obligatorio."})
+                return None
+            try:
+                value = Decimal(str(raw))
+            except ArithmeticError as exc:
+                raise ValidationError({field: "Valor no válido."}) from exc
+            if value < 0:
+                raise ValidationError({field: "No puede ser negativo."})
+            return value
+
+        liters = decimal_or_error("liters", required=True)
+        amount = decimal_or_error("amount", required=False)
+        month = FuelConsumption.objects.filter(vehicle=vehicle, period=period, is_active=True)
+        # La suma la hace la BASE (`liters = liters + x`): no hay lectura previa
+        # que se quede vieja, así que dos repostajes a la vez se suman los dos.
+        # `amount` es opcional y puede venir nulo de la tarjeta: se arranca de 0.
+        accumulate = {"liters": models.F("liters") + liters, "updated_at": timezone.now()}
+        if amount is not None:
+            accumulate["amount"] = Coalesce("amount", models.Value(Decimal("0"))) + amount
+        row = None
+        if not month.update(**accumulate):
+            # Primer repostaje del mes. Si otro se cuela creando la fila, la
+            # constraint de mes único la rechaza y entonces ya hay fila que sumar
+            # (el `atomic` acota el fallo para no tumbar la transacción entera).
+            try:
+                with transaction.atomic():
+                    row = FuelConsumption.objects.create(
+                        vehicle=vehicle,
+                        period=period,
+                        liters=liters,
+                        amount=amount,
+                        # Tecleado por una persona, no volcado del extracto.
+                        source=FuelConsumption.Source.MANUAL,
+                    )
+            except IntegrityError:
+                if not month.update(**accumulate):
+                    raise
+        serializer = self.get_serializer(row or month.select_related("vehicle").first())
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):

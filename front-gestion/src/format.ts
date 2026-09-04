@@ -20,6 +20,27 @@ export function fmtDate(iso: string | null | undefined, lang: AppLanguage = 'es'
   return date.toLocaleDateString(LOCALE[lang], { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+/** Importe CON céntimos ("62,30 €"): el gasto de combustible se compara al
+ * céntimo, y `fmtEur` redondea a euros para las cifras de contrato. */
+export function fmtEurCents(value: string | number | null, lang: AppLanguage = 'es'): string {
+  if (value === null || value === '') return '—'
+  return Number(value).toLocaleString(LOCALE[lang], {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+/** GAP-2: litros ("55,50 l"). El back los manda como cadena decimal. */
+export function fmtLiters(value: string | number | null, lang: AppLanguage = 'es'): string {
+  if (value === null || value === '') return '—'
+  return `${Number(value).toLocaleString(LOCALE[lang], {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} l`
+}
+
 export function fmtKm(value: number, lang: AppLanguage = 'es'): string {
   // useGrouping: true → SIEMPRE separador de miles (por defecto "min2" deja los
   // 4 dígitos sin punto: 3628 vs 53.730). Humanizamos todas las cifras.

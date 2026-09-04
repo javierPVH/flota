@@ -15,7 +15,7 @@ import {
 import type { LayoutContext } from '../components/Layout.tsx'
 import { fmtDate, fmtKm, pendingThisMonth, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import { isNetworkError, safeEnqueue } from '../offline/queue.ts'
+import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { KmReading, Vehicle, VehicleSummary } from '../types.ts'
 
 interface SavedReading {
@@ -139,7 +139,8 @@ export function RegisterKmPage() {
     if (!vehicle || kmValue === null || Number.isNaN(kmValue)) return
     setSaving(true)
     setError('')
-    const payload = { vehicle: vehicle.id, km_reading: kmValue, reading_date: date }
+    // R3-34: misma referencia en el intento directo y en el reenvío offline.
+    const payload = { vehicle: vehicle.id, km_reading: kmValue, reading_date: date, client_ref: newClientRef() }
     try {
       const reading = await createKmReading(payload)
       setSaved({

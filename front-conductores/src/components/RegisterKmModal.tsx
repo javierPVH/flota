@@ -6,7 +6,7 @@ import { asErrorMessage } from '@flota/ui/http'
 import { createKmReading } from '../api.ts'
 import { fmtDate, fmtKm, pendingThisMonth, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import { isNetworkError, safeEnqueue } from '../offline/queue.ts'
+import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
@@ -34,7 +34,8 @@ export function RegisterKmModal({
     if (value === null || Number.isNaN(value) || goesBack) return
     setSaving(true)
     setError('')
-    const payload = { vehicle: vehicle.id, km_reading: value, reading_date: date }
+    // R3-34: misma referencia en el intento directo y en el reenvío offline.
+    const payload = { vehicle: vehicle.id, km_reading: value, reading_date: date, client_ref: newClientRef() }
     try {
       await createKmReading(payload)
       onSaved()

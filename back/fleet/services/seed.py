@@ -1758,6 +1758,23 @@ def seed_operations(stdout=None) -> None:
             amount=Decimal(amount) if amount else None,
             source=FuelConsumption.Source.FUEL_CARD,
         )
+    # El coche de la supervisora (7890NPQ) es el escaparate del tablero: lleva
+    # el gasto del MES EN CURSO (el div informativo, la columna de gestión y la
+    # pista «este mes ya llevas…» del modal de campo salen de aquí) y el del
+    # mes anterior, con origen MANUAL — apuntado en campo, no volcado de la
+    # tarjeta.
+    v3_fuel = Vehicle.objects.get(plate="7890NPQ")
+    for back_months, liters, amount in ((0, "58.40", "79.90"), (1, "184.20", "251.30")):
+        mes = primero_de_mes
+        for _ in range(back_months):
+            mes = (mes - timedelta(days=1)).replace(day=1)
+        FuelConsumption.objects.create(
+            vehicle=v3_fuel,
+            period=mes,
+            liters=Decimal(liters),
+            amount=Decimal(amount),
+            source=FuelConsumption.Source.MANUAL,
+        )
     for i in (0, 3, 6):  # vehículos de volumen con tarjeta (idx % 3 == 0)
         vehiculo = Vehicle.objects.get(plate=_bulk_plate(i))
         for back_months in range(1, 5):

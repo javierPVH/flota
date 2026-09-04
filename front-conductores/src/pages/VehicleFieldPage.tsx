@@ -7,6 +7,7 @@ import {
   ClipboardList,
   ExternalLink,
   FileText,
+  Fuel,
   Gauge,
   Mail,
   Wrench,
@@ -30,6 +31,7 @@ import {
   useAccordion,
 } from '../components/CollapsibleCard.tsx'
 import { BreakdownModal } from '../components/BreakdownModal.tsx'
+import { RegisterFuelModal } from '../components/RegisterFuelModal.tsx'
 import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
 import { VehicleAlertsBreakdownsCard } from '../components/VehicleAlertsBreakdownsCard.tsx'
@@ -111,6 +113,9 @@ export function VehicleFieldPage() {
   const [breakdownOpen, setBreakdownOpen] = useState(false)
   const [documentOpen, setDocumentOpen] = useState(false)
   const [kmOpen, setKmOpen] = useState(false)
+  // GAP-2: gasto de combustible (aqui lo usa la supervisora; el conductor lo
+  // tiene en el nav, donde viven sus acciones).
+  const [fuelOpen, setFuelOpen] = useState(false)
 
   // Tras guardar algo desde el modal de actualización: datos frescos.
   const reload = useCallback(() => {
@@ -314,6 +319,16 @@ export function VehicleFieldPage() {
           </button>
         )}
 
+        {blocked ? (
+          <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
+            <Fuel size={20} aria-hidden /> {t.fuel.title}
+          </span>
+        ) : (
+          <button type="button" className="quick-action" onClick={() => setFuelOpen(true)}>
+            <Fuel size={20} aria-hidden /> {t.fuel.title}
+          </button>
+        )}
+
         <button
           type="button"
           className={`quick-action${itvAvailable ? '' : ' is-disabled'}`}
@@ -463,6 +478,15 @@ export function VehicleFieldPage() {
             setItvOk(message)
             reload()
           }}
+        />
+      )}
+
+      {fuelOpen && (
+        <RegisterFuelModal
+          vehicle={vehicle}
+          summary={summary}
+          onClose={() => setFuelOpen(false)}
+          onSaved={() => reload()}
         />
       )}
 

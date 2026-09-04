@@ -4,8 +4,10 @@ import { Button, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui
 import { asErrorMessage } from '@flota/ui/http'
 
 import { createIncident, uploadDocument } from '../api.ts'
+import type { IncidentInput } from '../api.ts'
 import { fmtKm, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
+import { enqueueIncidentWithFiles, isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Vehicle } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
@@ -90,37 +92,65 @@ export function BreakdownModal({
   async function handleSend() {
     setSaving(true)
     setError('')
+    const guided = kind === 'tires' ? tireDetails() : {}
+    const payload: IncidentInput & { client_ref: string } = {
+      vehicle: vehicle.id,
+      type: kind,
+      date,
+      description: description.trim(),
+      workshop_postal_code: managementPostalCode,
+      ...(kind === 'tires' ? {
+        mileage: Number(mileage),
+      } : {}),
+      ...(Object.keys(guided).length > 0 ? { details: guided } : {}),
+      // R3-34: misma referencia en el intento directo y en el reenvío offline.
+      client_ref: newClientRef(),
+    }
+    const uploads = launchFile
+      ? [{ file: launchFile, type: kind === 'tires' ? 'damage_photos' : 'other' }]
+      : []
     try {
-      const guided = kind === 'tires' ? tireDetails() : {}
-      const incident = await createIncident({
-        vehicle: vehicle.id,
-        type: kind,
-        date,
-        description: description.trim(),
-        workshop_postal_code: managementPostalCode,
-        ...(kind === 'tires' ? {
-          mileage: Number(mileage),
-        } : {}),
-        ...(Object.keys(guided).length > 0 ? { details: guided } : {}),
-      })
+      const incident = await createIncident(payload)
       let notice = b.saved
-      const uploads = [
-        ...(launchFile ? [{ file: launchFile, type: kind === 'tires' ? 'damage_photos' : 'other' }] : []),
-      ]
       for (const upload of uploads) {
+        const docPayload = {
+          vehicle: vehicle.id,
+          incident: incident.id,
+          type: upload.type,
+          client_ref: newClientRef(),
+        }
         try {
-          await uploadDocument(
-            { vehicle: vehicle.id, incident: incident.id, type: upload.type },
-            upload.file,
-          )
-        } catch {
-          notice = b.savedUploadFailed
+          await uploadDocument(docPayload, upload.file)
+        } catch (err) {
+          // R3-27: sin red, el adjunto va a la cola de documentos (que ya sabe
+          // reenviarlo) en vez de quedarse en un aviso y no llegar nunca.
+          if (
+            isNetworkError(err) &&
+            (await safeEnqueue({
+              kind: 'document',
+              payload: docPayload,
+              file: upload.file,
+              fileName: upload.file.name,
+              fileType: upload.file.type,
+            }))
+          ) {
+            notice = b.savedUploadQueued
+          } else {
+            notice = b.savedUploadFailed
+          }
         }
       }
       setDone(notice)
       onSaved?.()
     } catch (err) {
-      setError(asErrorMessage(err, t.incidentModal.error))
+      // R3-27: sin cobertura, el parte ENTERO (con su adjunto) queda en la
+      // cola en vez de perderse el formulario al cerrar.
+      if (isNetworkError(err) && (await enqueueIncidentWithFiles(payload, uploads))) {
+        setDone(b.queued)
+        onSaved?.()
+      } else {
+        setError(asErrorMessage(err, t.incidentModal.error))
+      }
     } finally {
       setSaving(false)
     }

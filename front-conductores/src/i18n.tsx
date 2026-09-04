@@ -23,6 +23,7 @@ const es = {
       km: 'Km',
       itv: 'ITV',
       maintenance: 'Mantenimiento',
+      fuel: 'Combustible',
     },
     // Switch del supervisor: o estás en tu coche o estás en la flota.
     mode: {
@@ -412,6 +413,12 @@ const es = {
     saved: 'Avería comunicada.',
     savedAt: (name: string) => `Avería comunicada; taller: ${name}.`,
     savedUploadFailed: 'Avería comunicada; algún adjunto no se pudo subir.',
+    /** R3-27: el adjunto quedó en la cola offline — llegará al reconectar. */
+    savedUploadQueued:
+      'Avería comunicada; sin conexión, el adjunto quedó guardado y se subirá al recuperar la cobertura.',
+    /** R3-27: el parte entero quedó en la cola offline. */
+    queued:
+      'Sin conexión: la avería quedó guardada en el móvil y se comunicará al recuperar la cobertura.',
     error: 'No se pudo comunicar la avería.',
     close: 'Cerrar',
   },
@@ -617,6 +624,11 @@ const es = {
     uploadFailed: (names: string) =>
       `Avería creada, pero no se pudieron subir: ${names}. Puedes añadirlas desde la ` +
       'ficha del vehículo.',
+    /** R3-27: el parte quedó en la cola offline (con sus adjuntos). */
+    queuedTitle: 'Guardado sin conexión',
+    queuedNote:
+      'La avería quedó guardada en este dispositivo (con sus adjuntos) y se comunicará ' +
+      'automáticamente al recuperar la cobertura.',
   },
   accidentModal: {
     button: 'Accidente',
@@ -625,6 +637,13 @@ const es = {
     saved: 'Accidente comunicado correctamente.',
     savedUploadFailed: (name: string) =>
       `Accidente comunicado, pero no se pudo subir el archivo ${name}.`,
+    /** R3-27: el archivo del parte quedó en la cola offline. */
+    savedUploadQueued: (name: string) =>
+      `Accidente comunicado; sin conexión, el archivo ${name} se subirá al recuperar la cobertura.`,
+    /** R3-27: el parte entero quedó en la cola offline. */
+    queued:
+      'Sin conexión: el accidente quedó guardado en el móvil (con su archivo) y se comunicará ' +
+      'al recuperar la cobertura.',
     close: 'Cerrar',
   },
   split: {
@@ -642,6 +661,21 @@ const es = {
     saving: 'Guardando…',
     saveError: 'No se pudo guardar el reparto.',
     history: 'Histórico',
+  },
+  /** GAP-2: gasto de combustible de campo (hermano del de km). */
+  fuel: {
+    title: 'Gasto de combustible',
+    liters: 'Litros repostados',
+    amount: 'Importe (€)',
+    save: 'Guardar gasto',
+    saving: 'Guardando…',
+    saveError: 'No se pudo guardar el gasto.',
+    monthSoFar: 'Este mes ya llevas',
+    monthEmpty: 'Sin gasto registrado este mes.',
+    addsToMonth: 'El repostaje se suma al total del mes.',
+    /** Div informativo del tablero y de la ficha. */
+    cardTitle: 'Combustible del mes',
+    noneThisMonth: 'Sin repostajes este mes',
   },
   chart: {
     label: 'Evolución del kilometraje',
@@ -663,6 +697,7 @@ const en: typeof es = {
       km: 'Km',
       itv: 'MOT',
       maintenance: 'Maintenance',
+      fuel: 'Fuel',
     },
     mode: {
       label: 'Switch view',
@@ -1015,6 +1050,10 @@ const en: typeof es = {
     saved: 'Breakdown reported.',
     savedAt: (name) => `Breakdown reported; workshop: ${name}.`,
     savedUploadFailed: 'Breakdown reported; an attachment could not be uploaded.',
+    savedUploadQueued:
+      'Breakdown reported; offline — the attachment was saved and will upload once back online.',
+    queued:
+      'Offline: the breakdown was saved on this device and will be reported once back online.',
     error: 'Could not report the breakdown.',
     close: 'Close',
   },
@@ -1211,6 +1250,10 @@ const en: typeof es = {
     uploadFailed: (names) =>
       `Breakdown created, but these could not be uploaded: ${names}. You can add them from ` +
       "the vehicle's card.",
+    queuedTitle: 'Saved offline',
+    queuedNote:
+      'The breakdown was saved on this device (with its attachments) and will be reported ' +
+      'automatically once back online.',
   },
   accidentModal: {
     button: 'Accident',
@@ -1219,6 +1262,11 @@ const en: typeof es = {
     saved: 'Accident reported successfully.',
     savedUploadFailed: (name) =>
       `The accident was reported, but the file ${name} could not be uploaded.`,
+    savedUploadQueued: (name) =>
+      `Accident reported; offline — the file ${name} will upload once back online.`,
+    queued:
+      'Offline: the accident report was saved on this device (with its file) and will be sent ' +
+      'once back online.',
     close: 'Close',
   },
   split: {
@@ -1236,6 +1284,19 @@ const en: typeof es = {
     saving: 'Saving…',
     saveError: 'Could not save the split.',
     history: 'History',
+  },
+  fuel: {
+    title: 'Fuel spend',
+    liters: 'Litres filled',
+    amount: 'Amount (€)',
+    save: 'Save spend',
+    saving: 'Saving…',
+    saveError: 'The spend could not be saved.',
+    monthSoFar: 'So far this month',
+    monthEmpty: 'No spend logged this month.',
+    addsToMonth: "The refuel adds to the month's total.",
+    cardTitle: 'Fuel this month',
+    noneThisMonth: 'No refuels this month',
   },
   chart: {
     label: 'Kilometre trend',

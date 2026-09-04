@@ -7,7 +7,7 @@ import { asErrorMessage } from '@flota/ui/http'
 import { listIncidents, listVehicles, uploadDocument } from '../api.ts'
 import { fmtDate } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import { isNetworkError, safeEnqueue } from '../offline/queue.ts'
+import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Incident, Vehicle } from '../types.ts'
 
 // Tipos de documento (lista cerrada del back, Épica 4); etiquetas en i18n.
@@ -93,6 +93,8 @@ export function UploadDocumentPage() {
       expiry_date: form.expiry_date || null,
       incident: form.incident ? Number(form.incident) : null,
       notes: form.notes,
+      // R3-34: misma referencia en el intento directo y en el reenvío offline.
+      client_ref: newClientRef(),
     }
     try {
       const created = await uploadDocument(payload, file)

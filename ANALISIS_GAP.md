@@ -106,6 +106,24 @@ FuelConsumption(DeactivatableModel, TimeStampedModel)
 - Cuando exista GAP-1 con `co2_factor`, un informe de emisiones es un `Sum()`
   sobre esta tabla.
 
+**Ampliación 2026-09-03 — el gasto también se apunta en campo.** La serie ya no
+la alimenta solo el extracto: el **conductor** (y la supervisora) apuntan su
+repostaje desde la PWA, y la **gestión** lo ve como columna «Combustible (mes)»
+del listado y como KPI de la ficha.
+
+- `POST /fuel-consumptions/add/` **suma** al mes en curso (o lo crea con origen
+  `manual`): la fila es EL MES, así que dos repostajes no pueden ser dos filas
+  y hacer la suma en el cliente perdía repostajes simultáneos. La suma la hace
+  la base (`UPDATE liters = liters + x`), y si dos coinciden en el PRIMER
+  repostaje del mes la constraint rechaza la segunda fila y el endpoint
+  reintenta la suma, como `get_or_create`.
+- El endpoint pasa a `ManagementOrDriverReadWrite` con el ámbito acotando;
+  **editar o borrar un mes sigue siendo de gestión** (append-only, igual que las
+  lecturas de km — SEC4).
+- `metrics.fuel_month_map` resuelve el gasto del mes de toda una página en UNA
+  consulta y lo exponen el summary (`fuel_month_liters` / `fuel_month_amount`) y
+  el listado de vehículos, en las dos formas la misma: cadena con 2 decimales.
+
 ### GAP-3 · Tarjeta de combustible en el vehículo
 
 **Qué pasa.** Existe `User.fuel_card` (booleano por conductor). El Excel lo

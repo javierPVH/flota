@@ -1,6 +1,23 @@
 # Auditoría de código — Ronda 3 (back + front)
 
 > **Documento vivo** (creado el 2026-08-25; front añadido el mismo día).
+> **Segunda pasada: 2026-09-03** — re-verificación de todos los hallazgos sobre
+> el árbol actual y revisión del código nuevo desde entonces (catálogo de
+> talleres `Workshop`, ciclo de incidencia `manage`/`resolve`, materialización
+> del parte de accidente en tablas, repostaje de campo GAP-2 con
+> `fuel-consumptions/add/`, refactor de la ficha de campo en componentes).
+> Resultado: R3-16 ✅ arreglado, R3-34 sube a 🟡 y entran R3-37…R3-39; el resto
+> sigue vigente (fichas actualizadas donde el código se movió).
+>
+> **2026-09-03 (tarde)**: ejecutados **R3-27, R3-34 y R3-37** ✅ — idempotencia
+> extremo a extremo por `client_ref` (nuevo `IdempotencyRecord` +
+> `fleet/idempotency.py`, aplicado a km, eventos, documentos, incidencias y
+> `fuel-consumptions/add/`), parte de incidencia con camino offline completo
+> (`kind: 'incident'` en la cola, adjuntos que adoptan el id real) y `period`
+> de captura en el repostaje. Tests: `fleet/tests/test_idempotency.py` (11),
+> `queue.test.ts` y `RegisterFuelModal.test.tsx` ampliados. De paso entra
+> R3-40 ⚪ (test flaky de PR2, detectado al pasar la suite completa tres veces).
+>
 > Auditoría de solo lectura en dos partes:
 >
 > - **Parte I — Backend** (`back/`): vistas, serializers, servicios, modelos,
@@ -45,7 +62,7 @@
 | [R3-13](#r3-13) | Una conexión SMTP nueva por correo (`send_outbox`, `notify`) | 🟡 | S | ⬜ |
 | [R3-14](#r3-14) | El push se envía en línea dentro del bucle de chequeos (mismo motivo que M6) | ⚪ | M | ⬜ |
 | [R3-15](#r3-15) | «Enviar ahora» un programado entrega la cola ENTERA dentro del request | ⚪ | S | ⬜ |
-| [R3-16](#r3-16) | El supervisor-conductor no ve su coche si pertenece a otro grupo (scoping sin unión) | 🟡 | S* | ⬜ |
+| [R3-16](#r3-16) | El supervisor-conductor no ve su coche si pertenece a otro grupo (scoping sin unión) | 🟡 | S* | ✅ |
 | [R3-17](#r3-17) | `Contract` acepta `planned_end_date`/`end_date` anteriores al inicio | ⚪ | S | ⬜ |
 | [R3-18](#r3-18) | `KmReading.clean` (admin Django) valida el no-retroceso contra lecturas desactivadas | ⚪ | S | ⬜ |
 | [R3-19](#r3-19) | Una propuesta rechazada pospone la alerta `no_driver` otros N días | ⚪ | S | ⬜ |
@@ -56,6 +73,9 @@
 | [R3-24](#r3-24) | Cierres con `queryset.update()` esquivan auditlog y `updated_at` | ⚪ | M | ⬜ |
 | [R3-25](#r3-25) | `TIME_ZONE=UTC` por defecto: ventanas N8 y horas de envío cambian de día a las 00:00 UTC | ⚪ | S | ⬜ |
 | [R3-26](#r3-26) | El reparto de uso admite personas sin rol conductor o desactivadas | ⚪ | S | ⬜ |
+| [R3-38](#r3-38) | El conductor puede crear filas de consumo por el CRUD genérico, esquivando la suma de `add/` | ⚪ | S | ⬜ |
+| [R3-39](#r3-39) | El parte de accidente se re-materializa (delete + insert de terceros/lesionados) en CADA save de la incidencia | ⚪ | S | ⬜ |
+| [R3-40](#r3-40) | Test flaky: `test_listing_resolves_drivers_in_bulk` (PR2) falla a veces solo en la suite completa | ⚪ | S | ⬜ |
 
 \* S de código; la decisión es de producto.
 
@@ -63,16 +83,17 @@
 
 | Código | Hallazgo | Sev. | Esf. | Estado |
 |---|---|---|---|---|
-| [R3-27](#r3-27) | Parte de incidencia: un reintento tras fallo parcial DUPLICA la incidencia; sin red se pierde el parte entero | 🟠 | M | ⬜ |
+| [R3-27](#r3-27) | Parte de incidencia: un reintento tras fallo parcial DUPLICA la incidencia; sin red se pierde el parte entero | 🟠 | M | ✅ |
 | [R3-28](#r3-28) | Arranque de la app de campo: 3× `GET /vehicles/` y 2× `GET /summary/vehicles/` idénticos | 🟡 | M | ⬜ |
 | [R3-29](#r3-29) | El Dashboard de gestión descarga la flota completa DOS veces al abrir | 🟡 | S | ⬜ |
 | [R3-30](#r3-30) | Cambiar de idioma re-descarga todos los datos de la página (`t` en deps de los efectos de carga) | ⚪ | S | ⬜ |
 | [R3-31](#r3-31) | App de campo: página única de 500 sin aviso de truncado (gestión ya tiene C6) | ⚪ | S | ⬜ |
 | [R3-32](#r3-32) | Registro de ITV: el formulario permite `next_due` = fecha de inspección → 400 evitable (y descarte en la cola offline) | ⚪ | S | ⬜ |
 | [R3-33](#r3-33) | `deletePushSubscription` va con `fetch` a mano, fuera del transporte compartido | ⚪ | S | ⬜ |
-| [R3-34](#r3-34) | Cola offline «at-least-once»: un corte tras procesarse el POST duplica la lectura/documento al reenviar | ⚪ | M | ⬜ |
+| [R3-34](#r3-34) | Cola offline «at-least-once»: un corte tras procesarse el POST duplica al reenviar — con `add/` de combustible **SUMA litros dos veces** | 🟡 | M | ✅ |
 | [R3-35](#r3-35) | Mensajes de fallback del transporte del DS: solo castellano y sin tildes | ⚪ | S | ⬜ |
 | [R3-36](#r3-36) | i18n de conductores: ambos idiomas y todas las páginas en un módulo eager del bundle principal de la PWA | ⚪ | M | ⬜ |
+| [R3-37](#r3-37) | Repostaje encolado sin `period`: al reenviar tras un cambio de mes se imputa al mes EQUIVOCADO | 🟡 | S | ✅ |
 
 ---
 
@@ -103,11 +124,13 @@ faltan: dueño de documento personal (200), su supervisor (200), otro conductor
 <a id="r3-02"></a>
 ### R3-02 🟠 (M) · Asignación aceptada con `end_date` = conductor sin ámbito
 
-**Dónde.** [back/fleet/views.py:1640-1695](back/fleet/views.py#L1640-L1695)
-(`grant`, línea 1688 copia `end_date=vehicle_request.end_date`),
-[back/fleet/views.py:1144-1178](back/fleet/views.py#L1144-L1178) (`accept`
-conserva el `end_date` de la propuesta),
-[back/fleet/scoping.py:15-34](back/fleet/scoping.py#L15-L34).
+**Dónde.** [back/fleet/views.py:1718-1784](back/fleet/views.py#L1718-L1784)
+(`grant`, línea 1777 copia `end_date=vehicle_request.end_date`), `accept`
+conserva el `end_date` de la propuesta, y
+[back/fleet/scoping.py](back/fleet/scoping.py) sigue exigiendo
+`end_date__isnull=True`. *(Revisado 2026-09-03: `grant` ganó el control de
+«un coche por conductor» —`driver_assignment_clash`— pero este hueco sigue
+igual.)*
 
 **Qué pasa.** Todo el sistema define «asignación en curso» como
 `end_date IS NULL` (`vehicles_for`, `current_driver_map`, la constraint
@@ -265,17 +288,20 @@ por `status=PENDING` y procesar solo las filas ganadas. Los tests de
 `test_n10_email` pueden simularlo con dos llamadas encadenadas.
 
 <a id="r3-09"></a>
-### R3-09 ⚪ (S) · `report` de incidencia pierde actualizaciones concurrentes
+### R3-09 ⚪ (S) · `report`/`manage`/`resolve` de incidencia pierden actualizaciones concurrentes
 
-**Dónde.** [back/fleet/views.py:1421-1441](back/fleet/views.py#L1421-L1441).
+**Dónde.** [back/fleet/views.py:1452-1519](back/fleet/views.py#L1452-L1519)
+(`report`, y desde el ciclo nuevo también `manage` y `resolve`).
 
-**Qué pasa.** El parte del supervisor concatena sobre `incident.description`
-leída en memoria y guarda con `save()` completo: dos partes simultáneos (o un
-parte + una edición) pisan el uno al otro (last-write-wins de toda la fila).
+**Qué pasa.** Las tres acciones leen la incidencia, la modifican en memoria y
+guardan con `save()` completo: dos partes simultáneos (o un parte + un cierre)
+pisan el uno al otro (last-write-wins de toda la fila). `resolve` además hace
+el read-modify-write sobre el JSON `details` (mezcla `resolution` sobre una
+lectura que puede estar vieja).
 
 **Arreglo propuesto.** `select_for_update()` sobre la incidencia dentro de
-`transaction.atomic`, y `save(update_fields=...)` para no arrastrar el resto de
-campos.
+`transaction.atomic` en las tres acciones, y `save(update_fields=...)` para no
+arrastrar el resto de campos.
 
 <a id="r3-10"></a>
 ### R3-10 ⚪ (S) · Doble POST en `mine` crea dos solicitudes abiertas
@@ -382,7 +408,7 @@ pasada» y dejarlo al bucle de `jobs`.
 ## 5. Consistencia y validaciones
 
 <a id="r3-16"></a>
-### R3-16 🟡 (S) · Scoping del supervisor-conductor sin unión de roles
+### R3-16 🟡 (S) · Scoping del supervisor-conductor sin unión de roles — ✅ HECHO
 
 **Dónde.** [back/fleet/scoping.py:15-34](back/fleet/scoping.py#L15-L34).
 
@@ -398,6 +424,10 @@ grupo.
 `Q(supervisor=user) | Q(<asignación aceptada en curso>)` cuando el usuario
 tenga ambos roles. Es decisión de producto confirmar que se quiere — dejarlo
 escrito en el propio `vehicles_for` en cualquier caso.
+
+**Cómo quedó (2026-09-03).** ✅ Arreglado en el árbol actual: `vehicles_for`
+acumula un `Q()` por rol («según sus roles (unidos)») en
+[back/fleet/scoping.py:19-35](back/fleet/scoping.py#L19-L35).
 
 <a id="r3-17"></a>
 ### R3-17 ⚪ (S) · `Contract` sin validación de fechas
@@ -551,6 +581,64 @@ deja repartos apuntando a personas de baja.
 **Arreglo propuesto.** `queryset=User.objects.filter(is_active=True)` y
 validar `is_driver`, con el mismo mensaje que usa `AssignmentSerializer`.
 
+<a id="r3-38"></a>
+### R3-38 ⚪ (S) · El conductor puede crear consumo por el CRUD, esquivando `add/` *(segunda pasada, 2026-09-03)*
+
+**Dónde.** [back/fleet/views.py:2006-2042](back/fleet/views.py#L2006-L2042)
+(`FuelConsumptionViewSet` pasó de `AdminWriteManagementRead` a
+`ManagementOrDriverReadWrite` al añadir el repostaje de campo).
+
+**Qué pasa.** Para abrir `add/` al conductor se abrió TODO el `POST` del
+viewset: el conductor también puede crear filas por el CRUD genérico, eligiendo
+`period` y **`source`** libres (p. ej. marcar «tarjeta» un apunte manual). No
+es un agujero (el ámbito acota y editar/borrar sigue siendo de gestión,
+patrón SEC4), pero rompe el embudo: dos POST directos del mismo mes dan un 400
+de choque en vez de acumular, que es justo lo que `add/` existe para evitar.
+
+**Arreglo propuesto.** `perform_create` → gestión (como `perform_update`/
+`perform_destroy`), dejando al conductor solo `add/`; o al menos forzar
+`source=manual` e ignorar `source` del payload cuando quien crea no es gestión.
+
+<a id="r3-39"></a>
+### R3-39 ⚪ (S) · El parte de accidente se re-materializa en cada save *(segunda pasada, 2026-09-03)*
+
+**Dónde.** [back/fleet/signals.py:86-93](back/fleet/signals.py#L86-L93) →
+[back/fleet/services/accidents.py](back/fleet/services/accidents.py)
+(`sync_accident_report`).
+
+**Qué pasa.** La señal `post_save` de `Incident` reconstruye el parte SIEMPRE
+que la incidencia de accidente se guarda, aunque `details` no haya cambiado:
+`report`, `manage` y `resolve` (que solo tocan estado/descripción) borran y
+re-insertan TODOS los terceros y lesionados en cada llamada. Es idempotente en
+contenido, pero (a) escribe N filas por gesto de gestión, y (b) **los `pk` de
+terceros/lesionados cambian en cada save** — cualquier consumidor que los
+referencie (export, API estructurada, un futuro enlace de documento a tercero)
+se queda apuntando a filas muertas.
+
+**Arreglo propuesto.** Cortocircuito en la señal: materializar solo si
+`details` cambió (comparar contra un hash guardado en `AccidentReport`, o
+marcar con `update_fields` los saves de ciclo y saltarse la señal cuando no
+incluyen `details`).
+
+<a id="r3-40"></a>
+### R3-40 ⚪ (S) · Test flaky: el conteo de queries de PR2 falla a veces en la suite completa *(2026-09-03)*
+
+**Dónde.** [back/fleet/tests/test_alerts.py:447-464](back/fleet/tests/test_alerts.py#L447-L464)
+(`AlertApiTests.test_listing_resolves_drivers_in_bulk`, `assertNumQueries(4)`).
+
+**Qué pasa.** Observado al ejecutar la suite completa tres veces seguidas el
+2026-09-03: falló en las dos primeras y pasó en la tercera, con el mismo árbol.
+Pasa siempre aislado, con su módulo, y con todo lo que le precede en orden de
+descubrimiento (`accounts`, `core`, `test_a1_api`). Un `assertNumQueries`
+exacto es sensible a cachés de proceso (ContentType, roles) que otros tests
+calientan o enfrían; la causa concreta no está identificada — solo que **no es
+determinista** y que un rojo suyo en CI no señala una regresión real.
+
+**Arreglo propuesto.** Cazar la query extra imprimiendo
+`captured_queries` en el fallo (envolver el `assertNumQueries` y volcarlas), o
+relajar a una cota (`assertLessEqual` sobre `len(captured_queries)`) si la
+intención de PR2 es «no hay N+1», no «exactamente 4».
+
 ---
 
 # PARTE II — Front
@@ -558,63 +646,151 @@ validar `is_driver`, con el mismo mensaje que usa `AssignmentSerializer`.
 ## 6. Bugs funcionales (front)
 
 <a id="r3-27"></a>
-### R3-27 🟠 (M) · Parte de incidencia: reintento que duplica y pérdida sin red
+### R3-27 🟠 (M) · Parte de incidencia: reintento que duplica y pérdida sin red — ✅ HECHO
 
-**Dónde.** [front-conductores/src/pages/NewIncidentPage.tsx:107-147](front-conductores/src/pages/NewIncidentPage.tsx#L107-L147).
+**Dónde.** [front-conductores/src/pages/NewIncidentPage.tsx:131-170](front-conductores/src/pages/NewIncidentPage.tsx#L131-L170)
+y, tras el refactor a modales (revisado 2026-09-03),
+[IncidentModal.tsx:90-127](front-conductores/src/components/IncidentModal.tsx#L90-L127)
+y [AccidentModal.tsx:72-116](front-conductores/src/components/AccidentModal.tsx#L72-L116).
 
-**Qué pasa.** Dos mitades del mismo flujo (`handleSubmit`):
+**Qué pasa.** El mismo flujo con dos variantes según el componente:
 
-1. **Sin cola offline.** El parte guiado (avería/accidente/neumáticos) es la
-   única escritura crítica de campo SIN camino offline: km, ITV y documentos
-   se encolan (M7), pero un `createIncident` sin cobertura —el escenario
-   natural de un accidente en obra— muestra un error genérico y, al salir de
-   la vista, **se pierde el formulario entero** (dirección, terceros, heridos,
+1. **Sin cola offline (los tres).** El parte de incidencia es la única
+   escritura crítica de campo SIN camino offline: km, ITV, documentos y ahora
+   el repostaje se encolan (M7), pero un `createIncident` sin cobertura —el
+   escenario natural de un accidente en obra— muestra un error genérico y al
+   cerrar **se pierde el formulario entero** (dirección, terceros, heridos,
    fotos).
-2. **Reintento = duplicado.** Si la incidencia se crea pero falla la subida de
-   una foto, se muestra `uploadFailed` y el usuario sigue en el formulario;
-   volver a pulsar «Enviar» ejecuta `createIncident` **otra vez** → dos
-   incidencias idénticas (y la bandeja de gestión y el histórico del vehículo
-   las cuentan como dos averías).
+2. **Reintento = duplicado (NewIncidentPage).** Si la incidencia se crea pero
+   falla la subida de una foto, el usuario sigue en el formulario y volver a
+   pulsar «Enviar» ejecuta `createIncident` **otra vez** → dos incidencias
+   idénticas.
+3. **Adjunto perdido en silencio (modales nuevos).** `IncidentModal` y
+   `AccidentModal` evitan el duplicado (tras crear muestran `done` y solo
+   dejan cerrar), pero si la subida del adjunto falla se queda en un aviso:
+   ni reintento ni cola — la foto/parte **no llega nunca** aunque la cola de
+   documentos ya sabría reenviarla.
 
-**Arreglo propuesto.** Guardar el `incident.id` creado en estado: en el
-reintento, saltar la creación y reintentar solo las subidas pendientes. Para
-las fotos sin red, reutilizar la cola existente
-(`safeEnqueue({kind: 'document', …, incident: id})` — el tipo ya lo soporta).
-Para el alta sin red, o se añade `kind: 'incident'` a la cola, o como mínimo se
-conserva el formulario con un aviso claro de «sin conexión, reintenta sin
-salir».
+**Arreglo propuesto.** Guardar el `incident.id` creado en estado y reintentar
+solo las subidas pendientes (NewIncidentPage); en los tres componentes, ante
+fallo de red del adjunto, `safeEnqueue({kind: 'document', …, incident: id})`
+(el tipo ya lo soporta). Para el alta sin red, o se añade `kind: 'incident'` a
+la cola, o como mínimo se conserva el formulario con un aviso claro.
+
+**Cómo quedó (2026-09-03).** Las tres patas, en los tres componentes:
+
+1. **Alta sin red** — la cola gana `kind: 'incident'` y el helper
+   `enqueueIncidentWithFiles(payload, files)` (`offline/queue.ts`): encola el
+   parte Y sus adjuntos en FIFO. El adjunto se guarda con `incidentRef` (el
+   `client_ref` del parte) y, cuando el flush crea el parte, `adoptIncident`
+   reescribe los adjuntos pendientes con el id real (en memoria y en
+   IndexedDB); si el servidor rechaza el parte, el adjunto sube ligado solo al
+   vehículo. Cada componente muestra su aviso «guardado sin conexión»
+   (`NewIncidentPage` con pantalla propia, los modales en el `done`).
+2. **Reintento sin duplicar** — `NewIncidentPage` guarda la incidencia creada
+   (`created`) y la lista de subidas pendientes (`pendingUploads`): reintentar
+   solo termina lo que faltó. Además el alta viaja con `client_ref` (R3-34),
+   así que ni siquiera un reenvío ciego duplicaría.
+3. **Adjunto que no llega** — en los tres componentes, el fallo DE RED de una
+   subida la manda a la cola de documentos (con el id real del parte) en vez
+   de dejarla en un aviso sin reintento.
+
+Tests: `queue.test.ts` («al crearse el parte encolado, sus adjuntos adoptan el
+id real», «si el servidor rechaza el parte, el adjunto sube suelto») y
+`fleet.tests.test_idempotency.test_incident_replay_creates_one_incident`.
 
 <a id="r3-32"></a>
 ### R3-32 ⚪ (S) · ITV: `next_due` igual a la fecha de inspección pasa el formulario
 
-**Dónde.** [front-conductores/src/pages/VehicleFieldPage.tsx:511-522](front-conductores/src/pages/VehicleFieldPage.tsx#L511-L522).
+**Dónde.** [front-conductores/src/components/RegisterItvModal.tsx:117](front-conductores/src/components/RegisterItvModal.tsx#L117)
+*(revisado 2026-09-03: el formulario vive ahora en este modal; `next_due` pasó
+a ser opcional —bien—, pero el caso «igual» persiste).*
 
-**Qué pasa.** El campo «próxima ITV» usa `min={itvForm.event_date}`, pero el
+**Qué pasa.** El campo «próxima ITV» usa `min={form.event_date}`, pero el
 back exige que sea **estrictamente posterior** (`next_due <= event_date` →
 400). Online es solo un 400 evitable; **offline es pérdida**: el registro se
 encola como fallo de red y el `flush` lo descarta con el 400 del servidor
 (A13 arregló el caso «vacía», este es el hermano «igual»).
 
 **Arreglo propuesto.** `min` = día siguiente a `event_date` (y validación
-espejo en el `handleItv`, como hace el km con el no-retroceso).
+espejo en el `submit`, como hace el km con el no-retroceso).
 
 <a id="r3-34"></a>
-### R3-34 ⚪ (M) · Cola offline «at-least-once»: el corte tras el POST duplica
+### R3-34 🟡 (M) · Cola offline «at-least-once»: el corte tras el POST duplica — ✅ HECHO
 
-**Dónde.** [front-conductores/src/offline/queue.ts:194-234](front-conductores/src/offline/queue.ts#L194-L234)
-+ los endpoints del back que consume (`/km-readings/`, `/documents/`, `/events/`).
+**Dónde.** [front-conductores/src/offline/queue.ts:196-236](front-conductores/src/offline/queue.ts#L196-L236)
++ los endpoints del back que consume (`/km-readings/`, `/documents/`,
+`/events/` y, desde GAP-2, `/fuel-consumptions/add/`).
 
 **Qué pasa.** Si la red se corta DESPUÉS de que el servidor procese el POST
 (la respuesta se pierde), el cliente lo trata como fallo de red y lo encola:
 el `flush` lo reenvía y quedan **dos lecturas / dos documentos / dos eventos
-ITV** iguales. La lectura duplicada es inocua para el no-retroceso (mismo
-valor) pero ensucia el histórico y duplica el evento de negocio.
+ITV** iguales.
+
+**Ampliación 2026-09-03 (sube de ⚪ a 🟡).** Con el repostaje de campo el
+reenvío ya no es cosmético: `add/` **SUMA** al mes, así que el duplicado
+**dobla los litros y el importe** del mes en la serie de consumo — el dato con
+el que HSE calcula emisiones y gestión compara gasto. Es además el elemento
+más probable de encolar («la gasolinera es justo donde no hay cobertura»).
 
 **Arreglo propuesto.** Clave de idempotencia extremo a extremo: el cliente
 genera un `client_ref` (uuid) por elemento encolado y el back lo guarda con
-unicidad e ignora repetidos (necesita columna + ajuste en los tres endpoints).
-Alternativa barata solo-back: dedupe de lecturas exactas (vehículo, fecha, km)
-en la ventana reciente.
+unicidad e ignora repetidos (columna + ajuste en los cuatro endpoints);
+prioritario al menos en `add/`. Alternativa barata solo-back para km: dedupe
+de lecturas exactas (vehículo, fecha, km) en la ventana reciente.
+
+**Cómo quedó (2026-09-03).** Clave extremo a extremo, en los CINCO endpoints
+(los cuatro de la ficha más el alta de incidencias, que entra en la cola con
+R3-27):
+
+- **Back** — modelo `IdempotencyRecord` (`fleet/models/idempotency.py`,
+  migración `0044`): usuario + `client_ref` únicos, con la respuesta original
+  guardada. `fleet/idempotency.py::run_idempotent` inserta el recibo ANTES de
+  producir y en la misma transacción (dos reenvíos simultáneos chocan en la
+  unicidad y el segundo relee; un 400 revierte también el recibo y no quema la
+  referencia); los reenvíos devuelven la respuesta guardada sin repetir el
+  efecto. `IdempotentCreateMixin` lo aplica al `create` de km, eventos,
+  documentos e incidencias; `add/` lo envuelve a mano. Los recibos caducan a
+  los 30 días (purga en cada escritura nueva, sin job). Sin `client_ref` nada
+  cambia.
+- **Front** — `newClientRef()` en `offline/queue.ts`; cada punto que encola
+  (km ×2, ITV, documentos ×2, combustible, incidencias ×3) genera la
+  referencia AL CONSTRUIR el payload, de modo que el intento directo y el
+  reenvío de la cola comparten la misma.
+
+Tests: `fleet/tests/test_idempotency.py` (11 casos: replay por endpoint, suma
+no doblada, unicidad por usuario, 400 no quema la clave, purga) y las
+aserciones de payload actualizadas en los tests de componentes.
+
+<a id="r3-37"></a>
+### R3-37 🟡 (S) · Repostaje encolado sin `period`: se imputa al mes del reenvío — ✅ HECHO
+
+**Dónde.** [front-conductores/src/components/RegisterFuelModal.tsx:95-99](front-conductores/src/components/RegisterFuelModal.tsx#L95-L99)
+(el payload no lleva `period`) +
+[back/fleet/views.py:2062](back/fleet/views.py#L2062) (`add/` usa
+`timezone.localdate()` **en el momento de la entrega**).
+
+**Qué pasa.** El modal manda `{vehicle, liters, amount}` sin `period`, y el
+back imputa al mes actual *cuando procesa la petición*. Con la cola offline
+(M7) entre medias, un repostaje del 31 de agosto en una gasolinera sin
+cobertura que se reenvía el 1 de septiembre **suma los litros a septiembre**:
+agosto queda corto y septiembre inflado, en silencio. El registro de km no
+tiene este problema porque su payload lleva `reading_date` explícita; el de
+combustible es el único cuyo «cuándo» lo decide el servidor a posteriori.
+
+**Arreglo propuesto.** Incluir `period` (el día 1 del mes en el momento de
+capturar el dato) en el payload del modal — `add/` ya lo acepta. De paso, el
+formulario podría ofrecer cambiar el mes (la API lo soporta y gestión ya edita
+meses pasados).
+
+**Cómo quedó (2026-09-03).** `RegisterFuelModal` manda
+`period: día 1 del mes LOCAL de captura` (vía `todayIso()`, doctrina E2/E6) en
+el payload — el mismo objeto que se encola, así que el reenvío conserva el mes.
+Tests: `RegisterFuelModal.test.tsx` (el payload directo lleva el `period` del
+mes en curso; lo encolado conserva `period` y `client_ref` idénticos al intento
+directo) y `fleet.tests.test_idempotency.test_fuel_add_honours_the_capture_period`
+(el back respeta un `period` de un mes anterior). El selector de mes en el
+formulario se deja fuera a propósito: en campo se apunta el repostaje del día.
 
 ## 7. Rendimiento (front)
 
@@ -684,7 +860,8 @@ cambio mecánico página a página.
 ### R3-36 ⚪ (M) · i18n de conductores: todo eager en el bundle principal
 
 **Dónde.** [front-conductores/src/i18n.tsx](front-conductores/src/i18n.tsx)
-(~955 líneas: es + en de TODAS las páginas en un módulo).
+(~955 líneas al auditar; **1.276 el 2026-09-03** — crece con cada función
+nueva: es + en de TODAS las páginas en un módulo).
 
 **Qué pasa.** La PWA cuida el presupuesto de JS (rutas en `lazy`, M7), pero el
 diccionario completo de ambos idiomas —incluido el copy de páginas que van en
@@ -768,6 +945,25 @@ Para no re-auditar lo mismo en la próxima ronda, esto se revisó y está bien:
   Google auto-alta (C4).
 - **Jobs**: idempotencia por `dedup_key`, chequeos en bulk (M3/PR2), Jira y
   Drive con degradación limpia (M7).
+
+**Backend — código nuevo revisado en la segunda pasada (2026-09-03)**
+
+- **`fuel-consumptions/add/`**: la acumulación la hace la BASE
+  (`F("liters") + x`, `Coalesce` para el importe nulo) con reintento acotado
+  ante `IntegrityError` en la carrera de creación — el candado de concurrencia
+  correcto (contrasta con R3-08/R3-09). El ámbito se resuelve acotado (SEC1) y
+  con throttle público.
+- **Catálogo `Workshop`**: unicidad ci con constraint + `CatalogUniqueMixin`,
+  lectura para conductor (elige taller desde la PWA), escritura admin.
+- **Materialización del parte de accidente** (`services/accidents.py`):
+  upsert idempotente desde el JSON validado, texto recortado al ancho de
+  columna, fechas naive → aware (el churn por save es R3-39).
+- **`driver_assignment_clash`** («un coche por conductor, más su sustituto»):
+  solape por fechas con el criterio del dominio y relevo fin==inicio válido.
+- **ITV con `next_due` opcional**: back y front cambiados a la vez y en el
+  mismo sentido (favorable sin fecha = sin cita, sin avisos falsos).
+- **`decimal_str` / `fuel_month_map`**: una sola forma para el decimal en
+  summary y listado; mapa por respuesta en el serializer (sin N+1).
 
 **Front**
 

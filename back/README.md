@@ -218,7 +218,8 @@ logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
 | POST   | `/api/v1/incidents/{id}/report/` | gestión | **Parte rápido** (app de campo): `{text?, status?}` — añade la actualización a la descripción con sello de fecha y autor (lo pone el servidor) y opcionalmente cambia el estado |
 | POST   | `/api/v1/incidents/{id}/manage/` | gestión | **Fase 2 del ciclo** (gestión): `{workshop?, appointment_at?, cost?}` — guarda taller y cita en `details.management`, el coste en su campo, y deja la incidencia EN CURSO; documentos y fotos van por `/documents/` ligados a la incidencia |
 | POST   | `/api/v1/incidents/{id}/resolve/` | gestión | **Fase 3 del ciclo** (solución): `{overcost?, observations?, downtime_days?}` — guarda la solución en `details.resolution` y CIERRA la incidencia (todos los datos opcionales) |
-| CRUD   | `/api/v1/fuel-consumptions/` | gestiónᵃ | **Consumo mensual de combustible** (GAP-2): litros (e importe) por vehículo y mes, día 1 normalizado, un mes por vehículo entre filas vivas (la duplicada → 400 de campo). Lo escribe el admin (extracto de tarjeta); alimenta el informe `fuel` |
+| CRUD   | `/api/v1/fuel-consumptions/` | ✔ᵃ | **Consumo mensual de combustible** (GAP-2): litros (e importe) por vehículo y mes, día 1 normalizado, un mes por vehículo entre filas vivas (la duplicada → 400 de campo). Lo escriben la gestión (extracto de tarjeta) **y el conductor** (su repostaje, con el ámbito acotando); editar o borrar un mes es solo de gestión (append-only, como las lecturas de km). Alimenta el informe `fuel` |
+| POST   | `/api/v1/fuel-consumptions/add/` | ✔ᵃ | **Repostaje de campo**: `{vehicle, liters, amount?, period?, client_ref?}` **suma** al mes (lo crea si no existía, con origen `manual`). La fila es EL MES, así que dos repostajes no pueden ser dos filas; la suma la hace la base (`liters = liters + x`) para que dos a la vez no se pisen |
 | CRUD   | `/api/v1/maintenance-plans/` | gestiónᵃ | **Planes de mantenimiento preventivo** (GAP-8): ciclo por km y/o meses con su ancla («último realizado»); los vigila el job `check_maintenance` con alertas escalonadas |
 | POST   | `/api/v1/maintenance-plans/{id}/done/` | gestión | **«Realizado»** (app de campo y modal de resolver): `{date?, km?, cost?, note?}` — reancla el ciclo (hoy y/o la última lectura por defecto) y **resuelve** las alertas de mantenimiento abiertas del vehículo con `note`; `cost` queda como **incidencia de mantenimiento cerrada** (fecha y km del servicio). Editar el plan sigue siendo de admin |
 | CRUD   | `/api/v1/documents/`     | ✔ᵃ | Documentos del vehículo o **personales de un usuario** (permiso de conducir): el titular es `vehicle` O `user`, exactamente uno. Filtros `?vehicle=` y `?user=`. Conductor sube los de su vehículo y los suyos propios; borra solo gestión (Épica 4). Acepta **multipart** (`file`, máx. `FLEET_DOCUMENT_MAX_MB`, foto/PDF) o `drive_url` — Fase A1 |
@@ -243,6 +244,15 @@ asignaciones = solo admin; reparto de uso = admin o supervisor de su grupo;
 lecturas de km = también el conductor de su vehículo. El listado de vehículos
 soporta búsqueda (`?search=`), filtros (`?state=&business_use=&assigned=`) y orden
 (`?ordering=`); los vehículos en `baja` se ocultan salvo `?include_baja=1`.
+
+**Idempotencia de la cola offline (R3-34).** Las altas que reenvía la cola de
+la PWA — lecturas de km, eventos, documentos, incidencias y
+`fuel-consumptions/add/` — aceptan un `client_ref` opcional en el body: la
+primera petición guarda su respuesta en `IdempotencyRecord` (única por
+usuario+referencia, caduca a los 30 días) y un reenvío con la misma referencia
+la devuelve tal cual **sin repetir el efecto** (sin doblar los litros del mes,
+sin duplicar la lectura). Sin `client_ref`, nada cambia. Implementación en
+`fleet/idempotency.py`; tests en `fleet/tests/test_idempotency.py`.
 | GET    | `/api/docs/`          | dev  | Swagger UI (solo con `OPENAPI_DOCS_ENABLED`/DEBUG) |
 
 *El acceso a `/api/v1/vehicles/` depende del rol: `admin`/`supervisor` escriben toda

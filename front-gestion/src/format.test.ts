@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { fmtDate, fmtEur, fmtKm, itvClass } from './format.ts'
+import { fmtDate, fmtEur, fmtEurCents, fmtKm, fmtLiters, itvClass } from './format.ts'
 
 const daysFromNow = (days: number) =>
   new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10)
@@ -37,5 +37,15 @@ describe('formatos por idioma', () => {
 
   it('fmtKm añade la unidad', () => {
     expect(fmtKm(50000, 'es')).toMatch(/50\.000 km/)
+  })
+
+  // GAP-2: el gasto de combustible llega como CADENA decimal del back y se
+  // compara al céntimo (fmtEur redondea a euros, que sirve para el contrato).
+  it('fmtLiters y fmtEurCents mantienen los dos decimales', () => {
+    expect(fmtLiters('55.5', 'es')).toBe('55,50 l')
+    expect(fmtLiters('120', 'en')).toBe('120.00 l')
+    expect(fmtLiters(null)).toBe('—')
+    expect(fmtEurCents('62.3', 'es')).toMatch(/62,30/)
+    expect(fmtEurCents(null)).toBe('—')
   })
 })

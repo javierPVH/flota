@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Plus, Trash2 } from 'lucide-react'
 import { Button, PageHeader, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { createIncident, fetchVehicleSummary, listVehicles, uploadDocument } from '../api.ts'
+import type { IncidentInput } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { fmtKm, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import type { Vehicle } from '../types.ts'
+import {
+  enqueueIncidentWithFiles,
+  isNetworkError,
+  newClientRef,
+  safeEnqueue,
+} from '../offline/queue.ts'
+import type { Incident, Vehicle } from '../types.ts'
 
 const INCIDENT_TYPES = ['general', 'tires', 'maintenance']
 const nowLocalDateTime = () => {
@@ -63,6 +70,14 @@ export function NewIncidentPage() {
   const [accidentReport, setAccidentReport] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // R3-27: la incidencia YA creada cuando falló alguna subida — reintentar no
+  // debe crear una segunda idéntica, solo terminar las subidas pendientes.
+  const [created, setCreated] = useState<Incident | null>(null)
+  const [pendingUploads, setPendingUploads] = useState<Array<{ file: File; type: string }> | null>(
+    null,
+  )
+  // R3-27: sin cobertura el parte queda encolado — pantalla de confirmación.
+  const [queuedDone, setQueuedDone] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -139,38 +154,92 @@ export function NewIncidentPage() {
         : form.type === 'breakdown' ? { report_version: 1 } : {}
     const description = form.type === 'accident' ? details.damage_description : form.description
     const date = form.type === 'accident' && details.occurred_at ? details.occurred_at.slice(0, 10) : form.date
+    // En un reintento solo quedan las subidas que fallaron; la primera vez, todas.
+    const uploads = pendingUploads ?? [
+      ...(form.type === 'maintenance' ? [] : photos.map((file) => ({ file, type: 'damage_photos' }))),
+      ...(form.type === 'accident' && accidentReport
+        ? [{ file: accidentReport, type: 'accident_report' }] : []),
+    ]
     try {
-      const incident = await createIncident({
-        vehicle: Number(form.vehicle), type: form.type, date, description,
-        mileage: form.mileage ? Number(form.mileage) : null,
-        workshop_postal_code: form.workshopPostalCode, details: incidentDetails,
-      })
-      const uploads = [
-        ...(form.type === 'maintenance' ? [] : photos.map((file) => ({ file, type: 'damage_photos' }))),
-        ...(form.type === 'accident' && accidentReport
-          ? [{ file: accidentReport, type: 'accident_report' }] : []),
-      ]
-      const failed: string[] = []
-      for (const upload of uploads) {
+      let incident = created
+      if (!incident) {
+        const payload: IncidentInput & { client_ref: string } = {
+          vehicle: Number(form.vehicle), type: form.type, date, description,
+          mileage: form.mileage ? Number(form.mileage) : null,
+          workshop_postal_code: form.workshopPostalCode, details: incidentDetails,
+          // R3-34: misma referencia en el intento directo y en el reenvío.
+          client_ref: newClientRef(),
+        }
         try {
-          await uploadDocument(
-            { vehicle: incident.vehicle, type: upload.type, incident: incident.id }, upload.file,
-          )
-        } catch { failed.push(upload.file.name) }
+          incident = await createIncident(payload)
+        } catch (err) {
+          // R3-27: sin cobertura, el parte ENTERO (con sus adjuntos) queda en
+          // la cola en vez de perderse el formulario.
+          if (isNetworkError(err) && (await enqueueIncidentWithFiles(payload, uploads))) {
+            setQueuedDone(true)
+            return
+          }
+          throw err
+        }
+        // R3-27: guardar el id — si una subida falla, el reintento no debe
+        // crear una segunda incidencia idéntica.
+        setCreated(incident)
       }
+      const failed: Array<{ file: File; type: string }> = []
+      for (const upload of uploads) {
+        const docPayload = {
+          vehicle: incident.vehicle,
+          type: upload.type,
+          incident: incident.id,
+          client_ref: newClientRef(),
+        }
+        try {
+          await uploadDocument(docPayload, upload.file)
+        } catch (err) {
+          // R3-27: sin red, el adjunto va a la cola de documentos (llegará al
+          // reconectar); cualquier otro fallo queda pendiente de reintento.
+          if (
+            isNetworkError(err) &&
+            (await safeEnqueue({
+              kind: 'document',
+              payload: docPayload,
+              file: upload.file,
+              fileName: upload.file.name,
+              fileType: upload.file.type,
+            }))
+          ) {
+            continue
+          }
+          failed.push(upload)
+        }
+      }
+      setPendingUploads(failed)
       if (failed.length) {
-        setError(t.newIncident.uploadFailed(failed.join(', ')))
-        setSaving(false)
+        setError(t.newIncident.uploadFailed(failed.map((upload) => upload.file.name).join(', ')))
         return
       }
       navigate(origin, { replace: true })
     } catch (err) {
       setError(asErrorMessage(err, t.newIncident.createError))
+    } finally {
       setSaving(false)
     }
   }
 
   const title = t.newIncident.titleBreakdown
+
+  // R3-27: el parte quedó guardado en el dispositivo — decirlo claramente, que
+  // no parezca que ya se comunicó.
+  if (queuedDone) {
+    return (
+      <div className="km-saved">
+        <CheckCircle2 size={52} aria-hidden className="km-saved-queued" />
+        <h2>{t.newIncident.queuedTitle}</h2>
+        <p className="km-saved-detail" role="status">{t.newIncident.queuedNote}</p>
+        <Button onClick={() => navigate(origin, { replace: true })}>{t.newIncident.back}</Button>
+      </div>
+    )
+  }
 
   return (
     <div className="field-page">

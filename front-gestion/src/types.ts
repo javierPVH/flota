@@ -78,6 +78,11 @@ export interface Vehicle {
   fuel_ref: number | null
   /** GAP-3: ¿reposta con tarjeta de combustible? */
   fuel_card: boolean
+  /** GAP-2: gasto de combustible del MES en curso (cadena con 2 decimales o
+   * null). Lo resuelve el back en bloque para el listado; la serie completa
+   * vive en `fuel-consumptions`. */
+  fuel_month_liters: string | null
+  fuel_month_amount: string | null
   type: string
   size: string
   market_segment: string
@@ -170,6 +175,10 @@ export interface VehicleSummary {
   km_reading_date: string | null
   /** ¿La última lectura fue generada automáticamente (estimada)? */
   km_estimated: boolean
+  /** GAP-2: gasto de combustible del MES en curso (cadena con 2 decimales o
+   * null), la misma forma que en el listado de vehículos. */
+  fuel_month_liters: string | null
+  fuel_month_amount: string | null
   km_driven: number | null
   driver: { id: number; name: string } | null
   contract: {

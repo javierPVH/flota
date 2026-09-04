@@ -17,6 +17,28 @@ export function fmtKm(value: number | null | undefined, lang: AppLanguage = 'es'
   return `${value.toLocaleString(LOCALE[lang])} km`
 }
 
+/** Decimales que llegan del back como CADENA ("55.50"): litros e importes.
+ * `Number` sobre la cadena y dos decimales — nunca `parseFloat` a medias, que
+ * con "55.50" y locale español acaba pintando «55.5». */
+function fmtDecimal(value: string | number | null | undefined, lang: AppLanguage): string | null {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (Number.isNaN(parsed)) return null
+  return parsed.toLocaleString(LOCALE[lang], { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+/** GAP-2: litros de combustible («55,50 l»). */
+export function fmtLiters(value: string | number | null | undefined, lang: AppLanguage = 'es') {
+  const text = fmtDecimal(value, lang)
+  return text === null ? '—' : `${text} l`
+}
+
+/** GAP-2: importe en euros («62,30 €»). */
+export function fmtEur(value: string | number | null | undefined, lang: AppLanguage = 'es') {
+  const text = fmtDecimal(value, lang)
+  return text === null ? '—' : `${text} €`
+}
+
 /** ¿Falta la lectura de odómetro de este mes? (HU-3.2)
  *
  * X2: un coche con km ilimitados NUNCA está pendiente — no hay cupo que

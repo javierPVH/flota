@@ -39,6 +39,7 @@ from .event import (
     EventPepChange,
     EventProjectChange,
 )
+from .idempotency import IdempotencyRecord
 from .incident import AccidentInjured, AccidentReport, AccidentThirdParty, Incident
 from .invoice import Invoice, InvoiceAllocation
 from .maintenance import MaintenancePlan
@@ -83,6 +84,7 @@ __all__ = [
     "EventDriverChange",
     "Invoice",
     "InvoiceAllocation",
+    "IdempotencyRecord",
     "Incident",
     "AccidentReport",
     "AccidentThirdParty",

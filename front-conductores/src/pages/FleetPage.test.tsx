@@ -323,6 +323,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
       date: expect.any(String),
       description: 'No arranca.',
       workshop_postal_code: '28001',
+      client_ref: expect.any(String),
     })
     expect(await screen.findByText('Avería comunicada.')).toBeInTheDocument()
   })
@@ -359,6 +360,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
       date: expect.any(String),
       description: 'Instalar una baliza adicional.',
       workshop_postal_code: '28001',
+      client_ref: expect.any(String),
     })
     expect(await screen.findByText('Avería comunicada.')).toBeInTheDocument()
   })
@@ -410,6 +412,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
         wheel: 'front_left',
         tire_measure: '205/55 R16',
       },
+      client_ref: expect.any(String),
     })
   })
 

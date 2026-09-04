@@ -183,11 +183,37 @@ export const registerItv = (data: {
   event_date: string
   notes?: string
   itv: { result: string; next_due: string | null }
+  /** R3-34: clave de idempotencia — el reenvío offline no crea otro evento. */
+  client_ref?: string
 }) => postJson(`${API}/events/`, { ...data, event_type: 'itv' })
 
 // --- M3: odómetro (HU-3.1) — el back valida el no-retroceso ----------------
-export const createKmReading = (data: { vehicle: number; km_reading: number; reading_date: string }) =>
-  postJson<KmReading>(`${API}/km-readings/`, data)
+export const createKmReading = (data: {
+  vehicle: number
+  km_reading: number
+  reading_date: string
+  /** R3-34: clave de idempotencia — el reenvío offline no duplica la lectura. */
+  client_ref?: string
+}) => postJson<KmReading>(`${API}/km-readings/`, data)
+
+/** GAP-2: repostaje de campo. La fila de consumo es EL MES, así que el back
+ * SUMA al mes en curso (o lo crea) — de ahí `add/` y no un POST normal: dos
+ * repostajes del mismo mes no pueden ser dos filas. `period` es opcional
+ * (día 1 del mes) para corregir un repostaje de un mes anterior. */
+export interface FuelEntryInput extends Record<string, unknown> {
+  vehicle: number
+  liters: string
+  amount?: string | null
+  period?: string
+  /** R3-34: clave de idempotencia — crucial aquí, porque `add/` SUMA al mes y
+   * un reenvío offline sin ella doblaría litros e importe. */
+  client_ref?: string
+}
+export const addFuelEntry = (data: FuelEntryInput) =>
+  postJson<{ id: number; period: string; liters: string; amount: string | null }>(
+    `${API}/fuel-consumptions/add/`,
+    data,
+  )
 
 /** N8a: estado de la ventana de registro de campo (día 20 → fin de mes).
  * `today` es el día del BACK: es quien valida, y su zona horaria es la que
@@ -215,6 +241,8 @@ export interface DocumentUploadInput {
   expiry_date?: string | null
   incident?: number | null
   notes?: string
+  /** R3-34: clave de idempotencia — el reenvío offline no duplica el documento. */
+  client_ref?: string
 }
 
 /**
@@ -267,7 +295,7 @@ export const setUsageSplit = (data: {
   items: Array<{ driver: number; usage_percent: string }>
 }) => postJson<VehicleUsageRow[]>(`${API}/vehicle-usages/set/`, data)
 
-export const createIncident = (data: {
+export interface IncidentInput {
   vehicle: number
   type: string
   date?: string | null
@@ -276,7 +304,13 @@ export const createIncident = (data: {
   workshop_postal_code?: string
   cost?: string
   details?: Record<string, unknown>
-}) => postJson<Incident>(`${API}/incidents/`, data)
+  /** R3-34/R3-27: clave de idempotencia — el parte encolado sin cobertura se
+   * reenvía sin crear dos incidencias; la cola además la usa para enlazar los
+   * adjuntos que esperaban su id. */
+  client_ref?: string
+}
+
+export const createIncident = (data: IncidentInput) => postJson<Incident>(`${API}/incidents/`, data)
 
 /** Histórico de lecturas para la gráfica de evolución (HU-3.6). */
 export const listKmReadings = (vehicle: number) =>

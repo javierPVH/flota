@@ -6,7 +6,7 @@ import { asErrorMessage } from '@flota/ui/http'
 import { registerItv } from '../api.ts'
 import { daysUntil, fmtDate, itvClass, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import { isNetworkError, safeEnqueue } from '../offline/queue.ts'
+import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Vehicle } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
@@ -45,6 +45,8 @@ export function RegisterItvModal({
         // mano en campo; vacía se manda null (el back rechaza la cadena vacía).
         next_due: form.result === 'done' ? form.next_due || null : null,
       },
+      // R3-34: misma referencia en el intento directo y en el reenvío offline.
+      client_ref: newClientRef(),
     }
     try {
       await registerItv(payload)

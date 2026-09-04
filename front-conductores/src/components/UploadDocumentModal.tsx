@@ -6,7 +6,7 @@ import { asErrorMessage } from '@flota/ui/http'
 import { listIncidents, uploadDocument } from '../api.ts'
 import { fmtDate } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import { isNetworkError, safeEnqueue } from '../offline/queue.ts'
+import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Incident, Vehicle } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
@@ -69,6 +69,8 @@ export function UploadDocumentModal({
       expiry_date: form.expiry_date || null,
       incident: form.incident ? Number(form.incident) : null,
       notes: form.notes,
+      // R3-34: misma referencia en el intento directo y en el reenvío offline.
+      client_ref: newClientRef(),
     }
     try {
       const created = await uploadDocument(payload, file)
