@@ -24,6 +24,7 @@ import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleForm } from '../components/VehicleForm.tsx'
 import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
 import { AccidentModal } from '../components/AccidentModal.tsx'
+import { KmFuelModal } from '../components/KmFuelModal.tsx'
 import { VehicleStateModal } from '../components/VehicleStateModal.tsx'
 import { useVehicleActions } from '../components/useVehicleActions.tsx'
 import { ColumnsPicker } from '../components/ColumnsPicker.tsx'
@@ -147,6 +148,7 @@ export function VehiclesPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [opsVehicle, setOpsVehicle] = useState<Vehicle | null>(null)
   const [accidentVehicle, setAccidentVehicle] = useState<Vehicle | null>(null)
+  const [kmFuelVehicle, setKmFuelVehicle] = useState<Vehicle | null>(null)
   // Botones de Acciones: correo agrupado, conductor/supervisor, facturas.
   const [emailVehicle, setEmailVehicle] = useState<Vehicle | null>(null)
   const [driverVehicle, setDriverVehicle] = useState<Vehicle | null>(null)
@@ -454,6 +456,7 @@ export function VehiclesPage() {
     onInvoices: setInvoicesVehicle,
     onOps: setOpsVehicle,
     onAccident: setAccidentVehicle,
+    onKmFuel: setKmFuelVehicle,
     activeMainOfSub,
     onDone: load,
     onError: setError,
@@ -733,6 +736,21 @@ export function VehiclesPage() {
           <AccidentModal
             vehicle={accidentVehicle}
             onClose={() => setAccidentVehicle(null)}
+            onDone={load}
+          />
+        )}
+      </Modal>
+
+      {/* Kilómetros y combustible: lectura + consumo mensual (GAP-2). */}
+      <Modal
+        open={Boolean(kmFuelVehicle)}
+        title={kmFuelVehicle ? t.kmFuel.title(kmFuelVehicle.plate) : ''}
+        onClose={() => setKmFuelVehicle(null)}
+      >
+        {kmFuelVehicle && (
+          <KmFuelModal
+            vehicle={kmFuelVehicle}
+            onClose={() => setKmFuelVehicle(null)}
             onDone={load}
           />
         )}

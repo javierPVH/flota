@@ -112,6 +112,9 @@ describe('GroupPage (proyección de km del grupo)', () => {
   it('ordena por urgencia, con el % en grande y el exceso destacado', async () => {
     renderPage()
     expect(await screen.findByText('Proyección de km')).toBeInTheDocument()
+    // El espacio de supervisor pide SOLO su grupo: los roles se suman y sin
+    // el filtro un supervisor-admin vería aquí toda la flota.
+    expect(mocks.listVehicles).toHaveBeenCalledWith({ supervisor: 1 })
 
     // El exceso primero, lo que no proyecta al final.
     const plates = [...document.querySelectorAll('.km-card .plate')].map((el) => el.textContent)

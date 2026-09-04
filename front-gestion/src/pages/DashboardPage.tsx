@@ -29,6 +29,7 @@ import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
 import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
 import { AccidentModal } from '../components/AccidentModal.tsx'
+import { KmFuelModal } from '../components/KmFuelModal.tsx'
 import { MaintenanceDoneModal } from '../components/MaintenanceDoneModal.tsx'
 import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
 import { VehicleStateModal } from '../components/VehicleStateModal.tsx'
@@ -209,6 +210,7 @@ export function DashboardPage() {
   // Modales de acciones por fila (vehículos y personas).
   const [opsVehicle, setOpsVehicle] = useState<Vehicle | null>(null)
   const [accidentVehicle, setAccidentVehicle] = useState<Vehicle | null>(null)
+  const [kmFuelVehicle, setKmFuelVehicle] = useState<Vehicle | null>(null)
   const [emailVehicle, setEmailVehicle] = useState<Vehicle | null>(null)
   // Correo abierto ya en un tipo (aviso de seguro desde su desglose).
   const [emailKind, setEmailKind] = useState<'insurance_due' | undefined>(undefined)
@@ -763,6 +765,7 @@ export function DashboardPage() {
     onInvoices: setInvoicesVehicle,
     onOps: setOpsVehicle,
     onAccident: setAccidentVehicle,
+    onKmFuel: setKmFuelVehicle,
     activeMainOfSub,
     onDone: reloadVehicles,
     onError: setError,
@@ -1667,6 +1670,21 @@ export function DashboardPage() {
           <AccidentModal
             vehicle={accidentVehicle}
             onClose={() => setAccidentVehicle(null)}
+            onDone={reloadVehicles}
+          />
+        )}
+      </Modal>
+
+      {/* Kilómetros y combustible: lectura + consumo mensual (GAP-2). */}
+      <Modal
+        open={Boolean(kmFuelVehicle)}
+        title={kmFuelVehicle ? vt.kmFuel.title(kmFuelVehicle.plate) : ''}
+        onClose={() => setKmFuelVehicle(null)}
+      >
+        {kmFuelVehicle && (
+          <KmFuelModal
+            vehicle={kmFuelVehicle}
+            onClose={() => setKmFuelVehicle(null)}
             onDone={reloadVehicles}
           />
         )}

@@ -49,8 +49,8 @@ function elapsedPct(contract: VehicleSummary['contract']): number | null {
  * M6 — Modo supervisor (HU-2.5, 2.8, 3.4, 3.6, Épica 6): proyección de km del
  * grupo. Ordenada por urgencia (exceso → a vigilar → dentro → sin proyección),
  * con recuento en cabecera, filtro por nivel y, en cada tarjeta, la barra de
- * consumo con la marca del avance temporal del contrato. El back acota todo
- * al grupo del supervisor.
+ * consumo con la marca del avance temporal del contrato. Se pide al back solo
+ * el grupo (`supervisor=<yo>`): el ámbito por rol se suma y aquí sobraría.
  */
 export function GroupPage() {
   const { user } = useAuth()
@@ -64,11 +64,17 @@ export function GroupPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // Solo los coches que SUPERVISA (los roles se suman: un supervisor-admin
+  // vería toda la flota y uno que conduce, además su coche) — este espacio
+  // es su grupo.
+  const supervisorId = user?.id ?? null
+
   const load = useCallback(() => {
+    if (supervisorId === null) return
     setLoading(true)
     // Summaries en UNA petición (O2): antes era un GET por vehículo del grupo.
     Promise.all([
-      listVehicles(),
+      listVehicles({ supervisor: supervisorId }),
       fetchVehicleSummaries().catch(() => [] as VehicleSummary[]),
     ])
       .then(([vehiclesPage, summaries]) => {
@@ -81,7 +87,7 @@ export function GroupPage() {
       })
       .catch((err) => setError(asErrorMessage(err, t.group.loadError)))
       .finally(() => setLoading(false))
-  }, [t])
+  }, [t, supervisorId])
 
   useEffect(() => {
     if (isSupervisor) load()

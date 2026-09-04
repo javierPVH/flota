@@ -49,9 +49,12 @@ export function NewIncidentPage() {
   const origin = isSupervisor && params.get('desde') === 'grupo' ? '/grupo' : '/'
   const requestedType = params.get('tipo') ?? ''
   // Modo "Mi vehículo" del supervisor: el alta queda acotada a su pareja
-  // (coche propio + sustitución). Conductor o modo Flota: sin recorte.
+  // (coche propio + sustitución). Conductor: sin recorte. Modo Flota: el
+  // selector pide al back SOLO los coches que supervisa (los roles se suman;
+  // sin filtro un supervisor-admin vería toda la flota).
   const ctx = useOutletContext<LayoutContext | null>()
   const ownIds = ctx && !ctx.fleetMode ? (ctx.ownPair?.ids ?? null) : null
+  const supervisedBy = ctx?.fleetMode ? user?.id ?? null : null
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [form, setForm] = useState({
     vehicle: params.get('vehiculo') ?? '',
@@ -81,7 +84,7 @@ export function NewIncidentPage() {
 
   useEffect(() => {
     let alive = true
-    listVehicles()
+    listVehicles(supervisedBy !== null ? { supervisor: supervisedBy } : {})
       .then((page) => {
         if (!alive) return
         setVehicles(page.results)
@@ -91,7 +94,7 @@ export function NewIncidentPage() {
       })
       .catch(() => alive && setVehicles([]))
     return () => { alive = false }
-  }, [params])
+  }, [params, supervisedBy])
 
   const selectable = useMemo(
     () => (ownIds ? vehicles.filter((v) => ownIds.includes(v.id)) : vehicles),

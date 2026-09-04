@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, CheckCircle2 } from 'lucide-react'
 import { Button, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { listIncidents, listVehicles, uploadDocument } from '../api.ts'
+import { useAuth } from '../auth.ts'
+import type { LayoutContext } from '../components/Layout.tsx'
 import { fmtDate } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
@@ -31,8 +33,13 @@ const DOCUMENT_TYPES = [
  */
 export function UploadDocumentPage() {
   const { t } = useLang()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
+  // Modo Flota: el selector pide al back SOLO los coches que supervisa (los
+  // roles se suman; sin filtro un supervisor-admin vería toda la flota).
+  const ctx = useOutletContext<LayoutContext | null>()
+  const supervisedBy = ctx?.fleetMode ? user?.id ?? null : null
   // Las etiquetas de los campos ya viven en `t.vehicle` (la ficha las usaba):
   // aquí solo se añade lo propio de la vista (título, vuelta, confirmación).
   const doc = t.vehicle
@@ -49,7 +56,7 @@ export function UploadDocumentPage() {
 
   useEffect(() => {
     let alive = true
-    listVehicles()
+    listVehicles(supervisedBy !== null ? { supervisor: supervisedBy } : {})
       .then((page) => {
         if (!alive) return
         setVehicles(page.results)
@@ -62,7 +69,7 @@ export function UploadDocumentPage() {
     return () => {
       alive = false
     }
-  }, [params])
+  }, [params, supervisedBy])
 
   // Incidencias del vehículo elegido: permiten ligar la foto a un parte. El
   // efecto SOLO carga; limpiar la selección al cambiar de coche se hace en el

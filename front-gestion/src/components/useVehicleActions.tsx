@@ -2,7 +2,17 @@ import { useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { asErrorMessage } from '@flota/ui/http'
 import type { TableWithPanelColumn } from '@flota/ui/table'
-import { Archive, ArrowRightLeft, Mail, Pencil, Receipt, Siren, UserCog, Wrench } from 'lucide-react'
+import {
+  Archive,
+  ArrowRightLeft,
+  Gauge,
+  Mail,
+  Pencil,
+  Receipt,
+  Siren,
+  UserCog,
+  Wrench,
+} from 'lucide-react'
 
 import { convertToFleet, deactivateVehicle } from '../api.ts'
 import { useConfirm, useDeactivateConfirm } from './ConfirmDialog.tsx'
@@ -33,6 +43,8 @@ export interface VehicleActionsOptions {
   onOps: (vehicle: Vehicle) => void
   /** Abre la comunicación de accidente (parte guiado). */
   onAccident: (vehicle: Vehicle) => void
+  /** Abre el modal de kilómetros y combustible (lectura + consumo mensual). */
+  onKmFuel: (vehicle: Vehicle) => void
   /**
    * Sustituto → principal al que está cubriendo AHORA. Un sustituto que cubre a
    * alguien no se puede convertir en coche de flota.
@@ -55,6 +67,7 @@ export function useVehicleActions({
   onInvoices,
   onOps,
   onAccident,
+  onKmFuel,
   activeMainOfSub,
   onDone,
   onError,
@@ -119,6 +132,8 @@ export function useVehicleActions({
       }
       // Facturas: también en sustitutos.
       items.push({ key: 'invoices', label: t.invoices.btn, icon: <Receipt size={15} />, onClick: () => onInvoices(v) })
+      // Kilómetros y combustible: lectura + consumo mensual (también sustitutos).
+      items.push({ key: 'kmfuel', label: t.kmFuel.btn, icon: <Gauge size={15} />, onClick: () => onKmFuel(v) })
       // Convertir sustituto → flota: solo si no está cubriendo a ningún coche.
       if (v.is_substitute && !activeMainOfSub.has(v.id)) {
         items.push({ key: 'convert', label: t.convert.btn, icon: <ArrowRightLeft size={15} />, onClick: () => convert(v) })

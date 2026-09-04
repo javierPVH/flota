@@ -33,17 +33,27 @@ export function FleetPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // Solo los coches que SUPERVISA: los roles se suman, así que sin el filtro
+  // un supervisor que además es admin vería aquí toda la flota (y uno que
+  // además conduce, su propio coche). Este espacio es su grupo; su coche vive
+  // en "Mi vehículo".
+  const supervisorId = user?.id ?? null
+
   // Reutilizable: la carga inicial y el refresco tras guardar algo desde los
   // modales de tarjeta (actualización de km/mantenimiento/partes).
   const load = useCallback(() => {
-    Promise.all([listVehicles(), fetchVehicleSummaries().catch(() => [] as VehicleSummary[])])
+    if (supervisorId === null) return
+    Promise.all([
+      listVehicles({ supervisor: supervisorId }),
+      fetchVehicleSummaries().catch(() => [] as VehicleSummary[]),
+    ])
       .then(([page, loaded]) => {
         setVehicles(page.results)
         setSummaries(Object.fromEntries(loaded.map((s) => [s.vehicle, s])))
       })
       .catch((err) => setError(asErrorMessage(err, t.home.loadError)))
       .finally(() => setLoading(false))
-  }, [t])
+  }, [t, supervisorId])
 
   useEffect(() => {
     if (isSupervisor) load()
