@@ -76,6 +76,8 @@ const es = {
   kmStart: 'Odómetro inicial (km)',
   kmStartLockedTitle: 'El kilometraje se actualiza registrando lecturas',
   kmStartNote: 'El odómetro inicial crea la primera lectura de km del vehículo.',
+  // Disparador del acordeón de ayuda de un campo bloqueado/sensible.
+  whyLocked: '¿Por qué no se puede editar?',
   // Campo sensible: en edición no se toca aquí (descuadraría las proyecciones).
   kmStartEditInfo:
     'El odómetro inicial se fijó al dar de alta el vehículo. El kilometraje se actualiza registrando lecturas en «Kilometraje»; no se corrige aquí para no descuadrar las proyecciones ni el histórico.',
@@ -86,6 +88,10 @@ const es = {
   // Campo sensible: el conductor tiene su propio flujo con reglas de negocio.
   driverEditInfo:
     'El conductor se cambia desde la ficha con «Cambiar conductor»: ese flujo aplica la regla de un coche por conductor, cierra la asignación anterior y deja el cambio en el histórico.',
+  // Por qué el Proyecto está deshabilitado (acordeón bajo el desplegable).
+  projectDisabledLabel: '¿Por qué no puedo elegir proyecto?',
+  projectDisabledInfo:
+    'El proyecto solo se asigna cuando el «Tipo de uso» es «Proyecto». Cambia el tipo de uso a «Proyecto» (arriba) y podrás elegirlo.',
   supervisor: 'Supervisor',
   businessUnit: 'Unidad de negocio',
   costCenter: 'CECO',
@@ -300,6 +306,7 @@ const en: typeof es = {
   kmStart: 'Initial odometer (km)',
   kmStartLockedTitle: 'Mileage is updated by logging readings',
   kmStartNote: 'The initial odometer creates the vehicle’s first mileage reading.',
+  whyLocked: 'Why can’t this be edited?',
   kmStartEditInfo:
     'The initial odometer was set when the vehicle was created. Mileage is updated by logging readings in “Mileage”; it is not edited here so projections and history stay consistent.',
   businessUse: 'Business use',
@@ -308,6 +315,9 @@ const en: typeof es = {
   driverLockedTitle: 'The driver is changed from the detail page (Change driver)',
   driverEditInfo:
     'The driver is changed from the detail page via “Change driver”: that flow enforces one car per driver, closes the previous assignment and records the change in the history.',
+  projectDisabledLabel: 'Why can’t I pick a project?',
+  projectDisabledInfo:
+    'The project is only assigned when “Business use” is “Project”. Set the business use to “Project” (above) to choose one.',
   supervisor: 'Supervisor',
   businessUnit: 'Business unit',
   costCenter: 'Cost center',

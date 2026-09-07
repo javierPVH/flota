@@ -24,6 +24,7 @@ import {
   type VehicleFullInput,
 } from '../api.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
+import { FieldInfo } from './FieldInfo.tsx'
 import type { Driver, Vehicle } from '../types.ts'
 
 // Listas cerradas del back (etiquetas i18n del diccionario; el serializer valida).
@@ -748,8 +749,9 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                   title={editing ? t.kmStartLockedTitle : undefined}
                 />
               </Labeled>
-              {/* Campo sensible: en edición explicamos por qué no se toca aquí. */}
-              {editing && <div className="field-info">{t.kmStartEditInfo}</div>}
+              {/* Campo sensible: en edición explicamos por qué no se toca aquí,
+                  en un acordeón plegado para no cargar el formulario. */}
+              {editing && <FieldInfo label={t.whyLocked}>{t.kmStartEditInfo}</FieldInfo>}
             </div>
           </div>
           {!editing && <p className="muted">{t.kmStartNote}</p>}
@@ -770,26 +772,35 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                 onValueChange={set('business_use')}
               />
             </Labeled>
-            <Labeled badge={editing ? 'historic' : undefined}>
-              <SelectField
-                label={t.project}
-                requiredVisual={onProject}
-                options={catalogOptions(projects, onProject ? t.choose : t.projectOnlyUse)}
-                value={form.project}
-                onValueChange={(value) => {
-                  set('project')(value)
-                  // El proyecto lleva su CECO asociado: autorrellena el del
-                  // vehículo si está vacío (el usuario puede cambiarlo después).
-                  const projectCeco = projects.find((p) => String(p.id) === value)?.cost_center
-                  if (projectCeco != null) {
-                    setForm((f) =>
-                      f.cost_center ? f : { ...f, cost_center: String(projectCeco) },
-                    )
-                  }
-                }}
-                disabled={!onProject}
-              />
-            </Labeled>
+            <div className="field-cell">
+              <Labeled badge={editing ? 'historic' : undefined}>
+                <SelectField
+                  label={t.project}
+                  requiredVisual={onProject}
+                  options={catalogOptions(projects, onProject ? t.choose : t.projectOnlyUse)}
+                  value={form.project}
+                  onValueChange={(value) => {
+                    set('project')(value)
+                    // El proyecto lleva su CECO asociado: autorrellena el del
+                    // vehículo si está vacío (el usuario puede cambiarlo después).
+                    const projectCeco = projects.find((p) => String(p.id) === value)?.cost_center
+                    if (projectCeco != null) {
+                      setForm((f) =>
+                        f.cost_center ? f : { ...f, cost_center: String(projectCeco) },
+                      )
+                    }
+                  }}
+                  disabled={!onProject}
+                />
+              </Labeled>
+              {/* Por qué está deshabilitado: el proyecto solo aplica al uso
+                  «Proyecto». Se explica a un clic, sin ocupar sitio. */}
+              {!onProject && (
+                <FieldInfo label={t.projectDisabledLabel} tone="muted">
+                  {t.projectDisabledInfo}
+                </FieldInfo>
+              )}
+            </div>
             <div className="field-cell">
               <Labeled badge={editing ? 'locked' : undefined}>
                 <SelectField
@@ -805,7 +816,7 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                 />
               </Labeled>
               {/* Campo sensible: el conductor tiene su propio flujo (histórico). */}
-              {editing && <div className="field-info">{t.driverEditInfo}</div>}
+              {editing && <FieldInfo label={t.whyLocked}>{t.driverEditInfo}</FieldInfo>}
             </div>
             <SelectField
               label={t.supervisor}
