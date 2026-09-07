@@ -89,7 +89,15 @@ def on_incident_saved(sender, instance: Incident, **kwargs):
 
     Idempotente y para TODOS los caminos de escritura (PWA, gestión, admin):
     ver `services/accidents.py`. Para el resto de incidencias no hace nada.
+
+    R3-39: un save que NO toca `details` (los `update_fields` del ciclo
+    `report`/`manage`, R3-09) no re-materializa: antes cada gesto de gestión
+    borraba y re-insertaba TODOS los terceros y lesionados, cambiándoles el pk.
+    Un save completo (create, serializer, admin) sigue sincronizando.
     """
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "details" not in update_fields:
+        return
     accidents.sync_accident_report(instance)
 
 

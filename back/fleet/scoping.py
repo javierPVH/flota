@@ -13,7 +13,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 
 from .models import Assignment, Vehicle
-from .models.enums import AssignmentStatus
+from .selectors import current_assignment_q
 
 
 def vehicles_for(user):
@@ -29,13 +29,10 @@ def vehicles_for(user):
         # estado, una propuesta (o una propuesta ya RECHAZADA, que conserva
         # `end_date=NULL`) abría al conductor el vehículo y todo lo que cuelga
         # de él —documentos, facturas, incidencias, eventos— de forma
-        # permanente. Mismo criterio que `selectors.current_driver_map`.
-        scope |= Q(
-            assignments__driver=user,
-            assignments__status=AssignmentStatus.ACCEPTED,
-            assignments__end_date__isnull=True,
-            assignments__is_active=True,
-        )
+        # permanente. R3-02: «en curso» incluye el fin PROGRAMADO aún no
+        # alcanzado (grant/accept con fechas) — criterio único de
+        # `selectors.current_assignment_q`, el mismo que `current_driver_map`.
+        scope |= Q(assignments__driver=user) & current_assignment_q(prefix="assignments__")
     if scope:
         return qs.filter(scope).distinct()
     return qs.none()
@@ -54,12 +51,7 @@ def users_for(user):
         return qs
     if user.is_supervisor:
         drivers = (
-            Assignment.objects.filter(
-                vehicle__supervisor=user,
-                status=AssignmentStatus.ACCEPTED,
-                end_date__isnull=True,
-                is_active=True,
-            )
+            Assignment.objects.filter(current_assignment_q(), vehicle__supervisor=user)
             .exclude(driver__isnull=True)
             .values("driver_id")
         )

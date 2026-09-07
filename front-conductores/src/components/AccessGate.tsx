@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { Button, Panel } from '@flota/ui/ui'
 
 import { isAdminOnly, useAuth } from '../auth.ts'
-import { listVehicles } from '../api.ts'
+import { listVehiclesCached } from '../api.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError } from '../offline/queue.ts'
 
@@ -34,7 +34,9 @@ export function AccessGate({ children }: { children: ReactNode }) {
     }
     let alive = true
     setState('checking')
-    listVehicles()
+    // R3-28: la misma promesa que consumirán el shell y la home — el arranque
+    // hace UN solo GET /vehicles/ (un fallo no se cachea: reintentar re-pide).
+    listVehiclesCached()
       .then((page) => {
         if (!alive) return
         try {

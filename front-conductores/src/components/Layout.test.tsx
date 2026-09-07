@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   createKmReading: vi.fn(),
   registerItv: vi.fn(),
   uploadDocument: vi.fn(),
+  listVehiclesCached: vi.fn(),
+  fetchVehicleSummariesCached: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -16,14 +18,23 @@ vi.mock('../api.ts', async (importOriginal) => ({
   createKmReading: mocks.createKmReading,
   registerItv: mocks.registerItv,
   uploadDocument: mocks.uploadDocument,
+  // R4-07: los datos del shell, mockeados para poder afirmar el REFRESCO
+  // tras un flush con envíos (dataVersion).
+  listVehiclesCached: mocks.listVehiclesCached,
+  fetchVehicleSummariesCached: mocks.fetchVehicleSummariesCached,
 }))
+
+// R4-07: el `user` debe tener identidad ESTABLE — el efecto de datos del shell
+// lo lleva en las deps, y un objeto nuevo por render lo ponía en bucle (solo
+// en el test: el useAuth real lo sirve estable desde el contexto).
+const STABLE_AUTH = {
+  user: { id: 1, username: 'ana', first_name: 'Ana', last_name: 'Pérez', roles: ['driver'] },
+  logout: vi.fn(),
+}
 
 vi.mock('../auth.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../auth.ts')>()),
-  useAuth: () => ({
-    user: { id: 1, username: 'ana', first_name: 'Ana', last_name: 'Pérez', roles: ['driver'] },
-    logout: vi.fn(),
-  }),
+  useAuth: () => STABLE_AUTH,
 }))
 
 import { Layout } from './Layout.tsx'
@@ -63,6 +74,10 @@ async function drain() {
   mocks.uploadDocument.mockResolvedValue({})
   await flush()
   vi.clearAllMocks()
+  // Los datos del shell: vacíos y estables (lo que afirmamos es CUÁNTAS veces
+  // se piden, no su contenido).
+  mocks.listVehiclesCached.mockResolvedValue({ count: 0, results: [] })
+  mocks.fetchVehicleSummariesCached.mockResolvedValue([])
 }
 
 describe('cola offline en el shell (banner → flush → aviso)', () => {
@@ -102,6 +117,23 @@ describe('cola offline en el shell (banner → flush → aviso)', () => {
       expect(screen.queryByRole('button', { name: /sin enviar/ })).not.toBeInTheDocument()
     })
     expect(container.querySelector('.tab-dot')).toBeNull()
+  })
+
+  it('R4-07: un flush con envíos refresca los datos del shell (dataVersion)', async () => {
+    setOnline(false)
+    await enqueue(KM)
+
+    renderShell()
+    const banner = await screen.findByRole('button', { name: /sin enviar/ })
+    // Carga inicial del shell: una petición de vehículos.
+    await waitFor(() => expect(mocks.listVehiclesCached).toHaveBeenCalledTimes(1))
+
+    mocks.createKmReading.mockResolvedValue({})
+    await userEvent.click(banner)
+
+    expect(await screen.findByText('1 registro pendiente enviado.')).toBeInTheDocument()
+    // El envío sube dataVersion → el shell relee (el km reenviado ya cuenta).
+    await waitFor(() => expect(mocks.listVehiclesCached).toHaveBeenCalledTimes(2))
   })
 
   it('un rechazo del servidor se avisa y NO se reencola', async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
@@ -105,6 +105,13 @@ export function DocumentsPanel({
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
+  // R3-30: `t` por ref — con `t` en las deps, el botón es/en recargaba los
+  // documentos del vehículo (el diccionario solo pinta el error).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
+
   const load = useCallback(() => {
     setLoading(true)
     listDocuments({ vehicle: vehicle.id, type: typeFilter || undefined })
@@ -112,9 +119,9 @@ export function DocumentsPanel({
         setDocs(page.results)
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, t.loadError)))
+      .catch((err) => setError(asErrorMessage(err, tRef.current.loadError)))
       .finally(() => setLoading(false))
-  }, [vehicle.id, typeFilter, t])
+  }, [vehicle.id, typeFilter])
 
   useEffect(load, [load])
 

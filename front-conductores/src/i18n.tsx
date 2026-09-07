@@ -56,6 +56,9 @@ const es = {
     /** Marca de campo OBLIGATORIO en los inputs artesanales — la misma
      * pastilla que pone `requiredVisual` en los campos del DS. */
     required: 'Obligatorio',
+    /** R3-31: la lista no cabe en una página — se dice, no se recorta en silencio. */
+    truncated: (shown: number, total: number) =>
+      `Lista recortada: se muestran ${shown} de ${total} registros.`,
   },
   login: {
     brand: 'Flota',
@@ -148,29 +151,9 @@ const es = {
       `Esta app es para conductores y supervisores. Tu usuario (${username}) es de ` +
       'administración: usa el front de gestión (red interna / VPN).',
   },
-  noFleet: {
-    title: 'Aún no tienes flota',
-    body: (name: string) =>
-      `Hola ${name}: eres supervisor pero no tienes vehículos asignados a tu grupo todavía. ` +
-      'La administración compone tu flota desde el front de gestión; contacta con ella si ' +
-      'crees que es un error.',
-    recheck: 'Volver a comprobar',
-  },
-  request: {
-    title: 'Solicita tu vehículo',
-    hello: (name: string) => `Hola ${name}: aún no tienes un vehículo asignado.`,
-    howTo: 'Abre tu solicitud en Jira: el trámite se sigue allí, no desde esta aplicación.',
-    afterApproval:
-      'Cuando la aprueben, la administración activará tu acceso. Vuelve a comprobar más tarde.',
-    openJira: 'Abrir solicitud en Jira',
-    noUrl: 'La dirección de Jira no está configurada. Avisa a la administración.',
-    recheck: 'Volver a comprobar',
-  },
-  fleet: {
-    title: 'Flota a cargo',
-    tabsLabel: 'Grupos de la flota',
-    tabAll: 'Todos',
-  },
+  // R3-36: el copy de los chunks perezosos (noFleet, request, fleet, split)
+  // vive en `src/translations/<ns>.ts` — cada chunk se lleva su texto. Aquí
+  // queda SOLO lo que consume el bundle inicial (shell, home y sus modales).
   vehicle: {
     back: 'Volver',
     notFound: 'Vehículo no encontrado.',
@@ -223,6 +206,8 @@ const es = {
     itvResultDone: 'Favorable',
     itvResultNotDone: 'Desfavorable',
     itvNextDue: 'Próxima ITV (opcional)',
+    /** R3-32: espejo del back — la próxima ITV es posterior a la inspección. */
+    itvNextDueInvalid: 'La próxima ITV debe ser posterior a la fecha de la inspección.',
     itvAnyDate: 'Se puede registrar antes o después de esa fecha.',
     itvAutoClose: 'Al registrarla, los avisos de ITV del vehículo se cierran automáticamente.',
     itvNotDoneNote: 'Una ITV desfavorable no cierra los avisos: la cita sigue pendiente.',
@@ -262,6 +247,11 @@ const es = {
     vehicle: 'Vehículo',
     choose: 'Elige un vehículo…',
     lastReading: 'Última lectura:',
+    /** R3-42: la última lectura salió del cálculo de km faltantes (N8b). */
+    estimatedTag: 'estimado',
+    estimatedNote:
+      'La última lectura es una estimación automática, no un dato del cuadro: ' +
+      'registra el kilometraje real cuando puedas.',
     missingMonth: ' — falta la de este mes.',
     firstReading: 'Aún no hay lecturas: esta será la primera.',
     odometer: 'Odómetro (km totales del cuadro)',
@@ -572,6 +562,9 @@ const es = {
     mileage: 'Kilometraje actual',
     /** Pista bajo el odómetro cuando viene precargado del resumen del coche. */
     mileageFromReading: (value: string) => `Última lectura conocida: ${value}`,
+    /** R3-42: la precarga sale de una lectura ESTIMADA (N8b) — verifícala. */
+    mileageFromReadingEstimated: (value: string) =>
+      `Última lectura conocida: ${value} (estimada — verifica el cuadro)`,
     workshopPostalCode: 'Código postal del taller',
     workshopPostalCodeOptional: 'CP del taller (opcional)',
     preferredAt: 'Fecha y hora de preferencia',
@@ -647,21 +640,28 @@ const es = {
       'al recuperar la cobertura.',
     close: 'Cerrar',
   },
-  split: {
-    title: (plate: string) => `Reparto de uso · ${plate}`,
+  /** R3-43: documentos PERSONALES (permiso de conducir…) en la app de campo.
+   * Gestión ya los subía con titular persona y aquí no se veían. */
+  myDocs: {
+    title: 'Mis documentos',
     hint:
-      'Base de refacturación: personas y porcentaje. La suma debe ser exactamente 100; al ' +
-      'guardar se cierra el reparto vigente.',
-    person: 'Persona',
-    choose: 'Elige…',
-    removePerson: 'Quitar persona',
-    addPerson: 'Añadir persona',
-    sum: (total: number) => `Suma: ${total}%`,
-    since: 'Vigente desde',
-    save: 'Guardar reparto',
-    saving: 'Guardando…',
-    saveError: 'No se pudo guardar el reparto.',
-    history: 'Histórico',
+      'Documentos personales, como el permiso de conducir. Los ve también tu ' +
+      'supervisor y la gestión de flota.',
+    empty: 'Sin documentos personales.',
+    upload: 'Subir documento personal',
+    type: 'Tipo',
+    types: {
+      driving_license: 'Permiso de conducir',
+      other: 'Otro',
+    } as Record<string, string>,
+    expiry: 'Caducidad (opcional)',
+    submit: 'Subir',
+    submitting: 'Subiendo…',
+    uploadOk: 'Documento subido.',
+    uploadOffline:
+      'Sin conexión: el documento quedó guardado y se subirá al recuperar la cobertura.',
+    uploadError: 'No se pudo subir el documento.',
+    loadError: 'No se pudieron cargar tus documentos.',
   },
   /** GAP-2: gasto de combustible de campo (hermano del de km). */
   fuel: {
@@ -677,10 +677,6 @@ const es = {
     /** Div informativo del tablero y de la ficha. */
     cardTitle: 'Combustible del mes',
     noneThisMonth: 'Sin repostajes este mes',
-  },
-  chart: {
-    label: 'Evolución del kilometraje',
-    notEnough: 'Aún no hay lecturas suficientes.',
   },
 }
 
@@ -725,6 +721,8 @@ const en: typeof es = {
     expandAll: 'Expand all',
     collapseAll: 'Collapse all',
     required: 'Required',
+    truncated: (shown: number, total: number) =>
+      `List truncated: showing ${shown} of ${total} records.`,
   },
   login: {
     brand: 'Fleet',
@@ -804,29 +802,6 @@ const en: typeof es = {
       `This app is for drivers and supervisors. Your user (${username}) is an admin ` +
       'account: use the management front (internal network / VPN).',
   },
-  noFleet: {
-    title: 'No fleet yet',
-    body: (name) =>
-      `Hi ${name}: you are a supervisor but have no vehicles assigned to your group yet. ` +
-      'Administration builds your fleet from the management front; contact them if you ' +
-      'think this is a mistake.',
-    recheck: 'Check again',
-  },
-  request: {
-    title: 'Request your vehicle',
-    hello: (name) => `Hi ${name}: you have no vehicle assigned yet.`,
-    howTo: 'Open your request in Jira: it is handled there, not in this application.',
-    afterApproval:
-      'Once approved, administration will enable your access. Check again later.',
-    openJira: 'Open request in Jira',
-    noUrl: 'The Jira address is not configured. Please contact administration.',
-    recheck: 'Check again',
-  },
-  fleet: {
-    title: 'Fleet in my care',
-    tabsLabel: 'Fleet groups',
-    tabAll: 'All',
-  },
   vehicle: {
     back: 'Back',
     notFound: 'Vehicle not found.',
@@ -874,6 +849,7 @@ const en: typeof es = {
     itvResultDone: 'Passed',
     itvResultNotDone: 'Failed',
     itvNextDue: 'Next MOT (optional)',
+    itvNextDueInvalid: 'The next MOT must be after the inspection date.',
     itvAnyDate: 'It can be logged before or after that date.',
     itvAutoClose: "Logging it automatically closes the vehicle's MOT alerts.",
     itvNotDoneNote: 'A failed MOT does not close the alerts: the appointment stays open.',
@@ -913,6 +889,10 @@ const en: typeof es = {
     vehicle: 'Vehicle',
     choose: 'Choose a vehicle…',
     lastReading: 'Last reading:',
+    estimatedTag: 'estimated',
+    estimatedNote:
+      'The last reading is an automatic estimate, not an odometer value: log the real ' +
+      'reading when you can.',
     missingMonth: " — this month's is missing.",
     firstReading: 'No readings yet: this will be the first one.',
     odometer: 'Odometer (total km on the dashboard)',
@@ -1200,6 +1180,8 @@ const en: typeof es = {
     accidentData: 'Accident details',
     mileage: 'Current mileage',
     mileageFromReading: (value) => `Last known reading: ${value}`,
+    mileageFromReadingEstimated: (value) =>
+      `Last known reading: ${value} (estimated — check the odometer)`,
     workshopPostalCode: 'Workshop postal code',
     workshopPostalCodeOptional: 'Workshop postal code (optional)',
     preferredAt: 'Preferred date and time',
@@ -1271,21 +1253,25 @@ const en: typeof es = {
       'once back online.',
     close: 'Close',
   },
-  split: {
-    title: (plate) => `Usage split · ${plate}`,
+  myDocs: {
+    title: 'My documents',
     hint:
-      'Rebilling basis: people and percentage. The sum must be exactly 100; saving closes ' +
-      'the current split.',
-    person: 'Person',
-    choose: 'Choose…',
-    removePerson: 'Remove person',
-    addPerson: 'Add person',
-    sum: (total) => `Sum: ${total}%`,
-    since: 'Effective from',
-    save: 'Save split',
-    saving: 'Saving…',
-    saveError: 'Could not save the split.',
-    history: 'History',
+      'Personal documents, such as the driving licence. Your supervisor and fleet ' +
+      'management can also see them.',
+    empty: 'No personal documents.',
+    upload: 'Upload personal document',
+    type: 'Type',
+    types: {
+      driving_license: 'Driving licence',
+      other: 'Other',
+    },
+    expiry: 'Expiry (optional)',
+    submit: 'Upload',
+    submitting: 'Uploading…',
+    uploadOk: 'Document uploaded.',
+    uploadOffline: 'Offline: the document was saved and will upload once back online.',
+    uploadError: 'The document could not be uploaded.',
+    loadError: 'Your documents could not be loaded.',
   },
   fuel: {
     title: 'Fuel spend',
@@ -1299,10 +1285,6 @@ const en: typeof es = {
     addsToMonth: "The refuel adds to the month's total.",
     cardTitle: 'Fuel this month',
     noneThisMonth: 'No refuels this month',
-  },
-  chart: {
-    label: 'Kilometre trend',
-    notEnough: 'Not enough readings yet.',
   },
 }
 

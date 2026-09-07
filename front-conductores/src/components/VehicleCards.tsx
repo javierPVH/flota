@@ -154,6 +154,7 @@ export function VehicleCardList({
         <BreakdownModal
           vehicle={breakdownFor}
           kmCurrent={summaries[breakdownFor.id]?.km_current ?? null}
+          kmEstimated={summaries[breakdownFor.id]?.km_estimated ?? false}
           onClose={() => setBreakdownFor(null)}
           onSaved={onRefresh}
         />
@@ -352,6 +353,12 @@ function VehicleCard({
             <dt>{t.home.km}</dt>
             <dd>
               {summary ? fmtKm(summary.km_current, language) : '…'}
+              {/* R3-42: un km del cálculo automático (N8b) no es del cuadro. */}
+              {summary?.km_estimated && (
+                <span className="doc-sub" title={t.km.estimatedNote}>
+                  {' '}· {t.km.estimatedTag}
+                </span>
+              )}
               {kmPending && (
                 // Atajo (mejora 🔴): la chapita lleva directo a registrar la
                 // lectura de ESTE vehículo (sin pasar por la ficha).

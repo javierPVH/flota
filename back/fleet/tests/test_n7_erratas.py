@@ -191,6 +191,48 @@ class ErratasSpaceTests(APITestCase):
         self.assertTrue(self.incident.is_active)
         self.assertEqual(self.incident.deactivation_reason, "")
 
+    def test_restore_against_occupied_slot_returns_400_not_500(self):
+        """R3-06: si el hueco de la constraint parcial ya se corrigió con una
+        fila nueva, restaurar la vieja es un 400 accionable, no un 500."""
+        from decimal import Decimal
+
+        from fleet.models import FuelConsumption
+
+        original = FuelConsumption.objects.create(
+            vehicle=self.vehicle, period=date(2026, 3, 1), liters=Decimal("50")
+        )
+        original.deactivate(by=self.admin, reason="cifra mala")
+        # La corrección ocupa el hueco (vehículo, mes).
+        FuelConsumption.objects.create(
+            vehicle=self.vehicle, period=date(2026, 3, 1), liters=Decimal("60")
+        )
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            reverse("erratas-restore"),
+            {"type": "fuel-consumptions", "id": original.pk},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        self.assertIn("ocupado", str(resp.data["detail"]))
+        original.refresh_from_db()
+        self.assertFalse(original.is_active)  # nada a medias
+
+    def test_restored_vehicle_emits_activation_event(self):
+        """R3-06: la baja emitió su evento; la restauración también."""
+        from fleet.models import Event
+        from fleet.models.enums import EventType, VehicleState
+
+        self.vehicle.state = VehicleState.BAJA
+        self.vehicle.save(update_fields=["state"])
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            reverse("erratas-restore"), {"type": "vehicles", "id": self.vehicle.pk}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        evento = Event.objects.filter(vehicle=self.vehicle, event_type=EventType.ACTIVATION).last()
+        self.assertIsNotNone(evento)
+        self.assertIn("Restaurado desde erratas", evento.notes)
+
     def test_purge_requires_superuser(self):
         self.client.force_authenticate(self.admin)  # admin normal, NO superusuario
         resp = self.client.post(

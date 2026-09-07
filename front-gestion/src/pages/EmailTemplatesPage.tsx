@@ -107,17 +107,24 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   const signatureBodyRef = useRef<HTMLDivElement | null>(null)
   const [editingSignature, setEditingSignature] = useState<EmailSignatureRow | null>(null)
 
+  // R3-30: `t` por ref — con `t` en las deps, el botón es/en recargaba
+  // plantillas, firmas y últimos envíos (solo pinta el error).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
+
   const load = useCallback(() => {
     listEmailTemplates()
       .then((page) => setTemplates(page.results))
-      .catch((err) => setError(asErrorMessage(err, t.loadTemplatesError)))
+      .catch((err) => setError(asErrorMessage(err, tRef.current.loadTemplatesError)))
     listEmailSignatures()
       .then((page) => setSignatures(page.results))
       .catch(() => setSignatures([]))
     listEmailLogs()
       .then((page) => setLogs(page.results))
       .catch(() => setLogs([]))
-  }, [t])
+  }, [])
 
   useEffect(load, [load])
 

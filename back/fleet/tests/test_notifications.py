@@ -403,6 +403,26 @@ class NotificationApiTests(APITestCase):
         self.assertTrue(resp.data["queued"])
         self.assertEqual(len(mail.outbox), 1)
 
+    @override_settings(
+        FLEET_EMAIL_ENABLED=True, EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend"
+    )
+    def test_run_now_does_not_drain_the_rest_of_the_queue(self):
+        """R3-15: «enviar ahora» entrega SOLO lo que acaba de encolar — la
+        prueba de UN envío no puede ponerse a repartir la cola pendiente de
+        otros dentro del request."""
+        from fleet.models import EmailOutbox
+
+        ajeno = EmailOutbox.objects.create(
+            recipient="otro@example.com", subject="pendiente ajeno", body_html="<p>x</p>"
+        )
+        self.client.force_authenticate(self.admin)
+        mail.outbox = []
+        resp = self.client.post(reverse("notificationschedule-run", args=[self.mio.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(len(mail.outbox), 1)  # solo el del envío probado
+        ajeno.refresh_from_db()
+        self.assertEqual(ajeno.status, EmailOutbox.Status.PENDING)  # espera al job
+
     def test_delete_removes_it_for_real(self):
         """Es configuración personal: no va al espacio de erratas (ver el modelo)."""
         self.client.force_authenticate(self.admin)
@@ -468,10 +488,47 @@ class DriveTests(APITestCase):
 
 
 class ScheduleTimeWindowTests(APITestCase):
-    """MAX_DELAY: un vencimiento viejo no se despacha."""
+    """MAX_DELAY: un vencimiento viejo no se despacha (R3-07: margen por frecuencia)."""
 
-    def test_max_delay_is_one_day(self):
-        self.assertEqual(notifications.MAX_DELAY, timedelta(days=1))
+    def test_max_delay_depends_on_frequency(self):
+        self.assertEqual(notifications.MAX_DELAY["daily"], timedelta(days=1))
+        self.assertEqual(notifications.MAX_DELAY["weekly"], timedelta(days=3))
+        self.assertEqual(notifications.MAX_DELAY["monthly"], timedelta(days=7))
+
+    def test_weekly_recovers_after_two_day_outage(self):
+        """R3-07: una caída de 2 días ya no se traga el informe semanal."""
+        user = _user("r307-weekly", Role.ADMIN, email="w@flota.dev")
+        semanal = NotificationSchedule.objects.create(
+            user=user,
+            name="Semanal",
+            content=NotificationSchedule.Content.SUMMARY,
+            frequency=NotificationSchedule.Frequency.WEEKLY,
+            weekday=0,  # lunes
+            send_at=time(7, 0),
+            send_email=True,
+            extra_recipients="w@flota.dev",
+        )
+        # El servicio vuelve el miércoles: el lunes 7:00 quedó a 2 días.
+        self.assertTrue(notifications.is_due(semanal, _aware(2026, 8, 19, 7, 0)))
+        # Pero a más de 3 días (el viernes) ya no se recupera: saldrá el próximo.
+        self.assertFalse(notifications.is_due(semanal, _aware(2026, 8, 21, 8, 0)))
+
+    def test_monthly_recovers_within_a_week(self):
+        user = _user("r307-monthly", Role.ADMIN, email="m@flota.dev")
+        mensual = NotificationSchedule.objects.create(
+            user=user,
+            name="Mensual",
+            content=NotificationSchedule.Content.SUMMARY,
+            frequency=NotificationSchedule.Frequency.MONTHLY,
+            day_of_month=1,
+            send_at=time(9, 0),
+            send_email=True,
+            extra_recipients="m@flota.dev",
+        )
+        # Caída que cruza el día 1: el día 5 todavía se despacha el del día 1.
+        self.assertTrue(notifications.is_due(mensual, _aware(2026, 8, 5, 10, 0)))
+        # El día 9 (a más de 7 días) ya no.
+        self.assertFalse(notifications.is_due(mensual, _aware(2026, 8, 9, 10, 0)))
 
 
 class ReportKindsAndFiltersTests(APITestCase):

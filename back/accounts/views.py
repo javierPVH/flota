@@ -388,9 +388,23 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         if user.is_active:
-            user.is_active = False
-            user.save(update_fields=["is_active"])
-            security_logger.info("usuario desactivado user=%s por=%s", user.pk, request.user.pk)
+            # Import local: accounts → fleet solo en tiempo de ejecución (sin ciclo).
+            from django.db import transaction
+
+            from fleet.services.drivers import finish_assignments_for
+
+            with transaction.atomic():
+                user.is_active = False
+                user.save(update_fields=["is_active"])
+                # R3-05: sus asignaciones vigentes se cierran con la persona —
+                # si no, el coche seguía «asignado» a alguien que ya no está.
+                finished = finish_assignments_for(user)
+            security_logger.info(
+                "usuario desactivado user=%s por=%s asignaciones_cerradas=%s",
+                user.pk,
+                request.user.pk,
+                finished,
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     # --- Importación masiva (IMPORTACION_MASIVA.md) -------------------------

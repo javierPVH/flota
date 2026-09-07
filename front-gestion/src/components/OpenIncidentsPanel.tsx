@@ -7,7 +7,7 @@ import {
   resolveIncident,
   updateIncident,
 } from '../api.ts'
-import { fmtDate } from '../format.ts'
+import { fmtDate, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import type { Incident } from '../types.ts'
@@ -48,7 +48,9 @@ export function OpenIncidentsPanel({
   const [action, setAction] = useState<{ kind: ActionKind; incident: Incident } | null>(null)
   const [edit, setEdit] = useState({ date: '', description: '', mileage: '', cp: '' })
   const [managePostalCode, setManagePostalCode] = useState('')
-  const [resolution, setResolution] = useState({ overcost: '', observations: '', downtime: '' })
+  // R3-41: el contrato real de la fase 3 pide la FECHA de solución (con ella el
+  // servidor calcula los días parado); el sobrecoste y las notas son opcionales.
+  const [resolution, setResolution] = useState({ date: '', overcost: '', observations: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -67,7 +69,7 @@ export function OpenIncidentsPanel({
     } else if (kind === 'manage') {
       setManagePostalCode(incident.workshop_postal_code ?? '')
     } else {
-      setResolution({ overcost: '', observations: '', downtime: '' })
+      setResolution({ date: todayIso(), overcost: '', observations: '' })
     }
     setAction({ kind, incident })
   }
@@ -116,13 +118,14 @@ export function OpenIncidentsPanel({
 
   async function submitResolve(e: FormEvent) {
     e.preventDefault()
-    if (!action) return
+    if (!action || !resolution.date) return
     setSaving(true)
     setError('')
-    const payload: { overcost?: string; observations?: string; downtime_days?: number } = {}
-    if (resolution.overcost.trim()) payload.overcost = resolution.overcost.trim()
+    const payload: { resolution_date: string; observations?: string; overcost?: string } = {
+      resolution_date: resolution.date,
+    }
     if (resolution.observations.trim()) payload.observations = resolution.observations.trim()
-    if (resolution.downtime.trim()) payload.downtime_days = Number(resolution.downtime)
+    if (resolution.overcost.trim()) payload.overcost = resolution.overcost.trim()
     try {
       await resolveIncident(action.incident.id, payload)
       done(t.ops.resolveDone)
@@ -301,6 +304,16 @@ export function OpenIncidentsPanel({
           <form className="ops-modal" onSubmit={submitResolve}>
             <div className="ops-grid">
               <TextInputField
+                label={t.ops.resolveDate}
+                aria-label={t.ops.resolveDate}
+                type="date"
+                min={action.incident.date ?? undefined}
+                max={todayIso()}
+                value={resolution.date}
+                onChange={(e) => setResolution((f) => ({ ...f, date: e.target.value }))}
+                required
+              />
+              <TextInputField
                 label={t.ops.resolveOvercost}
                 aria-label={t.ops.resolveOvercost}
                 type="number"
@@ -308,14 +321,6 @@ export function OpenIncidentsPanel({
                 step="0.01"
                 value={resolution.overcost}
                 onChange={(e) => setResolution((f) => ({ ...f, overcost: e.target.value }))}
-              />
-              <TextInputField
-                label={t.ops.resolveDowntime}
-                aria-label={t.ops.resolveDowntime}
-                type="number"
-                min={0}
-                value={resolution.downtime}
-                onChange={(e) => setResolution((f) => ({ ...f, downtime: e.target.value }))}
               />
             </div>
             <label className="ops-field-label" htmlFor="open-resolve-observations">
@@ -338,7 +343,7 @@ export function OpenIncidentsPanel({
               <Button type="button" variant="secondary" onClick={() => setAction(null)}>
                 {t.ops.cancel}
               </Button>
-              <Button type="submit" variant="primary" disabled={saving}>
+              <Button type="submit" variant="primary" disabled={saving || !resolution.date}>
                 {saving ? t.ops.saving : t.ops.resolveSubmit}
               </Button>
             </div>

@@ -33,21 +33,31 @@ def _authorize(user, path: str) -> None:
     """Deja pasar solo si `user` puede ver el documento de `path`. Si no, 404.
 
     El admin ve toda la flota. El supervisor y el conductor, solo los ficheros
-    de los vehículos de su ámbito. Un fichero sin `Document` que lo respalde
-    (huérfano de una subida a medias, o algo dejado a mano en MEDIA_ROOT) no se
-    sirve a nadie salvo al admin.
+    de los vehículos de su ámbito — y los PERSONALES que les tocan (R3-01): el
+    titular de un documento es un vehículo O una persona (permiso de conducir),
+    y los personales se autorizan con `users_for` (uno mismo; el supervisor,
+    también sus conductores en curso), igual que su listado en la API. Un
+    fichero sin `Document` que lo respalde (huérfano de una subida a medias, o
+    algo dejado a mano en MEDIA_ROOT) no se sirve a nadie salvo al admin.
     """
     # Imports locales: `core` no debe depender de `fleet` en tiempo de carga.
     from fleet.models import Document
-    from fleet.scoping import vehicles_for
+    from fleet.scoping import users_for, vehicles_for
 
     if user.is_admin:
         return
-    document = Document.objects.filter(file=path).select_related("vehicle").first()
+    document = Document.objects.filter(file=path).first()
     if document is None:
         raise Http404
-    if not vehicles_for(user).filter(pk=document.vehicle_id).exists():
+    if document.vehicle_id is not None:
+        if vehicles_for(user).filter(pk=document.vehicle_id).exists():
+            return
         raise Http404
+    # R3-01: documento personal — antes esta rama no existía y el 404 se lo
+    # comía hasta el propio titular.
+    if document.user_id is not None and users_for(user).filter(pk=document.user_id).exists():
+        return
+    raise Http404
 
 
 class ProtectedMediaView(APIView):
@@ -55,9 +65,11 @@ class ProtectedMediaView(APIView):
 
     def get(self, request, path: str):
         # Nunca escapar del MEDIA_ROOT (por si nginx dejara pasar '..').
+        # R4-04: `is_relative_to`, no un startswith de prefijo — con
+        # MEDIA_ROOT=/srv/media, la ruta /srv/media-evil pasaba el corte.
         root = Path(settings.MEDIA_ROOT).resolve()
         target = (root / path).resolve()
-        if not str(target).startswith(str(root)):
+        if not target.is_relative_to(root):
             raise Http404
 
         # C3: autorización por ámbito, ANTES de resolver el binario.

@@ -179,11 +179,22 @@ class ManagedUserSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         roles = validated_data.pop("roles", None)
         password = validated_data.pop("password", "")
+        deactivating = instance.is_active and validated_data.get("is_active") is False
         for field, value in validated_data.items():
             setattr(instance, field, value)
         if password:
             instance.set_password(password)
-        instance.save()
+        # Import local: accounts → fleet solo en tiempo de ejecución (sin ciclo).
+        from django.db import transaction
+
+        with transaction.atomic():
+            instance.save()
+            if deactivating:
+                # R3-05: la baja por PATCH cierra las asignaciones vigentes,
+                # igual que el DELETE (misma transacción, mismos eventos).
+                from fleet.services.drivers import finish_assignments_for
+
+                finish_assignments_for(instance)
         if roles is not None:
             self._sync_roles(instance, roles)
         return instance

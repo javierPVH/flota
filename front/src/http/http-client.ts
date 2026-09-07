@@ -21,6 +21,28 @@ export interface ApiTransportOptions {
   signal?: AbortSignal
 }
 
+// R3-35: mensajes de RESERVA (cuando la llamada no pasa `fallbackMessage`) en
+// el idioma ACTIVO. Se lee `document.documentElement.lang` directamente — el
+// mismo criterio que `langStore`, pero sin React: esto corre en el transporte.
+// Los defaults son parámetros por defecto, así que se evalúan EN CADA llamada
+// y siguen al idioma vigente. Antes: solo castellano y sin tildes.
+const FALLBACKS = {
+  read: { es: 'No se pudo obtener la información.', en: 'Could not load the data.' },
+  write: { es: 'No se pudo completar la operación.', en: 'Could not complete the operation.' },
+  update: {
+    es: 'No se pudo completar la actualización.',
+    en: 'Could not complete the update.',
+  },
+  delete: { es: 'No se pudo eliminar el registro.', en: 'Could not delete the record.' },
+} as const
+
+function defaultFallback(kind: keyof typeof FALLBACKS): string {
+  const isEnglish =
+    typeof document !== 'undefined'
+    && document.documentElement.lang.toLowerCase().startsWith('en')
+  return FALLBACKS[kind][isEnglish ? 'en' : 'es']
+}
+
 export function getToken(): string {
   if (typeof window === 'undefined') return ''
   try {
@@ -368,7 +390,7 @@ async function sendJson<TResponse>(
 export function getJson<TResponse>(
   path: string,
   options: ApiTransportOptions = {},
-  fallbackMessage = 'No se pudo obtener la informacion.',
+  fallbackMessage = defaultFallback('read'),
 ): Promise<TResponse> {
   return sendJson<TResponse>('GET', path, undefined, options, fallbackMessage, true, false)
 }
@@ -377,7 +399,7 @@ export function postJson<TResponse>(
   path: string,
   payload: unknown,
   options: ApiTransportOptions = {},
-  fallbackMessage = 'No se pudo completar la operacion.',
+  fallbackMessage = defaultFallback('write'),
 ): Promise<TResponse> {
   return sendJson<TResponse>('POST', path, payload, options, fallbackMessage, true, true)
 }
@@ -393,7 +415,7 @@ export async function postForm<TResponse>(
   path: string,
   form: FormData,
   options: ApiTransportOptions = {},
-  fallbackMessage = 'No se pudo completar la operacion.',
+  fallbackMessage = defaultFallback('write'),
 ): Promise<TResponse> {
   const attempt = async () => {
     const response = await fetch(toUrl(path, options.baseUrl), {
@@ -425,7 +447,7 @@ export function patchJson<TResponse>(
   path: string,
   payload: unknown,
   options: ApiTransportOptions = {},
-  fallbackMessage = 'No se pudo completar la actualizacion.',
+  fallbackMessage = defaultFallback('update'),
 ): Promise<TResponse> {
   return sendJson<TResponse>('PATCH', path, payload, options, fallbackMessage, true, true)
 }
@@ -435,7 +457,7 @@ export function putJson<TResponse>(
   path: string,
   payload: unknown,
   options: ApiTransportOptions = {},
-  fallbackMessage = 'No se pudo completar la actualizacion.',
+  fallbackMessage = defaultFallback('update'),
 ): Promise<TResponse> {
   return sendJson<TResponse>('PUT', path, payload, options, fallbackMessage, true, true)
 }
@@ -443,7 +465,19 @@ export function putJson<TResponse>(
 export function deleteJson(
   path: string,
   options: ApiTransportOptions = {},
-  fallbackMessage = 'No se pudo eliminar el registro.',
+  fallbackMessage = defaultFallback('delete'),
+  // R3-33: cuerpo opcional — DELETE con payload (p. ej. la baja de una
+  // suscripción push identifica el endpoint en el body) por el MISMO pipeline
+  // (cookies+CSRF, reauth C8, envoltura {detail}) en vez de un fetch a mano.
+  payload?: unknown,
 ): Promise<void> {
-  return sendJson<void>('DELETE', path, undefined, options, fallbackMessage, false, false)
+  return sendJson<void>(
+    'DELETE',
+    path,
+    payload,
+    options,
+    fallbackMessage,
+    false,
+    payload !== undefined,
+  )
 }

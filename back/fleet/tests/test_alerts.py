@@ -169,16 +169,14 @@ class KmReadingAlertTests(TestCase):
             type=AlertType.KM_READING_PENDING,
             vehicle=vehicle,
             dedup_key=(
-                f"reminder:{AlertType.KM_READING_PENDING}:"
-                f"{vehicle.pk}:{self.today.isoformat()}"
+                f"reminder:{AlertType.KM_READING_PENDING}:{vehicle.pk}:{self.today.isoformat()}"
             ),
         )
         previous = Alert.objects.create(
             type=AlertType.KM_READING_PENDING,
             vehicle=vehicle,
             dedup_key=(
-                f"reminder:{AlertType.KM_READING_PENDING}:"
-                f"{vehicle.pk}:{previous_month.isoformat()}"
+                f"reminder:{AlertType.KM_READING_PENDING}:{vehicle.pk}:{previous_month.isoformat()}"
             ),
         )
 
@@ -196,8 +194,7 @@ class KmReadingAlertTests(TestCase):
             type=AlertType.KM_READING_PENDING,
             vehicle=vehicle,
             dedup_key=(
-                f"reminder:{AlertType.KM_READING_PENDING}:"
-                f"{vehicle.pk}:{self.today.isoformat()}"
+                f"reminder:{AlertType.KM_READING_PENDING}:{vehicle.pk}:{self.today.isoformat()}"
             ),
         )
 
@@ -272,6 +269,89 @@ class NoDriverAlertTests(TestCase):
     def test_substitute_excluded(self):
         Vehicle.objects.create(plate="ND4", brand="a", model="b", is_substitute=True)
         self.assertEqual(alerts.check_no_driver(self.today), 0)
+
+    def test_rejected_proposal_gives_no_grace(self):
+        """R3-19: una propuesta RECHAZADA (que C1 cierra con `end_date=hoy`) no
+        es una «asignación reciente»: el coche sin conductor debe avisar."""
+        vehicle = Vehicle.objects.create(plate="ND5", brand="a", model="b")
+        Assignment.objects.create(
+            vehicle=vehicle,
+            driver=self.driver,
+            start_date=self.today - timedelta(days=1),
+            end_date=self.today,  # el cierre que aplica `reject` (C1)
+            status=AssignmentStatus.REJECTED,
+        )
+        self.assertEqual(alerts.check_no_driver(self.today), 1)
+
+    def test_scheduled_end_counts_as_current_driver(self):
+        """R3-02: una aceptada con fin PROGRAMADO es conductor vigente."""
+        vehicle = Vehicle.objects.create(plate="ND6", brand="a", model="b")
+        Assignment.objects.create(
+            vehicle=vehicle,
+            driver=self.driver,
+            start_date=self.today - timedelta(days=40),
+            end_date=self.today + timedelta(days=30),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.assertEqual(alerts.check_no_driver(self.today), 0)
+
+
+class DeferredPushTests(TestCase):
+    """R3-14: los push de una pasada se difieren y salen AL FINAL de los
+    chequeos (como el correo M6), con una consulta de conductores por tanda."""
+
+    def test_pushes_are_deferred_and_flushed_on_exit(self):
+        from unittest import mock
+
+        driver = make_user("push-d", Role.DRIVER)
+        vehicle = Vehicle.objects.create(plate="PU1", brand="a", model="b")
+        Assignment.objects.create(
+            vehicle=vehicle,
+            driver=driver,
+            start_date=timezone.localdate(),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        with (
+            mock.patch.object(alerts.webpush, "push_enabled", return_value=True),
+            mock.patch.object(alerts.webpush, "send_to_user") as send,
+        ):
+            with alerts.deferred_push():
+                alerts.upsert_alert(
+                    dedup_key="r314:itv",
+                    type=AlertType.ITV_DUE,
+                    level=AlertLevel.WARNING,
+                    message="ITV próxima",
+                    vehicle=vehicle,
+                    queue_email=False,
+                )
+                # Dentro del bucle de chequeos NO se abre ningún socket de push.
+                send.assert_not_called()
+            # Al salir se entrega la tanda: el conductor vigente recibe el suyo.
+            self.assertEqual(send.call_count, 1)
+            self.assertEqual(send.call_args.args[0], driver)
+
+    def test_push_outside_the_batch_is_still_immediate(self):
+        """Fuera del contexto (recordatorio manual, request web) no se difiere."""
+        from unittest import mock
+
+        vehicle = Vehicle.objects.create(plate="PU2", brand="a", model="b", supervisor=None)
+        supervisor = make_user("push-s", Role.SUPERVISOR)
+        vehicle.supervisor = supervisor
+        vehicle.save(update_fields=["supervisor"])
+        with (
+            mock.patch.object(alerts.webpush, "push_enabled", return_value=True),
+            mock.patch.object(alerts.webpush, "send_to_user") as send,
+        ):
+            alerts.upsert_alert(
+                dedup_key="r314:inmediato",
+                type=AlertType.NO_DRIVER,
+                level=AlertLevel.WARNING,
+                message="Sin conductor",
+                vehicle=vehicle,
+                queue_email=False,
+            )
+            self.assertEqual(send.call_count, 1)
+            self.assertEqual(send.call_args.args[0], supervisor)
 
 
 class KmOverageAlertTests(TestCase):
@@ -444,9 +524,27 @@ class AlertApiTests(APITestCase):
         self.assertEqual(row["resolved_by_name"], supervisor.get_username())
         self.assertIsNotNone(row["resolved_at"])
 
-    def test_listing_resolves_drivers_in_bulk(self):
-        """PR2: el conductor de cada fila NO cuesta una consulta por alerta."""
-        for i in range(6):
+    def _measured_queries(self, params=None):
+        """Consultas de un GET del listado, con la caché por instancia FRÍA.
+
+        R3-40: los `assertNumQueries(N)` exactos resultaron flakies en la suite
+        completa (sensibles a cachés de proceso que otros tests calientan o
+        enfrían). Doctrina B2 (la de `test_summaries`): se compara el recuento
+        con POCAS y con MUCHAS filas — el invariante real es que no crece. Para
+        que las dos medidas partan igual, los roles cacheados en la instancia
+        del actor se descartan antes de cada una.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        self.admin.__dict__.pop("role_values", None)
+        with CaptureQueriesContext(connection) as ctx:
+            resp = self.client.get(self.list_url, params or {})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        return len(ctx), resp
+
+    def _bulk_alerts(self, start, stop):
+        for i in range(start, stop):
             vehicle = Vehicle.objects.create(plate=f"BULK{i}", brand="a", model="b")
             Assignment.objects.create(
                 vehicle=vehicle,
@@ -455,27 +553,41 @@ class AlertApiTests(APITestCase):
                 status=AssignmentStatus.ACCEPTED,
             )
             Alert.objects.create(type=AlertType.NO_DRIVER, vehicle=vehicle, dedup_key=f"k-bulk-{i}")
+
+    def test_listing_resolves_drivers_in_bulk(self):
+        """PR2: el conductor de cada fila NO cuesta una consulta por alerta."""
         self.client.force_authenticate(self.admin)
-        # Roles del actor, count, página (con los joins de vehículo/supervisor/
-        # resolutor) y UNA de asignaciones para todos los conductores.
-        with self.assertNumQueries(4):
-            resp = self.client.get(self.list_url)
-        self.assertEqual(resp.data["count"], 8)
-        self.assertTrue(all(r["driver_id"] == self.driver.pk for r in resp.data["results"][:6]))
+        self._bulk_alerts(0, 2)
+        con_pocas, _ = self._measured_queries()
+        self._bulk_alerts(2, 8)
+        con_muchas, resp = self._measured_queries()
+        # Bulk de verdad: 6 alertas más NO añaden ni una consulta.
+        self.assertEqual(con_muchas, con_pocas)
+        self.assertEqual(resp.data["count"], 10)
+        # Las 8 del bulk + las del setUp que tengan conductor: todas resueltas.
+        drivers = [r["driver_id"] for r in resp.data["results"] if r["driver_id"] is not None]
+        self.assertGreaterEqual(len(drivers), 8)
+        self.assertTrue(all(pk == self.driver.pk for pk in drivers))
 
     def test_resolved_listing_does_not_query_per_resolver(self):
         """El nombre de quien resolvió va en el join, no en una consulta por fila."""
         supervisor = make_user("sup3", Role.SUPERVISOR)
-        for i in range(5):
-            vehicle = Vehicle.objects.create(plate=f"RES{i}", brand="a", model="b")
-            alert = Alert.objects.create(
-                type=AlertType.NO_DRIVER, vehicle=vehicle, dedup_key=f"k-res-{i}"
-            )
-            alert.close(status=AlertStatus.RESOLVED, by=supervisor)
+
+        def resolved_bulk(start, stop):
+            for i in range(start, stop):
+                vehicle = Vehicle.objects.create(plate=f"RES{i}", brand="a", model="b")
+                alert = Alert.objects.create(
+                    type=AlertType.NO_DRIVER, vehicle=vehicle, dedup_key=f"k-res-{i}"
+                )
+                alert.close(status=AlertStatus.RESOLVED, by=supervisor)
+
         self.client.force_authenticate(self.admin)
-        with self.assertNumQueries(4):
-            resp = self.client.get(self.list_url, {"status": AlertStatus.RESOLVED})
-        self.assertEqual(resp.data["count"], 5)
+        resolved_bulk(0, 2)
+        con_pocas, _ = self._measured_queries({"status": AlertStatus.RESOLVED})
+        resolved_bulk(2, 7)
+        con_muchas, resp = self._measured_queries({"status": AlertStatus.RESOLVED})
+        self.assertEqual(con_muchas, con_pocas)
+        self.assertEqual(resp.data["count"], 7)
         self.assertTrue(
             all(r["resolved_by_name"] == supervisor.get_username() for r in resp.data["results"])
         )

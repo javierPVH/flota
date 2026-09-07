@@ -75,9 +75,12 @@ export function RegisterKmModal({
                 <>
                   {t.km.lastReading} <strong>{fmtKm(summary.km_current, language)}</strong>
                   {summary.km_reading_date ? ` (${fmtDate(summary.km_reading_date, language)})` : ''}
+                  {summary.km_estimated ? ` · ${t.km.estimatedTag}` : ''}
                 </>
               ) : t.km.firstReading}
             </p>
+            {/* R3-42: aquí es donde se corrige — decir que la cifra es estimada. */}
+            {summary.km_estimated && <p className="doc-sub">{t.km.estimatedNote}</p>}
           </Panel>
         )}
         <label className="file-field">

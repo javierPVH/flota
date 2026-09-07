@@ -5,7 +5,7 @@ solicitud con la clave del ticket; el estado se sigue desde Jira o lo decide la
 administración (`grant` = asignar coche / `reject`). Con coche ya entra.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 from django.urls import reverse
 from rest_framework import status
@@ -73,6 +73,43 @@ class MineRequestTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class RequestScopeTests(APITestCase):
+    """A10/R3-22: la bandeja del supervisor solo expone a SUS conductores vigentes."""
+
+    def setUp(self):
+        self.supervisor = make_user("scope-sup", Role.SUPERVISOR)
+        vehicle = Vehicle.objects.create(
+            plate="SC1", brand="a", model="b", supervisor=self.supervisor
+        )
+        self.actual = make_user("cond-actual", Role.DRIVER)
+        self.antiguo = make_user("cond-antiguo", Role.DRIVER)
+        Assignment.objects.create(
+            vehicle=vehicle,
+            driver=self.actual,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        # Condujo el coche en el pasado (aceptada ya cerrada): con el criterio
+        # viejo (cualquier asignación histórica) sus solicitudes quedaban
+        # expuestas al supervisor para siempre.
+        Assignment.objects.create(
+            vehicle=vehicle,
+            driver=self.antiguo,
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 6, 30),
+            status=AssignmentStatus.FINISHED,
+        )
+        VehicleRequest.objects.create(requester=self.actual, status=VehicleRequestStatus.PENDING)
+        VehicleRequest.objects.create(requester=self.antiguo, status=VehicleRequestStatus.PENDING)
+
+    def test_supervisor_sees_only_current_drivers_requests(self):
+        self.client.force_authenticate(self.supervisor)
+        resp = self.client.get(reverse("vehiclerequest-list"))
+        requesters = {row["requester"] for row in resp.data["results"]}
+        self.assertIn(self.actual.pk, requesters)
+        self.assertNotIn(self.antiguo.pk, requesters)
+
+
 class GrantRejectTests(APITestCase):
     """La administradora concede (asigna coche) o rechaza a mano."""
 
@@ -127,6 +164,55 @@ class GrantRejectTests(APITestCase):
         previous.refresh_from_db()
         self.assertEqual(previous.status, AssignmentStatus.FINISHED)
         self.assertEqual(previous.end_date, date(2026, 8, 1))
+
+    def test_grant_with_end_date_still_gives_scope(self):
+        """R3-02: una necesidad temporal (con fin PROGRAMADO) es asignación vigente.
+
+        `grant` copia el `end_date` de la solicitud; con el criterio viejo
+        (`end_date IS NULL`) el concedido recibía el rol pero el portón seguía
+        cerrado: no veía el coche, no era «conductor vigente» en listados ni
+        informes y `check_no_driver` contaba el coche como sin conductor.
+        """
+        from django.utils import timezone
+
+        from fleet.scoping import vehicles_for
+        from fleet.selectors import current_driver_map
+        from fleet.services import alerts
+
+        scheduled_end = timezone.localdate() + timedelta(days=30)
+        self.request_obj.end_date = scheduled_end
+        self.request_obj.save(update_fields=["end_date"])
+        resp = self.client.post(
+            reverse("vehiclerequest-grant", args=[self.request_obj.pk]),
+            {"vehicle": self.vehicle.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        assignment = Assignment.objects.get(vehicle=self.vehicle)
+        self.assertEqual(assignment.end_date, scheduled_end)  # el dato se respeta
+        # El portón se abre: el concedido VE su coche…
+        self.newcomer = User.objects.get(pk=self.newcomer.pk)
+        self.assertIn(self.vehicle, vehicles_for(self.newcomer))
+        # …es el conductor vigente (listados, informes, correo de km)…
+        self.assertEqual(current_driver_map([self.vehicle.pk]).get(self.vehicle.pk), self.newcomer)
+        # …y `check_no_driver` no lo cuenta como coche sin conductor.
+        self.assertEqual(alerts.check_no_driver(), 0)
+
+    def test_scheduled_end_already_reached_gives_no_scope(self):
+        """R3-02: un fin programado ya alcanzado deja de dar ámbito (fin == hoy
+        es el relevo válido del dominio, como en `active_link_q`)."""
+        from django.utils import timezone
+
+        from fleet.scoping import vehicles_for
+
+        temporal = make_user("temporal", Role.DRIVER)
+        Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=temporal,
+            start_date=date(2026, 1, 1),
+            end_date=timezone.localdate(),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.assertNotIn(self.vehicle, vehicles_for(temporal))
 
     def test_grant_rejects_baja_vehicle(self):
         self.vehicle.state = VehicleState.BAJA

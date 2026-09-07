@@ -92,6 +92,27 @@ class LogEntrySerializer(serializers.ModelSerializer):
         return obj.changes if isinstance(obj.changes, dict) else obj.changes_dict
 
 
+def _validate_contract_dates(attrs: dict, instance=None) -> dict:
+    """R3-17: fin previsto y fin real nunca anteriores al inicio.
+
+    Sin esto el dato malo no rompía nada aguas abajo (las proyecciones
+    descartan `total_days <= 0`) pero quedaba guardado y silenciosamente
+    excluido de proyecciones y alertas de km — un contrato «invisible».
+    """
+    start = attrs.get("start_date", getattr(instance, "start_date", None))
+    planned = attrs.get("planned_end_date", getattr(instance, "planned_end_date", None))
+    end = attrs.get("end_date", getattr(instance, "end_date", None))
+    if start and planned and planned < start:
+        raise serializers.ValidationError(
+            {"planned_end_date": "El fin previsto no puede ser anterior al inicio."}
+        )
+    if start and end and end < start:
+        raise serializers.ValidationError(
+            {"end_date": "El fin real no puede ser anterior al inicio."}
+        )
+    return attrs
+
+
 class VehicleContractInputSerializer(serializers.ModelSerializer):
     """Contrato anidado del ALTA transaccional de vehículo (HU-1.3, G3)."""
 
@@ -107,6 +128,9 @@ class VehicleContractInputSerializer(serializers.ModelSerializer):
             "month_fee",
             "penalty_per_km",
         ]
+
+    def validate(self, attrs):
+        return _validate_contract_dates(attrs)
 
 
 class VehicleSerializer(serializers.ModelSerializer):
@@ -392,6 +416,9 @@ class ContractSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def validate(self, attrs):
+        return _validate_contract_dates(attrs, self.instance)
+
 
 class KmReadingSerializer(serializers.ModelSerializer):
     class Meta:
@@ -633,6 +660,30 @@ class AssignmentSerializer(serializers.ModelSerializer):
             )
             if clash:
                 raise serializers.ValidationError({"driver": driver_clash_message(clash)})
+            # R4-01: UNA sola asignación VIGENTE por vehículo, también con fin
+            # PROGRAMADO (R3-02) — la constraint parcial de BD solo cubre el
+            # fin NULL (y con IntegrityError → 500, no 400). Los flujos
+            # (`accept`/`grant`/`set-driver`) cierran la vigente antes; este es
+            # el cinturón del CRUD directo.
+            end_final = attrs.get("end_date", getattr(self.instance, "end_date", None))
+            vigente = end_final is None or end_final > timezone.localdate()
+            if vigente:
+                from .selectors import current_assignment_q
+
+                others = Assignment.objects.filter(current_assignment_q(), vehicle=vehicle)
+                if self.instance is not None:
+                    others = others.exclude(pk=self.instance.pk)
+                ocupada = others.select_related("driver").first()
+                if ocupada is not None:
+                    raise serializers.ValidationError(
+                        {
+                            "vehicle": (
+                                f"El vehículo ya tiene una asignación vigente "
+                                f"(de {ocupada.driver}). Ciérrala primero o usa el "
+                                "cambio de conductor de la ficha, que releva."
+                            )
+                        }
+                    )
         # SEC2: la máquina de estados no se salta por PATCH. La única transición
         # directa permitida es cerrar (→ finished, como hace la gestión); aceptar
         # o rechazar una propuesta va por las acciones accept/reject, que son la
@@ -706,10 +757,19 @@ class VehicleUsageSerializer(serializers.ModelSerializer):
 class UsageSplitItemSerializer(serializers.Serializer):
     """Línea del reparto de uso: persona + porcentaje."""
 
-    driver = serializers.PrimaryKeyRelatedField(queryset=get_user_model().objects.all())
+    # R3-26: misma exigencia que `Assignment` — persona ACTIVA y con rol de
+    # conductor. Sin ella, el reparto admitía usuarios de baja o sin rol.
+    driver = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.filter(is_active=True)
+    )
     usage_percent = serializers.DecimalField(
         max_digits=5, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("100")
     )
+
+    def validate_driver(self, value):
+        if not value.is_driver:
+            raise serializers.ValidationError("El usuario asignado no tiene rol de conductor.")
+        return value
 
 
 class UsageSplitSerializer(serializers.Serializer):
@@ -897,6 +957,27 @@ class EventSerializer(serializers.ModelSerializer):
                 "kind": "location_change",
                 "old_location": loc.old_location,
                 "new_location": loc.new_location,
+            }
+        # R3-03: `project_change` y `pep_change` existían como subtipo pero la
+        # API devolvía `details: null` (el Excel sí los pintaba). Id + etiqueta
+        # legible, como hace `reports._event_detail`.
+        project = getattr(obj, "project_change", None)
+        if project:
+            return {
+                "kind": "project_change",
+                "old_project": project.old_project_id,
+                "new_project": project.new_project_id,
+                "old_project_name": str(project.old_project) if project.old_project else None,
+                "new_project_name": str(project.new_project) if project.new_project else None,
+            }
+        pep = getattr(obj, "pep_change", None)
+        if pep:
+            return {
+                "kind": "pep_change",
+                "old_pep": pep.old_pep_id,
+                "new_pep": pep.new_pep_id,
+                "old_pep_name": str(pep.old_pep) if pep.old_pep else None,
+                "new_pep_name": str(pep.new_pep) if pep.new_pep else None,
             }
         drv = getattr(obj, "driver_change", None)
         if drv:

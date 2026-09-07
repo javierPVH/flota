@@ -138,10 +138,12 @@ const es = {
     editMileage: 'Kilometraje',
     editCp: 'Código postal de la ubicación preferente',
     editSaved: 'Petición actualizada.',
+    resolveDate: 'Fecha de solución',
     resolveOvercost: 'Sobrecoste (€)',
     resolveObservations: 'Observaciones',
-    resolveDowntime: 'Días con el vehículo parado',
-    resolveHint: 'Todos los datos son opcionales: resolver cierra la petición.',
+    resolveHint:
+      'El tiempo con el vehículo parado se calcula desde la fecha de la avería hasta la fecha ' +
+      'de solución. Resolver cierra la petición.',
     resolveSubmit: 'Resolver y cerrar',
     resolveDone: 'Petición resuelta y cerrada.',
     subSection: 'Coche de sustitución',
@@ -540,10 +542,12 @@ const en: typeof es = {
     editMileage: 'Mileage',
     editCp: 'Preferred location postal code',
     editSaved: 'Request updated.',
+    resolveDate: 'Resolution date',
     resolveOvercost: 'Extra cost (€)',
     resolveObservations: 'Notes',
-    resolveDowntime: 'Days out of service',
-    resolveHint: 'Every field is optional: resolving closes the request.',
+    resolveHint:
+      'Downtime is calculated from the breakdown date to the resolution date. Resolving closes ' +
+      'the request.',
     resolveSubmit: 'Resolve & close',
     resolveDone: 'Request resolved and closed.',
     subSection: 'Substitution car',

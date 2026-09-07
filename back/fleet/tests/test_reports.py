@@ -266,6 +266,43 @@ class UsersReportStatusTests(APITestCase):
         self.assertNotIn("worker_on", body)
 
 
+class UsersReportScopeTests(APITestCase):
+    """R3-21: «mis personas» del supervisor es el criterio de `users_for`."""
+
+    def setUp(self):
+        from fleet.models.enums import AssignmentStatus
+
+        self.supervisor = make_user("rep-sup", Role.SUPERVISOR)
+        vehiculo = Vehicle.objects.create(
+            plate="REP-S1", brand="a", model="b", supervisor=self.supervisor
+        )
+        self.actual = make_user("driver_now", Role.DRIVER)
+        self.antiguo = make_user("driver_old", Role.DRIVER)
+        Assignment.objects.create(
+            vehicle=vehiculo,
+            driver=self.actual,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        # Aceptada pero YA CERRADA: con el criterio viejo (sin vigencia) esta
+        # persona seguía saliendo en el informe del supervisor para siempre.
+        Assignment.objects.create(
+            vehicle=vehiculo,
+            driver=self.antiguo,
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 12, 31),
+            status=AssignmentStatus.ACCEPTED,
+        )
+
+    def test_supervisor_sees_only_current_people(self):
+        _, _, rows = reports.build_report("users", self.supervisor, None)[0]
+        nombres = [r[0] for r in rows]
+        self.assertIn("driver_now", nombres)
+        # `users_for` incluye al propio supervisor (sus documentos personales).
+        self.assertIn("rep-sup", nombres)
+        self.assertNotIn("driver_old", nombres)
+
+
 class VehiclesSuperRecordTests(APITestCase):
     """Selector de secciones (`fields`) y súper registro del informe completo.
 

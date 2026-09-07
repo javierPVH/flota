@@ -113,6 +113,41 @@ class AccidentTablesTests(APITestCase):
         # Los lesionados siguen: venían en el parte actualizado.
         self.assertEqual(report.injured.count(), 1)
 
+    def test_lifecycle_actions_do_not_rematerialize(self):
+        """R3-39: `report`/`manage` no tocan `details` — el parte NO se
+        reescribe (antes cada gesto de gestión borraba y re-insertaba todos los
+        terceros y lesionados, cambiándoles el pk)."""
+        created = self.client.post(
+            reverse("incident-list"), accident_payload(self.vehicle.pk), format="json"
+        )
+        incident_id = created.data["id"]
+        report = AccidentReport.objects.get(incident_id=incident_id)
+        third_pk = report.third_parties.get().pk
+        injured_pk = report.injured.get().pk
+
+        resp = self.client.post(
+            reverse("incident-report", args=[incident_id]),
+            {"text": "Perito avisado", "status": "on_going"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        resp = self.client.post(
+            reverse("incident-manage", args=[incident_id]), {"workshop_postal_code": "28001"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+
+        # Mismas filas, mismos pks: nada se borró ni se re-insertó.
+        self.assertEqual(report.third_parties.get().pk, third_pk)
+        self.assertEqual(report.injured.get().pk, injured_pk)
+
+        # Un PATCH que SÍ toca `details` sigue sincronizando (agregado).
+        details = accident_payload(self.vehicle.pk)["details"]
+        details["locality"] = "Alcorcón"
+        self.client.patch(
+            reverse("incident-detail", args=[incident_id]), {"details": details}, format="json"
+        )
+        report.refresh_from_db()
+        self.assertEqual(report.locality, "Alcorcón")
+
     def test_non_accident_incident_has_no_report(self):
         resp = self.client.post(
             reverse("incident-list"),

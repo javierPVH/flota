@@ -26,7 +26,19 @@ logger = logging.getLogger("fleet.notifications")
 #: tandas (cada 15 min por defecto), así que un retraso pequeño es normal; pero
 #: si el servicio ha estado caído dos días, mandar de golpe lo de dos días no
 #: ayuda a nadie: se manda el último y se sigue.
-MAX_DELAY = timedelta(days=1)
+#:
+#: R3-07: el margen depende de la FRECUENCIA. Con un día fijo, una caída (o un
+#: despliegue largo) que cruzara la hora de un envío semanal o mensual hacía que
+#: ese informe no saliera hasta el periodo siguiente (una semana o un mes
+#: después), sin rastro en `last_status`. Un diario atrasado deja de tener
+#: sentido al día siguiente (ya sale el nuevo); un semanal o un mensual
+#: atrasados siguen siendo útiles unos días más.
+MAX_DELAY = {
+    "daily": timedelta(days=1),
+    "weekly": timedelta(days=3),
+    "monthly": timedelta(days=7),
+}
+DEFAULT_MAX_DELAY = timedelta(days=1)
 
 
 def _combine(day: date, at: time) -> datetime:
@@ -109,7 +121,8 @@ def is_due(schedule: NotificationSchedule, now: datetime) -> bool:
     if not schedule.enabled:
         return False
     due = previous_due(schedule, now)
-    if due is None or now - due > MAX_DELAY:
+    max_delay = MAX_DELAY.get(schedule.frequency, DEFAULT_MAX_DELAY)
+    if due is None or now - due > max_delay:
         return False
     # Ya se mandó lo de este vencimiento.
     return schedule.last_run_at is None or schedule.last_run_at < due
@@ -190,7 +203,13 @@ def run_schedule(schedule: NotificationSchedule, now: datetime | None = None) ->
     Devuelve `{"queued": bool, "drive_url": str|None, "error": str}`.
     """
     now = now or timezone.now()
-    resultado: dict[str, object] = {"queued": False, "drive_url": None, "error": ""}
+    resultado: dict[str, object] = {
+        "queued": False,
+        "drive_url": None,
+        "error": "",
+        # R3-15: pk de la fila encolada — «enviar ahora» entrega SOLO esa.
+        "outbox_id": None,
+    }
     try:
         nombre = composed_name(schedule, now)
         adjunto: tuple[str, bytes] | None = None
@@ -232,6 +251,7 @@ def run_schedule(schedule: NotificationSchedule, now: datetime | None = None) ->
                 entrada.attachment.save(adjunto[0], ContentFile(adjunto[1]), save=False)
             entrada.save()
             resultado["queued"] = True
+            resultado["outbox_id"] = entrada.pk
 
         schedule.last_run_at = now
         schedule.last_status = NotificationSchedule.Status.OK

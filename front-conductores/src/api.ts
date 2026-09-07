@@ -1,8 +1,7 @@
-import { getCookie, getJson, postForm, postJson, toUrl } from '@flota/ui/http'
+import { ApiError, deleteJson, getJson, postForm, postJson } from '@flota/ui/http'
 
 import type {
   Alert,
-  AssignmentRow,
   AuthConfig,
   DevUser,
   Driver,
@@ -52,6 +51,16 @@ export async function devLogin(username: string): Promise<FlotaUser> {
 // quedan en la primera página de 50 sin avisar.
 const PS = 'page_size=500'
 
+/**
+ * R3-31 (el C6 de gestión, portado): ¿la página trae TODO lo que hay?
+ * La app apuesta a que todo cabe en 500 filas; cuando la apuesta falla, la
+ * vista debe DECIRLO en vez de mostrar la lista recortada en silencio.
+ * Devuelve `null` si está completa o el total real si se ha truncado.
+ */
+export function truncatedAt<T>(page: Paginated<T>): number | null {
+  return page.count > page.results.length ? page.count : null
+}
+
 // --- Vehículos (el back acota: conductor los suyos; supervisor su grupo) --
 // Los roles se SUMAN (supervisor+conductor = su grupo ∪ su coche; +admin =
 // toda la flota): el espacio de supervisor pasa `supervisor=<yo>` para que
@@ -78,6 +87,73 @@ export const fetchVehicleSummaries = (ids?: number[]) =>
     `${API}/summary/vehicles/${ids?.length ? `?ids=${ids.join(',')}` : ''}`,
   )
 
+// --- R3-28: caché de arranque (vehículos + summaries del ámbito) -----------
+// Al entrar, portón → shell → home disparaban TRES `GET /vehicles/` y DOS
+// `GET /summary/vehicles/` idénticos, en serie parcial: en 4G la latencia por
+// petición domina la primera pintura. La pareja de lecturas SIN parámetros se
+// comparte con una caché de promesa con TTL corto; cualquier escritura de esta
+// capa la invalida (la cola offline reenvía por estos mismos helpers, así que
+// también invalida). Un fallo no se cachea: el reintento vuelve a pedir.
+const FLEET_CACHE_TTL = 15_000
+
+interface CacheEntry<T> {
+  at: number
+  promise: Promise<T>
+}
+
+let vehiclesCache: CacheEntry<Paginated<Vehicle>> | null = null
+let summariesCache: CacheEntry<VehicleSummary[]> | null = null
+
+export function invalidateFleetCache(): void {
+  vehiclesCache = null
+  summariesCache = null
+}
+
+function throughCache<T>(
+  read: () => CacheEntry<T> | null,
+  write: (entry: CacheEntry<T> | null) => void,
+  fetcher: () => Promise<T>,
+): Promise<T> {
+  const hit = read()
+  if (hit && Date.now() - hit.at < FLEET_CACHE_TTL) return hit.promise
+  const entry: CacheEntry<T> = { at: Date.now(), promise: Promise.resolve() as Promise<T> }
+  entry.promise = fetcher().catch((err: unknown) => {
+    if (read() === entry) write(null)
+    throw err
+  })
+  write(entry)
+  return entry.promise
+}
+
+/** `listVehicles()` sin parámetros, compartido entre portón, shell y home. */
+export const listVehiclesCached = () =>
+  throughCache(
+    () => vehiclesCache,
+    (entry) => {
+      vehiclesCache = entry
+    },
+    () => listVehicles(),
+  )
+
+/** `fetchVehicleSummaries()` del ámbito completo, compartido igual. */
+export const fetchVehicleSummariesCached = () =>
+  throughCache(
+    () => summariesCache,
+    (entry) => {
+      summariesCache = entry
+    },
+    () => fetchVehicleSummaries(),
+  )
+
+/** R3-28: una escritura deja obsoletos los vehículos/summaries cacheados —
+ * se invalida al RESOLVERSE (no antes: una lectura concurrente al POST no debe
+ * fijar datos previos a la escritura durante el TTL). */
+async function invalidating<T>(promise: Promise<T>): Promise<T> {
+  const result = await promise
+  invalidateFleetCache()
+  return result
+}
+
 // --- M8: notificaciones push (Web Push/VAPID) ------------------------------
 export interface PushConfig {
   enabled: boolean
@@ -92,14 +168,14 @@ export const savePushSubscription = (subscription: PushSubscriptionJSON) =>
   postJson(`${API}/push/subscriptions/`, subscription)
 
 export async function deletePushSubscription(endpoint: string): Promise<void> {
-  const response = await fetch(toUrl(`${API}/push/subscriptions/`), {
-    method: 'DELETE',
-    headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ endpoint }),
-  })
-  if (!response.ok && response.status !== 404) {
-    throw new Error('No se pudo desactivar el aviso en este dispositivo.')
+  // R3-33: por el transporte compartido (CSRF, reauth C8, envoltura {detail})
+  // — era el único endpoint con `fetch` a mano, y el error real del back se
+  // sustituía por un mensaje fijo. Un 404 sigue sin ser error: ya está de baja.
+  try {
+    await deleteJson(`${API}/push/subscriptions/`, {}, undefined, { endpoint })
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return
+    throw err
   }
 }
 
@@ -110,7 +186,7 @@ export const listAlerts = (status: string) =>
 /** Solo gestión (supervisor/admin); el conductor no ve estos botones. La nota
  * opcional (qué se hizo) queda visible en la bandeja de resueltas. */
 export const resolveAlert = (id: number, note?: string) =>
-  postJson<Alert>(`${API}/alerts/${id}/resolve/`, note ? { note } : {})
+  invalidating(postJson<Alert>(`${API}/alerts/${id}/resolve/`, note ? { note } : {}))
 
 // --- Actualización de campo del supervisor (km / mantenimiento / partes) ----
 
@@ -131,27 +207,29 @@ export const listMaintenancePlans = (vehicle: number) =>
 
 /** «Realizado»: reancla el ciclo del plan y resuelve sus alertas abiertas. */
 export const markMaintenanceDone = (id: number, data: { date?: string; km?: number } = {}) =>
-  postJson<MaintenancePlanRow & { alerts_resolved: number }>(
-    `${API}/maintenance-plans/${id}/done/`,
-    data,
+  invalidating(
+    postJson<MaintenancePlanRow & { alerts_resolved: number }>(
+      `${API}/maintenance-plans/${id}/done/`,
+      data,
+    ),
   )
 
 /** Parte rápido sobre una incidencia: nota sellada (fecha + autor en el back)
  * y, opcionalmente, cambio de estado. */
 export const reportIncident = (id: number, data: { text: string; status?: string }) =>
-  postJson<Incident>(`${API}/incidents/${id}/report/`, data)
+  invalidating(postJson<Incident>(`${API}/incidents/${id}/report/`, data))
 
 /** Fase 2 del ciclo: ubicación preferente para buscar el taller más cercano. */
 export const manageIncident = (
   id: number,
   data: { workshop_postal_code: string },
-) => postJson<Incident>(`${API}/incidents/${id}/manage/`, data)
+) => invalidating(postJson<Incident>(`${API}/incidents/${id}/manage/`, data))
 
 /** Fase 3: fecha de solución; el servidor calcula el tiempo parado y CIERRA. */
 export const resolveIncident = (
   id: number,
   data: { resolution_date: string; observations?: string },
-) => postJson<Incident>(`${API}/incidents/${id}/resolve/`, data)
+) => invalidating(postJson<Incident>(`${API}/incidents/${id}/resolve/`, data))
 
 /** Recordatorio del supervisor al conductor: correo inmediato y/o alerta en la
  * app (idempotente por día). El back acota por rol (management + su grupo). */
@@ -169,18 +247,11 @@ export const remindVehicle = (
     data,
   )
 
-// --- M4: aportaciones del conductor (HU-2.3, 5.1) --------------------------
-
-/** Propuesta de fechas: queda `proposed` SIN tocar la asignación vigente. */
-export const proposeAssignment = (data: {
-  vehicle: number
-  start_date: string
-  end_date?: string | null
-}) => postJson<AssignmentRow>(`${API}/assignments/propose/`, data)
-
-/** Asignaciones del vehículo por estado (el back acota al ámbito propio). */
-export const listAssignments = (vehicle: number, status: string) =>
-  getJson<Paginated<AssignmentRow>>(`${API}/assignments/?vehicle=${vehicle}&status=${status}&${PS}`)
+// --- M4: aportaciones del conductor (HU-5.1) --------------------------------
+// R3-44: `proposeAssignment`/`listAssignments` (propuestas de fechas,
+// HU-2.3/2.4) se retiraron — su UI se quitó de ambos fronts en 2026-08 y
+// quedaron muertas. Los endpoints del back siguen disponibles por si el flujo
+// se recablea (ver back/README.md).
 
 /** Registrar ITV (HU-5.1): la señal del back cierra los avisos y refresca
  * `next_itv_date`. El conductor solo puede registrar ITV de su ámbito. */
@@ -191,7 +262,7 @@ export const registerItv = (data: {
   itv: { result: string; next_due: string | null }
   /** R3-34: clave de idempotencia — el reenvío offline no crea otro evento. */
   client_ref?: string
-}) => postJson(`${API}/events/`, { ...data, event_type: 'itv' })
+}) => invalidating(postJson(`${API}/events/`, { ...data, event_type: 'itv' }))
 
 // --- M3: odómetro (HU-3.1) — el back valida el no-retroceso ----------------
 export const createKmReading = (data: {
@@ -200,7 +271,7 @@ export const createKmReading = (data: {
   reading_date: string
   /** R3-34: clave de idempotencia — el reenvío offline no duplica la lectura. */
   client_ref?: string
-}) => postJson<KmReading>(`${API}/km-readings/`, data)
+}) => invalidating(postJson<KmReading>(`${API}/km-readings/`, data))
 
 /** GAP-2: repostaje de campo. La fila de consumo es EL MES, así que el back
  * SUMA al mes en curso (o lo crea) — de ahí `add/` y no un POST normal: dos
@@ -216,9 +287,11 @@ export interface FuelEntryInput extends Record<string, unknown> {
   client_ref?: string
 }
 export const addFuelEntry = (data: FuelEntryInput) =>
-  postJson<{ id: number; period: string; liters: string; amount: string | null }>(
-    `${API}/fuel-consumptions/add/`,
-    data,
+  invalidating(
+    postJson<{ id: number; period: string; liters: string; amount: string | null }>(
+      `${API}/fuel-consumptions/add/`,
+      data,
+    ),
   )
 
 /** N8a: estado de la ventana de registro de campo (día 20 → fin de mes).
@@ -241,8 +314,16 @@ export const fetchKmWindow = () => getJson<KmWindow>(`${API}/km-readings/window/
 export const listDocuments = (vehicle: number) =>
   getJson<Paginated<FlotaDocument>>(`${API}/documents/?vehicle=${vehicle}&${PS}`)
 
+/** R3-43: documentos PERSONALES del usuario (permiso de conducir…). El back
+ * acota con `users_for`: cada uno los suyos; el supervisor, además los de sus
+ * conductores en curso. */
+export const listPersonalDocuments = (user: number) =>
+  getJson<Paginated<FlotaDocument>>(`${API}/documents/?user=${user}&${PS}`)
+
 export interface DocumentUploadInput {
-  vehicle: number
+  /** Titular: un vehículo O un usuario (documento personal), exactamente uno. */
+  vehicle?: number
+  user?: number
   type: string
   expiry_date?: string | null
   incident?: number | null
@@ -264,7 +345,9 @@ export function uploadDocument(data: DocumentUploadInput, file: File): Promise<F
   for (const [key, value] of Object.entries(data)) {
     if (value !== undefined && value !== null && value !== '') form.set(key, String(value))
   }
-  return postForm<FlotaDocument>(`${API}/documents/`, form, {}, 'No se pudo subir el documento.')
+  return invalidating(
+    postForm<FlotaDocument>(`${API}/documents/`, form, {}, 'No se pudo subir el documento.'),
+  )
 }
 
 /** Incidencias (solo gestión; el back acota al grupo del supervisor). */
@@ -299,7 +382,7 @@ export const setUsageSplit = (data: {
   start_date: string
   end_date?: string | null
   items: Array<{ driver: number; usage_percent: string }>
-}) => postJson<VehicleUsageRow[]>(`${API}/vehicle-usages/set/`, data)
+}) => invalidating(postJson<VehicleUsageRow[]>(`${API}/vehicle-usages/set/`, data))
 
 export interface IncidentInput {
   vehicle: number
@@ -316,7 +399,8 @@ export interface IncidentInput {
   client_ref?: string
 }
 
-export const createIncident = (data: IncidentInput) => postJson<Incident>(`${API}/incidents/`, data)
+export const createIncident = (data: IncidentInput) =>
+  invalidating(postJson<Incident>(`${API}/incidents/`, data))
 
 /** Histórico de lecturas para la gráfica de evolución (HU-3.6). */
 export const listKmReadings = (vehicle: number) =>

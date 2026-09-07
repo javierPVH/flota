@@ -21,6 +21,9 @@ vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   listVehicles: mocks.listVehicles,
   fetchVehicleSummaries: mocks.fetchVehicleSummaries,
+  // R3-28: shell y páginas leen las variantes cacheadas — mismo spy, sin TTL.
+  listVehiclesCached: mocks.listVehicles,
+  fetchVehicleSummariesCached: mocks.fetchVehicleSummaries,
   listAlerts: mocks.listAlerts,
   listIncidents: mocks.listIncidents,
   listDocuments: mocks.listDocuments,
@@ -119,10 +122,12 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(screen.getByRole('button', { name: 'Flota' })).toHaveAttribute('aria-pressed', 'true')
 
     // La home pasa a la flota, con sus grupos de estado como pestañas.
-    // La home de flota es una página `lazy` (PF2): con la máquina cargada el
-    // segundo de cortesía de `findBy` no le da, y las filas llegan aún después.
-    expect(await screen.findByText('Flota a cargo', undefined, { timeout: 3000 })).toBeInTheDocument()
-    expect(await screen.findByText('5678BCD', undefined, { timeout: 3000 })).toBeInTheDocument()
+    // La home de flota es una página `lazy` (PF2): vitest TRANSFORMA su chunk
+    // (y sus módulos de copy, R3-36) en el momento del click, y con la máquina
+    // cargada eso puede tardar varios segundos — de ahí el margen holgado (el
+    // `findBy` devuelve en cuanto aparece; solo espera más en el peor caso).
+    expect(await screen.findByText('Flota a cargo', undefined, { timeout: 10000 })).toBeInTheDocument()
+    expect(await screen.findByText('5678BCD', undefined, { timeout: 10000 })).toBeInTheDocument()
     expect(
       within(screen.getByRole('combobox', { name: 'Grupos de la flota' })).getByRole('option', {
         name: /En taller/,

@@ -69,6 +69,56 @@ class UsersApiTests(APITestCase):
         drivers = self.client.get(reverse("drivers")).data
         self.assertNotIn("baja", [d["username"] for d in drivers])
 
+    def test_deactivation_finishes_current_assignments(self):
+        """R3-05: la baja de la persona cierra sus asignaciones vigentes.
+
+        Sin esto, el coche seguía figurando asignado a alguien que ya no está:
+        `check_no_driver` no saltaba y los recordatorios iban a su email.
+        Aplica a las dos vías (DELETE y PATCH is_active=false) y deja el evento
+        de cambio de conductor en el histórico.
+        """
+        from django.utils import timezone
+
+        from fleet.models import Assignment, Event, Vehicle
+        from fleet.models.enums import AssignmentStatus, EventType
+        from fleet.selectors import current_driver_map
+
+        target = make_user("saliente", Role.DRIVER)
+        vehicle = Vehicle.objects.create(plate="BAJA-1", brand="a", model="b")
+        assignment = Assignment.objects.create(
+            vehicle=vehicle,
+            driver=target,
+            start_date=timezone.localdate(),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.client.force_authenticate(self.admin)
+        resp = self.client.delete(reverse("user-detail", args=[target.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, AssignmentStatus.FINISHED)
+        self.assertEqual(assignment.end_date, timezone.localdate())
+        self.assertNotIn(vehicle.pk, current_driver_map([vehicle.pk]))
+        evento = Event.objects.filter(vehicle=vehicle, event_type=EventType.DRIVER_CHANGE).last()
+        self.assertIsNotNone(evento)
+        self.assertEqual(evento.driver_change.old_driver, target)
+        self.assertIsNone(evento.driver_change.new_driver)
+
+        # La misma regla por PATCH {"is_active": false}.
+        target2 = make_user("saliente2", Role.DRIVER)
+        vehicle2 = Vehicle.objects.create(plate="BAJA-2", brand="a", model="b")
+        assignment2 = Assignment.objects.create(
+            vehicle=vehicle2,
+            driver=target2,
+            start_date=timezone.localdate(),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        resp = self.client.patch(
+            reverse("user-detail", args=[target2.pk]), {"is_active": False}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        assignment2.refresh_from_db()
+        self.assertEqual(assignment2.status, AssignmentStatus.FINISHED)
+
     def test_admin_cannot_deactivate_self(self):
         self.client.force_authenticate(self.admin)
         resp = self.client.delete(reverse("user-detail", args=[self.admin.pk]))

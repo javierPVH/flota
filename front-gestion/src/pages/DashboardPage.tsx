@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Chip, IconButton, MiniToolsButtons, Modal, PageHeader, SelectField, StatCard } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
@@ -152,6 +152,12 @@ type DashTab = 'flota' | 'substitute' | 'supervisors' | 'drivers'
 export function DashboardPage() {
   const navigate = useNavigate()
   const { language, t } = useLang()
+  // R3-30: los efectos de carga leen `t` por ref — con `t` en sus deps, el
+  // botón es/en re-disparaba TODAS las peticiones del panel.
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
   const vt = useVehiclesCopy()
   const ut = useUsersCopy()
   const confirm = useConfirm()
@@ -223,15 +229,28 @@ export function DashboardPage() {
   const [editingUser, setEditingUser] = useState<ManagedUserFull | null>(null)
 
   // Carga completa de vehículos + vínculos (sin filtro) para lo transversal.
+  // R3-29: la promesa se guarda para que el LISTADO la reutilice — sin filtros
+  // de servidor, abrir el panel bajaba la flota entera DOS veces (una para lo
+  // transversal y otra idéntica para la tabla).
+  const coreRef = useRef<Promise<Vehicle[]> | null>(null)
   const loadCore = useCallback(() => {
-    Promise.all([listAll(listVehicles({ include_baja: 1 })), listAll(listVehicleLinks({}))])
-      .then(([vs, ls]) => {
-        setAllVehicles(vs)
-        setLinks(ls)
-      })
+    // Los vínculos van APARTE: su fallo no debe tumbar el listado derivado.
+    listAll(listVehicleLinks({}))
+      .then(setLinks)
       .catch(() => {
-        /* transversal: si falla, el listado principal sigue funcionando */
+        /* transversal: sin vínculos se pierde solo el cruce de sustitución */
       })
+    const promise = listAll(listVehicles({ include_baja: 1 })).then((vs) => {
+      setAllVehicles(vs)
+      return vs
+    })
+    coreRef.current = promise
+    // Si falla no se queda cacheada una promesa rota: la siguiente carga (o el
+    // propio `load`, que enseña el error) vuelve a intentarlo.
+    promise.catch(() => {
+      if (coreRef.current === promise) coreRef.current = null
+    })
+    return promise
   }, [])
 
   const loadUsers = useCallback(() => {
@@ -245,7 +264,7 @@ export function DashboardPage() {
   useEffect(() => {
     fetchFleetSummary()
       .then(setSummary)
-      .catch((err) => setError(asErrorMessage(err, t.home.errSummary)))
+      .catch((err) => setError(asErrorMessage(err, tRef.current.home.errSummary)))
     listAlerts('open')
       .then((result) =>
         setAlerts([...result.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])),
@@ -256,7 +275,7 @@ export function DashboardPage() {
       .catch(() => setIncidents([]))
     loadCore()
     loadUsers()
-  }, [loadCore, loadUsers, t])
+  }, [loadCore, loadUsers])
 
   // ITV: carga perezosa al abrir su modal.
   // C6/C7: `ordering=next_itv_date` NO estaba en `ordering_fields` del back, y
@@ -299,6 +318,7 @@ export function DashboardPage() {
   const load = useCallback(
     (signal?: AbortSignal) => {
       setLoading(true)
+      const hasServerFilters = Boolean(useFilter || stateFilter || assignFilter || query)
       const filters: VehicleFilters = {
         business_use: useFilter || undefined,
         state: stateFilter || undefined,
@@ -306,24 +326,34 @@ export function DashboardPage() {
         search: query || undefined,
         include_baja: showBaja ? 1 : undefined,
       }
+      // R3-29: sin filtros de servidor, el listado son los MISMOS datos que la
+      // carga transversal (que ya baja toda la flota con bajas): se deriva de
+      // esa promesa —una sola descarga al abrir— y «mostrar bajas» es solo un
+      // corte en cliente. Con filtros o búsqueda sí decide el servidor.
       // Carga completa en cliente (todas las páginas): la tabla unificada
       // (TableWithPanel) se encarga de paginar, ordenar y buscar.
-      listAll(listVehicles(filters, { signal }), { signal })
+      const rows: Promise<Vehicle[]> = hasServerFilters
+        ? listAll(listVehicles(filters, { signal }), { signal })
+        : (coreRef.current ?? loadCore()).then((all) =>
+            showBaja ? all : all.filter((v) => v.state !== BAJA_STATE),
+          )
+      rows
         .then((result) => {
+          if (signal?.aborted) return
           setVehicles(result)
           setError('')
         })
         .catch((err) => {
           // M14: al cambiar de filtro se aborta la carga anterior; eso no es un
           // error que mostrar (y su respuesta tardía ya no pisa la nueva).
-          if (isAbortError(err)) return
-          setError(asErrorMessage(err, t.home.errList))
+          if (isAbortError(err) || signal?.aborted) return
+          setError(asErrorMessage(err, tRef.current.home.errList))
         })
         .finally(() => {
           if (!signal?.aborted) setLoading(false)
         })
     },
-    [useFilter, stateFilter, assignFilter, query, showBaja, t],
+    [useFilter, stateFilter, assignFilter, query, showBaja, loadCore],
   )
 
   // M14: cada carga aborta la anterior y la última en vuelo muere al desmontar.
@@ -335,9 +365,11 @@ export function DashboardPage() {
 
   // Tras una acción que muta un vehículo: recarga listado + datos transversales.
   // (Sin señal: es una recarga puntual, no la del efecto de filtros.)
+  // R3-29: primero `loadCore()` — renueva la promesa compartida y `load()` sin
+  // filtros deriva de ELLA, así que la tabla también sale fresca.
   const reloadVehicles = useCallback(() => {
-    load()
     loadCore()
+    load()
   }, [load, loadCore])
 
   function resetFilters() {

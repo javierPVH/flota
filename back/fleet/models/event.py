@@ -30,7 +30,7 @@ class Event(TimeStampedModel):
     class Meta:
         verbose_name = "evento"
         verbose_name_plural = "eventos"
-        ordering = ["-event_date"]
+        ordering = ["-event_date", "-pk"]  # R3-23: desempate estable
         indexes = [
             # PR4: el timeline y los filtros consultan siempre por vehículo+fecha.
             models.Index(fields=["vehicle", "event_date"]),

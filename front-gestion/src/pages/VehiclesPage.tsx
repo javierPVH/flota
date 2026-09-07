@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Badge,
@@ -182,6 +182,13 @@ export function VehiclesPage() {
   const [expTo, setExpTo] = useState('')
   const [expCols, setExpCols] = useState<Set<string>>(() => new Set())
 
+  // R3-30: `t` por ref — con `t` en las deps de `load`, el botón es/en
+  // re-descargaba la flota entera (el diccionario solo pinta el error).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
+
   const load = useCallback(() => {
     setLoading(true)
     // Vehículos + vínculos de sustitución (para pintar coche sustituto / libre-ocupado).
@@ -191,9 +198,9 @@ export function VehiclesPage() {
         setLinks(linkRows)
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, t.loadError)))
+      .catch((err) => setError(asErrorMessage(err, tRef.current.loadError)))
       .finally(() => setLoading(false))
-  }, [t])
+  }, [])
 
   useEffect(load, [load])
 

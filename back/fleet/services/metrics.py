@@ -42,6 +42,7 @@ from fleet.selectors import (
     active_substitution_by_substitute,
     active_substitution_map,
     current_driver_map,
+    latest_reading_map,
 )
 from fleet.services.alerts import add_months
 
@@ -179,13 +180,9 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
     ).order_by("vehicle_id", "-start_date"):
         contracts.setdefault(contract.vehicle_id, contract)
 
-    latest: dict[int, KmReading] = {}
-    for reading in (
-        KmReading.objects.filter(vehicle_id__in=ids, km_reading__isnull=False, is_active=True)
-        .exclude(reading_date__isnull=True)
-        .order_by("vehicle_id", "-reading_date", "-id")
-    ):
-        latest.setdefault(reading.vehicle_id, reading)
+    # R3-11: la última lectura la decide la BD (una fila por vehículo), no un
+    # `setdefault` sobre el histórico entero hidratado.
+    latest = latest_reading_map(ids)
 
     drivers = current_driver_map(ids)
     links = active_substitution_map(ids, today)  # N9: principales bloqueados (1 query)

@@ -523,6 +523,7 @@ export function VehicleFieldPage() {
         <BreakdownModal
           vehicle={vehicle}
           kmCurrent={summary?.km_current ?? null}
+          kmEstimated={summary?.km_estimated ?? false}
           onClose={() => setBreakdownOpen(false)}
           onSaved={() => {
             reload()

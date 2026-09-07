@@ -15,11 +15,13 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from fleet.models import Assignment, Contract, KmReading, Vehicle
-from fleet.models.enums import AssignmentStatus, VehicleState
+from fleet.models import Alert, Assignment, Contract, KmReading, Vehicle, VehicleLink
+from fleet.models.enums import AlertStatus, AssignmentStatus, VehicleState
+from fleet.selectors import active_link_q, current_assignment_q
 from fleet.services import events
 
 
@@ -34,8 +36,9 @@ def return_vehicle(
 
     Debe llamarse dentro de una transacción. Devuelve el resumen que la
     pantalla muestra como confirmación:
-    `{km_end, assignments_finished, contract_closed, contract_km,
-    overage_km, penalty_per_km, penalty_estimate}`.
+    `{km_end, assignments_finished, links_closed, alerts_resolved,
+    contract_closed, contract_km, overage_km, penalty_per_km,
+    penalty_estimate}`.
     """
     end_date = end_date or timezone.localdate()
     if vehicle.state == VehicleState.BAJA:
@@ -61,13 +64,37 @@ def return_vehicle(
         vehicle.km_end = km_end
         vehicle.save(update_fields=["km_end", "updated_at"])
 
-    # Asignaciones en curso: la persona deja de tener este coche.
-    finished = Assignment.objects.filter(
-        vehicle=vehicle,
-        is_active=True,
-        status=AssignmentStatus.ACCEPTED,
-        end_date__isnull=True,
-    ).update(end_date=end_date, status=AssignmentStatus.FINISHED)
+    # Asignaciones vigentes: la persona deja de tener este coche. R3-02: el
+    # criterio incluye un fin PROGRAMADO aún no alcanzado — se adelanta al día
+    # de la devolución. R3-24: fila a fila (no `queryset.update()`) para que el
+    # cierre deje su diff en auditlog y mueva `updated_at`.
+    finished = 0
+    for assignment in Assignment.objects.filter(current_assignment_q(), vehicle=vehicle):
+        assignment.end_date = end_date
+        assignment.status = AssignmentStatus.FINISHED
+        assignment.save(update_fields=["end_date", "status", "updated_at"])
+        finished += 1
+
+    # R3-04: los vínculos de sustitución activos no pueden sobrevivir a la
+    # baja. Devolver el SUSTITUTO libera al principal (que seguía bloqueado
+    # por un coche que ya no existe); devolver el PRINCIPAL libera al
+    # sustituto (que quedaba «cubriendo» un coche de baja). R3-24: ídem,
+    # fila a fila — VehicleLink también está auditado.
+    links_closed = 0
+    for link in VehicleLink.objects.filter(
+        active_link_q(), Q(main_vehicle=vehicle) | Q(substitute_vehicle=vehicle)
+    ):
+        link.end_date = end_date
+        link.save(update_fields=["end_date", "updated_at"])
+        links_closed += 1
+
+    # R3-04: las alertas abiertas del vehículo (ITV, seguro, km…) no tienen ya
+    # nada que reclamar — los chequeos excluyen la baja y nadie más las cierra.
+    alerts_resolved = Alert.objects.filter(vehicle=vehicle, status=AlertStatus.OPEN).update(
+        status=AlertStatus.RESOLVED,
+        resolved_at=timezone.now(),
+        resolution_note="Devolución del vehículo.",
+    )
 
     # Contrato vigente (el de inicio más reciente sin fin real): fin real = hoy.
     contract = (
@@ -110,6 +137,8 @@ def return_vehicle(
     return {
         "km_end": final_km,
         "assignments_finished": finished,
+        "links_closed": links_closed,
+        "alerts_resolved": alerts_resolved,
         "contract_closed": contract.pk if contract is not None else None,
         "contract_km": contract.contract_km if contract is not None else None,
         "overage_km": overage,

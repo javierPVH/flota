@@ -54,6 +54,38 @@ def _vehicle_with_data(plate, supervisor=None, driver=None) -> Vehicle:
     return vehicle
 
 
+class LatestReadingSelectorTests(TestCase):
+    """R3-11: la última lectura por vehículo viaja como UNA fila por vehículo.
+
+    El selector sustituye al patrón «histórico entero ordenado + setdefault»
+    en summaries, chequeos de km/mantenimiento y la ficha de informes.
+    """
+
+    def test_winner_per_vehicle_in_one_query(self):
+        from fleet.selectors import latest_reading_map
+
+        v1 = _vehicle_with_data("SEL-1")
+        v2 = _vehicle_with_data("SEL-2")
+        # Erratas y filas no válidas no ganan: desactivada, sin km, sin fecha.
+        newest = KmReading.objects.create(
+            vehicle=v1, reading_date=date(2026, 7, 2), km_reading=16000
+        )
+        newest.deactivate(by=None, reason="errata")
+        KmReading.objects.create(vehicle=v2, reading_date=date(2026, 7, 3), km_reading=None)
+
+        with CaptureQueriesContext(connection) as ctx:
+            ganadores = latest_reading_map([v1.id, v2.id])
+        self.assertEqual(len(ctx), 1)
+        self.assertEqual(ganadores[v1.id].km_reading, 15000)
+        self.assertEqual(ganadores[v2.id].km_reading, 15000)
+        # Empate de fecha: gana el id más alto (mismo desempate que el
+        # no-retroceso del odómetro).
+        empate = KmReading.objects.create(
+            vehicle=v1, reading_date=date(2026, 6, 21), km_reading=15500
+        )
+        self.assertEqual(latest_reading_map([v1.id])[v1.id].pk, empate.pk)
+
+
 class VehicleSummariesTests(APITestCase):
     def setUp(self):
         self.admin = make_user("admin", Role.ADMIN)

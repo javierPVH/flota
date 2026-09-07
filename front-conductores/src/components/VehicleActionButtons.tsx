@@ -140,6 +140,7 @@ export function VehicleActionButtons({
         <BreakdownModal
           vehicle={vehicle}
           kmCurrent={summary?.km_current ?? null}
+          kmEstimated={summary?.km_estimated ?? false}
           onClose={() => setOpen(null)}
           onSaved={saved}
         />

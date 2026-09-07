@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from auditlog.models import LogEntry
@@ -80,6 +81,7 @@ from .models.enums import (
     VehicleState,
 )
 from .scoping import users_for, vehicles_for
+from .selectors import current_assignment_q
 from .serializers import (
     AlertSerializer,
     AssignmentSerializer,
@@ -250,12 +252,11 @@ class VehicleFilter(filters.FilterSet):
         fields = ["state", "business_use", "is_substitute", "supervisor", "type", "property"]
 
     def filter_assigned(self, queryset, name, value):
-        # Vehículos con asignación ACEPTADA en curso (BG12: contar cualquier
+        # Vehículos con asignación ACEPTADA vigente (BG12: contar cualquier
         # asignación incluía PROPUESTAS — un coche salía "asignado" y sin
-        # conductor en la misma fila; mismo criterio que current_driver_map).
-        active = Assignment.objects.filter(
-            end_date__isnull=True, status=AssignmentStatus.ACCEPTED, is_active=True
-        ).values("vehicle_id")
+        # conductor en la misma fila; mismo criterio que current_driver_map,
+        # fin programado incluido — R3-02).
+        active = Assignment.objects.filter(current_assignment_q()).values("vehicle_id")
         return queryset.filter(id__in=active) if value else queryset.exclude(id__in=active)
 
 
@@ -637,14 +638,11 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 vehicle.supervisor_id = supervisor_id
                 vehicle.save(update_fields=["supervisor", "updated_at"])
 
+            # R3-02: la vigente a cerrar puede tener fin PROGRAMADO (grant con
+            # fechas); el criterio es el mismo que da el ámbito.
             current = (
                 Assignment.objects.select_for_update()
-                .filter(
-                    vehicle=vehicle,
-                    status=AssignmentStatus.ACCEPTED,
-                    end_date__isnull=True,
-                    is_active=True,
-                )
+                .filter(current_assignment_q(), vehicle=vehicle)
                 .select_related("driver")
                 .first()
             )
@@ -688,7 +686,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         omitió (sin email / correo deshabilitado / fallo)."""
         import html
 
-        from django.core.mail import EmailMultiAlternatives
+        from django.core.mail import EmailMultiAlternatives, get_connection
         from django.utils.html import strip_tags
 
         from .selectors import current_driver_map
@@ -777,55 +775,66 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
         enabled = mailer.email_enabled()
         sent, skipped, seen = [], [], set()
-        for role, email in targets:
-            if not email:
-                skipped.append({"role": role, "reason": "sin_email"})
-                EmailLog.objects.create(
-                    template_key=log_key,
-                    recipient="",
-                    subject=subject,
-                    status=EmailLog.Status.SKIPPED,
-                    error=f"{role} sin email",
-                )
-                continue
-            if email in seen:
-                continue
-            seen.add(email)
-            if not enabled:
-                skipped.append({"role": role, "email": email, "reason": "correo_deshabilitado"})
-                EmailLog.objects.create(
-                    template_key=log_key,
-                    recipient=email,
-                    subject=subject,
-                    status=EmailLog.Status.SKIPPED,
-                    error="Correo saliente no configurado (EMAIL_HOST).",
-                )
-                continue
+        # R3-13: una conexión SMTP para todo el comunicado (un envío a 5
+        # destinatarios abría y cerraba 5 conexiones: handshake + TLS + auth
+        # por correo). El error por destinatario se sigue tratando por fila.
+        connection = get_connection()
+        try:
+            for role, email in targets:
+                if not email:
+                    skipped.append({"role": role, "reason": "sin_email"})
+                    EmailLog.objects.create(
+                        template_key=log_key,
+                        recipient="",
+                        subject=subject,
+                        status=EmailLog.Status.SKIPPED,
+                        error=f"{role} sin email",
+                    )
+                    continue
+                if email in seen:
+                    continue
+                seen.add(email)
+                if not enabled:
+                    skipped.append({"role": role, "email": email, "reason": "correo_deshabilitado"})
+                    EmailLog.objects.create(
+                        template_key=log_key,
+                        recipient=email,
+                        subject=subject,
+                        status=EmailLog.Status.SKIPPED,
+                        error="Correo saliente no configurado (EMAIL_HOST).",
+                    )
+                    continue
+                try:
+                    msg = EmailMultiAlternatives(
+                        subject=subject,
+                        body=strip_tags(body_html),
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        to=[email],
+                        connection=connection,
+                    )
+                    msg.attach_alternative(body_html, "text/html")
+                    msg.send(fail_silently=False)
+                    sent.append({"role": role, "email": email})
+                    EmailLog.objects.create(
+                        template_key=log_key,
+                        recipient=email,
+                        subject=subject,
+                        status=EmailLog.Status.SENT,
+                    )
+                except Exception as exc:  # noqa: BLE001 — best-effort por diseño
+                    skipped.append({"role": role, "email": email, "reason": "fallo_envio"})
+                    EmailLog.objects.create(
+                        template_key=log_key,
+                        recipient=email,
+                        subject=subject,
+                        status=EmailLog.Status.FAILED,
+                        error=str(exc)[:1000],
+                    )
+        finally:
             try:
-                msg = EmailMultiAlternatives(
-                    subject=subject,
-                    body=strip_tags(body_html),
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    to=[email],
-                )
-                msg.attach_alternative(body_html, "text/html")
-                msg.send(fail_silently=False)
-                sent.append({"role": role, "email": email})
-                EmailLog.objects.create(
-                    template_key=log_key,
-                    recipient=email,
-                    subject=subject,
-                    status=EmailLog.Status.SENT,
-                )
-            except Exception as exc:  # noqa: BLE001 — best-effort por diseño
-                skipped.append({"role": role, "email": email, "reason": "fallo_envio"})
-                EmailLog.objects.create(
-                    template_key=log_key,
-                    recipient=email,
-                    subject=subject,
-                    status=EmailLog.Status.FAILED,
-                    error=str(exc)[:1000],
-                )
+                connection.close()
+            except Exception:  # noqa: BLE001 — cerrar la conexión es best-effort
+                pass
         return Response({"sent": sent, "skipped": skipped})
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
@@ -1174,14 +1183,10 @@ class AssignmentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets
         if assignment.status != AssignmentStatus.PROPOSED:
             raise ValidationError({"status": "Solo se puede aceptar una propuesta."})
         with transaction.atomic():
+            # R3-02: cierra también una vigente con fin programado.
             current = (
                 Assignment.objects.select_for_update()
-                .filter(
-                    vehicle=assignment.vehicle,
-                    status=AssignmentStatus.ACCEPTED,
-                    end_date__isnull=True,
-                    is_active=True,
-                )
+                .filter(current_assignment_q(), vehicle=assignment.vehicle)
                 .exclude(pk=assignment.pk)
                 .select_related("driver")
                 .first()
@@ -1286,9 +1291,13 @@ class VehicleUsageViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewse
         if not user.is_admin and not vehicles_for(user).filter(pk=vehicle.pk).exists():
             raise PermissionDenied("El vehículo está fuera de tu ámbito.")
         with transaction.atomic():
-            VehicleUsage.objects.filter(
+            # R3-24: cierre fila a fila (no `queryset.update()`) — VehicleUsage
+            # está auditado y el diff del cierre debe quedar, con su updated_at.
+            for usage in VehicleUsage.objects.filter(
                 vehicle=vehicle, end_date__isnull=True, is_active=True
-            ).update(end_date=data["start_date"])
+            ):
+                usage.end_date = data["start_date"]
+                usage.save(update_fields=["end_date", "updated_at"])
             rows = VehicleUsage.objects.bulk_create(
                 VehicleUsage(
                     vehicle=vehicle,
@@ -1352,9 +1361,20 @@ class EventViewSet(
     serializer_class = EventSerializer
     permission_classes = [EventPermission]
     # PR1: los subtipos son one-to-one inversos que get_details toca fila a
-    # fila — sin select_related eran hasta 5 queries por evento.
+    # fila — sin select_related eran hasta 5 queries por evento. R3-03: la
+    # lista es EXACTAMENTE lo que lee el serializer (faltaban driver_change y
+    # penalty, y los FK internos de project/pep — 1-2 queries extra por fila).
     queryset = Event.objects.select_related(
-        "vehicle", "itv", "fee_change", "location_change", "project_change", "pep_change"
+        "vehicle",
+        "itv",
+        "fee_change",
+        "location_change",
+        "project_change__old_project",
+        "project_change__new_project",
+        "pep_change__old_pep",
+        "pep_change__new_pep",
+        "driver_change",
+        "penalty",
     )
     filterset_fields = ["vehicle", "event_type"]
     ordering_fields = ["event_date"]
@@ -1475,20 +1495,25 @@ class IncidentViewSet(
         cambia el estado. Es el parte rápido del supervisor desde la app de
         campo; el sello lo pone el servidor para que la autoría no se falsee.
         """
-        incident = self.get_object()
+        self.get_object()  # scoping + 404; el candado va sobre la fila fresca
         text = (request.data.get("text") or "").strip()
         new_status = (request.data.get("status") or "").strip()
         if not text and not new_status:
             raise ValidationError({"text": "La actualización no puede estar vacía."})
         if new_status and new_status not in IncidentStatus.values:
             raise ValidationError({"status": "Estado no válido."})
-        if text:
-            author = request.user.get_full_name() or request.user.get_username()
-            note = f"[{timezone.localdate().isoformat()} · {author}] {text}"
-            incident.description = f"{incident.description}\n\n{note}".strip()
-        if new_status:
-            incident.status = new_status
-        incident.save()
+        # R3-09: dos partes simultáneos concatenan AMBAS notas en vez de
+        # pisarse (lectura-modificación-escritura bajo candado), y el
+        # `update_fields` no arrastra el resto de la fila.
+        with transaction.atomic():
+            incident = Incident.objects.select_for_update().get(pk=self.kwargs["pk"])
+            if text:
+                author = request.user.get_full_name() or request.user.get_username()
+                note = f"[{timezone.localdate().isoformat()} · {author}] {text}"
+                incident.description = f"{incident.description}\n\n{note}".strip()
+            if new_status:
+                incident.status = new_status
+            incident.save(update_fields=["description", "status", "updated_at"])
         return Response(self.get_serializer(incident).data)
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
@@ -1498,43 +1523,64 @@ class IncidentViewSet(
         código postal de la ubicación preferente desde la que se buscará el
         taller más cercano y deja la incidencia EN CURSO.
         """
-        incident = self.get_object()
+        self.get_object()  # scoping + 404
         postal_code = (request.data.get("workshop_postal_code") or "").strip()
         if not postal_code.isdigit() or len(postal_code) != 5:
             raise ValidationError({"workshop_postal_code": "Indica un código postal de 5 cifras."})
-        incident.workshop_postal_code = postal_code
-        incident.status = IncidentStatus.IN_PROGRESS
-        incident.save()
+        # R3-09: candado + update_fields — no pisa un parte concurrente.
+        with transaction.atomic():
+            incident = Incident.objects.select_for_update().get(pk=self.kwargs["pk"])
+            incident.workshop_postal_code = postal_code
+            incident.status = IncidentStatus.IN_PROGRESS
+            incident.save(update_fields=["workshop_postal_code", "status", "updated_at"])
         return Response(self.get_serializer(incident).data)
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
     def resolve(self, request, pk=None):
         """POST /api/v1/incidents/{id}/resolve/ — fase 3 del ciclo: la
-        SOLUCIÓN. Guarda la fecha, calcula el tiempo que el vehículo estuvo
-        parado desde la fecha de la avería y CIERRA la incidencia.
+        SOLUCIÓN. Guarda la fecha (y el sobrecoste, si lo hubo), calcula el
+        tiempo que el vehículo estuvo parado desde la fecha de la avería y
+        CIERRA la incidencia.
         """
-        incident = self.get_object()
+        self.get_object()  # scoping + 404
         resolution_date = parse_date(str(request.data.get("resolution_date") or ""))
         if resolution_date is None:
             raise ValidationError({"resolution_date": "Indica la fecha de solución."})
         if resolution_date > timezone.localdate():
             raise ValidationError({"resolution_date": "La fecha de solución no puede ser futura."})
-        if incident.date and resolution_date < incident.date:
-            raise ValidationError(
-                {"resolution_date": "La solución no puede ser anterior a la avería."}
-            )
-
-        resolution: dict = {"resolution_date": resolution_date.isoformat()}
-        if incident.date:
-            resolution["downtime_days"] = (resolution_date - incident.date).days
         observations = (request.data.get("observations") or "").strip()
-        if observations:
-            resolution["observations"] = observations
-        details = incident.details or {}
-        details["resolution"] = resolution
-        incident.details = details
-        incident.status = IncidentStatus.CLOSED
-        incident.save()
+        # R3-41: el sobrecoste de la reparación — la interfaz de gestión lo
+        # pedía desde el principio y el servidor lo tiraba en silencio.
+        overcost = None
+        raw_overcost = request.data.get("overcost")
+        if raw_overcost not in (None, ""):
+            try:
+                overcost = Decimal(str(raw_overcost))
+            except ArithmeticError as exc:
+                raise ValidationError({"overcost": "Valor no válido."}) from exc
+            if overcost < 0:
+                raise ValidationError({"overcost": "No puede ser negativo."})
+
+        # R3-09: la mezcla de `resolution` sobre el JSON `details` va bajo
+        # candado — un parte simultáneo ya no se pierde por leer una foto vieja.
+        with transaction.atomic():
+            incident = Incident.objects.select_for_update().get(pk=self.kwargs["pk"])
+            if incident.date and resolution_date < incident.date:
+                raise ValidationError(
+                    {"resolution_date": "La solución no puede ser anterior a la avería."}
+                )
+            resolution: dict = {"resolution_date": resolution_date.isoformat()}
+            if incident.date:
+                resolution["downtime_days"] = (resolution_date - incident.date).days
+            if observations:
+                resolution["observations"] = observations
+            if overcost is not None:
+                resolution["overcost"] = str(overcost.quantize(Decimal("0.01")))
+            details = incident.details or {}
+            details["resolution"] = resolution
+            incident.details = details
+            incident.status = IncidentStatus.CLOSED
+            incident.save(update_fields=["details", "status", "updated_at"])
         return Response(self.get_serializer(incident).data)
 
 
@@ -1689,11 +1735,14 @@ class VehicleRequestViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
         if user.is_admin:
             return qs
         scope = vehicles_for(user)
-        drivers = Assignment.objects.filter(vehicle__in=scope).values("driver_id")
+        # R3-22: «sus conductores» = el criterio canónico de `users_for`
+        # (asignación aceptada VIGENTE). Antes bastaba CUALQUIER asignación
+        # histórica —incluso una propuesta rechazada— para exponer las
+        # solicitudes de esa persona al supervisor para siempre.
         return qs.filter(
             models.Q(requester=user)
             | models.Q(vehicle__in=scope)
-            | models.Q(requester_id__in=drivers)
+            | models.Q(requester__in=users_for(user))
         ).distinct()
 
     filterset_fields = ["status", "requester", "vehicle", "requested_type"]
@@ -1720,21 +1769,29 @@ class VehicleRequestViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
         if request.method == "GET":
             requests = VehicleRequest.objects.filter(requester=request.user).order_by("-created_at")
             return Response(VehicleRequestMineSerializer(requests, many=True).data)
-        existing = (
-            VehicleRequest.objects.filter(requester=request.user, status__in=open_statuses)
-            .order_by("-created_at")
-            .first()
-        )
-        serializer = VehicleRequestMineSerializer(
-            instance=existing, data=request.data, partial=existing is not None
-        )
-        serializer.is_valid(raise_exception=True)
-        if existing is None:
-            serializer.save(requester=request.user, status=VehicleRequestStatus.PENDING)
-            code = status.HTTP_201_CREATED
-        else:
-            serializer.save()  # actualiza la abierta (jira_key, fechas, notas)
-            code = status.HTTP_200_OK
+        from django.contrib.auth import get_user_model
+
+        # R3-10: el «crea o actualiza la abierta» era get→save sin candado —
+        # dos POST simultáneos (doble tap, reintento offline) creaban dos
+        # solicitudes `pending`. La fila del propio usuario hace de mutex:
+        # el segundo POST espera y ve la solicitud del primero.
+        with transaction.atomic():
+            get_user_model().objects.select_for_update().get(pk=request.user.pk)
+            existing = (
+                VehicleRequest.objects.filter(requester=request.user, status__in=open_statuses)
+                .order_by("-created_at")
+                .first()
+            )
+            serializer = VehicleRequestMineSerializer(
+                instance=existing, data=request.data, partial=existing is not None
+            )
+            serializer.is_valid(raise_exception=True)
+            if existing is None:
+                serializer.save(requester=request.user, status=VehicleRequestStatus.PENDING)
+                code = status.HTTP_201_CREATED
+            else:
+                serializer.save()  # actualiza la abierta (jira_key, fechas, notas)
+                code = status.HTTP_200_OK
         return Response(serializer.data, status=code)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
@@ -1766,14 +1823,10 @@ class VehicleRequestViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
             # El concedido pasa a ser conductor si aún no lo era (usuario nuevo).
             UserRole.objects.get_or_create(user=requester, role=Role.DRIVER)
             requester.__dict__.pop("role_values", None)  # invalida el caché por instancia
+            # R3-02: cierra también una vigente con fin programado.
             current = (
                 Assignment.objects.select_for_update()
-                .filter(
-                    vehicle=vehicle,
-                    status=AssignmentStatus.ACCEPTED,
-                    end_date__isnull=True,
-                    is_active=True,
-                )
+                .filter(current_assignment_q(), vehicle=vehicle)
                 .select_related("driver")
                 .first()
             )
@@ -2053,6 +2106,14 @@ class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
         if not self.request.user.is_management:
             raise PermissionDenied("Solo la gestión puede modificar o borrar el consumo.")
 
+    def perform_create(self, serializer):
+        # R3-38: el alta por el CRUD genérico (con `period` y `source` libres)
+        # es de GESTIÓN. El conductor registra por `add/`, que suma al mes —
+        # abrirle el POST entero rompía el embudo: dos POST directos del mismo
+        # mes daban el 400 de choque que `add/` existe para evitar.
+        self._require_management()
+        super().perform_create(serializer)
+
     def perform_update(self, serializer):
         self._require_management()
         super().perform_update(serializer)
@@ -2096,8 +2157,19 @@ class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
             raise ValidationError({"vehicle": "Vehículo no válido."})
         period = parse_date(str(request.data.get("period") or "")) or timezone.localdate()
         period = period.replace(day=1)
-        if period > timezone.localdate().replace(day=1):
+        current_month = timezone.localdate().replace(day=1)
+        if period > current_month:
             raise ValidationError({"period": "El mes no puede ser futuro."})
+        # R4-08: `period` existe para el reenvío offline que cruza el cambio de
+        # mes (R3-37) — un desfase de DÍAS. El conductor no toca meses viejos
+        # de la serie (informes y KPI); corregir un mes histórico es de gestión
+        # y va por el CRUD (R3-38).
+        if not request.user.is_management:
+            previous_month = (current_month - timedelta(days=1)).replace(day=1)
+            if period < previous_month:
+                raise ValidationError(
+                    {"period": "Solo se puede repostar al mes en curso o al anterior."}
+                )
 
         def decimal_or_error(field: str, *, required: bool):
             raw = request.data.get(field)
@@ -2177,9 +2249,13 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
                 raise ValidationError({"cost": "Coste no válido."}) from exc
             if cost < 0:
                 raise ValidationError({"cost": "El coste no puede ser negativo."})
-        plan.last_done_date = (
-            parse_date(str(request.data.get("date") or "")) or timezone.localdate()
-        )
+        done_date = parse_date(str(request.data.get("date") or "")) or timezone.localdate()
+        # R4-02: una fecha FUTURA reanclaría el ciclo hacia delante y silenciaría
+        # las alertas hasta entonces — misma regla «no futura» que el resto de
+        # fechas de captura del proyecto.
+        if done_date > timezone.localdate():
+            raise ValidationError({"date": "La fecha del servicio no puede ser futura."})
+        plan.last_done_date = done_date
         if plan.every_km:
             km = request.data.get("km")
             if km in (None, ""):
@@ -2195,28 +2271,31 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
                 plan.last_done_km = int(km)
             except (TypeError, ValueError) as exc:
                 raise ValidationError({"km": "Kilometraje no válido."}) from exc
-        plan.save()
-        if cost is not None:
-            description = f"Mantenimiento realizado: {plan.name}."
-            if note:
-                description += f" {note}"
-            Incident.objects.create(
-                vehicle=plan.vehicle,
-                type=IncidentType.MAINTENANCE,
-                date=plan.last_done_date,
-                description=description,
-                mileage=plan.last_done_km,
-                status=IncidentStatus.CLOSED,
-                cost=cost,
-            )
-        # Lo que avisaba de este mantenimiento se cierra: el del motor (por km
-        # o por fecha) y los recordatorios manuales del supervisor.
-        closed = 0
-        for alerta in Alert.objects.filter(
-            vehicle=plan.vehicle, type=AlertType.MAINTENANCE_DUE, status=AlertStatus.OPEN
-        ):
-            alerta.close(status=AlertStatus.RESOLVED, by=request.user, note=note)
-            closed += 1
+        # R4-02: reanclar el plan, registrar el coste y cerrar los avisos es UNA
+        # operación (doctrina de las compuestas): o se hace entera o no se hace.
+        with transaction.atomic():
+            plan.save(update_fields=["last_done_date", "last_done_km", "updated_at"])
+            if cost is not None:
+                description = f"Mantenimiento realizado: {plan.name}."
+                if note:
+                    description += f" {note}"
+                Incident.objects.create(
+                    vehicle=plan.vehicle,
+                    type=IncidentType.MAINTENANCE,
+                    date=plan.last_done_date,
+                    description=description,
+                    mileage=plan.last_done_km,
+                    status=IncidentStatus.CLOSED,
+                    cost=cost,
+                )
+            # Lo que avisaba de este mantenimiento se cierra: el del motor (por
+            # km o por fecha) y los recordatorios manuales del supervisor.
+            closed = 0
+            for alerta in Alert.objects.filter(
+                vehicle=plan.vehicle, type=AlertType.MAINTENANCE_DUE, status=AlertStatus.OPEN
+            ):
+                alerta.close(status=AlertStatus.RESOLVED, by=request.user, note=note)
+                closed += 1
         data = self.get_serializer(plan).data
         data["alerts_resolved"] = closed
         return Response(data)
@@ -2309,7 +2388,10 @@ class NotificationScheduleViewSet(viewsets.ModelViewSet):
         schedule = self.get_object()
         resultado = notifications.run_schedule(schedule)
         if resultado["queued"] and mailer.email_enabled():
-            mailer.send_outbox()
+            # R3-15: entrega SOLO lo recién encolado — sin el filtro, la prueba
+            # de UN envío se ponía a repartir hasta 200 correos pendientes de
+            # otros dentro del request (con el timeout de gunicorn en contra).
+            mailer.send_outbox(entry_ids=[resultado["outbox_id"]])
         schedule.refresh_from_db()
         return Response(
             {

@@ -32,7 +32,7 @@ class Incident(DeactivatableModel, TimeStampedModel):
     class Meta:
         verbose_name = "incidencia"
         verbose_name_plural = "incidencias"
-        ordering = ["-date"]
+        ordering = ["-date", "-pk"]  # R3-23: desempate estable
 
     def __str__(self) -> str:
         return f"{self.vehicle.plate} · {self.get_type_display()} ({self.date})"

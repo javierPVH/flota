@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Badge, PageHeader } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
@@ -73,11 +73,18 @@ export function UserDetailPage() {
     })
   }, [history, plateById, t])
 
+  // R3-30: `t` por ref — con `t` en las deps, el botón es/en recargaba la
+  // ficha, el histórico y los vehículos (solo pinta el error).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
+
   useEffect(() => {
     if (!userId) return
     fetchManagedUser(userId)
       .then(setUser)
-      .catch((err) => setError(asErrorMessage(err, t.loadError)))
+      .catch((err) => setError(asErrorMessage(err, tRef.current.loadError)))
     listAssignments({ driver: userId })
       .then((page) =>
         setHistory([...page.results].sort((a, b) => (a.start_date < b.start_date ? 1 : -1))),
@@ -87,7 +94,7 @@ export function UserDetailPage() {
     listVehicles({ include_baja: 1 })
       .then((page) => setVehicles(page.results))
       .catch(() => setVehicles([]))
-  }, [userId, t])
+  }, [userId])
 
   if (error) return <div role="alert" className="form-error">{error}</div>
   if (!user) return <p className="loading-state" role="status">{t.loading}</p>

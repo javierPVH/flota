@@ -8,6 +8,7 @@ from django.core import mail
 from django.core.management import call_command
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -362,6 +363,39 @@ class EmailOutboxTests(APITestCase):
         out = StringIO()
         call_command("send_email_outbox", stdout=out)
         self.assertIn("1 enviados", out.getvalue())
+        self.assertEqual(len(mail.outbox), 1)
+
+    @EMAIL_ON
+    def test_claimed_rows_are_not_delivered_twice(self):
+        """R3-08: una fila reclamada por otra pasada en curso no se re-entrega.
+
+        La entrega se dispara desde tres procesos (jobs, «enviar ahora» del
+        worker web y el despacho de notificaciones): sin el claim, dos pasadas
+        solapadas seleccionaban las mismas filas y el correo salía dos veces.
+        """
+        entry = EmailOutbox.objects.create(
+            recipient="destino@example.com", subject="s", body_html="<p>x</p>"
+        )
+        # Otra pasada la reclamó hace un momento (claim FRESCO).
+        EmailOutbox.objects.filter(pk=entry.pk).update(status=EmailOutbox.Status.SENDING)
+        self.assertEqual(mailer.send_outbox(), {"sent": 0, "failed": 0, "retry": 0})
+        self.assertEqual(len(mail.outbox), 0)
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, EmailOutbox.Status.SENDING)  # sigue siendo suya
+
+    @EMAIL_ON
+    def test_stale_claim_is_rescued_and_delivered(self):
+        """R3-08: una fila colgada en `sending` (proceso muerto) se rescata."""
+        entry = EmailOutbox.objects.create(
+            recipient="destino@example.com", subject="s", body_html="<p>x</p>"
+        )
+        stale = timezone.now() - mailer.STALE_CLAIM - timedelta(minutes=1)
+        EmailOutbox.objects.filter(pk=entry.pk).update(
+            status=EmailOutbox.Status.SENDING, updated_at=stale
+        )
+        self.assertEqual(mailer.send_outbox()["sent"], 1)
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, EmailOutbox.Status.SENT)
         self.assertEqual(len(mail.outbox), 1)
 
     def test_disabled_email_keeps_the_queue_untouched(self):

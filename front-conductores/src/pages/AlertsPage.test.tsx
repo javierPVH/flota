@@ -202,6 +202,15 @@ describe('AlertsPage (M5)', () => {
     expect(screen.getByText('1111AAA')).toBeInTheDocument()
   })
 
+  it('R4-06: sin pendientes de km no se piden summaries (ids vacío = ámbito entero)', async () => {
+    mocks.roles = ['driver', 'supervisor']
+    // Solo alertas de ITV: ninguna lectura pendiente que necesite su summary.
+    mocks.listAlerts.mockResolvedValue({ count: 2, results: [ITV_ALERT, OTHER_CAR_ALERT] })
+    renderPage()
+    await screen.findAllByText('7890NPQ')
+    expect(mocks.fetchVehicleSummaries).not.toHaveBeenCalled()
+  })
+
   it('el supervisor resuelve con un modal personalizado por tipo', async () => {
     mocks.roles = ['driver', 'supervisor']
     mocks.createKmReading.mockResolvedValue({})

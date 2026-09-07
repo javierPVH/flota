@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Button } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
@@ -45,14 +45,21 @@ export function MaintenanceUpdateModal({
   const [incidents, setIncidents] = useState<Incident[] | null>(null)
   const [resolveFor, setResolveFor] = useState<Incident | null>(null)
 
+  // R3-30: `t` por ref — con `t` en las deps, cambiar de idioma recargaba
+  // planes e incidencias del modal (el diccionario solo pinta el error).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
+
   useEffect(() => {
     listMaintenancePlans(vehicle.id)
       .then((page) => setPlans(page.results))
-      .catch(() => setError(t.carUpdate.loadError))
+      .catch(() => setError(tRef.current.carUpdate.loadError))
     listIncidents(vehicle.id)
       .then((page) => setIncidents(page.results.filter(isOpenBreakdown)))
       .catch(() => setIncidents([]))
-  }, [vehicle.id, t])
+  }, [vehicle.id])
 
   function planCycle(plan: MaintenancePlanRow): string {
     const parts: string[] = []

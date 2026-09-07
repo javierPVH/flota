@@ -56,6 +56,13 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
   // M14: la carga en vuelo se aborta al cambiar de tipo, de página o al salir.
   const inFlight = useRef<AbortController | null>(null)
 
+  // R3-30: `t` por ref — con `t` en las deps, el botón es/en recargaba el
+  // índice y la página de registros enteros (solo pinta el error).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
+
   const loadIndex = useCallback(() => {
     setLoading(true)
     listErratas()
@@ -66,9 +73,9 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
         )
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, t.loadError)))
+      .catch((err) => setError(asErrorMessage(err, tRef.current.loadError)))
       .finally(() => setLoading(false))
-  }, [t])
+  }, [])
 
   useEffect(loadIndex, [loadIndex])
 
@@ -103,12 +110,12 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
       .catch((err) => {
         if (isAbortError(err)) return
         setItems([])
-        setError(asErrorMessage(err, t.loadError))
+        setError(asErrorMessage(err, tRef.current.loadError))
       })
       .finally(() => {
         if (!controller.signal.aborted) setItemsLoading(false)
       })
-  }, [active, page, query, t])
+  }, [active, page, query])
 
   useEffect(loadItems, [loadItems])
   useEffect(() => () => inFlight.current?.abort(), [])

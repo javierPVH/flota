@@ -104,6 +104,70 @@ class BusinessEventTests(APITestCase):
         )
 
 
+class EventDetailsTests(APITestCase):
+    """R3-03: `details` resuelve TODOS los subtipos y el listado no hace N+1."""
+
+    def setUp(self):
+        self.admin = make_user("admin", Role.ADMIN)
+        self.vehicle = Vehicle.objects.create(plate="DET111", brand="a", model="b")
+        self.client.force_authenticate(self.admin)
+
+    def _event(self, event_type):
+        return Event.objects.create(
+            vehicle=self.vehicle, event_type=event_type, event_date=timezone.localdate()
+        )
+
+    def test_project_and_pep_changes_expose_details(self):
+        """Los subtipos existían pero la API devolvía `details: null` (el Excel
+        de informes sí los pintaba)."""
+        from fleet.models import EventPepChange, EventProjectChange, Pep, Project
+
+        pep_old = Pep.objects.create(code="P-1", name="CECO uno")
+        pep_new = Pep.objects.create(code="P-2", name="CECO dos")
+        proyecto_old = Project.objects.create(project_name="Solar Norte", cost_center=pep_old)
+        proyecto_new = Project.objects.create(project_name="Solar Sur", cost_center=pep_new)
+        cambio_proyecto = self._event(EventType.PROJECT_CHANGE)
+        EventProjectChange.objects.create(
+            event=cambio_proyecto, old_project=proyecto_old, new_project=proyecto_new
+        )
+        cambio_ceco = self._event(EventType.CECO_CHANGE)
+        EventPepChange.objects.create(event=cambio_ceco, old_pep=pep_old, new_pep=pep_new)
+
+        resp = self.client.get(reverse("event-list"), {"vehicle": self.vehicle.pk})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        by_id = {row["id"]: row for row in resp.data["results"]}
+        detalle_proyecto = by_id[cambio_proyecto.pk]["details"]
+        self.assertEqual(detalle_proyecto["kind"], "project_change")
+        self.assertEqual(detalle_proyecto["new_project"], proyecto_new.pk)
+        self.assertIn("Solar Sur", detalle_proyecto["new_project_name"])
+        detalle_ceco = by_id[cambio_ceco.pk]["details"]
+        self.assertEqual(detalle_ceco["kind"], "pep_change")
+        self.assertEqual(detalle_ceco["old_pep"], pep_old.pk)
+
+    def test_details_of_a_listed_page_need_zero_extra_queries(self):
+        """El `select_related` del viewset debe cubrir EXACTAMENTE lo que lee
+        `get_details`: faltaban `driver_change` y `penalty` (1-2 queries por
+        fila de multa o cambio de conductor en el histórico paginado)."""
+        from decimal import Decimal
+
+        from fleet.models import EventPenalty
+        from fleet.serializers import EventSerializer
+        from fleet.views import EventViewSet
+
+        driver = make_user("det-driver", Role.DRIVER)
+        for _ in range(5):
+            event = self._event(EventType.DRIVER_CHANGE)
+            EventDriverChange.objects.create(event=event, old_driver=None, new_driver=driver)
+        multa = self._event(EventType.PENALTY)
+        EventPenalty.objects.create(event=multa, amount=Decimal("100"), paid=False)
+
+        rows = list(EventViewSet.queryset.filter(vehicle=self.vehicle))
+        with self.assertNumQueries(0):
+            data = EventSerializer(rows, many=True).data
+        kinds = {row["details"]["kind"] for row in data if row["details"]}
+        self.assertEqual(kinds, {"driver_change", "penalty"})
+
+
 class ItvCostTests(APITestCase):
     """El modal de resolver una alerta de ITV registra también lo que costó."""
 

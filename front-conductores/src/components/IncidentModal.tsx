@@ -20,6 +20,7 @@ const KINDS: IncidentKind[] = ['general', 'tires', 'maintenance']
 export function BreakdownModal({
   vehicle,
   kmCurrent,
+  kmEstimated,
   onClose,
   onSaved,
 }: {
@@ -28,6 +29,8 @@ export function BreakdownModal({
    * del parte de neumáticos — en campo nadie se baja a mirar el cuadro para
    * repetir un dato que ya tenemos. Queda editable: manda lo que se vea. */
   kmCurrent?: number | null
+  /** R3-42: la lectura precargada es una ESTIMACIÓN (N8b) — la pista avisa. */
+  kmEstimated?: boolean
   onClose: () => void
   onSaved?: () => void
 }) {
@@ -214,7 +217,11 @@ export function BreakdownModal({
                     {/* De dónde sale el número que viene puesto: si el coche
                         ha rodado desde esa lectura, se corrige a mano. */}
                     {kmCurrent != null && (
-                      <p className="update-hint">{n.mileageFromReading(fmtKm(kmCurrent, language))}</p>
+                      <p className="update-hint">
+                        {kmEstimated
+                          ? n.mileageFromReadingEstimated(fmtKm(kmCurrent, language))
+                          : n.mileageFromReading(fmtKm(kmCurrent, language))}
+                      </p>
                     )}
                     <SelectField label={n.changeReason} aria-label={n.changeReason} options={[
                       { value: 'wear', label: n.wear }, { value: 'puncture', label: n.puncture },

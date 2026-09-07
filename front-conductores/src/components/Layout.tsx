@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { LanguageToggleButton } from '@flota/ui/ui'
 
-import { fetchVehicleSummaries, listVehicles } from '../api.ts'
+import { fetchVehicleSummariesCached, listVehiclesCached } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { FleetModeContext } from '../fleetMode.ts'
 import { useLang } from '../i18n.tsx'
@@ -102,7 +102,12 @@ export function Layout() {
   useEffect(() => {
     if (!user) return
     let alive = true
-    Promise.all([listVehicles(), fetchVehicleSummaries().catch(() => [] as VehicleSummary[])])
+    // R3-28: promesas compartidas con el portón y la home; al guardar desde el
+    // nav, el propio helper de escritura invalidó la caché y esto trae fresco.
+    Promise.all([
+      listVehiclesCached(),
+      fetchVehicleSummariesCached().catch(() => [] as VehicleSummary[]),
+    ])
       .then(([page, summaries]) => {
         if (!alive) return
         const byId = new Map(summaries.map((s) => [s.vehicle, s]))
@@ -146,6 +151,11 @@ export function Layout() {
       if (result.sent > 0) parts.push(t.shell.offlineSent(result.sent))
       if (result.rejected.length > 0) parts.push(t.shell.offlineRejected(result.rejected.join(' · ')))
       setQueueNotice(parts.join(' '))
+      // R4-07: lo reenviado YA está en el servidor (y la caché R3-28 quedó
+      // invalidada por los helpers) — sin esto, la home y la ficha seguían
+      // enseñando el dato viejo hasta navegar. `dataVersion` es el mismo
+      // mecanismo que refresca tras guardar desde el nav.
+      if (result.sent > 0) setDataVersion((version) => version + 1)
     },
     [t],
   )

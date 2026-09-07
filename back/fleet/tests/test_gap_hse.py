@@ -153,6 +153,29 @@ class FuelConsumptionTests(APITestCase):
         )
         self.ajeno = Vehicle.objects.create(plate="FUEL-2", brand="a", model="b")
 
+    def test_driver_crud_create_is_management_only(self):
+        """R3-38: el conductor registra por `add/` (que SUMA al mes); el POST
+        del CRUD genérico (con `period` y `source` libres) queda para gestión —
+        abrirlo rompía el embudo (dos POST del mismo mes → 400 de choque)."""
+        driver = make_user("fuel-driver", Role.DRIVER)
+        Assignment.objects.create(
+            vehicle=self.mio,
+            driver=driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.client.force_authenticate(driver)
+        resp = self.client.post(
+            reverse("fuelconsumption-list"),
+            {"vehicle": self.mio.pk, "period": "2026-07-01", "liters": "50"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.data)
+        # Su camino sigue abierto: `add/` acumula en el mes en curso.
+        resp = self.client.post(
+            reverse("fuelconsumption-add"), {"vehicle": self.mio.pk, "liters": "30.5"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
     def test_period_is_normalized_to_month_start(self):
         self.client.force_authenticate(self.admin)
         resp = self.client.post(
@@ -278,6 +301,37 @@ class FuelConsumptionTests(APITestCase):
             self.client.patch(url, {"liters": "1"}).status_code, status.HTTP_403_FORBIDDEN
         )
         self.assertEqual(self.client.delete(url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_driver_refuel_period_is_bounded_to_recent_months(self):
+        """R4-08: el `period` del conductor cubre el desfase offline (mes en
+        curso o anterior), no la reescritura de meses históricos — eso es de
+        gestión, por el CRUD (R3-38)."""
+        driver = make_user("fuel-driver3", Role.DRIVER)
+        Assignment.objects.create(
+            vehicle=self.mio,
+            driver=driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.client.force_authenticate(driver)
+        url = reverse("fuelconsumption-add")
+        current_month = timezone.localdate().replace(day=1)
+        previous_month = (current_month - timedelta(days=1)).replace(day=1)
+        old_month = (previous_month - timedelta(days=1)).replace(day=1)
+        resp = self.client.post(
+            url, {"vehicle": self.mio.pk, "liters": "10", "period": old_month.isoformat()}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        resp = self.client.post(
+            url, {"vehicle": self.mio.pk, "liters": "10", "period": previous_month.isoformat()}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        # La gestión no está acotada: corrige cualquier mes pasado.
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            url, {"vehicle": self.mio.pk, "liters": "5", "period": old_month.isoformat()}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
 
     def test_negative_or_future_refuel_is_rejected(self):
         self.client.force_authenticate(self.admin)
@@ -613,10 +667,60 @@ class ReturnVehicleTests(APITestCase):
         asignacion = Assignment.objects.get(driver=self.driver)
         self.assertEqual(asignacion.status, AssignmentStatus.FINISHED)
         self.assertIsNotNone(asignacion.end_date)
+        # R3-24: el cierre va fila a fila (no `queryset.update()`) — deja su
+        # diff en la auditoría de campos.
+        from auditlog.models import LogEntry
+
+        cierre = (
+            LogEntry.objects.get_for_object(asignacion)
+            .filter(action=LogEntry.Action.UPDATE)
+            .first()
+        )
+        self.assertIsNotNone(cierre)
+        self.assertIn("status", cierre.changes)
         # Lectura final + evento de baja con el motivo.
         self.assertTrue(KmReading.objects.filter(vehicle=self.vehicle, km_reading=53000).exists())
         baja = Event.objects.filter(vehicle=self.vehicle, event_type=EventType.DEACTIVATION).last()
         self.assertIn("Fin de renting", baja.notes)
+
+    def test_return_closes_links_and_resolves_alerts(self):
+        """R3-04: la devolución cierra la sustitución activa y resuelve las alertas.
+
+        Sin esto, devolver un principal cubierto dejaba al sustituto «cubriendo»
+        un coche de baja (y devolver el sustituto, al principal bloqueado), y
+        las alertas abiertas se quedaban en la bandeja para siempre (los
+        chequeos excluyen la baja y nada más las cierra).
+        """
+        from fleet.models import Alert, VehicleLink
+        from fleet.models.enums import AlertStatus, AlertType, LinkReason
+        from fleet.selectors import active_link_covered_by
+
+        sub = Vehicle.objects.create(plate="RET-SUB", brand="a", model="b", is_substitute=True)
+        link = VehicleLink.objects.create(
+            main_vehicle=self.vehicle,
+            substitute_vehicle=sub,
+            reason=LinkReason.BREAKDOWN,
+            start_date=date(2026, 8, 1),
+        )
+        alerta = Alert.objects.create(
+            dedup_key=f"itv_due:{self.vehicle.pk}:30",
+            type=AlertType.ITV_DUE,
+            level=AlertLevel.WARNING,
+            vehicle=self.vehicle,
+            message="ITV próxima",
+        )
+        resp = self.client.post(self.url, {"km_end": 53000})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["links_closed"], 1)
+        self.assertEqual(resp.data["alerts_resolved"], 1)
+        link.refresh_from_db()
+        self.assertEqual(link.end_date, timezone.localdate())
+        # El sustituto queda libre (ya no cubre a nadie)…
+        self.assertIsNone(active_link_covered_by(sub))
+        # …y la alerta queda resuelta con su motivo.
+        alerta.refresh_from_db()
+        self.assertEqual(alerta.status, AlertStatus.RESOLVED)
+        self.assertIn("Devolución", alerta.resolution_note)
 
     def test_odometer_cannot_go_backwards(self):
         resp = self.client.post(self.url, {"km_end": 51000})
@@ -659,6 +763,21 @@ class MaintenanceDoneAndIncidentReportTests(APITestCase):
             plate="FIELD-1", brand="a", model="b", supervisor=self.supervisor
         )
         self.client.force_authenticate(self.supervisor)
+
+    def test_done_rejects_a_future_date(self):
+        """R4-02: una fecha futura reanclaría el ciclo hacia delante y
+        silenciaría las alertas hasta entonces."""
+        anchor = timezone.localdate() - timedelta(days=100)
+        plan = MaintenancePlan.objects.create(
+            vehicle=self.vehicle, name="Revisión", every_months=12, last_done_date=anchor
+        )
+        resp = self.client.post(
+            reverse("maintenanceplan-done", args=[plan.pk]),
+            {"date": (timezone.localdate() + timedelta(days=5)).isoformat()},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        plan.refresh_from_db()
+        self.assertEqual(plan.last_done_date, anchor)  # nada a medias
 
     def test_done_reanchors_the_plan_and_resolves_open_alerts(self):
         plan = MaintenancePlan.objects.create(
@@ -772,11 +891,14 @@ class MaintenanceDoneAndIncidentReportTests(APITestCase):
         self.assertEqual(incident.workshop_postal_code, "28001")
 
         # Fase 3: la fecha de solución calcula el tiempo parado y CIERRA.
+        # R3-41: `overcost` (el sobrecoste que pide la interfaz de gestión) se
+        # guarda en la solución en vez de perderse en silencio.
         resp = self.client.post(
             reverse("incident-resolve", args=[incident.pk]),
             {
                 "resolution_date": timezone.localdate().isoformat(),
                 "observations": "Bateria fuera de garantia.",
+                "overcost": "120.5",
             },
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
@@ -788,6 +910,7 @@ class MaintenanceDoneAndIncidentReportTests(APITestCase):
         )
         self.assertEqual(incident.details["resolution"]["downtime_days"], 3)
         self.assertIn("garantia", incident.details["resolution"]["observations"])
+        self.assertEqual(incident.details["resolution"]["overcost"], "120.50")
         # Cerrada: la marca de la tarjeta desaparece.
         self.assertEqual(metrics.vehicle_summary(self.vehicle)["open_incidents"], 0)
 
@@ -798,6 +921,12 @@ class MaintenanceDoneAndIncidentReportTests(APITestCase):
         resp = self.client.post(reverse("incident-manage", args=[otra.pk]), {})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         resp = self.client.post(reverse("incident-resolve", args=[otra.pk]), {})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        # R3-41: un sobrecoste inválido tampoco cierra nada.
+        resp = self.client.post(
+            reverse("incident-resolve", args=[otra.pk]),
+            {"resolution_date": timezone.localdate().isoformat(), "overcost": "-3"},
+        )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         otra.refresh_from_db()
         self.assertNotEqual(otra.status, "closed")

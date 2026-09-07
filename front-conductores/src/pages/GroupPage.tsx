@@ -4,7 +4,7 @@ import { LineChart } from 'lucide-react'
 import { Badge, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { fetchVehicleSummaries, listKmReadings, listVehicles } from '../api.ts'
+import { fetchVehicleSummariesCached, listKmReadings, listVehicles, truncatedAt } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { KmChart } from '../components/KmChart.tsx'
 import { fmtDate, fmtKm, kmLevelTone } from '../format.ts'
@@ -58,11 +58,15 @@ export function GroupPage() {
   const isSupervisor = user?.roles.includes('supervisor') ?? false
 
   const [rows, setRows] = useState<GroupRow[]>([])
+  // R3-31: grupo que no cabe en la página de 500 → se avisa del recorte.
+  const [truncated, setTruncated] = useState<number | null>(null)
   const [tab, setTab] = useState<Level | ''>('')
   const [chartOpen, setChartOpen] = useState<number | null>(null)
   const [readings, setReadings] = useState<Record<number, KmReading[]>>({})
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  // R3-30: error crudo, traducido al pintar (con `t` en las deps de `load`, el
+  // botón es/en re-disparaba la carga del grupo entero).
+  const [error, setError] = useState<unknown>(null)
 
   // Solo los coches que SUPERVISA (los roles se suman: un supervisor-admin
   // vería toda la flota y uno que conduce, además su coche) — este espacio
@@ -73,11 +77,13 @@ export function GroupPage() {
     if (supervisorId === null) return
     setLoading(true)
     // Summaries en UNA petición (O2): antes era un GET por vehículo del grupo.
+    // R3-28: los del ámbito completo, compartidos con el arranque del shell.
     Promise.all([
       listVehicles({ supervisor: supervisorId }),
-      fetchVehicleSummaries().catch(() => [] as VehicleSummary[]),
+      fetchVehicleSummariesCached().catch(() => [] as VehicleSummary[]),
     ])
       .then(([vehiclesPage, summaries]) => {
+        setTruncated(truncatedAt(vehiclesPage))
         const byId = new Map(summaries.map((s) => [s.vehicle, s]))
         setRows(
           vehiclesPage.results.map(
@@ -85,9 +91,9 @@ export function GroupPage() {
           ),
         )
       })
-      .catch((err) => setError(asErrorMessage(err, t.group.loadError)))
+      .catch((err) => setError(err))
       .finally(() => setLoading(false))
-  }, [t, supervisorId])
+  }, [supervisorId])
 
   useEffect(() => {
     if (isSupervisor) load()
@@ -120,7 +126,13 @@ export function GroupPage() {
 
   if (!isSupervisor) return <Navigate to="/" replace />
   if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
-  if (error) return <div role="alert" className="form-error">{error}</div>
+  if (error) {
+    return (
+      <div role="alert" className="form-error">
+        {asErrorMessage(error, t.group.loadError)}
+      </div>
+    )
+  }
 
   const watchCount = levelTabs.find((g) => g.level === 'watch')?.count ?? 0
   const overCount = levelTabs.find((g) => g.level === 'over')?.count ?? 0
@@ -152,6 +164,12 @@ export function GroupPage() {
           { value: overCount, label: t.group.statOver },
         ]}
       />
+
+      {truncated !== null && (
+        <p role="status" className="empty-note">
+          {t.common.truncated(rows.length, truncated)}
+        </p>
+      )}
 
       {/* El filtro solo aporta cuando hay más de un nivel presente. */}
       {levelTabs.length > 1 && (

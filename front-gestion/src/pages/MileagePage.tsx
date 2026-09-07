@@ -69,6 +69,12 @@ const WINDOW_MONTHS = 12
 
 export function MileagePage() {
   const t = useMileageCopy()
+  // R3-30: `t` por ref — con `t` en las deps de `load`, el botón es/en
+  // re-descargaba flota + summaries + lecturas (solo pinta el error).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
   const lang = useAppLang()
   const locale = LOCALES[lang]
   const km = useMemo(
@@ -198,7 +204,7 @@ export function MileagePage() {
         })
         .catch((err) => {
           if (isAbortError(err)) return
-          setError(asErrorMessage(err, t.loadError))
+          setError(asErrorMessage(err, tRef.current.loadError))
         })
         .finally(() => {
           if (signal?.aborted) return
@@ -207,7 +213,7 @@ export function MileagePage() {
           setLoading(false)
         })
     },
-    [month, t],
+    [month],
   )
 
   // M14: al navegar de mes se aborta la carga anterior (si no, la respuesta
