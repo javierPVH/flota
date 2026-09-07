@@ -187,6 +187,17 @@ export function VehicleDetailPage() {
     ['fuel', 'maintenance', 'documents', 'history'],
   )
 
+  // KPI de mantenimiento: no tiene modal propio (su detalle es la tarjeta de
+  // planes). Al pulsarlo, despliega esa sección y baja hasta ella.
+  const openMaintenance = () => {
+    if (!accordion.isOpen('maintenance')) accordion.toggle('maintenance')
+    requestAnimationFrame(() =>
+      document
+        .getElementById('kpi-maintenance')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    )
+  }
+
   // Histórico: filtro por origen ('' = todos).
   const [historySource, setHistorySource] = useState('')
 
@@ -1172,6 +1183,29 @@ export function VehicleDetailPage() {
         <button
           type="button"
           className="kpi-btn"
+          title={t.maintenanceKpiHint}
+          onClick={openMaintenance}
+        >
+          <StatCard
+            label={t.nextMaintenance}
+            value={summary?.next_maintenance_date ?? '—'}
+            sub={
+              summary?.next_maintenance_date
+                ? relative(summary.next_maintenance_date)
+                : t.noMaintenancePlan
+            }
+            accent={
+              summary?.next_maintenance_date && daysUntil(summary.next_maintenance_date) < 0
+                ? 'danger'
+                : summary?.next_maintenance_date && daysUntil(summary.next_maintenance_date) <= 30
+                  ? 'warning'
+                  : 'info'
+            }
+          />
+        </button>
+        <button
+          type="button"
+          className="kpi-btn"
           title={t.kpiHint}
           onClick={() => setKpiModal('insurance')}
         >
@@ -1446,7 +1480,9 @@ export function VehicleDetailPage() {
           createSignal={fuelCreate}
         />
 
-        <MaintenancePlansCard vehicle={vehicle} accordion={accordion} />
+        <div id="kpi-maintenance">
+          <MaintenancePlansCard vehicle={vehicle} accordion={accordion} />
+        </div>
       </div>
 
       <VehicleAssignmentsPanel vehicle={vehicle} onChanged={load} accordion={accordion} />

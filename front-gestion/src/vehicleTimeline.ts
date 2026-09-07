@@ -322,3 +322,63 @@ export function buildTimeline(
   // que dos cambios del mismo día quedan en su orden real.
   return visible.sort((a, b) => b.at.localeCompare(a.at))
 }
+
+// --- Histórico de supervisores ---------------------------------------------
+
+/** Un «reinado» de supervisor: quién y durante qué periodo. A diferencia del
+ * conductor (que tiene tabla de asignaciones con fechas reales), el supervisor
+ * es un campo del vehículo y su histórico se reconstruye de los eventos
+ * `supervisor_change`. `start`/`end` nulos = extremo desconocido/abierto. */
+export interface SupervisorReign {
+  key: string
+  supervisor: string
+  start: string | null
+  end: string | null
+  /** Reinado abierto (sin fin): el supervisor vigente del vehículo. */
+  current: boolean
+}
+
+const supName = (event: FlotaEvent, key: 'old_supervisor_name' | 'new_supervisor_name') => {
+  const value = (event.details ?? {})[key]
+  return typeof value === 'string' && value ? value : null
+}
+
+/** Reconstruye los periodos de supervisor a partir de los eventos de cambio
+ * (ORDENADOS de más antiguo a más reciente) y del supervisor vigente.
+ *
+ * - Sin eventos: si hay supervisor vigente, un único reinado abierto de inicio
+ *   desconocido (el dato es anterior al registro de eventos); si no, vacío.
+ * - Con eventos: el supervisor previo al primer cambio (inicio desconocido),
+ *   y luego un reinado por cada `new_supervisor` no vacío hasta el siguiente
+ *   cambio. Quitar el supervisor (nuevo vacío) no abre reinado: es un hueco.
+ *
+ * Devuelve de más reciente a más antiguo, como la tabla de conductores. */
+export function buildSupervisorHistory(
+  changes: FlotaEvent[],
+  currentSupervisorName: string | null,
+): SupervisorReign[] {
+  const events = [...changes].sort((a, b) => (a.event_date ?? '').localeCompare(b.event_date ?? ''))
+  const reigns: SupervisorReign[] = []
+
+  if (events.length === 0) {
+    if (currentSupervisorName) {
+      reigns.push({ key: 'current', supervisor: currentSupervisorName, start: null, end: null, current: true })
+    }
+    return reigns
+  }
+
+  // Supervisor anterior al primer cambio registrado (inicio desconocido).
+  const firstOld = supName(events[0], 'old_supervisor_name')
+  if (firstOld) {
+    reigns.push({ key: 'pre', supervisor: firstOld, start: null, end: events[0].event_date, current: false })
+  }
+  events.forEach((event, i) => {
+    const name = supName(event, 'new_supervisor_name')
+    if (!name) return // el supervisor se quitó: hueco, no reinado
+    const end = i + 1 < events.length ? events[i + 1].event_date : null
+    reigns.push({ key: `e${event.id}`, supervisor: name, start: event.event_date, end, current: end === null })
+  })
+
+  // Más reciente primero (por inicio; los de inicio desconocido, al final).
+  return reigns.reverse()
+}

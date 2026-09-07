@@ -10,8 +10,16 @@ from __future__ import annotations
 
 from django.utils import timezone
 
-from fleet.models import Event, EventDriverChange, EventLocationChange
+from fleet.models import Event, EventDriverChange, EventLocationChange, EventSupervisorChange
 from fleet.models.enums import EventType, VehicleState
+
+
+def _person_name(user) -> str:
+    """Nombre legible de una persona para las notas del evento («—» si nadie)."""
+    if user is None:
+        return "—"
+    return user.get_full_name() or user.get_username()
+
 
 # Estado nuevo → tipo de evento de negocio que lo narra.
 _STATE_EVENT = {
@@ -67,6 +75,25 @@ def emit_driver_change(vehicle, old_driver, new_driver) -> Event:
         notes="Cambio de conductor.",
     )
     EventDriverChange.objects.create(event=event, old_driver=old_driver, new_driver=new_driver)
+    return event
+
+
+def emit_supervisor_change(vehicle, old_supervisor, new_supervisor) -> Event:
+    """Evento de cambio de supervisor, con su subtipo `EventSupervisorChange`.
+
+    Igual que el histórico de conductores: narra el relevo de supervisor
+    (incluido ponerlo o quitarlo). La nota deja el paso legible («X → Y», con
+    «—» cuando alguno de los extremos es nadie) para que el histórico se lea sin
+    resolver ids."""
+    event = Event.objects.create(
+        vehicle=vehicle,
+        event_type=EventType.SUPERVISOR_CHANGE,
+        event_date=timezone.localdate(),
+        notes=f"Supervisor: {_person_name(old_supervisor)} → {_person_name(new_supervisor)}.",
+    )
+    EventSupervisorChange.objects.create(
+        event=event, old_supervisor=old_supervisor, new_supervisor=new_supervisor
+    )
     return event
 
 

@@ -336,6 +336,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 raise Conflict()
         old_state = instance.state
         old_site = instance.site
+        old_supervisor = instance.supervisor
         with transaction.atomic():
             super().perform_update(serializer)
             updated = serializer.instance
@@ -343,6 +344,10 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             # y la nueva (el subtipo existía; ahora por fin lo alimenta algo).
             if updated.site != old_site:
                 events.emit_location_change(updated, old_site, updated.site)
+            # Histórico de supervisores: el relevo (incluido quitarlo) deja su
+            # evento venga del modal (set-driver) o del PATCH de la ficha.
+            if (old_supervisor.pk if old_supervisor else None) != updated.supervisor_id:
+                events.emit_supervisor_change(updated, old_supervisor, updated.supervisor)
             if updated.state != old_state:
                 # Cambio de estado → evento (HU-1.5/1.6), con motivo opcional.
                 # B4: `change_date` es la fecha CON EFECTO del cambio (la baja
@@ -646,8 +651,13 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
                     if not get_user_model().objects.filter(pk=supervisor_id).exists():
                         raise ValidationError({"supervisor": "Supervisor no válido."})
-                vehicle.supervisor_id = supervisor_id
-                vehicle.save(update_fields=["supervisor", "updated_at"])
+                old_supervisor = vehicle.supervisor
+                if (old_supervisor.pk if old_supervisor else None) != supervisor_id:
+                    vehicle.supervisor_id = supervisor_id
+                    vehicle.save(update_fields=["supervisor", "updated_at"])
+                    # Histórico de supervisores: el relevo (incluido quitarlo)
+                    # deja su evento, igual que el cambio de conductor.
+                    events.emit_supervisor_change(vehicle, old_supervisor, vehicle.supervisor)
 
             # R3-02: la vigente a cerrar puede tener fin PROGRAMADO (grant con
             # fechas); el criterio es el mismo que da el ámbito.
@@ -1385,6 +1395,9 @@ class EventViewSet(
         "pep_change__old_pep",
         "pep_change__new_pep",
         "driver_change",
+        # `supervisor_change` resuelve nombres en get_details → trae los dos FK.
+        "supervisor_change__old_supervisor",
+        "supervisor_change__new_supervisor",
         "penalty",
     )
     filterset_fields = ["vehicle", "event_type"]

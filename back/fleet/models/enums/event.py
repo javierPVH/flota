@@ -24,6 +24,7 @@ class EventType(models.TextChoices):
     ITV = "itv", "ITV"
     MAINTENANCE = "maintenance", "Mantenimiento"
     DRIVER_CHANGE = "driver_change", "Cambio de conductor"
+    SUPERVISOR_CHANGE = "supervisor_change", "Cambio de supervisor"
 
 
 class ItvResult(models.TextChoices):

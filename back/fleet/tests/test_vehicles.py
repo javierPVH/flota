@@ -271,3 +271,80 @@ class BajaClosesAssignmentTests(APITestCase):
                 vehicle=self.other, driver=self.driver, status=AssignmentStatus.ACCEPTED
             ).exists()
         )
+
+
+class SupervisorHistoryTests(APITestCase):
+    """El cambio de supervisor (incluido quitarlo) deja evento de negocio, igual
+    que el cambio de conductor — para que haya histórico de supervisores."""
+
+    def setUp(self):
+        self.admin = make_user("sup-admin", Role.ADMIN)
+        self.sup_a = make_user("laura", Role.SUPERVISOR)
+        self.sup_b = make_user("marta", Role.SUPERVISOR)
+        self.vehicle = Vehicle.objects.create(
+            plate="SUP111", brand="a", model="b", supervisor=self.sup_a
+        )
+        self.client.force_authenticate(self.admin)
+
+    def _last_supervisor_event(self):
+        return (
+            Event.objects.filter(
+                vehicle=self.vehicle, event_type=EventType.SUPERVISOR_CHANGE
+            )
+            .select_related("supervisor_change")
+            .last()
+        )
+
+    def test_set_driver_cambia_supervisor_emite_evento(self):
+        resp = self.client.post(
+            reverse("vehicle-set-driver", args=[self.vehicle.pk]),
+            {"supervisor": self.sup_b.pk},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        evento = self._last_supervisor_event()
+        self.assertIsNotNone(evento)
+        self.assertEqual(evento.supervisor_change.old_supervisor, self.sup_a)
+        self.assertEqual(evento.supervisor_change.new_supervisor, self.sup_b)
+
+    def test_set_driver_quita_supervisor_emite_evento(self):
+        resp = self.client.post(
+            reverse("vehicle-set-driver", args=[self.vehicle.pk]),
+            {"supervisor": None},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.vehicle.refresh_from_db()
+        self.assertIsNone(self.vehicle.supervisor)
+        evento = self._last_supervisor_event()
+        self.assertIsNotNone(evento)
+        self.assertEqual(evento.supervisor_change.old_supervisor, self.sup_a)
+        self.assertIsNone(evento.supervisor_change.new_supervisor)
+
+    def test_set_driver_mismo_supervisor_no_emite_evento(self):
+        # Reenviar el mismo supervisor no es un cambio: no ensucia el histórico.
+        resp = self.client.post(
+            reverse("vehicle-set-driver", args=[self.vehicle.pk]),
+            {"supervisor": self.sup_a.pk, "driver": None},
+            format="json",
+        )
+        # (driver:null sin conductor vigente no cambia nada; el supervisor tampoco)
+        self.assertIn(resp.status_code, (status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST))
+        self.assertFalse(
+            Event.objects.filter(
+                vehicle=self.vehicle, event_type=EventType.SUPERVISOR_CHANGE
+            ).exists()
+        )
+
+    def test_patch_ficha_cambia_supervisor_emite_evento(self):
+        # El cambio también se registra cuando llega por el PATCH de la ficha.
+        resp = self.client.patch(
+            reverse("vehicle-detail", args=[self.vehicle.pk]),
+            {"supervisor": self.sup_b.pk},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        evento = self._last_supervisor_event()
+        self.assertIsNotNone(evento)
+        self.assertEqual(evento.supervisor_change.old_supervisor, self.sup_a)
+        self.assertEqual(evento.supervisor_change.new_supervisor, self.sup_b)

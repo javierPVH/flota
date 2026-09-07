@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   KPI_HISTORY,
+  buildSupervisorHistory,
   buildTimeline,
   groupTimeline,
   kmStaleTone,
@@ -161,5 +162,60 @@ describe('utilidades sueltas', () => {
     expect(label({ active: 'Activo' }, 'active')).toBe('Activo')
     expect(label({}, 'raro')).toBe('raro')
     expect(label({}, '')).toBe('—')
+  })
+})
+
+// Evento «cambio de supervisor» con nombres en el detalle.
+function supChange(id: number, date: string, oldName: string | null, newName: string | null) {
+  return event({
+    id,
+    event_type: 'supervisor_change',
+    event_type_display: 'Cambio de supervisor',
+    event_date: date,
+    details: { kind: 'supervisor_change', old_supervisor_name: oldName, new_supervisor_name: newName },
+  })
+}
+
+describe('buildSupervisorHistory', () => {
+  it('sin eventos y con supervisor vigente devuelve un único reinado abierto', () => {
+    const reigns = buildSupervisorHistory([], 'Laura Martin')
+    expect(reigns).toHaveLength(1)
+    expect(reigns[0]).toMatchObject({ supervisor: 'Laura Martin', start: null, end: null, current: true })
+  })
+
+  it('sin eventos y sin supervisor devuelve vacío', () => {
+    expect(buildSupervisorHistory([], null)).toEqual([])
+  })
+
+  it('reconstruye periodos: previo (inicio desconocido) + cada relevo, más reciente primero', () => {
+    // Laura → Marta el 2026-02-01; Marta → Pedro el 2026-05-10; Pedro sigue.
+    const changes = [
+      supChange(1, '2026-02-01', 'Laura Martin', 'Marta Dance'),
+      supChange(2, '2026-05-10', 'Marta Dance', 'Pedro Ruiz'),
+    ]
+    const reigns = buildSupervisorHistory(changes, 'Pedro Ruiz')
+    expect(reigns.map((r) => [r.supervisor, r.start, r.end, r.current])).toEqual([
+      ['Pedro Ruiz', '2026-05-10', null, true],
+      ['Marta Dance', '2026-02-01', '2026-05-10', false],
+      ['Laura Martin', null, '2026-02-01', false],
+    ])
+  })
+
+  it('quitar el supervisor (nuevo vacío) no abre reinado: es un hueco', () => {
+    const changes = [supChange(1, '2026-03-01', 'Laura Martin', null)]
+    const reigns = buildSupervisorHistory(changes, null)
+    // Solo queda el reinado previo de Laura, ya cerrado.
+    expect(reigns).toHaveLength(1)
+    expect(reigns[0]).toMatchObject({ supervisor: 'Laura Martin', end: '2026-03-01', current: false })
+  })
+
+  it('ordena por fecha aunque los eventos lleguen desordenados', () => {
+    const changes = [
+      supChange(2, '2026-05-10', 'Marta Dance', 'Pedro Ruiz'),
+      supChange(1, '2026-02-01', 'Laura Martin', 'Marta Dance'),
+    ]
+    const reigns = buildSupervisorHistory(changes, 'Pedro Ruiz')
+    expect(reigns[0].supervisor).toBe('Pedro Ruiz')
+    expect(reigns[reigns.length - 1].supervisor).toBe('Laura Martin')
   })
 })

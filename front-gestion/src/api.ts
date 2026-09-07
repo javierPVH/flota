@@ -576,6 +576,14 @@ export const listEvents = (vehicle: number, req: ReqOpts = {}) =>
     req,
   )
 
+/** Histórico de supervisores: los eventos «cambio de supervisor» del vehículo,
+ * de más antiguo a más reciente (para reconstruir los periodos por reinado). */
+export const listSupervisorChanges = (vehicle: number, req: ReqOpts = {}) =>
+  getJson<Paginated<FlotaEvent>>(
+    `${API}/events/${listQs({ vehicle, event_type: 'supervisor_change', ordering: 'event_date' })}`,
+    req,
+  )
+
 export const fetchVehicleHistory = (id: number, req: ReqOpts = {}) =>
   getJson<Paginated<AuditEntry>>(`${API}/vehicles/${id}/history/${listQs({})}`, req)
 
