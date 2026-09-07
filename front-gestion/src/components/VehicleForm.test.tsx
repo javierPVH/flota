@@ -109,7 +109,7 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
     mocks.createContract.mockResolvedValue(CONTRACT)
   })
 
-  it('muestra el contrato prellenado y las notas de los campos sensibles', async () => {
+  it('muestra el contrato prellenado y las notas plegables de los campos sensibles', async () => {
     renderEdit()
 
     // El contrato (antes solo en el alta) aparece con sus valores cargados.
@@ -117,11 +117,32 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
     expect(screen.getByDisplayValue('2028-01-01')).toBeInTheDocument() // fin previsto
     expect(screen.getByDisplayValue('390.00')).toBeInTheDocument() // cuota
 
-    // Los campos sensibles llevan su div informativo (no un simple tooltip)…
+    // La ayuda de los campos sensibles es un ACORDEÓN plegado por defecto: el
+    // texto no está a la vista, solo el disparador (odómetro + conductor = 2).
+    expect(
+      screen.queryByText(/El odómetro inicial se fijó al dar de alta/),
+    ).not.toBeInTheDocument()
+    const toggles = screen.getAllByRole('button', { name: '¿Por qué no se puede editar?' })
+    expect(toggles).toHaveLength(2)
+
+    // Desplegar el primero (odómetro) revela su explicación.
+    await userEvent.click(toggles[0])
     expect(screen.getByText(/El odómetro inicial se fijó al dar de alta/)).toBeInTheDocument()
-    expect(screen.getByText(/El conductor se cambia desde la ficha/)).toBeInTheDocument()
-    // …y el odómetro inicial sigue bloqueado aquí.
+
+    // El odómetro inicial sigue bloqueado aquí.
     expect(screen.getByDisplayValue('12000')).toBeDisabled()
+  })
+
+  it('explica, plegado, por qué el proyecto está deshabilitado (uso ≠ Proyecto)', async () => {
+    renderEdit()
+    await screen.findByDisplayValue('2026-01-01')
+
+    // El coche es de uso «personal» → el proyecto va deshabilitado y con su
+    // ayuda plegada; al desplegarla se dice cómo habilitarlo.
+    const toggle = screen.getByRole('button', { name: '¿Por qué no puedo elegir proyecto?' })
+    expect(screen.queryByText(/El proyecto solo se asigna/)).not.toBeInTheDocument()
+    await userEvent.click(toggle)
+    expect(screen.getByText(/Cambia el tipo de uso a «Proyecto»/)).toBeInTheDocument()
   })
 
   it('cambiar la fecha de fin del contrato lo guarda con PATCH', async () => {

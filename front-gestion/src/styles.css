@@ -3477,19 +3477,56 @@ table.data tbody tr:hover {
 .field-badge.historic { background: var(--color-primary-soft); color: var(--color-primary); }
 .field-badge.locked { background: var(--color-surface-soft); color: var(--color-text-muted); }
 
-/* Div informativo bajo un campo sensible (odómetro inicial, conductor): explica
-   por qué no se edita aquí y dónde se hace. Más visible que un `.muted` suelto. */
-.field-info {
-  margin: 0.35rem 0 0;
-  padding: 0.4rem 0.6rem;
-  border-left: 3px solid var(--color-primary);
-  background: var(--color-primary-soft);
+.field-cell { display: flex; flex-direction: column; }
+
+/* Nota informativa PLEGABLE bajo un campo (odómetro, conductor, proyecto): un
+   acordeón COLAPSADO por defecto. El disparador es compacto; el cuerpo aparece
+   al pulsarlo. Evita que los recuadros largos empujen el formulario. */
+.field-info-ac {
+  margin-top: 0.35rem;
+  /* Acento del tono (borde del cuerpo y color del disparador). */
+  --fi-accent: var(--color-primary);
+  --fi-soft: var(--color-primary-soft);
+}
+.field-info-ac.tone-muted {
+  --fi-accent: var(--color-border-strong, #9aa7b4);
+  --fi-soft: var(--color-surface-soft, #f1f4f8);
+}
+.field-info-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.2rem 0.45rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fi-accent);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.field-info-toggle:hover { background: var(--fi-soft); }
+.field-info-toggle:focus-visible { outline: 2px solid var(--fi-accent); outline-offset: 1px; }
+.field-info-icon { flex: 0 0 auto; }
+.field-info-label { min-width: 0; }
+.field-info-chevron {
+  flex: 0 0 auto;
+  transition: transform 0.18s ease;
+}
+.field-info-ac.is-open .field-info-chevron { transform: rotate(180deg); }
+.field-info-body {
+  margin-top: 0.3rem;
+  padding: 0.45rem 0.6rem;
+  border-left: 3px solid var(--fi-accent);
+  background: var(--fi-soft);
   border-radius: 6px;
   font-size: 0.8rem;
-  line-height: 1.35;
+  line-height: 1.4;
   color: var(--color-text);
 }
-.field-cell { display: flex; flex-direction: column; }
 
 /* Separación de los banners de aviso/conflicto (Panel de la librería) del formulario. */
 .form-banner { margin-bottom: 1.1rem; }
