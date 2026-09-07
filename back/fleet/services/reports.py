@@ -498,6 +498,11 @@ def _event_detail(event) -> str:
     driver = getattr(event, "driver_change", None)
     if driver:
         return f"Conductor: {_name(driver.old_driver)} → {_name(driver.new_driver)}"
+    supervisor = getattr(event, "supervisor_change", None)
+    if supervisor:
+        return (
+            f"Supervisor: {_name(supervisor.old_supervisor)} → {_name(supervisor.new_supervisor)}"
+        )
     penalty = getattr(event, "penalty", None)
     if penalty:
         return f"Importe: {penalty.amount or ''}; pagada: {_yn(penalty.paid)}"
@@ -518,6 +523,8 @@ def _events_table(vehicle_ids) -> Table:
             "pep_change__new_pep",
             "driver_change__old_driver",
             "driver_change__new_driver",
+            "supervisor_change__old_supervisor",
+            "supervisor_change__new_supervisor",
             "penalty",
         )
         .order_by("-event_date", "-id")

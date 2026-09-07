@@ -986,6 +986,23 @@ class EventSerializer(serializers.ModelSerializer):
                 "old_driver": drv.old_driver_id,
                 "new_driver": drv.new_driver_id,
             }
+        sup = getattr(obj, "supervisor_change", None)
+        if sup:
+            return {
+                "kind": "supervisor_change",
+                "old_supervisor": sup.old_supervisor_id,
+                "new_supervisor": sup.new_supervisor_id,
+                "old_supervisor_name": (
+                    sup.old_supervisor.get_full_name() or sup.old_supervisor.get_username()
+                    if sup.old_supervisor
+                    else None
+                ),
+                "new_supervisor_name": (
+                    sup.new_supervisor.get_full_name() or sup.new_supervisor.get_username()
+                    if sup.new_supervisor
+                    else None
+                ),
+            }
         penalty = getattr(obj, "penalty", None)
         if penalty:
             return {"kind": "penalty", "amount": penalty.amount, "paid": penalty.paid}

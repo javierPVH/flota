@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Modal, SelectField, TabButton, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { assignmentStatusTone, todayIso } from '../format.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
+import { buildSupervisorHistory, type SupervisorReign } from '../vehicleTimeline.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
 import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
 import { TableInfoBar } from './TableInfoBar.tsx'
@@ -13,13 +14,14 @@ import {
   fetchManagedUser,
   listAssignments,
   listDrivers,
+  listSupervisorChanges,
   listVehicleUsages,
   setUsageSplit,
   setVehicleDriver,
   updateAssignment,
   type VehicleUsageRow,
 } from '../api.ts'
-import type { AssignmentRow, Driver, ManagedUser, Vehicle } from '../types.ts'
+import type { AssignmentRow, Driver, FlotaEvent, ManagedUser, Vehicle } from '../types.ts'
 
 const today = todayIso
 
@@ -61,6 +63,9 @@ export function VehicleAssignmentsPanel({
   const [usageStart, setUsageStart] = useState(today())
   // Búsqueda en cliente del histórico (barra informativa).
   const [historySearch, setHistorySearch] = useState('')
+  // Pestaña del histórico: conductores (asignaciones) o supervisores (eventos).
+  const [historyTab, setHistoryTab] = useState<'drivers' | 'supervisors'>('drivers')
+  const [supervisorChanges, setSupervisorChanges] = useState<FlotaEvent[]>([])
 
   const current = assignments.find((a) => a.status === 'accepted' && a.end_date === null) ?? null
   const activeUsages = usages.filter((u) => u.end_date === null)
@@ -102,6 +107,45 @@ export function VehicleAssignmentsPanel({
     ]
   }, [t])
 
+  // Histórico de supervisores: periodos reconstruidos de los eventos de cambio.
+  const supervisorReigns = useMemo(
+    () => buildSupervisorHistory(supervisorChanges, vehicle.supervisor_name || null),
+    [supervisorChanges, vehicle.supervisor_name],
+  )
+  const supervisorRows = useMemo(() => {
+    const statusLabel = (r: SupervisorReign) =>
+      r.current ? t.supervisorStatus.current : t.supervisorStatus.past
+    const term = historySearch.trim().toLowerCase()
+    if (!term) return supervisorReigns
+    return supervisorReigns.filter((r) =>
+      `${r.supervisor} ${statusLabel(r)}`.toLowerCase().includes(term),
+    )
+  }, [supervisorReigns, historySearch, t])
+  const supervisorColumns = useMemo<Array<TableWithPanelColumn<SupervisorReign>>>(() => {
+    const statusLabel = (r: SupervisorReign) =>
+      r.current ? t.supervisorStatus.current : t.supervisorStatus.past
+    return [
+      {
+        key: 'supervisor',
+        label: t.supervisorColumn,
+        getValue: (r) => r.supervisor,
+        render: (r) => r.supervisor,
+      },
+      {
+        key: 'period',
+        label: t.columns.period,
+        getValue: (r) => r.start ?? '',
+        render: (r) => `${r.start ?? '…'} → ${r.end ?? '…'}`,
+      },
+      {
+        key: 'status',
+        label: t.columns.status,
+        getValue: (r) => statusLabel(r),
+        render: (r) => <Badge tone={r.current ? 'success' : 'neutral'}>{statusLabel(r)}</Badge>,
+      },
+    ]
+  }, [t])
+
   const load = useCallback(() => {
     listAssignments({ vehicle: vehicle.id })
       .then((page) => {
@@ -116,6 +160,11 @@ export function VehicleAssignmentsPanel({
       .then((page) => setUsages(page.results))
       .catch(() => setUsages([]))
     listDrivers().then(setDrivers).catch(() => setDrivers([]))
+    // Histórico de supervisores: eventos «cambio de supervisor» (más antiguo
+    // primero) para reconstruir los periodos por reinado.
+    listSupervisorChanges(vehicle.id)
+      .then((page) => setSupervisorChanges(page.results))
+      .catch(() => setSupervisorChanges([]))
   }, [vehicle.id])
 
   useEffect(load, [load])
@@ -124,6 +173,13 @@ export function VehicleAssignmentsPanel({
     drivers.find((d) => d.id === id)?.name ??
     assignments.find((a) => a.driver === id)?.driver_name ??
     `#${id}`
+
+  // Al cambiar de pestaña se limpia la búsqueda: el término de conductores no
+  // tiene por qué valer para supervisores (y el contador se recalcula).
+  function switchHistoryTab(tab: 'drivers' | 'supervisors') {
+    setHistoryTab(tab)
+    setHistorySearch('')
+  }
 
   function openChange() {
     setNewDriver('')
@@ -306,25 +362,71 @@ export function VehicleAssignmentsPanel({
         </div>
       </div>
 
-      {/* Histórico de conductores con la barra informativa (estilo Vehículos). */}
+      {/* Histórico en dos pestañas: conductores (asignaciones) y supervisores
+          (reconstruido de los eventos de cambio de supervisor). */}
       <div className="assign-history">
-        <h4>{t.history}</h4>
-        {assignments.length === 0 ? (
-          <p className="muted">{t.noAssignments}</p>
+        <div className="history-tabs" role="tablist">
+          <TabButton
+            role="tab"
+            aria-selected={historyTab === 'drivers'}
+            active={historyTab === 'drivers'}
+            onClick={() => switchHistoryTab('drivers')}
+            counterValue={assignments.length}
+          >
+            {t.driversTab}
+          </TabButton>
+          <TabButton
+            role="tab"
+            aria-selected={historyTab === 'supervisors'}
+            active={historyTab === 'supervisors'}
+            onClick={() => switchHistoryTab('supervisors')}
+            counterValue={supervisorReigns.length}
+          >
+            {t.supervisorsTab}
+          </TabButton>
+        </div>
+
+        {historyTab === 'drivers' ? (
+          assignments.length === 0 ? (
+            <p className="muted">{t.noAssignments}</p>
+          ) : (
+            <>
+              <TableInfoBar
+                count={historyRows.length}
+                recordsLabel={t.records}
+                searchLabel={t.searchLabel}
+                searchPlaceholder={t.searchPlaceholder}
+                search={historySearch}
+                onSearchChange={setHistorySearch}
+              />
+              <TableWithPanel<AssignmentRow>
+                rows={historyRows}
+                columns={historyColumns}
+                rowKey={(a) => String(a.id)}
+                enableColumnSort
+                showControlPanel={false}
+                enablePagination
+                defaultPageSize={25}
+                pageSizeOptions={[25, 50, 100]}
+              />
+            </>
+          )
+        ) : supervisorReigns.length === 0 ? (
+          <p className="muted">{t.noSupervisorHistory}</p>
         ) : (
           <>
             <TableInfoBar
-              count={historyRows.length}
+              count={supervisorRows.length}
               recordsLabel={t.records}
               searchLabel={t.searchLabel}
-              searchPlaceholder={t.searchPlaceholder}
+              searchPlaceholder={t.supervisorSearchPlaceholder}
               search={historySearch}
               onSearchChange={setHistorySearch}
             />
-            <TableWithPanel<AssignmentRow>
-              rows={historyRows}
-              columns={historyColumns}
-              rowKey={(a) => String(a.id)}
+            <TableWithPanel<SupervisorReign>
+              rows={supervisorRows}
+              columns={supervisorColumns}
+              rowKey={(r) => r.key}
               enableColumnSort
               showControlPanel={false}
               enablePagination

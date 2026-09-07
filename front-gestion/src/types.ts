@@ -161,6 +161,8 @@ export interface VehicleSummary {
   plate: string
   state: VehicleState
   next_itv_date: string | null
+  /** GAP-8: fecha del próximo mantenimiento preventivo (null si no hay plan). */
+  next_maintenance_date: string | null
   insurance_expiry_date: string | null
   unlimited_km: boolean
   is_substitute: boolean

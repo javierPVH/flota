@@ -178,3 +178,25 @@ class EventDriverChange(models.Model):
     class Meta:
         verbose_name = "cambio de conductor"
         verbose_name_plural = "cambios de conductor"
+
+
+class EventSupervisorChange(models.Model):
+    """Cambio de supervisor del vehículo (histórico de supervisores).
+
+    Mismo patrón que `EventDriverChange`: da la narrativa de negocio del relevo
+    de supervisor (incluido ponerlo o quitarlo). Cualquiera de los dos extremos
+    puede ser nulo (sin supervisor antes o después)."""
+
+    event = models.OneToOneField(
+        Event, on_delete=models.CASCADE, primary_key=True, related_name="supervisor_change"
+    )
+    old_supervisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    new_supervisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    class Meta:
+        verbose_name = "cambio de supervisor"
+        verbose_name_plural = "cambios de supervisor"
