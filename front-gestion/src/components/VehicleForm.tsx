@@ -7,16 +7,20 @@ import { useVehicleFormCopy, type VehicleFormCopy } from '../translations/vehicl
 import {
   convertToFleet,
   createCatalogEntry,
+  createContract,
   createVehicleFull,
   listSupervisors,
+  listVehicleContracts,
   fetchVehicle,
   fetchCatalogs,
   listAll,
   listDrivers,
   listVehicleModels,
   previewVehicle,
+  updateContract,
   updateVehicleFields,
   type CatalogEntry,
+  type VehicleContract,
   type VehicleFullInput,
 } from '../api.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
@@ -207,6 +211,35 @@ function vehiclePayload(form: FormState): Record<string, unknown> {
   }
 }
 
+/** Rellena los campos de contrato del formulario desde el contrato cargado. */
+function contractToForm(c: VehicleContract | null): Partial<FormState> {
+  if (!c) return {}
+  return {
+    renting: c.renting != null ? String(c.renting) : '',
+    contract_number: c.contract_number ?? '',
+    contract_time: c.contract_time != null ? String(c.contract_time) : '',
+    contract_km: c.contract_km != null ? String(c.contract_km) : '',
+    month_fee: c.month_fee != null ? String(c.month_fee) : '',
+    penalty_per_km: c.penalty_per_km != null ? String(c.penalty_per_km) : '',
+    contract_start: c.start_date ?? '',
+    contract_end: c.planned_end_date ?? '',
+  }
+}
+
+/** Payload del contrato con las claves del back (para PATCH/POST). */
+function contractPayload(form: FormState): Record<string, unknown> {
+  return {
+    contract_number: form.contract_number,
+    contract_time: form.contract_time ? Number(form.contract_time) : null,
+    contract_km: form.contract_km ? Number(form.contract_km) : null,
+    renting: form.renting ? Number(form.renting) : null,
+    start_date: form.contract_start || null,
+    planned_end_date: form.contract_end || null,
+    month_fee: form.month_fee || null,
+    penalty_per_km: form.penalty_per_km || null,
+  }
+}
+
 function catalogOptions(entries: CatalogEntry[], empty = '—') {
   return [
     { value: '', label: empty },
@@ -262,6 +295,9 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
   const [converting, setConverting] = useState(false)
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
+  // Contrato vigente del vehículo (edición): su id para el PATCH, o null si no
+  // tenía y hay que crearlo (POST) al rellenar sus campos.
+  const [contractId, setContractId] = useState<number | null>(null)
   const [form, setForm] = useState<FormState>(() =>
     editing ? EMPTY : { ...EMPTY, is_substitute: defaultSubstitute },
   )
@@ -340,10 +376,23 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
 
   useEffect(() => {
     if (!vehicleId) return
-    fetchVehicle(vehicleId)
-      .then((v) => {
+    Promise.all([
+      fetchVehicle(vehicleId),
+      // El contrato vive aparte del vehículo (write_only en su serializer): se
+      // carga para poder editarlo aquí. Un fallo no impide editar la ficha.
+      listVehicleContracts(vehicleId)
+        .then((r) => r.results)
+        .catch(() => [] as VehicleContract[]),
+    ])
+      .then(([v, contracts]) => {
         setVehicle(v)
-        const state = fromVehicle(v)
+        // El vigente (fin real vacío + activo) o, en su defecto, el más reciente.
+        const current =
+          contracts.find((c) => c.end_date == null && c.is_active) ??
+          [...contracts].sort((a, b) => b.start_date.localeCompare(a.start_date))[0] ??
+          null
+        setContractId(current?.id ?? null)
+        const state = { ...fromVehicle(v), ...contractToForm(current) }
         setForm(state)
         setInitial(state)
         onLoaded?.(v)
@@ -374,14 +423,60 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
     return out
   }
 
+  /** Campos del contrato que han cambiado (para el PATCH/POST del contrato). */
+  function contractChangedPayload(): Record<string, unknown> {
+    const full = contractPayload(form)
+    const before = contractPayload(initial)
+    const out: Record<string, unknown> = {}
+    for (const key of Object.keys(full)) {
+      if (JSON.stringify(full[key]) !== JSON.stringify(before[key])) out[key] = full[key]
+    }
+    return out
+  }
+
+  // El renting viaja como id; en el preview se muestra su nombre.
+  const contractValueLabel = (key: string, value: unknown): unknown => {
+    if (value == null || value === '') return value
+    if (key === 'renting') return rentings.find((r) => String(r.id) === String(value))?.name ?? value
+    return value
+  }
+
+  /** Diff del contrato para el preview: {campo: [antes, después]}. */
+  function contractChangedPreview(): Record<string, [unknown, unknown]> {
+    const full = contractPayload(form)
+    const before = contractPayload(initial)
+    const out: Record<string, [unknown, unknown]> = {}
+    for (const key of Object.keys(full)) {
+      if (JSON.stringify(full[key]) !== JSON.stringify(before[key])) {
+        out[key] = [contractValueLabel(key, before[key]), contractValueLabel(key, full[key])]
+      }
+    }
+    return out
+  }
+
+  /** Guarda los cambios de contrato (PATCH del vigente, o POST si no tenía). */
+  async function saveContractChanges() {
+    const changed = contractChangedPayload()
+    if (Object.keys(changed).length === 0) return
+    if (contractId != null) {
+      await updateContract(contractId, changed)
+    } else {
+      // El vehículo no tenía contrato: se crea con lo introducido (el back
+      // exige inicio y fin previstos y valida las fechas).
+      await createContract({ vehicle: vehicleId, ...contractPayload(form) })
+    }
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     setError('')
     if (editing && vehicleId) {
-      // HU-1.4: preview de cambios antes de guardar.
+      // HU-1.4: preview de cambios antes de guardar. El servidor calcula el
+      // diff del vehículo; el del contrato se compone en cliente (se edita en
+      // la misma pantalla pero es otro recurso).
       try {
         const result = await previewVehicle(vehicleId, changedPayload())
-        setPreview(result.changes)
+        setPreview({ ...result.changes, ...contractChangedPreview() })
       } catch (err) {
         setError(asErrorMessage(err, t.previewError))
       }
@@ -424,6 +519,9 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
         // Bloqueo optimista: si la ficha cambió entre medias, el back devuelve 409.
         expected_updated_at: vehicle.updated_at,
       })
+      // El contrato es otro recurso: se guarda tras el vehículo (su validación
+      // de fechas puede rechazar y el error se muestra en el mismo formulario).
+      await saveContractChanges()
       onSuccess(vehicleId)
     } catch (err) {
       setPreview(null)
@@ -639,16 +737,20 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
               />
               {t.fuelCard}
             </label>
-            <Labeled badge={editing ? 'locked' : undefined}>
-              <TextInputField
-                label={t.kmStart}
-                type="number"
-                value={form.km_start}
-                onChange={setInput('km_start')}
-                disabled={editing}
-                title={editing ? t.kmStartLockedTitle : undefined}
-              />
-            </Labeled>
+            <div className="field-cell">
+              <Labeled badge={editing ? 'locked' : undefined}>
+                <TextInputField
+                  label={t.kmStart}
+                  type="number"
+                  value={form.km_start}
+                  onChange={setInput('km_start')}
+                  disabled={editing}
+                  title={editing ? t.kmStartLockedTitle : undefined}
+                />
+              </Labeled>
+              {/* Campo sensible: en edición explicamos por qué no se toca aquí. */}
+              {editing && <div className="field-info">{t.kmStartEditInfo}</div>}
+            </div>
           </div>
           {!editing && <p className="muted">{t.kmStartNote}</p>}
         </section>
@@ -688,19 +790,23 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                 disabled={!onProject}
               />
             </Labeled>
-            <Labeled badge={editing ? 'locked' : undefined}>
-              <SelectField
-                label={t.driver}
-                options={[
-                  { value: '', label: t.unassigned },
-                  ...drivers.map((d) => ({ value: String(d.id), label: d.name })),
-                ]}
-                value={form.driver}
-                onValueChange={set('driver')}
-                disabled={editing}
-                title={editing ? t.driverLockedTitle : undefined}
-              />
-            </Labeled>
+            <div className="field-cell">
+              <Labeled badge={editing ? 'locked' : undefined}>
+                <SelectField
+                  label={t.driver}
+                  options={[
+                    { value: '', label: t.unassigned },
+                    ...drivers.map((d) => ({ value: String(d.id), label: d.name })),
+                  ]}
+                  value={form.driver}
+                  onValueChange={set('driver')}
+                  disabled={editing}
+                  title={editing ? t.driverLockedTitle : undefined}
+                />
+              </Labeled>
+              {/* Campo sensible: el conductor tiene su propio flujo (histórico). */}
+              {editing && <div className="field-info">{t.driverEditInfo}</div>}
+            </div>
             <SelectField
               label={t.supervisor}
               options={[
@@ -786,7 +892,7 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
               value={form.insurance_expiry_date}
               onChange={setInput('insurance_expiry_date')}
             />
-            {!editing && isRenting && (
+            {isRenting && (
               <>
                 <SelectField
                   label={t.rentingCompany}
@@ -839,10 +945,14 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
               </>
             )}
           </div>
-          {editing ? (
-            <p className="muted">{t.contractEditNote}</p>
-          ) : (
-            isRenting && <p className="muted">{t.contractCreateNote}</p>
+          {isRenting && (
+            <p className="muted">
+              {editing
+                ? contractId != null
+                  ? t.contractEditNote
+                  : t.contractCreateHint
+                : t.contractCreateNote}
+            </p>
           )}
         </section>
 

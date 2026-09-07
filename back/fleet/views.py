@@ -342,13 +342,20 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 # B4: `change_date` es la fecha CON EFECTO del cambio (la baja
                 # puede ser de un día anterior); sin ella, el cliente la metía
                 # dentro del motivo como texto castellano.
+                when = parse_date(str(self.request.data.get("change_date", "") or ""))
                 events.emit_vehicle_state_change(
                     updated,
                     old_state,
                     updated.state,
                     reason=str(self.request.data.get("change_reason", "")),
-                    when=parse_date(str(self.request.data.get("change_date", "") or "")),
+                    when=when,
                 )
+                # Editar el estado a BAJA es una baja como cualquier otra: quita
+                # el conductor (con su histórico), y cierra sustituciones,
+                # alertas y contrato. Sin esto el coche salía del listado pero
+                # seguía «ocupando» al conductor y lo bloqueaba para otro coche.
+                if updated.state == VehicleState.BAJA:
+                    returns.close_vehicle_relations(updated, when or timezone.localdate())
 
     def perform_destroy(self, instance):
         """N7: un vehículo NO se borra — se da de BAJA.
@@ -366,12 +373,10 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         reason = str(self.request.query_params.get("reason", "") or "")
         if not reason and isinstance(self.request.data, dict):
             reason = str(self.request.data.get("reason", "") or "")
-        old_state = instance.state
+        # La baja quita el conductor (con su histórico), cierra sustituciones,
+        # alertas y contrato, y emite el evento de estado — en una transacción.
         with transaction.atomic():
-            instance.state = VehicleState.BAJA
-            instance.save(update_fields=["state", "updated_at"])
-            # Misma traza que un cambio de estado normal: quién y por qué.
-            events.emit_vehicle_state_change(instance, old_state, VehicleState.BAJA, reason=reason)
+            returns.retire_vehicle(instance, reason=reason)
 
     # --- Importación masiva (IMPORTACION_MASIVA.md) -------------------------
     # detect-columns → preview-import → bulk-create (tandas del cliente).

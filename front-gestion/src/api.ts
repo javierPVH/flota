@@ -579,7 +579,33 @@ export const listEvents = (vehicle: number, req: ReqOpts = {}) =>
 export const fetchVehicleHistory = (id: number, req: ReqOpts = {}) =>
   getJson<Paginated<AuditEntry>>(`${API}/vehicles/${id}/history/${listQs({})}`, req)
 
-/** Editar campos de un contrato (p. ej. el enlace del contrato en Drive). */
+/** Contrato de un vehículo (renting/propiedad). Los campos editables desde la
+ * ficha del vehículo (G3): fechas, cuota, km e importes. */
+export interface VehicleContract {
+  id: number
+  vehicle: number
+  contract_number: string
+  contract_time: number | null
+  contract_km: number | null
+  renting: number | null
+  start_date: string
+  planned_end_date: string
+  end_date: string | null
+  month_fee: string | null
+  penalty_per_km: string | null
+  drive_url: string
+  is_active: boolean
+}
+
+/** Contratos de un vehículo (para editar el vigente desde su ficha). */
+export const listVehicleContracts = (vehicleId: number, req: ReqOpts = {}) =>
+  getJson<Paginated<VehicleContract>>(`${API}/contracts/${listQs({ vehicle: vehicleId })}`, req)
+
+/** Alta de contrato para un vehículo que aún no tenía (edición, G3). */
+export const createContract = (data: Record<string, unknown>) =>
+  postJson<VehicleContract>(`${API}/contracts/`, data)
+
+/** Editar campos de un contrato (fechas, cuota, km… y el enlace en Drive). */
 export const updateContract = (id: number, data: Record<string, unknown>) =>
   patchJson(`${API}/contracts/${id}/`, data)
 

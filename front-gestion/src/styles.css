@@ -3477,6 +3477,20 @@ table.data tbody tr:hover {
 .field-badge.historic { background: var(--color-primary-soft); color: var(--color-primary); }
 .field-badge.locked { background: var(--color-surface-soft); color: var(--color-text-muted); }
 
+/* Div informativo bajo un campo sensible (odómetro inicial, conductor): explica
+   por qué no se edita aquí y dónde se hace. Más visible que un `.muted` suelto. */
+.field-info {
+  margin: 0.35rem 0 0;
+  padding: 0.4rem 0.6rem;
+  border-left: 3px solid var(--color-primary);
+  background: var(--color-primary-soft);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--color-text);
+}
+.field-cell { display: flex; flex-direction: column; }
+
 /* Separación de los banners de aviso/conflicto (Panel de la librería) del formulario. */
 .form-banner { margin-bottom: 1.1rem; }
 

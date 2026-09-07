@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { LanguageProvider } from '../i18n.tsx'
-import { MyDocumentsCard } from './MyDocumentsCard.tsx'
+import { PersonalDocumentsPanel, usePersonalDocuments } from './PersonalDocuments.tsx'
 
 const mocks = vi.hoisted(() => ({
   listPersonalDocuments: vi.fn(),
@@ -44,15 +44,20 @@ const LICENSE = {
   updated_at: '2026-09-01T10:00:00Z',
 }
 
+/** El panel recibe el estado del hook: quien lo enmarca ya lo tiene cargado. */
+function Harness() {
+  return <PersonalDocumentsPanel {...usePersonalDocuments()} />
+}
+
 function renderCard() {
   render(
     <LanguageProvider>
-      <MyDocumentsCard />
+      <Harness />
     </LanguageProvider>,
   )
 }
 
-describe('MyDocumentsCard (R3-43: documentos personales en campo)', () => {
+describe('PersonalDocumentsPanel (R3-43: documentos personales en campo)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     document.documentElement.lang = 'es'

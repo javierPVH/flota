@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   createKmReading: vi.fn(),
   listIncidents: vi.fn(),
   listDocuments: vi.fn(),
+  listPersonalDocuments: vi.fn(),
   roles: ['driver'] as Role[],
   navigate: vi.fn(),
 }))
@@ -31,6 +32,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   createKmReading: mocks.createKmReading,
   listIncidents: mocks.listIncidents,
   listDocuments: mocks.listDocuments,
+  listPersonalDocuments: mocks.listPersonalDocuments,
 }))
 
 vi.mock('react-router-dom', async (importOriginal) => ({
@@ -85,6 +87,7 @@ describe('MyVehiclesPage (M1)', () => {
     })
     mocks.listIncidents.mockResolvedValue({ count: 0, results: [] })
     mocks.listDocuments.mockResolvedValue({ count: 0, results: [] })
+    mocks.listPersonalDocuments.mockResolvedValue({ count: 0, results: [] })
     // N8a: ventana del 20 a fin de mes → el mejor día para registrar es el 31.
     mocks.fetchKmWindow.mockResolvedValue({
       open: true,
@@ -119,7 +122,7 @@ describe('MyVehiclesPage (M1)', () => {
     expect(screen.getByText('el día 31 · en 3 días')).toBeInTheDocument()
     // Los acordeones de averías y documentos, con su recuento.
     expect(screen.getByText('Alertas y averías')).toBeInTheDocument()
-    expect(screen.getByText('Documentos')).toBeInTheDocument()
+    expect(screen.getByText('Documentación')).toBeInTheDocument()
     expect(mocks.listDocuments).toHaveBeenCalledWith(1)
     // La ficha enlaza a la ficha de campo (M2).
     expect(screen.getByRole('link', { name: 'Ver ficha' })).toHaveAttribute(
@@ -234,8 +237,62 @@ describe('MyVehiclesPage (M1)', () => {
     expect(screen.queryByText(/Cambio de aceite/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Embrague duro/)).not.toBeInTheDocument()
     expect(screen.getByText('Permiso de circulación')).not.toBeVisible()
-    await userEvent.click(screen.getByText('Documentos'))
+    await userEvent.click(screen.getByText('Documentación'))
     expect(screen.getByText('Permiso de circulación')).toBeVisible()
+  })
+
+  it('la documentación son dos pestañas: la del coche y la del conductor', async () => {
+    mocks.listVehicles.mockResolvedValue({ count: 1, results: [vehicle(1, '1234KLM')] })
+    mocks.fetchVehicleSummaries.mockResolvedValue([summary(1, 31000, '2026-08-25')])
+    mocks.listDocuments.mockResolvedValue({
+      count: 1,
+      results: [
+        {
+          id: 4,
+          type_display: 'Permiso de circulación',
+          status: 'valid',
+          status_display: 'Vigente',
+          created_at: '2026-01-10T00:00:00Z',
+          expiry_date: null,
+          drive_url: 'https://drive.example/d/4',
+          file_url: '',
+        },
+      ],
+    })
+    // Titular PERSONA: no cuelga de ningún coche (es lo que separan las pestañas).
+    mocks.listPersonalDocuments.mockResolvedValue({
+      count: 1,
+      results: [
+        {
+          id: 9,
+          vehicle: null,
+          type_display: 'Permiso de conducir',
+          status: 'archived',
+          status_display: 'Archivado',
+          created_at: '2026-02-02T00:00:00Z',
+          expiry_date: '2030-01-01',
+          drive_url: '',
+          file_url: 'https://flota.example/media/permiso.jpg',
+        },
+      ],
+    })
+
+    renderPage()
+    await screen.findByText('1234KLM')
+    await userEvent.click(screen.getByText('Documentación'))
+
+    // Arranca en la del coche: sus papeles, no los de la persona.
+    expect(screen.getByRole('tab', { name: /Documentación del coche/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.getByText('Permiso de circulación')).toBeVisible()
+    expect(screen.queryByText('Permiso de conducir')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('tab', { name: /Documentación del conductor/ }))
+    expect(await screen.findByText('Permiso de conducir')).toBeVisible()
+    expect(screen.queryByText('Permiso de circulación')).not.toBeInTheDocument()
+    expect(mocks.listPersonalDocuments).toHaveBeenCalledWith(1)
   })
 
   it('al registrar los km refresca la tarjeta y elimina la alerta pendiente', async () => {
@@ -318,7 +375,7 @@ describe('MyVehiclesPage (M1)', () => {
     // Km y acordeones del tablero; sin barra de acciones (nav del shell).
     expect(screen.getByText('31.000 km')).toBeInTheDocument()
     expect(screen.getByText('Alertas y averías')).toBeInTheDocument()
-    expect(screen.getByText('Documentos')).toBeInTheDocument()
+    expect(screen.getByText('Documentación')).toBeInTheDocument()
     expect(document.querySelector('.home-quick')).toBeNull()
   })
 

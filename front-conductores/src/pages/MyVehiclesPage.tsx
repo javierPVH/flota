@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, ExternalLink, FileText, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import { Badge, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
@@ -17,26 +17,14 @@ import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { useAccordion } from '../components/CollapsibleCard.tsx'
 import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
-import { MyDocumentsCard } from '../components/MyDocumentsCard.tsx'
+import { DocumentsTabsCard } from '../components/DocumentsTabsCard.tsx'
 import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
 import { VehicleAlertsBreakdownsCard } from '../components/VehicleAlertsBreakdownsCard.tsx'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
-import {
-  documentStatusTone,
-  fmtDate,
-  isOpenBreakdown,
-  pendingThisMonth,
-  vehicleStateTone,
-} from '../format.ts'
+import { isOpenBreakdown, pendingThisMonth, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
-
-/** Solo enlaces http(s), como en la ficha de campo (el back ya sanea). */
-function documentHref(doc: FlotaDocument): string {
-  const safe = (url: string) => (/^https?:\/\//i.test(url) ? url : '')
-  return safe(doc.drive_url) || safe(doc.file_url)
-}
 
 /**
  * M1 — Mi vehículo (HU-1.1). El back acota el listado por rol (conductor:
@@ -281,10 +269,9 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
         </div>
       )}
 
-      {/* R3-43: documentos PERSONALES (permiso de conducir…) — del USUARIO,
-          no de un coche: una sola vez, también sin vehículo propio. */}
-      <MyDocumentsCard />
-
+      {/* R3-43: los documentos PERSONALES ya no son una tarjeta suelta aquí —
+          son la pestaña «del conductor» de la documentación del tablero, y la
+          pantalla del avatar («Mi perfil»), que es la vía también sin coche. */}
     </div>
   )
 }
@@ -322,7 +309,7 @@ function OwnVehiclePanel({
   /** Flecha junto a la matrícula: desliza al otro coche de la pareja. */
   reelButton?: ReelButton
 }) {
-  const { t, language } = useLang()
+  const { t } = useLang()
   const accordion = useAccordion(['alerts'], ['alerts'])
   const blocked = summary?.blocked_by_link ?? null
   const covering = summary?.substituting_for ?? null
@@ -386,57 +373,9 @@ function OwnVehiclePanel({
         onChanged={onChanged}
       />
 
-      {/* Acordeón de documentos (los archivos viven en Drive; la subida, en el
-          nav inferior). */}
-      <details className="card alert-group">
-        <summary className="alert-group-head">
-          <ChevronRight size={16} aria-hidden className="alert-group-chev" />
-          <div className="alert-group-info">
-            <div className="alert-group-title">
-              <strong>{t.vehicle.documentsTitle}</strong>
-              <Badge tone="info" size="sm">
-                {documents.length}
-              </Badge>
-            </div>
-          </div>
-        </summary>
-        <div className="alert-group-body">
-          {documents.length === 0 && <p className="empty-note">{t.vehicle.noDocuments}</p>}
-          {documents.length > 0 && (
-            <ul className="doc-list">
-              {documents.map((doc) => {
-                const href = documentHref(doc)
-                return (
-                  <li key={doc.id} className="doc-item">
-                    <FileText size={18} aria-hidden className="doc-icon" />
-                    <div className="doc-info">
-                      <strong>{doc.type_display}</strong>
-                      <span className="doc-sub">
-                        {fmtDate(doc.created_at, language)}
-                        {doc.expiry_date
-                          ? t.vehicle.expires(fmtDate(doc.expiry_date, language))
-                          : ''}
-                      </span>
-                    </div>
-                    <Badge tone={documentStatusTone(doc.status)}>{doc.status_display}</Badge>
-                    {href && (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="doc-open"
-                        aria-label={t.vehicle.openDoc(doc.type_display)}
-                      >
-                        <ExternalLink size={18} aria-hidden />
-                      </a>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </div>
-      </details>
+      {/* Documentación, en una tarjeta con dos pestañas: la del coche y la
+          del conductor (el titular del documento es una cosa o la otra). */}
+      <DocumentsTabsCard documents={documents} />
     </div>
   )
 }

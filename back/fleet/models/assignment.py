@@ -35,12 +35,21 @@ def driver_assignment_clash(
     dentro de un coche ya lo gobiernan `accept`/`set_driver` y la constraint
     `unique_active_assignment_per_vehicle`.
     """
-    qs = Assignment.objects.filter(
-        driver_id=driver_id,
-        status=AssignmentStatus.ACCEPTED,
-        is_active=True,
-        vehicle__is_substitute=is_substitute,
-    ).select_related("vehicle")
+    # Un coche que ya salió de la flota (BAJA) no «ocupa» al conductor: si una
+    # asignación quedó colgada de una baja mal cerrada, no debe bloquear la
+    # siguiente. La baja cierra sus asignaciones (services.returns), pero esto lo
+    # cubre también frente a datos heredados. (El ciclo de vida del vehículo es
+    # `state`, no `is_active` — su terminal es BAJA.)
+    qs = (
+        Assignment.objects.filter(
+            driver_id=driver_id,
+            status=AssignmentStatus.ACCEPTED,
+            is_active=True,
+            vehicle__is_substitute=is_substitute,
+        )
+        .exclude(vehicle__state=VehicleState.BAJA)
+        .select_related("vehicle")
+    )
     if exclude_pk is not None:
         qs = qs.exclude(pk=exclude_pk)
     if exclude_vehicle_id is not None:

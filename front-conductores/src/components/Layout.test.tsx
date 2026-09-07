@@ -172,3 +172,16 @@ describe('cola offline en el shell (banner → flush → aviso)', () => {
     })
   })
 })
+
+describe('avatar del header', () => {
+  beforeEach(drain)
+
+  it('es un enlace a Mi perfil (mis datos y mis documentos)', async () => {
+    renderShell()
+
+    const avatar = await screen.findByRole('link', { name: /Mi perfil/ })
+    expect(avatar).toHaveAttribute('href', '/perfil')
+    // Las iniciales siguen siendo la pista visual de quién está dentro.
+    expect(avatar).toHaveTextContent('AP')
+  })
+})
