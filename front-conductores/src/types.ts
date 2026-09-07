@@ -133,6 +133,9 @@ export interface VehicleSummary {
   } | null
   km_current: number | null
   km_reading_date: string | null
+  /** R3-42/N8b: la última lectura es una ESTIMACIÓN automática (media
+   * mensual), no un dato del cuadro — el campo debe verlo para corregirla. */
+  km_estimated?: boolean
   km_driven: number | null
   driver: { id: number; name: string } | null
   contract: {
@@ -175,17 +178,6 @@ export interface Alert {
   message: string
   due_date: string | null
   created_at: string
-}
-
-/** Asignación (aquí solo lectura de propuestas propias — HU-2.3). */
-export interface AssignmentRow {
-  id: number
-  vehicle: number
-  driver: number
-  driver_name: string
-  start_date: string
-  end_date: string | null
-  status: 'proposed' | 'accepted' | 'rejected' | 'finished'
 }
 
 /** Lectura de odómetro acumulado (HU-3.1). */

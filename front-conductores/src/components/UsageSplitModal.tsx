@@ -6,6 +6,7 @@ import { asErrorMessage } from '@flota/ui/http'
 import { listVehicleUsages, setUsageSplit } from '../api.ts'
 import { fmtDate, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
+import { useSplitCopy } from '../translations/split.ts'
 import type { Driver, Vehicle, VehicleUsageRow } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
@@ -31,6 +32,8 @@ export function UsageSplitModal({
   onSaved: () => void
 }) {
   const { t } = useLang()
+  // R3-36: el copy del reparto viaja con el chunk del modal.
+  const ts = useSplitCopy()
   const [usages, setUsages] = useState<VehicleUsageRow[]>([])
   const [lines, setLines] = useState<Line[]>([{ driver: '', percent: '100' }])
   const [startDate, setStartDate] = useState(todayIso())
@@ -80,7 +83,7 @@ export function UsageSplitModal({
       })
       onSaved()
     } catch (err) {
-      setError(asErrorMessage(err, t.split.saveError))
+      setError(asErrorMessage(err, ts.saveError))
     } finally {
       setSaving(false)
     }
@@ -89,16 +92,16 @@ export function UsageSplitModal({
   const history = usages.filter((u) => u.end_date)
 
   return (
-    <SupervisorModal open title={t.split.title(vehicle.plate)} onClose={onClose}>
+    <SupervisorModal open title={ts.title(vehicle.plate)} onClose={onClose}>
       <form className="modal-form" onSubmit={handleSubmit}>
-        <p className="doc-sub">{t.split.hint}</p>
+        <p className="doc-sub">{ts.hint}</p>
 
         {lines.map((line, index) => (
           <div key={index} className="split-line">
             <SelectField
-              label={index === 0 ? t.split.person : undefined}
+              label={index === 0 ? ts.person : undefined}
               options={[
-                { value: '', label: t.split.choose },
+                { value: '', label: ts.choose },
                 ...drivers.map((d) => ({ value: String(d.id), label: d.name })),
               ]}
               value={line.driver}
@@ -117,7 +120,7 @@ export function UsageSplitModal({
               <button
                 type="button"
                 className="line-remove"
-                aria-label={t.split.removePerson}
+                aria-label={ts.removePerson}
                 onClick={() => setLines((ls) => ls.filter((_, i) => i !== index))}
               >
                 <Trash2 size={18} aria-hidden />
@@ -133,13 +136,13 @@ export function UsageSplitModal({
             size="sm"
             onClick={() => setLines((ls) => [...ls, { driver: '', percent: '' }])}
           >
-            <Plus size={15} aria-hidden /> {t.split.addPerson}
+            <Plus size={15} aria-hidden /> {ts.addPerson}
           </Button>
-          <span className={`split-total ${balanced ? 'ok' : 'ko'}`}>{t.split.sum(total)}</span>
+          <span className={`split-total ${balanced ? 'ok' : 'ko'}`}>{ts.sum(total)}</span>
         </div>
 
         <TextInputField
-          label={t.split.since}
+          label={ts.since}
           type="date"
           value={startDate}
           onChange={(e) => setStartDate(e.target.value)}
@@ -153,13 +156,13 @@ export function UsageSplitModal({
             {t.common.cancel}
           </Button>
           <Button type="submit" disabled={saving || !balanced || !complete}>
-            {saving ? t.split.saving : t.split.save}
+            {saving ? ts.saving : ts.save}
           </Button>
         </div>
 
         {history.length > 0 && (
           <div className="split-history">
-            <h4 className="panel-title">{t.split.history}</h4>
+            <h4 className="panel-title">{ts.history}</h4>
             <ul className="doc-list">
               {history.map((u) => (
                 <li key={u.id} className="doc-item">

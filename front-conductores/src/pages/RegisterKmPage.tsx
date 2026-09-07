@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import { CheckCircle2, Gauge } from 'lucide-react'
 import { Button, PageHeader, Panel, SelectField } from '@flota/ui/ui'
@@ -10,6 +10,7 @@ import {
   fetchVehicleSummary,
   listKmReadings,
   listVehicles,
+  listVehiclesCached,
   type KmWindow,
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
@@ -35,6 +36,12 @@ interface SavedReading {
  */
 export function RegisterKmPage() {
   const { t } = useLang()
+  // R3-30: la carga inicial lee `t` por ref — con `t` en sus deps, el botón
+  // es/en re-descargaba el selector de vehículos.
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
   const { user } = useAuth()
   const [params] = useSearchParams()
   const preselected = params.get('vehiculo') ?? ''
@@ -79,19 +86,22 @@ export function RegisterKmPage() {
 
   useEffect(() => {
     let alive = true
-    listVehicles(supervisedBy !== null ? { supervisor: supervisedBy } : {})
+    // R3-28: sin filtro de supervisor es la misma lista del arranque (caché).
+    const promise =
+      supervisedBy !== null ? listVehicles({ supervisor: supervisedBy }) : listVehiclesCached()
+    promise
       .then((page) => {
         if (!alive) return
         setVehicles(page.results)
         // Sin preselección, con un solo coche no hay nada que elegir.
         if (!preselected && page.results.length === 1) setVehicleId(String(page.results[0].id))
       })
-      .catch((err) => alive && setError(asErrorMessage(err, t.home.loadError)))
+      .catch((err) => alive && setError(asErrorMessage(err, tRef.current.home.loadError)))
       .finally(() => alive && setLoading(false))
     return () => {
       alive = false
     }
-  }, [preselected, t, supervisedBy])
+  }, [preselected, supervisedBy])
 
   // Historial reciente (mejora 🟡): las últimas lecturas a la vista ayudan a
   // detectar erratas en el momento (un dígito de más se ve al instante).
@@ -248,12 +258,15 @@ export function RegisterKmPage() {
               <>
                 {t.km.lastReading} <strong>{fmtKm(summary.km_current)}</strong>
                 {summary.km_reading_date ? ` (${fmtDate(summary.km_reading_date)})` : ''}
+                {summary.km_estimated ? ` · ${t.km.estimatedTag}` : ''}
                 {pendingThisMonth(summary) ? t.km.missingMonth : ''}
               </>
             ) : (
               t.km.firstReading
             )}
           </p>
+          {/* R3-42: aquí es donde se corrige — decir que la cifra es estimada. */}
+          {summary.km_estimated && <p className="doc-sub">{t.km.estimatedNote}</p>}
         </Panel>
       )}
 

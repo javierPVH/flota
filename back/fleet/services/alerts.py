@@ -12,10 +12,12 @@ configurables"): `FLEET_ITV_ALERT_DAYS`, `FLEET_NO_DRIVER_ALERT_DAYS`,
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import date, timedelta
 
 from django.conf import settings
-from django.db.models import Max
+from django.db.models import F, Max, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 from accounts import push as webpush
@@ -35,7 +37,7 @@ from fleet.models.enums import (
     AssignmentStatus,
     ItvResult,
 )
-from fleet.selectors import current_driver_map
+from fleet.selectors import current_assignment_q, current_driver_map, latest_reading_map
 
 
 def _today(today: date | None) -> date:
@@ -43,8 +45,11 @@ def _today(today: date | None) -> date:
 
 
 def _active_vehicles():
-    # `active()` excluye los vehículos de baja (soft-delete).
-    return Vehicle.objects.active()
+    # `active()` excluye los vehículos de baja (soft-delete). R4-05: el
+    # supervisor viene seleccionado — el push de cada alerta nueva lo lee
+    # (`_push_alert`) y sin el join eran una consulta POR alerta al entregar
+    # la tanda diferida.
+    return Vehicle.objects.active().select_related("supervisor")
 
 
 def upsert_alert(
@@ -141,28 +146,40 @@ def resolve_satisfied_km_reading_alerts(latest_periods: dict[int, str]) -> int:
     )
 
 
-def _notify_alert(alert: Alert) -> None:
-    """Push (M8) a los afectados por una alerta NUEVA — best-effort.
+# R3-14: cola de push por PASADA. Dentro de `deferred_push()` (el bucle de
+# jobs), `_notify_alert` solo APUNTA la alerta; el envío —peticiones HTTP al
+# push service con timeout de 10 s por suscripción— va al final, fuera de los
+# chequeos, con UNA consulta de conductores para toda la tanda. Es el mismo
+# razonamiento que M6 para el correo. Fuera del contexto (p. ej. el
+# recordatorio manual del supervisor, que es un request web) el push sigue
+# saliendo inmediato.
+#
+# R4-05: OJO — es un global de MÓDULO sin candado: vale para el bucle de
+# `jobs` (proceso monohilo, un `run_all` a la vez), NO para envolver vistas
+# web concurrentes. Si algún día un request necesitara diferir push, esto
+# tendría que pasar a un contextvar o a una tabla, como el correo.
+_push_batch: list[Alert] | None = None
 
-    Destinatarios: el usuario de la alerta (p. ej. el conductor del km
-    pendiente) o, si no lo tiene, el conductor en curso del vehículo; y además
-    su supervisor (que en `no_driver` es el único que existe). Solo alertas
-    nuevas: el refresco de una abierta no re-notifica.
-    """
-    if not webpush.push_enabled():
-        return
-    # A16/X1: el seguro es asunto de administración y la bandeja se lo oculta al
-    # conductor y al supervisor (`AlertViewSet.get_queryset`). Notificárselo por
-    # push era un aviso sin destino: al abrir la app no existía.
-    if alert.type == AlertType.INSURANCE_DUE:
-        return
+
+@contextmanager
+def deferred_push():
+    """Difere los push de las alertas creadas dentro y los entrega al salir."""
+    global _push_batch
+    _push_batch = []
+    try:
+        yield
+    finally:
+        batch, _push_batch = _push_batch, None
+        _flush_push(batch)
+
+
+def _push_alert(alert: Alert, driver) -> None:
+    """Envía el push de UNA alerta a sus afectados (driver ya resuelto)."""
     recipients = set()
     if alert.user_id:
         recipients.add(alert.user)
-    elif alert.vehicle_id:
-        driver = current_driver_map([alert.vehicle_id]).get(alert.vehicle_id)
-        if driver:
-            recipients.add(driver)
+    elif driver is not None:
+        recipients.add(driver)
     if alert.vehicle_id and alert.vehicle.supervisor_id:
         recipients.add(alert.vehicle.supervisor)
     plate = alert.vehicle.plate if alert.vehicle_id else "Flota"
@@ -173,6 +190,41 @@ def _notify_alert(alert: Alert) -> None:
             body=alert.message,
             url="/alertas",
         )
+
+
+def _flush_push(batch: list[Alert]) -> None:
+    """Entrega la tanda diferida: un `current_driver_map` para TODOS."""
+    if not batch or not webpush.push_enabled():
+        return
+    vehicle_ids = {a.vehicle_id for a in batch if a.vehicle_id and not a.user_id}
+    drivers = current_driver_map(vehicle_ids) if vehicle_ids else {}
+    for alert in batch:
+        _push_alert(alert, drivers.get(alert.vehicle_id))
+
+
+def _notify_alert(alert: Alert) -> None:
+    """Push (M8) a los afectados por una alerta NUEVA — best-effort.
+
+    Destinatarios: el usuario de la alerta (p. ej. el conductor del km
+    pendiente) o, si no lo tiene, el conductor en curso del vehículo; y además
+    su supervisor (que en `no_driver` es el único que existe). Solo alertas
+    nuevas: el refresco de una abierta no re-notifica.
+    """
+    # A16/X1: el seguro es asunto de administración y la bandeja se lo oculta al
+    # conductor y al supervisor (`AlertViewSet.get_queryset`). Notificárselo por
+    # push era un aviso sin destino: al abrir la app no existía.
+    if alert.type == AlertType.INSURANCE_DUE:
+        return
+    if _push_batch is not None:
+        # R3-14: dentro del bucle de chequeos solo se apunta; se entrega al final.
+        _push_batch.append(alert)
+        return
+    if not webpush.push_enabled():
+        return
+    driver = None
+    if not alert.user_id and alert.vehicle_id:
+        driver = current_driver_map([alert.vehicle_id]).get(alert.vehicle_id)
+    _push_alert(alert, driver)
 
 
 # --- Refresco del denormalizado next_itv_date -----------------------------
@@ -193,20 +245,28 @@ def refresh_next_itv_dates() -> int:
     sin cita en vez de arrastrar la anterior, ya cumplida.
     B16: los vehículos de baja quedan fuera (no hay ITV que vigilar).
     """
-    latest_by_vehicle: dict[int, date | None] = {}
-    rows = (
+    # R3-12: antes se recorría la tabla `EventItv` ENTERA (histórico incluido)
+    # en cada pasada del bucle de jobs. La fila ganadora por vehículo la decide
+    # la BD (ROW_NUMBER), restringida a los vehículos activos — el mismo patrón
+    # que `selectors.latest_reading_map`. Un `next_due` None también manda (una
+    # favorable sin fecha deja el vehículo sin cita, ver C5 arriba).
+    vehicles = list(_active_vehicles())
+    latest_by_vehicle: dict[int, date | None] = dict(
         EventItv.objects.exclude(result=ItvResult.NOT_DONE)
-        .order_by("event__vehicle_id", "-event__event_date", "-event_id")
+        .filter(event__vehicle_id__in=[v.id for v in vehicles])
+        .annotate(
+            _pos=Window(
+                RowNumber(),
+                partition_by=[F("event__vehicle_id")],
+                order_by=[F("event__event_date").desc(), F("event_id").desc()],
+            )
+        )
+        .filter(_pos=1)
         .values_list("event__vehicle_id", "next_due")
     )
-    for vehicle_id, next_due in rows:
-        # `setdefault`: la primera fila de cada vehículo es la más reciente —
-        # también cuando su `next_due` es None (la clave queda con None y no la
-        # pisa ninguna fecha anterior).
-        latest_by_vehicle.setdefault(vehicle_id, next_due)
 
     updated = 0
-    for vehicle in _active_vehicles():
+    for vehicle in vehicles:
         new_value = latest_by_vehicle.get(vehicle.id)
         if vehicle.next_itv_date != new_value:
             vehicle.next_itv_date = new_value
@@ -362,18 +422,22 @@ def check_no_driver(today: date | None = None) -> int:
     cutoff = today - timedelta(days=grace_days)
     vehicles = list(_active_vehicles().filter(is_substitute=False))
     ids = [v.id for v in vehicles]
-    # Bulk (evita N+1): con conductor en curso y con asignación reciente (gracia).
+    # Bulk (evita N+1): con conductor vigente y con asignación reciente (gracia).
+    # R3-02: una asignación con fin PROGRAMADO cuenta como conductor vigente.
     has_current = set(
-        Assignment.objects.filter(
-            vehicle_id__in=ids,
-            end_date__isnull=True,
-            status=AssignmentStatus.ACCEPTED,
-            is_active=True,
-        ).values_list("vehicle_id", flat=True)
+        Assignment.objects.filter(current_assignment_q(today), vehicle_id__in=ids).values_list(
+            "vehicle_id", flat=True
+        )
     )
+    # R3-19: la gracia solo la dan asignaciones que EXISTIERON (aceptada o
+    # finalizada) — una propuesta rechazada (que C1 cierra con `end_date=hoy`)
+    # posponía la alerta otros N días en un coche que nunca tuvo conductor.
     recently_assigned = set(
         Assignment.objects.filter(
-            vehicle_id__in=ids, end_date__gt=cutoff, is_active=True
+            vehicle_id__in=ids,
+            end_date__gt=cutoff,
+            is_active=True,
+            status__in=(AssignmentStatus.ACCEPTED, AssignmentStatus.FINISHED),
         ).values_list("vehicle_id", flat=True)
     )
     created = 0
@@ -425,15 +489,12 @@ def check_km_overage(today: date | None = None) -> int:
         .order_by("vehicle_id", "-start_date")
     ):
         contracts.setdefault(contract.vehicle_id, contract)
-    # Última lectura válida por vehículo (fecha desc, id como desempate).
-    latest_readings: dict[int, tuple[date, int]] = {}
-    for vehicle_id, reading_date, km_reading in (
-        KmReading.objects.filter(vehicle_id__in=ids, km_reading__isnull=False, is_active=True)
-        .exclude(reading_date__isnull=True)
-        .order_by("vehicle_id", "-reading_date", "-id")
-        .values_list("vehicle_id", "reading_date", "km_reading")
-    ):
-        latest_readings.setdefault(vehicle_id, (reading_date, km_reading))
+    # Última lectura válida por vehículo (R3-11: una fila por vehículo, la
+    # decide la BD — no el histórico entero con `setdefault`).
+    latest_readings: dict[int, tuple[date, int]] = {
+        vehicle_id: (reading.reading_date, reading.km_reading)
+        for vehicle_id, reading in latest_reading_map(ids).items()
+    }
 
     created = 0
     for vehicle in vehicles:
@@ -511,19 +572,13 @@ def check_maintenance(today: date | None = None) -> int:
     )
     if not plans:
         return 0
-    # Última lectura por vehículo, para los ciclos por km (mismo patrón bulk
-    # que check_km_overage: una consulta, no una por plan).
-    latest_km: dict[int, int] = {}
-    for vehicle_id, km_reading in (
-        KmReading.objects.filter(
-            vehicle_id__in={p.vehicle_id for p in plans},
-            km_reading__isnull=False,
-            is_active=True,
-        )
-        .order_by("vehicle_id", "-reading_date", "-id")
-        .values_list("vehicle_id", "km_reading")
-    ):
-        latest_km.setdefault(vehicle_id, km_reading)
+    # Última lectura por vehículo, para los ciclos por km (mismo selector bulk
+    # que check_km_overage — R3-11: una fila por vehículo. De paso unifica el
+    # criterio: una lectura sin fecha no cuenta, como en el resto de sitios).
+    latest_km: dict[int, int] = {
+        vehicle_id: reading.km_reading
+        for vehicle_id, reading in latest_reading_map({p.vehicle_id for p in plans}).items()
+    }
 
     created = 0
     for plan in plans:
@@ -590,15 +645,18 @@ def run_all(today: date | None = None) -> dict[str, int]:
     """
     from fleet.services import mailer
 
-    summary = {
-        "next_itv_refreshed": refresh_next_itv_dates(),
-        "itv": check_itv(today),
-        "insurance": check_insurance(today),
-        "km_readings": check_km_readings(today),
-        "no_driver": check_no_driver(today),
-        "km_overage": check_km_overage(today),
-        "maintenance": check_maintenance(today),
-    }
+    # R3-14: los push de las alertas nuevas se difieren y salen al final de los
+    # chequeos (como el correo M6): el push service lento ya no alarga la pasada.
+    with deferred_push():
+        summary = {
+            "next_itv_refreshed": refresh_next_itv_dates(),
+            "itv": check_itv(today),
+            "insurance": check_insurance(today),
+            "km_readings": check_km_readings(today),
+            "no_driver": check_no_driver(today),
+            "km_overage": check_km_overage(today),
+            "maintenance": check_maintenance(today),
+        }
     delivery = mailer.send_outbox()
     summary["emails_sent"] = delivery["sent"]
     summary["emails_retry"] = delivery["retry"]

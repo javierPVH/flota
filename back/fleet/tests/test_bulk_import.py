@@ -40,6 +40,24 @@ def xlsx_file(rows: list[list], name: str = "vehiculos.xlsx") -> SimpleUploadedF
     )
 
 
+class ImporterCatalogFilterTests(APITestCase):
+    """R3-20: los cachés de resolución del importador solo ven catálogos ACTIVOS.
+
+    Sin el filtro, una importación podía colgar vehículos de un proyecto o
+    sociedad retirados que no aparecen en ningún selector de la aplicación.
+    """
+
+    def test_deactivated_catalogs_are_not_resolvable(self):
+        from fleet.services.importer import VehicleRowNormalizer, normalize_header
+
+        Project.objects.create(project_name="Proyecto Vivo")
+        retirado = Project.objects.create(project_name="Proyecto Retirado")
+        retirado.deactivate(reason="obsoleto")
+        cache = VehicleRowNormalizer()._projects
+        self.assertIn(normalize_header("Proyecto Vivo"), cache)
+        self.assertNotIn(normalize_header("Proyecto Retirado"), cache)
+
+
 class VehicleBulkImportTests(APITestCase):
     def setUp(self):
         self.admin = make_user("admin", Role.ADMIN)

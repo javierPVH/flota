@@ -369,31 +369,44 @@ class VehicleRowNormalizer:
 
     def __init__(self):
         User = get_user_model()
-        self._projects = {normalize_header(p.project_name): p.id for p in Project.objects.all()}
+        # R3-20: solo catálogos ACTIVOS — sin el filtro, una importación podía
+        # colgar vehículos de un proyecto o sociedad retirados que no aparecen
+        # en ningún selector de la aplicación. La fila que los nombre recibe el
+        # mismo «no existe» que un valor desconocido (restaurar el catálogo
+        # desde erratas lo vuelve a admitir).
+        self._projects = {
+            normalize_header(p.project_name): p.id for p in Project.objects.filter(is_active=True)
+        }
         self._companies: dict[str, int] = {}
-        for c in Company.objects.all():
+        for c in Company.objects.filter(is_active=True):
             self._companies[normalize_header(c.name)] = c.id
             if c.code:
                 self._companies[normalize_header(c.code)] = c.id
         self._peps: dict[str, int] = {}
-        for p in Pep.objects.all():
+        for p in Pep.objects.filter(is_active=True):
             self._peps[normalize_header(p.name)] = p.id
             if p.code:
                 self._peps[normalize_header(p.code)] = p.id
-        self._countries = {normalize_header(c.name): c.id for c in Country.objects.all()}
+        self._countries = {
+            normalize_header(c.name): c.id for c in Country.objects.filter(is_active=True)
+        }
         self._business_units: dict[str, int] = {}
-        for b in BusinessUnit.objects.all():
+        for b in BusinessUnit.objects.filter(is_active=True):
             self._business_units[normalize_header(b.name)] = b.id
             if b.code:
                 self._business_units[normalize_header(b.code)] = b.id
-        self._brands = {normalize_header(b.name): b.id for b in Brand.objects.all()}
+        self._brands = {
+            normalize_header(b.name): b.id for b in Brand.objects.filter(is_active=True)
+        }
         # GAP-1/GAP-4: combustible (nombre canónico + id) y sedes.
         self._fuel_types = {
-            normalize_header(f.name): (f.id, f.name) for f in FuelType.objects.all()
+            normalize_header(f.name): (f.id, f.name)
+            for f in FuelType.objects.filter(is_active=True)
         }
-        self._sites = {normalize_header(x.name): x.id for x in Site.objects.all()}
+        self._sites = {normalize_header(x.name): x.id for x in Site.objects.filter(is_active=True)}
         self._models = {
-            (m.brand_id, normalize_header(m.name)): m.id for m in VehicleModel.objects.all()
+            (m.brand_id, normalize_header(m.name)): m.id
+            for m in VehicleModel.objects.filter(is_active=True)
         }
         self._users_by_key: dict[str, int] = {}
         for u in User.objects.filter(is_active=True):

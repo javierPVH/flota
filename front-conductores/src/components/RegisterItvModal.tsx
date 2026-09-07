@@ -12,6 +12,15 @@ import { SupervisorModal } from './SupervisorModal.tsx'
 
 const ITV_RESULT_VALUES = ['done', 'not done'] as const
 
+/** Día siguiente a una fecha ISO (YYYY-MM-DD), en local. */
+function nextDayIso(iso: string): string {
+  const day = new Date(`${iso}T00:00:00`)
+  day.setDate(day.getDate() + 1)
+  const month = String(day.getMonth() + 1).padStart(2, '0')
+  const dayOfMonth = String(day.getDate()).padStart(2, '0')
+  return `${day.getFullYear()}-${month}-${dayOfMonth}`
+}
+
 /** Registro de ITV compartido por la ficha y la resolución de alertas.
  *
  * `nextItvDate` es la cita que se está atendiendo: la del resumen si quien
@@ -34,6 +43,14 @@ export function RegisterItvModal({
 
   async function submit(event: FormEvent) {
     event.preventDefault()
+    // R3-32: el back exige próxima ITV ESTRICTAMENTE posterior a la inspección.
+    // Espejo en cliente (como el no-retroceso del km): online era un 400
+    // evitable, pero OFFLINE era pérdida — el registro se encolaba como fallo
+    // de red y el flush lo descartaba con el 400 del servidor.
+    if (form.result === 'done' && form.next_due && form.next_due <= form.event_date) {
+      setError(t.vehicle.itvNextDueInvalid)
+      return
+    }
     setSaving(true)
     setError('')
     const payload = {
@@ -116,7 +133,9 @@ export function RegisterItvModal({
           label={t.vehicle.itvNextDue}
           aria-label={t.vehicle.itvNextDue}
           type="date"
-          min={form.event_date}
+          // R3-32: estrictamente POSTERIOR a la inspección (el back rechaza
+          // «igual»); el submit lo revalida por si el navegador no aplica min.
+          min={nextDayIso(form.event_date)}
           value={form.result === 'done' ? form.next_due : ''}
           onChange={(event) => setForm((current) => ({ ...current, next_due: event.target.value }))}
           disabled={form.result !== 'done'}

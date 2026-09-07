@@ -27,7 +27,7 @@ class Invoice(DeactivatableModel, TimeStampedModel):
     class Meta:
         verbose_name = "factura"
         verbose_name_plural = "facturas"
-        ordering = ["-date"]
+        ordering = ["-date", "-pk"]  # R3-23: desempate estable
 
     def __str__(self) -> str:
         return f"{self.code or 'Factura'} · {self.vehicle.plate}"

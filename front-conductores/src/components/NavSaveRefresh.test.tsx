@@ -20,6 +20,9 @@ vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   listVehicles: mocks.listVehicles,
   fetchVehicleSummaries: mocks.fetchVehicleSummaries,
+  // R3-28: shell y páginas leen las variantes cacheadas — mismo spy, sin TTL.
+  listVehiclesCached: mocks.listVehicles,
+  fetchVehicleSummariesCached: mocks.fetchVehicleSummaries,
   fetchKmWindow: mocks.fetchKmWindow,
   listIncidents: mocks.listIncidents,
   listDocuments: mocks.listDocuments,

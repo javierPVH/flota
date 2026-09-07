@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError, Q
 from django.db.models.deletion import Collector
 from rest_framework.exceptions import ValidationError
@@ -302,30 +303,58 @@ class ErratasRestoreView(APIView):
 
     def post(self, request):
         kind, obj = _resolve(request)
-        if kind == "vehicles":
-            obj.state = VehicleState.ACTIVE
-            obj.save(update_fields=["state", "updated_at"])
-        elif kind == "users":
-            obj.is_active = True
-            obj.save(update_fields=["is_active"])
-        else:
-            # Un coche por conductor a la vez: revivir una asignación aceptada
-            # EN CURSO no puede darle un segundo coche al conductor. (El lado
-            # del vehículo ya lo protege la unique parcial de la BD.)
-            if (
-                isinstance(obj, Assignment)
-                and obj.status == AssignmentStatus.ACCEPTED
-                and obj.end_date is None
-            ):
-                clash = driver_assignment_clash(
-                    obj.driver_id,
-                    is_substitute=obj.vehicle.is_substitute,
-                    start_date=obj.start_date,
-                    exclude_pk=obj.pk,
-                )
-                if clash:
-                    raise ValidationError({"detail": driver_clash_message(clash)})
-            obj.restore()
+        # R3-06: guardar sin red de seguridad devolvía un 500 cuando el hueco
+        # de una constraint parcial ya estaba ocupado (asignación aceptada en
+        # curso con otra vigente, consumo con el mes ya corregido…). El atomic
+        # es imprescindible: sin él, el IntegrityError deja la transacción de
+        # la petición inservible (errores en cascada en Postgres).
+        try:
+            with transaction.atomic():
+                if kind == "vehicles":
+                    obj.state = VehicleState.ACTIVE
+                    obj.save(update_fields=["state", "updated_at"])
+                    # R3-06: la baja emitió su evento de cambio de estado; la
+                    # restauración también, o el histórico de negocio queda cojo.
+                    from .services import events
+
+                    events.emit_vehicle_state_change(
+                        obj,
+                        VehicleState.BAJA,
+                        VehicleState.ACTIVE,
+                        reason="Restaurado desde erratas.",
+                    )
+                elif kind == "users":
+                    obj.is_active = True
+                    obj.save(update_fields=["is_active"])
+                else:
+                    # Un coche por conductor a la vez: revivir una asignación
+                    # aceptada EN CURSO no puede darle un segundo coche al
+                    # conductor. (El lado del vehículo ya lo protege la unique
+                    # parcial de la BD.)
+                    if (
+                        isinstance(obj, Assignment)
+                        and obj.status == AssignmentStatus.ACCEPTED
+                        and obj.end_date is None
+                    ):
+                        clash = driver_assignment_clash(
+                            obj.driver_id,
+                            is_substitute=obj.vehicle.is_substitute,
+                            start_date=obj.start_date,
+                            exclude_pk=obj.pk,
+                        )
+                        if clash:
+                            raise ValidationError({"detail": driver_clash_message(clash)})
+                    obj.restore()
+        except IntegrityError as exc:
+            raise ValidationError(
+                {
+                    "detail": (
+                        "No se puede restaurar: el hueco ya está ocupado por un registro "
+                        "vigente (p. ej. otra asignación aceptada en curso o un consumo "
+                        "del mismo mes). Cierra o desactiva ese registro primero."
+                    )
+                }
+            ) from exc
         return Response({"restored": True, "type": kind, "id": obj.pk})
 
 

@@ -217,6 +217,10 @@ export const updateVehicleFields = (id: number, data: Record<string, unknown>) =
 export interface VehicleReturnResult {
   km_end: number | null
   assignments_finished: number
+  /** R3-04: sustituciones activas cerradas por la devolución. */
+  links_closed: number
+  /** R3-04: alertas abiertas resueltas con motivo «devolución». */
+  alerts_resolved: number
   contract_closed: number | null
   contract_km: number | null
   overage_km: number | null
@@ -683,12 +687,10 @@ export const setVehicleDriver = (
   },
 ) => postJson<Vehicle>(`${API}/vehicles/${id}/set-driver/`, data)
 
-/** Confirma una propuesta: cierra la vigente + emite el evento (HU-2.4). */
-export const acceptAssignment = (id: number) =>
-  postJson<AssignmentRow>(`${API}/assignments/${id}/accept/`, {})
-
-export const rejectAssignment = (id: number) =>
-  postJson<AssignmentRow>(`${API}/assignments/${id}/reject/`, {})
+// R3-44: `accept`/`reject` de propuestas de fechas se retiraron de aquí junto
+// con `ProposalsPage` — la UI del flujo HU-2.3/2.4 se quitó de ambos fronts en
+// 2026-08 y estas funciones quedaron muertas. Los endpoints del back siguen
+// disponibles (ver back/README.md) por si el flujo se recablea.
 
 export interface VehicleUsageRow {
   id: number
@@ -970,10 +972,13 @@ export const manageIncident = (
   data: { workshop_postal_code: string },
 ) => postJson<Incident>(`${API}/incidents/${id}/manage/`, data)
 
-/** Fase 3 (la SOLUCIÓN): sobrecoste, observaciones y tiempo parado. CIERRA. */
+/** Fase 3 (la SOLUCIÓN): fecha de solución (obligatoria — el servidor calcula
+ * el tiempo parado desde la fecha de la avería), sobrecoste y observaciones.
+ * CIERRA la incidencia. (R3-41: el contrato viejo mandaba `downtime_days` sin
+ * fecha y el servidor devolvía 400 siempre.) */
 export const resolveIncident = (
   id: number,
-  data: { overcost?: string; observations?: string; downtime_days?: number },
+  data: { resolution_date: string; observations?: string; overcost?: string },
 ) => postJson<Incident>(`${API}/incidents/${id}/resolve/`, data)
 
 // --- G7: Google Drive / Picker (Fase A3) -----------------------------------

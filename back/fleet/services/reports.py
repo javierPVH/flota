@@ -40,13 +40,12 @@ from fleet.models import (
 )
 from fleet.models.enums import (
     AlertStatus,
-    AssignmentStatus,
     EventType,
     IncidentStatus,
     VehicleState,
 )
 from fleet.scoping import users_for, vehicles_for
-from fleet.selectors import active_link_q, current_driver_map
+from fleet.selectors import active_link_q, current_driver_map, latest_reading_map
 from fleet.services.alerts import add_months
 
 XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -672,16 +671,11 @@ def _users_table(user, filters: dict | None = None) -> Table:
     elif estado == "inactive":
         people = people.filter(is_active=False)
     if not user.is_admin:
-        conductores = (
-            Assignment.objects.filter(
-                vehicle_id__in=vehicles_for(user).values("id"),
-                status=AssignmentStatus.ACCEPTED,
-                is_active=True,
-            )
-            .exclude(driver__isnull=True)
-            .values("driver_id")
-        )
-        people = people.filter(id__in=conductores)
+        # R3-21: el criterio de «mis personas» vive en UN sitio — `users_for`
+        # (el mismo que los documentos personales): él mismo y los conductores
+        # con asignación aceptada VIGENTE sobre sus vehículos. Antes se
+        # replicaba aquí sin exigir la vigencia y los criterios divergían.
+        people = people.filter(id__in=users_for(user).values("id"))
     role = _pick(filters, "role")
     if role:
         people = people.filter(roles__role=role).distinct()
@@ -874,11 +868,8 @@ def _ficha_extras(vehicle_ids: list[int], sections: list[str]) -> tuple[list[str
         add("Sustitución activa", sustitucion)
 
     def _km() -> None:
-        ultima: dict[int, KmReading] = {}
-        for reading in KmReading.objects.filter(
-            vehicle_id__in=vehicle_ids, is_active=True, km_reading__isnull=False
-        ).order_by("vehicle_id", "-reading_date", "-id"):
-            ultima.setdefault(reading.vehicle_id, reading)
+        # R3-11: una fila por vehículo (la decide la BD), no el histórico entero.
+        ultima = latest_reading_map(vehicle_ids)
         add("Km actual (última lectura)", {k: r.km_reading for k, r in ultima.items()})
         add("Fecha de la última lectura", {k: _d(r.reading_date) for k, r in ultima.items()})
 

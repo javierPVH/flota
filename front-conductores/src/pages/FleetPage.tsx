@@ -3,11 +3,12 @@ import { Navigate } from 'react-router-dom'
 import { PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { fetchVehicleSummaries, listVehicles } from '../api.ts'
+import { fetchVehicleSummariesCached, listVehicles, truncatedAt } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
 import { pendingThisMonth } from '../format.ts'
 import { useLang } from '../i18n.tsx'
+import { useFleetCopy } from '../translations/fleet.ts'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 
 // Orden canónico de los grupos por estado (los que existan en la flota).
@@ -24,14 +25,20 @@ const STATE_ORDER = ['active', 'maintenance', 'itv', 'broken', 'accidente']
 export function FleetPage() {
   const { user } = useAuth()
   const { t } = useLang()
+  // R3-36: el copy propio de la página viaja en su chunk, no en el shell.
+  const tf = useFleetCopy()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [summaries, setSummaries] = useState<Record<number, VehicleSummary>>({})
+  // R3-31: grupo que no cabe en la página de 500 → se avisa del recorte.
+  const [truncated, setTruncated] = useState<number | null>(null)
   const [tab, setTab] = useState('')
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  // R3-30: error crudo, traducido al pintar (con `t` en las deps de `load`, el
+  // botón es/en re-disparaba la carga del grupo entero).
+  const [error, setError] = useState<unknown>(null)
 
   // Solo los coches que SUPERVISA: los roles se suman, así que sin el filtro
   // un supervisor que además es admin vería aquí toda la flota (y uno que
@@ -43,17 +50,21 @@ export function FleetPage() {
   // modales de tarjeta (actualización de km/mantenimiento/partes).
   const load = useCallback(() => {
     if (supervisorId === null) return
+    // R3-28: el listado lleva `supervisor=<yo>` (no se cachea), pero los
+    // summaries son los del ámbito completo y sí comparten los del arranque;
+    // el refresco tras guardar llega fresco porque la escritura invalidó.
     Promise.all([
       listVehicles({ supervisor: supervisorId }),
-      fetchVehicleSummaries().catch(() => [] as VehicleSummary[]),
+      fetchVehicleSummariesCached().catch(() => [] as VehicleSummary[]),
     ])
       .then(([page, loaded]) => {
         setVehicles(page.results)
+        setTruncated(truncatedAt(page))
         setSummaries(Object.fromEntries(loaded.map((s) => [s.vehicle, s])))
       })
-      .catch((err) => setError(asErrorMessage(err, t.home.loadError)))
+      .catch((err) => setError(err))
       .finally(() => setLoading(false))
-  }, [t, supervisorId])
+  }, [supervisorId])
 
   useEffect(() => {
     if (isSupervisor) load()
@@ -94,7 +105,13 @@ export function FleetPage() {
 
   if (!isSupervisor) return <Navigate to="/" replace />
   if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
-  if (error) return <div role="alert" className="form-error">{error}</div>
+  if (error) {
+    return (
+      <div role="alert" className="form-error">
+        {asErrorMessage(error, t.home.loadError)}
+      </div>
+    )
+  }
 
   const pending = vehicles.filter((v) => {
     const s = summaries[v.id]
@@ -104,7 +121,7 @@ export function FleetPage() {
   return (
     <div>
       <PageHeader
-        title={t.fleet.title}
+        title={tf.title}
         stats={[
           { value: vehicles.length, label: t.home.statVehicles },
           { value: pending, label: t.home.statPending },
@@ -124,16 +141,22 @@ export function FleetPage() {
         {/* "Todos" siempre; el resto se recalcula con los resultados de búsqueda. */}
         <select
           className="fleet-state-select"
-          aria-label={t.fleet.tabsLabel}
+          aria-label={tf.tabsLabel}
           value={activeTab}
           onChange={(e) => setTab(e.target.value)}
         >
-          <option value="">{t.fleet.tabAll} ({searched.length})</option>
+          <option value="">{tf.tabAll} ({searched.length})</option>
           {groups.map((g) => (
             <option key={g.state} value={g.state}>{g.label} ({g.count})</option>
           ))}
         </select>
       </div>
+
+      {truncated !== null && (
+        <p role="status" className="empty-note">
+          {t.common.truncated(vehicles.length, truncated)}
+        </p>
+      )}
 
       {visible.length === 0 && <p className="empty-note">{t.home.empty}</p>}
 

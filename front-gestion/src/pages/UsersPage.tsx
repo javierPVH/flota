@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Badge,
@@ -138,6 +138,13 @@ export function UsersPage() {
     [t],
   )
 
+  // R3-30: `t` por ref — con `t` en las deps, el botón es/en re-descargaba
+  // toda la plantilla de personas (el diccionario solo pinta el error).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
+
   const load = useCallback(() => {
     setLoading(true)
     // Trae SIEMPRE todos los empleados; la búsqueda y los filtros van en cliente.
@@ -146,9 +153,9 @@ export function UsersPage() {
         setUsers(rows)
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, t.loadError)))
+      .catch((err) => setError(asErrorMessage(err, tRef.current.loadError)))
       .finally(() => setLoading(false))
-  }, [t])
+  }, [])
 
   useEffect(() => {
     load()

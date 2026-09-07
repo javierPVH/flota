@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from django.test import override_settings
 from django.urls import reverse
@@ -112,6 +112,128 @@ class ResourceScopeTests(APITestCase):
         self.assertEqual(
             self.client.get(reverse("contract-list")).status_code, status.HTTP_403_FORBIDDEN
         )
+
+
+class ResourceValidationTests(APITestCase):
+    """R3-17/R3-18/R3-26: validaciones que faltaban en contratos, admin y reparto."""
+
+    def setUp(self):
+        self.admin = make_user("val-admin", Role.ADMIN)
+        self.driver = make_user("val-driver", Role.DRIVER)
+        self.vehicle = Vehicle.objects.create(plate="VAL-1", brand="a", model="b")
+        self.client.force_authenticate(self.admin)
+
+    def test_contract_dates_are_validated(self):
+        """R3-17: fin previsto/real anteriores al inicio → 400 legible.
+
+        Antes el dato malo quedaba guardado y silenciosamente excluido de
+        proyecciones y alertas de km — un contrato «invisible» para el motor.
+        """
+        resp = self.client.post(
+            reverse("contract-list"),
+            {
+                "vehicle": self.vehicle.pk,
+                "start_date": "2026-05-01",
+                "planned_end_date": "2026-04-01",
+            },
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        ok = self.client.post(
+            reverse("contract-list"),
+            {
+                "vehicle": self.vehicle.pk,
+                "start_date": "2026-05-01",
+                "planned_end_date": "2027-05-01",
+            },
+        )
+        self.assertEqual(ok.status_code, status.HTTP_201_CREATED, ok.data)
+        # El fin REAL también respeta el inicio (PATCH parcial contra instancia).
+        bad_end = self.client.patch(
+            reverse("contract-detail", args=[ok.data["id"]]), {"end_date": "2026-04-30"}
+        )
+        self.assertEqual(bad_end.status_code, status.HTTP_400_BAD_REQUEST, bad_end.data)
+
+    def test_model_clean_ignores_deactivated_readings(self):
+        """R3-18: el no-retroceso del `clean()` (admin) usa el criterio N7.
+
+        Corregir una lectura errónea desactivándola dejaba el admin rechazando
+        el valor bueno que la API sí acepta.
+        """
+        from fleet.models import KmReading
+
+        KmReading.objects.create(
+            vehicle=self.vehicle, reading_date=date(2026, 5, 1), km_reading=8000
+        )
+        errata = KmReading.objects.create(
+            vehicle=self.vehicle, reading_date=date(2026, 6, 1), km_reading=12000
+        )
+        errata.deactivate(by=self.admin, reason="errata")
+        nueva = KmReading(vehicle=self.vehicle, reading_date=date(2026, 6, 15), km_reading=9000)
+        nueva.full_clean()  # antes: ValidationError contra la errata desactivada
+
+    def test_single_current_assignment_per_vehicle(self):
+        """R4-01: una sola asignación VIGENTE por vehículo, también con fin
+        programado (R3-02) — y el duplicado con fin NULL es un 400 legible, no
+        el IntegrityError (500) de la constraint parcial."""
+        from django.utils import timezone
+
+        Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        otro = make_user("val-otro", Role.DRIVER)
+        today = timezone.localdate()
+        # (a) Aceptada con fin PROGRAMADO sobre un coche ya asignado: antes se
+        # colaba y el vehículo quedaba con DOS vigentes.
+        resp = self.client.post(
+            reverse("assignment-list"),
+            {
+                "vehicle": self.vehicle.pk,
+                "driver": otro.pk,
+                "status": "accepted",
+                "start_date": today.isoformat(),
+                "end_date": (today + timedelta(days=30)).isoformat(),
+            },
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        self.assertIn("vehicle", resp.data.get("errors", resp.data))
+        # (b) Duplicado con fin NULL: antes IntegrityError → 500.
+        resp = self.client.post(
+            reverse("assignment-list"),
+            {"vehicle": self.vehicle.pk, "driver": otro.pk, "status": "accepted"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        # Y el vehículo sigue con UNA sola vigente.
+        from fleet.selectors import current_assignment_q
+
+        self.assertEqual(
+            Assignment.objects.filter(current_assignment_q(), vehicle=self.vehicle).count(), 1
+        )
+
+    def test_usage_split_requires_active_driver_role(self):
+        """R3-26: el reparto exige persona ACTIVA con rol de conductor, como
+        `Assignment` — antes admitía usuarios de baja o sin rol."""
+        inactive = make_user("val-baja", Role.DRIVER)
+        inactive.is_active = False
+        inactive.save(update_fields=["is_active"])
+        norole = make_user("val-sinrol")
+
+        def split(driver_pk):
+            return self.client.post(
+                reverse("vehicleusage-set"),
+                {
+                    "vehicle": self.vehicle.pk,
+                    "start_date": "2026-06-01",
+                    "items": [{"driver": driver_pk, "usage_percent": "100.00"}],
+                },
+                format="json",
+            )
+
+        self.assertEqual(split(inactive.pk).status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(split(norole.pk).status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(split(self.driver.pk).status_code, status.HTTP_201_CREATED)
 
 
 class CatalogPermissionTests(APITestCase):

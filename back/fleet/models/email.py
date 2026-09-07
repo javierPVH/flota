@@ -135,6 +135,12 @@ class EmailOutbox(TimeStampedModel):
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pendiente"
+        # R3-08: reclamada por una pasada de `send_outbox` que aún no terminó.
+        # La entrega se dispara desde tres procesos (jobs, "enviar ahora" del
+        # worker web y el despacho de notificaciones): sin el claim, dos
+        # pasadas solapadas seleccionaban las mismas filas y el destinatario
+        # recibía el correo dos veces.
+        SENDING = "sending", "Enviándose"
         SENT = "sent", "Enviado"
         FAILED = "failed", "Fallido (sin más reintentos)"
 

@@ -54,13 +54,19 @@ def _months_between(earlier: date, later: date) -> float:
 
 
 def missing_last_month(today: date | None = None) -> list[Vehicle]:
-    """Vehículos activos SIN lectura (activa) del mes anterior."""
+    """Vehículos activos SIN lectura VÁLIDA (activa y con km) del mes anterior.
+
+    R4-03: exigir `km_reading__isnull=False` — una fila con km NULL no es una
+    lectura a efectos de nada (mismo criterio que el no-retroceso y que
+    `latest_reading_map`) y antes enmascaraba el mes faltante.
+    """
     today = today or timezone.localdate()
     prev_end = _previous_month_end(today)
     with_reading = set(
         KmReading.objects.filter(
             reading_date__year=prev_end.year,
             reading_date__month=prev_end.month,
+            km_reading__isnull=False,
             is_active=True,
         ).values_list("vehicle_id", flat=True)
     )
@@ -79,6 +85,20 @@ def estimate_missing(months: int, today: date | None = None) -> dict:
     prev_end = _previous_month_end(today)
     created: list[dict] = []
     skipped: list[dict] = []
+    # R4-03: dos cálculos simultáneos (doble clic, dos pestañas) creaban
+    # lecturas estimadas DUPLICADAS del periodo — no hay unicidad en BD que lo
+    # corte. Candado sobre los vehículos candidatos (la vista ya envuelve en
+    # atomic): el segundo espera al primero y la relectura bajo el candado ve
+    # sus lecturas recién creadas, así que no estima nada dos veces.
+    candidates = missing_last_month(today)
+    if not candidates:
+        return {
+            "period": f"{prev_end.year:04d}-{prev_end.month:02d}",
+            "months": months,
+            "created": created,
+            "skipped": skipped,
+        }
+    list(Vehicle.objects.select_for_update().filter(id__in=[v.id for v in candidates]))
     for vehicle in missing_last_month(today):
         last = (
             KmReading.objects.filter(

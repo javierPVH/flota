@@ -155,7 +155,7 @@ class VehicleUsage(DeactivatableModel, TimeStampedModel):
     class Meta:
         verbose_name = "reparto de uso"
         verbose_name_plural = "repartos de uso"
-        ordering = ["-start_date"]
+        ordering = ["-start_date", "-pk"]  # R3-23: desempate estable
 
     def __str__(self) -> str:
         return f"{self.vehicle.plate} · {self.driver}: {self.usage_percent}%"
@@ -190,7 +190,7 @@ class VehicleLink(DeactivatableModel, TimeStampedModel):
     class Meta:
         verbose_name = "vínculo de sustitución"
         verbose_name_plural = "vínculos de sustitución"
-        ordering = ["-start_date"]
+        ordering = ["-start_date", "-pk"]  # R3-23: desempate estable
         constraints = [
             # HU-1.8: un principal solo tiene un sustituto activo a la vez.
             # N7: ídem — un vínculo desactivado no bloquea al principal.

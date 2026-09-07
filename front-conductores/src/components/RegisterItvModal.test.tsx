@@ -129,4 +129,26 @@ describe('RegisterItvModal: la próxima ITV es opcional', () => {
       }),
     )
   })
+
+  it('R3-32: la próxima ITV igual a la inspección se corta en cliente', async () => {
+    // El back exige próxima ESTRICTAMENTE posterior; sin el espejo, offline
+    // era pérdida (se encolaba y el flush lo descartaba con el 400).
+    const onSaved = renderModal()
+
+    // El input ya no ofrece la fecha de la inspección: `min` = día siguiente
+    // (el navegador corta el submit nativo por rangeUnderflow).
+    const nextDue = screen.getByLabelText('Próxima ITV (opcional)') as HTMLInputElement
+    expect(nextDue.min > todayIso()).toBe(true)
+
+    fireEvent.change(nextDue, { target: { value: todayIso() } })
+    // `fireEvent.submit` esquiva la validación nativa: prueba el ESPEJO del
+    // handler (navegadores/flujos que no la apliquen).
+    fireEvent.submit(document.querySelector('form') as HTMLFormElement)
+
+    expect(
+      await screen.findByText('La próxima ITV debe ser posterior a la fecha de la inspección.'),
+    ).toBeInTheDocument()
+    expect(mocks.registerItv).not.toHaveBeenCalled()
+    expect(onSaved).not.toHaveBeenCalled()
+  })
 })

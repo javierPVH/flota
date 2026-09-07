@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   Badge,
@@ -103,6 +103,12 @@ export function VehicleDetailPage() {
   const confirm = useConfirm()
   const lang = useAppLang()
   const t = useVehicleDetailCopy()
+  // R3-30: `t` por ref — con `t` en las deps de `load`, el botón es/en
+  // re-disparaba las SEIS cargas de la ficha (solo pinta el error).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
   const tForm = useVehicleFormCopy()
   const { user } = useAuth()
   const isAdmin = user?.roles.includes('admin') ?? false
@@ -199,7 +205,7 @@ export function VehicleDetailPage() {
     const flagPartial = () => alive && setPartialError(true)
     fetchVehicle(vehicleId)
       .then((v) => alive && setVehicle(v))
-      .catch((err) => alive && setError(asErrorMessage(err, t.errLoadVehicle)))
+      .catch((err) => alive && setError(asErrorMessage(err, tRef.current.errLoadVehicle)))
     fetchVehicleSummary(vehicleId)
       .then((sm) => alive && setSummary(sm))
       .catch(() => {
@@ -282,7 +288,7 @@ export function VehicleDetailPage() {
     return () => {
       alive = false
     }
-  }, [vehicleId, t])
+  }, [vehicleId])
 
   useEffect(load, [load])
 

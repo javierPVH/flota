@@ -5,6 +5,7 @@ import { Button, Panel } from '@flota/ui/ui'
 import { useAuth } from '../auth.ts'
 import { fetchAuthConfig } from '../api.ts'
 import { useLang } from '../i18n.tsx'
+import { useRequestCopy } from '../translations/request.ts'
 
 /**
  * Portón de acceso: el usuario que todavía no forma parte de la aplicación.
@@ -22,6 +23,8 @@ import { useLang } from '../i18n.tsx'
 export function RequestAccessPage() {
   const { user, logout } = useAuth()
   const { t } = useLang()
+  // R3-36: el copy propio del portón viaja en su chunk, no en el shell.
+  const tr = useRequestCopy()
   const navigate = useNavigate()
   const [jiraUrl, setJiraUrl] = useState('')
   const [loading, setLoading] = useState(true)
@@ -42,8 +45,8 @@ export function RequestAccessPage() {
   return (
     <div className="login-scene">
       <div className="login-card">
-        <h1>{t.request.title}</h1>
-        <p className="sub">{t.request.hello(user?.first_name || user?.username || '')}</p>
+        <h1>{tr.title}</h1>
+        <p className="sub">{tr.hello(user?.first_name || user?.username || '')}</p>
 
         {loading ? (
           <p role="status" className="gate-checking">
@@ -53,9 +56,9 @@ export function RequestAccessPage() {
           <>
             <Panel tone="info">
               <p style={{ margin: 0 }}>
-                {t.request.howTo}
+                {tr.howTo}
                 <br />
-                {t.request.afterApproval}
+                {tr.afterApproval}
               </p>
             </Panel>
 
@@ -68,11 +71,11 @@ export function RequestAccessPage() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                {t.request.openJira}
+                {tr.openJira}
               </a>
             ) : (
               <div role="alert" className="form-error">
-                {t.request.noUrl}
+                {tr.noUrl}
               </div>
             )}
 
@@ -82,7 +85,7 @@ export function RequestAccessPage() {
                 fullWidth
                 onClick={() => navigate('/', { replace: true })}
               >
-                {t.request.recheck}
+                {tr.recheck}
               </Button>
               <Button variant="secondary" fullWidth onClick={logout}>
                 {t.common.logout}

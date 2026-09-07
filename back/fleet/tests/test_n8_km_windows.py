@@ -142,6 +142,25 @@ class EstimateMissingTests(APITestCase):
         self.assertIn("1111AAA", plates)
         self.assertIn("2222BBB", plates)
 
+    def test_null_km_reading_does_not_mask_the_missing_month(self):
+        """R4-03: una fila con km NULL no es una lectura — antes contaba como
+        «tiene lectura» y el vehículo desaparecía de los faltantes."""
+        KmReading.objects.create(vehicle=self.v1, reading_date=self.prev_end, km_reading=None)
+        plates = {v.plate for v in km_window.missing_last_month()}
+        self.assertIn("1111AAA", plates)
+
+    def test_second_run_does_not_duplicate_estimates(self):
+        """R4-03: repetir el cálculo (doble clic) no crea lecturas duplicadas."""
+        self.client.force_authenticate(self.admin)
+        with override_settings(FLEET_KM_ESTIMATE_WINDOW_END=31):
+            self.client.post(reverse("kmreading-estimate"), {"months": 2})
+            resp = self.client.post(reverse("kmreading-estimate"), {"months": 2})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["created"], [])
+        self.assertEqual(
+            KmReading.objects.filter(vehicle=self.v1, reading_date=self.prev_end).count(), 1
+        )
+
     def test_post_creates_estimated_readings(self):
         self.client.force_authenticate(self.admin)
         with override_settings(FLEET_KM_ESTIMATE_WINDOW_END=31):

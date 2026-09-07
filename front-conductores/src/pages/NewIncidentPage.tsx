@@ -119,8 +119,13 @@ export function NewIncidentPage() {
   // campo SIGUE al coche: al cambiarlo se repone con el suyo.
   // Indexado por coche: sin selección no hay km que enseñar, y volver a uno ya
   // consultado no arrastra el número del anterior.
-  const [kmByVehicle, setKmByVehicle] = useState<Record<string, number | null>>({})
-  const kmCurrent = form.vehicle ? kmByVehicle[form.vehicle] ?? null : null
+  const [kmByVehicle, setKmByVehicle] = useState<
+    Record<string, { km: number | null; estimated: boolean }>
+  >({})
+  const kmCurrent = form.vehicle ? kmByVehicle[form.vehicle]?.km ?? null : null
+  // R3-42: si la lectura precargada salió del cálculo automático (N8b), la
+  // pista lo dice — el número puede no corresponder con el cuadro.
+  const kmEstimated = form.vehicle ? kmByVehicle[form.vehicle]?.estimated ?? false : false
   useEffect(() => {
     if (!form.vehicle) return
     const chosen = form.vehicle
@@ -129,7 +134,10 @@ export function NewIncidentPage() {
       .then((summary) => {
         if (!alive) return
         const km = summary.km_current ?? null
-        setKmByVehicle((rows) => ({ ...rows, [chosen]: km }))
+        setKmByVehicle((rows) => ({
+          ...rows,
+          [chosen]: { km, estimated: summary.km_estimated ?? false },
+        }))
         setForm((current) => ({ ...current, mileage: km != null ? String(km) : '' }))
       })
       .catch(() => {})
@@ -277,7 +285,9 @@ export function NewIncidentPage() {
           <h2 id="tires-data-title">{t.newIncident.tiresData}</h2>
           <TextInputField label={t.newIncident.mileage} type="number" min={0} value={form.mileage} onChange={(event) => setForm((current) => ({ ...current, mileage: event.target.value }))} required requiredVisual />
           {kmCurrent != null && (
-            <p className="update-hint">{t.newIncident.mileageFromReading(fmtKm(kmCurrent, language))}</p>
+            <p className="update-hint">{kmEstimated
+              ? t.newIncident.mileageFromReadingEstimated(fmtKm(kmCurrent, language))
+              : t.newIncident.mileageFromReading(fmtKm(kmCurrent, language))}</p>
           )}
           <SelectField label={t.newIncident.changeReason} options={[
             { value: '', label: t.newIncident.choose }, { value: 'wear', label: t.newIncident.wear },
@@ -310,7 +320,9 @@ export function NewIncidentPage() {
             <TextInputField label={t.newIncident.workshopPostalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={form.workshopPostalCode} onChange={(event) => setForm((current) => ({ ...current, workshopPostalCode: event.target.value }))} required requiredVisual />
           </div>
           {kmCurrent != null && (
-            <p className="update-hint">{t.newIncident.mileageFromReading(fmtKm(kmCurrent, language))}</p>
+            <p className="update-hint">{kmEstimated
+              ? t.newIncident.mileageFromReadingEstimated(fmtKm(kmCurrent, language))
+              : t.newIncident.mileageFromReading(fmtKm(kmCurrent, language))}</p>
           )}
           <TextAreaField label={t.newIncident.description} rows={4} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder={t.newIncident.breakdownPlaceholder} required requiredVisual />
         </section>}

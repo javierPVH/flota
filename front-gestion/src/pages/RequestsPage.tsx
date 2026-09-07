@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Badge, Button, Chip, Modal, PageHeader, SelectField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
@@ -56,6 +56,13 @@ export function RequestsPage() {
     return request.jira_key ? 'Jira' : t.originManual
   }
 
+  // R3-30: `t` por ref — con el mensaje en las deps, el botón es/en
+  // re-descargaba la bandeja entera (el diccionario solo pinta el error).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
+
   // Carga completa: el filtro de estado es de cliente (chips con contador),
   // así los contadores reflejan la bandeja entera sin refetch por chip.
   const load = useCallback(() => {
@@ -65,9 +72,9 @@ export function RequestsPage() {
         setRequests(rows)
         setError('')
       })
-      .catch((err) => setError(asErrorMessage(err, t.loadError)))
+      .catch((err) => setError(asErrorMessage(err, tRef.current.loadError)))
       .finally(() => setLoading(false))
-  }, [t.loadError])
+  }, [])
 
   useEffect(load, [load])
   useEffect(() => {

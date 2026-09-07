@@ -49,7 +49,7 @@ class Contract(DeactivatableModel, TimeStampedModel):
     class Meta:
         verbose_name = "contrato"
         verbose_name_plural = "contratos"
-        ordering = ["-start_date"]
+        ordering = ["-start_date", "-pk"]  # R3-23: desempate estable
 
     def __str__(self) -> str:
         return f"{self.contract_number or 'Contrato'} · {self.vehicle.plate}"
@@ -75,7 +75,7 @@ class KmReading(DeactivatableModel, TimeStampedModel):
     class Meta:
         verbose_name = "lectura de km"
         verbose_name_plural = "lecturas de km"
-        ordering = ["-reading_date"]
+        ordering = ["-reading_date", "-pk"]  # R3-23: desempate estable
         indexes = [
             # Última lectura / lecturas por periodo de un vehículo.
             models.Index(fields=["vehicle", "reading_date"]),
@@ -86,10 +86,15 @@ class KmReading(DeactivatableModel, TimeStampedModel):
 
     def clean(self):
         # HU-3.1: el odómetro no puede retroceder respecto a la última lectura.
+        # R3-18: solo cuentan las ACTIVAS — mismo criterio que la API. Sin el
+        # filtro, corregir una lectura errónea desactivándola (el flujo N7
+        # canónico) dejaba al admin rechazando el valor bueno que la API acepta.
         if self.km_reading is None:
             return
         previous = (
-            KmReading.objects.filter(vehicle_id=self.vehicle_id, km_reading__isnull=False)
+            KmReading.objects.filter(
+                vehicle_id=self.vehicle_id, km_reading__isnull=False, is_active=True
+            )
             .exclude(pk=self.pk)
             .order_by("-reading_date", "-id")
             .first()

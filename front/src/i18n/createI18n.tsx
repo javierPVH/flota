@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -28,6 +29,17 @@ export function createI18n<T>(translations: Record<AppLanguage, T>) {
 
   function LanguageProvider({ children }: { children: ReactNode }) {
     const [language, setLanguageState] = useState<AppLanguage>(getStoredLanguage)
+
+    // R3-36: al montar, refleja el idioma PERSISTIDO en `document.lang` (el
+    // index.html trae `lang="es"` fijo). Sin esto, un usuario con 'en'
+    // guardado arrancaba mezclado: el shell (este Context) en inglés y todo lo
+    // que lee `useAppLang` —componentes del DS y los módulos de copy por
+    // página— en castellano hasta el primer toggle.
+    useEffect(() => {
+      applyLanguage(language)
+      // Solo al montar: después es `setLanguage` quien aplica cada cambio.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     const setLanguage = useCallback((lang: AppLanguage) => {
       applyLanguage(lang)

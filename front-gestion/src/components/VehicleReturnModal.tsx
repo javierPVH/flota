@@ -83,6 +83,10 @@ export function VehicleReturnModal({
             <dd>{result.km_end != null ? `${result.km_end.toLocaleString()} km` : '—'}</dd>
             <dt>{t.returnDoneAssignments}</dt>
             <dd>{result.assignments_finished}</dd>
+            <dt>{t.returnDoneLinks}</dt>
+            <dd>{result.links_closed}</dd>
+            <dt>{t.returnDoneAlerts}</dt>
+            <dd>{result.alerts_resolved}</dd>
             <dt>{t.returnDoneContract}</dt>
             <dd>{result.contract_closed != null ? t.yes : t.no}</dd>
             <dt>{t.returnDoneOverage}</dt>

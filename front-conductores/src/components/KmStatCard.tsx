@@ -34,6 +34,13 @@ export function KmStatCard({
               ? t.vehicle.readingOf(fmtDate(summary.km_reading_date, language))
               : t.vehicle.noReadings}
           </span>
+          {/* R3-42/N8b: un km salido del cálculo automático no es un dato del
+              cuadro — el campo es quien puede corregirlo con la lectura real. */}
+          {summary?.km_estimated && (
+            <span className="km-stat-line" title={t.km.estimatedNote}>
+              <Badge tone="warning" size="sm">{t.km.estimatedTag}</Badge>
+            </span>
+          )}
           {kmWindow?.enabled && (
             <span className="km-stat-line">{t.vehicle.bestKmDay(kmWindow.last_day)}</span>
           )}

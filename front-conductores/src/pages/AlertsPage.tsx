@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import { BellOff, BellRing, ChevronRight } from 'lucide-react'
 import { Badge, Button, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { AlertCard } from '../components/AlertCard.tsx'
-import { fetchVehicleSummaries, listAlerts } from '../api.ts'
+import { fetchVehicleSummaries, listAlerts, truncatedAt } from '../api.ts'
 import { AlertResolveModal } from '../components/AlertResolveModal.tsx'
 import { RegisterKmModal } from '../components/RegisterKmModal.tsx'
 import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
@@ -49,6 +49,9 @@ export function AlertsPage() {
   const dataVersion = ctx?.dataVersion ?? 0
 
   const [alerts, setAlerts] = useState<Alert[]>([])
+  // R3-31: la bandeja no cabe en la página de 500 → se dice, no se recorta
+  // en silencio (el C6 de gestión, portado).
+  const [truncated, setTruncated] = useState<number | null>(null)
   const [showClosed, setShowClosed] = useState(false)
   const [lastReadings, setLastReadings] = useState<Record<number, VehicleSummary>>({})
   const [loading, setLoading] = useState(true)
@@ -83,10 +86,18 @@ export function AlertsPage() {
     }
   }
 
+  // R3-30: `t` por ref — con `t` en las deps de `load`, el botón es/en
+  // re-descargaba la bandeja entera (el diccionario solo pinta el error).
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
+
   const load = useCallback(() => {
     setLoading(true)
     listAlerts(showClosed ? '' : 'open')
       .then((page) => {
+        setTruncated(truncatedAt(page))
         let sorted = [...page.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])
         // Modo "Mi vehículo" del supervisor: solo lo de su pareja (coche
         // propio + sustitución); en modo Flota se ve el grupo entero.
@@ -106,17 +117,23 @@ export function AlertsPage() {
           ]
           // Summaries en UNA petición (O2): antes era un GET por pendiente.
           // M12: y solo de los vehículos pendientes (`?ids=`), no de todo el
-          // ámbito para tirar el resto en cliente.
-          fetchVehicleSummaries(pendingVehicles)
-            .then((summaries) =>
-              setLastReadings(Object.fromEntries(summaries.map((s) => [s.vehicle, s]))),
-            )
-            .catch(() => setLastReadings({}))
+          // ámbito para tirar el resto en cliente. R4-06: con CERO pendientes
+          // (el caso común) no se pide nada — sin el guard, `?ids=` vacío
+          // degeneraba en el summary del ámbito COMPLETO para tirarlo entero.
+          if (pendingVehicles.length === 0) {
+            setLastReadings({})
+          } else {
+            fetchVehicleSummaries(pendingVehicles)
+              .then((summaries) =>
+                setLastReadings(Object.fromEntries(summaries.map((s) => [s.vehicle, s]))),
+              )
+              .catch(() => setLastReadings({}))
+          }
         }
       })
-      .catch((err) => setError(asErrorMessage(err, t.alerts.loadError)))
+      .catch((err) => setError(asErrorMessage(err, tRef.current.alerts.loadError)))
       .finally(() => setLoading(false))
-  }, [showClosed, isSupervisor, ownIds, t])
+  }, [showClosed, isSupervisor, ownIds])
 
   // `dataVersion`: registrar desde el nav cierra alertas — hay que releerlas.
   useEffect(load, [load, dataVersion])
@@ -207,6 +224,12 @@ export function AlertsPage() {
       />
 
       {notice && <p role="status" className="form-ok">{notice}</p>}
+
+      {truncated !== null && (
+        <p role="status" className="empty-note">
+          {t.common.truncated(alerts.length, truncated)}
+        </p>
+      )}
 
       {/* M8: avisos push de este dispositivo (oculto si el back no los tiene).
           BG7: 'unknown' (fallo de red) NO oculta el panel — ofrece reintentar. */}

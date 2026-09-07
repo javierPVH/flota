@@ -20,12 +20,16 @@ class ProtectedMediaTests(APITestCase):
     """SEC3 + C3: /media exige sesión Y ámbito; en prod responde X-Accel-Redirect."""
 
     PATH = "documents/2026/08/foto.jpg"
+    PERSONAL_PATH = "documents/2026/08/permiso.jpg"
 
     def setUp(self):
         self.admin = make_user("media-admin", Role.ADMIN)
         self.mine = make_user("media-driver", Role.DRIVER)
         self.other = make_user("media-otro", Role.DRIVER)
-        self.vehicle = Vehicle.objects.create(plate="MED1", brand="a", model="b")
+        self.supervisor = make_user("media-super", Role.SUPERVISOR)
+        self.vehicle = Vehicle.objects.create(
+            plate="MED1", brand="a", model="b", supervisor=self.supervisor
+        )
         Assignment.objects.create(
             vehicle=self.vehicle,
             driver=self.mine,
@@ -34,6 +38,8 @@ class ProtectedMediaTests(APITestCase):
         )
         # El binario cuelga siempre de un Document (único FileField del proyecto).
         Document.objects.create(vehicle=self.vehicle, type="accident_report", file=self.PATH)
+        # R3-01: documento PERSONAL (titular persona, sin vehículo).
+        Document.objects.create(user=self.mine, type="driving_license", file=self.PERSONAL_PATH)
 
     def test_anonymous_cannot_fetch_media(self):
         resp = self.client.get(f"/media/{self.PATH}")
@@ -65,11 +71,59 @@ class ProtectedMediaTests(APITestCase):
         resp = self.client.get("/media/documents/2026/08/huerfano.jpg")
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
+    # --- R3-01: documentos PERSONALES (titular persona, sin vehículo) --------
+
+    @override_settings(DEBUG=False)
+    def test_owner_can_fetch_their_personal_document(self):
+        """R3-01: el permiso de conducir se autorizaba solo por vehículo y el
+        titular se comía un 404 al abrir SU propio fichero."""
+        self.client.force_authenticate(self.mine)
+        resp = self.client.get(f"/media/{self.PERSONAL_PATH}")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp["X-Accel-Redirect"], f"/_protected_media/{self.PERSONAL_PATH}")
+
+    @override_settings(DEBUG=False)
+    def test_supervisor_can_fetch_their_drivers_personal_document(self):
+        """El mismo alcance que el listado (`users_for`): sus conductores en curso."""
+        self.client.force_authenticate(self.supervisor)
+        resp = self.client.get(f"/media/{self.PERSONAL_PATH}")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    @override_settings(DEBUG=False)
+    def test_foreign_personal_document_is_404(self):
+        self.client.force_authenticate(self.other)
+        resp = self.client.get(f"/media/{self.PERSONAL_PATH}")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
     @override_settings(DEBUG=False)
     def test_path_traversal_is_rejected(self):
         self.client.force_authenticate(self.admin)
         resp = self.client.get("/media/..%2F..%2Fetc%2Fpasswd")
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_sibling_prefix_directory_does_not_escape(self):
+        """R4-04: el corte era un `startswith` de prefijo sin separador —
+        `/tmp/media-evil` pasaba por `/tmp/media`. El admin se salta la
+        autorización por documento, así que el corte debe bastar por sí solo."""
+        import tempfile
+        from pathlib import Path
+
+        from rest_framework.test import APIRequestFactory, force_authenticate
+
+        from core.media_views import ProtectedMediaView
+
+        with tempfile.TemporaryDirectory() as base:
+            root = Path(base) / "media"
+            root.mkdir()
+            evil = Path(base) / "media-evil"
+            evil.mkdir()
+            (evil / "secreto.txt").write_text("fuera del root")
+            request = APIRequestFactory().get("/media/x")
+            force_authenticate(request, user=self.admin)
+            with override_settings(MEDIA_ROOT=str(root), DEBUG=True):
+                # DRF convierte el Http404 en una respuesta 404.
+                response = ProtectedMediaView.as_view()(request, path="../media-evil/secreto.txt")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class DrivePermissionTests(APITestCase):

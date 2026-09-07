@@ -6,17 +6,18 @@ import { asErrorMessage } from '@flota/ui/http'
 
 import {
   fetchKmWindow,
-  fetchVehicleSummaries,
+  fetchVehicleSummariesCached,
   listAlerts,
   listDocuments,
   listIncidents,
-  listVehicles,
+  listVehiclesCached,
   type KmWindow,
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { useAccordion } from '../components/CollapsibleCard.tsx'
 import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
+import { MyDocumentsCard } from '../components/MyDocumentsCard.tsx'
 import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
 import { VehicleAlertsBreakdownsCard } from '../components/VehicleAlertsBreakdownsCard.tsx'
@@ -58,7 +59,9 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
   // N8a: ventana de registro de km — alimenta la cuenta atrás de los avisos.
   const [kmWindow, setKmWindow] = useState<KmWindow | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  // R3-30: el error se guarda CRUDO y se traduce al pintar — con `t` en las
+  // deps, el botón es/en re-disparaba todas las peticiones de la pantalla.
+  const [error, setError] = useState<unknown>(null)
   // Registrar algo desde el bottom-nav (ITV, km, mantenimiento…) sube este
   // contador: el tablero se recarga y deja de anunciar una cita ya cumplida.
   const dataVersion = useOutletContext<LayoutContext | null>()?.dataVersion ?? 0
@@ -67,9 +70,10 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
     let alive = true
     // Summaries en UNA petición (O2): antes era un GET por coche. La ventana y
     // los summaries no deben tumbar la página si fallan: solo quitan avisos.
+    // R3-28: vehículos y summaries llegan de la caché compartida del arranque.
     Promise.all([
-      listVehicles(),
-      fetchVehicleSummaries().catch(() => [] as VehicleSummary[]),
+      listVehiclesCached(),
+      fetchVehicleSummariesCached().catch(() => [] as VehicleSummary[]),
       fetchKmWindow().catch(() => null),
     ])
       .then(([page, loaded, window_]) => {
@@ -78,12 +82,12 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
         setSummaries(Object.fromEntries(loaded.map((s) => [s.vehicle, s])))
         setKmWindow(window_)
       })
-      .catch((err) => alive && setError(asErrorMessage(err, t.home.loadError)))
+      .catch((err) => alive && setError(err))
       .finally(() => alive && setLoading(false))
     return () => {
       alive = false
     }
-  }, [t, dataVersion])
+  }, [dataVersion])
 
   const isSupervisor = user?.roles.includes('supervisor')
   const hasManagementScope = Boolean(
@@ -161,13 +165,21 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
   const [showOriginal, setShowOriginal] = useState(false)
 
   function refreshSummaries() {
-    fetchVehicleSummaries()
+    // Tras guardar algo, el helper de escritura ya invalidó la caché (R3-28):
+    // esto re-pide fresco y deja la caché repoblada para el resto del shell.
+    fetchVehicleSummariesCached()
       .then((loaded) => setSummaries(Object.fromEntries(loaded.map((item) => [item.vehicle, item]))))
       .catch(() => {})
   }
 
   if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
-  if (error) return <div role="alert" className="form-error">{error}</div>
+  if (error) {
+    return (
+      <div role="alert" className="form-error">
+        {asErrorMessage(error, t.home.loadError)}
+      </div>
+    )
+  }
 
   const panel = (vehicle: Vehicle, reelButton?: ReelButton) => (
     <OwnVehiclePanel
@@ -268,6 +280,10 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
           />
         </div>
       )}
+
+      {/* R3-43: documentos PERSONALES (permiso de conducir…) — del USUARIO,
+          no de un coche: una sola vez, también sin vehículo propio. */}
+      <MyDocumentsCard />
 
     </div>
   )

@@ -297,14 +297,17 @@ describe('VehicleStateModal (Estado · matrícula)', () => {
     expect(mocks.manageIncident).toHaveBeenCalledWith(4, { workshop_postal_code: '28001' })
 
     await userEvent.click(screen.getByRole('button', { name: 'Resolver' }))
-    // El modal de resolución: todos los datos opcionales; cierra la petición.
-    const downtime = await screen.findByRole('spinbutton', {
-      name: 'Días con el vehículo parado',
-    })
-    await userEvent.type(downtime, '3')
+    // R3-41: el contrato real de la fase 3 — la FECHA es obligatoria (viene
+    // precargada con hoy y el servidor calcula los días parado); el sobrecoste
+    // viaja en el payload en vez de perderse.
+    const overcost = await screen.findByLabelText('Sobrecoste (€)')
+    await userEvent.type(overcost, '120.5')
     await userEvent.click(screen.getByRole('button', { name: 'Resolver y cerrar' }))
 
-    expect(mocks.resolveIncident).toHaveBeenCalledWith(4, { downtime_days: 3 })
+    expect(mocks.resolveIncident).toHaveBeenCalledWith(4, {
+      resolution_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      overcost: '120.5',
+    })
     expect(await screen.findByRole('status')).toHaveTextContent(/resuelta y cerrada/i)
   })
 })

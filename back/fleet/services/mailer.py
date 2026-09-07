@@ -30,10 +30,11 @@ from __future__ import annotations
 import html
 import logging
 import re
+from datetime import timedelta
 from typing import NamedTuple
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.utils import timezone
 from django.utils.html import strip_tags
 
@@ -42,6 +43,11 @@ from fleet.models.enums import AlertType
 from fleet.selectors import current_driver_map
 
 logger = logging.getLogger(__name__)
+
+#: R3-08: una fila reclamada (`sending`) cuyo proceso murió se devuelve a
+#: `pending` pasado este margen. Más largo que cualquier entrega razonable y
+#: más corto que el ciclo de reintentos que a nadie le urge.
+STALE_CLAIM = timedelta(minutes=15)
 
 # Variables permitidas en las plantillas (documentadas en el gestor 10c).
 ALLOWED_VARIABLES = (
@@ -345,8 +351,13 @@ def queue_for_alert(alert: Alert) -> bool:
         return False
 
 
-def _deliver(entry: EmailOutbox) -> None:
-    """Envía una fila de la cola. Lanza si el SMTP falla (lo trata `send_outbox`)."""
+def _deliver(entry: EmailOutbox, connection=None) -> None:
+    """Envía una fila de la cola. Lanza si el SMTP falla (lo trata `send_outbox`).
+
+    R3-13: `connection` permite reutilizar UNA conexión SMTP para toda la tanda
+    (handshake + TLS + auth una vez, no por correo); sin ella, cada `send()`
+    abre y cierra la suya.
+    """
     # Varios destinatarios en una fila: `recipient` admite lista separada por
     # comas (los envíos programados permiten añadir direcciones).
     to = [addr.strip() for addr in entry.recipient.split(",") if addr.strip()]
@@ -355,6 +366,7 @@ def _deliver(entry: EmailOutbox) -> None:
         body=strip_tags(entry.body_html),
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=to,
+        connection=connection,
     )
     message.attach_alternative(entry.body_html, "text/html")
     if entry.attachment:
@@ -368,69 +380,108 @@ def _deliver(entry: EmailOutbox) -> None:
     message.send(fail_silently=False)
 
 
-def send_outbox(limit: int | None = None, max_attempts: int | None = None) -> dict[str, int]:
+def send_outbox(
+    limit: int | None = None,
+    max_attempts: int | None = None,
+    entry_ids: list[int] | None = None,
+) -> dict[str, int]:
     """Entrega la tanda pendiente de `EmailOutbox`. Nunca lanza.
 
     Devuelve `{"sent": n, "failed": n, "retry": n}`: `failed` son los que ya han
     agotado los intentos (no se vuelven a tocar) y `retry` los que se
     reintentarán en la siguiente pasada. Cada resultado deja su `EmailLog`.
+
+    `entry_ids` (R3-15) acota la entrega a ESAS filas: lo usa «enviar ahora»
+    para mandar solo lo que acaba de encolar, sin arrastrar la cola entera
+    dentro del request. El resto sale en la próxima pasada de `jobs`.
     """
     limit = settings.FLEET_EMAIL_OUTBOX_BATCH if limit is None else limit
     max_attempts = settings.FLEET_EMAIL_MAX_ATTEMPTS if max_attempts is None else max_attempts
     result = {"sent": 0, "failed": 0, "retry": 0}
-    pending = EmailOutbox.objects.filter(status=EmailOutbox.Status.PENDING).order_by("created_at")[
-        :limit
-    ]
     if not email_enabled():
         # El interruptor se ha apagado después de encolar: la cola se queda
         # quieta (sin gastar intentos) hasta que se vuelva a habilitar.
         return result
-    for entry in pending:
-        entry.attempts += 1
+    # R3-08: rescate de filas colgadas en `sending` — un proceso que murió a
+    # mitad de entrega no puede secuestrar sus filas para siempre.
+    EmailOutbox.objects.filter(
+        status=EmailOutbox.Status.SENDING,
+        updated_at__lt=timezone.now() - STALE_CLAIM,
+    ).update(status=EmailOutbox.Status.PENDING)
+    candidates = EmailOutbox.objects.filter(status=EmailOutbox.Status.PENDING)
+    if entry_ids is not None:
+        candidates = candidates.filter(pk__in=entry_ids)
+    candidate_ids = list(candidates.order_by("created_at").values_list("id", flat=True)[:limit])
+    # R3-13: una conexión SMTP para toda la tanda. El manejo de errores por
+    # fila no cambia (`send()` sigue lanzando por mensaje); si la conexión se
+    # muere a mitad, las filas restantes fallan y reintentan en la siguiente.
+    connection = get_connection()
+    try:
+        for entry_id in candidate_ids:
+            # R3-08: claim atómico por fila (CAS sobre `status`): si otra pasada
+            # solapada ya la reclamó, el UPDATE no toca nada y se salta. Vale
+            # tanto en Postgres (real) como en SQLite (dev/tests).
+            claimed = EmailOutbox.objects.filter(
+                pk=entry_id, status=EmailOutbox.Status.PENDING
+            ).update(status=EmailOutbox.Status.SENDING, updated_at=timezone.now())
+            if not claimed:
+                continue
+            entry = EmailOutbox.objects.get(pk=entry_id)
+            _send_one(entry, connection, max_attempts, result)
+    finally:
         try:
-            _deliver(entry)
-        except Exception as exc:  # noqa: BLE001 — best-effort por diseño
-            exhausted = entry.attempts >= max_attempts
-            entry.status = EmailOutbox.Status.FAILED if exhausted else EmailOutbox.Status.PENDING
-            entry.last_error = str(exc)[:1000]
-            entry.save(update_fields=["attempts", "status", "last_error", "updated_at"])
-            logger.warning(
-                "Fallo enviando el correo en cola %s (intento %s/%s): %s",
-                entry.pk,
-                entry.attempts,
-                max_attempts,
-                exc,
-            )
-            if exhausted:
-                result["failed"] += 1
-                EmailLog.objects.create(
-                    alert_id=entry.alert_id,
-                    template_key=entry.template_key,
-                    recipient=entry.recipient,
-                    subject=entry.subject,
-                    status=EmailLog.Status.FAILED,
-                    error=entry.last_error,
-                )
-            else:
-                result["retry"] += 1
-            continue
-        entry.status = EmailOutbox.Status.SENT
-        entry.sent_at = timezone.now()
-        entry.last_error = ""
-        campos = ["attempts", "status", "sent_at", "last_error", "updated_at"]
-        if entry.attachment:
-            # Entregado: el fichero ya no hace falta y la cola es histórico, no
-            # almacén. Se borra del disco pero se conserva el nombre, que es lo
-            # que interesa al revisar qué se mandó.
-            entry.attachment.delete(save=False)
-            campos.append("attachment")
-        entry.save(update_fields=campos)
-        EmailLog.objects.create(
-            alert_id=entry.alert_id,
-            template_key=entry.template_key,
-            recipient=entry.recipient,
-            subject=entry.subject,
-            status=EmailLog.Status.SENT,
-        )
-        result["sent"] += 1
+            connection.close()
+        except Exception:  # noqa: BLE001 — cerrar la conexión es best-effort
+            pass
     return result
+
+
+def _send_one(entry: EmailOutbox, connection, max_attempts: int, result: dict[str, int]) -> None:
+    """Entrega UNA fila ya reclamada y anota el resultado (nunca lanza)."""
+    entry.attempts += 1
+    try:
+        _deliver(entry, connection=connection)
+    except Exception as exc:  # noqa: BLE001 — best-effort por diseño
+        exhausted = entry.attempts >= max_attempts
+        entry.status = EmailOutbox.Status.FAILED if exhausted else EmailOutbox.Status.PENDING
+        entry.last_error = str(exc)[:1000]
+        entry.save(update_fields=["attempts", "status", "last_error", "updated_at"])
+        logger.warning(
+            "Fallo enviando el correo en cola %s (intento %s/%s): %s",
+            entry.pk,
+            entry.attempts,
+            max_attempts,
+            exc,
+        )
+        if exhausted:
+            result["failed"] += 1
+            EmailLog.objects.create(
+                alert_id=entry.alert_id,
+                template_key=entry.template_key,
+                recipient=entry.recipient,
+                subject=entry.subject,
+                status=EmailLog.Status.FAILED,
+                error=entry.last_error,
+            )
+        else:
+            result["retry"] += 1
+        return
+    entry.status = EmailOutbox.Status.SENT
+    entry.sent_at = timezone.now()
+    entry.last_error = ""
+    campos = ["attempts", "status", "sent_at", "last_error", "updated_at"]
+    if entry.attachment:
+        # Entregado: el fichero ya no hace falta y la cola es histórico, no
+        # almacén. Se borra del disco pero se conserva el nombre, que es lo
+        # que interesa al revisar qué se mandó.
+        entry.attachment.delete(save=False)
+        campos.append("attachment")
+    entry.save(update_fields=campos)
+    EmailLog.objects.create(
+        alert_id=entry.alert_id,
+        template_key=entry.template_key,
+        recipient=entry.recipient,
+        subject=entry.subject,
+        status=EmailLog.Status.SENT,
+    )
+    result["sent"] += 1
