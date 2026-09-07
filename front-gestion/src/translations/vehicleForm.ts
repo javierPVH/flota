@@ -76,10 +76,16 @@ const es = {
   kmStart: 'Odómetro inicial (km)',
   kmStartLockedTitle: 'El kilometraje se actualiza registrando lecturas',
   kmStartNote: 'El odómetro inicial crea la primera lectura de km del vehículo.',
+  // Campo sensible: en edición no se toca aquí (descuadraría las proyecciones).
+  kmStartEditInfo:
+    'El odómetro inicial se fijó al dar de alta el vehículo. El kilometraje se actualiza registrando lecturas en «Kilometraje»; no se corrige aquí para no descuadrar las proyecciones ni el histórico.',
   businessUse: 'Tipo de uso',
   project: 'Proyecto',
   driver: 'Conductor',
   driverLockedTitle: 'El conductor se cambia desde la ficha (Cambiar conductor)',
+  // Campo sensible: el conductor tiene su propio flujo con reglas de negocio.
+  driverEditInfo:
+    'El conductor se cambia desde la ficha con «Cambiar conductor»: ese flujo aplica la regla de un coche por conductor, cierra la asignación anterior y deja el cambio en el histórico.',
   supervisor: 'Supervisor',
   businessUnit: 'Unidad de negocio',
   costCenter: 'CECO',
@@ -118,7 +124,8 @@ const es = {
 
   // Notas de contrato
   contractEditNote:
-    'El contrato vigente se consulta en la ficha; los cambios de cuota se registran como evento (G8) y los contratos tienen su propio CRUD.',
+    'Editas el contrato vigente del vehículo. Cambiar la cuota se registra además como evento (G8).',
+  contractCreateHint: 'Rellena inicio y fin previsto para crear el contrato del vehículo.',
   contractCreateNote: 'El contrato se crea junto al vehículo: si algo falla, no se guarda nada.',
 
   // Pie de formulario
@@ -210,6 +217,15 @@ const es = {
     property: 'Propiedad',
     supervisor: 'Supervisor',
     registration_date: 'Matriculación',
+    // Contrato (diff del preview cuando se edita en la misma pantalla).
+    contract_number: 'Nº de contrato',
+    contract_time: 'Duración (meses)',
+    contract_km: 'Km contratados',
+    renting: 'Compañía de renting',
+    start_date: 'Inicio del contrato',
+    planned_end_date: 'Fin previsto del contrato',
+    month_fee: 'Cuota mensual',
+    penalty_per_km: 'Penalización (€/km)',
   } as Record<string, string>,
   catalogsLoadError:
     'No se pudieron cargar todos los catálogos (marcas, proyectos, sociedades…): algún desplegable puede estar vacío.',
@@ -284,10 +300,14 @@ const en: typeof es = {
   kmStart: 'Initial odometer (km)',
   kmStartLockedTitle: 'Mileage is updated by logging readings',
   kmStartNote: 'The initial odometer creates the vehicle’s first mileage reading.',
+  kmStartEditInfo:
+    'The initial odometer was set when the vehicle was created. Mileage is updated by logging readings in “Mileage”; it is not edited here so projections and history stay consistent.',
   businessUse: 'Business use',
   project: 'Project',
   driver: 'Driver',
   driverLockedTitle: 'The driver is changed from the detail page (Change driver)',
+  driverEditInfo:
+    'The driver is changed from the detail page via “Change driver”: that flow enforces one car per driver, closes the previous assignment and records the change in the history.',
   supervisor: 'Supervisor',
   businessUnit: 'Business unit',
   costCenter: 'Cost center',
@@ -323,7 +343,8 @@ const en: typeof es = {
   createAndSelect: 'Create and select',
 
   contractEditNote:
-    'The current contract is shown on the detail page; fee changes are logged as an event (G8) and contracts have their own CRUD.',
+    'You are editing the vehicle’s current contract. Changing the fee is also logged as an event (G8).',
+  contractCreateHint: 'Fill in the start and planned end to create the vehicle’s contract.',
   contractCreateNote: 'The contract is created with the vehicle: if anything fails, nothing is saved.',
 
   unsavedChanges: 'Unsaved changes.',
@@ -408,6 +429,14 @@ const en: typeof es = {
     property: 'Ownership',
     supervisor: 'Supervisor',
     registration_date: 'Registration date',
+    contract_number: 'Contract no.',
+    contract_time: 'Term (months)',
+    contract_km: 'Contracted km',
+    renting: 'Leasing company',
+    start_date: 'Contract start',
+    planned_end_date: 'Contract planned end',
+    month_fee: 'Monthly fee',
+    penalty_per_km: 'Penalty (€/km)',
   } as Record<string, string>,
   catalogsLoadError:
     'Some catalogs (brands, projects, companies…) failed to load: a dropdown may be empty.',

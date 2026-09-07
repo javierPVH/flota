@@ -5,8 +5,8 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Assignment, Vehicle
-from fleet.models.enums import AssignmentStatus
+from fleet.models import Assignment, Event, Vehicle
+from fleet.models.enums import AssignmentStatus, EventType, VehicleState
 
 from .helpers import make_user
 
@@ -180,3 +180,81 @@ class VehicleFullCreateTests(APITestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("driver", resp.data.get("errors", resp.data))
+
+
+class BajaClosesAssignmentTests(APITestCase):
+    """Dar de baja un coche (por CUALQUIER vía) quita el conductor y lo guarda en
+    el histórico — no solo la devolución guiada (petición 2026-09-07).
+
+    El síntoma real: un coche de baja salía del listado pero su asignación seguía
+    viva, así que la regla «un coche por conductor» seguía bloqueando al
+    conductor para otro coche (el 3546LKR de la incidencia).
+    """
+
+    def setUp(self):
+        self.admin = make_user("baja-admin", Role.ADMIN)
+        self.driver = make_user("baja-driver", Role.DRIVER)
+        self.vehicle = Vehicle.objects.create(
+            plate="BAJA1", brand="a", model="b", state=VehicleState.ACTIVE
+        )
+        self.other = Vehicle.objects.create(
+            plate="BAJA2", brand="a", model="b", state=VehicleState.ACTIVE
+        )
+        Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.client.force_authenticate(self.admin)
+
+    def _assert_driver_released(self):
+        asignacion = Assignment.objects.get(vehicle=self.vehicle, driver=self.driver)
+        self.assertEqual(asignacion.status, AssignmentStatus.FINISHED)
+        self.assertIsNotNone(asignacion.end_date)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.state, VehicleState.BAJA)
+        # El histórico de la ficha registra la retirada del conductor (old → —).
+        cambio = (
+            Event.objects.filter(vehicle=self.vehicle, event_type=EventType.DRIVER_CHANGE)
+            .select_related("driver_change")
+            .last()
+        )
+        self.assertIsNotNone(cambio)
+        self.assertEqual(cambio.driver_change.old_driver, self.driver)
+        self.assertIsNone(cambio.driver_change.new_driver)
+
+    def test_delete_retires_and_removes_driver(self):
+        resp = self.client.delete(
+            reverse("vehicle-detail", args=[self.vehicle.pk]) + "?reason=Fin de vida"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        self._assert_driver_released()
+
+    def test_patch_state_baja_removes_driver(self):
+        resp = self.client.patch(
+            reverse("vehicle-detail", args=[self.vehicle.pk]),
+            {"state": VehicleState.BAJA, "change_reason": "Siniestro total"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self._assert_driver_released()
+
+    def test_baja_vehicle_no_longer_blocks_the_driver(self):
+        """Datos heredados: una asignación colgada de un coche YA de baja (mal
+        cerrada en el pasado) no debe seguir bloqueando al conductor."""
+        # Simula el estado legado: coche a baja SIN cerrar su asignación.
+        self.vehicle.state = VehicleState.BAJA
+        self.vehicle.save(update_fields=["state"])
+        # Ahora el mismo conductor puede recibir otro coche vía set-driver.
+        resp = self.client.post(
+            reverse("vehicle-set-driver", args=[self.other.pk]),
+            {"driver": self.driver.pk},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertTrue(
+            Assignment.objects.filter(
+                vehicle=self.other, driver=self.driver, status=AssignmentStatus.ACCEPTED
+            ).exists()
+        )

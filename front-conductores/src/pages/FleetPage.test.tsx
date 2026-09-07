@@ -9,6 +9,7 @@ import type { Role } from '../types.ts'
 
 const mocks = vi.hoisted(() => ({
   listVehicles: vi.fn(),
+  listVehiclesCached: vi.fn(),
   fetchVehicleSummaries: vi.fn(),
   remindVehicle: vi.fn(),
   createKmReading: vi.fn(),
@@ -27,8 +28,10 @@ vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   listVehicles: mocks.listVehicles,
   fetchVehicleSummaries: mocks.fetchVehicleSummaries,
-  // R3-28: los componentes leen las variantes cacheadas — mismo spy, sin TTL.
-  listVehiclesCached: mocks.listVehicles,
+  // R3-28: los componentes leen las variantes cacheadas — sin TTL en el test.
+  // El grupo (`listVehicles` con `supervisor`) y el ámbito personal completo
+  // (`listVehiclesCached`) son consultas distintas: spies separados.
+  listVehiclesCached: mocks.listVehiclesCached,
   fetchVehicleSummariesCached: mocks.fetchVehicleSummaries,
   remindVehicle: mocks.remindVehicle,
   createKmReading: mocks.createKmReading,
@@ -90,14 +93,15 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     vi.clearAllMocks()
     document.documentElement.lang = 'es'
     mocks.roles = ['driver', 'supervisor']
-    mocks.listVehicles.mockResolvedValue({
-      count: 3,
-      results: [
-        vehicle(1, '1111AAA'),
-        vehicle(2, '2222BBB', 'maintenance', 'En taller'),
-        vehicle(3, '3333CCC'),
-      ],
-    })
+    const group = [
+      vehicle(1, '1111AAA'),
+      vehicle(2, '2222BBB', 'maintenance', 'En taller'),
+      vehicle(3, '3333CCC'),
+    ]
+    mocks.listVehicles.mockResolvedValue({ count: 3, results: group })
+    // El ámbito personal por defecto = el grupo (ninguno lo conduce el usuario,
+    // así que no se añade ni marca ningún «Tu coche»): los casos base no cambian.
+    mocks.listVehiclesCached.mockResolvedValue({ count: 3, results: group })
     mocks.fetchVehicleSummaries.mockResolvedValue([
       // El 1111AAA lleva lectura reciente y proyección; los otros dos, nada.
       summary(1, {
@@ -433,6 +437,47 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     ])
     expect(screen.getByText('2222BBB')).toBeInTheDocument()
     expect(screen.queryByText('1111AAA')).not.toBeInTheDocument()
+  })
+
+  it('marca «Tu coche» el vehículo de la flota que conduce el propio supervisor', async () => {
+    // El supervisor (id 1) conduce el 1111AAA, que además está en su grupo.
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      summary(1, { driver: { id: 1, name: 'Sara' } }),
+      summary(2),
+      summary(3),
+    ])
+    renderPage()
+    await screen.findByText('1111AAA')
+
+    // La chapa «Tu coche» aparece una sola vez y en la tarjeta del 1111AAA.
+    expect(screen.getAllByText('Tu coche')).toHaveLength(1)
+    const card = screen.getByText('1111AAA').closest('.card')
+    expect(card).toHaveClass('card-own')
+    expect(within(card as HTMLElement).getByText('Tu coche')).toBeInTheDocument()
+    // Los coches del equipo (que conducen otros) NO llevan la marca.
+    const other = screen.getByText('2222BBB').closest('.card')
+    expect(other).not.toHaveClass('card-own')
+  })
+
+  it('añade a la flota el coche propio aunque lo supervise otra persona', async () => {
+    // El grupo que superviso trae solo el 2222BBB…
+    mocks.listVehicles.mockResolvedValue({ count: 1, results: [vehicle(2, '2222BBB')] })
+    // …pero mi ámbito personal completo incluye mi 9999ZZZ (lo conduzco yo).
+    mocks.listVehiclesCached.mockResolvedValue({
+      count: 2,
+      results: [vehicle(2, '2222BBB'), vehicle(9, '9999ZZZ')],
+    })
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      summary(2),
+      summary(9, { driver: { id: 1, name: 'Sara' } }),
+    ])
+    renderPage()
+
+    // Mi coche aparece en la flota aunque no lo supervise, y va marcado.
+    expect(await screen.findByText('9999ZZZ')).toBeInTheDocument()
+    const card = screen.getByText('9999ZZZ').closest('.card')
+    expect(card).toHaveClass('card-own')
+    expect(within(card as HTMLElement).getByText('Tu coche')).toBeInTheDocument()
   })
 
   it('sin rol supervisor no existe: redirige fuera', async () => {

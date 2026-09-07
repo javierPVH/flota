@@ -5,8 +5,6 @@ import {
   Camera,
   ClipboardCheck,
   ClipboardList,
-  ExternalLink,
-  FileText,
   Fuel,
   Gauge,
   Mail,
@@ -33,6 +31,7 @@ import {
 } from '../components/CollapsibleCard.tsx'
 import { AccidentModal } from '../components/AccidentModal.tsx'
 import { BreakdownModal } from '../components/BreakdownModal.tsx'
+import { DocumentList } from '../components/DocumentList.tsx'
 import { RegisterFuelModal } from '../components/RegisterFuelModal.tsx'
 import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
@@ -45,8 +44,6 @@ import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { useLang } from '../i18n.tsx'
 import {
-  documentStatusTone,
-  fmtDate,
   fmtKm,
   isOpenBreakdown,
   kmLevelTone,
@@ -55,16 +52,6 @@ import {
   vehicleStateTone,
 } from '../format.ts'
 import type { Alert, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
-
-/** Solo enlaces http(s): corta javascript:/data: aunque el back ya sanea. */
-function safeHref(url: string): string {
-  return /^https?:\/\//i.test(url) ? url : ''
-}
-
-/** Enlace al archivo: Drive si ya está archivado; staging local si no. */
-function documentHref(doc: FlotaDocument): string {
-  return safeHref(doc.drive_url) || safeHref(doc.file_url)
-}
 
 /**
  * M2 — Ficha de campo (HU-1.2 lectura, 4.1, 4.3): consulta rápida a pie de
@@ -453,36 +440,7 @@ export function VehicleFieldPage() {
           </Link>
         }
       >
-        {documents.length === 0 && <p className="empty-note">{t.vehicle.noDocuments}</p>}
-        <ul className="doc-list">
-          {documents.map((doc) => {
-            const href = documentHref(doc)
-            return (
-              <li key={doc.id} className="doc-item">
-                <FileText size={18} aria-hidden className="doc-icon" />
-                <div className="doc-info">
-                  <strong>{doc.type_display}</strong>
-                  <span className="doc-sub">
-                    {fmtDate(doc.created_at, language)}
-                    {doc.expiry_date ? t.vehicle.expires(fmtDate(doc.expiry_date, language)) : ''}
-                  </span>
-                </div>
-                <Badge tone={documentStatusTone(doc.status)}>{doc.status_display}</Badge>
-                {href && (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="doc-open"
-                    aria-label={t.vehicle.openDoc(doc.type_display)}
-                  >
-                    <ExternalLink size={18} aria-hidden />
-                  </a>
-                )}
-              </li>
-            )
-          })}
-        </ul>
+        <DocumentList documents={documents} />
 
       </CollapsibleCard>
 

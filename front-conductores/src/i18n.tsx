@@ -56,6 +56,8 @@ const es = {
     /** Marca de campo OBLIGATORIO en los inputs artesanales — la misma
      * pastilla que pone `requiredVisual` en los campos del DS. */
     required: 'Obligatorio',
+    yes: 'Sí',
+    no: 'No',
     /** R3-31: la lista no cabe en una página — se dice, no se recorta en silencio. */
     truncated: (shown: number, total: number) =>
       `Lista recortada: se muestran ${shown} de ${total} registros.`,
@@ -111,6 +113,9 @@ const es = {
       `${reason} — sustituido por ${plate}. Registra los km y documentos sobre el sustituto.`,
     // N9: el par sustituto ↔ principal en la lista de campo.
     substituteTag: '🔁 Sustitución',
+    // Marca del coche que conduce el propio supervisor dentro de su flota.
+    ownTag: 'Tu coche',
+    ownTitle: 'Este coche lo conduces tú',
     covering: (plate: string, reason: string) => `Cubriendo a ${plate} · ${reason}`,
     /** Reel de la pareja: el sustituto se desliza y asoma el original. */
     showOriginal: (plate: string) => `Ver el coche sustituido ${plate}`,
@@ -663,6 +668,35 @@ const es = {
     uploadError: 'No se pudo subir el documento.',
     loadError: 'No se pudieron cargar tus documentos.',
   },
+  /** Documentación en una tarjeta con dos pestañas: el titular del documento
+   * es un coche O una persona, y eso es lo que separan. */
+  docs: {
+    title: 'Documentación',
+    tabs: {
+      vehicle: 'Documentación del coche',
+      driver: 'Documentación del conductor',
+    } as Record<'vehicle' | 'driver', string>,
+    vehicleHint:
+      'Papeles del vehículo: permiso de circulación, ficha técnica, seguro… Se ' +
+      'quedan con el coche cuando lo devuelves.',
+  },
+  /** Pantalla del avatar del header: los datos del usuario y su documentación. */
+  profile: {
+    title: 'Mi perfil',
+    dataTitle: 'Mis datos',
+    dataHint: 'Si algún dato no es correcto, avisa a la gestión de flota: aquí solo se consultan.',
+    email: 'Correo',
+    phone: 'Teléfono',
+    dni: 'DNI',
+    licenseType: 'Tipo de permiso',
+    fuelCard: 'Tarjeta de combustible',
+    empty: 'Sin datos',
+    roleNames: {
+      admin: 'Administración',
+      supervisor: 'Supervisor',
+      driver: 'Conductor',
+    } as Record<'admin' | 'supervisor' | 'driver', string>,
+  },
   /** GAP-2: gasto de combustible de campo (hermano del de km). */
   fuel: {
     title: 'Gasto de combustible',
@@ -721,6 +755,8 @@ const en: typeof es = {
     expandAll: 'Expand all',
     collapseAll: 'Collapse all',
     required: 'Required',
+    yes: 'Yes',
+    no: 'No',
     truncated: (shown: number, total: number) =>
       `List truncated: showing ${shown} of ${total} records.`,
   },
@@ -767,6 +803,8 @@ const en: typeof es = {
     blockedNote: (reason, plate) =>
       `${reason} — substituted by ${plate}. Log mileage and documents on the substitute.`,
     substituteTag: '🔁 Substitution',
+    ownTag: 'Your car',
+    ownTitle: 'You drive this car',
     covering: (plate, reason) => `Covering ${plate} · ${reason}`,
     showOriginal: (plate) => `Show the substituted car ${plate}`,
     backToSubstitute: (plate) => `Back to the substitution car ${plate}`,
@@ -1272,6 +1310,32 @@ const en: typeof es = {
     uploadOffline: 'Offline: the document was saved and will upload once back online.',
     uploadError: 'The document could not be uploaded.',
     loadError: 'Your documents could not be loaded.',
+  },
+  docs: {
+    title: 'Documentation',
+    tabs: {
+      vehicle: 'Vehicle documents',
+      driver: 'Driver documents',
+    },
+    vehicleHint:
+      'Vehicle paperwork: registration, technical datasheet, insurance… It stays ' +
+      'with the car when you return it.',
+  },
+  profile: {
+    title: 'My profile',
+    dataTitle: 'My details',
+    dataHint: 'If anything is wrong, tell fleet management: these are read-only here.',
+    email: 'Email',
+    phone: 'Phone',
+    dni: 'ID number',
+    licenseType: 'Licence type',
+    fuelCard: 'Fuel card',
+    empty: 'Not set',
+    roleNames: {
+      admin: 'Management',
+      supervisor: 'Supervisor',
+      driver: 'Driver',
+    },
   },
   fuel: {
     title: 'Fuel spend',

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, ClipboardList, Gauge, Mail, Siren, Wrench } from 'lucide-react'
+import { Car, ChevronLeft, ChevronRight, ClipboardList, Gauge, Mail, Siren, Wrench } from 'lucide-react'
 import { Badge } from '@flota/ui/ui'
 
 import {
@@ -34,12 +34,16 @@ export function VehicleCardList({
   lookup,
   summaries,
   isSupervisor,
+  currentUserId,
   onRefresh,
 }: {
   vehicles: Vehicle[]
   lookup: Vehicle[]
   summaries: Record<number, VehicleSummary>
   isSupervisor: boolean | undefined
+  /** Id del usuario actual: marca «tu coche» el que conduce él (su asignación
+   * vigente) dentro de la lista de flota. Sin él, no se marca ninguno. */
+  currentUserId?: number | null
   /** La página vuelve a cargar sus datos tras guardar algo desde un modal. */
   onRefresh?: () => void
 }) {
@@ -80,6 +84,7 @@ export function VehicleCardList({
                 pair={pair}
                 summaries={summaries}
                 isSupervisor={isSupervisor}
+                currentUserId={currentUserId}
                 onRemind={onRemind}
                 onUpdate={onUpdate}
                 onBreakdown={setBreakdownFor}
@@ -95,6 +100,7 @@ export function VehicleCardList({
                 vehicle={v}
                 summary={summary}
                 isSupervisor={isSupervisor}
+                currentUserId={currentUserId}
                 cardClass="card-substitute"
                 tag={<Badge tone="info">{t.home.substituteTag}</Badge>}
                 note={t.home.covering(pair.plate, pair.reason)}
@@ -115,6 +121,7 @@ export function VehicleCardList({
                 vehicle={v}
                 summary={summary}
                 isSupervisor={isSupervisor}
+                currentUserId={currentUserId}
                 onRemind={onRemind}
                 onUpdate={onUpdate}
                 onBreakdown={setBreakdownFor}
@@ -129,6 +136,7 @@ export function VehicleCardList({
             vehicle={v}
             summary={summary}
             isSupervisor={isSupervisor}
+            currentUserId={currentUserId}
             onRemind={onRemind}
             onUpdate={onUpdate}
             onBreakdown={setBreakdownFor}
@@ -185,6 +193,7 @@ function SubstitutionReel({
   pair,
   summaries,
   isSupervisor,
+  currentUserId,
   onRemind,
   onUpdate,
   onBreakdown,
@@ -195,6 +204,7 @@ function SubstitutionReel({
   pair: { plate: string; reason: string }
   summaries: Record<number, VehicleSummary>
   isSupervisor: boolean | undefined
+  currentUserId?: number | null
   onRemind?: (vehicle: Vehicle) => void
   onUpdate?: (vehicle: Vehicle) => void
   onBreakdown?: (vehicle: Vehicle) => void
@@ -212,6 +222,7 @@ function SubstitutionReel({
               vehicle={original}
               summary={summaries[original.id]}
               isSupervisor={isSupervisor}
+              currentUserId={currentUserId}
               reelButton={{
                 label: t.home.backToSubstitute(substitute.plate),
                 dir: 'right',
@@ -224,6 +235,7 @@ function SubstitutionReel({
               vehicle={substitute}
               summary={summaries[substitute.id]}
               isSupervisor={isSupervisor}
+              currentUserId={currentUserId}
               cardClass="card-substitute"
               tag={<Badge tone="info">{t.home.substituteTag}</Badge>}
               note={t.home.covering(pair.plate, pair.reason)}
@@ -254,6 +266,7 @@ function VehicleCard({
   vehicle,
   summary,
   isSupervisor,
+  currentUserId,
   cardClass = '',
   tag,
   note,
@@ -266,6 +279,8 @@ function VehicleCard({
   vehicle: Vehicle
   summary: VehicleSummary | undefined
   isSupervisor: boolean | undefined
+  /** Id del usuario actual: marca «tu coche» si él es su conductor vigente. */
+  currentUserId?: number | null
   /** Clase extra de la tarjeta (p. ej. la marca de sustitución). */
   cardClass?: string
   /** Chapita extra de la cabecera. */
@@ -290,10 +305,15 @@ function VehicleCard({
   // N9: el principal con sustituto activo se ve BLOQUEADO (atenuado, candado y
   // motivo); el sustituto operativo queda ligado visualmente.
   const blocked = summary?.blocked_by_link ?? null
+  // El coche que conduce el propio usuario (su asignación vigente) dentro de la
+  // flota que supervisa: se marca para distinguirlo de los de su equipo.
+  const isOwn = currentUserId != null && summary?.driver?.id === currentUserId
 
   return (
     <Link to={`/vehiculos/${vehicle.id}`} className="card-link">
-      <div className={`card${blocked ? ' card-blocked' : ''}${cardClass ? ` ${cardClass}` : ''}`}>
+      <div
+        className={`card${blocked ? ' card-blocked' : ''}${isOwn ? ' card-own' : ''}${cardClass ? ` ${cardClass}` : ''}`}
+      >
         <div className="vehicle-card">
           <div className="vehicle-card-head">
             {reelButton && (
@@ -320,6 +340,13 @@ function VehicleCard({
             )}
             <span className="plate">{vehicle.plate}</span>
             <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+            {isOwn && (
+              <span className="own-vehicle-mark" title={t.home.ownTitle}>
+                <Badge tone="primary" variant="solid" icon={<Car size={13} aria-hidden />}>
+                  {t.home.ownTag}
+                </Badge>
+              </span>
+            )}
             {tag}
             {blocked && <Badge tone="warning">🔒 {t.home.blocked}</Badge>}
             {/* Marca visible de averías abiertas: icono vectorial con contraste,

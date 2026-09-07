@@ -20,6 +20,9 @@ const RegisterKmPage = lazy(() =>
 const VehicleFieldPage = lazy(() =>
   import('./pages/VehicleFieldPage.tsx').then((m) => ({ default: m.VehicleFieldPage })),
 )
+const ProfilePage = lazy(() =>
+  import('./pages/ProfilePage.tsx').then((m) => ({ default: m.ProfilePage })),
+)
 const RequestAccessPage = lazy(() =>
   import('./pages/RequestAccessPage.tsx').then((m) => ({ default: m.RequestAccessPage })),
 )
@@ -73,6 +76,8 @@ export default function App() {
           <Route path="/documentos/nuevo" element={<UploadDocumentPage />} />
           <Route path="/incidencias/nueva" element={<NewIncidentPage />} />
           <Route path="/grupo" element={<GroupPage />} />
+          {/* Pantalla del avatar del header: mis datos y mis documentos. */}
+          <Route path="/perfil" element={<ProfilePage />} />
           {/* Ruta histórica del supervisor: la pantalla es la misma. */}
           <Route
             path="/grupo/incidencias/nueva"

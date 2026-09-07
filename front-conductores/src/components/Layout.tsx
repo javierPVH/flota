@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   Bell,
   Car,
@@ -195,9 +195,16 @@ export function Layout() {
         </div>
         <div className="hdr-tools">
           <LanguageToggleButton activeLanguage={language} onChange={setLanguage} />
-          <span className="hdr-avatar" title={name} aria-hidden="true">
+          {/* El avatar es la puerta a «Mi perfil» (mis datos y mis documentos),
+              así que es un enlace de verdad y no un adorno `aria-hidden`. */}
+          <Link
+            to="/perfil"
+            className="hdr-avatar"
+            aria-label={`${t.profile.title}${name ? ` · ${name}` : ''}`}
+            title={t.profile.title}
+          >
             {initials}
-          </span>
+          </Link>
           <button
             type="button"
             className="hdr-iconbtn"

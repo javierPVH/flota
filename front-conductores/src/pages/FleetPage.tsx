@@ -3,7 +3,12 @@ import { Navigate } from 'react-router-dom'
 import { PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { fetchVehicleSummariesCached, listVehicles, truncatedAt } from '../api.ts'
+import {
+  fetchVehicleSummariesCached,
+  listVehicles,
+  listVehiclesCached,
+  truncatedAt,
+} from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
 import { pendingThisMonth } from '../format.ts'
@@ -18,9 +23,10 @@ const STATE_ORDER = ['active', 'maintenance', 'itv', 'broken', 'accidente']
 /**
  * Flota a cargo (HU-2.8): la lista del grupo del supervisor, separada por
  * grupos de ESTADO seleccionables (Todos · Activos · Taller…).
- * Su coche propio vive en "Mi vehículo" (`/`); la proyección de km y las
- * incidencias del grupo siguen en `/grupo`, que ya tiene su icono en el
- * bottom-nav — aquí no se duplica el acceso.
+ * Incluye ADEMÁS su propio coche —el que conduce— marcado como «Tu coche»,
+ * para que lo tenga a mano aquí y no solo en "Mi vehículo" (`/`). La proyección
+ * de km y las incidencias del grupo siguen en `/grupo`, que ya tiene su icono
+ * en el bottom-nav — aquí no se duplica el acceso.
  */
 export function FleetPage() {
   const { user } = useAuth()
@@ -40,27 +46,40 @@ export function FleetPage() {
   // botón es/en re-disparaba la carga del grupo entero).
   const [error, setError] = useState<unknown>(null)
 
-  // Solo los coches que SUPERVISA: los roles se suman, así que sin el filtro
-  // un supervisor que además es admin vería aquí toda la flota (y uno que
-  // además conduce, su propio coche). Este espacio es su grupo; su coche vive
-  // en "Mi vehículo".
+  // El grupo que SUPERVISA (los roles se suman: sin el filtro `supervisor=<yo>`
+  // un supervisor que además es admin vería aquí toda la flota). A ese grupo se
+  // le SUMA su propio coche —el que conduce— aunque lo supervise otra persona,
+  // marcado como «Tu coche» para distinguirlo del equipo.
   const supervisorId = user?.id ?? null
 
   // Reutilizable: la carga inicial y el refresco tras guardar algo desde los
   // modales de tarjeta (actualización de km/mantenimiento/partes).
   const load = useCallback(() => {
     if (supervisorId === null) return
-    // R3-28: el listado lleva `supervisor=<yo>` (no se cachea), pero los
-    // summaries son los del ámbito completo y sí comparten los del arranque;
-    // el refresco tras guardar llega fresco porque la escritura invalidó.
+    // R3-28: el listado del grupo lleva `supervisor=<yo>` (no se cachea); los
+    // summaries y el ámbito personal completo (`listVehiclesCached`) comparten
+    // la caché del arranque. El refresco tras guardar llega fresco (la escritura
+    // invalidó la caché).
     Promise.all([
       listVehicles({ supervisor: supervisorId }),
       fetchVehicleSummariesCached().catch(() => [] as VehicleSummary[]),
+      listVehiclesCached().catch(() => null),
     ])
-      .then(([page, loaded]) => {
-        setVehicles(page.results)
+      .then(([page, loaded, scope]) => {
+        const summariesMap = Object.fromEntries(loaded.map((s) => [s.vehicle, s]))
+        // Mi coche propio: el que conduzco yo (asignación vigente = summary.driver),
+        // esté o no en mi grupo. Sale de mi ámbito personal completo.
+        const own = (scope?.results ?? []).filter(
+          (v) => summariesMap[v.id]?.driver?.id === supervisorId,
+        )
+        // Mi coche primero y luego el grupo, sin duplicar (si además lo superviso,
+        // ya venía en el grupo: el Map conserva la primera aparición).
+        const byId = new Map<number, Vehicle>()
+        ;[...own, ...page.results].forEach((v) => byId.set(v.id, v))
+        setVehicles([...byId.values()])
+        // El recorte se mide sobre el grupo (lo que puede no caber en la página).
         setTruncated(truncatedAt(page))
-        setSummaries(Object.fromEntries(loaded.map((s) => [s.vehicle, s])))
+        setSummaries(summariesMap)
       })
       .catch((err) => setError(err))
       .finally(() => setLoading(false))
@@ -167,6 +186,7 @@ export function FleetPage() {
         lookup={vehicles}
         summaries={summaries}
         isSupervisor
+        currentUserId={supervisorId}
         onRefresh={load}
       />
     </div>

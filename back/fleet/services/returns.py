@@ -25,6 +25,94 @@ from fleet.selectors import active_link_q, current_assignment_q
 from fleet.services import events
 
 
+def close_vehicle_relations(
+    vehicle: Vehicle, end_date: date, *, alert_note: str = "Baja del vehículo."
+) -> dict[str, object]:
+    """Cierra lo que una BAJA invalida — el cierre común a TODA baja, no solo a
+    la devolución guiada (R3-04 + petición 2026-09-07):
+
+    - **Asignaciones vigentes**: la persona deja de tener este coche. Se quita el
+      conductor (fin + `FINISHED`) y, por cada una que llevaba conductor, se emite
+      su **evento de cambio de conductor** (`old → —`), para que la retirada quede
+      en el histórico de la ficha (HU-2.1), igual que hace `set-driver` al liberar.
+    - **Vínculos de sustitución activos**: no pueden sobrevivir a la baja (el
+      principal quedaría bloqueado por un coche que ya no existe, y a la inversa).
+    - **Alertas abiertas**: ITV, seguro, km… ya no tienen nada que reclamar (los
+      chequeos excluyen la baja y nadie más las cerraría).
+    - **Contrato vigente**: se da por terminado en la fecha de la baja.
+
+    Debe llamarse dentro de una transacción. R3-24: fila a fila (no
+    `queryset.update()`) para que el diff quede en auditlog y mueva `updated_at`.
+    Devuelve recuentos y el contrato cerrado (que la devolución usa para la
+    penalización).
+    """
+    finished = 0
+    for assignment in Assignment.objects.filter(
+        current_assignment_q(), vehicle=vehicle
+    ).select_related("driver"):
+        old_driver = assignment.driver
+        assignment.end_date = end_date
+        assignment.status = AssignmentStatus.FINISHED
+        assignment.save(update_fields=["end_date", "status", "updated_at"])
+        if old_driver is not None:
+            events.emit_driver_change(vehicle, old_driver=old_driver, new_driver=None)
+        finished += 1
+
+    links_closed = 0
+    for link in VehicleLink.objects.filter(
+        active_link_q(), Q(main_vehicle=vehicle) | Q(substitute_vehicle=vehicle)
+    ):
+        link.end_date = end_date
+        link.save(update_fields=["end_date", "updated_at"])
+        links_closed += 1
+
+    alerts_resolved = Alert.objects.filter(vehicle=vehicle, status=AlertStatus.OPEN).update(
+        status=AlertStatus.RESOLVED,
+        resolved_at=timezone.now(),
+        resolution_note=alert_note,
+    )
+
+    # Contrato vigente (el de inicio más reciente sin fin real): fin real = la baja.
+    contract = (
+        Contract.objects.filter(vehicle=vehicle, is_active=True, end_date__isnull=True)
+        .order_by("-start_date")
+        .first()
+    )
+    if contract is not None:
+        contract.end_date = end_date
+        contract.save(update_fields=["end_date", "updated_at"])
+
+    return {
+        "assignments_finished": finished,
+        "links_closed": links_closed,
+        "alerts_resolved": alerts_resolved,
+        "contract": contract,
+    }
+
+
+def retire_vehicle(vehicle: Vehicle, *, reason: str = "", when: date | None = None) -> None:
+    """Da de BAJA un vehículo con TODO lo que la baja arrastra (HU-1.5/2.1).
+
+    El camino de baja «seco» (borrar la ficha = `DELETE`, o editar el estado a
+    baja) hacía solo `state = BAJA` + evento, dejando la asignación del conductor
+    viva: el coche desaparecía del listado pero seguía «ocupando» al conductor y
+    lo bloqueaba para otro coche. Aquí la baja quita el conductor (con su
+    histórico), cierra sustituciones, alertas y contrato, y emite el evento de
+    cambio de estado. Debe correr dentro de una transacción. Idempotente: si ya
+    está de baja, no hace nada.
+    """
+    if vehicle.state == VehicleState.BAJA:
+        return
+    when = when or timezone.localdate()
+    close_vehicle_relations(vehicle, when)
+    old_state = vehicle.state
+    vehicle.state = VehicleState.BAJA
+    vehicle.save(update_fields=["state", "updated_at"])
+    events.emit_vehicle_state_change(
+        vehicle, old_state, VehicleState.BAJA, reason=reason, when=when
+    )
+
+
 def return_vehicle(
     vehicle: Vehicle,
     *,
@@ -64,47 +152,15 @@ def return_vehicle(
         vehicle.km_end = km_end
         vehicle.save(update_fields=["km_end", "updated_at"])
 
-    # Asignaciones vigentes: la persona deja de tener este coche. R3-02: el
-    # criterio incluye un fin PROGRAMADO aún no alcanzado — se adelanta al día
-    # de la devolución. R3-24: fila a fila (no `queryset.update()`) para que el
-    # cierre deje su diff en auditlog y mueva `updated_at`.
-    finished = 0
-    for assignment in Assignment.objects.filter(current_assignment_q(), vehicle=vehicle):
-        assignment.end_date = end_date
-        assignment.status = AssignmentStatus.FINISHED
-        assignment.save(update_fields=["end_date", "status", "updated_at"])
-        finished += 1
-
-    # R3-04: los vínculos de sustitución activos no pueden sobrevivir a la
-    # baja. Devolver el SUSTITUTO libera al principal (que seguía bloqueado
-    # por un coche que ya no existe); devolver el PRINCIPAL libera al
-    # sustituto (que quedaba «cubriendo» un coche de baja). R3-24: ídem,
-    # fila a fila — VehicleLink también está auditado.
-    links_closed = 0
-    for link in VehicleLink.objects.filter(
-        active_link_q(), Q(main_vehicle=vehicle) | Q(substitute_vehicle=vehicle)
-    ):
-        link.end_date = end_date
-        link.save(update_fields=["end_date", "updated_at"])
-        links_closed += 1
-
-    # R3-04: las alertas abiertas del vehículo (ITV, seguro, km…) no tienen ya
-    # nada que reclamar — los chequeos excluyen la baja y nadie más las cierra.
-    alerts_resolved = Alert.objects.filter(vehicle=vehicle, status=AlertStatus.OPEN).update(
-        status=AlertStatus.RESOLVED,
-        resolved_at=timezone.now(),
-        resolution_note="Devolución del vehículo.",
-    )
-
-    # Contrato vigente (el de inicio más reciente sin fin real): fin real = hoy.
-    contract = (
-        Contract.objects.filter(vehicle=vehicle, is_active=True, end_date__isnull=True)
-        .order_by("-start_date")
-        .first()
-    )
-    if contract is not None:
-        contract.end_date = end_date
-        contract.save(update_fields=["end_date", "updated_at"])
+    # Cierre común a toda baja: asignaciones (quita el conductor con su
+    # histórico), sustituciones, alertas y contrato. R3-02: el criterio de
+    # vigencia incluye un fin PROGRAMADO aún no alcanzado (se adelanta al día de
+    # la devolución). El motivo de la alerta es el de la devolución guiada.
+    closed = close_vehicle_relations(vehicle, end_date, alert_note="Devolución del vehículo.")
+    finished = closed["assignments_finished"]
+    links_closed = closed["links_closed"]
+    alerts_resolved = closed["alerts_resolved"]
+    contract = closed["contract"]
 
     # Exceso sobre lo contratado y coste estimado de la penalización.
     overage = None
