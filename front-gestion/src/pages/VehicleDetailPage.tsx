@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   Badge,
   Button,
@@ -114,6 +114,28 @@ export function VehicleDetailPage() {
   const isAdmin = user?.roles.includes('admin') ?? false
   const { id } = useParams()
   const vehicleId = Number(id)
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // «Volver» inteligente: si venimos de otra pantalla de la app, retrocedemos en
+  // el historial (POP) para caer EXACTAMENTE donde estábamos —panel, lista o
+  // incluso otra ficha— y que la lista restaure sus filtros y scroll. Si se
+  // entró directo a la ficha (enlace/recarga: `location.key === 'default'`), no
+  // hay historial dentro de la app y volvemos a la vista general.
+  const cameFrom = (location.state as { from?: string } | null)?.from ?? null
+  const canGoBack = location.key !== 'default'
+  const backLabel =
+    cameFrom === '/vehiculos'
+      ? t.backToVehicles
+      : cameFrom === '/'
+        ? t.backToOverview
+        : canGoBack
+          ? t.back
+          : t.backToOverview
+  const goBack = () => {
+    if (canGoBack) navigate(-1)
+    else navigate('/')
+  }
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [summary, setSummary] = useState<VehicleSummary | null>(null)
@@ -945,7 +967,11 @@ export function VehicleDetailPage() {
 
       {/* Cabecera: tres atributos diferenciados (HU-1.2/1.6) */}
       <PageHeader
-        breadcrumb={<Link to="/">{t.backToOverview}</Link>}
+        breadcrumb={
+          <button type="button" className="breadcrumb-back" onClick={goBack}>
+            {backLabel}
+          </button>
+        }
         title={vehicle.plate}
         subtitle={
           `${vehicle.brand} ${vehicle.model}${vehicle.version ? ` ${vehicle.version}` : ''}` +

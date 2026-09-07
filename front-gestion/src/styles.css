@@ -1,6 +1,20 @@
 /* Estilos mínimos de la app de gestión. El grueso viene de @flota/ui/base.css
    y los tokens de @flota/ui/styles/tokens.css. */
 
+/* «Volver» de la ficha: un <button> (retrocede en el historial) con aspecto de
+   enlace, para encajar en el breadcrumb del PageHeader. */
+.breadcrumb-back {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+.breadcrumb-back:hover {
+  text-decoration: underline;
+}
+
 :root {
   /* Acento propio de "vehículo de sustitución": los semánticos ya significan
      estado (verde/ámbar/rojo), el teal es la acción y el azul los enlaces, así

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useNavigationType } from 'react-router-dom'
 import {
   Badge,
   Button,
@@ -130,11 +130,56 @@ function filterVehicles(list: Vehicle[], f: VehFilter): Vehicle[] {
   })
 }
 
+// «Volver a donde estábamos»: al regresar de una ficha (navegación POP), la
+// lista recupera pestaña, filtros y scroll. Se guarda en sessionStorage (vive
+// solo esta sesión de pestaña) y solo se restaura en POP: entrar por el menú
+// (PUSH) da una lista limpia, como siempre.
+const VIEW_KEY = 'gestion.vehiclesView'
+
+interface VehiclesView {
+  tab: VehTab
+  search: string
+  stateFilter: string
+  supervisorFilter: string
+  dueItv: boolean
+  dueInsurance: boolean
+  showBajas: boolean
+  appliedFrom: string
+  appliedTo: string
+  scrollTop: number
+}
+
+function readVehiclesView(): VehiclesView | null {
+  try {
+    const raw = sessionStorage.getItem(VIEW_KEY)
+    return raw ? (JSON.parse(raw) as VehiclesView) : null
+  } catch {
+    return null
+  }
+}
+
+/** Primer ancestro que hace scroll (el `.section` del DS, con clase hasheada):
+ * se busca subiendo por el DOM para no depender del nombre de la clase. */
+function getScrollParent(node: HTMLElement | null): HTMLElement | null {
+  let el = node?.parentElement ?? null
+  while (el) {
+    const oy = getComputedStyle(el).overflowY
+    if (oy === 'auto' || oy === 'scroll') return el
+    el = el.parentElement
+  }
+  return null
+}
+
 /** Administración de vehículos. El alta/edición seccionada vive en
  * /vehiculos/nuevo y /vehiculos/:id/editar (G3); aquí queda el inventario
  * con acceso rápido y el borrado con confirmación. */
 export function VehiclesPage() {
   const navigate = useNavigate()
+  // Solo se restaura al VOLVER (POP); una entrada nueva (PUSH) arranca limpia.
+  // `useMemo` (no un ref) para poder leerlo en los inicializadores del estado.
+  const navType = useNavigationType()
+  const initialView = useMemo(() => (navType === 'POP' ? readVehiclesView() : null), [navType])
+  const rootRef = useRef<HTMLDivElement>(null)
   const { language } = useLang()
   const t = useVehiclesCopy()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -143,7 +188,7 @@ export function VehiclesPage() {
   const [error, setError] = useState('')
 
   // Pestaña activa (flota / sustitución) y modales.
-  const [tab, setTab] = useState<VehTab>('fleet')
+  const [tab, setTab] = useState<VehTab>(initialView?.tab ?? 'fleet')
   const [createOpen, setCreateOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [opsVehicle, setOpsVehicle] = useState<Vehicle | null>(null)
@@ -154,17 +199,18 @@ export function VehiclesPage() {
   const [driverVehicle, setDriverVehicle] = useState<Vehicle | null>(null)
   const [invoicesVehicle, setInvoicesVehicle] = useState<Vehicle | null>(null)
 
-  // Filtros de la barra.
-  const [search, setSearch] = useState('')
-  const [stateFilter, setStateFilter] = useState('')
-  const [supervisorFilter, setSupervisorFilter] = useState('')
-  const [dueItv, setDueItv] = useState(false)
-  const [dueInsurance, setDueInsurance] = useState(false)
-  const [showBajas, setShowBajas] = useState(false)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [appliedFrom, setAppliedFrom] = useState('')
-  const [appliedTo, setAppliedTo] = useState('')
+  // Filtros de la barra. Al VOLVER de una ficha (POP) arrancan del snapshot
+  // guardado, para regresar a la lista tal y como estaba.
+  const [search, setSearch] = useState(initialView?.search ?? '')
+  const [stateFilter, setStateFilter] = useState(initialView?.stateFilter ?? '')
+  const [supervisorFilter, setSupervisorFilter] = useState(initialView?.supervisorFilter ?? '')
+  const [dueItv, setDueItv] = useState(initialView?.dueItv ?? false)
+  const [dueInsurance, setDueInsurance] = useState(initialView?.dueInsurance ?? false)
+  const [showBajas, setShowBajas] = useState(initialView?.showBajas ?? false)
+  const [dateFrom, setDateFrom] = useState(initialView?.appliedFrom ?? '')
+  const [dateTo, setDateTo] = useState(initialView?.appliedTo ?? '')
+  const [appliedFrom, setAppliedFrom] = useState(initialView?.appliedFrom ?? '')
+  const [appliedTo, setAppliedTo] = useState(initialView?.appliedTo ?? '')
 
   // Columnas: orden + ocultas + menú desplegable.
   const [colOrder, setColOrder] = useState<string[]>(() => [...COLUMN_KEYS])
@@ -203,6 +249,68 @@ export function VehiclesPage() {
   }, [])
 
   useEffect(load, [load])
+
+  // --- «Volver a donde estábamos»: persistencia de la vista (POP) -----------
+  // Snapshot vivo de pestaña+filtros, para guardarlo al salir a una ficha.
+  const viewRef = useRef<Omit<VehiclesView, 'scrollTop'>>({
+    tab,
+    search,
+    stateFilter,
+    supervisorFilter,
+    dueItv,
+    dueInsurance,
+    showBajas,
+    appliedFrom,
+    appliedTo,
+  })
+  useEffect(() => {
+    viewRef.current = {
+      tab,
+      search,
+      stateFilter,
+      supervisorFilter,
+      dueItv,
+      dueInsurance,
+      showBajas,
+      appliedFrom,
+      appliedTo,
+    }
+  })
+  // Scroll del contenedor real, en vivo (no se puede leer el ref en el cleanup
+  // de desmontaje: React ya lo ha soltado). Se escucha y se guarda su posición.
+  const scrollTopRef = useRef(0)
+  useEffect(() => {
+    const scroller = getScrollParent(rootRef.current)
+    if (!scroller) return
+    scrollTopRef.current = scroller.scrollTop
+    const onScroll = () => {
+      scrollTopRef.current = scroller.scrollTop
+    }
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+    return () => scroller.removeEventListener('scroll', onScroll)
+  }, [])
+  // Restaura el scroll al VOLVER (POP), una vez las filas ya están pintadas
+  // (si se hiciera antes, la lista aún vacía recortaría la posición a 0).
+  const scrollRestored = useRef(false)
+  useEffect(() => {
+    if (loading || scrollRestored.current || !initialView?.scrollTop) return
+    scrollRestored.current = true
+    const scroller = getScrollParent(rootRef.current)
+    if (scroller) scroller.scrollTop = initialView.scrollTop
+  }, [loading, initialView])
+  // Al desmontar (salir a la ficha), se guarda la vista para el regreso.
+  useEffect(() => {
+    return () => {
+      try {
+        sessionStorage.setItem(
+          VIEW_KEY,
+          JSON.stringify({ ...viewRef.current, scrollTop: scrollTopRef.current }),
+        )
+      } catch {
+        /* sessionStorage no disponible: la restauración es un extra, no crítico. */
+      }
+    }
+  }, [])
 
   // Ids de vehículos de flota con sustituto vigente (para el filtro y la celda).
   const subMainIds = useMemo(() => {
@@ -320,7 +428,8 @@ export function VehiclesPage() {
       label: t.columns.plate,
       getValue: (v) => v.plate,
       render: (v) => (
-        <Link to={`/vehiculos/${v.id}`} className="cell-link">
+        // `from`: la ficha sabe que vuelve a la lista (etiqueta del «volver»).
+        <Link to={`/vehiculos/${v.id}`} state={{ from: '/vehiculos' }} className="cell-link">
           <strong>{v.plate}</strong>
           {v.is_substitute ? ' 🔁' : ''}
         </Link>
@@ -522,7 +631,7 @@ export function VehiclesPage() {
   }
 
   return (
-    <div>
+    <div ref={rootRef}>
       <PageHeader
         title={t.title}
         subtitle={t.subtitle}
@@ -825,7 +934,7 @@ export function VehiclesPage() {
           defaultSubstitute={tab === 'substitute'}
           onSuccess={(id) => {
             setCreateOpen(false)
-            navigate(`/vehiculos/${id}`)
+            navigate(`/vehiculos/${id}`, { state: { from: '/vehiculos' } })
           }}
           onCancel={() => setCreateOpen(false)}
         />

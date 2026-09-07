@@ -3,6 +3,8 @@ import { useAppLang } from '@flota/ui/i18n'
 const es = {
   // --- Cabecera y acciones ---------------------------------------------------
   backToOverview: '← Vista general',
+  backToVehicles: '← Vehículos',
+  back: '← Volver',
   loading: 'Cargando…',
   registerKm: 'Registrar km',
   edit: 'Editar',
@@ -471,6 +473,8 @@ const es = {
 const en: typeof es = {
   // --- Header and actions ----------------------------------------------------
   backToOverview: '← Overview',
+  backToVehicles: '← Vehicles',
+  back: '← Back',
   loading: 'Loading…',
   registerKm: 'Log mileage',
   edit: 'Edit',

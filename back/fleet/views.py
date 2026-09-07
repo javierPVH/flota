@@ -307,10 +307,16 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             # sería una consulta por fila del listado.
             .select_related("supervisor", "business_unit", "project", "cost_center", "site")
         )
-        params = self.request.query_params
-        include_baja = params.get("include_baja") in ("1", "true", "True")
-        if params.get("state") != VehicleState.BAJA and not include_baja:
-            qs = qs.exclude(state=VehicleState.BAJA)
+        # BG: ocultar las bajas es cosa del LISTADO. En una petición de detalle
+        # —`retrieve` o cualquier acción sobre un vehículo concreto (`summary`,
+        # `history`, `set-driver`…)— el id es explícito y el vehículo debe
+        # resolverse aunque esté de baja; si se filtra aquí, abrir la ficha de un
+        # coche dado de baja devolvía 404 «No Vehicle matches the given query».
+        if self.action == "list":
+            params = self.request.query_params
+            include_baja = params.get("include_baja") in ("1", "true", "True")
+            if params.get("state") != VehicleState.BAJA and not include_baja:
+                qs = qs.exclude(state=VehicleState.BAJA)
         return qs
 
     def perform_create(self, serializer):
