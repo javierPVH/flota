@@ -240,6 +240,19 @@ class BajaClosesAssignmentTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         self._assert_driver_released()
 
+    def test_detalle_de_coche_de_baja_se_puede_abrir(self):
+        """La ficha de un coche de baja debe abrirse: el id es explícito. Ocultar
+        las bajas es cosa del LISTADO; en el detalle daba 404 «No Vehicle matches
+        the given query» y la ficha no se podía ver."""
+        self.vehicle.state = VehicleState.BAJA
+        self.vehicle.save(update_fields=["state"])
+        detalle = self.client.get(reverse("vehicle-detail", args=[self.vehicle.pk]))
+        self.assertEqual(detalle.status_code, status.HTTP_200_OK, detalle.data)
+        self.assertEqual(detalle.data["plate"], "BAJA1")
+        # Y sus acciones de detalle (p. ej. el summary de la ficha) también.
+        resumen = self.client.get(reverse("vehicle-summary", args=[self.vehicle.pk]))
+        self.assertEqual(resumen.status_code, status.HTTP_200_OK, resumen.data)
+
     def test_baja_vehicle_no_longer_blocks_the_driver(self):
         """Datos heredados: una asignación colgada de un coche YA de baja (mal
         cerrada en el pasado) no debe seguir bloqueando al conductor."""

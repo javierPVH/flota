@@ -598,7 +598,8 @@ export function DashboardPage() {
   // Vencido = la fecha ya pasó; si no y está en la lista (dueClass≠''), es próximo.
   const isOverdue = (date: string | null) => date != null && date < todayIso()
   const plateLink = (v: Vehicle) => (
-    <Link to={`/vehiculos/${v.id}`} className="cell-link">
+    // `from`: la ficha sabe que vuelve a la vista general (etiqueta del «volver»).
+    <Link to={`/vehiculos/${v.id}`} state={{ from: '/' }} className="cell-link">
       <strong>{v.plate}</strong>
     </Link>
   )
