@@ -127,7 +127,7 @@ export function VehicleAssignmentsPanel({
     return [
       {
         key: 'supervisor',
-        label: t.supervisorColumn,
+        label: t.columns.supervisor,
         getValue: (r) => r.supervisor,
         render: (r) => r.supervisor,
       },
