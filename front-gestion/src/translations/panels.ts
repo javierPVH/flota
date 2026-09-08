@@ -88,6 +88,7 @@ const es = {
     },
     columns: {
       driver: 'Conductor',
+      supervisor: 'Supervisor',
       period: 'Periodo',
       status: 'Estado',
     },
@@ -109,7 +110,6 @@ const es = {
     history: 'Histórico de conductores',
     driversTab: 'Histórico de conductores',
     supervisorsTab: 'Histórico de supervisores',
-    supervisorColumn: 'Supervisor',
     supervisorStatus: { current: 'Vigente', past: 'Finalizado' },
     noSupervisorHistory: 'Sin cambios de supervisor registrados.',
     supervisorSearchPlaceholder: 'Supervisor o estado…',
@@ -267,6 +267,7 @@ const en: typeof es = {
     },
     columns: {
       driver: 'Driver',
+      supervisor: 'Supervisor',
       period: 'Period',
       status: 'Status',
     },
@@ -288,7 +289,6 @@ const en: typeof es = {
     history: 'Driver history',
     driversTab: 'Driver history',
     supervisorsTab: 'Supervisor history',
-    supervisorColumn: 'Supervisor',
     supervisorStatus: { current: 'Current', past: 'Ended' },
     noSupervisorHistory: 'No supervisor changes recorded.',
     supervisorSearchPlaceholder: 'Supervisor or status…',
