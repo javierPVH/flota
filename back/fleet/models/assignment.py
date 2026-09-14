@@ -71,6 +71,47 @@ def driver_clash_message(clash) -> str:
     )
 
 
+def vehicle_assignment_overlap(
+    vehicle_id,
+    *,
+    start_date=None,
+    end_date=None,
+    exclude_pk=None,
+):
+    """Asignación ACEPTADA del mismo coche que pisa el rango (o ``None``).
+
+    Un coche lleva UN conductor a la vez, también en el histórico: dos
+    periodos aceptados del mismo vehículo no pueden solaparse. Fin NULL = en
+    curso (llega hasta el infinito) e inicio NULL = viene de siempre; fin ==
+    inicio del siguiente es un relevo válido, no un solape.
+    """
+    # Cuentan los tramos REALES: la vigente (aceptada) y las ya cerradas
+    # (finalizadas). Una propuesta o un rechazo no ocupan al coche.
+    qs = Assignment.objects.filter(
+        vehicle_id=vehicle_id,
+        status__in=(AssignmentStatus.ACCEPTED, AssignmentStatus.FINISHED),
+        is_active=True,
+    ).select_related("driver")
+    if exclude_pk is not None:
+        qs = qs.exclude(pk=exclude_pk)
+    if start_date is not None:
+        qs = qs.filter(models.Q(end_date__isnull=True) | models.Q(end_date__gt=start_date))
+    if end_date is not None:
+        qs = qs.filter(models.Q(start_date__isnull=True) | models.Q(start_date__lt=end_date))
+    return qs.order_by("start_date").first()
+
+
+def periodo_texto(start_date, end_date) -> str:
+    """«del 2026-01-01 al 2026-06-30» / «desde el …» para los mensajes."""
+    if start_date and end_date:
+        return f"del {start_date} al {end_date}"
+    if start_date:
+        return f"desde el {start_date}"
+    if end_date:
+        return f"hasta el {end_date}"
+    return "sin fechas"
+
+
 class Assignment(DeactivatableModel, TimeStampedModel):
     """DBML `assignments` — conductor asignado a un vehículo en un periodo.
 
@@ -212,3 +253,94 @@ class VehicleLink(DeactivatableModel, TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.main_vehicle.plate} ← {self.substitute_vehicle.plate}"
+
+
+class SupervisorPeriod(DeactivatableModel, TimeStampedModel):
+    """Periodo en que una persona es supervisora de un vehículo.
+
+    El supervisor VIGENTE sigue viviendo en `Vehicle.supervisor` (es lo que
+    acotan los permisos y lo que leen los listados); esta tabla es su
+    **histórico con fechas**, para poder corregirlo y para registrar relevos
+    pasados o programados. Las dos caras se mantienen a la vez en
+    `services/supervisors.py`: tocar un periodo que cubre hoy actualiza el
+    vehículo, y cambiar el supervisor del vehículo cierra/abre periodos.
+
+    Regla: un coche tiene UN supervisor a la vez, así que los periodos de un
+    mismo vehículo no se solapan (fin == inicio del siguiente es un relevo).
+    """
+
+    vehicle = models.ForeignKey(
+        "fleet.Vehicle", on_delete=models.CASCADE, related_name="supervisor_periods"
+    )
+    supervisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="supervisor_periods"
+    )
+    start_date = models.DateField("Inicio")
+    end_date = models.DateField("Fin", null=True, blank=True, help_text="NULL = en curso.")
+
+    class Meta:
+        verbose_name = "periodo de supervisión"
+        verbose_name_plural = "periodos de supervisión"
+        ordering = ["-start_date", "-pk"]
+        indexes = [models.Index(fields=["vehicle", "end_date"])]
+        constraints = [
+            # Uno en curso por vehículo (el vigente). Los cerrados conviven.
+            models.UniqueConstraint(
+                fields=["vehicle"],
+                condition=models.Q(end_date__isnull=True, is_active=True),
+                name="unique_open_supervisor_period_per_vehicle",
+            )
+        ]
+
+    def __str__(self) -> str:
+        cuando = periodo_texto(self.start_date, self.end_date)
+        return f"{self.vehicle.plate} · {self.supervisor} ({cuando})"
+
+    def clean(self):
+        if self.supervisor_id and not self.supervisor.is_supervisor:
+            raise ValidationError({"supervisor": "El usuario no tiene rol de supervisor."})
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValidationError(
+                {"end_date": "La fecha de fin no puede ser anterior a la de inicio."}
+            )
+        if self.vehicle_id and self.start_date and self.is_active:
+            otro = supervisor_period_overlap(
+                self.vehicle_id,
+                start_date=self.start_date,
+                end_date=self.end_date,
+                exclude_pk=self.pk,
+            )
+            if otro is not None:
+                raise ValidationError({"start_date": supervisor_overlap_message(otro)})
+
+
+def supervisor_period_overlap(vehicle_id, *, start_date, end_date=None, exclude_pk=None):
+    """Periodo de supervisión del mismo coche que pisa el rango (o ``None``)."""
+    qs = SupervisorPeriod.objects.filter(vehicle_id=vehicle_id, is_active=True).select_related(
+        "supervisor"
+    )
+    if exclude_pk is not None:
+        qs = qs.exclude(pk=exclude_pk)
+    if start_date is not None:
+        qs = qs.filter(models.Q(end_date__isnull=True) | models.Q(end_date__gt=start_date))
+    if end_date is not None:
+        qs = qs.filter(start_date__lt=end_date)
+    return qs.order_by("start_date").first()
+
+
+def supervisor_overlap_message(otro) -> str:
+    """Quién ocupa el rango, para decirlo igual en el back y en la interfaz."""
+    nombre = otro.supervisor.get_full_name() or otro.supervisor.get_username()
+    return (
+        f"Esas fechas ya las cubre {nombre} ({periodo_texto(otro.start_date, otro.end_date)}): "
+        "un coche tiene un supervisor a la vez. Ajusta las fechas o cierra ese periodo antes."
+    )
+
+
+def assignment_overlap_message(otra) -> str:
+    """Lo mismo para el conductor."""
+    nombre = otra.driver.get_full_name() or otra.driver.get_username()
+    return (
+        f"Esas fechas ya las cubre {nombre} ({periodo_texto(otra.start_date, otra.end_date)}): "
+        "un coche tiene un conductor a la vez. Ajusta las fechas o cierra esa asignación antes."
+    )

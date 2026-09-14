@@ -387,6 +387,8 @@ export const setUsageSplit = (data: {
 export interface IncidentInput {
   vehicle: number
   type: string
+  /** Prioridad elegida al abrirla; sin ella el back deja «Moderada». */
+  priority?: string
   date?: string | null
   description?: string
   mileage?: number | null

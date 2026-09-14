@@ -1,40 +1,33 @@
-import { useState, type FormEvent } from 'react'
-import { Badge, Button, Modal, TextInputField } from '@flota/ui/ui'
+import { useMemo, useState, type FormEvent } from 'react'
+import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import {
-  manageIncident,
-  resolveIncident,
-  updateIncident,
-} from '../api.ts'
-import { fmtDate, todayIso } from '../format.ts'
+import { manageIncident, updateIncident } from '../api.ts'
+import { fmtDate, incidentPriorityTone } from '../format.ts'
+import { DEFAULT_PRIORITY, priorityOptions } from '../incidentPriority.ts'
 import { useLang } from '../i18n.tsx'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
-import type { Incident } from '../types.ts'
+import type { Incident, Vehicle } from '../types.ts'
+import { ResolveDispatcher } from './resolve/ResolveDispatcher.tsx'
+import { incidentTarget, type ResolveTarget } from './resolve/resolveFlow.ts'
 
-/** La gestión guardada (fase 2), tal y como viaja en `details.management`. */
-interface Management {
-  workshop?: string
-  appointment_at?: string
-}
-
-type ActionKind = 'edit' | 'manage' | 'resolve'
-
-const managementOf = (incident: Incident): Management =>
-  ((incident.details as { management?: Management } | null)?.management) ?? {}
+type ActionKind = 'edit' | 'manage'
 
 /**
  * Pestaña «Estados abiertos» del modal de estado: las peticiones (incidencias)
  * sin resolver del vehículo, cada una con su ciclo — modificar el parte,
- * gestionarla (ubicación preferente) y resolverla (cierra).
- * Cada acción abre su propio modal (el DS los monta por portal).
+ * gestionarla (ubicación preferente) y resolverla. Resolver abre el modal
+ * ESPECÍFICO del tipo a través del dispatcher (el mismo que el Panel y la
+ * ficha); modificar y gestionar tienen su modal aquí.
  */
 export function OpenIncidentsPanel({
+  vehicle,
   incidents,
   loadFailed,
   onReload,
   onChanged,
 }: {
+  vehicle: Vehicle
   incidents: Incident[] | null
   loadFailed: boolean
   /** Recargar la lista tras guardar (la mantiene el modal padre). */
@@ -44,13 +37,18 @@ export function OpenIncidentsPanel({
 }) {
   const t = useVehiclesCopy()
   const { language } = useLang()
+  const priorityChoices = useMemo(() => priorityOptions(t.priority), [t])
 
   const [action, setAction] = useState<{ kind: ActionKind; incident: Incident } | null>(null)
-  const [edit, setEdit] = useState({ date: '', description: '', mileage: '', cp: '' })
+  const [resolving, setResolving] = useState<ResolveTarget | null>(null)
+  const [edit, setEdit] = useState({
+    date: '',
+    description: '',
+    mileage: '',
+    cp: '',
+    priority: DEFAULT_PRIORITY as string,
+  })
   const [managePostalCode, setManagePostalCode] = useState('')
-  // R3-41: el contrato real de la fase 3 pide la FECHA de solución (con ella el
-  // servidor calcula los días parado); el sobrecoste y las notas son opcionales.
-  const [resolution, setResolution] = useState({ date: '', overcost: '', observations: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -65,17 +63,17 @@ export function OpenIncidentsPanel({
         description: incident.description,
         mileage: incident.mileage != null ? String(incident.mileage) : '',
         cp: incident.workshop_postal_code ?? '',
+        priority: incident.priority ?? DEFAULT_PRIORITY,
       })
-    } else if (kind === 'manage') {
-      setManagePostalCode(incident.workshop_postal_code ?? '')
     } else {
-      setResolution({ date: todayIso(), overcost: '', observations: '' })
+      setManagePostalCode(incident.workshop_postal_code ?? '')
     }
     setAction({ kind, incident })
   }
 
   function done(message: string) {
     setAction(null)
+    setResolving(null)
     setNotice(message)
     onReload()
     onChanged()
@@ -92,6 +90,7 @@ export function OpenIncidentsPanel({
         description: edit.description,
         mileage: edit.mileage.trim() ? Number(edit.mileage) : null,
         workshop_postal_code: edit.cp,
+        priority: edit.priority,
       })
       done(t.ops.editSaved)
     } catch (err) {
@@ -116,34 +115,12 @@ export function OpenIncidentsPanel({
     }
   }
 
-  async function submitResolve(e: FormEvent) {
-    e.preventDefault()
-    if (!action || !resolution.date) return
-    setSaving(true)
-    setError('')
-    const payload: { resolution_date: string; observations?: string; overcost?: string } = {
-      resolution_date: resolution.date,
-    }
-    if (resolution.observations.trim()) payload.observations = resolution.observations.trim()
-    if (resolution.overcost.trim()) payload.overcost = resolution.overcost.trim()
-    try {
-      await resolveIncident(action.incident.id, payload)
-      done(t.ops.resolveDone)
-    } catch (err) {
-      setError(asErrorMessage(err, t.ops.errGeneric))
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const modalTitle =
     action?.kind === 'edit'
       ? t.ops.editTitle(action.incident.type_display)
-      : action?.kind === 'manage'
+      : action
         ? t.ops.manageTitle(action.incident.type_display)
-        : action
-          ? t.ops.resolveTitle(action.incident.type_display)
-          : ''
+        : ''
 
   return (
     <div className="ops-open-list">
@@ -162,58 +139,55 @@ export function OpenIncidentsPanel({
         <p className="muted ops-note">{t.ops.openEmpty}</p>
       )}
 
-      {(incidents ?? []).map((incident) => {
-        const management = managementOf(incident)
-        return (
-          <div key={incident.id} className="ops-open-row">
-            <div className="ops-open-main">
-              <strong>{incident.type_display}</strong>
-              <span className="muted">{incident.date ? fmtDate(incident.date, language) : '—'}</span>
-              <Badge tone={incident.status === 'open' ? 'warning' : 'info'}>
-                {incident.status_display}
+      {(incidents ?? []).map((incident) => (
+        <div key={incident.id} className="ops-open-row">
+          <div className="ops-open-main">
+            <strong>{incident.type_display}</strong>
+            <span className="muted">{incident.date ? fmtDate(incident.date, language) : '—'}</span>
+            {incident.priority_display && (
+              <Badge tone={incidentPriorityTone(incident.priority)}>
+                {incident.priority_display}
               </Badge>
-            </div>
-            {incident.description && <p className="muted ops-open-desc">{incident.description}</p>}
-            {(management.workshop || management.appointment_at) && (
-              <p className="muted ops-open-desc">
-                {management.workshop ? `${t.ops.openWorkshopLabel}: ${management.workshop}` : ''}
-                {management.workshop && management.appointment_at ? ' · ' : ''}
-                {management.appointment_at
-                  ? `${t.ops.openAppointmentLabel}: ${management.appointment_at.replace('T', ' ')}`
-                  : ''}
-              </p>
             )}
-            <div className="ops-open-actions">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => openAction('edit', incident)}
-              >
-                {t.ops.openEditBtn}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => openAction('manage', incident)}
-              >
-                {t.ops.openManageBtn}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="primary"
-                onClick={() => openAction('resolve', incident)}
-              >
-                {t.ops.openResolveBtn}
-              </Button>
-            </div>
+            <Badge tone={incident.status === 'open' ? 'warning' : 'info'}>
+              {incident.status_display}
+            </Badge>
           </div>
-        )
-      })}
+          {incident.description && <p className="muted ops-open-desc">{incident.description}</p>}
+          <div className="ops-open-actions">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => openAction('edit', incident)}
+            >
+              {t.ops.openEditBtn}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => openAction('manage', incident)}
+            >
+              {t.ops.openManageBtn}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              onClick={() => {
+                setError('')
+                setNotice('')
+                setResolving(incidentTarget(incident))
+              }}
+            >
+              {t.ops.openResolveBtn}
+            </Button>
+          </div>
+        </div>
+      ))}
 
-      {/* Los tres modales de acción comparten el contenedor (portal del DS). */}
+      {/* Modificar y gestionar comparten el contenedor (portal del DS). */}
       <Modal open={Boolean(action)} title={modalTitle} onClose={() => setAction(null)}>
         {action?.kind === 'edit' && (
           <form className="ops-modal" onSubmit={submitEdit}>
@@ -241,6 +215,15 @@ export function OpenIncidentsPanel({
                 maxLength={5}
                 value={edit.cp}
                 onChange={(e) => setEdit((f) => ({ ...f, cp: e.target.value }))}
+              />
+              {/* La prioridad se puede reajustar mientras la petición vive. */}
+              <SelectField
+                label={t.priority.label}
+                aria-label={t.priority.label}
+                options={priorityChoices}
+                value={edit.priority}
+                onValueChange={(value) => setEdit((f) => ({ ...f, priority: value }))}
+                required
               />
             </div>
             <label className="ops-field-label" htmlFor="open-edit-description">
@@ -293,63 +276,25 @@ export function OpenIncidentsPanel({
               <Button type="button" variant="secondary" onClick={() => setAction(null)}>
                 {t.ops.cancel}
               </Button>
-              <Button type="submit" variant="primary" disabled={saving || !/^[0-9]{5}$/.test(managePostalCode)}>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={saving || !/^[0-9]{5}$/.test(managePostalCode)}
+              >
                 {saving ? t.ops.saving : t.ops.save}
               </Button>
             </div>
           </form>
         )}
-
-        {action?.kind === 'resolve' && (
-          <form className="ops-modal" onSubmit={submitResolve}>
-            <div className="ops-grid">
-              <TextInputField
-                label={t.ops.resolveDate}
-                aria-label={t.ops.resolveDate}
-                type="date"
-                min={action.incident.date ?? undefined}
-                max={todayIso()}
-                value={resolution.date}
-                onChange={(e) => setResolution((f) => ({ ...f, date: e.target.value }))}
-                required
-              />
-              <TextInputField
-                label={t.ops.resolveOvercost}
-                aria-label={t.ops.resolveOvercost}
-                type="number"
-                min={0}
-                step="0.01"
-                value={resolution.overcost}
-                onChange={(e) => setResolution((f) => ({ ...f, overcost: e.target.value }))}
-              />
-            </div>
-            <label className="ops-field-label" htmlFor="open-resolve-observations">
-              {t.ops.resolveObservations}
-            </label>
-            <textarea
-              id="open-resolve-observations"
-              className="ops-textarea"
-              rows={3}
-              value={resolution.observations}
-              onChange={(e) => setResolution((f) => ({ ...f, observations: e.target.value }))}
-            />
-            <p className="muted ops-note">{t.ops.resolveHint}</p>
-            {error && (
-              <div role="alert" className="form-error">
-                {error}
-              </div>
-            )}
-            <div className="ops-actions">
-              <Button type="button" variant="secondary" onClick={() => setAction(null)}>
-                {t.ops.cancel}
-              </Button>
-              <Button type="submit" variant="primary" disabled={saving || !resolution.date}>
-                {saving ? t.ops.saving : t.ops.resolveSubmit}
-              </Button>
-            </div>
-          </form>
-        )}
       </Modal>
+
+      {/* Resolver: el modal específico del tipo (avería, neumáticos, ITV…). */}
+      <ResolveDispatcher
+        target={resolving}
+        vehicles={[vehicle]}
+        onClose={() => setResolving(null)}
+        onDone={done}
+      />
     </div>
   )
 }

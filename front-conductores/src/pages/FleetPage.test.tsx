@@ -312,6 +312,8 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     expect(screen.queryByRole('button', { name: 'Comunicar avería' })).toBeNull()
 
     await userEvent.type(screen.getByLabelText('Descripción'), 'No arranca.')
+    // La prioridad la marca quien abre la petición, en el primer paso.
+    await userEvent.selectOptions(screen.getByLabelText('Prioridad'), 'critical')
     await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
 
     await screen.findByLabelText('Código postal de la ubicación preferente')
@@ -330,6 +332,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     expect(mocks.createIncident).toHaveBeenCalledWith({
       vehicle: 1,
       type: 'general',
+      priority: 'critical',
       date: expect.any(String),
       description: 'No arranca.',
       workshop_postal_code: '28001',
@@ -367,6 +370,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     expect(mocks.createIncident).toHaveBeenCalledWith({
       vehicle: 1,
       type: 'maintenance',
+      priority: 'moderate',
       date: expect.any(String),
       description: 'Instalar una baliza adicional.',
       workshop_postal_code: '28001',
@@ -412,6 +416,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     expect(mocks.createIncident).toHaveBeenCalledWith({
       vehicle: 1,
       type: 'tires',
+      priority: 'moderate',
       date: expect.any(String),
       description: 'Rueda pinchada en obra',
       mileage: 45000,

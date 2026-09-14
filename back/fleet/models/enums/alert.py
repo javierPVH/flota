@@ -9,7 +9,9 @@ from django.db import models
 
 
 class AlertType(models.TextChoices):
-    ITV_DUE = "itv_due", "ITV próxima / vencida"
+    # La ÚNICA «ITV» visible en los paneles: la cita programada (próxima o
+    # vencida). Las incidencias no ofrecen ITV como categoría.
+    ITV_DUE = "itv_due", "ITV programada"
     INSURANCE_DUE = "insurance_due", "Seguro próximo / vencido"
     KM_READING_PENDING = "km_reading_pending", "Lectura de km pendiente"
     KM_OVERAGE = "km_overage", "Exceso de km proyectado"

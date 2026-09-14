@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Assignment, Event, Vehicle
+from fleet.models import Assignment, Event, KmReading, Vehicle
 from fleet.models.enums import AssignmentStatus, EventType, VehicleState
 
 from .helpers import make_user
@@ -115,6 +115,28 @@ class VehicleAccessTests(APITestCase):
         # La carpeta de Drive (Fase A3) viaja en el serializer (la usa G7).
         self.assertIn("drive_folder_url", by_plate["1234ABC"])
         self.assertIn("drive_folder_id", by_plate["1234ABC"])
+
+    def test_listing_exposes_the_last_km_reading(self):
+        """La columna «Kilómetros» del panel (km + cuánto lleva sin leerse) sale
+        del listado: la última lectura viaja con cada fila, resuelta en bloque
+        como el conductor y el gasto del mes — no una consulta por vehículo."""
+        KmReading.objects.create(
+            vehicle=self.assigned, reading_date=date(2026, 1, 31), km_reading=1000
+        )
+        ultima = KmReading.objects.create(
+            vehicle=self.assigned, reading_date=date(2026, 3, 15), km_reading=4200
+        )
+        self.client.force_authenticate(self.admin)
+        with self.assertNumQueries(6):
+            resp = self.client.get(self.list_url)
+        by_plate = {v["plate"]: v for v in resp.data["results"]}
+        self.assertEqual(by_plate["1234ABC"]["km_current"], ultima.km_reading)
+        self.assertEqual(by_plate["1234ABC"]["km_reading_date"], "2026-03-15")
+        self.assertIs(by_plate["1234ABC"]["km_estimated"], False)
+        # Sin lecturas, los tres campos lo dicen (no los omite).
+        self.assertIsNone(by_plate["0000ZZZ"]["km_current"])
+        self.assertIsNone(by_plate["0000ZZZ"]["km_reading_date"])
+        self.assertIs(by_plate["0000ZZZ"]["km_estimated"], False)
 
 
 class VehicleFullCreateTests(APITestCase):
@@ -288,9 +310,7 @@ class SupervisorHistoryTests(APITestCase):
 
     def _last_supervisor_event(self):
         return (
-            Event.objects.filter(
-                vehicle=self.vehicle, event_type=EventType.SUPERVISOR_CHANGE
-            )
+            Event.objects.filter(vehicle=self.vehicle, event_type=EventType.SUPERVISOR_CHANGE)
             .select_related("supervisor_change")
             .last()
         )

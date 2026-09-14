@@ -29,7 +29,8 @@ erDiagram
     FUEL_TYPE ||--o{ VEHICLE : "combustible (catálogo) — GAP-1"
     SITE ||--o{ VEHICLE : "sede — GAP-4"
     VEHICLE ||--o{ FUEL_CONSUMPTION : "consume — GAP-2"
-    VEHICLE ||--o{ MAINTENANCE_PLAN : "planifica — GAP-8"
+    VEHICLE ||--o{ MAINTENANCE_PLAN : "planifica — GAP-8 (uno activo)"
+    MAINTENANCE_PROGRAM ||--o{ MAINTENANCE_PLAN : "catálogo común del ciclo"
 
     VEHICLE ||--o{ CONTRACT : "tiene"
     RENTING ||--o{ CONTRACT : "provee"
@@ -155,9 +156,17 @@ erDiagram
         decimal amount "importe si el extracto lo trae"
         string source "fuel_card | manual | import"
     }
+    MAINTENANCE_PROGRAM {
+        int id PK
+        string name UK "único en el catálogo (case-insensitive)"
+        int every_km "ciclo por km"
+        int every_months "ciclo por meses"
+        string notes
+    }
     MAINTENANCE_PLAN {
         int id PK
         int vehicle_id FK
+        int program_id FK "MAINTENANCE_PROGRAM (PROTECT, null)"
         string name
         int every_km "ciclo por km (GAP-8)"
         int every_months "ciclo por meses"
@@ -480,6 +489,9 @@ en SQLite Django los emula donde puede.
 | `push_subscriptions` | **único** `endpoint` | una suscripción por dispositivo/endpoint |
 | `assignments` | **único parcial** `(vehicle)` con `status=accepted ∧ end_date NULL` | un solo conductor vigente por vehículo (HU-2.1/2.2) |
 | `assignments` | índices `(vehicle,end_date,status)`, `(driver,end_date)` | conductor en curso / histórico |
+| `assignments` | sin solape entre tramos `accepted`/`finished` del mismo vehículo (serializer) | un coche, un conductor a la vez — también en el histórico |
+| `supervisor_periods` | **único parcial** `(vehicle)` con `end_date NULL` | un solo supervisor vigente por vehículo |
+| `supervisor_periods` | sin solape entre tramos del mismo vehículo (serializer + `clean`) | un coche, un supervisor a la vez |
 | `vehicle_links` | **único parcial** `(main_vehicle)` con `end_date NULL` | un solo sustituto activo por principal (HU-1.8) |
 | `kms` | índice `(vehicle, reading_date)` | última lectura / periodo |
 | `documents` | índices `(vehicle, status)`, `(user, status)` · **check** `vehicle XOR user` | filtro `pending_archive`; titular único (coche o persona) |

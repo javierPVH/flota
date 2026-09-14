@@ -4,6 +4,7 @@ import { Button, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui
 import { asErrorMessage } from '@flota/ui/http'
 
 import { createIncident, uploadDocument } from '../api.ts'
+import { DEFAULT_PRIORITY, priorityOptions } from '../incidentPriority.ts'
 import type { IncidentInput } from '../api.ts'
 import { todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
@@ -57,6 +58,8 @@ export function AccidentModal({
     occurred_at: '', phone: '', workshop_postal_code: '', damage_description: '',
     police_report_reference: '',
   })
+  // Prioridad del parte: la marca quien lo abre (gestión tría por ella).
+  const [priority, setPriority] = useState<string>(DEFAULT_PRIORITY)
   const [thirdParties, setThirdParties] = useState<ThirdParty[]>([])
   const [injuredPeople, setInjuredPeople] = useState<InjuredPerson[]>([])
   const [reportFile, setReportFile] = useState<File | null>(null)
@@ -78,6 +81,7 @@ export function AccidentModal({
     const payload: IncidentInput & { client_ref: string } = {
       vehicle: vehicle.id,
       type: 'accident',
+      priority,
       date: details.occurred_at ? details.occurred_at.slice(0, 10) : todayIso(),
       description: details.damage_description.trim(),
       workshop_postal_code: details.workshop_postal_code,
@@ -173,6 +177,7 @@ export function AccidentModal({
             <TextInputField label={a.accidentAt} aria-label={a.accidentAt} type="datetime-local" max={nowLocalDateTime()} value={details.occurred_at} onChange={(e) => setDetail('occurred_at', e.target.value)} required requiredVisual />
             <TextInputField label={a.phone} aria-label={a.phone} type="tel" value={details.phone} onChange={(e) => setDetail('phone', e.target.value)} required requiredVisual />
             <TextInputField label={a.workshopPostalCodeOptional} aria-label={a.workshopPostalCodeOptional} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={details.workshop_postal_code} onChange={(e) => setDetail('workshop_postal_code', e.target.value)} />
+            <SelectField label={t.priority.label} aria-label={t.priority.label} options={priorityOptions(t.priority)} value={priority} onValueChange={setPriority} required requiredVisual />
           </div>
           <TextAreaField label={a.damageDescription} aria-label={a.damageDescription} rows={4} value={details.damage_description} onChange={(e) => setDetail('damage_description', e.target.value)} required requiredVisual />
 

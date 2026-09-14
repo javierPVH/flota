@@ -72,8 +72,16 @@ def send_notice_now(
     """Envía UN correo ya compuesto, ahora mismo y best-effort, con su traza en
     `EmailLog`. Devuelve `(enviado, motivo_de_omisión)`. Nunca lanza: sin
     destinatario o con el correo saliente deshabilitado queda `SKIPPED`, y un
-    fallo de SMTP queda `FAILED` (misma doctrina que el resto del mailer)."""
+    fallo de SMTP queda `FAILED` (misma doctrina que el resto del mailer).
+
+    `to` admite **varias direcciones separadas por comas**, igual que la cola
+    (`send_outbox`): la traza guarda la lista tal cual y el correo sale con
+    todas en el «Para». Sin esto, una lista viajaba como UNA dirección y el
+    servidor la rechazaba entera.
+    """
     subject = subject[:200]
+    destinos = [addr.strip() for addr in (to or "").split(",") if addr.strip()]
+    to = ", ".join(destinos)
     if not to:
         EmailLog.objects.create(
             template_key=template_key,
@@ -97,7 +105,7 @@ def send_notice_now(
             subject=subject,
             body=strip_tags(body_html),
             from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[to],
+            to=destinos,
         )
         msg.attach_alternative(body_html, "text/html")
         msg.send(fail_silently=False)

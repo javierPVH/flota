@@ -3,17 +3,33 @@
 Recurso al que se ligan documentos (acta, parte, fotos) — ver `Document`.
 """
 
+from django.conf import settings
 from django.db import models
 
 from .base import DeactivatableModel, TimeStampedModel
-from .enums import IncidentStatus, IncidentType
+from .enums import IncidentPriority, IncidentStatus, IncidentType
 
 
 class Incident(DeactivatableModel, TimeStampedModel):
-    """Incidencia o mantenimiento de un vehículo."""
+    """Incidencia o mantenimiento de un vehículo.
+
+    El cierre (fase «solución») deja quién, cuándo y con qué datos: columnas
+    `resolution_date`/`resolved_at`/`resolved_by`/`workshop`/`resolution_km`/
+    `cost` para lo que se filtra y exporta, y el bloque `details["resolution"]`
+    para lo específico de cada tipo (neumáticos montados, datos del siniestro).
+    """
 
     vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="incidents")
     type = models.CharField("Tipo", max_length=20, choices=IncidentType.choices)
+    # La prioridad la decide quien abre la petición (el nivel de una alerta, en
+    # cambio, lo calcula el motor por cercanía de la fecha). «Moderada» por
+    # defecto: lo que se registra sin pensarlo no debe colarse como crítico.
+    priority = models.CharField(
+        "Prioridad",
+        max_length=20,
+        choices=IncidentPriority.choices,
+        default=IncidentPriority.MODERATE,
+    )
     date = models.DateField("Fecha", null=True, blank=True)
     description = models.TextField("Descripción", blank=True)
     mileage = models.PositiveIntegerField("Kilometraje", null=True, blank=True)
@@ -27,7 +43,39 @@ class Incident(DeactivatableModel, TimeStampedModel):
     status = models.CharField(
         "Estado", max_length=20, choices=IncidentStatus.choices, default=IncidentStatus.OPEN
     )
-    cost = models.DecimalField("Coste", max_digits=10, decimal_places=2, null=True, blank=True)
+    cost = models.DecimalField(
+        "Coste",
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Coste de la reparación/servicio; lo fija la resolución.",
+    )
+    # --- Resolución (fase «solución») -------------------------------------
+    # Fecha DE NEGOCIO de la solución (el día que se arregló): alimenta los
+    # días parado y los informes sin parsear JSON.
+    resolution_date = models.DateField("Fecha de solución", null=True, blank=True)
+    # Momento y autor del GESTO de cerrar (auditoría), que puede ser días después.
+    resolved_at = models.DateTimeField("Resuelta el", null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="Resuelta por",
+    )
+    # Taller del catálogo donde se hizo la reparación; convive con el CP suelto
+    # del parte (`workshop_postal_code`, la ubicación preferente al abrirla).
+    workshop = models.ForeignKey(
+        "fleet.Workshop",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="incidents",
+        verbose_name="Taller",
+    )
+    resolution_km = models.PositiveIntegerField("Km en la solución", null=True, blank=True)
 
     class Meta:
         verbose_name = "incidencia"

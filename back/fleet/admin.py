@@ -31,11 +31,13 @@ from .models import (
     InvoiceAllocation,
     KmReading,
     MaintenancePlan,
+    MaintenanceProgram,
     NotificationSchedule,
     Pep,
     Project,
     Renting,
     Site,
+    SupervisorPeriod,
     Vehicle,
     VehicleLink,
     VehicleModel,
@@ -136,10 +138,24 @@ class FuelConsumptionAdmin(admin.ModelAdmin):
     search_fields = ("vehicle__plate",)
 
 
+@admin.register(MaintenanceProgram)
+class MaintenanceProgramAdmin(admin.ModelAdmin):
+    list_display = ("name", "every_km", "every_months", "is_active")
+    search_fields = ("name", "notes")
+
+
 @admin.register(MaintenancePlan)
 class MaintenancePlanAdmin(admin.ModelAdmin):
-    list_display = ("vehicle", "name", "every_km", "every_months", "is_active")
-    search_fields = ("vehicle__plate", "name")
+    list_display = (
+        "vehicle",
+        "program",
+        "name",
+        "every_km",
+        "every_months",
+        "workshop_postal_code",
+        "is_active",
+    )
+    search_fields = ("vehicle__plate", "name", "workshop_postal_code")
 
 
 @admin.register(Vehicle)
@@ -169,6 +185,13 @@ class AssignmentAdmin(admin.ModelAdmin):
     list_display = ("vehicle", "driver", "status", "start_date", "end_date")
     list_filter = ("status",)
     autocomplete_fields = ("vehicle", "driver")
+
+
+@admin.register(SupervisorPeriod)
+class SupervisorPeriodAdmin(admin.ModelAdmin):
+    list_display = ("vehicle", "supervisor", "start_date", "end_date", "is_active")
+    list_filter = ("is_active",)
+    autocomplete_fields = ("vehicle", "supervisor")
 
 
 @admin.register(VehicleUsage)
@@ -223,10 +246,20 @@ class InvoiceAdmin(admin.ModelAdmin):
 # --- Incidencias y documentos --------------------------------------------
 @admin.register(Incident)
 class IncidentAdmin(admin.ModelAdmin):
-    list_display = ("vehicle", "type", "status", "date", "cost")
-    list_filter = ("type", "status")
+    list_display = (
+        "vehicle",
+        "type",
+        "priority",
+        "status",
+        "date",
+        "cost",
+        "workshop",
+        "resolved_at",
+        "resolved_by",
+    )
+    list_filter = ("type", "priority", "status")
     search_fields = ("vehicle__plate", "description")
-    autocomplete_fields = ("vehicle",)
+    autocomplete_fields = ("vehicle", "workshop", "resolved_by")
 
 
 class AccidentThirdPartyInline(admin.TabularInline):

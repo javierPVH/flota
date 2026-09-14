@@ -11,12 +11,6 @@ const es = {
   newSubtitle: 'Alta transaccional: si algo falla, no se crea nada.',
   loading: 'Cargando…',
 
-  // Banner informativo (edición)
-  bannerFieldsPrefix: 'Los campos',
-  bannerHistoricNote: 'registran un evento al cambiar; los',
-  bannerLockedNote:
-    'tienen flujo propio (el kilometraje va por lecturas y el conductor por «Cambiar conductor»).',
-
   // Badges de campo
   historicBadge: 'histórico',
   historicBadgeTitle: 'Su cambio queda registrado como evento',
@@ -30,6 +24,8 @@ const es = {
   // Tipo de vehículo (N9)
   typeSectionTitle: 'Tipo de vehículo',
   typeAria: 'Tipo de vehículo',
+  prevTab: 'Atrás',
+  nextTab: 'Siguiente',
   fleetOption: 'Flota',
   substituteOption: '🔁 Sustitución',
   substituteBadge: '🔁 Sustitución',
@@ -54,7 +50,20 @@ const es = {
   substituteNoteSuffix:
     ': cubrirá temporalmente a coches de flota en avería/taller/ITV. Solo puede cubrir uno a la vez.',
 
+  // Datos fijos del vehículo y su candado (edición)
+  fixedTitle: 'Datos del vehículo',
+  lockClosed: 'Bloqueado',
+  lockOpen: 'Editable',
+  lockHintClosed: 'Identifican al vehículo: pulsa para poder editarlos',
+  lockHintOpen: 'Pulsa para volver a bloquearlos',
+  unlockTitle: 'Editar los datos del vehículo',
+  unlockWarn:
+    'La matrícula, el bastidor y la fecha de matriculación identifican al vehículo en contratos, seguros y multas. Cámbialos solo para corregir un error de alta: el resto de registros seguirán apuntando a este mismo coche.',
+  unlockConfirm: 'Entiendo, quiero editarlos',
+
   // Secciones
+  /** Nombre de la barra de pestañas del formulario (lectores de pantalla). */
+  sectionsAria: 'Secciones del vehículo',
   identificationTitle: 'Identificación',
   technicalTitle: 'Características técnicas',
   usageTitle: 'Uso y asignación',
@@ -248,11 +257,6 @@ const en: typeof es = {
   newSubtitle: 'Transactional creation: if anything fails, nothing is created.',
   loading: 'Loading…',
 
-  bannerFieldsPrefix: 'Fields marked',
-  bannerHistoricNote: 'log an event when changed;',
-  bannerLockedNote:
-    'ones have their own flow (mileage goes through readings and the driver through “Change driver”).',
-
   historicBadge: 'historic',
   historicBadgeTitle: 'Changes to it are logged as an event',
   lockedBadge: 'locked',
@@ -263,6 +267,8 @@ const en: typeof es = {
 
   typeSectionTitle: 'Vehicle type',
   typeAria: 'Vehicle type',
+  prevTab: 'Back',
+  nextTab: 'Next',
   fleetOption: 'Fleet',
   substituteOption: '🔁 Substitution',
   substituteBadge: '🔁 Substitution',
@@ -286,6 +292,17 @@ const en: typeof es = {
   substituteNoteSuffix:
     ': it will temporarily cover fleet cars in breakdown/workshop/MOT. It can only cover one at a time.',
 
+  fixedTitle: 'Vehicle data',
+  lockClosed: 'Locked',
+  lockOpen: 'Editable',
+  lockHintClosed: 'They identify the vehicle: click to be able to edit them',
+  lockHintOpen: 'Click to lock them again',
+  unlockTitle: 'Edit the vehicle data',
+  unlockWarn:
+    'The plate, VIN and registration date identify the vehicle in contracts, insurance and fines. Change them only to fix a data-entry mistake: every other record will keep pointing at this same car.',
+  unlockConfirm: 'I understand, let me edit them',
+
+  sectionsAria: 'Vehicle sections',
   identificationTitle: 'Identification',
   technicalTitle: 'Technical specs',
   usageTitle: 'Use and assignment',

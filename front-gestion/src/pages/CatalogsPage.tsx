@@ -150,6 +150,21 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
         singular: t.catalogs.sites.singular,
         fields: [{ key: 'name', label: t.fields.name, required: true }],
       },
+      // El «cada cuánto» del mantenimiento preventivo. Es un catálogo COMÚN:
+      // no se teclea por coche — el plan de cada vehículo lo copia al
+      // programarse (`MaintenanceProgramModal` da de alta desde allí, y aquí
+      // se mantiene como el resto de maestros).
+      {
+        resource: 'maintenance-programs',
+        title: t.catalogs.maintenancePrograms.title,
+        singular: t.catalogs.maintenancePrograms.singular,
+        fields: [
+          { key: 'name', label: t.fields.name, required: true },
+          { key: 'every_km', label: t.fields.everyKm, kind: 'number' },
+          { key: 'every_months', label: t.fields.everyMonths, kind: 'number' },
+          { key: 'notes', label: t.fields.notes },
+        ],
+      },
     ],
     [t],
   )
@@ -299,6 +314,9 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
         <TextInputField
           key={f.key}
           label={f.label}
+          // Un ciclo se teclea en números (y el móvil saca su teclado).
+          type={f.kind === 'number' ? 'number' : undefined}
+          min={f.kind === 'number' ? 0 : undefined}
           value={values[f.key] ?? ''}
           onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
           required={f.required}
@@ -343,13 +361,18 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
     setCreating(true)
   }
 
-  // Los selects sin valor se omiten del payload: el back rechazaría el string vacío.
-  function cleanPayload(values: Record<string, string>): Record<string, string> {
-    return Object.fromEntries(
-      Object.entries(values).filter(
-        ([key, value]) => value !== '' || activeFields.find((f) => f.key === key)?.kind !== 'select',
-      ),
-    )
+  /** Qué se manda al back cuando un campo se deja vacío: un select, nada (el
+   * back rechazaría el string vacío) y un número, `null` — es como se dice
+   * «no aplica», y sirve además para BORRARLO al editar (omitirlo lo dejaría
+   * como estaba). El resto viaja como cadena vacía, que es su valor. */
+  function cleanPayload(values: Record<string, string>): Record<string, unknown> {
+    const payload: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(values)) {
+      const kind = activeFields.find((f) => f.key === key)?.kind
+      if (value === '' && kind === 'select') continue
+      payload[key] = value === '' && kind === 'number' ? null : value
+    }
+    return payload
   }
 
   async function submitCreate(event: FormEvent) {

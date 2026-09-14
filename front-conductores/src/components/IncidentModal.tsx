@@ -4,6 +4,7 @@ import { Button, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui
 import { asErrorMessage } from '@flota/ui/http'
 
 import { createIncident, uploadDocument } from '../api.ts'
+import { DEFAULT_PRIORITY, priorityOptions } from '../incidentPriority.ts'
 import type { IncidentInput } from '../api.ts'
 import { fmtKm, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
@@ -40,6 +41,8 @@ export function BreakdownModal({
   const [step, setStep] = useState<Step>('launch')
   const [cameBack, setCameBack] = useState(false)
   const [kind, setKind] = useState<IncidentKind>('general')
+  // Prioridad de la petición: la marca quien la abre (gestión tría por ella).
+  const [priority, setPriority] = useState<string>(DEFAULT_PRIORITY)
   const [date, setDate] = useState(todayIso())
   const [description, setDescription] = useState('')
   const [launchFile, setLaunchFile] = useState<File | null>(null)
@@ -99,6 +102,7 @@ export function BreakdownModal({
     const payload: IncidentInput & { client_ref: string } = {
       vehicle: vehicle.id,
       type: kind,
+      priority,
       date,
       description: description.trim(),
       workshop_postal_code: managementPostalCode,
@@ -199,6 +203,15 @@ export function BreakdownModal({
                   />
                   <TextInputField label={t.incidentModal.date} aria-label={t.incidentModal.date} type="date" max={todayIso()} value={date} onChange={(e) => setDate(e.target.value)} required requiredVisual />
                 </div>
+                <SelectField
+                  label={t.priority.label}
+                  aria-label={t.priority.label}
+                  options={priorityOptions(t.priority)}
+                  value={priority}
+                  onValueChange={setPriority}
+                  required
+                  requiredVisual
+                />
                 {kind !== 'general' && (
                   <p className="update-notice">{t.incidentModal.info[kind]}</p>
                 )}

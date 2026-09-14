@@ -78,9 +78,11 @@ class DeactivateOnDestroyTests(APITestCase):
         url = reverse("vehicle-detail", args=[self.vehicle.pk])
         self.client.force_authenticate(self.admin)
         self.assertEqual(self.client.delete(url).status_code, status.HTTP_204_NO_CONTENT)
-        # Ya no está en la flota, así que un segundo DELETE no lo encuentra.
-        self.assertEqual(self.client.delete(url).status_code, status.HTTP_404_NOT_FOUND)
-        # Y alcanzándolo a propósito (`include_baja`), no vuelve a pasar nada.
+        # El detalle SÍ resuelve los coches de baja (la ficha debe poder abrirse,
+        # 2026-09-08), así que un segundo DELETE lo encuentra y es idempotente:
+        # ya estaba de baja, no vuelve a pasar nada.
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_204_NO_CONTENT)
+        # Y alcanzándolo a propósito (`include_baja`), tampoco.
         self.assertEqual(
             self.client.delete(f"{url}?include_baja=1").status_code, status.HTTP_204_NO_CONTENT
         )

@@ -19,8 +19,9 @@ from fleet.models import (
     KmReading,
     MaintenancePlan,
     Vehicle,
+    Workshop,
 )
-from fleet.models.enums import VehicleState
+from fleet.models.enums import IncidentStatus, IncidentType, VehicleState
 from fleet.services import reports
 from fleet.services.alerts import add_months
 
@@ -460,3 +461,72 @@ class VehiclesSuperRecordTests(APITestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp["Content-Type"], "text/csv")
+
+
+class IncidentsTableColumnsTests(APITestCase):
+    """La tabla «Incidencias» saca la resolución a columnas propias: antes vivía
+    solo en el JSON y ningún informe la mostraba."""
+
+    def setUp(self):
+        self.admin = make_user("admin", Role.ADMIN)
+        self.vehicle = Vehicle.objects.create(plate="INC0001", brand="Seat", model="Leon")
+        self.workshop = Workshop.objects.create(name="Taller Sur", kind=Workshop.Kind.WORKSHOP)
+
+    def _incidents_table(self):
+        tables = reports.build_report("vehicles", self.admin, {"fields": "incidents"})
+        return next(t for t in tables if t[0] == "Incidencias")
+
+    def test_headers_incluyen_la_resolucion(self):
+        _, headers, _ = self._incidents_table()
+        self.assertEqual(
+            headers,
+            [
+                "Vehículo",
+                "Fecha",
+                "Tipo",
+                "Estado",
+                "Coste",
+                "Taller",
+                "Km solución",
+                "Fecha solución",
+                "Días parado",
+                "Resuelta el",
+                "Resuelta por",
+                "Descripción",
+            ],
+        )
+
+    def test_una_cerrada_saca_taller_dias_parado_y_resolutor(self):
+        Incident.objects.create(
+            vehicle=self.vehicle,
+            type=IncidentType.BREAKDOWN,
+            date=date(2026, 9, 1),
+            status=IncidentStatus.CLOSED,
+            cost=Decimal("120.50"),
+            workshop=self.workshop,
+            resolution_km=45000,
+            resolution_date=date(2026, 9, 4),
+            resolved_at=timezone.now(),
+            resolved_by=self.admin,
+            description="Embrague.",
+        )
+        _, headers, rows = self._incidents_table()
+        self.assertEqual(len(rows), 1)
+        row = dict(zip(headers, rows[0], strict=True))
+        self.assertEqual(row["Taller"], "Taller Sur")
+        self.assertEqual(row["Km solución"], 45000)
+        self.assertEqual(row["Fecha solución"], "2026-09-04")
+        self.assertEqual(row["Días parado"], 3)
+        self.assertNotEqual(row["Resuelta el"], "")
+        self.assertEqual(row["Resuelta por"], "admin")
+        self.assertEqual(row["Coste"], Decimal("120.50"))
+
+    def test_una_abierta_deja_los_huecos_vacios(self):
+        Incident.objects.create(
+            vehicle=self.vehicle, type=IncidentType.BREAKDOWN, date=date(2026, 9, 1)
+        )
+        _, headers, rows = self._incidents_table()
+        row = dict(zip(headers, rows[0], strict=True))
+        for col in ("Taller", "Km solución", "Fecha solución", "Días parado", "Resuelta el"):
+            self.assertEqual(row[col], "", col)
+        self.assertEqual(row["Resuelta por"], "")

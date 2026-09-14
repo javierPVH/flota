@@ -76,9 +76,10 @@ las FK. Si añades un modelo, insértalo en el punto correcto:
 
 ```
 users → catalogs → vehicles → contracts (y lecturas de km)
-      → assignments (reparto de uso, vínculos de sustitución)
+      → assignments (reparto de uso, vínculos de sustitución, periodos de supervisión)
       → operations (eventos/ITV, incidencias, consumos de combustible,
-                    planes de mantenimiento, documentos, facturas, solicitudes)
+                    catálogo de programas y mantenimiento programado,
+                    documentos, facturas, solicitudes)
       → erratas (N7: desactivaciones de varios tipos + usuario inactivo)
       → alerts (el MOTOR REAL regenera la bandeja sobre lo sembrado)
       → comms (N9/N10: traza de correos ligada a alertas reales + push)
@@ -120,8 +121,10 @@ renombras rompes la cadena. Contraseña de prueba de TODOS: **`flota-dev-2026`**
 `7890NPQ` (**km ilimitados**: sin proyección y, desde X2, tampoco recordatorio
 de lectura; es el coche de `sara` y el **escaparate del tablero de campo**:
 ITV a 12 días, seguro a 15 con la póliza anterior encadenada por `replaces`,
-revisión anual a ~14 días, revisión de frenos por km **ya superada** —alerta
-crítica; los neumáticos nunca son un plan: siempre son una avería—,
+SU único mantenimiento programado («Revisión general», del catálogo común),
+que avisa por las dos vías a la vez —a ~14 días por fecha y por km **ya
+superado**, alerta crítica; los neumáticos nunca son un programa: siempre son
+una avería—,
 documentos de 6 tipos con estados variados, uno pendiente de archivar — su
 documento «otros» es el que retira `seed_erratas` — y **dos averías sin
 cerrar** (avería y neumáticos) más una incidencia de mantenimiento que el

@@ -53,13 +53,14 @@ describe('RegisterFuelModal (gasto de combustible de campo)', () => {
       fuel_month_amount: '168.40',
     })
 
-    // La pista de arriba es el mes en curso (la serie de consumo es mensual).
+    // La pista de arriba es el mes en curso (la serie de consumo es mensual),
+    // y son LITROS: el importe no se pide ni se enseña.
     expect(screen.getByText(/Este mes ya llevas/)).toBeInTheDocument()
     expect(screen.getByText('120,00 l')).toBeInTheDocument()
-    expect(screen.getByText(/168,40 €/)).toBeInTheDocument()
+    expect(screen.queryByText(/168,40/)).toBeNull()
+    expect(screen.queryByLabelText(/Importe/)).toBeNull()
 
     await userEvent.type(screen.getByLabelText(/Litros repostados/), '45,5')
-    await userEvent.type(screen.getByLabelText(/Importe/), '62,30')
     await userEvent.click(screen.getByRole('button', { name: 'Guardar gasto' }))
 
     // La coma del teclado móvil viaja como punto decimal. El payload lleva
@@ -68,7 +69,6 @@ describe('RegisterFuelModal (gasto de combustible de campo)', () => {
       expect(mocks.addFuelEntry).toHaveBeenCalledWith({
         vehicle: 3,
         liters: '45.5',
-        amount: '62.30',
         period: `${todayIso().slice(0, 7)}-01`,
         client_ref: expect.any(String),
       }),
@@ -77,11 +77,11 @@ describe('RegisterFuelModal (gasto de combustible de campo)', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('sin gasto del mes lo dice, y el importe es opcional', async () => {
+  it('sin consumo del mes lo dice, y sin litros no deja guardar', async () => {
     renderModal({ fuel_month_liters: null, fuel_month_amount: null })
 
     expect(screen.getByText('Sin gasto registrado este mes.')).toBeInTheDocument()
-    // Solo los litros son obligatorios: hay tickets que no se guardan.
+    // Los litros son lo único que se pide, y son obligatorios.
     expect(screen.getByRole('button', { name: 'Guardar gasto' })).toBeDisabled()
     await userEvent.type(screen.getByLabelText(/Litros repostados/), '30')
     await userEvent.click(screen.getByRole('button', { name: 'Guardar gasto' }))
@@ -89,7 +89,6 @@ describe('RegisterFuelModal (gasto de combustible de campo)', () => {
       expect(mocks.addFuelEntry).toHaveBeenCalledWith({
         vehicle: 3,
         liters: '30',
-        amount: null,
         period: `${todayIso().slice(0, 7)}-01`,
         client_ref: expect.any(String),
       }),

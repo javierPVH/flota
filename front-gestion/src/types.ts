@@ -83,6 +83,12 @@ export interface Vehicle {
    * vive en `fuel-consumptions`. */
   fuel_month_liters: string | null
   fuel_month_amount: string | null
+  /** Última lectura de km: cuántos y de cuándo (y si la estimó el sistema).
+   * Como el gasto del mes, la resuelve el back en bloque para el listado: la
+   * tabla del panel pinta el odómetro y cuánto lleva sin leerse. */
+  km_current: number | null
+  km_reading_date: string | null
+  km_estimated: boolean
   type: string
   size: string
   market_segment: string
@@ -103,6 +109,10 @@ export interface Vehicle {
   insurance_expiry_date: string | null
   /** Denormalizado del último EventItv; lo mantiene el back. */
   next_itv_date: string | null
+  /** La cita la programó la gestión a mano (no sale del histórico de ITV). */
+  next_itv_manual: boolean
+  /** CP preferente para buscar la estación de ITV más cercana. */
+  itv_postal_code: string
   /** Conductor con asignación aceptada vigente (lo resuelve el back en bloque). */
   driver_name: string
   /** Id del conductor vigente (para enlazar a su ficha); null si no hay. */
@@ -136,10 +146,16 @@ export interface Alert {
   status_display: string
   vehicle: number | null
   vehicle_plate: string
+  /** Estado del vehículo (lo adjunta el back): decide si «Resolver» ofrece
+   * devolverlo a Activo sin cargar la ficha. */
+  vehicle_state?: VehicleState
   user: number | null
   message: string
   due_date: string | null
   created_at: string
+  /** Clave de idempotencia del motor de alertas. En mantenimiento codifica el
+   * plan (`maintenance:{plan}:…`): el modal de resolver lo preselecciona. */
+  dedup_key?: string
   /** Conductor vigente del vehículo (lo resuelve el back en bloque). */
   driver_id: number | null
   driver_name: string
@@ -263,6 +279,20 @@ export interface AssignmentRow {
   status: string
 }
 
+/**
+ * Periodo en que alguien supervisa un vehículo. El supervisor VIGENTE sigue
+ * siendo `Vehicle.supervisor`; esto es su histórico con fechas, y un coche
+ * solo puede tener uno a la vez (lo valida el back).
+ */
+export interface SupervisorPeriodRow {
+  id: number
+  vehicle: number
+  supervisor: number
+  supervisor_name: string
+  start_date: string
+  end_date: string | null
+}
+
 /** Vínculo principal ↔ sustitución (HU-1.8). */
 export interface VehicleLinkRow {
   id: number
@@ -298,6 +328,9 @@ export type DocumentType =
   | 'return_report'
   | 'accident_report'
   | 'damage_photos'
+  // Justificantes de una resolución (informe de ITV, factura de taller).
+  | 'itv_report'
+  | 'workshop_invoice'
   | 'driving_license'
   | 'other'
 
@@ -330,8 +363,18 @@ export interface FlotaDocument {
   updated_at: string
 }
 
-export type IncidentType = 'breakdown' | 'maintenance' | 'tires' | 'inspection' | 'accident'
+/** `general` es el tipo por defecto de la app de campo (peticiones que no son
+ * avería): el back lo emite y gestión tiene que poder listarlo y filtrarlo. */
+export type IncidentType =
+  | 'breakdown'
+  | 'maintenance'
+  | 'tires'
+  | 'inspection'
+  | 'accident'
+  | 'general'
 export type IncidentStatus = 'open' | 'on_going' | 'closed'
+/** Prioridad de la petición, de más a menos urgente (la fija quien la abre). */
+export type IncidentPriority = 'critical' | 'moderate' | 'functional' | 'informative'
 
 /** Tercero implicado en un accidente (tabla materializada del parte). */
 export interface AccidentThirdParty {
@@ -376,6 +419,11 @@ export interface Incident {
   vehicle: number
   type: IncidentType
   type_display: string
+  /** Prioridad que decidió quien la abrió (la alerta, en cambio, calcula su
+   * nivel por la fecha). Opcional en el tipo para que los mocks antiguos
+   * compilen; el back la manda siempre. */
+  priority?: IncidentPriority
+  priority_display?: string
   date: string | null
   description: string
   /** Parte guiado (GAP-6): kilometraje y CP del taller. */
@@ -387,7 +435,22 @@ export interface Incident {
   accident_report: AccidentReport | null
   status: IncidentStatus
   status_display: string
+  /** Coste de la reparación/servicio; lo fija la resolución. */
   cost: string | null
+  /** Resolución (fase «solución»): quién, cuándo y dónde. Solo `/resolve/`
+   * los escribe; el front los lee. Opcionales en el tipo para que los mocks
+   * antiguos sigan compilando; el back los manda siempre. */
+  resolution_date?: string | null
+  resolved_at?: string | null
+  resolved_by?: number | null
+  resolved_by_name?: string
+  /** Taller del catálogo donde se resolvió (id) y su nombre. */
+  workshop?: number | null
+  workshop_name?: string
+  resolution_km?: number | null
+  /** Contexto del vehículo que el back adjunta para no cruzar con el índice. */
+  vehicle_plate?: string
+  vehicle_state?: VehicleState
   created_at: string
   updated_at: string
 }

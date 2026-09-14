@@ -39,10 +39,12 @@ from .models import (
     InvoiceAllocation,
     KmReading,
     MaintenancePlan,
+    MaintenanceProgram,
     Pep,
     Project,
     Renting,
     Site,
+    SupervisorPeriod,
     Vehicle,
     VehicleLink,
     VehicleModel,
@@ -98,6 +100,17 @@ DEACTIVATABLE: dict[str, ErrataType] = {
     "assignments": ErrataType(
         Assignment, "Asignaciones", ("vehicle", "driver"), ("vehicle__plate", *_DRIVER_SEARCH)
     ),
+    "supervisor-periods": ErrataType(
+        SupervisorPeriod,
+        "Periodos de supervisión",
+        ("vehicle", "supervisor"),
+        (
+            "vehicle__plate",
+            "supervisor__username",
+            "supervisor__first_name",
+            "supervisor__last_name",
+        ),
+    ),
     "vehicle-usages": ErrataType(
         VehicleUsage,
         "Repartos de uso",
@@ -126,6 +139,9 @@ DEACTIVATABLE: dict[str, ErrataType] = {
     ),
     "maintenance-plans": ErrataType(
         MaintenancePlan, "Planes de mantenimiento", ("vehicle",), ("name", "vehicle__plate")
+    ),
+    "maintenance-programs": ErrataType(
+        MaintenanceProgram, "Programas de mantenimiento", (), ("name",)
     ),
     "invoices": ErrataType(Invoice, "Facturas", ("vehicle",), ("code", "vehicle__plate")),
     "invoice-allocations": ErrataType(

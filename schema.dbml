@@ -40,13 +40,13 @@ Enum license_type_enum {
 }
 
 Enum state_enum {
-  active
-  maintenance
-  itv
-  broken
-  retired
-  non_active   // heredado del DBML; revisar retirada
-  accidente    // heredado del DBML; revisar retirada
+  active       // Activo
+  maintenance  // No activo - Mantenimiento
+  itv          // No activo - ITV
+  broken       // No activo - Averiado
+  accidente    // No activo - Accidentado
+  non_active   // No activo (sin causa con estado propio)
+  retired      // Devuelto (baja): salida de la flota, flujo propio
 }
 
 Enum type_enum {
@@ -393,16 +393,26 @@ Table fuel_consumptions {
   Note: 'GAP-2: serie mensual de litros por vehículo (dato de actividad del informe de emisiones). Única por (vehicle, period) entre filas vivas.'
 }
 
+Table maintenance_programs {
+  id int [pk, increment]
+  name varchar [not null, note: 'único (case-insensitive) en el catálogo']
+  every_km int [note: 'ciclo por km']
+  every_months int [note: 'ciclo por meses']
+  notes text
+  Note: 'Catálogo COMÚN de programas de mantenimiento: el «cada cuánto» que comparte toda la flota. Un vehículo se programa eligiendo uno; el ciclo se copia al plan.'
+}
+
 Table maintenance_plans {
   id int [pk, increment]
   vehicle_id int [not null, ref: > vehicles.id]
+  program_id int [ref: > maintenance_programs.id, note: 'del catálogo; nulo en lo anterior a él']
   name varchar [not null]
   every_km int [note: 'ciclo por km (ancla: last_done_km)']
   every_months int [note: 'ciclo por meses (ancla: last_done_date)']
   last_done_date date
   last_done_km int
   notes text
-  Note: 'GAP-8: mantenimiento preventivo; lo vigila check_maintenance con alertas maintenance_due.'
+  Note: 'GAP-8: el mantenimiento programado del vehículo, UNO activo a la vez; lo vigila check_maintenance con alertas maintenance_due.'
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +464,21 @@ Table assignments {
     (driver_id, end_date)
   }
   Note: 'Constraint parcial (Django): una sola asignación status=accepted con end_date NULL por vehículo.'
+}
+
+Table supervisor_periods {
+  id int [pk, increment]
+  vehicle_id int [not null, ref: > vehicles.id]
+  supervisor_id int [not null, ref: > users.id]
+  start_date date [not null]
+  end_date date [note: 'NULL = en curso']
+  is_active bool [not null, default: true]
+  created_at datetime
+
+  indexes {
+    (vehicle_id, end_date)
+  }
+  Note: 'Histórico de supervisores con fechas. El VIGENTE sigue en vehicles.supervisor_id (lo sincroniza services/supervisors.py). Constraint parcial (Django): un solo periodo con end_date NULL por vehículo; y los tramos de un mismo coche no se solapan (serializer + clean).'
 }
 
 Table vehicle_usage {

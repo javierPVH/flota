@@ -35,7 +35,7 @@ const VEHICLE = {
 const alert = (over: Record<string, unknown>) => ({
   id: 1,
   type: 'itv_due',
-  type_display: 'ITV próxima / vencida',
+  type_display: 'ITV programada',
   level: 'critical',
   level_display: 'Crítica',
   status: 'open',
@@ -89,11 +89,11 @@ describe('AlertsPage (bandeja de alertas)', () => {
     expect(screen.getByRole('tab', { name: 'Resueltas' })).toBeInTheDocument()
   })
 
-  it('en abiertas pinta conductor y responsable, y la fecha límite con formato', async () => {
+  it('en abiertas pinta conductor y supervisor, y la fecha límite con formato', async () => {
     mocks.listAlerts.mockResolvedValue(page([alert({})]))
     renderPage()
     expect(await screen.findByRole('columnheader', { name: /Conductor/ })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: /Responsable/ })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: /Supervisor/ })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Carlos Ruiz' })).toHaveAttribute(
       'href',
       '/conductores/5',
@@ -108,6 +108,111 @@ describe('AlertsPage (bandeja de alertas)', () => {
     mocks.listAlerts.mockResolvedValue(page([alert({})]))
     renderPage()
     expect(await screen.findByRole('button', { name: 'Mandar correo' })).toBeEnabled()
+  })
+
+  it('las acciones son los iconos de Incidencias más el correo, y el mensaje se lee', async () => {
+    mocks.listAlerts.mockResolvedValue(page([alert({})]))
+    const { container } = renderPage()
+    // Resolver ya no es un botón con texto: es el ✓, como en Incidencias.
+    expect(await screen.findByRole('button', { name: 'Resolver' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mandar correo' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Documentos' })).toBeInTheDocument()
+    // El mensaje se lee en la propia fila (antes solo estaba el icono).
+    expect(screen.getByText('ITV vencida hace 6 días')).toBeInTheDocument()
+    // Y la otra bandeja, a un clic desde la cabecera.
+    expect(screen.getByRole('button', { name: /Ver incidencias/ })).toBeInTheDocument()
+    // Y la fecha límite lleva el semáforo de siempre: vencida, en rojo.
+    expect(container.querySelector('.alert-due-cell')).toHaveClass('itv-overdue')
+  })
+
+  it('corta por plazo y por persona, y agrupa por mes de vencimiento', async () => {
+    mocks.listAlerts.mockResolvedValue(
+      page([
+        alert({ id: 1, message: 'La vencida', due_date: '2026-08-31' }),
+        alert({
+          id: 2,
+          message: 'La lejana',
+          type: 'km_overage',
+          type_display: 'Exceso de km proyectado',
+          due_date: '2030-01-15',
+          driver_id: 6,
+          driver_name: 'Lucía Conductora',
+        }),
+      ]),
+    )
+    renderPage()
+    await screen.findByText('La vencida')
+
+    // Solo dos pestañas: «Todas» ya no está.
+    expect(screen.getAllByRole('tab').map((b) => b.textContent)).toEqual([
+      'Abiertas',
+      'Resueltas',
+    ])
+
+    // Un corte por cada color del semáforo, más las que no vencen.
+    const plazo = screen.getByRole('combobox', { name: 'Plazo' })
+    expect(within(plazo).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Todos los plazos',
+      'Vencidas',
+      'Próximas (30 días o menos)',
+      'Lejanas (más de 30 días)',
+      'Sin fecha límite',
+    ])
+    await userEvent.selectOptions(plazo, 'overdue')
+    expect(screen.getByText('La vencida')).toBeInTheDocument()
+    expect(screen.queryByText('La lejana')).toBeNull()
+    await userEvent.selectOptions(plazo, '')
+
+    // Conductor y supervisor, cada uno con su selector (y su «sin nadie»).
+    const conductor = screen.getByRole('combobox', { name: 'Conductor' })
+    expect(within(conductor).getByRole('option', { name: 'Sin conductor' })).toBeInTheDocument()
+    await userEvent.selectOptions(conductor, '6')
+    expect(screen.getByText('La lejana')).toBeInTheDocument()
+    expect(screen.queryByText('La vencida')).toBeNull()
+    await userEvent.selectOptions(conductor, '')
+    expect(
+      within(screen.getByRole('combobox', { name: 'Supervisor' })).getByRole('option', {
+        name: 'Sara Supervisora',
+      }),
+    ).toBeInTheDocument()
+
+    // El orden se invierte con su botón (de salida, lo que antes vence).
+    const orden = screen.getByRole('button', { name: /Antes la más próxima/ })
+    await userEvent.click(orden)
+    expect(screen.getByRole('button', { name: /Antes la más lejana/ })).toBeInTheDocument()
+
+    // Y el acordeón por mes de vencimiento: una fila de año y otra de mes.
+    await userEvent.click(screen.getByLabelText('Agrupar por mes de vencimiento'))
+    expect(await screen.findByRole('button', { name: /^2026/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Agosto/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^2030/ })).toBeInTheDocument()
+
+    // Con el de tipo TAMBIÉN marcado, los dos conviven: fuera el que se pidió
+    // primero (el mes) y, dentro de cada mes, los tipos.
+    await userEvent.click(screen.getByLabelText('Agrupar por tipo'))
+    expect(screen.getByLabelText('Agrupar por mes de vencimiento')).toBeChecked()
+    const titulos = () =>
+      [...document.querySelectorAll('tbody button[aria-expanded]')].map(
+        (d) => d.querySelectorAll('span')[0]?.textContent,
+      )
+    // (el orden se invirtió antes: primero lo más lejano)
+    expect(titulos()).toEqual([
+      'enero de 2030',
+      'Exceso de km proyectado',
+      'agosto de 2026',
+      'ITV programada',
+    ])
+
+    // Quitando el del mes manda el que queda; al volver a marcarlo, ahora es
+    // el tipo el que se pidió primero y el que va fuera.
+    await userEvent.click(screen.getByLabelText('Agrupar por mes de vencimiento'))
+    await userEvent.click(screen.getByLabelText('Agrupar por mes de vencimiento'))
+    expect(titulos()).toEqual([
+      'Exceso de km proyectado',
+      'enero de 2030',
+      'ITV programada',
+      'agosto de 2026',
+    ])
   })
 
   it('en resueltas agrupa dentro de la tabla por año y mes, ambos plegables', async () => {
@@ -196,7 +301,7 @@ describe('AlertsPage (bandeja de alertas)', () => {
     expect(screen.getByRole('columnheader', { name: /Resuelta por/ })).toBeInTheDocument()
     // Las personas del vehículo se ven también aquí.
     expect(screen.getByRole('columnheader', { name: /Conductor/ })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: /Responsable/ })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: /Supervisor/ })).toBeInTheDocument()
     // Sin nada que accionar sobre una resuelta.
     expect(screen.queryByRole('columnheader', { name: 'Acciones' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Mandar correo' })).not.toBeInTheDocument()
@@ -354,17 +459,22 @@ describe('AlertsPage (bandeja de alertas)', () => {
       ]) as never,
     )
     const done = vi.spyOn(api, 'maintenancePlanDone').mockResolvedValue({} as never)
+    vi.spyOn(api, 'listWorkshops').mockResolvedValue([])
     mocks.listAlerts.mockResolvedValue(
       page([alert({ type: 'maintenance_due', type_display: 'Mantenimiento programado' })]),
     )
     renderPage()
     await userEvent.click(await screen.findByRole('button', { name: 'Resolver' }))
 
-    // El plan viene preseleccionado; el servicio lleva coste y nota.
+    // Es el formulario de mantenimiento (no la nota suelta): el plan viene
+    // preseleccionado y el servicio lleva coste y observaciones.
+    expect(
+      await screen.findByRole('dialog', { name: 'Registrar mantenimiento · 1234KLM' }),
+    ).toBeInTheDocument()
     expect(await screen.findByRole('combobox', { name: 'Plan de mantenimiento' })).toHaveValue('4')
     const [, cost] = screen.getAllByRole('spinbutton') // [km del servicio, coste]
     await userEvent.type(cost, '180.5')
-    await userEvent.type(screen.getByPlaceholderText(/taller avisado/i), 'Hecho en taller')
+    await userEvent.type(screen.getByLabelText('Observaciones'), 'Hecho en taller')
     await userEvent.click(
       screen.getByRole('button', { name: 'Registrar mantenimiento y resolver' }),
     )
@@ -388,12 +498,19 @@ describe('AlertsPage (bandeja de alertas)', () => {
     renderPage()
     await userEvent.click(await screen.findByRole('button', { name: 'Resolver' }))
 
+    // Resolver un seguro ES renovarlo: fecha nueva propuesta y póliza opcional.
+    expect(await screen.findByRole('dialog', { name: 'Renovar seguro · 1234KLM' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Nueva fecha de vencimiento')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/taller avisado/i)).not.toBeInTheDocument()
     // El atajo del tipo: abre el modal de correo con la renting premarcada.
     await userEvent.click(screen.getByRole('button', { name: 'Mandar correo a la renting' }))
+    // El correo va por pasos: los destinatarios son el tercero.
+    await userEvent.click(await screen.findByRole('button', { name: 'Siguiente' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
     expect(await screen.findByRole('checkbox', { name: 'Empresa de renting' })).toBeChecked()
-    // Y el modal de resolver se retira (tras su animación de salida).
+    // Y el modal de renovar se retira (tras su animación de salida).
     await waitFor(() =>
-      expect(screen.queryByPlaceholderText(/taller avisado/i)).not.toBeInTheDocument(),
+      expect(screen.queryByLabelText('Nueva fecha de vencimiento')).not.toBeInTheDocument(),
     )
   })
 })

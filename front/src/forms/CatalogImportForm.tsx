@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '../ui/buttons/index.ts'
-import { TextInputField } from '../ui/fields/index.ts'
+import { FileField } from '../ui/fields/index.ts'
 import { downloadCsvTemplateFile } from '../utils/csv-template.ts'
 import styles from '../styles/_components/forms/catalog-create-form.module.sass'
 import { cx } from '../utils/cx.ts'
@@ -198,23 +198,19 @@ export function CatalogImportForm({
         ) : null}
       </div>
 
-      <TextInputField
-        type="file"
+      <FileField
         label="Archivo CSV o Excel"
-        warningMessage={fieldWarning}
-        onWarningClose={() => setFieldWarning(null)}
-        required
         requiredVisual
         accept=".csv,.xls,.xlsx"
-        onChange={(event) => {
-          setSelectedFile(event.currentTarget.files?.[0] ?? null)
+        value={selectedFile}
+        onFiles={(files) => {
+          setSelectedFile(files[0] ?? null)
           setFieldWarning(null)
         }}
       />
-
-      {selectedFile ? (
-        <p className={styles.importFileName}>
-          Archivo seleccionado: <code className={styles.importCode}>{selectedFile.name}</code>
+      {fieldWarning ? (
+        <p className={cx(styles.message, styles.messageError)} role="alert">
+          {fieldWarning}
         </p>
       ) : null}
 

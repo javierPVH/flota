@@ -282,6 +282,29 @@ class NoticeLanguageTests(APITestCase):
         self.assertNotIn("onclick", resp.data["body_html_en"])
 
 
+class ManyRecipientsTests(APITestCase):
+    """Varias direcciones en un mismo envío (los informes programados las llevan)."""
+
+    @EMAIL_ON
+    def test_immediate_send_splits_a_comma_list(self):
+        enviado, motivo = mailer.send_notice_now(
+            to="sara@flota.dev, marta@flota.dev",
+            subject="Informe mensual de flota",
+            body_html="<p>Ahí va.</p>",
+            template_key=EmailTemplateKey.GENERIC,
+        )
+
+        self.assertTrue(enviado, motivo)
+        # Una sola entrega, con las DOS direcciones en el «Para» (antes viajaba
+        # la lista entera como si fuese una dirección).
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["sara@flota.dev", "marta@flota.dev"])
+        # Y la traza guarda la lista, que es lo que enseña la pantalla de envíos.
+        log = EmailLog.objects.get()
+        self.assertEqual(log.recipient, "sara@flota.dev, marta@flota.dev")
+        self.assertEqual(log.status, EmailLog.Status.SENT)
+
+
 class EmailOutboxTests(APITestCase):
     """M6 — la cola: reintento acotado, tandas y entrega fuera de los chequeos."""
 

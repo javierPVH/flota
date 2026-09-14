@@ -244,13 +244,17 @@ def refresh_next_itv_dates() -> int:
     Una favorable SIN fecha (informe pendiente) también manda: deja el vehículo
     sin cita en vez de arrastrar la anterior, ya cumplida.
     B16: los vehículos de baja quedan fuera (no hay ITV que vigilar).
+    2026-09-09: las citas PROGRAMADAS a mano (`next_itv_manual`, gesto
+    «Programar ITV») quedan fuera — no salen del histórico, así que aquí solo se
+    podrían borrar. Registrar la ITV real desmarca el candado (ver
+    `signals.on_itv_registered`) y la fecha vuelve a mantenerse desde el evento.
     """
     # R3-12: antes se recorría la tabla `EventItv` ENTERA (histórico incluido)
     # en cada pasada del bucle de jobs. La fila ganadora por vehículo la decide
     # la BD (ROW_NUMBER), restringida a los vehículos activos — el mismo patrón
     # que `selectors.latest_reading_map`. Un `next_due` None también manda (una
     # favorable sin fecha deja el vehículo sin cita, ver C5 arriba).
-    vehicles = list(_active_vehicles())
+    vehicles = list(_active_vehicles().filter(next_itv_manual=False))
     latest_by_vehicle: dict[int, date | None] = dict(
         EventItv.objects.exclude(result=ItvResult.NOT_DONE)
         .filter(event__vehicle_id__in=[v.id for v in vehicles])
@@ -440,12 +444,27 @@ def check_no_driver(today: date | None = None) -> int:
             status__in=(AssignmentStatus.ACCEPTED, AssignmentStatus.FINISHED),
         ).values_list("vehicle_id", flat=True)
     )
+    # Reconciliación: el coche que ya tiene conductor cierra su aviso abierto
+    # (misma idea que `resolve_satisfied_km_reading_alerts`): asignar debe
+    # satisfacer la alerta, no depender de que alguien la resuelva a mano.
+    if has_current:
+        Alert.objects.filter(
+            vehicle_id__in=has_current, type=AlertType.NO_DRIVER, status=AlertStatus.OPEN
+        ).update(
+            status=AlertStatus.RESOLVED,
+            resolved_at=timezone.now(),
+            resolution_note="Conductor asignado.",
+        )
     created = 0
     for vehicle in vehicles:
         if vehicle.id in has_current or vehicle.id in recently_assigned:
             continue
         created += upsert_alert(
-            dedup_key=f"no_driver:{vehicle.pk}",
+            # Clave MENSUAL: resolver a mano silencia el mes; si el coche sigue
+            # sin conductor, el mes siguiente vuelve a avisar. Con la clave fija
+            # (`no_driver:{pk}`) una resolución lo silenciaba para siempre,
+            # porque `upsert_alert` nunca reabre una resuelta.
+            dedup_key=f"no_driver:{vehicle.pk}:{today:%Y-%m}",
             type=AlertType.NO_DRIVER,
             level=AlertLevel.WARNING,
             message=f"Sin conductor asignado desde hace más de {grace_days} día(s).",

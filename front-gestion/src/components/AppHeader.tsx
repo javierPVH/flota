@@ -23,7 +23,7 @@ import { Badge, LanguageToggleButton } from '@flota/ui/ui'
 
 import { listAlerts, listIncidents } from '../api.ts'
 import { useAuth } from '../auth.ts'
-import { alertLevelTone, incidentStatusTone } from '../format.ts'
+import { incidentStatusTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, Incident } from '../types.ts'
 import logoUrl from '../assets/img/gransolar-logo.png'
@@ -338,7 +338,6 @@ export function AppHeader() {
                       className="shell-alertitem"
                       onClick={() => setBellOpen(false)}
                     >
-                      <Badge tone={alertLevelTone(alert.level)}>{alert.level_display}</Badge>
                       <span className="shell-alertitem-body">
                         <strong>{alert.vehicle_plate || alert.type_display}</strong>
                         <span className="shell-alertitem-msg">{alert.message}</span>

@@ -18,6 +18,9 @@ export type { TextInputFieldProps } from './TextInputField'
 export { TextAreaField } from './TextAreaField'
 export type { TextAreaFieldProps } from './TextAreaField'
 
+export { FileField } from './FileField'
+export type { FileFieldProps } from './FileField'
+
 export { SelectField } from './SelectField'
 export type {
   SelectFieldOption,

@@ -46,11 +46,13 @@ from fleet.models import (
     Event,
     EventDriverChange,
     EventFeeChange,
+    EventInsuranceRenewal,
     EventItv,
     EventLocationChange,
     EventPenalty,
     EventPepChange,
     EventProjectChange,
+    EventSupervisorChange,
     FuelConsumption,
     FuelType,
     Incident,
@@ -58,11 +60,13 @@ from fleet.models import (
     InvoiceAllocation,
     KmReading,
     MaintenancePlan,
+    MaintenanceProgram,
     NotificationSchedule,
     Pep,
     Project,
     Renting,
     Site,
+    SupervisorPeriod,
     Vehicle,
     VehicleLink,
     VehicleModel,
@@ -78,6 +82,7 @@ from fleet.models.enums import (
     DocumentStatus,
     DocumentType,
     EventType,
+    IncidentPriority,
     IncidentStatus,
     IncidentType,
     LinkReason,
@@ -990,7 +995,7 @@ def seed_contracts(stdout=None) -> None:
 
 
 def seed_assignments(stdout=None) -> None:
-    for model in (VehicleLink, VehicleUsage, Assignment):
+    for model in (VehicleLink, VehicleUsage, Assignment, SupervisorPeriod):
         wipe(model, stdout)
     today = _today()
     carlos = User.objects.get(username="carlos")
@@ -1131,6 +1136,29 @@ def seed_assignments(stdout=None) -> None:
                 status=AssignmentStatus.REJECTED,
             )
 
+    # -- Histórico de supervisores con fechas (uno por coche a la vez).
+    # El vigente de cada coche es `Vehicle.supervisor`; aquí se le pone fecha
+    # de inicio y, en el escaparate, un relevo anterior para que la ficha
+    # enseñe un histórico de verdad.
+    marta = User.objects.get(username="marta")
+    periodos = []
+    for vehicle in Vehicle.objects.filter(supervisor__isnull=False).select_related("supervisor"):
+        inicio = today - timedelta(days=240)
+        if vehicle.plate == "1234KLM":
+            # El coche de carlos (grupo de sara): marta lo supervisó antes.
+            periodos.append(
+                SupervisorPeriod(
+                    vehicle=vehicle,
+                    supervisor=marta,
+                    start_date=today - timedelta(days=400),
+                    end_date=inicio,
+                )
+            )
+        periodos.append(
+            SupervisorPeriod(vehicle=vehicle, supervisor=vehicle.supervisor, start_date=inicio)
+        )
+    SupervisorPeriod.objects.bulk_create(periodos, batch_size=500)
+
     # Reparto de uso 70/30 en el primer vehículo de volumen.
     shared = Vehicle.objects.get(plate=_bulk_plate(0))
     VehicleUsage.objects.create(
@@ -1199,6 +1227,7 @@ EVENT_NOTES = {
     EventType.CECO_CHANGE: "Cambio de centro de coste de imputación.",
     EventType.MAINTENANCE: "Mantenimiento preventivo de los 30.000 km.",
     EventType.DRIVER_CHANGE: "Relevo del conductor asignado.",
+    EventType.SUPERVISOR_CHANGE: "Relevo del supervisor responsable del vehículo.",
 }
 EVENT_TYPES_NO_ITV = list(EVENT_NOTES)
 
@@ -1206,7 +1235,7 @@ EVENT_TYPES_NO_ITV = list(EVENT_NOTES)
 def _seed_event_detail(event, *, index, projects, cecos, drivers) -> None:
     """Crea el subtipo 1-a-1 del evento, si su tipo tiene uno.
 
-    Siete de los 18 tipos extienden `Event` con una tabla propia; los otros once
+    Nueve de los 19 tipos extienden `Event` con una tabla propia; los otros diez
     viven solo en `Event`. La ITV se siembra aparte (ver `EVENT_NOTES`).
     """
     kind = event.event_type
@@ -1244,6 +1273,24 @@ def _seed_event_detail(event, *, index, projects, cecos, drivers) -> None:
             event=event,
             old_driver=drivers[index % len(drivers)],
             new_driver=drivers[(index + 1) % len(drivers)],
+        )
+    elif kind == EventType.SUPERVISOR_CHANGE:
+        # Histórico de supervisores (2026-09-07): relevo entre las supervisoras
+        # sembradas (sara, marta); con una sola, el paso de «nadie» a ella.
+        supervisors = list(User.objects.filter(roles__role=Role.SUPERVISOR).order_by("pk"))
+        if supervisors:
+            old = supervisors[index % len(supervisors)] if len(supervisors) > 1 else None
+            EventSupervisorChange.objects.create(
+                event=event,
+                old_supervisor=old,
+                new_supervisor=supervisors[(index + 1) % len(supervisors)],
+            )
+    elif kind == EventType.INSURANCE_RENEWAL:
+        # Renovación de seguro (B4): del vencimiento del día del evento a un año.
+        EventInsuranceRenewal.objects.create(
+            event=event,
+            old_expiry=event.event_date,
+            new_expiry=event.event_date + timedelta(days=365),
         )
 
 
@@ -1299,6 +1346,16 @@ def seed_operations(stdout=None) -> None:
             notes="Inspección técnica superada sin defectos.",
         )
         EventItv.objects.create(event=event, result="done", next_due=next_due)
+
+    # El coche de sustitución no tiene histórico de ITV: su cita está PROGRAMADA
+    # a mano (gesto «Programar ITV y mantenimiento») con el CP preferente desde
+    # el que se busca la estación. Queda marcada para que el job
+    # `refresh_next_itv` no la borre: en el histórico no existe.
+    substitute = Vehicle.objects.get(plate="4567JKL")
+    substitute.next_itv_date = today + timedelta(days=45)
+    substitute.next_itv_manual = True
+    substitute.itv_postal_code = "28100"
+    substitute.save(update_fields=["next_itv_date", "next_itv_manual", "itv_postal_code"])
 
     # Timeline COMPLETO de v1: un evento de cada tipo (menos la ITV, ya arriba)
     # con su subtipo cuando lo tiene. La ficha del vehículo de referencia enseña
@@ -1638,6 +1695,14 @@ def seed_operations(stdout=None) -> None:
         IncidentType.GENERAL,  # solicitudes de la app de campo (modal de incidencia)
     ]
     inc_status = [IncidentStatus.OPEN, IncidentStatus.IN_PROGRESS, IncidentStatus.CLOSED]
+    # Las cuatro prioridades repartidas: la columna del listado y su filtro
+    # tienen algo que enseñar sin tocar nada a mano.
+    inc_priorities = [
+        IncidentPriority.CRITICAL,
+        IncidentPriority.MODERATE,
+        IncidentPriority.FUNCTIONAL,
+        IncidentPriority.INFORMATIVE,
+    ]
     inc_descriptions = [
         "Testigo de motor encendido",
         "Cambio de aceite y filtros",
@@ -1653,6 +1718,7 @@ def seed_operations(stdout=None) -> None:
         Incident.objects.create(
             vehicle=vehicle,
             type=inc_types[j % len(inc_types)],
+            priority=inc_priorities[j % len(inc_priorities)],
             date=today - timedelta(days=4 + j * 6),
             description=inc_descriptions[j % len(inc_descriptions)],
             status=inc_status[j % 3],
@@ -1796,46 +1862,55 @@ def seed_operations(stdout=None) -> None:
                 ),
             )
 
-    # GAP-8: planes de mantenimiento — uno VENCIDO por fecha (alerta crítica en
-    # seed_alerts), uno a punto por km (aviso) y uno sano (sin alerta).
+    # GAP-8: el catálogo COMÚN de programas y, por vehículo, UNO programado.
+    # Un mismo plan puede avisar por las dos vías: por fecha (vencida → alerta
+    # crítica) y por km (a punto → aviso), que es justo lo que enseña v1.
+    # REGLA de dominio: los neumáticos SIEMPRE son una avería (incidencia
+    # `tires`), nunca un programa de mantenimiento — ver PLAN_MANTENIMIENTOS_
+    # ANUALES §3.1/§12. Los ciclos por km del seed usan conceptos de taller.
     wipe(MaintenancePlan, stdout)
-    MaintenancePlan.objects.create(
-        vehicle=v1,
+    wipe(MaintenanceProgram, stdout)
+    revision_general = MaintenanceProgram.objects.create(
         name="Revisión general",
+        every_km=30000,
         every_months=12,
-        last_done_date=today - timedelta(days=400),  # tocaba hace ~35 días
-        notes="Revisión anual del fabricante.",
+        notes="Revisión anual del fabricante; los km mandan sobre los meses.",
     )
+    revision_anual = MaintenanceProgram.objects.create(
+        name="Revisión anual",
+        every_months=12,
+        notes="Obligación anual de la flota.",
+    )
+    MaintenanceProgram.objects.create(
+        name="Cambio de aceite y filtros",
+        every_km=15000,
+        notes="Solo por kilometraje.",
+    )
+
     ultima_v1 = (
         KmReading.objects.filter(vehicle=v1, km_reading__isnull=False, is_active=True)
         .order_by("-reading_date", "-id")
         .first()
     )
     km_actual_v1 = ultima_v1.km_reading if ultima_v1 else 0
-    # El ciclo se deriva del odómetro real para que el objetivo quede SIEMPRE
-    # a 500 km (dentro del margen de aviso de 1000): con una cifra fija, un
-    # odómetro bajo dejaba el plan lejos del objetivo y sin aviso que enseñar.
-    # REGLA de dominio: los neumáticos SIEMPRE son una avería (incidencia
-    # `tires`), nunca un plan de mantenimiento — ver PLAN_MANTENIMIENTOS_
-    # ANUALES §3.1/§12. Los ciclos por km del seed usan conceptos de taller.
+    # El ciclo por km se deriva del odómetro real para que el objetivo quede
+    # SIEMPRE a 500 km (dentro del margen de aviso de 1000): con una cifra
+    # fija, un odómetro bajo dejaba el plan lejos del objetivo y sin aviso.
     MaintenancePlan.objects.create(
         vehicle=v1,
-        name="Cambio de aceite y filtros",
+        program=revision_general,
+        name=revision_general.name,
+        every_months=12,
+        last_done_date=today - timedelta(days=400),  # tocaba hace ~35 días
         every_km=max(1000, km_actual_v1 + 500),
         last_done_km=0,
-        notes="Cambio de aceite y filtros por kilometraje.",
+        # CP preferente: con él un tercero busca el taller más cercano.
+        workshop_postal_code="28001",
+        notes="Revisión anual del fabricante.",
     )
     # El coche de la supervisora (7890NPQ): ciclo por FECHA a ~14 días (aviso
     # y fila de «Próximas citas» en su tablero) y ciclo por KM ya SUPERADO
-    # (alerta crítica). El objetivo se deriva del odómetro real, como en v1,
-    # para que quede siempre por detrás de la última lectura.
-    MaintenancePlan.objects.create(
-        vehicle=v3,
-        name="Revisión anual",
-        every_months=12,
-        last_done_date=today - timedelta(days=351),  # toca en ~14 días → aviso
-        notes="Revisión anual del fabricante.",
-    )
+    # (alerta crítica), en el mismo plan.
     ultima_v3 = (
         KmReading.objects.filter(vehicle=v3, km_reading__isnull=False, is_active=True)
         .order_by("-reading_date", "-id")
@@ -1844,14 +1919,19 @@ def seed_operations(stdout=None) -> None:
     km_actual_v3 = ultima_v3.km_reading if ultima_v3 else 0
     MaintenancePlan.objects.create(
         vehicle=v3,
-        name="Revisión de frenos",
+        program=revision_general,
+        name=revision_general.name,
+        every_months=12,
+        last_done_date=today - timedelta(days=351),  # toca en ~14 días → aviso
         every_km=max(1, km_actual_v3 - 300),  # objetivo ya superado → crítica
         last_done_km=0,
-        notes="Revisión de frenos y discos por kilometraje.",
+        workshop_postal_code="41001",
+        notes="Revisión general del fabricante.",
     )
     MaintenancePlan.objects.create(
         vehicle=Vehicle.objects.get(plate=_bulk_plate(0)),
-        name="Revisión general",
+        program=revision_anual,
+        name=revision_anual.name,
         every_months=12,
         last_done_date=today - timedelta(days=30),  # sano: sin alerta
     )
@@ -1871,7 +1951,8 @@ def seed_operations(stdout=None) -> None:
             ancla = today - timedelta(days=380)  # vencido (~15 días)
         MaintenancePlan.objects.create(
             vehicle=Vehicle.objects.get(plate=_bulk_plate(i)),
-            name="Revisión anual",
+            program=revision_anual,
+            name=revision_anual.name,
             every_months=12,
             last_done_date=ancla,
         )
@@ -1990,6 +2071,28 @@ def seed_operations(stdout=None) -> None:
                 uploaded_by=admin,
                 status=DocumentStatus.VALID,
                 notes="Justificante del distintivo ambiental.",
+            )
+        # Justificantes de una resolución (2026-09-08): el informe de la estación
+        # de ITV y la factura del taller que adjuntan los modales de resolver.
+        if i % 7 == 4:
+            Document.objects.create(
+                vehicle=vehicle,
+                type=DocumentType.ITV_REPORT,
+                drive_url=f"https://drive.example/itv-{vehicle.plate}",
+                drive_file_id=f"drv-file-itv-{vehicle.plate}",
+                uploaded_by=admin,
+                status=DocumentStatus.VALID,
+                notes="Informe de la inspección técnica.",
+            )
+        if i % 8 == 5:
+            Document.objects.create(
+                vehicle=vehicle,
+                type=DocumentType.WORKSHOP_INVOICE,
+                drive_url=f"https://drive.example/factura-taller-{vehicle.plate}",
+                drive_file_id=f"drv-file-factura-taller-{vehicle.plate}",
+                uploaded_by=admin,
+                status=DocumentStatus.VALID,
+                notes="Factura de la reparación en taller.",
             )
 
     # Facturas: 3 meses por vehículo de renting con reparto proyecto/CECO
@@ -2234,6 +2337,14 @@ def seed_erratas(stdout=None) -> None:
         VehicleUsage.objects.filter(end_date__isnull=False, is_active=True).order_by("id").first(),
         "Reparto de uso con porcentajes mal repartidos",
     )
+    # Un periodo de supervisión CERRADO (nunca el vigente: dejaría al coche
+    # sin responsable y el listado lo acota por ahí).
+    retirar(
+        SupervisorPeriod.objects.filter(end_date__isnull=False, is_active=True)
+        .order_by("id")
+        .first(),
+        "Relevo apuntado en el coche equivocado",
+    )
     retirar(
         VehicleLink.objects.filter(end_date__isnull=False, is_active=True).order_by("id").first(),
         "Vínculo de sustitución abierto por error",
@@ -2295,12 +2406,19 @@ def seed_erratas(stdout=None) -> None:
     # GAP-2/GAP-8: un consumo tecleado dos veces y un plan duplicado.
     consumo_viejo = FuelConsumption.objects.filter(is_active=True).order_by("period", "id").first()
     retirar(consumo_viejo, "Cifra duplicada al volcar el extracto de la tarjeta")
-    plan_duplicado, _ = MaintenancePlan.objects.get_or_create(
-        vehicle=Vehicle.objects.filter(state=VehicleState.ACTIVE).order_by("plate").first(),
+    programa_duplicado, _ = MaintenanceProgram.objects.get_or_create(
         name="Revisión general (duplicado)",
-        defaults={"every_months": 12, "last_done_date": _today()},
+        defaults={"every_months": 12},
     )
-    retirar(plan_duplicado, "Plan duplicado: ya existía la revisión general")
+    retirar(programa_duplicado, "Programa duplicado: ya existía la revisión general")
+    # Un mantenimiento retirado de un coche: como solo puede haber UNO activo
+    # por vehículo, la errata nace ya desactivada (no compite con el vigente).
+    plan_retirado, _ = MaintenancePlan.objects.get_or_create(
+        vehicle=Vehicle.objects.filter(state=VehicleState.ACTIVE).order_by("plate").first(),
+        name="Revisión general (programa antiguo)",
+        defaults={"every_months": 12, "last_done_date": _today(), "is_active": False},
+    )
+    retirar(plan_retirado, "Programado con el ciclo antiguo: se rehízo con el del catálogo")
 
     # -- Correo (A2): una firma antigua y la plantilla genérica --------------
     firma_vieja, _ = EmailSignature.objects.get_or_create(
@@ -2415,6 +2533,15 @@ def seed_comms(stdout=None) -> None:
         subject="Aviso de flota",
         status=EmailLog.Status.FAILED,
         error="SMTPRecipientsRefused: 550 mailbox unavailable",
+    )
+    # Un envío a VARIOS destinatarios en una sola fila: así salen los informes
+    # programados (una entrega, varias direcciones). La pantalla de envíos lo
+    # enseña recortado y con su modal para verlos todos.
+    EmailLog.objects.create(
+        template_key=EmailTemplateKey.GENERIC,
+        recipient="sara@flota.dev, marta@flota.dev, flota@ald.example, soporte@northgate.example",
+        subject="Informe mensual de flota",
+        status=EmailLog.Status.SENT,
     )
 
     # M6: la cola de salida, con un correo en cada estado.

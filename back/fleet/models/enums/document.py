@@ -15,6 +15,10 @@ class DocumentType(models.TextChoices):
     RETURN_ACT = "return_report", "Acta de devolución"
     ACCIDENT_REPORT = "accident_report", "Parte de accidente"
     DAMAGE_PHOTOS = "damage_photos", "Fotos de daños"
+    # Justificantes de una resolución: el informe de la estación de ITV y la
+    # factura del taller (avería, neumáticos, mantenimiento, accidente).
+    ITV_REPORT = "itv_report", "Informe de ITV"
+    WORKSHOP_INVOICE = "workshop_invoice", "Factura de taller"
     DRIVING_LICENSE = "driving_license", "Permiso de conducir"
     OTHER = "other", "Otro"
 

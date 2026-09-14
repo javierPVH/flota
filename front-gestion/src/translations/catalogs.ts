@@ -44,6 +44,12 @@ const es = {
     sites: { title: 'Sedes', singular: 'sede' },
     // Talleres y estaciones de ITV: dónde se cita el vehículo.
     workshops: { title: 'Talleres e ITV', singular: 'taller / estación ITV' },
+    // El «cada cuánto» del mantenimiento preventivo: se define aquí, una vez
+    // para toda la flota, y el plan de cada coche lo copia al programarse.
+    maintenancePrograms: {
+      title: 'Programas de mantenimiento',
+      singular: 'programa de mantenimiento',
+    },
   },
   fields: {
     projectName: 'Nombre del proyecto',
@@ -59,6 +65,9 @@ const es = {
     address: 'Dirección',
     postalCode: 'Código postal',
     phone: 'Teléfono',
+    everyKm: 'Cada (km)',
+    everyMonths: 'Cada (meses)',
+    notes: 'Notas',
   },
   workshopKinds: [
     { value: 'workshop', label: 'Taller' },
@@ -108,6 +117,10 @@ const en: typeof es = {
     fuelTypes: { title: 'Fuels', singular: 'fuel type' },
     sites: { title: 'Sites', singular: 'site' },
     workshops: { title: 'Workshops & MOT', singular: 'workshop / MOT station' },
+    maintenancePrograms: {
+      title: 'Service schedules',
+      singular: 'service schedule',
+    },
   },
   fields: {
     projectName: 'Project name',
@@ -123,6 +136,9 @@ const en: typeof es = {
     address: 'Address',
     postalCode: 'Postal code',
     phone: 'Phone',
+    everyKm: 'Every (km)',
+    everyMonths: 'Every (months)',
+    notes: 'Notes',
   },
   workshopKinds: [
     { value: 'workshop', label: 'Workshop' },

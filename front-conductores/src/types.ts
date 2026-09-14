@@ -232,6 +232,10 @@ export interface Incident {
   vehicle: number
   type: string
   type_display: string
+  /** Prioridad que fijó quien la abrió (opcional en el tipo: los mocks
+   * antiguos siguen compilando; el back la manda siempre). */
+  priority?: IncidentPriority
+  priority_display?: string
   date: string | null
   description: string
   mileage: number | null
@@ -241,6 +245,10 @@ export interface Incident {
   status_display: string
   cost: string | null
 }
+
+/** Prioridad de una petición, de más a menos urgente: la elige quien la abre
+ * (una alerta, en cambio, saca su urgencia de la fecha). */
+export type IncidentPriority = 'critical' | 'moderate' | 'functional' | 'informative'
 
 // --- M6: modo supervisor (HU-2.5, 3.4/3.6, Épica 6) ------------------------
 

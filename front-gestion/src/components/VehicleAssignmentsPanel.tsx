@@ -2,13 +2,16 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Badge, Button, Modal, SelectField, TabButton, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
+import { Trash2 } from 'lucide-react'
 
 import { assignmentStatusTone, todayIso } from '../format.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
+import { useVehiclesCopy } from '../translations/vehicles.ts'
 import { buildSupervisorHistory, type SupervisorReign } from '../vehicleTimeline.ts'
-import { useConfirm } from './ConfirmDialog.tsx'
 import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
 import { TableInfoBar } from './TableInfoBar.tsx'
+import { VehicleDriverModal } from './VehicleDriverModal.tsx'
+import { VehiclePeopleModal } from './VehiclePeopleModal.tsx'
 
 import {
   fetchManagedUser,
@@ -17,8 +20,6 @@ import {
   listSupervisorChanges,
   listVehicleUsages,
   setUsageSplit,
-  setVehicleDriver,
-  updateAssignment,
   type VehicleUsageRow,
 } from '../api.ts'
 import type { AssignmentRow, Driver, FlotaEvent, ManagedUser, Vehicle } from '../types.ts'
@@ -36,6 +37,9 @@ interface UsageLine {
   percent: string
 }
 
+/** Cuántos colores tiene la rueda del reparto (la persona n-ésima repite). */
+const USAGE_TONES = 6
+
 /** Conductor + histórico + reparto de uso del vehículo (G5, HU-2.1/2.2/2.5). */
 export function VehicleAssignmentsPanel({
   vehicle,
@@ -47,18 +51,16 @@ export function VehicleAssignmentsPanel({
   accordion: AccordionState
 }) {
   const t = usePanelsCopy().assignments
-  const confirm = useConfirm()
+  // El cambio de conductor es el MISMO de todas partes: su copia vive con él.
+  const vt = useVehiclesCopy()
   const [assignments, setAssignments] = useState<AssignmentRow[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [driverDetail, setDriverDetail] = useState<ManagedUser | null>(null)
   const [usages, setUsages] = useState<VehicleUsageRow[]>([])
-  const [error, setError] = useState('')
 
-  const [modal, setModal] = useState<'change' | 'usage' | null>(null)
+  const [modal, setModal] = useState<'change' | 'usage' | 'people' | null>(null)
   const [saving, setSaving] = useState(false)
   const [modalError, setModalError] = useState('')
-  const [newDriver, setNewDriver] = useState('')
-  const [startDate, setStartDate] = useState(today())
   const [usageLines, setUsageLines] = useState<UsageLine[]>([{ driver: '', percent: '100' }])
   const [usageStart, setUsageStart] = useState(today())
   // Búsqueda en cliente del histórico (barra informativa).
@@ -182,9 +184,6 @@ export function VehicleAssignmentsPanel({
   }
 
   function openChange() {
-    setNewDriver('')
-    setStartDate(today())
-    setModalError('')
     setModal('change')
   }
 
@@ -202,53 +201,39 @@ export function VehicleAssignmentsPanel({
     setModal('usage')
   }
 
-  async function submitChange(event: FormEvent) {
-    event.preventDefault()
-    if (!newDriver) {
-      setModalError(t.chooseDriverError)
-      return
-    }
-    setSaving(true)
-    setModalError('')
-    // A6: HU-2.1/2.2 en UNA llamada atómica. El back cierra la vigente (fin =
-    // inicio de la nueva), crea la aceptada y emite el evento old→new. Antes
-    // era crear propuesta + aceptar, con un borrado físico de compensación que
-    // podía dejar propuestas huérfanas (y esas daban ámbito al conductor, C1).
-    try {
-      await setVehicleDriver(vehicle.id, {
-        driver: Number(newDriver),
-        start_date: startDate,
-      })
-      setModal(null)
-      load()
-      onChanged()
-    } catch (err) {
-      setModalError(asErrorMessage(err, t.changeError))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleRelease() {
-    if (!current) return
-    if (
-      !(await confirm({
-        message: t.confirmRelease(current.driver_name, vehicle.plate),
-        confirmLabel: t.release,
-        tone: 'warning',
-      }))
-    )
-      return
-    try {
-      await updateAssignment(current.id, { end_date: today(), status: 'finished' })
-      load()
-      onChanged()
-    } catch (err) {
-      setError(asErrorMessage(err, t.releaseError))
-    }
-  }
-
   const usageSum = usageLines.reduce((acc, l) => acc + (Number(l.percent) || 0), 0)
+  const usageRest = 100 - usageSum
+  /** Lo que impide guardar, además de que la suma no sea 100. */
+  const usageProblem = usageLines.some((l) => !l.driver)
+    ? t.needPersonLine
+    : new Set(usageLines.map((l) => l.driver)).size !== usageLines.length
+      ? t.duplicatePerson
+      : ''
+
+  /** Cada conductor va en UNA línea: las demás dejan de ofrecerlo. */
+  function usageOptions(index: number) {
+    const tomados = new Set(
+      usageLines.filter((_, i) => i !== index).map((l) => l.driver).filter(Boolean),
+    )
+    return drivers
+      .filter((d) => !tomados.has(String(d.id)))
+      .map((d) => ({ value: String(d.id), label: d.name }))
+  }
+
+  /** La línea nueva nace con lo que queda por repartir. */
+  function addUsageLine() {
+    const resto = usageRest
+    setUsageLines((lines) => [...lines, { driver: '', percent: resto > 0 ? String(resto) : '' }])
+  }
+
+  /** A partes iguales; el pico (100 no siempre divide) va a las primeras. */
+  function splitEven() {
+    setUsageLines((lines) => {
+      const base = Math.floor(100 / lines.length)
+      const pico = 100 - base * lines.length
+      return lines.map((l, i) => ({ ...l, percent: String(base + (i < pico ? 1 : 0)) }))
+    })
+  }
 
   async function submitUsage(event: FormEvent) {
     event.preventDefault()
@@ -282,13 +267,18 @@ export function VehicleAssignmentsPanel({
             <Button variant="primary" size="sm" onClick={openChange} disabled={vehicle.state === 'retired'}>
               {current ? t.changeDriver : t.assignDriver}
             </Button>
-            {current && (
-              <Button variant="secondary" size="sm" onClick={handleRelease}>
-                {t.release}
-              </Button>
-            )}
             <Button variant="secondary" size="sm" onClick={openUsage}>
               {t.usageSplit}
+            </Button>
+            {/* Corregir el histórico (fechas, periodos pasados o programados):
+                lo de al lado solo sabe relevar HOY. */}
+            <Button
+              variant="secondary"
+              size="sm"
+              title={t.people.btnTitle}
+              onClick={() => setModal('people')}
+            >
+              {t.people.btn}
             </Button>
           </div>
         ) : (
@@ -297,8 +287,6 @@ export function VehicleAssignmentsPanel({
         )
       }
     >
-      {error && <div role="alert" className="form-error">{error}</div>}
-
       {/* Conductor actual + reparto de uso: dos tarjetas destacadas. */}
       <div className="assign-cards">
         <div className="assign-panel-card">
@@ -337,17 +325,21 @@ export function VehicleAssignmentsPanel({
             <p className="muted">{t.noSplit}</p>
           ) : (
             <div className="usage-bars">
-              {activeUsages.map((u) => {
+              {activeUsages.map((u, i) => {
                 const pct = Number(u.usage_percent)
                 return (
                   <div className="usage-bar-row" key={u.id}>
                     <div className="usage-bar-head">
-                      <span>{driverName(u.driver)}</span>
+                      <span className="usage-bar-who">
+                        <span className="usage-dot" data-tone={i % USAGE_TONES} aria-hidden="true" />
+                        {driverName(u.driver)}
+                      </span>
                       <strong>{pct}%</strong>
                     </div>
                     <div className="usage-bar-track">
                       <div
                         className="usage-bar-fill"
+                        data-tone={i % USAGE_TONES}
                         style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
                       />
                     </div>
@@ -437,98 +429,143 @@ export function VehicleAssignmentsPanel({
         )}
       </div>
 
-      {/* Cambiar conductor (HU-2.1/2.2) */}
+      {/* Cambiar conductor (HU-2.1/2.2): el MISMO modal que abre el ⋮ del
+          inventario y del panel — conductor y supervisor en una sola llamada
+          atómica, con su papelera para dejar el puesto vacío—, no una segunda
+          copia que pueda decir otra cosa. */}
       <Modal
         open={modal === 'change'}
-        title={t.modalTitleChange(Boolean(current), vehicle.plate)}
+        title={vt.driverModal.title(vehicle.plate)}
         onClose={() => setModal(null)}
+        wide
       >
-        <form className="modal-form" onSubmit={submitChange}>
-          {current && (
-            <p className="muted" style={{ margin: 0 }}>
-              {t.closeNoteLead}<strong>{current.driver_name}</strong>{t.closeNoteTail}
-            </p>
-          )}
-          <SelectField
-            label={t.driverLabel}
-            options={[
-              { value: '', label: t.choosePlaceholder },
-              ...drivers
-                .filter((d) => d.id !== current?.driver)
-                .map((d) => ({ value: String(d.id), label: d.name })),
-            ]}
-            value={newDriver}
-            onValueChange={setNewDriver}
+        {modal === 'change' && (
+          <VehicleDriverModal
+            vehicle={vehicle}
+            onClose={() => setModal(null)}
+            onDone={() => {
+              load()
+              onChanged()
+            }}
           />
-          <TextInputField
-            label={t.startLabel}
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            required
-          />
-          {modalError && <div role="alert" className="form-error">{modalError}</div>}
-          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
-            <Button type="button" variant="secondary" onClick={() => setModal(null)}>
-              {t.cancel}
-            </Button>
-            <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? t.saving : t.confirm}
-            </Button>
-          </div>
-        </form>
+        )}
       </Modal>
 
-      {/* Reparto de uso (HU-2.5): la suma debe ser exactamente 100 */}
-      <Modal open={modal === 'usage'} title={t.usageModalTitle(vehicle.plate)} onClose={() => setModal(null)}>
-        <form className="modal-form" onSubmit={submitUsage}>
-          {usageLines.map((line, index) => (
-            <div className="usage-line" key={index}>
-              <SelectField
-                label={index === 0 ? t.person : ''}
-                options={[
-                  { value: '', label: t.choosePlaceholder },
-                  ...drivers.map((d) => ({ value: String(d.id), label: d.name })),
-                ]}
-                value={line.driver}
-                onValueChange={(value) =>
-                  setUsageLines((lines) => lines.map((l, i) => (i === index ? { ...l, driver: value } : l)))
-                }
-              />
-              <TextInputField
-                label={index === 0 ? '%' : ''}
-                type="number"
-                value={line.percent}
-                onChange={(e) =>
-                  setUsageLines((lines) =>
-                    lines.map((l, i) => (i === index ? { ...l, percent: e.target.value } : l)),
-                  )
-                }
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setUsageLines((lines) => lines.filter((_, i) => i !== index))}
-                disabled={usageLines.length === 1}
-              >
-                ✕
-              </Button>
+      {/* Histórico de personas con fechas: conductores y supervisores. */}
+      <Modal
+        open={modal === 'people'}
+        title={t.people.modalTitle(vehicle.plate)}
+        onClose={() => setModal(null)}
+        wide
+      >
+        {modal === 'people' && (
+          <VehiclePeopleModal
+            vehicle={vehicle}
+            onClose={() => setModal(null)}
+            onDone={() => {
+              load()
+              onChanged()
+            }}
+          />
+        )}
+      </Modal>
+
+      {/* Reparto de uso (HU-2.5): la suma debe ser exactamente 100. Se ve
+          mientras se compone —la barra de arriba es el reparto, con lo que
+          queda sin repartir a rayas—, cada persona tiene su color y se dice
+          lo que falta o lo que sobra, no la suma a secas. */}
+      <Modal
+        open={modal === 'usage'}
+        title={t.usageModalTitle(vehicle.plate)}
+        onClose={() => setModal(null)}
+        wide
+      >
+        <form className="modal-form usage-editor" onSubmit={submitUsage}>
+          <div className="usage-preview" aria-hidden="true">
+            {usageLines.map((line, index) => {
+              const pct = Math.max(0, Number(line.percent) || 0)
+              return pct > 0 ? (
+                <span
+                  key={index}
+                  className="usage-slice"
+                  data-tone={index % USAGE_TONES}
+                  style={{ flexGrow: pct }}
+                />
+              ) : null
+            })}
+            {usageRest > 0 && (
+              <span className="usage-slice is-free" style={{ flexGrow: usageRest }} />
+            )}
+          </div>
+
+          <div className="usage-rows">
+            <div className="usage-row usage-row-head" aria-hidden="true">
+              <span />
+              <span>{t.person}</span>
+              <span>{t.percentLabel}</span>
+              <span />
             </div>
-          ))}
-          <div>
+            {usageLines.map((line, index) => (
+              <div className="usage-row" key={index}>
+                <span className="usage-dot" data-tone={index % USAGE_TONES} aria-hidden="true" />
+                <SelectField
+                  label=""
+                  aria-label={t.personOf(index + 1)}
+                  required
+                  options={[{ value: '', label: t.choosePlaceholder }, ...usageOptions(index)]}
+                  value={line.driver}
+                  onValueChange={(value) =>
+                    setUsageLines((lines) =>
+                      lines.map((l, i) => (i === index ? { ...l, driver: value } : l)),
+                    )
+                  }
+                />
+                <TextInputField
+                  label=""
+                  aria-label={t.percentOf(index + 1)}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={line.percent}
+                  onChange={(e) =>
+                    setUsageLines((lines) =>
+                      lines.map((l, i) => (i === index ? { ...l, percent: e.target.value } : l)),
+                    )
+                  }
+                />
+                <button
+                  type="button"
+                  className="ops-info-remove"
+                  aria-label={t.removeLine(index + 1)}
+                  title={t.removeLine(index + 1)}
+                  disabled={usageLines.length === 1}
+                  onClick={() => setUsageLines((lines) => lines.filter((_, i) => i !== index))}
+                >
+                  <Trash2 size={15} aria-hidden />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="usage-tools">
+            <Button type="button" variant="secondary" size="sm" onClick={addUsageLine}>
+              {t.addPerson}
+            </Button>
             <Button
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => setUsageLines((lines) => [...lines, { driver: '', percent: '' }])}
+              onClick={splitEven}
+              disabled={usageLines.length < 2}
             >
-              {t.addPerson}
+              {t.splitEven}
             </Button>
+            <span className={`usage-sum ${usageSum === 100 ? 'ok' : 'ko'}`} role="status">
+              {usageSum === 100 ? t.sumOk : usageRest > 0 ? t.remaining(usageRest) : t.excess(-usageRest)}
+            </span>
           </div>
-          <div className={`usage-sum ${usageSum === 100 ? 'ok' : 'ko'}`}>
-            {usageSum === 100 ? t.sumOk : t.sumKo(usageSum)}
-          </div>
+
           <TextInputField
             label={t.validFrom}
             type="date"
@@ -536,15 +573,18 @@ export function VehicleAssignmentsPanel({
             onChange={(e) => setUsageStart(e.target.value)}
             required
           />
-          <p className="muted" style={{ margin: 0 }}>
-            {t.splitNote}
-          </p>
+          <p className="muted usage-note">{t.splitNote}</p>
+          {usageProblem && <p className="form-error usage-note">{usageProblem}</p>}
           {modalError && <div role="alert" className="form-error">{modalError}</div>}
-          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+          <div className="ops-actions">
             <Button type="button" variant="secondary" onClick={() => setModal(null)}>
               {t.cancel}
             </Button>
-            <Button type="submit" variant="primary" disabled={saving || usageSum !== 100}>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={saving || usageSum !== 100 || Boolean(usageProblem)}
+            >
               {saving ? t.saving : t.saveSplit}
             </Button>
           </div>

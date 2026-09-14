@@ -24,12 +24,14 @@ from .views import (
     InvoiceViewSet,
     KmReadingViewSet,
     MaintenancePlanViewSet,
+    MaintenanceProgramViewSet,
     NotificationScheduleViewSet,
     PepViewSet,
     ProjectViewSet,
     RentingViewSet,
     ReportsView,
     SiteViewSet,
+    SupervisorPeriodViewSet,
     VehicleLinkViewSet,
     VehicleModelViewSet,
     VehicleRequestViewSet,
@@ -45,6 +47,7 @@ router.register("contracts", ContractViewSet, basename="contract")
 router.register("km-readings", KmReadingViewSet, basename="kmreading")
 router.register("assignments", AssignmentViewSet, basename="assignment")
 router.register("vehicle-usages", VehicleUsageViewSet, basename="vehicleusage")
+router.register("supervisor-periods", SupervisorPeriodViewSet, basename="supervisorperiod")
 router.register("vehicle-links", VehicleLinkViewSet, basename="vehiclelink")
 router.register("events", EventViewSet, basename="event")
 router.register("invoices", InvoiceViewSet, basename="invoice")
@@ -53,6 +56,7 @@ router.register("incidents", IncidentViewSet, basename="incident")
 # GAP-2/GAP-8: consumo mensual de combustible y mantenimiento preventivo.
 router.register("fuel-consumptions", FuelConsumptionViewSet, basename="fuelconsumption")
 router.register("maintenance-plans", MaintenancePlanViewSet, basename="maintenanceplan")
+router.register("maintenance-programs", MaintenanceProgramViewSet, basename="maintenanceprogram")
 router.register("documents", DocumentViewSet, basename="document")
 router.register("alerts", AlertViewSet, basename="alert")
 router.register("vehicle-requests", VehicleRequestViewSet, basename="vehiclerequest")
