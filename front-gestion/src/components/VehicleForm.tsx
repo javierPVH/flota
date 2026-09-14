@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { Lock, LockOpen } from 'lucide-react'
 import { Button, Modal, Panel, SelectField, TextInputField } from '@flota/ui/ui'
 import { ApiError, asErrorMessage } from '@flota/ui/http'
 
@@ -169,6 +170,9 @@ function fromVehicle(v: Vehicle): FormState {
   }
 }
 
+/** Las pestañas del formulario: lo que NO es información fija del vehículo. */
+type Pestana = 'ident' | 'tech' | 'use' | 'prop'
+
 /** Campos editables del vehículo (sin contrato/conductor: flujos propios). */
 function vehiclePayload(form: FormState): Record<string, unknown> {
   return {
@@ -284,16 +288,44 @@ export interface VehicleFormProps {
   onCancel: () => void
   /** Edición: se llama cuando la ficha se ha cargado (p. ej. para el título). */
   onLoaded?: (vehicle: Vehicle) => void
+  /**
+   * Acciones del vehículo (cambiar estado, sustitución, devolver, dar de
+   * baja) para la barra de arriba. Las pone quien monta el formulario —cada
+   * pantalla tiene sus modales— y solo salen **editando**: en un alta todavía
+   * no hay coche que gestionar.
+   */
+  actions?: ReactNode
+  /**
+   * El estado actual del coche, junto al tipo (editando). Lo pone quien abre
+   * el formulario, con SU vehículo: cambiarlo desde esta misma barra recarga
+   * sus datos, y así la chapa no se queda contando lo de antes.
+   */
+  stateBadge?: ReactNode
 }
 
-/** Alta/edición seccionada del vehículo (G3). Se usa como página completa
- * (/vehiculos/:id/editar) y como modal de alta desde el inventario. */
-export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false, onSuccess, onCancel, onLoaded }: VehicleFormProps) {
+/**
+ * Alta/edición seccionada del vehículo (G3). Se usa como página completa
+ * (/vehiculos/:id/editar) y como modal desde el inventario, el panel y la ficha.
+ *
+ * Arriba, **lo fijo**: el tipo (flota/sustitución, que no se cambia) y lo que
+ * identifica al coche —matrícula, bastidor y fecha de matriculación—, siempre
+ * a la vista. Lo demás va en **pestañas** (identificación, características,
+ * uso y propiedad) que siguen todas montadas (`hidden`) para no perder lo
+ * escrito ni la validación nativa; `data-section` es lo que permite saltar a
+ * la pestaña del campo inválido cuando el navegador bloquea el envío desde
+ * otra. Un solo `Guardar` al pie guarda el conjunto.
+ */
+export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false, onSuccess, onCancel, onLoaded, actions, stateBadge }: VehicleFormProps) {
   const editing = mode === 'edit'
   const t = useVehicleFormCopy()
+  const [pestanaElegida, setPestana] = useState<Pestana>('ident')
   const confirm = useConfirm()
   const opts = useMemo(() => closedListOptions(t), [t])
   const [converting, setConverting] = useState(false)
+  // Los datos que identifican al coche (matrícula, bastidor, matriculación) se
+  // editan bajo candado: están a la vista siempre, pero no se tocan sin querer.
+  const [fijosAbiertos, setFijosAbiertos] = useState(false)
+  const fijosBloqueados = editing && !fijosAbiertos
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   // Contrato vigente del vehículo (edición): su id para el PATCH, o null si no
@@ -471,6 +503,12 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     setError('')
+    // Intro en un campo también envía: en el alta, avanza en vez de crear el
+    // vehículo desde la primera pestaña.
+    if (!puedeGuardar) {
+      irSiguientePestana()
+      return
+    }
     if (editing && vehicleId) {
       // HU-1.4: preview de cambios antes de guardar. El servidor calcula el
       // diff del vehículo; el del contrato se compone en cliente (se edita en
@@ -535,6 +573,28 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
     }
   }
 
+  /**
+   * Candado de los datos del vehículo: cerrado de salida y con aviso al
+   * abrirlo (esos tres campos identifican al coche fuera de la aplicación).
+   * Volver a cerrarlo no pregunta nada.
+   */
+  async function alternarCandado() {
+    if (fijosAbiertos) {
+      setFijosAbiertos(false)
+      return
+    }
+    if (
+      await confirm({
+        title: t.unlockTitle,
+        message: t.unlockWarn,
+        confirmLabel: t.unlockConfirm,
+        tone: 'warning',
+      })
+    ) {
+      setFijosAbiertos(true)
+    }
+  }
+
   // Convertir sustituto → flota: acción seria e irreversible → TRIPLE aviso.
   async function handleConvertToFleet() {
     if (!vehicleId) return
@@ -559,18 +619,59 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
   const onProject = form.business_use === 'on_project'
   const isRenting = form.property === 'renting'
 
+  /**
+   * El navegador bloquea el envío por un obligatorio vacío que puede estar en
+   * una pestaña que no se ve: se salta a ella y se le pide al propio campo que
+   * enseñe su aviso, ya visible. (Mismo truco que el asistente de operaciones.)
+   */
+  const alInvalido = (event: { target: EventTarget | null }) => {
+    const campo = event.target as HTMLElement | null
+    const seccion = campo?.closest?.('[data-section]')?.getAttribute('data-section')
+    if (!seccion || seccion === pestana) return
+    setPestana(seccion as Pestana)
+    setTimeout(() => {
+      const control = campo as HTMLInputElement | null
+      control?.focus?.()
+      control?.reportValidity?.()
+    }, 0)
+  }
+
+  /** Las pestañas, en el orden en que se rellenan. Un coche de sustitución no
+   * tiene «Uso y asignación» —esos datos manan del coche al que cubre—, así
+   * que ahí la pestaña ni se ofrece. */
+  const pestanas: Array<[Pestana, string]> = [
+    ['ident', t.identificationTitle],
+    ['tech', t.technicalTitle],
+    ...(form.is_substitute ? [] : [['use', t.usageTitle] as [Pestana, string]]),
+    ['prop', t.propertyTitle],
+  ]
+  // Marcar «Sustitución» estando en «Uso y asignación» deja la elegida sin
+  // pestaña: manda la primera. Derivado, no un efecto que corrija después.
+  const pestana = pestanas.some(([clave]) => clave === pestanaElegida)
+    ? pestanaElegida
+    : pestanas[0][0]
+  // El ALTA se recorre: «Siguiente» lleva de pestaña en pestaña y solo la
+  // última crea el vehículo. Editando no, que se entra a corregir un campo y
+  // se guarda desde donde se esté.
+  const enPrimera = pestana === pestanas[0][0]
+  const enUltima = pestana === pestanas[pestanas.length - 1][0]
+  const puedeGuardar = editing || enUltima
+
+  /** Mueve `paso` pestañas (±1); las pulsables siguen estando arriba. */
+  function moverPestana(paso: number) {
+    const i = pestanas.findIndex(([clave]) => clave === pestana)
+    const destino = pestanas[i + paso]
+    if (destino) setPestana(destino[0])
+  }
+
+  function irSiguientePestana() {
+    moverPestana(1)
+  }
+
   if (editing && !vehicle && !error) return <p className="loading-state" role="status">{t.loading}</p>
 
   return (
     <div className="vehicle-form">
-      {editing && (
-        <Panel tone="info" className="form-banner">
-          {t.bannerFieldsPrefix} <span className="field-badge historic">{t.historicBadge}</span>{' '}
-          {t.bannerHistoricNote} <span className="field-badge locked">{t.lockedBadge}</span>{' '}
-          {t.bannerLockedNote}
-        </Panel>
-      )}
-
       {conflict && (
         <Panel tone="warning" className="form-banner">
           {t.conflictBanner}{' '}
@@ -589,62 +690,136 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
         </Panel>
       )}
 
-      <form onSubmit={handleSubmit} className={form.is_substitute ? 'substitute-form' : undefined}>
+      <form
+        onSubmit={handleSubmit}
+        className={form.is_substitute ? 'substitute-form' : undefined}
+        onInvalidCapture={alInvalido}
+      >
         {/* N9: el tipo se elige AL CREAR y queda fijado (sustituto→flota va por
             la acción 'Convertir en flota' de la ficha; la inversa, prohibida). */}
-        <section className="card">
-          <h3>{t.typeSectionTitle}</h3>
-          {editing ? (
-            <p className="muted">
-              {form.is_substitute ? t.substituteVehicle : t.fleetVehicle} {t.typeFixedNote}{' '}
-              {form.is_substitute && t.convertibleNote}
-            </p>
-          ) : (
-            <div className="type-switch" role="radiogroup" aria-label={t.typeAria}>
-              <label className="baja-toggle">
-                <input
-                  type="radio"
-                  name="vehicle-type"
-                  checked={!form.is_substitute}
-                  onChange={() => setForm((f) => ({ ...f, is_substitute: false }))}
-                />
-                {t.fleetOption}
-              </label>
-              <label className="baja-toggle">
-                <input
-                  type="radio"
-                  name="vehicle-type"
-                  checked={form.is_substitute}
-                  onChange={() => setForm((f) => ({ ...f, is_substitute: true }))}
-                />
-                {t.substituteOption}
-              </label>
+        <section className="card vf-head">
+          <div className="vf-head-row">
+            <div className="vf-head-type">
+              <h3>{t.typeSectionTitle}</h3>
+              {editing && stateBadge}
+              {editing ? (
+                <p className="muted">
+                  {form.is_substitute ? t.substituteVehicle : t.fleetVehicle} {t.typeFixedNote}{' '}
+                  {form.is_substitute && t.convertibleNote}
+                </p>
+              ) : (
+                <div className="type-switch" role="radiogroup" aria-label={t.typeAria}>
+                  <label className="baja-toggle">
+                    <input
+                      type="radio"
+                      name="vehicle-type"
+                      checked={!form.is_substitute}
+                      onChange={() => setForm((f) => ({ ...f, is_substitute: false }))}
+                    />
+                    {t.fleetOption}
+                  </label>
+                  <label className="baja-toggle">
+                    <input
+                      type="radio"
+                      name="vehicle-type"
+                      checked={form.is_substitute}
+                      onChange={() => setForm((f) => ({ ...f, is_substitute: true }))}
+                    />
+                    {t.substituteOption}
+                  </label>
+                </div>
+              )}
             </div>
-          )}
-          {form.is_substitute && (
+            {/* Lo que se le HACE al coche (convertirlo en flota, cambiar estado,
+                sustitución, devolver, dar de baja): en la misma caja, a la
+                derecha del tipo y aparte de lo que se le edita. */}
+            {editing && (form.is_substitute || actions) && (
+              <div className="vf-actions">
+                {form.is_substitute && (
+                  <Button
+                    type="button"
+                    variant="warning"
+                    size="sm"
+                    onClick={handleConvertToFleet}
+                    disabled={converting}
+                  >
+                    {converting ? t.saving : t.convertBtn}
+                  </Button>
+                )}
+                {actions}
+              </div>
+            )}
+          </div>
+          {/* Qué es un coche de sustitución: se explica al crearlo; editando ya
+              lo dice la línea del tipo. */}
+          {!editing && form.is_substitute && (
             <p className="substitute-note">
               {t.substituteNotePrefix} <strong>{t.substituteNoteStrong}</strong>
               {t.substituteNoteSuffix}
             </p>
           )}
-          {editing && form.is_substitute && (
-            <div style={{ marginTop: '0.6rem' }}>
-              <Button
-                type="button"
-                variant="warning"
-                onClick={handleConvertToFleet}
-                disabled={converting}
-              >
-                {converting ? t.saving : t.convertBtn}
-              </Button>
+          {/* Lo que identifica al coche y no cambia con el uso: siempre a la
+              vista, fuera de las pestañas, y bajo candado al editar. */}
+          <div className="vf-fixed">
+            <div className="vf-fixed-head">
+              <span className="vf-fixed-title">{t.fixedTitle}</span>
+              {editing && (
+                <button
+                  type="button"
+                  className={`vf-lock${fijosAbiertos ? ' is-open' : ''}`}
+                  onClick={alternarCandado}
+                  aria-pressed={fijosAbiertos}
+                  title={fijosAbiertos ? t.lockHintOpen : t.lockHintClosed}
+                >
+                  {fijosAbiertos ? <LockOpen size={13} aria-hidden /> : <Lock size={13} aria-hidden />}
+                  {fijosAbiertos ? t.lockOpen : t.lockClosed}
+                </button>
+              )}
             </div>
-          )}
+            <div className="form-grid">
+              <TextInputField
+                label={t.plate}
+                requiredVisual
+                value={form.plate}
+                onChange={setInput('plate')}
+                required
+                disabled={fijosBloqueados}
+              />
+              <TextInputField
+                label={t.vin}
+                value={form.vin}
+                onChange={setInput('vin')}
+                disabled={fijosBloqueados}
+              />
+              <TextInputField
+                label={t.registrationDate}
+                type="date"
+                value={form.registration_date}
+                onChange={setInput('registration_date')}
+                disabled={fijosBloqueados}
+              />
+            </div>
+          </div>
         </section>
-        <section className="card">
+
+        {/* El resto, en pestañas: todas montadas para no perder lo escrito. */}
+        <div className="ops-tabs" role="tablist" aria-label={t.sectionsAria}>
+          {pestanas.map(([clave, titulo]) => (
+            <button
+              key={clave}
+              type="button"
+              role="tab"
+              aria-selected={pestana === clave}
+              className={`ops-tab${pestana === clave ? ' is-active' : ''}`}
+              onClick={() => setPestana(clave)}
+            >
+              {titulo}
+            </button>
+          ))}
+        </div>
+        <section className="card vf-panel" data-section="ident" hidden={pestana !== 'ident'}>
           <h3>{t.identificationTitle}{form.is_substitute && <span className="substitute-badge">{t.substituteBadge}</span>}</h3>
           <div className="form-grid">
-            <TextInputField label={t.plate} requiredVisual value={form.plate} onChange={setInput('plate')} required />
-            <TextInputField label={t.vin} value={form.vin} onChange={setInput('vin')} />
             <SelectField
               label={t.brand}
               requiredVisual
@@ -686,16 +861,10 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
             </div>
             <TextInputField label={t.version} value={form.version} onChange={setInput('version')} />
             <TextInputField label={t.year} type="number" value={form.year} onChange={setInput('year')} />
-            <TextInputField
-              label={t.registrationDate}
-              type="date"
-              value={form.registration_date}
-              onChange={setInput('registration_date')}
-            />
           </div>
         </section>
 
-        <section className="card">
+        <section className="card vf-panel" data-section="tech" hidden={pestana !== 'tech'}>
           <h3>{t.technicalTitle}{form.is_substitute && <span className="substitute-badge">{t.substituteBadge}</span>}</h3>
           <div className="form-grid">
             <div>
@@ -760,7 +929,7 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
         {/* Uso y asignación: en sustitución estos datos manan del coche de
             flota al que se asocia, así que no se piden aquí. */}
         {!form.is_substitute && (
-        <section className="card">
+        <section className="card vf-panel" data-section="use" hidden={pestana !== 'use'}>
           <h3>{t.usageTitle}</h3>
           <div className="form-grid">
             <Labeled badge={editing ? 'historic' : undefined}>
@@ -858,7 +1027,7 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
         </section>
         )}
 
-        <section className="card">
+        <section className="card vf-panel" data-section="prop" hidden={pestana !== 'prop'}>
           <h3>{t.propertyTitle}{form.is_substitute && <span className="substitute-badge">{t.substituteBadge}</span>}</h3>
 
           {/* N3: Km ilimitados (sin proyección) — bloque propio y destacado. */}
@@ -969,17 +1138,46 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
 
         {error && <div role="alert" className="form-error">{error}</div>}
 
+        {/* Salir a la izquierda del todo; al otro lado, lo que mueve por el
+            formulario (y, al final, lo que lo guarda). */}
         <div className="form-footer">
-          <span className="muted">
+          <Button type="button" variant="secondary" onClick={onCancel}>
+            {t.cancel}
+          </Button>
+          <span className="muted form-footer-note">
             {editing ? (dirty ? t.unsavedChanges : t.noChangesYet) : ''}
           </span>
-          <div style={{ display: 'flex', gap: '0.6rem' }}>
-            <Button type="button" variant="secondary" onClick={onCancel}>
-              {t.cancel}
-            </Button>
-            <Button type="submit" variant="primary" disabled={saving || (editing && !dirty)}>
-              {saving ? t.saving : editing ? t.reviewChanges : t.createVehicle}
-            </Button>
+          <div className="form-footer-btns">
+            {/* Crear no sustituye a «Siguiente»: aparece —entrando desde la
+                derecha— cuando ya no queda pestaña a la que ir. Es el mismo
+                gesto que el «Guardar» del asistente de estado. */}
+            {puedeGuardar && (
+              <span className="ops-save-in">
+                <Button type="submit" variant="primary" disabled={saving || (editing && !dirty)}>
+                  {saving ? t.saving : editing ? t.reviewChanges : t.createVehicle}
+                </Button>
+              </span>
+            )}
+            {!editing && (
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={enPrimera}
+                  onClick={() => moverPestana(-1)}
+                >
+                  {t.prevTab}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={enUltima}
+                  onClick={irSiguientePestana}
+                >
+                  {t.nextTab}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </form>

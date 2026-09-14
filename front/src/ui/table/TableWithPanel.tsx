@@ -80,6 +80,23 @@ export interface TableWithPanelProps<RowType extends object> {
    * (`monthSortDateColumnKey`), que es la que decide el grupo.
    */
   groupRowsByYearMonth?: boolean
+  /**
+   * Agrupa por el VALOR de una columna (su texto), en un solo nivel plegable:
+   * una fila separadora por valor, a todo el ancho y con su chevron, y los
+   * grupos en orden alfabético. Pensado para columnas de catálogo —el tipo de
+   * una alerta, el estado— donde lo que se quiere es leer la tabla por bloques.
+   *
+   * Se puede combinar con el agrupado por fecha: entonces uno queda DENTRO del
+   * otro (`groupValueFirst` decide cuál va fuera) y la fecha pasa a un solo
+   * nivel («agosto de 2026»), porque tres niveles plegados uno dentro de otro
+   * se leen peor que dos. A solas, manda este.
+   */
+  groupRowsByColumnKey?: string
+  /**
+   * Con los dos agrupados activos, ¿el del valor va FUERA? Por defecto el de
+   * fecha es el de fuera y el valor parte cada mes.
+   */
+  groupValueFirst?: boolean
   summaryLeadingSlot?: ReactNode
   panelTrailingSlot?: ReactNode
   enableColumnSort?: boolean
@@ -115,6 +132,13 @@ export interface TableWithPanelProps<RowType extends object> {
    * animación (0fr→1fr, respeta prefers-reduced-motion). El contenido queda
    * montado tras la primera apertura (las cargas perezosas conservan estado). */
   renderExpandedRow?: (row: RowType, index: number) => ReactNode
+  /**
+   * ¿ESTA fila tiene algo debajo? Sin esto, todas despliegan. Con ello, la
+   * columna del expansor se mantiene (las celdas siguen alineadas) pero la
+   * fila que no tiene nada no enseña flecha ni responde al clic: una flecha
+   * que abre un hueco vacío es una promesa que no se cumple.
+   */
+  canExpandRow?: (row: RowType, index: number) => boolean
 }
 
 interface DateFilterState {
@@ -322,6 +346,8 @@ export function TableWithPanel<RowType extends object>({
   monthSortDirectionDefault = 'desc',
   groupRowsByMonth = false,
   groupRowsByYearMonth = false,
+  groupRowsByColumnKey,
+  groupValueFirst = false,
   summaryLeadingSlot,
   panelTrailingSlot,
   enableColumnSort = true,
@@ -343,6 +369,7 @@ export function TableWithPanel<RowType extends object>({
   rowClassName,
   rowTitle,
   renderExpandedRow,
+  canExpandRow,
 }: TableWithPanelProps<RowType>) {
   const tableSortScope = useId()
   // N4: filas abiertas + filas ya montadas (el contenido no se desmonta al
@@ -724,6 +751,87 @@ export function TableWithPanel<RowType extends object>({
     }))
   }, [copy.monthNoDate, groupRowsByYearMonth, groupedRows, language])
 
+  /** Agrupado por el valor de una columna: un nivel, en orden alfabético. */
+  const valueGroups = useMemo<Array<GroupedRows<RowType>>>(() => {
+    const column = groupRowsByColumnKey ? columnByKey.get(groupRowsByColumnKey) : undefined
+    if (!column) return []
+
+    const grouped = new Map<string, RowType[]>()
+    paginatedRows.forEach((row) => {
+      const title = normalizeString(readCellValue(row, column)).trim() || '—'
+      grouped.set(title, [...(grouped.get(title) ?? []), row])
+    })
+
+    return [...grouped.entries()]
+      .sort((left, right) => left[0].localeCompare(right[0], language))
+      .map(([title, rows]) => ({ key: `valor-${title}`, title, rows }))
+  }, [columnByKey, groupRowsByColumnKey, language, paginatedRows])
+
+  /** Los DOS agrupados a la vez: el de fuera parte las filas y el de dentro
+   * parte cada uno de esos bloques. Vacío si no están los dos activos. */
+  const nestedGroups = useMemo<Array<YearGroup<RowType>>>(() => {
+    const valueColumn = groupRowsByColumnKey ? columnByKey.get(groupRowsByColumnKey) : undefined
+    const porFecha = (groupRowsByMonth || groupRowsByYearMonth) && monthSortColumn
+    if (!valueColumn || !porFecha || !monthSortColumn) return []
+
+    const porValor = (filas: RowType[]): Array<GroupedRows<RowType>> => {
+      const grupos = new Map<string, RowType[]>()
+      filas.forEach((row) => {
+        const title = normalizeString(readCellValue(row, valueColumn)).trim() || '—'
+        grupos.set(title, [...(grupos.get(title) ?? []), row])
+      })
+      return [...grupos.entries()]
+        .sort((left, right) => left[0].localeCompare(right[0], language))
+        .map(([title, rows]) => ({ key: `valor-${title}`, title, rows }))
+    }
+
+    const porMes = (filas: RowType[]): Array<GroupedRows<RowType>> => {
+      const grupos = new Map<string, RowType[]>()
+      filas.forEach((row) => {
+        const monthKey = getMonthKey(toTimestamp(readCellValue(row, monthSortColumn)))
+        grupos.set(monthKey, [...(grupos.get(monthKey) ?? []), row])
+      })
+      return [...grupos.keys()]
+        .sort((left, right) => {
+          const a = toComparableMonthKey(left)
+          const b = toComparableMonthKey(right)
+          if (a === null && b === null) return 0
+          if (a === null) return 1
+          if (b === null) return -1
+          return monthSortDirection === 'asc' ? a - b : b - a
+        })
+        .map((monthKey) => ({
+          key: `mes-${monthKey}`,
+          title: getMonthLabel(monthKey, language, copy.monthNoDate),
+          rows: grupos.get(monthKey) ?? [],
+        }))
+    }
+
+    const fuera = groupValueFirst ? porValor : porMes
+    const dentro = groupValueFirst ? porMes : porValor
+
+    return fuera(paginatedRows).map((grupo) => ({
+      key: grupo.key,
+      title: grupo.title,
+      count: grupo.rows.length,
+      months: dentro(grupo.rows).map((hijo) => ({
+        ...hijo,
+        key: `${grupo.key}|${hijo.key}`,
+      })),
+    }))
+  }, [
+    columnByKey,
+    copy.monthNoDate,
+    groupRowsByColumnKey,
+    groupRowsByMonth,
+    groupRowsByYearMonth,
+    groupValueFirst,
+    language,
+    monthSortColumn,
+    monthSortDirection,
+    paginatedRows,
+  ])
+
   /** Grupos plegados (año o mes). Vacío = todo desplegado. */
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set())
   const toggleGroup = (key: string) =>
@@ -1093,15 +1201,17 @@ export function TableWithPanel<RowType extends object>({
 
   function renderBodyRow(row: RowType, index: number, resolvedRowKey: string): ReactNode {
     const isOpen = openExpandedRows.has(resolvedRowKey)
+    // La tabla tiene filas expandibles, y ADEMÁS esta lo es (ver `canExpandRow`).
+    const puedeAbrir = Boolean(renderExpandedRow) && (canExpandRow?.(row, index) ?? true)
     return (
       <Fragment key={resolvedRowKey}>
         <tr
           className={
-            cx(rowClassName?.(row, index), renderExpandedRow && styles.expandableRow) || undefined
+            cx(rowClassName?.(row, index), puedeAbrir && styles.expandableRow) || undefined
           }
           title={rowTitle?.(row, index)}
           onClick={
-            renderExpandedRow
+            puedeAbrir
               ? (event) => {
                   // La fila entera despliega, salvo que el clic sea sobre un
                   // control propio (enlaces, botones de celda…).
@@ -1114,18 +1224,20 @@ export function TableWithPanel<RowType extends object>({
         >
           {renderExpandedRow && (
             <td className={styles.expanderCell}>
-              <button
-                type="button"
-                className={cx(styles.expanderButton, isOpen && styles.expanderButtonOpen)}
-                aria-expanded={isOpen}
-                aria-label={isOpen ? copy.collapseRow : copy.expandRow}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  toggleExpandedRow(resolvedRowKey)
-                }}
-              >
-                <ChevronDown size={15} />
-              </button>
+              {puedeAbrir && (
+                <button
+                  type="button"
+                  className={cx(styles.expanderButton, isOpen && styles.expanderButtonOpen)}
+                  aria-expanded={isOpen}
+                  aria-label={isOpen ? copy.collapseRow : copy.expandRow}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    toggleExpandedRow(resolvedRowKey)
+                  }}
+                >
+                  <ChevronDown size={15} />
+                </button>
+              )}
             </td>
           )}
           {visibleColumns.map((column) => {
@@ -1143,7 +1255,7 @@ export function TableWithPanel<RowType extends object>({
             )
           })}
         </tr>
-        {renderExpandedRow && mountedExpandedRows.has(resolvedRowKey) && (
+        {puedeAbrir && renderExpandedRow && mountedExpandedRows.has(resolvedRowKey) && (
           <tr className={styles.expandedRow}>
             <td colSpan={bodyColSpan}>
               <div className={cx(styles.expandOuter, isOpen && styles.expandOuterOpen)}>
@@ -1530,7 +1642,62 @@ export function TableWithPanel<RowType extends object>({
             )}
 
             {visibleColumns.length > 0 && paginatedRows.length > 0 && (
-              groupRowsByYearMonth && monthSortColumn
+              nestedGroups.length > 0
+                // Los dos agrupados: bloques de fuera y, dentro, los de dentro.
+                ? nestedGroups.map((grupo) => {
+                  const abierto = !collapsedGroups.has(grupo.key)
+                  return (
+                    <Fragment key={grupo.key}>
+                      {renderGroupDivider({
+                        groupKey: grupo.key,
+                        title: grupo.title,
+                        count: grupo.count,
+                        open: abierto,
+                        level: 'year',
+                      })}
+
+                      {abierto && grupo.months.map((hijo) => {
+                        const hijoAbierto = !collapsedGroups.has(hijo.key)
+                        return (
+                          <Fragment key={hijo.key}>
+                            {renderGroupDivider({
+                              groupKey: hijo.key,
+                              title: hijo.title,
+                              count: hijo.rows.length,
+                              open: hijoAbierto,
+                              level: 'month',
+                            })}
+
+                            {hijoAbierto && hijo.rows.map((row, index) =>
+                              renderBodyRow(row, index, `${hijo.key}-${rowKey(row, index)}`),
+                            )}
+                          </Fragment>
+                        )
+                      })}
+                    </Fragment>
+                  )
+                })
+                : valueGroups.length > 0
+                // Un nivel: una fila separadora por valor de la columna.
+                ? valueGroups.map((group) => {
+                  const open = !collapsedGroups.has(group.key)
+                  return (
+                    <Fragment key={group.key}>
+                      {renderGroupDivider({
+                        groupKey: group.key,
+                        title: group.title,
+                        count: group.rows.length,
+                        open,
+                        level: 'month',
+                      })}
+
+                      {open && group.rows.map((row, index) =>
+                        renderBodyRow(row, index, `${group.key}-${rowKey(row, index)}`),
+                      )}
+                    </Fragment>
+                  )
+                })
+                : groupRowsByYearMonth && monthSortColumn
                 // Dos niveles plegables: fila del año y, dentro, fila de cada mes.
                 ? yearGroups.map((year) => {
                   const yearOpen = !collapsedGroups.has(year.key)

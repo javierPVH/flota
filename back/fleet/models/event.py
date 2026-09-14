@@ -96,6 +96,17 @@ class EventItv(models.Model):
         validators=[MinValueValidator(Decimal("0"))],
         help_text="Lo que costó la inspección (opcional; se registra al resolver el aviso).",
     )
+    # Dónde y con cuántos km se pasó (opcionales): la estación es un `Workshop`
+    # de tipo ITV del catálogo; los km, el odómetro el día de la inspección.
+    workshop = models.ForeignKey(
+        "fleet.Workshop",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="itv_events",
+        verbose_name="Estación ITV",
+    )
+    km = models.PositiveIntegerField("Km en la inspección", null=True, blank=True)
 
     class Meta:
         verbose_name = "ITV"
@@ -200,3 +211,20 @@ class EventSupervisorChange(models.Model):
     class Meta:
         verbose_name = "cambio de supervisor"
         verbose_name_plural = "cambios de supervisor"
+
+
+class EventInsuranceRenewal(models.Model):
+    """Renovación del seguro (N2): el vencimiento anterior y el nuevo, como
+    dato (no prosa) — alimenta el KPI «Última renovación» de la ficha y el
+    informe. Lo emite `services/insurance.apply_new_expiry`, vengan la fecha
+    del endpoint de renovar o de la póliza subida como documento."""
+
+    event = models.OneToOneField(
+        Event, on_delete=models.CASCADE, primary_key=True, related_name="insurance_renewal"
+    )
+    old_expiry = models.DateField("Vencimiento anterior", null=True, blank=True)
+    new_expiry = models.DateField("Vencimiento nuevo")
+
+    class Meta:
+        verbose_name = "renovación de seguro"
+        verbose_name_plural = "renovaciones de seguro"

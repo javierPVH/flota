@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, FileField, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import { ExternalLink, FolderOpen } from 'lucide-react'
@@ -41,6 +41,8 @@ const DOCUMENT_TYPE_VALUES = [
   'return_report',
   'accident_report',
   'damage_photos',
+  'itv_report',
+  'workshop_invoice',
   'other',
 ] as const
 
@@ -499,17 +501,14 @@ export function DocumentsPanel({
               </p>
             ) : (
               <>
-                {/* UX4: input de fichero con etiqueta real. */}
-                <label className="file-field">
-                  <span>{t.filePickLabel}</span>
-                  <input
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
-                    onChange={(e) =>
-                      setAttach({ picked: null, file: e.target.files?.[0] ?? null, manualUrl: '' })
-                    }
-                  />
-                </label>
+                <FileField
+                  label={t.filePickLabel}
+                  accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
+                  value={attach.file}
+                  onFiles={(files) =>
+                    setAttach({ picked: null, file: files[0] ?? null, manualUrl: '' })
+                  }
+                />
                 <TextInputField
                   label={t.urlLabel}
                   value={attach.manualUrl}

@@ -41,6 +41,7 @@ import {
 import { useNotificationsCopy } from '../translations/notifications.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
 import { useReportsCopy } from '../translations/reports.ts'
+import { useVehiclesCopy } from '../translations/vehicles.ts'
 import type { Vehicle } from '../types.ts'
 
 /** El submit vive en el pie del modal, fuera del <form>: lo reengancha por id. */
@@ -133,6 +134,8 @@ export function NotificationsPage({ embedded = false }: { embedded?: boolean } =
   // renombra un tipo de documento, aquí cambia solo.
   const r = useReportsCopy()
   const docCopy = usePanelsCopy().documents
+  // Los estados del vehículo, con los mismos nombres que en el inventario.
+  const vt = useVehiclesCopy()
   const confirm = useConfirm()
   const { user } = useAuth()
 
@@ -225,9 +228,13 @@ export function NotificationsPage({ embedded = false }: { embedded?: boolean } =
       ]
     }
     if (key === 'state') {
-      const estados = new Map<string, string>()
-      for (const v of vehicles) if (v.state) estados.set(v.state, v.state_display || v.state)
-      return [todos, ...[...estados].map(([value, label]) => ({ value, label }))]
+      // La lista completa (antes: solo los estados de los coches cargados).
+      // Aquí sí entra la baja: un informe puede querer justo los devueltos.
+      return [
+        todos,
+        ...vt.stateOptions,
+        { value: 'retired', label: vt.stateLabel.retired },
+      ]
     }
     if (key === 'type') {
       return [todos, ...DOC_TYPES.map((d) => ({ value: d, label: docCopy.typeOptions[d] }))]

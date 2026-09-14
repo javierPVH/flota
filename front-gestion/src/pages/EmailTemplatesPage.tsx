@@ -3,6 +3,8 @@ import { Badge, Button, Modal, PageHeader, Panel, SelectField, TextInputField } 
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
   Bold,
   Heading2,
   Image,
@@ -12,6 +14,7 @@ import {
   List,
   ListOrdered,
   Underline,
+  Users,
 } from 'lucide-react'
 
 import {
@@ -49,6 +52,7 @@ const TEMPLATE_KEYS = [
 ]
 
 // Variables interpolables (allowlist del back — mailer.ALLOWED_VARIABLES).
+// El nombre en claro y qué trae cada una están en la copia (`t.variables`).
 const VARIABLES = [
   'matricula',
   'conductor',
@@ -56,7 +60,7 @@ const VARIABLES = [
   'fecha_vencimiento',
   'km_exceso',
   'mensaje',
-]
+] as const
 
 /**
  * N10c — Gestor maestro de plantillas de correo (solo admin).
@@ -73,6 +77,15 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   // La pestaña activa: 'logs' (Últimos envíos, primera) o una clave de plantilla.
   const [activeTab, setActiveTab] = useState(LOGS_TAB)
   const [logsSearch, setLogsSearch] = useState('')
+  // Cómo se lee la tabla de envíos: orden por fecha y agrupados (por fecha de
+  // envío y/o por estado; el que se marca primero va fuera, como en Alertas).
+  const [logsSortAsc, setLogsSortAsc] = useState(false)
+  const [logsGroupDate, setLogsGroupDate] = useState(false)
+  const [logsGroupStatus, setLogsGroupStatus] = useState(false)
+  const [logsGroupFirst, setLogsGroupFirst] = useState<'date' | 'status' | null>(null)
+  // Un envío puede llevar VARIOS destinatarios (los informes programados van a
+  // una lista): la celda enseña el primero y este modal, todos.
+  const [logRecipients, setLogRecipients] = useState<EmailLogRow | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -86,6 +99,11 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   const [bodyEn, setBodyEn] = useState('')
   const [signatureId, setSignatureId] = useState('')
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  // Una variable se pega DONDE se estaba escribiendo: el asunto o el cuerpo.
+  // El destino se recuerda al enfocar cada uno (el asunto guarda además su
+  // <input> para poder insertar en la posición del cursor).
+  const [varTarget, setVarTarget] = useState<'subject' | 'body'>('body')
+  const subjectRef = useRef<HTMLInputElement | null>(null)
   const [saving, setSaving] = useState(false)
   /**
    * A9 — ¿hay cambios sin guardar?
@@ -131,16 +149,47 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   const isLogs = activeTab === LOGS_TAB
   const active = isLogs ? null : (templates.find((tpl) => tpl.key === activeTab) ?? null)
 
+  /** Lo buscado, en trozos: se separan por comas para poder pedir VARIOS
+   * destinatarios de una vez. Cada trozo se busca en todo (destinatarios, tipo,
+   * asunto y estado) y basta con que case uno: así «sara, ITV» trae los de Sara
+   * y los de ITV. */
+  const logTerms = useMemo(
+    () =>
+      logsSearch
+        .split(',')
+        .map((term) => term.trim().toLowerCase())
+        .filter(Boolean),
+    [logsSearch],
+  )
+
+  /** Los destinatarios de una fila (el back guarda la lista separada por comas). */
+  const recipientsOf = (log: EmailLogRow) =>
+    log.recipient
+      .split(',')
+      .map((addr) => addr.trim())
+      .filter(Boolean)
+
+  /** ¿Esta dirección es la que se está buscando? */
+  const isHit = (addr: string) =>
+    logTerms.length > 0 && logTerms.some((term) => addr.toLowerCase().includes(term))
+
+  /** Los destinatarios con los que casan la búsqueda DELANTE: si buscas uno
+   * concreto en un envío a diez, no tiene sentido que salga el décimo. */
+  const sortedRecipients = (log: EmailLogRow) => {
+    const list = recipientsOf(log)
+    if (logTerms.length === 0) return list
+    return [...list.filter(isHit), ...list.filter((addr) => !isHit(addr))]
+  }
+
   // Últimos envíos filtrados (franja de opciones de la tabla).
   const visibleLogs = useMemo(() => {
-    const term = logsSearch.trim().toLowerCase()
-    if (!term) return logs
-    return logs.filter((log) =>
-      `${log.recipient} ${log.subject} ${log.status_display} ${t.templateKeys[log.template_key] ?? log.template_key}`
-        .toLowerCase()
-        .includes(term),
-    )
-  }, [logs, logsSearch, t])
+    if (logTerms.length === 0) return logs
+    return logs.filter((log) => {
+      const heno =
+        `${log.recipient} ${log.subject} ${log.status_display} ${t.templateKeys[log.template_key] ?? log.template_key}`.toLowerCase()
+      return logTerms.some((term) => heno.includes(term))
+    })
+  }, [logs, logTerms, t])
 
   // Columnas de la tabla de últimos envíos (mismo estilo que las de vehículos).
   const logColumns: Array<TableWithPanelColumn<EmailLogRow>> = [
@@ -158,10 +207,36 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
       render: (log) => (t.templateKeys[log.template_key] ?? log.template_key) || '—',
     },
     {
+      // Como la descripción de una incidencia: ancho fijo, lo que no cabe se
+      // recorta y el botón abre la lista entera. Con la búsqueda puesta, el
+      // destinatario que casa va delante y en verde.
       key: 'recipient',
       label: t.logColumns.recipient,
+      width: 260,
       getValue: (log) => log.recipient,
-      render: (log) => log.recipient || '—',
+      render: (log) => {
+        const lista = sortedRecipients(log)
+        if (lista.length === 0) return '—'
+        return (
+          <div className="rcpt-cell">
+            <span className={`rcpt-main${isHit(lista[0]) ? ' rcpt-hit' : ''}`}>{lista[0]}</span>
+            {/* Con uno solo no hay nada que abrir: la celda ya lo dice entero
+                (y el title de la celda lo enseña si no cabe). */}
+            {lista.length > 1 && (
+              <button
+                type="button"
+                className="rcpt-more"
+                title={t.logsRecipientsTitle}
+                aria-label={`${t.logsRecipientsTitle} (${t.logsRecipientsCount(lista.length)})`}
+                onClick={() => setLogRecipients(log)}
+              >
+                <Users size={13} aria-hidden />
+                {t.logsRecipientsMore(lista.length - 1)}
+              </button>
+            )}
+          </div>
+        )
+      },
     },
     {
       key: 'subject',
@@ -239,6 +314,20 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     setDirty(true)
   }
 
+  /** Marca o desmarca un agrupado de la tabla de envíos recordando en qué
+   * orden se pidieron: el primero va fuera y el otro parte cada bloque. */
+  function cambiarGrupoLogs(cual: 'date' | 'status', activo: boolean) {
+    const otroActivo = cual === 'date' ? logsGroupStatus : logsGroupDate
+    const otro = cual === 'date' ? 'status' : 'date'
+    if (cual === 'date') setLogsGroupDate(activo)
+    else setLogsGroupStatus(activo)
+    if (activo) {
+      if (!otroActivo) setLogsGroupFirst(cual)
+    } else {
+      setLogsGroupFirst(otroActivo ? otro : null)
+    }
+  }
+
   /** Comando del editor (contentEditable). El saneado real es del servidor. */
   function exec(command: string, value?: string) {
     bodyRef.current?.focus()
@@ -246,8 +335,27 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     syncBody()
   }
 
+  /** Pega `{{nombre}}` en el asunto, justo donde estaba el cursor. */
+  function insertInSubject(name: string) {
+    const input = subjectRef.current
+    const texto = editLang === 'es' ? subject : subjectEn
+    const desde = input?.selectionStart ?? texto.length
+    const hasta = input?.selectionEnd ?? texto.length
+    const trozo = `{{${name}}}`
+    const nuevo = `${texto.slice(0, desde)}${trozo}${texto.slice(hasta)}`
+    if (editLang === 'es') setSubject(nuevo)
+    else setSubjectEn(nuevo)
+    setDirty(true)
+    // El cursor se queda tras lo pegado, listo para seguir escribiendo.
+    requestAnimationFrame(() => {
+      input?.focus()
+      input?.setSelectionRange(desde + trozo.length, desde + trozo.length)
+    })
+  }
+
   function insertVariable(name: string) {
-    exec('insertText', `{{${name}}}`)
+    if (varTarget === 'subject') insertInSubject(name)
+    else exec('insertText', `{{${name}}}`)
   }
 
   function insertLink(kind: 'link' | 'drive') {
@@ -375,7 +483,40 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
             searchPlaceholder={t.logsSearchPlaceholder}
             search={logsSearch}
             onSearchChange={setLogsSearch}
-          />
+          >
+            {/* Cómo se lee la tabla: orden por fecha y los dos agrupados. */}
+            <div className="filter-toggles">
+              <button
+                type="button"
+                className="baja-toggle"
+                title={t.logsSortTitle}
+                onClick={() => setLogsSortAsc((v) => !v)}
+              >
+                {logsSortAsc ? (
+                  <ArrowUpNarrowWide size={14} aria-hidden />
+                ) : (
+                  <ArrowDownWideNarrow size={14} aria-hidden />
+                )}{' '}
+                {logsSortAsc ? t.logsSortAsc : t.logsSortDesc}
+              </button>
+              <label className="baja-toggle">
+                <input
+                  type="checkbox"
+                  checked={logsGroupDate}
+                  onChange={(e) => cambiarGrupoLogs('date', e.target.checked)}
+                />
+                {t.logsGroupDate}
+              </label>
+              <label className="baja-toggle">
+                <input
+                  type="checkbox"
+                  checked={logsGroupStatus}
+                  onChange={(e) => cambiarGrupoLogs('status', e.target.checked)}
+                />
+                {t.logsGroupStatus}
+              </label>
+            </div>
+          </TableInfoBar>
           <TableWithPanel<EmailLogRow>
             rows={visibleLogs}
             columns={logColumns}
@@ -386,6 +527,16 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
             defaultPageSize={25}
             pageSizeOptions={[25, 50, 100]}
             emptyStateLabel={t.logsEmpty}
+            // Ordena y agrupa por la fecha de envío; el estado agrupa por su
+            // valor. Con los dos puestos, fuera va el que se marcó primero.
+            monthSortDateColumnKey="created_at"
+            monthSortDirectionDefault={logsSortAsc ? 'asc' : 'desc'}
+            groupRowsByYearMonth={logsGroupDate}
+            groupRowsByColumnKey={logsGroupStatus ? 'status' : undefined}
+            groupValueFirst={logsGroupFirst === 'status'}
+            // El sentido del orden es estado interno de la tabla: se siembra al
+            // montar, así que cambiarlo obliga a remontarla.
+            key={`${logsSortAsc ? 'asc' : 'desc'}-${logsGroupFirst ?? ''}`}
           />
         </section>
       ) : (
@@ -423,6 +574,10 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
           <TextInputField
             label={t.subjectLabel}
             value={subject}
+            onFocus={(e) => {
+              subjectRef.current = e.currentTarget
+              setVarTarget('subject')
+            }}
             onChange={(e) => {
               setSubject(e.target.value)
               setDirty(true)
@@ -433,12 +588,44 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
             label={t.subjectLabelEn}
             value={subjectEn}
             placeholder={subject}
+            onFocus={(e) => {
+              subjectRef.current = e.currentTarget
+              setVarTarget('subject')
+            }}
             onChange={(e) => {
               setSubjectEn(e.target.value)
               setDirty(true)
             }}
           />
         )}
+
+        {/* Las variables, con su nombre en claro: se pulsan y se pegan donde
+            se estaba escribiendo. Antes eran un desplegable de la barra del
+            editor, que solo servía para el cuerpo y no decía qué traía cada
+            una (el asunto había que teclearlo a mano: «· {{matricula}}»). */}
+        <div className="tpl-vars">
+          <div className="tpl-vars-head">
+            <strong>{t.variablesTitle}</strong>
+            <span className="tpl-vars-target">
+              {varTarget === 'subject' ? t.variablesTarget.subject : t.variablesTarget.body}
+            </span>
+            <span className="muted">{t.variablesHint}</span>
+          </div>
+          <div className="tpl-vars-chips">
+            {VARIABLES.map((name) => (
+              <button
+                key={name}
+                type="button"
+                className="tpl-var"
+                title={t.variables[name].help}
+                onClick={() => insertVariable(name)}
+              >
+                <span className="tpl-var-name">{t.variables[name].label}</span>
+                <code>{`{{${name}}}`}</code>
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Barra de herramientas del editor propio */}
         <div className="editor-toolbar" role="toolbar" aria-label={t.toolbarLabel}>
@@ -453,22 +640,13 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
           <button type="button" className="editor-drive" title={t.driveTitle} onClick={() => insertLink('drive')}>
             Drive
           </button>
-          <SelectField
-            aria-label={t.insertVariable}
-            containerClassName="editor-var"
-            options={[
-              { value: '', label: t.insertVariableOption },
-              ...VARIABLES.map((v) => ({ value: v, label: `{{${v}}}` })),
-            ]}
-            value=""
-            onValueChange={(value) => value && insertVariable(value)}
-          />
         </div>
 
         <div
           ref={bodyRef}
           className="editor-body"
           contentEditable
+          onFocus={() => setVarTarget('body')}
           role="textbox"
           aria-multiline="true"
           aria-label={t.bodyLabel}
@@ -516,11 +694,32 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
             </Button>
           </div>
         </div>
-        <p className="muted">
-          {t.sanitizeHint} {VARIABLES.map((v) => `{{${v}}}`).join(' · ')}
-        </p>
+        <p className="muted">{t.sanitizeHint}</p>
       </section>
       )}
+
+      {/* Todos los destinatarios de un envío (la celda solo enseña el primero) */}
+      <Modal
+        open={logRecipients !== null}
+        title={t.logColumns.recipient}
+        onClose={() => setLogRecipients(null)}
+      >
+        {logRecipients && (
+          <div>
+            <p className="muted">
+              {t.logsRecipientsCount(recipientsOf(logRecipients).length)} · {logRecipients.subject}
+            </p>
+            <ul className="rcpt-list">
+              {sortedRecipients(logRecipients).map((addr) => (
+                <li key={addr} className={isHit(addr) ? 'rcpt-hit' : undefined}>
+                  {addr}
+                  {isHit(addr) && <span className="rcpt-tag">{t.logsRecipientsMatch}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Modal>
 
       {/* Previsualización con datos de ejemplo (HTML ya saneado en servidor) */}
       <Modal open={preview !== null} title={t.previewTitle} onClose={() => setPreview(null)} wide>

@@ -1946,3 +1946,16 @@ button.bottom-tab {
   background: var(--color-primary-soft);
   color: var(--color-brand);
 }
+
+/* Etiqueta encima de la caja de adjuntar (con su «Obligatorio» si toca): el
+   input de archivo nativo se sustituyó por la caja `.photo-attach`, que no
+   lleva label propia. */
+.file-block { display: grid; gap: 0.35rem; }
+.file-block-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+}

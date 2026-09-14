@@ -20,6 +20,14 @@
      estado (verde/ámbar/rojo), el teal es la acción y el azul los enlaces, así
      que la sustitución necesita un color que no se confunda con ninguno. */
   --color-substitute: #7c3aed;
+  /* Reparto de uso: la persona n-ésima siempre con el mismo color, para que
+     la barra de la tarjeta y la del modal se lean igual. */
+  --usage-tone-0: var(--color-brand);
+  --usage-tone-1: var(--color-primary);
+  --usage-tone-2: #7c3aed;
+  --usage-tone-3: var(--color-warning);
+  --usage-tone-4: var(--color-success);
+  --usage-tone-5: #b0577f;
 }
 * {
   box-sizing: border-box;
@@ -757,18 +765,220 @@ table.data tbody tr:hover {
   gap: 0.9rem;
 }
 
+/* «Cambiar estado»: el atajo a la incidencia, que es lo que suele tocar. */
+.state-prefer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.7rem 0.85rem;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-brand);
+  border-radius: var(--radius-md);
+}
+.state-prefer p { margin: 0; font-size: 0.88rem; }
+
+/* Envíos: la celda de destinatarios se comporta como la descripción — una
+   línea, lo que no cabe se recorta, y el botón abre la lista entera. */
+.rcpt-cell { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
+.rcpt-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rcpt-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex: 0 0 auto;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.rcpt-more:hover { border-color: var(--color-brand); color: var(--color-brand); }
+/* El destinatario que se está buscando: delante y en verde. */
+.rcpt-hit { color: var(--color-success); font-weight: 700; }
+.rcpt-list { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+.rcpt-list li { padding: 0.15rem 0; }
+.rcpt-tag {
+  margin-left: 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+/* Plantillas de correo: las variables que se pueden pegar, con su nombre en
+   claro y el hueco donde caerán (asunto o cuerpo). */
+.tpl-vars {
+  margin: 0.6rem 0 0.4rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.tpl-vars-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+.tpl-vars-target {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--color-brand);
+  border-radius: 999px;
+  color: var(--color-brand);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.tpl-vars-chips { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.tpl-var {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  padding: 0.3rem 0.65rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.tpl-var:hover { border-color: var(--color-brand); color: var(--color-brand); }
+.tpl-var-name { font-size: 0.82rem; font-weight: 600; }
+.tpl-var code { font-size: 0.75rem; color: var(--color-text-muted); }
+.tpl-var:hover code { color: inherit; }
+
+/* Celda de texto largo con el texto a la vista: una línea, con puntos
+   suspensivos, y todo ello es el botón que abre el texto completo. */
+.text-cell-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.text-cell-inline > svg { flex: 0 0 auto; color: var(--color-text-muted); }
+.text-cell-inline:hover .text-cell-text { text-decoration: underline; }
+.text-cell-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* --- G7: documentación e incidencias ------------------------------------- */
 /* Fila de badges de la ficha (estado, sustitución, conductor), bajo el PageHeader. */
 .detail-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: -0.4rem 0 1.1rem; }
 
 /* Cabecera de la ficha: badges a la izquierda + callout de estado a la derecha. */
+/* Gestión del histórico de personas del vehículo: una fila por periodo, con
+   sus dos fechas editables y la papelera al final. */
+.people-table { width: 100%; margin: 0.6rem 0 0.9rem; }
+.people-table td { vertical-align: middle; }
+.people-table td .field-shell { margin: 0; }
+.people-row-actions { display: flex; align-items: center; gap: 0.4rem; justify-content: flex-end; }
+.people-note { margin: 0 0 0.4rem; font-size: 0.82rem; }
+/* Lo que va al otro extremo del pie, separado de los botones de cerrar y
+   guardar (añadir un tramo, crear un coche de sustitución…). */
+.foot-left { margin-right: auto; }
+.people-modal .ops-section h4 { margin: 0 0 0.5rem; font-size: 0.9rem; }
+.people-modal .form-ok {
+  margin-top: 0.6rem;
+  color: var(--color-success);
+  font-size: 0.85rem;
+}
+
+/* Las marcas del coche (estado, conductor, supervisor, vínculo) van DENTRO
+   del subtítulo de la cabecera, pegadas a él, y con el plegado de tarjetas al
+   otro lado de un filete. Es contenido en línea: el subtítulo es un <p>. */
+.detail-marks-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  margin-top: 0.45rem;
+}
+.detail-marks-sep {
+  align-self: stretch;
+  width: 1px;
+  min-height: 1.2rem;
+  background: var(--color-border);
+}
+.detail-marks-row .detail-badges { margin: 0; }
+
+/* --- Ficha del vehículo: cabecera, barra de acciones y línea de indicadores -
+   A la derecha de la matrícula, lo que cuesta el coche (cuota y fin de
+   contrato); debajo, en su propia barra, lo que se le HACE; y bajo ella, una
+   sola línea con los vencimientos | cómo va. */
+.detail-head-kpis {
+  display: flex;
+  /* UNA fila: los dos van juntos, del mismo ancho y la misma altura. */
+  flex-wrap: nowrap;
+  gap: 0.7rem;
+  align-items: stretch;
+}
+/* `.kpi-btn` es `width: 100%` porque en la línea de indicadores ocupa su
+   columna; aquí son dos en fila y se reparten el sitio. */
+.detail-head-kpis > .kpi-btn { flex: 1 1 0; width: auto; min-width: 190px; }
+@media (max-width: 780px) {
+  .detail-head-kpis { flex-wrap: wrap; }
+  .detail-head-kpis > .kpi-btn { flex: 1 1 100%; }
+}
+
+.detail-actionbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.55rem 0.7rem;
+  margin: 0 0 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+}
+
+.detail-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 1rem;
+  margin-bottom: 1.4rem;
+}
+.detail-kpis > .kpi-btn { flex: 1 1 200px; min-width: 190px; }
+/* La separación entre los vencimientos y cómo va el coche. */
+.kpi-sep {
+  flex: 0 0 1px;
+  align-self: stretch;
+  background: var(--color-border);
+}
+/* «3 alertas · 1 incidencias»: el número manda, la palabra acompaña. */
+.kpi-unit {
+  margin-left: 0.25rem;
+  font-size: 0.72em;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+/* Solo el aviso de estado (las marcas viven en la cabecera). */
 .detail-top {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0.7rem;
-  margin: -0.4rem 0 1.1rem;
+  margin: 0 0 1rem;
 }
+.detail-top:empty { display: none; }
 .detail-top-main { min-width: 0; }
 .detail-top .detail-badges { margin: 0; }
 
@@ -948,6 +1158,15 @@ table.data tbody tr:hover {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
+/* Indicador que no se puede abrir (los km de un coche cubierto por su
+   sustituto): se sigue leyendo, pero no reacciona al ratón. */
+.kpi-btn:disabled {
+  cursor: default;
+}
+.kpi-btn:disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
 
 /* Tira compacta de alertas: bloque líder (título + contadores por nivel) +
    chips por tipo (cada uno abre el modal filtrado a ese tipo) + enlace al
@@ -994,6 +1213,18 @@ table.data tbody tr:hover {
 .dash-tools {
   margin-bottom: 0.8rem;
 }
+/* Cabecera de la barra: el acordeón ocupa lo que queda y «Exportar» se queda
+   siempre a la vista, a su derecha (lo que se hace con la tabla no se esconde
+   detrás de un despliegue). */
+.dash-tools-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.dash-tools-head .dash-tools-toggle {
+  flex: 1 1 auto;
+  width: auto;
+}
 .dash-tools-toggle {
   display: flex;
   align-items: center;
@@ -1029,6 +1260,73 @@ table.data tbody tr:hover {
   margin-top: 0.6rem;
 }
 
+/* Cortes de la tabla (ITV, seguro, mantenimiento, km y bajas): casillas que se
+   combinan, dentro de un desplegable para que la fila de filtros no crezca con
+   cada corte nuevo. `details/summary`: se cierra solo al pulsar fuera. */
+.cuts-drop {
+  position: relative;
+}
+/* Mismo alto y mismo aspecto que los `select` de al lado (`.role-filter
+   select`): en una fila de filtros, un control más bajo que sus vecinos se lee
+   como un error de montaje. */
+.cuts-drop-summary {
+  box-sizing: border-box;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.84rem;
+  line-height: 1.2;
+  cursor: pointer;
+  list-style: none;
+}
+.cuts-drop-summary::-webkit-details-marker {
+  display: none;
+}
+.cuts-drop-summary:hover {
+  border-color: var(--color-border-strong);
+}
+.cuts-drop[open] .cuts-drop-summary {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+.cuts-drop-panel {
+  position: absolute;
+  /* Por encima de la cabecera pegajosa de la tabla (`--z-index-sticky`, y sus
+     celdas una más): si no, el menú sale POR DEBAJO de «Seguro / Acciones». */
+  z-index: var(--z-index-floating-panel);
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: 0 12px 30px rgba(16, 35, 58, 0.16);
+}
+.cuts-drop-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cuts-drop-item:hover {
+  background: var(--color-surface-soft);
+}
+
 /* Detalle de una alerta concreta (modal por alerta). */
 .alert-detail {
   display: flex;
@@ -1043,6 +1341,28 @@ table.data tbody tr:hover {
 }
 .alert-detail-row .muted {
   min-width: 6.5rem;
+}
+.alert-detail-due {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+/* Celda «Fecha límite» de la bandeja: fecha + plazo en lenguaje natural. */
+.alert-due-cell {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.alert-due-rel {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+/* Con semáforo, el plazo acompaña al color de la fecha (si no, la segunda
+   línea se quedaba gris y el aviso perdía la mitad de su fuerza). */
+.alert-due-cell.itv-soon .alert-due-rel,
+.alert-due-cell.itv-overdue .alert-due-rel {
+  color: inherit;
+  opacity: 0.85;
 }
 .alert-detail-msg {
   padding: 0.6rem 0.8rem;
@@ -1215,6 +1535,130 @@ table.data tbody tr:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Fila de alerta: botón de resolver (izquierda) + cuerpo que lleva a la ficha. */
+.mng-alert {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.mng-alert-resolve {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-success, #1a7f5a);
+  cursor: pointer;
+}
+.mng-alert-resolve:hover {
+  border-color: var(--color-success, #1a7f5a);
+  background: var(--color-surface-soft);
+}
+/* Sobre de la fila (avisar al responsable): mismo alto y forma que el ✓, pero
+   apagado — es la acción secundaria de la fila, no su cierre. */
+.mng-alert-email {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.mng-alert-email:hover {
+  border-color: var(--color-brand);
+  background: var(--color-surface-soft);
+  color: var(--color-brand);
+}
+.mng-alert-body {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+.mng-alert-body:hover {
+  border-color: var(--color-brand);
+  background: var(--color-surface-soft);
+}
+.mng-alert-body strong {
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Acordeones por categoría en el tab «Todas» del modal de alertas. */
+.mng-acc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 55dvh;
+  overflow-y: auto;
+}
+.mng-acc-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.4rem;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+.mng-acc-head > span {
+  margin-right: auto;
+}
+.mng-acc-chevron {
+  transition: transform 0.15s ease;
+}
+.mng-acc.is-closed .mng-acc-chevron {
+  transform: rotate(-90deg);
+}
+.mng-acc .mng-rows {
+  max-height: none;
+  margin-top: 0.35rem;
+}
+
+/* Etiqueta del filtro de alertas activo sobre la tabla (con × para quitarlo). */
+.filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--color-brand);
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+  font-size: var(--font-size-sm);
+}
+.filter-tag-x {
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.9em;
+}
+.filter-tag-x:hover {
+  color: var(--color-brand);
+}
 .mng-bar {
   flex: 1 1 auto;
   height: 8px;
@@ -1351,6 +1795,25 @@ table.data tbody tr:hover {
   background: var(--color-surface-soft);
   font-size: 0.9rem;
 }
+/* Papelera de la barra de información: quitar a quien está puesto. */
+.ops-info-remove {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+  color: var(--color-danger);
+  cursor: pointer;
+}
+.ops-info-remove:hover:not(:disabled) {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft, var(--color-surface-soft));
+}
+.ops-info-remove:disabled { opacity: 0.45; cursor: not-allowed; }
 .ops-section {
   display: flex;
   flex-direction: column;
@@ -1416,6 +1879,55 @@ table.data tbody tr:hover {
   background: var(--color-brand);
   color: #fff;
 }
+/* Editar un vehículo: arriba lo que se le HACE al coche (y solo editando),
+   debajo lo fijo y, en pestañas, lo que se le edita. */
+/* Cabecera del formulario del vehículo: a la izquierda el tipo (que no se
+   cambia) y a la derecha lo que se le HACE al coche, en una sola fila. */
+.vf-head-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+.vf-head-type { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; min-width: 0; }
+.vf-head-type h3 { margin: 0; }
+.vf-head-type p { margin: 0; font-size: 0.85rem; }
+.vf-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+/* Los datos fijos, separados del tipo por una línea (misma caja). */
+.vf-fixed { margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px solid var(--color-border); }
+.vf-fixed-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.45rem;
+}
+.vf-fixed-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+/* El candado: cerrado, los datos del coche no se tocan. */
+.vf-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.vf-lock:hover { border-color: var(--color-border-strong); color: var(--color-text); }
+.vf-lock.is-open { border-color: var(--color-warning); color: var(--color-warning); }
+/* El panel de la pestaña que no toca: el `display` de `.card` pisaría a
+   `[hidden]` del navegador. */
+.vf-panel[hidden] { display: none; }
+
 /* Acordeón del modal de estado: cada sección en su caja, con un color de borde
    propio que la identifica. La cabecera pliega/despliega. */
 .ops-acc {
@@ -1426,11 +1938,64 @@ table.data tbody tr:hover {
 }
 .ops-acc.is-off { opacity: 0.55; }
 .ops-acc.tone-state { --acc-color: var(--color-info); }
+.ops-acc.tone-avail { --acc-color: var(--color-danger); }
 .ops-acc.tone-tires { --acc-color: var(--color-warning); }
 .ops-acc.tone-manage { --acc-color: var(--color-substitute); }
 .ops-acc.tone-sub { --acc-color: var(--color-brand); }
 .ops-acc.tone-docs { --acc-color: var(--color-success); }
 .ops-acc.tone-com { --acc-color: #b1508e; }
+/* Pasos del parte de accidente (mismo asistente, otros colores). */
+.ops-acc.tone-where { --acc-color: var(--color-info); }
+.ops-acc.tone-damage { --acc-color: var(--color-danger); }
+.ops-acc.tone-people { --acc-color: var(--color-brand); }
+.ops-acc.tone-report { --acc-color: var(--color-success); }
+/* Pasos del modal de correo (mismo asistente, otros colores). */
+.ops-acc.tone-kind { --acc-color: var(--color-info); }
+.ops-acc.tone-text { --acc-color: #b1508e; }
+.ops-acc.tone-to { --acc-color: var(--color-brand); }
+.ops-acc.tone-preview { --acc-color: var(--color-success); }
+/* La disponibilidad no tiene un color fijo: lo decide lo elegido dentro —
+   verde mientras el coche siga en servicio, rojo en cuanto salga de la calle. */
+.ops-acc.is-ok { --acc-color: var(--color-success); }
+.ops-acc.is-bad { --acc-color: var(--color-danger); }
+.avail-options { display: grid; gap: 0.5rem; }
+@media (min-width: 760px) {
+  .avail-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.avail-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+.avail-option:hover { border-color: var(--color-border-strong); }
+.avail-option input { margin: 0.15rem 0 0; accent-color: var(--acc, var(--color-brand)); }
+.avail-option-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.avail-option-title { font-size: 0.88rem; font-weight: 600; color: var(--color-text); }
+.avail-option-hint { font-size: 0.78rem; color: var(--color-text-muted); }
+.avail-option[data-tone='bad'] { --acc: var(--color-danger); }
+.avail-option[data-tone='ok'] { --acc: var(--color-success); }
+.avail-option.is-on {
+  border-color: var(--acc);
+  box-shadow: inset 0 0 0 1px var(--acc);
+}
+.avail-option:has(input:disabled) { opacity: 0.55; cursor: not-allowed; }
+/* El coche de sustitución, dentro del propio paso: solo aparece cuando se ha
+   dicho que lo lleva, y se ve que cuelga de esa elección. */
+.avail-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.7rem;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-field);
+  background: var(--color-surface-soft);
+}
+.avail-sub-title { font-size: 0.85rem; font-weight: 700; color: var(--color-text); }
 .ops-acc-head {
   display: flex;
   align-items: center;
@@ -1456,7 +2021,65 @@ table.data tbody tr:hover {
   padding: 0 0.75rem 0.75rem;
 }
 .ops-acc-body[hidden] { display: none; }
+/* Como panel de un paso (sin cabecera de acordeón): el aire de arriba lo ponía
+   el botón que ya no está. */
+.ops-acc.is-panel > .ops-acc-body { padding-top: 0.75rem; }
+
+/* Pasos del formulario de estado: sub-pestañas que se encienden solas. Van en
+   una fila con scroll propio para que el modal no cambie de ancho. */
+.ops-steps {
+  display: flex;
+  gap: 0.35rem;
+  /* Si el ancho no llega, los pasos BAJAN de línea: una barra de navegación
+     con scroll horizontal esconde los pasos que aún no has visto. */
+  flex-wrap: wrap;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.ops-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  /* Indicador de avance, no pestaña: por dónde se va lo dicen los botones del
+     pie, y así no se puede saltar un paso sin rellenarlo. */
+  cursor: default;
+  user-select: none;
+}
+.ops-step.is-off { opacity: 0.45; }
+.ops-step.is-active {
+  border-color: var(--color-brand);
+  background: var(--color-surface-soft);
+  color: var(--color-brand);
+}
+/* El número del paso: pista de orden, no un adorno. */
+.ops-step-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: var(--color-surface-soft);
+  color: inherit;
+  font-size: 0.72rem;
+}
+.ops-step.is-active .ops-step-n { background: var(--color-brand); color: #fff; }
 /* Kilómetros y combustible: la serie mensual de un vistazo. */
+/* Los dos campos de una lectura (cuánto y cuándo) van SIEMPRE en la misma
+   línea: son un solo dato partido en dos. Solo se apilan si no cabe. */
+.kmfuel-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; }
+@media (max-width: 460px) {
+  .kmfuel-row { grid-template-columns: 1fr; }
+}
 .kmfuel-months {
   list-style: none;
   margin: 0;
@@ -1497,6 +2120,34 @@ table.data tbody tr:hover {
   justify-content: space-between;
   gap: 0.6rem;
 }
+/* Cada implicado es un acordeón: la cabecera entera abre y cierra, y plegada
+   enseña de quién es la ficha. */
+.acc-repeat-list { display: flex; flex-direction: column; gap: 0.6rem; }
+/* El `display: flex` de autor pisa el `[hidden]` de la hoja del navegador: sin
+   esto, la lista de la otra sub-pestaña se seguiría viendo. */
+.acc-repeat-list[hidden] { display: none; }
+.acc-repeat-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.acc-repeat-sum {
+  overflow: hidden;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acc-repeat-body { display: flex; flex-direction: column; gap: 0.6rem; }
+.acc-repeat-body[hidden] { display: none; }
 /* Estados abiertos: una tarjeta por petición con sus tres acciones. */
 .ops-open-list { display: flex; flex-direction: column; gap: 0.6rem; }
 .ops-open-row {
@@ -1513,6 +2164,16 @@ table.data tbody tr:hover {
 .ops-open-desc { margin: 0; font-size: 0.85rem; white-space: pre-line; }
 .ops-open-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .ops-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.8rem; }
+/* Motivo + inicio del vínculo: en la misma fila aunque el modal sea estrecho
+   (la fecha no necesita más que su ancho). */
+.link-when-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 180px);
+  gap: 0.8rem;
+}
+@media (max-width: 520px) {
+  .link-when-row { grid-template-columns: 1fr; }
+}
 /* Sustitución en una línea: vehículo (más ancho) + inicio + fin. */
 .ops-sub-row {
   display: grid;
@@ -1659,6 +2320,21 @@ table.data tbody tr:hover {
 .ops-note { margin: 0; font-size: 0.82rem; }
 .ops-checks { display: flex; flex-wrap: wrap; gap: 0.6rem 1.4rem; }
 .ops-field-label { font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); }
+/* Un textarea no es un campo del DS y no trae su marca de «Obligatorio»: se le
+   pone al lado de la etiqueta, con el mismo aspecto que la de los demás. */
+.ops-label-row { display: flex; align-items: center; gap: 0.4rem; }
+.ops-required-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-warning-border);
+  border-radius: 999px;
+  padding: 0.08rem 0.42rem;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-size: 0.66rem;
+  line-height: 1;
+  font-weight: 700;
+}
 .ops-textarea {
   width: 100%;
   box-sizing: border-box;
@@ -1677,7 +2353,65 @@ table.data tbody tr:hover {
   border-color: var(--color-brand);
   box-shadow: inset 0 0 0 2px rgba(0, 148, 145, 0.38);
 }
-.ops-actions { display: flex; gap: 0.6rem; justify-content: flex-end; }
+/* Pie en dos grupos: cancelar a un lado, la navegación al otro. */
+.ops-actions-end { display: flex; gap: 0.6rem; margin-left: auto; }
+/* Todos los botones de navegación miden lo mismo: al terminar, «Cerrar» y
+   «Nuevo estado» caen justo donde estaban «Anterior» y «Siguiente». */
+.ops-actions-end button { min-width: 8rem; }
+/* «Guardar» no estaba y aparece: entra desde la derecha para que se note que
+   el formulario ha llegado al final. */
+.ops-save-in { display: inline-flex; animation: ops-save-in 0.24s ease-out both; }
+/* Un bloque que aparece al marcar una casilla: se despliega hacia abajo, para
+   que se vea de dónde sale. */
+.slide-open { animation: slide-open 0.22s ease-out both; }
+@keyframes slide-open {
+  from { opacity: 0; transform: translateY(-0.5rem); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .slide-open { animation: none; }
+}
+@keyframes ops-save-in {
+  from { opacity: 0; transform: translateX(0.9rem); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ops-save-in { animation: none; }
+}
+/* Resumen de lo guardado: pares campo/valor, uno por línea. */
+.ops-resumen {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface-soft);
+  font-size: 0.88rem;
+}
+.ops-resumen-fila { display: flex; gap: 0.6rem; align-items: baseline; }
+.ops-resumen-fila dt {
+  flex: 0 0 11rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+.ops-resumen-fila dd { margin: 0; min-width: 0; color: var(--color-text); }
+@media (max-width: 620px) {
+  .ops-resumen-fila { flex-direction: column; gap: 0.1rem; }
+  .ops-resumen-fila dt { flex: none; }
+}
+.ops-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: 0.7rem 0;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+}
 /* Menú de acciones por fila (⋮) — desplegable con portal a body. */
 .row-menu-anchor { display: inline-flex; }
 .row-menu-overlay { position: fixed; inset: 0; z-index: 60; }
@@ -1807,6 +2541,16 @@ table.data tbody tr:hover {
 .veh-tab.is-active .veh-tab-count {
   background: var(--color-brand);
   color: #fff;
+}
+/* Divisoria entre los dos grupos de pestañas del panel: vehículos (flota y
+   sustitución) a la izquierda, personas (supervisores y conductores) a la
+   derecha. */
+.veh-tabs-sep {
+  align-self: center;
+  width: 1px;
+  height: 1.4rem;
+  margin: 0 0.5rem;
+  background: var(--color-border);
 }
 
 /* --- Ajustes / Informes: pestañas principales + sub-página embebida -------- */
@@ -2748,11 +3492,18 @@ table.data tbody tr:hover {
   transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 .filter-toggles .baja-toggle:hover { border-color: var(--color-border-strong); }
+/* Segunda fila de la franja: los interruptores a la izquierda y, al otro
+   extremo, lo que se hace con la tabla. */
+.bar-row-two { align-items: center; }
+.bar-row-two-actions { margin-left: auto; display: flex; gap: 0.6rem; }
+
 .filter-toggles .baja-toggle:has(input:checked) {
   border-color: var(--color-brand);
   color: var(--color-brand);
   background: var(--color-surface);
 }
+/* Quitar todo lo puesto: al otro extremo de la fila, como salida que es. */
+.filter-toggles .linklike { margin-left: auto; align-self: center; }
 
 /* Desplegable «Columnas»: botón + menú con check y flechas de orden. */
 .filter-field--cols { flex: 0 0 auto; }
@@ -2843,6 +3594,31 @@ table.data tbody tr:hover {
 }
 /* GAP-2: celda del gasto de combustible del mes (litros en negrita + importe). */
 .fuel-cell { white-space: nowrap; }
+/* Celda de dos líneas: la cifra arriba y su contexto debajo — kilómetros (con
+   cuánto lleva sin leerse, en el semáforo de las fechas: ámbar a vigilar, rojo
+   vencida) y combustible (litros del mes y de qué tipo es). */
+.stack-cell { display: flex; flex-direction: column; line-height: 1.25; }
+.stack-cell-sub { font-size: 0.78rem; }
+/* Fila desplegada de la tabla del panel: el coche que está cubriendo a este.
+   Va en el morado de la sustitución, el mismo del marco de la ficha. */
+.sub-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.9rem;
+  padding: 0.55rem 0.75rem;
+  border-left: 3px solid var(--color-substitute);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-substitute) 7%, var(--color-surface));
+  font-size: 0.86rem;
+}
+.sub-row-tag {
+  font-weight: 800;
+  color: var(--color-substitute);
+  white-space: nowrap;
+}
+.sub-row-item { white-space: nowrap; }
+.sub-row-since { margin-left: auto; }
 .itv-soon { color: var(--color-warning); font-weight: 700; }
 .itv-overdue { color: var(--color-danger); font-weight: 700; }
 
@@ -2880,9 +3656,11 @@ table.data tbody tr:hover {
   border: 2px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
 }
-/* Un solo borde para las dos marcas: si además es sustituto, manda ese color
-   (identidad del vehículo) sobre el de la carencia. El orden es la regla. */
+/* Un solo borde para todas las marcas, y el orden de estas reglas es la
+   regla: sin conductor < contrato vencido < sustitución (la identidad del
+   vehículo manda sobre lo que le falta). Los rótulos sí salen todos. */
 .vehicle-detail.is-driverless { border-color: var(--color-warning); }
+.vehicle-detail.is-expired { border-color: var(--color-danger); }
 .vehicle-detail.is-substitute { border-color: var(--color-substitute); }
 
 .detail-marks {
@@ -2905,7 +3683,10 @@ table.data tbody tr:hover {
   white-space: nowrap;
 }
 .mark-substitute { background: var(--color-substitute); }
+.mark-expired { background: var(--color-danger); }
 .mark-driverless { background: var(--color-warning); }
+/* Un dato que ya no se cumple (la fecha de fin pasada). */
+.kpi-overdue { color: var(--color-danger); font-weight: 700; }
 
 .detail-grid {
   display: grid;
@@ -3545,12 +4326,47 @@ table.data tbody tr:hover {
 /* Separación de los banners de aviso/conflicto (Panel de la librería) del formulario. */
 .form-banner { margin-bottom: 1.1rem; }
 
+/* El formulario ocupa el alto del modal aunque la pestaña sea corta: así el
+   pie se queda SIEMPRE abajo del todo y no flotando bajo el último campo. */
+.vehicle-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.vehicle-form > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+}
+/* El pie del formulario se queda abajo del todo, pegado al borde del modal
+   (el cuerpo es lo que hace scroll), como el de los asistentes. */
 .form-footer {
+  margin-top: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.8rem 0 2rem;
+  gap: 0.6rem;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  /* A sangre: el cuerpo del modal tiene su propio aire (1.25rem a los lados y
+     1.15rem abajo) y por ahí asomaba el contenido al hacer scroll. El pie se
+     sale de ese hueco con márgenes negativos —y lo recupera en su padding—,
+     de modo que la barra llega a los bordes. La sombra sólida remata lo que
+     quede por debajo aunque el navegador limite el pegado. */
+  margin-right: -1.25rem;
+  margin-bottom: -1.15rem;
+  margin-left: -1.25rem;
+  padding: 0.8rem 1.25rem 1.1rem;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 1.4rem 0 var(--color-surface);
 }
+/* Lo que mueve por el formulario va al otro extremo, con «Siguiente» pegado
+   al borde y «Crear vehículo» entrando a su izquierda en la última pestaña. */
+.form-footer-btns { display: flex; align-items: center; gap: 0.6rem; margin-left: auto; }
+.form-footer-note { flex: 1 1 auto; padding: 0 0.8rem; }
 .preview-table td, .preview-table th { font-size: 0.86rem; }
 .preview-table .field-badge { margin-left: 0.4rem; }
 
@@ -3681,10 +4497,18 @@ table.data tbody tr:hover {
 }
 .usage-bar-fill {
   height: 100%;
-  background: var(--color-brand);
+  background: var(--usage-tone-0);
   border-radius: 999px;
   transition: width 0.25s ease;
 }
+.usage-bar-who { display: inline-flex; align-items: center; gap: 0.4rem; }
+/* El color de la persona: el mismo punto en la tarjeta y en el modal. */
+.usage-dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; background: var(--usage-tone-0); }
+.usage-dot[data-tone='1'], .usage-bar-fill[data-tone='1'], .usage-slice[data-tone='1'] { background: var(--usage-tone-1); }
+.usage-dot[data-tone='2'], .usage-bar-fill[data-tone='2'], .usage-slice[data-tone='2'] { background: var(--usage-tone-2); }
+.usage-dot[data-tone='3'], .usage-bar-fill[data-tone='3'], .usage-slice[data-tone='3'] { background: var(--usage-tone-3); }
+.usage-dot[data-tone='4'], .usage-bar-fill[data-tone='4'], .usage-slice[data-tone='4'] { background: var(--usage-tone-4); }
+.usage-dot[data-tone='5'], .usage-bar-fill[data-tone='5'], .usage-slice[data-tone='5'] { background: var(--usage-tone-5); }
 .usage-bar-since { display: block; font-size: 0.76rem; margin-top: 0.25rem; }
 
 .assign-history h4 { margin: 0 0 0.65rem; font-size: 0.92rem; }
@@ -3695,16 +4519,50 @@ table.data tbody tr:hover {
   flex-wrap: wrap;
   margin-bottom: 0.75rem;
 }
-.usage-line {
-  display: grid;
-  grid-template-columns: 1fr 90px auto;
-  gap: 0.6rem;
-  align-items: end;
+/* Editor del reparto: la barra dice cómo queda antes de guardarlo. */
+.usage-preview {
+  display: flex;
+  height: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-surface-soft);
 }
+.usage-slice {
+  min-width: 3px;
+  flex-basis: 0;
+  background: var(--usage-tone-0);
+  transition: flex-grow 0.25s ease;
+}
+/* Lo que queda sin repartir: se ve que falta, sin fingir que es de alguien. */
+.usage-slice.is-free {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-surface-soft) 0 6px,
+    var(--color-border) 6px 12px
+  );
+}
+.usage-rows { display: flex; flex-direction: column; gap: 0.4rem; }
+.usage-row {
+  display: grid;
+  grid-template-columns: 10px 1fr 110px auto;
+  gap: 0.6rem;
+  align-items: center;
+}
+.usage-row .field-shell { margin: 0; }
+.usage-row-head {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.usage-tools { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.usage-note { margin: 0; }
 .usage-sum {
-  padding: 0.45rem 0.8rem;
-  border-radius: 8px;
-  font-size: 0.88rem;
+  margin-left: auto;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
   font-weight: 700;
 }
 .usage-sum.ok { background: var(--color-success-soft); color: var(--color-success); }
@@ -4766,4 +5624,232 @@ kbd {
   display: flex;
   gap: 0.6rem;
   margin-left: auto;
+}
+
+/* Modal «Programar ITV y mantenimiento» (menú del vehículo): una pestaña por
+   cosa que se programa, con el mismo lenguaje que el modal de estado. */
+.schedule-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding-top: 0.2rem;
+}
+.schedule-tab .ops-note { margin: 0; }
+/* La cita que YA existe: fecha grande, plazo, CP y de dónde sale. */
+.schedule-cita {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-brand);
+  border-radius: var(--radius-field);
+  background: var(--color-surface-soft);
+}
+.schedule-cita.is-overdue { border-left-color: var(--color-danger, #c0392b); }
+.schedule-cita-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.schedule-cita-label {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.schedule-cita-date {
+  color: var(--color-ink);
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+/* Meta de la cita en dos columnas (CP · origen); una sola si no cabe. */
+.schedule-cita-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.5rem 1.2rem;
+  margin: 0;
+  width: 100%;
+}
+.schedule-cita-meta dt {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.schedule-cita-meta dd {
+  margin: 0.1rem 0 0;
+  font-size: 0.9rem;
+}
+.schedule-cita .muted { margin: 0; font-size: 0.82rem; }
+/* Formulario del plan elegido, separado de la lista y del selector. */
+/* Las dos acciones de lo citado: modificar y registrar lo realizado. */
+.schedule-cita-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+/* Abajo del todo, lo ya realizado (las últimas cinco). */
+.schedule-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--color-border);
+}
+.schedule-plan-form {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+.schedule-plan-form h4 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+/* Plan que se está modificando ahora mismo, marcado en la lista. */
+.notif-table tr.is-active > td { background: var(--color-surface-soft); }
+
+/* Varias acciones en una fila de los desgloses del Panel (p. ej. seguros:
+   renovar + enviar correo). */
+.mng-row-actions { display: inline-flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
+
+/* Casilla individual dentro de .ops-checks (posiciones de rueda al resolver). */
+.ops-check { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.88rem; cursor: pointer; }
+
+/* Ficha: tarjeta de alertas e incidencias. Las filas reutilizan .mng-alert del
+   Panel, pero el cuerpo no es un enlace (ya estamos en la ficha). */
+.pending-list { display: flex; flex-direction: column; gap: 0.45rem; }
+.pending-row:hover { border-color: var(--color-border); background: var(--color-surface); }
+.pending-actions { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+/* Orden de lectura de la fila: fecha, título y descripción; las píldoras al
+   final (las empuja .mng-grow de la descripción). */
+.pending-date {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Ya cerrada: el ✓ es una marca, no un botón. */
+.mng-alert-done {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
+}
+/* Una sola línea de mando sobre la lista: las pastillas abiertas/cerradas y,
+   a su derecha, con qué se filtra y cómo se ordena. Al estrecharse, los
+   filtros bajan solos (wrap) en vez de comerse el ancho de las filas. */
+.pending-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0 0.7rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface-soft);
+}
+/* Dos grupos en la misma fila: QUÉ se mira (pastillas) a la izquierda y con
+   QUÉ se acota (filtros y orden) pegado a la derecha, con un filete entre
+   medias. Si no caben, el segundo grupo baja entero. */
+.pending-toolbar > .pending-filters {
+  margin-left: auto;
+  padding-left: 1rem;
+  border-left: 1px solid var(--color-border);
+}
+/* Filtros y orden: la etiqueta al lado del select (no encima) para que la
+   barra no crezca más que las propias filas. */
+.pending-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.pending-filter { display: inline-flex; align-items: center; gap: 0.4rem; }
+.pending-filter > label {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* Select compacto (gana a .sizeFill del DS por especificidad). */
+.pending-filter .pending-filter-select { width: auto; flex: 0 1 11rem; min-width: 7.5rem; }
+.pending-filter select { height: 32px; padding-top: 0; padding-bottom: 0; font-size: 0.85rem; }
+
+/* La misma tarjeta como modal (menú ⋮, con sus tres pestañas). */
+.pending-modal { display: flex; flex-direction: column; }
+/* El parte de accidente cuelga directo de la barra de pestañas: su fila de
+   pasos necesita el mismo aire, arriba y abajo, que la barra de la lista de
+   al lado (.pending-toolbar). */
+.acc-pane .ops-steps { margin-top: 0.7rem; padding-bottom: 0.7rem; }
+.acc-pane[hidden] { display: none; }
+/* Segundo nivel de pestañas (abiertas / cerradas): pastillas pequeñas, para que
+   se lean como un nivel por debajo del subrayado de .ops-tabs. */
+/* La lista de toda la flota (panel) va en un modal de alto fijo y se reparte
+   ese alto: pestañas, filtros y pie quedan quietos y **solo las filas hacen
+   scroll** (son decenas; con el modal entero desplazándose, los botones del
+   pie se perdían de vista). */
+.pending-fleet {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.pending-fleet > .ops-tabs,
+.pending-fleet > .pending-toolbar,
+.pending-fleet > .mng-actions {
+  flex: 0 0 auto;
+}
+.pending-fleet > .pending-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* Aire para que la barra de scroll no se coma el borde de las filas. */
+  padding-right: 0.35rem;
+}
+/* Su pie —filtrar la tabla, ir a la bandeja— se despega de las filas con un
+   filete. */
+.pending-fleet .mng-actions {
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.7rem;
+}
+/* La matrícula de la fila (solo en la lista de toda la flota). */
+.pending-plate {
+  flex: 0 0 auto;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.pending-subtabs { display: flex; gap: 0.35rem; }
+.pending-subtab {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pending-subtab:hover { color: var(--color-text); border-color: var(--color-border-strong); }
+.pending-subtab.is-active {
+  border-color: var(--color-brand);
+  background: var(--color-surface-soft);
+  color: var(--color-brand);
+}
+/* Cuántas hay: solo cuando esta lista mira un tipo (accidentes) y no tiene
+   pestañas de grupo arriba que lo cuenten. */
+.pending-subtab-count {
+  display: inline-block;
+  min-width: 1.2rem;
+  margin-left: 0.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: center;
+}
+.pending-subtab.is-active .pending-subtab-count {
+  background: var(--color-brand);
+  color: #fff;
 }

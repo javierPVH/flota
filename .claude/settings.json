@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python.exe manage.py makemigrations fleet -n incident_resolution_fields)",
+      "Bash(.venv/Scripts/python.exe -m ruff format fleet/admin.py fleet/services/reports.py fleet/models/incident.py fleet/models/enums/incident.py fleet/models/enums/document.py fleet/models/enums/__init__.py fleet/views.py fleet/serializers.py)",
+      "Bash(.venv/Scripts/python.exe -m ruff check fleet/admin.py fleet/services/reports.py fleet/models fleet/views.py fleet/serializers.py)",
+      "Bash(.venv/Scripts/python.exe -m ruff format fleet/tests/test_incident_resolution.py fleet/tests/test_reports.py fleet/serializers.py)",
+      "Bash(.venv/Scripts/python.exe -m ruff check fleet/)",
+      "Bash(.venv/Scripts/python.exe manage.py makemigrations --check --dry-run)",
+      "Bash(.venv/Scripts/python.exe manage.py test fleet.tests.test_incident_resolution fleet.tests.test_reports)",
+      "Bash(.venv/Scripts/python.exe manage.py test fleet.tests.test_incident_resolution)",
+      "Bash(.venv/Scripts/python.exe -m ruff format fleet/services/incidents.py fleet/serializers.py fleet/views.py fleet/tests/test_incident_resolution.py fleet/tests/test_gap_hse.py)",
+      "Bash(.venv/Scripts/python.exe manage.py test fleet.tests.test_incident_resolution fleet.tests.test_gap_hse fleet.tests.test_accident_tables)",
+      "Bash(.venv/Scripts/python.exe -m ruff format fleet/services/incidents.py fleet/tests/test_incident_resolution.py fleet/tests/test_gap_hse.py)",
+      "Bash(.venv/Scripts/python.exe manage.py test fleet.tests.test_gap_hse.ReturnVehicleTests)"
+    ]
+  }
+}

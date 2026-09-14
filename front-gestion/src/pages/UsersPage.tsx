@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import {
   Badge,
   Button,
@@ -96,7 +96,11 @@ export function UsersPage() {
   const [colOrder, setColOrder] = useState<string[]>(() => [...COLUMN_KEYS])
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => new Set(DEFAULT_HIDDEN))
 
-  const [modalOpen, setModalOpen] = useState(false)
+  // La vista general puede pedir el alta al entrar (`state.crear`): el modal
+  // arranca abierto, igual que en Vehículos.
+  const [modalOpen, setModalOpen] = useState(
+    Boolean((useLocation().state as { crear?: boolean } | null)?.crear),
+  )
   const [editing, setEditing] = useState<ManagedUserFull | null>(null)
   const [importOpen, setImportOpen] = useState(false)
 

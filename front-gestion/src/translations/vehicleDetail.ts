@@ -6,22 +6,17 @@ const es = {
   backToVehicles: '← Vehículos',
   back: '← Volver',
   loading: 'Cargando…',
-  registerKm: 'Registrar km',
   edit: 'Editar',
   changeState: 'Cambiar estado',
   substitution: 'Sustitución',
-  convertToFleet: 'Convertir en flota',
-  convertToFleetTitle: 'El tipo se fija al crear; esta es la única vía sustituto → flota',
-  // Modal de conversión sustituto → flota (operación sin vuelta atrás).
-  convertModalTitle: (plate: string) => `Convertir ${plate} en vehículo de flota`,
-  convertIntro:
-    'El vehículo dejará de ser de sustitución y pasará a ser uno más de la flota: podrá tener conductor asignado y sus propias sustituciones.',
-  convertIrreversible:
-    'No tiene vuelta atrás: el tipo se fija al crear el vehículo y esta es la única vía sustituto → flota.',
-  convertBlockedByLink: (plate: string) =>
-    `Ahora mismo está en un vínculo de sustitución con ${plate}. Cierra ese vínculo antes de convertirlo.`,
-  convertConfirm: 'Convertir en flota',
-  converting: 'Convirtiendo…',
+  /** Contrato pasado de fecha: el coche sigue en la flota sin contrato. */
+  contractEndedFrame: 'Contrato finalizado',
+  contractEndedNote: (date: string) =>
+    `El contrato terminó el ${date} y el coche sigue en la flota: o se devuelve o se renueva el contrato.`,
+  /** El coche sale de servicio: se puede cubrir en el mismo gesto. */
+  withSubstitute: 'Sale con coche de sustitución',
+  withSubstituteHint: 'Se crea el vínculo al guardar el estado.',
+  // Sustituto → flota se hace desde «Editar» (`VehicleForm`), con triple aviso.
   retire: 'Dar de baja',
   blockedTooltip: (plate: string) => `Bloqueado por sustitución — registra los km sobre ${plate}`,
 
@@ -32,6 +27,7 @@ const es = {
   driverBadge: (name: string) => `Conductor: ${name}`,
   noDriverBadge: 'Sin conductor',
   supervisorBadge: (name: string) => `Supervisor: ${name}`,
+  noSupervisorBadge: 'Sin supervisor',
   // Callout de estado destacado (cuando el vehículo no está activo).
   statusLabel: 'Estado',
 
@@ -59,9 +55,17 @@ const es = {
   nextItv: 'Próxima ITV',
   nextMaintenance: 'Próximo mantenimiento',
   noMaintenancePlan: 'Sin plan de mantenimiento',
+  itvKpiHint: 'Citar la ITV, registrar la pasada y ver las últimas',
   maintenanceKpiHint: 'Ver el plan de mantenimiento',
   insuranceExpiry: 'Vencimiento del seguro',
   noDateRecorded: 'Sin fecha registrada',
+  /** Lo que hay abierto en el coche, resumido: cuántas y de qué. */
+  pendingKpi: 'Alertas e incidencias',
+  pendingKpiHint: 'Ver y resolver lo que hay abierto',
+  pendingAlertsWord: 'alertas',
+  pendingIncidentsWord: 'incidencias',
+  /** «ITV (2)» cuando hay más de una del mismo tipo. */
+  pendingType: (label: string, total: number) => (total > 1 ? `${label} (${total})` : label),
   contractEnd: 'Fin de contrato',
   noActiveContract: 'Sin contrato vigente',
   months: (n: number) => `${n} meses`,
@@ -264,12 +268,25 @@ const es = {
   errContractDrive: 'No se pudo guardar el enlace del contrato.',
 
   // --- Etiquetas de dominio (antes constantes de módulo) ---------------------
+  // Los estados que se pueden poner a mano (la baja va por «Dar de baja»).
   stateOptions: [
     { value: 'active', label: 'Activo' },
-    { value: 'maintenance', label: 'En mantenimiento' },
-    { value: 'itv', label: 'En ITV' },
-    { value: 'broken', label: 'Averiado' },
+    { value: 'maintenance', label: 'No activo - Mantenimiento' },
+    { value: 'itv', label: 'No activo - ITV' },
+    { value: 'broken', label: 'No activo - Averiado' },
+    { value: 'accidente', label: 'No activo - Accidentado' },
+    { value: 'non_active', label: 'No activo' },
   ],
+  // Todos, incluida la baja: la auditoría enseña estados que ya no se eligen.
+  stateLabel: {
+    active: 'Activo',
+    maintenance: 'No activo - Mantenimiento',
+    itv: 'No activo - ITV',
+    broken: 'No activo - Averiado',
+    accidente: 'No activo - Accidentado',
+    non_active: 'No activo',
+    retired: 'Devuelto (baja)',
+  } as Record<string, string>,
   linkReasonOptions: [
     { value: 'breakdown', label: 'Avería' },
     { value: 'maintenance', label: 'Mantenimiento' },
@@ -294,6 +311,11 @@ const es = {
 
   // --- Modal de estado -------------------------------------------------------
   stateModalTitle: (plate: string) => `Cambiar estado de ${plate}`,
+  // Cambiar el estado a mano NO abre ninguna petición: el coche queda parado
+  // sin nada que explique por qué ni nada que resolver para devolverlo.
+  statePreferIncident:
+    'Si el coche cambia de estado por algo que ha pasado —una avería, un mantenimiento, unos neumáticos—, lo suyo es abrir la incidencia: ella pone el estado, deja constancia de por qué y es lo que se resuelve para devolverlo al servicio. Cambiarlo aquí a secas no abre nada.',
+  stateOpenIncident: 'Abrir una incidencia',
   newState: 'Nuevo estado',
   stateReasonLabel: 'Motivo (queda en el evento)',
   stateModalNote:
@@ -389,7 +411,6 @@ const es = {
   errCreateLink: 'No se pudo crear el vínculo (¿ya hay un sustituto activo?).',
   errCloseLink: 'No se pudo cerrar el vínculo.',
   errKmReading: 'No se pudo registrar la lectura.',
-  errConvertFleet: 'No se pudo convertir en flota.',
   errChooseSubstitute: 'Elige el vehículo de sustitución.',
   partialLoadError:
     'Algunos bloques de la ficha no se pudieron cargar (pueden verse vacíos).',
@@ -429,6 +450,8 @@ const es = {
   maintenanceEveryMonths: 'Cada (meses)',
   maintenanceLastDate: 'Último realizado (fecha)',
   maintenanceLastKm: 'Último realizado (km)',
+  maintenancePostalCode: 'CP preferente',
+  maintenancePostalCodeHint: 'Desde este código postal se busca el taller más cercano.',
   maintenanceNotes: 'Notas',
   maintenanceCycle: (km: number | null, meses: number | null) => {
     const partes = []
@@ -479,21 +502,14 @@ const en: typeof es = {
   backToVehicles: '← Vehicles',
   back: '← Back',
   loading: 'Loading…',
-  registerKm: 'Log mileage',
   edit: 'Edit',
   changeState: 'Change status',
   substitution: 'Substitution',
-  convertToFleet: 'Convert to fleet',
-  convertToFleetTitle: 'Type is set at creation; this is the only substitute → fleet path',
-  convertModalTitle: (plate) => `Convert ${plate} into a fleet vehicle`,
-  convertIntro:
-    'The vehicle stops being a substitute and becomes a regular fleet vehicle: it can have an assigned driver and its own substitutions.',
-  convertIrreversible:
-    'This cannot be undone: the type is set when the vehicle is created and this is the only substitute → fleet path.',
-  convertBlockedByLink: (plate) =>
-    `It is currently in a substitution link with ${plate}. Close that link before converting it.`,
-  convertConfirm: 'Convert to fleet',
-  converting: 'Converting…',
+  contractEndedFrame: 'Contract ended',
+  contractEndedNote: (date) =>
+    `The contract ended on ${date} and the vehicle is still in the fleet: either return it or renew the contract.`,
+  withSubstitute: 'It leaves with a substitution car',
+  withSubstituteHint: 'The link is created when the status is saved.',
   retire: 'Retire',
   blockedTooltip: (plate) => `Blocked by substitution — log mileage on ${plate}`,
 
@@ -504,6 +520,7 @@ const en: typeof es = {
   driverBadge: (name) => `Driver: ${name}`,
   noDriverBadge: 'No driver',
   supervisorBadge: (name) => `Supervisor: ${name}`,
+  noSupervisorBadge: 'No supervisor',
   statusLabel: 'Status',
 
   // --- Banners ---------------------------------------------------------------
@@ -529,9 +546,15 @@ const en: typeof es = {
   nextItv: 'Next MOT',
   nextMaintenance: 'Next service',
   noMaintenancePlan: 'No maintenance plan',
+  itvKpiHint: 'Book the MOT, log the one just passed and see the last ones',
   maintenanceKpiHint: 'View the maintenance plan',
   insuranceExpiry: 'Insurance expiry',
   noDateRecorded: 'No date recorded',
+  pendingKpi: 'Alerts and incidents',
+  pendingKpiHint: 'View and resolve what is open',
+  pendingAlertsWord: 'alerts',
+  pendingIncidentsWord: 'incidents',
+  pendingType: (label, total) => (total > 1 ? `${label} (${total})` : label),
   contractEnd: 'Contract end',
   noActiveContract: 'No active contract',
   months: (n) => `${n} months`,
@@ -731,10 +754,21 @@ const en: typeof es = {
   // --- Domain labels (formerly module constants) -----------------------------
   stateOptions: [
     { value: 'active', label: 'Active' },
-    { value: 'maintenance', label: 'In maintenance' },
-    { value: 'itv', label: 'At MOT' },
-    { value: 'broken', label: 'Broken down' },
+    { value: 'maintenance', label: 'Not active - Maintenance' },
+    { value: 'itv', label: 'Not active - MOT' },
+    { value: 'broken', label: 'Not active - Broken down' },
+    { value: 'accidente', label: 'Not active - Crashed' },
+    { value: 'non_active', label: 'Not active' },
   ],
+  stateLabel: {
+    active: 'Active',
+    maintenance: 'Not active - Maintenance',
+    itv: 'Not active - MOT',
+    broken: 'Not active - Broken down',
+    accidente: 'Not active - Crashed',
+    non_active: 'Not active',
+    retired: 'Returned (retired)',
+  } as Record<string, string>,
   linkReasonOptions: [
     { value: 'breakdown', label: 'Breakdown' },
     { value: 'maintenance', label: 'Maintenance' },
@@ -759,6 +793,9 @@ const en: typeof es = {
 
   // --- Status modal ----------------------------------------------------------
   stateModalTitle: (plate) => `Change status of ${plate}`,
+  statePreferIncident:
+    'If the status changes because something happened —a breakdown, a service, tyres—, open the incident instead: it sets the status, records why, and it is what gets resolved to bring the car back. Changing it here alone opens nothing.',
+  stateOpenIncident: 'Open an incident',
   newState: 'New status',
   stateReasonLabel: 'Reason (recorded in the event)',
   stateModalNote:
@@ -849,7 +886,6 @@ const en: typeof es = {
   errCreateLink: 'Could not create the link (is there already an active substitute?).',
   errCloseLink: 'Could not close the link.',
   errKmReading: 'Could not save the reading.',
-  errConvertFleet: 'Could not convert to fleet.',
   errChooseSubstitute: 'Choose the substitute vehicle.',
   partialLoadError: 'Some blocks of this page failed to load (they may look empty).',
   partialLoadRetry: 'Retry',
@@ -885,6 +921,8 @@ const en: typeof es = {
   maintenanceEveryMonths: 'Every (months)',
   maintenanceLastDate: 'Last done (date)',
   maintenanceLastKm: 'Last done (km)',
+  maintenancePostalCode: 'Preferred postcode',
+  maintenancePostalCodeHint: 'The nearest workshop is looked up from this postcode.',
   maintenanceNotes: 'Notes',
   maintenanceCycle: (km, meses) => {
     const partes = []

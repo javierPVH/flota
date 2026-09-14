@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Camera, CheckCircle2, Paperclip, Plus, Trash2 } from 'lucide-react'
 import { Button, PageHeader, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
@@ -9,6 +9,7 @@ import type { IncidentInput } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { fmtKm, todayIso } from '../format.ts'
+import { DEFAULT_PRIORITY, priorityOptions } from '../incidentPriority.ts'
 import { useLang } from '../i18n.tsx'
 import {
   enqueueIncidentWithFiles,
@@ -60,6 +61,8 @@ export function NewIncidentPage() {
     vehicle: params.get('vehiculo') ?? '',
     type: INCIDENT_TYPES.includes(requestedType) ? requestedType : 'general',
     date: todayIso(), description: '', mileage: '', workshopPostalCode: '',
+    // La prioridad la marca quien abre la petición (gestión tría por ella).
+    priority: DEFAULT_PRIORITY as string,
   })
   const [details, setDetails] = useState<Record<string, string>>({
     preferred_at: '', change_reason: '', wheel_scope: 'front', front_measure: '',
@@ -175,7 +178,8 @@ export function NewIncidentPage() {
       let incident = created
       if (!incident) {
         const payload: IncidentInput & { client_ref: string } = {
-          vehicle: Number(form.vehicle), type: form.type, date, description,
+          vehicle: Number(form.vehicle), type: form.type, priority: form.priority,
+          date, description,
           mileage: form.mileage ? Number(form.mileage) : null,
           workshop_postal_code: form.workshopPostalCode, details: incidentDetails,
           // R3-34: misma referencia en el intento directo y en el reenvío.
@@ -280,6 +284,14 @@ export function NewIncidentPage() {
           />
           <TextInputField label={t.newIncident.date} type="date" max={todayIso()} value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} required requiredVisual />
         </div>
+        <SelectField
+          label={t.priority.label}
+          options={priorityOptions(t.priority)}
+          value={form.priority}
+          onValueChange={(priority) => setForm((current) => ({ ...current, priority }))}
+          required
+          requiredVisual
+        />
 
         {form.type === 'tires' && <section className="incident-section" aria-labelledby="tires-data-title">
           <h2 id="tires-data-title">{t.newIncident.tiresData}</h2>
@@ -370,13 +382,21 @@ export function NewIncidentPage() {
             </div>
           </div>)}
           <TextInputField label={t.newIncident.policeReportReference} value={details.police_report_reference} onChange={(event) => setDetail('police_report_reference', event.target.value)} />
-          <label className="file-field"><span>{t.newIncident.accidentReport}</span><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => setAccidentReport(event.target.files?.[0] ?? null)} />{accidentReport && <span className="doc-sub">{accidentReport.name}</span>}</label>
+          <label className={`photo-attach${accidentReport ? ' has-file' : ''}`}>
+            <Paperclip size={18} aria-hidden />
+            {accidentReport ? accidentReport.name : t.newIncident.accidentReport}
+            <input type="file" aria-label={t.newIncident.accidentReport} accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => setAccidentReport(event.target.files?.[0] ?? null)} />
+          </label>
         </section>}
 
         {(form.type === 'general' || form.type === 'maintenance') && <>
           <TextAreaField label={t.newIncident.description} rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder={t.newIncident.descPlaceholder} required requiredVisual />
         </>}
-        {form.type !== 'maintenance' && <label className="file-field"><span>{t.newIncident.photos}</span><input type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple onChange={(event) => setPhotos(Array.from(event.target.files ?? []))} />{photos.length > 0 && <span className="doc-sub">{t.newIncident.photosSelected(photos.length)}</span>}</label>}
+        {form.type !== 'maintenance' && <label className={`photo-attach${photos.length > 0 ? ' has-file' : ''}`}>
+          <Camera size={18} aria-hidden />
+          {photos.length > 0 ? t.newIncident.photosSelected(photos.length) : t.newIncident.photos}
+          <input type="file" aria-label={t.newIncident.photos} accept="image/jpeg,image/png,image/webp,image/heic" multiple onChange={(event) => setPhotos(Array.from(event.target.files ?? []))} />
+        </label>}
         {error && <div role="alert" className="form-error">{error}</div>}
         <div className="form-actions">
           <Button type="button" variant="secondary" onClick={() => navigate(origin)}>{t.common.cancel}</Button>

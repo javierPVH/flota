@@ -1,17 +1,27 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Badge, Button, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
-import { useAppLang } from '@flota/ui/i18n'
+import { useAppLang, type AppLanguage } from '@flota/ui/i18n'
 
 import { listIncidents, listKmReadingsAll, notifyVehicle, noticePreviewVehicle } from '../api.ts'
+import type { EmailKind } from '../emailKinds.ts'
 import { getNoticeLang, setNoticeLang, type NoticeLang } from '../emailPrefs.ts'
 import { fmtDate, fmtKm, vehicleStateTone } from '../format.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import { EmailOptions } from './EmailOptions.tsx'
+import { OpsSection, OpsSteps } from './OpsSteps.tsx'
+import { useAsistente, type Paso } from './opsWizard.ts'
 import type { Incident, KmReading, Vehicle } from '../types.ts'
 
 /** Días desde una fecha ISO; negativo si aún está por llegar. */
 const dayGap = (iso: string) => Math.round((Date.now() - new Date(iso).getTime()) / 86_400_000)
+
+/** Frase con la que una incidencia entra en el cuerpo del correo. */
+function incidentText(inc: Incident, lang: AppLanguage): string {
+  const description = inc.description.trim()
+  const base = description ? `${inc.type_display}: ${description}` : inc.type_display
+  return inc.date ? `${base} (${fmtDate(inc.date, lang)})` : base
+}
 
 /** Semáforo de un vencimiento: pasado = rojo, dentro de un mes = ámbar. */
 const dueTone = (gap: number): FactTone => (gap > 0 ? 'danger' : gap >= -30 ? 'warn' : 'ok')
@@ -28,29 +38,56 @@ interface Fact {
   tone?: FactTone
 }
 
+/** Valor del selector de incidencias para meterlas TODAS en el mensaje. */
+const TODAS = 'all'
+
+/** Pasos del correo: de qué avisa, qué dice, a quién va y cómo queda. */
+type PasoCorreo = 'kind' | 'text' | 'to' | 'preview'
+
 interface Props {
   vehicle: Vehicle
   /** Tipo inicial (según el botón que abre el modal). */
   initialKind?: EmailKind
+  /** Se abre desde una incidencia concreta: viene ya elegida en el selector. */
+  initialIncidentId?: number
+  /**
+   * Premarca al responsable del vehículo: el conductor vigente y, si el coche no
+   * tiene, su supervisor. Lo piden los avisos que se lanzan desde una fila
+   * (alerta o incidencia), donde ya se sabe a quién hay que avisar.
+   */
+  notifyResponsible?: boolean
   onClose: () => void
   onDone: () => void
 }
 
-type EmailKind = 'state_notice' | 'itv_due' | 'insurance_due' | 'km_reading_pending'
-
 /** Correo agrupado del vehículo: comunicado de estado, aviso de ITV o de seguro.
  * El asunto/cuerpo salen de la plantilla de correo (10b); aquí se elige el tipo,
  * los destinatarios y un mensaje adicional opcional, con vista previa. */
-export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClose, onDone }: Props) {
+export function VehicleEmailModal({
+  vehicle,
+  initialKind = 'state_notice',
+  initialIncidentId,
+  notifyResponsible = false,
+  onClose,
+  onDone,
+}: Props) {
   const copy = useVehiclesCopy()
   const t = copy.email
   const lang = useAppLang()
 
   const [kind, setKind] = useState<EmailKind>(initialKind)
   const [toAdmin, setToAdmin] = useState(false)
+  // Quién responde de lo que se avisa: el conductor vigente y, si no hay, el
+  // supervisor. El aviso de seguro es la excepción —su destinatario es la
+  // renting, que ya se premarca por el tipo—, así que ahí no se toca.
+  const responsible = notifyResponsible && initialKind !== 'insurance_due'
   // La reclamación de lectura va al conductor: se premarca al abrir con ese tipo.
-  const [toDriver, setToDriver] = useState(initialKind === 'km_reading_pending')
-  const [toSupervisor, setToSupervisor] = useState(false)
+  const [toDriver, setToDriver] = useState(
+    initialKind === 'km_reading_pending' || (responsible && Boolean(vehicle.driver_name)),
+  )
+  const [toSupervisor, setToSupervisor] = useState(
+    responsible && !vehicle.driver_name && Boolean(vehicle.supervisor_name),
+  )
   // Y el aviso de seguro, a la empresa de renting (N10a: es su destinatario).
   const [toRenting, setToRenting] = useState(initialKind === 'insurance_due')
   const [otherEmail, setOtherEmail] = useState('')
@@ -64,7 +101,9 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
   // Incidencias sin cerrar del vehículo: si está fuera de servicio, el correo
   // casi siempre habla de una de ellas.
   const [incidents, setIncidents] = useState<Incident[]>([])
-  const [incidentId, setIncidentId] = useState('')
+  const [incidentId, setIncidentId] = useState(
+    initialIncidentId != null ? String(initialIncidentId) : '',
+  )
   // Último texto que metió el selector: solo ese se puede sobrescribir.
   const [autoMessage, setAutoMessage] = useState('')
 
@@ -85,8 +124,36 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
+  // Para buscar los campos del paso activo cuando toca validarlo.
+  const formRef = useRef<HTMLFormElement>(null)
 
   const isInsurance = kind === 'insurance_due'
+
+  /**
+   * Lo que cada paso exige y el navegador no puede saber. Cadena vacía = nada
+   * que objetar; un paso sin reglas deja pasar sin más.
+   */
+  function reglaDelPaso(paso: PasoCorreo): string {
+    // Sin plantilla no hay cuerpo que enviar más que el texto escrito.
+    if (paso === 'text' && !useTemplate && !message.trim()) return t.messageRequired
+    if (paso === 'to' && !toAdmin && !toDriver && !toSupervisor && !toRenting && !otherEmail.trim())
+      return t.noRecipients
+    return ''
+  }
+
+  const pasos: Array<Paso<PasoCorreo>> = [
+    { key: 'kind', label: t.typeLabel, off: false },
+    { key: 'text', label: t.stepContent, off: false },
+    { key: 'to', label: t.recipients, off: false },
+    { key: 'preview', label: t.preview, off: false },
+  ]
+  const { paso, setPaso, pasoPrevio, pasoSiguiente, avanzar, alInvalido } =
+    useAsistente<PasoCorreo>({
+      pasos,
+      formRef,
+      reglas: reglaDelPaso,
+      onError: setError,
+    })
 
   useEffect(() => {
     if (kind !== 'km_reading_pending' || kmLoaded) return
@@ -107,34 +174,41 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
   }, [kind, kmLoaded, vehicle.id])
 
   // Solo tiene sentido para un coche fuera de servicio: un activo no tiene una
-  // incidencia en curso de la que avisar.
-  const mayHaveIncident = vehicle.state !== 'active'
+  // incidencia en curso de la que avisar. Si el aviso se abre desde una fila,
+  // la incidencia existe aunque el coche siga Activo (una petición, una multa).
+  const mayHaveIncident = vehicle.state !== 'active' || initialIncidentId != null
 
   useEffect(() => {
     if (!mayHaveIncident) return
     let alive = true
     listIncidents({ vehicle: vehicle.id })
       .then((page) => {
+        if (!alive) return
         // El filtro de la API es de un solo valor y «sin cerrar» son dos
         // estados (abierta y en curso), así que se descartan aquí.
-        if (alive) setIncidents(page.results.filter((inc) => inc.status !== 'closed'))
+        const abiertas = page.results.filter((inc) => inc.status !== 'closed')
+        setIncidents(abiertas)
+        // Abierto desde una fila: en cuanto llega la lista, el cuerpo del correo
+        // arranca describiendo esa incidencia (nada que pisar, aún nadie ha
+        // escrito).
+        const desde = abiertas.find((inc) => inc.id === initialIncidentId)
+        if (desde) {
+          const text = incidentText(desde, lang)
+          setMessage((prev) => (prev.trim() === '' ? text : prev))
+          setAutoMessage(text)
+        }
       })
       .catch(() => {})
     return () => {
       alive = false
     }
-  }, [mayHaveIncident, vehicle.id])
-
-  /** Frase con la que la incidencia entra en el cuerpo del correo. */
-  const incidentText = (inc: Incident) => {
-    const description = inc.description.trim()
-    const base = description ? `${inc.type_display}: ${description}` : inc.type_display
-    return inc.date ? `${base} (${fmtDate(inc.date, lang)})` : base
-  }
+  }, [mayHaveIncident, vehicle.id, initialIncidentId, lang])
 
   const incidentOptions = useMemo(
     () => [
       { value: '', label: t.incidentNone },
+      // Con una sola, «todas» sería la misma opción dos veces.
+      ...(incidents.length > 1 ? [{ value: TODAS, label: t.incidentAll(incidents.length) }] : []),
       ...incidents.map((inc) => ({
         value: String(inc.id),
         label: `${inc.type_display} · ${fmtDate(inc.date, lang)} · ${inc.status_display}`,
@@ -145,8 +219,15 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
 
   function onChangeIncident(next: string) {
     setIncidentId(next)
-    const inc = incidents.find((item) => String(item.id) === next)
-    const text = inc ? incidentText(inc) : ''
+    const text =
+      next === TODAS
+        ? // Todas, una por línea: el correo las enumera en el orden en que
+          // están abiertas.
+          incidents.map((inc) => incidentText(inc, lang)).join('\n')
+        : (() => {
+            const inc = incidents.find((item) => String(item.id) === next)
+            return inc ? incidentText(inc, lang) : ''
+          })()
     // No pisar lo que haya escrito una persona: solo se sustituye el texto que
     // puso este mismo selector (o un campo vacío).
     setMessage((prev) => (prev.trim() === '' || prev === autoMessage ? text : prev))
@@ -272,6 +353,14 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
   function onChangeKind(next: string) {
     setKind(next as EmailKind)
     if (next !== 'insurance_due') setToRenting(false)
+    // Solo el comunicado de estado habla de lo que el coche tiene abierto: al
+    // salir de él, la incidencia elegida se retira (y su texto con ella, si no
+    // lo ha tocado nadie).
+    if (next !== 'state_notice' && incidentId !== '') {
+      setIncidentId('')
+      setMessage((prev) => (prev === autoMessage ? '' : prev))
+      setAutoMessage('')
+    }
   }
 
   const roleLabel = (role: string) =>
@@ -291,17 +380,19 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
     e.preventDefault()
     setError('')
     const email = otherEmail.trim()
-    if (!toAdmin && !toDriver && !toSupervisor && !toRenting && !email) {
-      setError(t.noRecipients)
-      return
+    // Las mismas reglas que para pasar de paso, por si se llega aquí sin
+    // haberlas cumplido: se avisa Y se salta al paso que las pide.
+    for (const p of ['text', 'to'] as const) {
+      const fallo = reglaDelPaso(p)
+      if (fallo) {
+        setPaso(p)
+        setError(fallo)
+        return
+      }
     }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setPaso('to')
       setError(t.invalidEmail)
-      return
-    }
-    // Sin plantilla no hay cuerpo que enviar más que el texto escrito.
-    if (!useTemplate && !message.trim()) {
-      setError(t.messageRequired)
       return
     }
     setSaving(true)
@@ -334,15 +425,18 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
     return (
       <div className="ops-modal">
         <div className="ops-success" role="status">{info}</div>
+        {/* Mismo pie que el formulario: el botón cae donde estaba. */}
         <div className="ops-actions">
-          <Button variant="primary" onClick={onClose}>{t.close}</Button>
+          <div className="ops-actions-end">
+            <Button type="button" variant="primary" onClick={onClose}>{t.close}</Button>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <form className="ops-modal" onSubmit={submit}>
+    <form className="ops-modal" ref={formRef} onSubmit={submit} onInvalidCapture={alInvalido}>
       {/* A quién afecta el correo, sin salir del modal. */}
       <div className="ops-info">
         <span>
@@ -353,9 +447,18 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
         <span>{copy.ops.supervisorLabel}: <strong>{vehicle.supervisor_name || copy.ops.none}</strong></span>
       </div>
 
-      {/* Tipo de correo. */}
-      <section className="ops-section">
-        <SelectField label={t.typeLabel} required options={typeOptions} value={kind} onValueChange={onChangeKind} />
+      <OpsSteps pasos={pasos} activo={paso} label={t.stepsLabel} bloqueado={t.stepLocked} />
+
+      {/* 1 · De qué avisa el correo. */}
+      <OpsSection tone="kind" hidden={paso !== 'kind'}>
+        <SelectField
+          label={t.typeLabel}
+          aria-label={t.typeLabel}
+          required
+          options={typeOptions}
+          value={kind}
+          onValueChange={onChangeKind}
+        />
 
         {/* Y el dato concreto del que avisa ese tipo. */}
         {facts.length > 0 && (
@@ -372,11 +475,14 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
 
         {/* Coche fuera de servicio con parte abierto: se puede decir de cuál
             habla el correo sin tener que escribirlo a mano. */}
-        {incidents.length > 0 && (
+        {/* Solo en el comunicado de estado: es el único que habla de lo que
+            el coche tiene abierto. */}
+        {kind === 'state_notice' && incidents.length > 0 && (
           <>
             <div className="ops-grid">
               <SelectField
                 label={t.incidentLabel}
+                aria-label={t.incidentLabel}
                 required
                 options={incidentOptions}
                 value={incidentId}
@@ -386,10 +492,11 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
             <p className="muted ops-note">{t.incidentHint}</p>
           </>
         )}
-      </section>
+      </OpsSection>
 
-      {/* Cómo se compone: con plantilla o sin ella, y en qué idioma. */}
-      <section className="ops-section">
+      {/* 2 · Qué dice: con plantilla o sin ella, en qué idioma, y el texto que
+          se le añade (variable {{mensaje}}). */}
+      <OpsSection tone="text" hidden={paso !== 'text'}>
         <EmailOptions
           useTemplate={useTemplate}
           onUseTemplateChange={setUseTemplate}
@@ -397,11 +504,20 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
           onLangChange={onChangeLang}
           missingEnglish={missingEnglish}
         />
-      </section>
+        <label className="ops-field-label" htmlFor="email-extra">{t.extraMessage}</label>
+        <textarea
+          id="email-extra"
+          className="ops-textarea"
+          rows={3}
+          placeholder={t.extraPlaceholder}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
+        {!useTemplate && <p className="muted ops-note">{t.noTemplateHint}</p>}
+      </OpsSection>
 
-      {/* Destinatarios. */}
-      <section className="ops-section">
-        <h4>{t.recipients}</h4>
+      {/* 3 · A quién va. */}
+      <OpsSection tone="to" hidden={paso !== 'to'}>
         <div className="ops-checks">
           <label className="baja-toggle">
             <input type="checkbox" checked={toAdmin} onChange={(e) => setToAdmin(e.target.checked)} />
@@ -437,24 +553,11 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
           value={otherEmail}
           onChange={(e) => setOtherEmail(e.target.value)}
         />
-      </section>
+        <p className="muted ops-note">{t.recipientsHint}</p>
+      </OpsSection>
 
-      {/* Mensaje adicional (variable {{mensaje}} de la plantilla). */}
-      <section className="ops-section">
-        <label className="ops-field-label" htmlFor="email-extra">{t.extraMessage}</label>
-        <textarea
-          id="email-extra"
-          className="ops-textarea"
-          rows={3}
-          placeholder={t.extraPlaceholder}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-        />
-      </section>
-
-      {/* Vista previa (asunto + cuerpo desde la plantilla). */}
-      <section className="ops-section">
-        <h4>{t.preview}</h4>
+      {/* 4 · Cómo queda: asunto y cuerpo ya compuestos. */}
+      <OpsSection tone="preview" hidden={paso !== 'preview'}>
         <p className="muted ops-note">{preview && !preview.has_template ? t.noTemplateHint : t.templateHint}</p>
         {previewFailed && <p className="ops-note tone-warn">{t.previewUnavailable}</p>}
         {preview && (
@@ -469,15 +572,34 @@ export function VehicleEmailModal({ vehicle, initialKind = 'state_notice', onClo
             />
           </div>
         )}
-      </section>
+      </OpsSection>
 
       {error && <div role="alert" className="form-error">{error}</div>}
 
+      {/* Pie fijo: el correo se recorre con «Anterior» / «Siguiente», y
+          «Enviar» APARECE cuando ya no queda paso al que ir. */}
       <div className="ops-actions">
         <Button type="button" variant="secondary" onClick={onClose}>{t.cancel}</Button>
-        <Button type="submit" variant="primary" disabled={saving}>
-          {saving ? t.sending : t.send}
-        </Button>
+        <div className="ops-actions-end">
+          {!pasoSiguiente && (
+            <span className="ops-save-in">
+              <Button type="submit" variant="primary" disabled={saving}>
+                {saving ? t.sending : t.send}
+              </Button>
+            </span>
+          )}
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!pasoPrevio}
+            onClick={() => pasoPrevio && setPaso(pasoPrevio.key)}
+          >
+            {copy.ops.back}
+          </Button>
+          <Button type="button" variant="secondary" disabled={!pasoSiguiente} onClick={avanzar}>
+            {copy.ops.next}
+          </Button>
+        </div>
       </div>
     </form>
   )

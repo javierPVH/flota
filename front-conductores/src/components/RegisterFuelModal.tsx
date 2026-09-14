@@ -4,7 +4,7 @@ import { Button, Panel } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { addFuelEntry } from '../api.ts'
-import { fmtEur, fmtLiters, todayIso } from '../format.ts'
+import { fmtLiters, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Vehicle, VehicleSummary } from '../types.ts'
@@ -58,10 +58,14 @@ function DecimalField({
 }
 
 /**
- * GAP-2 — Gasto de combustible de campo, hermano del modal de km: se apunta el
- * repostaje (litros y lo pagado) y el back lo SUMA al mes en curso, porque la
- * serie de consumo es mensual (una fila por vehículo y mes). Por eso la pista
- * de arriba es «este mes ya llevas…» y no «última lectura».
+ * GAP-2 — Consumo de combustible de campo, hermano del modal de km: se apuntan
+ * los LITROS repostados y el back los SUMA al mes en curso, porque la serie de
+ * consumo es mensual (una fila por vehículo y mes). Por eso la pista de arriba
+ * es «este mes ya llevas…» y no «última lectura».
+ *
+ * El importe **no se pide**: en obra no se tiene el ticket a mano y lo que se
+ * sigue aquí es el consumo — el gasto se mira donde se factura. El campo sigue
+ * en el back (las filas antiguas conservan el suyo), pero de aquí no sale.
  *
  * Sin red va a la cola offline (M7): en una gasolinera de obra es lo normal.
  */
@@ -78,24 +82,20 @@ export function RegisterFuelModal({
 }) {
   const { t, language } = useLang()
   const [liters, setLiters] = useState('')
-  const [amount, setAmount] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   const litersValue = asNumber(liters)
-  const amountValue = asNumber(amount)
   const litersOk = litersValue !== null && !Number.isNaN(litersValue) && litersValue > 0
-  const amountOk = amountValue === null || (!Number.isNaN(amountValue) && amountValue >= 0)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!litersOk || !amountOk) return
+    if (!litersOk) return
     setSaving(true)
     setError('')
     const payload = {
       vehicle: vehicle.id,
       liters: decimal(liters),
-      amount: amount.trim() === '' ? null : decimal(amount),
       // R3-37: el mes se fija AL CAPTURAR, no cuando el servidor procese el
       // reenvío — un repostaje del día 31 encolado sin cobertura debe sumar a
       // SU mes aunque la cola lo entregue el día 1 del siguiente.
@@ -130,7 +130,7 @@ export function RegisterFuelModal({
       footer={
         <>
           <Button type="button" variant="secondary" onClick={onClose}>{t.common.cancel}</Button>
-          <Button type="submit" form="vehicle-fuel-form" disabled={saving || !litersOk || !amountOk}>
+          <Button type="submit" form="vehicle-fuel-form" disabled={saving || !litersOk}>
             {saving ? t.fuel.saving : t.fuel.save}
           </Button>
         </>
@@ -147,9 +147,6 @@ export function RegisterFuelModal({
               {monthLiters !== null ? (
                 <>
                   {t.fuel.monthSoFar} <strong>{fmtLiters(monthLiters, language)}</strong>
-                  {summary.fuel_month_amount
-                    ? ` · ${fmtEur(summary.fuel_month_amount, language)}`
-                    : ''}
                 </>
               ) : (
                 t.fuel.monthEmpty
@@ -164,12 +161,6 @@ export function RegisterFuelModal({
           value={liters}
           onChange={setLiters}
           autoFocus
-        />
-        <DecimalField
-          label={t.fuel.amount}
-          placeholder="62,30"
-          value={amount}
-          onChange={setAmount}
         />
         <p className="doc-sub">{t.fuel.addsToMonth}</p>
         {error && <div role="alert" className="form-error">{error}</div>}

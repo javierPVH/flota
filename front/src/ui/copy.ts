@@ -60,6 +60,12 @@ const es = {
     endAriaLabel: 'Fecha fin',
     last30DaysLabel: 'Últimos 30 días',
   },
+  fileField: {
+    button: 'Elegir archivo…',
+    empty: 'Sin archivo elegido',
+    clear: 'Quitar el archivo',
+    count: (n: number) => `${n} archivos elegidos`,
+  },
   selectField: {
     defaultSelectFlagLabel: '-- Seleccionar --',
     ignoreLabel: '-- Ignorar --',
@@ -205,6 +211,12 @@ const en: typeof es = {
     startAriaLabel: 'Start date',
     endAriaLabel: 'End date',
     last30DaysLabel: 'Last 30 days',
+  },
+  fileField: {
+    button: 'Choose file…',
+    empty: 'No file chosen',
+    clear: 'Remove the file',
+    count: (n: number) => `${n} files chosen`,
   },
   selectField: {
     defaultSelectFlagLabel: '-- Select --',

@@ -26,6 +26,7 @@ import type {
   Paginated,
   PickerConfig,
   Vehicle,
+  SupervisorPeriodRow,
   VehicleLinkRow,
   VehicleSummary,
 } from './types'
@@ -190,6 +191,35 @@ export const convertToFleet = (id: number) =>
 
 export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${id}/`)
 
+/** N2: renovación del seguro (solo admin). Aplica la nueva fecha, emite el
+ * evento `insurance_renewal` y cierra las alertas de seguro con actor. Devuelve
+ * el vehículo actualizado más los efectos. La póliza se sube aparte como
+ * documento de seguro (no duplica el evento). */
+export const renewInsurance = (id: number, data: { expiry_date: string; notes?: string }) =>
+  postJson<
+    Vehicle & {
+      previous_expiry_date: string | null
+      changed: boolean
+      event: number | null
+      alerts_resolved: number
+    }
+  >(`${API}/vehicles/${id}/renew-insurance/`, data)
+
+/** Programa (o corrige) la próxima ITV a mano — solo admin. Es UNA cita por
+ * vehículo: `next_itv_date` es el dato canónico, así que volver a llamar la
+ * mueve en vez de acumular citas. Queda marcada como manual para que el job de
+ * refresco no la borre (el histórico de ITV no la conoce) y registrar la ITV
+ * real devuelve el mando al histórico. `postal_code` es la ubicación preferente
+ * (5 cifras) desde la que se busca la estación más cercana. */
+export const scheduleItv = (id: number, data: { date: string; postal_code?: string }) =>
+  postJson<
+    Vehicle & {
+      previous_next_itv_date: string | null
+      changed: boolean
+      alerts_resolved: number
+    }
+  >(`${API}/vehicles/${id}/schedule-itv/`, data)
+
 // --- G3: alta/edición seccionada -------------------------------------------
 
 /** Alta transaccional (HU-1.3): campos del vehículo + anidados opcionales. */
@@ -258,6 +288,12 @@ export interface CatalogEntry {
   contact_name?: string
   /** Solo `fuel-types` (GAP-1): kg CO₂ por litro/kWh, para emisiones. */
   co2_factor?: string | null
+  /** Solo `maintenance-programs`: el «cada cuánto» común de la flota, con su
+   * ciclo ya compuesto por el back («30000 km / 12 meses»). */
+  every_km?: number | null
+  every_months?: number | null
+  cycle_label?: string
+  notes?: string
   /** Solo `workshops`: taller / estación ITV / ambos, con sus señas. */
   kind?: string
   kind_display?: string
@@ -280,9 +316,18 @@ export type CatalogResource =
   | 'companies'
   // Talleres y estaciones de ITV: dónde se cita el vehículo.
   | 'workshops'
+  // El «cada cuánto» del mantenimiento preventivo, común a toda la flota.
+  | 'maintenance-programs'
 
 export const listCatalog = (resource: CatalogResource, req: ReqOpts = {}) =>
   getJson<Paginated<CatalogEntry>>(`${API}/${resource}/${listQs({})}`, req)
+
+/** Talleres y estaciones de ITV del catálogo, todas las páginas (selector de los
+ * modales de resolver; `kind`: workshop | itv | both). Va DIRECTO a `getJson` y
+ * no vía `listCatalog`: en los tests, el `vi.mock` de ESTA función es lo que
+ * interceptan los componentes (ESM no intercepta llamadas internas). */
+export const listWorkshops = (req: ReqOpts = {}) =>
+  listAll(getJson<Paginated<CatalogEntry>>(`${API}/workshops/${listQs({})}`, req), req)
 
 /** Los catálogos del alta de vehículo en UNA petición (antes eran siete).
  *
@@ -291,7 +336,7 @@ export const listCatalog = (resource: CatalogResource, req: ReqOpts = {}) =>
  * objetos son los mismos que devuelven los endpoints individuales, así que los
  * selects no cambian. Sin paginar. */
 export type CatalogsBundle = Record<
-  Exclude<CatalogResource, 'vehicle-models' | 'workshops'>,
+  Exclude<CatalogResource, 'vehicle-models' | 'workshops' | 'maintenance-programs'>,
   CatalogEntry[]
 >
 
@@ -303,13 +348,13 @@ export const listVehicleModels = (brand: number) =>
   getJson<Paginated<CatalogEntry>>(`${API}/vehicle-models/${listQs({ brand })}`)
 
 // G11: escritura de catálogos (solo admin en el back).
-export const createCatalogEntry = (resource: CatalogResource, data: Record<string, string>) =>
+export const createCatalogEntry = (resource: CatalogResource, data: Record<string, unknown>) =>
   postJson<CatalogEntry>(`${API}/${resource}/`, data)
 
 export const updateCatalogEntry = (
   resource: CatalogResource,
   id: number,
-  data: Record<string, string>,
+  data: Record<string, unknown>,
 ) => patchJson<CatalogEntry>(`${API}/${resource}/${id}/`, data)
 
 // N7: DELETE desactiva en el back; el motivo viaja como query.
@@ -357,23 +402,63 @@ export interface MaintenancePlan {
   id: number
   vehicle: number
   vehicle_plate: string
+  /** Programa del catálogo del que sale (nulo en lo anterior al catálogo). */
+  program: number | null
+  program_name: string
   name: string
   every_km: number | null
   every_months: number | null
   last_done_date: string | null
   last_done_km: number | null
+  /** CP preferente: con él un tercero busca el taller más cercano. */
+  workshop_postal_code: string
   notes: string
   created_at: string
   updated_at: string
 }
 
+/**
+ * Un programa del catálogo COMÚN de mantenimiento: el «cada cuánto» que
+ * comparte toda la flota. Un vehículo se programa eligiendo uno de estos.
+ */
+export interface MaintenanceProgram {
+  id: number
+  name: string
+  every_km: number | null
+  every_months: number | null
+  /** El ciclo en texto, tal cual lo arma el back: «30000 km / 12 meses». */
+  cycle_label: string
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export interface MaintenanceProgramInput extends Record<string, unknown> {
+  name: string
+  every_km?: number | null
+  every_months?: number | null
+  notes?: string
+}
+
+export const listMaintenancePrograms = (req: ReqOpts = {}) =>
+  getJson<Paginated<MaintenanceProgram>>(`${API}/maintenance-programs/${listQs({})}`, req)
+
+export const createMaintenanceProgram = (data: MaintenanceProgramInput) =>
+  postJson<MaintenanceProgram>(`${API}/maintenance-programs/`, data)
+
+export const updateMaintenanceProgram = (id: number, data: Partial<MaintenanceProgramInput>) =>
+  patchJson<MaintenanceProgram>(`${API}/maintenance-programs/${id}/`, data)
+
 export interface MaintenancePlanInput extends Record<string, unknown> {
   vehicle: number
+  /** Programa del catálogo del que sale (el ciclo se copia al programarlo). */
+  program?: number | null
   name: string
   every_km?: number | null
   every_months?: number | null
   last_done_date?: string | null
   last_done_km?: number | null
+  workshop_postal_code?: string
   notes?: string
 }
 
@@ -388,16 +473,30 @@ export const createMaintenancePlan = (data: MaintenancePlanInput) =>
 export const updateMaintenancePlan = (id: number, data: Partial<MaintenancePlanInput>) =>
   patchJson<MaintenancePlan>(`${API}/maintenance-plans/${id}/`, data)
 
-/** «Ya se pasó la revisión»: reancla el ciclo del plan y resuelve las alertas
- * de mantenimiento del vehículo. `cost` queda como incidencia de mantenimiento
- * cerrada (fecha y km del servicio); `note` viaja al cierre de las alertas. */
+/** «Ya se pasó la revisión»: reancla el ciclo del plan, deja una incidencia de
+ * mantenimiento cerrada como registro (o cierra la abierta indicada en
+ * `incident`), resuelve las alertas DE ESE PLAN con `note`, emite el evento y,
+ * con `return_to_active`, devuelve el coche a Activo si estaba en mantenimiento. */
 export const maintenancePlanDone = (
   id: number,
-  data: { date?: string; km?: number; cost?: string; note?: string } = {},
-) => postJson<MaintenancePlan & { alerts_resolved: number }>(
-  `${API}/maintenance-plans/${id}/done/`,
-  data,
-)
+  data: {
+    date?: string
+    km?: number
+    cost?: string
+    note?: string
+    workshop?: number
+    return_to_active?: boolean
+    incident?: number
+  } = {},
+) =>
+  postJson<
+    MaintenancePlan & {
+      alerts_resolved: number
+      incident: number
+      vehicle_reactivated: boolean
+      event: number
+    }
+  >(`${API}/maintenance-plans/${id}/done/`, data)
 
 export const deleteMaintenancePlan = (id: number, reason = '') =>
   deleteJson(`${API}/maintenance-plans/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
@@ -452,14 +551,24 @@ export const fetchDriverCandidates = (vehicleId: number, req: ReqOpts = {}) =>
 
 // --- G8: registrar ITV + informes -------------------------------------------
 
-/** Registrar ITV (HU-5.1): la señal del back cierra los avisos y refresca
- * `next_itv_date`. `itv.cost`: lo que costó la inspección (opcional). */
+/** Registrar ITV (HU-5.1). Si es favorable, el back refresca `next_itv_date`,
+ * cierra las alertas de ITV con actor, cierra la incidencia «En ITV» abierta y,
+ * con `return_to_active`, devuelve el coche a Activo (solo gestión). `itv`:
+ * coste, estación ITV del catálogo (`workshop`) y km de la inspección, opcionales. */
 export const registerItv = (data: {
   vehicle: number
   event_date: string
   notes?: string
-  itv: { result: string; next_due: string | null; cost?: string }
-}) => postJson<FlotaEvent>(`${API}/events/`, { ...data, event_type: 'itv' })
+  itv: { result: string; next_due: string | null; cost?: string; workshop?: number; km?: number }
+  return_to_active?: boolean
+}) =>
+  postJson<
+    FlotaEvent & {
+      alerts_resolved: number
+      incident_closed: number | null
+      vehicle_reactivated: boolean
+    }
+  >(`${API}/events/`, { ...data, event_type: 'itv' })
 
 /** Informes exportables; las claves las comparte el servidor. */
 export type ReportKind = ReportKindKey
@@ -573,6 +682,15 @@ export const runKmEstimate = (months: number, override = false) =>
 export const listEvents = (vehicle: number, req: ReqOpts = {}) =>
   getJson<Paginated<FlotaEvent>>(
     `${API}/events/${listQs({ vehicle, ordering: '-event_date' })}`,
+    req,
+  )
+
+/** Los eventos de UN tipo del vehículo, del más reciente al más antiguo: el
+ * histórico de lo realizado (ITV, mantenimiento…) que enseña «Programar ITV y
+ * mantenimiento». */
+export const listVehicleEvents = (vehicle: number, eventType: string, req: ReqOpts = {}) =>
+  getJson<Paginated<FlotaEvent>>(
+    `${API}/events/${listQs({ vehicle, event_type: eventType, ordering: '-event_date' })}`,
     req,
   )
 
@@ -699,6 +817,38 @@ export const createAssignment = (data: {
 
 export const updateAssignment = (id: number, data: Partial<AssignmentRow>) =>
   patchJson<AssignmentRow>(`${API}/assignments/${id}/`, data)
+
+/** Retira una asignación del histórico (N7: se desactiva, no se borra). */
+export const deleteAssignment = (id: number) => deleteJson(`${API}/assignments/${id}/`)
+
+// --- Histórico de supervisores con fechas ----------------------------------
+// El vigente del coche sale de aquí: el back sincroniza `Vehicle.supervisor`
+// con el periodo que cubre hoy en cada escritura.
+
+export const listSupervisorPeriods = (
+  filters: { vehicle?: number; supervisor?: number } = {},
+  req: ReqOpts = {},
+) =>
+  getJson<Paginated<SupervisorPeriodRow>>(
+    `${API}/supervisor-periods/${listQs({ ...filters, ordering: '-start_date' })}`,
+    req,
+  )
+
+export const createSupervisorPeriod = (data: {
+  vehicle: number
+  supervisor: number
+  start_date: string
+  end_date?: string | null
+}) => postJson<SupervisorPeriodRow>(`${API}/supervisor-periods/`, data)
+
+export const updateSupervisorPeriod = (
+  id: number,
+  data: Partial<Pick<SupervisorPeriodRow, 'start_date' | 'end_date' | 'supervisor'>>,
+) => patchJson<SupervisorPeriodRow>(`${API}/supervisor-periods/${id}/`, data)
+
+/** Retira un periodo (N7: se desactiva y el vigente se recalcula). */
+export const deleteSupervisorPeriod = (id: number) =>
+  deleteJson(`${API}/supervisor-periods/${id}/`)
 
 /**
  * A6 — cambio de conductor en UNA llamada atómica.
@@ -974,14 +1124,33 @@ export interface IncidentFilters {
   vehicle?: number
   type?: string
   status?: string
+  priority?: string
 }
 
 export const listIncidents = (filters: IncidentFilters = {}, req: ReqOpts = {}) =>
   getJson<Paginated<Incident>>(`${API}/incidents/${listQs({ ...filters })}`, req)
 
+/** Incidencias SIN cerrar (abiertas + en curso), todas las páginas. El back
+ * filtra `status` por igualdad, así que son dos peticiones. Directo a `getJson`
+ * por la misma razón que `listWorkshops` (mocks en tests). */
+export const listOpenIncidents = async (
+  filters: Omit<IncidentFilters, 'status'> = {},
+  req: ReqOpts = {},
+): Promise<Incident[]> => {
+  const page = (status: string) =>
+    listAll(
+      getJson<Paginated<Incident>>(`${API}/incidents/${listQs({ ...filters, status })}`, req),
+      req,
+    )
+  const [open, onGoing] = await Promise.all([page('open'), page('on_going')])
+  return [...open, ...onGoing]
+}
+
 export interface IncidentInput {
   vehicle: number
   type: string
+  /** Prioridad elegida al abrirla; sin ella el back deja «Moderada». */
+  priority?: string
   date?: string | null
   description?: string
   status?: string
@@ -1000,20 +1169,47 @@ export const createIncident = (data: IncidentInput) =>
 export const updateIncident = (id: number, data: Partial<IncidentInput>) =>
   patchJson<Incident>(`${API}/incidents/${id}/`, data)
 
-/** Fase 2: ubicación preferente para buscar el taller más cercano → EN CURSO. */
+/** Fase 2: ubicación preferente para buscar el taller más cercano → EN CURSO.
+ * Opcionalmente el taller del catálogo ya decidido. */
 export const manageIncident = (
   id: number,
-  data: { workshop_postal_code: string },
+  data: { workshop_postal_code: string; workshop?: number },
 ) => postJson<Incident>(`${API}/incidents/${id}/manage/`, data)
 
-/** Fase 3 (la SOLUCIÓN): fecha de solución (obligatoria — el servidor calcula
- * el tiempo parado desde la fecha de la avería), sobrecoste y observaciones.
- * CIERRA la incidencia. (R3-41: el contrato viejo mandaba `downtime_days` sin
- * fecha y el servidor devolvía 400 siempre.) */
-export const resolveIncident = (
-  id: number,
-  data: { resolution_date: string; observations?: string; overcost?: string },
-) => postJson<Incident>(`${API}/incidents/${id}/resolve/`, data)
+/** Cuerpo tipado de la fase 3 (la SOLUCIÓN). Lo común a todo cierre más el
+ * bloque propio del tipo: `tires` (neumáticos montados), `claim_ref`/
+ * `liability`/`deductible_amount`/`total_loss` (accidente), `maintenance_plan`
+ * (mantenimiento: reancla el plan y cierra sus alertas). `return_to_active`
+ * devuelve el coche a Activo si está en el estado ligado al tipo. */
+export interface IncidentResolveInput {
+  resolution_date: string
+  observations?: string
+  /** Coste de la reparación (antes `overcost`, que el back sigue aceptando). */
+  cost?: string
+  /** Taller del catálogo (id). */
+  workshop?: number
+  km?: number
+  return_to_active?: boolean
+  maintenance_plan?: number
+  tires?: { size?: string; brand?: string; quantity?: number; positions?: string[] }
+  accident?: {
+    claim_ref?: string
+    liability?: 'own' | 'third_party' | 'deductible'
+    deductible_amount?: string
+    total_loss?: boolean
+  }
+}
+
+/** Respuesta de `/resolve/`: la incidencia + los efectos aplicados. */
+export type IncidentResolveResult = Incident & {
+  vehicle_reactivated: boolean
+  alerts_resolved: number
+}
+
+/** Fase 3 (la SOLUCIÓN): CIERRA la incidencia con actor, momento y datos, y
+ * aplica los efectos (vuelta a Activo con su evento; en mantenimiento, el plan). */
+export const resolveIncident = (id: number, data: IncidentResolveInput) =>
+  postJson<IncidentResolveResult>(`${API}/incidents/${id}/resolve/`, data)
 
 // --- G7: Google Drive / Picker (Fase A3) -----------------------------------
 

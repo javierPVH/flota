@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { Badge, Button, SelectField, TextInputField } from '@flota/ui/ui'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { Badge, Button, FileField, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
@@ -10,6 +10,7 @@ import {
   listAll,
   listEmailTemplates,
   listIncidents,
+  listKmReadingsAll,
   manageIncident,
   noticePreviewVehicle,
   notifyVehicle,
@@ -19,9 +20,14 @@ import {
 } from '../api.ts'
 import { getNoticeLang, setNoticeLang, type NoticeLang } from '../emailPrefs.ts'
 import { todayIso, vehicleStateTone } from '../format.ts'
+import { STATE_LINK_REASON } from '../linkReason.ts'
+import { DEFAULT_PRIORITY, priorityOptions } from '../incidentPriority.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
+import { CreateSubstituteButton } from './CreateSubstituteButton.tsx'
 import { EmailOptions } from './EmailOptions.tsx'
+import { OpsSection, OpsSteps } from './OpsSteps.tsx'
+import { useAsistente, type Paso } from './opsWizard.ts'
 import { OpenIncidentsPanel } from './OpenIncidentsPanel.tsx'
 import type { Incident, Vehicle, VehicleLinkRow } from '../types.ts'
 
@@ -35,6 +41,8 @@ const DOC_TYPES = [
   'return_report',
   'accident_report',
   'damage_photos',
+  'itv_report',
+  'workshop_invoice',
   'other',
 ] as const
 
@@ -48,26 +56,19 @@ const STATE_DOC_TYPE: Record<string, string> = {
   non_active: 'other',
 }
 
-// El motivo del vínculo de sustitución es el mismo dato que el estado —«En ITV»
-// es `inspection`, «Averiado» es `breakdown`—, así que se deduce en vez de
-// preguntarse dos veces (y de poder contradecirse). Los estados sin equivalencia
-// se quedan fuera del mapa: ahí, y solo ahí, se pregunta.
-const STATE_LINK_REASON: Record<string, string> = {
-  broken: 'breakdown',
-  maintenance: 'maintenance',
-  itv: 'inspection',
-  accidente: 'accident',
-}
-
-// Cambiar a uno de estos estados abre además una PETICIÓN (incidencia) del
-// tipo equivalente: es lo que después se gestiona (taller del catálogo + cita)
-// y se resuelve desde la pestaña «Estados abiertos».
-const STATE_INCIDENT_TYPE: Record<string, string> = {
-  broken: 'breakdown',
-  maintenance: 'maintenance',
-  itv: 'inspection',
-  accidente: 'accident',
-}
+/**
+ * La pestaña «Estados abiertos» está OCULTA a propósito.
+ *
+ * Lo que está sin resolver ya se ve —y se cierra con el mismo dispatcher— en la
+ * tarjeta «Alertas e incidencias» de la ficha, así que aquí duplicaba el gesto y
+ * dejaba el modal con dos cosas que no se parecen: abrir un estado nuevo y
+ * repasar lo viejo. El modal se queda solo con lo primero.
+ *
+ * Se deja el interruptor (y `OpenIncidentsPanel`) porque el ciclo modificar →
+ * gestionar → resolver de una petición solo vive ahí: volver a enseñarlo es
+ * poner esto en `true`.
+ */
+const SHOW_OPEN_TAB: boolean = false
 
 // Correo propuesto según el estado: cuando hay una plantilla para ese caso
 // concreto se elige sola; el resto de estados son un comunicado de estado. Es
@@ -82,10 +83,56 @@ const DEFAULT_TEMPLATE = 'state_notice'
 // aquí porque en la práctica se descubre en este modal («al coche le pasa X»).
 const TIRES_OP = 'tires'
 
+// Pseudo-opción del selector: la petición general tampoco es un estado —puede
+// no tener ni que ver con el coche (documentación, tarjetas, dudas…)—, así que
+// se registra como incidencia y la disponibilidad se decide aparte.
+const GENERAL_OP = 'general'
+
+// Lo elegido en el selector abre una PETICIÓN (incidencia) del tipo
+// equivalente: es lo que después se gestiona (taller + cita) y se resuelve
+// desde la ficha del vehículo. Es el catálogo de incidencias que se pueden
+// abrir a mano, con una ausencia deliberada: la ITV, que es una ALERTA (su
+// tipo `inspection` solo vive en el ciclo interno «En ITV»).
+// Motivo del vínculo de sustitución que implica cada elección: es el mismo
+// dato («por qué se va el coche»), así que se precarga en vez de preguntarse
+// dos veces. Sigue siendo editable: quien lo abre puede matizarlo.
+const CHOICE_LINK_REASON: Record<string, string> = {
+  broken: 'breakdown',
+  maintenance: 'maintenance',
+  [TIRES_OP]: 'tires',
+}
+
+const CHOICE_INCIDENT_TYPE: Record<string, string> = {
+  broken: 'breakdown',
+  maintenance: 'maintenance',
+  accidente: 'accident',
+  [TIRES_OP]: 'tires',
+  [GENERAL_OP]: 'general',
+}
+
+// Si la disponibilidad dice que el coche se para, ¿en qué estado se queda? Lo
+// dice la incidencia elegida: el mantenimiento puntual y el cambio de
+// neumáticos lo dejan «No activo - Mantenimiento» (los neumáticos son
+// mantenimiento, aunque su parte sea propio) y la avería, «No activo -
+// Averiado». Lo que no tiene un estado que lo explique —una petición general,
+// que puede ni ir del coche— lo deja «No activo» a secas.
+const CHOICE_STOPPED_STATE: Record<string, string> = {
+  maintenance: 'maintenance',
+  broken: 'broken',
+  accidente: 'accidente',
+  [TIRES_OP]: 'maintenance',
+  [GENERAL_OP]: 'non_active',
+}
+
 // Centinela de los selects opcionales: `required` evita la fila «-- Ignorar --»
 // del DS, pero exige un value NO vacío — un option con value '' es el
 // «placeholder» del HTML y el navegador bloquearía el envío del formulario.
 const NONE = 'none'
+// Valor de «— Sin cambios —». NO puede ser cadena vacía: el select va
+// `required` (así el DS no cuela su fila «-- Ignorar --») y el navegador
+// tomaría el vacío por «sin rellenar», bloqueando un guardado que solo toque
+// la disponibilidad de un coche parado.
+const SIN_CAMBIOS = 'sin_cambios'
 // Etiqueta de recambio cuando la plantilla propuesta no está definida en
 // Ajustes: el campo debe seguir enseñando de qué correo habla.
 const FALLBACK_LABEL: Record<string, 'typeItv' | 'typeInsurance' | 'typeKmReading'> = {
@@ -94,48 +141,15 @@ const FALLBACK_LABEL: Record<string, 'typeItv' | 'typeInsurance' | 'typeKmReadin
   km_reading_pending: 'typeKmReading',
 }
 
-// Secciones del formulario (acordeón): cada una con su color de borde.
-type SectionKey = 'state' | 'tires' | 'manage' | 'sub' | 'docs' | 'com'
-const ALL_OPEN: Record<SectionKey, boolean> = {
-  state: false,
-  tires: false,
-  manage: false,
-  sub: false,
-  docs: false,
-  com: false,
-}
+// Pasos del formulario: cada uno es una sub-pestaña con su color de borde.
+type SectionKey = 'state' | 'avail' | 'tires' | 'manage' | 'docs' | 'com'
 
-/** Sección plegable del modal: caja con borde de color propio (acordeón). La
- * cabecera pliega/despliega; el contenido sigue montado (no pierde lo escrito). */
-function OpsSection({
-  tone,
-  title,
-  off = false,
-  collapsed,
-  onToggle,
-  children,
-}: {
-  tone: SectionKey
-  title: string
-  off?: boolean
-  collapsed: boolean
-  onToggle: () => void
-  children: ReactNode
-}) {
-  return (
-    <section className={`ops-acc tone-${tone}${off ? ' is-off' : ''}`}>
-      <button type="button" className="ops-acc-head" aria-expanded={!collapsed} onClick={onToggle}>
-        <span className={`ops-acc-chevron${collapsed ? '' : ' is-open'}`} aria-hidden>
-          ▸
-        </span>
-        <span className="ops-acc-title">{title}</span>
-      </button>
-      <div className="ops-acc-body" hidden={collapsed}>
-        {children}
-      </div>
-    </section>
-  )
-}
+// Tipos de petición que RETIENEN al coche fuera de servicio: mientras una de
+// estas siga abierta, el coche no se devuelve a Activo desde aquí — se resuelve
+// primero (y es al resolverla donde se decide si vuelve). Son exactamente las
+// que paran el coche. Una petición general o un cambio de neumáticos no
+// retienen a nadie: se registran y el coche sigue su vida.
+const BLOQUEAN = new Set(['breakdown', 'maintenance', 'inspection', 'accident'])
 
 interface Props {
   vehicle: Vehicle
@@ -145,23 +159,33 @@ interface Props {
   onDone: () => void
 }
 
-/** Modal de operación del vehículo (desde el inventario), en dos pestañas:
- * «Nuevo estado» (cambio de estado / petición, sustitución, archivos y
- * comunicado, cada sección como acordeón) y «Estados abiertos» (las peticiones
- * sin resolver, con su ciclo modificar → gestión → resolver). */
+/** Modal de operación del vehículo (desde el inventario): abrir un estado
+ * nuevo —cambio de estado / petición, sustitución, archivos y comunicado, cada
+ * sección como acordeón—. Lo que quedó abierto se repasa en la ficha, no aquí
+ * (ver `SHOW_OPEN_TAB`). */
 export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone }: Props) {
   const t = useVehiclesCopy()
 
   const [tab, setTab] = useState<'new' | 'open'>('new')
-  const [collapsed, setCollapsed] = useState<Record<SectionKey, boolean>>(ALL_OPEN)
-  const toggleSection = (key: SectionKey) =>
-    setCollapsed((current) => ({ ...current, [key]: !current[key] }))
+  /**
+   * Disponibilidad tras el guardado (paso «Disponibilidad»), y el único sitio
+   * donde se decide: `active` (queda o vuelve al servicio), `sub`/`none` (sale
+   * de la calle, con coche de sustitución o con un motivo escrito) y `keep`
+   * (el coche ya estaba parado y sigue igual).
+   *
+   * Por defecto se queda como está: registrar una avería o una petición no
+   * para un coche que rueda, ni devuelve al servicio uno que está parado.
+   */
+  const [availChoice, setAvailChoice] = useState<'' | 'sub' | 'none' | 'active' | 'keep'>(
+    (vehicle.state || 'active') === 'active' ? 'active' : 'keep',
+  )
+  const [noSubReason, setNoSubReason] = useState('')
 
   // El modal abre en «— Sin cambios —» con todo desactivado: se elige QUÉ se
   // quiere hacer (cambiar de estado o registrar neumáticos) y solo entonces se
   // activan los campos que aplican. Antes abría en el estado actual con todas
   // las secciones vivas, y no se veía qué tocaba rellenar.
-  const [stateValue, setStateValue] = useState<string>('')
+  const [stateValue, setStateValue] = useState<string>(SIN_CAMBIOS)
   // Motivo del vínculo de sustitución, solo para los estados que no lo implican.
   const [linkReason, setLinkReason] = useState('')
   // Descripción libre del estado (se guarda como nota del evento del histórico).
@@ -172,6 +196,10 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
   const [toDriver, setToDriver] = useState(false)
   const [toSupervisor, setToSupervisor] = useState(false)
   const [message, setMessage] = useState('')
+
+  // Última lectura de km del coche: el kilometraje del parte no puede ser
+  // menor (el odómetro no anda hacia atrás). Se pide solo si hace falta.
+  const [lastKm, setLastKm] = useState<number | null>(null)
 
   // Parte guiado del cambio de neumáticos (los mismos campos que la PWA; el
   // comentario del parte es la «Descripción» de arriba).
@@ -187,8 +215,11 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
   const setTire = (name: keyof typeof tires, value: string) =>
     setTires((current) => ({ ...current, [name]: value }))
 
-  // Gestión de la petición: ubicación preferente para localizar el taller más cercano.
+  // Gestión de la petición: ubicación desde la que buscar el taller más cercano.
   const [managePostalCode, setManagePostalCode] = useState('')
+  // Prioridad de la petición que abre este guardado (neumáticos o estado con
+  // parte). La decide quien la abre; la lista de incidencias tría por ella.
+  const [priority, setPriority] = useState<string>(DEFAULT_PRIORITY)
 
   // Comunicado: el asunto y el cuerpo salen de una plantilla ya definida
   // (Ajustes → Plantillas); aquí solo se elige cuál y qué texto se le añade.
@@ -216,9 +247,19 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
     [docCopy],
   )
 
+  // Para buscar los campos del paso activo cuando toca validarlo.
+  const formRef = useRef<HTMLFormElement>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [info, setInfo] = useState('')
+  /**
+   * Resumen de lo guardado. Mientras exista, el formulario NO vuelve: una
+   * petición por apertura del modal. Para abrir otra hay que cerrarlo y
+   * volver a entrar, que es justo lo que evita duplicarla sin querer.
+   */
+  const [resumen, setResumen] = useState<{
+    titulo: string
+    filas: Array<[string, string]>
+  } | null>(null)
 
   // Plantillas definidas: son los «correos predefinidos» del selector.
   useEffect(() => {
@@ -232,6 +273,8 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
   const [openIncidents, setOpenIncidents] = useState<Incident[] | null>(null)
   const [openLoadFailed, setOpenLoadFailed] = useState(false)
   const loadOpenIncidents = useCallback(() => {
+    // Aunque «Estados abiertos» esté oculto, hacen falta: son las que RETIENEN
+    // al coche fuera de servicio, y de ellas depende que se pueda reactivar.
     listAll(listIncidents({ vehicle: vehicle.id }))
       .then((rows) => {
         setOpenIncidents(rows.filter((row) => row.status !== 'closed'))
@@ -245,6 +288,20 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
   useEffect(() => {
     loadOpenIncidents()
   }, [loadOpenIncidents])
+
+  // El mínimo del kilometraje sale de la última lectura, así que solo se pide
+  // cuando se va a registrar un parte de neumáticos.
+  useEffect(() => {
+    if (stateValue !== TIRES_OP) return
+    let alive = true
+    // `listKmReadingsAll` ordena por fecha descendente: la primera es la última.
+    listKmReadingsAll({ vehicle: vehicle.id })
+      .then((page) => alive && setLastKm(page.results[0]?.km_reading ?? null))
+      .catch(() => alive && setLastKm(null))
+    return () => {
+      alive = false
+    }
+  }, [stateValue, vehicle.id])
 
   // Vista previa del comunicado, con el texto escrito ya sustituido en la
   // plantilla. Debounce ligero para no pedirla en cada tecla.
@@ -286,6 +343,13 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
     () => links.find((l) => l.main_vehicle === vehicle.id && l.end_date === null) ?? null,
     [links, vehicle.id],
   )
+  // Sustitutos dados de alta aquí mismo: el prop `allVehicles` llegó con el
+  // modal y no se vuelve a pedir, así que se suman a mano.
+  const [subsNuevos, setSubsNuevos] = useState<Vehicle[]>([])
+  const vehiculosElegibles = useMemo(
+    () => [...allVehicles, ...subsNuevos],
+    [allVehicles, subsNuevos],
+  )
   const byId = useMemo(() => new Map(allVehicles.map((v) => [v.id, v])), [allVehicles])
   const busySubIds = useMemo(
     () => new Set(links.filter((l) => l.end_date === null).map((l) => l.substitute_vehicle)),
@@ -296,7 +360,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
     () => [
       { value: NONE, label: t.ops.choose },
       // Solo coches de sustitución: los disponibles primero; los ocupados en gris.
-      ...allVehicles
+      ...vehiculosElegibles
         .filter((v) => v.is_substitute && v.id !== vehicle.id)
         .map((v) => ({ v, available: !busySubIds.has(v.id) }))
         .sort(
@@ -308,7 +372,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
           disabled: !available,
         })),
     ],
-    [allVehicles, busySubIds, vehicle.id, t],
+    [vehiculosElegibles, busySubIds, vehicle.id, t],
   )
 
   // Mientras no han llegado, se enseña la del comunicado de estado: es la que
@@ -331,57 +395,207 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
     role === 'driver' ? t.ops.driverLabel : role === 'supervisor' ? t.ops.supervisorLabel : role
 
   // Qué activa cada elección del selector (lo pide la UX del modal):
-  // — «Sin cambios»: todo desactivado.
-  // — «Activo»: solo la descripción.
-  // — Neumáticos: TODO — su parte guiado, descripción (que hace de comentario
-  //   del parte), gestión, sustitución, archivos y comunicado.
-  // — Resto de estados no activos: descripción + gestión (si el estado abre
-  //   petición) + sustitución + archivos + comunicado.
-  const isNoChange = stateValue === ''
+  // — «Sin cambios»: nada, salvo la disponibilidad de un coche ya parado.
+  // — Cualquier incidencia: su petición, la disponibilidad, y con ella la
+  //   gestión, la sustitución, los archivos y el comunicado.
+  const isNoChange = stateValue === SIN_CAMBIOS
   const isTires = stateValue === TIRES_OP
-  const isActive = stateValue === 'active'
-  const isRealState = !isNoChange && !isTires
-  const canExtras = (isRealState && !isActive) || isTires
-  // Neumáticos no cambia el estado: si el coche está ACTIVO ahora, el back
-  // rechaza el vínculo («si el coche funciona, no hay sustitución», N9) — la
-  // sustitución se apaga solo en ese caso.
-  const vehicleActiveNow = (vehicle.state || 'active') === 'active'
-  const canLink = canExtras && !(isTires && vehicleActiveNow)
-  // Motivo que implica el estado elegido; undefined si no lo implica ninguno.
-  const derivedLinkReason = STATE_LINK_REASON[stateValue]
-  const linkReasonLabel = (value: string) =>
-    t.linkReasonOptions.find((o) => o.value === value)?.label ?? value
+  const isGeneral = stateValue === GENERAL_OP
+  const estadoActual = vehicle.state || 'active'
+  const vehicleActiveNow = estadoActual === 'active'
+  // Estado al que iría el coche SI se decide pararlo (v. CHOICE_STOPPED_STATE).
+  const stoppedState = isNoChange ? estadoActual : (CHOICE_STOPPED_STATE[stateValue] ?? 'non_active')
+  /**
+   * La disponibilidad SIEMPRE la decide su paso: el selector es el catálogo de
+   * incidencias y no toca el estado del coche. Con el coche en servicio la
+   * pregunta es si sigue (por defecto sí: una avería no lo para por sí sola —lo
+   * dice quien la abre); con el coche parado, si vuelve. De ahí que el paso
+   * esté vivo incluso en «— Sin cambios —» cuando el coche está fuera: es el
+   * camino de vuelta.
+   */
+  const decideAvail = !isNoChange || !vehicleActiveNow
+  const paraElCoche = availChoice === 'sub' || availChoice === 'none'
+  const targetState =
+    availChoice === 'active' ? 'active' : paraElCoche ? stoppedState : estadoActual
+  const canExtras = !isNoChange
+  // La sustitución es una consecuencia de la disponibilidad: existe cuando se
+  // elige «con coche de sustitución», y solo entonces. Un coche de sustitución
+  // no tiene sustituto, y uno que sigue rodando tampoco (el back rechaza el
+  // vínculo con el principal activo, N9 — y con esta opción deja de estarlo).
+  const canLink = !vehicle.is_substitute && availChoice === 'sub'
+  const wantLink = canLink && substitute !== NONE
+  // Motivo que implica lo elegido; undefined si no lo implica nada. Manda la
+  // incidencia sobre el estado: el cambio de neumáticos deja el coche «No
+  // activo - Mantenimiento», pero el sustituto lo cubre POR los neumáticos.
+  const derivedLinkReason = CHOICE_LINK_REASON[stateValue] ?? STATE_LINK_REASON[targetState]
 
-  // ¿El guardado abre una petición? Neumáticos siempre; un estado, cuando de
-  // verdad cambia y tiene tipo de incidencia equivalente. Solo entonces la
-  // sección de gestión tiene a qué engancharse.
-  const stateIncidentType = STATE_INCIDENT_TYPE[stateValue]
-  const opensPetition =
-    isTires || (isRealState && stateValue !== vehicle.state && Boolean(stateIncidentType))
+  // ¿El guardado abre una petición? La abre lo ELEGIDO, no el cambio de
+  // estado: el selector es el catálogo de incidencias, y el coche puede seguir
+  // activo con una recién abierta.
+  const choiceIncidentType = CHOICE_INCIDENT_TYPE[stateValue]
+  const opensPetition = Boolean(choiceIncidentType)
+  // …pero no todas van a un taller: una petición general puede no tener ni que
+  // ver con el coche (documentación, tarjetas), así que no se le pide dónde.
+  const gestionaTaller = opensPetition && !isGeneral
 
-  // Selector de estado AGRUPADO (optgroup): disponibilidad / mantenimiento
-  // (con el cambio de neumáticos) / avería / ITV. «Accidentado» no se ofrece
-  // aquí: el accidente se comunica con su parte (menú ⋮ → Comunicar accidente).
+  /**
+   * La petición que RETIENE al coche fuera de servicio, si la hay.
+   *
+   * Un coche no vuelve a Activo por decreto: primero se resuelve lo que lo
+   * paró —y es al resolverlo donde se decide si vuelve—. Solo cuando no queda
+   * ninguna (se resolvió sin reactivarlo, o se le puso «No activo» a mano
+   * desde la ficha) tiene sentido ofrecer «Activo» aquí.
+   */
+  const bloqueo = vehicleActiveNow
+    ? null
+    : ((openIncidents ?? []).find((inc) => BLOQUEAN.has(inc.type)) ?? null)
+  const puedeActivar = !vehicleActiveNow && !bloqueo
+
+  /**
+   * Las opciones de disponibilidad, en el orden en que se leen. Con el coche
+   * EN SERVICIO la pregunta es si sigue (y si no, con qué recambio); con el
+   * coche PARADO, si vuelve —y eso depende de que no quede nada reteniéndolo—.
+   * «Con coche de sustitución» no se ofrece a un coche que YA es el sustituto
+   * de otro.
+   */
+  const opcionesAvail: Array<{
+    key: 'sub' | 'none' | 'active' | 'keep'
+    label: string
+    hint: string
+    tone: 'ok' | 'bad'
+    off?: boolean
+  }> = [
+    ...(vehicle.is_substitute
+      ? []
+      : [
+          {
+            key: 'sub' as const,
+            label: t.ops.availWithSub,
+            hint: t.ops.availWithSubHint,
+            tone: 'bad' as const,
+          },
+        ]),
+    ...(vehicleActiveNow
+      ? [
+          {
+            key: 'none' as const,
+            label: t.ops.availWithoutSub,
+            hint: t.ops.availWithoutSubHint,
+            tone: 'bad' as const,
+          },
+          {
+            key: 'active' as const,
+            label: t.ops.availStaysActive,
+            hint: t.ops.availActiveNote,
+            tone: 'ok' as const,
+          },
+        ]
+      : [
+          {
+            key: 'keep' as const,
+            label: t.ops.availStaysOut,
+            hint: t.ops.availStaysOutHint,
+            tone: 'bad' as const,
+          },
+          {
+            key: 'active' as const,
+            label: t.ops.availBackToService,
+            hint: t.ops.availBackToServiceHint,
+            tone: 'ok' as const,
+            // La vuelta al servicio no es un decreto: mientras una petición lo
+            // retenga, la opción está cerrada.
+            off: !puedeActivar,
+          },
+        ]),
+  ]
+
+  // El borde del paso «Disponibilidad» canta la consecuencia de un vistazo:
+  // verde si el coche queda en servicio, rojo si se queda fuera.
+  const availTone = availChoice === 'active' ? 'ok' : availChoice === '' ? undefined : 'bad'
+
+  /**
+   * Los pasos del formulario, en el orden en que se rellenan. Cada uno se
+   * **habilita cuando el anterior queda resuelto**: con «— Sin cambios —» solo
+   * hay el primero (más la disponibilidad, si el coche está parado), y al
+   * elegir qué se hace se encienden los que ese caso permite: la gestión solo
+   * si la petición va a un taller, archivos y comunicado con cualquier
+   * incidencia. El coche de sustitución NO es un paso: es una consecuencia de
+   * la disponibilidad, y vive dentro de ella.
+   */
+  const pasos: Array<Paso<SectionKey>> = [
+    { key: 'state', label: t.ops.stateSection, off: false },
+    { key: 'avail', label: t.ops.availSection, off: !decideAvail },
+    ...(isTires ? [{ key: 'tires' as const, label: t.ops.tiresSection, off: false }] : []),
+    { key: 'manage', label: t.ops.manageSection, off: !gestionaTaller },
+    { key: 'docs', label: t.ops.docsSection, off: !canExtras },
+    { key: 'com', label: t.ops.comSection, off: !canExtras },
+  ]
+  const {
+    paso: pasoActivo,
+    setPaso,
+    pasoPrevio,
+    pasoSiguiente,
+    avanzar,
+    alInvalido,
+  } = useAsistente<SectionKey>({
+    pasos,
+    formRef,
+    // La disponibilidad es el único paso con reglas que el navegador no sabe.
+    reglas: (p) => (p === 'avail' ? errorDisponibilidad() : ''),
+    onError: setError,
+  })
+  // El botón principal no promete lo que no hay: con «Sin cambios» y sin tocar
+  // la disponibilidad no queda nada que guardar.
+  const nadaQueGuardar = isNoChange && targetState === estadoActual && !wantLink
+
+  /**
+   * Lo que este formulario exige en el paso «Disponibilidad» y el navegador no
+   * puede saber: la decisión está tomada y, si el coche sale, con qué recambio.
+   * Cadena vacía = nada que objetar.
+   */
+  function errorDisponibilidad(): string {
+    if (!decideAvail) return ''
+    if (availChoice === '') return t.ops.availRequired
+    // El motivo de salir sin sustituto NO se exige: si se escribe, va al
+    // histórico; si no, el coche sale igual.
+    if (availChoice === 'sub' && substitute === NONE) return t.ops.availSubRequired
+    return ''
+  }
+
+  /**
+   * Selector AGRUPADO (optgroup) con las incidencias que se abren a mano, y
+   * SOLO con ellas. Fuera quedan, cada una porque su sitio está en otra parte:
+   * la disponibilidad (la decide el paso «Disponibilidad», y el estado suelto
+   * se edita en la ficha), el mantenimiento PROGRAMADO (va sobre su plan:
+   * menú ⋮ → «Programar ITV y mantenimiento», y se cierra con «Ya se pasó la
+   * revisión»), el accidente (⋮ → «Comunicar accidente», con su parte) y la
+   * ITV, que es una ALERTA.
+   */
   const stateChoiceOptions = useMemo(() => {
-    const label = (value: string) =>
-      t.stateOptions.find((option) => option.value === value)?.label ?? value
     return [
-      { value: '', label: t.ops.noChange },
-      { value: 'active', label: label('active'), group: t.ops.groupAvailability },
-      { value: 'non_active', label: label('non_active'), group: t.ops.groupAvailability },
-      { value: 'maintenance', label: label('maintenance'), group: t.ops.groupMaintenance },
+      { value: SIN_CAMBIOS, label: t.ops.noChange },
+      // Mismo nombre que en el catálogo de incidencias.
+      { value: 'maintenance', label: t.ops.maintenanceOnceOption, group: t.ops.groupMaintenance },
       { value: TIRES_OP, label: t.ops.tiresOption, group: t.ops.groupMaintenance },
-      { value: 'broken', label: label('broken'), group: t.ops.groupBreakdown },
-      { value: 'itv', label: label('itv'), group: t.ops.groupItv },
+      { value: 'broken', label: t.ops.breakdownOption, group: t.ops.groupBreakdown },
+      { value: GENERAL_OP, label: t.ops.generalOption, group: t.ops.groupOther },
     ]
   }, [t])
 
-  // Cambiar la elección: «sin cambios» y «activo» no pueden tener sustituto →
-  // se limpia; los estados no activos y los neumáticos arrancan el inicio hoy.
+  const priorityChoices = useMemo(() => priorityOptions(t.priority), [t])
+
+  // Cambiar la elección: sin incidencia no hay sustitución que valga → se
+  // limpia; con ella, el vínculo arranca hoy.
   function onChangeState(next: string) {
     setStateValue(next)
     setManagePostalCode('')
-    if (next === '' || next === 'active') {
+    // La disponibilidad la decide el paso siguiente, y arranca en «como está»:
+    // el coche que rueda sigue rodando, el que está parado sigue parado.
+    setAvailChoice(vehicleActiveNow ? 'active' : 'keep')
+    // El motivo del vínculo es el mismo dato que la incidencia: entra ya
+    // elegido (y se puede cambiar).
+    setLinkReason(CHOICE_LINK_REASON[next] ?? '')
+    if (next === SIN_CAMBIOS) {
       setSubstitute(NONE)
       setStart('')
       setEnd('')
@@ -434,19 +648,24 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError('')
-    setInfo('')
-    const wantState = isRealState && stateValue !== vehicle.state
-    // Sustitución, archivos y comunicado aplican a los estados NO activos y al
-    // cambio de neumáticos: con «activo» o «sin cambios» sus secciones están
-    // desactivadas y lo que quedara escrito en ellas no debe viajar.
-    const wantLink = canLink && substitute !== NONE
+    const wantState = targetState !== estadoActual
+    // Archivos y comunicado aplican a cualquier elección que no sea «sin
+    // cambios»: ahí sus secciones están desactivadas y lo que quedara escrito
+    // en ellas no debe viajar.
     // El cuerpo lo pone la plantilla: basta con elegir destinatario. El texto
     // escrito es un añadido opcional ({{mensaje}}), no el comunicado entero.
     const wantCom = canExtras && (toDriver || toSupervisor)
     const wantDocs = canExtras && (docFiles.length > 0 || docUrl.trim() !== '')
-    const wantManage = opensPetition && /^[0-9]{5}$/.test(managePostalCode)
-    if (!isTires && !wantState && !wantLink && !wantCom && !wantDocs) {
+    const wantManage = gestionaTaller && /^[0-9]{5}$/.test(managePostalCode)
+    if (!opensPetition && !wantState && !wantLink && !wantCom && !wantDocs) {
       setError(t.ops.nothingToDo)
+      return
+    }
+    // Sacar el coche de la calle exige decir qué pasa con la sustitución.
+    const falloAvail = errorDisponibilidad()
+    if (falloAvail) {
+      setPaso('avail')
+      setError(falloAvail)
       return
     }
     if (end && start && end < start) {
@@ -468,42 +687,54 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
     setSaving(true)
     try {
       // La nota del evento es la descripción tal cual: el tipo de evento ya sale
-      // del estado, así que repetirlo en el texto solo duplicaría el dato.
+      // del estado, así que repetirlo en el texto solo duplicaría el dato. Si
+      // el coche sale sin sustituto, el porqué se guarda AHÍ: es parte de la
+      // decisión de dejarlo parado, y el histórico tiene que poder contarla.
       const changeReason = description.trim()
-      // 1) Estado (el PATCH con change_reason emite el evento de cambio) — o,
-      // en el cambio de neumáticos, la incidencia con su parte guiado (la
-      // descripción hace de comentario del parte; el estado no se toca).
-      // Los estados con tipo equivalente abren ADEMÁS su petición: es lo que
-      // luego se sigue, gestiona y resuelve en «Estados abiertos».
+      // El porqué de salir sin sustituto va en la nota del CAMBIO DE ESTADO, no
+      // en la petición: es parte de la decisión de dejarlo parado, no del
+      // encargo al taller.
+      const estadoReason = [
+        changeReason,
+        paraElCoche && availChoice === 'none' && noSubReason.trim()
+          ? t.ops.availReasonNote(noSubReason.trim())
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' — ')
+      // 1) La disponibilidad y la petición son dos decisiones distintas, así
+      // que se aplican por separado: el estado solo se toca si el coche sale
+      // de servicio (el PATCH con change_reason emite el evento de cambio), y
+      // la petición se abre igual aunque el coche siga rodando — es lo que
+      // luego se sigue, gestiona y resuelve desde la ficha.
       let petitionId: number | null = null
-      if (isTires) {
-        const created = await createIncident({
-          vehicle: vehicle.id,
-          type: 'tires',
-          date: todayIso(),
-          description: changeReason,
-          mileage: tires.mileage ? Number(tires.mileage) : null,
-          workshop_postal_code: managePostalCode,
-          details: tiresDetails(),
-        })
-        petitionId = created?.id ?? null
-      } else if (wantState) {
+      if (wantState) {
         await updateVehicleFields(vehicle.id, {
-          state: stateValue,
-          change_reason: changeReason,
+          state: targetState,
+          change_reason: estadoReason,
           expected_updated_at: vehicle.updated_at,
         })
-        if (stateIncidentType) {
-          const created = await createIncident({
-            vehicle: vehicle.id,
-            type: stateIncidentType,
-            date: todayIso(),
-            description: changeReason,
-          })
-          petitionId = created?.id ?? null
-        }
       }
-      // 1b) Gestión de la petición recién abierta: ubicación preferente.
+      if (opensPetition) {
+        const created = await createIncident({
+          vehicle: vehicle.id,
+          type: choiceIncidentType,
+          priority,
+          date: todayIso(),
+          description: changeReason,
+          // El parte guiado es propio del cambio de neumáticos (GAP-6): la
+          // descripción hace de comentario del parte.
+          ...(isTires
+            ? {
+                mileage: tires.mileage ? Number(tires.mileage) : null,
+                workshop_postal_code: managePostalCode,
+                details: tiresDetails(),
+              }
+            : {}),
+        })
+        petitionId = created?.id ?? null
+      }
+      // 1b) Gestión de la petición recién abierta: su ubicación.
       const managed = petitionId != null && wantManage
       if (managed) {
         await manageIncident(petitionId as number, managePayload())
@@ -551,17 +782,53 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
       // Se abrió una petición: la pestaña «Estados abiertos» debe reflejarla.
       if (petitionId != null || isTires) loadOpenIncidents()
       // Con petición, comunicado o archivos, mostramos el resultado; si no, cerramos.
-      const parts: string[] = []
-      if (isTires) parts.push(t.ops.tiresCreated)
-      else if (petitionId != null) {
-        const stateLabel = t.stateOptions.find((o) => o.value === stateValue)?.label ?? stateValue
-        parts.push(t.ops.petitionCreated(stateLabel))
+      // Resumen de lo que ha pasado, línea a línea: es lo último que se ve y
+      // tiene que poder leerse sin recordar lo que se acaba de rellenar.
+      // La petición se nombra por lo ELEGIDO, no por el estado: el coche puede
+      // haberse quedado como estaba.
+      const choiceLabel =
+        stateChoiceOptions.find((o) => o.value === stateValue)?.label ?? stateValue
+      const filas: Array<[string, string]> = []
+      if (petitionId != null) {
+        filas.push([t.ops.sumPetition, choiceLabel])
+        filas.push([
+          t.priority.label,
+          priorityChoices.find((p) => p.value === priority)?.label ?? priority,
+        ])
+        filas.push([t.ops.sumDate, todayIso()])
+        if (changeReason) filas.push([t.ops.description, changeReason])
+        if (managed) filas.push([t.ops.sumWorkshop, managePostalCode])
       }
-      if (managed) parts.push(t.ops.manageSaved)
-      if (comInfo) parts.push(comInfo)
-      if (docsCount) parts.push(t.ops.docsSaved(docsCount))
-      if (parts.length) setInfo(parts.join(' '))
-      else onClose()
+      filas.push([
+        t.ops.availSection,
+        availChoice === 'active'
+          ? t.ops.availStaysActive
+          : availChoice === 'sub'
+            ? t.ops.availWithSub
+            : availChoice === 'none'
+              ? `${t.ops.availWithoutSub} · ${noSubReason.trim()}`
+              : t.ops.availStaysOut,
+      ])
+      if (wantState) {
+        filas.push([
+          t.ops.sumState,
+          t.stateOptions.find((o) => o.value === targetState)?.label ?? targetState,
+        ])
+      }
+      if (wantLink) {
+        const sub = byId.get(Number(substitute))
+        filas.push([t.ops.subSection, `${sub?.plate ?? substitute}${start ? ` · ${start}` : ''}`])
+      }
+      if (docsCount) filas.push([t.ops.docsSection, t.ops.docsSaved(docsCount)])
+      if (comInfo) filas.push([t.ops.comSection, comInfo])
+      setResumen({
+        titulo: isTires
+          ? t.ops.tiresCreated
+          : petitionId != null
+            ? t.ops.petitionCreated(choiceLabel)
+            : t.ops.savedOk,
+        filas,
+      })
     } catch (err) {
       setError(asErrorMessage(err, t.ops.errGeneric))
     } finally {
@@ -569,13 +836,67 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
     }
   }
 
-  // Vista de resultado tras enviar comunicado.
-  if (info) {
+  /**
+   * «Nuevo estado» desde el resumen: se recoge todo y vuelve el formulario en
+   * blanco. Es la única puerta de vuelta —el resumen no se puede esquivar
+   * cambiando de pestaña—, así que abrir dos peticiones seguidas es siempre
+   * una decisión, no un descuido.
+   */
+  function nuevoEstado() {
+    setResumen(null)
+    setError('')
+    setPaso('state')
+    setStateValue(SIN_CAMBIOS)
+    setDescription('')
+    setAvailChoice(vehicleActiveNow ? 'active' : 'keep')
+    setNoSubReason('')
+    setSubstitute(NONE)
+    setLinkReason('')
+    setStart('')
+    setEnd('')
+    setManagePostalCode('')
+    setPriority(DEFAULT_PRIORITY)
+    setDocFiles([])
+    setDocUrl('')
+    setMessage('')
+    setToDriver(false)
+    setToSupervisor(false)
+    setTires({
+      mileage: '',
+      changeReason: '',
+      wheelScope: 'front',
+      wheel: 'front_left',
+      frontMeasure: '',
+      rearMeasure: '',
+      tireMeasure: '',
+    })
+  }
+
+  // Vista de resultado: el resumen de lo guardado. Del formulario solo se
+  // vuelve por «Nuevo estado» (ver `resumen`).
+  if (resumen) {
     return (
       <div className="ops-modal">
-        <div className="ops-success" role="status">{info}</div>
+        <div className="ops-success" role="status">{resumen.titulo}</div>
+        <dl className="ops-resumen">
+          {resumen.filas.map(([campo, valor]) => (
+            <div key={campo} className="ops-resumen-fila">
+              <dt>{campo}</dt>
+              <dd>{valor}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="muted ops-note">{t.ops.sumWhereNote}</p>
+        {/* Mismo pie que el formulario: los botones caen donde estaban. */}
         <div className="ops-actions">
-          <Button variant="primary" onClick={onClose}>{t.ops.close}</Button>
+          <div className="ops-actions-end">
+            <Button type="button" variant="secondary" onClick={nuevoEstado}>
+              {t.ops.newState}
+            </Button>
+            <Button type="button" variant="primary" onClick={onClose}>
+              {t.ops.close}
+            </Button>
+          </div>
         </div>
       </div>
     )
@@ -593,47 +914,54 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
         <span>{t.ops.supervisorLabel}: <strong>{vehicle.supervisor_name || t.ops.none}</strong></span>
       </div>
 
-      <div className="ops-tabs" role="tablist" aria-label={t.ops.title(vehicle.plate)}>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'new'}
-          className={`ops-tab${tab === 'new' ? ' is-active' : ''}`}
-          onClick={() => setTab('new')}
-        >
-          {t.ops.tabNew}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'open'}
-          className={`ops-tab${tab === 'open' ? ' is-active' : ''}`}
-          onClick={() => setTab('open')}
-        >
-          {t.ops.tabOpen}
-          {openIncidents !== null && (
-            <span className="ops-tab-count">{openIncidents.length}</span>
-          )}
-        </button>
-      </div>
+      {/* Con «Estados abiertos» oculto no queda más que un panel: enseñar una
+          sola pestaña sería decorado. */}
+      {SHOW_OPEN_TAB && (
+        <div className="ops-tabs" role="tablist" aria-label={t.ops.title(vehicle.plate)}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'new'}
+            className={`ops-tab${tab === 'new' ? ' is-active' : ''}`}
+            onClick={() => setTab('new')}
+          >
+            {t.ops.tabNew}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'open'}
+            className={`ops-tab${tab === 'open' ? ' is-active' : ''}`}
+            onClick={() => setTab('open')}
+          >
+            {t.ops.tabOpen}
+            {openIncidents !== null && (
+              <span className="ops-tab-count">{openIncidents.length}</span>
+            )}
+          </button>
+        </div>
+      )}
 
-      {/* Un campo obligatorio vacío dentro de una sección plegada bloquearía el
-          envío sin que se vea el porqué: al primer inválido, se despliega todo. */}
       <form
+        ref={formRef}
         className="ops-form"
         onSubmit={submit}
         hidden={tab !== 'new'}
-        onInvalidCapture={() => setCollapsed(ALL_OPEN)}
+        onInvalidCapture={alInvalido}
       >
-        {/* 1 · La elección manda: «Sin cambios» deja todo desactivado, «Activo»
-            solo permite la descripción, neumáticos abre su parte guiado y el
-            resto de estados activan gestión, sustitución, archivos y comunicado. */}
-        <OpsSection
-          tone="state"
-          title={t.ops.stateSection}
-          collapsed={collapsed.state}
-          onToggle={() => toggleSection('state')}
-        >
+        {/* Los pasos, en orden. Los que aún no aplican van desactivados: se
+            encienden solos según lo elegido en el primero. */}
+        <OpsSteps
+          pasos={pasos}
+          activo={pasoActivo}
+          label={t.ops.stepsLabel}
+          bloqueado={t.ops.stepLocked}
+        />
+
+        {/* 1 · Qué le pasa al coche: la incidencia que se abre. Neumáticos
+            trae su parte guiado; el resto encienden gestión, disponibilidad,
+            sustitución, archivos y comunicado. */}
+        <OpsSection tone="state" hidden={pasoActivo !== 'state'}>
           <div className="ops-grid">
             {/* `required` también evita la fila «-- Ignorar --» del DS: aquí el
                 «no hacer nada» es la opción explícita «— Sin cambios —». */}
@@ -647,7 +975,6 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
             />
           </div>
           {isNoChange && <p className="muted ops-note">{t.ops.noChangeHint}</p>}
-          {isActive && <p className="muted ops-note">{t.ops.activeOnlyDescriptionHint}</p>}
           <label className="ops-field-label" htmlFor="ops-description">{t.ops.description}</label>
           {/* En neumáticos también vive: es el comentario del parte guiado. */}
           <textarea
@@ -657,25 +984,163 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
             placeholder={isTires ? t.ops.tiresCommentPlaceholder : t.ops.descriptionPlaceholder}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            disabled={!isRealState && !isTires}
+            disabled={isNoChange}
           />
+        </OpsSection>
+
+        {/* 1a · Disponibilidad: el ÚNICO sitio donde se decide si el coche
+            está en la calle. Con el coche rodando la pregunta es si sigue (por
+            defecto sí, y si sale: sustituto o motivo); con el coche parado, si
+            vuelve —y ahí manda la regla: primero se resuelve lo que lo paró—.
+            El borde lo canta: verde en servicio, rojo fuera. */}
+        <OpsSection tone="avail" accent={availTone} hidden={pasoActivo !== 'avail'}>
+          <fieldset className="ops-fieldset" disabled={!decideAvail}>
+            <p className="muted ops-note">
+              {!decideAvail
+                ? t.ops.availOffNote
+                : vehicleActiveNow
+                  ? t.ops.availIntro
+                  : t.ops.availIntroStopped}
+            </p>
+            <div className="avail-options">
+              {opcionesAvail.map((op) => (
+                <label
+                  key={op.key}
+                  className={`avail-option${availChoice === op.key ? ' is-on' : ''}`}
+                  data-tone={op.tone}
+                >
+                  <input
+                    type="radio"
+                    name="ops-avail"
+                    checked={availChoice === op.key}
+                    disabled={op.off}
+                    onChange={() => setAvailChoice(op.key)}
+                  />
+                  <span className="avail-option-main">
+                    <span className="avail-option-title">{op.label}</span>
+                    <span className="avail-option-hint">{op.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {bloqueo && (
+              <p className="ops-note tone-warn">{t.ops.blockedByIncident(bloqueo.type_display)}</p>
+            )}
+            {puedeActivar && <p className="muted ops-note">{t.ops.canReactivate}</p>}
+            {availChoice === 'none' && (
+              <TextInputField
+                label={t.ops.availReason}
+                aria-label={t.ops.availReason}
+                placeholder={t.ops.availReasonPlaceholder}
+                value={noSubReason}
+                onChange={(e) => setNoSubReason(e.target.value)}
+              />
+            )}
+
+            {/* El coche de sustitución no es un paso aparte: es lo que hay que
+                rellenar cuando se ha dicho que lo lleva, y aparece aquí mismo.
+                El vínculo vigente se enseña siempre: cerrarlo no depende de
+                lo que se elija ahora. */}
+            {activeLink && !vehicle.is_substitute && (
+              <div className="avail-sub">
+                <div className="ops-activelink">
+                  <span>
+                    {t.ops.activeLink}:{' '}
+                    <strong>
+                      {byId.get(activeLink.substitute_vehicle)?.plate ??
+                        `#${activeLink.substitute_vehicle}`}
+                    </strong>{' '}
+                    · {activeLink.start_date}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="sm"
+                    disabled={saving}
+                    onClick={handleCloseLink}
+                  >
+                    {t.ops.closeLink}
+                  </Button>
+                </div>
+              </div>
+            )}
+            {canLink && !activeLink && (
+              <div className="avail-sub">
+                <span className="avail-sub-title">{t.ops.subSection}</span>
+                <div className="ops-sub-row">
+                  {/* `required` no es por obligar a elegir —«— Elegir —» sigue
+                      valiendo, su value es el centinela `none`— sino para que
+                      el campo no ofrezca «-- Ignorar --» (llegaría al back como
+                      id). */}
+                  <SelectField
+                    label={t.ops.subSelect}
+                    aria-label={t.ops.subSelect}
+                    required
+                    requiredVisual
+                    options={substituteOptions}
+                    value={substitute}
+                    onValueChange={setSubstitute}
+                  />
+                  <TextInputField
+                    label={t.ops.start}
+                    aria-label={t.ops.start}
+                    type="date"
+                    value={start}
+                    onChange={(e) => setStart(e.target.value)}
+                  />
+                  <TextInputField
+                    label={t.ops.end}
+                    aria-label={t.ops.end}
+                    type="date"
+                    value={end}
+                    onChange={(e) => setEnd(e.target.value)}
+                  />
+                </div>
+                {/* El sustituto que hace falta puede no estar dado de alta: se
+                    crea aquí y queda elegido, sin perder lo escrito. */}
+                <div className="avail-sub-new">
+                  <CreateSubstituteButton
+                    disabled={saving}
+                    onCreated={(v) => {
+                      setSubsNuevos((prev) => [...prev, v])
+                      setSubstitute(String(v.id))
+                    }}
+                  />
+                </div>
+                {/* El motivo es del vínculo: entra precargado con lo elegido
+                    en «Estado del vehículo» y se puede cambiar. */}
+                {substitute !== NONE && (
+                  <div className="ops-grid">
+                    <SelectField
+                      label={t.ops.subReason}
+                      aria-label={t.ops.subReason}
+                      required
+                      requiredVisual
+                      options={[{ value: '', label: t.ops.choose }, ...t.linkReasonOptions]}
+                      value={linkReason || derivedLinkReason || ''}
+                      onValueChange={setLinkReason}
+                    />
+                  </div>
+                )}
+                <p className="muted ops-note">{t.ops.subNote}</p>
+              </div>
+            )}
+          </fieldset>
         </OpsSection>
 
         {/* 1b · Cambio de neumáticos: el mismo parte guiado que la app de campo
             (GAP-6) — se crea una incidencia, el estado no se toca. */}
         {isTires && (
-          <OpsSection
-            tone="tires"
-            title={t.ops.tiresSection}
-            collapsed={collapsed.tires}
-            onToggle={() => toggleSection('tires')}
-          >
+          <OpsSection tone="tires" hidden={pasoActivo !== 'tires'}>
             <div className="ops-grid">
               <TextInputField
                 label={t.ops.tiresMileage}
                 aria-label={t.ops.tiresMileage}
+                requiredVisual
                 type="number"
-                min={0}
+                // El odómetro no anda hacia atrás: por debajo de la última
+                // lectura el navegador ya no deja pasar de paso.
+                min={lastKm ?? 0}
                 value={tires.mileage}
                 onChange={(e) => setTire('mileage', e.target.value)}
                 required
@@ -684,6 +1149,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
                 label={t.ops.tiresChangeReason}
                 aria-label={t.ops.tiresChangeReason}
                 required
+                requiredVisual
                 options={[
                   { value: '', label: t.ops.choose },
                   { value: 'wear', label: t.ops.tiresWear },
@@ -693,6 +1159,8 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
                 onValueChange={(value) => setTire('changeReason', value)}
               />
             </div>
+            {/* El DS no tiene pie de ayuda en el campo: la referencia va debajo. */}
+            {lastKm != null && <p className="muted ops-note">{t.ops.tiresMileageMin(lastKm)}</p>}
             {tires.changeReason === 'wear' && (
               <div className="ops-grid">
                 <SelectField
@@ -711,6 +1179,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
                   <TextInputField
                     label={t.ops.tiresFrontMeasure}
                     aria-label={t.ops.tiresFrontMeasure}
+                    requiredVisual
                     value={tires.frontMeasure}
                     onChange={(e) => setTire('frontMeasure', e.target.value)}
                     required
@@ -720,6 +1189,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
                   <TextInputField
                     label={t.ops.tiresRearMeasure}
                     aria-label={t.ops.tiresRearMeasure}
+                    requiredVisual
                     value={tires.rearMeasure}
                     onChange={(e) => setTire('rearMeasure', e.target.value)}
                     required
@@ -745,6 +1215,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
                 <TextInputField
                   label={t.ops.tiresMeasure}
                   aria-label={t.ops.tiresMeasure}
+                  requiredVisual
                   value={tires.tireMeasure}
                   onChange={(e) => setTire('tireMeasure', e.target.value)}
                   required
@@ -755,16 +1226,23 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
           </OpsSection>
         )}
 
-        {/* 1c · Gestión: ubicación preferente para localizar el taller cercano. */}
-        <OpsSection
-          tone="manage"
-          title={t.ops.manageSection}
-          off={!opensPetition}
-          collapsed={collapsed.manage}
-          onToggle={() => toggleSection('manage')}
-        >
-          <fieldset className="ops-fieldset" disabled={!opensPetition}>
+        {/* 1c · Gestión: la ubicación desde la que se busca el taller cercano. */}
+        <OpsSection tone="manage" hidden={pasoActivo !== 'manage'}>
+          <fieldset className="ops-fieldset" disabled={!gestionaTaller}>
             <div className="ops-grid">
+              {/* La prioridad la decide quien abre la petición y viaja con el
+                  alta: la lista de incidencias tría por ella. */}
+              <SelectField
+                label={t.priority.label}
+                aria-label={t.priority.label}
+                options={priorityChoices}
+                value={priority}
+                onValueChange={setPriority}
+                required
+              />
+              {/* Opcional: sin él la petición se abre igual, solo que sin
+                  ubicación desde la que buscar taller. El patrón sí manda si
+                  se escribe algo. */}
               <TextInputField
                 label={t.ops.managePostalCode}
                 aria-label={t.ops.managePostalCode}
@@ -773,111 +1251,17 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
                 maxLength={5}
                 value={managePostalCode}
                 onChange={(e) => setManagePostalCode(e.target.value)}
-                required
               />
             </div>
             <p className="muted ops-note">
-              {opensPetition ? t.ops.manageNote : t.ops.manageOffNote}
+              {gestionaTaller ? t.ops.manageNote : t.ops.manageOffNote}
             </p>
           </fieldset>
         </OpsSection>
 
-        {/* 2 · Coche de sustitución (no aplica a coches de sustitución). Solo
-            cobra sentido con un estado NO activo elegido: si no, va atenuada y
-            desactivada. Cerrar un vínculo vigente sí está siempre disponible. */}
-        {!vehicle.is_substitute && (
-          <OpsSection
-            tone="sub"
-            title={t.ops.subSection}
-            off={!(canLink || activeLink)}
-            collapsed={collapsed.sub}
-            onToggle={() => toggleSection('sub')}
-          >
-            {activeLink ? (
-              <div className="ops-activelink">
-                <span>
-                  {t.ops.activeLink}:{' '}
-                  <strong>
-                    {byId.get(activeLink.substitute_vehicle)?.plate ??
-                      `#${activeLink.substitute_vehicle}`}
-                  </strong>{' '}
-                  · {activeLink.start_date}
-                </span>
-                <Button type="button" variant="danger" size="sm" disabled={saving} onClick={handleCloseLink}>
-                  {t.ops.closeLink}
-                </Button>
-              </div>
-            ) : (
-              <>
-                <div className="ops-sub-row">
-                  {/* `required` no es por obligar a elegir —«— Elegir —» sigue
-                      valiendo, su value es el centinela `none`— sino para que el
-                      campo no ofrezca «-- Ignorar --» (llegaría al back como id). */}
-                  <SelectField
-                    label={t.ops.subSelect}
-                    required
-                    options={
-                      canLink
-                        ? substituteOptions
-                        : [{ value: NONE, label: isActive ? t.ops.ignoreActive : t.ops.choose }]
-                    }
-                    value={substitute}
-                    onValueChange={setSubstitute}
-                    disabled={!canLink}
-                  />
-                  <TextInputField
-                    label={t.ops.start}
-                    type="date"
-                    value={start}
-                    onChange={(e) => setStart(e.target.value)}
-                    disabled={!canLink}
-                  />
-                  <TextInputField
-                    label={t.ops.end}
-                    type="date"
-                    value={end}
-                    onChange={(e) => setEnd(e.target.value)}
-                    disabled={!canLink}
-                  />
-                </div>
-                {/* El motivo es del vínculo, así que vive aquí: se enseña deducido
-                    del estado, y se pregunta cuando el estado no lo implica. */}
-                {substitute !== NONE && canLink && (
-                  derivedLinkReason ? (
-                    <p className="muted ops-note">
-                      {t.ops.subReasonFromState(linkReasonLabel(derivedLinkReason))}
-                    </p>
-                  ) : (
-                    <div className="ops-grid">
-                      <SelectField
-                        label={t.ops.subReason}
-                        required
-                        options={[{ value: '', label: t.ops.choose }, ...t.linkReasonOptions]}
-                        value={linkReason}
-                        onValueChange={setLinkReason}
-                      />
-                    </div>
-                  )
-                )}
-                {/* Con el coche activo (elegido o de facto en neumáticos) se explica
-                    por qué no hay sustitución que elegir. */}
-                <p className="muted ops-note">
-                  {isActive || (isTires && vehicleActiveNow) ? t.ops.activeNote : t.ops.subNote}
-                </p>
-              </>
-            )}
-          </OpsSection>
-        )}
-
         {/* 3 · Archivos del estado (estados no activos y cambio de neumáticos).
             Siempre a la vista; el fieldset desactiva todo cuando no aplica. */}
-        <OpsSection
-          tone="docs"
-          title={t.ops.docsSection}
-          off={!canExtras}
-          collapsed={collapsed.docs}
-          onToggle={() => toggleSection('docs')}
-        >
+        <OpsSection tone="docs" hidden={pasoActivo !== 'docs'}>
           <fieldset className="ops-fieldset" disabled={!canExtras}>
             <div className="ops-grid">
               <SelectField
@@ -888,15 +1272,13 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
                 onValueChange={setDocType}
               />
             </div>
-            <label className="file-field">
-              <span>{t.ops.docFiles}</span>
-              <input
-                type="file"
-                multiple
-                accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
-                onChange={(e) => setDocFiles(e.target.files ? Array.from(e.target.files) : [])}
-              />
-            </label>
+            <FileField
+              label={t.ops.docFiles}
+              multiple
+              accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
+              value={docFiles}
+              onFiles={setDocFiles}
+            />
             <TextInputField
               label={t.ops.docUrl}
               value={docUrl}
@@ -911,13 +1293,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
             elige cuál, a quién va y qué texto se le añade. Vive con los estados
             no activos y con el cambio de neumáticos (el fieldset desactiva todo
             lo de dentro; para un correo suelto está el botón «Enviar correo»). */}
-        <OpsSection
-          tone="com"
-          title={t.ops.comSection}
-          off={!canExtras}
-          collapsed={collapsed.com}
-          onToggle={() => toggleSection('com')}
-        >
+        <OpsSection tone="com" hidden={pasoActivo !== 'com'}>
           <fieldset className="ops-fieldset" disabled={!canExtras}>
           <EmailOptions
             useTemplate={useTemplate}
@@ -996,17 +1372,43 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
 
         {error && <div role="alert" className="form-error">{error}</div>}
 
+        {/* Pie fijo: los botones no se van con el scroll del paso, y son el
+            ÚNICO modo de moverse por él. */}
         <div className="ops-actions">
           <Button type="button" variant="secondary" onClick={onClose}>{t.ops.cancel}</Button>
-          {/* Con «— Sin cambios —» no hay nada que guardar: el botón lo dice. */}
-          <Button type="submit" variant="primary" disabled={saving || isNoChange}>
-            {saving ? t.ops.saving : t.ops.save}
-          </Button>
+          <div className="ops-actions-end">
+            {/* Guardar no sustituye a «Siguiente»: aparece —entrando desde la
+                derecha— cuando ya no queda paso al que ir. */}
+            {!pasoSiguiente && (
+              <span className="ops-save-in">
+                <Button type="submit" variant="primary" disabled={saving || nadaQueGuardar}>
+                  {saving ? t.ops.saving : t.ops.save}
+                </Button>
+              </span>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!pasoPrevio}
+              onClick={() => pasoPrevio && setPaso(pasoPrevio.key)}
+            >
+              {t.ops.back}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!pasoSiguiente}
+              onClick={avanzar}
+            >
+              {t.ops.next}
+            </Button>
+          </div>
         </div>
       </form>
 
       {tab === 'open' && (
         <OpenIncidentsPanel
+          vehicle={vehicle}
           incidents={openIncidents}
           loadFailed={openLoadFailed}
           onReload={loadOpenIncidents}

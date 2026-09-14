@@ -7,10 +7,16 @@ descubra y para poder importar `from fleet.models import Vehicle, ...`.
 from .alert import Alert
 from .assignment import (
     Assignment,
+    SupervisorPeriod,
     VehicleLink,
     VehicleUsage,
+    assignment_overlap_message,
     driver_assignment_clash,
     driver_clash_message,
+    periodo_texto,
+    supervisor_overlap_message,
+    supervisor_period_overlap,
+    vehicle_assignment_overlap,
 )
 from .catalogs import (
     Brand,
@@ -33,6 +39,7 @@ from .event import (
     Event,
     EventDriverChange,
     EventFeeChange,
+    EventInsuranceRenewal,
     EventItv,
     EventLocationChange,
     EventPenalty,
@@ -43,7 +50,7 @@ from .event import (
 from .idempotency import IdempotencyRecord
 from .incident import AccidentInjured, AccidentReport, AccidentThirdParty, Incident
 from .invoice import Invoice, InvoiceAllocation
-from .maintenance import MaintenancePlan
+from .maintenance import MaintenancePlan, MaintenanceProgram
 from .notification import NotificationSchedule
 from .request import VehicleRequest
 from .vehicle import Vehicle
@@ -60,6 +67,7 @@ __all__ = [
     "Workshop",
     "FuelConsumption",
     "MaintenancePlan",
+    "MaintenanceProgram",
     "BusinessUnit",
     "Company",
     "VehicleModel",
@@ -71,10 +79,16 @@ __all__ = [
     "Contract",
     "KmReading",
     "Assignment",
+    "SupervisorPeriod",
     "VehicleLink",
     "VehicleUsage",
+    "assignment_overlap_message",
     "driver_assignment_clash",
     "driver_clash_message",
+    "periodo_texto",
+    "supervisor_overlap_message",
+    "supervisor_period_overlap",
+    "vehicle_assignment_overlap",
     "Event",
     "EventPenalty",
     "EventFeeChange",
@@ -84,6 +98,7 @@ __all__ = [
     "EventPepChange",
     "EventDriverChange",
     "EventSupervisorChange",
+    "EventInsuranceRenewal",
     "Invoice",
     "InvoiceAllocation",
     "IdempotencyRecord",

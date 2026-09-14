@@ -34,6 +34,7 @@ from fleet.models.enums import (
     AlertLevel,
     AssignmentStatus,
     EventType,
+    IncidentPriority,
     IncidentType,
     VehicleState,
 )
@@ -520,7 +521,36 @@ class BreakdownLaunchFlowTests(APITestCase):
             },
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
-        self.assertEqual(resp.data["type_display"], "General")
+        self.assertEqual(resp.data["type_display"], "Petición general")
+
+    def test_priority_is_chosen_by_whoever_opens_the_incident(self):
+        """La prioridad la decide quien abre la petición (la alerta, en cambio,
+        calcula su nivel por la fecha). Sin indicarla queda «Moderada»."""
+        resp = self.client.post(
+            reverse("incident-list"),
+            {
+                "vehicle": self.vehicle.pk,
+                "type": IncidentType.BREAKDOWN,
+                "priority": IncidentPriority.CRITICAL,
+                "description": "Sin frenos: el coche no se puede mover.",
+            },
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["priority"], "critical")
+        self.assertEqual(resp.data["priority_display"], "Crítica")
+
+        # Por defecto, moderada: lo registrado sin pensarlo no entra como crítico.
+        default = self.client.post(
+            reverse("incident-list"),
+            {"vehicle": self.vehicle.pk, "type": IncidentType.GENERAL, "description": "Duda."},
+        )
+        self.assertEqual(default.status_code, status.HTTP_201_CREATED, default.data)
+        self.assertEqual(default.data["priority"], "moderate")
+
+        # Y se filtra por ella (columna del listado de gestión).
+        listed = self.client.get(reverse("incident-list"), {"priority": "critical"})
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["id"] for row in listed.data["results"]], [resp.data["id"]])
 
 
 class MaintenancePlanTests(APITestCase):
@@ -732,9 +762,10 @@ class ReturnVehicleTests(APITestCase):
         self.vehicle.state = VehicleState.BAJA
         self.vehicle.save(update_fields=["state"])
         resp = self.client.post(self.url, {})
-        # 404: los de baja no están en el queryset por defecto del viewset
-        # (mismo comportamiento que el resto de acciones de detalle).
-        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+        # 400: el detalle SÍ resuelve los coches de baja (la ficha debe poder
+        # abrirse — 2026-09-08), así que la devolución se rechaza con un error
+        # explícito en vez de un 404 que escondía el motivo.
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_only_admin_can_return(self):
         supervisor = make_user("ret-sup", Role.SUPERVISOR)
@@ -835,7 +866,10 @@ class MaintenanceDoneAndIncidentReportTests(APITestCase):
         self.assertEqual(alerta.status, "resolved")
         self.assertEqual(alerta.resolution_note, "Cambio de aceite y filtros.")
 
-    def test_done_without_cost_does_not_invent_an_incident(self):
+    def test_done_without_cost_still_leaves_a_closed_record(self):
+        """2026-09-08: el servicio deja SIEMPRE registro (antes solo con coste,
+        así que una revisión sin importe no dejaba rastro): una incidencia de
+        mantenimiento CERRADA, con actor, ligada al plan y sin coste."""
         from fleet.models import Incident
 
         plan = MaintenancePlan.objects.create(
@@ -846,7 +880,13 @@ class MaintenanceDoneAndIncidentReportTests(APITestCase):
         )
         resp = self.client.post(reverse("maintenanceplan-done", args=[plan.pk]), {})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
-        self.assertFalse(Incident.objects.filter(vehicle=self.vehicle).exists())
+        record = Incident.objects.get(vehicle=self.vehicle, type=IncidentType.MAINTENANCE)
+        self.assertEqual(resp.data["incident"], record.pk)
+        self.assertEqual(record.status, "closed")
+        self.assertIsNone(record.cost)
+        self.assertEqual(record.resolved_by, self.supervisor)
+        self.assertEqual(record.details["maintenance_plan"], plan.pk)
+        self.assertEqual(record.resolution_date, timezone.localdate())
 
     def test_done_rejects_an_invalid_cost(self):
         plan = MaintenancePlan.objects.create(
@@ -910,7 +950,13 @@ class MaintenanceDoneAndIncidentReportTests(APITestCase):
         )
         self.assertEqual(incident.details["resolution"]["downtime_days"], 3)
         self.assertIn("garantia", incident.details["resolution"]["observations"])
-        self.assertEqual(incident.details["resolution"]["overcost"], "120.50")
+        # `overcost` es alias legado de `cost`: va a la columna (y se espeja en el
+        # JSON como `cost`), con actor y momento del cierre.
+        self.assertEqual(str(incident.cost), "120.50")
+        self.assertEqual(incident.details["resolution"]["cost"], "120.50")
+        self.assertIsNotNone(incident.resolved_by)
+        self.assertIsNotNone(incident.resolved_at)
+        self.assertEqual(incident.resolution_date, timezone.localdate())
         # Cerrada: la marca de la tarjeta desaparece.
         self.assertEqual(metrics.vehicle_summary(self.vehicle)["open_incidents"], 0)
 

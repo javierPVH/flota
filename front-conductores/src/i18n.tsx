@@ -62,6 +62,17 @@ const es = {
     truncated: (shown: number, total: number) =>
       `Lista recortada: se muestran ${shown} de ${total} registros.`,
   },
+  /** Prioridad de la petición (la elige quien la abre; una alerta, en cambio,
+   * saca su urgencia de la fecha). De más a menos urgente. La comparten los
+   * tres formularios que abren peticiones: avería/incidencia y accidente. */
+  priority: {
+    label: 'Prioridad',
+    hint: 'Marca la urgencia con la que hay que atenderla.',
+    critical: 'Crítica',
+    moderate: 'Moderada',
+    functional: 'Funcional',
+    informative: 'Informativa',
+  },
   login: {
     brand: 'Flota',
     heading: 'Inicia sesión',
@@ -759,6 +770,14 @@ const en: typeof es = {
     no: 'No',
     truncated: (shown: number, total: number) =>
       `List truncated: showing ${shown} of ${total} records.`,
+  },
+  priority: {
+    label: 'Priority',
+    hint: 'Set how urgently it has to be dealt with.',
+    critical: 'Critical',
+    moderate: 'Moderate',
+    functional: 'Functional',
+    informative: 'Informative',
   },
   login: {
     brand: 'Fleet',

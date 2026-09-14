@@ -1,33 +1,31 @@
 """Señales del dominio de flota.
 
 Hoy: al registrar una ITV (`EventItv`) se refresca el denormalizado
-`Vehicle.next_itv_date` y se **cierran automáticamente** las alertas de ITV
-abiertas del vehículo (HU-5.1: "al registrar una ITV con nueva fecha, los avisos
-asociados se cierran automáticamente"); y al registrar una lectura de km se
-cierra el aviso mensual de lectura pendiente de ese periodo (HU-3.2: "el aviso
-desaparece al registrar"). Se conecta en `FleetConfig.ready()`.
+`Vehicle.next_itv_date` (puro dato; el cierre de sus alertas, que necesita
+ACTOR, vive en `services/itv.py` y lo llama la vista — HU-5.1); y al registrar
+una lectura de km se cierra el aviso mensual de lectura pendiente de ese periodo
+(HU-3.2: "el aviso desaparece al registrar"). Se conecta en `FleetConfig.ready()`.
 """
 
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from django.utils import timezone
 
-from .models import Alert, Document, EventItv, Incident, KmReading
-from .models.enums import AlertStatus, AlertType, DocumentType, ItvResult
-from .services import accidents, alerts
+from .models import Document, EventItv, Incident, KmReading, Vehicle
+from .models.enums import DocumentType, ItvResult
+from .services import accidents, alerts, insurance
 
 
 @receiver(post_save, sender=EventItv, dispatch_uid="fleet_itv_registered")
 def on_itv_registered(sender, instance: EventItv, **kwargs):
-    """C5: refresca la próxima ITV y cierra sus alertas — con dos candados.
+    """C5: refresca la próxima ITV — con dos candados.
 
     1. Se toma el `EventItv` **más reciente por fecha de evento**, no el de
        `next_due` mayor. Ordenar por `-next_due` convertía una sola fecha
        disparatada (un `2099-01-01` teclado por cualquiera con acceso al
        vehículo) en la próxima ITV definitiva: ganaba para siempre, y el job
        `refresh_next_itv` la reafirmaba en cada pasada.
-    2. Solo un resultado FAVORABLE actualiza el denormalizado y cierra las
-       alertas. Una ITV "no favorable" no exime de nada: el aviso sigue abierto.
+    2. Solo un resultado FAVORABLE actualiza el denormalizado. Una ITV "no
+       favorable" no exime de nada.
 
     2026-08-31: manda la última favorable **aunque venga sin `next_due`** (la
     fecha del informe es opcional desde el registro en campo). Conservar la
@@ -36,10 +34,19 @@ def on_itv_registered(sender, instance: EventItv, **kwargs):
     `check_itv` levantaba una crítica de "ITV vencida" con la alerta anterior ya
     cerrada. Sin fecha no hay cita: se vacía y la repone el registro que traiga
     el informe.
-    """
-    vehicle = instance.event.vehicle
 
-    # 1) Próxima ITV = la del último registro FAVORABLE del vehículo.
+    2026-09-08: el cierre de las alertas `itv_due` ya NO va aquí. Una señal no
+    sabe quién registró la ITV y dejaba el cierre sin actor ni nota («cierre
+    automático»). Vive en `services/itv.register_itv`, que llama la vista con
+    `request.user`; el alta por ORM/admin solo refresca la fecha.
+    """
+    # El vehículo se relee: `instance.event.vehicle` devuelve la instancia que
+    # trajera el evento, y guardar campos desde una copia vieja pisa lo que
+    # haya cambiado entre medias (p. ej. la cita manual de `schedule_itv`, que
+    # esta señal tiene que desmarcar).
+    vehicle = Vehicle.objects.get(pk=instance.event.vehicle_id)
+
+    # Próxima ITV = la del último registro FAVORABLE del vehículo.
     latest = (
         EventItv.objects.filter(event__vehicle=vehicle)
         .exclude(result=ItvResult.NOT_DONE)
@@ -47,40 +54,42 @@ def on_itv_registered(sender, instance: EventItv, **kwargs):
         .first()
     )
     new_value = latest.next_due if latest else None
+    # Una inspección REGISTRADA manda sobre la cita programada a mano
+    # (`services/itv.schedule_itv`): se desmarca el candado para que el job
+    # `refresh_next_itv` vuelva a mantener la fecha desde el histórico.
+    campos: list[str] = []
     if vehicle.next_itv_date != new_value:
         vehicle.next_itv_date = new_value
-        vehicle.save(update_fields=["next_itv_date", "updated_at"])
-
-    # 2) Las alertas se cierran solo si la ITV se pasó de verdad.
-    if instance.is_favourable:
-        Alert.objects.filter(
-            vehicle=vehicle, type=AlertType.ITV_DUE, status=AlertStatus.OPEN
-        ).update(status=AlertStatus.RESOLVED, resolved_at=timezone.now())
+        campos.append("next_itv_date")
+    if vehicle.next_itv_manual:
+        vehicle.next_itv_manual = False
+        campos.append("next_itv_manual")
+    if campos:
+        vehicle.save(update_fields=[*campos, "updated_at"])
 
 
 @receiver(post_save, sender=Document, dispatch_uid="fleet_insurance_document_saved")
 def on_insurance_document_saved(sender, instance: Document, **kwargs):
     """N2: la póliza renovada actualiza el vencimiento del seguro del vehículo.
 
-    Mismo patrón que la ITV: al subir/editar un documento de seguro con
-    caducidad **más reciente** que la registrada, se denormaliza en
-    `Vehicle.insurance_expiry_date` y se cierran las alertas de seguro abiertas
-    (el aviso ya no aplica: hay póliza nueva).
+    Al subir/editar un documento de seguro con caducidad **más reciente** que la
+    registrada, `services/insurance.apply_new_expiry` denormaliza la fecha,
+    emite el evento de renovación y cierra las alertas de seguro con quien subió
+    la póliza (antes se cerraban sin actor). Es idempotente: si la fecha ya
+    estaba aplicada (p. ej. por el endpoint de renovar) no repite nada.
     """
     if instance.type != DocumentType.INSURANCE or instance.expiry_date is None:
         return
     # Un documento personal (de usuario) no tiene vehículo que denormalizar.
     if instance.vehicle_id is None:
         return
-    vehicle = instance.vehicle
-    current = vehicle.insurance_expiry_date
-    if current is not None and instance.expiry_date <= current:
-        return
-    vehicle.insurance_expiry_date = instance.expiry_date
-    vehicle.save(update_fields=["insurance_expiry_date", "updated_at"])
-    Alert.objects.filter(
-        vehicle=vehicle, type=AlertType.INSURANCE_DUE, status=AlertStatus.OPEN
-    ).update(status=AlertStatus.RESOLVED, resolved_at=timezone.now())
+    insurance.apply_new_expiry(
+        instance.vehicle,
+        instance.expiry_date,
+        actor=instance.uploaded_by,
+        notes=f"Póliza subida (documento #{instance.pk}).",
+        source="document",
+    )
 
 
 @receiver(post_save, sender=Incident, dispatch_uid="fleet_accident_report_materialized")

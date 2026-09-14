@@ -37,29 +37,39 @@ from .models import (
     InvoiceAllocation,
     KmReading,
     MaintenancePlan,
+    MaintenanceProgram,
     NotificationSchedule,
     Pep,
     Project,
     Renting,
     Site,
+    SupervisorPeriod,
     Vehicle,
     VehicleLink,
     VehicleModel,
     VehicleRequest,
     VehicleUsage,
     Workshop,
+    assignment_overlap_message,
     driver_assignment_clash,
     driver_clash_message,
+    supervisor_overlap_message,
+    supervisor_period_overlap,
+    vehicle_assignment_overlap,
 )
 from .models.enums import (
+    TIRE_POSITIONS,
     AllocationTarget,
     AssignmentStatus,
     EventType,
+    IncidentLiability,
+    IncidentStatus,
+    IncidentType,
     ItvResult,
     UseType,
     VehicleState,
 )
-from .selectors import current_driver_map
+from .selectors import current_driver_map, latest_reading_map
 
 
 class LogEntrySerializer(serializers.ModelSerializer):
@@ -150,6 +160,12 @@ class VehicleSerializer(serializers.ModelSerializer):
     # summaries; el mapa se calcula una vez por respuesta, como el conductor.
     fuel_month_liters = serializers.SerializerMethodField()
     fuel_month_amount = serializers.SerializerMethodField()
+    # Última lectura de km (valor, fecha y si fue estimada): mismo motivo y
+    # mismo patrón que el gasto del mes — la tabla de gestión la pinta como
+    # columna (kilómetros + cuánto lleva sin leerse) y no carga los summaries.
+    km_current = serializers.SerializerMethodField()
+    km_reading_date = serializers.SerializerMethodField()
+    km_estimated = serializers.SerializerMethodField()
     # N5: marca/modelo por catálogo. Los CharField legados pasan a opcionales
     # (se rellenan desde las FKs); los fronts leen brand/model como siempre.
     brand = serializers.CharField(required=False, allow_blank=False, max_length=50)
@@ -210,10 +226,15 @@ class VehicleSerializer(serializers.ModelSerializer):
             "unlimited_km",
             "insurance_expiry_date",
             "next_itv_date",
+            "next_itv_manual",
+            "itv_postal_code",
             "driver_name",
             "driver_id",
             "fuel_month_liters",
             "fuel_month_amount",
+            "km_current",
+            "km_reading_date",
+            "km_estimated",
             "drive_folder_url",
             "drive_folder_id",
             "contract",
@@ -221,15 +242,22 @@ class VehicleSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        # next_itv_date lo mantiene el job refresh_next_itv (denormalizado).
+        # next_itv_date lo mantiene el job refresh_next_itv (denormalizado) o
+        # el gesto de programar la cita (`/schedule-itv/`), que es también el
+        # único que fija `next_itv_manual` y el CP preferente.
         # La carpeta de Drive la mantiene el archivador (Fase A3).
         # updated_at se expone para el bloqueo optimista (expected_updated_at).
         read_only_fields = [
             "id",
             "next_itv_date",
+            "next_itv_manual",
+            "itv_postal_code",
             "driver_id",
             "fuel_month_liters",
             "fuel_month_amount",
+            "km_current",
+            "km_reading_date",
+            "km_estimated",
             "drive_folder_url",
             "drive_folder_id",
             "created_at",
@@ -295,6 +323,23 @@ class VehicleSerializer(serializers.ModelSerializer):
 
     def get_fuel_month_amount(self, obj: Vehicle) -> str | None:
         return self._fuel_month(obj).get("amount")
+
+    def _latest_reading(self, obj: Vehicle):
+        """Última lectura de km del vehículo (N8). Una consulta por respuesta,
+        no una por fila: el mapa es el mismo que usan los summaries."""
+        return self._response_map("_latest_readings", obj, latest_reading_map).get(obj.id)
+
+    def get_km_current(self, obj: Vehicle) -> int | None:
+        reading = self._latest_reading(obj)
+        return reading.km_reading if reading else None
+
+    def get_km_reading_date(self, obj: Vehicle) -> str | None:
+        reading = self._latest_reading(obj)
+        return reading.reading_date.isoformat() if reading and reading.reading_date else None
+
+    def get_km_estimated(self, obj: Vehicle) -> bool:
+        reading = self._latest_reading(obj)
+        return bool(reading.estimated) if reading else False
 
     def validate(self, attrs):
         # HU-1.3: proyecto obligatorio cuando el uso empresarial es "proyecto".
@@ -553,10 +598,56 @@ class FuelConsumptionSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class MaintenanceProgramSerializer(serializers.ModelSerializer):
+    """Programa del catálogo común: el «cada cuánto» que comparte la flota."""
+
+    cycle_label = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = MaintenanceProgram
+        fields = [
+            "id",
+            "name",
+            "every_km",
+            "every_months",
+            "cycle_label",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "cycle_label", "created_at", "updated_at"]
+
+    def validate(self, attrs):
+        """Las reglas del ciclo son del modelo (`MaintenanceProgram.clean`)."""
+        attrs = super().validate(attrs)
+        instance = self.instance
+        candidato = MaintenanceProgram(
+            every_km=attrs.get("every_km", getattr(instance, "every_km", None)),
+            every_months=attrs.get("every_months", getattr(instance, "every_months", None)),
+        )
+        try:
+            candidato.clean()
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict) from exc
+        # El nombre es único en el catálogo (lo hay ya a nivel de BD, pero un
+        # 500 por IntegrityError no dice qué pasa).
+        nombre = str(attrs.get("name", getattr(instance, "name", "") or "")).strip()
+        if nombre:
+            gemelos = MaintenanceProgram.objects.filter(name__iexact=nombre)
+            if instance is not None:
+                gemelos = gemelos.exclude(pk=instance.pk)
+            if gemelos.exists():
+                raise serializers.ValidationError(
+                    {"name": f"«{nombre}» ya está en el catálogo de programas."}
+                )
+        return attrs
+
+
 class MaintenancePlanSerializer(serializers.ModelSerializer):
-    """GAP-8: plan de mantenimiento preventivo de un vehículo."""
+    """GAP-8: el mantenimiento programado de un vehículo (uno a la vez)."""
 
     vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True)
+    program_name = serializers.CharField(source="program.name", read_only=True, default="")
 
     class Meta:
         model = MaintenancePlan
@@ -564,11 +655,14 @@ class MaintenancePlanSerializer(serializers.ModelSerializer):
             "id",
             "vehicle",
             "vehicle_plate",
+            "program",
+            "program_name",
             "name",
             "every_km",
             "every_months",
             "last_done_date",
             "last_done_km",
+            "workshop_postal_code",
             "notes",
             "created_at",
             "updated_at",
@@ -588,6 +682,32 @@ class MaintenancePlanSerializer(serializers.ModelSerializer):
             candidato.clean()
         except DjangoValidationError as exc:
             raise serializers.ValidationError(exc.message_dict) from exc
+
+        errores: dict[str, str] = {}
+        # CP preferente: el mismo formato que el del parte de una incidencia.
+        postal_code = attrs.get(
+            "workshop_postal_code", getattr(instance, "workshop_postal_code", "")
+        )
+        if postal_code and (not str(postal_code).isdigit() or len(str(postal_code)) != 5):
+            errores["workshop_postal_code"] = "Indica un código postal de 5 cifras."
+
+        # UN mantenimiento programado por vehículo: el que ya existe se
+        # modifica o se resuelve (es lo que ofrece «Programar ITV y
+        # mantenimiento»; sin esto, cada visita al modal apilaba otro ciclo del
+        # mismo coche y el vencimiento salía duplicado en las alertas).
+        vehicle = attrs.get("vehicle", getattr(instance, "vehicle", None))
+        if vehicle is not None:
+            gemelos = MaintenancePlan.objects.filter(vehicle=vehicle, is_active=True)
+            if instance is not None:
+                gemelos = gemelos.exclude(pk=instance.pk)
+            otro = gemelos.first()
+            if otro is not None:
+                errores["vehicle"] = (
+                    f"El vehículo ya tiene un mantenimiento programado («{otro.name}»): "
+                    "modifícalo o resuélvelo antes de programar otro."
+                )
+        if errores:
+            raise serializers.ValidationError(errores)
         return attrs
 
 
@@ -684,6 +804,19 @@ class AssignmentSerializer(serializers.ModelSerializer):
                             )
                         }
                     )
+            # …y un coche tampoco tiene DOS conductores en el mismo tramo del
+            # histórico: la regla de arriba solo mira lo vigente, así que un
+            # periodo cerrado se podía colar encima de otro.
+            solapada = vehicle_assignment_overlap(
+                vehicle.pk,
+                start_date=start,
+                end_date=end_final,
+                exclude_pk=self.instance.pk if self.instance else None,
+            )
+            if solapada is not None:
+                raise serializers.ValidationError(
+                    {"start_date": assignment_overlap_message(solapada)}
+                )
         # SEC2: la máquina de estados no se salta por PATCH. La única transición
         # directa permitida es cerrar (→ finished, como hace la gestión); aceptar
         # o rechazar una propuesta va por las acciones accept/reject, que son la
@@ -694,6 +827,58 @@ class AssignmentSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"status": "Usa accept/reject para transicionar la propuesta."}
                 )
+        return attrs
+
+
+class SupervisorPeriodSerializer(serializers.ModelSerializer):
+    """Histórico de supervisores con fechas (uno por coche a la vez).
+
+    El vigente sigue siendo `Vehicle.supervisor`: la vista lo sincroniza al
+    guardar (v. `services/supervisors.py`).
+    """
+
+    supervisor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupervisorPeriod
+        fields = "__all__"
+        read_only_fields = [
+            "id",
+            "is_active",
+            "deactivated_at",
+            "deactivated_by",
+            "deactivation_reason",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_supervisor_name(self, obj) -> str:
+        return obj.supervisor.get_full_name() or obj.supervisor.get_username()
+
+    def validate(self, attrs):
+        instance = self.instance
+        vehicle = attrs.get("vehicle", getattr(instance, "vehicle", None))
+        supervisor = attrs.get("supervisor", getattr(instance, "supervisor", None))
+        start = attrs.get("start_date", getattr(instance, "start_date", None))
+        end = attrs.get("end_date", getattr(instance, "end_date", None))
+
+        if supervisor is not None and not supervisor.is_supervisor:
+            raise serializers.ValidationError(
+                {"supervisor": "El usuario no tiene rol de supervisor."}
+            )
+        if start and end and end < start:
+            raise serializers.ValidationError(
+                {"end_date": "La fecha de fin no puede ser anterior a la de inicio."}
+            )
+        if vehicle is not None and start:
+            otro = supervisor_period_overlap(
+                vehicle.pk,
+                start_date=start,
+                end_date=end,
+                exclude_pk=instance.pk if instance is not None else None,
+            )
+            if otro is not None:
+                raise serializers.ValidationError({"start_date": supervisor_overlap_message(otro)})
         return attrs
 
 
@@ -907,7 +1092,17 @@ MANUAL_EVENT_TYPES = {EventType.ITV, EventType.FEE_CHANGE, EventType.LOCATION_CH
 class EventItvSerializer(serializers.ModelSerializer):
     class Meta:
         model = EventItv
-        fields = ["result", "next_due", "cost"]
+        fields = ["result", "next_due", "cost", "workshop", "km"]
+
+    def validate_workshop(self, workshop):
+        # La estación es un `Workshop` de tipo ITV (o taller+ITV), vivo.
+        if workshop is None:
+            return workshop
+        if not workshop.is_active:
+            raise serializers.ValidationError("La estación está desactivada.")
+        if workshop.kind not in (Workshop.Kind.ITV, Workshop.Kind.BOTH):
+            raise serializers.ValidationError("No es una estación de ITV.")
+        return workshop
 
 
 class EventFeeChangeSerializer(serializers.ModelSerializer):
@@ -947,7 +1142,18 @@ class EventSerializer(serializers.ModelSerializer):
         # (RelatedObjectDoesNotExist hereda de AttributeError).
         itv = getattr(obj, "itv", None)
         if itv:
-            return {"kind": "itv", "result": itv.result, "next_due": itv.next_due, "cost": itv.cost}
+            return {
+                "kind": "itv",
+                "result": itv.result,
+                "next_due": itv.next_due,
+                # Como cadena, igual que un `DecimalField`: un Decimal crudo se
+                # renderiza como float y el recibo idempotente lo guardaba como
+                # texto, así que el reenvío no devolvía el mismo JSON.
+                "cost": str(itv.cost) if itv.cost is not None else None,
+                "workshop": itv.workshop_id,
+                "workshop_name": str(itv.workshop) if itv.workshop_id else "",
+                "km": itv.km,
+            }
         fee = getattr(obj, "fee_change", None)
         if fee:
             return {"kind": "fee_change", "old_fee": fee.old_fee, "new_fee": fee.new_fee}
@@ -1002,6 +1208,13 @@ class EventSerializer(serializers.ModelSerializer):
                     if sup.new_supervisor
                     else None
                 ),
+            }
+        renewal = getattr(obj, "insurance_renewal", None)
+        if renewal:
+            return {
+                "kind": "insurance_renewal",
+                "old_expiry": renewal.old_expiry,
+                "new_expiry": renewal.new_expiry,
             }
         penalty = getattr(obj, "penalty", None)
         if penalty:
@@ -1087,8 +1300,9 @@ class EventSerializer(serializers.ModelSerializer):
         location_change = validated_data.pop("location_change", None)
         validated_data.setdefault("event_date", timezone.localdate())
         event = Event.objects.create(**validated_data)
-        # El subtipo se crea después: la señal post_save de EventItv es la que
-        # cierra las alertas de ITV y refresca `next_itv_date` (HU-5.1).
+        # El subtipo se crea después: la señal post_save de EventItv refresca
+        # `next_itv_date`; el cierre de alertas con actor lo hace la vista
+        # (`services/itv.register_itv`) tras guardar (HU-5.1).
         if itv:
             EventItv.objects.create(event=event, **itv)
         if fee_change:
@@ -1246,13 +1460,21 @@ class AccidentReportSerializer(serializers.ModelSerializer):
 
 class IncidentSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source="get_type_display", read_only=True)
+    priority_display = serializers.CharField(source="get_priority_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     # Parte de accidente materializado (null en el resto de incidencias).
     accident_report = AccidentReportSerializer(read_only=True)
+    # Contexto del vehículo y de la resolución, de solo lectura: ahorran al front
+    # cruzar con el índice de vehículos y resolver ids de usuario/taller.
+    vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True)
+    vehicle_state = serializers.CharField(source="vehicle.state", read_only=True)
+    workshop_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Incident
         fields = "__all__"
+        # La resolución (actor, momento, fecha, km) la fija SOLO `/resolve/`.
         read_only_fields = [
             "id",
             "is_active",
@@ -1261,7 +1483,24 @@ class IncidentSerializer(serializers.ModelSerializer):
             "deactivation_reason",
             "created_at",
             "updated_at",
+            "resolved_at",
+            "resolved_by",
+            "resolution_date",
+            "resolution_km",
         ]
+
+    def get_workshop_name(self, obj: Incident) -> str:
+        return str(obj.workshop) if obj.workshop_id else ""
+
+    def get_resolved_by_name(self, obj: Incident) -> str:
+        person = obj.resolved_by
+        return (person.get_full_name() or person.get_username()) if person else ""
+
+    def validate_workshop(self, workshop):
+        # Solo talleres vivos del catálogo (N7: los desactivados siguen en BD).
+        if workshop is not None and not workshop.is_active:
+            raise serializers.ValidationError("El taller está desactivado.")
+        return workshop
 
     @staticmethod
     def _required(details, names):
@@ -1269,6 +1508,17 @@ class IncidentSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        # Cerrar es una operación de negocio con sus datos (fecha, coste, taller,
+        # actor…): va por `/resolve/`. Un PATCH a «cerrada» se saltaba todo eso y
+        # dejaba la incidencia cerrada sin rastro de quién ni cómo.
+        if (
+            self.instance is not None
+            and attrs.get("status") == IncidentStatus.CLOSED
+            and self.instance.status != IncidentStatus.CLOSED
+        ):
+            raise serializers.ValidationError(
+                {"status": "Para cerrar una incidencia usa la acción de resolver (/resolve/)."}
+            )
         incident_type = attrs.get("type", getattr(self.instance, "type", ""))
         details = attrs.get("details", getattr(self.instance, "details", {})) or {}
         mileage = attrs.get("mileage", getattr(self.instance, "mileage", None))
@@ -1364,6 +1614,128 @@ class IncidentSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class _TiresResolutionSerializer(serializers.Serializer):
+    """Neumáticos MONTADOS al cerrar un parte de neumáticos (el parte guiado
+    registra los desmontados)."""
+
+    size = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    brand = serializers.CharField(max_length=60, required=False, allow_blank=True)
+    quantity = serializers.IntegerField(min_value=1, max_value=6, required=False)
+    positions = serializers.ListField(
+        child=serializers.ChoiceField(choices=TIRE_POSITIONS), required=False, allow_empty=True
+    )
+
+    def validate(self, attrs):
+        positions = attrs.get("positions") or []
+        if len(positions) != len(set(positions)):
+            raise serializers.ValidationError({"positions": "Hay posiciones repetidas."})
+        quantity = attrs.get("quantity")
+        if positions and quantity is not None and quantity != len(positions):
+            raise serializers.ValidationError(
+                {"quantity": "La cantidad no coincide con las posiciones indicadas."}
+            )
+        return attrs
+
+
+class _AccidentResolutionSerializer(serializers.Serializer):
+    """Datos del siniestro al cerrar un accidente."""
+
+    claim_ref = serializers.CharField(max_length=60, required=False, allow_blank=True)
+    liability = serializers.ChoiceField(choices=IncidentLiability.choices, required=False)
+    deductible_amount = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=Decimal("0"), required=False, allow_null=True
+    )
+    total_loss = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, attrs):
+        deductible = attrs.get("liability") == IncidentLiability.DEDUCTIBLE
+        amount = attrs.get("deductible_amount")
+        if deductible and amount is None:
+            raise serializers.ValidationError(
+                {"deductible_amount": "Indica el importe de la franquicia."}
+            )
+        if not deductible and amount is not None:
+            raise serializers.ValidationError(
+                {"deductible_amount": "El importe solo aplica cuando asume la franquicia."}
+            )
+        return attrs
+
+
+class IncidentResolutionSerializer(serializers.Serializer):
+    """Cuerpo de `POST /incidents/{id}/resolve/`: lo común a todo cierre más el
+    bloque propio del tipo (`tires` / `accident` / `maintenance_plan`), que se
+    rechaza si no corresponde. `overcost` se acepta como alias legado de `cost`
+    (R3-41). Requiere `context["incident"]`.
+    """
+
+    resolution_date = serializers.DateField()
+    observations = serializers.CharField(required=False, allow_blank=True, default="")
+    cost = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=Decimal("0"), required=False, allow_null=True
+    )
+    workshop = serializers.PrimaryKeyRelatedField(
+        queryset=Workshop.objects.filter(is_active=True), required=False, allow_null=True
+    )
+    km = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    return_to_active = serializers.BooleanField(required=False, default=False)
+    maintenance_plan = serializers.PrimaryKeyRelatedField(
+        queryset=MaintenancePlan.objects.filter(is_active=True), required=False, allow_null=True
+    )
+    tires = _TiresResolutionSerializer(required=False)
+    accident = _AccidentResolutionSerializer(required=False)
+
+    def to_internal_value(self, data):
+        # Alias legado: la gestión mandaba `overcost`; hoy es el coste de la
+        # reparación. Solo se copia si `cost` no viene.
+        if (
+            hasattr(data, "get")
+            and data.get("cost") in (None, "")
+            and data.get("overcost") not in (None, "")
+        ):
+            data = {**{key: data.get(key) for key in data}, "cost": data.get("overcost")}
+        return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        incident: Incident = self.context["incident"]
+        errors = {}
+        if "tires" in attrs and incident.type != IncidentType.TIRES:
+            errors["tires"] = "Solo en incidencias de neumáticos."
+        if "accident" in attrs and incident.type != IncidentType.ACCIDENT:
+            errors["accident"] = "Solo en accidentes."
+        plan = attrs.get("maintenance_plan")
+        if plan is not None:
+            if incident.type != IncidentType.MAINTENANCE:
+                errors["maintenance_plan"] = "Solo en incidencias de mantenimiento."
+            elif plan.vehicle_id != incident.vehicle_id:
+                errors["maintenance_plan"] = "El plan no es de este vehículo."
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+    def to_service_kwargs(self) -> dict:
+        """Argumentos con nombre para `services.incidents.resolve_incident`."""
+        data = dict(self.validated_data)
+        extra: dict = {}
+        if "tires" in data:
+            extra["tires"] = dict(data.pop("tires"))
+        if "accident" in data:
+            accident = dict(data.pop("accident"))
+            amount = accident.get("deductible_amount")
+            if amount is not None:
+                accident["deductible_amount"] = str(amount.quantize(Decimal("0.01")))
+            extra["accident"] = accident
+        return {
+            "resolution_date": data["resolution_date"],
+            "observations": (data.get("observations") or "").strip(),
+            "cost": data.get("cost"),
+            "workshop": data.get("workshop"),
+            "km": data.get("km"),
+            "return_to_active": bool(data.get("return_to_active")),
+            "extra": extra,
+            "maintenance_plan": data.get("maintenance_plan"),
+        }
+
+
 # Extensiones admitidas en la subida de documentos (fotos de cámara + PDF).
 DOCUMENT_ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "pdf"}
 
@@ -1457,6 +1829,9 @@ class AlertSerializer(serializers.ModelSerializer):
     level_display = serializers.CharField(source="get_level_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True, default="")
+    # Estado del vehículo: el modal de resolver decide con él si ofrece
+    # «devolver a Activo» sin tener que cargar la ficha.
+    vehicle_state = serializers.CharField(source="vehicle.state", read_only=True, default="")
     # Las dos personas del aviso: quién conduce el coche y quién responde por él.
     # La bandeja las pinta en las abiertas (a quién hay que llamar) y las usa en
     # las resueltas para decidir si quien cerró era de los implicados.

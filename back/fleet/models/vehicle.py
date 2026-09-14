@@ -183,6 +183,23 @@ class Vehicle(TimeStampedModel):
             "`refresh_next_itv` y alimenta la alerta de ITV escalonada (HU-5.1)."
         ),
     )
+    next_itv_manual = models.BooleanField(
+        "Próxima ITV programada a mano",
+        default=False,
+        help_text=(
+            "La cita la programó la gestión y no sale de un `EventItv`: el job "
+            "`refresh_next_itv` no la toca. Registrar una ITV real la desmarca."
+        ),
+    )
+    itv_postal_code = models.CharField(
+        "CP preferente para la ITV",
+        max_length=12,
+        blank=True,
+        help_text=(
+            "Ubicación de referencia para que un tercero busque la estación de "
+            "ITV más cercana; se pide al programar la cita."
+        ),
+    )
     drive_folder_url = models.URLField(
         "Carpeta de Drive",
         blank=True,

@@ -143,6 +143,118 @@ describe('TableWithPanel', () => {
     expect(screen.getByTestId('hist-1')).toBeInTheDocument()
   })
 
+  it('N4b: sin nada debajo, esa fila no enseña flecha', async () => {
+    render(
+      <TableWithPanel<Row>
+        rows={ROWS}
+        columns={COLUMNS}
+        rowKey={(r) => String(r.id)}
+        renderExpandedRow={(r) => <div data-testid={`hist-${r.id}`}>Histórico {r.plate}</div>}
+        canExpandRow={(r) => r.id === 1}
+      />,
+    )
+    // Solo la fila que tiene algo debajo; la otra mantiene su celda (las
+    // columnas siguen alineadas) pero sin botón.
+    expect(screen.getAllByRole('button', { name: 'Desplegar fila' })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Desplegar fila' }))
+    await waitFor(() => {
+      expect(screen.getByTestId('hist-1')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('hist-2')).not.toBeInTheDocument()
+  })
+
+  it('agrupa por el VALOR de una columna, en un nivel plegable y alfabético', () => {
+    interface TypedRow {
+      id: number
+      plate: string
+      type: string
+    }
+    const rows: TypedRow[] = [
+      { id: 1, plate: '1111AAA', type: 'ITV programada' },
+      { id: 2, plate: '2222BBB', type: 'Exceso de km' },
+      { id: 3, plate: '3333CCC', type: 'ITV programada' },
+    ]
+    const columns: Array<TableWithPanelColumn<TypedRow>> = [
+      { key: 'plate', label: 'Matrícula', getValue: (r) => r.plate },
+      { key: 'type', label: 'Tipo', getValue: (r) => r.type },
+    ]
+    render(
+      <TableWithPanel<TypedRow>
+        rows={rows}
+        columns={columns}
+        rowKey={(r) => String(r.id)}
+        groupRowsByColumnKey="type"
+      />,
+    )
+
+    const dividers = [...document.querySelectorAll('tbody button[aria-expanded]')]
+    const titleOf = (divider: Element) => divider.querySelectorAll('span')[0]?.textContent
+    expect(dividers.map(titleOf)).toEqual(['Exceso de km', 'ITV programada'])
+    expect(dividers[1].textContent).toContain('2 registros')
+
+    // Plegar un grupo esconde solo sus filas.
+    fireEvent.click(dividers[1])
+    expect(screen.queryByText('1111AAA')).not.toBeInTheDocument()
+    expect(screen.getByText('2222BBB')).toBeInTheDocument()
+  })
+
+  it('con los dos agrupados anida uno dentro del otro, y el orden lo elige quien lo usa', () => {
+    interface MixedRow {
+      id: number
+      plate: string
+      type: string
+      due: string
+    }
+    const rows: MixedRow[] = [
+      { id: 1, plate: '1111AAA', type: 'ITV', due: '2026-08-10' },
+      { id: 2, plate: '2222BBB', type: 'Seguro', due: '2026-08-20' },
+      { id: 3, plate: '3333CCC', type: 'ITV', due: '2026-09-05' },
+    ]
+    const columns: Array<TableWithPanelColumn<MixedRow>> = [
+      { key: 'plate', label: 'Matrícula', getValue: (r) => r.plate },
+      { key: 'type', label: 'Tipo', getValue: (r) => r.type },
+      { key: 'due', label: 'Vence', isDate: true, getValue: (r) => r.due },
+    ]
+    const titulos = () =>
+      [...document.querySelectorAll('tbody button[aria-expanded]')].map(
+        (d) => d.querySelectorAll('span')[0]?.textContent,
+      )
+
+    // Por fecha fuera: cada mes se parte por tipo.
+    const { rerender } = render(
+      <TableWithPanel<MixedRow>
+        rows={rows}
+        columns={columns}
+        rowKey={(r) => String(r.id)}
+        groupRowsByYearMonth
+        groupRowsByColumnKey="type"
+        monthSortDateColumnKey="due"
+        monthSortDirectionDefault="asc"
+      />,
+    )
+    expect(titulos()).toEqual(['agosto de 2026', 'ITV', 'Seguro', 'septiembre de 2026', 'ITV'])
+
+    // Por tipo fuera: cada tipo se parte por meses.
+    rerender(
+      <TableWithPanel<MixedRow>
+        rows={rows}
+        columns={columns}
+        rowKey={(r) => String(r.id)}
+        groupRowsByYearMonth
+        groupRowsByColumnKey="type"
+        groupValueFirst
+        monthSortDateColumnKey="due"
+        monthSortDirectionDefault="asc"
+      />,
+    )
+    expect(titulos()).toEqual(['ITV', 'agosto de 2026', 'septiembre de 2026', 'Seguro', 'agosto de 2026'])
+
+    // Plegar un bloque de fuera esconde sus subgrupos y sus filas.
+    fireEvent.click([...document.querySelectorAll('tbody button[aria-expanded]')][0])
+    expect(screen.queryByText('1111AAA')).not.toBeInTheDocument()
+    expect(screen.getByText('2222BBB')).toBeInTheDocument()
+  })
+
   it('agrupa en dos niveles plegables (año → mes) con filas a todo el ancho', () => {
     interface DatedRow {
       id: number

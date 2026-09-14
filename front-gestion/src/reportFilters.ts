@@ -16,6 +16,8 @@ export const DOC_TYPES = [
   'return_report',
   'accident_report',
   'damage_photos',
+  'itv_report',
+  'workshop_invoice',
   'other',
 ] as const
 

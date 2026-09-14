@@ -9,14 +9,14 @@ import {
   SelectField,
   StatCard,
   TextInputField,
+  useUiCopy,
 } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import { useAppLang } from '@flota/ui/i18n'
-import { ChevronDown, ExternalLink, Mail, UserRound } from 'lucide-react'
+import { ChevronDown, ChevronsDown, ChevronsUp, ExternalLink, Mail, UserRound } from 'lucide-react'
 
 import {
   closeVehicleLink,
-  convertToFleet,
   createKmReading,
   createVehicleLink,
   fetchVehicle,
@@ -41,16 +41,32 @@ import {
   todayIso,
   vehicleStateTone,
 } from '../format.ts'
+import type { EmailKind } from '../emailKinds.ts'
+import { linkReasonForState } from '../linkReason.ts'
+import { useResolveCopy } from '../translations/resolve.ts'
 import { useVehicleDetailCopy } from '../translations/vehicleDetail.ts'
 import { useVehicleFormCopy } from '../translations/vehicleForm.ts'
+import { useVehiclesCopy } from '../translations/vehicles.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { CreateSubstituteButton } from '../components/CreateSubstituteButton.tsx'
 import { VehicleAssignmentsPanel } from '../components/VehicleAssignmentsPanel.tsx'
+import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
 import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleForm } from '../components/VehicleForm.tsx'
 import { VehicleInvoicesCard } from '../components/VehicleInvoicesCard.tsx'
+import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
+import { KmFuelModal } from '../components/KmFuelModal.tsx'
+import { ScheduleItvMaintenanceModal } from '../components/ScheduleItvMaintenanceModal.tsx'
 import { FuelConsumptionCard } from '../components/FuelConsumptionCard.tsx'
 import { MaintenancePlansCard } from '../components/MaintenancePlansCard.tsx'
+import {
+  VehicleAccidentsCard,
+  VehiclePendingCard,
+  type PendingCardHandle,
+} from '../components/VehiclePendingCard.tsx'
+import type { PendingResumen } from '../components/usePending.tsx'
 import { VehicleReturnModal } from '../components/VehicleReturnModal.tsx'
+import { VehicleRetireModal } from '../components/VehicleRetireModal.tsx'
 import { KmChart } from '../components/KmChart.tsx'
 import { DocumentsPanel } from '../components/DocumentsPanel.tsx'
 import {
@@ -59,11 +75,7 @@ import {
   type TimelineDay,
 } from '../components/TimelineChart.tsx'
 import { useAuth } from '../auth.ts'
-import {
-  AccordionTools,
-  CollapsibleCard,
-  useAccordion,
-} from '../components/CollapsibleCard.tsx'
+import { CollapsibleCard, useAccordion } from '../components/CollapsibleCard.tsx'
 import type {
   AuditEntry,
   FlotaEvent,
@@ -76,6 +88,17 @@ import type {
 // Estados operables a mano (HU-1.6). La baja tiene su propio flujo (HU-1.5) y
 // algunos estados los dispara el back (p. ej. avería desde incidencias).
 // Las opciones y etiquetas de dominio viven en translations/vehicleDetail.ts (UX1).
+
+/**
+ * Consumo y mantenimiento quedan FUERA de la ficha (como «Estados abiertos»
+ * en el modal de estado: el código sigue, la interfaz no lo enseña).
+ * — El consumo del mes se lee en su indicador y se registra en «Kilómetros y
+ *   combustible», que es donde se registra en el resto de pantallas.
+ * — El mantenimiento se lee en su indicador y se gestiona en «Programar ITV y
+ *   mantenimiento», el único sitio donde se programa y se resuelve.
+ */
+const SHOW_FUEL_CARD = false
+const SHOW_MAINTENANCE_CARD = false
 
 const today = todayIso
 
@@ -103,6 +126,12 @@ export function VehicleDetailPage() {
   const confirm = useConfirm()
   const lang = useAppLang()
   const t = useVehicleDetailCopy()
+  // «Kilómetros y combustible» es el mismo modal del inventario: su copia
+  // viene de allí.
+  const vt = useVehiclesCopy()
+  // «Desplegar todo» / «Plegar todo»: la copia del DS, que es de donde salen
+  // esos dos botones (aquí van sueltos, dentro de la cabecera).
+  const accCopy = useUiCopy().accordion
   // R3-30: `t` por ref — con `t` en las deps de `load`, el botón es/en
   // re-disparaba las SEIS cargas de la ficha (solo pinta el error).
   const tRef = useRef(t)
@@ -110,6 +139,9 @@ export function VehicleDetailPage() {
     tRef.current = t
   })
   const tForm = useVehicleFormCopy()
+  // El atajo «Mandar correo a la renting» es el MISMO de la renovación del
+  // seguro (`RenewInsuranceForm`), así que también su texto.
+  const tResolve = useResolveCopy()
   const { user } = useAuth()
   const isAdmin = user?.roles.includes('admin') ?? false
   const { id } = useParams()
@@ -156,15 +188,21 @@ export function VehicleDetailPage() {
   const [kpiModal, setKpiModal] = useState<KpiKey | null>(null)
 
   // Operaciones G4 (estado / baja / vinculación)
-  const [opsModal, setOpsModal] = useState<'state' | 'baja' | 'link' | 'convert' | null>(null)
+  const [opsModal, setOpsModal] = useState<'state' | 'baja' | 'link' | null>(null)
+  // ¿El cambio de estado saca el coche con sustituto? (se rellena debajo)
+  const [stateWithSub, setStateWithSub] = useState(false)
+  // Lo que abre la barra de acciones y vive en modal propio.
+  // `'default'` = el botón de la barra, que no fija plantilla; un `EmailKind`
+  // = un atajo que arranca en la suya (hoy, el del vencimiento del seguro).
+  const [emailOpen, setEmailOpen] = useState<'default' | EmailKind | null>(null)
+  const [driverOpen, setDriverOpen] = useState(false)
+  const [invoicesOpen, setInvoicesOpen] = useState(false)
   // GAP-7: devolución guiada (lectura final + contrato + asignaciones + baja).
   const [returnOpen, setReturnOpen] = useState(false)
   const [opsError, setOpsError] = useState('')
   const [opsSaving, setOpsSaving] = useState(false)
   const [stateValue, setStateValue] = useState('active')
   const [stateReason, setStateReason] = useState('')
-  const [bajaDate, setBajaDate] = useState(today())
-  const [bajaReason, setBajaReason] = useState('')
   const [linkSubstitute, setLinkSubstitute] = useState('')
   const [linkReason, setLinkReason] = useState('breakdown')
   const [linkStart, setLinkStart] = useState(today())
@@ -173,6 +211,9 @@ export function VehicleDetailPage() {
   const [closeMode, setCloseMode] = useState<'today' | 'date'>('today')
   const [closeDate, setCloseDate] = useState(today())
   const [candidates, setCandidates] = useState<Vehicle[]>([])
+  // El asistente que abre incidencias vive en la tarjeta de lo pendiente (una
+  // cosa, un sitio): desde «Cambiar estado» se llama a esa, no se monta otra.
+  const pendingRef = useRef<PendingCardHandle>(null)
   // Sustitutos con un vínculo ACTIVO (ya en uso) → no disponibles en el select.
   const [busySubIds, setBusySubIds] = useState<Set<number>>(() => new Set())
   const [plateMap, setPlateMap] = useState<Record<number, string>>({})
@@ -183,20 +224,60 @@ export function VehicleDetailPage() {
   const accordion = useAccordion(
     // GAP-2/GAP-8: consumo y mantenimiento — plegados por defecto, como los
     // otros bloques que no se leen en cada visita.
-    ['km', 'tech', 'contract', 'invoices', 'fuel', 'maintenance', 'assignments', 'documents', 'history'],
-    ['fuel', 'maintenance', 'documents', 'history'],
+    // Lo pendiente (alertas e incidencias abiertas) va primero y abierto: es lo
+    // que hay que atender al entrar en la ficha.
+    ['pending', 'accidents', 'km', 'tech', 'contract', 'invoices', 'fuel', 'maintenance', 'assignments', 'documents', 'history'],
+    // Plegadas de salida: los datos del coche se consultan, no se leen en
+    // cada visita. Lo que hay que atender (lo pendiente) sigue abierto.
+    ['tech', 'contract', 'invoices', 'fuel', 'maintenance', 'documents', 'history'],
   )
 
-  // KPI de mantenimiento: no tiene modal propio (su detalle es la tarjeta de
-  // planes). Al pulsarlo, despliega esa sección y baja hasta ella.
-  const openMaintenance = () => {
-    if (!accordion.isOpen('maintenance')) accordion.toggle('maintenance')
+  // Lo que hay abierto (alertas e incidencias), resumido por su tarjeta: el
+  // indicador de arriba lo enseña sin volver a pedirlo. `setPendiente` es
+  // estable, que es lo que el callback necesita.
+  const [pendiente, setPendiente] = useState<PendingResumen | null>(null)
+
+  /** Bajar a una tarjeta desplegándola si estaba plegada. */
+  const irATarjeta = (id: string, ancla: string) => {
+    if (!accordion.isOpen(id)) accordion.toggle(id)
     requestAnimationFrame(() =>
-      document
-        .getElementById('kpi-maintenance')
-        ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      document.getElementById(ancla)?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
     )
   }
+  // El indicador de lo pendiente baja a su tarjeta, que es donde se resuelve.
+  const openPending = () => irATarjeta('pending', 'kpi-pending')
+  // Los indicadores de mantenimiento y combustible abren el sitio donde eso
+  // se gestiona, ahora que sus tarjetas no están en la ficha.
+  // «Programar ITV y mantenimiento»: null = cerrado; si no, la pestaña con
+  // la que abre (lo deciden sus dos indicadores).
+  const [schedOpen, setSchedOpen] = useState<'itv' | 'maintenance' | null>(null)
+  // «Kilómetros y combustible»: null = cerrado; si no, la pestaña con la que
+  // abre (lo deciden sus dos indicadores).
+  const [kmFuelOpen, setKmFuelOpen] = useState<'km' | 'fuel' | null>(null)
+
+  // Lo abierto, en números y en tipos (lo que enseña su indicador).
+  const totalAlertas = pendiente?.alerts.reduce((n, fila) => n + fila.total, 0) ?? null
+  const totalIncidencias = pendiente?.incidents.reduce((n, fila) => n + fila.total, 0) ?? null
+  /**
+   * El coche que lo cubre (o al que cubre), para la marca de la cabecera: el
+   * detalle —desde cuándo, y que está bloqueado— sigue en el aviso de estado.
+   */
+  const vinculo = summary?.blocked_by_link
+    ? `🔁 ${t.substitutedBy} ${summary.blocked_by_link.plate}`
+    : linkInfo
+      ? `🔁 ${linkInfo.role === 'main' ? t.substitutedBy : t.substitutes} ${linkInfo.plate}`
+      : ''
+
+  const tiposPendientes = [
+    pendiente?.alerts.length
+      ? `${t.pendingAlertsWord}: ${pendiente.alerts.map((f) => t.pendingType(f.label, f.total)).join(', ')}`
+      : '',
+    pendiente?.incidents.length
+      ? `${t.pendingIncidentsWord}: ${pendiente.incidents.map((f) => t.pendingType(f.label, f.total)).join(', ')}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   // Histórico: filtro por origen ('' = todos).
   const [historySource, setHistorySource] = useState('')
@@ -215,9 +296,6 @@ export function VehicleDetailPage() {
   const [kmView, setKmView] = useState<'annual' | 'contract'>('annual')
 
   const [kmModal, setKmModal] = useState(false)
-  // GAP-2: el KPI de combustible pide el alta a la tarjeta de la serie (donde
-  // vive el formulario) subiendo este contador.
-  const [fuelCreate, setFuelCreate] = useState(0)
   // Reclamación de lectura por correo (se abre desde el aviso del modal de km).
   const [kmEmailOpen, setKmEmailOpen] = useState(false)
   // El aviso de antigüedad cabe en una línea; al desplegarlo se ve completo.
@@ -338,7 +416,9 @@ export function VehicleDetailPage() {
       valueLabel: (source: string, field: string, value: string) => {
         const dict: Record<string, string> | null =
           field === 'state'
-            ? Object.fromEntries(t.stateOptions.map((o) => [o.value, o.label]))
+            ? // Todos, incluida la baja: la auditoría enseña estados que ya
+              // no se pueden elegir a mano.
+              t.stateLabel
             : field === 'fuel'
               ? t.fuelLabel
               : field === 'property'
@@ -444,22 +524,59 @@ export function VehicleDetailPage() {
     [t],
   )
 
-  function openOps(kind: 'state' | 'baja' | 'link' | 'convert') {
+  // Un estado que no es «Activo» saca el coche de la calle: solo entonces
+  // tiene sentido ofrecer que lo cubra un sustituto.
+  const sacaDeServicio = stateValue !== 'active'
+  const conSustituto = sacaDeServicio && stateWithSub
+
+  /**
+   * Los sustitutos elegibles: solo vehículos de sustitución, los DISPONIBLES
+   * (sin vínculo activo) primero y en color normal; los ocupados, en gris y al
+   * final. La misma lista para «Cambiar estado» y para «Sustitución».
+   */
+  const opcionesSustituto = useMemo(
+    () =>
+      candidates
+        .filter((v) => v.is_substitute)
+        .map((v) => ({ v, available: !busySubIds.has(v.id) }))
+        .sort(
+          (a, b) => Number(b.available) - Number(a.available) || a.v.plate.localeCompare(b.v.plate),
+        )
+        .map(({ v, available }) => ({
+          value: String(v.id),
+          label: `${v.plate} · ${v.brand} ${v.model} 🔁${available ? '' : ` · ${t.unavailable}`}`,
+          disabled: !available,
+        })),
+    [candidates, busySubIds, t],
+  )
+
+  function openOps(kind: 'state' | 'baja' | 'link') {
     setOpsError('')
     setCloseMode('today')
     setCloseDate(today())
     if (kind === 'state' && vehicle) {
       setStateValue(t.stateOptions.some((o) => o.value === vehicle.state) ? vehicle.state : 'active')
       setStateReason('')
+      // El sustituto se ofrece dentro, así que sus datos se piden ya.
+      setStateWithSub(false)
+      setLinkSubstitute('')
+      setLinkReason(linkReasonForState(vehicle.state))
+      setLinkStart(today())
+      cargarSustitutos()
     }
-    if (kind === 'baja') {
-      setBajaDate(today())
-      setBajaReason('')
-    }
+    // La baja arranca limpia dentro de `VehicleRetireModal` (se remonta al abrir).
     if (kind === 'link') {
       setLinkSubstitute('')
       setLinkReason('breakdown')
       setLinkStart(today())
+      cargarSustitutos()
+    }
+    setOpsModal(kind)
+  }
+
+  /** Los que pueden cubrir a este coche, y cuáles están ya ocupados. */
+  function cargarSustitutos() {
+    {
       // Candidatos a sustituto + sustitutos ya en uso (vínculo activo =
       // end_date null): esos salen en gris (no disponibles).
       // M11: se piden SOLO los vehículos de sustitución (`?is_substitute=true`)
@@ -485,12 +602,17 @@ export function VehicleDetailPage() {
           setBusySubIds(new Set())
         })
     }
-    setOpsModal(kind)
   }
 
   async function submitState(event: FormEvent) {
     event.preventDefault()
     if (!vehicle) return
+    // Decir que sale con sustituto y no elegirlo no guarda nada: se avisa
+    // ANTES de tocar el estado, no a medias.
+    if (conSustituto && !linkSubstitute) {
+      setOpsError(t.errChooseSubstitute)
+      return
+    }
     setOpsSaving(true)
     setOpsError('')
     try {
@@ -500,37 +622,31 @@ export function VehicleDetailPage() {
         change_reason: stateReason,
         expected_updated_at: vehicle.updated_at,
       })
-      setOpsModal(null)
-      load()
     } catch (err) {
       setOpsError(asErrorMessage(err, t.errChangeState))
-    } finally {
       setOpsSaving(false)
+      return
     }
-  }
-
-  async function submitBaja(event: FormEvent) {
-    event.preventDefault()
-    if (!vehicle) return
-    setOpsSaving(true)
-    setOpsError('')
-    try {
-      await updateVehicleFields(vehicle.id, {
-        state: 'retired',
-        // B4: el motivo va tal cual lo escribe la persona y la fecha viaja como
-        // DATO (`change_date`). Antes se guardaba «Baja el <fecha>: <motivo>»,
-        // prosa castellana persistida que el histórico enseñaba igual en inglés.
-        change_reason: bajaReason,
-        change_date: bajaDate,
-        expected_updated_at: vehicle.updated_at,
-      })
-      setOpsModal(null)
-      load()
-    } catch (err) {
-      setOpsError(asErrorMessage(err, t.errBaja))
-    } finally {
-      setOpsSaving(false)
+    // El vínculo va después: el estado ya está guardado, así que si esto
+    // falla se dice y el modal se queda abierto (con la ficha ya al día).
+    if (conSustituto) {
+      try {
+        await createVehicleLink({
+          main_vehicle: vehicle.id,
+          substitute_vehicle: Number(linkSubstitute),
+          reason: linkReason,
+          start_date: linkStart,
+        })
+      } catch (err) {
+        setOpsError(asErrorMessage(err, t.errCreateLink))
+        setOpsSaving(false)
+        load()
+        return
+      }
     }
+    setOpsSaving(false)
+    setOpsModal(null)
+    load()
   }
 
   async function submitLink(event: FormEvent) {
@@ -586,22 +702,6 @@ export function VehicleDetailPage() {
       load()
     } catch (err) {
       setOpsError(asErrorMessage(err, t.errCloseLink))
-    } finally {
-      setOpsSaving(false)
-    }
-  }
-
-  /** Sustituto → flota. El error se queda en el modal: `setError` es el fallo
-   * fatal de carga y dejaría la ficha reducida a un cartel rojo. */
-  async function handleConvertToFleet() {
-    setOpsSaving(true)
-    setOpsError('')
-    try {
-      await convertToFleet(vehicleId)
-      setOpsModal(null)
-      load()
-    } catch (err) {
-      setOpsError(asErrorMessage(err, t.errConvertFleet))
     } finally {
       setOpsSaving(false)
     }
@@ -734,6 +834,17 @@ export function VehicleDetailPage() {
     value ? `${value} · ${relative(value)}` : t.noDateRecorded
 
   /** Cifras del KPI abierto: lo que hay que saber sin bajar a las tarjetas. */
+  /**
+   * El contrato se ha pasado de fecha y el coche sigue en la flota. No es un
+   * matiz: o se devuelve o se renueva, y mientras tanto se rueda sin contrato
+   * en vigor. En una baja no se avisa: ahí terminar es lo que tocaba.
+   */
+  const contratoVencido = Boolean(
+    contract?.planned_end_date &&
+      contract.planned_end_date < today() &&
+      vehicle?.state !== 'retired',
+  )
+
   const kpiFacts = (kind: KpiKey) => {
     if (kind === 'cost') {
       const total =
@@ -757,6 +868,9 @@ export function VehicleDetailPage() {
         </>
       )
     }
+    // Ojo: 'itv' ya no se abre —su indicador lleva a «Programar ITV y
+    // mantenimiento», que enseña la cita, la resuelve y lista las últimas—.
+    // Se conserva porque `KpiKey` lo define (y `KPI_HISTORY.itv` sigue en uso).
     if (kind === 'itv') {
       const last = lastEventOf('itv')
       const result = typeof last?.details?.result === 'string' ? last.details.result : ''
@@ -801,7 +915,9 @@ export function VehicleDetailPage() {
         <dt>{t.start}</dt>
         <dd>{contract?.start_date ?? '—'}</dd>
         <dt>{t.plannedEnd}</dt>
-        <dd>{contract ? dateWithRelative(contract.planned_end_date) : '—'}</dd>
+        <dd className={contratoVencido ? 'kpi-overdue' : undefined}>
+          {contract ? dateWithRelative(contract.planned_end_date) : '—'}
+        </dd>
         <dt>{t.duration}</dt>
         <dd>{contract?.contract_time ? t.months(contract.contract_time) : '—'}</dd>
         <dt>{t.contractedKm}</dt>
@@ -956,13 +1072,14 @@ export function VehicleDetailPage() {
   const closeEnd = closeMode === 'today' ? today() : closeDate
 
   const driverless = !vehicle.driver_name && vehicle.state !== 'retired'
-  const framed = vehicle.is_substitute || driverless
+  const framed = vehicle.is_substitute || driverless || contratoVencido
 
   return (
     <div
       className={
         `vehicle-detail${framed ? ' has-marks' : ''}` +
         `${vehicle.is_substitute ? ' is-substitute' : ''}` +
+        `${contratoVencido ? ' is-expired' : ''}` +
         `${driverless ? ' is-driverless' : ''}`
       }
     >
@@ -971,6 +1088,9 @@ export function VehicleDetailPage() {
         <div className="detail-marks">
           {vehicle.is_substitute && (
             <span className="detail-mark mark-substitute">{t.substituteFrame}</span>
+          )}
+          {contratoVencido && (
+            <span className="detail-mark mark-expired">{t.contractEndedFrame}</span>
           )}
           {driverless && <span className="detail-mark mark-driverless">{t.noDriverBadge}</span>}
         </div>
@@ -985,76 +1105,83 @@ export function VehicleDetailPage() {
         }
         title={vehicle.plate}
         subtitle={
-          `${vehicle.brand} ${vehicle.model}${vehicle.version ? ` ${vehicle.version}` : ''}` +
-          ` · ${label(t.typeLabel, vehicle.type)} · ${label(t.fuelLabel, vehicle.fuel)}` +
-          ` · ${label(t.useLabel, vehicle.business_use)}`
-        }
-        actions={
           <>
-            <Button
-              variant="primary"
-              disabled={Boolean(summary?.blocked_by_link)}
-              title={
-                summary?.blocked_by_link
-                  ? t.blockedTooltip(summary.blocked_by_link.plate)
-                  : undefined
-              }
-              onClick={() => setKmModal(true)}
-            >
-              {t.registerKm}
-            </Button>
-            <Button variant="secondary" onClick={() => setEditOpen(true)}>
-              {t.edit}
-            </Button>
-            {vehicle.state !== 'retired' && (
-              <>
-                <Button variant="secondary" onClick={() => openOps('state')}>
-                  {t.changeState}
-                </Button>
-                <Button variant="secondary" onClick={() => openOps('link')}>
-                  {t.substitution}
-                </Button>
-                {vehicle.is_substitute && (
-                  <Button
-                    variant="secondary"
-                    title={t.convertToFleetTitle}
-                    onClick={() => openOps('convert')}
-                  >
-                    {t.convertToFleet}
-                  </Button>
+            {`${vehicle.brand} ${vehicle.model}${vehicle.version ? ` ${vehicle.version}` : ''}` +
+              ` · ${label(t.typeLabel, vehicle.type)} · ${label(t.fuelLabel, vehicle.fuel)}` +
+              ` · ${label(t.useLabel, vehicle.business_use)}`}
+            <span className="detail-marks-row">
+              <span className="detail-badges">
+                <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+                {vehicle.is_substitute && <Badge tone="info">{t.substituteBadge}</Badge>}
+                {vehicle.unlimited_km && <Badge tone="info">{t.unlimitedKmBadge}</Badge>}
+                {vehicle.driver_name ? (
+                  <Badge tone="success">{t.driverBadge(vehicle.driver_name)}</Badge>
+                ) : (
+                  <Badge tone="neutral">{t.noDriverBadge}</Badge>
                 )}
-                {/* GAP-7: devolución guiada — la baja «a secas» sigue para
-                    los casos sin devolución (siniestro total, venta…). */}
-                <Button variant="warning" onClick={() => setReturnOpen(true)}>
-                  {t.returnBtn}
-                </Button>
-                <Button variant="danger" onClick={() => openOps('baja')}>
-                  {t.retire}
-                </Button>
-              </>
-            )}
+                {/* Quién responde del coche se lee siempre, lo tenga o no. */}
+                {vehicle.supervisor_name ? (
+                  <Badge tone="info">{t.supervisorBadge(vehicle.supervisor_name)}</Badge>
+                ) : (
+                  <Badge tone="neutral">{t.noSupervisorBadge}</Badge>
+                )}
+                {/* El coche que lo cubre (o al que cubre), si hay vínculo. */}
+                {vinculo && <Badge tone="warning">{vinculo}</Badge>}
+              </span>
+              <span className="detail-marks-sep" aria-hidden="true" />
+              {/* Plegar o desplegar todas las tarjetas: los mismos botones que
+                  `AccordionTools`, aquí sueltos porque dentro del subtítulo
+                  solo cabe contenido en línea. */}
+              <button type="button" className="acc-tool" onClick={accordion.expandAll}>
+                <ChevronsDown size={15} aria-hidden /> {accCopy.expandAll}
+              </button>
+              <button type="button" className="acc-tool" onClick={accordion.collapseAll}>
+                <ChevronsUp size={15} aria-hidden /> {accCopy.collapseAll}
+              </button>
+            </span>
           </>
+        }
+        // A la derecha del título, lo que cuesta el coche: la cuota y hasta
+        // cuándo. Los dos abren su detalle, como el resto de indicadores.
+        actions={
+          <div className="detail-head-kpis">
+            <button
+              type="button"
+              className="kpi-btn"
+              title={t.kpiHint}
+              onClick={() => setKpiModal('cost')}
+            >
+              <StatCard
+                label={t.monthlyCost}
+                value={contract?.month_fee ? eur(contract.month_fee) : '—'}
+                sub={
+                  contract?.penalty_per_km ? t.penaltySub(contract.penalty_per_km) : t.contractFeeSub
+                }
+                accent="navy"
+              />
+            </button>
+            <button
+              type="button"
+              className="kpi-btn"
+              title={t.kpiHint}
+              onClick={() => setKpiModal('contract')}
+            >
+              <StatCard
+                label={t.contractEnd}
+                value={contract?.planned_end_date ?? '—'}
+                sub={
+                  contract
+                    ? `${contract.contract_time ? `${t.months(contract.contract_time)} · ` : ''}${relative(contract.planned_end_date)}`
+                    : t.noActiveContract
+                }
+                accent={contratoVencido ? 'danger' : undefined}
+              />
+            </button>
+          </div>
         }
       />
 
       <div className="detail-top">
-        <div className="detail-top-main">
-          <div className="detail-badges">
-            <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
-            {vehicle.is_substitute && <Badge tone="info">{t.substituteBadge}</Badge>}
-            {vehicle.unlimited_km && <Badge tone="info">{t.unlimitedKmBadge}</Badge>}
-            {vehicle.driver_name ? (
-              <Badge tone="success">{t.driverBadge(vehicle.driver_name)}</Badge>
-            ) : (
-              <Badge tone="neutral">{t.noDriverBadge}</Badge>
-            )}
-            {/* Supervisor solo si lo tiene (si no, nada). */}
-            {vehicle.supervisor_name && (
-              <Badge tone="info">{t.supervisorBadge(vehicle.supervisor_name)}</Badge>
-            )}
-          </div>
-        </div>
-
         {/* Callout de estado a todo el ancho, bajo los badges: cuando NO está
             activo o tiene un vínculo de sustitución. Reúne lo más relevante. */}
         {(vehicle.state !== 'active' || linkInfo || summary?.blocked_by_link) && (
@@ -1097,6 +1224,40 @@ export function VehicleDetailPage() {
         )}
       </div>
 
+      {/* Lo que se le HACE al coche, en su propia barra bajo la cabecera. */}
+      {/* Lo que se le HACE al coche, en el orden en que se usa. Los km se
+          registran desde su indicador (abre el mismo modal) y lo demás
+          —sustitución, dar de baja y, si es sustituto, convertirlo en flota—
+          vive en la barra de «Editar», que es esta misma ficha quien se la
+          pasa al formulario. */}
+      <div className="detail-actionbar">
+        <Button variant="secondary" onClick={() => setEmailOpen('default')}>
+          {vt.email.btn}
+        </Button>
+        <Button variant="secondary" onClick={() => setDriverOpen(true)}>
+          {vt.driverModal.btn}
+        </Button>
+        <Button variant="secondary" onClick={() => setInvoicesOpen(true)}>
+          {vt.invoices.btn}
+        </Button>
+        <Button variant="secondary" onClick={() => setEditOpen(true)}>
+          {t.edit}
+        </Button>
+        {vehicle.state !== 'retired' && (
+          <>
+            <Button variant="secondary" onClick={() => openOps('state')}>
+              {t.changeState}
+            </Button>
+            {/* GAP-7: devolución guiada — la baja «a secas» sigue para
+                los casos sin devolución (siniestro total, venta…), en
+                «Editar». */}
+            <Button variant="warning" onClick={() => setReturnOpen(true)}>
+              {t.returnBtn}
+            </Button>
+          </>
+        )}
+      </div>
+
       {partialError && (
         <div className="link-banner" role="status">
           ⚠️ {t.partialLoadError}{' '}
@@ -1106,103 +1267,11 @@ export function VehicleDetailPage() {
         </div>
       )}
 
-      {/* KPIs (HU-1.2) */}
-      <div className="stat-grid">
-        <button
-          type="button"
-          className="kpi-btn"
-          title={t.kpiHint}
-          onClick={() => setKpiModal('cost')}
-        >
-          <StatCard
-            label={t.monthlyCost}
-            value={contract?.month_fee ? eur(contract.month_fee) : '—'}
-            sub={contract?.penalty_per_km ? t.penaltySub(contract.penalty_per_km) : t.contractFeeSub}
-            accent="navy"
-          />
-        </button>
-        {/* KPI clicable (patrón de la home): abre el modal de km con las
-            lecturas recientes y el alta. */}
-        <button
-          type="button"
-          className="kpi-btn"
-          title={t.manageMileage}
-          onClick={() => setKmModal(true)}
-        >
-          <StatCard
-            label={t.mileage}
-            value={summary?.km_current != null ? km(summary.km_current) : '—'}
-            sub={summary?.km_reading_date ? t.lastReadingSub(summary.km_reading_date) : t.noReadings}
-            accent="teal"
-          />
-        </button>
-        {/* GAP-2: gasto de combustible del MES en curso (litros e importe).
-            Clicable como el de km: abre el alta de la serie mensual. */}
-        <button
-          type="button"
-          className="kpi-btn"
-          title={t.fuelMonthHint}
-          onClick={() => setFuelCreate((n) => n + 1)}
-        >
-          <StatCard
-            label={t.fuelMonthTitle}
-            value={
-              summary?.fuel_month_liters != null
-                ? liters(summary.fuel_month_liters)
-                : '—'
-            }
-            sub={
-              summary?.fuel_month_liters == null
-                ? t.fuelMonthNone
-                : summary.fuel_month_amount
-                  ? eurCents(summary.fuel_month_amount)
-                  : t.fuelMonthNoAmount
-            }
-            accent="navy"
-          />
-        </button>
-        <button
-          type="button"
-          className="kpi-btn"
-          title={t.kpiHint}
-          onClick={() => setKpiModal('itv')}
-        >
-          <StatCard
-            label={t.nextItv}
-            value={vehicle.next_itv_date ?? '—'}
-            sub={vehicle.next_itv_date ? relative(vehicle.next_itv_date) : t.noDateRecorded}
-            accent={
-              vehicle.next_itv_date && daysUntil(vehicle.next_itv_date) < 0
-                ? 'danger'
-                : vehicle.next_itv_date && daysUntil(vehicle.next_itv_date) <= 30
-                  ? 'warning'
-                  : 'info'
-            }
-          />
-        </button>
-        <button
-          type="button"
-          className="kpi-btn"
-          title={t.maintenanceKpiHint}
-          onClick={openMaintenance}
-        >
-          <StatCard
-            label={t.nextMaintenance}
-            value={summary?.next_maintenance_date ?? '—'}
-            sub={
-              summary?.next_maintenance_date
-                ? relative(summary.next_maintenance_date)
-                : t.noMaintenancePlan
-            }
-            accent={
-              summary?.next_maintenance_date && daysUntil(summary.next_maintenance_date) < 0
-                ? 'danger'
-                : summary?.next_maintenance_date && daysUntil(summary.next_maintenance_date) <= 30
-                  ? 'warning'
-                  : 'info'
-            }
-          />
-        </button>
+      {/* Los indicadores del coche en UNA línea: primero los tres
+          vencimientos y, tras la separación, cómo va — lo que tiene abierto,
+          los kilómetros y el combustible. El coste y el fin de contrato están
+          arriba, junto a la matrícula. */}
+      <div className="detail-kpis">
         <button
           type="button"
           className="kpi-btn"
@@ -1226,25 +1295,266 @@ export function VehicleDetailPage() {
             }
           />
         </button>
+        {/* La ITV se cita, se registra y se consulta en el mismo sitio que el
+            mantenimiento: su indicador abre ese modal por su pestaña, no una
+            ficha de solo lectura. */}
         <button
           type="button"
           className="kpi-btn"
-          title={t.kpiHint}
-          onClick={() => setKpiModal('contract')}
+          title={t.itvKpiHint}
+          onClick={() => setSchedOpen('itv')}
         >
           <StatCard
-            label={t.contractEnd}
-            value={contract?.planned_end_date ?? '—'}
-            sub={
-              contract
-                ? `${contract.contract_time ? `${t.months(contract.contract_time)} · ` : ''}${relative(contract.planned_end_date)}`
-                : t.noActiveContract
+            label={t.nextItv}
+            value={vehicle.next_itv_date ?? '—'}
+            sub={vehicle.next_itv_date ? relative(vehicle.next_itv_date) : t.noDateRecorded}
+            accent={
+              vehicle.next_itv_date && daysUntil(vehicle.next_itv_date) < 0
+                ? 'danger'
+                : vehicle.next_itv_date && daysUntil(vehicle.next_itv_date) <= 30
+                  ? 'warning'
+                  : 'info'
             }
+          />
+        </button>
+        {/* El mantenimiento ya no tiene tarjeta aquí: su indicador abre
+            «Programar ITV y mantenimiento», donde se programa y se resuelve. */}
+        <button
+          type="button"
+          className="kpi-btn"
+          title={t.maintenanceKpiHint}
+          onClick={() => setSchedOpen('maintenance')}
+        >
+          <StatCard
+            label={t.nextMaintenance}
+            value={summary?.next_maintenance_date ?? '—'}
+            sub={
+              summary?.next_maintenance_date
+                ? relative(summary.next_maintenance_date)
+                : t.noMaintenancePlan
+            }
+            accent={
+              summary?.next_maintenance_date && daysUntil(summary.next_maintenance_date) < 0
+                ? 'danger'
+                : summary?.next_maintenance_date && daysUntil(summary.next_maintenance_date) <= 30
+                  ? 'warning'
+                  : 'info'
+            }
+          />
+        </button>
+
+        {/* Los vencimientos, a un lado; cómo va el coche, al otro. */}
+        <span className="kpi-sep" aria-hidden="true" />
+
+        {/* Lo que tiene abierto: cuántas y de qué. El dato lo da su propia
+            tarjeta (`onResumen`), así que no se vuelve a pedir. */}
+        <button
+          type="button"
+          className="kpi-btn"
+          // Los tipos van en el `title`: en la tarjeta ocuparían dos o tres
+          // líneas y la levantarían por encima de las demás.
+          title={[t.pendingKpiHint, tiposPendientes].filter(Boolean).join(' — ')}
+          onClick={openPending}
+        >
+          <StatCard
+            label={t.pendingKpi}
+            value={
+              pendiente ? (
+                <>
+                  {totalAlertas}
+                  <span className="kpi-unit">{t.pendingAlertsWord}</span>
+                  {' · '}
+                  {totalIncidencias}
+                  <span className="kpi-unit">{t.pendingIncidentsWord}</span>
+                </>
+              ) : (
+                '—'
+              )
+            }
+            accent={(totalAlertas ?? 0) + (totalIncidencias ?? 0) > 0 ? 'danger' : 'success'}
+          />
+        </button>
+        {/* KPI clicable (patrón de la home): abre el modal de km con las
+            lecturas recientes y el alta. */}
+        <button
+          type="button"
+          className="kpi-btn"
+          // El vehículo cubierto por un sustituto no registra km: los lleva el
+          // sustituto. Era el candado del botón «Registrar km» de la barra.
+          disabled={Boolean(summary?.blocked_by_link)}
+          title={
+            summary?.blocked_by_link
+              ? t.blockedTooltip(summary.blocked_by_link.plate)
+              : t.manageMileage
+          }
+          onClick={() => setKmFuelOpen('km')}
+        >
+          <StatCard
+            label={t.mileage}
+            value={summary?.km_current != null ? km(summary.km_current) : '—'}
+            sub={summary?.km_reading_date ? t.lastReadingSub(summary.km_reading_date) : t.noReadings}
+            accent="teal"
+          />
+        </button>
+        {/* GAP-2: gasto de combustible del MES en curso (litros e importe).
+            Como su tarjeta no está en la ficha, abre «Kilómetros y
+            combustible» por su pestaña, que es donde se registra. */}
+        <button
+          type="button"
+          className="kpi-btn"
+          title={t.fuelMonthHint}
+          onClick={() => setKmFuelOpen('fuel')}
+        >
+          <StatCard
+            label={t.fuelMonthTitle}
+            value={
+              summary?.fuel_month_liters != null ? liters(summary.fuel_month_liters) : '—'
+            }
+            sub={
+              summary?.fuel_month_liters == null
+                ? t.fuelMonthNone
+                : summary.fuel_month_amount
+                  ? eurCents(summary.fuel_month_amount)
+                  : t.fuelMonthNoAmount
+            }
+            accent="navy"
           />
         </button>
       </div>
 
-      <AccordionTools accordion={accordion} />
+      {/* Lo que el coche ES: características, contrato y facturas. */}
+      <div className="detail-grid">
+        <CollapsibleCard
+          id="tech"
+          accordion={accordion}
+          title={t.techTitle}
+          actions={
+            !accordion.isOpen('tech') && (
+              <span className="acc-summary">
+                {(vehicle.year ?? '—') + ' · ' + label(t.fuelLabel, vehicle.fuel)}
+              </span>
+            )
+          }
+        >
+          <dl className="detail-dl">
+            <dt>{t.vin}</dt>
+            <dd>{vehicle.vin || '—'}</dd>
+            <dt>{t.year}</dt>
+            <dd>{vehicle.year ?? '—'}</dd>
+            <dt>{t.registrationDate}</dt>
+            <dd>{vehicle.registration_date ?? '—'}</dd>
+            <dt>{t.fuel}</dt>
+            <dd>{label(t.fuelLabel, vehicle.fuel)}</dd>
+            <dt>{t.type}</dt>
+            <dd>{label(t.typeLabel, vehicle.type)}</dd>
+            <dt>{t.consumption}</dt>
+            <dd>{vehicle.consumption != null ? `${vehicle.consumption} l/100km` : '—'}</dd>
+            <dt>{t.fuelCardRow}</dt>
+            <dd>{vehicle.fuel_card ? t.yes : t.no}</dd>
+            {/* GAP-4: «obra/sede» — en obra se enseña el proyecto; si no, la sede. */}
+            <dt>{t.siteRow}</dt>
+            <dd>{vehicle.site_display || '—'}</dd>
+            <dt>{t.initialOdometer}</dt>
+            <dd>{vehicle.km_start != null ? km(vehicle.km_start) : '—'}</dd>
+            <dt>{t.supervisor}</dt>
+            <dd>{vehicle.supervisor_name || '—'}</dd>
+          </dl>
+        </CollapsibleCard>
+
+        <CollapsibleCard
+          id="contract"
+          accordion={accordion}
+          title={t.contractTitle}
+          actions={
+            !accordion.isOpen('contract') && (
+              <span className="acc-summary">
+                {label(t.propertyLabel, vehicle.property)}
+                {contract?.month_fee ? ` · ${eur(contract.month_fee)}` : ''}
+                {contract?.planned_end_date ? ` · ${contract.planned_end_date}` : ''}
+              </span>
+            )
+          }
+        >
+          {contract ? (
+            <dl className="detail-dl">
+              <dt>{t.ownership}</dt>
+              <dd>{label(t.propertyLabel, vehicle.property)}</dd>
+              <dt>{t.monthlyFee}</dt>
+              <dd>{contract.month_fee ? eur(contract.month_fee) : '—'}</dd>
+              <dt>{t.start}</dt>
+              <dd>{contract.start_date}</dd>
+              <dt>{t.plannedEnd}</dt>
+              <dd>{contract.planned_end_date}</dd>
+              <dt>{t.duration}</dt>
+              <dd>{contract.contract_time ? t.months(contract.contract_time) : '—'}</dd>
+              <dt>{t.contractedKm}</dt>
+              <dd>
+                {contract.contract_km ? km(contract.contract_km) : '—'}
+                {contract.contract_km && contract.contract_time
+                  ? t.quotaPerYear(km(Math.round(contract.contract_km / (contract.contract_time / 12))))
+                  : ''}
+              </dd>
+              <dt>{t.penalty}</dt>
+              <dd>{contract.penalty_per_km ? `${contract.penalty_per_km} €/km` : '—'}</dd>
+              <dt>{t.contractDrive}</dt>
+              <dd className="contract-drive-cell">
+                {safeHref(contract.drive_url) ? (
+                  <a
+                    href={safeHref(contract.drive_url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="cell-link"
+                  >
+                    <ExternalLink size={13} aria-hidden /> {t.contractDriveOpen}
+                  </a>
+                ) : (
+                  <span className="muted">{t.contractDriveNone}</span>
+                )}
+                {isAdmin && (
+                  <button type="button" className="linklike" onClick={openDriveModal}>
+                    {contract.drive_url ? t.contractDriveEdit : t.contractDriveAdd}
+                  </button>
+                )}
+              </dd>
+            </dl>
+          ) : (
+            <p className="muted">{t.noActiveContractDot}</p>
+          )}
+        </CollapsibleCard>
+
+        <VehicleInvoicesCard vehicle={vehicle} accordion={accordion} />
+
+        {/* Fuera de la ficha (v. SHOW_FUEL_CARD / SHOW_MAINTENANCE_CARD): el
+            consumo se registra en «Kilómetros y combustible» y el
+            mantenimiento en «Programar ITV y mantenimiento». */}
+        {SHOW_FUEL_CARD && <FuelConsumptionCard vehicle={vehicle} accordion={accordion} />}
+        {SHOW_MAINTENANCE_CARD && (
+          <MaintenancePlansCard vehicle={vehicle} accordion={accordion} />
+        )}
+      </div>
+
+      {/* Lo pendiente del vehículo (alertas abiertas e incidencias sin cerrar),
+          con «Resolver» por fila: el mismo dispatcher que el Panel. Su
+          resumen sube al indicador de arriba (`onResumen`). */}
+      <div id="kpi-pending">
+        <VehiclePendingCard
+          handleRef={pendingRef}
+          vehicle={vehicle}
+          accordion={accordion}
+          links={allLinks}
+          onChanged={load}
+          onResumen={setPendiente}
+        />
+      </div>
+
+      {/* Los accidentes, aparte: misma lista y misma forma, acotada a ese
+          tipo, con «Comunicar accidente» en su cabecera. */}
+      <VehicleAccidentsCard
+        vehicle={vehicle}
+        accordion={accordion}
+        links={allLinks}
+        onChanged={load}
+      />
 
       {/* Kilómetros contratados (HU-3.4) */}
       {contract?.contract_km && (
@@ -1373,117 +1683,6 @@ export function VehicleDetailPage() {
         </CollapsibleCard>
       )}
 
-      <div className="detail-grid">
-        <CollapsibleCard
-          id="tech"
-          accordion={accordion}
-          title={t.techTitle}
-          actions={
-            !accordion.isOpen('tech') && (
-              <span className="acc-summary">
-                {(vehicle.year ?? '—') + ' · ' + label(t.fuelLabel, vehicle.fuel)}
-              </span>
-            )
-          }
-        >
-          <dl className="detail-dl">
-            <dt>{t.vin}</dt>
-            <dd>{vehicle.vin || '—'}</dd>
-            <dt>{t.year}</dt>
-            <dd>{vehicle.year ?? '—'}</dd>
-            <dt>{t.registrationDate}</dt>
-            <dd>{vehicle.registration_date ?? '—'}</dd>
-            <dt>{t.fuel}</dt>
-            <dd>{label(t.fuelLabel, vehicle.fuel)}</dd>
-            <dt>{t.type}</dt>
-            <dd>{label(t.typeLabel, vehicle.type)}</dd>
-            <dt>{t.consumption}</dt>
-            <dd>{vehicle.consumption != null ? `${vehicle.consumption} l/100km` : '—'}</dd>
-            <dt>{t.fuelCardRow}</dt>
-            <dd>{vehicle.fuel_card ? t.yes : t.no}</dd>
-            {/* GAP-4: «obra/sede» — en obra se enseña el proyecto; si no, la sede. */}
-            <dt>{t.siteRow}</dt>
-            <dd>{vehicle.site_display || '—'}</dd>
-            <dt>{t.initialOdometer}</dt>
-            <dd>{vehicle.km_start != null ? km(vehicle.km_start) : '—'}</dd>
-            <dt>{t.supervisor}</dt>
-            <dd>{vehicle.supervisor_name || '—'}</dd>
-          </dl>
-        </CollapsibleCard>
-
-        <CollapsibleCard
-          id="contract"
-          accordion={accordion}
-          title={t.contractTitle}
-          actions={
-            !accordion.isOpen('contract') && (
-              <span className="acc-summary">
-                {label(t.propertyLabel, vehicle.property)}
-                {contract?.month_fee ? ` · ${eur(contract.month_fee)}` : ''}
-                {contract?.planned_end_date ? ` · ${contract.planned_end_date}` : ''}
-              </span>
-            )
-          }
-        >
-          {contract ? (
-            <dl className="detail-dl">
-              <dt>{t.ownership}</dt>
-              <dd>{label(t.propertyLabel, vehicle.property)}</dd>
-              <dt>{t.monthlyFee}</dt>
-              <dd>{contract.month_fee ? eur(contract.month_fee) : '—'}</dd>
-              <dt>{t.start}</dt>
-              <dd>{contract.start_date}</dd>
-              <dt>{t.plannedEnd}</dt>
-              <dd>{contract.planned_end_date}</dd>
-              <dt>{t.duration}</dt>
-              <dd>{contract.contract_time ? t.months(contract.contract_time) : '—'}</dd>
-              <dt>{t.contractedKm}</dt>
-              <dd>
-                {contract.contract_km ? km(contract.contract_km) : '—'}
-                {contract.contract_km && contract.contract_time
-                  ? t.quotaPerYear(km(Math.round(contract.contract_km / (contract.contract_time / 12))))
-                  : ''}
-              </dd>
-              <dt>{t.penalty}</dt>
-              <dd>{contract.penalty_per_km ? `${contract.penalty_per_km} €/km` : '—'}</dd>
-              <dt>{t.contractDrive}</dt>
-              <dd className="contract-drive-cell">
-                {safeHref(contract.drive_url) ? (
-                  <a
-                    href={safeHref(contract.drive_url)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="cell-link"
-                  >
-                    <ExternalLink size={13} aria-hidden /> {t.contractDriveOpen}
-                  </a>
-                ) : (
-                  <span className="muted">{t.contractDriveNone}</span>
-                )}
-                {isAdmin && (
-                  <button type="button" className="linklike" onClick={openDriveModal}>
-                    {contract.drive_url ? t.contractDriveEdit : t.contractDriveAdd}
-                  </button>
-                )}
-              </dd>
-            </dl>
-          ) : (
-            <p className="muted">{t.noActiveContractDot}</p>
-          )}
-        </CollapsibleCard>
-
-        <VehicleInvoicesCard vehicle={vehicle} accordion={accordion} />
-
-        <FuelConsumptionCard
-          vehicle={vehicle}
-          accordion={accordion}
-          createSignal={fuelCreate}
-        />
-
-        <div id="kpi-maintenance">
-          <MaintenancePlansCard vehicle={vehicle} accordion={accordion} />
-        </div>
-      </div>
 
       <VehicleAssignmentsPanel vehicle={vehicle} onChanged={load} accordion={accordion} />
 
@@ -1563,17 +1762,99 @@ export function VehicleDetailPage() {
         onClose={() => setOpsModal(null)}
       >
         <form className="modal-form" onSubmit={submitState}>
+          {/* Lo primero, el camino bueno: casi todo cambio de estado viene de
+              algo que le ha pasado al coche, y eso es una incidencia (que
+              además pone el estado ella sola). Este modal se queda para lo que
+              no tiene parte detrás. */}
+          <div className="state-prefer">
+            <p>{t.statePreferIncident}</p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setOpsModal(null)
+                pendingRef.current?.nuevaIncidencia()
+              }}
+            >
+              {t.stateOpenIncident}
+            </Button>
+          </div>
+
+          {/* `required` para que el DS no cuele su fila «-- Ignorar --». */}
           <SelectField
             label={t.newState}
+            required
             options={t.stateOptions}
             value={stateValue}
-            onValueChange={setStateValue}
+            onValueChange={(value) => {
+              setStateValue(value)
+              // El motivo del vínculo es el mismo dato que el estado.
+              setLinkReason(linkReasonForState(value))
+            }}
           />
           <TextInputField
             label={t.stateReasonLabel}
             value={stateReason}
             onChange={(e) => setStateReason(e.target.value)}
           />
+
+          {/* Si el coche sale de servicio, puede salir cubierto: se pregunta
+              aquí y se guarda en el mismo gesto que el estado. */}
+          {sacaDeServicio && (
+            <label className="baja-toggle">
+              <input
+                type="checkbox"
+                checked={stateWithSub}
+                onChange={(e) => setStateWithSub(e.target.checked)}
+              />
+              {t.withSubstitute}
+            </label>
+          )}
+          {conSustituto && (
+            <div className="avail-sub slide-open">
+              <span className="avail-sub-title">{t.substitution}</span>
+              <SelectField
+                label={t.substituteVehicle}
+                required
+                options={[
+                  { value: '', label: t.choosePlaceholder },
+                  ...opcionesSustituto,
+                ]}
+                value={linkSubstitute}
+                onValueChange={setLinkSubstitute}
+              />
+              <div className="foot-left">
+                <CreateSubstituteButton
+                  disabled={opsSaving}
+                  onCreated={(v) => {
+                    setCandidates((prev) => [...prev, v])
+                    setLinkSubstitute(String(v.id))
+                  }}
+                />
+              </div>
+              <div className="link-when-row">
+                <SelectField
+                  label={t.reason}
+                  required
+                  options={t.linkReasonOptions}
+                  value={linkReason}
+                  onValueChange={setLinkReason}
+                />
+                <TextInputField
+                  label={t.start}
+                  type="date"
+                  value={linkStart}
+                  onChange={(e) => setLinkStart(e.target.value)}
+                  required
+                />
+              </div>
+              <p className="muted" style={{ margin: 0 }}>
+                {t.withSubstituteHint}
+              </p>
+            </div>
+          )}
+
           <p className="muted" style={{ margin: 0 }}>
             {t.stateModalNote}
           </p>
@@ -1589,85 +1870,18 @@ export function VehicleDetailPage() {
         </form>
       </Modal>
 
-      {/* G4 · Baja (HU-1.5) — el aviso previo es responsabilidad del front */}
-      <Modal open={opsModal === 'baja'} title={t.bajaModalTitle(vehicle.plate)} onClose={() => setOpsModal(null)}>
-        <form className="modal-form" onSubmit={submitBaja}>
-          {(vehicle.driver_name || activeLink) && (
-            <div className="baja-warnings">
-              {vehicle.driver_name && (
-                <p>{t.bajaHasDriver} <strong>{vehicle.driver_name}</strong>.</p>
-              )}
-              {activeLink && (
-                <p>{t.bajaLinkWarn.pre}<strong>{t.bajaLinkWarn.bold}</strong>{t.bajaLinkWarn.post}</p>
-              )}
-            </div>
-          )}
-          <TextInputField
-            label={t.bajaDateLabel}
-            type="date"
-            value={bajaDate}
-            onChange={(e) => setBajaDate(e.target.value)}
-            required
-          />
-          <TextInputField
-            label={t.reasonRequired}
-            value={bajaReason}
-            onChange={(e) => setBajaReason(e.target.value)}
-            required
-          />
-          <p className="muted" style={{ margin: 0 }}>
-            {t.bajaNote.pre}<strong>{t.bajaNote.bold}</strong>{t.bajaNote.post}
-          </p>
-          {opsError && <div role="alert" className="form-error">{opsError}</div>}
-          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
-            <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
-              {t.cancel}
-            </Button>
-            <Button type="submit" variant="danger" disabled={opsSaving}>
-              {opsSaving ? t.saving : t.confirmBaja}
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* N9 · Sustituto → flota. Todo el flujo vive aquí: qué implica, si está
-          bloqueado por un vínculo y el error del back si lo rechaza. */}
-      <Modal
-        open={opsModal === 'convert'}
-        title={t.convertModalTitle(vehicle.plate)}
+      {/* G4 · Baja (HU-1.5): componente compartido con el dispatcher de resolver
+          (accidente con siniestro total). */}
+      <VehicleRetireModal
+        open={opsModal === 'baja'}
+        vehicle={vehicle}
+        activeLink={activeLink !== null}
         onClose={() => setOpsModal(null)}
-      >
-        <div className="modal-form">
-          <p style={{ margin: 0 }}>{t.convertIntro}</p>
-
-          {/* El back rechaza convertir un sustituto que está cubriendo: se
-              avisa antes de gastar el viaje y se desactiva el botón. */}
-          {linkInfo ? (
-            <div className="form-warn" role="status">
-              ⚠️ {t.convertBlockedByLink(linkInfo.plate)}
-            </div>
-          ) : (
-            <div className="form-warn" role="status">
-              ⚠️ {t.convertIrreversible}
-            </div>
-          )}
-
-          {opsError && <div role="alert" className="form-error">{opsError}</div>}
-
-          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
-            <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
-              {t.cancel}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={opsSaving || Boolean(linkInfo)}
-              onClick={handleConvertToFleet}
-            >
-              {opsSaving ? t.converting : t.convertConfirm}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        onDone={() => {
+          setOpsModal(null)
+          load()
+        }}
+      />
 
       {/* G4 · Vinculación principal ↔ sustitución (HU-1.8) */}
       <Modal
@@ -1786,44 +2000,44 @@ export function VehicleDetailPage() {
           <form className="modal-form" onSubmit={submitLink}>
             <SelectField
               label={t.substituteVehicle}
-              options={[
-                { value: '', label: t.choosePlaceholder },
-                // Solo vehículos de sustitución. Los DISPONIBLES (sin vínculo
-                // activo) en color normal y primero; los ocupados, en gris
-                // (disabled) y al final.
-                ...candidates
-                  .filter((v) => v.is_substitute)
-                  .map((v) => ({ v, available: !busySubIds.has(v.id) }))
-                  .sort(
-                    (a, b) =>
-                      Number(b.available) - Number(a.available) ||
-                      a.v.plate.localeCompare(b.v.plate),
-                  )
-                  .map(({ v, available }) => ({
-                    value: String(v.id),
-                    label: `${v.plate} · ${v.brand} ${v.model} 🔁${available ? '' : ` · ${t.unavailable}`}`,
-                    disabled: !available,
-                  })),
-              ]}
+              required
+              options={[{ value: '', label: t.choosePlaceholder }, ...opcionesSustituto]}
               value={linkSubstitute}
               onValueChange={setLinkSubstitute}
             />
-            <SelectField
-              label={t.reason}
-              required
-              options={t.linkReasonOptions}
-              value={linkReason}
-              onValueChange={setLinkReason}
-            />
-            <TextInputField
-              label={t.start}
-              type="date"
-              value={linkStart}
-              onChange={(e) => setLinkStart(e.target.value)}
-              required
-            />
+            {/* Por qué y desde cuándo van juntos: son la misma frase. Rejilla
+                propia porque `.ops-grid` pide 220px por columna y en este
+                modal (estrecho) no caben dos. */}
+            <div className="link-when-row">
+              <SelectField
+                label={t.reason}
+                required
+                options={t.linkReasonOptions}
+                value={linkReason}
+                onValueChange={setLinkReason}
+              />
+              <TextInputField
+                label={t.start}
+                type="date"
+                value={linkStart}
+                onChange={(e) => setLinkStart(e.target.value)}
+                required
+              />
+            </div>
             {opsError && <div role="alert" className="form-error">{opsError}</div>}
-            <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+            <div className="ops-actions">
+              {/* Si el sustituto todavía no existe, se da de alta aquí y queda
+                  elegido (el alta completa, con el tipo ya marcado). */}
+              <div className="foot-left">
+                <CreateSubstituteButton
+                  disabled={opsSaving}
+                  size="md"
+                  onCreated={(v) => {
+                    setCandidates((prev) => [...prev, v])
+                    setLinkSubstitute(String(v.id))
+                  }}
+                />
+              </div>
               <Button type="button" variant="secondary" onClick={() => setOpsModal(null)}>
                 {t.cancel}
               </Button>
@@ -1862,6 +2076,33 @@ export function VehicleDetailPage() {
           </details>
         )}
       </Modal>
+
+      {/* Kilómetros y combustible (el mismo del inventario): lo abren sus DOS
+          indicadores, cada uno por su pestaña — ninguno de los dos tiene ya
+          tarjeta en la ficha. */}
+      <Modal
+        open={kmFuelOpen !== null}
+        title={vt.kmFuel.title(vehicle.plate)}
+        onClose={() => setKmFuelOpen(null)}
+      >
+        {kmFuelOpen && (
+          <KmFuelModal
+            vehicle={vehicle}
+            initialTab={kmFuelOpen}
+            onClose={() => setKmFuelOpen(null)}
+            onDone={load}
+          />
+        )}
+      </Modal>
+
+      {/* Programar ITV y mantenimiento: lo abren sus DOS indicadores, cada uno
+          por su pestaña (ninguno de los dos tiene ya tarjeta en la ficha). */}
+      <ScheduleItvMaintenanceModal
+        vehicle={schedOpen ? vehicle : null}
+        initialTab={schedOpen ?? 'maintenance'}
+        onClose={() => setSchedOpen(null)}
+        onSaved={load}
+      />
 
       <Modal
         open={kmModal}
@@ -1998,6 +2239,52 @@ export function VehicleDetailPage() {
         )}
       </Modal>
 
+      {/* Correo del vehículo: el MISMO modal que el ⋮ del inventario. */}
+      <Modal
+        open={emailOpen !== null}
+        title={vt.email.title(vehicle.plate)}
+        onClose={() => setEmailOpen(null)}
+        wide
+      >
+        {emailOpen && (
+          <VehicleEmailModal
+            vehicle={vehicle}
+            initialKind={emailOpen === 'default' ? undefined : emailOpen}
+            onClose={() => setEmailOpen(null)}
+            onDone={load}
+          />
+        )}
+      </Modal>
+
+      {/* Conductor y supervisor en una sola llamada atómica. */}
+      <Modal
+        open={driverOpen}
+        title={vt.driverModal.title(vehicle.plate)}
+        onClose={() => setDriverOpen(false)}
+        wide
+      >
+        {driverOpen && (
+          <VehicleDriverModal
+            vehicle={vehicle}
+            onClose={() => setDriverOpen(false)}
+            onDone={load}
+          />
+        )}
+      </Modal>
+
+      {/* Facturas del vehículo (la tarjeta de abajo solo las enseña). */}
+      <Modal
+        open={invoicesOpen}
+        title={vt.invoices.title(vehicle.plate)}
+        onClose={() => setInvoicesOpen(false)}
+        xl
+        height="88dvh"
+      >
+        {invoicesOpen && (
+          <VehicleInvoicesModal vehicle={vehicle} onClose={() => setInvoicesOpen(false)} />
+        )}
+      </Modal>
+
       {/* Contrato · enlace de Drive (solo admin) */}
       <Modal
         open={driveModal}
@@ -2033,9 +2320,38 @@ export function VehicleDetailPage() {
       >
         {kpiModal && (
           <div className="kpi-modal">
+            {/* Lo primero, si el contrato ya venció: es lo que hay que hacer. */}
+            {kpiModal === 'contract' && contratoVencido && contract && (
+              <div className="form-error" role="status">
+                ⚠️ {t.contractEndedNote(contract.planned_end_date)}
+              </div>
+            )}
             <h4 className="kpi-modal-h">{t.kpiCurrentData}</h4>
             <dl className="detail-dl">{kpiFacts(kpiModal)}</dl>
-            {kpiModal === 'insurance' && <p className="muted">{t.kpiInsuranceDocsNote}</p>}
+            {kpiModal === 'insurance' && (
+              <>
+                <p className="muted">{t.kpiInsuranceDocsNote}</p>
+                {/* Quien renueva es la renting: el detalle del vencimiento
+                    tiene que poder pedírselo, igual que la renovación del
+                    seguro (`RenewInsuranceForm`) y la resolución de su
+                    alerta. Mismo atajo y mismo texto. */}
+                <div className="resolve-side-action">
+                  <p className="muted" style={{ margin: 0 }}>
+                    {tResolve.insurance.emailHint}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      setKpiModal(null)
+                      setEmailOpen('insurance_due')
+                    }}
+                  >
+                    {tResolve.insurance.emailButton}
+                  </Button>
+                </div>
+              </>
+            )}
             {kpiModal === 'cost' && <p className="muted">{t.kpiCostInvoicesNote}</p>}
 
             {/* El histórico entra plegado: lo primero del modal son las cifras,
@@ -2082,6 +2398,25 @@ export function VehicleDetailPage() {
           <VehicleForm
             mode="edit"
             vehicleId={vehicleId}
+            // Cómo está el coche, junto al tipo: es lo primero que se mira
+            // antes de tocar nada (y lo que decide si el resto tiene sentido).
+            stateBadge={
+              <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+            }
+            // Lo que se le HACE sin cerrar la edición (sus modales viven en
+            // esta página).
+            actions={
+              vehicle.state !== 'retired' ? (
+                <>
+                  <Button variant="secondary" size="sm" onClick={() => openOps('state')}>
+                    {t.changeState}
+                  </Button>
+                  <Button variant="warning" size="sm" onClick={() => setReturnOpen(true)}>
+                    {t.returnBtn}
+                  </Button>
+                </>
+              ) : undefined
+            }
             onSuccess={() => {
               setEditOpen(false)
               load()

@@ -8,7 +8,13 @@ aquí, dentro de `models/`, y se reexportan para poder importar cualquiera con
 from .alert import AlertLevel, AlertStatus, AlertType
 from .document import DocumentStatus, DocumentType
 from .event import EventType, ItvResult
-from .incident import IncidentStatus, IncidentType
+from .incident import (
+    TIRE_POSITIONS,
+    IncidentLiability,
+    IncidentPriority,
+    IncidentStatus,
+    IncidentType,
+)
 from .invoice import AllocationTarget
 from .operations import AssignmentStatus, LinkReason
 from .request import VehicleRequestStatus
@@ -38,7 +44,10 @@ __all__ = [
     "DocumentType",
     "DocumentStatus",
     "IncidentType",
+    "IncidentPriority",
     "IncidentStatus",
+    "IncidentLiability",
+    "TIRE_POSITIONS",
     "AlertType",
     "AlertLevel",
     "AlertStatus",

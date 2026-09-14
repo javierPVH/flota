@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Badge, Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage, isAbortError } from '@flota/ui/http'
-import { Download, FileText, Pencil } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, FileText, Pencil } from 'lucide-react'
 
 import {
   type IncidentInput,
@@ -14,27 +14,36 @@ import {
   updateIncident,
 } from '../api.ts'
 import { exportCsv } from '../csv.ts'
-import { incidentStatusTone } from '../format.ts'
+import { incidentPriorityTone, incidentStatusTone, vehicleStateTone } from '../format.ts'
+import { DEFAULT_PRIORITY, priorityOptions } from '../incidentPriority.ts'
+import { ResolveDispatcher } from '../components/resolve/ResolveDispatcher.tsx'
+import { incidentTarget, type ResolveTarget } from '../components/resolve/resolveFlow.ts'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { TextCell } from '../components/TextCell.tsx'
 import { useIncidentsCopy } from '../translations/incidents.ts'
+import { useVehiclesCopy } from '../translations/vehicles.ts'
 import type { Incident, Vehicle } from '../types.ts'
 
 interface FormState {
   vehicle: string
   type: string
+  priority: string
   date: string
   status: string
   cost: string
+  workshop_postal_code: string
   description: string
 }
 
 const EMPTY: FormState = {
   vehicle: '',
   type: 'breakdown',
+  // «Moderada» de salida: lo que se abre sin pensarlo no entra como crítico.
+  priority: DEFAULT_PRIORITY,
   date: '',
   status: 'open',
   cost: '',
+  workshop_postal_code: '',
   description: '',
 }
 
@@ -42,16 +51,23 @@ const EMPTY: FormState = {
  * Los documentos (acta/parte/fotos) se ligan desde la ficha del vehículo. */
 export function IncidentsPage() {
   const t = useIncidentsCopy()
+  // Las etiquetas de los estados del coche viven con los vehículos (son las
+  // mismas siete de `stateLabel`): aquí se leen, no se repiten.
+  const vt = useVehiclesCopy()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const vehicleFilter = searchParams.get('vehicle') ?? ''
   const typeFilter = searchParams.get('type') ?? ''
+  const priorityFilter = searchParams.get('priority') ?? ''
 
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   // Estado como pestañas (subtab) + búsqueda en cliente (franja estilo Vehículos).
-  const [tab, setTab] = useState('')
+  // Solo dos: lo que sigue pendiente (abierta O en curso) y lo cerrado. Arranca
+  // en lo pendiente, que es a lo que se entra.
+  const [tab, setTab] = useState('open')
   const [search, setSearch] = useState('')
 
   const [modalOpen, setModalOpen] = useState(false)
@@ -59,18 +75,27 @@ export function IncidentsPage() {
   const [form, setForm] = useState<FormState>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
+  // Resolver: el modal específico del tipo (dispatcher) + el aviso verde.
+  const [resolving, setResolving] = useState<ResolveTarget | null>(null)
+  const [notice, setNotice] = useState('')
 
-  // Listas cerradas del back (Épica 6); etiquetas en el idioma activo.
+  // Listas cerradas del back (Épica 6); etiquetas en el idioma activo. El
+  // catálogo es avería / avería de neumáticos / mantenimiento puntual /
+  // accidente / petición general: la ITV NO está — es una ALERTA, no una
+  // incidencia. Las peticiones internas «En ITV» que abre el ciclo de estado
+  // se filtran del listado y se siguen en «Estados abiertos» del vehículo.
   const typeOptions = useMemo(
     () => [
       { value: 'breakdown', label: t.types.breakdown },
-      { value: 'maintenance', label: t.types.maintenance },
       { value: 'tires', label: t.types.tires },
-      { value: 'inspection', label: t.types.inspection },
+      { value: 'maintenance', label: t.types.maintenance },
       { value: 'accident', label: t.types.accident },
+      { value: 'general', label: t.types.general },
     ],
     [t],
   )
+  // Prioridad: de más a menos urgente, como en el back.
+  const priorities = useMemo(() => priorityOptions(t.priorities), [t])
   const statusOptions = useMemo(
     () => [
       { value: 'open', label: t.statuses.open },
@@ -97,13 +122,16 @@ export function IncidentsPage() {
           {
             vehicle: vehicleFilter ? Number(vehicleFilter) : undefined,
             type: typeFilter || undefined,
+            priority: priorityFilter || undefined,
           },
           req,
         ),
         req,
       )
         .then((rows) => {
-          setIncidents(rows)
+          // La ITV no es una incidencia: las «En ITV» del ciclo de estado se
+          // siguen en «Estados abiertos» del vehículo, y su cita en Alertas.
+          setIncidents(rows.filter((row) => row.type !== 'inspection'))
           setError('')
         })
         .catch((err) => {
@@ -114,7 +142,7 @@ export function IncidentsPage() {
           if (!signal?.aborted) setLoading(false)
         })
     },
-    [vehicleFilter, typeFilter, t],
+    [vehicleFilter, typeFilter, priorityFilter, t],
   )
 
   // M14: cada carga aborta la anterior; la última en vuelo muere al desmontar.
@@ -135,14 +163,26 @@ export function IncidentsPage() {
   }
 
   // O4: Map memoizada — el `find()` por celda era O(filas × vehículos).
-  const plateById = useMemo(() => new Map(vehicles.map((v) => [v.id, v.plate])), [vehicles])
-  const plateOf = (id: number) => plateById.get(id) ?? `#${id}`
+  const vehicleById = useMemo(() => new Map(vehicles.map((v) => [v.id, v])), [vehicles])
+  const plateOf = (id: number) => vehicleById.get(id)?.plate ?? `#${id}`
+
+  /** Cómo está HOY el coche de la incidencia: si rueda o por qué no. Sale del
+   * índice de vehículos y, si ese coche no está cargado, del estado que el
+   * back adjunta a la propia incidencia. */
+  const vehicleStateOf = (incident: Incident) => {
+    const vehicle = vehicleById.get(incident.vehicle)
+    const state = vehicle?.state ?? incident.vehicle_state ?? null
+    const label = vehicle?.state_display || (state ? (vt.stateLabel[state] ?? state) : '')
+    return { state, label }
+  }
 
   // Pestañas por estado + búsqueda en cliente (matrícula, tipo, descripción…).
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase()
     return incidents.filter((i) => {
-      if (tab && i.status !== tab) return false
+      // «Abiertas» agrupa abierta + en curso: lo que no está cerrado.
+      const cerrada = i.status === 'closed'
+      if (tab === 'closed' ? !cerrada : cerrada) return false
       if (
         term &&
         !`${plateOf(i.vehicle)} ${i.type_display} ${i.description ?? ''} ${i.status_display}`
@@ -153,13 +193,11 @@ export function IncidentsPage() {
       return true
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incidents, tab, search, plateById])
+  }, [incidents, tab, search, vehicleById])
 
   const tabs = [
-    { key: '', label: t.filterAllStatuses },
-    { key: 'open', label: t.statuses.open },
-    { key: 'on_going', label: t.statuses.on_going },
-    { key: 'closed', label: t.statuses.closed },
+    { key: 'open', label: t.tabOpen },
+    { key: 'closed', label: t.tabClosed },
   ]
 
   function openCreate() {
@@ -174,9 +212,11 @@ export function IncidentsPage() {
     setForm({
       vehicle: String(incident.vehicle),
       type: incident.type,
+      priority: incident.priority ?? DEFAULT_PRIORITY,
       date: incident.date ?? '',
       status: incident.status,
       cost: incident.cost ?? '',
+      workshop_postal_code: incident.workshop_postal_code ?? '',
       description: incident.description,
     })
     setFormError('')
@@ -194,9 +234,11 @@ export function IncidentsPage() {
     const data: IncidentInput = {
       vehicle: Number(form.vehicle),
       type: form.type,
+      priority: form.priority,
       date: form.date || null,
       status: form.status,
       cost: form.cost || null,
+      workshop_postal_code: form.workshop_postal_code.trim(),
       description: form.description,
     }
     try {
@@ -212,6 +254,14 @@ export function IncidentsPage() {
   }
 
   const columns: Array<TableWithPanelColumn<Incident>> = [
+    // La fecha manda: es por lo que se recorre la bandeja.
+    {
+      key: 'date',
+      label: t.columns.date,
+      isDate: true,
+      getValue: (i) => i.date,
+      render: (i) => i.date ?? '—',
+    },
     {
       key: 'vehicle',
       label: t.columns.vehicle,
@@ -229,17 +279,34 @@ export function IncidentsPage() {
       render: (i) => i.type_display || '—',
     },
     {
-      key: 'date',
-      label: t.columns.date,
-      isDate: true,
-      getValue: (i) => i.date,
-      render: (i) => i.date ?? '—',
+      // Prioridad y estado son chapas cortas: no necesitan ancho, y lo que
+      // sobra se lo queda la descripción.
+      key: 'priority',
+      label: t.columns.priority,
+      width: 116,
+      getValue: (i) => i.priority_display ?? '',
+      render: (i) => (
+        <Badge tone={incidentPriorityTone(i.priority)}>{i.priority_display || '—'}</Badge>
+      ),
     },
     {
       key: 'status',
       label: t.columns.status,
+      width: 116,
       getValue: (i) => i.status_display,
       render: (i) => <Badge tone={incidentStatusTone(i.status)}>{i.status_display || '—'}</Badge>,
+    },
+    {
+      // Si la incidencia deja el coche parado o no: el estado del vehículo,
+      // con las mismas etiquetas y colores que el inventario. En una cerrada
+      // es cómo está el coche HOY (no se guarda una foto por incidencia).
+      key: 'vehicle_state',
+      label: t.columns.vehicleState,
+      getValue: (i) => vehicleStateOf(i).label,
+      render: (i) => {
+        const { state, label } = vehicleStateOf(i)
+        return label ? <Badge tone={vehicleStateTone(state ?? '')}>{label}</Badge> : '—'
+      },
     },
     {
       key: 'cost',
@@ -252,9 +319,15 @@ export function IncidentsPage() {
       key: 'description',
       label: t.columns.description,
       sortable: false,
+      width: 320,
       getValue: (i) => i.description,
       render: (i) => (
-        <TextCell text={i.description} title={t.columns.description} label={t.viewDescription} />
+        <TextCell
+          inline
+          text={i.description}
+          title={t.columns.description}
+          label={t.viewDescription}
+        />
       ),
     },
     {
@@ -265,16 +338,31 @@ export function IncidentsPage() {
       sortable: false,
       render: (i) => (
         <div className="row-actions">
+          {/* Cerrar es «Resolver» (modal específico del tipo), no un cambio
+              de estado: solo en las que siguen abiertas o en curso. */}
+          {i.status !== 'closed' && (
+            <IconButton
+              aria-label={t.resolve}
+              title={t.resolve}
+              onClick={() => {
+                setNotice('')
+                setResolving(incidentTarget(i))
+              }}
+            >
+              <CheckCircle2 size={15} />
+            </IconButton>
+          )}
           <IconButton aria-label={t.edit} title={t.edit} onClick={() => openEdit(i)}>
             <Pencil size={15} />
           </IconButton>
-          <Link
-            to={`/vehiculos/${i.vehicle}`}
-            className="cell-link"
+          {/* Los documentos se ligan desde la ficha: este icono lleva allí. */}
+          <IconButton
+            aria-label={t.documents}
             title={t.documentsTitle}
+            onClick={() => navigate(`/vehiculos/${i.vehicle}`)}
           >
-            <FileText size={14} aria-hidden /> {t.documents}
-          </Link>
+            <FileText size={15} />
+          </IconButton>
         </div>
       ),
     },
@@ -282,7 +370,16 @@ export function IncidentsPage() {
 
   return (
     <div>
-      <PageHeader title={t.title} subtitle={t.subtitle} />
+      <PageHeader
+        title={t.title}
+        subtitle={t.subtitle}
+        actions={
+          // Las dos bandejas se repasan seguidas: la otra, a un clic.
+          <Button variant="secondary" onClick={() => navigate('/alertas')}>
+            <AlertTriangle size={16} aria-hidden /> {t.goAlerts}
+          </Button>
+        }
+      />
 
       {/* Pestañas por estado (subtabs). */}
       <div className="veh-tabs settings-tabs" role="tablist" aria-label={t.filterByStatus}>
@@ -351,9 +448,25 @@ export function IncidentsPage() {
             onValueChange={(value) => setFilter('type', value)}
           />
         </div>
+        <div className="filter-field filter-field--role">
+          <label>{t.filterPriority}</label>
+          <SelectField
+            aria-label={t.filterPriority}
+            containerClassName="role-filter"
+            required
+            options={[{ value: '', label: t.filterAll }, ...priorities]}
+            value={priorityFilter}
+            onValueChange={(value) => setFilter('priority', value)}
+          />
+        </div>
       </TableInfoBar>
 
       {error && <div role="alert" className="form-error">{error}</div>}
+      {notice && (
+        <p className="ops-success" role="status">
+          {notice}
+        </p>
+      )}
 
       {loading ? (
         <p className="loading-state" role="status">{t.loading}</p>
@@ -393,6 +506,12 @@ export function IncidentsPage() {
             value={form.type}
             onValueChange={(value) => setForm((f) => ({ ...f, type: value }))}
           />
+          <SelectField
+            label={t.form.priority}
+            options={priorities}
+            value={form.priority}
+            onValueChange={(value) => setForm((f) => ({ ...f, priority: value }))}
+          />
           <TextInputField
             label={t.form.date}
             type="date"
@@ -401,7 +520,13 @@ export function IncidentsPage() {
           />
           <SelectField
             label={t.form.status}
-            options={statusOptions}
+            // Cerrar va por «Resolver» (el back rechaza el PATCH a cerrada):
+            // el select solo ofrece «Cerrada» para dejar así una que ya lo está.
+            options={
+              editing?.status === 'closed'
+                ? statusOptions
+                : statusOptions.filter((o) => o.value !== 'closed')
+            }
             value={form.status}
             onValueChange={(value) => setForm((f) => ({ ...f, status: value }))}
           />
@@ -411,6 +536,17 @@ export function IncidentsPage() {
             value={form.cost}
             onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
           />
+          {/* CP preferente: la ubicación desde la que un tercero busca el
+              taller más cercano. Va en TODAS las incidencias. */}
+          <TextInputField
+            label={t.form.postalCode}
+            inputMode="numeric"
+            pattern="[0-9]{5}"
+            maxLength={5}
+            value={form.workshop_postal_code}
+            onChange={(e) => setForm((f) => ({ ...f, workshop_postal_code: e.target.value }))}
+          />
+          <p className="muted">{t.form.postalCodeHint}</p>
           <TextInputField
             label={t.form.description}
             value={form.description}
@@ -427,6 +563,18 @@ export function IncidentsPage() {
           </div>
         </form>
       </Modal>
+
+      {/* Resolver: el modal específico del tipo (el mismo del Panel y la ficha). */}
+      <ResolveDispatcher
+        target={resolving}
+        vehicles={vehicles}
+        onClose={() => setResolving(null)}
+        onDone={(text) => {
+          setResolving(null)
+          setNotice(text)
+          load()
+        }}
+      />
     </div>
   )
 }

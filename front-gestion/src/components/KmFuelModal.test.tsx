@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -50,8 +50,12 @@ function renderModal() {
 describe('KmFuelModal (kilómetros y combustible)', () => {
   beforeEach(() => {
     document.documentElement.lang = 'es'
+    // Ordenadas por fecha DESCENDENTE, como las devuelve la API.
     mocks.listKmReadingsAll.mockResolvedValue(
-      page([{ id: 1, vehicle: 21, reading_date: '2026-08-01', km_reading: 45000 }]),
+      page([
+        { id: 1, vehicle: 21, reading_date: '2026-08-01', km_reading: 45000 },
+        { id: 2, vehicle: 21, reading_date: '2026-07-01', km_reading: 42000, estimated: true },
+      ]),
     )
     mocks.listFuelConsumptions.mockResolvedValue(page([FUEL_ROW]))
     mocks.createKmReading.mockReset()
@@ -64,7 +68,12 @@ describe('KmFuelModal (kilómetros y combustible)', () => {
     renderModal()
 
     // Última lectura a la vista (contexto para no meter una cifra menor).
-    expect(await screen.findByText(/45\.000 km/)).toBeInTheDocument()
+    expect(await screen.findByText(/Última lectura/)).toHaveTextContent(/45\.000 km/)
+
+    // Y debajo, el histórico corto: las últimas lecturas con su fecha.
+    const historico = document.querySelector('.kmfuel-months') as HTMLElement
+    expect(within(historico).getByText('1 ago 2026')).toBeInTheDocument()
+    expect(within(historico).getByText(/42\.000 km \(estimada\)/)).toBeInTheDocument()
     await userEvent.type(screen.getByRole('spinbutton', { name: 'Lectura de km' }), '45600')
     await userEvent.click(screen.getByRole('button', { name: 'Registrar lectura' }))
 
@@ -88,15 +97,18 @@ describe('KmFuelModal (kilómetros y combustible)', () => {
     // Sin importe: aquí solo se registran litros (el importe va por la ficha).
     expect(screen.queryByRole('spinbutton', { name: /Importe/ })).not.toBeInTheDocument()
 
+    // La fecha se elige con DÍA (el back normaliza el periodo al mes).
+    const fecha = screen.getByLabelText('Fecha') as HTMLInputElement
+    expect(fecha.type).toBe('date')
+
     // Mes NUEVO → alta con origen manual.
-    const month = document.querySelector<HTMLInputElement>('input[type="month"]')
-    await userEvent.clear(month!)
-    await userEvent.type(month!, '2026-08')
+    await userEvent.clear(fecha)
+    await userEvent.type(fecha, '2026-08-14')
     await userEvent.type(screen.getByRole('spinbutton', { name: 'Litros' }), '95.5')
     await userEvent.click(screen.getByRole('button', { name: 'Guardar consumo' }))
     expect(mocks.createFuelConsumption).toHaveBeenCalledWith({
       vehicle: 21,
-      period: '2026-08-01',
+      period: '2026-08-14',
       liters: '95.5',
       source: 'manual',
     })
@@ -104,8 +116,8 @@ describe('KmFuelModal (kilómetros y combustible)', () => {
 
     // Mes YA registrado → se ACTUALIZA su fila (no se duplica) y el importe
     // que tuviera guardado NO se pisa.
-    await userEvent.clear(month!)
-    await userEvent.type(month!, '2026-07')
+    await userEvent.clear(fecha)
+    await userEvent.type(fecha, '2026-07-20')
     await userEvent.type(screen.getByRole('spinbutton', { name: 'Litros' }), '82')
     await userEvent.click(screen.getByRole('button', { name: 'Guardar consumo' }))
     expect(mocks.updateFuelConsumption).toHaveBeenCalledWith(3, { liters: '82' })

@@ -55,11 +55,13 @@ from .models import (
     InvoiceAllocation,
     KmReading,
     MaintenancePlan,
+    MaintenanceProgram,
     NotificationSchedule,
     Pep,
     Project,
     Renting,
     Site,
+    SupervisorPeriod,
     Vehicle,
     VehicleLink,
     VehicleModel,
@@ -75,6 +77,7 @@ from .models.enums import (
     AlertType,
     AssignmentStatus,
     DocumentStatus,
+    EventType,
     IncidentStatus,
     IncidentType,
     VehicleRequestStatus,
@@ -97,6 +100,7 @@ from .serializers import (
     EventSerializer,
     FuelConsumptionSerializer,
     FuelTypeSerializer,
+    IncidentResolutionSerializer,
     IncidentSerializer,
     InvoiceAllocateSerializer,
     InvoiceAllocationSerializer,
@@ -104,11 +108,13 @@ from .serializers import (
     KmReadingSerializer,
     LogEntrySerializer,
     MaintenancePlanSerializer,
+    MaintenanceProgramSerializer,
     NotificationScheduleSerializer,
     PepSerializer,
     ProjectSerializer,
     RentingSerializer,
     SiteSerializer,
+    SupervisorPeriodSerializer,
     UsageSplitSerializer,
     VehicleLinkSerializer,
     VehicleModelSerializer,
@@ -118,7 +124,20 @@ from .serializers import (
     VehicleUsageSerializer,
     WorkshopSerializer,
 )
-from .services import events, importer, mailer, metrics, notifications, reports, returns
+from .services import (
+    events,
+    importer,
+    incidents,
+    insurance,
+    itv,
+    mailer,
+    maintenance,
+    metrics,
+    notifications,
+    reports,
+    returns,
+    supervisors,
+)
 from .services.archiver import archive_document
 
 
@@ -337,6 +356,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         old_state = instance.state
         old_site = instance.site
         old_supervisor = instance.supervisor
+        old_insurance = instance.insurance_expiry_date
         with transaction.atomic():
             super().perform_update(serializer)
             updated = serializer.instance
@@ -348,6 +368,16 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             # evento venga del modal (set-driver) o del PATCH de la ficha.
             if (old_supervisor.pk if old_supervisor else None) != updated.supervisor_id:
                 events.emit_supervisor_change(updated, old_supervisor, updated.supervisor)
+                # El histórico con fechas sigue al vigente: cierra el periodo
+                # anterior hoy y abre el del nuevo.
+                supervisors.apply_supervisor_change(updated, updated.supervisor)
+            # N2: adelantar el vencimiento del seguro desde la ficha cierra las
+            # alertas de seguro que quedaron atrás (antes seguían abiertas para
+            # siempre). Sin evento: la renovación como acto va por
+            # `renew-insurance`; esto es corrección de dato.
+            new_insurance = updated.insurance_expiry_date
+            if new_insurance and new_insurance != old_insurance:
+                insurance.close_alerts_before(updated, new_insurance, actor=self.request.user)
             if updated.state != old_state:
                 # Cambio de estado → evento (HU-1.5/1.6), con motivo opcional.
                 # B4: `change_date` es la fecha CON EFECTO del cambio (la baja
@@ -480,6 +510,76 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 reason=str(data.get("reason", "") or ""),
             )
         return Response(summary)
+
+    @action(detail=True, methods=["post"], url_path="renew-insurance", permission_classes=[IsAdmin])
+    def renew_insurance(self, request, pk=None):
+        """POST /api/v1/vehicles/{id}/renew-insurance/ — renovación del seguro (N2).
+
+        `{expiry_date*, notes?}`. Solo admin: el seguro es asunto de
+        administración (como sus alertas). Aplica el vencimiento nuevo, emite
+        `insurance_renewal` y cierra las alertas de seguro CON actor. Idempotente:
+        la misma fecha no cambia nada (`changed: false`); una anterior es 400 (la
+        corrección de una fecha va por la ficha). La póliza, si la hay, se sube
+        aparte como `Document` de seguro y no duplica el evento. Responde el
+        vehículo + `previous_expiry_date`, `changed`, `event`, `alerts_resolved`.
+        """
+        vehicle = self.get_object()
+        if vehicle.state == VehicleState.BAJA:
+            raise ValidationError({"vehicle": "El vehículo está de baja."})
+        expiry = parse_date(str(request.data.get("expiry_date") or ""))
+        if expiry is None:
+            raise ValidationError({"expiry_date": "Indica la nueva fecha de vencimiento."})
+        current = vehicle.insurance_expiry_date
+        if current is not None and expiry < current:
+            raise ValidationError(
+                {
+                    "expiry_date": (
+                        "La renovación no puede adelantar el vencimiento; "
+                        "corrige la fecha desde la ficha."
+                    )
+                }
+            )
+        notes = str(request.data.get("notes", "") or "").strip()
+        with transaction.atomic():
+            result = insurance.apply_new_expiry(
+                vehicle, expiry, actor=request.user, notes=notes, source="renewal"
+            )
+        data = self.get_serializer(vehicle).data
+        data["previous_expiry_date"] = result["previous"]
+        data["changed"] = result["changed"]
+        data["event"] = result["event"].pk if result["event"] else None
+        data["alerts_resolved"] = result["alerts_resolved"]
+        return Response(data)
+
+    @action(detail=True, methods=["post"], url_path="schedule-itv", permission_classes=[IsAdmin])
+    def schedule_itv(self, request, pk=None):
+        """POST /api/v1/vehicles/{id}/schedule-itv/ — programa la próxima ITV.
+
+        `{date*, postal_code?}`. La cita es UNA por vehículo (`next_itv_date`):
+        si ya hay fecha esto la CORRIGE, no añade otra. Queda marcada como
+        manual para que el job `refresh_next_itv` no la borre —el histórico de
+        `EventItv` no la conoce— y registrar la ITV real vuelve a dejar el
+        mando al histórico. El CP preferente (5 cifras) es la ubicación desde
+        la que un tercero busca la estación más cercana.
+
+        Responde el vehículo + `previous_next_itv_date`, `changed` y
+        `alerts_resolved` (los avisos de la cita anterior se cierran con actor).
+        """
+        vehicle = self.get_object()
+        if vehicle.state == VehicleState.BAJA:
+            raise ValidationError({"vehicle": "El vehículo está de baja."})
+        due = parse_date(str(request.data.get("date") or ""))
+        if due is None:
+            raise ValidationError({"date": "Indica la fecha de la ITV."})
+        postal_code = str(request.data.get("postal_code", "") or "").strip()
+        if postal_code and (not postal_code.isdigit() or len(postal_code) != 5):
+            raise ValidationError({"postal_code": "Indica un código postal de 5 cifras."})
+        result = itv.schedule_itv(vehicle, due, actor=request.user, postal_code=postal_code)
+        data = self.get_serializer(vehicle).data
+        data["previous_next_itv_date"] = result["previous"]
+        data["changed"] = result["changed"]
+        data["alerts_resolved"] = result["alerts_resolved"]
+        return Response(data)
 
     @action(detail=True, methods=["get"], permission_classes=[IsManagement])
     def history(self, request, pk=None):
@@ -656,8 +756,10 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     vehicle.supervisor_id = supervisor_id
                     vehicle.save(update_fields=["supervisor", "updated_at"])
                     # Histórico de supervisores: el relevo (incluido quitarlo)
-                    # deja su evento, igual que el cambio de conductor.
+                    # deja su evento, igual que el cambio de conductor…
                     events.emit_supervisor_change(vehicle, old_supervisor, vehicle.supervisor)
+                    # …y mueve los periodos con fechas.
+                    supervisors.apply_supervisor_change(vehicle, vehicle.supervisor)
 
             # R3-02: la vigente a cerrar puede tener fin PROGRAMADO (grant con
             # fechas); el criterio es el mismo que da el ámbito.
@@ -1288,6 +1390,41 @@ class AssignmentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+class SupervisorPeriodViewSet(
+    DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet
+):
+    """Histórico de supervisores con fechas (uno por coche a la vez).
+
+    Escribir aquí es corregir el histórico, así que es cosa de admin; la
+    gestión lo lee. Cada escritura **sincroniza el vigente** del vehículo
+    (`Vehicle.supervisor`) con el periodo que cubre hoy, y ese cambio deja su
+    evento como cualquier otro relevo.
+    """
+
+    serializer_class = SupervisorPeriodSerializer
+    permission_classes = [AdminWriteManagementRead]
+    queryset = SupervisorPeriod.objects.select_related("vehicle", "supervisor")
+    filterset_fields = ["vehicle", "supervisor"]
+    ordering_fields = ["start_date", "created_at"]
+
+    def _guardar(self, serializer):
+        with transaction.atomic():
+            serializer.save()
+            supervisors.sync_vehicle_supervisor(serializer.instance.vehicle)
+
+    def perform_create(self, serializer):
+        self._guardar(serializer)
+
+    def perform_update(self, serializer):
+        self._guardar(serializer)
+
+    def perform_destroy(self, instance):
+        # N7: se desactiva, no se borra — y el vigente se recalcula.
+        with transaction.atomic():
+            super().perform_destroy(instance)
+            supervisors.sync_vehicle_supervisor(instance.vehicle)
+
+
 class VehicleUsageViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
     """Reparto de uso. Admin (toda la flota) o supervisor (su grupo) — HU-2.5."""
 
@@ -1363,8 +1500,26 @@ class EventPermission(BasePermission):
         return False
 
 
+class _ItvEffectsCreateMixin:
+    """Añade a la respuesta del alta los efectos del registro de una ITV.
+
+    Va DETRÁS de `IdempotentCreateMixin` en el MRO a propósito: así la
+    respuesta que se guarda en el recibo del `client_ref` ya lleva
+    `alerts_resolved` / `incident_closed` / `vehicle_reactivated`, y el reenvío
+    de la cola offline devuelve exactamente lo mismo que el primer intento.
+    """
+
+    def create(self, request, *args, **kwargs):
+        self._itv_effects = None
+        response = super().create(request, *args, **kwargs)
+        if self._itv_effects:
+            response.data.update(self._itv_effects)
+        return response
+
+
 class EventViewSet(
     IdempotentCreateMixin,
+    _ItvEffectsCreateMixin,
     ScopedByVehicleMixin,
     mixins.CreateModelMixin,
     viewsets.ReadOnlyModelViewSet,
@@ -1373,10 +1528,12 @@ class EventViewSet(
 
     Los procesos de negocio siguen emitiendo los suyos; por API solo se dan de
     alta los tipos manuales (`MANUAL_EVENT_TYPES`): **ITV** (HU-5.1 — al crearse
-    su `EventItv`, la señal cierra las alertas y refresca `next_itv_date`),
-    cambio de **cuota** y de **ubicación** (HU-1.4). El conductor solo ITV, de
-    sus vehículos (scoping). El alta acepta `client_ref` (R3-34): el reenvío
-    offline de una ITV no crea un segundo evento.
+    su `EventItv`, la señal refresca `next_itv_date` y `services/itv.register_itv`
+    cierra las alertas CON actor, cierra la incidencia «En ITV» y, si se pide
+    `return_to_active`, devuelve el coche a Activo), cambio de **cuota** y de
+    **ubicación** (HU-1.4). El conductor solo ITV, de sus vehículos (scoping).
+    El alta acepta `client_ref` (R3-34): el reenvío offline de una ITV no crea
+    un segundo evento.
     """
 
     serializer_class = EventSerializer
@@ -1387,7 +1544,7 @@ class EventViewSet(
     # penalty, y los FK internos de project/pep — 1-2 queries extra por fila).
     queryset = Event.objects.select_related(
         "vehicle",
-        "itv",
+        "itv__workshop",
         "fee_change",
         "location_change",
         "project_change__old_project",
@@ -1398,15 +1555,23 @@ class EventViewSet(
         # `supervisor_change` resuelve nombres en get_details → trae los dos FK.
         "supervisor_change__old_supervisor",
         "supervisor_change__new_supervisor",
+        "insurance_renewal",
         "penalty",
     )
     filterset_fields = ["vehicle", "event_type"]
     ordering_fields = ["event_date"]
 
     def perform_create(self, serializer):
-        # Evento + subtipo (y efectos de la señal de ITV) en una transacción.
+        # Evento + subtipo + efectos de la ITV (alertas, incidencia «En ITV»,
+        # vuelta a Activo) en UNA transacción: o queda todo o no queda nada.
         with transaction.atomic():
             super().perform_create(serializer)
+            event = serializer.instance
+            if event.event_type == EventType.ITV:
+                flag = str(self.request.data.get("return_to_active", "")).lower() in ("1", "true")
+                self._itv_effects = itv.register_itv(
+                    event, actor=self.request.user, return_to_active=flag
+                )
 
 
 class InvoiceViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
@@ -1506,11 +1671,24 @@ class IncidentViewSet(
     # documentos — es la misma superficie expuesta a la red abierta.
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
-    queryset = Incident.objects.select_related("vehicle", "accident_report").prefetch_related(
-        "accident_report__third_parties", "accident_report__injured"
-    )
-    filterset_fields = ["vehicle", "type", "status"]
+    queryset = Incident.objects.select_related(
+        "vehicle", "accident_report", "workshop", "resolved_by"
+    ).prefetch_related("accident_report__third_parties", "accident_report__injured")
+    filterset_fields = ["vehicle", "type", "status", "priority"]
     ordering_fields = ["date", "created_at"]
+
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        incident = serializer.instance
+        # Un registro que nace ya CERRADO (p. ej. un mantenimiento realizado que
+        # se anota a posteriori) deja igualmente actor y momento del cierre.
+        if incident.status == IncidentStatus.CLOSED and incident.resolved_at is None:
+            incident.resolved_at = timezone.now()
+            incident.resolved_by = self.request.user
+            incident.resolution_date = incident.resolution_date or incident.date
+            incident.save(
+                update_fields=["resolved_at", "resolved_by", "resolution_date", "updated_at"]
+            )
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
     def report(self, request, pk=None):
@@ -1526,6 +1704,12 @@ class IncidentViewSet(
             raise ValidationError({"text": "La actualización no puede estar vacía."})
         if new_status and new_status not in IncidentStatus.values:
             raise ValidationError({"status": "Estado no válido."})
+        # Cerrar es la fase 3 con sus datos (fecha, coste, taller, actor…): va
+        # por `/resolve/`. Por aquí se dejaba cerrada sin rastro de quién ni cómo.
+        if new_status == IncidentStatus.CLOSED:
+            raise ValidationError(
+                {"status": "Para cerrar una incidencia usa la acción de resolver (/resolve/)."}
+            )
         # R3-09: dos partes simultáneos concatenan AMBAS notas en vez de
         # pisarse (lectura-modificación-escritura bajo candado), y el
         # `update_fields` no arrastra el resto de la fila.
@@ -1551,61 +1735,52 @@ class IncidentViewSet(
         postal_code = (request.data.get("workshop_postal_code") or "").strip()
         if not postal_code.isdigit() or len(postal_code) != 5:
             raise ValidationError({"workshop_postal_code": "Indica un código postal de 5 cifras."})
+        # Taller del catálogo, opcional: es la fase en la que se decide a dónde va.
+        workshop = None
+        workshop_id = request.data.get("workshop")
+        if workshop_id not in (None, ""):
+            workshop = Workshop.objects.filter(pk=workshop_id, is_active=True).first()
+            if workshop is None:
+                raise ValidationError({"workshop": "Taller no válido."})
         # R3-09: candado + update_fields — no pisa un parte concurrente.
         with transaction.atomic():
             incident = Incident.objects.select_for_update().get(pk=self.kwargs["pk"])
+            # Gestionar una CERRADA la reabría en silencio: la fase 2 no aplica.
+            if incident.status == IncidentStatus.CLOSED:
+                raise ValidationError({"status": "La incidencia está cerrada."})
             incident.workshop_postal_code = postal_code
             incident.status = IncidentStatus.IN_PROGRESS
-            incident.save(update_fields=["workshop_postal_code", "status", "updated_at"])
+            fields = ["workshop_postal_code", "status", "updated_at"]
+            if workshop is not None:
+                incident.workshop = workshop
+                fields.append("workshop")
+            incident.save(update_fields=fields)
         return Response(self.get_serializer(incident).data)
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
     def resolve(self, request, pk=None):
-        """POST /api/v1/incidents/{id}/resolve/ — fase 3 del ciclo: la
-        SOLUCIÓN. Guarda la fecha (y el sobrecoste, si lo hubo), calcula el
-        tiempo que el vehículo estuvo parado desde la fecha de la avería y
-        CIERRA la incidencia.
-        """
-        self.get_object()  # scoping + 404
-        resolution_date = parse_date(str(request.data.get("resolution_date") or ""))
-        if resolution_date is None:
-            raise ValidationError({"resolution_date": "Indica la fecha de solución."})
-        if resolution_date > timezone.localdate():
-            raise ValidationError({"resolution_date": "La fecha de solución no puede ser futura."})
-        observations = (request.data.get("observations") or "").strip()
-        # R3-41: el sobrecoste de la reparación — la interfaz de gestión lo
-        # pedía desde el principio y el servidor lo tiraba en silencio.
-        overcost = None
-        raw_overcost = request.data.get("overcost")
-        if raw_overcost not in (None, ""):
-            try:
-                overcost = Decimal(str(raw_overcost))
-            except ArithmeticError as exc:
-                raise ValidationError({"overcost": "Valor no válido."}) from exc
-            if overcost < 0:
-                raise ValidationError({"overcost": "No puede ser negativo."})
+        """POST /api/v1/incidents/{id}/resolve/ — fase 3 del ciclo: la SOLUCIÓN.
 
-        # R3-09: la mezcla de `resolution` sobre el JSON `details` va bajo
-        # candado — un parte simultáneo ya no se pierde por leer una foto vieja.
-        with transaction.atomic():
-            incident = Incident.objects.select_for_update().get(pk=self.kwargs["pk"])
-            if incident.date and resolution_date < incident.date:
-                raise ValidationError(
-                    {"resolution_date": "La solución no puede ser anterior a la avería."}
-                )
-            resolution: dict = {"resolution_date": resolution_date.isoformat()}
-            if incident.date:
-                resolution["downtime_days"] = (resolution_date - incident.date).days
-            if observations:
-                resolution["observations"] = observations
-            if overcost is not None:
-                resolution["overcost"] = str(overcost.quantize(Decimal("0.01")))
-            details = incident.details or {}
-            details["resolution"] = resolution
-            incident.details = details
-            incident.status = IncidentStatus.CLOSED
-            incident.save(update_fields=["details", "status", "updated_at"])
-        return Response(self.get_serializer(incident).data)
+        Cuerpo tipado (`IncidentResolutionSerializer`): `resolution_date`*,
+        `observations`, `cost` (alias legado `overcost`, R3-41), `workshop` del
+        catálogo, `km`, `return_to_active`, y el bloque propio del tipo
+        (`tires` / `accident`; `maintenance_plan` en mantenimiento). El servicio
+        deja actor y momento, devuelve el vehículo a Activo si procede (con su
+        evento) y, en mantenimiento, reancla el plan y cierra SUS alertas.
+        Responde la incidencia + `vehicle_reactivated` y `alerts_resolved`.
+        """
+        incident = self.get_object()  # scoping + 404
+        serializer = IncidentResolutionSerializer(
+            data=request.data, context={"incident": incident, "request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        result = incidents.resolve_incident(
+            incident, actor=request.user, **serializer.to_service_kwargs()
+        )
+        data = self.get_serializer(result["incident"]).data
+        data["vehicle_reactivated"] = result["vehicle_reactivated"]
+        data["alerts_resolved"] = result["alerts_resolved"]
+        return Response(data)
 
 
 class DocumentViewSet(
@@ -2240,28 +2415,44 @@ class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+class MaintenanceProgramViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
+    """Catálogo COMÚN de programas de mantenimiento («cada X km / X meses»).
+
+    No cuelga de ningún vehículo: se define una vez para toda la flota y el
+    modal «Programar ITV y mantenimiento» elige de aquí. Lo mantiene la
+    gestión igual que el resto de catálogos.
+    """
+
+    queryset = MaintenanceProgram.objects.all()
+    serializer_class = MaintenanceProgramSerializer
+    permission_classes = [AdminWriteManagementRead]
+    search_fields = ["name", "notes"]
+
+
 class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
-    """GAP-8: planes de mantenimiento preventivo (los vigila `check_maintenance`)."""
+    """GAP-8: el mantenimiento programado de cada vehículo (uno a la vez)."""
 
     serializer_class = MaintenancePlanSerializer
     permission_classes = [AdminWriteManagementRead]
-    queryset = MaintenancePlan.objects.select_related("vehicle")
+    queryset = MaintenancePlan.objects.select_related("vehicle", "program")
     filterset_fields = ["vehicle"]
     search_fields = ["name", "vehicle__plate"]
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
     def done(self, request, pk=None):
         """POST /api/v1/maintenance-plans/{id}/done/ — marca el plan como
-        realizado: reancla el ciclo (fecha dada o hoy y, si cicla por km, la
-        lectura dada o la última conocida) y RESUELVE las alertas de
-        mantenimiento abiertas del vehículo. Es el gesto de campo de «ya se
-        pasó la revisión» (gestión; supervisor solo su grupo) — editar el plan
-        sigue siendo de admin (`AdminWriteManagementRead`).
+        realizado (gestión; supervisor solo su grupo — editar el plan sigue
+        siendo de admin).
 
-        Admite `cost` (lo que costó el servicio) y `note` (qué se hizo). El
-        coste no tiene sitio en el plan: queda como incidencia de mantenimiento
-        CERRADA con la fecha y el km del servicio, que es donde viven los costes
-        de taller. La nota viaja al cierre de las alertas (`resolution_note`)."""
+        Cuerpo: `{date?, km?, cost?, note?, workshop?, return_to_active?,
+        incident?}`. `services/maintenance.mark_plan_done` reancla el ciclo
+        (fecha dada o hoy; si cicla por km, la lectura dada o la última), deja
+        SIEMPRE una incidencia de mantenimiento cerrada como registro (o cierra
+        la abierta que se indique en `incident`), cierra las alertas DE ESE PLAN
+        (y los recordatorios manuales), emite el evento y, si se pide, devuelve
+        el coche a Activo. Responde el plan + `alerts_resolved`, `incident`,
+        `vehicle_reactivated`, `event`.
+        """
         plan = self.get_object()
         note = str(request.data.get("note", "") or "").strip()[:255]
         cost = None
@@ -2273,55 +2464,50 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
                 raise ValidationError({"cost": "Coste no válido."}) from exc
             if cost < 0:
                 raise ValidationError({"cost": "El coste no puede ser negativo."})
-        done_date = parse_date(str(request.data.get("date") or "")) or timezone.localdate()
-        # R4-02: una fecha FUTURA reanclaría el ciclo hacia delante y silenciaría
-        # las alertas hasta entonces — misma regla «no futura» que el resto de
-        # fechas de captura del proyecto.
-        if done_date > timezone.localdate():
-            raise ValidationError({"date": "La fecha del servicio no puede ser futura."})
-        plan.last_done_date = done_date
-        if plan.every_km:
-            km = request.data.get("km")
-            if km in (None, ""):
-                latest = (
-                    KmReading.objects.filter(
-                        vehicle=plan.vehicle, km_reading__isnull=False, is_active=True
-                    )
-                    .order_by("-reading_date", "-id")
-                    .first()
-                )
-                km = latest.km_reading if latest else plan.last_done_km
+        done_date = parse_date(str(request.data.get("date") or "")) or None
+        km = None
+        raw_km = request.data.get("km")
+        if raw_km not in (None, ""):
             try:
-                plan.last_done_km = int(km)
+                km = int(raw_km)
             except (TypeError, ValueError) as exc:
                 raise ValidationError({"km": "Kilometraje no válido."}) from exc
-        # R4-02: reanclar el plan, registrar el coste y cerrar los avisos es UNA
-        # operación (doctrina de las compuestas): o se hace entera o no se hace.
-        with transaction.atomic():
-            plan.save(update_fields=["last_done_date", "last_done_km", "updated_at"])
-            if cost is not None:
-                description = f"Mantenimiento realizado: {plan.name}."
-                if note:
-                    description += f" {note}"
-                Incident.objects.create(
-                    vehicle=plan.vehicle,
-                    type=IncidentType.MAINTENANCE,
-                    date=plan.last_done_date,
-                    description=description,
-                    mileage=plan.last_done_km,
-                    status=IncidentStatus.CLOSED,
-                    cost=cost,
+            if km < 0:
+                raise ValidationError({"km": "Kilometraje no válido."})
+        workshop = None
+        workshop_id = request.data.get("workshop")
+        if workshop_id not in (None, ""):
+            workshop = Workshop.objects.filter(pk=workshop_id, is_active=True).first()
+            if workshop is None:
+                raise ValidationError({"workshop": "Taller no válido."})
+        source_incident = None
+        incident_id = request.data.get("incident")
+        if incident_id not in (None, ""):
+            source_incident = Incident.objects.filter(
+                pk=incident_id, vehicle=plan.vehicle, type=IncidentType.MAINTENANCE, is_active=True
+            ).first()
+            if source_incident is None:
+                raise ValidationError(
+                    {"incident": "La incidencia no es de mantenimiento de este vehículo."}
                 )
-            # Lo que avisaba de este mantenimiento se cierra: el del motor (por
-            # km o por fecha) y los recordatorios manuales del supervisor.
-            closed = 0
-            for alerta in Alert.objects.filter(
-                vehicle=plan.vehicle, type=AlertType.MAINTENANCE_DUE, status=AlertStatus.OPEN
-            ):
-                alerta.close(status=AlertStatus.RESOLVED, by=request.user, note=note)
-                closed += 1
-        data = self.get_serializer(plan).data
-        data["alerts_resolved"] = closed
+        flag = str(request.data.get("return_to_active", "")).lower() in ("1", "true")
+
+        result = maintenance.mark_plan_done(
+            plan,
+            actor=request.user,
+            done_date=done_date,
+            km=km,
+            cost=cost,
+            note=note,
+            workshop=workshop,
+            return_to_active=flag,
+            source_incident=source_incident,
+        )
+        data = self.get_serializer(result["plan"]).data
+        data["alerts_resolved"] = result["alerts_resolved"]
+        data["incident"] = result["incident"].pk
+        data["vehicle_reactivated"] = result["vehicle_reactivated"]
+        data["event"] = result["event"].pk
         return Response(data)
 
 

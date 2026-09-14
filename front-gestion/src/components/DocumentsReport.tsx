@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type FormEvent } from 'react'
-import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, FileField, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import { ExternalLink } from 'lucide-react'
@@ -565,14 +565,12 @@ export function DocumentsReport({
           />
           <div className="doc-attach">
             <span className="doc-attach-label">{t.fileLabel}</span>
-            <label className="file-field">
-              <span>{t.filePickLabel}</span>
-              <input
-                type="file"
-                accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
-                onChange={(e) => setAttach({ file: e.target.files?.[0] ?? null, manualUrl: '' })}
-              />
-            </label>
+            <FileField
+              label={t.filePickLabel}
+              accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
+              value={attach.file}
+              onFiles={(files) => setAttach({ file: files[0] ?? null, manualUrl: '' })}
+            />
             <TextInputField
               label={t.urlLabel}
               value={attach.manualUrl}

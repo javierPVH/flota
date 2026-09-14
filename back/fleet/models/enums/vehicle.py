@@ -10,18 +10,28 @@ from django.db import models
 class VehicleState(models.TextChoices):
     """Estado técnico del vehículo.
 
-    Lista cerrada de `flota.md` (HU-1.6): activo, mantenimiento, ITV, averiado,
-    baja (`retired`). Se conservan además `non_active`/`accidente` heredados del
-    DBML por compatibilidad; revisar si deben retirarse.
+    O el coche rueda (`active`) o no rueda, y entonces la etiqueta dice POR QUÉ
+    está parado: «No activo - Mantenimiento», «- ITV», «- Averiado»,
+    «- Accidentado», o «No activo» a secas cuando no hay una causa con estado
+    propio (una petición general, o una parada decidida a mano). Los siete
+    valores están vivos: los escribe el ciclo de incidencias
+    (`services/incidents.py`), la ITV (`services/itv.py`), el mantenimiento y
+    el parte de accidente.
+
+    `retired` es la salida de la flota (devolución del renting o baja) y no se
+    elige desde un desplegable: tiene su propio flujo y filtra los listados.
+
+    Las etiquetas son solo presentación; los valores persisten en BD y no se
+    cambian sin migración de datos.
     """
 
     ACTIVE = "active", "Activo"
-    MAINTENANCE = "maintenance", "En mantenimiento"
-    ITV = "itv", "En ITV"
-    BROKEN = "broken", "Averiado"
-    BAJA = "retired", "Baja"
+    MAINTENANCE = "maintenance", "No activo - Mantenimiento"
+    ITV = "itv", "No activo - ITV"
+    BROKEN = "broken", "No activo - Averiado"
+    ACCIDENT = "accidente", "No activo - Accidentado"
     NON_ACTIVE = "non_active", "No activo"
-    ACCIDENT = "accidente", "Accidentado"
+    BAJA = "retired", "Devuelto (baja)"
 
 
 class VehicleType(models.TextChoices):

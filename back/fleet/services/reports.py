@@ -482,7 +482,12 @@ def _links_table(vehicle_ids) -> Table:
 def _event_detail(event) -> str:
     itv = getattr(event, "itv", None)
     if itv:
-        return f"{itv.get_result_display()}; próxima ITV: {_d(itv.next_due)}"
+        detail = f"{itv.get_result_display()}; próxima ITV: {_d(itv.next_due)}"
+        if itv.workshop_id:
+            detail += f"; estación: {itv.workshop}"
+        if itv.km is not None:
+            detail += f"; km: {itv.km}"
+        return detail
     fee = getattr(event, "fee_change", None)
     if fee:
         return f"Cuota: {fee.old_fee or ''} → {fee.new_fee or ''}"
@@ -503,6 +508,9 @@ def _event_detail(event) -> str:
         return (
             f"Supervisor: {_name(supervisor.old_supervisor)} → {_name(supervisor.new_supervisor)}"
         )
+    renewal = getattr(event, "insurance_renewal", None)
+    if renewal:
+        return f"Seguro: {_d(renewal.old_expiry)} → {_d(renewal.new_expiry)}"
     penalty = getattr(event, "penalty", None)
     if penalty:
         return f"Importe: {penalty.amount or ''}; pagada: {_yn(penalty.paid)}"
@@ -525,6 +533,7 @@ def _events_table(vehicle_ids) -> Table:
             "driver_change__new_driver",
             "supervisor_change__old_supervisor",
             "supervisor_change__new_supervisor",
+            "insurance_renewal",
             "penalty",
         )
         .order_by("-event_date", "-id")
@@ -546,10 +555,31 @@ def _events_table(vehicle_ids) -> Table:
 def _incidents_table(vehicle_ids) -> Table:
     incidents = (
         Incident.objects.filter(vehicle_id__in=vehicle_ids, is_active=True)
-        .select_related("vehicle")
+        .select_related("vehicle", "workshop", "resolved_by")
         .order_by("-date", "-id")
     )
-    headers = ["Vehículo", "Fecha", "Tipo", "Estado", "Coste", "Descripción"]
+    # La resolución sale a columnas propias: antes vivía solo en el JSON
+    # `details.resolution` y ningún informe la mostraba.
+    headers = [
+        "Vehículo",
+        "Fecha",
+        "Tipo",
+        "Estado",
+        "Coste",
+        "Taller",
+        "Km solución",
+        "Fecha solución",
+        "Días parado",
+        "Resuelta el",
+        "Resuelta por",
+        "Descripción",
+    ]
+
+    def _downtime(incident) -> int | str:
+        if incident.date and incident.resolution_date:
+            return (incident.resolution_date - incident.date).days
+        return ""
+
     rows = [
         [
             incident.vehicle.plate,
@@ -557,6 +587,12 @@ def _incidents_table(vehicle_ids) -> Table:
             incident.get_type_display(),
             incident.get_status_display(),
             incident.cost if incident.cost is not None else "",
+            str(incident.workshop) if incident.workshop_id else "",
+            incident.resolution_km if incident.resolution_km is not None else "",
+            _d(incident.resolution_date),
+            _downtime(incident),
+            incident.resolved_at.isoformat(timespec="minutes") if incident.resolved_at else "",
+            _name(incident.resolved_by),
             incident.description,
         ]
         for incident in incidents

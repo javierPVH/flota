@@ -1,22 +1,23 @@
 import { useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { asErrorMessage } from '@flota/ui/http'
 import type { TableWithPanelColumn } from '@flota/ui/table'
 import {
   Archive,
   ArrowRightLeft,
+  CalendarClock,
   Gauge,
+  ListChecks,
   Mail,
   Pencil,
   Receipt,
   Siren,
   UserCog,
-  Wrench,
 } from 'lucide-react'
 
 import { convertToFleet, deactivateVehicle } from '../api.ts'
 import { useConfirm, useDeactivateConfirm } from './ConfirmDialog.tsx'
 import { RowActionsMenu, type RowAction } from './RowActionsMenu.tsx'
+import { useResolveCopy } from '../translations/resolve.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import type { Vehicle } from '../types.ts'
 
@@ -39,12 +40,21 @@ export interface VehicleActionsOptions {
   onDriver: (vehicle: Vehicle) => void
   /** Abre el modal de facturas del vehículo. */
   onInvoices: (vehicle: Vehicle) => void
-  /** Abre el modal de operación (estado / sustitución / comunicado). */
-  onOps: (vehicle: Vehicle) => void
+  /**
+   * Abre «Alertas e incidencias»: el modal de tres pestañas con el formulario
+   * de estado/sustitución/comunicado, las alertas y las incidencias del coche.
+   * Antes eran dos acciones distintas del menú y el mismo coche se miraba en
+   * dos sitios.
+   */
+  onPending: (vehicle: Vehicle) => void
   /** Abre la comunicación de accidente (parte guiado). */
   onAccident: (vehicle: Vehicle) => void
   /** Abre el modal de kilómetros y combustible (lectura + consumo mensual). */
   onKmFuel: (vehicle: Vehicle) => void
+  /** Abre «Programar ITV y mantenimiento» (cita de ITV + planes preventivos). */
+  onSchedule: (vehicle: Vehicle) => void
+  /** Abre la edición de los datos del vehículo (el formulario de la ficha). */
+  onEdit: (vehicle: Vehicle) => void
   /**
    * Sustituto → principal al que está cubriendo AHORA. Un sustituto que cubre a
    * alguien no se puede convertir en coche de flota.
@@ -65,15 +75,19 @@ export function useVehicleActions({
   onEmail,
   onDriver,
   onInvoices,
-  onOps,
+  onPending,
   onAccident,
   onKmFuel,
+  onSchedule,
+  onEdit,
   activeMainOfSub,
   onDone,
   onError,
 }: VehicleActionsOptions): VehicleActions {
   const t = useVehiclesCopy()
-  const navigate = useNavigate()
+  // El nombre de «Alertas e incidencias» sale de donde vive la tarjeta: menú y
+  // modal tienen que decir lo mismo.
+  const pendingCopy = useResolveCopy().pending
   const confirm = useConfirm()
   const deactivateConfirm = useDeactivateConfirm()
 
@@ -138,10 +152,16 @@ export function useVehicleActions({
       if (v.is_substitute && !activeMainOfSub.has(v.id)) {
         items.push({ key: 'convert', label: t.convert.btn, icon: <ArrowRightLeft size={15} />, onClick: () => convert(v) })
       }
-      items.push({ key: 'state', label: t.ops.actionTitle, icon: <Wrench size={15} />, onClick: () => onOps(v) })
+      // Todo lo del coche en un modal: abrir un estado nuevo y repasar (y
+      // cerrar) sus alertas e incidencias, sin salir del listado.
+      items.push({ key: 'pending', label: pendingCopy.title, icon: <ListChecks size={15} />, onClick: () => onPending(v) })
       // Comunicación de accidente: el parte guiado, junto al modal de estado.
       items.push({ key: 'accident', label: t.accident.btn, icon: <Siren size={15} />, onClick: () => onAccident(v) })
-      items.push({ key: 'edit', label: t.edit, icon: <Pencil size={15} />, onClick: () => navigate(`/vehiculos/${v.id}/editar`) })
+      // Citas previstas: ITV (una por vehículo) y planes de mantenimiento.
+      items.push({ key: 'schedule', label: t.schedule.btn, icon: <CalendarClock size={15} />, onClick: () => onSchedule(v) })
+      // Editar: el MISMO formulario de la ficha, en modal (antes navegaba a
+      // /vehiculos/:id/editar y se perdía el listado y sus filtros).
+      items.push({ key: 'edit', label: t.edit, icon: <Pencil size={15} />, onClick: () => onEdit(v) })
       items.push({ key: 'deactivate', label: t.deactivate, icon: <Archive size={15} />, danger: true, onClick: () => deactivate(v) })
       return <RowActionsMenu items={items} ariaLabel={t.columns.actions} />
     },

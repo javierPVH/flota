@@ -10,6 +10,10 @@ const es = {
   registerItv: 'Registrar ITV',
   resolve: 'Resolver',
   sendEmail: 'Mandar correo',
+  // Las dos bandejas se recorren juntas: de una se salta a la otra.
+  goIncidents: 'Ver incidencias',
+  documents: 'Documentos',
+  documentsTitle: 'Los documentos (acta/parte/fotos) se ligan desde la ficha',
   records: 'Registros',
   searchLabel: 'Buscar',
   searchPlaceholder: 'Matrícula, tipo, persona o mensaje…',
@@ -20,34 +24,53 @@ const es = {
   noVehicle: 'Sin vehículo',
   filters: {
     type: 'Tipo',
-    level: 'Nivel',
     status: 'Estado',
+    due: 'Plazo',
+    driver: 'Conductor',
+    supervisor: 'Supervisor',
   },
+  // Un corte por plazo POR CADA color del semáforo de la fecha límite, más las
+  // que no vencen (que no se pintan de ningún color y, si no, no hay forma de
+  // llegar a ellas).
+  dueOptions: {
+    all: 'Todos los plazos',
+    overdue: 'Vencidas',
+    soon: 'Próximas (30 días o menos)',
+    far: 'Lejanas (más de 30 días)',
+    none: 'Sin fecha límite',
+  },
+  personAll: 'Todos',
+  driverNone: 'Sin conductor',
+  supervisorNone: 'Sin supervisor',
+  // Orden y agrupado por la fecha límite (los dos, en la fila de abajo).
+  sortDueAsc: 'Antes la más próxima',
+  sortDueDesc: 'Antes la más lejana',
+  sortDueTitle: 'Ordenar por fecha límite',
+  groupByDue: 'Agrupar por mes de vencimiento',
+  groupByType: 'Agrupar por tipo',
+  // Nombres alineados con el back: la ITV/el mantenimiento «programados» son
+  // alertas; el puntual es una incidencia.
   typeOptions: {
     all: 'Todos los tipos',
-    itvDue: 'ITV próxima / vencida',
+    itvDue: 'ITV programada',
     kmReadingPending: 'Lectura de km pendiente',
     kmOverage: 'Exceso de km proyectado',
-    maintenanceDue: 'Mantenimiento próximo / vencido',
+    maintenanceDue: 'Mantenimiento programado',
     noDriver: 'Sin conductor',
   },
-  levelOptions: {
-    all: 'Todos los niveles',
-    critical: 'Crítica',
-    warning: 'Aviso',
-    info: 'Informativa',
-  },
+  // Dos: o está pendiente o está resuelta (no hay «Todas»: mezclar las dos
+  // obligaba a mirar dos veces cada fila para saber cuál de las dos era).
   statusOptions: {
     open: 'Abiertas',
     resolved: 'Resueltas',
-    all: 'Todas',
   },
+  // Sin «Nivel»: la urgencia de una alerta la marca su fecha límite (y el plazo
+  // que sale bajo ella), no una prioridad elegida — eso es de las incidencias.
   columns: {
-    level: 'Nivel',
     type: 'Tipo',
     vehicle: 'Vehículo',
     driver: 'Conductor',
-    supervisor: 'Responsable',
+    supervisor: 'Supervisor',
     message: 'Mensaje',
     dueDate: 'Fecha límite',
     resolvedAt: 'Resuelta el',
@@ -55,9 +78,18 @@ const es = {
     resolutionNote: 'Nota de cierre',
     actions: 'Acciones',
   },
+  /** Plazo en lenguaje natural bajo la fecha límite: más claro que deducir los
+   * días a mano. Se calcula en vivo desde la fecha de vencimiento. */
+  deadline: {
+    overdue: (n: number) => `Vencido hace ${n} día${n === 1 ? '' : 's'}`,
+    today: 'Vence hoy',
+    tomorrow: 'Vence mañana',
+    inDays: (n: number) => `Vence en ${n} días`,
+  },
   /** Modal de resolver: resumen del aviso + la actuación propia de cada tipo
-   * (lectura de km, cambio de conductor, servicio de mantenimiento, correo a
-   * la renting) + nota opcional de qué se hizo. */
+   * (lectura de km, cambio o asignación de conductor) + nota opcional de qué
+   * se hizo. ITV, mantenimiento y seguro tienen su formulario propio en
+   * `components/resolve/`. */
   resolveModal: {
     title: (subject: string) => `Resolver alerta · ${subject}`,
     intro:
@@ -90,35 +122,18 @@ const es = {
       autoNote: (from: string, to: string) => `Cambio de conductor: ${from} → ${to}.`,
       confirmChange: 'Cambiar conductor y resolver',
     },
-    maintenance: {
-      hint: 'Registra el servicio: el plan se reancla y los avisos de mantenimiento se cierran.',
-      planLabel: 'Plan de mantenimiento',
-      dateLabel: 'Fecha del servicio',
-      kmLabel: 'Km al realizarlo',
-      kmPlaceholder: 'Vacío = última lectura conocida',
-      costLabel: 'Coste (€, opcional)',
-      costHint: 'El coste queda en el histórico como incidencia de mantenimiento cerrada.',
-      confirm: 'Registrar mantenimiento y resolver',
-      noPlans:
-        'El vehículo no tiene planes de mantenimiento: la alerta se resolverá solo con la nota.',
-    },
-    insurance: {
-      hint:
-        'El destinatario natural de este aviso es la empresa de renting: puedes mandarle el correo antes de resolver.',
-      emailButton: 'Mandar correo a la renting',
-    },
   },
   resolver: {
     /** Cerró quien tenía el coche: se pinta en verde. */
     driverMatch: 'Cerrada por el conductor del vehículo.',
-    supervisorMatch: 'Cerrada por el responsable del vehículo.',
+    supervisorMatch: 'Cerrada por el supervisor del vehículo.',
     /** Y cuando no lo era: bocadillo del icono de aviso. */
     mismatchTitle: 'Cerrada por alguien ajeno al vehículo',
     mismatch: (driver: string, supervisor: string) =>
-      `No es el conductor (${driver}) ni el responsable (${supervisor}) de este vehículo. ` +
+      `No es el conductor (${driver}) ni el supervisor (${supervisor}) de este vehículo. ` +
       'Comprueba que quien la cerró sabía lo que pasaba con el coche.',
     mismatchNoPeople:
-      'El vehículo no tiene conductor ni responsable asignado, así que nadie del coche pudo cerrarla.',
+      'El vehículo no tiene conductor ni supervisor asignado, así que nadie del coche pudo cerrarla.',
     /** Sin actor: la cerró el propio sistema, no una persona. */
     automatic: 'Cierre automático',
     automaticTip:
@@ -159,6 +174,9 @@ const en: typeof es = {
   registerItv: 'Register MOT',
   resolve: 'Resolve',
   sendEmail: 'Send email',
+  goIncidents: 'View incidents',
+  documents: 'Documents',
+  documentsTitle: 'Documents (report/claim/photos) are attached from the vehicle page',
   records: 'Records',
   searchLabel: 'Search',
   searchPlaceholder: 'Plate, type, person or message…',
@@ -169,40 +187,55 @@ const en: typeof es = {
   noVehicle: 'No vehicle',
   filters: {
     type: 'Type',
-    level: 'Level',
     status: 'Status',
+    due: 'Deadline',
+    driver: 'Driver',
+    supervisor: 'Supervisor',
   },
+  dueOptions: {
+    all: 'Any deadline',
+    overdue: 'Overdue',
+    soon: 'Due soon (30 days or less)',
+    far: 'Later (more than 30 days)',
+    none: 'No deadline',
+  },
+  personAll: 'All',
+  driverNone: 'No driver',
+  supervisorNone: 'No supervisor',
+  sortDueAsc: 'Soonest first',
+  sortDueDesc: 'Latest first',
+  sortDueTitle: 'Sort by deadline',
+  groupByDue: 'Group by due month',
+  groupByType: 'Group by type',
   typeOptions: {
     all: 'All types',
-    itvDue: 'MOT due / overdue',
+    itvDue: 'Scheduled MOT',
     kmReadingPending: 'Km reading pending',
     kmOverage: 'Projected km overage',
-    maintenanceDue: 'Maintenance due / overdue',
+    maintenanceDue: 'Scheduled maintenance',
     noDriver: 'No driver',
-  },
-  levelOptions: {
-    all: 'All levels',
-    critical: 'Critical',
-    warning: 'Warning',
-    info: 'Info',
   },
   statusOptions: {
     open: 'Open',
     resolved: 'Resolved',
-    all: 'All',
   },
   columns: {
-    level: 'Level',
     type: 'Type',
     vehicle: 'Vehicle',
     driver: 'Driver',
-    supervisor: 'Owner',
+    supervisor: 'Supervisor',
     message: 'Message',
     dueDate: 'Due date',
     resolvedAt: 'Resolved on',
     resolvedBy: 'Resolved by',
     resolutionNote: 'Closing note',
     actions: 'Actions',
+  },
+  deadline: {
+    overdue: (n: number) => `Overdue by ${n} day${n === 1 ? '' : 's'}`,
+    today: 'Due today',
+    tomorrow: 'Due tomorrow',
+    inDays: (n: number) => `Due in ${n} days`,
   },
   resolveModal: {
     title: (subject) => `Resolve alert · ${subject}`,
@@ -235,31 +268,16 @@ const en: typeof es = {
       autoNote: (from, to) => `Driver change: ${from} → ${to}.`,
       confirmChange: 'Change driver and resolve',
     },
-    maintenance: {
-      hint: 'Register the service: the plan is re-anchored and maintenance notices close.',
-      planLabel: 'Maintenance plan',
-      dateLabel: 'Service date',
-      kmLabel: 'Km when done',
-      kmPlaceholder: 'Empty = last known reading',
-      costLabel: 'Cost (€, optional)',
-      costHint: 'The cost is kept in the history as a closed maintenance incident.',
-      confirm: 'Register maintenance and resolve',
-      noPlans: 'The vehicle has no maintenance plans: the alert will be resolved with the note only.',
-    },
-    insurance: {
-      hint: 'The natural recipient of this notice is the leasing company: you can email them before resolving.',
-      emailButton: 'Email the leasing company',
-    },
   },
   resolver: {
     driverMatch: 'Closed by the vehicle’s driver.',
-    supervisorMatch: 'Closed by the vehicle’s owner.',
+    supervisorMatch: 'Closed by the vehicle’s supervisor.',
     mismatchTitle: 'Closed by someone outside the vehicle',
     mismatch: (driver, supervisor) =>
-      `Neither the driver (${driver}) nor the owner (${supervisor}) of this vehicle. ` +
+      `Neither the driver (${driver}) nor the supervisor (${supervisor}) of this vehicle. ` +
       'Check that whoever closed it knew what was going on with the car.',
     mismatchNoPeople:
-      'The vehicle has no driver or owner assigned, so nobody from the car could have closed it.',
+      'The vehicle has no driver or supervisor assigned, so nobody from the car could have closed it.',
     automatic: 'Closed automatically',
     automaticTip:
       'The system closed it when the MOT, the insurance policy or the period’s km reading was registered.',

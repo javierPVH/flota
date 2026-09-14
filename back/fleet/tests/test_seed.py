@@ -38,6 +38,7 @@ from fleet.models.enums import (
     DocumentStatus,
     DocumentType,
     EventType,
+    IncidentPriority,
     IncidentStatus,
     IncidentType,
     LinkReason,
@@ -170,6 +171,7 @@ class SeedCoverageTests(APITestCase):
             (Document, "type", DocumentType),
             (Document, "status", DocumentStatus),
             (Incident, "type", IncidentType),
+            (Incident, "priority", IncidentPriority),
             (Incident, "status", IncidentStatus),
             (InvoiceAllocation, "target_type", AllocationTarget),
             (Alert, "type", AlertType),
@@ -261,13 +263,14 @@ class SeedCoverageTests(APITestCase):
         self.assertEqual(polizas.last().replaces_id, polizas.first().id)
         # El coche de la supervisora (7890NPQ) es el escaparate del tablero de
         # campo: ITV a 12 días, seguro a 15 (denormalizado desde su documento),
-        # dos planes de mantenimiento (uno a punto y otro vencido por km) y
-        # documentos de varios tipos → sara ve alertas abiertas de los tres
-        # frentes sin salir de su coche.
+        # SU mantenimiento programado (uno por vehículo, que avisa por las dos
+        # vías: a punto por fecha y vencido por km) y documentos de varios
+        # tipos → sara ve alertas abiertas de los tres frentes sin salir de su
+        # coche.
         v3 = Vehicle.objects.get(plate="7890NPQ")
         self.assertEqual(v3.next_itv_date, today + timedelta(days=12))
         self.assertEqual(v3.insurance_expiry_date, today + timedelta(days=15))
-        self.assertEqual(MaintenancePlan.objects.filter(vehicle=v3, is_active=True).count(), 2)
+        self.assertEqual(MaintenancePlan.objects.filter(vehicle=v3, is_active=True).count(), 1)
         self.assertGreaterEqual(
             Document.objects.filter(vehicle=v3, is_active=True).values("type").distinct().count(),
             5,

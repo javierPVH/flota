@@ -10,7 +10,13 @@ from __future__ import annotations
 
 from django.utils import timezone
 
-from fleet.models import Event, EventDriverChange, EventLocationChange, EventSupervisorChange
+from fleet.models import (
+    Event,
+    EventDriverChange,
+    EventInsuranceRenewal,
+    EventLocationChange,
+    EventSupervisorChange,
+)
 from fleet.models.enums import EventType, VehicleState
 
 
@@ -94,6 +100,47 @@ def emit_supervisor_change(vehicle, old_supervisor, new_supervisor) -> Event:
     EventSupervisorChange.objects.create(
         event=event, old_supervisor=old_supervisor, new_supervisor=new_supervisor
     )
+    return event
+
+
+def emit_maintenance_done(
+    vehicle, plan, *, when, km=None, cost=None, workshop=None, note: str = ""
+) -> Event:
+    """GAP-8: mantenimiento REALIZADO. El `MAINTENANCE` de `_STATE_EVENT` narra
+    la entrada en taller (cambio de estado); este, la salida. La nota lleva plan,
+    km, coste y taller para leerse en la línea temporal sin resolver ids."""
+    parts = [f"Mantenimiento realizado: {plan.name}."]
+    if km is not None:
+        parts.append(f"{km} km.")
+    if cost is not None:
+        parts.append(f"Coste {cost:.2f} €.")
+    if workshop is not None:
+        parts.append(f"Taller: {workshop}.")
+    if note:
+        parts.append(note)
+    return Event.objects.create(
+        vehicle=vehicle,
+        event_type=EventType.MAINTENANCE,
+        event_date=when or timezone.localdate(),
+        notes=" ".join(parts),
+    )
+
+
+def emit_insurance_renewal(vehicle, old_expiry, new_expiry, notes: str = "", when=None) -> Event:
+    """N2: renovación del seguro, con su subtipo `EventInsuranceRenewal` (las
+    fechas como dato, no prosa — misma razón que B4). Nadie lo emitía y el KPI
+    «Última renovación» de la ficha estaba muerto."""
+    old = old_expiry.isoformat() if old_expiry else "—"
+    text = f"Seguro renovado: {old} → {new_expiry.isoformat()}."
+    if notes:
+        text += f" {notes}"
+    event = Event.objects.create(
+        vehicle=vehicle,
+        event_type=EventType.INSURANCE_RENEWAL,
+        event_date=when or timezone.localdate(),
+        notes=text,
+    )
+    EventInsuranceRenewal.objects.create(event=event, old_expiry=old_expiry, new_expiry=new_expiry)
     return event
 
 

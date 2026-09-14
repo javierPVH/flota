@@ -206,19 +206,49 @@ class ItvCostTests(APITestCase):
 
 class ItvAutoCloseTests(APITestCase):
     def test_registering_itv_closes_open_alerts(self):
+        """HU-5.1 por la API (la única vía de alta): el servicio cierra las
+        alertas CON actor y nota; la señal solo refresca la próxima fecha."""
+        admin = make_user("itv-admin", Role.ADMIN)
+        self.client.force_authenticate(admin)
         vehicle = Vehicle.objects.create(plate="ITVX", brand="a", model="b")
         alert = Alert.objects.create(
             type=AlertType.ITV_DUE, vehicle=vehicle, dedup_key="itv:x:old", status=AlertStatus.OPEN
         )
-        # Registrar la ITV dispara la señal (HU-5.1).
-        event = Event.objects.create(vehicle=vehicle, event_type=EventType.ITV)
         due = timezone.localdate() + timedelta(days=365)
-        EventItv.objects.create(event=event, next_due=due)
+        resp = self.client.post(
+            reverse("event-list"),
+            {
+                "vehicle": vehicle.pk,
+                "event_type": "itv",
+                "event_date": timezone.localdate().isoformat(),
+                "itv": {"result": "done", "next_due": due.isoformat()},
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["alerts_resolved"], 1)
         alert.refresh_from_db()
         self.assertEqual(alert.status, AlertStatus.RESOLVED)
         self.assertIsNotNone(alert.resolved_at)
+        self.assertEqual(alert.resolved_by, admin)
+        self.assertIn("ITV favorable", alert.resolution_note)
         vehicle.refresh_from_db()
         self.assertEqual(vehicle.next_itv_date, due)
+
+    def test_orm_alta_only_refreshes_the_date(self):
+        """Sin actor (ORM/admin) la señal solo recalcula `next_itv_date`: cerrar
+        una alerta exige saber quién, y eso vive en la API (2026-09-08)."""
+        vehicle = Vehicle.objects.create(plate="ITVY", brand="a", model="b")
+        alert = Alert.objects.create(
+            type=AlertType.ITV_DUE, vehicle=vehicle, dedup_key="itv:y:old", status=AlertStatus.OPEN
+        )
+        event = Event.objects.create(vehicle=vehicle, event_type=EventType.ITV)
+        due = timezone.localdate() + timedelta(days=365)
+        EventItv.objects.create(event=event, next_due=due)
+        vehicle.refresh_from_db()
+        self.assertEqual(vehicle.next_itv_date, due)
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, AlertStatus.OPEN)
 
 
 class OptimisticLockTests(APITestCase):

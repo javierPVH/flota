@@ -92,6 +92,9 @@ function renderEdit() {
   )
 }
 
+/** Las secciones son pestañas: hay que abrir la que se quiere mirar. */
+const irA = (nombre: string) => userEvent.click(screen.getByRole('tab', { name: nombre }))
+
 describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
   beforeEach(() => {
     document.documentElement.lang = 'es'
@@ -118,19 +121,171 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
     expect(screen.getByDisplayValue('390.00')).toBeInTheDocument() // cuota
 
     // La ayuda de los campos sensibles es un ACORDEÓN plegado por defecto: el
-    // texto no está a la vista, solo el disparador (odómetro + conductor = 2).
+    // texto no está a la vista, solo el disparador. El odómetro está en
+    // «Características técnicas» y el conductor en «Uso y asignación»: uno en
+    // cada pestaña.
     expect(
       screen.queryByText(/El odómetro inicial se fijó al dar de alta/),
     ).not.toBeInTheDocument()
-    const toggles = screen.getAllByRole('button', { name: '¿Por qué no se puede editar?' })
-    expect(toggles).toHaveLength(2)
-
-    // Desplegar el primero (odómetro) revela su explicación.
-    await userEvent.click(toggles[0])
+    await irA('Características técnicas')
+    const odometro = screen.getByRole('button', { name: '¿Por qué no se puede editar?' })
+    await userEvent.click(odometro)
     expect(screen.getByText(/El odómetro inicial se fijó al dar de alta/)).toBeInTheDocument()
-
     // El odómetro inicial sigue bloqueado aquí.
     expect(screen.getByDisplayValue('12000')).toBeDisabled()
+
+    await irA('Uso y asignación')
+    expect(
+      screen.getByRole('button', { name: '¿Por qué no se puede editar?' }),
+    ).toBeInTheDocument()
+  })
+
+  /** La matrícula, el bastidor y la matriculación no son una pestaña: son la
+   * información fija del coche y se ven siempre, con las pestañas debajo. */
+  it('lo fijo del vehículo está fuera de las pestañas', async () => {
+    renderEdit()
+    await screen.findByDisplayValue('2026-01-01')
+    // La matrícula del coche se ve sin abrir ninguna pestaña.
+    const fijo = document.querySelector('.vf-fixed') as HTMLElement
+    expect(fijo).not.toBeNull()
+    const valores = [...fijo.querySelectorAll('input')].map((i) => i.value)
+    expect(valores).toContain('3546LKR')
+
+    // Y la pestaña de salida es «Identificación»: las demás, ocultas.
+    expect(screen.getByRole('tab', { name: 'Identificación' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.queryByLabelText('Cada (km)')).not.toBeInTheDocument()
+  })
+
+  /** Esos tres campos identifican al coche fuera de la aplicación: se ven
+   * siempre, pero para tocarlos hay que abrir el candado y aceptar el aviso. */
+  it('los datos del vehículo van bajo candado: aviso y, al aceptar, editables', async () => {
+    renderEdit()
+    await screen.findByDisplayValue('2026-01-01')
+
+    const matricula = screen.getByDisplayValue('3546LKR')
+    expect(matricula).toBeDisabled()
+
+    // El candado sale CERRADO; al pulsarlo, un aviso, no la edición directa.
+    await userEvent.click(screen.getByRole('button', { name: /Bloqueado/ }))
+    expect(await screen.findByText(/identifican al vehículo en contratos/)).toBeInTheDocument()
+    expect(matricula).toBeDisabled()
+
+    // Al aceptarlo, los tres campos se pueden modificar.
+    await userEvent.click(screen.getByRole('button', { name: 'Entiendo, quiero editarlos' }))
+    await waitFor(() => expect(matricula).toBeEnabled())
+    expect(screen.getByRole('button', { name: /Editable/ })).toBeInTheDocument()
+    const fijos = document.querySelector('.vf-fixed') as HTMLElement
+    expect([...fijos.querySelectorAll('input')].every((i) => !i.disabled)).toBe(true)
+  })
+
+  /** Las acciones del coche viven en la caja del tipo, no sueltas arriba. */
+  it('la barra de acciones va dentro de «Tipo de vehículo» y no en el alta', async () => {
+    const { unmount } = render(
+      <LanguageProvider>
+        <ConfirmProvider>
+          <VehicleForm
+            mode="edit"
+            vehicleId={42}
+            onSuccess={vi.fn()}
+            onCancel={vi.fn()}
+            actions={<button type="button">Dar de baja</button>}
+          />
+        </ConfirmProvider>
+      </LanguageProvider>,
+    )
+    await screen.findByDisplayValue('2026-01-01')
+    const cabecera = document.querySelector('.vf-head') as HTMLElement
+    expect(cabecera.querySelector('.vf-actions')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Dar de baja' })).toBeInTheDocument()
+    unmount()
+
+    // En el alta no hay coche que gestionar: ni acciones ni candado.
+    render(
+      <LanguageProvider>
+        <ConfirmProvider>
+          <VehicleForm mode="create" onSuccess={vi.fn()} onCancel={vi.fn()} />
+        </ConfirmProvider>
+      </LanguageProvider>,
+    )
+    expect(screen.queryByRole('button', { name: /Bloqueado/ })).not.toBeInTheDocument()
+    expect(document.querySelector('.vf-actions')).toBeNull()
+  })
+
+  /** El alta es un recorrido: no se crea un vehículo desde la primera
+   * pestaña sin haber visto las otras tres. */
+  it('el alta se recorre con «Siguiente» y solo la última pestaña crea', async () => {
+    render(
+      <LanguageProvider>
+        <ConfirmProvider>
+          <VehicleForm mode="create" onSuccess={vi.fn()} onCancel={vi.fn()} />
+        </ConfirmProvider>
+      </LanguageProvider>,
+    )
+
+    // En «Identificación» no hay con qué crear ni a dónde volver.
+    expect(screen.queryByRole('button', { name: 'Crear vehículo' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Atrás' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    expect(screen.getByRole('tab', { name: 'Características técnicas' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    // «Atrás» deshace el paso…
+    await userEvent.click(screen.getByRole('button', { name: 'Atrás' }))
+    expect(screen.getByRole('tab', { name: 'Identificación' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    for (let i = 0; i < 3; i += 1) {
+      await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    }
+
+    // Última pestaña: «Siguiente» se apaga y aparece «Crear vehículo» a la
+    // izquierda de «Atrás» (el pie no cambia de botón bajo el cursor).
+    expect(screen.getByRole('tab', { name: 'Propiedad y contrato' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.getByRole('button', { name: 'Siguiente' })).toBeDisabled()
+    const pie = document.querySelector('.form-footer') as HTMLElement
+    expect([...pie.querySelectorAll('button')].map((b) => b.textContent)).toEqual([
+      'Cancelar',
+      'Crear vehículo',
+      'Atrás',
+      'Siguiente',
+    ])
+  })
+
+  /** A un coche de sustitución no se le asigna conductor ni proyecto: eso sale
+   * del coche al que cubre, así que su pestaña ni se ofrece. */
+  it('el alta de un sustituto se queda sin la pestaña «Uso y asignación»', async () => {
+    render(
+      <LanguageProvider>
+        <ConfirmProvider>
+          <VehicleForm mode="create" onSuccess={vi.fn()} onCancel={vi.fn()} />
+        </ConfirmProvider>
+      </LanguageProvider>,
+    )
+    await irA('Uso y asignación')
+
+    // Marcar «Sustitución» se lleva la pestaña por delante: el formulario no
+    // se queda en una que ya no existe.
+    await userEvent.click(screen.getByRole('radio', { name: '🔁 Sustitución' }))
+    expect(screen.queryByRole('tab', { name: 'Uso y asignación' })).toBeNull()
+    expect(screen.getByRole('tab', { name: 'Identificación' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    // Y el recorrido pasa de largo: de «Características técnicas» a la última.
+    await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    expect(screen.getByRole('tab', { name: 'Propiedad y contrato' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
   })
 
   it('explica, plegado, por qué el proyecto está deshabilitado (uso ≠ Proyecto)', async () => {
@@ -139,6 +294,7 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
 
     // El coche es de uso «personal» → el proyecto va deshabilitado y con su
     // ayuda plegada; al desplegarla se dice cómo habilitarlo.
+    await irA('Uso y asignación')
     const toggle = screen.getByRole('button', { name: '¿Por qué no puedo elegir proyecto?' })
     expect(screen.queryByText(/El proyecto solo se asigna/)).not.toBeInTheDocument()
     await userEvent.click(toggle)

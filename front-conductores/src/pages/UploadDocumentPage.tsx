@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Paperclip } from 'lucide-react'
 import { Button, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
@@ -185,17 +185,23 @@ export function UploadDocumentPage() {
           value={form.type}
           onValueChange={(value) => setForm((f) => ({ ...f, type: value }))}
         />
-        <label className="file-field">
-          <span>
+        <div className="file-block">
+          <span className="file-block-label">
             {doc.filePick} <span className="req-badge" aria-hidden>{t.common.required}</span>
           </span>
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          />
-          {file && <span className="doc-sub">{file.name}</span>}
-        </label>
+          {/* La misma caja de adjuntar del resto de la app (pulgar-friendly),
+              no el «Seleccionar archivo» del sistema. */}
+          <label className={`photo-attach${file ? ' has-file' : ''}`}>
+            <Paperclip size={18} aria-hidden />
+            {file ? file.name : doc.filePick}
+            <input
+              type="file"
+              aria-label={doc.filePick}
+              accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+        </div>
         <TextInputField
           label={doc.expiry}
           type="date"

@@ -1,17 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Chip, IconButton, MiniToolsButtons, Modal, PageHeader, SelectField, StatCard } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage, isAbortError } from '@flota/ui/http'
-import { ChevronDown, Pencil } from 'lucide-react'
+import { ChevronDown, Pencil, Plus } from 'lucide-react'
 
 import {
   deactivateUser,
   fetchFleetSummary,
   listAlerts,
   listAll,
-  listIncidents,
   listMaintenancePlans,
+  listOpenIncidents,
   listUsers,
   listVehicleLinks,
   listVehicles,
@@ -20,7 +20,18 @@ import {
   type ManagedUserFull,
   type VehicleFilters,
 } from '../api.ts'
-import { alertLevelTone, dueClass, fmtDate, fmtEur, itvClass, todayIso, vehicleStateTone } from '../format.ts'
+import {
+  dueClass,
+  fmtDate,
+  fmtEur,
+  fmtKm,
+  fmtLiters,
+  itvClass,
+  todayIso,
+  vehicleStateTone,
+} from '../format.ts'
+import { maintenanceDueDates, maintenanceDueMap } from '../maintenanceDue.ts'
+import { daysSince, kmStaleTone } from '../vehicleTimeline.ts'
 import { exportCsv } from '../csv.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { useVehicleActions } from '../components/useVehicleActions.tsx'
@@ -32,10 +43,16 @@ import { AccidentModal } from '../components/AccidentModal.tsx'
 import { KmFuelModal } from '../components/KmFuelModal.tsx'
 import { MaintenanceDoneModal } from '../components/MaintenanceDoneModal.tsx'
 import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
-import { VehicleStateModal } from '../components/VehicleStateModal.tsx'
+import { ScheduleItvMaintenanceModal } from '../components/ScheduleItvMaintenanceModal.tsx'
+import { VehicleForm } from '../components/VehicleForm.tsx'
+import { VehicleReturnButton } from '../components/VehicleReturnButton.tsx'
+import { RenewInsuranceModal } from '../components/RenewInsuranceModal.tsx'
+import { FleetPendingList, VehiclePendingModal } from '../components/VehiclePendingCard.tsx'
 import { useLang } from '../i18n.tsx'
 import { useUsersCopy } from '../translations/users.ts'
+import { useVehicleDetailCopy } from '../translations/vehicleDetail.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
+import { useVehicleFormCopy } from '../translations/vehicleForm.ts'
 import type { Alert, FleetSummary, Incident, IncidentType, Vehicle, VehicleLinkRow } from '../types.ts'
 
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
@@ -59,21 +76,35 @@ const ALERT_CATEGORY: Record<string, string> = {
 }
 const ALERT_TAB_ORDER = ['all', 'itv', 'insurance', 'km', 'maintenance', 'no_driver']
 
-// Incidencias: el tipo ES la categoría (avería/mantenimiento/ITV/accidente).
-// Averías y accidentes son las "serias" (semáforo rojo en la tira/KPI).
-const INCIDENT_TYPE_TONE: Record<IncidentType, 'danger' | 'warning' | 'info'> = {
-  breakdown: 'danger',
-  accident: 'danger',
-  maintenance: 'warning',
-  tires: 'warning',
-  inspection: 'info',
+/**
+ * Categoría de la tira → tipo de alerta con el que abre la lista filtrada.
+ * «Kilómetros» agrupa DOS tipos (lectura pendiente y exceso) y la lista filtra
+ * por tipo exacto: ese chip abre sin filtro, con las dos a la vista.
+ */
+const ALERT_CAT_TYPE: Record<string, string | undefined> = {
+  itv: 'itv_due',
+  insurance: 'insurance_due',
+  maintenance: 'maintenance_due',
+  no_driver: 'no_driver',
 }
+
+/** Lo que el panel no mira: la única ITV que enseña es su alerta (ver
+ * `reloadIncidents`). Constante de módulo: `usePending` la usa en sus efectos. */
+const SIN_TIPOS_PANEL = ['inspection'] as const
+
+/** Valor de «sin nadie» en los filtros por persona (un id nunca es esto). */
+const NADIE = '__none__'
+
+// Incidencias: el tipo ES la categoría — avería, avería de neumáticos,
+// mantenimiento puntual, accidente y petición general. La ITV NO es una
+// categoría del panel: la única ITV visible es la alerta «ITV programada»
+// (las «En ITV» se filtran en la carga). Tono del badge: `incidentTypeTone`.
 const INCIDENT_TAB_ORDER: IncidentType[] = [
   'breakdown',
-  'maintenance',
   'tires',
-  'inspection',
+  'maintenance',
   'accident',
+  'general',
 ]
 
 type ManageKind = 'vehicles' | 'use' | 'cost' | 'itv' | 'insurance' | 'maintenance' | 'alerts' | 'incidents'
@@ -93,16 +124,6 @@ interface MaintRow {
   status: Exclude<MaintSeg, 'all'>
 }
 
-/** `iso` + `months` meses, recortando al último día del mes (como el back). */
-function addMonthsIso(iso: string, months: number): string {
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
-  const total = m - 1 + months
-  const year = y + Math.floor(total / 12)
-  const month = total % 12 // 0-index
-  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
-  return `${year}-${String(month + 1).padStart(2, '0')}-${String(Math.min(d, lastDay)).padStart(2, '0')}`
-}
-
 function addDaysIso(iso: string, days: number): string {
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
@@ -114,13 +135,7 @@ function addDaysIso(iso: string, days: number): string {
  * mín(ciclo del plan, 12 meses) y solo acreditan los planes con ancla de fecha.
  */
 function buildMaintRows(vehicles: Vehicle[], plans: MaintenancePlan[]): MaintRow[] {
-  const best = new Map<number, { due: string; plan: string; planId: number }>()
-  for (const p of plans) {
-    if (!p.last_done_date) continue
-    const due = addMonthsIso(p.last_done_date, Math.min(p.every_months ?? 12, 12))
-    const cur = best.get(p.vehicle)
-    if (!cur || due < cur.due) best.set(p.vehicle, { due, plan: p.name, planId: p.id })
-  }
+  const best = maintenanceDueMap(plans)
   const today = todayIso()
   const soon = addDaysIso(today, 30)
   const rank: Record<MaintRow['status'], number> = { overdue: 0, no_plan: 1, soon: 2, ok: 3 }
@@ -159,8 +174,27 @@ export function DashboardPage() {
     tRef.current = t
   })
   const vt = useVehiclesCopy()
+  // Solo para el título del modal de edición (el formulario es el de la ficha).
+  const tForm = useVehicleFormCopy()
+  // Mismos nombres que en la ficha para las mismas operaciones.
+  const vd = useVehicleDetailCopy()
   const ut = useUsersCopy()
   const confirm = useConfirm()
+
+  /** Dar de alta desde el panel. El alta NO vive aquí: vive en su pantalla,
+   * con sus catálogos, su validación y su listado. Así que esto avisa de que
+   * se sale de la vista general y, si se acepta, lleva allí pidiendo que se
+   * abra el formulario (`state.crear`), en vez de duplicar el alta. */
+  async function irACrear(que: 'vehiculo' | 'conductor') {
+    const ok = await confirm({
+      title: t.home.addConfirmTitle,
+      message: que === 'vehiculo' ? t.home.addVehicleConfirm : t.home.addDriverConfirm,
+      confirmLabel: t.home.addConfirmGo,
+      tone: 'warning',
+    })
+    if (!ok) return
+    navigate(que === 'vehiculo' ? '/vehiculos' : '/conductores', { state: { crear: true } })
+  }
   const eur = (value: string) => fmtEur(value, language)
   const [summary, setSummary] = useState<FleetSummary | null>(null)
   const [alerts, setAlerts] = useState<Alert[]>([])
@@ -194,11 +228,34 @@ export function DashboardPage() {
   const [stateFilter, setStateFilter] = useState('') // '' | active | maintenance | itv | broken
   const [itvOnly, setItvOnly] = useState(false)
   const [insuranceOnly, setInsuranceOnly] = useState(false)
+  // GAP-8 y N3: los otros dos cortes de la tabla — el mantenimiento sale del
+  // plan y el exceso de km, de su alerta abierta (es quien lo calcula).
+  const [maintOnly, setMaintOnly] = useState(false)
+  const [kmOverOnly, setKmOverOnly] = useState(false)
+  // Por persona: el conductor vigente y el supervisor responsable.
+  const [driverFilter, setDriverFilter] = useState('')
+  const [supervisorFilter, setSupervisorFilter] = useState('')
+  // Filtro de la tabla por categoría de alerta (null = sin filtro de alertas).
+  // Lo activa el botón «Filtrar en la tabla» del modal de alertas.
+  const [alertFilter, setAlertFilter] = useState<string | null>(null)
   const [showBaja, setShowBaja] = useState(false)
   const [showInactive, setShowInactive] = useState(false) // personas desactivadas
 
   const isVehicleTab = tab === 'flota' || tab === 'substitute'
-  const anyFilter = Boolean(useFilter || assignFilter || stateFilter || itvOnly || insuranceOnly)
+  const anyFilter = Boolean(
+    useFilter ||
+      assignFilter ||
+      stateFilter ||
+      driverFilter ||
+      supervisorFilter ||
+      itvOnly ||
+      insuranceOnly ||
+      maintOnly ||
+      kmOverOnly ||
+      alertFilter,
+  )
+  /** Cuántos cortes hay marcados (lo dice el desplegable sin abrirlo). */
+  const cutsOn = [itvOnly, insuranceOnly, maintOnly, kmOverOnly, showBaja].filter(Boolean).length
 
   // Modal de gestión activo (uno por bloque informativo) y datos de ITV/seguro.
   const [manage, setManage] = useState<ManageKind | null>(null)
@@ -211,10 +268,13 @@ export function DashboardPage() {
   const [maintSeg, setMaintSeg] = useState<MaintSeg>('all')
   const [alertTab, setAlertTab] = useState('all') // pestaña de tipo del modal de alertas
   const [incidentTab, setIncidentTab] = useState('all') // pestaña de tipo del modal de incidencias
-  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null) // detalle de una alerta
+  // Planes de mantenimiento (para la columna «Próx. mantenimiento» de la tabla).
+  const [maintPlans, setMaintPlans] = useState<MaintenancePlan[]>([])
 
   // Modales de acciones por fila (vehículos y personas).
-  const [opsVehicle, setOpsVehicle] = useState<Vehicle | null>(null)
+  // «Alertas e incidencias»: el modal del menú ⋮ con las tres pestañas (nuevo
+  // estado, alertas e incidencias).
+  const [pendingVehicle, setPendingVehicle] = useState<Vehicle | null>(null)
   const [accidentVehicle, setAccidentVehicle] = useState<Vehicle | null>(null)
   const [kmFuelVehicle, setKmFuelVehicle] = useState<Vehicle | null>(null)
   const [emailVehicle, setEmailVehicle] = useState<Vehicle | null>(null)
@@ -222,9 +282,14 @@ export function DashboardPage() {
   const [emailKind, setEmailKind] = useState<'insurance_due' | undefined>(undefined)
   // Acciones de los desgloses: registrar ITV y registrar servicio (GAP-8).
   const [itvRegVehicle, setItvRegVehicle] = useState<Vehicle | null>(null)
+  // Renovar seguro desde el desglose (mismo formulario que la alerta).
+  const [renewVehicle, setRenewVehicle] = useState<Vehicle | null>(null)
   const [maintDone, setMaintDone] = useState<MaintRow | null>(null)
   const [driverVehicle, setDriverVehicle] = useState<Vehicle | null>(null)
   const [invoicesVehicle, setInvoicesVehicle] = useState<Vehicle | null>(null)
+  // Citas previstas (ITV + planes) y edición de la ficha, las dos en modal.
+  const [scheduleVehicle, setScheduleVehicle] = useState<Vehicle | null>(null)
+  const [editVehicle, setEditVehicle] = useState<Vehicle | null>(null)
   const [userModalOpen, setUserModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<ManagedUserFull | null>(null)
 
@@ -261,21 +326,37 @@ export function DashboardPage() {
       .finally(() => setUsersLoading(false))
   }, [])
 
-  useEffect(() => {
-    fetchFleetSummary()
-      .then(setSummary)
-      .catch((err) => setError(asErrorMessage(err, tRef.current.home.errSummary)))
+  const reloadAlerts = useCallback(() => {
     listAlerts('open')
       .then((result) =>
         setAlerts([...result.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])),
       )
       .catch(() => setAlerts([]))
-    listIncidents({ status: 'open' })
-      .then((result) => setIncidents(result.results))
+  }, [])
+
+  // Incidencias SIN cerrar: abiertas Y en curso (antes solo `open`, y una
+  // gestionada desaparecía del panel sin estar resuelta). Las «En ITV» quedan
+  // fuera: la única ITV visible es la alerta «ITV programada» (el ciclo
+  // interno sigue en la ficha/estado).
+  const reloadIncidents = useCallback(() => {
+    listOpenIncidents({})
+      .then((rows) => setIncidents(rows.filter((i) => i.type !== 'inspection')))
       .catch(() => setIncidents([]))
+  }, [])
+
+  useEffect(() => {
+    fetchFleetSummary()
+      .then(setSummary)
+      .catch((err) => setError(asErrorMessage(err, tRef.current.home.errSummary)))
+    reloadAlerts()
+    reloadIncidents()
+    // Planes de mantenimiento para la columna «Próx. mantenimiento» de la tabla.
+    listAll(listMaintenancePlans())
+      .then(setMaintPlans)
+      .catch(() => setMaintPlans([]))
     loadCore()
     loadUsers()
-  }, [loadCore, loadUsers])
+  }, [loadCore, loadUsers, reloadAlerts, reloadIncidents])
 
   // ITV: carga perezosa al abrir su modal.
   // C6/C7: `ordering=next_itv_date` NO estaba en `ordering_fields` del back, y
@@ -376,8 +457,27 @@ export function DashboardPage() {
     setUseFilter('')
     setAssignFilter('')
     setStateFilter('')
+    setDriverFilter('')
+    setSupervisorFilter('')
     setItvOnly(false)
     setInsuranceOnly(false)
+    setMaintOnly(false)
+    setKmOverOnly(false)
+    setAlertFilter(null)
+  }
+
+  /** Filtra la tabla de la flota a los coches con alertas de la categoría dada
+   * (o de cualquier categoría si es «all») y cierra el modal de alertas. */
+  function filterByAlerts(cat: string) {
+    setTab('flota')
+    setUseFilter('')
+    setAssignFilter('')
+    setStateFilter('')
+    setItvOnly(false)
+    setInsuranceOnly(false)
+    setAlertFilter(cat)
+    setToolsOpen(true)
+    setManage(null)
   }
 
   /** Cambia de pestaña y limpia filtros (la búsqueda es propia de cada grupo). */
@@ -445,16 +545,23 @@ export function DashboardPage() {
     }
   }
 
-  // Índice matrícula por id (modal de incidencias) desde la carga completa.
-  const plateBook = useMemo(() => new Map(allVehicles.map((v) => [v.id, v])), [allVehicles])
-  const plateOf = (id: number) => plateBook.get(id)?.plate ?? `#${id}`
-
   // Sustitutos que están cubriendo a un vehículo (no se pueden convertir).
   const activeMainOfSub = useMemo(() => {
     const map = new Map<number, number>()
     for (const l of links) if (l.end_date === null) map.set(l.substitute_vehicle, l.main_vehicle)
     return map
   }, [links])
+
+  // Y al revés: el vínculo VIGENTE de cada coche de flota, que es lo que
+  // cuelga de su fila en la tabla (con la fecha desde la que lo cubre).
+  const activeLinkOfMain = useMemo(() => {
+    const map = new Map<number, VehicleLinkRow>()
+    for (const l of links) if (l.end_date === null) map.set(l.main_vehicle, l)
+    return map
+  }, [links])
+
+  /** El coche por id: lo que hace falta para pintar al sustituto de una fila. */
+  const byId = useMemo(() => new Map(allVehicles.map((v) => [v.id, v])), [allVehicles])
 
   // M9 — cruce personas ↔ flota (excluye bajas) en DOS mapas memoizados.
   // Antes se filtraba `allVehicles` dentro de `getValue`, es decir una pasada
@@ -486,6 +593,31 @@ export function DashboardPage() {
     [vehiclesByDriver],
   )
 
+  // Próximo mantenimiento por vehículo (columna de la tabla + filtro): fecha del
+  // vencimiento más próximo entre sus planes con fecha.
+  const maintDueMap = useMemo(() => maintenanceDueDates(maintPlans), [maintPlans])
+
+  /** Coches con el kilometraje contratado sobrepasado: los que tienen abierta
+   * la alerta de exceso (`km_overage`), que es quien hace ese cálculo — el
+   * front no vuelve a proyectarlo por su cuenta. */
+  const kmOverIds = useMemo(
+    () => new Set(alerts.filter((a) => a.type === 'km_overage' && a.vehicle).map((a) => a.vehicle)),
+    [alerts],
+  )
+
+  // Vehículos con alguna alerta abierta de la categoría filtrada (o de cualquier
+  // categoría si es «all»); `null` = sin filtro de alertas activo.
+  const alertVehicleIds = useMemo(() => {
+    if (!alertFilter) return null
+    const ids = new Set<number>()
+    for (const a of alerts) {
+      if (a.vehicle && (alertFilter === 'all' || ALERT_CATEGORY[a.type] === alertFilter)) {
+        ids.add(a.vehicle)
+      }
+    }
+    return ids
+  }, [alertFilter, alerts])
+
   // M16 — UNA sola fuente derivada de los vehículos cargados: los cortes de
   // vencimiento se aplican una vez y de ahí salen las dos pestañas y sus
   // contadores (antes se recalculaban por separado en varios sitios).
@@ -493,9 +625,59 @@ export function DashboardPage() {
     () =>
       vehicles
         .filter((v) => !itvOnly || itvClass(v.next_itv_date) !== '')
-        .filter((v) => !insuranceOnly || dueClass(v.insurance_expiry_date) !== ''),
-    [vehicles, itvOnly, insuranceOnly],
+        .filter((v) => !insuranceOnly || dueClass(v.insurance_expiry_date) !== '')
+        .filter((v) => {
+          if (!maintOnly) return true
+          const due = maintDueMap.get(v.id)
+          // Sin plan no hay vencimiento que esté cerca: fuera del corte.
+          return Boolean(due) && dueClass(due ?? null) !== ''
+        })
+        .filter((v) => !kmOverOnly || kmOverIds.has(v.id))
+        .filter((v) =>
+          !driverFilter
+            ? true
+            : driverFilter === NADIE
+              ? v.driver_id == null
+              : String(v.driver_id ?? '') === driverFilter,
+        )
+        .filter((v) =>
+          !supervisorFilter
+            ? true
+            : supervisorFilter === NADIE
+              ? v.supervisor == null
+              : String(v.supervisor ?? '') === supervisorFilter,
+        )
+        .filter((v) => !alertVehicleIds || alertVehicleIds.has(v.id)),
+    [
+      vehicles,
+      itvOnly,
+      insuranceOnly,
+      maintOnly,
+      maintDueMap,
+      kmOverOnly,
+      kmOverIds,
+      driverFilter,
+      supervisorFilter,
+      alertVehicleIds,
+    ],
   )
+  /** Quién sale en los dos selectores: solo la gente que TIENE coche (de la
+   * flota cargada), no el listado entero de usuarios — un filtro que deja la
+   * tabla vacía no es un filtro. Se añade «sin nadie», que es un corte real. */
+  const personOptions = useMemo(() => {
+    const drivers = new Map<string, string>()
+    const supervisors = new Map<string, string>()
+    for (const v of allVehicles) {
+      if (v.driver_id != null && v.driver_name) drivers.set(String(v.driver_id), v.driver_name)
+      if (v.supervisor != null && v.supervisor_name) {
+        supervisors.set(String(v.supervisor), v.supervisor_name)
+      }
+    }
+    const sorted = (map: Map<string, string>) =>
+      [...map].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label }))
+    return { drivers: sorted(drivers), supervisors: sorted(supervisors) }
+  }, [allVehicles])
+
   const flotaRows = useMemo(() => vehicleRows.filter((v) => !v.is_substitute), [vehicleRows])
   const subRows = useMemo(() => vehicleRows.filter((v) => v.is_substitute), [vehicleRows])
 
@@ -544,8 +726,6 @@ export function DashboardPage() {
   const alertCatCount = (cat: string) =>
     cat === 'all' ? alerts.length : alerts.filter((a) => ALERT_CATEGORY[a.type] === cat).length
   const alertTabs = ALERT_TAB_ORDER.filter((cat) => cat === 'all' || alertCatCount(cat) > 0)
-  const shownAlerts =
-    alertTab === 'all' ? alerts : alerts.filter((a) => ALERT_CATEGORY[a.type] === alertTab)
 
   // Incidencias por tipo: mismo patrón que las alertas.
   const incidentCatCount = (cat: string) =>
@@ -553,8 +733,6 @@ export function DashboardPage() {
   const incidentTabs = ['all', ...INCIDENT_TAB_ORDER].filter(
     (cat) => cat === 'all' || incidentCatCount(cat) > 0,
   )
-  const shownIncidents =
-    incidentTab === 'all' ? incidents : incidents.filter((i) => i.type === incidentTab)
   const seriousIncidents = incidents.filter(
     (i) => i.type === 'breakdown' || i.type === 'accident',
   ).length
@@ -563,6 +741,69 @@ export function DashboardPage() {
   const m = t.home.manage
   const f = t.home.filters
 
+  /** Cuánto lleva el coche sin que le lean los km, con el MISMO semáforo que
+   * las fechas de la tabla: ámbar a vigilar (15-30 días), rojo vencida (>30 o
+   * sin ninguna lectura). */
+  const staleCell = (date: string | null) => {
+    const days = date ? daysSince(date) : null
+    const tone = kmStaleTone(days)
+    return (
+      <span className={tone === 'danger' ? 'itv-overdue' : tone === 'warn' ? 'itv-soon' : 'muted'}>
+        {days === null ? t.home.kmNoReading : t.home.kmStale(days)}
+      </span>
+    )
+  }
+
+  /** Kilómetros de un coche: el odómetro (o «—» si nunca se ha leído). */
+  const kmText = (v: Vehicle) => (v.km_current == null ? '—' : fmtKm(v.km_current, language))
+
+  /**
+   * Lo que cuelga de la fila de un coche cubierto: SU coche de sustitución,
+   * con lo mismo que se lee en la fila de arriba (quién lo lleva, cómo va y
+   * qué tiene por vencer) y desde cuándo lo cubre.
+   */
+  const renderSubstituteRow = (v: Vehicle) => {
+    const link = activeLinkOfMain.get(v.id)
+    const sub = link ? byId.get(link.substitute_vehicle) : undefined
+    if (!link || !sub) return null
+    return (
+      <div className="sub-row">
+        <span className="sub-row-tag">🔁 {t.home.subRow}</span>
+        <Link to={`/vehiculos/${sub.id}`} state={{ from: '/' }} className="cell-link">
+          <strong>{sub.plate}</strong>
+        </Link>
+        <span>{`${sub.brand} ${sub.model}`}</span>
+        <Badge tone={vehicleStateTone(sub.state)}>{sub.state_display || '—'}</Badge>
+        <span className="sub-row-item">
+          <span className="muted">{t.home.thDriver}: </span>
+          {sub.driver_name || '—'}
+        </span>
+        <span className="sub-row-item">
+          <span className="muted">{t.home.thKm}: </span>
+          <strong>{kmText(sub)}</strong> {staleCell(sub.km_reading_date)}
+        </span>
+        <span className="sub-row-item">
+          <span className="muted">{t.home.thFuel}: </span>
+          {sub.fuel_month_liters == null ? '—' : fmtLiters(sub.fuel_month_liters, language)}
+          {sub.fuel ? <span className="muted"> · {sub.fuel}</span> : null}
+        </span>
+        <span className="sub-row-item">
+          <span className="muted">{t.home.thItv}: </span>
+          <span className={itvClass(sub.next_itv_date)}>{fmtDate(sub.next_itv_date, language)}</span>
+        </span>
+        <span className="sub-row-item">
+          <span className="muted">{t.home.thInsurance}: </span>
+          <span className={dueClass(sub.insurance_expiry_date)}>
+            {fmtDate(sub.insurance_expiry_date, language)}
+          </span>
+        </span>
+        <span className="sub-row-since muted">
+          {t.home.subRowSince(fmtDate(link.start_date, language))}
+        </span>
+      </div>
+    )
+  }
+
   const MANAGE_TITLE: Record<ManageKind, string> = {
     vehicles: m.vehiclesTitle,
     use: m.useTitle,
@@ -570,8 +811,9 @@ export function DashboardPage() {
     itv: m.itvTitle,
     insurance: m.insuranceTitle,
     maintenance: m.maintenanceTitle,
-    alerts: m.alertsTitle,
-    incidents: m.incidentsTitle,
+    // Las dos tiras abren la MISMA lista (en pestañas distintas): un título.
+    alerts: m.pendingTitle,
+    incidents: m.pendingTitle,
   }
 
   // Enlace a la ficha de una persona.
@@ -603,13 +845,6 @@ export function DashboardPage() {
       <strong>{v.plate}</strong>
     </Link>
   )
-
-  // Destino del botón "vista concreta" de una alerta: km → Kilometraje; el resto
-  // (ITV, seguro, sin conductor) → Flota.
-  const alertTargetView = (a: Alert) =>
-    ALERT_CATEGORY[a.type] === 'km'
-      ? { path: '/kilometraje', label: t.home.alertGo.mileage }
-      : { path: '/vehiculos', label: t.home.alertGo.fleet }
 
   // Columnas de los desgloses de vencimientos (ITV / seguro), ordenables.
   const dueColumns = (kind: 'itv' | 'insurance'): Array<TableWithPanelColumn<Vehicle>> => {
@@ -655,16 +890,21 @@ export function DashboardPage() {
               {m.actionRegisterItv}
             </Button>
           ) : (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                setEmailKind('insurance_due')
-                setEmailVehicle(v)
-              }}
-            >
-              {m.actionSendInsuranceEmail}
-            </Button>
+            <span className="mng-row-actions">
+              <Button size="sm" variant="secondary" onClick={() => setRenewVehicle(v)}>
+                {m.actionRenewInsurance}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setEmailKind('insurance_due')
+                  setEmailVehicle(v)
+                }}
+              >
+                {m.actionSendInsuranceEmail}
+              </Button>
+            </span>
           ),
       },
     ]
@@ -764,6 +1004,43 @@ export function DashboardPage() {
       render: (v) => v.driver_name || '—',
     },
     {
+      // Quién responde del coche HOY (`Vehicle.supervisor`, el vigente; el
+      // histórico son los periodos de la ficha).
+      key: 'supervisor',
+      label: t.home.thSupervisor,
+      getValue: (v) => v.supervisor_name || '',
+      render: (v) => v.supervisor_name || '—',
+    },
+    {
+      // Dos líneas: el odómetro y cuánto lleva sin leerse (el aviso que manda
+      // a reclamar la lectura). Ordena por kilómetros, que es la cifra.
+      key: 'km',
+      label: t.home.thKm,
+      getValue: (v) => v.km_current ?? -1,
+      render: (v) => (
+        <div className="stack-cell">
+          <strong>{kmText(v)}</strong>
+          <span className="stack-cell-sub">{staleCell(v.km_reading_date)}</span>
+        </div>
+      ),
+    },
+    {
+      // GAP-2: LITROS del mes en curso y, debajo, de qué se reposta (GAP-1, el
+      // tipo del catálogo). Sin el importe: lo que se sigue aquí es el consumo,
+      // y el gasto se mira donde se factura. Ordena por litros, que es la cifra.
+      key: 'fuel_month',
+      label: t.home.thFuel,
+      getValue: (v) => Number(v.fuel_month_liters ?? 0),
+      render: (v) => (
+        <div className="stack-cell">
+          <strong>
+            {v.fuel_month_liters == null ? '—' : fmtLiters(v.fuel_month_liters, language)}
+          </strong>
+          <span className="stack-cell-sub muted">{v.fuel || '—'}</span>
+        </div>
+      ),
+    },
+    {
       key: 'itv',
       label: t.home.thItv,
       isDate: true,
@@ -771,6 +1048,20 @@ export function DashboardPage() {
       render: (v) => (
         <span className={itvClass(v.next_itv_date)}>{fmtDate(v.next_itv_date, language)}</span>
       ),
+    },
+    {
+      key: 'maintenance',
+      label: t.home.thMaintenance,
+      isDate: true,
+      getValue: (v) => maintDueMap.get(v.id) ?? '',
+      render: (v) => {
+        const due = maintDueMap.get(v.id)
+        return (
+          <span className={due ? dueClass(due) : undefined}>
+            {due ? fmtDate(due, language) : '—'}
+          </span>
+        )
+      },
     },
     {
       key: 'insurance',
@@ -796,9 +1087,11 @@ export function DashboardPage() {
     },
     onDriver: setDriverVehicle,
     onInvoices: setInvoicesVehicle,
-    onOps: setOpsVehicle,
+    onPending: setPendingVehicle,
     onAccident: setAccidentVehicle,
     onKmFuel: setKmFuelVehicle,
+    onSchedule: setScheduleVehicle,
+    onEdit: setEditVehicle,
     activeMainOfSub,
     onDone: reloadVehicles,
     onError: setError,
@@ -894,6 +1187,16 @@ export function DashboardPage() {
       <PageHeader
         title={t.home.title}
         subtitle={t.home.subtitle}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => irACrear('vehiculo')}>
+              <Plus size={16} aria-hidden /> {t.home.addVehicle}
+            </Button>
+            <Button variant="primary" onClick={() => irACrear('conductor')}>
+              <Plus size={16} aria-hidden /> {t.home.addDriver}
+            </Button>
+          </>
+        }
         stats={
           summary
             ? [
@@ -1072,32 +1375,50 @@ export function DashboardPage() {
               ['drivers', t.home.tabs.drivers, drvCount],
             ] as const
           ).map(([key, label, count]) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={tab === key}
-              className={`veh-tab${tab === key ? ' is-active' : ''}`}
-              onClick={() => switchTab(key)}
-            >
-              {label} <span className="veh-tab-count">{count}</span>
-            </button>
+            <Fragment key={key}>
+              {/* Línea divisoria: a la izquierda las pestañas de VEHÍCULOS,
+                  a la derecha las de PERSONAS. */}
+              {key === 'supervisors' && <span className="veh-tabs-sep" aria-hidden />}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === key}
+                className={`veh-tab${tab === key ? ' is-active' : ''}`}
+                onClick={() => switchTab(key)}
+              >
+                {label} <span className="veh-tab-count">{count}</span>
+              </button>
+            </Fragment>
           ))}
         </div>
 
         {/* Acordeón: búsqueda + filtros + exportación (colapsado por defecto).
             Los filtros de vehículos solo aparecen en las pestañas de vehículos. */}
         <div className="dash-tools">
-          <button
-            type="button"
-            className={`dash-tools-toggle${toolsOpen ? ' is-open' : ''}`}
-            aria-expanded={toolsOpen}
-            onClick={() => setToolsOpen((o) => !o)}
-          >
-            <ChevronDown size={16} aria-hidden className="dash-tools-caret" />
-            <span>{t.home.toolsToggle}</span>
-            <span className="dash-tools-summary">{t.home.toolsSummary(activeCount)}</span>
-          </button>
+          {/* Exportar NO vive dentro del acordeón: es lo que se hace con la
+              tabla que se está viendo, y esconderlo tras un despliegue lo
+              volvía invisible. (Un botón no puede ir dentro de otro botón, de
+              ahí que la cabecera sea una fila con los dos.) */}
+          <div className="dash-tools-head">
+            <button
+              type="button"
+              className={`dash-tools-toggle${toolsOpen ? ' is-open' : ''}`}
+              aria-expanded={toolsOpen}
+              onClick={() => setToolsOpen((o) => !o)}
+            >
+              <ChevronDown size={16} aria-hidden className="dash-tools-caret" />
+              <span>{t.home.toolsToggle}</span>
+              <span className="dash-tools-summary">{t.home.toolsSummary(activeCount)}</span>
+            </button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={activeCount === 0}
+              onClick={runExport}
+            >
+              {t.home.exportCsv}
+            </Button>
+          </div>
 
           {toolsOpen && (
             <div className="filters-bar filters-bar--panel table-info-bar filters-bar--inline">
@@ -1181,40 +1502,81 @@ export function DashboardPage() {
                       aria-label={f.state}
                       containerClassName="role-filter"
                       required
-                      options={[
-                        { value: '', label: f.stateAll },
-                        { value: 'active', label: f.stateActive },
-                        { value: 'maintenance', label: f.stateMaintenance },
-                        { value: 'itv', label: f.stateItv },
-                        { value: 'broken', label: f.stateBroken },
-                      ]}
+                      // La lista COMPLETA de estados (antes eran cuatro a
+                      // mano: un coche accidentado o «No activo» no se podía
+                      // filtrar). La baja va con «Mostrar bajas».
+                      options={[{ value: '', label: f.stateAll }, ...vt.stateOptions]}
                       value={stateFilter}
                       onValueChange={setStateFilter}
                     />
                   </div>
 
-                  {/* 6 · Interruptores: vencimientos próximos + bajas. */}
-                  <div className="filter-toggles">
-                    <label className="baja-toggle">
-                      <input type="checkbox" checked={itvOnly} onChange={(e) => setItvOnly(e.target.checked)} />
-                      {t.home.chips.itv}
-                    </label>
-                    <label className="baja-toggle">
-                      <input
-                        type="checkbox"
-                        checked={insuranceOnly}
-                        onChange={(e) => setInsuranceOnly(e.target.checked)}
-                      />
-                      {t.home.chips.insurance}
-                    </label>
-                    <label className="baja-toggle">
-                      <input
-                        type="checkbox"
-                        checked={showBaja}
-                        onChange={(e) => setShowBaja(e.target.checked)}
-                      />
-                      {t.home.showRetired}
-                    </label>
+                  {/* 6 · Conductor. */}
+                  <div className="filter-field filter-field--role">
+                    <label>{f.driver}</label>
+                    <SelectField
+                      aria-label={f.driver}
+                      containerClassName="role-filter"
+                      required
+                      options={[
+                        { value: '', label: f.driverAll },
+                        { value: NADIE, label: f.driverNone },
+                        ...personOptions.drivers,
+                      ]}
+                      value={driverFilter}
+                      onValueChange={setDriverFilter}
+                    />
+                  </div>
+
+                  {/* 7 · Supervisor. */}
+                  <div className="filter-field filter-field--role">
+                    <label>{f.supervisor}</label>
+                    <SelectField
+                      aria-label={f.supervisor}
+                      containerClassName="role-filter"
+                      required
+                      options={[
+                        { value: '', label: f.supervisorAll },
+                        { value: NADIE, label: f.supervisorNone },
+                        ...personOptions.supervisors,
+                      ]}
+                      value={supervisorFilter}
+                      onValueChange={setSupervisorFilter}
+                    />
+                  </div>
+
+                  {/* 8 · Cortes: cinco casillas que se combinan, en un
+                      desplegable — sueltas ocupaban toda la fila y crecían con
+                      cada corte nuevo. El resumen dice cuántos hay puestos sin
+                      tener que abrirlo. */}
+                  <div className="filter-field filter-field--role">
+                    <label>{f.cuts}</label>
+                    <details className="cuts-drop">
+                      <summary className="cuts-drop-summary">
+                        <span>{cutsOn === 0 ? f.cutsNone : f.cutsSome(cutsOn)}</span>
+                        <ChevronDown size={14} aria-hidden />
+                      </summary>
+                      <div className="cuts-drop-panel">
+                        {(
+                          [
+                            [t.home.chips.itv, itvOnly, setItvOnly],
+                            [t.home.chips.insurance, insuranceOnly, setInsuranceOnly],
+                            [t.home.chips.maintenance, maintOnly, setMaintOnly],
+                            [t.home.chips.kmOver, kmOverOnly, setKmOverOnly],
+                            [t.home.showRetired, showBaja, setShowBaja],
+                          ] as const
+                        ).map(([label, value, set]) => (
+                          <label key={label} className="cuts-drop-item">
+                            <input
+                              type="checkbox"
+                              checked={value}
+                              onChange={(e) => set(e.target.checked)}
+                            />
+                            {label}
+                          </label>
+                        ))}
+                      </div>
+                    </details>
                   </div>
                 </>
               )}
@@ -1234,14 +1596,24 @@ export function DashboardPage() {
 
               {/* 7 · Acciones. */}
               <div className="table-info-bar-actions">
+                {isVehicleTab && alertFilter && (
+                  <span className="filter-tag">
+                    {t.home.alertFilterTag(t.home.alertTabs[alertFilter] ?? alertFilter)}
+                    <button
+                      type="button"
+                      className="filter-tag-x"
+                      onClick={() => setAlertFilter(null)}
+                      aria-label={t.home.alertFilterClear}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                )}
                 {isVehicleTab && anyFilter && (
                   <button type="button" className="linklike" onClick={resetFilters}>
                     {t.home.clearFilters}
                   </button>
                 )}
-                <Button variant="secondary" disabled={activeCount === 0} onClick={runExport}>
-                  {t.home.exportCsv}
-                </Button>
               </div>
             </div>
           )}
@@ -1258,6 +1630,11 @@ export function DashboardPage() {
             rows={tab === 'flota' ? flotaRows : subRows}
             columns={[...vehicleColumns, vehicleActionsColumn]}
             rowKey={(v) => String(v.id)}
+            // Un coche cubierto lleva SU sustituto debajo, plegado: la flecha
+            // sale solo en esas filas (`canExpandRow`), que son las que tienen
+            // algo que enseñar.
+            renderExpandedRow={renderSubstituteRow}
+            canExpandRow={(v) => activeLinkOfMain.has(v.id)}
             enableColumnSort
             showControlPanel={false}
             enablePagination
@@ -1288,8 +1665,20 @@ export function DashboardPage() {
         title={manage ? MANAGE_TITLE[manage] : ''}
         onClose={() => setManage(null)}
         // Los desgloses con tabla + columna de acciones necesitan más ancho
-        // para verse enteros sin scroll horizontal.
-        xl={manage === 'itv' || manage === 'insurance' || manage === 'maintenance'}
+        // para verse enteros sin scroll horizontal; alertas e incidencias
+        // también (mismo ancho: son las dos tiras de atención y sus filas
+        // llevan la misma información), para no recortar cada línea.
+        xl={
+          manage === 'itv' ||
+          manage === 'insurance' ||
+          manage === 'maintenance' ||
+          manage === 'alerts' ||
+          manage === 'incidents'
+        }
+        // Alertas e incidencias van a ALTO FIJO: lo que hace scroll es la
+        // lista de filas, no el modal, así que las pestañas, los filtros y los
+        // botones del pie están siempre a la vista (ver `.pending-fleet`).
+        height={manage === 'alerts' || manage === 'incidents' ? '82dvh' : undefined}
       >
         {manage === 'vehicles' && summary && (
           <div className="mng">
@@ -1540,164 +1929,68 @@ export function DashboardPage() {
           </div>
         )}
 
-        {manage === 'alerts' && (
-          <div className="mng">
-            <p className="mng-hint">{m.alertsDesc}</p>
-            {/* Pestañas por tipo: ITV, Kilómetros, Sin conductor… (solo las que
-                tienen alertas). "Todas" siempre disponible. */}
-            <div className="chips-row" role="group" aria-label={t.home.alertsTitle}>
-              {alertTabs.map((cat) => (
-                <Chip
-                  key={cat}
-                  active={alertTab === cat}
-                  count={alertCatCount(cat)}
-                  onClick={() => setAlertTab(cat)}
-                >
-                  {t.home.alertTabs[cat]}
-                </Chip>
-              ))}
-            </div>
-            <div className="mng-rows">
-              {shownAlerts.map((alert) => (
-                <button
-                  key={alert.id}
-                  type="button"
-                  className="mng-row"
-                  onClick={() => setSelectedAlert(alert)}
-                >
-                  <Badge tone={alertLevelTone(alert.level)}>{alert.level_display}</Badge>
-                  <strong>{alert.vehicle_plate || m.noVehicle}</strong>
-                  <span className="mng-grow mng-truncate">{alert.message}</span>
-                </button>
-              ))}
-            </div>
-            <div className="mng-actions">
-              <Button variant="primary" onClick={() => navigate('/alertas')}>
-                {m.seeAllAlerts}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {manage === 'incidents' && (
-          <div className="mng">
-            <p className="mng-hint">{m.incidentsDesc}</p>
-            {/* Pestañas por tipo: Averías, Mantenimiento, ITV, Accidentes (solo
-                las que tienen incidencias). "Todas" siempre disponible. */}
-            <div className="chips-row" role="group" aria-label={t.home.incidentsTitle}>
-              {incidentTabs.map((cat) => (
-                <Chip
-                  key={cat}
-                  active={incidentTab === cat}
-                  count={incidentCatCount(cat)}
-                  onClick={() => setIncidentTab(cat)}
-                >
-                  {t.home.incidentTabs[cat]}
-                </Chip>
-              ))}
-            </div>
-            {incidents.length === 0 ? (
-              <p className="muted">{m.incidentsEmpty}</p>
-            ) : (
-              <div className="mng-rows">
-                {shownIncidents.map((inc) => (
-                  <Link key={inc.id} className="mng-row" to={`/vehiculos/${inc.vehicle}`}>
-                    <Badge tone={INCIDENT_TYPE_TONE[inc.type]}>{inc.type_display}</Badge>
-                    <strong>{plateOf(inc.vehicle)}</strong>
-                    <span className="mng-grow mng-truncate">{inc.description || '—'}</span>
-                  </Link>
-                ))}
-              </div>
-            )}
-            <div className="mng-actions">
-              <Button variant="primary" onClick={() => navigate('/incidencias')}>
-                {m.seeAllIncidents}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* Detalle de una alerta concreta: ir a Alertas o a su vista concreta. */}
-      <Modal
-        open={Boolean(selectedAlert)}
-        title={selectedAlert?.type_display ?? ''}
-        onClose={() => setSelectedAlert(null)}
-      >
-        {selectedAlert && (
-          <div className="mng">
-            <div className="alert-detail">
-              <div className="alert-detail-row">
-                <span className="muted">{t.home.alertDetail.level}</span>
-                <Badge tone={alertLevelTone(selectedAlert.level)}>{selectedAlert.level_display}</Badge>
-              </div>
-              <div className="alert-detail-row">
-                <span className="muted">{t.home.alertDetail.vehicle}</span>
-                {selectedAlert.vehicle ? (
-                  <Link to={`/vehiculos/${selectedAlert.vehicle}`} className="cell-link">
-                    <strong>{selectedAlert.vehicle_plate || `#${selectedAlert.vehicle}`}</strong>
-                  </Link>
-                ) : (
-                  <span>{t.home.alertDetail.noVehicle}</span>
-                )}
-              </div>
-              {selectedAlert.due_date && (
-                <div className="alert-detail-row">
-                  <span className="muted">{t.home.alertDetail.dueDate}</span>
-                  <span>{fmtDate(selectedAlert.due_date, language)}</span>
-                </div>
-              )}
-              <div className="alert-detail-msg">{selectedAlert.message}</div>
-            </div>
-            <div className="mng-actions">
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setSelectedAlert(null)
-                  navigate('/alertas')
-                }}
-              >
-                {t.home.alertGo.alerts}
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => {
-                  const target = alertTargetView(selectedAlert)
-                  setSelectedAlert(null)
-                  navigate(target.path)
-                }}
-              >
-                {alertTargetView(selectedAlert).label}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* Operación de vehículo: estado + sustitución + comunicado. */}
-      <Modal
-        open={Boolean(opsVehicle)}
-        title={opsVehicle ? vt.ops.title(opsVehicle.plate) : ''}
-        onClose={() => setOpsVehicle(null)}
-        wide
-      >
-        {opsVehicle && (
-          <VehicleStateModal
-            vehicle={opsVehicle}
-            allVehicles={allVehicles}
+        {/* Las dos tiras abren la MISMA lista que la ficha, pero de TODA la
+            flota: cada una en su pestaña y, si se pulsó un chip, ya filtrada
+            por ese tipo. Se monta al abrirla y se desmonta al cerrar, así que
+            cada apertura trae los datos frescos. */}
+        {(manage === 'alerts' || manage === 'incidents') && (
+          <FleetPendingList
+            vehicles={allVehicles}
             links={links}
-            onClose={() => setOpsVehicle(null)}
-            onDone={reloadVehicles}
+            sinTipos={SIN_TIPOS_PANEL}
+            grupoInicial={manage}
+            tipoInicial={
+              manage === 'alerts'
+                ? ALERT_CAT_TYPE[alertTab]
+                : incidentTab === 'all'
+                  ? undefined
+                  : incidentTab
+            }
+            onChanged={() => {
+              reloadAlerts()
+              reloadIncidents()
+              reloadVehicles()
+            }}
+            footer={
+              <div className="mng-actions">
+                {manage === 'alerts' && (
+                  <Button variant="secondary" onClick={() => filterByAlerts(alertTab)}>
+                    {m.filterInTable}
+                  </Button>
+                )}
+                <Button
+                  variant="primary"
+                  onClick={() => navigate(manage === 'alerts' ? '/alertas' : '/incidencias')}
+                >
+                  {manage === 'alerts' ? m.seeAllAlerts : m.seeAllIncidents}
+                </Button>
+              </div>
+            }
           />
         )}
       </Modal>
 
-      {/* Comunicación de accidente: el parte guiado (terceros, lesionados…). */}
+      {/* Lo que tiene abierto y su histórico: la MISMA tarjeta de la ficha, en
+          modal, para repasarlo y cerrarlo sin salir del panel. */}
+      {pendingVehicle && (
+        <VehiclePendingModal
+          // Del listado recién recargado, no de cuando se abrió (ver VehiclesPage).
+          vehicle={allVehicles.find((v) => v.id === pendingVehicle.id) ?? pendingVehicle}
+          allVehicles={allVehicles}
+          links={links}
+          onClose={() => setPendingVehicle(null)}
+          onChanged={reloadVehicles}
+        />
+      )}
+
+      {/* Accidente: el parte guiado (terceros, lesionados…) y la gestión de
+          los accidentes del coche, a tamaño fijo (ver VehiclesPage). */}
       <Modal
         open={Boolean(accidentVehicle)}
         title={accidentVehicle ? vt.accident.title(accidentVehicle.plate) : ''}
         onClose={() => setAccidentVehicle(null)}
-        wide
+        maxWidth="1100px"
+        height="82dvh"
       >
         {accidentVehicle && (
           <AccidentModal
@@ -1719,6 +2012,56 @@ export function DashboardPage() {
             vehicle={kmFuelVehicle}
             onClose={() => setKmFuelVehicle(null)}
             onDone={reloadVehicles}
+          />
+        )}
+      </Modal>
+
+      {/* Programar ITV y mantenimiento: la cita (una por vehículo) y los
+          planes preventivos, con su CP preferente. */}
+      <ScheduleItvMaintenanceModal
+        vehicle={scheduleVehicle}
+        onClose={() => setScheduleVehicle(null)}
+        onSaved={reloadVehicles}
+      />
+
+      {/* Editar los datos del vehículo: el MISMO formulario de la ficha, en
+          modal, para no perder el panel ni sus desgloses. */}
+      <Modal
+        open={Boolean(editVehicle)}
+        title={editVehicle ? tForm.editTitle(editVehicle.plate) : ''}
+        onClose={() => setEditVehicle(null)}
+        xl
+        height="88dvh"
+      >
+        {editVehicle && (
+          <VehicleForm
+            mode="edit"
+            vehicleId={editVehicle.id}
+            stateBadge={
+              <Badge tone={vehicleStateTone(editVehicle.state)}>
+                {editVehicle.state_display || '—'}
+              </Badge>
+            }
+            // Lo que se le HACE al coche, arriba, y solo lo de cada día.
+            // «Sustitución» no está aquí: su gestión (ver, cerrar, programar el
+            // cierre del vínculo) vive en la ficha; dar de baja, en el ⋮.
+            actions={
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPendingVehicle(editVehicle)}
+                >
+                  {vd.changeState}
+                </Button>
+                <VehicleReturnButton vehicle={editVehicle} onReturned={reloadVehicles} />
+              </>
+            }
+            onSuccess={() => {
+              setEditVehicle(null)
+              reloadVehicles()
+            }}
+            onCancel={() => setEditVehicle(null)}
           />
         )}
       </Modal>
@@ -1760,10 +2103,28 @@ export function DashboardPage() {
         }}
       />
 
+      {/* Renovar el seguro desde el desglose (mismo formulario que la alerta). */}
+      <RenewInsuranceModal
+        open={Boolean(renewVehicle)}
+        vehicle={renewVehicle}
+        onClose={() => setRenewVehicle(null)}
+        onDone={() => {
+          setRenewVehicle(null)
+          setInsList(null)
+          reloadAlerts()
+          reloadVehicles()
+        }}
+        onEmailRenting={(vehicle) => {
+          setRenewVehicle(null)
+          setEmailVehicle(vehicle)
+          setEmailKind('insurance_due')
+        }}
+      />
+
       {/* Registrar servicio de mantenimiento desde el desglose (GAP-8). */}
       <MaintenanceDoneModal
         open={Boolean(maintDone)}
-        plate={maintDone?.vehicle.plate ?? ''}
+        vehicle={maintDone?.vehicle ?? null}
         planId={maintDone?.planId ?? null}
         planName={maintDone?.plan ?? ''}
         onClose={() => setMaintDone(null)}
