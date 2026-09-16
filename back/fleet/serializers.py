@@ -58,8 +58,10 @@ from .models import (
     vehicle_assignment_overlap,
 )
 from .models.enums import (
+    EVENT_LINKABLE_DOCUMENT_TYPES,
     EXPIRING_DOCUMENT_TYPES,
     INCIDENT_BOUND_DOCUMENT_TYPES,
+    LINK_REQUIRED_DOCUMENT_TYPES,
     TIRE_POSITIONS,
     AllocationTarget,
     AssignmentStatus,
@@ -1749,6 +1751,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     uploaded_by_name = serializers.SerializerMethodField()
     user_name = serializers.SerializerMethodField()
+    event_display = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -1779,6 +1782,14 @@ class DocumentSerializer(serializers.ModelSerializer):
         if not obj.user_id:
             return ""
         return obj.user.get_full_name() or obj.user.get_username()
+
+    def get_event_display(self, obj) -> str:
+        """El registro al que acompaña, legible («ITV · 2026-03-01»); '' si no hay."""
+        if not obj.event_id:
+            return ""
+        event = obj.event
+        when = event.event_date.isoformat() if event.event_date else "—"
+        return f"{event.get_event_type_display()} · {when}"
 
     def get_file_url(self, obj) -> str:
         if not obj.file:
@@ -1827,6 +1838,48 @@ class DocumentSerializer(serializers.ModelSerializer):
         if incident is not None and incident.vehicle_id != vehicle.pk:
             raise serializers.ValidationError({"incident": "La incidencia es de otro vehículo."})
         doc_type = attrs.get("type", getattr(self.instance, "type", None))
+        # El REGISTRO al que acompaña (la ITV del informe, la renovación de la
+        # póliza, la ITV o el mantenimiento de la factura): del mismo coche, de
+        # un tipo que el documento admita y nunca a la vez que una incidencia —
+        # un documento acompaña a UNA cosa.
+        event = attrs.get("event", getattr(self.instance, "event", None))
+        if event is not None:
+            if vehicle is None:
+                raise serializers.ValidationError(
+                    {"event": "Solo un documento de vehículo puede ligarse a un registro."}
+                )
+            if event.vehicle_id != vehicle.pk:
+                raise serializers.ValidationError({"event": "El registro es de otro vehículo."})
+            if incident is not None:
+                raise serializers.ValidationError(
+                    {"event": "Liga el documento a una incidencia O a un registro, no a los dos."}
+                )
+            allowed = EVENT_LINKABLE_DOCUMENT_TYPES.get(doc_type)
+            if not allowed:
+                raise serializers.ValidationError(
+                    {"event": "Este tipo de documento no se liga a un registro del vehículo."}
+                )
+            if event.event_type not in allowed:
+                label = DocumentType(doc_type).label
+                kinds = " o ".join(str(EventType(kind).label) for kind in sorted(allowed))
+                raise serializers.ValidationError(
+                    {"event": f"Un «{label}» solo acompaña a un registro de: {kinds}."}
+                )
+        # Lo que exige acompañar a algo (la factura de taller) no entra suelto.
+        # Se exige al crear y al cambiar tipo o vínculo, no en un PATCH de estado.
+        if doc_type in LINK_REQUIRED_DOCUMENT_TYPES and (
+            self.instance is None or {"incident", "event", "type"} & set(attrs)
+        ):
+            if incident is None and event is None:
+                label = DocumentType(doc_type).label
+                raise serializers.ValidationError(
+                    {
+                        "incident": (
+                            f"Una «{label}» va ligada a una incidencia, una ITV o un "
+                            "mantenimiento del vehículo."
+                        )
+                    }
+                )
         # Un parte de accidente es el parte DE un accidente: va ligado a uno y
         # sin cerrar. Se exige al crear y al cambiar tipo o incidencia; un PATCH
         # de estado sobre un parte antiguo (accidente ya cerrado) no lo re-exige.

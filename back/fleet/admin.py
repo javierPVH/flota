@@ -211,6 +211,8 @@ class VehicleLinkAdmin(admin.ModelAdmin):
 class EventAdmin(admin.ModelAdmin):
     list_display = ("vehicle", "event_type", "event_date")
     list_filter = ("event_type",)
+    # `DocumentAdmin` lo autocompleta (documento ligado a un registro).
+    search_fields = ("vehicle__plate", "notes")
     autocomplete_fields = ("vehicle",)
 
 
@@ -287,7 +289,7 @@ class DocumentAdmin(admin.ModelAdmin):
     list_display = ("vehicle", "user", "type", "status", "expiry_date", "uploaded_by")
     list_filter = ("type", "status")
     search_fields = ("vehicle__plate", "user__username")
-    autocomplete_fields = ("vehicle", "user", "incident", "uploaded_by", "replaces")
+    autocomplete_fields = ("vehicle", "user", "incident", "event", "uploaded_by", "replaces")
 
 
 # --- Solicitudes de vehículo ----------------------------------------------

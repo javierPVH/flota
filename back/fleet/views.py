@@ -1862,8 +1862,10 @@ class DocumentViewSet(
     # Front público (internet): acota la subida de documentos del conductor.
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
-    queryset = Document.objects.select_related("vehicle", "user", "incident", "uploaded_by")
-    filterset_fields = ["vehicle", "user", "type", "status", "incident"]
+    queryset = Document.objects.select_related(
+        "vehicle", "user", "incident", "event", "uploaded_by"
+    )
+    filterset_fields = ["vehicle", "user", "type", "status", "incident", "event"]
     ordering_fields = ["created_at", "expiry_date"]
 
     def scope_queryset(self, qs, user):

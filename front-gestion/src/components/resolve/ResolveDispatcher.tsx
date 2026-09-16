@@ -161,7 +161,6 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
             returnToActive={stopped ? returnChecked : undefined}
             vehicles={vehicles}
             initialVehicleId={vehicleId}
-            incidentId={target.kind === 'incident' ? target.incident.id : null}
             onClose={handleClose}
             onSaved={handleDone}
           />

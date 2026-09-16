@@ -15,8 +15,6 @@ interface Props {
   vehicles: readonly Vehicle[]
   /** Vehículo preseleccionado (desde una alerta, una incidencia o una fila). */
   initialVehicleId?: number | null
-  /** Incidencia «En ITV» que se está resolviendo: el informe se liga a ella. */
-  incidentId?: number | null
   /** Con el coche parado, la casilla vive en el despachador (una por modal). */
   returnToActive?: boolean
   onClose: () => void
@@ -36,7 +34,6 @@ interface Props {
 export function RegisterItvForm({
   vehicles,
   initialVehicleId = null,
-  incidentId = null,
   returnToActive,
   onClose,
   onSaved,
@@ -90,14 +87,11 @@ export function RegisterItvForm({
         },
         ...(favourable && extra.return_to_active ? { return_to_active: true } : {}),
       })
-      // El informe va después y nunca tumba el registro ya hecho. Se liga a la
-      // incidencia «En ITV» que se resolvía (o a la que el back cerró).
+      // El informe va después y nunca tumba el registro ya hecho. Acompaña a
+      // la ITV recién registrada (su registro), no a la incidencia «En ITV»:
+      // el informe es DE esa inspección.
       const failed = await uploadProof(
-        {
-          vehicle: Number(vehicle),
-          incident: incidentId ?? saved.incident_closed ?? null,
-          type: 'itv_report',
-        },
+        { vehicle: Number(vehicle), event: saved.id, type: 'itv_report' },
         common.values.proof,
       )
       let notice = t.itvModal.savedNotice

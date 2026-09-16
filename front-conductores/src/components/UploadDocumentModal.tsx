@@ -16,7 +16,6 @@ const DOCUMENT_TYPES = [
   'technical_datasheet',
   'insurance',
   'contract',
-  'delivery_report',
   'return_report',
   'accident_report',
   'damage_photos',

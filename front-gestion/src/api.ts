@@ -1052,6 +1052,8 @@ export interface DocumentInput {
   drive_file_id?: string
   expiry_date?: string | null
   incident?: number | null
+  /** Registro (evento) al que acompaña; excluyente con `incident`. */
+  event?: number | null
   replaces?: number | null
   notes?: string
 }

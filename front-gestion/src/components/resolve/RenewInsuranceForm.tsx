@@ -54,10 +54,11 @@ export function RenewInsuranceForm({
         expiry_date: expiry,
         ...(trimmed ? { notes: trimmed } : {}),
       })
-      // La póliza va después, con su caducidad, y nunca tumba la renovación
-      // ya hecha (la señal del back es idempotente con la fecha ya aplicada).
+      // La póliza va después, con su caducidad y ligada a la renovación que
+      // la trajo (su registro), y nunca tumba la renovación ya hecha (la señal
+      // del back es idempotente con la fecha ya aplicada).
       const failed = await uploadProof(
-        { vehicle: vehicleId, type: 'insurance', expiry_date: expiry },
+        { vehicle: vehicleId, type: 'insurance', expiry_date: expiry, event: res.event ?? null },
         policy,
       )
       let notice = res.changed ? i.savedNotice(fmtDate(expiry, language)) : i.unchangedNotice

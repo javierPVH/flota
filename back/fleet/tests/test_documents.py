@@ -8,7 +8,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Assignment, Document, Incident, Vehicle
+from fleet.models import Assignment, Document, Event, Incident, Vehicle
 from fleet.models.enums import AssignmentStatus
 
 from .helpers import make_user
@@ -132,6 +132,77 @@ class DocumentRulesTests(APITestCase):
         resp = self._post(type="damage_photos", incident=foreign.pk)
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("incident", resp.data["errors"])
+
+    def _event(self, event_type, when=date(2026, 3, 1), vehicle=None):
+        return Event.objects.create(
+            vehicle=vehicle or self.vehicle, event_type=event_type, event_date=when
+        )
+
+    def test_event_link_follows_the_document_type(self):
+        # El registro al que acompaña lo dice el tipo: el informe de ITV a una
+        # ITV, la póliza a una renovación de seguro, la factura a la ITV o al
+        # mantenimiento. Un registro de otro tipo → 400.
+        itv = self._event("itv")
+        renewal = self._event("insurance_renewal", date(2026, 5, 1))
+        maintenance = self._event("maintenance", date(2026, 6, 1))
+
+        ok = self._post(type="itv_report", event=itv.pk, expiry_date="2028-03-01")
+        self.assertEqual(ok.status_code, status.HTTP_201_CREATED, ok.data)
+        self.assertEqual(ok.data["event"], itv.pk)
+        self.assertEqual(ok.data["event_display"], "ITV · 2026-03-01")
+        bad = self._post(type="itv_report", event=renewal.pk)
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("event", bad.data["errors"])
+
+        self.assertEqual(
+            self._post(type="insurance", event=renewal.pk).status_code, status.HTTP_201_CREATED
+        )
+        self.assertEqual(
+            self._post(type="insurance", event=itv.pk).status_code, status.HTTP_400_BAD_REQUEST
+        )
+
+        for event in (itv, maintenance):
+            resp = self._post(type="workshop_invoice", event=event.pk)
+            self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(
+            self._post(type="workshop_invoice", event=renewal.pk).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        # Lo que no se liga a registros no admite ninguno.
+        resp = self._post(type="technical_datasheet", event=itv.pk)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("event", resp.data["errors"])
+
+    def test_event_must_be_of_the_same_vehicle_and_never_alongside_an_incident(self):
+        foreign = self._event("itv", vehicle=self.other_vehicle)
+        resp = self._post(type="itv_report", event=foreign.pk)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("event", resp.data["errors"])
+        # Un documento acompaña a UNA cosa: incidencia o registro, no ambos.
+        itv = self._event("itv")
+        inspection = Incident.objects.create(vehicle=self.vehicle, type="inspection")
+        resp = self._post(type="workshop_invoice", event=itv.pk, incident=inspection.pk)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("event", resp.data["errors"])
+
+    def test_workshop_invoice_requires_a_link(self):
+        # Suelta no dice nada → 400. Con una incidencia (aunque esté cerrada:
+        # la factura llega después de la reparación) → 201.
+        resp = self._post(type="workshop_invoice")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("incident", resp.data["errors"])
+        closed = Incident.objects.create(vehicle=self.vehicle, type="breakdown", status="closed")
+        resp = self._post(type="workshop_invoice", incident=closed.pk)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        # Un PATCH de estado sobre una factura antigua sin vínculo no lo re-exige.
+        old = Document.objects.create(vehicle=self.vehicle, type="workshop_invoice")
+        resp = self.client.patch(reverse("document-detail", args=[old.pk]), {"status": "expired"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        # …pero cambiarle el tipo o el vínculo sí lo exige.
+        resp = self.client.patch(
+            reverse("document-detail", args=[old.pk]), {"incident": None}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_other_types_may_link_any_incident_and_old_reports_stay_editable(self):
         # Las fotos de daños se ligan a lo que sea, abierto o cerrado.

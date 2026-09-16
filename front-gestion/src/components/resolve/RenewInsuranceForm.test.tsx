@@ -74,7 +74,7 @@ describe('RenewInsuranceForm (resolver el seguro es renovarlo)', () => {
     )
   })
 
-  it('la póliza se sube DESPUÉS, como documento de seguro con la nueva caducidad', async () => {
+  it('la póliza se sube DESPUÉS, como seguro con la nueva caducidad y ligada a la renovación', async () => {
     mocks.uploadDocument.mockResolvedValue({})
     const onDone = renderForm()
     const file = new File(['pdf'], 'poliza.pdf', { type: 'application/pdf' })
@@ -83,7 +83,7 @@ describe('RenewInsuranceForm (resolver el seguro es renovarlo)', () => {
 
     await waitFor(() => expect(onDone).toHaveBeenCalled())
     expect(mocks.uploadDocument).toHaveBeenCalledWith(
-      { vehicle: 21, type: 'insurance', expiry_date: '2027-09-20' },
+      { vehicle: 21, type: 'insurance', expiry_date: '2027-09-20', event: 77 },
       file,
     )
   })

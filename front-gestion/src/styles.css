@@ -2110,8 +2110,15 @@ table.data tbody tr:hover {
 .ops-step.is-active .ops-step-n { background: var(--color-brand); color: #fff; }
 /* Kilómetros y combustible: la serie mensual de un vistazo. */
 /* Los dos campos de una lectura (cuánto y cuándo) van SIEMPRE en la misma
-   línea: son un solo dato partido en dos. Solo se apilan si no cabe. */
-.kmfuel-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; }
+   línea: son un solo dato partido en dos. Solo se apilan si no cabe. El de la
+   cifra es más ancho (su etiqueta es larga) y las cajas se alinean por ABAJO:
+   si una etiqueta ocupa dos líneas, las dos cajas siguen a la misma altura. */
+.kmfuel-row {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 0.8rem;
+  align-items: end;
+}
 @media (max-width: 460px) {
   .kmfuel-row { grid-template-columns: 1fr; }
 }
@@ -4460,6 +4467,9 @@ table.data tbody tr:hover {
 
 /* Barra informativa de las tablas de la ficha (mismo look que Vehículos). */
 .table-info-bar { margin-bottom: 0.75rem; }
+/* Una casilla suelta en la barra (p. ej. «Agrupar por tipo» en Documentos) se
+   alinea con las CAJAS de al lado, no con sus rótulos: la barra alinea arriba. */
+.table-info-bar > .baja-toggle { align-self: flex-end; min-height: 40px; }
 
 /* Conductor y reparto: dos tarjetas superiores + histórico debajo. */
 .assign-cards {
