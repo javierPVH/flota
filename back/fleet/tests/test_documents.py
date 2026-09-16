@@ -72,6 +72,82 @@ class DocumentTests(APITestCase):
         self.assertEqual(resp.data["count"], 1)
 
 
+class DocumentRulesTests(APITestCase):
+    """Reglas del documento según su tipo: qué caduca y qué va ligado a qué.
+
+    No todos los documentos caducan (una ficha técnica no tiene vencimiento) y
+    un parte de accidente es el parte DE un accidente: solo se liga a uno
+    abierto. La incidencia, además, tiene que ser del mismo coche.
+    """
+
+    def setUp(self):
+        self.admin = make_user("admin", Role.ADMIN)
+        self.vehicle = Vehicle.objects.create(plate="1234ABC", brand="a", model="b")
+        self.other_vehicle = Vehicle.objects.create(plate="0000ZZZ", brand="a", model="b")
+        self.list_url = reverse("document-list")
+        self.client.force_authenticate(self.admin)
+
+    def _post(self, **extra):
+        return self.client.post(
+            self.list_url, {"vehicle": self.vehicle.pk, "drive_url": "https://drive/x", **extra}
+        )
+
+    def test_expiry_only_for_types_that_expire(self):
+        ok = self._post(type="insurance", expiry_date="2027-01-31")
+        self.assertEqual(ok.status_code, status.HTTP_201_CREATED, ok.data)
+        bad = self._post(type="technical_datasheet", expiry_date="2027-01-31")
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("expiry_date", bad.data["errors"])
+        # Sin fecha, cualquier tipo entra: la caducidad no es obligatoria en la API.
+        self.assertEqual(
+            self._post(type="technical_datasheet").status_code, status.HTTP_201_CREATED
+        )
+
+    def test_accident_report_requires_an_open_accident(self):
+        # Sin incidencia → 400.
+        resp = self._post(type="accident_report")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("incident", resp.data["errors"])
+        # Ligado a una avería → 400: no es un accidente.
+        breakdown = Incident.objects.create(vehicle=self.vehicle, type="breakdown")
+        resp = self._post(type="accident_report", incident=breakdown.pk)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("incident", resp.data["errors"])
+        # Ligado a un accidente cerrado → 400.
+        closed = Incident.objects.create(vehicle=self.vehicle, type="accident", status="closed")
+        resp = self._post(type="accident_report", incident=closed.pk)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("incident", resp.data["errors"])
+        # Ligado a un accidente abierto → 201.
+        accident = Incident.objects.create(vehicle=self.vehicle, type="accident")
+        resp = self._post(type="accident_report", incident=accident.pk)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["incident"], accident.pk)
+
+    def test_incident_must_belong_to_the_same_vehicle(self):
+        foreign = Incident.objects.create(vehicle=self.other_vehicle, type="breakdown")
+        resp = self._post(type="damage_photos", incident=foreign.pk)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("incident", resp.data["errors"])
+
+    def test_other_types_may_link_any_incident_and_old_reports_stay_editable(self):
+        # Las fotos de daños se ligan a lo que sea, abierto o cerrado.
+        closed = Incident.objects.create(vehicle=self.vehicle, type="breakdown", status="closed")
+        resp = self._post(type="damage_photos", incident=closed.pk)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        # Un parte cuyo accidente ya se cerró sigue pudiendo caducarse: la regla
+        # del accidente abierto es de alta, no de cada PATCH.
+        accident = Incident.objects.create(vehicle=self.vehicle, type="accident")
+        report = Document.objects.create(
+            vehicle=self.vehicle, type="accident_report", incident=accident
+        )
+        accident.status = "closed"
+        accident.save(update_fields=["status"])
+        url = reverse("document-detail", args=[report.pk])
+        resp = self.client.patch(url, {"status": "expired"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+
+
 class PersonalDocumentTests(APITestCase):
     """Documentos PERSONALES: el titular es un usuario, no un coche.
 

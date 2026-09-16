@@ -4,6 +4,7 @@ import { Button, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { listIncidents, uploadDocument } from '../api.ts'
+import { documentExpires, incidentTypeRequiredBy, linkableIncidents } from '../documentRules.ts'
 import { fmtDate } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
@@ -48,6 +49,23 @@ export function UploadDocumentModal({
       .catch(() => setIncidents([]))
   }, [vehicle.id])
 
+  // Qué pide el formulario según el tipo (mismas reglas que el back): la
+  // caducidad solo a lo que caduca; el parte de accidente, un accidente abierto.
+  const expires = documentExpires(form.type)
+  const boundTo = incidentTypeRequiredBy(form.type)
+  const linkable = linkableIncidents(incidents, form.type)
+
+  function changeType(value: string) {
+    setForm((current) => ({
+      ...current,
+      type: value,
+      expiry_date: documentExpires(value) ? current.expiry_date : '',
+      incident: linkableIncidents(incidents, value).some((row) => String(row.id) === current.incident)
+        ? current.incident
+        : '',
+    }))
+  }
+
   function reset() {
     setDone('')
     setError('')
@@ -59,6 +77,10 @@ export function UploadDocumentModal({
     event.preventDefault()
     if (!file) {
       setError(doc.chooseFile)
+      return
+    }
+    if (boundTo && !form.incident) {
+      setError(doc.linkAccidentRequired)
       return
     }
     setSaving(true)
@@ -115,7 +137,7 @@ export function UploadDocumentModal({
             label={doc.docType}
             options={DOCUMENT_TYPES.map((value) => ({ value, label: doc.docTypes[value] ?? value }))}
             value={form.type}
-            onValueChange={(value) => setForm((current) => ({ ...current, type: value }))}
+            onValueChange={changeType}
           />
           <div className="file-block">
             <span className="file-block-label">
@@ -134,25 +156,49 @@ export function UploadDocumentModal({
               />
             </label>
           </div>
-          <TextInputField
-            label={doc.expiry}
-            type="date"
-            value={form.expiry_date}
-            onChange={(event) => setForm((current) => ({ ...current, expiry_date: event.target.value }))}
-          />
-          {incidents.length > 0 && (
-            <SelectField
-              label={doc.linkIncident}
-              options={[
-                { value: '', label: doc.linkNone },
-                ...incidents.map((incident) => ({
-                  value: String(incident.id),
-                  label: `#${incident.id} · ${incident.type_display}${incident.date ? ` (${fmtDate(incident.date)})` : ''}`,
-                })),
-              ]}
-              value={form.incident}
-              onValueChange={(value) => setForm((current) => ({ ...current, incident: value }))}
+          {expires && (
+            <TextInputField
+              label={doc.expiry}
+              type="date"
+              value={form.expiry_date}
+              onChange={(event) => setForm((current) => ({ ...current, expiry_date: event.target.value }))}
             />
+          )}
+          {boundTo ? (
+            linkable.length > 0 ? (
+              <SelectField
+                label={doc.linkAccident}
+                required
+                requiredVisual
+                options={[
+                  { value: '', label: doc.linkChoose },
+                  ...linkable.map((incident) => ({
+                    value: String(incident.id),
+                    label: `#${incident.id} · ${incident.type_display}${incident.date ? ` (${fmtDate(incident.date)})` : ''}`,
+                  })),
+                ]}
+                value={form.incident}
+                onValueChange={(value) => setForm((current) => ({ ...current, incident: value }))}
+              />
+            ) : (
+              <p className="form-error" role="status">{doc.noOpenAccident}</p>
+            )
+          ) : (
+            linkable.length > 0 && (
+              <SelectField
+                label={doc.linkIncident}
+                required
+                options={[
+                  { value: '', label: doc.linkNone },
+                  ...linkable.map((incident) => ({
+                    value: String(incident.id),
+                    label: `#${incident.id} · ${incident.type_display} · ${incident.status_display}${incident.date ? ` (${fmtDate(incident.date)})` : ''}`,
+                  })),
+                ]}
+                value={form.incident}
+                onValueChange={(value) => setForm((current) => ({ ...current, incident: value }))}
+              />
+            )
           )}
           <TextInputField
             label={doc.notes}
@@ -162,7 +208,9 @@ export function UploadDocumentModal({
           {error && <div role="alert" className="form-error">{error}</div>}
           <div className="form-actions">
             <Button type="button" variant="secondary" onClick={onClose}>{t.common.cancel}</Button>
-            <Button type="submit" disabled={saving}>{saving ? doc.uploadSubmitting : copy.submit}</Button>
+            <Button type="submit" disabled={saving || (Boolean(boundTo) && linkable.length === 0)}>
+              {saving ? doc.uploadSubmitting : copy.submit}
+            </Button>
           </div>
         </form>
       )}

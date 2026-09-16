@@ -415,13 +415,28 @@ EMAIL_HOST_USER = env_str("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env_str("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
 DEFAULT_FROM_EMAIL = env_str("DEFAULT_FROM_EMAIL", "flota@example.invalid")
-EMAIL_BACKEND = (
-    "django.core.mail.backends.smtp.EmailBackend"
-    if EMAIL_HOST
-    else "django.core.mail.backends.console.EmailBackend"
-)
+# N10b: envío por la API de Gmail (HTTPS) en vez de SMTP, con el token OAuth de
+# UN solo buzón (patrón de `list`: `get_gmail_oauth_token` genera el fichero una
+# vez en un PC con navegador). Es el camino en srvgcptd, donde la red de GCP
+# no deja salir a 25/465/587 pero sí al 443. Tiene prioridad sobre EMAIL_HOST.
+GMAIL_OAUTH_ENABLED = env_bool("GMAIL_OAUTH_ENABLED", False)
+GMAIL_OAUTH_TOKEN_FILE = env_str("GMAIL_OAUTH_TOKEN_FILE", "")
+# Buzón dueño del token: es el remitente visible (Gmail sustituye cualquier
+# otro `From` que no sea un alias suyo), así que manda sobre DEFAULT_FROM_EMAIL.
+GMAIL_SENDER = env_str("GMAIL_SENDER", "")
+_GMAIL_ACTIVE = GMAIL_OAUTH_ENABLED and bool(GMAIL_OAUTH_TOKEN_FILE)
+if _GMAIL_ACTIVE and GMAIL_SENDER:
+    DEFAULT_FROM_EMAIL = GMAIL_SENDER
+if _GMAIL_ACTIVE:
+    EMAIL_BACKEND = "fleet.mail_backends.GmailApiEmailBackend"
+elif EMAIL_HOST:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 # Interruptor real del envío (los tests usan locmem vía override).
-FLEET_EMAIL_ENABLED = bool(EMAIL_HOST) or env_bool("FLEET_EMAIL_FORCE_ENABLED", False)
+FLEET_EMAIL_ENABLED = (
+    _GMAIL_ACTIVE or bool(EMAIL_HOST) or env_bool("FLEET_EMAIL_FORCE_ENABLED", False)
+)
 # M6: cola de salida. El motor de alertas encola y `send_email_outbox` entrega,
 # así un SMTP lento no frena los chequeos y un fallo se reintenta en vez de
 # perderse. Tope de intentos por correo y tamaño de la tanda de cada pasada.

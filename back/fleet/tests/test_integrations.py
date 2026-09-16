@@ -32,8 +32,24 @@ class ArchiverTests(TestCase):
             archiver.archive_document(doc, archiver=archiver.LocalArchiver(tmp))
         self.assertEqual(doc.status, DocumentStatus.VALID)
         self.assertTrue(doc.drive_url.startswith("file://"))
+        # El mismo árbol que Drive: Vehículos/matrícula/familia/tipo.
+        self.assertIn("/Veh%C3%ADculos/ARC111/Documentaci%C3%B3n/Seguro/doc-", doc.drive_url)
         self.vehicle.refresh_from_db()
         self.assertTrue(self.vehicle.drive_folder_url.startswith("file://"))
+        self.assertTrue(self.vehicle.drive_folder_url.endswith("/Veh%C3%ADculos/ARC111"))
+
+    def test_local_archiver_personal_document_goes_under_users(self):
+        persona = make_user("ana", Role.DRIVER)
+        persona.email = "ana@flota.dev"
+        persona.save(update_fields=["email"])
+        doc = Document.objects.create(user=persona, type="driving_license")
+        with tempfile.TemporaryDirectory() as tmp:
+            archiver.archive_document(doc, archiver=archiver.LocalArchiver(tmp))
+        self.assertEqual(doc.status, DocumentStatus.VALID)
+        self.assertIn(
+            "/Usuarios/ana%40flota.dev/Documentaci%C3%B3n/Permiso%20de%20conducir/doc-",
+            doc.drive_url,
+        )
 
     def test_existing_drive_url_marks_valid(self):
         doc = Document.objects.create(

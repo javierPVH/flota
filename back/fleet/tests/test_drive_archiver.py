@@ -99,37 +99,91 @@ class GoogleDriveArchiverTests(TestCase):
         self.assertFalse(doc.file)  # el staging local se borra tras subir
         self.vehicle.refresh_from_db()
         self.assertEqual(self.vehicle.drive_folder_id, "folder-DRV111")
-        # El árbol entero, en orden: matrícula bajo la raíz, familia bajo la
-        # matrícula y el fichero dentro de la familia.
-        self.assertEqual(fake.created[0]["body"]["name"], "DRV111")
+        # El árbol entero, en orden: «Vehículos» bajo la raíz, la matrícula
+        # dentro, la familia bajo la matrícula, el tipo bajo la familia y el
+        # fichero dentro del tipo.
+        nombres = [c["body"]["name"] for c in fake.created[:4]]
+        self.assertEqual(nombres, ["Vehículos", "DRV111", "Documentación", "Seguro"])
         self.assertEqual(fake.created[0]["body"]["parents"], ["root-1"])
-        self.assertEqual(fake.created[1]["body"]["name"], "Documentación")
-        self.assertEqual(fake.created[1]["body"]["parents"], ["folder-DRV111"])
-        self.assertEqual(fake.created[2]["body"]["parents"], ["folder-Documentación"])
-        self.assertIn("seguro.pdf", fake.created[2]["body"]["name"])
+        self.assertEqual(fake.created[1]["body"]["parents"], ["folder-Vehículos"])
+        self.assertEqual(fake.created[2]["body"]["parents"], ["folder-DRV111"])
+        self.assertEqual(fake.created[3]["body"]["parents"], ["folder-Documentación"])
+        self.assertEqual(fake.created[4]["body"]["parents"], ["folder-Seguro"])
+        self.assertIn("seguro.pdf", fake.created[4]["body"]["name"])
 
     @override_settings(**DRIVE_ON)
     def test_familia_por_tipo_de_documento(self):
-        # Las fotos de un accidente no van con los papeles del coche.
-        fake = _FakeFiles(existing_folders={"DRV111": "ya-existia"})
+        # Las fotos de un accidente no van con los papeles del coche, y dentro
+        # de «Incidencias» cada tipo tiene su carpeta.
+        fake = _FakeFiles(existing_folders={"Vehículos": "veh-1", "DRV111": "ya-existia"})
         with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
             doc = self._doc_with_file(doc_type="damage_photos")
             archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
         self.assertEqual(family_of("damage_photos"), "Incidencias")
         self.assertEqual(fake.created[0]["body"]["name"], "Incidencias")
         self.assertEqual(fake.created[0]["body"]["parents"], ["ya-existia"])
+        self.assertEqual(fake.created[1]["body"]["name"], "Fotos de daños")
+        self.assertEqual(fake.created[1]["body"]["parents"], ["folder-Incidencias"])
+        self.assertEqual(fake.created[2]["body"]["parents"], ["folder-Fotos de daños"])
+
+    @override_settings(**DRIVE_ON)
+    def test_facturas_y_otros_no_se_subdividen_por_tipo(self):
+        # «Facturas» tiene un solo tipo y «Otros» ninguno: el fichero va directo.
+        fake = _FakeFiles(existing_folders={"Vehículos": "veh-1", "DRV111": "ya-existia"})
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            factura = self._doc_with_file(doc_type="workshop_invoice")
+            otro = self._doc_with_file(doc_type="other")
+            uno = GoogleDriveArchiver(service=_FakeDrive(fake))
+            archive_document(factura, archiver=uno)
+            archive_document(otro, archiver=uno)
+        carpetas = [c["body"]["name"] for c in fake.created if c["body"].get("mimeType")]
+        self.assertEqual(carpetas, ["Facturas", "Otros"])
+        ficheros = [c for c in fake.created if not c["body"].get("mimeType")]
+        self.assertEqual(ficheros[0]["body"]["parents"], ["folder-Facturas"])
+        self.assertEqual(ficheros[1]["body"]["parents"], ["folder-Otros"])
+
+    @override_settings(**DRIVE_ON)
+    def test_documento_personal_va_a_usuarios_por_correo(self):
+        # El permiso de conducir no es de ningún coche: cuelga de
+        # Usuarios/<correo>, con las mismas familias y tipos que un vehículo.
+        fake = _FakeFiles()
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            doc = Document.objects.create(
+                user=self.uploader,
+                type="driving_license",
+                uploaded_by=self.uploader,
+                file=SimpleUploadedFile("carnet.pdf", b"%PDF fake", "application/pdf"),
+            )
+            archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
+        self.assertEqual(doc.status, DocumentStatus.VALID)
+        nombres = [c["body"]["name"] for c in fake.created[:4]]
+        self.assertEqual(
+            nombres, ["Usuarios", "sara@flota.dev", "Documentación", "Permiso de conducir"]
+        )
+        self.assertEqual(fake.created[0]["body"]["parents"], ["root-1"])
+        self.assertEqual(fake.created[1]["body"]["parents"], ["folder-Usuarios"])
+        self.assertEqual(fake.created[4]["body"]["parents"], ["folder-Permiso de conducir"])
+        # Y no se ha inventado ninguna carpeta de vehículo.
+        self.assertNotIn("Vehículos", nombres)
 
     @override_settings(**DRIVE_ON)
     def test_reuses_existing_drive_folder(self):
-        fake = _FakeFiles(existing_folders={"DRV111": "ya-existia", "Documentación": "fam-1"})
+        fake = _FakeFiles(
+            existing_folders={
+                "Vehículos": "veh-1",
+                "DRV111": "ya-existia",
+                "Documentación": "fam-1",
+                "Seguro": "tipo-1",
+            }
+        )
         with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
             doc = self._doc_with_file()
             archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
         self.vehicle.refresh_from_db()
         self.assertEqual(self.vehicle.drive_folder_id, "ya-existia")
-        # Solo una creación: el fichero (las dos carpetas se reutilizaron).
+        # Solo una creación: el fichero (las cuatro carpetas se reutilizaron).
         self.assertEqual(len(fake.created), 1)
-        self.assertEqual(fake.created[0]["body"]["parents"], ["fam-1"])
+        self.assertEqual(fake.created[0]["body"]["parents"], ["tipo-1"])
 
     @override_settings(**DRIVE_ON)
     def test_known_folder_skips_lookup(self):
@@ -140,9 +194,11 @@ class GoogleDriveArchiverTests(TestCase):
         with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
             doc = self._doc_with_file()
             archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
-        # La matrícula ya se sabía: solo se busca la familia, y cuelga de ella.
-        self.assertEqual(len(fake.queries), 1)
+        # La matrícula ya se sabía: ni «Vehículos» ni la matrícula se buscan;
+        # solo la familia y el tipo, que cuelgan de ella.
+        self.assertEqual(len(fake.queries), 2)
         self.assertEqual(fake.created[0]["body"]["parents"], ["cacheada"])
+        self.assertEqual(fake.created[1]["body"]["parents"], ["folder-Documentación"])
 
     @override_settings(**DRIVE_ON)
     def test_una_pasada_resuelve_cada_carpeta_una_vez(self):
@@ -154,10 +210,11 @@ class GoogleDriveArchiverTests(TestCase):
         with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
             for _ in range(3):
                 archive_document(self._doc_with_file(), archiver=uno)
-        # Dos búsquedas en total (matrícula y familia), no dos por documento.
-        self.assertEqual(len(fake.queries), 2)
+        # Cuatro búsquedas en total (Vehículos, matrícula, familia y tipo), no
+        # cuatro por documento.
+        self.assertEqual(len(fake.queries), 4)
         carpetas = [c for c in fake.created if c["body"].get("mimeType", "").endswith("folder")]
-        self.assertEqual(len(carpetas), 2)
+        self.assertEqual(len(carpetas), 4)
         ficheros = [c for c in fake.created if not c["body"].get("mimeType")]
         self.assertEqual(len(ficheros), 3)  # los tres documentos sí suben
 

@@ -97,7 +97,7 @@ def send_notice_now(
             recipient=to,
             subject=subject,
             status=EmailLog.Status.SKIPPED,
-            error="Correo saliente no configurado (EMAIL_HOST).",
+            error="Correo saliente no configurado (EMAIL_HOST o GMAIL_OAUTH_ENABLED).",
         )
         return False, "correo_deshabilitado"
     try:

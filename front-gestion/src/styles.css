@@ -1118,18 +1118,22 @@ table.data tbody tr:hover {
   font-size: 0.88rem;
 }
 
-.doc-open {
+/* «Abrir» de la tabla de documentos: un enlace con la misma forma que los
+   IconButton de al lado, para que la fila de acciones sea una tira uniforme. */
+.doc-open-icon {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  font-size: 0.85rem;
-  font-weight: 600;
+  justify-content: center;
+  width: 34px; /* el tamaño `md` del IconButton del DS */
+  height: 34px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface);
   color: var(--color-primary);
   text-decoration: none;
 }
-.doc-open:hover { text-decoration: underline; }
+.doc-open-icon:hover { background: var(--color-surface-hover, var(--color-bg)); }
 .doc-version { color: var(--color-text-muted); font-size: 0.8rem; }
-.doc-notes { color: var(--color-text-muted); font-size: 0.8rem; }
 .row-muted td { color: var(--color-text-muted); }
 .cell-truncate {
   max-width: 220px;

@@ -7,6 +7,7 @@ import { asErrorMessage } from '@flota/ui/http'
 import { listIncidents, listVehicles, uploadDocument } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
+import { documentExpires, incidentTypeRequiredBy, linkableIncidents } from '../documentRules.ts'
 import { fmtDate } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
@@ -85,11 +86,32 @@ export function UploadDocumentPage() {
     }
   }, [vehicleId])
 
+  // Qué pide el formulario según el tipo (mismas reglas que el back): la
+  // caducidad solo a lo que caduca; el parte de accidente, un accidente abierto.
+  const expires = documentExpires(form.type)
+  const boundTo = incidentTypeRequiredBy(form.type)
+  const linkable = linkableIncidents(incidents, form.type)
+
+  function changeType(value: string) {
+    setForm((f) => ({
+      ...f,
+      type: value,
+      expiry_date: documentExpires(value) ? f.expiry_date : '',
+      incident: linkableIncidents(incidents, value).some((row) => String(row.id) === f.incident)
+        ? f.incident
+        : '',
+    }))
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     if (!vehicleId) return
     if (!file) {
       setError(doc.chooseFile)
+      return
+    }
+    if (boundTo && !form.incident) {
+      setError(doc.linkAccidentRequired)
       return
     }
     setSaving(true)
@@ -183,7 +205,7 @@ export function UploadDocumentPage() {
             label: doc.docTypes[value] ?? value,
           }))}
           value={form.type}
-          onValueChange={(value) => setForm((f) => ({ ...f, type: value }))}
+          onValueChange={changeType}
         />
         <div className="file-block">
           <span className="file-block-label">
@@ -202,25 +224,50 @@ export function UploadDocumentPage() {
             />
           </label>
         </div>
-        <TextInputField
-          label={doc.expiry}
-          type="date"
-          value={form.expiry_date}
-          onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
-        />
-        {vehicleId && incidents.length > 0 && (
-          <SelectField
-            label={doc.linkIncident}
-            options={[
-              { value: '', label: doc.linkNone },
-              ...incidents.map((i) => ({
-                value: String(i.id),
-                label: `#${i.id} · ${i.type_display}${i.date ? ` (${fmtDate(i.date)})` : ''}`,
-              })),
-            ]}
-            value={form.incident}
-            onValueChange={(value) => setForm((f) => ({ ...f, incident: value }))}
+        {expires && (
+          <TextInputField
+            label={doc.expiry}
+            type="date"
+            value={form.expiry_date}
+            onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
           />
+        )}
+        {vehicleId && boundTo ? (
+          linkable.length > 0 ? (
+            <SelectField
+              label={doc.linkAccident}
+              required
+              requiredVisual
+              options={[
+                { value: '', label: doc.linkChoose },
+                ...linkable.map((i) => ({
+                  value: String(i.id),
+                  label: `#${i.id} · ${i.type_display}${i.date ? ` (${fmtDate(i.date)})` : ''}`,
+                })),
+              ]}
+              value={form.incident}
+              onValueChange={(value) => setForm((f) => ({ ...f, incident: value }))}
+            />
+          ) : (
+            <p className="form-error" role="status">{doc.noOpenAccident}</p>
+          )
+        ) : (
+          vehicleId &&
+          linkable.length > 0 && (
+            <SelectField
+              label={doc.linkIncident}
+              required
+              options={[
+                { value: '', label: doc.linkNone },
+                ...linkable.map((i) => ({
+                  value: String(i.id),
+                  label: `#${i.id} · ${i.type_display} · ${i.status_display}${i.date ? ` (${fmtDate(i.date)})` : ''}`,
+                })),
+              ]}
+              value={form.incident}
+              onValueChange={(value) => setForm((f) => ({ ...f, incident: value }))}
+            />
+          )
         )}
         <TextInputField
           label={doc.notes}
@@ -232,7 +279,10 @@ export function UploadDocumentPage() {
           <Button type="button" variant="secondary" onClick={() => navigate('/')}>
             {t.common.cancel}
           </Button>
-          <Button type="submit" disabled={saving || !vehicleId}>
+          <Button
+            type="submit"
+            disabled={saving || !vehicleId || (Boolean(boundTo) && linkable.length === 0)}
+          >
             {saving ? doc.uploadSubmitting : copy.submit}
           </Button>
         </div>

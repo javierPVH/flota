@@ -5,6 +5,7 @@ import { asErrorMessage } from '@flota/ui/http'
 import { ExternalLink } from 'lucide-react'
 
 import { createDocument, uploadDocument } from '../api.ts'
+import { documentExpires, incidentTypeRequiredBy } from '../documentRules.ts'
 import { documentStatusTone } from '../format.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
 import { useReportsCopy } from '../translations/reports.ts'
@@ -141,10 +142,24 @@ export function DocumentsReport({
   const [formError, setFormError] = useState('')
   const closeModal = useCallback(() => setModalOpen(false), [])
 
+  // Desde aquí no se sube lo que va ligado a una incidencia concreta (el parte
+  // de accidente): eso se hace desde la ficha del coche, eligiendo el accidente.
+  const formTypeOptions = useMemo(
+    () =>
+      DOC_TYPE_VALUES.filter((value) => !incidentTypeRequiredBy(value)).map((value) => ({
+        value,
+        label: t.typeOptions[value],
+      })),
+    [t],
+  )
+  const expires = documentExpires(form.type)
+
   function openCreate() {
-    // El tipo se precarga con la sub-pestaña activa; sin ella, el caso nuevo
-    // más habitual: el permiso de conducir (titular usuario).
-    setForm({ type: type || 'driving_license', vehicle: '', user: '', expiry_date: '', notes: '' })
+    // El tipo se precarga con la sub-pestaña activa; sin ella (o si es de los
+    // que no se suben desde aquí), el caso nuevo más habitual: el permiso de
+    // conducir (titular usuario).
+    const initial = type && !incidentTypeRequiredBy(type) ? type : 'driving_license'
+    setForm({ type: initial, vehicle: '', user: '', expiry_date: '', notes: '' })
     setAttach({ file: null, manualUrl: '' })
     setFormError('')
     setModalOpen(true)
@@ -158,6 +173,10 @@ export function DocumentsReport({
     }
     if (!attach.file && !attach.manualUrl) {
       setFormError(t.attachRequired)
+      return
+    }
+    if (expires && !form.expiry_date) {
+      setFormError(t.expiryRequired)
       return
     }
     setSaving(true)
@@ -527,9 +546,16 @@ export function DocumentsReport({
           <p className="muted" style={{ margin: 0 }}>{docsCopy.ownerHint}</p>
           <SelectField
             label={t.typeLabel}
-            options={DOC_TYPE_VALUES.map((value) => ({ value, label: t.typeOptions[value] }))}
+            required
+            options={formTypeOptions}
             value={form.type}
-            onValueChange={(value) => setForm((f) => ({ ...f, type: value }))}
+            onValueChange={(value) =>
+              setForm((f) => ({
+                ...f,
+                type: value,
+                expiry_date: documentExpires(value) ? f.expiry_date : '',
+              }))
+            }
           />
           <VehicleSelect
             label={docsCopy.ownerVehicleLabel}
@@ -557,12 +583,16 @@ export function DocumentsReport({
               setForm((f) => ({ ...f, user: value, vehicle: value ? '' : f.vehicle }))
             }
           />
-          <TextInputField
-            label={t.expiryLabel}
-            type="date"
-            value={form.expiry_date}
-            onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
-          />
+          {expires && (
+            <TextInputField
+              label={t.expiryLabel}
+              type="date"
+              required
+              requiredVisual
+              value={form.expiry_date}
+              onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
+            />
+          )}
           <TextInputField
             label={t.notesLabel}
             value={form.notes}

@@ -233,3 +233,38 @@ def drive_service_service_account():
 
     creds = service_account.Credentials.from_service_account_file(keyfile, scopes=[SA_DRIVE_SCOPE])
     return _build("drive", "v3", creds)
+
+
+# ---- Gmail con el OAuth de UN solo buzón (N10b, correo saliente) -----------
+
+# El único scope que hace falta: enviar. Nada de leer ni administrar el buzón.
+GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+
+
+def gmail_service_oauth_user():
+    """Cliente Gmail v1 autenticado como UN ÚNICO buzón del dominio vía OAuth de
+    usuario (sin delegación de dominio), para `fleet.mail_backends`.
+
+    Usa el refresh token de ese buzón, obtenido una sola vez con el comando
+    `get_gmail_oauth_token` (consentimiento en el navegador, iniciando sesión
+    con el buzón remitente). Envía siempre como ese buzón (`userId='me'`): el
+    token solo puede enviar como él, sin impersonar a nadie ni tocar la consola
+    de administración. None si el canal está apagado o falta el fichero.
+
+    El fichero (formato `authorized_user` de google-auth) trae refresh_token +
+    client_id + client_secret; el access token se refresca en memoria y no se
+    reescribe (en producción va montado en solo lectura).
+    """
+    if not getattr(settings, "GMAIL_OAUTH_ENABLED", False):
+        return None
+    token_file = getattr(settings, "GMAIL_OAUTH_TOKEN_FILE", "")
+    if not token_file or not os.path.exists(token_file):
+        logger.warning("gmail api: token OAuth no encontrado en %r", token_file)
+        return None
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+
+    creds = Credentials.from_authorized_user_file(token_file, scopes=[GMAIL_SEND_SCOPE])
+    if not creds.valid and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    return _build("gmail", "v1", creds)
