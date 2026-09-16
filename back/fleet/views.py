@@ -4,8 +4,7 @@ from decimal import Decimal
 from auditlog.models import LogEntry
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
-from django.db import IntegrityError, models, transaction
-from django.db.models.functions import Coalesce
+from django.db import models, transaction
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -140,7 +139,12 @@ from .services import (
     substitution,
     supervisors,
 )
-from .services.archiver import archive_document
+from .services.archiver import (
+    ExternalDeleteError,
+    archive_document,
+    purge_document,
+    verify_documents,
+)
 
 
 class Conflict(APIException):
@@ -1903,6 +1907,49 @@ class DocumentViewSet(
                 document.save(update_fields=["status", "updated_at"])
             transaction.on_commit(lambda: archive_document(document))
 
+    @action(detail=False, methods=["post"], permission_classes=[IsAdmin])
+    def verify(self, request):
+        """Comprueba que los archivos de los documentos de un titular siguen
+        donde se archivaron (`{vehicle}` o `{user}`).
+
+        La lista de gestión lo llama en cada carga: lo que no se encuentra
+        queda marcado (`drive_missing_at`) y la fila ofrece el borrado
+        definitivo, porque ya no hay archivo que conservar. Solo los activos:
+        lo desactivado se resuelve en erratas.
+        """
+        vehicle = request.data.get("vehicle")
+        user = request.data.get("user")
+        if not vehicle and not user:
+            raise ValidationError({"vehicle": "Indica el vehículo o el usuario a comprobar."})
+        rows = Document.objects.filter(is_active=True).select_related(
+            "vehicle", "user", "uploaded_by"
+        )
+        rows = rows.filter(vehicle_id=vehicle) if vehicle else rows.filter(user_id=user)
+        return Response(verify_documents(rows))
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    def purge(self, request, pk=None):
+        """Borrado DEFINITIVO desde la lista, solo de un documento cuyo archivo
+        ya no existe (lo dijo `verify`): no hay nada que conservar ni que
+        restaurar. Lo demás sigue el camino de siempre: eliminar (erratas) y,
+        desde allí, purgar el superusuario, que borra también en Drive.
+        """
+        document = self.get_object()
+        if document.drive_missing_at is None:
+            raise ValidationError(
+                {
+                    "detail": (
+                        "Ese archivo existe: elimínalo (irá al espacio de erratas) y, desde "
+                        "allí, el superusuario lo borra definitivamente."
+                    )
+                }
+            )
+        try:
+            result = purge_document(document)
+        except ExternalDeleteError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        return Response(result)
+
 
 # --- Alertas (Épicas 3/5/10) ---------------------------------------------
 
@@ -2338,15 +2385,15 @@ class WorkshopViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
 
 
 class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
-    """GAP-2: consumo mensual de combustible.
+    """GAP-2: anotaciones del consumo medio del ordenador de a bordo.
 
-    La serie mensual la vuelca la gestión del extracto de la tarjeta, pero el
-    gasto también se apunta **en campo**: el conductor registra su repostaje
-    desde la PWA (`add/`) igual que registra los km. De ahí que escriba tanto
-    la gestión como el conductor, siempre con el ámbito del rol acotando.
+    Cada fila es lo que marcaba el ordenador en una FECHA (l/km o kWh/km, el
+    del último trayecto o ciclo de repostaje). Lo anota el conductor desde la
+    PWA (`add/`) igual que registra los km, y también la gestión desde la
+    ficha; siempre con el ámbito del rol acotando.
 
     Como en las lecturas de km (SEC4), para el conductor el registro es
-    **append-only**: editar o borrar la cifra de un mes es cosa de gestión.
+    **append-only**: editar o borrar una anotación es cosa de gestión.
     """
 
     serializer_class = FuelConsumptionSerializer
@@ -2356,19 +2403,18 @@ class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
     queryset = FuelConsumption.objects.select_related("vehicle")
-    filterset_fields = {"vehicle": ["exact"], "period": ["exact", "gte", "lte"]}
-    ordering_fields = ["period", "liters"]
-    ordering = ["-period"]
+    filterset_fields = {"vehicle": ["exact"], "reading_date": ["exact", "gte", "lte"]}
+    ordering_fields = ["reading_date", "avg_consumption"]
+    ordering = ["-reading_date", "-pk"]
 
     def _require_management(self):
         if not self.request.user.is_management:
             raise PermissionDenied("Solo la gestión puede modificar o borrar el consumo.")
 
     def perform_create(self, serializer):
-        # R3-38: el alta por el CRUD genérico (con `period` y `source` libres)
-        # es de GESTIÓN. El conductor registra por `add/`, que suma al mes —
-        # abrirle el POST entero rompía el embudo: dos POST directos del mismo
-        # mes daban el 400 de choque que `add/` existe para evitar.
+        # R3-38: el alta por el CRUD genérico (con la fecha libre) es de
+        # GESTIÓN. El conductor anota por `add/`, que acota la fecha a lo
+        # reciente y lleva la clave de idempotencia de la cola offline.
         self._require_management()
         super().perform_create(serializer)
 
@@ -2382,26 +2428,19 @@ class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
 
     @action(detail=False, methods=["post"])
     def add(self, request):
-        """POST /api/v1/fuel-consumptions/add/ — el repostaje de campo.
+        """POST /api/v1/fuel-consumptions/add/ — la anotación de campo.
 
-        `{vehicle, liters, amount?, period?, client_ref?}` **suma** al mes (por
-        defecto el actual) y crea la fila si no existía. La fila es EL MES (una
-        por vehículo y periodo, con `UniqueConstraint`), así que un segundo
-        repostaje no puede ser una fila nueva: o se acumula aquí, o el
-        conductor se comía un 400 al repostar dos veces en el mismo mes.
+        `{vehicle, avg_consumption, reading_date?, client_ref?}` crea una
+        anotación del consumo medio que marcaba el ordenador de a bordo (por
+        defecto, de hoy). Cada anotación es una fila: dos del mismo día son dos
+        lecturas distintas y las dos valen (la última manda en el KPI).
 
-        Va en el back y no en el front a propósito: leer-sumar-escribir desde
-        el cliente pierde repostajes cuando coinciden dos (el clásico
-        lectura-modificación-escritura sin candado). Aquí la suma la hace la
-        propia base con `F()`, así que dos repostajes simultáneos se suman los
-        dos sin bloquear la fila.
-
-        `client_ref` (R3-34) es aquí donde más importa: como la operación SUMA,
-        un reenvío de la cola offline sin él doblaría litros e importe del mes.
+        `client_ref` (R3-34): el reenvío de la cola offline con la misma
+        referencia devuelve la respuesta original y no crea otra fila.
         """
-        return run_idempotent(request, lambda: self._add_refuel(request))
+        return run_idempotent(request, lambda: self._add_reading(request))
 
-    def _add_refuel(self, request):
+    def _add_reading(self, request):
         try:
             vehicle_id = int(request.data.get("vehicle") or 0)
         except (TypeError, ValueError) as exc:
@@ -2413,64 +2452,35 @@ class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
             if Vehicle.objects.filter(pk=vehicle_id).exists():
                 raise PermissionDenied("El vehículo está fuera de tu ámbito.")
             raise ValidationError({"vehicle": "Vehículo no válido."})
-        period = parse_date(str(request.data.get("period") or "")) or timezone.localdate()
-        period = period.replace(day=1)
-        current_month = timezone.localdate().replace(day=1)
-        if period > current_month:
-            raise ValidationError({"period": "El mes no puede ser futuro."})
-        # R4-08: `period` existe para el reenvío offline que cruza el cambio de
-        # mes (R3-37) — un desfase de DÍAS. El conductor no toca meses viejos
-        # de la serie (informes y KPI); corregir un mes histórico es de gestión
-        # y va por el CRUD (R3-38).
+        today = timezone.localdate()
+        raw_date = str(request.data.get("reading_date") or "")
+        reading_date = parse_date(raw_date) if raw_date else today
+        if reading_date is None:
+            raise ValidationError({"reading_date": "Fecha no válida."})
+        if reading_date > today:
+            raise ValidationError({"reading_date": "La fecha no puede ser futura."})
+        # R4-08: la fecha existe para el reenvío offline que llega días después
+        # (R3-37) y para anotar lo que se miró ayer. El conductor no reescribe
+        # meses viejos de la serie; eso es de gestión, por el CRUD (R3-38).
         if not request.user.is_management:
-            previous_month = (current_month - timedelta(days=1)).replace(day=1)
-            if period < previous_month:
+            previous_month = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+            if reading_date < previous_month:
                 raise ValidationError(
-                    {"period": "Solo se puede repostar al mes en curso o al anterior."}
+                    {"reading_date": "Solo se puede anotar el mes en curso o el anterior."}
                 )
-
-        def decimal_or_error(field: str, *, required: bool):
-            raw = request.data.get(field)
-            if raw in (None, ""):
-                if required:
-                    raise ValidationError({field: "Este campo es obligatorio."})
-                return None
-            try:
-                value = Decimal(str(raw))
-            except ArithmeticError as exc:
-                raise ValidationError({field: "Valor no válido."}) from exc
-            if value < 0:
-                raise ValidationError({field: "No puede ser negativo."})
-            return value
-
-        liters = decimal_or_error("liters", required=True)
-        amount = decimal_or_error("amount", required=False)
-        month = FuelConsumption.objects.filter(vehicle=vehicle, period=period, is_active=True)
-        # La suma la hace la BASE (`liters = liters + x`): no hay lectura previa
-        # que se quede vieja, así que dos repostajes a la vez se suman los dos.
-        # `amount` es opcional y puede venir nulo de la tarjeta: se arranca de 0.
-        accumulate = {"liters": models.F("liters") + liters, "updated_at": timezone.now()}
-        if amount is not None:
-            accumulate["amount"] = Coalesce("amount", models.Value(Decimal("0"))) + amount
-        row = None
-        if not month.update(**accumulate):
-            # Primer repostaje del mes. Si otro se cuela creando la fila, la
-            # constraint de mes único la rechaza y entonces ya hay fila que sumar
-            # (el `atomic` acota el fallo para no tumbar la transacción entera).
-            try:
-                with transaction.atomic():
-                    row = FuelConsumption.objects.create(
-                        vehicle=vehicle,
-                        period=period,
-                        liters=liters,
-                        amount=amount,
-                        # Tecleado por una persona, no volcado del extracto.
-                        source=FuelConsumption.Source.MANUAL,
-                    )
-            except IntegrityError:
-                if not month.update(**accumulate):
-                    raise
-        serializer = self.get_serializer(row or month.select_related("vehicle").first())
+        raw = request.data.get("avg_consumption")
+        if raw in (None, ""):
+            raise ValidationError({"avg_consumption": "Este campo es obligatorio."})
+        try:
+            avg_consumption = Decimal(str(raw))
+        except ArithmeticError as exc:
+            raise ValidationError({"avg_consumption": "Valor no válido."}) from exc
+        if avg_consumption < 0:
+            raise ValidationError({"avg_consumption": "No puede ser negativo."})
+        row = FuelConsumption.objects.create(
+            vehicle=vehicle, reading_date=reading_date, avg_consumption=avg_consumption
+        )
+        serializer = self.get_serializer(row)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 

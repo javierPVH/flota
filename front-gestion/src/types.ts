@@ -78,11 +78,11 @@ export interface Vehicle {
   fuel_ref: number | null
   /** GAP-3: ¿reposta con tarjeta de combustible? */
   fuel_card: boolean
-  /** GAP-2: gasto de combustible del MES en curso (cadena con 2 decimales o
-   * null). Lo resuelve el back en bloque para el listado; la serie completa
-   * vive en `fuel-consumptions`. */
-  fuel_month_liters: string | null
-  fuel_month_amount: string | null
+  /** GAP-2: última anotación del consumo medio (cadena con 2 decimales o
+   * null, l/km o kWh/km) y de qué día es. Lo resuelve el back en bloque para
+   * el listado; la serie completa vive en `fuel-consumptions`. */
+  fuel_avg_consumption: string | null
+  fuel_avg_date: string | null
   /** Última lectura de km: cuántos y de cuándo (y si la estimó el sistema).
    * Como el gasto del mes, la resuelve el back en bloque para el listado: la
    * tabla del panel pinta el odómetro y cuánto lleva sin leerse. */
@@ -193,10 +193,10 @@ export interface VehicleSummary {
   km_reading_date: string | null
   /** ¿La última lectura fue generada automáticamente (estimada)? */
   km_estimated: boolean
-  /** GAP-2: gasto de combustible del MES en curso (cadena con 2 decimales o
-   * null), la misma forma que en el listado de vehículos. */
-  fuel_month_liters: string | null
-  fuel_month_amount: string | null
+  /** GAP-2: última anotación del consumo medio (cadena con 2 decimales o
+   * null) y su fecha, la misma forma que en el listado de vehículos. */
+  fuel_avg_consumption: string | null
+  fuel_avg_date: string | null
   km_driven: number | null
   driver: { id: number; name: string } | null
   contract: {
@@ -359,6 +359,10 @@ export interface FlotaDocument {
   /** Versión anterior a la que sustituye (HU-4.4). */
   replaces: number | null
   notes: string
+  /** Desde cuándo la comprobación de existencia (`verifyDocuments`) no
+   * encuentra el archivo en Drive/disco; null si existe o no se ha podido
+   * comprobar. Con marca, la fila ofrece el borrado definitivo. */
+  drive_missing_at: string | null
   created_at: string
   updated_at: string
 }

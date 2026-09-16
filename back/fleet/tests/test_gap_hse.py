@@ -9,9 +9,7 @@ mantenimiento preventivo (GAP-8).
 
 from datetime import date, timedelta
 from decimal import Decimal
-from unittest import mock
 
-from django.db.models import QuerySet
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -144,7 +142,8 @@ class SiteTests(APITestCase):
 
 
 class FuelConsumptionTests(APITestCase):
-    """GAP-2: la serie mensual de litros, acotada y con su informe."""
+    """GAP-2: anotaciones del consumo medio (ordenador de a bordo), acotadas y
+    con su informe. Ni litros, ni importe, ni origen: la serie mensual se retiró."""
 
     def setUp(self):
         self.admin = make_user("fuel-admin", Role.ADMIN)
@@ -154,275 +153,202 @@ class FuelConsumptionTests(APITestCase):
         )
         self.ajeno = Vehicle.objects.create(plate="FUEL-2", brand="a", model="b")
 
-    def test_driver_crud_create_is_management_only(self):
-        """R3-38: el conductor registra por `add/` (que SUMA al mes); el POST
-        del CRUD genérico (con `period` y `source` libres) queda para gestión —
-        abrirlo rompía el embudo (dos POST del mismo mes → 400 de choque)."""
-        driver = make_user("fuel-driver", Role.DRIVER)
+    def _driver(self, username="fuel-driver"):
+        driver = make_user(username, Role.DRIVER)
         Assignment.objects.create(
             vehicle=self.mio,
             driver=driver,
             start_date=date(2026, 1, 1),
             status=AssignmentStatus.ACCEPTED,
         )
-        self.client.force_authenticate(driver)
+        return driver
+
+    def _reading(self, vehicle, when, value):
+        return FuelConsumption.objects.create(
+            vehicle=vehicle, reading_date=when, avg_consumption=Decimal(value)
+        )
+
+    def test_driver_crud_create_is_management_only(self):
+        """R3-38: el conductor anota por `add/`; el POST del CRUD genérico (con
+        la fecha libre) queda para gestión."""
+        self.client.force_authenticate(self._driver())
         resp = self.client.post(
             reverse("fuelconsumption-list"),
-            {"vehicle": self.mio.pk, "period": "2026-07-01", "liters": "50"},
+            {"vehicle": self.mio.pk, "reading_date": "2026-07-01", "avg_consumption": "6.5"},
         )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.data)
-        # Su camino sigue abierto: `add/` acumula en el mes en curso.
+        # Su camino: `add/`, que anota lo de hoy si no se dice otra fecha.
         resp = self.client.post(
-            reverse("fuelconsumption-add"), {"vehicle": self.mio.pk, "liters": "30.5"}
+            reverse("fuelconsumption-add"), {"vehicle": self.mio.pk, "avg_consumption": "6.5"}
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["reading_date"], timezone.localdate().isoformat())
+        self.assertEqual(resp.data["avg_consumption"], "6.50")
+        self.assertNotIn("liters", resp.data)
+        self.assertNotIn("amount", resp.data)
+        self.assertNotIn("source", resp.data)
 
-    def test_period_is_normalized_to_month_start(self):
+    def test_reading_keeps_its_day_and_several_per_vehicle_are_fine(self):
+        """Cada anotación es una fila con su DÍA: dos del mismo día son dos
+        lecturas (la serie mensual con un mes único por coche ya no existe)."""
         self.client.force_authenticate(self.admin)
+        for value in ("6.80", "7.10"):
+            resp = self.client.post(
+                reverse("fuelconsumption-list"),
+                {"vehicle": self.mio.pk, "reading_date": "2026-07-15", "avg_consumption": value},
+            )
+            self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+            self.assertEqual(resp.data["reading_date"], "2026-07-15")
+        self.assertEqual(FuelConsumption.objects.filter(vehicle=self.mio).count(), 2)
+
+    def test_future_date_and_negative_value_are_rejected(self):
+        self.client.force_authenticate(self.admin)
+        futuro = timezone.localdate() + timedelta(days=1)
         resp = self.client.post(
             reverse("fuelconsumption-list"),
-            {"vehicle": self.mio.pk, "period": "2026-07-15", "liters": "120.50"},
-        )
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
-        self.assertEqual(resp.data["period"], "2026-07-01")
-
-    def test_duplicate_month_is_a_field_error_not_a_500(self):
-        self.client.force_authenticate(self.admin)
-        FuelConsumption.objects.create(
-            vehicle=self.mio, period=date(2026, 7, 1), liters=Decimal("100")
-        )
-        resp = self.client.post(
-            reverse("fuelconsumption-list"),
-            {"vehicle": self.mio.pk, "period": "2026-07-20", "liters": "50"},
+            {"vehicle": self.mio.pk, "reading_date": futuro.isoformat(), "avg_consumption": "6"},
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
-        self.assertIn("period", resp.data["errors"])
-
-    def test_deactivated_row_frees_the_month(self):
-        """N7: la corrección típica — desactivar la cifra mala y crear la buena."""
-        self.client.force_authenticate(self.admin)
-        fila = FuelConsumption.objects.create(
-            vehicle=self.mio, period=date(2026, 7, 1), liters=Decimal("999")
-        )
-        fila.deactivate(by=self.admin, reason="cifra equivocada")
+        self.assertIn("reading_date", resp.data["errors"])
         resp = self.client.post(
             reverse("fuelconsumption-list"),
-            {"vehicle": self.mio.pk, "period": "2026-07-01", "liters": "111"},
-        )
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
-
-    def test_future_month_is_rejected(self):
-        self.client.force_authenticate(self.admin)
-        futuro = (timezone.localdate().replace(day=1) + timedelta(days=40)).replace(day=1)
-        resp = self.client.post(
-            reverse("fuelconsumption-list"),
-            {"vehicle": self.mio.pk, "period": futuro.isoformat(), "liters": "10"},
+            {"vehicle": self.mio.pk, "reading_date": "2026-07-01", "avg_consumption": "-1"},
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        self.assertIn("avg_consumption", resp.data["errors"])
 
     def test_supervisor_reads_and_writes_only_their_scope(self):
-        """El gasto también se apunta en campo: la gestión escribe SU ámbito."""
-        FuelConsumption.objects.create(
-            vehicle=self.mio, period=date(2026, 6, 1), liters=Decimal("80")
-        )
-        FuelConsumption.objects.create(
-            vehicle=self.ajeno, period=date(2026, 6, 1), liters=Decimal("90")
-        )
+        """El consumo también se apunta en campo: la gestión escribe SU ámbito."""
+        self._reading(self.mio, date(2026, 6, 1), "6.8")
+        self._reading(self.ajeno, date(2026, 6, 1), "9")
         self.client.force_authenticate(self.supervisor)
         resp = self.client.get(reverse("fuelconsumption-list"))
         self.assertEqual([r["vehicle_plate"] for r in resp.data["results"]], ["FUEL-1"])
         resp = self.client.post(
             reverse("fuelconsumption-list"),
-            {"vehicle": self.mio.pk, "period": "2026-05-01", "liters": "10"},
+            {"vehicle": self.mio.pk, "reading_date": "2026-05-01", "avg_consumption": "7"},
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
         # Fuera de su grupo, no (SEC1).
         resp = self.client.post(
             reverse("fuelconsumption-list"),
-            {"vehicle": self.ajeno.pk, "period": "2026-05-01", "liters": "10"},
+            {"vehicle": self.ajeno.pk, "reading_date": "2026-05-01", "avg_consumption": "7"},
         )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_driver_adds_a_refuel_that_accumulates_in_the_month(self):
-        """El repostaje de campo SUMA al mes: la fila es el mes (una por coche).
-
-        Sin `add/`, el segundo repostaje del mes chocaba con la
-        `UniqueConstraint` y el conductor se comía un 400 por repostar dos
-        veces. La suma va en el back para que dos repostajes a la vez no se
-        pisen (lectura-modificación-escritura sin candado).
-        """
-        driver = make_user("fuel-driver", Role.DRIVER)
-        Assignment.objects.create(
-            vehicle=self.mio,
-            driver=driver,
-            start_date=timezone.localdate() - timedelta(days=10),
-            status=AssignmentStatus.ACCEPTED,
-        )
-        mes = timezone.localdate().replace(day=1)
-        url = reverse("fuelconsumption-add")
-        self.client.force_authenticate(driver)
-
-        resp = self.client.post(url, {"vehicle": self.mio.pk, "liters": "45.5", "amount": "62.30"})
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
-        self.assertEqual(resp.data["period"], mes.isoformat())
-        # Tecleado por una persona: el origen no es la tarjeta.
-        self.assertEqual(resp.data["source"], FuelConsumption.Source.MANUAL)
-
-        resp = self.client.post(url, {"vehicle": self.mio.pk, "liters": "10", "amount": "14.70"})
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
-        fila = FuelConsumption.objects.get(vehicle=self.mio, period=mes, is_active=True)
-        self.assertEqual(fila.liters, Decimal("55.50"))
-        self.assertEqual(fila.amount, Decimal("77.00"))
-        # Un repostaje sin ticket (solo litros) no borra el importe acumulado.
-        self.client.post(url, {"vehicle": self.mio.pk, "liters": "5"})
-        fila.refresh_from_db()
-        self.assertEqual(fila.liters, Decimal("60.50"))
-        self.assertEqual(fila.amount, Decimal("77.00"))
-
-    def test_driver_cannot_add_outside_scope_nor_edit_the_month(self):
-        driver = make_user("fuel-driver2", Role.DRIVER)
-        Assignment.objects.create(
-            vehicle=self.mio,
-            driver=driver,
-            start_date=timezone.localdate() - timedelta(days=10),
-            status=AssignmentStatus.ACCEPTED,
-        )
-        fila = FuelConsumption.objects.create(
-            vehicle=self.mio, period=timezone.localdate().replace(day=1), liters=Decimal("30")
-        )
+    def test_driver_cannot_add_outside_scope_nor_edit_a_reading(self):
+        driver = self._driver("fuel-driver2")
+        fila = self._reading(self.mio, timezone.localdate(), "6.9")
         self.client.force_authenticate(driver)
         # Coche ajeno: fuera de su ámbito (SEC1).
         resp = self.client.post(
-            reverse("fuelconsumption-add"), {"vehicle": self.ajeno.pk, "liters": "10"}
+            reverse("fuelconsumption-add"), {"vehicle": self.ajeno.pk, "avg_consumption": "6"}
         )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
         # Append-only, como en las lecturas de km (SEC4): corregir es de gestión.
         url = reverse("fuelconsumption-detail", args=[fila.pk])
         self.assertEqual(
-            self.client.patch(url, {"liters": "1"}).status_code, status.HTTP_403_FORBIDDEN
+            self.client.patch(url, {"avg_consumption": "1"}).status_code,
+            status.HTTP_403_FORBIDDEN,
         )
         self.assertEqual(self.client.delete(url).status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_driver_refuel_period_is_bounded_to_recent_months(self):
-        """R4-08: el `period` del conductor cubre el desfase offline (mes en
-        curso o anterior), no la reescritura de meses históricos — eso es de
-        gestión, por el CRUD (R3-38)."""
-        driver = make_user("fuel-driver3", Role.DRIVER)
-        Assignment.objects.create(
-            vehicle=self.mio,
-            driver=driver,
-            start_date=date(2026, 1, 1),
-            status=AssignmentStatus.ACCEPTED,
-        )
-        self.client.force_authenticate(driver)
+    def test_driver_reading_date_is_bounded_to_recent_months(self):
+        """R4-08: la fecha del conductor cubre el desfase offline y lo mirado
+        ayer (mes en curso o anterior), no la reescritura de meses históricos —
+        eso es de gestión, por el CRUD (R3-38)."""
+        self.client.force_authenticate(self._driver("fuel-driver3"))
         url = reverse("fuelconsumption-add")
-        current_month = timezone.localdate().replace(day=1)
-        previous_month = (current_month - timedelta(days=1)).replace(day=1)
-        old_month = (previous_month - timedelta(days=1)).replace(day=1)
+        today = timezone.localdate()
+        previous_month = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+        old_day = previous_month - timedelta(days=1)
         resp = self.client.post(
-            url, {"vehicle": self.mio.pk, "liters": "10", "period": old_month.isoformat()}
+            url,
+            {"vehicle": self.mio.pk, "avg_consumption": "6", "reading_date": old_day.isoformat()},
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
         resp = self.client.post(
-            url, {"vehicle": self.mio.pk, "liters": "10", "period": previous_month.isoformat()}
+            url,
+            {
+                "vehicle": self.mio.pk,
+                "avg_consumption": "6",
+                "reading_date": previous_month.isoformat(),
+            },
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
-        # La gestión no está acotada: corrige cualquier mes pasado.
+        self.assertEqual(resp.data["reading_date"], previous_month.isoformat())
+        # La gestión no está acotada: anota cualquier día pasado.
         self.client.force_authenticate(self.admin)
         resp = self.client.post(
-            url, {"vehicle": self.mio.pk, "liters": "5", "period": old_month.isoformat()}
+            url,
+            {"vehicle": self.mio.pk, "avg_consumption": "6", "reading_date": old_day.isoformat()},
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
 
-    def test_negative_or_future_refuel_is_rejected(self):
+    def test_add_rejects_bad_values(self):
         self.client.force_authenticate(self.admin)
         url = reverse("fuelconsumption-add")
         self.assertEqual(
-            self.client.post(url, {"vehicle": self.mio.pk, "liters": "-1"}).status_code,
+            self.client.post(url, {"vehicle": self.mio.pk, "avg_consumption": "-1"}).status_code,
             status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(
             self.client.post(url, {"vehicle": self.mio.pk}).status_code,
             status.HTTP_400_BAD_REQUEST,
         )
-        futuro = (timezone.localdate().replace(day=1) + timedelta(days=40)).replace(day=1)
+        futuro = timezone.localdate() + timedelta(days=1)
         self.assertEqual(
             self.client.post(
-                url, {"vehicle": self.mio.pk, "liters": "10", "period": futuro.isoformat()}
+                url,
+                {
+                    "vehicle": self.mio.pk,
+                    "avg_consumption": "6",
+                    "reading_date": futuro.isoformat(),
+                },
+            ).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(
+            self.client.post(
+                url, {"vehicle": self.mio.pk, "avg_consumption": "6", "reading_date": "ayer"}
             ).status_code,
             status.HTTP_400_BAD_REQUEST,
         )
         # Un vehículo que no es ni un número: error de campo, no un 500.
         self.assertEqual(
-            self.client.post(url, {"vehicle": "no-soy-un-id", "liters": "10"}).status_code,
+            self.client.post(url, {"vehicle": "no-soy-un-id", "avg_consumption": "6"}).status_code,
             status.HTTP_400_BAD_REQUEST,
         )
 
-    def test_two_first_refuels_at_once_do_not_lose_one(self):
-        """Carrera en el PRIMER repostaje del mes: no hay fila que sumar y los
-        dos intentan crearla. La `UniqueConstraint` rechaza al segundo, que
-        reintenta la suma en vez de devolver un 500 (como `get_or_create`)."""
-        self.client.force_authenticate(self.admin)
-        mes = timezone.localdate().replace(day=1)
-        # La fila del otro repostaje, que "aterriza" justo después de nuestra
-        # primera suma: se simula haciendo que esa suma no vea nada.
-        FuelConsumption.objects.create(
-            vehicle=self.mio, period=mes, liters=Decimal("10.00"), amount=Decimal("15.00")
-        )
-        real_update, calls = QuerySet.update, []
-
-        def update_blind_once(self, **kwargs):
-            calls.append(1)
-            return 0 if len(calls) == 1 else real_update(self, **kwargs)
-
-        with mock.patch.object(QuerySet, "update", update_blind_once):
-            resp = self.client.post(
-                reverse("fuelconsumption-add"),
-                {"vehicle": self.mio.pk, "liters": "20", "amount": "28.00"},
-            )
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
-        fila = FuelConsumption.objects.get(vehicle=self.mio, period=mes, is_active=True)
-        self.assertEqual(fila.liters, Decimal("30.00"))
-        self.assertEqual(fila.amount, Decimal("43.00"))
-
-    def test_summary_and_list_expose_the_month_spend(self):
-        """El div informativo y la columna de gestión leen de aquí."""
-        mes = timezone.localdate().replace(day=1)
-        FuelConsumption.objects.create(
-            vehicle=self.mio, period=mes, liters=Decimal("55.5"), amount=Decimal("77.00")
-        )
-        # Mes anterior: no debe contarse como el gasto del mes en curso.
-        FuelConsumption.objects.create(
-            vehicle=self.mio,
-            period=(mes - timedelta(days=1)).replace(day=1),
-            liters=Decimal("400"),
-            amount=Decimal("560"),
-        )
+    def test_summary_and_list_expose_the_latest_reading(self):
+        """El KPI de la ficha y la columna de gestión leen la ÚLTIMA anotación."""
+        today = timezone.localdate()
+        self._reading(self.mio, today - timedelta(days=1), "6.8")
+        self._reading(self.mio, today - timedelta(days=30), "9.5")  # más vieja: no manda
         resumen = metrics.vehicle_summary(self.mio)
         # Cadena con 2 decimales, igual que en el listado y en la propia serie.
-        self.assertEqual(resumen["fuel_month_liters"], "55.50")
-        self.assertEqual(resumen["fuel_month_amount"], "77.00")
-        self.assertIsNone(metrics.vehicle_summary(self.ajeno)["fuel_month_liters"])
+        self.assertEqual(resumen["fuel_avg_consumption"], "6.80")
+        self.assertEqual(resumen["fuel_avg_date"], today - timedelta(days=1))
+        self.assertIsNone(metrics.vehicle_summary(self.ajeno)["fuel_avg_consumption"])
+        self.assertIsNone(metrics.vehicle_summary(self.ajeno)["fuel_avg_date"])
 
         self.client.force_authenticate(self.admin)
         resp = self.client.get(reverse("vehicle-list"))
         fila = next(v for v in resp.data["results"] if v["plate"] == "FUEL-1")
-        self.assertEqual(fila["fuel_month_liters"], "55.50")
-        self.assertEqual(fila["fuel_month_amount"], "77.00")
+        self.assertEqual(fila["fuel_avg_consumption"], "6.80")
+        self.assertEqual(fila["fuel_avg_date"], (today - timedelta(days=1)).isoformat())
 
-    def test_fuel_report_lists_liters_and_respects_the_vehicle_filter(self):
+    def test_fuel_report_lists_readings_and_respects_the_vehicle_filter(self):
         from fleet.services import reports
 
-        FuelConsumption.objects.create(
-            vehicle=self.mio, period=date(2026, 6, 1), liters=Decimal("80.5")
-        )
-        FuelConsumption.objects.create(
-            vehicle=self.ajeno, period=date(2026, 6, 1), liters=Decimal("90")
-        )
+        self._reading(self.mio, date(2026, 6, 14), "6.8")
+        self._reading(self.ajeno, date(2026, 6, 1), "9")
         [(titulo, headers, rows)] = reports.build_report("fuel", self.admin)
         self.assertEqual(titulo, "Consumo de combustible")
-        self.assertIn("Litros", headers)
+        self.assertEqual(headers, ["Vehículo", "Fecha", "Consumo medio real (l/km o kWh/km)"])
+        self.assertNotIn("Importe", headers)
         self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0][1], "2026-06-14")  # con día, no el mes
         [(_, _, rows)] = reports.build_report(
             "fuel", self.admin, filters={"vehicle": str(self.mio.pk)}
         )

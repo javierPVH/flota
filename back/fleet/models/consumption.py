@@ -1,9 +1,16 @@
-"""Consumo mensual de combustible por vehículo (GAP-2, necesidad HSE).
+"""Consumo medio del vehículo (GAP-2): lo que marca el ordenador de a bordo.
 
-La serie mensual de litros es el dato de actividad del informe de emisiones
-(litros × factor del combustible); la ficha solo tenía un consumo estático.
-Es el hermano de `KmReading`: una fila por vehículo y mes, normalmente volcada
-del extracto de la tarjeta de combustible.
+Cada fila es una ANOTACIÓN: el consumo medio real que enseñaba el ordenador de
+a bordo del coche en una fecha —el del último trayecto o ciclo de repostaje—,
+en l/km o kWh/km según de qué reposte. No es el histórico acumulado del
+vehículo (ese número no dice nada de cómo se está conduciendo ahora), ni los
+litros echados, ni lo que costó: lo que se sigue en la flota es cómo consume el
+coche, y el gasto se mira donde se factura.
+
+Antes esta tabla era la serie MENSUAL de litros (una fila por vehículo y mes,
+con importe y origen). Se retiró: la cifra la ponía el extracto de la tarjeta
+y no medía consumo. Las filas antiguas quedaron desactivadas (N7) en la
+migración `0060`.
 """
 
 from django.core.exceptions import ValidationError
@@ -13,14 +20,7 @@ from .base import DeactivatableModel, TimeStampedModel
 
 
 class FuelConsumption(DeactivatableModel, TimeStampedModel):
-    """Litros consumidos por un vehículo en un mes."""
-
-    class Source(models.TextChoices):
-        """De dónde sale la cifra: cambia cuánto te puedes fiar de ella."""
-
-        FUEL_CARD = "fuel_card", "Tarjeta de combustible"
-        MANUAL = "manual", "Manual"
-        IMPORT = "import", "Importación"
+    """Anotación del consumo medio que marcaba el ordenador de a bordo."""
 
     vehicle = models.ForeignKey(
         "fleet.Vehicle",
@@ -28,48 +28,30 @@ class FuelConsumption(DeactivatableModel, TimeStampedModel):
         related_name="fuel_consumptions",
         verbose_name="Vehículo",
     )
-    #: Siempre el día 1: la fila es EL MES, no un repostaje suelto.
-    period = models.DateField("Mes", help_text="Se normaliza al día 1 del mes.")
-    liters = models.DecimalField("Litros", max_digits=8, decimal_places=2)
-    amount = models.DecimalField(
-        "Importe (€)",
-        max_digits=10,
+    #: Con día: es una anotación de un momento, no la cifra de un mes.
+    reading_date = models.DateField("Fecha")
+    avg_consumption = models.DecimalField(
+        "Consumo medio real (l/km o kWh/km)",
+        max_digits=8,
         decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Si el extracto de la tarjeta lo trae.",
-    )
-    source = models.CharField(
-        "Origen", max_length=12, choices=Source.choices, default=Source.FUEL_CARD
+        help_text="El del último trayecto o ciclo de repostaje que marca el ordenador de a "
+        "bordo, no el histórico acumulado del vehículo.",
     )
 
     class Meta:
-        verbose_name = "consumo de combustible"
-        verbose_name_plural = "consumos de combustible"
-        ordering = ["-period", "vehicle__plate"]
-        constraints = [
-            # Un mes por vehículo entre las filas VIVAS: la desactivada (N7)
-            # deja el hueco libre para corregir la cifra con una fila nueva.
-            models.UniqueConstraint(
-                fields=["vehicle", "period"],
-                condition=models.Q(is_active=True),
-                name="uniq_fuel_consumption_month",
-            ),
+        verbose_name = "consumo medio"
+        verbose_name_plural = "consumos medios"
+        # La última anotación primero; `-pk` desempata dos del mismo día.
+        ordering = ["-reading_date", "-pk"]
+        indexes = [
+            # La última anotación por vehículo (KPI, columna del listado).
+            models.Index(fields=["vehicle", "-reading_date"]),
         ]
 
     def __str__(self) -> str:
         plate = self.vehicle.plate if self.vehicle_id else "?"
-        return f"{plate} {self.period:%Y-%m}: {self.liters} l"
+        return f"{plate} {self.reading_date:%Y-%m-%d}: {self.avg_consumption}"
 
     def clean(self):
-        errors: dict[str, str] = {}
-        if self.period:
-            # Normaliza aquí (y no solo en el serializer) para que el admin de
-            # Django y los seeds no puedan colar un «15 de mayo».
-            self.period = self.period.replace(day=1)
-        if self.liters is not None and self.liters < 0:
-            errors["liters"] = "Los litros no pueden ser negativos."
-        if self.amount is not None and self.amount < 0:
-            errors["amount"] = "El importe no puede ser negativo."
-        if errors:
-            raise ValidationError(errors)
+        if self.avg_consumption is not None and self.avg_consumption < 0:
+            raise ValidationError({"avg_consumption": "El consumo no puede ser negativo."})

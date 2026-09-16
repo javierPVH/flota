@@ -112,7 +112,15 @@ Dos capas que van **siempre juntas**:
   registros desactivados viven en el espacio de erratas
   (`fleet/erratas.py`, `/api/v1/erratas/`): la gestión restaura, solo el
   superusuario purga. Los listados filtran `is_active=True` salvo
-  `?include_inactive=1`.
+  `?include_inactive=1`. **Purgar un documento borra también su archivo en
+  Drive** (`archiver.purge_document`: `files.delete` o el fichero del backend
+  `local`; si Drive no deja, la fila se conserva). La única excepción a «solo
+  el superusuario purga» es un documento **cuyo archivo ya no existe**: la
+  lista de la ficha lo comprueba en cada carga (`POST /documents/verify/` →
+  `Document.drive_missing_at`), marca la fila («Archivo no encontrado») y en
+  vez de «Eliminar» ofrece **«Borrado definitivo»** (`POST
+  /documents/{id}/purge/`, admin, solo con la marca), porque no hay nada que
+  conservar ni restaurar.
 - **Lógica de negocio en `fleet/services/`**, testeable sin la capa HTTP:
   `alerts.py` (motor de alertas con `dedup_key` idempotente), `metrics.py`
   (resúmenes y proyección de km `within/watch/over`), `km_window.py` (N8:
@@ -234,12 +242,16 @@ Dos capas que van **siempre juntas**:
   no ocupa cabecera. Enseña además **cómo va** el coche: «Kilómetros» en dos líneas (el odómetro y **cuánto lleva sin
   leerse**, con el semáforo de `kmStaleTone`: ámbar 15-30 días, rojo a partir de
   30 o sin ninguna lectura, pintado con las mismas clases `itv-soon` /
-  `itv-overdue` que los vencimientos), «Combustible (mes)» —en dos líneas también: los **litros** del mes y,
-  debajo, **de qué reposta** (el tipo del catálogo, GAP-1); litros y nada
-  más: lo que se sigue en la flota es el consumo, el gasto se mira donde se
-  factura, así que el importe no se pinta (inventario incluido) ni se pide en el
-  parte de repostaje de la PWA— y **supervisor**, que es quien responde del
-  coche. La barra **«Buscar y exportar»** deja **«Exportar CSV» siempre a la
+  `itv-overdue` que los vencimientos), «Consumo medio» —en dos líneas también:
+  la **última anotación** del consumo medio que marcaba el ordenador de a
+  bordo (`FuelConsumption`: `avg_consumption` en l/km o kWh/km con
+  `reading_date`, el del último trayecto o ciclo de repostaje, **no** el
+  acumulado del coche) y, debajo, **de qué reposta** (el tipo del catálogo,
+  GAP-1) y de qué día es la anotación; ni litros, ni importe, ni origen: la
+  serie mensual de litros se retiró (migración `0060`) porque medía el extracto
+  de la tarjeta y no el consumo. El formulario de la PWA y el de gestión llevan
+  la misma nota: anota el del último trayecto, no el histórico— y
+  **supervisor**, que es quien responde del coche. La barra **«Buscar y exportar»** deja **«Exportar CSV» siempre a la
   vista** (fuera del acordeón: es lo que se hace con la tabla que se está
   mirando) y, dentro, filtra por uso, asignación, estado, **conductor** y
   **supervisor** —solo con la gente que tiene coche, más «sin nadie», que es un

@@ -2,14 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { Badge, Button, FileField, IconButton, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { CalendarCheck, CalendarX, ExternalLink, FolderOpen, Replace, Trash2 } from 'lucide-react'
+import {
+  CalendarCheck,
+  CalendarX,
+  ExternalLink,
+  FileX2,
+  FolderOpen,
+  Replace,
+  Trash2,
+} from 'lucide-react'
 
 import { TextCell } from './TextCell.tsx'
 
 import { documentExpires, incidentTypeRequiredBy, linkableIncidents } from '../documentRules.ts'
 import { documentStatusTone } from '../format.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
-import { useDeactivateConfirm } from './ConfirmDialog.tsx'
+import { useConfirm, useDeactivateConfirm } from './ConfirmDialog.tsx'
 import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
 import { TableInfoBar } from './TableInfoBar.tsx'
 
@@ -21,8 +29,10 @@ import {
   fetchPickerConfig,
   listDocuments,
   listOpenIncidents,
+  purgeDocument,
   updateDocument,
   uploadDocument,
+  verifyDocuments,
   type DocumentInput,
 } from '../api.ts'
 import { openDrivePicker, type PickedFile } from '../services/google-picker.ts'
@@ -91,6 +101,7 @@ export function DocumentsPanel({
     [t],
   )
   const deactivateConfirm = useDeactivateConfirm()
+  const confirm = useConfirm()
   const [docs, setDocs] = useState<FlotaDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -123,6 +134,23 @@ export function DocumentsPanel({
       .then((page) => {
         setDocs(page.results)
         setError('')
+        // En cada carga se comprueba que los archivos siguen en Drive: lo que
+        // ya no está se marca en la fila (y ofrece el borrado definitivo). La
+        // tabla no espera a Drive: se pinta con la lista y se corrige después.
+        verifyDocuments({ vehicle: vehicle.id })
+          .then(({ checked, missing }) => {
+            const ahora = new Date().toISOString()
+            setDocs((actuales) =>
+              actuales.map((doc) => {
+                if (!checked.includes(doc.id)) return doc
+                if (missing.includes(doc.id)) {
+                  return { ...doc, drive_missing_at: doc.drive_missing_at ?? ahora }
+                }
+                return doc.drive_missing_at ? { ...doc, drive_missing_at: null } : doc
+              }),
+            )
+          })
+          .catch(() => undefined) // sin Drive a mano, la lista sigue valiendo
       })
       .catch((err) => setError(asErrorMessage(err, tRef.current.loadError)))
       .finally(() => setLoading(false))
@@ -256,7 +284,8 @@ export function DocumentsPanel({
   }, [load, t.statusError])
 
   const handleDelete = useCallback(async (doc: FlotaDocument) => {
-    // N7: nada se borra — doble confirmación y desactivación con motivo.
+    // N7: nada se borra — doble confirmación y desactivación con motivo. El
+    // borrado definitivo (también en Drive) lo hace el superusuario en erratas.
     const reason = await deactivateConfirm(t.deactivateTarget(doc.type_display))
     if (reason === null) return
     try {
@@ -266,6 +295,25 @@ export function DocumentsPanel({
       setError(asErrorMessage(err, t.deactivateError))
     }
   }, [deactivateConfirm, load, t])
+
+  const handlePurge = useCallback(async (doc: FlotaDocument) => {
+    // El archivo ya no existe (lo comprobó la carga): no hay nada que
+    // conservar ni que restaurar, así que el registro se borra del todo aquí,
+    // sin pasar por erratas. El back lo exige igual (solo con la marca).
+    const ok = await confirm({
+      title: t.purge,
+      message: t.purgeConfirm(doc.type_display),
+      confirmLabel: t.purge,
+      tone: 'danger',
+    })
+    if (!ok) return
+    try {
+      await purgeDocument(doc.id)
+      load()
+    } catch (err) {
+      setError(asErrorMessage(err, t.purgeError))
+    }
+  }, [confirm, load, t])
 
   async function toggleFolder() {
     if (folderFiles) {
@@ -350,7 +398,16 @@ export function DocumentsPanel({
       key: 'status',
       label: t.columns.status,
       getValue: (doc) => doc.status_display,
-      render: (doc) => <Badge tone={documentStatusTone(doc.status)}>{doc.status_display}</Badge>,
+      render: (doc) => (
+        <span className="doc-status">
+          <Badge tone={documentStatusTone(doc.status)}>{doc.status_display}</Badge>
+          {doc.drive_missing_at && (
+            <span title={t.driveMissingTitle}>
+              <Badge tone="danger">{t.driveMissing}</Badge>
+            </span>
+          )}
+        </span>
+      ),
     },
     {
       key: 'actions',
@@ -361,7 +418,10 @@ export function DocumentsPanel({
       // Solo iconos, con su nombre en `aria-label`/`title` (el mismo patrón que
       // Facturas): cuatro botones con texto por fila no cabían en la tabla.
       render: (doc) => {
-        const href = documentHref(doc)
+        // Sin archivo detrás no hay nada que abrir: el enlace se va y, en
+        // lugar de «Eliminar» (erratas), sale el borrado definitivo.
+        const missing = Boolean(doc.drive_missing_at)
+        const href = missing ? '' : documentHref(doc)
         const estado = doc.status === 'expired' ? t.markValid : t.markExpired
         return (
           <div className="row-actions">
@@ -390,19 +450,30 @@ export function DocumentsPanel({
                 {doc.status === 'expired' ? <CalendarCheck size={15} /> : <CalendarX size={15} />}
               </IconButton>
             )}
-            <IconButton
-              variant="danger"
-              aria-label={t.delete}
-              title={t.delete}
-              onClick={() => handleDelete(doc)}
-            >
-              <Trash2 size={15} />
-            </IconButton>
+            {missing ? (
+              <IconButton
+                variant="danger"
+                aria-label={t.purge}
+                title={t.purge}
+                onClick={() => handlePurge(doc)}
+              >
+                <FileX2 size={15} />
+              </IconButton>
+            ) : (
+              <IconButton
+                variant="danger"
+                aria-label={t.delete}
+                title={t.delete}
+                onClick={() => handleDelete(doc)}
+              >
+                <Trash2 size={15} />
+              </IconButton>
+            )}
           </div>
         )
       },
     },
-  ], [handleDelete, openCreate, t, toggleStatus])
+  ], [handleDelete, handlePurge, openCreate, t, toggleStatus])
 
   return (
     <CollapsibleCard

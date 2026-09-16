@@ -683,18 +683,20 @@ const es = {
       driver: 'Conductor',
     } as Record<'admin' | 'supervisor' | 'driver', string>,
   },
-  /** GAP-2: gasto de combustible de campo (hermano del de km). */
+  /** GAP-2: consumo medio de campo (hermano del de km): lo que marca el
+   * ordenador de a bordo, con su día. */
   fuel: {
-    title: 'Gasto de combustible',
-    liters: 'Litros repostados',
-    amount: 'Importe (€)',
-    save: 'Guardar gasto',
+    title: 'Consumo medio',
+    noteLead:
+      'Por favor, anota el consumo medio que marca el ordenador de a bordo correspondiente a tu último trayecto o ciclo de repostaje.',
+    noteWarn: 'NO anotes el "consumo histórico" o acumulado total del vehículo.',
+    consumption: 'Consumo medio real en ese momento (l/km o kWh/km)',
+    date: 'Fecha',
+    save: 'Guardar consumo',
     saving: 'Guardando…',
-    saveError: 'No se pudo guardar el gasto.',
-    monthSoFar: 'Este mes ya llevas',
-    monthEmpty: 'Sin gasto registrado este mes.',
-    addsToMonth: 'El repostaje se suma al total del mes.',
-    /** Div informativo del tablero y de la ficha. */
+    saveError: 'No se pudo guardar el consumo.',
+    lastNoted: 'Última anotación',
+    noneYet: 'Sin anotaciones de consumo todavía.',
   },
 }
 
@@ -1302,15 +1304,17 @@ const en: typeof es = {
     },
   },
   fuel: {
-    title: 'Fuel spend',
-    liters: 'Litres filled',
-    amount: 'Amount (€)',
-    save: 'Save spend',
+    title: 'Average consumption',
+    noteLead:
+      'Please note the average consumption shown by the on-board computer for your last trip or refuelling cycle.',
+    noteWarn: 'Do NOT note the "historical" or total accumulated consumption of the vehicle.',
+    consumption: 'Actual average consumption at that moment (l/km or kWh/km)',
+    date: 'Date',
+    save: 'Save consumption',
     saving: 'Saving…',
-    saveError: 'The spend could not be saved.',
-    monthSoFar: 'So far this month',
-    monthEmpty: 'No spend logged this month.',
-    addsToMonth: "The refuel adds to the month's total.",
+    saveError: 'The consumption could not be saved.',
+    lastNoted: 'Last entry',
+    noneYet: 'No consumption entries yet.',
   },
 }
 

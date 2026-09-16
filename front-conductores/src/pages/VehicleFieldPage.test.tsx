@@ -174,8 +174,8 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     const actions = document.querySelector('.quick-actions')
     expect(Array.from(actions?.children ?? []).map((action) => action.textContent?.trim())).toEqual([
       'Registrar km',
-      // GAP-2: el gasto de combustible va junto a los km (los dos son del mes).
-      'Gasto de combustible',
+      // GAP-2: el consumo medio va junto a los km (los dos se apuntan a la vuelta).
+      'Consumo medio',
       'Registrar ITV',
       'Actualizar mantenimiento',
       'Avería',

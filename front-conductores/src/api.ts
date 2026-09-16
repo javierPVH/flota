@@ -282,22 +282,22 @@ export const createKmReading = (data: {
   client_ref?: string
 }) => invalidating(postJson<KmReading>(`${API}/km-readings/`, data))
 
-/** GAP-2: repostaje de campo. La fila de consumo es EL MES, así que el back
- * SUMA al mes en curso (o lo crea) — de ahí `add/` y no un POST normal: dos
- * repostajes del mismo mes no pueden ser dos filas. `period` es opcional
- * (día 1 del mes) para corregir un repostaje de un mes anterior. */
+/** GAP-2: anotación de campo del consumo medio que marca el ordenador de a
+ * bordo (l/km o kWh/km, el del último trayecto o ciclo de repostaje). Cada
+ * anotación es una fila con su día; `reading_date` es opcional (hoy si no se
+ * dice) y viaja fijada al capturar, por si la cola offline la entrega días
+ * después. Ni litros, ni importe, ni origen. */
 export interface FuelEntryInput extends Record<string, unknown> {
   vehicle: number
-  liters: string
-  amount?: string | null
-  period?: string
-  /** R3-34: clave de idempotencia — crucial aquí, porque `add/` SUMA al mes y
-   * un reenvío offline sin ella doblaría litros e importe. */
+  avg_consumption: string
+  reading_date?: string
+  /** R3-34: clave de idempotencia — el reenvío offline con la misma no crea
+   * otra anotación. */
   client_ref?: string
 }
 export const addFuelEntry = (data: FuelEntryInput) =>
   invalidating(
-    postJson<{ id: number; period: string; liters: string; amount: string | null }>(
+    postJson<{ id: number; reading_date: string; avg_consumption: string }>(
       `${API}/fuel-consumptions/add/`,
       data,
     ),

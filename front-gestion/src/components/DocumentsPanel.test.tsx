@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   fetchPickerConfig: vi.fn(),
   updateDocument: vi.fn(),
   createDocument: vi.fn(),
+  verifyDocuments: vi.fn(),
+  purgeDocument: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -25,6 +27,8 @@ vi.mock('../api.ts', async (importOriginal) => ({
   fetchPickerConfig: mocks.fetchPickerConfig,
   updateDocument: mocks.updateDocument,
   createDocument: mocks.createDocument,
+  verifyDocuments: mocks.verifyDocuments,
+  purgeDocument: mocks.purgeDocument,
 }))
 
 const incidente = (id: number, type: Incident['type'], status: Incident['status']) =>
@@ -62,6 +66,7 @@ function doc(overrides: Partial<FlotaDocument>): FlotaDocument {
     status_display: 'Vigente',
     replaces: null,
     notes: '',
+    drive_missing_at: null,
     created_at: '2026-09-16T09:00:00Z',
     updated_at: '2026-09-16T09:00:00Z',
     ...overrides,
@@ -123,6 +128,33 @@ describe('DocumentsPanel (tabla de documentos)', () => {
     mocks.fetchPickerConfig.mockReset().mockResolvedValue({ enabled: false })
     mocks.updateDocument.mockReset().mockResolvedValue(undefined)
     mocks.createDocument.mockReset().mockResolvedValue(doc({ id: 9 }))
+    // Drive dice que el contrato (#2) ya no está; el seguro sí; el tercero no
+    // se pudo comprobar (pendiente, sin id de Drive).
+    mocks.verifyDocuments.mockReset().mockResolvedValue({ checked: [1, 2], missing: [2] })
+    mocks.purgeDocument.mockReset().mockResolvedValue({ purged: true, id: 2, external_deleted: false })
+  })
+
+  it('en cada carga comprueba Drive: lo que falta se marca y ofrece el borrado definitivo', async () => {
+    renderPanel()
+    await screen.findByRole('table')
+    await waitFor(() => expect(mocks.verifyDocuments).toHaveBeenCalledWith({ vehicle: 21 }))
+    const perdido = fila('Contrato')
+    await within(perdido).findByText('Archivo no encontrado')
+    // Ni enlace para abrir (no hay a dónde) ni «Eliminar» (erratas): borrado definitivo.
+    expect(within(perdido).queryByRole('link', { name: 'Abrir' })).toBeNull()
+    expect(within(perdido).queryByRole('button', { name: 'Eliminar' })).toBeNull()
+    // El seguro, que sí está, sigue como siempre.
+    const vigente = fila('Seguro')
+    expect(within(vigente).queryByText('Archivo no encontrado')).toBeNull()
+    expect(within(vigente).getByRole('button', { name: 'Eliminar' })).toBeInTheDocument()
+    expect(within(vigente).queryByRole('button', { name: 'Borrado definitivo' })).toBeNull()
+
+    await userEvent.click(within(perdido).getByRole('button', { name: 'Borrado definitivo' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent(/ya no existe en Drive/)
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Borrado definitivo' }))
+    await waitFor(() => expect(mocks.purgeDocument).toHaveBeenCalledWith(2))
+    await waitFor(() => expect(mocks.listDocuments).toHaveBeenCalledTimes(2))
   })
 
   it('el alta pide caducidad solo a lo que caduca y liga el parte a un accidente abierto', async () => {

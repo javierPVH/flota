@@ -34,7 +34,7 @@ import { VehiclePendingModal } from '../components/VehiclePendingCard.tsx'
 import { useVehicleActions } from '../components/useVehicleActions.tsx'
 import { ColumnsPicker } from '../components/ColumnsPicker.tsx'
 import { exportCsv } from '../csv.ts'
-import { dueClass, fmtDate, fmtKm, fmtLiters, itvClass, vehicleStateTone } from '../format.ts'
+import { dueClass, fmtConsumption, fmtDate, fmtKm, itvClass, vehicleStateTone } from '../format.ts'
 import { maintenanceDueDates } from '../maintenanceDue.ts'
 import { daysSince, kmStaleTone } from '../vehicleTimeline.ts'
 import { useLang } from '../i18n.tsx'
@@ -54,7 +54,7 @@ const COLUMN_KEYS = [
   'driver_name',
   'supervisor',
   'km',
-  'fuel_month',
+  'fuel_avg',
   'next_itv_date',
   'maintenance',
   'insurance_expiry_date',
@@ -632,7 +632,7 @@ export function VehiclesPage() {
         </span>
         <span className="sub-row-item">
           <span className="muted">{t.columns.fuelMonth}: </span>
-          {sub.fuel_month_liters == null ? '—' : fmtLiters(sub.fuel_month_liters, language)}
+          {sub.fuel_avg_consumption == null ? '—' : fmtConsumption(sub.fuel_avg_consumption, language)}
           {sub.fuel ? <span className="muted"> · {sub.fuel}</span> : null}
         </span>
         <span className="sub-row-item">
@@ -769,18 +769,22 @@ export function VehiclesPage() {
       render: (v) => (v.year != null ? String(v.year) : '—'),
     },
     {
-      // GAP-2: LITROS del mes en curso y, debajo, de qué reposta (GAP-1) — el
-      // tipo dejó de ser columna propia. Sin el importe: lo que se sigue en la
-      // flota es el consumo, el gasto se mira donde se factura. Igual que el panel.
-      key: 'fuel_month',
+      // GAP-2: la ÚLTIMA anotación del consumo medio (ordenador de a bordo) y,
+      // debajo, de qué reposta (GAP-1; el tipo dejó de ser columna propia) y
+      // de qué día es. Igual que el panel.
+      key: 'fuel_avg',
       label: t.columns.fuelMonth,
-      getValue: (v) => Number(v.fuel_month_liters ?? 0),
+      getValue: (v) => Number(v.fuel_avg_consumption ?? 0),
       render: (v) => (
         <div className="stack-cell">
           <strong>
-            {v.fuel_month_liters == null ? '—' : fmtLiters(v.fuel_month_liters, language)}
+            {v.fuel_avg_consumption == null ? '—' : fmtConsumption(v.fuel_avg_consumption, language)}
           </strong>
-          <span className="stack-cell-sub muted">{v.fuel || '—'}</span>
+          <span className="stack-cell-sub muted">
+            {[v.fuel, v.fuel_avg_date ? fmtDate(v.fuel_avg_date, language) : '']
+              .filter(Boolean)
+              .join(' · ') || '—'}
+          </span>
         </div>
       ),
     },

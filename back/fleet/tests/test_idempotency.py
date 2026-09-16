@@ -3,8 +3,8 @@
 El escenario que se protege: la PWA hace un POST, el servidor lo procesa y la
 red se corta antes de que llegue la respuesta. El cliente lo encola como fallo
 de red y lo REENVÍA con el mismo `client_ref`: el reenvío debe devolver la
-respuesta original sin repetir el efecto. Donde más dolía era en el repostaje
-(`fuel-consumptions/add/` SUMA al mes → litros doblados) y en el parte de
+respuesta original sin repetir el efecto. Donde más dolía era en el consumo
+(`fuel-consumptions/add/` → una anotación duplicada) y en el parte de
 incidencia (dos incidencias idénticas).
 """
 
@@ -43,54 +43,52 @@ class ClientRefIdempotencyTests(APITestCase):
         self.vehicle = Vehicle.objects.create(plate="IDEM-1", brand="Seat", model="León")
         self.client.force_authenticate(self.admin)
 
-    # --- Repostaje (GAP-2): el caso que DOBLABA litros ---------------------
+    # --- Consumo (GAP-2): el caso que DUPLICABA la anotación ---------------
 
-    def test_fuel_add_replay_does_not_double_the_month(self):
+    def test_fuel_add_replay_does_not_duplicate_the_reading(self):
         url = reverse("fuelconsumption-add")
         payload = {
             "vehicle": self.vehicle.pk,
-            "liters": "45.50",
-            "amount": "62.30",
+            "avg_consumption": "6.80",
             "client_ref": "ref-fuel-1",
         }
         first = self.client.post(url, payload)
         self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.data)
         replay = self.client.post(url, payload)
         self.assertEqual(replay.status_code, status.HTTP_201_CREATED, replay.data)
-        # Misma respuesta, un solo efecto: el mes NO se dobla.
+        # Misma respuesta, un solo efecto: UNA anotación.
         self.assertEqual(replay.data, first.data)
-        mes = timezone.localdate().replace(day=1)
-        fila = FuelConsumption.objects.get(vehicle=self.vehicle, period=mes, is_active=True)
-        self.assertEqual(fila.liters, Decimal("45.50"))
-        self.assertEqual(fila.amount, Decimal("62.30"))
+        filas = FuelConsumption.objects.filter(vehicle=self.vehicle, is_active=True)
+        self.assertEqual(filas.count(), 1)
+        self.assertEqual(filas.get().avg_consumption, Decimal("6.80"))
 
-    def test_fuel_add_without_client_ref_keeps_summing(self):
-        """Sin `client_ref` nada cambia: dos POST son dos repostajes reales."""
+    def test_fuel_add_without_client_ref_creates_one_reading_per_post(self):
+        """Sin `client_ref` nada cambia: dos POST son dos anotaciones reales."""
         url = reverse("fuelconsumption-add")
-        self.client.post(url, {"vehicle": self.vehicle.pk, "liters": "10"})
-        self.client.post(url, {"vehicle": self.vehicle.pk, "liters": "10"})
-        mes = timezone.localdate().replace(day=1)
-        fila = FuelConsumption.objects.get(vehicle=self.vehicle, period=mes, is_active=True)
-        self.assertEqual(fila.liters, Decimal("20.00"))
+        self.client.post(url, {"vehicle": self.vehicle.pk, "avg_consumption": "6.8"})
+        self.client.post(url, {"vehicle": self.vehicle.pk, "avg_consumption": "7.1"})
+        self.assertEqual(
+            FuelConsumption.objects.filter(vehicle=self.vehicle, is_active=True).count(), 2
+        )
         self.assertFalse(IdempotencyRecord.objects.exists())
 
-    def test_fuel_add_honours_the_capture_period(self):
-        """R3-37: el repostaje encolado a fin de mes se imputa a SU mes, no al
-        del reenvío — el front manda `period` (día 1 del mes de captura)."""
-        pasado = (timezone.localdate().replace(day=1) - timedelta(days=1)).replace(day=1)
+    def test_fuel_add_honours_the_capture_date(self):
+        """R3-37: la anotación encolada se imputa al DÍA en que se miró, no al
+        del reenvío — el front manda `reading_date`."""
+        pasado = timezone.localdate() - timedelta(days=3)
         resp = self.client.post(
             reverse("fuelconsumption-add"),
             {
                 "vehicle": self.vehicle.pk,
-                "liters": "30",
-                "period": pasado.isoformat(),
-                "client_ref": "ref-fuel-agosto",
+                "avg_consumption": "6.8",
+                "reading_date": pasado.isoformat(),
+                "client_ref": "ref-fuel-hace-tres-dias",
             },
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
-        self.assertEqual(resp.data["period"], pasado.isoformat())
+        self.assertEqual(resp.data["reading_date"], pasado.isoformat())
         self.assertTrue(
-            FuelConsumption.objects.filter(vehicle=self.vehicle, period=pasado).exists()
+            FuelConsumption.objects.filter(vehicle=self.vehicle, reading_date=pasado).exists()
         )
 
     # --- Lecturas de km, eventos (ITV), documentos e incidencias -----------
@@ -170,13 +168,17 @@ class ClientRefIdempotencyTests(APITestCase):
         """La unicidad es por usuario: la referencia de otro no te la come."""
         otro = make_user("idem-admin-2", Role.ADMIN)
         url = reverse("fuelconsumption-add")
-        payload = {"vehicle": self.vehicle.pk, "liters": "10", "client_ref": "ref-compartida"}
+        payload = {
+            "vehicle": self.vehicle.pk,
+            "avg_consumption": "6.8",
+            "client_ref": "ref-compartida",
+        }
         self.client.post(url, payload)
         self.client.force_authenticate(otro)
         self.client.post(url, payload)
-        mes = timezone.localdate().replace(day=1)
-        fila = FuelConsumption.objects.get(vehicle=self.vehicle, period=mes, is_active=True)
-        self.assertEqual(fila.liters, Decimal("20.00"))
+        self.assertEqual(
+            FuelConsumption.objects.filter(vehicle=self.vehicle, is_active=True).count(), 2
+        )
 
     def test_validation_error_does_not_burn_the_ref(self):
         """Un 400 revierte también el recibo: corregir y reenviar con la misma
@@ -186,16 +188,15 @@ class ClientRefIdempotencyTests(APITestCase):
         bad = self.client.post(url, {"vehicle": self.vehicle.pk, "client_ref": "ref-fix"})
         self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
         good = self.client.post(
-            url, {"vehicle": self.vehicle.pk, "liters": "10", "client_ref": "ref-fix"}
+            url, {"vehicle": self.vehicle.pk, "avg_consumption": "6.8", "client_ref": "ref-fix"}
         )
         self.assertEqual(good.status_code, status.HTTP_201_CREATED, good.data)
-        mes = timezone.localdate().replace(day=1)
-        self.assertTrue(FuelConsumption.objects.filter(vehicle=self.vehicle, period=mes).exists())
+        self.assertTrue(FuelConsumption.objects.filter(vehicle=self.vehicle).exists())
 
     def test_oversized_ref_is_rejected(self):
         resp = self.client.post(
             reverse("fuelconsumption-add"),
-            {"vehicle": self.vehicle.pk, "liters": "10", "client_ref": "x" * 65},
+            {"vehicle": self.vehicle.pk, "avg_consumption": "6.8", "client_ref": "x" * 65},
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -206,10 +207,12 @@ class ClientRefIdempotencyTests(APITestCase):
         cargar el camino crítico de la PWA; aquí se fuerza el muestreo.
         """
         url = reverse("fuelconsumption-add")
-        self.client.post(url, {"vehicle": self.vehicle.pk, "liters": "5", "client_ref": "ref-old"})
+        self.client.post(
+            url, {"vehicle": self.vehicle.pk, "avg_consumption": "6", "client_ref": "ref-old"}
+        )
         IdempotencyRecord.objects.update(created_at=timezone.now() - RETENTION - timedelta(days=1))
         with mock.patch("fleet.idempotency.random.random", return_value=0.0):
             self.client.post(
-                url, {"vehicle": self.vehicle.pk, "liters": "5", "client_ref": "ref-new"}
+                url, {"vehicle": self.vehicle.pk, "avg_consumption": "6", "client_ref": "ref-new"}
             )
         self.assertEqual(list(IdempotencyRecord.objects.values_list("key", flat=True)), ["ref-new"])

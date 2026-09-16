@@ -19,6 +19,7 @@ const es = {
   // lleva sus asignaciones; un vehículo, su histórico). Se enseña antes.
   cascadeIntro: 'Se eliminarán además:',
   cascadeNone: 'No arrastra ningún otro registro.',
+  externalFile: 'Su archivo se borrará también de Google Drive.',
   restore: 'Restaurar',
   purge: 'Eliminar definitivamente',
   exportCsv: 'Exportar CSV',
@@ -99,6 +100,7 @@ const en: typeof es = {
   purgeOk: (label) => `Permanently deleted: ${label}`,
   cascadeIntro: 'This will also delete:',
   cascadeNone: 'No other records are affected.',
+  externalFile: 'Its file will also be deleted from Google Drive.',
   restore: 'Restore',
   purge: 'Delete permanently',
   exportCsv: 'Export CSV',

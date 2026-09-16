@@ -44,6 +44,13 @@ const es = {
     markValid: 'Marcar vigente',
     markExpired: 'Marcar caducado',
     delete: 'Eliminar',
+    driveMissing: 'Archivo no encontrado',
+    driveMissingTitle:
+      'Al cargar la lista se comprobó que el archivo ya no está en Drive (ni en disco). No hay nada que abrir: se puede borrar definitivamente.',
+    purge: 'Borrado definitivo',
+    purgeConfirm: (typeDisplay: string) =>
+      `El archivo de "${typeDisplay}" ya no existe en Drive. ¿Borrar definitivamente el registro? No pasa por erratas y no se puede deshacer.`,
+    purgeError: 'No se pudo borrar definitivamente.',
     filterType: 'Tipo',
     allTypes: 'Todos',
     allVehicles: 'Todos',
@@ -275,6 +282,13 @@ const en: typeof es = {
     markValid: 'Mark valid',
     markExpired: 'Mark expired',
     delete: 'Delete',
+    driveMissing: 'File not found',
+    driveMissingTitle:
+      'When the list loaded, the file was no longer in Drive (nor on disk). There is nothing to open: it can be deleted permanently.',
+    purge: 'Delete permanently',
+    purgeConfirm: (typeDisplay) =>
+      `The file of "${typeDisplay}" no longer exists in Drive. Delete the record permanently? It skips the erratas space and cannot be undone.`,
+    purgeError: 'Could not delete permanently.',
     filterType: 'Type',
     allTypes: 'All',
     allVehicles: 'All',
