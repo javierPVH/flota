@@ -413,6 +413,9 @@ class ErratasPurgeView(APIView):
     def post(self, request):
         kind, obj = _resolve(request)
         cascade = _cascade_report(obj)
+        # Un documento tiene además su archivo en Drive (o en disco): purgarlo
+        # lo borra también de allí, y el informe lo avisa.
+        external_file = isinstance(obj, Document) and bool(obj.drive_file_id)
         if not request.data.get("confirm"):
             return Response(
                 {
@@ -422,14 +425,29 @@ class ErratasPurgeView(APIView):
                     "id": obj.pk,
                     "label": str(obj),
                     "cascade": cascade,
+                    "external_file": external_file,
                 }
             )
         try:
-            obj.delete()
+            if isinstance(obj, Document):
+                from .services.archiver import ExternalDeleteError, purge_document
+
+                try:
+                    purge_document(obj)
+                except ExternalDeleteError as exc:
+                    raise ValidationError({"detail": str(exc)}) from exc
+            else:
+                obj.delete()
         except ProtectedError as exc:
             raise ValidationError(
                 {"id": "No se puede eliminar: otros registros lo referencian (PROTECT)."}
             ) from exc
         return Response(
-            {"purged": True, "type": kind, "id": request.data.get("id"), "cascade": cascade}
+            {
+                "purged": True,
+                "type": kind,
+                "id": request.data.get("id"),
+                "cascade": cascade,
+                "external_file": external_file,
+            }
         )

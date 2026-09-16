@@ -158,11 +158,11 @@ class VehicleSerializer(serializers.ModelSerializer):
     supervisor_name = serializers.SerializerMethodField()
     driver_name = serializers.SerializerMethodField()
     driver_id = serializers.SerializerMethodField()
-    # GAP-2: gasto de combustible del mes en curso (litros e importe). Va en el
+    # GAP-2: última anotación del consumo medio (valor y fecha). Va en el
     # LISTADO porque la tabla de gestion lo pinta como columna y no carga
     # summaries; el mapa se calcula una vez por respuesta, como el conductor.
-    fuel_month_liters = serializers.SerializerMethodField()
-    fuel_month_amount = serializers.SerializerMethodField()
+    fuel_avg_consumption = serializers.SerializerMethodField()
+    fuel_avg_date = serializers.SerializerMethodField()
     # Última lectura de km (valor, fecha y si fue estimada): mismo motivo y
     # mismo patrón que el gasto del mes — la tabla de gestión la pinta como
     # columna (kilómetros + cuánto lleva sin leerse) y no carga los summaries.
@@ -233,8 +233,8 @@ class VehicleSerializer(serializers.ModelSerializer):
             "itv_postal_code",
             "driver_name",
             "driver_id",
-            "fuel_month_liters",
-            "fuel_month_amount",
+            "fuel_avg_consumption",
+            "fuel_avg_date",
             "km_current",
             "km_reading_date",
             "km_estimated",
@@ -256,8 +256,8 @@ class VehicleSerializer(serializers.ModelSerializer):
             "next_itv_manual",
             "itv_postal_code",
             "driver_id",
-            "fuel_month_liters",
-            "fuel_month_amount",
+            "fuel_avg_consumption",
+            "fuel_avg_date",
             "km_current",
             "km_reading_date",
             "km_estimated",
@@ -305,27 +305,29 @@ class VehicleSerializer(serializers.ModelSerializer):
         return driver.id if driver else None
 
     @staticmethod
-    def _fuel_month_map(ids: list[int]) -> dict[int, dict]:
-        """Gasto del mes ya en la forma que sale por la API: cadenas de dos
-        decimales, las MISMAS que emite el summary (`metrics.decimal_str`)."""
-        from .services.metrics import decimal_str, fuel_month_map
+    def _fuel_latest_map(ids: list[int]) -> dict[int, dict]:
+        """Última anotación del consumo medio ya en la forma que sale por la
+        API: cadena de dos decimales, la MISMA que emite el summary
+        (`metrics.decimal_str`), y la fecha."""
+        from .services.metrics import decimal_str, fuel_latest_map
 
         return {
             vehicle_id: {
-                "liters": decimal_str(row["liters"]),
-                "amount": decimal_str(row["amount"]),
+                "avg_consumption": decimal_str(row["avg_consumption"]),
+                # ISO ya aquí: es lo que viaja y lo que compara el front.
+                "reading_date": row["reading_date"].isoformat() if row["reading_date"] else None,
             }
-            for vehicle_id, row in fuel_month_map(ids).items()
+            for vehicle_id, row in fuel_latest_map(ids).items()
         }
 
-    def _fuel_month(self, obj: Vehicle) -> dict:
-        return self._response_map("_fuel_month", obj, self._fuel_month_map).get(obj.id) or {}
+    def _fuel_latest(self, obj: Vehicle) -> dict:
+        return self._response_map("_fuel_latest", obj, self._fuel_latest_map).get(obj.id) or {}
 
-    def get_fuel_month_liters(self, obj: Vehicle) -> str | None:
-        return self._fuel_month(obj).get("liters")
+    def get_fuel_avg_consumption(self, obj: Vehicle) -> str | None:
+        return self._fuel_latest(obj).get("avg_consumption")
 
-    def get_fuel_month_amount(self, obj: Vehicle) -> str | None:
-        return self._fuel_month(obj).get("amount")
+    def get_fuel_avg_date(self, obj: Vehicle):
+        return self._fuel_latest(obj).get("reading_date")
 
     def _latest_reading(self, obj: Vehicle):
         """Última lectura de km del vehículo (N8). Una consulta por respuesta,
@@ -552,10 +554,9 @@ class KmReadingSerializer(serializers.ModelSerializer):
 
 
 class FuelConsumptionSerializer(serializers.ModelSerializer):
-    """GAP-2: litros de un vehículo en un mes (serie para el informe HSE)."""
+    """GAP-2: anotación del consumo medio del ordenador de a bordo en una fecha."""
 
     vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True)
-    source_display = serializers.CharField(source="get_source_display", read_only=True)
 
     class Meta:
         model = FuelConsumption
@@ -563,48 +564,23 @@ class FuelConsumptionSerializer(serializers.ModelSerializer):
             "id",
             "vehicle",
             "vehicle_plate",
-            "period",
-            "liters",
-            "amount",
-            "source",
-            "source_display",
+            "reading_date",
+            "avg_consumption",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
-    def validate_period(self, value):
-        """La fila es EL MES: siempre día 1, y nunca un mes futuro."""
-        value = value.replace(day=1)
-        if value > timezone.localdate().replace(day=1):
-            raise serializers.ValidationError("El mes no puede ser futuro.")
+    def validate_reading_date(self, value):
+        """Se anota lo que marcaba el ordenador ese día: nunca un día futuro."""
+        if value > timezone.localdate():
+            raise serializers.ValidationError("La fecha no puede ser futura.")
         return value
 
-    def validate_liters(self, value):
+    def validate_avg_consumption(self, value):
         if value < 0:
-            raise serializers.ValidationError("Los litros no pueden ser negativos.")
+            raise serializers.ValidationError("El consumo no puede ser negativo.")
         return value
-
-    def validate_amount(self, value):
-        if value is not None and value < 0:
-            raise serializers.ValidationError("El importe no puede ser negativo.")
-        return value
-
-    def validate(self, attrs):
-        # La constraint de BD daría un IntegrityError (500); aquí es un 400 de
-        # campo. Solo cuentan las filas VIVAS: la corrección típica es
-        # desactivar la equivocada y crear la buena.
-        vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
-        period = attrs.get("period", getattr(self.instance, "period", None))
-        if vehicle is not None and period is not None:
-            clash = FuelConsumption.objects.filter(vehicle=vehicle, period=period, is_active=True)
-            if self.instance is not None:
-                clash = clash.exclude(pk=self.instance.pk)
-            if clash.exists():
-                raise serializers.ValidationError(
-                    {"period": f"Ya hay un consumo de {period:%Y-%m} para ese vehículo."}
-                )
-        return attrs
 
 
 class MaintenanceProgramSerializer(serializers.ModelSerializer):
@@ -1782,6 +1758,8 @@ class DocumentSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "uploaded_by",
+            # Lo escribe la comprobación de existencia (`/documents/verify/`).
+            "drive_missing_at",
             "is_active",
             "deactivated_at",
             "deactivated_by",

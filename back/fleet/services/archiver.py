@@ -26,6 +26,12 @@ vez no dejan carpetas duplicadas ni pisan lo que ya hubiera.
 Flujo (ver `archive_document`): si el documento ya trae `drive_url` (el front
 subió a un destino externo), se marca `vigente`; si no, se delega en el backend;
 si el backend no puede archivar, queda `pendiente_archivar` para reintentar.
+
+El archivador también responde por lo archivado **después**: `exists` dice si el
+archivo sigue donde se dejó (`verify_documents` lo apunta en
+`Document.drive_missing_at`) y `delete` lo borra de allí cuando el documento se
+elimina definitivamente (`purge_document`): borrar la fila y dejar el fichero en
+Drive sería mentir sobre lo que hay.
 """
 
 from __future__ import annotations
@@ -34,11 +40,21 @@ import logging
 from pathlib import Path
 
 from django.conf import settings
+from django.utils import timezone
 
 from fleet.models import Document
 from fleet.models.enums import DocumentStatus, DocumentType
 
 logger = logging.getLogger("fleet.archiver")
+
+
+class ExternalDeleteError(Exception):
+    """El archivo del documento no se pudo borrar de su destino (Drive/disco).
+
+    Se lanza desde `purge_document` ANTES de tocar la fila: si el fichero se
+    queda en Drive, el registro que lo nombra también se queda, para poder
+    volver a intentarlo.
+    """
 
 
 class BaseArchiver:
@@ -51,6 +67,22 @@ class BaseArchiver:
     def archive(self, document: Document) -> str | None:
         """Archiva el documento y devuelve su URL, o None si no pudo archivar."""
         raise NotImplementedError
+
+    def exists(self, document: Document) -> bool | None:
+        """¿Sigue existiendo el archivo del documento donde se archivó?
+
+        `None` = no se puede saber (una URL pegada a mano, un backend que no
+        guarda nada…): quien pregunta no debe tomarlo ni por sí ni por no.
+        """
+        return None
+
+    def delete(self, document: Document) -> bool:
+        """Borra el archivo del documento en su destino.
+
+        Devuelve True cuando ya no queda nada allí (borrado, o no existía) y
+        False si no se pudo borrar. Nunca lanza.
+        """
+        return True
 
 
 class NullArchiver(BaseArchiver):
@@ -65,6 +97,40 @@ class LocalArchiver(BaseArchiver):
 
     def __init__(self, base_dir: str | Path):
         self.base_dir = Path(base_dir)
+
+    @staticmethod
+    def _path_of(document: Document) -> Path | None:
+        """Ruta en disco de un documento archivado en local (`file://`), o None."""
+        url = document.drive_url or ""
+        if not url.startswith("file://"):
+            return None
+        from urllib.parse import unquote, urlparse
+        from urllib.request import url2pathname
+
+        return Path(url2pathname(unquote(urlparse(url).path)))
+
+    def exists(self, document: Document) -> bool | None:
+        path = self._path_of(document)
+        if path is None:
+            return None
+        if path.exists():
+            return True
+        # El binario puede seguir en el staging (`file`), que es lo que abre el
+        # front en dev: mientras esté ahí, el documento existe.
+        if document.file and document.file.storage.exists(document.file.name):
+            return True
+        return False
+
+    def delete(self, document: Document) -> bool:
+        path = self._path_of(document)
+        if path is None or not path.exists():
+            return True
+        try:
+            path.unlink()
+        except OSError:
+            logger.exception("No se pudo borrar %s del archivo local.", path)
+            return False
+        return True
 
     def ensure_folder(self, vehicle) -> str:
         folder = self.base_dir.joinpath(*vehicle_path_of(vehicle))
@@ -83,7 +149,16 @@ class LocalArchiver(BaseArchiver):
             self.ensure_folder(document.vehicle)
         folder = self.base_dir.joinpath(*holder_path_of(document), *folder_path_of(document.type))
         folder.mkdir(parents=True, exist_ok=True)
-        return f"{folder.resolve().as_uri()}/doc-{document.pk}-{document.type}"
+        target = folder / f"doc-{document.pk}-{document.type}"
+        # Si hay binario, se deja una copia en el árbol: así `exists` y `delete`
+        # tienen algo real que mirar, igual que en Drive. El staging se conserva
+        # (es lo que sirve el front en dev).
+        if document.file:
+            import shutil
+
+            with document.file.open("rb") as source, target.open("wb") as sink:
+                shutil.copyfileobj(source, sink)
+        return target.resolve().as_uri()
 
 
 _FOLDER_MIME = "application/vnd.google-apps.folder"
@@ -386,6 +461,57 @@ class GoogleDriveArchiver(BaseArchiver):
         document.file.delete(save=False)
         return created.get("webViewLink") or None
 
+    def _service_to_look(self, document: Document):
+        """Cliente con el que mirar o borrar un archivo ya subido: la cuenta de
+        servicio (ve toda la unidad compartida) y, si no la hay, la de quien lo
+        subió."""
+        if not getattr(settings, "GOOGLE_DRIVE_ENABLED", False):
+            return None
+        return self._get_service() or self._service_for(document)
+
+    def exists(self, document: Document) -> bool | None:
+        # Sin id de Drive no es nuestro (una URL pegada a mano): no se sabe.
+        if not document.drive_file_id:
+            return None
+        service = self._service_to_look(document)
+        if not service:
+            return None
+        from googleapiclient.errors import HttpError
+
+        try:
+            meta = (
+                service.files()
+                .get(fileId=document.drive_file_id, fields="id,trashed", supportsAllDrives=True)
+                .execute(num_retries=self._num_retries())
+            )
+        except HttpError as exc:
+            if getattr(exc.resp, "status", None) == 404:
+                return False
+            logger.warning("Drive no respondió por el documento %s: %s", document.pk, exc)
+            return None
+        # En la papelera ya no está donde se dejó: para la flota, no existe.
+        return not meta.get("trashed", False)
+
+    def delete(self, document: Document) -> bool:
+        if not document.drive_file_id:
+            return True  # no hay nada nuestro en Drive que borrar
+        service = self._service_to_look(document)
+        if not service:
+            logger.warning("Sin cliente de Drive: no se borra el documento %s.", document.pk)
+            return False
+        from googleapiclient.errors import HttpError
+
+        try:
+            service.files().delete(fileId=document.drive_file_id, supportsAllDrives=True).execute(
+                num_retries=self._num_retries()
+            )
+        except HttpError as exc:
+            if getattr(exc.resp, "status", None) == 404:
+                return True  # ya no estaba
+            logger.exception("No se pudo borrar de Drive el documento %s.", document.pk)
+            return False
+        return True
+
 
 #: Formas en que un usuario puede pegar una carpeta de Drive en el formulario.
 _FOLDER_URL_PATTERNS = (
@@ -498,6 +624,64 @@ def archive_document(document: Document, *, archiver: BaseArchiver | None = None
             document.status = DocumentStatus.PENDING_ARCHIVE
             document.save(update_fields=["status", "updated_at"])
     return document
+
+
+def verify_documents(documents, *, archiver: BaseArchiver | None = None) -> dict:
+    """Comprueba que el archivo de cada documento sigue donde se archivó.
+
+    Apunta el resultado en `Document.drive_missing_at`: lo pone la primera vez
+    que no se encuentra y lo quita si vuelve a aparecer (alguien lo sacó de la
+    papelera). Lo que no se puede comprobar no se toca. Devuelve los ids
+    `missing` (no encontrados) y `checked` (los que sí se pudieron comprobar).
+    """
+    archiver = archiver or get_archiver()
+    missing: list[int] = []
+    checked: list[int] = []
+    now = timezone.now()
+    for document in documents:
+        try:
+            found = archiver.exists(document)
+        except Exception:  # pragma: no cover - robustez ante errores del backend
+            logger.exception("Fallo al comprobar el documento %s", document.pk)
+            found = None
+        if found is None:
+            continue
+        checked.append(document.pk)
+        if not found:
+            missing.append(document.pk)
+            if document.drive_missing_at is None:
+                document.drive_missing_at = now
+                document.save(update_fields=["drive_missing_at", "updated_at"])
+        elif document.drive_missing_at is not None:
+            document.drive_missing_at = None
+            document.save(update_fields=["drive_missing_at", "updated_at"])
+    return {"checked": checked, "missing": missing}
+
+
+def purge_document(document: Document, *, archiver: BaseArchiver | None = None) -> dict:
+    """Borrado DEFINITIVO de un documento: su archivo en Drive/disco, el staging
+    local y la fila, en ese orden.
+
+    Si el archivo externo no se puede borrar se lanza `ExternalDeleteError` y
+    la fila se conserva: mejor un registro que apunta a un fichero que un
+    fichero huérfano en Drive del que ya nadie sabe.
+    """
+    archiver = archiver or get_archiver()
+    try:
+        gone = archiver.delete(document)
+    except Exception:  # pragma: no cover - robustez ante errores del backend
+        logger.exception("Fallo al borrar el archivo del documento %s", document.pk)
+        gone = False
+    if not gone:
+        raise ExternalDeleteError(
+            "No se pudo borrar el archivo en Drive; el documento se conserva para "
+            "volver a intentarlo."
+        )
+    if document.file:
+        document.file.delete(save=False)
+    pk = document.pk
+    document.delete()
+    return {"purged": True, "id": pk, "external_deleted": bool(document.drive_file_id)}
 
 
 def archive_pending(archiver: BaseArchiver | None = None) -> int:

@@ -179,19 +179,25 @@ def decimal_str(value) -> str | None:
     return None if value is None else f"{value:.2f}"
 
 
-def fuel_month_map(ids: list[int], month: date | None = None) -> dict[int, dict]:
-    """Gasto de combustible del MES por vehículo (litros e importe), 1 consulta.
+def fuel_latest_map(ids: list[int]) -> dict[int, dict]:
+    """ÚLTIMA anotación del consumo medio por vehículo (valor y fecha), 1 consulta.
 
-    La fila de `FuelConsumption` es el mes entero, así que esto es un `get` por
-    periodo — no una suma. Alimenta el div informativo y la columna de gestión
-    y la pista «este mes ya llevas…» del modal de campo, sin resolver por fila
-    (la doctrina de `selectors.py`).
+    Cada fila de `FuelConsumption` es una anotación con día; lo que interesa
+    en el KPI de la ficha, la columna de gestión y la pista del modal de campo
+    es la más reciente. El «primero por vehículo» se resuelve en Python sobre
+    un orden estable (la doctrina de `selectors.py`: nada por fila).
     """
-    month = (month or timezone.localdate()).replace(day=1)
-    rows = FuelConsumption.objects.filter(
-        vehicle_id__in=ids, period=month, is_active=True
-    ).values_list("vehicle_id", "liters", "amount")
-    return {vehicle_id: {"liters": liters, "amount": amount} for vehicle_id, liters, amount in rows}
+    rows = (
+        FuelConsumption.objects.filter(vehicle_id__in=ids, is_active=True)
+        .order_by("vehicle_id", "-reading_date", "-pk")
+        .values_list("vehicle_id", "avg_consumption", "reading_date")
+    )
+    latest: dict[int, dict] = {}
+    for vehicle_id, avg_consumption, reading_date in rows:
+        latest.setdefault(
+            vehicle_id, {"avg_consumption": avg_consumption, "reading_date": reading_date}
+        )
+    return latest
 
 
 def vehicle_summary(vehicle: Vehicle, today: date | None = None) -> dict:
@@ -209,7 +215,7 @@ def vehicle_summary(vehicle: Vehicle, today: date | None = None) -> dict:
         open_incidents=Incident.objects.filter(vehicle=vehicle, is_active=True)
         .exclude(status=IncidentStatus.CLOSED)
         .count(),
-        fuel_month=fuel_month_map([vehicle.id], today).get(vehicle.id),
+        fuel_latest=fuel_latest_map([vehicle.id]).get(vehicle.id),
     )
 
 
@@ -242,7 +248,7 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
     # Y el reverso, también en una: qué principal cubre cada sustituto.
     covering = active_substitution_by_substitute(ids, today)
     maintenance = _maintenance_due_map(ids)  # GAP-8: próximo mantenimiento (1 query)
-    fuel_month = fuel_month_map(ids, today)  # GAP-2: gasto del mes (1 query)
+    fuel_latest = fuel_latest_map(ids)  # GAP-2: último consumo medio (1 query)
     # Incidencias abiertas por vehiculo (averia, mantenimiento...), en UNA
     # consulta: la tarjeta de campo pinta con esto su marca.
     open_incidents = dict(
@@ -263,7 +269,7 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
             covering=covering.get(v.id),
             maintenance_due=maintenance.get(v.id),
             open_incidents=open_incidents.get(v.id, 0),
-            fuel_month=fuel_month.get(v.id),
+            fuel_latest=fuel_latest.get(v.id),
         )
         for v in vehicles
     ]
@@ -280,7 +286,7 @@ def _compose_summary(
     covering=None,
     maintenance_due: date | None = None,
     open_incidents: int = 0,
-    fuel_month: dict | None = None,
+    fuel_latest: dict | None = None,
 ) -> dict:
     """Compone el summary desde datos ya resueltos (compartido single/bulk)."""
     today = today or timezone.localdate()
@@ -299,11 +305,11 @@ def _compose_summary(
         # Incidencias sin cerrar (averia, mantenimiento, neumaticos...): la
         # tarjeta de campo pinta con esto su marca de "algo abierto".
         "open_incidents": open_incidents,
-        # GAP-2: gasto de combustible del mes en curso (la fila de
-        # FuelConsumption ES el mes). Alimenta el div informativo de gestion,
-        # su columna del listado y la pista del modal de campo.
-        "fuel_month_liters": decimal_str((fuel_month or {}).get("liters")),
-        "fuel_month_amount": decimal_str((fuel_month or {}).get("amount")),
+        # GAP-2: la última anotación del consumo medio (ordenador de a bordo,
+        # l/km o kWh/km) y de qué día es. Alimenta el KPI de la ficha, la
+        # columna del listado y la pista del modal de campo.
+        "fuel_avg_consumption": decimal_str((fuel_latest or {}).get("avg_consumption")),
+        "fuel_avg_date": (fuel_latest or {}).get("reading_date"),
         "insurance_expiry_date": vehicle.insurance_expiry_date,
         "unlimited_km": vehicle.unlimited_km,
         "is_substitute": vehicle.is_substitute,

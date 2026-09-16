@@ -108,8 +108,8 @@ const SUMMARY = {
   km_current: 53730,
   km_reading_date: '2026-09-10',
   km_estimated: false,
-  fuel_month_liters: '55.50',
-  fuel_month_amount: '77.00',
+  fuel_avg_consumption: '6.80',
+  fuel_avg_date: '2026-09-10',
   km_driven: 13730,
   driver: { id: 3, name: 'Carlos Ruiz' },
   contract: {
@@ -268,7 +268,8 @@ describe('VehicleDetailPage (la ficha del vehículo)', () => {
     await waitFor(() => expect(kpi('Kilometraje')).toHaveTextContent(/53[.,]?730/))
     expect(kpi('Kilometraje')).toHaveTextContent('Última lectura: 2026-09-10')
     expect(kpi('Kilometraje')).toBeEnabled()
-    expect(kpi('Combustible (mes)')).toHaveTextContent(/55[.,]50/)
+    expect(kpi('Consumo medio')).toHaveTextContent(/6[.,]80/)
+    expect(kpi('Consumo medio')).toHaveTextContent('Anotado el 10 sept 2026')
 
     // Los de ITV y mantenimiento abren «Programar ITV y mantenimiento» por su pestaña.
     await userEvent.click(kpi('Próxima ITV'))

@@ -196,22 +196,28 @@ class ErratasSpaceTests(APITestCase):
     def test_restore_against_occupied_slot_returns_400_not_500(self):
         """R3-06: si el hueco de la constraint parcial ya se corrigió con una
         fila nueva, restaurar la vieja es un 400 accionable, no un 500."""
-        from decimal import Decimal
+        from fleet.models import Assignment
+        from fleet.models.enums import AssignmentStatus
 
-        from fleet.models import FuelConsumption
-
-        original = FuelConsumption.objects.create(
-            vehicle=self.vehicle, period=date(2026, 3, 1), liters=Decimal("50")
+        # Un coche solo tiene UNA asignación aceptada en curso (unique parcial
+        # del lado del vehículo): la vieja se desactivó y otra ocupa el hueco.
+        original = Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=make_user("d-viejo", Role.DRIVER),
+            start_date=date(2026, 3, 1),
+            status=AssignmentStatus.ACCEPTED,
         )
-        original.deactivate(by=self.admin, reason="cifra mala")
-        # La corrección ocupa el hueco (vehículo, mes).
-        FuelConsumption.objects.create(
-            vehicle=self.vehicle, period=date(2026, 3, 1), liters=Decimal("60")
+        original.deactivate(by=self.admin, reason="asignación equivocada")
+        Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=make_user("d-nuevo", Role.DRIVER),
+            start_date=date(2026, 3, 1),
+            status=AssignmentStatus.ACCEPTED,
         )
         self.client.force_authenticate(self.admin)
         resp = self.client.post(
             reverse("erratas-restore"),
-            {"type": "fuel-consumptions", "id": original.pk},
+            {"type": "assignments", "id": original.pk},
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)

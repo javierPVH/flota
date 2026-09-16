@@ -291,13 +291,13 @@ class SeedCoverageTests(APITestCase):
             .exclude(status=IncidentStatus.CLOSED)
             .exists()
         )
-        # GAP-2: gasto de combustible del MES EN CURSO — lo pintan el div
-        # informativo y la columna de gestión, y es la pista del modal de campo.
+        # GAP-2: una anotación RECIENTE del consumo medio — la pintan el KPI de
+        # la ficha y la columna de gestión, y es la pista del modal de campo.
         self.assertTrue(
             FuelConsumption.objects.filter(
-                vehicle=v3, period=today.replace(day=1), is_active=True
+                vehicle=v3, reading_date__gte=today - timedelta(days=7), is_active=True
             ).exists(),
-            "7890NPQ sin gasto de combustible del mes en curso",
+            "7890NPQ sin anotación reciente de consumo medio",
         )
         # La de neumáticos trae el PARTE GUIADO: las listas de campo enseñan
         # con él el motivo del cambio y la rueda (el comentario es opcional).

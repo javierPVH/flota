@@ -133,8 +133,7 @@ class WorkshopAdmin(admin.ModelAdmin):
 
 @admin.register(FuelConsumption)
 class FuelConsumptionAdmin(admin.ModelAdmin):
-    list_display = ("vehicle", "period", "liters", "amount", "source", "is_active")
-    list_filter = ("source",)
+    list_display = ("vehicle", "reading_date", "avg_consumption", "is_active")
     search_fields = ("vehicle__plate",)
 
 

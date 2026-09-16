@@ -160,6 +160,7 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
     // y lo que arrastra la cascada se enseña en la confirmación. Purgar un
     // usuario se lleva sus asignaciones; un vehículo, su histórico completo.
     let cascade: CascadeLine[] = []
+    let externalFile = false
     try {
       const preview = await purgeErrata(group.type, item.id)
       if (preview.purged) {
@@ -168,6 +169,7 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
         return
       }
       cascade = preview.cascade ?? []
+      externalFile = Boolean(preview.external_file)
     } catch (err) {
       setError(asErrorMessage(err, t.purgeError))
       return
@@ -175,9 +177,11 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
     const detail = cascade.length
       ? `${t.cascadeIntro}\n${cascade.map((l) => `· ${l.count} ${l.label}`).join('\n')}`
       : t.cascadeNone
+    // Un documento tiene además su archivo en Drive: se dice que también se va.
+    const external = externalFile ? `\n${t.externalFile}` : ''
     if (
       !(await confirm({
-        message: `${t.confirmPurge(item.label)}\n\n${detail}`,
+        message: `${t.confirmPurge(item.label)}\n\n${detail}${external}`,
         confirmLabel: t.purge,
       }))
     )

@@ -1,5 +1,8 @@
+import tempfile
 from datetime import date
+from pathlib import Path
 
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -146,6 +149,100 @@ class DocumentRulesTests(APITestCase):
         url = reverse("document-detail", args=[report.pk])
         resp = self.client.patch(url, {"status": "expired"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+
+
+class DocumentVerifyAndPurgeTests(APITestCase):
+    """Comprobar que el archivo sigue donde se archivó y borrar definitivamente.
+
+    Con el backend `local` el archivo es un fichero en disco: sirve para probar
+    el contrato completo (verify marca lo que falta, purge solo borra lo
+    marcado, y el purge de erratas borra también el fichero).
+    """
+
+    def setUp(self):
+        self.admin = make_user("admin", Role.ADMIN)
+        self.driver = make_user("driver", Role.DRIVER)
+        self.root = make_user("root", Role.ADMIN)
+        self.root.is_superuser = True
+        self.root.save(update_fields=["is_superuser"])
+        self.vehicle = Vehicle.objects.create(plate="1234ABC", brand="a", model="b")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        existing = Path(self.tmp.name) / "existe.pdf"
+        existing.write_bytes(b"%PDF")
+        self.existing = Document.objects.create(
+            vehicle=self.vehicle, type="insurance", drive_url=existing.resolve().as_uri()
+        )
+        self.gone = Document.objects.create(
+            vehicle=self.vehicle,
+            type="contract",
+            drive_url=(Path(self.tmp.name) / "no-esta.pdf").resolve().as_uri(),
+        )
+        self.manual = Document.objects.create(
+            vehicle=self.vehicle, type="other", drive_url="https://drive/pegado-a-mano"
+        )
+        self.settings_ctx = override_settings(
+            FLEET_ARCHIVE_BACKEND="local", FLEET_ARCHIVE_LOCAL_DIR=self.tmp.name
+        )
+        self.settings_ctx.enable()
+        self.addCleanup(self.settings_ctx.disable)
+
+    def test_verify_marks_missing_files_and_needs_an_owner(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse("document-verify"), {}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        resp = self.client.post(
+            reverse("document-verify"), {"vehicle": self.vehicle.pk}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["missing"], [self.gone.pk])
+        self.assertEqual(sorted(resp.data["checked"]), sorted([self.existing.pk, self.gone.pk]))
+        self.gone.refresh_from_db()
+        self.assertIsNotNone(self.gone.drive_missing_at)
+        # La lista lo cuenta (solo lectura).
+        row = self.client.get(reverse("document-detail", args=[self.gone.pk])).data
+        self.assertIsNotNone(row["drive_missing_at"])
+        # Un conductor no comprueba nada: es cosa de gestión.
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(
+            reverse("document-verify"), {"vehicle": self.vehicle.pk}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_purge_from_the_list_only_when_the_file_is_gone(self):
+        self.client.force_authenticate(self.admin)
+        # Existe: no se purga desde la lista (eliminar → erratas es el camino).
+        resp = self.client.post(reverse("document-purge", args=[self.existing.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Document.objects.filter(pk=self.existing.pk).exists())
+        # Sin comprobar todavía: tampoco (la marca la pone verify).
+        resp = self.client.post(reverse("document-purge", args=[self.gone.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.client.post(reverse("document-verify"), {"vehicle": self.vehicle.pk}, format="json")
+        resp = self.client.post(reverse("document-purge", args=[self.gone.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertTrue(resp.data["purged"])
+        self.assertFalse(Document.objects.filter(pk=self.gone.pk).exists())
+
+    def test_erratas_purge_deletes_the_archived_file_too(self):
+        path = Path(self.tmp.name) / "existe.pdf"
+        self.existing.deactivate(by=self.admin, reason="errata")
+        self.client.force_authenticate(self.root)
+        preview = self.client.post(
+            reverse("erratas-purge"), {"type": "documents", "id": self.existing.pk}, format="json"
+        )
+        self.assertEqual(preview.status_code, status.HTTP_200_OK, preview.data)
+        self.assertFalse(preview.data["purged"])
+        self.assertTrue(path.exists())  # sin `confirm` no se toca nada
+        resp = self.client.post(
+            reverse("erratas-purge"),
+            {"type": "documents", "id": self.existing.pk, "confirm": True},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertTrue(resp.data["purged"])
+        self.assertFalse(path.exists())
+        self.assertFalse(Document.objects.filter(pk=self.existing.pk).exists())
 
 
 class PersonalDocumentTests(APITestCase):

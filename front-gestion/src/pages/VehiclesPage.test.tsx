@@ -50,8 +50,8 @@ function vehicle(id: number, plate: string, brand: string, model: string) {
     km_reading_date: '2026-09-10',
     km_estimated: false,
     fuel: 'Diésel',
-    fuel_month_liters: '55.50',
-    fuel_month_amount: '77.00',
+    fuel_avg_consumption: '6.80',
+    fuel_avg_date: '2026-09-10',
   }
 }
 
@@ -153,12 +153,12 @@ describe('VehiclesPage — volver a donde estábamos', () => {
     renderList()
     await waitFor(() => expect(screen.getByText('1111AAA')).toBeInTheDocument())
 
-    // Kilómetros con su antigüedad, y combustible en litros + tipo (sin importe).
+    // Kilómetros con su antigüedad, y el consumo medio con el tipo y el día debajo.
     expect(screen.getAllByText('53.730 km').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/sin lectura/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText('55,50 l').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Diésel').length).toBeGreaterThan(0)
-    expect(screen.queryByText(/77,00/)).toBeNull()
+    expect(screen.getAllByText('6,80').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Diésel · 10 sept 2026/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/Litros|Importe/)).toBeNull()
 
     // «Exportar CSV» sigue en la cabecera de la página.
     expect(screen.getByRole('button', { name: /Exportar CSV/ })).toBeInTheDocument()

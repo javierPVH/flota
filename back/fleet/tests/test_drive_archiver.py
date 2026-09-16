@@ -17,7 +17,14 @@ from django.utils import timezone
 
 from fleet.models import Document, Vehicle
 from fleet.models.enums import DocumentStatus
-from fleet.services.archiver import GoogleDriveArchiver, archive_document, family_of
+from fleet.services.archiver import (
+    ExternalDeleteError,
+    GoogleDriveArchiver,
+    archive_document,
+    family_of,
+    purge_document,
+    verify_documents,
+)
 
 
 class _FakeRequest:
@@ -28,19 +35,50 @@ class _FakeRequest:
         return self._result
 
 
+class _FailingRequest:
+    """Petición que falla al ejecutarse con el HTTP que diga Drive (404, 500…)."""
+
+    def __init__(self, status):
+        self._status = status
+
+    def execute(self, num_retries=0):
+        import httplib2
+        from googleapiclient.errors import HttpError
+
+        raise HttpError(httplib2.Response({"status": self._status}), b"error")
+
+
 class _FakeFiles:
     """Doble del recurso `files()` de Drive v3: registra las llamadas.
 
     `existing_folders` es {nombre: id} — las carpetas que YA están en Drive—,
     porque el árbol tiene dos niveles y cada búsqueda pregunta por un nombre
     distinto. Lo que se crea recibe un id derivado del nombre, para poder
-    comprobar de quién cuelga cada cosa.
+    comprobar de quién cuelga cada cosa. `existing_files` es {id: en_papelera}
+    — los ficheros que Drive conoce — para `get` y `delete`.
     """
 
-    def __init__(self, existing_folders=None):
+    def __init__(self, existing_folders=None, existing_files=None):
         self.existing_folders = existing_folders or {}
+        self.existing_files = existing_files if existing_files is not None else {}
         self.created = []  # bodies de files().create
         self.queries = []
+        self.deleted = []  # ids pasados a files().delete
+        self.fail_delete = None  # HTTP con el que falla `delete` (500 = Drive caído)
+
+    def get(self, fileId="", **kwargs):
+        if fileId in self.existing_files:
+            return _FakeRequest({"id": fileId, "trashed": self.existing_files[fileId]})
+        return _FailingRequest(404)
+
+    def delete(self, fileId="", **kwargs):
+        if self.fail_delete:
+            return _FailingRequest(self.fail_delete)
+        if fileId not in self.existing_files:
+            return _FailingRequest(404)
+        self.existing_files.pop(fileId)
+        self.deleted.append(fileId)
+        return _FakeRequest({})
 
     def list(self, q="", **kwargs):
         self.queries.append(q)
@@ -285,6 +323,60 @@ class GoogleDriveArchiverTests(TestCase):
             archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
         self.assertEqual(doc.status, DocumentStatus.PENDING_ARCHIVE)
         self.assertEqual(fake.created, [])
+
+    def _archived(self, file_id, url="https://drive/x"):
+        return Document.objects.create(
+            vehicle=self.vehicle, type="insurance", drive_url=url, drive_file_id=file_id
+        )
+
+    @override_settings(**DRIVE_ON)
+    def test_exists_dice_si_el_archivo_sigue_en_drive_y_verify_lo_apunta(self):
+        fake = _FakeFiles(existing_files={"vivo": False, "papelera": True})
+        arch = GoogleDriveArchiver(service=_FakeDrive(fake))
+        vivo = self._archived("vivo")
+        papelera = self._archived("papelera")
+        perdido = self._archived("perdido")  # Drive responde 404
+        manual = self._archived("")  # URL pegada a mano: no es nuestro, no se sabe
+        self.assertTrue(arch.exists(vivo))
+        self.assertFalse(arch.exists(papelera))  # en la papelera ya no está donde se dejó
+        self.assertFalse(arch.exists(perdido))
+        self.assertIsNone(arch.exists(manual))
+
+        result = verify_documents([vivo, papelera, perdido, manual], archiver=arch)
+        self.assertEqual(result["missing"], [papelera.pk, perdido.pk])
+        self.assertEqual(result["checked"], [vivo.pk, papelera.pk, perdido.pk])
+        for doc in (vivo, papelera, perdido, manual):
+            doc.refresh_from_db()
+        self.assertIsNone(vivo.drive_missing_at)
+        self.assertIsNone(manual.drive_missing_at)
+        self.assertIsNotNone(papelera.drive_missing_at)
+        self.assertIsNotNone(perdido.drive_missing_at)
+        # Si reaparece (alguien lo sacó de la papelera), la marca se quita.
+        fake.existing_files["perdido"] = False
+        verify_documents([perdido], archiver=arch)
+        perdido.refresh_from_db()
+        self.assertIsNone(perdido.drive_missing_at)
+
+    @override_settings(**DRIVE_ON)
+    def test_purge_borra_en_drive_y_despues_la_fila(self):
+        fake = _FakeFiles(existing_files={"vivo": False, "otro": False})
+        arch = GoogleDriveArchiver(service=_FakeDrive(fake))
+        doc = self._archived("vivo")
+        result = purge_document(doc, archiver=arch)
+        self.assertEqual(fake.deleted, ["vivo"])
+        self.assertTrue(result["external_deleted"])
+        self.assertFalse(Document.objects.filter(pk=doc.pk).exists())
+        # Ya no estaba en Drive (404): no hay nada que conservar, la fila se va.
+        perdido = self._archived("perdido")
+        purge_document(perdido, archiver=arch)
+        self.assertFalse(Document.objects.filter(pk=perdido.pk).exists())
+        # Drive caído: el archivo sigue allí, así que la fila se conserva.
+        fake.fail_delete = 500
+        tercero = self._archived("otro")
+        with self.assertRaises(ExternalDeleteError):
+            purge_document(tercero, archiver=arch)
+        self.assertTrue(Document.objects.filter(pk=tercero.pk).exists())
+        self.assertIn("otro", fake.existing_files)
 
     def test_disabled_leaves_pending(self):
         # Sin GOOGLE_DRIVE_ENABLED el backend gdrive se comporta como `none`.

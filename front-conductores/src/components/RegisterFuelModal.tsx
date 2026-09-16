@@ -4,7 +4,7 @@ import { Button, Panel } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { addFuelEntry } from '../api.ts'
-import { fmtLiters, todayIso } from '../format.ts'
+import { fmtDate, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Vehicle, VehicleSummary } from '../types.ts'
@@ -58,14 +58,11 @@ function DecimalField({
 }
 
 /**
- * GAP-2 — Consumo de combustible de campo, hermano del modal de km: se apuntan
- * los LITROS repostados y el back los SUMA al mes en curso, porque la serie de
- * consumo es mensual (una fila por vehículo y mes). Por eso la pista de arriba
- * es «este mes ya llevas…» y no «última lectura».
- *
- * El importe **no se pide**: en obra no se tiene el ticket a mano y lo que se
- * sigue aquí es el consumo — el gasto se mira donde se factura. El campo sigue
- * en el back (las filas antiguas conservan el suyo), pero de aquí no sale.
+ * GAP-2 — Consumo medio de campo, hermano del modal de km: se anota lo que
+ * marca el ORDENADOR DE A BORDO (l/km o kWh/km) para el último trayecto o
+ * ciclo de repostaje, con el día. Cada anotación es una fila: ni litros, ni
+ * importe, ni origen, ni una cifra por mes. La nota de arriba dice qué cifra
+ * se anota y cuál no (el histórico acumulado del coche no sirve).
  *
  * Sin red va a la cola offline (M7): en una gasolinera de obra es lo normal.
  */
@@ -81,31 +78,33 @@ export function RegisterFuelModal({
   onSaved: () => void
 }) {
   const { t, language } = useLang()
-  const [liters, setLiters] = useState('')
+  const [consumption, setConsumption] = useState('')
+  const [date, setDate] = useState(todayIso())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   // R5-50: UNA referencia por captura, no por pulsación. Si el POST llegó pero
   // la respuesta se perdió (502/504/429), el reintento manual manda la misma y
-  // el back no vuelve a sumar los litros. El modal se remonta al cerrarse.
+  // el back no crea otra anotación. El modal se remonta al cerrarse.
   const [clientRef] = useState(newClientRef)
 
-  const litersValue = asNumber(liters)
-  const litersOk = litersValue !== null && !Number.isNaN(litersValue) && litersValue > 0
+  const value = asNumber(consumption)
+  const valueOk = value !== null && !Number.isNaN(value) && value > 0
+  const dateOk = Boolean(date) && date <= todayIso()
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!litersOk) return
+    if (!valueOk || !dateOk) return
     setSaving(true)
     setError('')
     const payload = {
       vehicle: vehicle.id,
-      liters: decimal(liters),
-      // R3-37: el mes se fija AL CAPTURAR, no cuando el servidor procese el
-      // reenvío — un repostaje del día 31 encolado sin cobertura debe sumar a
-      // SU mes aunque la cola lo entregue el día 1 del siguiente.
-      period: `${todayIso().slice(0, 7)}-01`,
+      avg_consumption: decimal(consumption),
+      // R3-37: el día se fija AL CAPTURAR, no cuando el servidor procese el
+      // reenvío — una anotación encolada sin cobertura es de SU día aunque la
+      // cola la entregue más tarde.
+      reading_date: date,
       // R3-34: misma referencia en el intento directo y en el reenvío — si la
-      // respuesta se perdió por el camino, el back no vuelve a sumar.
+      // respuesta se perdió por el camino, el back no crea otra fila.
       client_ref: clientRef,
     }
     try {
@@ -124,7 +123,8 @@ export function RegisterFuelModal({
     }
   }
 
-  const monthLiters = summary?.fuel_month_liters ?? null
+  const last = summary?.fuel_avg_consumption ?? null
+  const lastDate = summary?.fuel_avg_date ?? null
 
   return (
     <SupervisorModal
@@ -134,39 +134,61 @@ export function RegisterFuelModal({
       footer={
         <>
           <Button type="button" variant="secondary" onClick={onClose}>{t.common.cancel}</Button>
-          <Button type="submit" form="vehicle-fuel-form" disabled={saving || !litersOk}>
+          <Button type="submit" form="vehicle-fuel-form" disabled={saving || !valueOk || !dateOk}>
             {saving ? t.fuel.saving : t.fuel.save}
           </Button>
         </>
       }
     >
       <form id="vehicle-fuel-form" className="modal-form" onSubmit={submit}>
-        {/* Lo que ya lleva el mes: el repostaje se SUMA a esta cifra. Solo si
-            el resumen ha llegado — sin él no se sabe, y no es lo mismo que
-            «sin gasto». */}
-        {summary && (
-          <Panel>
-            <p className="panel-note">
-              <Fuel size={16} aria-hidden />{' '}
-              {monthLiters !== null ? (
-                <>
-                  {t.fuel.monthSoFar} <strong>{fmtLiters(monthLiters, language)}</strong>
-                </>
-              ) : (
-                t.fuel.monthEmpty
-              )}
-            </p>
-          </Panel>
-        )}
+        {/* Qué cifra se anota, y cuál no: la misma nota que en gestión. */}
+        <Panel>
+          <p className="panel-note">
+            <Fuel size={16} aria-hidden /> {t.fuel.noteLead}
+          </p>
+          <p className="panel-note"><strong>{t.fuel.noteWarn}</strong></p>
+        </Panel>
         <DecimalField
-          label={t.fuel.liters}
+          label={t.fuel.consumption}
           required
-          placeholder="45,50"
-          value={liters}
-          onChange={setLiters}
+          placeholder="6,80"
+          value={consumption}
+          onChange={setConsumption}
           autoFocus
         />
-        <p className="doc-sub">{t.fuel.addsToMonth}</p>
+        <label className="km-input-label">
+          <span>
+            {t.fuel.date} <span className="req-badge" aria-hidden>{t.common.required}</span>
+          </span>
+          <input
+            className="km-input"
+            type="date"
+            max={todayIso()}
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+            required
+          />
+        </label>
+        {/* La última anotación, solo si el resumen ha llegado — sin él no se
+            sabe, y no es lo mismo que «sin anotaciones». */}
+        {summary && (
+          <p className="doc-sub">
+            {last !== null ? (
+              <>
+                {t.fuel.lastNoted}:{' '}
+                <strong>
+                  {Number(last).toLocaleString(language, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </strong>
+                {lastDate ? ` · ${fmtDate(lastDate)}` : ''}
+              </>
+            ) : (
+              t.fuel.noneYet
+            )}
+          </p>
+        )}
         {error && <div role="alert" className="form-error">{error}</div>}
       </form>
     </SupervisorModal>

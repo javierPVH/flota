@@ -32,11 +32,10 @@ import {
   updateVehicleFields,
 } from '../api.ts'
 import {
+  fmtConsumption,
   fmtDate,
   fmtEur,
-  fmtEurCents,
   fmtKm,
-  fmtLiters,
   kmLevelTone,
   todayIso,
   vehicleStateTone,
@@ -504,9 +503,8 @@ export function VehicleDetailPage() {
   // Formateadores y etiquetas conscientes de idioma (UX1).
   const eur = (value: string | number) => fmtEur(value, lang)
   const km = (value: number) => fmtKm(value, lang)
-  // GAP-2: litros e importe CON céntimos del gasto de combustible.
-  const liters = (value: string | null) => fmtLiters(value, lang)
-  const eurCents = (value: string | null) => fmtEurCents(value, lang)
+  // GAP-2: consumo medio del ordenador de a bordo (dos decimales, sin unidad).
+  const consumption = (value: string | null) => fmtConsumption(value, lang)
   const relative = (dateStr: string) => t.relative(daysUntil(dateStr))
   const linkReasonLabel = useMemo(
     () => Object.fromEntries(t.linkReasonOptions.map((o) => [o.value, o.label])),
@@ -1385,26 +1383,26 @@ export function VehicleDetailPage() {
             accent="teal"
           />
         </button>
-        {/* GAP-2: gasto de combustible del MES en curso (litros e importe).
-            Como su tarjeta no está en la ficha, abre «Kilómetros y
-            combustible» por su pestaña, que es donde se registra. */}
+        {/* GAP-2: la última anotación del consumo medio (ordenador de a bordo)
+            y de qué día es. Como su tarjeta no está en la ficha, abre
+            «Kilómetros y combustible» por su pestaña, que es donde se anota. */}
         <button
           type="button"
           className="kpi-btn"
-          title={t.fuelMonthHint}
+          title={t.fuelAvgHint}
           onClick={() => setKmFuelOpen('fuel')}
         >
           <StatCard
-            label={t.fuelMonthTitle}
+            label={t.fuelAvgTitle}
             value={
-              summary?.fuel_month_liters != null ? liters(summary.fuel_month_liters) : '—'
+              summary?.fuel_avg_consumption != null
+                ? consumption(summary.fuel_avg_consumption)
+                : '—'
             }
             sub={
-              summary?.fuel_month_liters == null
-                ? t.fuelMonthNone
-                : summary.fuel_month_amount
-                  ? eurCents(summary.fuel_month_amount)
-                  : t.fuelMonthNoAmount
+              summary?.fuel_avg_date
+                ? t.fuelAvgSub(fmtDate(summary.fuel_avg_date, lang))
+                : t.fuelAvgNone
             }
             accent="navy"
           />

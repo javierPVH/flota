@@ -32,15 +32,15 @@ describe('RegisterFuelModal · client_ref estable (R5-50)', () => {
     // Un error HTTP (no de red) pinta el aviso; el conductor vuelve a pulsar.
     mocks.addFuelEntry
       .mockRejectedValueOnce(Object.assign(new Error('Bad Gateway'), { status: 502 }))
-      .mockResolvedValueOnce({ id: 5, period: '2026-09-01', liters: '40.00' })
+      .mockResolvedValueOnce({ id: 5, reading_date: '2026-09-14', avg_consumption: '6.80' })
     const onSaved = vi.fn()
     render(
       <LanguageProvider>
         <RegisterFuelModal vehicle={VEHICLE} summary={null} onClose={vi.fn()} onSaved={onSaved} />
       </LanguageProvider>,
     )
-    await userEvent.type(screen.getByLabelText(/Litros repostados/), '40')
-    const save = screen.getByRole('button', { name: 'Guardar gasto' })
+    await userEvent.type(screen.getByLabelText(/Consumo medio real en ese momento/), '6,8')
+    const save = screen.getByRole('button', { name: 'Guardar consumo' })
     await userEvent.click(save)
     await screen.findByRole('alert')
     await userEvent.click(save)

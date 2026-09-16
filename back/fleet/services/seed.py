@@ -1800,66 +1800,40 @@ def seed_operations(stdout=None) -> None:
             details=details,
         )
 
-    # GAP-2: consumo mensual de combustible — 6 meses de serie para el vehículo
-    # de referencia y 4 para tres de volumen con tarjeta, con importe en la
-    # mayoría (el extracto lo trae) y algún mes solo con litros.
+    # GAP-2: anotaciones del consumo medio (lo que marcaba el ordenador de a
+    # bordo, en l/km o kWh/km) — seis para el vehículo de referencia, dos para
+    # el de la supervisora y cuatro para tres de volumen. Con día, no por mes.
     wipe(FuelConsumption, stdout)
     v1 = Vehicle.objects.get(plate="1234KLM")
-    primero_de_mes = today.replace(day=1)
-    for back_months, liters, amount in (
-        (1, "512.40", "742.98"),
-        (2, "498.10", "722.24"),
-        (3, "531.75", "770.15"),
-        (4, "455.00", None),  # mes sin importe: la tarjeta no lo trajo
-        (5, "506.20", "731.90"),
-        (6, "489.90", "708.30"),
+    for back_days, avg in (
+        (3, "7.10"),
+        (19, "6.85"),
+        (41, "7.40"),
+        (63, "6.95"),
+        (88, "7.20"),
+        (112, "7.05"),
     ):
-        mes = primero_de_mes
-        for _ in range(back_months):
-            mes = (mes - timedelta(days=1)).replace(day=1)
         FuelConsumption.objects.create(
-            vehicle=v1,
-            period=mes,
-            liters=Decimal(liters),
-            amount=Decimal(amount) if amount else None,
-            source=FuelConsumption.Source.FUEL_CARD,
+            vehicle=v1, reading_date=today - timedelta(days=back_days), avg_consumption=Decimal(avg)
         )
     # El coche de la supervisora (7890NPQ) es el escaparate del tablero: lleva
-    # el gasto del MES EN CURSO (el div informativo, la columna de gestión y la
-    # pista «este mes ya llevas…» del modal de campo salen de aquí) y el del
-    # mes anterior, con origen MANUAL — apuntado en campo, no volcado de la
-    # tarjeta.
+    # una anotación RECIENTE (el KPI de la ficha, la columna de gestión y la
+    # pista «última anotación» del modal de campo salen de aquí) y otra
+    # anterior.
     v3_fuel = Vehicle.objects.get(plate="7890NPQ")
-    for back_months, liters, amount in ((0, "58.40", "79.90"), (1, "184.20", "251.30")):
-        mes = primero_de_mes
-        for _ in range(back_months):
-            mes = (mes - timedelta(days=1)).replace(day=1)
+    for back_days, avg in ((2, "5.60"), (27, "5.90")):
         FuelConsumption.objects.create(
             vehicle=v3_fuel,
-            period=mes,
-            liters=Decimal(liters),
-            amount=Decimal(amount),
-            source=FuelConsumption.Source.MANUAL,
+            reading_date=today - timedelta(days=back_days),
+            avg_consumption=Decimal(avg),
         )
-    for i in (0, 3, 6):  # vehículos de volumen con tarjeta (idx % 3 == 0)
+    for i in (0, 3, 6):  # vehículos de volumen (idx % 3 == 0)
         vehiculo = Vehicle.objects.get(plate=_bulk_plate(i))
-        for back_months in range(1, 5):
-            mes = primero_de_mes
-            for _ in range(back_months):
-                mes = (mes - timedelta(days=1)).replace(day=1)
+        for k in range(1, 5):
             FuelConsumption.objects.create(
                 vehicle=vehiculo,
-                period=mes,
-                liters=Decimal(str(120 + i * 15 + back_months * 7)),
-                amount=Decimal(str((120 + i * 15 + back_months * 7) * 1.45)).quantize(
-                    Decimal("0.01")
-                ),
-                # Uno manual, el resto de la tarjeta: se ven ambos orígenes.
-                source=(
-                    FuelConsumption.Source.MANUAL
-                    if back_months == 4
-                    else FuelConsumption.Source.FUEL_CARD
-                ),
+                reading_date=today - timedelta(days=k * 23 + i),
+                avg_consumption=Decimal(str(6 + i * 0.3 + k * 0.15)).quantize(Decimal("0.01")),
             )
 
     # GAP-8: el catálogo COMÚN de programas y, por vehículo, UNO programado.
@@ -2404,8 +2378,10 @@ def seed_erratas(stdout=None) -> None:
     retirar(taller_cerrado, "Taller cerrado: ya no se cita allí")
 
     # GAP-2/GAP-8: un consumo tecleado dos veces y un plan duplicado.
-    consumo_viejo = FuelConsumption.objects.filter(is_active=True).order_by("period", "id").first()
-    retirar(consumo_viejo, "Cifra duplicada al volcar el extracto de la tarjeta")
+    consumo_viejo = (
+        FuelConsumption.objects.filter(is_active=True).order_by("reading_date", "id").first()
+    )
+    retirar(consumo_viejo, "Se anotó el consumo acumulado del coche, no el del último trayecto")
     programa_duplicado, _ = MaintenanceProgram.objects.get_or_create(
         name="Revisión general (duplicado)",
         defaults={"every_months": 12},

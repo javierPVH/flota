@@ -216,7 +216,7 @@ const es = {
     thInsurance: 'Seguro',
     // Cómo va el coche: odómetro (con lo que lleva sin leerse) y gasto del mes.
     thKm: 'Kilómetros',
-    thFuel: 'Combustible (mes)',
+    thFuel: 'Consumo medio',
     kmNoReading: 'Sin lecturas',
     kmStale: (n: number) => `${n} día${n === 1 ? '' : 's'} sin lectura`,
     // Fila desplegable: el coche que está cubriendo a este.
@@ -531,7 +531,7 @@ const en: typeof es = {
     thSupervisor: 'Supervisor',
     thItv: 'Next MOT',
     thKm: 'Mileage',
-    thFuel: 'Fuel (month)',
+    thFuel: 'Average consumption',
     kmNoReading: 'No readings',
     kmStale: (n: number) => `${n} day${n === 1 ? '' : 's'} without a reading`,
     subRow: 'Substitute vehicle',

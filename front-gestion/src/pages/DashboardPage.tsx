@@ -22,10 +22,10 @@ import {
 } from '../api.ts'
 import {
   dueClass,
+  fmtConsumption,
   fmtDate,
   fmtEur,
   fmtKm,
-  fmtLiters,
   itvClass,
   todayIso,
   vehicleStateTone,
@@ -811,7 +811,7 @@ export function DashboardPage() {
         </span>
         <span className="sub-row-item">
           <span className="muted">{t.home.thFuel}: </span>
-          {sub.fuel_month_liters == null ? '—' : fmtLiters(sub.fuel_month_liters, language)}
+          {sub.fuel_avg_consumption == null ? '—' : fmtConsumption(sub.fuel_avg_consumption, language)}
           {sub.fuel ? <span className="muted"> · {sub.fuel}</span> : null}
         </span>
         <span className="sub-row-item">
@@ -1052,18 +1052,22 @@ export function DashboardPage() {
       ),
     },
     {
-      // GAP-2: LITROS del mes en curso y, debajo, de qué se reposta (GAP-1, el
-      // tipo del catálogo). Sin el importe: lo que se sigue aquí es el consumo,
-      // y el gasto se mira donde se factura. Ordena por litros, que es la cifra.
-      key: 'fuel_month',
+      // GAP-2: la ÚLTIMA anotación del consumo medio (ordenador de a bordo,
+      // l/km o kWh/km) y, debajo, de qué reposta (GAP-1, el tipo del catálogo)
+      // y de qué día es. Ordena por la cifra.
+      key: 'fuel_avg',
       label: t.home.thFuel,
-      getValue: (v) => Number(v.fuel_month_liters ?? 0),
+      getValue: (v) => Number(v.fuel_avg_consumption ?? 0),
       render: (v) => (
         <div className="stack-cell">
           <strong>
-            {v.fuel_month_liters == null ? '—' : fmtLiters(v.fuel_month_liters, language)}
+            {v.fuel_avg_consumption == null ? '—' : fmtConsumption(v.fuel_avg_consumption, language)}
           </strong>
-          <span className="stack-cell-sub muted">{v.fuel || '—'}</span>
+          <span className="stack-cell-sub muted">
+            {[v.fuel, v.fuel_avg_date ? fmtDate(v.fuel_avg_date, language) : '']
+              .filter(Boolean)
+              .join(' · ') || '—'}
+          </span>
         </div>
       ),
     },

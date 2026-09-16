@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   createKmReading: vi.fn(),
   listFuelConsumptions: vi.fn(),
   createFuelConsumption: vi.fn(),
-  updateFuelConsumption: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -21,7 +20,6 @@ vi.mock('../api.ts', async (importOriginal) => ({
   createKmReading: mocks.createKmReading,
   listFuelConsumptions: mocks.listFuelConsumptions,
   createFuelConsumption: mocks.createFuelConsumption,
-  updateFuelConsumption: mocks.updateFuelConsumption,
 }))
 
 const page = (rows: unknown[]) => ({ count: rows.length, next: null, previous: null, results: rows })
@@ -32,11 +30,8 @@ const FUEL_ROW = {
   id: 3,
   vehicle: 21,
   vehicle_plate: '1234KLM',
-  period: '2026-07-01',
-  liters: '80.00',
-  amount: '120.00',
-  source: 'manual',
-  source_display: 'Manual',
+  reading_date: '2026-07-14',
+  avg_consumption: '6.80',
 }
 
 function renderModal() {
@@ -60,7 +55,6 @@ describe('KmFuelModal (kilómetros y combustible)', () => {
     mocks.listFuelConsumptions.mockResolvedValue(page([FUEL_ROW]))
     mocks.createKmReading.mockReset()
     mocks.createFuelConsumption.mockReset()
-    mocks.updateFuelConsumption.mockReset()
   })
 
   it('la pestaña de kilómetros enseña la última lectura y registra la nueva', async () => {
@@ -85,42 +79,43 @@ describe('KmFuelModal (kilómetros y combustible)', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/Lectura registrada/)
   })
 
-  it('el combustible es mensual: mes nuevo crea, mes ya registrado actualiza', async () => {
+  it('el combustible es el consumo medio del ordenador de a bordo, con día y su nota', async () => {
     mocks.createFuelConsumption.mockResolvedValue({})
-    mocks.updateFuelConsumption.mockResolvedValue({})
     renderModal()
 
     await userEvent.click(screen.getByRole('tab', { name: 'Combustible' }))
-    // La serie reciente sale listada.
-    expect(await screen.findByText('2026-07')).toBeInTheDocument()
+    // La nota dice qué cifra se anota (y cuál no).
+    expect(
+      screen.getByText(/anota el consumo medio que marca el ordenador de a bordo/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/NO anotes el "consumo histórico"/)).toBeInTheDocument()
+    // Las últimas anotaciones salen con su DÍA y su cifra.
+    const historico = document.querySelector('.kmfuel-months') as HTMLElement
+    expect(within(historico).getByText('14 jul 2026')).toBeInTheDocument()
+    expect(within(historico).getByText('6,80')).toBeInTheDocument()
 
-    // Sin importe: aquí solo se registran litros (el importe va por la ficha).
+    // Ni litros, ni importe, ni origen.
+    expect(screen.queryByRole('spinbutton', { name: /Litros/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('spinbutton', { name: /Importe/ })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Origen/)).not.toBeInTheDocument()
 
-    // La fecha se elige con DÍA (el back normaliza el periodo al mes).
+    // La fecha se elige con DÍA.
     const fecha = screen.getByLabelText('Fecha') as HTMLInputElement
     expect(fecha.type).toBe('date')
-
-    // Mes NUEVO → alta con origen manual.
     await userEvent.clear(fecha)
     await userEvent.type(fecha, '2026-08-14')
-    await userEvent.type(screen.getByRole('spinbutton', { name: 'Litros' }), '95.5')
+    await userEvent.type(
+      screen.getByRole('spinbutton', {
+        name: 'Consumo medio real en ese momento (l/km o kWh/km)',
+      }),
+      '7.15',
+    )
     await userEvent.click(screen.getByRole('button', { name: 'Guardar consumo' }))
     expect(mocks.createFuelConsumption).toHaveBeenCalledWith({
       vehicle: 21,
-      period: '2026-08-14',
-      liters: '95.5',
-      source: 'manual',
+      reading_date: '2026-08-14',
+      avg_consumption: '7.15',
     })
-    expect(await screen.findByRole('status')).toHaveTextContent(/guardado/i)
-
-    // Mes YA registrado → se ACTUALIZA su fila (no se duplica) y el importe
-    // que tuviera guardado NO se pisa.
-    await userEvent.clear(fecha)
-    await userEvent.type(fecha, '2026-07-20')
-    await userEvent.type(screen.getByRole('spinbutton', { name: 'Litros' }), '82')
-    await userEvent.click(screen.getByRole('button', { name: 'Guardar consumo' }))
-    expect(mocks.updateFuelConsumption).toHaveBeenCalledWith(3, { liters: '82' })
-    expect(await screen.findByRole('status')).toHaveTextContent(/actualizado/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/anotado/i)
   })
 })

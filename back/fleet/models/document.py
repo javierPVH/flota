@@ -87,6 +87,14 @@ class Document(DeactivatableModel, TimeStampedModel):
         help_text="Versión anterior a la que reemplaza este documento.",
     )
     notes = models.TextField("Notas", blank=True)
+    drive_missing_at = models.DateTimeField(
+        "Archivo no encontrado desde",
+        null=True,
+        blank=True,
+        help_text="Momento en que la comprobación de existencia no encontró el archivo donde "
+        "se archivó (Drive o disco). Vacío si existe o si no se ha podido comprobar. Un "
+        "documento así se puede borrar definitivamente desde la propia lista.",
+    )
 
     class Meta:
         verbose_name = "documento"

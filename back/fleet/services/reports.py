@@ -213,25 +213,23 @@ def _km_table(user, filters: dict | None = None, vehicle_ids=None) -> Table:
 
 
 def _fuel_table(user, filters: dict | None = None, vehicle_ids=None) -> Table:
-    """GAP-2: consumo mensual de combustible — el dato de actividad de HSE."""
+    """GAP-2: anotaciones del consumo medio (ordenador de a bordo), con su día."""
     if vehicle_ids is None:
         vehicle_ids = vehicles_for(user).values("id")
     consumptions = (
         FuelConsumption.objects.filter(vehicle_id__in=vehicle_ids, is_active=True)
         .select_related("vehicle")
-        .order_by("-period", "vehicle__plate")
+        .order_by("-reading_date", "-pk", "vehicle__plate")
     )
     vehicle = _pick(filters, "vehicle")
     if vehicle:
         consumptions = consumptions.filter(vehicle_id=vehicle)
-    headers = ["Vehículo", "Mes", "Litros", "Importe", "Origen"]
+    headers = ["Vehículo", "Fecha", "Consumo medio real (l/km o kWh/km)"]
     rows = [
         [
             c.vehicle.plate if c.vehicle_id else "",
-            f"{c.period:%Y-%m}",
-            c.liters,
-            c.amount if c.amount is not None else "",
-            c.get_source_display(),
+            _d(c.reading_date),
+            c.avg_consumption,
         ]
         for c in consumptions
     ]
@@ -919,21 +917,16 @@ def _ficha_extras(vehicle_ids: list[int], sections: list[str]) -> tuple[list[str
         add("Fecha de la última lectura", {k: _d(r.reading_date) for k, r in ultima.items()})
 
     def _fuel() -> None:
-        desde = add_months(today.replace(day=1), -11)  # 12 meses naturales
-        consumo = {
-            row[0]: row
-            for row in FuelConsumption.objects.filter(
-                vehicle_id__in=vehicle_ids, is_active=True, period__gte=desde
-            )
-            .values_list("vehicle_id")
-            .annotate(litros=Sum("liters"), importe=Sum("amount"))
-            .order_by()
-        }
-        add("Litros (12 meses)", {k: v[1] for k, v in consumo.items()})
+        # La última anotación del consumo medio por vehículo (una consulta,
+        # la misma que alimenta el KPI y la columna del listado).
+        from .metrics import fuel_latest_map
+
+        ultimo = fuel_latest_map(list(vehicle_ids))
         add(
-            "Gasto en combustible (12 meses)",
-            {k: v[2] if v[2] is not None else "" for k, v in consumo.items()},
+            "Consumo medio (última anotación, l/km o kWh/km)",
+            {k: v["avg_consumption"] for k, v in ultimo.items()},
         )
+        add("Fecha del consumo medio", {k: _d(v["reading_date"]) for k, v in ultimo.items()})
 
     def _events() -> None:
         add(

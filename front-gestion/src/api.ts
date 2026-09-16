@@ -340,28 +340,26 @@ export const updateCatalogEntry = (
 ) => patchJson<CatalogEntry>(`${API}/${resource}/${id}/`, data)
 
 // N7: DELETE desactiva en el back; el motivo viaja como query.
-// --- GAP-2: consumo mensual de combustible ---------------------------------
+// --- GAP-2: consumo medio (ordenador de a bordo) ----------------------------
 
+/** Una ANOTACIÓN del consumo medio que marcaba el ordenador de a bordo en una
+ * fecha con día (l/km o kWh/km; el del último trayecto o ciclo de repostaje,
+ * no el acumulado). Ni litros, ni importe, ni origen: la serie mensual se
+ * retiró. */
 export interface FuelConsumption {
   id: number
   vehicle: number
   vehicle_plate: string
-  /** Día 1 del mes (la fila es EL MES). */
-  period: string
-  liters: string
-  amount: string | null
-  source: 'fuel_card' | 'manual' | 'import'
-  source_display: string
+  reading_date: string
+  avg_consumption: string
   created_at: string
   updated_at: string
 }
 
 export interface FuelConsumptionInput extends Record<string, unknown> {
   vehicle: number
-  period: string
-  liters: string
-  amount?: string | null
-  source?: string
+  reading_date: string
+  avg_consumption: string
 }
 
 export const listFuelConsumptions = (
@@ -1079,6 +1077,21 @@ export const updateDocument = (id: number, data: Partial<DocumentInput> & { stat
 export const deleteDocument = (id: number, reason = '') =>
   deleteJson(`${API}/documents/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
 
+/** Comprueba en Drive (o en disco) que los archivos de los documentos de un
+ * titular siguen existiendo. `checked` son los que se pudieron comprobar y
+ * `missing` los que ya no están (el back los marca en `drive_missing_at`). */
+export const verifyDocuments = (owner: { vehicle?: number; user?: number }) =>
+  postJson<{ checked: number[]; missing: number[] }>(`${API}/documents/verify/`, owner)
+
+/** Borrado DEFINITIVO desde la lista: solo de un documento cuyo archivo ya no
+ * existe (el back lo exige). Lo demás se elimina (erratas) y lo purga el
+ * superusuario desde allí. */
+export const purgeDocument = (id: number) =>
+  postJson<{ purged: boolean; id: number; external_deleted: boolean }>(
+    `${API}/documents/${id}/purge/`,
+    {},
+  )
+
 export interface IncidentFilters {
   vehicle?: number
   type?: string
@@ -1247,6 +1260,8 @@ export interface PurgeResult {
   label?: string
   /** Qué se llevaría (o se llevó) la cascada, por modelo. */
   cascade: CascadeLine[]
+  /** Documentos: además de la fila se borra su archivo en Google Drive. */
+  external_file?: boolean
 }
 
 /**

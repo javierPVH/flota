@@ -65,8 +65,8 @@ const VEHICLE = {
   km_current: 53730,
   km_reading_date: '2026-09-10',
   km_estimated: false,
-  fuel_month_liters: '55.50',
-  fuel_month_amount: '77.00',
+  fuel_avg_consumption: '6.80',
+  fuel_avg_date: '2026-09-10',
   fuel: 'Diésel',
 }
 
@@ -94,8 +94,8 @@ const SUBSTITUTE = {
   driver_name: '',
   km_current: 1200,
   km_reading_date: null,
-  fuel_month_liters: null,
-  fuel_month_amount: null,
+  fuel_avg_consumption: null,
+  fuel_avg_date: null,
 }
 
 const LINK = {
@@ -294,11 +294,10 @@ describe('DashboardPage (vista general)', () => {
     // entorno de pruebas solo si se congela; por eso se busca por patrón).
     expect(await screen.findByText('53.730 km')).toBeInTheDocument()
     expect(screen.getByText(/sin lectura/)).toBeInTheDocument()
-    // Combustible: litros del mes arriba y el TIPO debajo. El importe no se
-    // pinta.
-    expect(screen.getByText('55,50 l')).toBeInTheDocument()
-    expect(screen.getByText('Diésel')).toBeInTheDocument()
-    expect(screen.queryByText(/77,00/)).toBeNull()
+    // Consumo medio: la última anotación arriba y, debajo, el TIPO y el día.
+    expect(screen.getByText('6,80')).toBeInTheDocument()
+    expect(screen.getByText(/Diésel · 10 sept 2026/)).toBeInTheDocument()
+    expect(screen.queryByText(/Litros|Importe/)).toBeNull()
   })
 
   it('un coche cubierto despliega a su sustituto; el que no lo está, no', async () => {

@@ -8,10 +8,9 @@ import {
   listAll,
   listFuelConsumptions,
   listKmReadingsAll,
-  updateFuelConsumption,
   type FuelConsumption,
 } from '../api.ts'
-import { fmtDate, fmtKm, todayIso } from '../format.ts'
+import { fmtConsumption, fmtDate, fmtKm, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import type { KmReading, Vehicle } from '../types.ts'
@@ -27,9 +26,11 @@ interface Props {
 /**
  * Kilómetros y combustible del vehículo (menú ⋮), en dos pestañas:
  * — Kilómetros: registrar una lectura (HU-3.x; la del mes cierra su aviso).
- * — Combustible: la serie MENSUAL de consumo (GAP-2, solo litros; el importe
- *   se gestiona desde la ficha del vehículo y aquí NO se toca al actualizar);
- *   guardar sobre un mes ya registrado lo ACTUALIZA en vez de duplicarlo.
+ * — Combustible: ANOTAR el consumo medio que marca el ordenador de a bordo
+ *   (GAP-2, l/km o kWh/km) en una fecha con día. Cada anotación es una fila:
+ *   ni litros, ni importe, ni origen, ni una cifra por mes. La nota de arriba
+ *   es la misma que lee el conductor en la PWA: el consumo del último
+ *   trayecto o ciclo de repostaje, no el histórico del coche.
  */
 export function KmFuelModal({ vehicle, initialTab = 'km', onClose, onDone }: Props) {
   const t = useVehiclesCopy().kmFuel
@@ -59,15 +60,18 @@ export function KmFuelModal({ vehicle, initialTab = 'km', onClose, onDone }: Pro
 
   // --- Combustible (GAP-2) ---------------------------------------------------
   const [fuelRows, setFuelRows] = useState<FuelConsumption[] | null>(null)
-  // Fecha con día: es lo que se elige (y lo que se recuerda de un repostaje),
-  // aunque la fila siga siendo EL MES —el back normaliza `period` al día 1—.
   const [fuelDate, setFuelDate] = useState(todayIso())
-  const month = fuelDate.slice(0, 7)
-  const [liters, setLiters] = useState('')
+  const [consumption, setConsumption] = useState('')
 
   const loadFuel = useCallback(() => {
     listAll(listFuelConsumptions({ vehicle: vehicle.id }))
-      .then((rows) => setFuelRows([...rows].sort((a, b) => b.period.localeCompare(a.period))))
+      .then((rows) =>
+        setFuelRows(
+          [...rows].sort(
+            (a, b) => b.reading_date.localeCompare(a.reading_date) || b.id - a.id,
+          ),
+        ),
+      )
       .catch(() => setFuelRows([]))
   }, [vehicle.id])
   useEffect(() => {
@@ -107,24 +111,15 @@ export function KmFuelModal({ vehicle, initialTab = 'km', onClose, onDone }: Pro
     setSaving(true)
     setError('')
     setNotice('')
-    // El mes es la clave de la serie: si ya está registrado, se actualiza.
-    const existing = (fuelRows ?? []).find((row) => row.period.slice(0, 7) === month)
     try {
-      if (existing) {
-        // Solo los litros: el importe que tuviera la fila se conserva.
-        await updateFuelConsumption(existing.id, { liters })
-        setNotice(t.fuelUpdated)
-      } else {
-        await createFuelConsumption({
-          vehicle: vehicle.id,
-          // El back lo normaliza al día 1: la serie es mensual.
-          period: fuelDate,
-          liters,
-          source: 'manual',
-        })
-        setNotice(t.fuelSaved)
-      }
-      setLiters('')
+      // Cada anotación es una fila nueva: dos del mismo día son dos lecturas.
+      await createFuelConsumption({
+        vehicle: vehicle.id,
+        reading_date: fuelDate,
+        avg_consumption: consumption,
+      })
+      setNotice(t.fuelSaved)
+      setConsumption('')
       loadFuel()
       onDone()
     } catch (err) {
@@ -234,17 +229,22 @@ export function KmFuelModal({ vehicle, initialTab = 'km', onClose, onDone }: Pro
 
       {tab === 'fuel' && (
         <form className="ops-form" onSubmit={submitFuel}>
-          <p className="muted ops-note">{t.fuelHint}</p>
-          {/* Primero cuánto y luego cuándo, en la misma línea. */}
+          {/* Qué cifra se anota: la misma nota que lee el conductor en la PWA. */}
+          <p className="ops-note kmfuel-note">
+            {t.fuelNoteLead}
+            <br />
+            <strong>{t.fuelNoteWarn}</strong>
+          </p>
+          {/* Primero cuánto y luego cuándo (con día), en la misma línea. */}
           <div className="kmfuel-row">
             <TextInputField
-              label={t.litersLabel}
-              aria-label={t.litersLabel}
+              label={t.consumptionLabel}
+              aria-label={t.consumptionLabel}
               type="number"
               min={0}
               step="0.01"
-              value={liters}
-              onChange={(e) => setLiters(e.target.value)}
+              value={consumption}
+              onChange={(e) => setConsumption(e.target.value)}
               required
             />
             <TextInputField
@@ -257,7 +257,7 @@ export function KmFuelModal({ vehicle, initialTab = 'km', onClose, onDone }: Pro
               required
             />
           </div>
-          {/* Los últimos meses registrados, para ver la serie de un vistazo. */}
+          {/* Las últimas anotaciones, para ver la serie de un vistazo. */}
           <p className="ops-field-label">{t.recentTitle}</p>
           {fuelRows !== null && fuelRows.length === 0 ? (
             <p className="muted ops-note">{t.fuelEmpty}</p>
@@ -265,8 +265,8 @@ export function KmFuelModal({ vehicle, initialTab = 'km', onClose, onDone }: Pro
             <ul className="kmfuel-months">
               {(fuelRows ?? []).slice(0, 10).map((row) => (
                 <li key={row.id}>
-                  <span>{row.period.slice(0, 7)}</span>
-                  <span>{Number(row.liters).toLocaleString(language)} L</span>
+                  <span>{fmtDate(row.reading_date, language)}</span>
+                  <span>{fmtConsumption(row.avg_consumption, language)}</span>
                 </li>
               ))}
             </ul>
@@ -275,7 +275,7 @@ export function KmFuelModal({ vehicle, initialTab = 'km', onClose, onDone }: Pro
             <Button type="button" variant="secondary" onClick={onClose}>
               {t.cancel}
             </Button>
-            <Button type="submit" variant="primary" disabled={saving || !liters.trim()}>
+            <Button type="submit" variant="primary" disabled={saving || !consumption.trim()}>
               {saving ? t.saving : t.fuelSave}
             </Button>
           </div>

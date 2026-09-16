@@ -42,6 +42,17 @@ export function fmtLiters(value: string | number | null, lang: AppLanguage = 'es
   })} l`
 }
 
+/** GAP-2: consumo medio del ordenador de a bordo ("6,80"). Sin unidad: es
+ * l/km o kWh/km según de qué reposte el coche, y eso lo dice el tipo de
+ * combustible que va al lado. */
+export function fmtConsumption(value: string | number | null, lang: AppLanguage = 'es'): string {
+  if (value === null || value === '') return '—'
+  return Number(value).toLocaleString(LOCALE[lang], {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
 export function fmtKm(value: number, lang: AppLanguage = 'es'): string {
   // useGrouping: true → SIEMPRE separador de miles (por defecto "min2" deja los
   // 4 dígitos sin punto: 3628 vs 53.730). Humanizamos todas las cifras.
