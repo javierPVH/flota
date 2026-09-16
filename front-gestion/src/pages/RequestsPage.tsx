@@ -51,10 +51,10 @@ export function RequestsPage() {
 
   /** Origen de la solicitud: el portón self-service entra `pending` con ticket;
    * la importación de Jira entra ya `approved`. */
-  const originOf = (request: VehicleRequestRow): string => {
+  const originOf = useCallback((request: VehicleRequestRow): string => {
     if (request.status === 'pending') return t.originSelfService
     return request.jira_key ? 'Jira' : t.originManual
-  }
+  }, [t.originManual, t.originSelfService])
 
   // R3-30: `t` por ref — con el mensaje en las deps, el botón es/en
   // re-descargaba la bandeja entera (el diccionario solo pinta el error).
@@ -87,9 +87,9 @@ export function RequestsPage() {
   const filtered = statusFilter ? requests.filter((r) => r.status === statusFilter) : requests
   // O4: Map memoizada — el `find()` por celda era O(filas × vehículos).
   const plateById = useMemo(() => new Map(vehicles.map((v) => [v.id, v.plate])), [vehicles])
-  const plateOf = (id: number) => plateById.get(id) ?? `#${id}`
+  const plateOf = useCallback((id: number) => plateById.get(id) ?? `#${id}`, [plateById])
 
-  function openGrant(request: VehicleRequestRow) {
+  const openGrant = useCallback((request: VehicleRequestRow) => {
     setGranting(request)
     // Preselección amable: primer vehículo libre del tipo solicitado.
     const candidate = vehicles.find(
@@ -97,7 +97,7 @@ export function RequestsPage() {
     )
     setGrantVehicle(candidate ? String(candidate.id) : '')
     setGrantError('')
-  }
+  }, [vehicles])
 
   async function submitGrant(event: FormEvent) {
     event.preventDefault()
@@ -119,7 +119,7 @@ export function RequestsPage() {
     }
   }
 
-  async function handleReject(request: VehicleRequestRow) {
+  const handleReject = useCallback(async (request: VehicleRequestRow) => {
     if (
       !(await confirm({
         message: t.rejectConfirm(request.requester_name || request.jira_key),
@@ -137,9 +137,9 @@ export function RequestsPage() {
     } finally {
       setBusyId(null)
     }
-  }
+  }, [confirm, load, t])
 
-  const columns: Array<TableWithPanelColumn<VehicleRequestRow>> = [
+  const columns = useMemo<Array<TableWithPanelColumn<VehicleRequestRow>>>(() => [
     {
       key: 'requester',
       label: t.columns.requester,
@@ -229,7 +229,7 @@ export function RequestsPage() {
           </div>
         ) : null,
     },
-  ]
+  ], [busyId, handleReject, openGrant, originOf, plateOf, t.columns.actions, t.columns.dates, t.columns.jiraKey, t.columns.origin, t.columns.requester, t.columns.status, t.columns.type, t.columns.vehicle, t.grantAction, t.noRequesterTitle, t.rejectAction, t.typeLabel])
 
   return (
     <div>

@@ -107,7 +107,6 @@ const es = {
   destBoth: 'Correo y Drive',
   never: 'Todavía no',
   paused: 'En pausa',
-  statusOk: 'Enviado',
   statusFailed: 'Falló',
 
   // Acciones
@@ -234,7 +233,6 @@ const en: typeof es = {
   destBoth: 'Email and Drive',
   never: 'Not yet',
   paused: 'Paused',
-  statusOk: 'Sent',
   statusFailed: 'Failed',
 
   save: 'Save',

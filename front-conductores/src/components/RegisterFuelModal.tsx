@@ -84,6 +84,10 @@ export function RegisterFuelModal({
   const [liters, setLiters] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // R5-50: UNA referencia por captura, no por pulsación. Si el POST llegó pero
+  // la respuesta se perdió (502/504/429), el reintento manual manda la misma y
+  // el back no vuelve a sumar los litros. El modal se remonta al cerrarse.
+  const [clientRef] = useState(newClientRef)
 
   const litersValue = asNumber(liters)
   const litersOk = litersValue !== null && !Number.isNaN(litersValue) && litersValue > 0
@@ -102,7 +106,7 @@ export function RegisterFuelModal({
       period: `${todayIso().slice(0, 7)}-01`,
       // R3-34: misma referencia en el intento directo y en el reenvío — si la
       // respuesta se perdió por el camino, el back no vuelve a sumar.
-      client_ref: newClientRef(),
+      client_ref: clientRef,
     }
     try {
       await addFuelEntry(payload)

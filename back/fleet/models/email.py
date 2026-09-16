@@ -113,7 +113,7 @@ class EmailLog(TimeStampedModel):
     class Meta:
         verbose_name = "envío de correo"
         verbose_name_plural = "envíos de correo"
-        ordering = ["-created_at"]
+        ordering = ["-created_at", "-pk"]  # R3-23/R5-19: desempate estable
 
     def __str__(self) -> str:
         return f"{self.recipient} · {self.get_status_display()}"

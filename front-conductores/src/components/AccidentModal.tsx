@@ -9,6 +9,7 @@ import type { IncidentInput } from '../api.ts'
 import { todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { enqueueIncidentWithFiles, isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
+import { compressImage } from '../offline/images.ts'
 import type { Vehicle } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
@@ -64,6 +65,9 @@ export function AccidentModal({
   const [injuredPeople, setInjuredPeople] = useState<InjuredPerson[]>([])
   const [reportFile, setReportFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
+  // R5-50: UNA referencia por captura (parte y archivo), no por pulsación: el
+  // reintento manual tras un 502/504 manda la misma y el back no duplica.
+  const [refs] = useState(() => ({ incident: newClientRef(), document: newClientRef() }))
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
 
@@ -100,7 +104,7 @@ export function AccidentModal({
         injured_people: injuredPeople,
       },
       // R3-34: misma referencia en el intento directo y en el reenvío offline.
-      client_ref: newClientRef(),
+      client_ref: refs.incident,
     }
     try {
       const incident = await createIncident(payload)
@@ -110,7 +114,7 @@ export function AccidentModal({
           vehicle: vehicle.id,
           incident: incident.id,
           type: 'accident_report',
-          client_ref: newClientRef(),
+          client_ref: refs.document,
         }
         try {
           await uploadDocument(docPayload, reportFile)
@@ -219,7 +223,11 @@ export function AccidentModal({
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
-              onChange={(e) => setReportFile(e.target.files?.[0] ?? null)}
+              // R5-54: la foto se comprime al elegirla (los PDF no se tocan).
+              onChange={async (e) => {
+                const f = e.target.files?.[0]
+                setReportFile(f ? await compressImage(f) : null)
+              }}
             />
           </label>
           {error && <div role="alert" className="form-error">{error}</div>}

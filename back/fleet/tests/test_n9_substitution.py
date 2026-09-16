@@ -7,8 +7,8 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Vehicle, VehicleLink
-from fleet.models.enums import VehicleState
+from fleet.models import Incident, Vehicle, VehicleLink
+from fleet.models.enums import IncidentStatus, IncidentType, VehicleState
 from fleet.services import metrics
 
 from .helpers import make_user
@@ -117,6 +117,81 @@ class SubstitutionRulesTests(APITestCase):
         self.assertEqual(ok.status_code, status.HTTP_201_CREATED, ok.data)
 
     # --- Cierre del vínculo: hoy, fecha anterior o programado ---------------
+
+    # --- Vuelta al servicio soltando el sustituto ---------------------------
+    #
+    # Es UNA decisión (el sustituto queda libre y el coche vuelve a rodar) que
+    # se toma al cerrar la petición, y entra desde los seis modales de
+    # «Resolver»: por eso es una acción del vehículo y no parte del cierre.
+
+    def _vinculo(self, start="2026-01-10"):
+        return VehicleLink.objects.create(
+            main_vehicle=self.main,
+            substitute_vehicle=self.substitute,
+            reason="maintenance",
+            start_date=date.fromisoformat(start),
+        )
+
+    def _release(self, vehicle=None, **body):
+        return self.client.post(
+            reverse("vehicle-release-substitute", args=[(vehicle or self.main).pk]), body
+        )
+
+    def test_release_frees_the_substitute_and_reactivates(self):
+        link = self._vinculo()
+        resp = self._release()
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(resp.data["link_closed"])
+        self.assertEqual(resp.data["substitute_plate"], "2222BBB")
+        self.assertTrue(resp.data["vehicle_reactivated"])
+        link.refresh_from_db()
+        self.assertIsNotNone(link.end_date)
+        self.main.refresh_from_db()
+        self.assertEqual(self.main.state, VehicleState.ACTIVE)
+        # El sustituto queda libre: ya puede cubrir a otro.
+        self.assertFalse(
+            VehicleLink.objects.filter(
+                substitute_vehicle=self.substitute, end_date__isnull=True
+            ).exists()
+        )
+
+    def test_release_without_link_only_reactivates(self):
+        # Un coche parado sin sustituto: la misma casilla lo devuelve a Activo.
+        resp = self._release()
+        self.assertFalse(resp.data["link_closed"])
+        self.assertTrue(resp.data["vehicle_reactivated"])
+        self.main.refresh_from_db()
+        self.assertEqual(self.main.state, VehicleState.ACTIVE)
+
+    def test_release_keeps_state_while_another_request_blocks(self):
+        # Suelta el sustituto (no tiene por qué seguir retenido) pero NO miente
+        # con el estado: queda otra petición abierta que para el coche.
+        self._vinculo()
+        Incident.objects.create(
+            vehicle=self.main,
+            type=IncidentType.BREAKDOWN,
+            status=IncidentStatus.OPEN,
+            date=date(2026, 1, 12),
+        )
+        resp = self._release()
+        self.assertTrue(resp.data["link_closed"])
+        self.assertFalse(resp.data["vehicle_reactivated"])
+        self.assertEqual(resp.data["blocked_by"]["type_display"], "Avería")
+        self.main.refresh_from_db()
+        self.assertEqual(self.main.state, VehicleState.MAINTENANCE)
+
+    def test_release_on_an_active_vehicle_is_harmless(self):
+        activo = Vehicle.objects.create(
+            plate="4444DDD", brand="a", model="b", state=VehicleState.ACTIVE
+        )
+        resp = self._release(activo)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertFalse(resp.data["vehicle_reactivated"])
+        self.assertFalse(resp.data["link_closed"])
+
+    def test_release_needs_management(self):
+        self.client.force_authenticate(self.driver)
+        self.assertEqual(self._release().status_code, status.HTTP_403_FORBIDDEN)
 
     def test_close_link_rejects_end_before_start(self):
         """Se puede cerrar con fecha pasada, pero nunca antes del inicio."""

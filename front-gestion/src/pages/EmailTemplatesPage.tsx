@@ -36,6 +36,7 @@ import { useAppLang } from '@flota/ui/i18n'
 import { fmtDate } from '../format.ts'
 import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
+import { TemplateVars } from '../components/TemplateVars.tsx'
 import { useEmailTemplatesCopy } from '../translations/emailTemplates.ts'
 
 // Pestaña especial (primera): traza de últimos envíos (EmailLog).
@@ -53,14 +54,6 @@ const TEMPLATE_KEYS = [
 
 // Variables interpolables (allowlist del back — mailer.ALLOWED_VARIABLES).
 // El nombre en claro y qué trae cada una están en la copia (`t.variables`).
-const VARIABLES = [
-  'matricula',
-  'conductor',
-  'empresa',
-  'fecha_vencimiento',
-  'km_exceso',
-  'mensaje',
-] as const
 
 /**
  * N10c — Gestor maestro de plantillas de correo (solo admin).
@@ -163,23 +156,29 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   )
 
   /** Los destinatarios de una fila (el back guarda la lista separada por comas). */
-  const recipientsOf = (log: EmailLogRow) =>
-    log.recipient
-      .split(',')
-      .map((addr) => addr.trim())
-      .filter(Boolean)
+  const recipientsOf = useCallback(
+    (log: EmailLogRow) =>
+      log.recipient
+        .split(',')
+        .map((addr) => addr.trim())
+        .filter(Boolean),
+    [],
+  )
 
   /** ¿Esta dirección es la que se está buscando? */
-  const isHit = (addr: string) =>
-    logTerms.length > 0 && logTerms.some((term) => addr.toLowerCase().includes(term))
+  const isHit = useCallback(
+    (addr: string) =>
+      logTerms.length > 0 && logTerms.some((term) => addr.toLowerCase().includes(term)),
+    [logTerms],
+  )
 
   /** Los destinatarios con los que casan la búsqueda DELANTE: si buscas uno
    * concreto en un envío a diez, no tiene sentido que salga el décimo. */
-  const sortedRecipients = (log: EmailLogRow) => {
+  const sortedRecipients = useCallback((log: EmailLogRow) => {
     const list = recipientsOf(log)
     if (logTerms.length === 0) return list
     return [...list.filter(isHit), ...list.filter((addr) => !isHit(addr))]
-  }
+  }, [isHit, logTerms.length, recipientsOf])
 
   // Últimos envíos filtrados (franja de opciones de la tabla).
   const visibleLogs = useMemo(() => {
@@ -192,7 +191,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   }, [logs, logTerms, t])
 
   // Columnas de la tabla de últimos envíos (mismo estilo que las de vehículos).
-  const logColumns: Array<TableWithPanelColumn<EmailLogRow>> = [
+  const logColumns = useMemo<Array<TableWithPanelColumn<EmailLogRow>>>(() => [
     {
       key: 'created_at',
       label: t.logColumns.date,
@@ -256,7 +255,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         </Badge>
       ),
     },
-  ]
+  ], [isHit, lang, sortedRecipients, t])
 
   // Vuelca la plantilla activa al editor al cambiar DE PLANTILLA (no en cada
   // recarga: A9). Se vuelve siempre al castellano: es la versión de referencia.
@@ -602,30 +601,12 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         {/* Las variables, con su nombre en claro: se pulsan y se pegan donde
             se estaba escribiendo. Antes eran un desplegable de la barra del
             editor, que solo servía para el cuerpo y no decía qué traía cada
-            una (el asunto había que teclearlo a mano: «· {{matricula}}»). */}
-        <div className="tpl-vars">
-          <div className="tpl-vars-head">
-            <strong>{t.variablesTitle}</strong>
-            <span className="tpl-vars-target">
-              {varTarget === 'subject' ? t.variablesTarget.subject : t.variablesTarget.body}
-            </span>
-            <span className="muted">{t.variablesHint}</span>
-          </div>
-          <div className="tpl-vars-chips">
-            {VARIABLES.map((name) => (
-              <button
-                key={name}
-                type="button"
-                className="tpl-var"
-                title={t.variables[name].help}
-                onClick={() => insertVariable(name)}
-              >
-                <span className="tpl-var-name">{t.variables[name].label}</span>
-                <code>{`{{${name}}}`}</code>
-              </button>
-            ))}
-          </div>
-        </div>
+            una (el asunto había que teclearlo a mano: «· {{matricula}}»). La
+            misma tira sale en el modal de envío del vehículo. */}
+        <TemplateVars
+          onInsert={insertVariable}
+          targetLabel={varTarget === 'subject' ? t.variablesTarget.subject : t.variablesTarget.body}
+        />
 
         {/* Barra de herramientas del editor propio */}
         <div className="editor-toolbar" role="toolbar" aria-label={t.toolbarLabel}>

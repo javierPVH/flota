@@ -1,6 +1,6 @@
 // DX4: primeros tests de la tabla unificada (1.654 líneas, 13 usos) — cubren
 // el contrato básico y la fila expandible de N4.
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { TableWithPanel, type TableWithPanelColumn } from './TableWithPanel.tsx'
@@ -161,6 +161,28 @@ describe('TableWithPanel', () => {
       expect(screen.getByTestId('hist-1')).toBeInTheDocument()
     })
     expect(screen.queryByTestId('hist-2')).not.toBeInTheDocument()
+  })
+
+  it('con `expanderInFirstCell` la flecha va en la primera celda y no hay columna', async () => {
+    render(
+      <TableWithPanel<Row>
+        rows={ROWS}
+        columns={COLUMNS}
+        rowKey={(r) => String(r.id)}
+        renderExpandedRow={(r) => <div data-testid={`hist-${r.id}`}>Histórico {r.plate}</div>}
+        canExpandRow={(r) => r.id === 1}
+        expanderInFirstCell
+      />,
+    )
+    // Una celda menos por fila: la flecha vive DENTRO de la primera.
+    const primera = screen.getAllByRole('row')[1]
+    expect(within(primera).getAllByRole('cell')).toHaveLength(COLUMNS.length)
+    const boton = within(primera).getByRole('button', { name: 'Desplegar fila' })
+    expect(boton.closest('td')).toBe(within(primera).getAllByRole('cell')[0])
+
+    // Y sigue abriendo lo mismo.
+    fireEvent.click(boton)
+    await waitFor(() => expect(screen.getByTestId('hist-1')).toBeInTheDocument())
   })
 
   it('agrupa por el VALOR de una columna, en un nivel plegable y alfabético', () => {

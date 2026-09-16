@@ -201,6 +201,21 @@ class GoogleLoginTests(TestCase):
         self.assertEqual(self.client.get(reverse("me")).status_code, 200)
 
     @patch("accounts.views.verify_google_id_token")
+    def test_google_marca_la_entrada(self, mock_verify):
+        # `last_google_login` no es decorativo: es lo que autoriza a subir sus
+        # documentos a Drive con la cuenta de servicio (archivador de flota).
+        existing = User.objects.create_user(username="existing", email="worker@example.com")
+        self.assertIsNone(existing.last_google_login)
+        mock_verify.return_value = self.FAKE
+        self.client.post(
+            reverse("google-login"),
+            {"credential": "fake-jwt"},
+            content_type="application/json",
+        )
+        existing.refresh_from_db()
+        self.assertIsNotNone(existing.last_google_login)
+
+    @patch("accounts.views.verify_google_id_token")
     def test_google_reuses_existing_user_by_email(self, mock_verify):
         existing = User.objects.create_user(
             username="existing", email="worker@example.com", password="local-pass-123"

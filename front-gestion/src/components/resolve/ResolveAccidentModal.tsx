@@ -14,6 +14,8 @@ interface Props {
   incident: Incident
   /** Estado actual del vehículo: decide si se ofrece «devolver a Activo». */
   vehicleState?: VehicleState
+  /** Con el coche parado, la casilla vive en el despachador (una por modal). */
+  returnToActive?: boolean
   onClose: () => void
   /** Cerrada: texto para el aviso verde del padre (que recarga sus datos). */
   onDone: (notice: string) => void
@@ -33,10 +35,22 @@ type Liability = NonNullable<NonNullable<IncidentResolveInput['accident']>['liab
  * no vuelve al servicio: el primario pasa a «Resolver y dar de baja» y, tras
  * cerrar, se abre la baja. Contenido del modal.
  */
-export function ResolveAccidentModal({ incident, vehicleState, onClose, onDone, onRetire }: Props) {
+export function ResolveAccidentModal({
+  incident,
+  vehicleState,
+  returnToActive,
+  onClose,
+  onDone,
+  onRetire,
+}: Props) {
   const t = useResolveCopy()
   const a = t.accident
-  const common = useResolutionCommon({ flow: 'accident', vehicleState })
+  const common = useResolutionCommon({
+    flow: 'accident',
+    vehicleState,
+    returnToActive,
+    postalCode: incident.workshop_postal_code,
+  })
   const [claimRef, setClaimRef] = useState('')
   const [liability, setLiability] = useState<string>(LIABILITY_NONE)
   const [deductible, setDeductible] = useState('')

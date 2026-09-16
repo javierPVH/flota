@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { asErrorMessage } from '@flota/ui/http'
 import type { TableWithPanelColumn } from '@flota/ui/table'
 import {
@@ -130,7 +130,11 @@ export function useVehicleActions({
     [confirm, onDone, onError, t],
   )
 
-  const actionsColumn: TableWithPanelColumn<Vehicle> = {
+  // R5-38: la columna es una dependencia de las `columns` memoizadas de las
+  // páginas; si cambiara de identidad en cada render, aquel `useMemo` no
+  // serviría de nada. Por eso los `on*` que le llegan tienen que ser estables
+  // (setters de estado o `useCallback`).
+  const actionsColumn = useMemo<TableWithPanelColumn<Vehicle>>(() => ({
     key: 'actions',
     label: t.columns.actions,
     align: 'right',
@@ -165,7 +169,7 @@ export function useVehicleActions({
       items.push({ key: 'deactivate', label: t.deactivate, icon: <Archive size={15} />, danger: true, onClick: () => deactivate(v) })
       return <RowActionsMenu items={items} ariaLabel={t.columns.actions} />
     },
-  }
+  }), [activeMainOfSub, convert, deactivate, onAccident, onDriver, onEdit, onEmail, onInvoices, onKmFuel, onPending, onSchedule, pendingCopy.title, t.accident.btn, t.columns.actions, t.convert.btn, t.deactivate, t.driverModal.btn, t.edit, t.email.btn, t.invoices.btn, t.kmFuel.btn, t.schedule.btn])
 
   return { actionsColumn, deactivate, convert }
 }

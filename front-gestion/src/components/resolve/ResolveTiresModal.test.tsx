@@ -9,14 +9,12 @@ import type { Incident } from '../../types.ts'
 
 const mocks = vi.hoisted(() => ({
   resolveIncident: vi.fn(),
-  listWorkshops: vi.fn(),
   uploadDocument: vi.fn(),
 }))
 
 vi.mock('../../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api.ts')>()),
   resolveIncident: mocks.resolveIncident,
-  listWorkshops: mocks.listWorkshops,
   uploadDocument: mocks.uploadDocument,
 }))
 
@@ -51,7 +49,6 @@ describe('ResolveTiresModal (neumáticos montados)', () => {
     document.documentElement.lang = 'es'
     mocks.resolveIncident.mockReset()
     mocks.uploadDocument.mockReset()
-    mocks.listWorkshops.mockResolvedValue([{ id: 3, name: 'Taller Centro', kind: 'workshop' }])
     mocks.resolveIncident.mockResolvedValue({ id: 4, status: 'closed', vehicle_reactivated: false })
   })
 

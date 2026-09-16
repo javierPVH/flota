@@ -10,6 +10,7 @@ incidencia (dos incidencias idénticas).
 
 from datetime import timedelta
 from decimal import Decimal
+from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
@@ -199,9 +200,16 @@ class ClientRefIdempotencyTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_stale_records_are_purged_on_the_next_write(self):
-        """Los recibos caducan solos: cada escritura nueva barre los viejos."""
+        """Los recibos caducan solos: las escrituras nuevas barren los viejos.
+
+        R5-16: la purga es muestreada (una de cada veinte escrituras) para no
+        cargar el camino crítico de la PWA; aquí se fuerza el muestreo.
+        """
         url = reverse("fuelconsumption-add")
         self.client.post(url, {"vehicle": self.vehicle.pk, "liters": "5", "client_ref": "ref-old"})
         IdempotencyRecord.objects.update(created_at=timezone.now() - RETENTION - timedelta(days=1))
-        self.client.post(url, {"vehicle": self.vehicle.pk, "liters": "5", "client_ref": "ref-new"})
+        with mock.patch("fleet.idempotency.random.random", return_value=0.0):
+            self.client.post(
+                url, {"vehicle": self.vehicle.pk, "liters": "5", "client_ref": "ref-new"}
+            )
         self.assertEqual(list(IdempotencyRecord.objects.values_list("key", flat=True)), ["ref-new"])

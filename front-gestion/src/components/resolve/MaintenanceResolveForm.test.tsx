@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   maintenancePlanDone: vi.fn(),
   resolveIncident: vi.fn(),
   resolveAlert: vi.fn(),
-  listWorkshops: vi.fn(),
   uploadDocument: vi.fn(),
 }))
 
@@ -21,7 +20,6 @@ vi.mock('../../api.ts', async (importOriginal) => ({
   maintenancePlanDone: mocks.maintenancePlanDone,
   resolveIncident: mocks.resolveIncident,
   resolveAlert: mocks.resolveAlert,
-  listWorkshops: mocks.listWorkshops,
   uploadDocument: mocks.uploadDocument,
 }))
 
@@ -78,7 +76,6 @@ describe('MaintenanceResolveForm (una llamada, tres puertas)', () => {
     mocks.resolveIncident.mockReset()
     mocks.resolveAlert.mockReset()
     mocks.uploadDocument.mockReset()
-    mocks.listWorkshops.mockResolvedValue([{ id: 3, name: 'Taller Centro', kind: 'workshop' }])
     mocks.listMaintenancePlans.mockResolvedValue(page(PLANS))
     mocks.maintenancePlanDone.mockResolvedValue({ incident: 30, vehicle_reactivated: true })
     mocks.resolveIncident.mockResolvedValue({ ...INCIDENT, status: 'closed', vehicle_reactivated: false })

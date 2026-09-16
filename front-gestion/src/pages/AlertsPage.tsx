@@ -32,7 +32,7 @@ import { ResolveDispatcher } from '../components/resolve/ResolveDispatcher.tsx'
 import { alertTarget, type ResolveTarget } from '../components/resolve/resolveFlow.ts'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { TextCell } from '../components/TextCell.tsx'
-import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
+import { EMAIL_MODAL_SIZE, VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { useLang } from '../i18n.tsx'
 import { useAlertsPageCopy } from '../translations/alertsPage.ts'
 import type { Alert, Vehicle } from '../types.ts'
@@ -130,14 +130,14 @@ export function AlertsPage() {
 
   /** Plazo en lenguaje natural bajo la fecha límite (`null` si la alerta no
    * tiene vencimiento). Calculado en vivo desde la fecha, no del mensaje. */
-  const deadlineLabel = (due: string | null): string | null => {
+  const deadlineLabel = useCallback((due: string | null): string | null => {
     const days = daysUntilDate(due)
     if (days === null) return null
     if (days < 0) return t.deadline.overdue(-days)
     if (days === 0) return t.deadline.today
     if (days === 1) return t.deadline.tomorrow
     return t.deadline.inDays(days)
-  }
+  }, [t.deadline])
 
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -364,7 +364,7 @@ export function AlertsPage() {
   }
 
   /** Quién resolvió, con el semáforo de si era gente del coche o no. */
-  const resolverCell = (a: Alert) => {
+  const resolverCell = useCallback((a: Alert) => {
     if (a.status !== 'resolved') return <span className="muted">—</span>
     const kind = resolverKind(a)
     if (kind === 'auto') {
@@ -396,13 +396,13 @@ export function AlertsPage() {
         <HintBubble text={tip} label={`${t.resolver.mismatchTitle}. ${tip}`} />
       </span>
     )
-  }
+  }, [t.resolver])
 
   // Sin columna de nivel: una alerta no lleva prioridad elegida — su urgencia
   // la marca la FECHA LÍMITE (el plazo en lenguaje natural bajo ella), que el
   // motor recalcula según se acerque o se aleje. La prioridad como atributo
   // vive en las incidencias, donde la fija quien abre la petición.
-  const columns: Array<TableWithPanelColumn<Alert>> = [
+  const columns = useMemo<Array<TableWithPanelColumn<Alert>>>(() => [
     {
       key: 'type',
       label: t.columns.type,
@@ -544,7 +544,7 @@ export function AlertsPage() {
       ),
         }] as Array<TableWithPanelColumn<Alert>>)
       : []),
-  ]
+  ], [deadlineLabel, language, navigate, resolverCell, showActions, showClosing, t.columns.actions, t.columns.driver, t.columns.dueDate, t.columns.message, t.columns.resolutionNote, t.columns.resolvedAt, t.columns.resolvedBy, t.columns.supervisor, t.columns.type, t.columns.vehicle, t.documents, t.documentsTitle, t.resolve, t.sendEmail, t.viewMessage, vehicleById])
 
   return (
     <div>
@@ -755,7 +755,7 @@ export function AlertsPage() {
         open={Boolean(emailVehicle)}
         title={emailVehicle ? t.emailModalTitle(emailVehicle.plate) : ''}
         onClose={() => setEmailAlert(null)}
-        wide
+        {...EMAIL_MODAL_SIZE}
       >
         {emailVehicle && emailAlert && (
           <VehicleEmailModal

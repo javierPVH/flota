@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { ApiError, asErrorMessage } from '@flota/ui/http'
 import { Trash2 } from 'lucide-react'
@@ -29,6 +29,12 @@ const NONE = '__none__'
  * antes eran tres pasos con compensación por borrado físico. */
 export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
   const t = useVehiclesCopy().driverModal
+  // R3-30/R5-33: la carga lee `t` por ref — con `t` en sus deps, cambiar de
+  // idioma con el modal abierto volvía a pedir conductores y asignaciones.
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
 
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [supervisors, setSupervisors] = useState<Array<{ id: number; name: string }>>([])
@@ -60,7 +66,7 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
       .then(setDrivers)
       .catch(() => {
         setDrivers([])
-        setLoadError(t.errListsIncomplete)
+        setLoadError(tRef.current.errListsIncomplete)
       })
     // M12: los supervisores los filtra el SERVIDOR (`?roles__role=supervisor`);
     // antes se traía la lista completa de usuarios para quedarse con unos pocos.
@@ -68,7 +74,7 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
       .then(setSupervisors)
       .catch(() => {
         setSupervisors([])
-        setLoadError(t.errListsIncomplete)
+        setLoadError(tRef.current.errListsIncomplete)
       })
     // R3-02: «vigente» es sin fecha de fin O con un fin PROGRAMADO que aún no
     // ha llegado (una necesidad temporal concedida con fechas). El criterio de
@@ -81,7 +87,7 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
         ),
       )
       .catch(() => setCurrent(null))
-  }, [vehicle.id, t])
+  }, [vehicle.id])
 
   // Conductor vigente: manda el payload del vehículo (`driver_id`, que el back
   // resuelve con `current_assignment_q`); la asignación solo aporta el detalle

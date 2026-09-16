@@ -160,26 +160,15 @@ export async function listAll<T>(
  * ficha, las alertas del panel…). Devuelve `null` si está completa o el total
  * real si se ha truncado, para que la vista lo avise.
  */
-export function truncatedAt<T>(page: Paginated<T>): number | null {
-  return page.count > page.results.length ? page.count : null
-}
-
-/** Igual que `truncatedAt` pero sobre la promesa, para usar en cadena. */
-export async function withCompleteness<T>(
-  promise: Promise<Paginated<T>>,
-): Promise<{ rows: T[]; total: number; truncated: number | null }> {
-  const page = await promise
-  return { rows: page.results, total: page.count, truncated: truncatedAt(page) }
-}
+// R5-42: `withCompleteness` (C6) y `truncatedAt` no tenían ningún consumidor;
+// las vistas que necesitan todo usan `listAll`, y las que piden una sola
+// página a propósito (el histórico de la flota en `usePending`) lo dicen ellas.
 
 export type VehicleInput = Partial<
   Pick<Vehicle, 'plate' | 'brand' | 'model' | 'year' | 'state' | 'vin' | 'business_use'>
 >
 
 export const createVehicle = (data: VehicleInput) => postJson<Vehicle>(`${API}/vehicles/`, data)
-
-export const updateVehicle = (id: number, data: VehicleInput) =>
-  patchJson<Vehicle>(`${API}/vehicles/${id}/`, data)
 
 /** N7: no borra el vehículo — el back lo pasa a «baja» (restaurable en erratas). */
 export const deactivateVehicle = (id: number, reason = '') =>
@@ -321,13 +310,6 @@ export type CatalogResource =
 
 export const listCatalog = (resource: CatalogResource, req: ReqOpts = {}) =>
   getJson<Paginated<CatalogEntry>>(`${API}/${resource}/${listQs({})}`, req)
-
-/** Talleres y estaciones de ITV del catálogo, todas las páginas (selector de los
- * modales de resolver; `kind`: workshop | itv | both). Va DIRECTO a `getJson` y
- * no vía `listCatalog`: en los tests, el `vi.mock` de ESTA función es lo que
- * interceptan los componentes (ESM no intercepta llamadas internas). */
-export const listWorkshops = (req: ReqOpts = {}) =>
-  listAll(getJson<Paginated<CatalogEntry>>(`${API}/workshops/${listQs({})}`, req), req)
 
 /** Los catálogos del alta de vehículo en UNA petición (antes eran siete).
  *
@@ -786,6 +768,8 @@ export const notifyVehicle = (
     /** Email libre («otro email que se especifique»). */
     email?: string
     subject?: string
+    /** Cuerpo retocado a mano: sustituye al de la plantilla en ESTE envío. */
+    body?: string
     /** Clave de plantilla; vacía = se envía solo el mensaje libre. */
     template_key?: string
     /** Idioma de la plantilla; `both` manda las dos versiones en un correo. */
@@ -796,7 +780,7 @@ export const notifyVehicle = (
 /** Vista previa (asunto + cuerpo HTML) de un aviso con una plantilla, sin enviar. */
 export const noticePreviewVehicle = (
   id: number,
-  data: { template_key: string; message?: string; lang?: NoticeLang },
+  data: { template_key: string; message?: string; lang?: NoticeLang; body?: string },
 ) =>
   postJson<{ subject: string; body_html: string; has_template: boolean; has_en: boolean }>(
     `${API}/vehicles/${id}/notice-preview/`,
@@ -998,16 +982,6 @@ export interface InvoiceRow {
   created_at: string
 }
 
-export interface AllocationRow {
-  id: number
-  invoice: number
-  target_type: 'proyecto' | 'pep'
-  project: number | null
-  cost_center: number | null
-  percentage: string
-  amount: string
-}
-
 export const listInvoices = (filters: { vehicle?: number } = {}, req: ReqOpts = {}) =>
   getJson<Paginated<InvoiceRow>>(`${API}/invoices/${listQs({ ...filters })}`, req)
 
@@ -1029,21 +1003,6 @@ export const updateInvoice = (id: number, data: Partial<InvoiceInput>) =>
 export const deleteInvoice = (id: number, reason = '') =>
   deleteJson(`${API}/invoices/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
 
-export const listAllocations = (filters: { invoice?: number } = {}) =>
-  getJson<Paginated<AllocationRow>>(`${API}/invoice-allocations/${listQs({ ...filters })}`)
-
-/** Refacturación completa (Épica 7): el back exige que los % sumen 100 y
- * calcula los importes que falten desde el total de la factura. */
-export const allocateInvoice = (
-  id: number,
-  lines: Array<{
-    target_type: 'proyecto' | 'pep'
-    project?: number | null
-    cost_center?: number | null
-    percentage: string
-    amount?: string | null
-  }>,
-) => postJson<AllocationRow[]>(`${API}/invoices/${id}/allocate/`, { lines })
 
 // --- G7: documentación e incidencias ---------------------------------------
 
@@ -1132,7 +1091,8 @@ export const listIncidents = (filters: IncidentFilters = {}, req: ReqOpts = {}) 
 
 /** Incidencias SIN cerrar (abiertas + en curso), todas las páginas. El back
  * filtra `status` por igualdad, así que son dos peticiones. Directo a `getJson`
- * por la misma razón que `listWorkshops` (mocks en tests). */
+ * y no vía `listIncidents`: en los tests, el `vi.mock` de ESTA función es lo
+ * que interceptan los componentes (ESM no intercepta llamadas internas). */
 export const listOpenIncidents = async (
   filters: Omit<IncidentFilters, 'status'> = {},
   req: ReqOpts = {},
@@ -1189,6 +1149,8 @@ export interface IncidentResolveInput {
   /** Taller del catálogo (id). */
   workshop?: number
   km?: number
+  /** CP de la ubicación con la que se gestionó: se completa al cerrar. */
+  workshop_postal_code?: string
   return_to_active?: boolean
   maintenance_plan?: number
   tires?: { size?: string; brand?: string; quantity?: number; positions?: string[] }
@@ -1210,6 +1172,22 @@ export type IncidentResolveResult = Incident & {
  * aplica los efectos (vuelta a Activo con su evento; en mantenimiento, el plan). */
 export const resolveIncident = (id: number, data: IncidentResolveInput) =>
   postJson<IncidentResolveResult>(`${API}/incidents/${id}/resolve/`, data)
+
+/** Lo que devuelve soltar el sustituto: qué pasó de verdad, para contarlo. */
+export interface ReleaseSubstituteResult {
+  link_closed: boolean
+  substitute_plate: string
+  vehicle_reactivated: boolean
+  /** Petición abierta que impide volver a Activo (el sustituto sí se soltó). */
+  blocked_by: { id: number; type_display: string } | null
+}
+
+/** Suelta el coche de sustitución y devuelve este a Activo (una decisión). */
+export const releaseSubstitute = (vehicleId: number, date?: string) =>
+  postJson<ReleaseSubstituteResult>(
+    `${API}/vehicles/${vehicleId}/release-substitute/`,
+    date ? { date } : {},
+  )
 
 // --- G7: Google Drive / Picker (Fase A3) -----------------------------------
 

@@ -69,10 +69,14 @@ class Alert(TimeStampedModel):
     class Meta:
         verbose_name = "alerta"
         verbose_name_plural = "alertas"
-        ordering = ["-created_at"]
+        # R5-19 (R3-23): las alertas de una misma pasada de `jobs` comparten
+        # `created_at`; sin `-pk` la paginación de la bandeja era inestable.
+        ordering = ["-created_at", "-pk"]
         indexes = [
             models.Index(fields=["type", "status"]),
             models.Index(fields=["vehicle", "status"]),
+            # La bandeja filtra por estado y ordena por fecha de creación.
+            models.Index(fields=["status", "-created_at"], name="alert_status_created_idx"),
         ]
 
     def __str__(self) -> str:

@@ -123,6 +123,7 @@ from .serializers import (
     VehicleSerializer,
     VehicleUsageSerializer,
     WorkshopSerializer,
+    sanitize_email_html,
 )
 from .services import (
     events,
@@ -136,6 +137,7 @@ from .services import (
     notifications,
     reports,
     returns,
+    substitution,
     supervisors,
 )
 from .services.archiver import archive_document
@@ -349,15 +351,18 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         # Bloqueo optimista (opt-in): si el cliente envía `expected_updated_at`
         # y no coincide con el actual, la ficha cambió entre medias → 409.
         expected = self.request.data.get("expected_updated_at")
-        if expected:
-            parsed = parse_datetime(str(expected))
-            if parsed is None or parsed != instance.updated_at:
-                raise Conflict()
+        expected_parsed = parse_datetime(str(expected)) if expected else None
         old_state = instance.state
         old_site = instance.site
         old_supervisor = instance.supervisor
         old_insurance = instance.insurance_expiry_date
         with transaction.atomic():
+            # R5-05: la comparación va DENTRO de la transacción y sobre la fila
+            # bloqueada: dos PATCH simultáneos con el mismo `expected_updated_at`
+            # ya no pasan los dos el corte.
+            locked = Vehicle.objects.select_for_update().get(pk=instance.pk)
+            if expected and (expected_parsed is None or expected_parsed != locked.updated_at):
+                raise Conflict()
             super().perform_update(serializer)
             updated = serializer.instance
             # GAP-4: cambiar la sede emite su evento con la ubicación anterior
@@ -510,6 +515,29 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 reason=str(data.get("reason", "") or ""),
             )
         return Response(summary)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="release-substitute",
+        permission_classes=[IsManagement],
+    )
+    def release_substitute(self, request, pk=None):
+        """POST /api/v1/vehicles/{id}/release-substitute/ — vuelta al servicio.
+
+        Suelta el coche de sustitución que le cubre y devuelve este a `Activo`,
+        que es una sola decisión: se toma al cerrar la petición que lo paró, y
+        entra desde los seis modales de «Resolver». Cuerpo: `{date?}` (por
+        defecto hoy). Si queda otra petición abierta que lo bloquea, el
+        sustituto se libera igual pero el estado NO cambia: la respuesta dice
+        cuál lo impide (`blocked_by`).
+        """
+        vehicle = self.get_object()
+        data = request.data if isinstance(request.data, dict) else {}
+        day = parse_date(str(data.get("date", "") or "")) or None
+        result = substitution.release_substitute(vehicle, actor=request.user, when=day)
+        result["blocked_by"] = substitution.blocked_payload(result.get("blocked_by"))
+        return Response(result)
 
     @action(detail=True, methods=["post"], url_path="renew-insurance", permission_classes=[IsAdmin])
     def renew_insurance(self, request, pk=None):
@@ -721,12 +749,10 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 }
             )
 
-        # Bloqueo optimista opt-in, igual que el PATCH de la ficha.
+        # Bloqueo optimista opt-in, igual que el PATCH de la ficha. Se compara
+        # dentro de la transacción, sobre la fila bloqueada (R5-05).
         expected = request.data.get("expected_updated_at")
-        if expected:
-            parsed = parse_datetime(str(expected))
-            if parsed is None or parsed != vehicle.updated_at:
-                raise Conflict()
+        expected_parsed = parse_datetime(str(expected)) if expected else None
 
         driver = None
         if "driver" not in request.data and "supervisor" not in request.data:
@@ -744,13 +770,21 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         start = parse_date(str(request.data.get("start_date") or "")) or timezone.localdate()
 
         with transaction.atomic():
+            vehicle = (
+                Vehicle.objects.select_for_update().select_related("supervisor").get(pk=vehicle.pk)
+            )
+            if expected and (expected_parsed is None or expected_parsed != vehicle.updated_at):
+                raise Conflict()
             if "supervisor" in request.data:
                 supervisor_id = request.data.get("supervisor") or None
                 if supervisor_id is not None:
                     from django.contrib.auth import get_user_model
 
-                    if not get_user_model().objects.filter(pk=supervisor_id).exists():
+                    candidate = get_user_model().objects.filter(pk=supervisor_id).first()
+                    if candidate is None:
                         raise ValidationError({"supervisor": "Supervisor no válido."})
+                    # R5-03: el responsable tiene que poder ver el coche.
+                    supervisors.validate_supervisor(candidate)
                 old_supervisor = vehicle.supervisor
                 if (old_supervisor.pk if old_supervisor else None) != supervisor_id:
                     vehicle.supervisor_id = supervisor_id
@@ -817,11 +851,16 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
         vehicle = self.get_object()
         message = (request.data.get("message") or "").strip()
+        # `body`: cuerpo retocado en el modal antes de enviar. Se sanea igual
+        # que el de una plantilla (nh3) porque acaba en el correo tal cual.
+        body_override = (request.data.get("body") or "").strip()
+        if body_override:
+            body_override = sanitize_email_html(body_override)
         # `template_key`: si se informa, asunto/cuerpo salen de la plantilla de
         # correo (10b) y el mensaje libre es opcional (variable {{mensaje}}). Sin
         # plantilla, el texto libre es el cuerpo y es obligatorio.
         template_key = (request.data.get("template_key") or "").strip()
-        if not template_key and not message:
+        if not template_key and not message and not body_override:
             raise ValidationError({"message": "El comunicado no puede estar vacío."})
         # `lang`: es | en | both. Con `both` van las dos versiones en un mismo
         # correo. Solo afecta a la plantilla; el texto libre va tal cual.
@@ -835,6 +874,20 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         # (destinatario típico del aviso de seguro, N10a).
         to_renting = bool(request.data.get("to_renting"))
         extra_email = (request.data.get("email") or "").strip()
+        if extra_email:
+            # R5-10: un destinatario LIBRE desde el SMTP corporativo es un vector
+            # de suplantación; solo administración, y siempre con formato válido.
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            from django.core.validators import validate_email
+
+            if not request.user.is_admin:
+                raise ValidationError(
+                    {"email": "Solo administración puede añadir un destinatario libre."}
+                )
+            try:
+                validate_email(extra_email)
+            except DjangoValidationError as exc:
+                raise ValidationError({"email": "Dirección de correo no válida."}) from exc
         if not (to_driver or to_supervisor or to_admin or to_renting or extra_email):
             raise ValidationError({"detail": "Elige al menos un destinatario."})
 
@@ -878,7 +931,9 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
         if template_key:
             # Asunto/cuerpo desde la plantilla (o texto por defecto si no existe).
-            notice = mailer.render_vehicle_notice(vehicle, template_key, message, lang)
+            notice = mailer.render_vehicle_notice(
+                vehicle, template_key, message, lang, body_override
+            )
             subject, body_html, log_key = notice.subject, notice.body_html, notice.used_key
             override = (request.data.get("subject") or "").strip()
             if override:
@@ -1053,7 +1108,10 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         template_key = (request.data.get("template_key") or "").strip()
         message = (request.data.get("message") or "").strip()
         lang = (request.data.get("lang") or "es").strip()
-        notice = mailer.render_vehicle_notice(vehicle, template_key, message, lang)
+        body_override = (request.data.get("body") or "").strip()
+        if body_override:
+            body_override = sanitize_email_html(body_override)
+        notice = mailer.render_vehicle_notice(vehicle, template_key, message, lang, body_override)
         return Response(
             {
                 "subject": notice.subject,
@@ -1093,16 +1151,15 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         for vid, drv in driver_map.items():
             by_driver.setdefault(drv.pk, []).append(vid)
 
-        # Solo hacen falta las métricas de los vehículos implicados (los que ya
-        # llevan los candidatos y el del aviso), no las de toda la flota.
+        # Solo hace falta el ritmo de los vehículos implicados (los que ya llevan
+        # los candidatos y el del aviso). R5-15: y de ellos, solo matrícula y
+        # media mensual (`monthly_pace_map`, tres consultas), no el summary
+        # completo de casi toda la flota para rellenar un desplegable.
         involved = {vid for vids in by_driver.values() for vid in vids} | {vehicle.pk}
-        summaries = {
-            s["vehicle"]: s for s in metrics.vehicle_summaries(request.user, list(involved))
-        }
+        paces = metrics.monthly_pace_map(request.user, list(involved))
 
         def monthly_avg(vid: int) -> int | None:
-            projection = (summaries.get(vid) or {}).get("projection")
-            return projection["monthly_avg"] if projection else None
+            return (paces.get(vid) or {}).get("monthly_avg")
 
         current = driver_map.get(vehicle.pk)
         candidates = []
@@ -1114,13 +1171,13 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         ):
             if current is not None and person.pk == current.pk:
                 continue
-            vids = [vid for vid in by_driver.get(person.pk, []) if vid in summaries]
+            vids = [vid for vid in by_driver.get(person.pk, []) if vid in paces]
             averages = [avg for avg in (monthly_avg(vid) for vid in vids) if avg is not None]
             candidates.append(
                 {
                     "id": person.pk,
                     "name": person.get_full_name() or person.username,
-                    "vehicles": [{"id": vid, "plate": summaries[vid]["plate"]} for vid in vids],
+                    "vehicles": [{"id": vid, "plate": paces[vid]["plate"]} for vid in vids],
                     "monthly_avg": sum(averages) if averages else None,
                 }
             )
@@ -1569,9 +1626,9 @@ class EventViewSet(
             event = serializer.instance
             if event.event_type == EventType.ITV:
                 flag = str(self.request.data.get("return_to_active", "")).lower() in ("1", "true")
-                self._itv_effects = itv.register_itv(
-                    event, actor=self.request.user, return_to_active=flag
-                )
+                effects = itv.register_itv(event, actor=self.request.user, return_to_active=flag)
+                effects["blocked_by"] = substitution.blocked_payload(effects.get("blocked_by"))
+                self._itv_effects = effects
 
 
 class InvoiceViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
@@ -1780,6 +1837,8 @@ class IncidentViewSet(
         data = self.get_serializer(result["incident"]).data
         data["vehicle_reactivated"] = result["vehicle_reactivated"]
         data["alerts_resolved"] = result["alerts_resolved"]
+        # R5-02: si otra petición abierta impidió la vuelta a Activo, se dice cuál.
+        data["blocked_by"] = substitution.blocked_payload(result.get("blocked_by"))
         return Response(data)
 
 
@@ -2508,6 +2567,7 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
         data["incident"] = result["incident"].pk
         data["vehicle_reactivated"] = result["vehicle_reactivated"]
         data["event"] = result["event"].pk
+        data["blocked_by"] = substitution.blocked_payload(result.get("blocked_by"))
         return Response(data)
 
 

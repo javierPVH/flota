@@ -62,15 +62,15 @@ def missing_last_month(today: date | None = None) -> list[Vehicle]:
     """
     today = today or timezone.localdate()
     prev_end = _previous_month_end(today)
-    with_reading = set(
-        KmReading.objects.filter(
-            reading_date__year=prev_end.year,
-            reading_date__month=prev_end.month,
-            km_reading__isnull=False,
-            is_active=True,
-        ).values_list("vehicle_id", flat=True)
-    )
-    return [v for v in Vehicle.objects.active() if v.id not in with_reading]
+    with_reading = KmReading.objects.filter(
+        reading_date__year=prev_end.year,
+        reading_date__month=prev_end.month,
+        km_reading__isnull=False,
+        is_active=True,
+    ).values_list("vehicle_id", flat=True)
+    # R5-14: el corte se hace en la BD (antes se traía la flota entera y se
+    # filtraba en Python).
+    return list(Vehicle.objects.active().exclude(id__in=with_reading))
 
 
 def estimate_missing(months: int, today: date | None = None) -> dict:

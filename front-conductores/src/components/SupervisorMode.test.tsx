@@ -147,7 +147,9 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Mi vehículo' }))
     expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
     expect(within(screen.getByRole('navigation')).getByRole('button', { name: 'Km' })).toBeInTheDocument()
-  })
+    // El margen de arriba solo sirve si el propio caso lo tiene: con los 5 s por
+    // defecto, la primera transformación del chunk tras reconstruir el DS lo tumbaba.
+  }, 20000)
 
   it('sin coche propio, las acciones del nav van desactivadas', async () => {
     // Nadie conduce para sara: los dos coches los llevan otros.

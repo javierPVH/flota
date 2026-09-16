@@ -75,6 +75,7 @@ def register_itv(event: Event, *, actor, return_to_active: bool = False) -> dict
         "alerts_resolved": 0,
         "incident_closed": None,
         "vehicle_reactivated": False,
+        "blocked_by": None,
     }
     if not itv.is_favourable:
         return result
@@ -123,11 +124,19 @@ def register_itv(event: Event, *, actor, return_to_active: bool = False) -> dict
         # 3) Vuelta a Activo: solo la gestión cambia estados (el conductor
         # registra la ITV pero su casilla se ignora) y solo si el coche estaba
         # precisamente «En ITV».
-        if (
+        wants_back = (
             return_to_active
             and getattr(actor, "is_management", False)
             and vehicle.state == VehicleState.ITV
-        ):
+        )
+        if wants_back:
+            # R5-02: otra petición abierta que para el coche impide la vuelta.
+            from fleet.services import substitution
+
+            result["blocked_by"] = substitution.blocked_by(
+                vehicle, exclude_pk=result.get("incident_closed")
+            )
+        if wants_back and result.get("blocked_by") is None:
             vehicle.state = VehicleState.ACTIVE
             vehicle.save(update_fields=["state", "updated_at"])
             events.emit_vehicle_state_change(

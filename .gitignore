@@ -5,6 +5,7 @@ dist-app/
 *.local
 .vite/
 
+.errores/
 # --- Python / back ---
 .venv/
 __pycache__/
@@ -14,6 +15,15 @@ staticfiles/
 .env
 # Datos persistentes del despliegue Docker (BD, media, estáticos)
 /data/
+# Destino local por defecto del servicio `backup` (BACKUP_HOST_DIR=./backups)
+/backups/
+# Ficheros de PostgreSQL en local (PGDATA_HOST_DIR=./pgdata): NUNCA al repo
+/pgdata/
+# Informes de auditoria del servidor (internos, con rutas/puertos/hallazgos): NUNCA al repo.
+/errores/
+# Documentacion interna de planificacion y auditoria (los .md que antes iban en la
+# raiz): se lleva en local, fuera del repo. En la raiz solo quedan README.md y CLAUDE.md.
+/docs/
 # Cobertura de tests
 .coverage
 htmlcov/
@@ -26,3 +36,6 @@ back/archive/
 .vscode/
 *.log
 .eslintcache
+
+# R5-60: artefactos incrementales de tsc, propios de cada maquina.
+*.tsbuildinfo

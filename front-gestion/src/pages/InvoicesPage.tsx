@@ -125,12 +125,12 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
 
   // O4: Map memoizada — el `find()` por celda era O(filas × vehículos).
   const vehicleById = useMemo(() => new Map(vehicles.map((v) => [v.id, v])), [vehicles])
-  const vehicleOf = (id: number) => vehicleById.get(id)
+  const vehicleOf = useCallback((id: number) => vehicleById.get(id), [vehicleById])
   const pickerReady = Boolean(picker?.enabled && picker.has_drive && picker.access_token)
 
   // --- Cabecera -------------------------------------------------------------
 
-  function openHeader(invoice: InvoiceRow | null) {
+  const openHeader = useCallback((invoice: InvoiceRow | null) => {
     setEditing(invoice)
     setHeader(
       invoice
@@ -147,7 +147,7 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
     )
     setHeaderError('')
     setHeaderOpen(true)
-  }
+  }, [vehicleFilter])
 
   async function pickPdf(mode: 'file' | 'upload') {
     if (!picker?.access_token || !picker.api_key) return
@@ -200,7 +200,7 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
     }
   }
 
-  async function handleDelete(invoice: InvoiceRow) {
+  const handleDelete = useCallback(async (invoice: InvoiceRow) => {
     // N7: nada se borra — doble confirmación y desactivación con motivo.
     const reason = await deactivateConfirm(t.deactivateSubject(invoice.code || `#${invoice.id}`))
     if (reason === null) return
@@ -210,9 +210,9 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
     } catch (err) {
       setError(asErrorMessage(err, t.deactivateError))
     }
-  }
+  }, [deactivateConfirm, load, t])
 
-  const columns: Array<TableWithPanelColumn<InvoiceRow>> = [
+  const columns = useMemo<Array<TableWithPanelColumn<InvoiceRow>>>(() => [
     {
       key: 'code',
       label: t.columns.code,
@@ -277,7 +277,7 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
         </div>
       ),
     },
-  ]
+  ], [handleDelete, lang, openHeader, t.columns.actions, t.columns.amount, t.columns.code, t.columns.date, t.columns.pdf, t.columns.vehicle, t.deactivateAction, t.editAction, t.openPdf, vehicleOf])
 
   // Opciones de los filtros derivados (conductor, marca/modelo, responsable) a
   // partir de los vehículos cargados; `vehicleById` ya está memoizada arriba.

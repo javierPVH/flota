@@ -17,6 +17,8 @@ interface Props {
   initialVehicleId?: number | null
   /** Incidencia «En ITV» que se está resolviendo: el informe se liga a ella. */
   incidentId?: number | null
+  /** Con el coche parado, la casilla vive en el despachador (una por modal). */
+  returnToActive?: boolean
   onClose: () => void
   /** ITV registrada: texto para el aviso verde del padre, que cierra y recarga. */
   onSaved: (notice: string) => void
@@ -26,14 +28,16 @@ interface Props {
  * Formulario de «Registrar ITV» (HU-5.1), sin `Modal`: lo montan el
  * `RegisterItvModal` de los desgloses y el dispatcher de resolver (alerta de
  * ITV e incidencia «En ITV»). Además del resultado y la próxima fecha, recoge
- * la estación (catálogo `Workshop` de tipo ITV), los km, el informe y —si la
- * ITV es favorable y el coche está «En ITV»— la vuelta a Activo. El back cierra
- * las alertas con actor, cierra la incidencia «En ITV» y refresca la fecha.
+ * los km, el informe y —si la ITV es favorable y el coche está «En ITV»— la
+ * vuelta a Activo; la estación no se pide aquí (se decide en la gestión de la
+ * petición, con su CP). El back cierra las alertas con actor, cierra la
+ * incidencia «En ITV» y refresca la fecha.
  */
 export function RegisterItvForm({
   vehicles,
   initialVehicleId = null,
   incidentId = null,
+  returnToActive,
   onClose,
   onSaved,
 }: Props) {
@@ -54,7 +58,11 @@ export function RegisterItvForm({
   // La casilla «devolver a Activo» sigue al vehículo ELEGIDO (aquí se puede
   // cambiar), y solo tiene sentido con una ITV favorable.
   const selected = vehicles.find((v) => String(v.id) === vehicle)
-  const common = useResolutionCommon({ flow: 'itv', vehicleState: selected?.state })
+  const common = useResolutionCommon({
+    flow: 'itv',
+    vehicleState: selected?.state,
+    returnToActive,
+  })
   const favourable = result === 'done'
 
   async function submit(event: FormEvent) {

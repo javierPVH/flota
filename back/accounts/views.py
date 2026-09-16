@@ -9,17 +9,16 @@ Flujo esperado por la SPA (`@gs/base/http` en el front):
 Todas las peticiones van con `credentials: 'include'` y, en métodos no seguros,
 la cabecera `X-CSRFToken` con el valor de la cookie.
 
-Login sencillo pero con protección anti fuerza bruta por (IP + identificador),
-usando el cache de Django (LocMemCache por defecto; Redis si se define REDIS_URL).
+Login sencillo pero con protección anti fuerza bruta por (IP + identificador) y
+por cuenta (`accounts.ratelimit`, compartido con el admin de Django), y con CSRF
+también en las vistas que CREAN la sesión (`CsrfOnlyAuthentication`).
 """
 
-import hashlib
 import logging
-import time
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
-from django.core.cache import cache
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status, viewsets
@@ -30,9 +29,11 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from .authentication import CsrfOnlyAuthentication
 from .google import GoogleAuthError, verify_google_id_token
 from .models import Role
 from .permissions import IsAdmin, IsManagement
+from .ratelimit import client_ip, digest, is_blocked, register_failure, reset_failures
 from .serializers import (
     DriverSerializer,
     ManagedUserSerializer,
@@ -42,83 +43,6 @@ from .serializers import (
 
 User = get_user_model()
 security_logger = logging.getLogger("accounts.security")
-
-
-# --- Helpers de rate limit ------------------------------------------------
-
-
-def _client_ip(request) -> str:
-    """IP del cliente respetando `TRUSTED_PROXY_COUNT`.
-
-    Con 0 proxies de confianza se ignora `X-Forwarded-For` (falsificable por el
-    cliente) y se usa `REMOTE_ADDR`. Con N, se toma la IP N posiciones desde la
-    derecha del XFF (la que insertó el proxy más externo de confianza).
-    """
-    num_proxies = getattr(settings, "TRUSTED_PROXY_COUNT", 0)
-    if num_proxies > 0:
-        xff = str(request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
-        parts = [p.strip() for p in xff.split(",") if p.strip()]
-        if len(parts) >= num_proxies:
-            return parts[-num_proxies] or "unknown"
-    return str(request.META.get("REMOTE_ADDR") or "unknown").strip() or "unknown"
-
-
-def _digest(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _ip_key(prefix: str, request, identifier: str) -> str:
-    fingerprint = f"{_client_ip(request)}|{str(identifier or '').strip().lower()}"
-    return f"auth_login:{prefix}:ip:{_digest(fingerprint)}"
-
-
-def _account_key(prefix: str, identifier: str) -> str:
-    return f"auth_login:{prefix}:acct:{_digest(str(identifier or '').strip().lower())}"
-
-
-def _is_blocked(request, identifier: str) -> tuple[bool, int]:
-    """¿Bloqueado por IP+cuenta o por cuenta (distribuido)? Devuelve el mayor restante."""
-    now = int(time.time())
-    remaining = 0
-    for key in (_ip_key("block", request, identifier), _account_key("block", identifier)):
-        blocked_until = cache.get(key)
-        if not blocked_until:
-            continue
-        left = int(blocked_until) - now
-        if left <= 0:
-            cache.delete(key)
-        else:
-            remaining = max(remaining, left)
-    return (remaining > 0), remaining
-
-
-def _bump(fail_key: str, block_key: str, threshold: int) -> None:
-    attempts = int(cache.get(fail_key) or 0) + 1
-    cache.set(fail_key, attempts, timeout=settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS)
-    if attempts >= threshold:
-        blocked_until = int(time.time()) + settings.LOGIN_RATE_LIMIT_BLOCK_SECONDS
-        cache.set(block_key, blocked_until, timeout=settings.LOGIN_RATE_LIMIT_BLOCK_SECONDS)
-
-
-def _register_failure(request, identifier: str) -> None:
-    # Contador por (IP + cuenta) y contador por cuenta (fuerza bruta distribuida).
-    _bump(
-        _ip_key("fail", request, identifier),
-        _ip_key("block", request, identifier),
-        settings.LOGIN_RATE_LIMIT_ATTEMPTS,
-    )
-    _bump(
-        _account_key("fail", identifier),
-        _account_key("block", identifier),
-        settings.LOGIN_RATE_LIMIT_ACCOUNT_ATTEMPTS,
-    )
-
-
-def _reset_failures(request, identifier: str) -> None:
-    cache.delete(_ip_key("fail", request, identifier))
-    cache.delete(_ip_key("block", request, identifier))
-    cache.delete(_account_key("fail", identifier))
-    cache.delete(_account_key("block", identifier))
 
 
 def _authenticate(request, identifier: str, password: str):
@@ -177,7 +101,8 @@ class AuthConfigView(APIView):
 class LoginView(APIView):
     """POST /api/auth/login/ — inicia sesión con usuario/email + contraseña."""
 
-    authentication_classes: list = []  # login: sin auth previa
+    # R6-05: sin sesión previa, pero CON token CSRF (login CSRF).
+    authentication_classes = [CsrfOnlyAuthentication]
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -196,9 +121,14 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        blocked, retry_after = _is_blocked(request, identifier)
+        blocked, retry_after = is_blocked(request, identifier)
         if blocked:
-            security_logger.warning("login bloqueado ip=%s id=%s", _client_ip(request), identifier)
+            # R5-13: el identificador va en resumen (es el email, y a veces una
+            # contraseña tecleada en el campo equivocado): dato personal fuera
+            # del log, pero correlacionable entre intentos.
+            security_logger.warning(
+                "login bloqueado ip=%s id=%s", client_ip(request), digest(identifier)[:12]
+            )
             resp = Response(
                 {"detail": "Demasiados intentos. Inténtalo más tarde."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -208,14 +138,16 @@ class LoginView(APIView):
 
         user = _authenticate(request, identifier, password)
         if user is None or not user.is_active:
-            _register_failure(request, identifier)
-            security_logger.info("login fallido ip=%s id=%s", _client_ip(request), identifier)
+            register_failure(request, identifier)
+            security_logger.info(
+                "login fallido ip=%s id=%s", client_ip(request), digest(identifier)[:12]
+            )
             return Response(
                 {"detail": "Credenciales incorrectas."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        _reset_failures(request, identifier)
+        reset_failures(request, identifier)
         login(request, user)  # crea la sesión (cookie httpOnly)
         security_logger.info("login ok user=%s", user.pk)
         return Response(UserSerializer(user).data)
@@ -262,7 +194,7 @@ class DriversView(APIView):
 class RegisterView(APIView):
     """POST /api/auth/register/ — alta de un usuario propio (self-signup)."""
 
-    authentication_classes: list = []
+    authentication_classes = [CsrfOnlyAuthentication]  # R6-05
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "register"
@@ -299,7 +231,7 @@ class GoogleLoginView(APIView):
     Body: `{"credential": "<ID token JWT devuelto por el botón de Google>"}`.
     """
 
-    authentication_classes: list = []
+    authentication_classes = [CsrfOnlyAuthentication]  # R6-05
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "google"
@@ -347,6 +279,10 @@ class GoogleLoginView(APIView):
         if not user.is_active:
             return Response({"detail": "Cuenta deshabilitada."}, status=status.HTTP_403_FORBIDDEN)
 
+        # La identidad de Google queda registrada en la persona: es lo que
+        # habilita el archivado en Drive con la cuenta de servicio.
+        user.last_google_login = timezone.now()
+        user.save(update_fields=["last_google_login"])
         login(request, user)
         security_logger.info("google login ok user=%s", user.pk)
         return Response(UserSerializer(user).data)

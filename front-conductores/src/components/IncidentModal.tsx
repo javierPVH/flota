@@ -9,6 +9,7 @@ import type { IncidentInput } from '../api.ts'
 import { fmtKm, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { enqueueIncidentWithFiles, isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
+import { compressImage } from '../offline/images.ts'
 import type { Vehicle } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
@@ -59,6 +60,10 @@ export function BreakdownModal({
   // Segunda fase: gestión, igual que Avería.
   const [managementPostalCode, setManagementPostalCode] = useState('')
   const [saving, setSaving] = useState(false)
+  // R5-50: UNA referencia por captura (petición y adjunto), no por pulsación:
+  // el reintento manual tras un 502/504 manda la misma y el back no duplica.
+  // El modal se remonta al cerrarse, así que la siguiente petición estrena otra.
+  const [refs] = useState(() => ({ incident: newClientRef(), document: newClientRef() }))
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
 
@@ -111,7 +116,7 @@ export function BreakdownModal({
       } : {}),
       ...(Object.keys(guided).length > 0 ? { details: guided } : {}),
       // R3-34: misma referencia en el intento directo y en el reenvío offline.
-      client_ref: newClientRef(),
+      client_ref: refs.incident,
     }
     const uploads = launchFile
       ? [{ file: launchFile, type: kind === 'tires' ? 'damage_photos' : 'other' }]
@@ -124,7 +129,7 @@ export function BreakdownModal({
           vehicle: vehicle.id,
           incident: incident.id,
           type: upload.type,
-          client_ref: newClientRef(),
+          client_ref: refs.document,
         }
         try {
           await uploadDocument(docPayload, upload.file)
@@ -265,7 +270,7 @@ export function BreakdownModal({
                 {kind && <label className={`photo-attach${launchFile ? ' has-file' : ''}`}>
                   <Camera size={18} aria-hidden />
                   {launchFile ? launchFile.name : t.incidentModal.attach}
-                  <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,application/pdf" onChange={(e) => setLaunchFile(e.target.files?.[0] ?? null)} />
+                  <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,application/pdf" onChange={async (e) => { const f = e.target.files?.[0]; setLaunchFile(f ? await compressImage(f) : null) }} />
                 </label>}
               </div>
             ) : (

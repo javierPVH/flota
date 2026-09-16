@@ -324,36 +324,6 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
       ),
     )
 
-  const columns: Array<TableWithPanelColumn<CatalogEntry>> = [
-    ...activeFields.map((f) => ({
-      key: f.key,
-      label: f.label,
-      getValue: (entry: CatalogEntry) => cellValue(entry, f.key),
-      render: (entry: CatalogEntry) => cellValue(entry, f.key) || '—',
-    })),
-    {
-      key: '__actions',
-      label: t.actionsColumn,
-      align: 'right' as const,
-      sortable: false,
-      render: (entry: CatalogEntry) => (
-        <div className="row-actions">
-          <IconButton aria-label={t.edit} title={t.edit} onClick={() => openEdit(entry)}>
-            <Pencil size={15} />
-          </IconButton>
-          <IconButton
-            variant="danger"
-            aria-label={t.delete}
-            title={t.delete}
-            onClick={() => handleDelete(entry)}
-          >
-            <Trash2 size={15} />
-          </IconButton>
-        </div>
-      ),
-    },
-  ]
-
   function openCreate() {
     setCreateValues(Object.fromEntries(activeFields.map((f) => [f.key, ''])))
     setCreateError('')
@@ -415,13 +385,13 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
     }
   }
 
-  function openEdit(entry: CatalogEntry) {
+  const openEdit = useCallback((entry: CatalogEntry) => {
     setEditing(entry)
     setEditValues(
       Object.fromEntries(activeFields.map((f) => [f.key, cellValueForEdit(entry, f.key)])),
     )
     setEditError('')
-  }
+  }, [activeFields])
 
   async function submitEdit(event: FormEvent) {
     event.preventDefault()
@@ -439,7 +409,7 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
     }
   }
 
-  async function handleDelete(entry: CatalogEntry) {
+  const handleDelete = useCallback(async (entry: CatalogEntry) => {
     // N7: nada se borra — doble confirmación y desactivación con motivo.
     const reason = await deactivateConfirm(t.deactivateSubject(active.singular, entryLabel(entry)))
     if (reason === null) return
@@ -449,7 +419,38 @@ export function CatalogsPage({ embedded = false }: { embedded?: boolean } = {}) 
     } catch (err) {
       setError(asErrorMessage(err, t.deactivateError))
     }
-  }
+  }, [active.resource, active.singular, deactivateConfirm, load, t])
+
+  // R5-38: memoizada (y detrás de los callbacks que usa, que son `const`).
+  const columns = useMemo<Array<TableWithPanelColumn<CatalogEntry>>>(() => [
+    ...activeFields.map((f) => ({
+      key: f.key,
+      label: f.label,
+      getValue: (entry: CatalogEntry) => cellValue(entry, f.key),
+      render: (entry: CatalogEntry) => cellValue(entry, f.key) || '—',
+    })),
+    {
+      key: '__actions',
+      label: t.actionsColumn,
+      align: 'right' as const,
+      sortable: false,
+      render: (entry: CatalogEntry) => (
+        <div className="row-actions">
+          <IconButton aria-label={t.edit} title={t.edit} onClick={() => openEdit(entry)}>
+            <Pencil size={15} />
+          </IconButton>
+          <IconButton
+            variant="danger"
+            aria-label={t.delete}
+            title={t.delete}
+            onClick={() => handleDelete(entry)}
+          >
+            <Trash2 size={15} />
+          </IconButton>
+        </div>
+      ),
+    },
+  ], [activeFields, handleDelete, openEdit, t.actionsColumn, t.delete, t.edit])
 
   return (
     <div>

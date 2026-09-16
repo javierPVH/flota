@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Camera, CheckCircle2, Paperclip, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Camera, CheckCircle2 } from 'lucide-react'
 import { Button, PageHeader, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
@@ -17,28 +17,14 @@ import {
   newClientRef,
   safeEnqueue,
 } from '../offline/queue.ts'
+import { compressImages } from '../offline/images.ts'
 import type { Incident, Vehicle } from '../types.ts'
 
+// Lo que se abre desde aquí: petición general, neumáticos y mantenimiento
+// puntual. La avería tiene su modal (`BreakdownModal`) y el accidente su parte
+// (`AccidentModal`); R5-61 retiró de esta página las ramas de los dos, que no
+// se podían elegir y duplicaban aquellos formularios.
 const INCIDENT_TYPES = ['general', 'tires', 'maintenance']
-const nowLocalDateTime = () => {
-  const now = new Date()
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
-  return now.toISOString().slice(0, 16)
-}
-
-type ThirdParty = {
-  plate: string; brand: string; model: string; full_name: string; phone: string
-  insurer: string; policy_number: string; damage_description: string
-}
-type InjuredPerson = { full_name: string; phone: string; email: string; plate: string; seat: string }
-
-const emptyThirdParty = (): ThirdParty => ({
-  plate: '', brand: '', model: '', full_name: '', phone: '', insurer: '',
-  policy_number: '', damage_description: '',
-})
-const emptyInjuredPerson = (): InjuredPerson => ({
-  full_name: '', phone: '', email: '', plate: '', seat: 'driver',
-})
 
 /** Alta unificada de avería: general, neumáticos o propuesta de mejora. */
 export function NewIncidentPage() {
@@ -60,26 +46,27 @@ export function NewIncidentPage() {
   const [form, setForm] = useState({
     vehicle: params.get('vehiculo') ?? '',
     type: INCIDENT_TYPES.includes(requestedType) ? requestedType : 'general',
-    date: todayIso(), description: '', mileage: '', workshopPostalCode: '',
+    date: todayIso(), description: '', mileage: '',
     // La prioridad la marca quien abre la petición (gestión tría por ella).
     priority: DEFAULT_PRIORITY as string,
   })
+  // El parte guiado de neumáticos (GAP-6): motivo y medidas.
   const [details, setDetails] = useState<Record<string, string>>({
-    preferred_at: '', change_reason: '', wheel_scope: 'front', front_measure: '',
-    rear_measure: '', wheel: 'front_left', tire_measure: '', street: '',
-    street_number: '', postal_code: '', locality: '', province: '', occurred_at: '',
-    phone: '', damage_description: '', police_report_reference: '',
+    change_reason: '', wheel_scope: 'front', front_measure: '', rear_measure: '',
+    wheel: 'front_left', tire_measure: '',
   })
-  const [thirdParties, setThirdParties] = useState<ThirdParty[]>([])
-  const [injuredPeople, setInjuredPeople] = useState<InjuredPerson[]>([])
   const [photos, setPhotos] = useState<File[]>([])
-  const [accidentReport, setAccidentReport] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   // R3-27: la incidencia YA creada cuando falló alguna subida — reintentar no
   // debe crear una segunda idéntica, solo terminar las subidas pendientes.
   const [created, setCreated] = useState<Incident | null>(null)
-  const [pendingUploads, setPendingUploads] = useState<Array<{ file: File; type: string }> | null>(
+  // R5-50: la referencia de idempotencia de la petición se fija UNA vez por
+  // captura (no por pulsación): el reintento manual tras un 502/504 no duplica.
+  const [clientRef] = useState(newClientRef)
+  const [pendingUploads, setPendingUploads] = useState<
+    Array<{ file: File; type: string; client_ref: string }> | null
+  >(
     null,
   )
   // R3-27: sin cobertura el parte queda encolado — pantalla de confirmación.
@@ -150,40 +137,35 @@ export function NewIncidentPage() {
   }, [form.vehicle])
 
   const setDetail = (name: string, value: string) => setDetails((current) => ({ ...current, [name]: value }))
-  const updateThirdParty = (index: number, patch: Partial<ThirdParty>) => setThirdParties(
-    (rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row),
-  )
-  const updateInjuredPerson = (index: number, patch: Partial<InjuredPerson>) => setInjuredPeople(
-    (rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row),
-  )
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     if (!form.vehicle) return
     setSaving(true)
     setError('')
-    const incidentDetails: Record<string, unknown> = form.type === 'accident'
-      ? { ...details, report_version: 1, third_parties: thirdParties, injured_people: injuredPeople }
-      : form.type === 'tires' ? { ...details, report_version: 1 }
-        : form.type === 'breakdown' ? { report_version: 1 } : {}
-    const description = form.type === 'accident' ? details.damage_description : form.description
-    const date = form.type === 'accident' && details.occurred_at ? details.occurred_at.slice(0, 10) : form.date
+    const incidentDetails: Record<string, unknown> =
+      form.type === 'tires' ? { ...details, report_version: 1 } : {}
     // En un reintento solo quedan las subidas que fallaron; la primera vez, todas.
     const uploads = pendingUploads ?? [
-      ...(form.type === 'maintenance' ? [] : photos.map((file) => ({ file, type: 'damage_photos' }))),
-      ...(form.type === 'accident' && accidentReport
-        ? [{ file: accidentReport, type: 'accident_report' }] : []),
+      // Cualquier petición puede llevar adjunto. En la propuesta de mejora no
+      // hay daño que fotografiar, así que el archivo se archiva como «Otro».
+      // Cada adjunto lleva su referencia desde el principio: el reintento
+      // (`pendingUploads`) reutiliza la misma y no sube el archivo dos veces.
+      ...photos.map((file) => ({
+        file, type: form.type === 'maintenance' ? 'other' : 'damage_photos',
+        client_ref: newClientRef(),
+      })),
     ]
     try {
       let incident = created
       if (!incident) {
         const payload: IncidentInput & { client_ref: string } = {
           vehicle: Number(form.vehicle), type: form.type, priority: form.priority,
-          date, description,
+          date: form.date, description: form.description,
           mileage: form.mileage ? Number(form.mileage) : null,
-          workshop_postal_code: form.workshopPostalCode, details: incidentDetails,
+          details: incidentDetails,
           // R3-34: misma referencia en el intento directo y en el reenvío.
-          client_ref: newClientRef(),
+          client_ref: clientRef,
         }
         try {
           incident = await createIncident(payload)
@@ -200,13 +182,13 @@ export function NewIncidentPage() {
         // crear una segunda incidencia idéntica.
         setCreated(incident)
       }
-      const failed: Array<{ file: File; type: string }> = []
+      const failed: Array<{ file: File; type: string; client_ref: string }> = []
       for (const upload of uploads) {
         const docPayload = {
           vehicle: incident.vehicle,
           type: upload.type,
           incident: incident.id,
-          client_ref: newClientRef(),
+          client_ref: upload.client_ref,
         }
         try {
           await uploadDocument(docPayload, upload.file)
@@ -325,78 +307,17 @@ export function NewIncidentPage() {
           <TextAreaField label={t.newIncident.comment} rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
         </section>}
 
-        {form.type === 'breakdown' && <section className="incident-section" aria-labelledby="breakdown-data-title">
-          <h2 id="breakdown-data-title">{t.newIncident.breakdownData}</h2>
-          <div className="incident-grid">
-            <TextInputField label={t.newIncident.mileage} type="number" min={0} value={form.mileage} onChange={(event) => setForm((current) => ({ ...current, mileage: event.target.value }))} required requiredVisual />
-            <TextInputField label={t.newIncident.workshopPostalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={form.workshopPostalCode} onChange={(event) => setForm((current) => ({ ...current, workshopPostalCode: event.target.value }))} required requiredVisual />
-          </div>
-          {kmCurrent != null && (
-            <p className="update-hint">{kmEstimated
-              ? t.newIncident.mileageFromReadingEstimated(fmtKm(kmCurrent, language))
-              : t.newIncident.mileageFromReading(fmtKm(kmCurrent, language))}</p>
-          )}
-          <TextAreaField label={t.newIncident.description} rows={4} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder={t.newIncident.breakdownPlaceholder} required requiredVisual />
-        </section>}
-
-        {form.type === 'accident' && <section className="incident-section" aria-labelledby="accident-data-title">
-          <h2 id="accident-data-title">{t.newIncident.accidentData}</h2>
-          <div className="incident-grid">
-            <TextInputField label={t.newIncident.street} value={details.street} onChange={(event) => setDetail('street', event.target.value)} required requiredVisual />
-            <TextInputField label={t.newIncident.streetNumber} value={details.street_number} onChange={(event) => setDetail('street_number', event.target.value)} />
-            <TextInputField label={t.newIncident.postalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={details.postal_code} onChange={(event) => setDetail('postal_code', event.target.value)} required requiredVisual />
-            <TextInputField label={t.newIncident.locality} value={details.locality} onChange={(event) => setDetail('locality', event.target.value)} required requiredVisual />
-            <TextInputField label={t.newIncident.province} value={details.province} onChange={(event) => setDetail('province', event.target.value)} required requiredVisual />
-            <TextInputField label={t.newIncident.accidentAt} type="datetime-local" max={nowLocalDateTime()} value={details.occurred_at} onChange={(event) => setDetail('occurred_at', event.target.value)} required requiredVisual />
-            <TextInputField label={t.newIncident.phone} type="tel" value={details.phone} onChange={(event) => setDetail('phone', event.target.value)} required requiredVisual />
-            <TextInputField label={t.newIncident.workshopPostalCodeOptional} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={form.workshopPostalCode} onChange={(event) => setForm((current) => ({ ...current, workshopPostalCode: event.target.value }))} />
-          </div>
-          <TextAreaField label={t.newIncident.damageDescription} rows={4} value={details.damage_description} onChange={(event) => setDetail('damage_description', event.target.value)} required requiredVisual />
-
-          <RepeatableHeader title={t.newIncident.thirdParties} addLabel={t.newIncident.add} onAdd={() => setThirdParties((rows) => [...rows, emptyThirdParty()])} />
-          {thirdParties.map((row, index) => <div className="incident-repeat-card" key={`third-${index}`}>
-            <button type="button" className="incident-remove" aria-label={t.newIncident.removeThirdParty} onClick={() => setThirdParties((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}><Trash2 size={17} aria-hidden /></button>
-            <div className="incident-grid">
-              <TextInputField label={t.newIncident.plate} value={row.plate} onChange={(event) => updateThirdParty(index, { plate: event.target.value })} />
-              <TextInputField label={t.newIncident.brand} value={row.brand} onChange={(event) => updateThirdParty(index, { brand: event.target.value })} />
-              <TextInputField label={t.newIncident.model} value={row.model} onChange={(event) => updateThirdParty(index, { model: event.target.value })} />
-              <TextInputField label={t.newIncident.fullName} value={row.full_name} onChange={(event) => updateThirdParty(index, { full_name: event.target.value })} />
-              <TextInputField label={t.newIncident.phone} type="tel" value={row.phone} onChange={(event) => updateThirdParty(index, { phone: event.target.value })} />
-              <TextInputField label={t.newIncident.insurer} value={row.insurer} onChange={(event) => updateThirdParty(index, { insurer: event.target.value })} />
-              <TextInputField label={t.newIncident.policyNumber} value={row.policy_number} onChange={(event) => updateThirdParty(index, { policy_number: event.target.value })} />
-            </div>
-            <TextAreaField label={t.newIncident.damageDescription} rows={2} value={row.damage_description} onChange={(event) => updateThirdParty(index, { damage_description: event.target.value })} />
-          </div>)}
-
-          <RepeatableHeader title={t.newIncident.injuredPeople} addLabel={t.newIncident.add} onAdd={() => setInjuredPeople((rows) => [...rows, emptyInjuredPerson()])} />
-          {injuredPeople.map((row, index) => <div className="incident-repeat-card" key={`injured-${index}`}>
-            <button type="button" className="incident-remove" aria-label={t.newIncident.removeInjured} onClick={() => setInjuredPeople((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}><Trash2 size={17} aria-hidden /></button>
-            <div className="incident-grid">
-              <TextInputField label={t.newIncident.fullName} value={row.full_name} onChange={(event) => updateInjuredPerson(index, { full_name: event.target.value })} />
-              <TextInputField label={t.newIncident.phone} type="tel" value={row.phone} onChange={(event) => updateInjuredPerson(index, { phone: event.target.value })} />
-              <TextInputField label={t.newIncident.email} type="email" value={row.email} onChange={(event) => updateInjuredPerson(index, { email: event.target.value })} />
-              <TextInputField label={t.newIncident.plate} value={row.plate} onChange={(event) => updateInjuredPerson(index, { plate: event.target.value })} />
-              <SelectField label={t.newIncident.seat} options={[
-                { value: 'driver', label: t.newIncident.driver }, { value: 'passenger', label: t.newIncident.passenger },
-              ]} value={row.seat} onValueChange={(seat) => updateInjuredPerson(index, { seat })} />
-            </div>
-          </div>)}
-          <TextInputField label={t.newIncident.policeReportReference} value={details.police_report_reference} onChange={(event) => setDetail('police_report_reference', event.target.value)} />
-          <label className={`photo-attach${accidentReport ? ' has-file' : ''}`}>
-            <Paperclip size={18} aria-hidden />
-            {accidentReport ? accidentReport.name : t.newIncident.accidentReport}
-            <input type="file" aria-label={t.newIncident.accidentReport} accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => setAccidentReport(event.target.files?.[0] ?? null)} />
-          </label>
-        </section>}
-
         {(form.type === 'general' || form.type === 'maintenance') && <>
           <TextAreaField label={t.newIncident.description} rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder={t.newIncident.descPlaceholder} required requiredVisual />
         </>}
-        {form.type !== 'maintenance' && <label className={`photo-attach${photos.length > 0 ? ' has-file' : ''}`}>
+        {/* El adjunto no depende del tipo: toda petición admite prueba, y
+            acepta PDF además de foto (un presupuesto no se hace con la
+            cámara), como el modal de avería. */}
+        <label className={`photo-attach${photos.length > 0 ? ' has-file' : ''}`}>
           <Camera size={18} aria-hidden />
-          {photos.length > 0 ? t.newIncident.photosSelected(photos.length) : t.newIncident.photos}
-          <input type="file" aria-label={t.newIncident.photos} accept="image/jpeg,image/png,image/webp,image/heic" multiple onChange={(event) => setPhotos(Array.from(event.target.files ?? []))} />
-        </label>}
+          {photos.length > 0 ? t.newIncident.attachmentsSelected(photos.length) : t.newIncident.attachments}
+          <input type="file" aria-label={t.newIncident.attachments} accept="image/jpeg,image/png,image/webp,image/heic,application/pdf" multiple onChange={async (event) => setPhotos(await compressImages(Array.from(event.target.files ?? [])))} />
+        </label>
         {error && <div role="alert" className="form-error">{error}</div>}
         <div className="form-actions">
           <Button type="button" variant="secondary" onClick={() => navigate(origin)}>{t.common.cancel}</Button>
@@ -405,11 +326,4 @@ export function NewIncidentPage() {
       </form>
     </div>
   )
-}
-
-function RepeatableHeader({ title, addLabel, onAdd }: { title: string; addLabel: string; onAdd: () => void }) {
-  return <div className="incident-repeat-head">
-    <h3>{title}</h3>
-    <button type="button" className="incident-add" onClick={onAdd}><Plus size={16} aria-hidden /> {addLabel}</button>
-  </div>
 }

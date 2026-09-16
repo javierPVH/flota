@@ -175,7 +175,7 @@ export function UsersPage() {
     setModalOpen(true)
   }
 
-  async function toggleActive(user: ManagedUserFull) {
+  const toggleActive = useCallback(async (user: ManagedUserFull) => {
     try {
       if (user.is_active) {
         if (
@@ -194,7 +194,7 @@ export function UsersPage() {
     } catch (err) {
       setError(asErrorMessage(err, t.toggleError))
     }
-  }
+  }, [confirm, load, t])
 
   const rows = useMemo(
     () =>
@@ -222,7 +222,7 @@ export function UsersPage() {
     [users, expStatus, expRole, expSearch, expFrom, expTo],
   )
 
-  const allColumns: Array<TableWithPanelColumn<ManagedUserFull>> = [
+  const allColumns = useMemo<Array<TableWithPanelColumn<ManagedUserFull>>>(() => [
     {
       key: 'name',
       label: t.columns.name,
@@ -281,9 +281,9 @@ export function UsersPage() {
         </Badge>
       ),
     },
-  ]
+  ], [t.active, t.columns.contact, t.columns.dni, t.columns.fuelCard, t.columns.license, t.columns.name, t.columns.roles, t.columns.status, t.inactive, t.no, t.roles, t.yes])
 
-  const actionsColumn: TableWithPanelColumn<ManagedUserFull> = {
+  const actionsColumn: TableWithPanelColumn<ManagedUserFull> = useMemo(() => ({
     key: 'actions',
     label: t.columns.actions,
     align: 'right',
@@ -303,18 +303,18 @@ export function UsersPage() {
         </Button>
       </div>
     ),
-  }
+  }), [t.columns.actions, t.deactivate, t.edit, t.reactivate, toggleActive])
 
-  const colByKey = new Map(allColumns.map((c) => [c.key, c]))
+  const colByKey = useMemo(() => (new Map(allColumns.map((c) => [c.key, c]))), [allColumns])
 
   // M15: todas las columnas; el orden y las ocultas van CONTROLADOS a la tabla
   // (ver VehiclesPage), así que ya no hace falta remontarla en cada cambio.
-  const tableColumns: Array<TableWithPanelColumn<ManagedUserFull>> = [
+  const tableColumns = useMemo<Array<TableWithPanelColumn<ManagedUserFull>>>(() => [
     ...colOrder
       .map((key) => colByKey.get(key))
       .filter((c): c is TableWithPanelColumn<ManagedUserFull> => Boolean(c)),
     actionsColumn,
-  ]
+  ], [actionsColumn, colByKey, colOrder])
 
   // Columnas exportables (las de acciones no tienen valor).
   const exportableColumns = allColumns.filter((c) => c.getValue)

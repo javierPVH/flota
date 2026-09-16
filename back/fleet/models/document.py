@@ -91,7 +91,7 @@ class Document(DeactivatableModel, TimeStampedModel):
     class Meta:
         verbose_name = "documento"
         verbose_name_plural = "documentos"
-        ordering = ["-created_at"]
+        ordering = ["-created_at", "-pk"]  # R3-23/R5-19: desempate estable
         indexes = [
             # Filtro de documentos por vehículo y estado (p. ej. pendiente_archivar).
             models.Index(fields=["vehicle", "status"]),

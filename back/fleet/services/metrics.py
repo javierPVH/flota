@@ -91,6 +91,63 @@ def _latest_reading(vehicle: Vehicle) -> KmReading | None:
     )
 
 
+def _observed_pace(vehicle: Vehicle, contract: Contract | None, latest: KmReading | None):
+    """km/día observados desde el inicio del contrato, o None si faltan datos.
+
+    Es la base de TODA proyección (mismo criterio lineal que
+    `alerts.check_km_overage`): hace falta contrato vigente con km y fechas,
+    una última lectura con fecha y km recorridos por encima del inicial; con
+    km ilimitados (N3) no se proyecta.
+    """
+    if contract is None or vehicle.unlimited_km or latest is None or latest.km_reading is None:
+        return None
+    if not (contract.contract_km and contract.start_date and contract.planned_end_date):
+        return None
+    km_driven = max(0, latest.km_reading - (vehicle.km_start or 0))
+    if not km_driven:
+        return None
+    total_days = (contract.planned_end_date - contract.start_date).days
+    elapsed_days = (latest.reading_date - contract.start_date).days
+    if total_days <= 0 or elapsed_days <= 0:
+        return None
+    return km_driven / elapsed_days
+
+
+def _current_contracts(ids: list[int]) -> dict[int, Contract]:
+    """Contrato vigente por vehículo (el más reciente), en UNA consulta."""
+    contracts: dict[int, Contract] = {}
+    for contract in Contract.objects.filter(
+        vehicle_id__in=ids, end_date__isnull=True, is_active=True
+    ).order_by("vehicle_id", "-start_date"):
+        contracts.setdefault(contract.vehicle_id, contract)
+    return contracts
+
+
+def monthly_pace_map(user, ids: list[int]) -> dict[int, dict]:
+    """R5-15: matrícula y media mensual de km por vehículo, en TRES consultas.
+
+    Es lo único que `driver-candidates` necesita de la proyección para ordenar
+    el desplegable. Componer el summary completo (sustituciones, mantenimiento,
+    combustible, incidencias…) de casi toda la flota eran ocho consultas y un
+    dict de treinta claves por coche para leer dos. Acotado al ámbito del rol,
+    como `vehicle_summaries`; un coche sin datos va con `monthly_avg: None`.
+    """
+    vehicles = list(
+        vehicles_for(user)
+        .exclude(state=VehicleState.BAJA)
+        .filter(id__in=ids)
+        .only("id", "plate", "km_start", "unlimited_km")
+    )
+    ids = [v.id for v in vehicles]
+    contracts = _current_contracts(ids)
+    latest = latest_reading_map(ids)
+    out: dict[int, dict] = {}
+    for v in vehicles:
+        pace = _observed_pace(v, contracts.get(v.id), latest.get(v.id))
+        out[v.id] = {"plate": v.plate, "monthly_avg": None if pace is None else round(pace * 30)}
+    return out
+
+
 def _maintenance_due_map(ids: list[int]) -> dict[int, date]:
     """GAP-8: próximo mantenimiento por vehículo (el plan que antes venza).
 
@@ -174,11 +231,7 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
     vehicles = list(scope)
     ids = [v.id for v in vehicles]
 
-    contracts: dict[int, Contract] = {}
-    for contract in Contract.objects.filter(
-        vehicle_id__in=ids, end_date__isnull=True, is_active=True
-    ).order_by("vehicle_id", "-start_date"):
-        contracts.setdefault(contract.vehicle_id, contract)
+    contracts = _current_contracts(ids)
 
     # R3-11: la última lectura la decide la BD (una fila por vehículo), no un
     # `setdefault` sobre el histórico entero hidratado.
@@ -308,21 +361,12 @@ def _compose_summary(
     if vehicle.unlimited_km:
         return summary
 
-    # Proyección lineal (mismo criterio que alerts.check_km_overage).
-    if not (
-        contract.contract_km
-        and contract.start_date
-        and contract.planned_end_date
-        and latest
-        and km_driven
-    ):
+    # Proyección lineal (mismo criterio que alerts.check_km_overage). El ritmo
+    # observado lo calcula `_observed_pace`, compartido con `monthly_pace_map`.
+    pace = _observed_pace(vehicle, contract, latest)
+    if pace is None:
         return summary
     total_days = (contract.planned_end_date - contract.start_date).days
-    elapsed_days = (latest.reading_date - contract.start_date).days
-    if total_days <= 0 or elapsed_days <= 0:
-        return summary
-
-    pace = km_driven / elapsed_days  # km/día observados; base de toda proyección
     projected = round(pace * total_days)
     remaining = contract.contract_km - km_driven
     monthly_avg = round(pace * 30)

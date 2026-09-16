@@ -18,7 +18,7 @@ import { AccidentReportForm } from './AccidentReportForm.tsx'
 import { PendingRow } from './PendingRow.tsx'
 import { ResolveDispatcher } from './resolve/ResolveDispatcher.tsx'
 import { alertTarget, incidentTarget, type ResolveTarget } from './resolve/resolveFlow.ts'
-import { VehicleEmailModal } from './VehicleEmailModal.tsx'
+import { EMAIL_MODAL_SIZE, VehicleEmailModal } from './VehicleEmailModal.tsx'
 import { VehicleStateModal } from './VehicleStateModal.tsx'
 
 /** Un tipo de lo que hay abierto, con cuántos hay. */
@@ -180,7 +180,11 @@ export function usePending({
   // El histórico (cerradas/resueltas) se pide solo al abrir su pestaña.
   const [closedAlerts, setClosedAlerts] = useState<Alert[] | null>(null)
   const [closedIncidents, setClosedIncidents] = useState<Incident[] | null>(null)
-  const [failed, setFailed] = useState(false)
+  // R5-32: el fallo se guarda POR GRUPO. Con las alertas en 500 y las
+  // incidencias bien, la pestaña «Alertas» decía «aquí no hay nada».
+  const [alertsFailed, setAlertsFailed] = useState(false)
+  const [incidentsFailed, setIncidentsFailed] = useState(false)
+  const failed = incidentsFailed && (Boolean(soloTipo) || alertsFailed)
   const [reloadKey, setReloadKey] = useState(0)
   const [resolving, setResolving] = useState<ResolveTarget | null>(null)
   const [notice, setNotice] = useState('')
@@ -233,9 +237,8 @@ export function usePending({
       setIncidents(
         i.status === 'fulfilled' ? i.value.filter((inc) => !excluidos.has(inc.type)) : [],
       )
-      // Falla la carga cuando no queda nada que enseñar: con `soloTipo`, eso
-      // es que fallaron las incidencias (las alertas no se han pedido).
-      setFailed(i.status === 'rejected' && (Boolean(soloTipo) || a.status === 'rejected'))
+      setAlertsFailed(a.status === 'rejected')
+      setIncidentsFailed(i.status === 'rejected')
     })
     return () => {
       alive = false
@@ -315,7 +318,8 @@ export function usePending({
     if (!vehicle) return
     setModal('incident')
     if (allVehicles === null) {
-      listAll(listVehicles({}))
+      // R5-36: el selector solo ofrece coches de sustitución; el back filtra.
+      listAll(listVehicles({ is_substitute: true }))
         .then(setAllVehicles)
         .catch(() => setAllVehicles(vehicle ? [vehicle] : []))
     }
@@ -656,6 +660,13 @@ export function usePending({
             {/* Sin nada que listar no hay nada que filtrar. */}
             {filas.length > 0 && <div className="pending-filters">{filtros}</div>}
           </div>
+          {/* R5-32: un fallo PARCIAL se dice en la pestaña afectada, en vez de
+              pintar su lista vacía como si no hubiera nada pendiente. */}
+          {(grupo === 'alerts' ? alertsFailed : incidentsFailed) && (
+            <p className="form-error" role="alert">
+              {t.error}
+            </p>
+          )}
           {cuerpo()}
         </>
       )}
@@ -724,7 +735,7 @@ export function usePending({
         open={email !== null && cocheDelCorreo !== null}
         title={cocheDelCorreo ? vt.email.title(cocheDelCorreo.plate) : ''}
         onClose={() => setEmail(null)}
-        wide
+        {...EMAIL_MODAL_SIZE}
       >
         {email && cocheDelCorreo && (
           <VehicleEmailModal

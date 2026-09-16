@@ -124,8 +124,27 @@ Dos capas que van **siempre juntas**:
   `returns.py` (GAP-7: devolución de vehículo como operación única — lectura
   final, cierre de contrato, fin de asignaciones, baja y exceso de km),
   `reports.py` (Excel/CSV acotado por rol), `archiver.py` (backends
-  `none|local|gdrive` + reintento), `jira.py`, `importer.py`, `events.py`,
+  `none|local|gdrive` + reintento; árbol y credenciales, abajo), `jira.py`, `importer.py`, `events.py`,
   `seed.py`.
+- **En Drive todo cuelga del mismo árbol**: carpeta madre
+  (`GOOGLE_DRIVE_ROOT_FOLDER_ID`) → **matrícula** → **familia** del documento
+  (`DOCUMENT_FAMILIES`: Documentación, Incidencias, Facturas, Otros). Cada
+  nivel se **busca antes de crearse** (`_child_folder`), así que dos subidas
+  seguidas del mismo coche no duplican carpetas; el de la matrícula se recuerda
+  en `Vehicle.drive_folder_id` y el de la familia se resuelve en cada subida. Se
+  agrupa en pocas familias a propósito: una carpeta por tipo dejaría una docena
+  casi vacías por coche. El backend `local` monta **el mismo árbol** en disco,
+  para que lo que se prueba en dev sea lo que luego se ve en Drive.
+- **Con qué cuenta se sube lo decide quien subió** (`_service_for`), porque son
+  dos webs distintas: **gestión** va por dentro y el administrador ha conectado
+  su Google, así que sube con **su** cuenta (es su Drive y su rastro);
+  **conductores** es pública y a un conductor no se le pide Drive, así que sube
+  la **cuenta de servicio** — pero **solo si esa persona entró con Google**
+  (`User.last_google_login`, que escribe únicamente `GoogleLoginView`). Sin
+  ninguna de las dos cosas no se sube nada: el documento queda
+  `pendiente_archivar` y el reintento lo recogerá cuando la haya. Por eso la
+  PWA tiene ya su **entrada solo con Google** (`GoogleLoginPage`), **sin
+  activar** tras el interruptor `SOLO_GOOGLE` de `App.tsx`.
 - **Trabajos programados**: `management/commands/` (`refresh_next_itv`,
   `check_itv`, `check_insurance`, `check_no_driver`, `remind_km_readings`,
   `check_km_overage`, `check_maintenance`, `archive_pending_documents`,
@@ -179,14 +198,19 @@ Dos capas que van **siempre juntas**:
   tipo de aviso o por los dos, y **fuera va el que se marcó primero**, que es
   el criterio con el que se está leyendo la tabla. La fila
   expandible (N4) es `renderExpandedRow`; si **no todas** las filas tienen algo
-  debajo, va con `canExpandRow` (N4b): la columna del expansor se mantiene —las
+  debajo, va con `canExpandRow` (N4b): el hueco del expansor se mantiene —las
   celdas siguen alineadas— pero la fila sin nada no enseña flecha ni responde al
   clic, porque una flecha que abre un hueco vacío es una promesa que no se
-  cumple. Así lo usa la tabla del **panel**: un coche cubierto despliega **su
+  cumple. Con **`expanderInFirstCell`** (N4c) esa flecha no tiene columna
+  propia: va **dentro de la primera celda**, delante de lo que nombra la fila
+  (la matrícula), y ese ancho se lo quedan las columnas con datos — una columna
+  entera para un icono son ~40px que no se leen. Así lo usa la tabla del **panel**: un coche cubierto despliega **su
   coche de sustitución** (`.sub-row`, en el morado de la sustitución) con lo
   mismo que se lee en la fila de arriba —quién lo lleva, kilómetros, gasto del
-  mes, ITV y seguro— y desde cuándo lo cubre. Esa tabla enseña además **cómo
-  va** el coche: «Kilómetros» en dos líneas (el odómetro y **cuánto lleva sin
+  mes, ITV y seguro— y desde cuándo lo cubre. Esa tabla lleva la flecha **pegada a la matrícula**
+  (`expanderInFirstCell`) y el **⋮ sin rótulo**, en una columna del ancho de su
+  icono: «Acciones» sigue siendo el nombre de la columna en el selector, pero
+  no ocupa cabecera. Enseña además **cómo va** el coche: «Kilómetros» en dos líneas (el odómetro y **cuánto lleva sin
   leerse**, con el semáforo de `kmStaleTone`: ámbar 15-30 días, rojo a partir de
   30 o sin ninguna lectura, pintado con las mismas clases `itv-soon` /
   `itv-overdue` que los vencimientos), «Combustible (mes)» —en dos líneas también: los **litros** del mes y,
@@ -220,10 +244,33 @@ Dos capas que van **siempre juntas**:
   mantenimiento → `MaintenanceResolveForm`, seguro → `RenewInsuranceForm`,
   avería/general → `ResolveBreakdownModal`, neumáticos, accidente con baja
   encadenada; el resto de alertas → `ResolveAlertModal`). Lo común (fecha,
-  taller del catálogo, km, coste, observaciones, justificante, casilla
-  «devolver a Activo») vive en `useResolutionCommon` + `ResolutionCommonFields`;
+  taller del catálogo, km, coste, observaciones, justificante y el **CP de la
+  ubicación**) vive en `useResolutionCommon` + `ResolutionCommonFields`;
   los textos en `translations/resolve.ts`. Panel, ficha (`VehiclePendingCard`)
-  y bandejas usan el mismo dispatcher: no añadas cierres sueltos. Ese cuerpo
+  y bandejas usan el mismo dispatcher: no añadas cierres sueltos. El **CP** sale
+  de la petición (`Incident.workshop_postal_code`) y se puede **completar o
+  corregir al cerrar** —en campo no siempre se sabe a qué taller irá—; vacío no
+  borra el que hubiera, y solo se pinta donde hay petición detrás (una alerta no
+  tiene ubicación que completar).
+- **Volver al servicio es UNA decisión y vive en el despachador**, no dentro de
+  cada formulario: con el coche parado, todos los modales de «Resolver» abren
+  con la misma casilla arriba —«Devolver el coche a Activo» y, si le cubre un
+  sustituto, «y dejar libre el de sustitución (MATRÍCULA)»—; con el coche ya
+  activo no se pregunta nada. Nace **marcada** cuando el coche está parado justo
+  por lo que se cierra (avería → «Averiado»…), que es el caso de siempre, y
+  **sin marcar** cuando está parado por otra causa: ahí volver a la calle es una
+  decisión aparte. Se aplica en dos tramos porque son dos cosas distintas: el
+  `return_to_active` del propio cierre sigue haciendo el cambio de estado **en
+  la misma llamada** cuando le corresponde (con su evento «X resuelta»), y para
+  todo lo demás —soltar el vínculo, o reactivar un coche parado por otra causa—
+  está `POST /vehicles/{id}/release-substitute/` (`services/substitution.py`),
+  que cierra el vínculo vigente y devuelve el coche a Activo. Es **idempotente**
+  y honesto: si queda abierta otra petición de las que paran el coche, suelta el
+  sustituto igual (no tiene por qué seguir retenido) pero **no cambia el
+  estado**, y lo dice en `blocked_by` para que el aviso lo cuente. Si esa
+  segunda llamada falla, la resolución ya está guardada: se avisa y no se tumba
+  nada. La matrícula del sustituto la pregunta el despachador
+  (`vehicle-links`), porque el listado de vehículos no la trae. Ese cuerpo
   —pestañas, filas (`PendingRow`), ✓ y sobre— vive en el hook
   `components/usePending.tsx` y tiene **tres** caras: la tarjeta de la ficha
   (`VehiclePendingCard`); `VehiclePendingModal`, la acción **«Alertas e
@@ -289,7 +336,18 @@ Dos capas que van **siempre juntas**:
   salto al campo inválido) y `components/OpsSteps.tsx` (`OpsSteps` y
   `OpsSection`). Lo usan «Nuevo estado», **«Enviar correo»**
   (`VehicleEmailModal`: tipo → contenido → destinatarios → vista previa) y el
-  **parte de accidente**. La acción **«Accidente»** del menú ⋮ es un modal de
+  **parte de accidente**. En «Enviar correo», el paso **Contenido** enseña el
+  **texto de la plantilla en la propia caja y se puede retocar**: lo que se lee
+  ahí es lo que sale, con los **marcadores** (`TemplateVars`, la misma tira que
+  el gestor de Ajustes) para pegar `{{matricula}}` y compañía donde esté el
+  cursor. Solo viaja al back (`body`) **si se toca** —sin tocar manda la
+  plantilla, con sus dos idiomas—, se rinde con las mismas variables y se sanea
+  con el mismo nh3, y **no modifica la plantilla**: eso es Ajustes → Plantillas
+  de correo, que cambia el correo de todos. El «Mensaje adicional» sigue
+  debajo: es lo que rellena `{{mensaje}}` y donde cae el texto de la incidencia
+  elegida. El modal mide **lo mismo en los cuatro pasos** y es ancho
+  (`EMAIL_MODAL_SIZE`, que ponen los seis sitios que lo abren): si encogiera al
+  avanzar, el pie bailaría bajo el cursor. La acción **«Accidente»** del menú ⋮ es un modal de
   tamaño fijo con dos pestañas: **«Comunicar accidente»**
   (`AccidentReportForm`, el parte guiado de la PWA por pasos — dónde y cuándo,
   daños, implicados, atestado y archivo— con el mismo pie de «Anterior» /
@@ -302,11 +360,10 @@ Dos capas que van **siempre juntas**:
   (la lista de arriba). El formulario sigue montado al cambiar de pestaña y su
   `onDone` recarga la lista. El parte a solas —sin la gestión— es lo que abre
   «Parte de accidente» desde la ficha: `usePending` importa
-  `AccidentReportForm`, **no** `AccidentModal`, o sería un ciclo. La pestaña
-  «Estados abiertos» de ese formulario está
-  **oculta** (`SHOW_OPEN_TAB`): lo pendiente se repasa en la ficha, y con ella
-  queda fuera de la interfaz el ciclo modificar/gestionar de
-  `OpenIncidentsPanel`.
+  `AccidentReportForm`, **no** `AccidentModal`, o sería un ciclo. «Nuevo
+  estado» ya no tiene pestaña «Estados abiertos» (R5-42 la retiró con su
+  `OpenIncidentsPanel`): lo pendiente se repasa en la ficha y en la pestaña
+  «Incidencias» de al lado, y se cierra con el dispatcher.
 - **La ficha del vehículo** (`VehicleDetailPage`) se lee de arriba abajo así:
   la **cabecera** con la matrícula y, a su derecha en una sola fila, lo que
   cuesta el coche (**coste mensual** y **fin de contrato**); **dentro del
@@ -358,10 +415,9 @@ Dos capas que van **siempre juntas**:
   alertas, que se queda con «Nueva incidencia». Los accidentes siguen
   contando también en la lista general y en el indicador: es la misma
   incidencia mirada de dos maneras. De salida solo está **abierto lo pendiente**: lo
-  demás se consulta, no se lee en cada visita. **Consumo y mantenimiento ya no tienen tarjeta
-  aquí** (`SHOW_FUEL_CARD` / `SHOW_MAINTENANCE_CARD`, como `SHOW_OPEN_TAB`:
-  el código sigue, la interfaz no): se leen en su indicador y se gestionan
-  donde se gestionan en el resto de pantallas.
+  demás se consulta, no se lee en cada visita. **Consumo y mantenimiento no
+  tienen tarjeta aquí** (R5-42 retiró las apagadas): se leen en su indicador y
+  se gestionan donde se gestionan en el resto de pantallas.
 - **Quién lleva y quién responde del coche son periodos con fechas**, y la
   regla es la misma para los dos: **uno a la vez**, también hacia atrás. El
   conductor son las `Assignment` (las `accepted`/`finished` son tramos; una
@@ -522,8 +578,18 @@ Dos capas que van **siempre juntas**:
   programarlo y se ancla por defecto en **hoy** (la fecha
   de creación del registro), que es lo que permite enseñar el próximo
   vencimiento antes de guardar. Un vehículo tiene **un** plan activo: el back
-  rechaza el segundo. La tarjeta de la ficha (`MaintenancePlansCard`) ya no da
-  de alta nada: enseña lo que hay, abre este modal y permite retirarlo (N7).
+  rechaza el segundo, y retirarlo (N7) se hace desde este mismo modal: la ficha
+  no tiene tarjeta de mantenimiento.
+- **Toda petición que abren el conductor o el supervisor admite adjunto**, sin
+  excepciones por tipo: el alta de la PWA (`NewIncidentPage`), el modal de
+  avería (`BreakdownModal`, que vive en `IncidentModal.tsx`) y el parte de
+  accidente aceptan **foto o PDF** —un presupuesto no se hace con la cámara— y
+  lo suben ligado a la incidencia recién creada (`Document.incident`). El
+  **tipo** de documento lo decide lo que se comunica, no el formulario: «Fotos
+  de daños» donde hay daño y **«Otro»** en la propuesta de mejora, que no lo
+  tiene. Si la subida se queda sin red, el adjunto se va a la cola y la
+  incidencia **no se crea dos veces** (R3-27: se guarda su id y el reintento
+  solo termina las subidas que faltaban).
 - `front-conductores` es PWA: **cola offline** en IndexedDB
   (`src/offline/queue.ts` — solo encola ante fallo de red, un error HTTP se
   muestra; FIFO con reintento en `online`), **Web Push** (`src/push.ts`) y un
@@ -532,25 +598,30 @@ Dos capas que van **siempre juntas**:
 
 ## Documentación de referencia
 
+Los documentos de planificación y auditoría viven en **`docs/`**, que está en
+`.gitignore` (documentación interna, se lleva en local y no viaja al repo). En
+la raíz solo quedan `README.md` y este fichero. Un `.md` nuevo de ese tipo va a
+`docs/`, no a la raíz.
+
 - [README.md](README.md) — visión general, roles, arranque, despliegue.
 - [back/README.md](back/README.md) — **tabla completa de endpoints**, métodos de
   auth, jobs, cómo añadir un recurso de dominio.
-- [ERD.md](ERD.md) / [schema.dbml](schema.dbml) — esquema de datos.
-- [PLAN_EVOLUCION.md](PLAN_EVOLUCION.md) — el trabajo se referencia con códigos
+- [ERD.md](docs/ERD.md) / [schema.dbml](schema.dbml) — esquema de datos.
+- [PLAN_EVOLUCION.md](docs/PLAN_EVOLUCION.md) — el trabajo se referencia con códigos
   que aparecen en comentarios y nombres de test: **N1–N10** (funcionalidades),
   **BG/SEC/PR/PF/UX/DX** (bugs, seguridad, rendimiento back/front, UX, DX) y
   **HU-x.y** (historias de usuario). Al tocar código marcado con uno de esos
   códigos, búscalo ahí para el contexto.
-- [ANALISIS_GAP.md](ANALISIS_GAP.md) — códigos **GAP-n**: carencias frente al
+- [ANALISIS_GAP.md](docs/ANALISIS_GAP.md) — códigos **GAP-n**: carencias frente al
   Excel de HSE/renting (`analizar.xlsx`). GAP-1..8 implementados (tests en
   `fleet/tests/test_gap_hse.py`) salvo GAP-5, descartado.
-- [PLAN_CORRECCIONES.md](PLAN_CORRECCIONES.md) — códigos de auditoría
+- [PLAN_CORRECCIONES.md](docs/PLAN_CORRECCIONES.md) — códigos de auditoría
   **C/A/M/B** (auditoría 2026-08-20). Ojo: la «M» de aquí no es la de los
   hitos M1–M8 de PLAN_FRONT_CONDUCTORES.md.
-- [AUDITORIA_BACK.md](AUDITORIA_BACK.md) — códigos **R3-nn** (auditoría de
+- [AUDITORIA_BACK.md](docs/AUDITORIA_BACK.md) — códigos **R3-nn** (auditoría de
   código 2026-08-25, documento vivo): Parte I backend y Parte II front — bugs,
   concurrencia, rendimiento y consistencia pendientes de ejecutar.
-- [PLAN_MANTENIMIENTOS_ANUALES.md](PLAN_MANTENIMIENTOS_ANUALES.md) — rediseño
+- [PLAN_MANTENIMIENTOS_ANUALES.md](docs/PLAN_MANTENIMIENTOS_ANUALES.md) — rediseño
   **planificado, aún no implementado**, de `MaintenancePlan` (ciclos por
   km/meses) hacia mantenimientos anuales obligatorios + neumáticos de
   sustitución; léelo antes de tocar el mantenimiento preventivo. Ojo: su §3.1
@@ -558,7 +629,7 @@ Dos capas que van **siempre juntas**:
   `MaintenanceProgram` + un `MaintenancePlan` activo por coche—, pero el resto
   del documento sigue pendiente y **los ciclos por km siguen mandando**, que es
   justo lo contrario de lo que propone su §3.1.6.
-- [QA_MANUAL.md](QA_MANUAL.md) — guion de prueba manual sobre el seed.
-- [IMPORTACION_MASIVA.md](IMPORTACION_MASIVA.md) — importación masiva
+- [QA_MANUAL.md](docs/QA_MANUAL.md) — guion de prueba manual sobre el seed.
+- [IMPORTACION_MASIVA.md](docs/IMPORTACION_MASIVA.md) — importación masiva
   (`fleet/services/importer.py` + `front-gestion/src/components/bulk-import/`).
 - [back/SEED_DEV.md](back/SEED_DEV.md) — seeding de desarrollo.

@@ -114,10 +114,15 @@ export function DocumentsReport({
     return seen
   }, [vehicles])
 
-  const plate = (id: number) => plateById.get(id) ?? `#${id}`
+  const plate = useCallback((id: number) => plateById.get(id) ?? `#${id}`, [plateById])
   /** Titular de la fila: la matrícula del coche o el nombre del usuario. */
-  const owner = (doc: FlotaDocument) =>
-    doc.vehicle != null ? plate(doc.vehicle) : doc.user_name || (doc.user != null ? `#${doc.user}` : '')
+  const owner = useCallback(
+    (doc: FlotaDocument) =>
+      doc.vehicle != null
+        ? plate(doc.vehicle)
+        : doc.user_name || (doc.user != null ? `#${doc.user}` : ''),
+    [plate],
+  )
 
   // Alta de documento (incluidos los PERSONALES: titular = usuario).
   const [modalOpen, setModalOpen] = useState(false)
@@ -209,7 +214,7 @@ export function DocumentsReport({
     })
   }, [typed, search, vehicleFilter, userFilter, uploaderFilter, statusFilter, plateById, driverByVehicle])
 
-  const columns: Array<TableWithPanelColumn<FlotaDocument>> = [
+  const columns = useMemo<Array<TableWithPanelColumn<FlotaDocument>>>(() => [
     {
       // Titular: la matrícula del coche o el nombre del usuario (personal).
       key: 'owner',
@@ -278,7 +283,7 @@ export function DocumentsReport({
         )
       },
     },
-  ]
+  ], [docsCopy.driverColumn, docsCopy.ownerColumn, docsCopy.typeColumn, driverNameByVehicle, owner, t.columns.actions, t.columns.by, t.columns.expiry, t.columns.status, t.columns.uploaded, t.open, type])
 
   const csvColumns = columns.filter((c) => c.key !== 'actions')
   // Dentro del acordeón el titular y el conductor ya están en la fila del
@@ -315,7 +320,7 @@ export function DocumentsReport({
 
   // La tabla agrupada: UNA fila por titular, con sus documentos como acordeón
   // (fila expandible) dentro de la misma tabla.
-  const groupCols: Array<TableWithPanelColumn<GroupRow>> = [
+  const groupCols = useMemo<Array<TableWithPanelColumn<GroupRow>>>(() => [
     {
       key: 'owner',
       label: docsCopy.ownerColumn,
@@ -344,7 +349,7 @@ export function DocumentsReport({
         return n > 0 ? <Badge tone={documentStatusTone('expired')}>{n}</Badge> : '—'
       },
     },
-  ]
+  ], [docsCopy.driverColumn, docsCopy.groupDocsColumn, docsCopy.groupExpiredColumn, docsCopy.ownerColumn])
 
   const renderGroupDocs = (group: GroupRow) => (
     <div className="docs-group-inner">

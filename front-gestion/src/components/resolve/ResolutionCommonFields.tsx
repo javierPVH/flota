@@ -4,7 +4,14 @@ import { useResolveCopy } from '../../translations/resolve.ts'
 import type { DocumentType } from '../../types.ts'
 import type { ResolutionCommon } from './useResolutionCommon.ts'
 
-type FieldKey = 'date' | 'km' | 'cost' | 'observations' | 'proof' | 'returnToActive'
+type FieldKey =
+  | 'date'
+  | 'km'
+  | 'cost'
+  | 'observations'
+  | 'proof'
+  | 'postalCode'
+  | 'returnToActive'
 
 interface Props {
   common: ResolutionCommon
@@ -77,6 +84,19 @@ export function ResolutionCommonFields({
           />
         )}
       </div>
+
+      {visible('postalCode') && common.showPostalCode && (
+        <TextInputField
+          label={c.postalCode}
+          aria-label={c.postalCode}
+          inputMode="numeric"
+          pattern="[0-9]{5}"
+          maxLength={5}
+          placeholder={c.postalCodeHint}
+          value={values.postalCode}
+          onChange={(e) => set({ postalCode: e.target.value })}
+        />
+      )}
 
       {visible('observations') && (
         <>

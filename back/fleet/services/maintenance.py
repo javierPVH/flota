@@ -16,7 +16,6 @@ from datetime import date
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -179,12 +178,20 @@ def mark_plan_done(
         # satisface). Las de otros planes siguen abiertas — antes se cerraban
         # todas y el otro ciclo quedaba silenciado hasta su siguiente objetivo.
         closed = 0
-        pending = Alert.objects.filter(
-            vehicle=vehicle, type=AlertType.MAINTENANCE_DUE, status=AlertStatus.OPEN
-        ).filter(
-            Q(dedup_key__startswith=f"maintenance:{plan.pk}:")
-            | Q(dedup_key__startswith=f"reminder:{AlertType.MAINTENANCE_DUE}:{vehicle.pk}:")
+        # R5-20: el corte grueso va por el índice (vehículo + estado); las claves
+        # se distinguen en Python — son unidades por coche, y un LIKE 'x%' sobre
+        # la columna única no usa el índice.
+        prefixes = (
+            f"maintenance:{plan.pk}:",
+            f"reminder:{AlertType.MAINTENANCE_DUE}:{vehicle.pk}:",
         )
+        pending = [
+            alert
+            for alert in Alert.objects.filter(
+                vehicle=vehicle, type=AlertType.MAINTENANCE_DUE, status=AlertStatus.OPEN
+            )
+            if alert.dedup_key.startswith(prefixes)
+        ]
         for alert in pending:
             alert.close(status=AlertStatus.RESOLVED, by=actor, note=note)
             closed += 1
@@ -194,9 +201,15 @@ def mark_plan_done(
             vehicle, plan, when=done_date, km=km, cost=cost, workshop=workshop, note=note
         )
 
-        # 5) Vuelta a Activo, solo si el coche estaba precisamente «En mantenimiento».
+        # 5) Vuelta a Activo, solo si el coche estaba precisamente «En mantenimiento»
+        # y no queda otra petición abierta que lo pare (R5-02).
         reactivated = False
+        blocked = None
         if return_to_active and vehicle.state == VehicleState.MAINTENANCE:
+            from fleet.services import substitution
+
+            blocked = substitution.blocked_by(vehicle, exclude_pk=record.pk)
+        if return_to_active and vehicle.state == VehicleState.MAINTENANCE and blocked is None:
             vehicle.state = VehicleState.ACTIVE
             vehicle.save(update_fields=["state", "updated_at"])
             events.emit_vehicle_state_change(
@@ -214,4 +227,5 @@ def mark_plan_done(
         "alerts_resolved": closed,
         "vehicle_reactivated": reactivated,
         "event": event,
+        "blocked_by": blocked,
     }

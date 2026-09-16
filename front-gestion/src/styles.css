@@ -765,6 +765,37 @@ table.data tbody tr:hover {
   gap: 0.9rem;
 }
 
+/* Correo del vehículo: el cuerpo de la plantilla, editable. Ocupa el alto que
+   sobra del modal (que es fijo), así que se lee de una pasada. */
+.email-body {
+  min-height: 14rem;
+  flex: 1 1 auto;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+.email-body-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* Resolver: la vuelta al servicio, arriba del todo y en todos los modales. */
+.resolve-back {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.9rem;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-brand);
+  border-radius: var(--radius-md);
+}
+.resolve-back-title { margin: 0; font-size: 0.88rem; font-weight: 600; }
+.resolve-back .muted { font-size: 0.82rem; }
+
 /* «Cambiar estado»: el atajo a la incidencia, que es lo que suele tocar. */
 .state-prefer {
   display: flex;

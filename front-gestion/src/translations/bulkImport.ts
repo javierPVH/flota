@@ -22,7 +22,6 @@ const es = {
   validating: 'Validando…',
   back: 'Atrás',
   // Preview
-  readyCount: (n: number) => `${n} listos`,
   errorCount: (n: number) => `${n} con errores`,
   tabNew: 'Nuevos',
   tabErrors: 'Errores',
@@ -30,7 +29,6 @@ const es = {
   colRow: 'Fila',
   colField: 'Campo',
   colReason: 'Motivo',
-  requiredUnmapped: 'Campo obligatorio sin columna asignada.',
   downloadErrors: 'Descargar errores (CSV)',
   importN: (n: number) => `Importar ${n} registros`,
   // Paso 3 — progreso
@@ -128,7 +126,6 @@ const en: typeof es = {
   validate: 'Validate file',
   validating: 'Validating…',
   back: 'Back',
-  readyCount: (n) => `${n} ready`,
   errorCount: (n) => `${n} with errors`,
   tabNew: 'New',
   tabErrors: 'Errors',
@@ -136,7 +133,6 @@ const en: typeof es = {
   colRow: 'Row',
   colField: 'Field',
   colReason: 'Reason',
-  requiredUnmapped: 'Required field with no column assigned.',
   downloadErrors: 'Download errors (CSV)',
   importN: (n) => `Import ${n} records`,
   progressTitle: 'Importing…',

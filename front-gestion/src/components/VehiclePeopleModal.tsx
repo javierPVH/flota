@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import { Trash2 } from 'lucide-react'
@@ -65,6 +65,12 @@ export function VehiclePeopleModal({
   onDone: () => void
 }) {
   const t = usePanelsCopy().assignments.people
+  // R3-30/R5-33: la carga lee `t` por ref para que el botón es/en no relance
+  // las cuatro peticiones del modal.
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
   const confirm = useConfirm()
 
   const [cara, setCara] = useState<Cara>('drivers')
@@ -128,9 +134,13 @@ export function VehiclePeopleModal({
         if (sup.status === 'rejected') setSupervisiones([])
         if (dri.status === 'fulfilled') setPersonasDriver(dri.value)
         if (sups.status === 'fulfilled') setPersonasSup(sups.value)
-        setError([asg, sup, dri, sups].some((r) => r.status === 'rejected') ? t.loadError : '')
+        setError(
+          [asg, sup, dri, sups].some((r) => r.status === 'rejected')
+            ? tRef.current.loadError
+            : '',
+        )
       })
-  }, [vehicle.id, t])
+  }, [vehicle.id])
 
   useEffect(cargar, [cargar])
 

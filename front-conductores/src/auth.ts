@@ -54,11 +54,16 @@ export async function bootstrap(): Promise<FlotaUser | null> {
   }
 }
 
-export function onLogout(): void {
-  try {
-    localStorage.removeItem(LAST_ME_KEY)
-  } catch {
-    // nada
+export function onLogout(reason: 'manual' | 'expired' = 'manual'): void {
+  // R5-55: al CADUCAR (idle, tope, 403) se conserva el último /me: es lo que
+  // permite arrancar la PWA sin cobertura (BG6). Solo el cierre voluntario lo
+  // borra — el back sigue mandando en cuanto vuelva la red.
+  if (reason === 'manual') {
+    try {
+      localStorage.removeItem(LAST_ME_KEY)
+    } catch {
+      // nada
+    }
   }
   void logout().catch(() => {})
 }

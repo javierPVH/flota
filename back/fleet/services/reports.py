@@ -15,10 +15,12 @@ import csv
 import io
 from datetime import date
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
@@ -1242,7 +1244,30 @@ def build_report(kind: str, user, filters: dict | None = None) -> list[Table]:
     except KeyError as exc:
         raise ValueError(f"Informe desconocido: {kind}.") from exc
     result = builder(user, filters)
-    return result if isinstance(result, list) else [result]
+    return [_capped(table) for table in (result if isinstance(result, list) else [result])]
+
+
+#: R5-17: lo que dice la última fila de una tabla recortada (la primera celda).
+TRUNCATED_PREFIX = "Informe recortado"
+
+
+def _capped(table: Table) -> Table:
+    """R5-17: recorta la tabla a `FLEET_REPORT_MAX_ROWS` y lo dice en la última fila.
+
+    Sin tope, un informe de la flota entera con todas las secciones era el
+    libro completo en memoria en el hilo de gunicorn. Recortar en silencio
+    sería peor que no recortar, así que la fila final cuenta cuántas faltan y
+    cómo acotar. 0 = sin tope.
+    """
+    limit = settings.FLEET_REPORT_MAX_ROWS
+    title, headers, rows = table
+    if not limit or len(rows) <= limit:
+        return table
+    aviso = (
+        f"{TRUNCATED_PREFIX}: se muestran {limit} de {len(rows)} filas. Acota con "
+        "filtros (vehículo, fechas, estado) o pide el informe por partes."
+    )
+    return (title, headers, rows[:limit] + [[aviso] + [""] * (len(headers) - 1)])
 
 
 # --- Serialización --------------------------------------------------------
@@ -1257,17 +1282,24 @@ def _autosize(ws, headers, rows) -> None:
 
 
 def to_xlsx(tables: list[Table]) -> bytes:
-    wb = Workbook()
-    wb.remove(wb.active)
+    # R5-17: `write_only` vuelca cada fila al fichero según llega, sin construir
+    # un objeto celda por dato (con treinta columnas y miles de filas eran
+    # cientos de MB). Anchos y paneles fijos van ANTES de escribir, que es lo
+    # que exige ese modo; la negrita del cabecero, por celda.
+    wb = Workbook(write_only=True)
+    negrita = Font(bold=True)
     for title, headers, rows in tables:
         ws = wb.create_sheet(title[:31])
-        ws.append(headers)
-        for cell in ws[1]:
-            cell.font = Font(bold=True)
+        _autosize(ws, headers, rows)
+        ws.freeze_panes = "A2"
+        cabecera = []
+        for header in headers:
+            cell = WriteOnlyCell(ws, value=header)
+            cell.font = negrita
+            cabecera.append(cell)
+        ws.append(cabecera)
         for row in rows:
             ws.append(row)
-        ws.freeze_panes = "A2"
-        _autosize(ws, headers, rows)
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

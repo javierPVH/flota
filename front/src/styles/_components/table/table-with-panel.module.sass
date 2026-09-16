@@ -1054,6 +1054,18 @@
 .expanderButtonOpen
   transform: rotate(180deg)
 
+// La flecha dentro de la primera celda: pegada a lo que nombra la fila.
+.cellWithExpander
+  display: inline-flex
+  align-items: center
+  gap: .3rem
+
+// Hueco de la flecha en las filas que no se abren: las celdas no se descuadran.
+.expanderSpacer
+  display: inline-block
+  width: 1.7rem
+  flex: none
+
 .expandedRow
   td
     padding: 0 !important

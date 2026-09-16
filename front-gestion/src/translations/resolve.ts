@@ -10,7 +10,6 @@ const es = {
     itv: (plate: string) => `Registrar ITV · ${plate}`,
     insurance: (plate: string) => `Renovar seguro · ${plate}`,
     maintenance: (plate: string) => `Registrar mantenimiento · ${plate}`,
-    retire: (plate: string) => `Dar de baja · ${plate}`,
   },
   common: {
     date: 'Fecha de solución',
@@ -22,6 +21,18 @@ const es = {
       `La resolución se guardó, pero no se pudo subir «${name}»: súbelo desde Documentos.`,
     returnToActive: 'Devolver el vehículo a Activo',
     returnToActiveHint: 'Desmárcalo si el coche sigue fuera de servicio por otra causa.',
+    postalCode: 'CP de la ubicación / taller',
+    postalCodeHint: 'El de la petición. Complétalo o corrígelo si al final fue a otro sitio.',
+    // Vuelta al servicio: el coche está parado, así que hay algo que decidir.
+    stoppedTitle: (state: string) => `Este coche está parado (${state}).`,
+    backToService: 'Devolver el coche a Activo al resolver',
+    backToServiceFree: (plate: string) =>
+      `Devolver el coche a Activo y dejar libre el de sustitución (${plate})`,
+    backToServiceHint: 'Déjalo sin marcar si sigue fuera de servicio por otra causa.',
+    releasedNotice: (plate: string) => `El coche de sustitución ${plate} queda libre.`,
+    releaseBlocked: (kind: string) =>
+      `El coche no vuelve a Activo: sigue abierta una petición de ${kind}.`,
+    releaseFailed: 'La resolución se guardó, pero no se pudo liberar el coche de sustitución.',
     cancel: 'Cancelar',
     saving: 'Guardando…',
     genericError: 'No se pudo guardar la resolución.',
@@ -165,7 +176,6 @@ const es = {
   notices: {
     incidentResolved: 'Petición resuelta y cerrada.',
     incidentResolvedActive: 'Petición resuelta y cerrada. El vehículo vuelve a estar Activo.',
-    alertResolved: (subject: string) => `Alerta resuelta: ${subject}.`,
     retired: (plate: string) => `Vehículo ${plate} dado de baja.`,
   },
 }
@@ -177,7 +187,6 @@ const en: typeof es = {
     itv: (plate) => `Register MOT · ${plate}`,
     insurance: (plate) => `Renew insurance · ${plate}`,
     maintenance: (plate) => `Register maintenance · ${plate}`,
-    retire: (plate) => `Retire · ${plate}`,
   },
   common: {
     date: 'Resolution date',
@@ -189,6 +198,16 @@ const en: typeof es = {
       `The resolution was saved, but “${name}” could not be uploaded: add it from Documents.`,
     returnToActive: 'Return the vehicle to Active',
     returnToActiveHint: 'Untick it if the car is still out of service for another reason.',
+    postalCode: 'Location / workshop postcode',
+    postalCodeHint: 'The one on the request. Fill it in or correct it if it ended up elsewhere.',
+    stoppedTitle: (state) => `This car is off the road (${state}).`,
+    backToService: 'Return the car to Active when resolving',
+    backToServiceFree: (plate) =>
+      `Return the car to Active and free its replacement (${plate})`,
+    backToServiceHint: 'Leave it unticked if it is still out of service for another reason.',
+    releasedNotice: (plate) => `Replacement car ${plate} is now free.`,
+    releaseBlocked: (kind) => `The car stays off the road: a ${kind} request is still open.`,
+    releaseFailed: 'The resolution was saved, but the replacement car could not be freed.',
     cancel: 'Cancel',
     saving: 'Saving…',
     genericError: 'The resolution could not be saved.',
@@ -315,7 +334,6 @@ const en: typeof es = {
   notices: {
     incidentResolved: 'Request resolved and closed.',
     incidentResolvedActive: 'Request resolved and closed. The vehicle is Active again.',
-    alertResolved: (subject) => `Alert resolved: ${subject}.`,
     retired: (plate) => `Vehicle ${plate} retired.`,
   },
 }

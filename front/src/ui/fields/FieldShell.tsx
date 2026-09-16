@@ -1,8 +1,14 @@
-﻿/**
+/**
  * [ES] Contenedor de campo reutilizable con label opcional y control interno.
  * [EN] Reusable field wrapper with optional label and inner control.
+ *
+ * R5-22: la etiqueta es un `<label htmlFor>` de verdad cuando el control se
+ * pinta con el render-prop `children(controlId)` (o se pasa `controlId`): así el
+ * control tiene nombre accesible sin `aria-label` a mano y tocar el rótulo lo
+ * enfoca. Con `children` como nodo suelto se conserva el comportamiento antiguo
+ * (rótulo visual sin asociar).
  */
-import { useEffect, useState, type HTMLAttributes, type ReactNode } from 'react'
+import { useEffect, useId, useState, type HTMLAttributes, type ReactNode } from 'react'
 import styles from '../../styles/_components/fields/form-fields.module.sass'
 import { cx } from '../../utils/cx.ts'
 import { useUiCopy } from '../copy.ts'
@@ -24,7 +30,7 @@ export type FieldContainerSize =
   | '100'
 export type FieldInputHeight = 5 | 10
 
-export interface FieldShellProps extends HTMLAttributes<HTMLDivElement> {
+export interface FieldShellProps extends Omit<HTMLAttributes<HTMLDivElement>, 'children'> {
   label?: ReactNode
   size?: FieldContainerSize
   disabled?: boolean
@@ -32,7 +38,9 @@ export interface FieldShellProps extends HTMLAttributes<HTMLDivElement> {
   warningMessage?: ReactNode
   warningClosable?: boolean
   onWarningClose?: () => void
-  children: ReactNode
+  /** Id del control (si el consumidor ya trae el suyo); si no, se genera. */
+  controlId?: string
+  children: ReactNode | ((controlId: string) => ReactNode)
 }
 
 const sizeClass: Record<FieldContainerSize, string> = {
@@ -62,11 +70,15 @@ export function FieldShell({
   warningMessage,
   warningClosable = true,
   onWarningClose,
+  controlId: controlIdProp,
   className,
   children,
   ...props
 }: FieldShellProps) {
   const copy = useUiCopy()
+  const autoId = useId()
+  const controlId = controlIdProp ?? autoId
+  const associates = typeof children === 'function' || controlIdProp !== undefined
   const hasLabel = label !== undefined && label !== null && label !== ''
   const hasWarning = warningMessage !== undefined && warningMessage !== null && warningMessage !== ''
   const [isWarningVisible, setIsWarningVisible] = useState(hasWarning)
@@ -95,7 +107,14 @@ export function FieldShell({
     >
       {(hasLabel || requiredVisual) && (
         <span className={styles.fieldLabelRow}>
-          {hasLabel && <span className={styles.fieldLabel}>{label}</span>}
+          {hasLabel &&
+            (associates ? (
+              <label className={styles.fieldLabel} htmlFor={controlId}>
+                {label}
+              </label>
+            ) : (
+              <span className={styles.fieldLabel}>{label}</span>
+            ))}
           {requiredVisual && (
             <span className={styles.fieldRequiredBadge}>{copy.fieldShell.requiredBadge}</span>
           )}
@@ -116,7 +135,9 @@ export function FieldShell({
           )}
         </span>
       )}
-      <div className={styles.fieldControlWrap}>{children}</div>
+      <div className={styles.fieldControlWrap}>
+        {typeof children === 'function' ? children(controlId) : children}
+      </div>
     </div>
   )
 }

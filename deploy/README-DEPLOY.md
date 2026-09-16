@@ -124,23 +124,40 @@ docker compose up -d back        # bootstrap_admin la re-sincroniza
 docker compose exec back python manage.py run_fleet_jobs
 docker compose logs -f jobs
 
-# Backup (OPS2): BD Postgres (volumen flota_pgdata) + media, con retención.
-sh deploy/backup.sh /srv/backups/flota
-# Cron del host recomendado (diario 03:30):
-#   30 3 * * *  cd /srv/flota && sh deploy/backup.sh /srv/backups/flota >> /var/log/flota-backup.log 2>&1
+# Backup (OPS2): lo hace el servicio `backup` del compose, solo: un dump al
+# arrancar y después cada BACKUP_CRON (03:30 UTC por defecto), a BACKUP_HOST_DIR
+# (en srvgcptd: /mnt/data/backups/flota, OTRO disco que el de la BD).
+docker compose ps backup                 # debe estar "healthy": crond vivo + backup de < 26 h
+docker compose logs --tail 20 backup     # "[backup] BD hecha y verificada -> ..." o el motivo del fallo
+ls -la /mnt/data/backups/flota           # db-<fecha>.dump, media-<fecha>.tar.gz y .last-backup-ok
+# Forzar uno ahora:
+docker compose exec backup sh -c '. /tmp/backup.env; sh /deploy/backup.sh'
 # Restaurar:
-#   docker compose exec -T db pg_restore -U flota -d flota --clean --if-exists < backups/db-<fecha>.dump
-#   tar -xzf backups/media-<fecha>.tar.gz -C .
+#   docker compose exec -T db pg_restore -U flota -d flota --clean --if-exists < /mnt/data/backups/flota/db-<fecha>.dump
+#   tar -xzf /mnt/data/backups/flota/media-<fecha>.tar.gz -C ./data
 ```
 
 ## Notas
 
-- **BD**: **PostgreSQL** en el volumen Docker `flota_pgdata` (servicio `db` del
-  compose). ⚠️ Copiar `./data` NO incluye la BD: `./data` solo tiene media y
-  estáticos.
-- **Backups**: `deploy/backup.sh` — `pg_dump` de la BD + tar de la media, con
-  retención (`BACKUP_RETENTION_DAYS`, 14 días por defecto). Prueba la
-  restauración al configurarlo (comandos en el propio script).
+- **BD**: **PostgreSQL** (servicio `db`) en la carpeta del host `PGDATA_HOST_DIR`
+  (en srvgcptd `/mnt/data/flota/pgdata`), montada como volumen bind
+  `flota_flota_pgdata`. ⚠️ Copiar `./data` NO incluye la BD: `./data` solo
+  tiene media y estáticos. **Mover la BD de sitio** (p. ej. de un volumen
+  interno a `/mnt/data`): `docker compose down` (sin `-v`) →
+  `rsync -a <origen>/ <destino>/` como root (conserva el uid de postgres) →
+  comparar con `du -s` → `docker volume rm flota_flota_pgdata` → poner
+  `PGDATA_HOST_DIR` en `.env` → `docker compose up -d`. Con un dump reciente a
+  mano antes de empezar.
+- **Backups**: servicio `backup` del compose (imagen `postgres:16-alpine`, la
+  misma que `db`, así `pg_dump` es siempre la versión del servidor).
+  `deploy/backup-entrypoint.sh` instala el cron y `deploy/backup.sh` hace el
+  trabajo: `pg_dump` en formato custom a `.part`, verificación con
+  `pg_restore --list` y tamaño mínimo, tar de la media, marcador
+  `.last-backup-ok` y retención (`BACKUP_KEEP_DAYS`, 30 días). El healthcheck
+  del servicio se pone en rojo si no hay un backup verificado en 26 h. Variables
+  en `.env` (`BACKUP_HOST_DIR`, `BACKUP_KEEP_DAYS`, `BACKUP_CRON`). Hasta el
+  15-sep-2026 no había ninguna copia: el script era un cron del host que nunca
+  se instaló (auditoría srvgcptd). Prueba la restauración al configurarlo.
 - **RGPD (conductores es público)**: resuelto (SEC3) — `/media` ya NO se sirve
   por ruta directa: nginx reenvía a Django, que exige sesión y responde con
   `X-Accel-Redirect` a una location `internal`. No requiere configuración.

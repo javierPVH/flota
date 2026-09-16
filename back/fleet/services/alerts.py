@@ -12,6 +12,8 @@ configurables"): `FLEET_ITV_ALERT_DAYS`, `FLEET_NO_DRIVER_ALERT_DAYS`,
 
 from __future__ import annotations
 
+import contextvars
+from collections.abc import Iterable
 from contextlib import contextmanager
 from datetime import date, timedelta
 
@@ -44,12 +46,84 @@ def _today(today: date | None) -> date:
     return today or timezone.localdate()
 
 
-def _active_vehicles():
+# R5-12: cachés de UNA pasada. Van en `ContextVar` (y no en un global de módulo
+# como `_push_batch`) para que valgan también si un request web corre un
+# chequeo en otro hilo: cada contexto ve solo lo suyo.
+_fleet_cache: contextvars.ContextVar[list[Vehicle] | None] = contextvars.ContextVar(
+    "fleet_cache", default=None
+)
+#: dedup_key → la alerta si está ABIERTA, `None` si existe pero ya no lo está.
+_alert_cache: contextvars.ContextVar[dict[str, Alert | None] | None] = contextvars.ContextVar(
+    "alert_cache", default=None
+)
+
+
+def _load_fleet() -> list[Vehicle]:
     # `active()` excluye los vehículos de baja (soft-delete). R4-05: el
     # supervisor viene seleccionado — el push de cada alerta nueva lo lee
     # (`_push_alert`) y sin el join eran una consulta POR alerta al entregar
     # la tanda diferida.
-    return Vehicle.objects.active().select_related("supervisor")
+    return list(Vehicle.objects.active().select_related("supervisor"))
+
+
+def _active_vehicles() -> list[Vehicle]:
+    """La flota activa. Dentro de `shared_fleet()` es la misma lista para todos.
+
+    R5-12: cada chequeo la pedía por su cuenta (seis consultas de la tabla
+    entera por pasada); ahora cada uno FILTRA en Python la que ya está cargada.
+    Que sean los mismos objetos importa: `refresh_next_itv_dates` escribe
+    `next_itv_date` y `check_itv` lo lee a continuación sin volver a la BD.
+    """
+    cached = _fleet_cache.get()
+    return cached if cached is not None else _load_fleet()
+
+
+@contextmanager
+def shared_fleet():
+    """R5-12: una sola carga de la flota activa para toda la pasada."""
+    token = _fleet_cache.set(_load_fleet())
+    try:
+        yield
+    finally:
+        _fleet_cache.reset(token)
+
+
+@contextmanager
+def known_alerts(alert_type: str, vehicle_ids: Iterable[int]):
+    """R5-12: precarga las alertas de un tipo para que `upsert_alert` no consulte.
+
+    Dos consultas por chequeo (las abiertas, enteras; de las demás solo la
+    clave) en vez de un `get_or_create` por candidato aunque la alerta ya
+    exista, que es lo normal: en régimen la pasada no crea casi nada. Lo que
+    no esté en la caché sigue su camino de siempre, así que la semántica no
+    cambia: una resuelta no se reabre y una abierta se refresca.
+    """
+    ids = list(vehicle_ids)
+    cache: dict[str, Alert | None] = {}
+    if ids:
+        de_este_tipo = Alert.objects.filter(type=alert_type, vehicle_id__in=ids)
+        for key in de_este_tipo.exclude(status=AlertStatus.OPEN).values_list(
+            "dedup_key", flat=True
+        ):
+            cache[key] = None
+        for alert in de_este_tipo.filter(status=AlertStatus.OPEN):
+            cache[alert.dedup_key] = alert
+    token = _alert_cache.set(cache)
+    try:
+        yield
+    finally:
+        _alert_cache.reset(token)
+
+
+def _refresh_open_alert(alert: Alert, *, level: str, message: str, due_date: date | None) -> None:
+    """Refresca los campos volátiles de una alerta abierta si han cambiado."""
+    changed = False
+    for field, value in (("level", level), ("message", message), ("due_date", due_date)):
+        if getattr(alert, field) != value:
+            setattr(alert, field, value)
+            changed = True
+    if changed:
+        alert.save(update_fields=["level", "message", "due_date", "updated_at"])
 
 
 def upsert_alert(
@@ -73,6 +147,13 @@ def upsert_alert(
     automático: lo usa el recordatorio manual del supervisor, donde el envío
     de email es una casilla aparte y encolar aquí lo duplicaría.
     """
+    cache = _alert_cache.get()
+    if cache is not None and dedup_key in cache:
+        # R5-12: ya se sabe que existe; si sigue abierta se refresca sin consultar.
+        cached = cache[dedup_key]
+        if cached is not None:
+            _refresh_open_alert(cached, level=level, message=message, due_date=due_date)
+        return False
     alert, created = Alert.objects.get_or_create(
         dedup_key=dedup_key,
         defaults={
@@ -95,13 +176,9 @@ def upsert_alert(
 
             mailer.queue_for_alert(alert)
     if not created and alert.status == AlertStatus.OPEN:
-        changed = False
-        for field, value in (("level", level), ("message", message), ("due_date", due_date)):
-            if getattr(alert, field) != value:
-                setattr(alert, field, value)
-                changed = True
-        if changed:
-            alert.save(update_fields=["level", "message", "due_date", "updated_at"])
+        _refresh_open_alert(alert, level=level, message=message, due_date=due_date)
+    if cache is not None:
+        cache[dedup_key] = alert if alert.status == AlertStatus.OPEN else None
     return created
 
 
@@ -140,10 +217,13 @@ def resolve_satisfied_km_reading_alerts(latest_periods: dict[int, str]) -> int:
 
     if not to_resolve:
         return 0
-    return Alert.objects.filter(pk__in=to_resolve).update(
-        status=AlertStatus.RESOLVED,
-        resolved_at=timezone.now(),
-    )
+    # R5-08 (R3-24): fila a fila, para que quede el diff en auditlog, se mueva
+    # `updated_at` y la bandeja cuente el cierre como los demás.
+    closed = 0
+    for alert in Alert.objects.filter(pk__in=to_resolve):
+        alert.close(status=AlertStatus.RESOLVED, note="Lectura del periodo registrada.")
+        closed += 1
+    return closed
 
 
 # R3-14: cola de push por PASADA. Dentro de `deferred_push()` (el bucle de
@@ -254,7 +334,7 @@ def refresh_next_itv_dates() -> int:
     # la BD (ROW_NUMBER), restringida a los vehículos activos — el mismo patrón
     # que `selectors.latest_reading_map`. Un `next_due` None también manda (una
     # favorable sin fecha deja el vehículo sin cita, ver C5 arriba).
-    vehicles = list(_active_vehicles().filter(next_itv_manual=False))
+    vehicles = [v for v in _active_vehicles() if not v.next_itv_manual]
     latest_by_vehicle: dict[int, date | None] = dict(
         EventItv.objects.exclude(result=ItvResult.NOT_DONE)
         .filter(event__vehicle_id__in=[v.id for v in vehicles])
@@ -298,30 +378,31 @@ def check_itv(today: date | None = None) -> int:
     if not thresholds:
         return 0
     created = 0
-    qs = _active_vehicles().filter(next_itv_date__isnull=False)
-    for vehicle in qs:
-        days_left = (vehicle.next_itv_date - today).days
-        due = vehicle.next_itv_date.isoformat()
-        if days_left < 0:
-            key = f"itv:{vehicle.pk}:{due}:overdue"
-            level = AlertLevel.CRITICAL
-            message = f"ITV vencida hace {-days_left} día(s) (venció el {due})."
-        else:
-            buckets = [t for t in thresholds if t >= days_left]
-            if not buckets:
-                continue  # aún fuera del primer umbral
-            bucket = min(buckets)
-            level = _itv_level(bucket, thresholds)
-            key = f"itv:{vehicle.pk}:{due}:{bucket}"
-            message = f"ITV en {days_left} día(s) (vence el {due})."
-        created += upsert_alert(
-            dedup_key=key,
-            type=AlertType.ITV_DUE,
-            level=level,
-            message=message,
-            vehicle=vehicle,
-            due_date=vehicle.next_itv_date,
-        )
+    vehicles = [v for v in _active_vehicles() if v.next_itv_date is not None]
+    with known_alerts(AlertType.ITV_DUE, (v.pk for v in vehicles)):
+        for vehicle in vehicles:
+            days_left = (vehicle.next_itv_date - today).days
+            due = vehicle.next_itv_date.isoformat()
+            if days_left < 0:
+                key = f"itv:{vehicle.pk}:{due}:overdue"
+                level = AlertLevel.CRITICAL
+                message = f"ITV vencida hace {-days_left} día(s) (venció el {due})."
+            else:
+                buckets = [t for t in thresholds if t >= days_left]
+                if not buckets:
+                    continue  # aún fuera del primer umbral
+                bucket = min(buckets)
+                level = _itv_level(bucket, thresholds)
+                key = f"itv:{vehicle.pk}:{due}:{bucket}"
+                message = f"ITV en {days_left} día(s) (vence el {due})."
+            created += upsert_alert(
+                dedup_key=key,
+                type=AlertType.ITV_DUE,
+                level=level,
+                message=message,
+                vehicle=vehicle,
+                due_date=vehicle.next_itv_date,
+            )
     return created
 
 
@@ -337,30 +418,31 @@ def check_insurance(today: date | None = None) -> int:
     if not thresholds:
         return 0
     created = 0
-    qs = _active_vehicles().filter(insurance_expiry_date__isnull=False)
-    for vehicle in qs:
-        days_left = (vehicle.insurance_expiry_date - today).days
-        due = vehicle.insurance_expiry_date.isoformat()
-        if days_left < 0:
-            key = f"insurance:{vehicle.pk}:{due}:overdue"
-            level = AlertLevel.CRITICAL
-            message = f"Seguro vencido hace {-days_left} día(s) (venció el {due})."
-        else:
-            buckets = [t for t in thresholds if t >= days_left]
-            if not buckets:
-                continue  # aún fuera del primer umbral
-            bucket = min(buckets)
-            level = _itv_level(bucket, thresholds)
-            key = f"insurance:{vehicle.pk}:{due}:{bucket}"
-            message = f"Seguro en {days_left} día(s) (vence el {due})."
-        created += upsert_alert(
-            dedup_key=key,
-            type=AlertType.INSURANCE_DUE,
-            level=level,
-            message=message,
-            vehicle=vehicle,
-            due_date=vehicle.insurance_expiry_date,
-        )
+    vehicles = [v for v in _active_vehicles() if v.insurance_expiry_date is not None]
+    with known_alerts(AlertType.INSURANCE_DUE, (v.pk for v in vehicles)):
+        for vehicle in vehicles:
+            days_left = (vehicle.insurance_expiry_date - today).days
+            due = vehicle.insurance_expiry_date.isoformat()
+            if days_left < 0:
+                key = f"insurance:{vehicle.pk}:{due}:overdue"
+                level = AlertLevel.CRITICAL
+                message = f"Seguro vencido hace {-days_left} día(s) (venció el {due})."
+            else:
+                buckets = [t for t in thresholds if t >= days_left]
+                if not buckets:
+                    continue  # aún fuera del primer umbral
+                bucket = min(buckets)
+                level = _itv_level(bucket, thresholds)
+                key = f"insurance:{vehicle.pk}:{due}:{bucket}"
+                message = f"Seguro en {days_left} día(s) (vence el {due})."
+            created += upsert_alert(
+                dedup_key=key,
+                type=AlertType.INSURANCE_DUE,
+                level=level,
+                message=message,
+                vehicle=vehicle,
+                due_date=vehicle.insurance_expiry_date,
+            )
     return created
 
 
@@ -374,7 +456,7 @@ def check_km_readings(today: date | None = None) -> int:
     """
     today = _today(today)
     period = f"{today.year:04d}-{today.month:02d}"
-    vehicles = list(_active_vehicles().filter(unlimited_km=False))
+    vehicles = [v for v in _active_vehicles() if not v.unlimited_km]
     ids = [v.id for v in vehicles]
     # Bulk (evita N+1): vehículos con lectura este mes y conductores en curso.
     with_reading = set(
@@ -407,15 +489,16 @@ def check_km_readings(today: date | None = None) -> int:
     missing = [v for v in vehicles if v.id not in with_reading]
     drivers = current_driver_map([v.id for v in missing])
     created = 0
-    for vehicle in missing:
-        created += upsert_alert(
-            dedup_key=f"km_pending:{vehicle.pk}:{period}",
-            type=AlertType.KM_READING_PENDING,
-            level=AlertLevel.WARNING,
-            message=f"Falta la lectura de km de {period}.",
-            vehicle=vehicle,
-            user=drivers.get(vehicle.id),
-        )
+    with known_alerts(AlertType.KM_READING_PENDING, (v.pk for v in missing)):
+        for vehicle in missing:
+            created += upsert_alert(
+                dedup_key=f"km_pending:{vehicle.pk}:{period}",
+                type=AlertType.KM_READING_PENDING,
+                level=AlertLevel.WARNING,
+                message=f"Falta la lectura de km de {period}.",
+                vehicle=vehicle,
+                user=drivers.get(vehicle.id),
+            )
     return created
 
 
@@ -424,7 +507,7 @@ def check_no_driver(today: date | None = None) -> int:
     today = _today(today)
     grace_days = settings.FLEET_NO_DRIVER_ALERT_DAYS
     cutoff = today - timedelta(days=grace_days)
-    vehicles = list(_active_vehicles().filter(is_substitute=False))
+    vehicles = [v for v in _active_vehicles() if not v.is_substitute]
     ids = [v.id for v in vehicles]
     # Bulk (evita N+1): con conductor vigente y con asignación reciente (gracia).
     # R3-02: una asignación con fin PROGRAMADO cuenta como conductor vigente.
@@ -448,28 +531,28 @@ def check_no_driver(today: date | None = None) -> int:
     # (misma idea que `resolve_satisfied_km_reading_alerts`): asignar debe
     # satisfacer la alerta, no depender de que alguien la resuelva a mano.
     if has_current:
-        Alert.objects.filter(
+        # R5-08 (R3-24): fila a fila, con auditlog y `updated_at`.
+        for alert in Alert.objects.filter(
             vehicle_id__in=has_current, type=AlertType.NO_DRIVER, status=AlertStatus.OPEN
-        ).update(
-            status=AlertStatus.RESOLVED,
-            resolved_at=timezone.now(),
-            resolution_note="Conductor asignado.",
-        )
+        ):
+            alert.close(status=AlertStatus.RESOLVED, note="Conductor asignado.")
     created = 0
-    for vehicle in vehicles:
-        if vehicle.id in has_current or vehicle.id in recently_assigned:
-            continue
-        created += upsert_alert(
-            # Clave MENSUAL: resolver a mano silencia el mes; si el coche sigue
-            # sin conductor, el mes siguiente vuelve a avisar. Con la clave fija
-            # (`no_driver:{pk}`) una resolución lo silenciaba para siempre,
-            # porque `upsert_alert` nunca reabre una resuelta.
-            dedup_key=f"no_driver:{vehicle.pk}:{today:%Y-%m}",
-            type=AlertType.NO_DRIVER,
-            level=AlertLevel.WARNING,
-            message=f"Sin conductor asignado desde hace más de {grace_days} día(s).",
-            vehicle=vehicle,
-        )
+    sin_conductor = [
+        v for v in vehicles if v.id not in has_current and v.id not in recently_assigned
+    ]
+    with known_alerts(AlertType.NO_DRIVER, (v.pk for v in sin_conductor)):
+        for vehicle in sin_conductor:
+            created += upsert_alert(
+                # Clave MENSUAL: resolver a mano silencia el mes; si el coche sigue
+                # sin conductor, el mes siguiente vuelve a avisar. Con la clave fija
+                # (`no_driver:{pk}`) una resolución lo silenciaba para siempre,
+                # porque `upsert_alert` nunca reabre una resuelta.
+                dedup_key=f"no_driver:{vehicle.pk}:{today:%Y-%m}",
+                type=AlertType.NO_DRIVER,
+                level=AlertLevel.WARNING,
+                message=f"Sin conductor asignado desde hace más de {grace_days} día(s).",
+                vehicle=vehicle,
+            )
     return created
 
 
@@ -489,7 +572,7 @@ def check_km_overage(today: date | None = None) -> int:
     margin = settings.FLEET_KM_OVERAGE_MARGIN
     period = f"{today.year:04d}-{today.month:02d}"
     # N3: los vehículos con km ilimitados no proyectan ni generan exceso.
-    vehicles = list(_active_vehicles().filter(unlimited_km=False))
+    vehicles = [v for v in _active_vehicles() if not v.unlimited_km]
     ids = [v.id for v in vehicles]
     if not ids:
         return 0
@@ -516,44 +599,45 @@ def check_km_overage(today: date | None = None) -> int:
     }
 
     created = 0
-    for vehicle in vehicles:
-        contract = contracts.get(vehicle.id)
-        if contract is None or not contract.contract_km:
-            continue
-        if not (contract.start_date and contract.planned_end_date):
-            continue
-        latest = latest_readings.get(vehicle.id)
-        if latest is None:
-            continue
-        reading_date, km_reading = latest
-        total_days = (contract.planned_end_date - contract.start_date).days
-        elapsed_days = (reading_date - contract.start_date).days
-        if total_days <= 0 or elapsed_days <= 0:
-            continue
-        km_driven = km_reading - (vehicle.km_start or 0)
-        if km_driven <= 0:
-            continue
-        projected = km_driven / elapsed_days * total_days
-        threshold = contract.contract_km * (1 + margin)
-        if projected <= threshold:
-            continue
-        pct = projected / contract.contract_km * 100
-        level = (
-            AlertLevel.CRITICAL
-            if projected > contract.contract_km * (1 + 2 * margin)
-            else AlertLevel.WARNING
-        )
-        created += upsert_alert(
-            dedup_key=f"km_overage:{vehicle.pk}:{contract.pk}:{period}",
-            type=AlertType.KM_OVERAGE,
-            level=level,
-            message=(
-                f"Proyección {int(projected)} km supera los "
-                f"{contract.contract_km} km contratados ({pct:.0f}%)."
-            ),
-            vehicle=vehicle,
-            due_date=contract.planned_end_date,
-        )
+    with known_alerts(AlertType.KM_OVERAGE, ids):
+        for vehicle in vehicles:
+            contract = contracts.get(vehicle.id)
+            if contract is None or not contract.contract_km:
+                continue
+            if not (contract.start_date and contract.planned_end_date):
+                continue
+            latest = latest_readings.get(vehicle.id)
+            if latest is None:
+                continue
+            reading_date, km_reading = latest
+            total_days = (contract.planned_end_date - contract.start_date).days
+            elapsed_days = (reading_date - contract.start_date).days
+            if total_days <= 0 or elapsed_days <= 0:
+                continue
+            km_driven = km_reading - (vehicle.km_start or 0)
+            if km_driven <= 0:
+                continue
+            projected = km_driven / elapsed_days * total_days
+            threshold = contract.contract_km * (1 + margin)
+            if projected <= threshold:
+                continue
+            pct = projected / contract.contract_km * 100
+            level = (
+                AlertLevel.CRITICAL
+                if projected > contract.contract_km * (1 + 2 * margin)
+                else AlertLevel.WARNING
+            )
+            created += upsert_alert(
+                dedup_key=f"km_overage:{vehicle.pk}:{contract.pk}:{period}",
+                type=AlertType.KM_OVERAGE,
+                level=level,
+                message=(
+                    f"Proyección {int(projected)} km supera los "
+                    f"{contract.contract_km} km contratados ({pct:.0f}%)."
+                ),
+                vehicle=vehicle,
+                due_date=contract.planned_end_date,
+            )
     return created
 
 
@@ -586,7 +670,7 @@ def check_maintenance(today: date | None = None) -> int:
     km_margin = settings.FLEET_MAINTENANCE_KM_MARGIN
     plans = list(
         MaintenancePlan.objects.filter(
-            is_active=True, vehicle__in=_active_vehicles()
+            is_active=True, vehicle_id__in=[v.pk for v in _active_vehicles()]
         ).select_related("vehicle")
     )
     if not plans:
@@ -600,82 +684,106 @@ def check_maintenance(today: date | None = None) -> int:
     }
 
     created = 0
-    for plan in plans:
-        if plan.every_months and plan.last_done_date:
-            due = add_months(plan.last_done_date, plan.every_months)
-            days_left = (due - today).days
-            if days_left < 0:
-                created += upsert_alert(
-                    dedup_key=f"maintenance:{plan.pk}:{due.isoformat()}:overdue",
-                    type=AlertType.MAINTENANCE_DUE,
-                    level=AlertLevel.CRITICAL,
-                    message=(
-                        f"{plan.name}: vencido hace {-days_left} día(s) "
-                        f"(tocaba el {due.isoformat()})."
-                    ),
-                    vehicle=plan.vehicle,
-                    due_date=due,
-                )
-            elif days_left <= warn_days:
-                created += upsert_alert(
-                    dedup_key=f"maintenance:{plan.pk}:{due.isoformat()}:due",
-                    type=AlertType.MAINTENANCE_DUE,
-                    level=AlertLevel.WARNING,
-                    message=f"{plan.name}: toca en {days_left} día(s) (el {due.isoformat()}).",
-                    vehicle=plan.vehicle,
-                    due_date=due,
-                )
-        if plan.every_km and plan.last_done_km is not None:
-            current = latest_km.get(plan.vehicle_id)
-            if current is None:
-                continue  # sin lecturas no hay ciclo por km que vigilar
-            target = plan.last_done_km + plan.every_km
-            if current >= target:
-                created += upsert_alert(
-                    dedup_key=f"maintenance:{plan.pk}:{target}:km-overdue",
-                    type=AlertType.MAINTENANCE_DUE,
-                    level=AlertLevel.CRITICAL,
-                    message=(
-                        f"{plan.name}: superado el objetivo de {target} km "
-                        f"(odómetro: {current} km)."
-                    ),
-                    vehicle=plan.vehicle,
-                )
-            elif current >= target - km_margin:
-                created += upsert_alert(
-                    dedup_key=f"maintenance:{plan.pk}:{target}:km-due",
-                    type=AlertType.MAINTENANCE_DUE,
-                    level=AlertLevel.WARNING,
-                    message=(
-                        f"{plan.name}: quedan {target - current} km para el objetivo "
-                        f"de {target} km."
-                    ),
-                    vehicle=plan.vehicle,
-                )
+    with known_alerts(AlertType.MAINTENANCE_DUE, {p.vehicle_id for p in plans}):
+        for plan in plans:
+            created += _check_plan(plan, today, warn_days, km_margin, latest_km)
     return created
 
 
-def run_all(today: date | None = None) -> dict[str, int]:
+def _check_plan(
+    plan: MaintenancePlan, today: date, warn_days: int, km_margin: int, latest_km: dict[int, int]
+) -> int:
+    """Los avisos de UN plan (por tiempo y/o por km). Devuelve cuántos creó."""
+    created = 0
+    if plan.every_months and plan.last_done_date:
+        due = add_months(plan.last_done_date, plan.every_months)
+        days_left = (due - today).days
+        if days_left < 0:
+            created += upsert_alert(
+                dedup_key=f"maintenance:{plan.pk}:{due.isoformat()}:overdue",
+                type=AlertType.MAINTENANCE_DUE,
+                level=AlertLevel.CRITICAL,
+                message=(
+                    f"{plan.name}: vencido hace {-days_left} día(s) (tocaba el {due.isoformat()})."
+                ),
+                vehicle=plan.vehicle,
+                due_date=due,
+            )
+        elif days_left <= warn_days:
+            created += upsert_alert(
+                dedup_key=f"maintenance:{plan.pk}:{due.isoformat()}:due",
+                type=AlertType.MAINTENANCE_DUE,
+                level=AlertLevel.WARNING,
+                message=f"{plan.name}: toca en {days_left} día(s) (el {due.isoformat()}).",
+                vehicle=plan.vehicle,
+                due_date=due,
+            )
+    if plan.every_km and plan.last_done_km is not None:
+        current = latest_km.get(plan.vehicle_id)
+        if current is None:
+            return created  # sin lecturas no hay ciclo por km que vigilar
+        target = plan.last_done_km + plan.every_km
+        if current >= target:
+            created += upsert_alert(
+                dedup_key=f"maintenance:{plan.pk}:{target}:km-overdue",
+                type=AlertType.MAINTENANCE_DUE,
+                level=AlertLevel.CRITICAL,
+                message=(
+                    f"{plan.name}: superado el objetivo de {target} km (odómetro: {current} km)."
+                ),
+                vehicle=plan.vehicle,
+            )
+        elif current >= target - km_margin:
+            created += upsert_alert(
+                dedup_key=f"maintenance:{plan.pk}:{target}:km-due",
+                type=AlertType.MAINTENANCE_DUE,
+                level=AlertLevel.WARNING,
+                message=(
+                    f"{plan.name}: quedan {target - current} km para el objetivo de {target} km."
+                ),
+                vehicle=plan.vehicle,
+            )
+    return created
+
+
+def run_all(today: date | None = None) -> dict[str, object]:
     """Ejecuta el refresco de ITV, todos los chequeos y vacía la cola de correo.
 
     M6: la entrega va AL FINAL y fuera de los chequeos, así que un SMTP lento no
     retrasa ni interrumpe la generación de alertas; lo que no salga hoy se
     reintenta en la siguiente pasada del bucle de `jobs`.
+
+    R5-04: cada chequeo va aislado. Uno que lance (un dato raro en un contrato,
+    un plan sin vehículo…) no deja sin correr a los demás ni sin vaciar la cola
+    de correo: cuenta 0, deja `<chequeo>_error` en el resumen y la traza en el
+    log. Antes, un fallo persistente dejaba la flota sin avisos en silencio.
     """
+    import logging
+
     from fleet.services import mailer
 
+    log = logging.getLogger(__name__)
+    checks: tuple[tuple[str, object], ...] = (
+        ("next_itv_refreshed", refresh_next_itv_dates),
+        ("itv", lambda: check_itv(today)),
+        ("insurance", lambda: check_insurance(today)),
+        ("km_readings", lambda: check_km_readings(today)),
+        ("no_driver", lambda: check_no_driver(today)),
+        ("km_overage", lambda: check_km_overage(today)),
+        ("maintenance", lambda: check_maintenance(today)),
+    )
+    summary: dict[str, object] = {}
     # R3-14: los push de las alertas nuevas se difieren y salen al final de los
     # chequeos (como el correo M6): el push service lento ya no alarga la pasada.
-    with deferred_push():
-        summary = {
-            "next_itv_refreshed": refresh_next_itv_dates(),
-            "itv": check_itv(today),
-            "insurance": check_insurance(today),
-            "km_readings": check_km_readings(today),
-            "no_driver": check_no_driver(today),
-            "km_overage": check_km_overage(today),
-            "maintenance": check_maintenance(today),
-        }
+    # R5-12: y la flota activa se carga UNA vez para los siete pasos.
+    with deferred_push(), shared_fleet():
+        for key, run in checks:
+            try:
+                summary[key] = run()  # type: ignore[operator]
+            except Exception as exc:  # noqa: BLE001 — aislar, no ocultar: va al log
+                log.exception("Chequeo de alertas «%s» fallido", key)
+                summary[key] = 0
+                summary[f"{key}_error"] = f"{type(exc).__name__}: {exc}"[:200]
     delivery = mailer.send_outbox()
     summary["emails_sent"] = delivery["sent"]
     summary["emails_retry"] = delivery["retry"]
