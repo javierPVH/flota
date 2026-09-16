@@ -158,8 +158,9 @@ Jira cada 15 min de forma idempotente. Para bare-metal hay un ejemplo de cron en
   del documento (`DOCUMENT_FAMILIES`), buscando cada nivel antes de crearlo; el
   `local` reproduce el mismo árbol en disco. **La cuenta** la decide quien subió:
   con su OAuth conectado (gestión) sube con la **suya**; si no, la **cuenta de
-  servicio**, y solo si esa persona **entró con Google** (`User.last_google_login`).
-  Sin ninguna de las dos, el documento espera al reintento.
+  servicio**: siempre para el **administrador** (gestión va por dentro y el
+  acceso se gestiona en casa) y, para el resto, solo si esa persona **entró con
+  Google** (`User.last_google_login`). Sin eso, el documento espera al reintento.
 - **Vuelta al servicio** (`fleet/services/substitution.py`):
   `POST /api/v1/vehicles/{id}/release-substitute/` (gestión) cierra el vínculo de
   sustitución vigente y devuelve el coche a `Activo` — una sola decisión, que se

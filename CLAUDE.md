@@ -136,15 +136,20 @@ Dos capas que van **siempre juntas**:
   casi vacías por coche. El backend `local` monta **el mismo árbol** en disco,
   para que lo que se prueba en dev sea lo que luego se ve en Drive.
 - **Con qué cuenta se sube lo decide quien subió** (`_service_for`), porque son
-  dos webs distintas: **gestión** va por dentro y el administrador ha conectado
-  su Google, así que sube con **su** cuenta (es su Drive y su rastro);
-  **conductores** es pública y a un conductor no se le pide Drive, así que sube
-  la **cuenta de servicio** — pero **solo si esa persona entró con Google**
-  (`User.last_google_login`, que escribe únicamente `GoogleLoginView`). Sin
-  ninguna de las dos cosas no se sube nada: el documento queda
-  `pendiente_archivar` y el reintento lo recogerá cuando la haya. Por eso la
-  PWA tiene ya su **entrada solo con Google** (`GoogleLoginPage`), **sin
-  activar** tras el interruptor `SOLO_GOOGLE` de `App.tsx`.
+  dos webs distintas: **gestión** va por dentro y el acceso se gestiona en
+  casa, así que el **administrador** sube siempre: con **su** cuenta si ha
+  conectado su Google (es su Drive y su rastro) y, si no, con la **cuenta de
+  servicio** (gestión entra por IP o `.local` y no puede completar el OAuth de
+  Google, que exige un origen https público); **conductores** es pública y a
+  un conductor no se le pide Drive, así que sube la **cuenta de servicio**
+  — pero **solo si esa persona entró con Google** (`User.last_google_login`,
+  que escribe únicamente `GoogleLoginView`): con una contraseña en una web
+  pública no se consigue que la cuenta privilegiada escriba en Drive. Sin eso
+  no se sube nada: el documento queda `pendiente_archivar` y el reintento lo
+  recogerá cuando la haya. Por eso la PWA tiene ya su **entrada solo con
+  Google** (`GoogleLoginPage`), **sin activar** tras el interruptor
+  `SOLO_GOOGLE` de `App.tsx`. Cómo se crea todo lo de Google, en
+  `docs/GOOGLE_SETUP.md`.
 - **Trabajos programados**: `management/commands/` (`refresh_next_itv`,
   `check_itv`, `check_insurance`, `check_no_driver`, `remind_km_readings`,
   `check_km_overage`, `check_maintenance`, `archive_pending_documents`,
@@ -632,4 +637,8 @@ la raíz solo quedan `README.md` y este fichero. Un `.md` nuevo de ese tipo va a
 - [QA_MANUAL.md](docs/QA_MANUAL.md) — guion de prueba manual sobre el seed.
 - [IMPORTACION_MASIVA.md](docs/IMPORTACION_MASIVA.md) — importación masiva
   (`fleet/services/importer.py` + `front-gestion/src/components/bulk-import/`).
+- [GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md) — qué hay que crear en Google Cloud
+  (Client ID, API key, cuenta de servicio, unidad compartida) y qué variables
+  del `.env.prod` alimenta cada pieza para que login, Picker y archivador
+  funcionen en producción.
 - [back/SEED_DEV.md](back/SEED_DEV.md) — seeding de desarrollo.
