@@ -126,15 +126,31 @@ Dos capas que van **siempre juntas**:
   `reports.py` (Excel/CSV acotado por rol), `archiver.py` (backends
   `none|local|gdrive` + reintento; árbol y credenciales, abajo), `jira.py`, `importer.py`, `events.py`,
   `seed.py`.
-- **En Drive todo cuelga del mismo árbol**: carpeta madre
-  (`GOOGLE_DRIVE_ROOT_FOLDER_ID`) → **matrícula** → **familia** del documento
-  (`DOCUMENT_FAMILIES`: Documentación, Incidencias, Facturas, Otros). Cada
-  nivel se **busca antes de crearse** (`_child_folder`), así que dos subidas
-  seguidas del mismo coche no duplican carpetas; el de la matrícula se recuerda
-  en `Vehicle.drive_folder_id` y el de la familia se resuelve en cada subida. Se
-  agrupa en pocas familias a propósito: una carpeta por tipo dejaría una docena
-  casi vacías por coche. El backend `local` monta **el mismo árbol** en disco,
-  para que lo que se prueba en dev sea lo que luego se ve en Drive.
+- **En Drive todo cuelga del mismo árbol**, bajo la carpeta madre
+  (`GOOGLE_DRIVE_ROOT_FOLDER_ID`): **`Vehículos/<matrícula>`** para los
+  documentos del coche y **`Usuarios/<correo>`** para los personales (permiso
+  de conducir…); debajo, la **familia** del documento (`DOCUMENT_FAMILIES`:
+  Documentación, Incidencias, Facturas, Otros) y, dentro de Documentación e
+  Incidencias (`SUBDIVIDED_FAMILIES`), una carpeta más por **tipo** con su
+  etiqueta («Seguro», «Fotos de daños»…). Cada nivel se **busca antes de
+  crearse** (`_child_folder`), así que dos subidas seguidas del mismo coche no
+  duplican carpetas; el de la matrícula se recuerda en `Vehicle.drive_folder_id`
+  y el resto se resuelve una vez por pasada. El backend `local` monta **el
+  mismo árbol** en disco, para que lo que se prueba en dev sea lo que luego se
+  ve en Drive.
+- **Lo que se pide a un documento lo dice su tipo**, y lo dice el back
+  (`fleet/models/enums/document.py`): solo **caducan** la póliza, el contrato,
+  el informe de ITV y el permiso de conducir (`EXPIRING_DOCUMENT_TYPES`; una
+  fecha en otro tipo → 400), y el **parte de accidente** va ligado a un
+  **accidente abierto** del mismo coche (`INCIDENT_BOUND_DOCUMENT_TYPES`; sin
+  incidencia, de otro tipo o cerrada → 400, exigido al crear y al cambiar
+  tipo o incidencia, no en un `PATCH` de estado). Cualquier incidencia ha de
+  ser del mismo vehículo. Los dos fronts repiten la tabla en su
+  `documentRules.ts` para pintar el formulario (la caducidad solo a lo que
+  caduca, obligatoria en gestión; el accidente abierto como desplegable
+  obligatorio, y sin ninguno abierto no se puede subir y se dice por qué), y
+  solo ofrecen incidencias **sin cerrar**: lo que se adjunta se adjunta a lo
+  que está en marcha.
 - **Con qué cuenta se sube lo decide quien subió** (`_service_for`), porque son
   dos webs distintas: **gestión** va por dentro y el acceso se gestiona en
   casa, así que el **administrador** sube siempre: con **su** cuenta si ha

@@ -11,10 +11,17 @@ backends intercambiables (`FLEET_ARCHIVE_BACKEND`):
 - **`gdrive`** (`GoogleDriveArchiver`): Drive real; sin credenciales se comporta
   como `none`.
 
-El árbol es el mismo en los dos backends que archivan de verdad: **carpeta
-madre** (`GOOGLE_DRIVE_ROOT_FOLDER_ID`) → **matrícula** → **familia** del
-documento (`DOCUMENT_FAMILIES`). Cada nivel se busca antes de crearse, así que
-dos subidas a la vez no dejan carpetas duplicadas ni pisan lo que ya hubiera.
+El árbol es el mismo en los dos backends que archivan de verdad, colgando de la
+**carpeta madre** (`GOOGLE_DRIVE_ROOT_FOLDER_ID`):
+
+    Vehículos/<matrícula>/<familia>[/<tipo>]/fichero   documentos del coche
+    Usuarios/<correo>/<familia>[/<tipo>]/fichero        documentos personales
+
+La **familia** sale de `DOCUMENT_FAMILIES` y, dentro de «Documentación» e
+«Incidencias» (`SUBDIVIDED_FAMILIES`), hay una carpeta más por **tipo** de
+documento (su etiqueta: «Seguro», «Fotos de daños»…); «Facturas» y «Otros» no
+se subdividen. Cada nivel se busca antes de crearse, así que dos subidas a la
+vez no dejan carpetas duplicadas ni pisan lo que ya hubiera.
 
 Flujo (ver `archive_document`): si el documento ya trae `drive_url` (el front
 subió a un destino externo), se marca `vigente`; si no, se delega en el backend;
@@ -60,7 +67,7 @@ class LocalArchiver(BaseArchiver):
         self.base_dir = Path(base_dir)
 
     def ensure_folder(self, vehicle) -> str:
-        folder = self.base_dir / vehicle.plate
+        folder = self.base_dir.joinpath(*vehicle_path_of(vehicle))
         folder.mkdir(parents=True, exist_ok=True)
         url = folder.resolve().as_uri()
         if vehicle.drive_folder_url != url:
@@ -69,27 +76,28 @@ class LocalArchiver(BaseArchiver):
         return url
 
     def archive(self, document: Document) -> str | None:
-        if document.vehicle_id is None:
-            # Documento personal: carpeta por usuario, separada de las de coche.
-            folder = self.base_dir / "usuarios" / document.user.get_username()
-            folder.mkdir(parents=True, exist_ok=True)
-            return f"{folder.resolve().as_uri()}/doc-{document.pk}-{document.type}"
-        # Mismo árbol que Drive (matrícula → familia): lo que se prueba en dev
-        # con el backend local es lo que se verá luego en Drive.
-        self.ensure_folder(document.vehicle)
-        folder = self.base_dir / document.vehicle.plate / family_of(document.type)
+        # Mismo árbol que Drive (Vehículos/matrícula o Usuarios/correo, y debajo
+        # familia y tipo): lo que se prueba en dev con el backend local es lo
+        # que se verá luego en Drive.
+        if document.vehicle_id is not None:
+            self.ensure_folder(document.vehicle)
+        folder = self.base_dir.joinpath(*holder_path_of(document), *folder_path_of(document.type))
         folder.mkdir(parents=True, exist_ok=True)
         return f"{folder.resolve().as_uri()}/doc-{document.pk}-{document.type}"
 
 
 _FOLDER_MIME = "application/vnd.google-apps.folder"
 
+#: Los dos niveles superiores, bajo la carpeta madre: lo de los coches y lo de
+#: las personas van separados desde la raíz.
+FOLDER_VEHICLES = "Vehículos"
+FOLDER_USERS = "Usuarios"
+
 #: Subcarpeta (familia) en la que se archiva cada tipo de documento, DENTRO de
-#: la carpeta de la matrícula. Se agrupa en pocas familias a propósito: una
-#: carpeta por tipo dejaría una docena de carpetas casi vacías por coche, y
-#: quien abre el Drive busca «los papeles», «lo que le ha pasado» o «lo que se
-#: ha pagado». En Drive la carpeta se localiza por NOMBRE: cambiar una etiqueta
-#: no mueve lo ya archivado, crea otra carpeta al lado.
+#: la carpeta de la matrícula (o del usuario). Quien abre el Drive busca «los
+#: papeles», «lo que le ha pasado» o «lo que se ha pagado». En Drive la carpeta
+#: se localiza por NOMBRE: cambiar una etiqueta no mueve lo ya archivado, crea
+#: otra carpeta al lado.
 DOCUMENT_FAMILIES: dict[str, str] = {
     DocumentType.REGISTRATION: "Documentación",
     DocumentType.TECHNICAL_SHEET: "Documentación",
@@ -97,6 +105,7 @@ DOCUMENT_FAMILIES: dict[str, str] = {
     DocumentType.CONTRACT: "Documentación",
     DocumentType.HANDOVER_ACT: "Documentación",
     DocumentType.RETURN_ACT: "Documentación",
+    DocumentType.DRIVING_LICENSE: "Documentación",
     DocumentType.ACCIDENT_REPORT: "Incidencias",
     DocumentType.DAMAGE_PHOTOS: "Incidencias",
     DocumentType.ITV_REPORT: "Incidencias",
@@ -104,6 +113,9 @@ DOCUMENT_FAMILIES: dict[str, str] = {
 }
 #: Lo que no encaja en ninguna (incluido un tipo nuevo que nadie haya mapeado).
 FAMILY_OTHER = "Otros"
+#: Familias con una carpeta más por TIPO de documento («Seguro», «Fotos de
+#: daños»…). Facturas y Otros no se parten: tienen un tipo o ninguno.
+SUBDIVIDED_FAMILIES = frozenset({"Documentación", "Incidencias"})
 
 
 def family_of(document_type: str) -> str:
@@ -111,14 +123,51 @@ def family_of(document_type: str) -> str:
     return DOCUMENT_FAMILIES.get(document_type, FAMILY_OTHER)
 
 
+def type_folder_of(document_type: str) -> str:
+    """Nombre de la carpeta de un tipo: su etiqueta («Seguro»), o el valor si es
+    un tipo que el catálogo no conoce."""
+    try:
+        return str(DocumentType(document_type).label)
+    except ValueError:
+        return document_type
+
+
+def folder_path_of(document_type: str) -> list[str]:
+    """Carpetas bajo la matrícula (o el usuario) para un tipo: familia y, en las
+    familias subdivididas, el tipo."""
+    family = family_of(document_type)
+    if family in SUBDIVIDED_FAMILIES:
+        return [family, type_folder_of(document_type)]
+    return [family]
+
+
+def vehicle_path_of(vehicle) -> list[str]:
+    """Carpeta de un coche bajo la raíz: `Vehículos/<matrícula>`."""
+    return [FOLDER_VEHICLES, vehicle.plate]
+
+
+def user_path_of(user) -> list[str]:
+    """Carpeta de una persona bajo la raíz: `Usuarios/<correo>` (o el usuario,
+    si no tiene correo)."""
+    return [FOLDER_USERS, (user.email or "").strip().lower() or user.get_username()]
+
+
+def holder_path_of(document: Document) -> list[str]:
+    """Carpeta del titular del documento: la del coche o la de la persona."""
+    if document.vehicle_id is not None:
+        return vehicle_path_of(document.vehicle)
+    return user_path_of(document.user)
+
+
 class GoogleDriveArchiver(BaseArchiver):
     """Google Drive real (Fase A3): sube el binario donde le toca.
 
     El árbol se asegura nivel a nivel, buscando antes de crear: carpeta madre
-    (`GOOGLE_DRIVE_ROOT_FOLDER_ID`) → **matrícula** (se recuerda en
-    `Vehicle.drive_folder_id`) → **familia** del documento (`family_of`). Tras
-    subir, guarda `drive_file_id`, borra el binario local (staging en
-    `MEDIA_ROOT`) y devuelve el `webViewLink`.
+    (`GOOGLE_DRIVE_ROOT_FOLDER_ID`) → **Vehículos** → **matrícula** (se
+    recuerda en `Vehicle.drive_folder_id`) → **familia** → **tipo** (solo en las
+    familias subdivididas), o **Usuarios** → **correo** → familia → tipo para
+    los documentos personales. Tras subir, guarda `drive_file_id`, borra el
+    binario local (staging en `MEDIA_ROOT`) y devuelve el `webViewLink`.
 
     **Con qué cuenta** lo decide quien subió el documento (`_service_for`), y
     sin una identidad de Google detrás no se sube nada: el documento queda
@@ -267,15 +316,27 @@ class GoogleDriveArchiver(BaseArchiver):
             self._carpetas[clave] = self._child_folder(service, parent_id, name).get("id") or ""
         return self._carpetas[clave]
 
+    def _chain(self, service, parent_id: str, names: list[str]) -> str:
+        """Id de la última carpeta de `names` colgando de `parent_id`, asegurando
+        cada nivel por el camino (y recordándolo durante la pasada)."""
+        for name in names:
+            parent_id = self._folder_id(service, parent_id, name)
+            if not parent_id:
+                return ""
+        return parent_id
+
     def ensure_folder(self, vehicle, service=None) -> str:
-        """Asegura la carpeta del vehículo en Drive; devuelve su URL (o '')."""
+        """Asegura `Vehículos/<matrícula>` en Drive; devuelve su URL (o '')."""
         if vehicle.drive_folder_id:
             return vehicle.drive_folder_url
         service = service or self._get_service()
         root = getattr(settings, "GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
         if not service or not root:
             return ""
-        folder = self._child_folder(service, root, vehicle.plate)
+        vehicles_id = self._folder_id(service, root, FOLDER_VEHICLES)
+        if not vehicles_id:
+            return ""
+        folder = self._child_folder(service, vehicles_id, vehicle.plate)
         vehicle.drive_folder_id = folder.get("id") or ""
         vehicle.drive_folder_url = folder.get("webViewLink") or ""
         vehicle.save(update_fields=["drive_folder_id", "drive_folder_url", "updated_at"])
@@ -287,21 +348,20 @@ class GoogleDriveArchiver(BaseArchiver):
             return None
         if not document.file:
             return None  # sin binario no hay nada que subir (drive_url ya se trató)
-        if document.vehicle_id is None:
-            # Documento personal: sin carpeta de vehículo en Drive. Queda
-            # pendiente (el reintento del job es inocuo); en gestión se suben
-            # con URL o Picker, que no pasan por aquí.
-            logger.info("Documento personal %s sin carpeta de Drive: pendiente.", document.pk)
-            return None
         service = self._service_for(document)
         if not service:
             return None
-        self.ensure_folder(document.vehicle, service)
-        folder_id = document.vehicle.drive_folder_id
-        if not folder_id:
+        if document.vehicle_id is not None:
+            self.ensure_folder(document.vehicle, service)
+            holder_id = document.vehicle.drive_folder_id
+        else:
+            # Documento personal (permiso de conducir…): `Usuarios/<correo>`.
+            root = getattr(settings, "GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
+            holder_id = self._chain(service, root, user_path_of(document.user)) if root else ""
+        if not holder_id:
             return None
-        # Dentro de la matrícula, la familia del documento.
-        family_id = self._folder_id(service, folder_id, family_of(document.type))
+        # Dentro del titular, la familia del documento y, si se subdivide, el tipo.
+        family_id = self._chain(service, holder_id, folder_path_of(document.type))
         if not family_id:
             return None
         import mimetypes

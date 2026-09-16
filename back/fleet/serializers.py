@@ -58,9 +58,12 @@ from .models import (
     vehicle_assignment_overlap,
 )
 from .models.enums import (
+    EXPIRING_DOCUMENT_TYPES,
+    INCIDENT_BOUND_DOCUMENT_TYPES,
     TIRE_POSITIONS,
     AllocationTarget,
     AssignmentStatus,
+    DocumentType,
     EventType,
     IncidentLiability,
     IncidentStatus,
@@ -1843,6 +1846,31 @@ class DocumentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"incident": "Solo un documento de vehículo puede ligarse a una incidencia."}
             )
+        if incident is not None and incident.vehicle_id != vehicle.pk:
+            raise serializers.ValidationError({"incident": "La incidencia es de otro vehículo."})
+        doc_type = attrs.get("type", getattr(self.instance, "type", None))
+        # Un parte de accidente es el parte DE un accidente: va ligado a uno y
+        # sin cerrar. Se exige al crear y al cambiar tipo o incidencia; un PATCH
+        # de estado sobre un parte antiguo (accidente ya cerrado) no lo re-exige.
+        bound_to = INCIDENT_BOUND_DOCUMENT_TYPES.get(doc_type)
+        if bound_to and (self.instance is None or "incident" in attrs or "type" in attrs):
+            label = DocumentType(doc_type).label
+            if incident is None:
+                raise serializers.ValidationError(
+                    {"incident": f"Un «{label}» va ligado a un accidente abierto."}
+                )
+            if incident.type != bound_to:
+                raise serializers.ValidationError(
+                    {"incident": f"Un «{label}» solo puede ligarse a un accidente."}
+                )
+            if incident.status == IncidentStatus.CLOSED:
+                raise serializers.ValidationError(
+                    {"incident": "Ese accidente ya está cerrado: elige uno abierto."}
+                )
+        # Solo caduca lo que caduca: a una ficha técnica o un acta no se les
+        # pone fecha de vencimiento.
+        if attrs.get("expiry_date") and doc_type not in EXPIRING_DOCUMENT_TYPES:
+            raise serializers.ValidationError({"expiry_date": "Este tipo de documento no caduca."})
         return attrs
 
 

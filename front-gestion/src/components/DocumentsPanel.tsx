@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Badge, Button, FileField, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, FileField, IconButton, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { ExternalLink, FolderOpen } from 'lucide-react'
+import { CalendarCheck, CalendarX, ExternalLink, FolderOpen, Replace, Trash2 } from 'lucide-react'
 
+import { TextCell } from './TextCell.tsx'
+
+import { documentExpires, incidentTypeRequiredBy, linkableIncidents } from '../documentRules.ts'
 import { documentStatusTone } from '../format.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
 import { useDeactivateConfirm } from './ConfirmDialog.tsx'
@@ -17,7 +20,7 @@ import {
   fetchFolderFiles,
   fetchPickerConfig,
   listDocuments,
-  listIncidents,
+  listOpenIncidents,
   updateDocument,
   uploadDocument,
   type DocumentInput,
@@ -148,10 +151,36 @@ export function DocumentsPanel({
     setAttach(EMPTY_ATTACH)
     setFormError('')
     setModalOpen(true)
-    listIncidents({ vehicle: vehicle.id })
-      .then((page) => setIncidents(page.results))
+    // Solo lo que sigue abierto: lo que se adjunta se adjunta a lo que está
+    // en marcha. Si la incidencia del documento sustituido ya se cerró, se
+    // suelta (no se puede elegir lo que no se ofrece).
+    listOpenIncidents({ vehicle: vehicle.id })
+      .then((rows) => {
+        setIncidents(rows)
+        setForm((f) =>
+          rows.some((row) => String(row.id) === f.incident) ? f : { ...f, incident: '' },
+        )
+      })
       .catch(() => setIncidents([]))
   }, [vehicle.id])
+
+  // Qué pide el formulario según el tipo elegido (mismas reglas que el back).
+  const expires = documentExpires(form.type)
+  const boundTo = incidentTypeRequiredBy(form.type)
+  const linkable = useMemo(() => linkableIncidents(incidents, form.type), [incidents, form.type])
+
+  function changeType(value: string) {
+    // Al cambiar de tipo caen los campos que ese tipo no tiene: la caducidad
+    // de lo que no caduca y la incidencia que el tipo nuevo no admite.
+    setForm((f) => ({
+      ...f,
+      type: value,
+      expiry_date: documentExpires(value) ? f.expiry_date : '',
+      incident: linkableIncidents(incidents, value).some((row) => String(row.id) === f.incident)
+        ? f.incident
+        : '',
+    }))
+  }
 
   async function pickFromDrive(mode: 'file' | 'upload') {
     if (!picker?.access_token || !picker.api_key) return
@@ -174,6 +203,14 @@ export function DocumentsPanel({
     const { picked, file, manualUrl } = attach
     if (!picked && !file && !manualUrl) {
       setFormError(t.attachRequired)
+      return
+    }
+    if (expires && !form.expiry_date) {
+      setFormError(t.expiryRequired)
+      return
+    }
+    if (boundTo && !form.incident) {
+      setFormError(t.incidentRequired)
       return
     }
     setSaving(true)
@@ -270,7 +307,6 @@ export function DocumentsPanel({
         <span>
           <strong>{doc.type_display}</strong>
           {doc.replaces ? <span className="doc-version">{t.replacesTag(doc.replaces)}</span> : null}
-          {doc.notes ? <div className="doc-notes">{doc.notes}</div> : null}
         </span>
       ),
     },
@@ -301,6 +337,16 @@ export function DocumentsPanel({
       render: (doc) => (doc.incident ? `#${doc.incident}` : '—'),
     },
     {
+      // Las notas en columna propia: antes iban debajo del tipo y una nota
+      // larga levantaba la fila. Recortadas a una línea; el modal las lee enteras.
+      key: 'notes',
+      label: t.columns.notes,
+      getValue: (doc) => doc.notes ?? '',
+      render: (doc) => (
+        <TextCell text={doc.notes ?? ''} title={t.columns.notes} label={t.notesOpen} inline />
+      ),
+    },
+    {
       key: 'status',
       label: t.columns.status,
       getValue: (doc) => doc.status_display,
@@ -312,26 +358,46 @@ export function DocumentsPanel({
       align: 'right',
       searchable: false,
       sortable: false,
+      // Solo iconos, con su nombre en `aria-label`/`title` (el mismo patrón que
+      // Facturas): cuatro botones con texto por fila no cabían en la tabla.
       render: (doc) => {
         const href = documentHref(doc)
+        const estado = doc.status === 'expired' ? t.markValid : t.markExpired
         return (
           <div className="row-actions">
             {href && (
-              <a className="doc-open" href={href} target="_blank" rel="noreferrer">
-                <ExternalLink size={14} aria-hidden /> {t.open}
+              <a
+                className="doc-open-icon"
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={t.open}
+                title={t.open}
+              >
+                <ExternalLink size={15} aria-hidden />
               </a>
             )}
-            <Button variant="secondary" size="sm" onClick={() => openCreate(doc)}>
-              {t.replace}
-            </Button>
+            <IconButton aria-label={t.replace} title={t.replace} onClick={() => openCreate(doc)}>
+              <Replace size={15} />
+            </IconButton>
             {doc.status !== 'pending_archive' && (
-              <Button variant="secondary" size="sm" onClick={() => toggleStatus(doc)}>
-                {doc.status === 'expired' ? t.markValid : t.markExpired}
-              </Button>
+              <IconButton
+                variant={doc.status === 'expired' ? 'default' : 'warning'}
+                aria-label={estado}
+                title={estado}
+                onClick={() => toggleStatus(doc)}
+              >
+                {doc.status === 'expired' ? <CalendarCheck size={15} /> : <CalendarX size={15} />}
+              </IconButton>
             )}
-            <Button variant="danger" size="sm" onClick={() => handleDelete(doc)}>
-              {t.delete}
-            </Button>
+            <IconButton
+              variant="danger"
+              aria-label={t.delete}
+              title={t.delete}
+              onClick={() => handleDelete(doc)}
+            >
+              <Trash2 size={15} />
+            </IconButton>
           </div>
         )
       },
@@ -450,29 +516,56 @@ export function DocumentsPanel({
         <form className="modal-form" onSubmit={handleSubmit}>
           <SelectField
             label={t.typeLabel}
+            required
             options={typeOptions}
             value={form.type}
-            onValueChange={(value) => setForm((f) => ({ ...f, type: value }))}
+            onValueChange={changeType}
           />
-          <TextInputField
-            label={t.expiryLabel}
-            type="date"
-            value={form.expiry_date}
-            onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
-          />
-          {incidents.length > 0 && (
-            <SelectField
-              label={t.incidentLabel}
-              options={[
-                { value: '', label: t.incidentNone },
-                ...incidents.map((i) => ({
-                  value: String(i.id),
-                  label: `#${i.id} · ${i.type_display}${i.date ? ` (${i.date})` : ''}`,
-                })),
-              ]}
-              value={form.incident}
-              onValueChange={(value) => setForm((f) => ({ ...f, incident: value }))}
+          {/* La caducidad solo se pide a lo que caduca (póliza, contrato,
+              informe de ITV, permiso), y ahí es obligatoria. */}
+          {expires && (
+            <TextInputField
+              label={t.expiryLabel}
+              type="date"
+              required
+              requiredVisual
+              value={form.expiry_date}
+              onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
             />
+          )}
+          {/* Incidencia: un parte de accidente va SIEMPRE ligado a un accidente
+              abierto; el resto se puede ligar a cualquier incidencia sin cerrar. */}
+          {boundTo ? (
+            linkable.length > 0 ? (
+              <SelectField
+                label={t.incidentRequiredLabel}
+                required
+                requiredVisual
+                options={[
+                  { value: '', label: t.incidentChoose },
+                  ...linkable.map((i) => ({ value: String(i.id), label: t.incidentOption(i) })),
+                ]}
+                value={form.incident}
+                onValueChange={(value) => setForm((f) => ({ ...f, incident: value }))}
+              />
+            ) : (
+              <p className="form-error" role="status">
+                {t.noOpenIncident(t.typeOptions[form.type as keyof typeof t.typeOptions])}
+              </p>
+            )
+          ) : (
+            linkable.length > 0 && (
+              <SelectField
+                label={t.incidentLabel}
+                required
+                options={[
+                  { value: '', label: t.incidentNone },
+                  ...linkable.map((i) => ({ value: String(i.id), label: t.incidentOption(i) })),
+                ]}
+                value={form.incident}
+                onValueChange={(value) => setForm((f) => ({ ...f, incident: value }))}
+              />
+            )
           )}
           <TextInputField
             label={t.notesLabel}
@@ -525,7 +618,11 @@ export function DocumentsPanel({
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
               {t.cancel}
             </Button>
-            <Button type="submit" variant="primary" disabled={saving}>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={saving || (Boolean(boundTo) && linkable.length === 0)}
+            >
               {saving ? t.saving : replacing ? t.replace : t.save}
             </Button>
           </div>

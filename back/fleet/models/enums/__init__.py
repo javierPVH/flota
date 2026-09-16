@@ -6,7 +6,12 @@ aquí, dentro de `models/`, y se reexportan para poder importar cualquiera con
 """
 
 from .alert import AlertLevel, AlertStatus, AlertType
-from .document import DocumentStatus, DocumentType
+from .document import (
+    EXPIRING_DOCUMENT_TYPES,
+    INCIDENT_BOUND_DOCUMENT_TYPES,
+    DocumentStatus,
+    DocumentType,
+)
 from .event import EventType, ItvResult
 from .incident import (
     TIRE_POSITIONS,
@@ -43,6 +48,8 @@ __all__ = [
     "AllocationTarget",
     "DocumentType",
     "DocumentStatus",
+    "EXPIRING_DOCUMENT_TYPES",
+    "INCIDENT_BOUND_DOCUMENT_TYPES",
     "IncidentType",
     "IncidentPriority",
     "IncidentStatus",

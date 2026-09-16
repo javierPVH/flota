@@ -165,9 +165,21 @@ docker compose exec backup sh -c '. /tmp/backup.env; sh /deploy/backup.sh'
   (`python -m py_vapid --gen`) y define `WEBPUSH_VAPID_PUBLIC_KEY`,
   `WEBPUSH_VAPID_PRIVATE_KEY` y `WEBPUSH_CONTACT` en `back/.env` (ver
   `back/.env.prod.example`). Sin claves, el push queda deshabilitado sin error.
-- **Correo saliente (N10a)**: define `EMAIL_HOST`/`EMAIL_PORT`/`EMAIL_HOST_USER`/
-  `EMAIL_HOST_PASSWORD`/`DEFAULT_FROM_EMAIL` para los avisos por email (seguro →
-  renting, km → conductor). Sin `EMAIL_HOST` el envío es un no-op con traza.
+- **Correo saliente (N10a/N10b)**: en srvgcptd la red de GCP **no deja salir a
+  25/465/587** (comprobado el 16-sep-2026: solo 80/443), así que SMTP no sirve.
+  Flota envía como `list`: por la **API de Gmail (HTTPS)** con el token OAuth de
+  un solo buzón. En `back/.env.prod`: `GMAIL_OAUTH_ENABLED=True`,
+  `GMAIL_OAUTH_TOKEN_FILE=/app/data/secrets/gmail-oauth-token.json` y
+  `GMAIL_SENDER=<buzón>`; el token va en `data/secrets/` (uid 10001, modo 400,
+  la misma carpeta que la clave de Drive) y se genera con
+  `manage.py get_gmail_oauth_token` en un PC con navegador (o se reutiliza el
+  de `list`, que es el mismo buzón `digitaltransformation@gransolar.com`). Tras
+  tocar el `.env.prod`: `docker compose up -d back jobs` (un `restart` no relee
+  el `env_file`). Prueba: `docker compose exec back python manage.py shell -c
+  "from django.core.mail import send_mail; print(send_mail('Prueba flota',
+  'ok', None, ['tu@gransolar.com']))"` → `1`. La alternativa SMTP
+  (`EMAIL_HOST`…) sigue existiendo para un servidor con salida al 587. Sin
+  ninguno de los dos, el envío es un no-op con traza.
 - **Cookies no-Secure**: es a propósito porque gestión va por http interno; ver
   la explicación en `back/.env.prod.example`. Si pones TLS interno a gestión,
   vuelve a `SESSION_COOKIE_SECURE=True` y `CSRF_COOKIE_SECURE=True`.
