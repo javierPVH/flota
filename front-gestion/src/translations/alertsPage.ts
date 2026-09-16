@@ -21,7 +21,6 @@ const es = {
   emptyState: 'Sin alertas con estos filtros. 🎉',
   closedNotice: (subject: string) => `Alerta de ${subject} resuelta.`,
   emailModalTitle: (plate: string) => `Correo · ${plate}`,
-  noVehicle: 'Sin vehículo',
   filters: {
     type: 'Tipo',
     status: 'Estado',
@@ -184,7 +183,6 @@ const en: typeof es = {
   emptyState: 'No alerts with these filters. 🎉',
   closedNotice: (subject) => `Alert for ${subject} resolved.`,
   emailModalTitle: (plate) => `Email · ${plate}`,
-  noVehicle: 'No vehicle',
   filters: {
     type: 'Type',
     status: 'Status',

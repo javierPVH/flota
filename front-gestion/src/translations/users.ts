@@ -36,8 +36,6 @@ const es = {
   columnsBtn: (visible: number, total: number) => `Columnas (${visible}/${total})`,
   colMoveUp: 'Subir',
   colMoveDown: 'Bajar',
-  searchLock: 'Fijar la búsqueda (no se borra al limpiar)',
-  searchClear: 'Limpiar la búsqueda',
   loading: 'Cargando…',
   empty: 'Sin usuarios con estos filtros.',
   loadError: 'No se pudieron cargar los usuarios.',
@@ -50,7 +48,6 @@ const es = {
   edit: 'Editar',
   yes: 'Sí',
   no: 'No',
-  fuelYes: '⛽ Sí',
   active: 'Activo',
   inactive: 'Desactivado',
   columns: {
@@ -136,8 +133,6 @@ const en: typeof es = {
   columnsBtn: (visible: number, total: number) => `Columns (${visible}/${total})`,
   colMoveUp: 'Move up',
   colMoveDown: 'Move down',
-  searchLock: 'Pin the search (kept when clearing)',
-  searchClear: 'Clear the search',
   loading: 'Loading…',
   empty: 'No users match these filters.',
   loadError: 'Could not load users.',
@@ -150,7 +145,6 @@ const en: typeof es = {
   edit: 'Edit',
   yes: 'Yes',
   no: 'No',
-  fuelYes: '⛽ Yes',
   active: 'Active',
   inactive: 'Deactivated',
   columns: {

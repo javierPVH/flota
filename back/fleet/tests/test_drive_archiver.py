@@ -1,18 +1,23 @@
 """Tests del archivador de Google Drive (Fase A3) con un cliente falso.
 
 El `GoogleDriveArchiver` acepta un `service` inyectado (mismo contrato que el
-cliente de googleapiclient) — aquí se simula Drive: crear carpeta del vehículo,
-subir el binario, y el efecto completo sobre `Document`/`Vehicle`.
+cliente de googleapiclient) — aquí se simula Drive: el árbol carpeta madre →
+matrícula → familia, la subida del binario y el efecto completo sobre
+`Document`/`Vehicle`, más QUIÉN puede archivar (hace falta haber entrado con
+Google).
 """
 
 import tempfile
+from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from fleet.models import Document, Vehicle
 from fleet.models.enums import DocumentStatus
-from fleet.services.archiver import GoogleDriveArchiver, archive_document
+from fleet.services.archiver import GoogleDriveArchiver, archive_document, family_of
 
 
 class _FakeRequest:
@@ -24,19 +29,33 @@ class _FakeRequest:
 
 
 class _FakeFiles:
-    """Doble del recurso `files()` de Drive v3: registra las llamadas."""
+    """Doble del recurso `files()` de Drive v3: registra las llamadas.
+
+    `existing_folders` es {nombre: id} — las carpetas que YA están en Drive—,
+    porque el árbol tiene dos niveles y cada búsqueda pregunta por un nombre
+    distinto. Lo que se crea recibe un id derivado del nombre, para poder
+    comprobar de quién cuelga cada cosa.
+    """
 
     def __init__(self, existing_folders=None):
-        self.existing_folders = existing_folders or []
+        self.existing_folders = existing_folders or {}
         self.created = []  # bodies de files().create
+        self.queries = []
 
     def list(self, q="", **kwargs):
-        return _FakeRequest({"files": self.existing_folders})
+        self.queries.append(q)
+        for name, folder_id in self.existing_folders.items():
+            if f"name = '{name}'" in q:
+                return _FakeRequest(
+                    {"files": [{"id": folder_id, "webViewLink": f"https://drive/{folder_id}"}]}
+                )
+        return _FakeRequest({"files": []})
 
     def create(self, body=None, media_body=None, fields="", **kwargs):
         self.created.append({"body": body, "media": media_body})
         if body.get("mimeType", "").endswith("folder"):
-            return _FakeRequest({"id": "folder-123", "webViewLink": "https://drive/folder-123"})
+            new_id = f"folder-{body['name']}"
+            return _FakeRequest({"id": new_id, "webViewLink": f"https://drive/{new_id}"})
         return _FakeRequest({"id": "file-456", "webViewLink": "https://drive/file-456"})
 
 
@@ -54,11 +73,17 @@ DRIVE_ON = {"GOOGLE_DRIVE_ENABLED": True, "GOOGLE_DRIVE_ROOT_FOLDER_ID": "root-1
 class GoogleDriveArchiverTests(TestCase):
     def setUp(self):
         self.vehicle = Vehicle.objects.create(plate="DRV111", brand="a", model="b")
+        # Quien sube ENTRÓ CON GOOGLE: es lo que autoriza a archivar con la
+        # cuenta de servicio (la web de conductores es pública).
+        self.uploader = get_user_model().objects.create_user(
+            username="sara", email="sara@flota.dev", last_google_login=timezone.now()
+        )
 
-    def _doc_with_file(self):
+    def _doc_with_file(self, doc_type="insurance", uploader=-1):
         return Document.objects.create(
             vehicle=self.vehicle,
-            type="insurance",
+            type=doc_type,
+            uploaded_by=self.uploader if uploader == -1 else uploader,
             file=SimpleUploadedFile("seguro.pdf", b"%PDF fake", "application/pdf"),
         )
 
@@ -73,25 +98,38 @@ class GoogleDriveArchiverTests(TestCase):
         self.assertEqual(doc.drive_file_id, "file-456")
         self.assertFalse(doc.file)  # el staging local se borra tras subir
         self.vehicle.refresh_from_db()
-        self.assertEqual(self.vehicle.drive_folder_id, "folder-123")
-        self.assertEqual(self.vehicle.drive_folder_url, "https://drive/folder-123")
-        # Se creó la carpeta (bajo la raíz) y luego el fichero (bajo la carpeta).
+        self.assertEqual(self.vehicle.drive_folder_id, "folder-DRV111")
+        # El árbol entero, en orden: matrícula bajo la raíz, familia bajo la
+        # matrícula y el fichero dentro de la familia.
+        self.assertEqual(fake.created[0]["body"]["name"], "DRV111")
         self.assertEqual(fake.created[0]["body"]["parents"], ["root-1"])
-        self.assertEqual(fake.created[1]["body"]["parents"], ["folder-123"])
-        self.assertIn("seguro.pdf", fake.created[1]["body"]["name"])
+        self.assertEqual(fake.created[1]["body"]["name"], "Documentación")
+        self.assertEqual(fake.created[1]["body"]["parents"], ["folder-DRV111"])
+        self.assertEqual(fake.created[2]["body"]["parents"], ["folder-Documentación"])
+        self.assertIn("seguro.pdf", fake.created[2]["body"]["name"])
+
+    @override_settings(**DRIVE_ON)
+    def test_familia_por_tipo_de_documento(self):
+        # Las fotos de un accidente no van con los papeles del coche.
+        fake = _FakeFiles(existing_folders={"DRV111": "ya-existia"})
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            doc = self._doc_with_file(doc_type="damage_photos")
+            archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
+        self.assertEqual(family_of("damage_photos"), "Incidencias")
+        self.assertEqual(fake.created[0]["body"]["name"], "Incidencias")
+        self.assertEqual(fake.created[0]["body"]["parents"], ["ya-existia"])
 
     @override_settings(**DRIVE_ON)
     def test_reuses_existing_drive_folder(self):
-        fake = _FakeFiles(
-            existing_folders=[{"id": "ya-existia", "webViewLink": "https://drive/ya"}]
-        )
+        fake = _FakeFiles(existing_folders={"DRV111": "ya-existia", "Documentación": "fam-1"})
         with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
             doc = self._doc_with_file()
             archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
         self.vehicle.refresh_from_db()
         self.assertEqual(self.vehicle.drive_folder_id, "ya-existia")
-        # Solo una creación: el fichero (la carpeta se reutilizó).
+        # Solo una creación: el fichero (las dos carpetas se reutilizaron).
         self.assertEqual(len(fake.created), 1)
+        self.assertEqual(fake.created[0]["body"]["parents"], ["fam-1"])
 
     @override_settings(**DRIVE_ON)
     def test_known_folder_skips_lookup(self):
@@ -102,7 +140,70 @@ class GoogleDriveArchiverTests(TestCase):
         with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
             doc = self._doc_with_file()
             archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
+        # La matrícula ya se sabía: solo se busca la familia, y cuelga de ella.
+        self.assertEqual(len(fake.queries), 1)
         self.assertEqual(fake.created[0]["body"]["parents"], ["cacheada"])
+
+    @override_settings(**DRIVE_ON)
+    def test_una_pasada_resuelve_cada_carpeta_una_vez(self):
+        # Veinte fotos de la misma incidencia son veinte documentos del mismo
+        # coche y la misma familia: preguntarle a Drive una vez por cada uno
+        # era pagar una llamada de red por foto.
+        fake = _FakeFiles()
+        uno = GoogleDriveArchiver(service=_FakeDrive(fake))
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            for _ in range(3):
+                archive_document(self._doc_with_file(), archiver=uno)
+        # Dos búsquedas en total (matrícula y familia), no dos por documento.
+        self.assertEqual(len(fake.queries), 2)
+        carpetas = [c for c in fake.created if c["body"].get("mimeType", "").endswith("folder")]
+        self.assertEqual(len(carpetas), 2)
+        ficheros = [c for c in fake.created if not c["body"].get("mimeType")]
+        self.assertEqual(len(ficheros), 3)  # los tres documentos sí suben
+
+    @override_settings(**DRIVE_ON)
+    @patch("accounts.google_oauth.drive_service_service_account")
+    @patch("accounts.google_oauth.drive_service")
+    def test_cada_documento_con_la_cuenta_de_quien_lo_subio(self, propia, cuenta_servicio):
+        """Gestión sube con la cuenta del administrador; la PWA, con la de servicio."""
+        admin = get_user_model().objects.create_user(username="jefa", email="jefa@flota.dev")
+        suya, servicio = _FakeFiles(), _FakeFiles()
+        propia.side_effect = lambda user: _FakeDrive(suya) if user.pk == admin.pk else None
+        cuenta_servicio.return_value = _FakeDrive(servicio)
+
+        uno = GoogleDriveArchiver()
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            archive_document(self._doc_with_file(uploader=admin), archiver=uno)
+            # El conductor entró con Google pero no tiene Drive conectado.
+            archive_document(self._doc_with_file(), archiver=uno)
+            archive_document(self._doc_with_file(), archiver=uno)
+        self.assertEqual(len([c for c in suya.created if not c["body"].get("mimeType")]), 1)
+        self.assertEqual(len([c for c in servicio.created if not c["body"].get("mimeType")]), 2)
+        # Los clientes se construyen una vez por pasada, no por documento.
+        self.assertEqual(cuenta_servicio.call_count, 1)
+        self.assertEqual(propia.call_count, 2)  # una por persona
+
+    @override_settings(**DRIVE_ON)
+    def test_sin_entrar_con_google_no_se_sube(self):
+        # La web de conductores es pública: sin identidad de Google detrás, el
+        # documento espera (el reintento lo recogerá si algún día la hay).
+        nadie = get_user_model().objects.create_user(username="local", email="local@flota.dev")
+        fake = _FakeFiles()
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            doc = self._doc_with_file(uploader=nadie)
+            archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
+        self.assertEqual(doc.status, DocumentStatus.PENDING_ARCHIVE)
+        self.assertEqual(fake.created, [])
+        self.assertTrue(doc.file)  # el binario sigue en staging
+
+    @override_settings(**DRIVE_ON)
+    def test_sin_quien_lo_suba_no_se_sube(self):
+        fake = _FakeFiles()
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            doc = self._doc_with_file(uploader=None)
+            archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
+        self.assertEqual(doc.status, DocumentStatus.PENDING_ARCHIVE)
+        self.assertEqual(fake.created, [])
 
     def test_disabled_leaves_pending(self):
         # Sin GOOGLE_DRIVE_ENABLED el backend gdrive se comporta como `none`.

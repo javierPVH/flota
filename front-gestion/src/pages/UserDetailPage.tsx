@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Badge, PageHeader } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
@@ -41,7 +41,7 @@ export function UserDetailPage() {
 
   // O4: matrículas por Map (antes `find()` por celda) + grupo derivado (O3).
   const plateById = useMemo(() => new Map(vehicles.map((v) => [v.id, v.plate])), [vehicles])
-  const plateOf = (vid: number) => plateById.get(vid) ?? `#${vid}`
+  const plateOf = useCallback((vid: number) => plateById.get(vid) ?? `#${vid}`, [plateById])
   const group = useMemo(
     () => vehicles.filter((v) => v.supervisor === userId),
     [vehicles, userId],
@@ -96,13 +96,9 @@ export function UserDetailPage() {
       .catch(() => setVehicles([]))
   }, [userId])
 
-  if (error) return <div role="alert" className="form-error">{error}</div>
-  if (!user) return <p className="loading-state" role="status">{t.loading}</p>
-
-  const fullName = `${user.first_name} ${user.last_name}`.trim() || user.username
-
-  // Histórico de vehículos con el estilo unificado (TableWithPanel).
-  const historyColumns: Array<TableWithPanelColumn<AssignmentRow>> = [
+  // Histórico de vehículos con el estilo unificado (TableWithPanel). R5-38:
+  // memoizado, y ANTES de los retornos tempranos (un hook no puede ir detrás).
+  const historyColumns = useMemo<Array<TableWithPanelColumn<AssignmentRow>>>(() => [
     {
       key: 'vehicle',
       label: t.columns.vehicle,
@@ -127,7 +123,12 @@ export function UserDetailPage() {
         <Badge tone={assignmentStatusTone(a.status)}>{t.statuses[a.status] ?? a.status}</Badge>
       ),
     },
-  ]
+  ], [plateOf, t.columns.period, t.columns.status, t.columns.vehicle, t.statuses])
+
+  if (error) return <div role="alert" className="form-error">{error}</div>
+  if (!user) return <p className="loading-state" role="status">{t.loading}</p>
+
+  const fullName = `${user.first_name} ${user.last_name}`.trim() || user.username
 
   return (
     <div>

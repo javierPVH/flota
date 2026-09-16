@@ -79,4 +79,35 @@ describe('Modal (UX2)', () => {
     )
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
+
+  it('R5-21: con dos modales abiertos, Escape cierra solo el de encima y Tab cicla dentro de él', () => {
+    const closeOuter = vi.fn()
+    const closeInner = vi.fn()
+    render(
+      <>
+        <Modal open title="Exterior" onClose={closeOuter}>
+          <button type="button">Fuera</button>
+        </Modal>
+        <Modal open title="Interior" onClose={closeInner}>
+          <button type="button">Dentro 1</button>
+          <button type="button">Dentro 2</button>
+        </Modal>
+      </>,
+    )
+    // La trampa del interior manda: el foco se queda DENTRO del diálogo de
+    // encima. Antes, la trampa del exterior veía ese foco como «fuera» de su
+    // card y lo secuestraba hacia el suyo en cada Tab. (En jsdom no hay layout
+    // —`offsetParent` es null—, así que el ciclo exacto entre controles no se
+    // puede aseverar; sí dónde acaba el foco.)
+    const interior = screen.getByRole('dialog', { name: 'Interior' })
+    screen.getByRole('button', { name: 'Dentro 2' }).focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(interior.contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(interior.contains(document.activeElement)).toBe(true)
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(closeInner).toHaveBeenCalledTimes(1)
+    expect(closeOuter).not.toHaveBeenCalled()
+  })
 })

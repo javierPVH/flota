@@ -17,7 +17,6 @@ const es = {
   withSubstitute: 'Sale con coche de sustitución',
   withSubstituteHint: 'Se crea el vínculo al guardar el estado.',
   // Sustituto → flota se hace desde «Editar» (`VehicleForm`), con triple aviso.
-  retire: 'Dar de baja',
   blockedTooltip: (plate: string) => `Bloqueado por sustitución — registra los km sobre ${plate}`,
 
   // --- Badges ----------------------------------------------------------------
@@ -32,8 +31,6 @@ const es = {
   statusLabel: 'Estado',
 
   // --- Banners ---------------------------------------------------------------
-  blockedBanner: (reason: string, since: string) =>
-    `Bloqueado por sustitución: ${reason} desde ${since} — sustituto`,
   blockedBannerNote: 'Las asignaciones y lecturas de km se hacen sobre el sustituto.',
   substitutedBy: 'Sustituido por',
   substitutes: 'Sustituye a',
@@ -423,27 +420,10 @@ const es = {
   no: 'No',
 
   // --- GAP-2 · Consumo de combustible -----------------------------------------
-  fuelConsumptionTitle: 'Consumo de combustible',
-  fuelAddMonth: 'Añadir mes',
   fuelMonth: 'Mes',
-  fuelLiters: 'Litros',
-  fuelAmount: 'Importe (€)',
-  fuelSourceLabel: 'Origen',
-  fuelSourceOptions: [
-    { value: 'fuel_card', label: 'Tarjeta de combustible' },
-    { value: 'manual', label: 'Manual' },
-    { value: 'import', label: 'Importación' },
-  ],
-  noFuelRows: 'Sin consumos registrados. La serie mensual alimenta el informe de emisiones.',
-  fuelModalTitle: (plate: string) => `Consumo de ${plate}`,
-  fuelDeleteSubject: (mes: string) => `el consumo de ${mes}`,
-  fuelMonthsCount: (n: number) => `${n} ${n === 1 ? 'mes' : 'meses'}`,
-  errFuelSave: 'No se pudo guardar el consumo.',
-  errFuelDelete: 'No se pudo desactivar el consumo.',
 
   // --- GAP-8 · Mantenimiento programado ---------------------------------------
   maintenanceTitle: 'Mantenimiento programado',
-  maintenanceAdd: 'Nuevo plan',
   maintenanceName: 'Nombre',
   maintenanceNamePlaceholder: 'p. ej. Revisión general',
   maintenanceEveryKm: 'Cada (km)',
@@ -459,14 +439,7 @@ const es = {
     if (meses) partes.push(`${meses} meses`)
     return `cada ${partes.join(' / ') || '—'}`
   },
-  maintenanceHint:
-    'El chequeo diario abre una alerta al acercarse el ciclo (por km o por meses) y la escala al vencer.',
-  noMaintenancePlans: 'Sin planes de mantenimiento.',
-  maintenanceModalTitle: (plate: string) => `Plan de mantenimiento de ${plate}`,
-  maintenanceDeleteSubject: (nombre: string) => `el plan «${nombre}»`,
-  maintenancePlansCount: (n: number) => `${n} ${n === 1 ? 'plan' : 'planes'}`,
   errMaintenanceSave: 'No se pudo guardar el plan.',
-  errMaintenanceDelete: 'No se pudo desactivar el plan.',
 
   // --- GAP-7 · Devolución guiada ----------------------------------------------
   returnBtn: 'Devolver',
@@ -510,7 +483,6 @@ const en: typeof es = {
     `The contract ended on ${date} and the vehicle is still in the fleet: either return it or renew the contract.`,
   withSubstitute: 'It leaves with a substitution car',
   withSubstituteHint: 'The link is created when the status is saved.',
-  retire: 'Retire',
   blockedTooltip: (plate) => `Blocked by substitution — log mileage on ${plate}`,
 
   // --- Badges ----------------------------------------------------------------
@@ -524,8 +496,6 @@ const en: typeof es = {
   statusLabel: 'Status',
 
   // --- Banners ---------------------------------------------------------------
-  blockedBanner: (reason, since) =>
-    `Blocked by substitution: ${reason} since ${since} — substitute`,
   blockedBannerNote: 'Assignments and km readings go on the substitute.',
   substitutedBy: 'Substituted by',
   substitutes: 'Substitute for',
@@ -895,26 +865,9 @@ const en: typeof es = {
   yes: 'Yes',
   no: 'No',
 
-  fuelConsumptionTitle: 'Fuel consumption',
-  fuelAddMonth: 'Add month',
   fuelMonth: 'Month',
-  fuelLiters: 'Litres',
-  fuelAmount: 'Amount (€)',
-  fuelSourceLabel: 'Source',
-  fuelSourceOptions: [
-    { value: 'fuel_card', label: 'Fuel card' },
-    { value: 'manual', label: 'Manual' },
-    { value: 'import', label: 'Import' },
-  ],
-  noFuelRows: 'No consumption recorded yet. The monthly series feeds the emissions report.',
-  fuelModalTitle: (plate) => `Fuel consumption for ${plate}`,
-  fuelDeleteSubject: (mes) => `the ${mes} consumption`,
-  fuelMonthsCount: (n) => `${n} ${n === 1 ? 'month' : 'months'}`,
-  errFuelSave: 'Could not save the consumption.',
-  errFuelDelete: 'Could not deactivate the consumption.',
 
   maintenanceTitle: 'Scheduled maintenance',
-  maintenanceAdd: 'New plan',
   maintenanceName: 'Name',
   maintenanceNamePlaceholder: 'e.g. General service',
   maintenanceEveryKm: 'Every (km)',
@@ -930,14 +883,7 @@ const en: typeof es = {
     if (meses) partes.push(`${meses} months`)
     return `every ${partes.join(' / ') || '—'}`
   },
-  maintenanceHint:
-    'The daily check opens an alert as the cycle approaches (by km or months) and escalates it when due.',
-  noMaintenancePlans: 'No maintenance plans.',
-  maintenanceModalTitle: (plate) => `Maintenance plan for ${plate}`,
-  maintenanceDeleteSubject: (nombre) => `the plan “${nombre}”`,
-  maintenancePlansCount: (n) => `${n} ${n === 1 ? 'plan' : 'plans'}`,
   errMaintenanceSave: 'Could not save the plan.',
-  errMaintenanceDelete: 'Could not deactivate the plan.',
 
   returnBtn: 'Return',
   returnModalTitle: (plate) => `Return ${plate}`,

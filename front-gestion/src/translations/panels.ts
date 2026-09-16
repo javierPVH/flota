@@ -187,7 +187,6 @@ const es = {
     /** Lo que falta o lo que sobra: más útil que repetir la suma. */
     remaining: (n: number) => `Falta repartir ${n}%`,
     excess: (n: number) => `Te pasas ${n}%`,
-    freeShare: 'Sin repartir',
     duplicatePerson: 'Hay una persona repetida: cada conductor va en una sola línea.',
     needPersonLine: 'Falta elegir la persona de alguna línea.',
     validFrom: 'Vigente desde',
@@ -206,7 +205,6 @@ const es = {
     monthlyAvg: 'Media / mes',
     readingsCount: 'Lecturas',
     period: 'Periodo',
-    kmLimit: 'Kilómetros',
     unlimitedYes: 'Ilimitados',
     unlimitedNo: 'Limitados',
     chartTitle: 'Evolución del odómetro',
@@ -220,15 +218,6 @@ const es = {
   accordion: {
     expandAll: 'Desplegar todo',
     collapseAll: 'Plegar todo',
-  },
-  kmChart: {
-    notEnough: 'Aún no hay lecturas suficientes.',
-    ariaLabel: 'Evolución del kilometraje',
-    yearMark: (k: number) => `Año ${k}`,
-    legendYearStart: (year: number, km: string) => `Inicio año ${year} · ${km}`,
-    legendStart: (km: string) => `Inicio · ${km}`,
-    legendQuota: (km: string) => `— — cupo ${km}`,
-    legendLast: (km: string) => `Último · ${km}`,
   },
 }
 
@@ -413,7 +402,6 @@ const en: typeof es = {
     sumOk: '✓ The split adds up (100%)',
     remaining: (n) => `${n}% still to allocate`,
     excess: (n) => `${n}% over`,
-    freeShare: 'Unallocated',
     duplicatePerson: 'A person is repeated: each driver goes on a single line.',
     needPersonLine: 'Choose the person on every line.',
     validFrom: 'Valid from',
@@ -432,7 +420,6 @@ const en: typeof es = {
     monthlyAvg: 'Monthly avg',
     readingsCount: 'Readings',
     period: 'Period',
-    kmLimit: 'Mileage',
     unlimitedYes: 'Unlimited',
     unlimitedNo: 'Limited',
     chartTitle: 'Odometer trend',
@@ -446,15 +433,6 @@ const en: typeof es = {
   accordion: {
     expandAll: 'Expand all',
     collapseAll: 'Collapse all',
-  },
-  kmChart: {
-    notEnough: 'Not enough readings yet.',
-    ariaLabel: 'Mileage over time',
-    yearMark: (k) => `Year ${k}`,
-    legendYearStart: (year, km) => `Year ${year} start · ${km}`,
-    legendStart: (km) => `Start · ${km}`,
-    legendQuota: (km) => `— — quota ${km}`,
-    legendLast: (km) => `Last · ${km}`,
   },
 }
 

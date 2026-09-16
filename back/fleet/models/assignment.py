@@ -140,7 +140,7 @@ class Assignment(DeactivatableModel, TimeStampedModel):
     class Meta:
         verbose_name = "asignación"
         verbose_name_plural = "asignaciones"
-        ordering = ["-created_at"]
+        ordering = ["-created_at", "-pk"]  # R3-23/R5-19: desempate estable
         indexes = [
             # Búsqueda del conductor en curso (end_date NULL, status) por vehículo.
             models.Index(fields=["vehicle", "end_date", "status"]),

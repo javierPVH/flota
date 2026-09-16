@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { Button, PageHeader, SelectField } from '@flota/ui/ui'
 import { useAppLang } from '@flota/ui/i18n'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
@@ -127,11 +127,11 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
   const typesWithRecords = groups.filter((g) => g.count > 0).length
 
   /** Tras restaurar o purgar: recuentos e items al día (puede vaciar la página). */
-  function reload() {
+  const reload = useCallback(() => {
     loadIndex()
     if (page > 1 && items.length === 1) setPage(page - 1)
     else loadItems()
-  }
+  }, [items.length, loadIndex, loadItems, page])
 
   function switchType(type: string) {
     setActive(type)
@@ -141,7 +141,7 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
     setNotice('')
   }
 
-  async function handleRestore(item: ErrataItem) {
+  const handleRestore = useCallback(async (item: ErrataItem) => {
     if (!group) return
     if (!(await confirm({ message: t.confirmRestore(item.label), tone: 'warning', confirmLabel: t.restore })))
       return
@@ -152,9 +152,9 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
     } catch (err) {
       setError(asErrorMessage(err, t.restoreError))
     }
-  }
+  }, [confirm, group, reload, t])
 
-  async function handlePurge(item: ErrataItem) {
+  const handlePurge = useCallback(async (item: ErrataItem) => {
     if (!group) return
     // A3: primero se pide el informe de impacto (el back no borra sin `confirm`),
     // y lo que arrastra la cascada se enseña en la confirmación. Purgar un
@@ -189,29 +189,10 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
     } catch (err) {
       setError(asErrorMessage(err, t.purgeError))
     }
-  }
+  }, [confirm, group, reload, t])
 
-  /**
-   * Exportar: la tabla solo tiene la página en curso, así que la exportación
-   * pide TODAS las páginas del tipo (con el mismo filtro) antes de generar el
-   * CSV. Es una acción explícita del usuario, no una carga de la pantalla.
-   */
-  async function handleExport() {
-    if (!group) return
-    setExporting(true)
-    try {
-      const rows = await listAll(
-        listErrataItems({ type: group.type, search: query || undefined, page_size: 500 }),
-      )
-      exportCsv(`erratas-${group.type}`, columns, rows)
-    } catch (err) {
-      setError(asErrorMessage(err, t.loadError))
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  const columns: Array<TableWithPanelColumn<ErrataItem>> = [
+  // R5-38: memoizadas, y declaradas ANTES de `handleExport`, que las usa.
+  const columns = useMemo<Array<TableWithPanelColumn<ErrataItem>>>(() => [
     {
       key: 'label',
       label: t.columns.label,
@@ -250,7 +231,27 @@ export function ErratasPage({ embedded = false }: { embedded?: boolean } = {}) {
         </div>
       ),
     },
-  ]
+  ], [handlePurge, handleRestore, isSuperuser, lang, t.columns.actions, t.columns.deactivatedAt, t.columns.deactivatedBy, t.columns.label, t.columns.reason, t.purge, t.restore])
+
+  /**
+   * Exportar: la tabla solo tiene la página en curso, así que la exportación
+   * pide TODAS las páginas del tipo (con el mismo filtro) antes de generar el
+   * CSV. Es una acción explícita del usuario, no una carga de la pantalla.
+   */
+  async function handleExport() {
+    if (!group) return
+    setExporting(true)
+    try {
+      const rows = await listAll(
+        listErrataItems({ type: group.type, search: query || undefined, page_size: 500 }),
+      )
+      exportCsv(`erratas-${group.type}`, columns, rows)
+    } catch (err) {
+      setError(asErrorMessage(err, t.loadError))
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     <div>

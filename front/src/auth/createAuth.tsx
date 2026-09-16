@@ -8,6 +8,8 @@ import {
   type ReactNode,
 } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
+import { setAuthExpirationHandler } from '../http/http-client.ts'
+import { useUiCopy } from '../ui/copy.ts'
 import {
   IDLE_MS,
   absoluteRemainingMs,
@@ -16,6 +18,9 @@ import {
 } from './sessionTimeout.ts'
 
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous'
+
+/** Por qué se cierra la sesión: la persona lo pide, o caduca (idle/tope/403). */
+export type LogoutReason = 'manual' | 'expired'
 
 export interface AuthContextValue<U> {
   user: U | null
@@ -32,15 +37,17 @@ export interface AuthProviderProps<U> {
    * anónimo.
    */
   bootstrap: () => Promise<U | null>
-  /** Efecto de cierre de sesión en el backend/cliente (borrar token, /logout…). */
-  onLogout?: () => void | Promise<void>
-  /** Qué hacer al caducar la sesión (idle o tope absoluto). Por defecto redirige. */
+  /** Efecto de cierre de sesión en el backend/cliente (borrar token, /logout…).
+   * Recibe el motivo (R5-55): una PWA puede conservar su caché de arranque
+   * offline cuando la sesión solo ha CADUCADO. */
+  onLogout?: (reason: LogoutReason) => void | Promise<void>
+  /** Qué hacer al caducar la sesión (idle, tope absoluto o 403 del transporte).
+   * Por defecto, nada más: `RequireAuth` lleva al login por el router con
+   * `?expired=1`, sin recargar la página (R5-25). */
   onExpire?: () => void
+  /** Inactividad tras la que caduca la sesión en cliente (por defecto `IDLE_MS`). */
+  idleMs?: number
   children: ReactNode
-}
-
-function defaultExpire(): void {
-  if (typeof window !== 'undefined') window.location.assign('/login?expired=1')
 }
 
 /**
@@ -53,10 +60,20 @@ function defaultExpire(): void {
  */
 export function createAuth<U>() {
   const AuthContext = createContext<AuthContextValue<U> | null>(null)
+  // Fuera del contexto de valor para no re-renderizar a todos los consumidores
+  // por un flag que solo lee `RequireAuth`.
+  const ExpiredContext = createContext(false)
 
-  function AuthProvider({ bootstrap, onLogout, onExpire, children }: AuthProviderProps<U>) {
+  function AuthProvider({
+    bootstrap,
+    onLogout,
+    onExpire,
+    idleMs = IDLE_MS,
+    children,
+  }: AuthProviderProps<U>) {
     const [user, setUserState] = useState<U | null>(null)
     const [status, setStatus] = useState<AuthStatus>('loading')
+    const [expired, setExpired] = useState(false)
 
     useEffect(() => {
       let mounted = true
@@ -82,33 +99,38 @@ export function createAuth<U>() {
     }, [bootstrap])
 
     const logout = useCallback(() => {
-      void onLogout?.()
+      void onLogout?.('manual')
       clearLoginMark()
+      setExpired(false)
       setUserState(null)
       setStatus('anonymous')
     }, [onLogout])
 
     const setUser = useCallback((next: U | null) => {
       if (next) markLogin()
+      setExpired(false)
       setUserState(next)
       setStatus(next ? 'authenticated' : 'anonymous')
     }, [])
 
-    // Caducidad en cliente: cierra sesión tras IDLE_MS de inactividad o al
-    // alcanzar el tope absoluto (el backend lo impone de verdad; esto es UX).
+    // Caducidad en cliente: cierra sesión tras `idleMs` de inactividad, al
+    // alcanzar el tope absoluto (el backend lo impone de verdad; esto es UX) o
+    // cuando el transporte recibe un «no autenticado» (R5-25: antes eso era una
+    // navegación DURA a /login que perdía lo escrito en el formulario).
     useEffect(() => {
       if (status !== 'authenticated' || typeof window === 'undefined') return
       const expire = () => {
-        void onLogout?.()
+        void onLogout?.('expired')
         clearLoginMark()
+        setExpired(true)
         setUserState(null)
         setStatus('anonymous')
-        ;(onExpire ?? defaultExpire)()
+        onExpire?.()
       }
       let idleTimer = 0
       const resetIdle = () => {
         window.clearTimeout(idleTimer)
-        idleTimer = window.setTimeout(expire, IDLE_MS)
+        idleTimer = window.setTimeout(expire, idleMs)
       }
       const remaining = absoluteRemainingMs()
       if (remaining <= 0) {
@@ -119,19 +141,25 @@ export function createAuth<U>() {
       const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'scroll']
       events.forEach((e) => window.addEventListener(e, resetIdle, { passive: true }))
       resetIdle()
+      setAuthExpirationHandler(expire)
       return () => {
         window.clearTimeout(idleTimer)
         window.clearTimeout(absTimer)
         events.forEach((e) => window.removeEventListener(e, resetIdle))
+        setAuthExpirationHandler(null)
       }
-    }, [status, onLogout, onExpire])
+    }, [status, onLogout, onExpire, idleMs])
 
     const value = useMemo<AuthContextValue<U>>(
       () => ({ user, status, setUser, logout }),
       [user, status, setUser, logout],
     )
 
-    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+    return (
+      <AuthContext.Provider value={value}>
+        <ExpiredContext.Provider value={expired}>{children}</ExpiredContext.Provider>
+      </AuthContext.Provider>
+    )
   }
 
   function useAuth(): AuthContextValue<U> {
@@ -151,20 +179,26 @@ export function createAuth<U>() {
     loadingFallback?: ReactNode
   }) {
     const { status } = useAuth()
+    const expired = useContext(ExpiredContext)
     const location = useLocation()
+    const copy = useUiCopy()
 
     if (status === 'loading') {
       return (
         <>
           {loadingFallback ?? (
-            <div style={{ padding: '2rem', textAlign: 'center', color: '#5f748c' }}>Cargando...</div>
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#5f748c' }}>
+              {copy.auth.loading}
+            </div>
           )}
         </>
       )
     }
 
     if (status === 'anonymous') {
-      return <Navigate to={loginPath} replace state={{ from: location }} />
+      // `?expired=1`: el login explica que la sesión caducó (no un logout).
+      const to = expired ? `${loginPath}?expired=1` : loginPath
+      return <Navigate to={to} replace state={{ from: location }} />
     }
 
     return <>{children}</>

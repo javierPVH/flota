@@ -189,11 +189,19 @@ class RenderedNotice(NamedTuple):
 
 
 def render_vehicle_notice(
-    vehicle, template_key: str, message: str = "", lang: str = "es"
+    vehicle, template_key: str, message: str = "", lang: str = "es", body: str = ""
 ) -> RenderedNotice:
     """Asunto y cuerpo de un aviso de vehículo con la plantilla `template_key`
     en el idioma pedido; si no hay plantilla, un texto por defecto con el
-    `mensaje` libre. Nunca lanza por falta de plantilla ni de traducción."""
+    `mensaje` libre. Nunca lanza por falta de plantilla ni de traducción.
+
+    `body` es el cuerpo **editado a mano** en el modal de correo: sustituye al
+    de la plantilla y se procesa igual que ella —mismas variables, misma
+    firma—, porque lo que se retoca ahí es el texto de ESTE envío, no la
+    plantilla (que se edita en Ajustes). Al ser un solo texto, manda sobre las
+    dos versiones cuando se piden los dos idiomas: es lo que se ha leído y
+    corregido.
+    """
     if lang not in NOTICE_LANGS:
         lang = "es"
     context = vehicle_notice_context(vehicle, message, template_key)
@@ -207,9 +215,14 @@ def render_vehicle_notice(
         # envío). No se traduce: es un texto de emergencia, no una plantilla.
         plate = html.escape(vehicle.plate)
         safe = html.escape(message).replace("\n", "<br>")
+        cuerpo = (
+            render(body, context)
+            if body
+            else f"<p>Aviso sobre el vehículo <strong>{plate}</strong>:</p><p>{safe}</p>"
+        )
         return RenderedNotice(
             subject=f"[Flota] {vehicle.plate} · Aviso",
-            body_html=f"<p>Aviso sobre el vehículo <strong>{plate}</strong>:</p><p>{safe}</p>",
+            body_html=cuerpo,
             used_key="",
             has_en=False,
         )
@@ -220,6 +233,10 @@ def render_vehicle_notice(
         raw_subject, raw_body = template.parts(one)
         subjects.append(render(raw_subject, context))
         bodies.append(render(raw_body, context))
+    if body:
+        # Cuerpo retocado a mano: uno solo, y es el que va (los asuntos siguen
+        # saliendo de la plantilla, que ahí no se ha tocado nada).
+        bodies = [render(body, context)]
     # Con las dos versiones juntas, el asunto lleva ambas separadas por barra —
     # salvo que la traducción sea idéntica (plantilla sin versión inglesa).
     unique_subjects = list(dict.fromkeys(s for s in subjects if s))

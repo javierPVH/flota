@@ -9,7 +9,7 @@ import {
   createVehicleLink,
   listAll,
   listEmailTemplates,
-  listIncidents,
+  listOpenIncidents,
   listKmReadingsAll,
   manageIncident,
   noticePreviewVehicle,
@@ -28,7 +28,6 @@ import { CreateSubstituteButton } from './CreateSubstituteButton.tsx'
 import { EmailOptions } from './EmailOptions.tsx'
 import { OpsSection, OpsSteps } from './OpsSteps.tsx'
 import { useAsistente, type Paso } from './opsWizard.ts'
-import { OpenIncidentsPanel } from './OpenIncidentsPanel.tsx'
 import type { Incident, Vehicle, VehicleLinkRow } from '../types.ts'
 
 // Tipos de documento (lista cerrada del back). Etiquetas desde panels.ts.
@@ -55,20 +54,6 @@ const STATE_DOC_TYPE: Record<string, string> = {
   itv: 'other',
   non_active: 'other',
 }
-
-/**
- * La pestaña «Estados abiertos» está OCULTA a propósito.
- *
- * Lo que está sin resolver ya se ve —y se cierra con el mismo dispatcher— en la
- * tarjeta «Alertas e incidencias» de la ficha, así que aquí duplicaba el gesto y
- * dejaba el modal con dos cosas que no se parecen: abrir un estado nuevo y
- * repasar lo viejo. El modal se queda solo con lo primero.
- *
- * Se deja el interruptor (y `OpenIncidentsPanel`) porque el ciclo modificar →
- * gestionar → resolver de una petición solo vive ahí: volver a enseñarlo es
- * poner esto en `true`.
- */
-const SHOW_OPEN_TAB: boolean = false
 
 // Correo propuesto según el estado: cuando hay una plantilla para ese caso
 // concreto se elige sola; el resto de estados son un comunicado de estado. Es
@@ -161,12 +146,13 @@ interface Props {
 
 /** Modal de operación del vehículo (desde el inventario): abrir un estado
  * nuevo —cambio de estado / petición, sustitución, archivos y comunicado, cada
- * sección como acordeón—. Lo que quedó abierto se repasa en la ficha, no aquí
- * (ver `SHOW_OPEN_TAB`). */
+ * sección como acordeón—. Lo que quedó abierto se repasa en la ficha y en la
+ * pestaña «Incidencias» de al lado, no aquí: la antigua pestaña «Estados
+ * abiertos» (y su `OpenIncidentsPanel`) se retiró en R5-42 porque duplicaba
+ * el gesto de resolver, que es uno (`ResolveDispatcher`). */
 export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone }: Props) {
   const t = useVehiclesCopy()
 
-  const [tab, setTab] = useState<'new' | 'open'>('new')
   /**
    * Disponibilidad tras el guardado (paso «Disponibilidad»), y el único sitio
    * donde se decide: `active` (queda o vuelve al servicio), `sub`/`none` (sale
@@ -250,6 +236,12 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
   // Para buscar los campos del paso activo cuando toca validarlo.
   const formRef = useRef<HTMLFormElement>(null)
   const [saving, setSaving] = useState(false)
+  // R5-31: el guardado son varias escrituras encadenadas (estado → petición →
+  // gestión → vínculo → archivos → correo). Si una falla a mitad, el reintento
+  // NO repite las que ya entraron: el `updated_at` que devolvió el PATCH y el
+  // id de la petición abierta se recuerdan hasta que se empieza otra.
+  const patchedUpdatedAt = useRef<string | null>(null)
+  const openedPetitionId = useRef<number | null>(null)
   const [error, setError] = useState('')
   /**
    * Resumen de lo guardado. Mientras exista, el formulario NO vuelve: una
@@ -268,22 +260,16 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
       .catch(() => setTemplates([]))
   }, [])
 
-  // Peticiones (incidencias) sin resolver del vehículo: alimentan la pestaña
-  // «Estados abiertos» y su contador. Se recargan tras cada acción del ciclo.
+  // Peticiones (incidencias) sin resolver del vehículo: son las que RETIENEN
+  // al coche fuera de servicio, y de ellas depende que se pueda reactivar.
+  // Se recargan tras abrir una petición desde aquí.
   const [openIncidents, setOpenIncidents] = useState<Incident[] | null>(null)
-  const [openLoadFailed, setOpenLoadFailed] = useState(false)
   const loadOpenIncidents = useCallback(() => {
-    // Aunque «Estados abiertos» esté oculto, hacen falta: son las que RETIENEN
-    // al coche fuera de servicio, y de ellas depende que se pueda reactivar.
-    listAll(listIncidents({ vehicle: vehicle.id }))
-      .then((rows) => {
-        setOpenIncidents(rows.filter((row) => row.status !== 'closed'))
-        setOpenLoadFailed(false)
-      })
-      .catch(() => {
-        setOpenIncidents(null)
-        setOpenLoadFailed(true)
-      })
+    // R5-35: solo las SIN cerrar, filtradas en el servidor (antes se traía el
+    // histórico completo del coche para tirar las cerradas).
+    listOpenIncidents({ vehicle: vehicle.id })
+      .then(setOpenIncidents)
+      .catch(() => setOpenIncidents(null))
   }, [vehicle.id])
   useEffect(() => {
     loadOpenIncidents()
@@ -309,6 +295,9 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
   const sentTemplateKey = useTemplate ? templateKey : ''
 
   useEffect(() => {
+    // R5-43: sin nada elegido no hay comunicado que previsualizar — antes se
+    // pedía al back en cada apertura del modal aunque no se llegara al paso.
+    if (stateValue === SIN_CAMBIOS) return
     let alive = true
     const id = setTimeout(() => {
       noticePreviewVehicle(vehicle.id, {
@@ -331,7 +320,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
       alive = false
       clearTimeout(id)
     }
-  }, [vehicle.id, sentTemplateKey, comLang, message])
+  }, [vehicle.id, sentTemplateKey, comLang, message, stateValue])
 
   function onChangeComLang(next: NoticeLang) {
     setComLang(next)
@@ -707,15 +696,16 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
       // de servicio (el PATCH con change_reason emite el evento de cambio), y
       // la petición se abre igual aunque el coche siga rodando — es lo que
       // luego se sigue, gestiona y resuelve desde la ficha.
-      let petitionId: number | null = null
-      if (wantState) {
-        await updateVehicleFields(vehicle.id, {
+      let petitionId: number | null = openedPetitionId.current
+      if (wantState && patchedUpdatedAt.current === null) {
+        const updated = await updateVehicleFields(vehicle.id, {
           state: targetState,
           change_reason: estadoReason,
           expected_updated_at: vehicle.updated_at,
         })
+        patchedUpdatedAt.current = updated.updated_at
       }
-      if (opensPetition) {
+      if (opensPetition && petitionId == null) {
         const created = await createIncident({
           vehicle: vehicle.id,
           type: choiceIncidentType,
@@ -733,6 +723,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
             : {}),
         })
         petitionId = created?.id ?? null
+        openedPetitionId.current = petitionId
       }
       // 1b) Gestión de la petición recién abierta: su ubicación.
       const managed = petitionId != null && wantManage
@@ -845,6 +836,8 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
   function nuevoEstado() {
     setResumen(null)
     setError('')
+    patchedUpdatedAt.current = null
+    openedPetitionId.current = null
     setPaso('state')
     setStateValue(SIN_CAMBIOS)
     setDescription('')
@@ -914,41 +907,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
         <span>{t.ops.supervisorLabel}: <strong>{vehicle.supervisor_name || t.ops.none}</strong></span>
       </div>
 
-      {/* Con «Estados abiertos» oculto no queda más que un panel: enseñar una
-          sola pestaña sería decorado. */}
-      {SHOW_OPEN_TAB && (
-        <div className="ops-tabs" role="tablist" aria-label={t.ops.title(vehicle.plate)}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'new'}
-            className={`ops-tab${tab === 'new' ? ' is-active' : ''}`}
-            onClick={() => setTab('new')}
-          >
-            {t.ops.tabNew}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'open'}
-            className={`ops-tab${tab === 'open' ? ' is-active' : ''}`}
-            onClick={() => setTab('open')}
-          >
-            {t.ops.tabOpen}
-            {openIncidents !== null && (
-              <span className="ops-tab-count">{openIncidents.length}</span>
-            )}
-          </button>
-        </div>
-      )}
-
-      <form
-        ref={formRef}
-        className="ops-form"
-        onSubmit={submit}
-        hidden={tab !== 'new'}
-        onInvalidCapture={alInvalido}
-      >
+      <form ref={formRef} className="ops-form" onSubmit={submit} onInvalidCapture={alInvalido}>
         {/* Los pasos, en orden. Los que aún no aplican van desactivados: se
             encienden solos según lo elegido en el primero. */}
         <OpsSteps
@@ -1405,16 +1364,6 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
           </div>
         </div>
       </form>
-
-      {tab === 'open' && (
-        <OpenIncidentsPanel
-          vehicle={vehicle}
-          incidents={openIncidents}
-          loadFailed={openLoadFailed}
-          onReload={loadOpenIncidents}
-          onChanged={onDone}
-        />
-      )}
     </div>
   )
 }

@@ -13,11 +13,11 @@ flota/
 └── front-conductores/  # SPA de CAMPO       → internet     (supervisor + driver)
 ```
 
-El esquema de datos está en [`ERD.md`](./ERD.md) (diagrama Mermaid) y en
+El esquema de datos está en [`ERD.md`](docs/ERD.md) (diagrama Mermaid) y en
 [`schema.dbml`](./schema.dbml) (DBML para dbdiagram.io). El plan de cada front en
-[`PLAN_FRONT_GESTION.md`](./PLAN_FRONT_GESTION.md) y
-[`PLAN_FRONT_CONDUCTORES.md`](./PLAN_FRONT_CONDUCTORES.md); el del backend en
-[`PLAN_MEJORA_BACK.md`](./PLAN_MEJORA_BACK.md).
+[`PLAN_FRONT_GESTION.md`](docs/PLAN_FRONT_GESTION.md) y
+[`PLAN_FRONT_CONDUCTORES.md`](docs/PLAN_FRONT_CONDUCTORES.md); el del backend en
+[`PLAN_MEJORA_BACK.md`](docs/PLAN_MEJORA_BACK.md).
 
 ## Roles y accesos
 
@@ -126,7 +126,7 @@ borra — se desactiva con motivo y pasa al espacio de erratas (restaurable;
 purga solo del superusuario). Todo es administrable desde `/admin/` y expuesto por **API REST
 versionada** bajo `/api/v1/` (acotada por rol); ver la tabla de endpoints y los
 trabajos programados en [`back/README.md`](./back/README.md). El esquema completo
-en [`ERD.md`](./ERD.md) / [`schema.dbml`](./schema.dbml).
+en [`ERD.md`](docs/ERD.md) / [`schema.dbml`](./schema.dbml).
 
 ## Tests
 

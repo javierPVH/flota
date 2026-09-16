@@ -23,7 +23,7 @@ import {
 } from '../api.ts'
 import { BulkImportModal } from '../components/bulk-import/BulkImportModal.tsx'
 import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
-import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
+import { EMAIL_MODAL_SIZE, VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleForm } from '../components/VehicleForm.tsx'
 import { VehicleReturnButton } from '../components/VehicleReturnButton.tsx'
 import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
@@ -597,7 +597,7 @@ export function VehiclesPage() {
   // Definición de TODAS las columnas (el orden/visibilidad se aplica luego).
   /** Cuánto lleva sin lectura de km, con el semáforo de siempre (ámbar 15-30
    * días, rojo a partir de 30 o sin ninguna). */
-  const staleCell = (date: string | null) => {
+  const staleCell = useCallback((date: string | null) => {
     const days = date ? daysSince(date) : null
     const tone = kmStaleTone(days)
     return (
@@ -605,7 +605,7 @@ export function VehiclesPage() {
         {days === null ? t.kmNoReading : t.kmStale(days)}
       </span>
     )
-  }
+  }, [t])
 
   /** Lo que cuelga de un coche cubierto: SU coche de sustitución, con lo mismo
    * que se lee en la fila de arriba y desde cuándo lo cubre. */
@@ -650,7 +650,7 @@ export function VehiclesPage() {
     )
   }
 
-  const allColumns: Array<TableWithPanelColumn<Vehicle>> = [
+  const allColumns = useMemo<Array<TableWithPanelColumn<Vehicle>>>(() => [
     {
       key: 'plate',
       label: t.columns.plate,
@@ -797,9 +797,9 @@ export function VehiclesPage() {
       getValue: (v) => v.created_at,
       render: (v) => fmtDate(v.created_at, language),
     },
-  ]
+  ], [activeMainOfSub, byId, language, maintDue, staleCell, t.busy, t.columns.company, t.columns.created, t.columns.driver, t.columns.fuelMonth, t.columns.insurance, t.columns.km, t.columns.maintenance, t.columns.nextItv, t.columns.plate, t.columns.state, t.columns.supervisor, t.columns.vehicle, t.columns.year, t.free])
 
-  const colByKey = new Map(allColumns.map((c) => [c.key, c]))
+  const colByKey = useMemo(() => (new Map(allColumns.map((c) => [c.key, c]))), [allColumns])
 
   // M18: el menú de acciones y sus dos operaciones serias (baja con motivo y
   // conversión a flota) los da el hook compartido con el panel.
@@ -821,12 +821,12 @@ export function VehiclesPage() {
   // Antes se le pasaba la lista ya filtrada y ordenada y había que remontar la
   // tabla con `key=` para que no reimpusiera su orden interno: cada clic en el
   // gestor de columnas perdía página, orden de filas, búsqueda y anchos.
-  const tableColumns: Array<TableWithPanelColumn<Vehicle>> = [
+  const tableColumns = useMemo<Array<TableWithPanelColumn<Vehicle>>>(() => [
     ...colOrder
       .map((key) => colByKey.get(key))
       .filter((c): c is TableWithPanelColumn<Vehicle> => Boolean(c)),
     actionsColumn,
-  ]
+  ], [actionsColumn, colByKey, colOrder])
 
   function openExport() {
     // Prellenar con lo que hay en la barra; el usuario lo ajusta en el modal.
@@ -1194,7 +1194,7 @@ export function VehiclesPage() {
         open={Boolean(emailVehicle)}
         title={emailVehicle ? t.email.title(emailVehicle.plate) : ''}
         onClose={() => setEmailVehicle(null)}
-        wide
+        {...EMAIL_MODAL_SIZE}
       >
         {emailVehicle && (
           <VehicleEmailModal

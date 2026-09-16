@@ -22,6 +22,8 @@ export interface CommonValues {
   cost: string
   observations: string
   proof: File | null
+  /** CP de la ubicación preferente: viene de la petición y se puede completar. */
+  postalCode: string
   /** `null` = «por defecto» (marcada si aplica): así la casilla sigue al
    * vehículo elegido hasta que la persona la toca. */
   returnToActive: boolean | null
@@ -29,12 +31,19 @@ export interface CommonValues {
 
 export type CommonPayload = Pick<
   IncidentResolveInput,
-  'resolution_date' | 'observations' | 'cost' | 'km' | 'return_to_active'
+  | 'resolution_date'
+  | 'observations'
+  | 'cost'
+  | 'km'
+  | 'return_to_active'
+  | 'workshop_postal_code'
 >
 
 export interface ResolutionCommon {
   values: CommonValues
   set: (patch: Partial<CommonValues>) => void
+  /** Hay petición detrás: se pinta su CP (una alerta no tiene ubicación). */
+  showPostalCode: boolean
   /** El coche está en el estado que este flujo «libera»: se ofrece la casilla. */
   showReturnToActive: boolean
   /** La casilla resuelta: lo marcado, o «marcada por defecto» si aplica. */
@@ -47,10 +56,17 @@ export function useResolutionCommon(opts: {
   flow: ResolveFlow
   vehicleState?: VehicleState
   initialDate?: string
+  /** CP que traía la petición (`undefined` = aquí no hay petición que mirar). */
+  postalCode?: string
+  /** La casilla de volver al servicio la manda el despachador: es UNA decisión
+   * para todo el modal (y arrastra soltar el sustituto), así que no puede
+   * vivir por duplicado dentro de cada formulario. */
+  returnToActive?: boolean
 }): ResolutionCommon {
-  const { flow, vehicleState, initialDate } = opts
+  const { flow, vehicleState, initialDate, postalCode, returnToActive: desdeFuera } = opts
   const owned = FLOW_STATE[flow]
-  const showReturnToActive = owned !== undefined && vehicleState === owned
+  const showReturnToActive =
+    desdeFuera === undefined && owned !== undefined && vehicleState === owned
 
   const [values, setValues] = useState<CommonValues>(() => ({
     date: initialDate ?? todayIso(),
@@ -58,22 +74,38 @@ export function useResolutionCommon(opts: {
     cost: '',
     observations: '',
     proof: null,
+    postalCode: postalCode ?? '',
     returnToActive: null,
   }))
   const set = (patch: Partial<CommonValues>) => setValues((prev) => ({ ...prev, ...patch }))
 
   // Marcada por defecto cuando aplica: es lo que casi siempre se quiere. Si el
   // formulario deja cambiar de vehículo (ITV), el defecto sigue al elegido.
-  const returnToActive = values.returnToActive ?? showReturnToActive
+  // Con la casilla fuera (despachador), manda lo que diga ella.
+  const returnToActive = desdeFuera ?? values.returnToActive ?? showReturnToActive
+  // Solo tiene efecto en el back si el coche está en el estado que este flujo
+  // libera; para lo demás está la acción de soltar el sustituto.
+  const aplicaVuelta = owned !== undefined && vehicleState === owned
 
   const payload = (): CommonPayload => {
     const out: CommonPayload = { resolution_date: values.date }
     if (values.observations.trim()) out.observations = values.observations.trim()
     if (values.cost.trim()) out.cost = values.cost.trim()
     if (values.km.trim()) out.km = Number(values.km)
-    if (showReturnToActive && returnToActive) out.return_to_active = true
+    // Vacío NO borra el que ya tenía la petición: el back ignora la cadena
+    // vacía, así que solo se manda lo que se haya escrito.
+    const cp = values.postalCode.trim()
+    if (cp && cp !== (postalCode ?? '')) out.workshop_postal_code = cp
+    if (aplicaVuelta && returnToActive) out.return_to_active = true
     return out
   }
 
-  return { values, set, showReturnToActive, returnToActive, payload }
+  return {
+    values,
+    set,
+    showPostalCode: postalCode !== undefined,
+    showReturnToActive,
+    returnToActive,
+    payload,
+  }
 }

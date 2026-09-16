@@ -279,6 +279,14 @@ def dispatch(now: datetime | None = None) -> dict[str, int]:
     for schedule in pendientes:
         if not is_due(schedule, now):
             continue
+        # R5-07: reclamar el turno con un CAS sobre `last_run_at` (mismo patrón
+        # que R3-08 en la cola de correo): dos pasadas solapadas —el bucle de
+        # `jobs` y el comando suelto— ya no generan el informe dos veces.
+        claimed = NotificationSchedule.objects.filter(
+            pk=schedule.pk, last_run_at=schedule.last_run_at
+        ).update(last_run_at=now)
+        if not claimed:
+            continue
         total["run"] += 1
         resultado = run_schedule(schedule, now)
         if resultado["error"]:

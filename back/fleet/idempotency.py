@@ -13,6 +13,7 @@ esa misma respuesta sin repetir el efecto. Sin `client_ref` no cambia nada:
 el campo es opcional y los POST de siempre siguen igual.
 """
 
+import random
 from datetime import timedelta
 
 from django.db import IntegrityError, transaction
@@ -63,7 +64,11 @@ def run_idempotent(request, produce):
         if previous is None:
             raise  # IntegrityError del propio produce(): no es nuestro caso.
         return Response(previous.response_data, status=previous.response_status)
-    IdempotencyRecord.objects.filter(created_at__lt=timezone.now() - RETENTION).delete()
+    # R5-16: la purga de recibos viejos no tiene por qué ir en CADA escritura
+    # (un DELETE y su candado en el camino crítico de la PWA): con una de cada
+    # veinte basta para que la tabla no crezca.
+    if random.random() < 0.05:
+        IdempotencyRecord.objects.filter(created_at__lt=timezone.now() - RETENTION).delete()
     return response
 
 

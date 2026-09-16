@@ -84,6 +84,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # R6-07: tope absoluto de sesión (SESSION_ABSOLUTE_AGE), tras conocer al usuario.
+    "accounts.middleware.SessionAbsoluteAgeMiddleware",
     # Publica request.user como "actor" de la auditoría (tras AuthenticationMiddleware).
     "auditlog.middleware.AuditlogMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -179,6 +181,12 @@ SESSION_COOKIE_SAMESITE = env_str("SESSION_COOKIE_SAMESITE", "Lax")
 # La sesión desliza: se renueva su caducidad en cada request (a IDLE segundos).
 SESSION_COOKIE_AGE = env_int("SESSION_COOKIE_AGE", 60 * 60 * 2)  # 2 h
 SESSION_SAVE_EVERY_REQUEST = True
+# R6-07: tope ABSOLUTO desde el inicio de sesión, haya o no actividad (la sesión
+# deslizante sola no caduca nunca mientras se use). Lo aplica
+# `accounts.middleware.SessionAbsoluteAgeMiddleware`; 0 = sin tope. Las SPAs
+# cortan antes (30 min inactividad / 6 h) por experiencia de uso, pero eso es
+# cliente: el tope de verdad es este.
+SESSION_ABSOLUTE_AGE = max(0, env_int("SESSION_ABSOLUTE_AGE", 60 * 60 * 10))  # 10 h
 
 CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
 # El front lee la cookie CSRF y la reenvía como cabecera X-CSRFToken ⇒ NO httponly.
@@ -363,6 +371,10 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.UserRateThrottle",
         "rest_framework.throttling.AnonRateThrottle",
     ],
+    # R6-06: la IP que identifica al anónimo en los throttles sale del MISMO
+    # criterio que el rate limit del login (`TRUSTED_PROXY_COUNT`). Sin esto DRF
+    # tomaba `X-Forwarded-For` tal cual y variar la cabecera lo esquivaba.
+    "NUM_PROXIES": TRUSTED_PROXY_COUNT,
     "DEFAULT_THROTTLE_RATES": {
         "user": env_str("THROTTLE_USER_RATE", "2000/hour"),
         "anon": env_str("THROTTLE_ANON_RATE", "100/hour"),
@@ -445,6 +457,10 @@ FLEET_MAINTENANCE_KM_MARGIN = max(0, env_int("FLEET_MAINTENANCE_KM_MARGIN", 1000
 FLEET_KM_OVERAGE_MARGIN = max(0.0, float(env_str("FLEET_KM_OVERAGE_MARGIN", "0.05")))
 # Umbral "a vigilar" de la proyección (0.95 = 95% del límite) — nivel intermedio.
 FLEET_KM_WATCH_PCT = max(0.0, float(env_str("FLEET_KM_WATCH_PCT", "0.95")))
+# R5-17: tope de filas por tabla en los informes (Excel/CSV/JSON). Por encima
+# se recorta y la última fila lo dice; el libro entero se monta en memoria en
+# el hilo que atiende la descarga. 0 = sin tope.
+FLEET_REPORT_MAX_ROWS = max(0, env_int("FLEET_REPORT_MAX_ROWS", 20000))
 
 # --- Flota: datos de PRUEBA en desarrollo (seeding) ------------------------
 # 🔴 DESTRUCTIVO: con FLEET_SEED_DATA=True cada arranque de `runserver` BORRA

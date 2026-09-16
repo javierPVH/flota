@@ -34,6 +34,13 @@ export async function login(username: string, password: string): Promise<FlotaUs
   return postJson<FlotaUser>(`${AUTH}/login/`, { username, password })
 }
 
+/** Login con Google: `credential` es el ID token que devuelve el botón de GIS.
+ * El back lo verifica, marca la entrada (`last_google_login`) y abre sesión. */
+export async function googleLogin(credential: string): Promise<FlotaUser> {
+  await ensureCsrf()
+  return postJson<FlotaUser>(`${AUTH}/google/`, { credential })
+}
+
 export async function logout(): Promise<void> {
   await postJson(`${AUTH}/logout/`, {})
 }
@@ -180,8 +187,10 @@ export async function deletePushSubscription(endpoint: string): Promise<void> {
 }
 
 // --- M5: alertas del ámbito (HU-3.2/3.3/3.5/5.1/1.7) -----------------------
-export const listAlerts = (status: string) =>
-  getJson<Paginated<Alert>>(`${API}/alerts/?status=${status}&${PS}`)
+export const listAlerts = (status: string, vehicle?: number) =>
+  getJson<Paginated<Alert>>(
+    `${API}/alerts/?status=${status}${vehicle ? `&vehicle=${vehicle}` : ''}&${PS}`,
+  )
 
 /** Solo gestión (supervisor/admin); el conductor no ve estos botones. La nota
  * opcional (qué se hizo) queda visible en la bandeja de resueltas. */

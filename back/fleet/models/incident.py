@@ -81,6 +81,13 @@ class Incident(DeactivatableModel, TimeStampedModel):
         verbose_name = "incidencia"
         verbose_name_plural = "incidencias"
         ordering = ["-date", "-pk"]  # R3-23: desempate estable
+        # R5-11: los filtros calientes (resumen de la PWA, bloqueos de
+        # reactivación, mantenimiento, ITV y el viewset) van por vehículo +
+        # estado (+ tipo); solo existía el índice implícito de la FK.
+        indexes = [
+            models.Index(fields=["vehicle", "status"], name="incident_vehicle_status_idx"),
+            models.Index(fields=["vehicle", "type", "status"], name="incident_veh_type_status_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.vehicle.plate} · {self.get_type_display()} ({self.date})"

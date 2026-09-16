@@ -60,6 +60,9 @@ export function RegisterKmPage() {
   const [date, setDate] = useState(todayIso())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  // R5-50: una referencia de idempotencia por LECTURA capturada; se renueva
+  // solo cuando la lectura ya quedó guardada o encolada.
+  const [clientRef, setClientRef] = useState(newClientRef)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState<SavedReading | null>(null)
   // N8a: ventana de registro (día 20 → fin de mes) — la autoridad es el back.
@@ -155,7 +158,9 @@ export function RegisterKmPage() {
     setSaving(true)
     setError('')
     // R3-34: misma referencia en el intento directo y en el reenvío offline.
-    const payload = { vehicle: vehicle.id, km_reading: kmValue, reading_date: date, client_ref: newClientRef() }
+    // R5-50: y también en el reintento MANUAL tras un fallo (la referencia vive
+    // en el estado y solo se renueva cuando la lectura ya quedó guardada).
+    const payload = { vehicle: vehicle.id, km_reading: kmValue, reading_date: date, client_ref: clientRef }
     try {
       const reading = await createKmReading(payload)
       setSaved({
@@ -165,6 +170,7 @@ export function RegisterKmPage() {
         queued: false,
       })
       setKm('')
+      setClientRef(newClientRef())
       // Refresca la referencia para un posible segundo registro.
       fetchVehicleSummary(vehicle.id).then(setSummary, () => {})
     } catch (err) {
@@ -179,6 +185,7 @@ export function RegisterKmPage() {
             queued: true,
           })
           setKm('')
+          setClientRef(newClientRef())
         } else {
           setError(t.km.queueFailed)
         }

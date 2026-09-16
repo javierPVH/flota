@@ -8,8 +8,13 @@ backends intercambiables (`FLEET_ARCHIVE_BACKEND`):
   y espera al reintento (`archive_pending_documents`).
 - **`local`** (`LocalArchiver`): *fallback* sin dependencias externas; crea una
   carpeta por vehículo en el disco y registra una URL `file://`. Útil en dev/CI.
-- **`gdrive`** (`GoogleDriveArchiver`): stub documentado; se activa cuando haya
-  credenciales de Drive. Mientras no las haya, se comporta como `none`.
+- **`gdrive`** (`GoogleDriveArchiver`): Drive real; sin credenciales se comporta
+  como `none`.
+
+El árbol es el mismo en los dos backends que archivan de verdad: **carpeta
+madre** (`GOOGLE_DRIVE_ROOT_FOLDER_ID`) → **matrícula** → **familia** del
+documento (`DOCUMENT_FAMILIES`). Cada nivel se busca antes de crearse, así que
+dos subidas a la vez no dejan carpetas duplicadas ni pisan lo que ya hubiera.
 
 Flujo (ver `archive_document`): si el documento ya trae `drive_url` (el front
 subió a un destino externo), se marca `vigente`; si no, se delega en el backend;
@@ -24,7 +29,7 @@ from pathlib import Path
 from django.conf import settings
 
 from fleet.models import Document
-from fleet.models.enums import DocumentStatus
+from fleet.models.enums import DocumentStatus, DocumentType
 
 logger = logging.getLogger("fleet.archiver")
 
@@ -69,53 +74,103 @@ class LocalArchiver(BaseArchiver):
             folder = self.base_dir / "usuarios" / document.user.get_username()
             folder.mkdir(parents=True, exist_ok=True)
             return f"{folder.resolve().as_uri()}/doc-{document.pk}-{document.type}"
-        folder = self.ensure_folder(document.vehicle)
-        return f"{folder}/doc-{document.pk}-{document.type}"
+        # Mismo árbol que Drive (matrícula → familia): lo que se prueba en dev
+        # con el backend local es lo que se verá luego en Drive.
+        self.ensure_folder(document.vehicle)
+        folder = self.base_dir / document.vehicle.plate / family_of(document.type)
+        folder.mkdir(parents=True, exist_ok=True)
+        return f"{folder.resolve().as_uri()}/doc-{document.pk}-{document.type}"
 
 
 _FOLDER_MIME = "application/vnd.google-apps.folder"
 
+#: Subcarpeta (familia) en la que se archiva cada tipo de documento, DENTRO de
+#: la carpeta de la matrícula. Se agrupa en pocas familias a propósito: una
+#: carpeta por tipo dejaría una docena de carpetas casi vacías por coche, y
+#: quien abre el Drive busca «los papeles», «lo que le ha pasado» o «lo que se
+#: ha pagado». En Drive la carpeta se localiza por NOMBRE: cambiar una etiqueta
+#: no mueve lo ya archivado, crea otra carpeta al lado.
+DOCUMENT_FAMILIES: dict[str, str] = {
+    DocumentType.REGISTRATION: "Documentación",
+    DocumentType.TECHNICAL_SHEET: "Documentación",
+    DocumentType.INSURANCE: "Documentación",
+    DocumentType.CONTRACT: "Documentación",
+    DocumentType.HANDOVER_ACT: "Documentación",
+    DocumentType.RETURN_ACT: "Documentación",
+    DocumentType.ACCIDENT_REPORT: "Incidencias",
+    DocumentType.DAMAGE_PHOTOS: "Incidencias",
+    DocumentType.ITV_REPORT: "Incidencias",
+    DocumentType.WORKSHOP_INVOICE: "Facturas",
+}
+#: Lo que no encaja en ninguna (incluido un tipo nuevo que nadie haya mapeado).
+FAMILY_OTHER = "Otros"
+
+
+def family_of(document_type: str) -> str:
+    """Carpeta (familia) en la que se archiva un tipo de documento."""
+    return DOCUMENT_FAMILIES.get(document_type, FAMILY_OTHER)
+
 
 class GoogleDriveArchiver(BaseArchiver):
-    """Google Drive real (Fase A3): sube el binario a la carpeta del vehículo.
+    """Google Drive real (Fase A3): sube el binario donde le toca.
 
-    Usa la CUENTA DE SERVICIO (`GOOGLE_SA_KEYFILE`); la carpeta raíz
-    (`GOOGLE_DRIVE_ROOT_FOLDER_ID`) debe estar compartida con su email como
-    editor. Por vehículo se crea (o reutiliza) una subcarpeta con su matrícula
-    (`Vehicle.drive_folder_id`); tras subir, guarda `drive_file_id`, borra el
-    binario local (staging en `MEDIA_ROOT`) y devuelve el `webViewLink`.
-    Sin credenciales se comporta como `NullArchiver` (documento pendiente).
+    El árbol se asegura nivel a nivel, buscando antes de crear: carpeta madre
+    (`GOOGLE_DRIVE_ROOT_FOLDER_ID`) → **matrícula** (se recuerda en
+    `Vehicle.drive_folder_id`) → **familia** del documento (`family_of`). Tras
+    subir, guarda `drive_file_id`, borra el binario local (staging en
+    `MEDIA_ROOT`) y devuelve el `webViewLink`.
+
+    **Con qué cuenta** lo decide quien subió el documento (`_service_for`), y
+    sin una identidad de Google detrás no se sube nada: el documento queda
+    pendiente y el reintento lo volverá a intentar cuando la haya.
     """
 
     def __init__(self, service=None):
-        self._service = service  # inyectable en tests
+        self._service = service  # inyectado (tests): manda sobre todo lo demás
+        # Memoria de UNA pasada. El reintento (`archive_pending`) archiva en
+        # bloque con el mismo archivador, y sin esto cada documento volvía a
+        # leer el keyfile, a refrescar tokens y a preguntarle a Drive por la
+        # misma carpeta. `False` = ya se intentó y no hay (no reintentar).
+        self._sa = None  # cliente de la cuenta de servicio
+        self._de_usuario: dict[int, object] = {}  # id de usuario -> su cliente
+        self._carpetas: dict[tuple[str, str], str] = {}  # (padre, nombre) -> id
+        self._avisados: set[int] = set()  # de quién ya se dijo que no puede
 
     def _get_service(self):
-        if self._service is None:
+        """Cliente de la CUENTA DE SERVICIO, construido una vez por archivador.
+
+        No se guarda en `self._service`: ese hueco significa «me lo han
+        inyectado», y pisarlo haría que el siguiente documento subiera con la
+        cuenta de servicio aunque su dueño tuviera la suya.
+        """
+        if self._service is not None:
+            return self._service
+        if self._sa is None:
             from accounts.google_oauth import drive_service_service_account
 
-            self._service = drive_service_service_account()
-        return self._service
+            self._sa = drive_service_service_account() or False
+        return self._sa or None
 
     def _num_retries(self) -> int:
         from accounts.google_oauth import GOOGLE_NUM_RETRIES
 
         return GOOGLE_NUM_RETRIES
 
-    def ensure_folder(self, vehicle) -> str:
-        """Asegura la carpeta del vehículo en Drive; devuelve su URL (o '')."""
-        if vehicle.drive_folder_id:
-            return vehicle.drive_folder_url
-        service = self._get_service()
-        root = getattr(settings, "GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
-        if not service or not root:
-            return ""
-        safe_plate = vehicle.plate.replace("'", "")
+    def _child_folder(self, service, parent_id: str, name: str) -> dict:
+        """Carpeta `name` colgando de `parent_id`: la busca y, si no está, la crea.
+
+        Un solo sitio para los dos niveles (matrícula y familia): buscar antes
+        de crear es lo que evita duplicar carpetas cuando llegan dos subidas
+        seguidas del mismo coche.
+        """
+        # R5-18: en el lenguaje de consulta de Drive `\` escapa y `'` cierra la
+        # cadena: se escapan los dos (antes solo se quitaba la comilla).
+        safe_name = name.replace("\\", "\\\\").replace("'", "\\'")
         found = (
             service.files()
             .list(
                 q=(
-                    f"name = '{safe_plate}' and '{root}' in parents "
+                    f"name = '{safe_name}' and '{parent_id}' in parents "
                     f"and mimeType = '{_FOLDER_MIME}' and trashed = false"
                 ),
                 pageSize=1,
@@ -127,17 +182,91 @@ class GoogleDriveArchiver(BaseArchiver):
             .get("files", [])
         )
         if found:
-            folder = found[0]
-        else:
-            folder = (
-                service.files()
-                .create(
-                    body={"name": vehicle.plate, "mimeType": _FOLDER_MIME, "parents": [root]},
-                    fields="id,webViewLink",
-                    supportsAllDrives=True,
-                )
-                .execute(num_retries=self._num_retries())
+            return found[0]
+        return (
+            service.files()
+            .create(
+                body={"name": name, "mimeType": _FOLDER_MIME, "parents": [parent_id]},
+                fields="id,webViewLink",
+                supportsAllDrives=True,
             )
+            .execute(num_retries=self._num_retries())
+        )
+
+    def _service_for(self, document: Document):
+        """Cliente de Drive con el que subir ESTE documento, o None.
+
+        Quien sube manda, porque son dos webs distintas:
+
+        - **Gestión** (el administrador ha conectado su Google): se sube con SU
+          cuenta. Es su Drive y su rastro, y esa web va por dentro.
+        - **Conductores** (web pública): a un conductor no se le pide Drive, así
+          que sube la **cuenta de servicio** — pero solo si esa persona **entró
+          con Google** (`last_google_login`), que es lo único que acredita que
+          hay una identidad de Google detrás del documento.
+
+        Sin ninguna de las dos cosas no se sube: el documento queda pendiente y
+        el reintento (`archive_pending_documents`) lo recogerá si algún día la
+        hay. Nunca lanza: lo peor que pasa es que no se archive todavía.
+        """
+        uploader = document.uploaded_by
+        if uploader is None:
+            logger.info("Documento %s sin quien lo subiera: pendiente.", document.pk)
+            return None
+        propia = self._cuenta_propia(uploader)
+        if propia is not None:
+            return propia
+        if not getattr(uploader, "last_google_login", None):
+            # Una vez por persona y pasada: el reintento repasa lo pendiente
+            # entero cada vez, y una línea por documento tapaba el log.
+            if uploader.pk not in self._avisados:
+                self._avisados.add(uploader.pk)
+                logger.info(
+                    "%s no ha entrado con Google: sus documentos quedan pendientes.", uploader
+                )
+            return None
+        return self._get_service()
+
+    def _cuenta_propia(self, user):
+        """Cliente de Drive del usuario (gestión), UNO por usuario y pasada.
+
+        Construirlo puede refrescar su token contra Google, así que no se hace
+        una vez por documento. Si el refresco falla —consentimiento revocado,
+        sin red— se anota y se sigue: el documento aún puede subir por la
+        cuenta de servicio si esa persona entró con Google.
+        """
+        if self._service is not None:
+            return None  # con cliente inyectado no se resuelve nada más
+        if user.pk not in self._de_usuario:
+            from accounts.google_oauth import drive_service
+
+            try:
+                self._de_usuario[user.pk] = drive_service(user)
+            except Exception:
+                logger.exception("No se pudo usar el Google de %s; se sigue sin él.", user)
+                self._de_usuario[user.pk] = None
+        return self._de_usuario[user.pk]
+
+    def _folder_id(self, service, parent_id: str, name: str) -> str:
+        """Id de una carpeta hija, recordado durante la pasada.
+
+        Veinte fotos de la misma incidencia son veinte documentos del mismo
+        coche y la misma familia: la carpeta se resuelve una vez.
+        """
+        clave = (parent_id, name)
+        if clave not in self._carpetas:
+            self._carpetas[clave] = self._child_folder(service, parent_id, name).get("id") or ""
+        return self._carpetas[clave]
+
+    def ensure_folder(self, vehicle, service=None) -> str:
+        """Asegura la carpeta del vehículo en Drive; devuelve su URL (o '')."""
+        if vehicle.drive_folder_id:
+            return vehicle.drive_folder_url
+        service = service or self._get_service()
+        root = getattr(settings, "GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
+        if not service or not root:
+            return ""
+        folder = self._child_folder(service, root, vehicle.plate)
         vehicle.drive_folder_id = folder.get("id") or ""
         vehicle.drive_folder_url = folder.get("webViewLink") or ""
         vehicle.save(update_fields=["drive_folder_id", "drive_folder_url", "updated_at"])
@@ -147,10 +276,6 @@ class GoogleDriveArchiver(BaseArchiver):
         if not getattr(settings, "GOOGLE_DRIVE_ENABLED", False):
             logger.info("Drive no configurado: documento %s pendiente de archivar.", document.pk)
             return None
-        service = self._get_service()
-        if not service:
-            logger.info("Sin cuenta de servicio: documento %s pendiente.", document.pk)
-            return None
         if not document.file:
             return None  # sin binario no hay nada que subir (drive_url ya se trató)
         if document.vehicle_id is None:
@@ -159,9 +284,16 @@ class GoogleDriveArchiver(BaseArchiver):
             # con URL o Picker, que no pasan por aquí.
             logger.info("Documento personal %s sin carpeta de Drive: pendiente.", document.pk)
             return None
-        self.ensure_folder(document.vehicle)
+        service = self._service_for(document)
+        if not service:
+            return None
+        self.ensure_folder(document.vehicle, service)
         folder_id = document.vehicle.drive_folder_id
         if not folder_id:
+            return None
+        # Dentro de la matrícula, la familia del documento.
+        family_id = self._folder_id(service, folder_id, family_of(document.type))
+        if not family_id:
             return None
         import mimetypes
 
@@ -173,7 +305,7 @@ class GoogleDriveArchiver(BaseArchiver):
             created = (
                 service.files()
                 .create(
-                    body={"name": f"{document.type}-{filename}", "parents": [folder_id]},
+                    body={"name": f"{document.type}-{filename}", "parents": [family_id]},
                     media_body=MediaIoBaseUpload(handle, mimetype=mime),
                     fields="id,webViewLink",
                     supportsAllDrives=True,
@@ -303,10 +435,15 @@ def archive_pending(archiver: BaseArchiver | None = None) -> int:
     """Reintenta el archivado de los documentos `pendiente_archivar`. Devuelve cuántos archivó."""
     archiver = archiver or get_archiver()
     archived = 0
+    # `uploaded_by` entra en el select_related porque el archivador de Drive
+    # mira quién subió cada documento para decidir con qué cuenta lo sube.
     pending = Document.objects.filter(status=DocumentStatus.PENDING_ARCHIVE).select_related(
-        "vehicle", "user"
+        "vehicle", "user", "uploaded_by"
     )
-    for document in pending:
+    # En streaming: lo pendiente puede acumularse (un documento sin identidad de
+    # Google detrás se queda ahí hasta que la haya), y no hay por qué traerlo
+    # todo a memoria para recorrerlo una vez.
+    for document in pending.iterator(chunk_size=200):
         archive_document(document, archiver=archiver)
         if document.status == DocumentStatus.VALID:
             archived += 1

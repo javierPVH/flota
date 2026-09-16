@@ -1,7 +1,11 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
+from .forms import RateLimitedAdminAuthenticationForm
 from .models import User, UserRole
+
+# R6-04: la entrada al /admin/ con el mismo anti fuerza bruta que la API.
+admin.site.login_form = RateLimitedAdminAuthenticationForm
 
 
 class UserRoleInline(admin.TabularInline):

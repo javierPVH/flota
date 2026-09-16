@@ -197,6 +197,28 @@ class NoticeLanguageTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         return resp.data
 
+    def test_cuerpo_retocado_sustituye_al_de_la_plantilla(self):
+        # Lo que se retoca en el modal es el correo de ESTE envío: se rinde con
+        # las mismas variables que la plantilla, que no se toca.
+        data = self.preview(body="<p>Buenos días, {{matricula}}</p>")
+        self.assertIn("Buenos días, 1234KLM", data["body_html"])
+        self.assertNotIn("Hola", data["body_html"])
+        # El asunto sigue saliendo de la plantilla: ahí no se ha tocado nada.
+        self.assertEqual(data["subject"], "Aviso 1234KLM")
+        self.template.refresh_from_db()
+        self.assertEqual(self.template.body_html, "<p>Hola</p>")
+
+    def test_cuerpo_retocado_manda_sobre_los_dos_idiomas(self):
+        # Es UN texto, el que se ha leído y corregido: no se duplica en dos.
+        data = self.preview(lang="both", body="<p>Único</p>")
+        self.assertIn("Único", data["body_html"])
+        self.assertNotIn("Hello", data["body_html"])
+
+    def test_cuerpo_retocado_se_sanea(self):
+        # Acaba en un correo tal cual: pasa por el mismo nh3 que las plantillas.
+        data = self.preview(body="<p>Hola</p><script>alert(1)</script>")
+        self.assertNotIn("<script>", data["body_html"])
+
     def test_spanish_is_the_default(self):
         data = self.preview()
         self.assertEqual(data["subject"], "Aviso 1234KLM")

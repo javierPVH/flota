@@ -24,6 +24,25 @@ from ..models import SupervisorPeriod
 from . import events
 
 
+def validate_supervisor(user):
+    """R5-03: el responsable de un vehículo tiene que poder verlo.
+
+    El ámbito (`scoping.vehicles_for`) exige el rol de supervisor, así que un
+    usuario sin él —o desactivado— dejaría el coche sin responsable efectivo en
+    alertas, informes y push. Misma regla que `SupervisorPeriod.clean()`.
+    Lanza `ValidationError` de DRF; devuelve el usuario si vale.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    if user is None:
+        return None
+    if not user.is_active or not user.is_supervisor:
+        raise ValidationError(
+            {"supervisor": "El usuario no tiene rol de supervisor (o está desactivado)."}
+        )
+    return user
+
+
 def current_period(vehicle, on=None):
     """Periodo que cubre `on` (hoy por defecto), o ``None``."""
     dia = on or timezone.localdate()
@@ -43,26 +62,33 @@ def apply_supervisor_change(vehicle, new_supervisor, *, on=None):
     emite evento: lo emite quien hace el cambio (la vista), que es quien sabe
     si de verdad hubo relevo.
     """
+    from ..models.assignment import supervisor_period_overlap
+
     dia = on or timezone.localdate()
-    abierto = SupervisorPeriod.objects.filter(
-        vehicle=vehicle, end_date__isnull=True, is_active=True
-    ).first()
-    if abierto is not None:
-        if abierto.supervisor_id == (new_supervisor.pk if new_supervisor else None):
-            return abierto
+    # R5-06: el periodo a cerrar es el que CUBRE hoy, tenga fin abierto o un fin
+    # programado en el futuro (un relevo registrado desde «Gestión»). Mirar solo
+    # `end_date IS NULL` dejaba dos periodos cubriendo el mismo día.
+    vigente = current_period(vehicle, on=dia)
+    if vigente is not None:
+        if vigente.supervisor_id == (new_supervisor.pk if new_supervisor else None):
+            return vigente
         # Un periodo que no llegó a empezar (alta y relevo el mismo día) no
         # deja un tramo de cero días en el histórico: se retira (N7).
-        if abierto.start_date >= dia:
-            abierto.is_active = False
-            abierto.deactivation_reason = "Relevo el mismo día del alta."
-            abierto.save(update_fields=["is_active", "deactivation_reason", "updated_at"])
+        if vigente.start_date >= dia:
+            vigente.is_active = False
+            vigente.deactivation_reason = "Relevo el mismo día del alta."
+            vigente.save(update_fields=["is_active", "deactivation_reason", "updated_at"])
         else:
-            abierto.end_date = dia
-            abierto.save(update_fields=["end_date", "updated_at"])
+            vigente.end_date = dia
+            vigente.save(update_fields=["end_date", "updated_at"])
     if new_supervisor is None:
         return None
+    # Si más adelante ya hay otro periodo programado, el nuevo termina donde
+    # empieza aquel: uno a la vez, también hacia delante.
+    siguiente = supervisor_period_overlap(vehicle.pk, start_date=dia)
+    fin = siguiente.start_date if siguiente is not None and siguiente.start_date > dia else None
     return SupervisorPeriod.objects.create(
-        vehicle=vehicle, supervisor=new_supervisor, start_date=dia
+        vehicle=vehicle, supervisor=new_supervisor, start_date=dia, end_date=fin
     )
 
 

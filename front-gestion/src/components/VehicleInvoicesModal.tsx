@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent, useMemo } from 'react'
 import { Button, IconButton, Modal, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
@@ -102,7 +102,7 @@ export function VehicleInvoicesModal({ vehicle, onClose }: { vehicle: Vehicle; o
     }
   }
 
-  async function handleDelete(invoice: InvoiceRow) {
+  const handleDelete = useCallback(async (invoice: InvoiceRow) => {
     // N7 ("nada se borra"): doble confirmación + desactivación con motivo.
     const reason = await deactivateConfirm(t.deactivateSubject(invoice.code || `#${invoice.id}`))
     if (reason === null) return
@@ -112,9 +112,9 @@ export function VehicleInvoicesModal({ vehicle, onClose }: { vehicle: Vehicle; o
     } catch (err) {
       setError(asErrorMessage(err, t.deactivateError))
     }
-  }
+  }, [deactivateConfirm, load, t])
 
-  const columns: Array<TableWithPanelColumn<InvoiceRow>> = [
+  const columns = useMemo<Array<TableWithPanelColumn<InvoiceRow>>>(() => [
     {
       key: 'code',
       label: t.columns.code,
@@ -167,7 +167,7 @@ export function VehicleInvoicesModal({ vehicle, onClose }: { vehicle: Vehicle; o
         </div>
       ),
     },
-  ]
+  ], [handleDelete, lang, t.columns.actions, t.columns.amount, t.columns.code, t.columns.date, t.columns.pdf, t.deactivateAction, t.editAction, t.openPdf])
 
   return (
     <div>

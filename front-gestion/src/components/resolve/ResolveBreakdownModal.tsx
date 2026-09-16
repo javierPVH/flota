@@ -14,6 +14,8 @@ interface Props {
   incident: Incident
   /** Estado actual del vehículo: decide si se ofrece «devolver a Activo». */
   vehicleState?: VehicleState
+  /** Con el coche parado, la casilla vive en el despachador (una por modal). */
+  returnToActive?: boolean
   onClose: () => void
   /** Cerrada: texto para el aviso verde del padre (que recarga sus datos). */
   onDone: (notice: string) => void
@@ -25,9 +27,20 @@ interface Props {
  * pone el `Modal` y el título). También es el cierre genérico de reparación
  * que usan neumáticos y accidente mientras no tienen su modal propio.
  */
-export function ResolveBreakdownModal({ incident, vehicleState, onClose, onDone }: Props) {
+export function ResolveBreakdownModal({
+  incident,
+  vehicleState,
+  returnToActive,
+  onClose,
+  onDone,
+}: Props) {
   const t = useResolveCopy()
-  const common = useResolutionCommon({ flow: 'breakdown', vehicleState })
+  const common = useResolutionCommon({
+    flow: 'breakdown',
+    vehicleState,
+    returnToActive,
+    postalCode: incident.workshop_postal_code,
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 

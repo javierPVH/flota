@@ -68,7 +68,7 @@ class InvoiceAllocation(DeactivatableModel, TimeStampedModel):
     class Meta:
         verbose_name = "imputación de factura"
         verbose_name_plural = "imputaciones de factura"
-        ordering = ["-created_at"]
+        ordering = ["-created_at", "-pk"]  # R3-23/R5-19: desempate estable
 
     def __str__(self) -> str:
         return f"{self.invoice} → {self.get_target_type_display()} ({self.percentage}%)"

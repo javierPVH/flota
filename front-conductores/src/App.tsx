@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { RequireAuth } from './auth.ts'
 import { AccessGate } from './components/AccessGate.tsx'
 import { Layout } from './components/Layout.tsx'
+import { GoogleLoginPage } from './pages/GoogleLoginPage.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
 import { HomePage } from './pages/HomePage.tsx'
 
@@ -35,11 +36,17 @@ const UploadDocumentPage = lazy(() =>
 
 const fallback = <p className="gate-checking">Cargando…</p>
 
+/** Conductores va a salir a internet y se entrará SOLO con Google. La vista
+ * está hecha (`GoogleLoginPage`) pero **sin activar**: se enciende aquí cuando
+ * la cuenta de Google de la empresa esté lista. Mismo patrón que
+ * `SHOW_OPEN_TAB` en gestión: el código sigue, la interfaz no. */
+const SOLO_GOOGLE = false
+
 export default function App() {
   return (
     <Suspense fallback={fallback}>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={SOLO_GOOGLE ? <GoogleLoginPage /> : <LoginPage />} />
         {/* Pantallas del portón: requieren sesión pero NO tener vehículo. */}
         <Route
           path="/solicitar"

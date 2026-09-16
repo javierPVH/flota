@@ -48,6 +48,7 @@ def resolve_incident(
     workshop: Workshop | None = None,
     km: int | None = None,
     return_to_active: bool = False,
+    workshop_postal_code: str = "",
     extra: dict | None = None,
     maintenance_plan: MaintenancePlan | None = None,
 ) -> dict[str, object]:
@@ -112,6 +113,11 @@ def resolve_incident(
             incident.workshop = workshop
         if km is not None:
             incident.resolution_km = km
+        # El CP con el que se gestionó la petición: se completa al cerrar si se
+        # abrió sin él (en campo no siempre se sabe a qué taller va), y se
+        # corrige si al final fue a otro sitio. Vacío = no tocar lo que hubiera.
+        if workshop_postal_code:
+            incident.workshop_postal_code = workshop_postal_code
         incident.save(
             update_fields=[
                 "details",
@@ -122,6 +128,7 @@ def resolve_incident(
                 "cost",
                 "workshop",
                 "resolution_km",
+                "workshop_postal_code",
                 "updated_at",
             ]
         )
@@ -149,7 +156,18 @@ def resolve_incident(
 
         event = None
         vehicle_reactivated = False
-        if return_to_active and vehicle.state in STATES_RELEASED_BY_TYPE.get(incident.type, ()):
+        blocked = None
+        wants_back = return_to_active and vehicle.state in STATES_RELEASED_BY_TYPE.get(
+            incident.type, ()
+        )
+        if wants_back:
+            # R5-02: otra petición abierta que para el coche (una segunda avería,
+            # un accidente…) impide volver a Activo; se devuelve para que la
+            # interfaz lo cuente, igual que hace `release_substitute`.
+            from fleet.services import substitution
+
+            blocked = substitution.blocked_by(vehicle, exclude_pk=incident.pk)
+        if wants_back and blocked is None:
             old_state = vehicle.state
             vehicle.state = VehicleState.ACTIVE
             vehicle.save(update_fields=["state", "updated_at"])
@@ -167,4 +185,5 @@ def resolve_incident(
         "vehicle_reactivated": vehicle_reactivated,
         "alerts_resolved": alerts_resolved,
         "event": event,
+        "blocked_by": blocked,
     }

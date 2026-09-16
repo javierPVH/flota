@@ -8,14 +8,12 @@ import type { Incident, VehicleState } from '../../types.ts'
 
 const mocks = vi.hoisted(() => ({
   resolveIncident: vi.fn(),
-  listWorkshops: vi.fn(),
   uploadDocument: vi.fn(),
 }))
 
 vi.mock('../../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api.ts')>()),
   resolveIncident: mocks.resolveIncident,
-  listWorkshops: mocks.listWorkshops,
   uploadDocument: mocks.uploadDocument,
 }))
 
@@ -33,12 +31,6 @@ const INCIDENT = {
   status_display: 'Abierta',
   cost: null,
 } as unknown as Incident
-
-const WORKSHOPS = [
-  { id: 3, name: 'Taller Centro', kind: 'workshop' },
-  { id: 4, name: 'ITV Norte', kind: 'itv' },
-  { id: 5, name: 'Multiservicio', kind: 'both' },
-]
 
 function renderModal(vehicleState: VehicleState, onDone = vi.fn()) {
   render(
@@ -59,7 +51,6 @@ describe('ResolveBreakdownModal (resolver avería)', () => {
     document.documentElement.lang = 'es'
     mocks.resolveIncident.mockReset()
     mocks.uploadDocument.mockReset()
-    mocks.listWorkshops.mockResolvedValue(WORKSHOPS)
     mocks.resolveIncident.mockResolvedValue({
       ...INCIDENT,
       status: 'closed',
@@ -121,6 +112,5 @@ describe('ResolveBreakdownModal (resolver avería)', () => {
     const onDone = renderModal('active')
     await userEvent.click(await screen.findByRole('button', { name: 'Resolver y cerrar' }))
     await waitFor(() => expect(onDone).toHaveBeenCalled())
-    expect(mocks.listWorkshops).not.toHaveBeenCalled()
   })
 })

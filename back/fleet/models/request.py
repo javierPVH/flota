@@ -51,7 +51,7 @@ class VehicleRequest(DeactivatableModel, TimeStampedModel):
     class Meta:
         verbose_name = "solicitud de vehículo"
         verbose_name_plural = "solicitudes de vehículo"
-        ordering = ["-created_at"]
+        ordering = ["-created_at", "-pk"]  # R3-23/R5-19: desempate estable
         constraints = [
             # Una solicitud por issue de Jira (idempotencia de la importación).
             # N7: una solicitud desactivada libera su clave de Jira (si no,

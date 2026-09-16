@@ -24,7 +24,14 @@ const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png']
 self.addEventListener('install', (event) => {
   // Sin skipWaiting: queda "waiting" hasta que la app lo acepte (o se cierren
   // las pestañas). Así la pestaña abierta sigue con SU build completo.
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)))
+  // R5-62: `addAll` era todo-o-nada — un 404 del manifest tras un despliegue a
+  // medias dejaba el SW nuevo sin instalar. Solo el shell ('/') es obligatorio.
+  event.waitUntil(
+    caches.open(CACHE).then(async (cache) => {
+      await cache.add('/')
+      await Promise.allSettled(SHELL.slice(1).map((url) => cache.add(url)))
+    }),
+  )
 })
 
 self.addEventListener('message', (event) => {
@@ -67,8 +74,12 @@ self.addEventListener('notificationclick', (event) => {
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
       for (const win of wins) {
         if (new URL(win.url).origin === self.location.origin) {
-          win.navigate(url)
-          return win.focus()
+          // R5-62: `navigate` rechaza si la pestaña no está controlada por
+          // este SW (primera carga); entonces se abre una nueva.
+          return win
+            .navigate(url)
+            .then(() => win.focus())
+            .catch(() => clients.openWindow(url))
         }
       }
       return clients.openWindow(url)
@@ -78,24 +89,53 @@ self.addEventListener('notificationclick', (event) => {
 
 // BG5 — el navegador puede rotar la suscripción push: re-suscribir con la
 // misma clave y re-registrar en el back (cookies de sesión incluidas).
+//
+// R5-51: el back exige CSRF también aquí (sesión por cookie + DRF), así que el
+// POST lleva `X-CSRFToken` leído de la cookie (`cookieStore`, disponible en los
+// workers de Chromium, donde vive el push en Android). Si no hay forma de
+// leerla, se pide a una pestaña abierta que re-suscriba por el transporte
+// normal (`postMessage`), en vez de un 403 tragado en silencio.
+async function csrfTokenFromCookie() {
+  try {
+    if (self.cookieStore && self.cookieStore.get) {
+      const cookie = await self.cookieStore.get('csrftoken')
+      return cookie ? cookie.value : null
+    }
+  } catch {
+    /* sin cookieStore: se delega en la pestaña */
+  }
+  return null
+}
+
+async function askClientsToResubscribe() {
+  const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+  for (const client of all) client.postMessage({ type: 'PUSH_RESUBSCRIBE' })
+}
+
 self.addEventListener('pushsubscriptionchange', (event) => {
   const oldKey =
     event.oldSubscription && event.oldSubscription.options
       ? event.oldSubscription.options.applicationServerKey
       : null
-  if (!oldKey) return
   event.waitUntil(
-    self.registration.pushManager
-      .subscribe({ userVisibleOnly: true, applicationServerKey: oldKey })
-      .then((subscription) =>
-        fetch('/api/v1/push/subscriptions/', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(subscription.toJSON()),
-        }),
-      )
-      .catch(() => {}),
+    (async () => {
+      // Firefox puede no traer `oldSubscription`: sin clave no se puede
+      // re-suscribir desde aquí; que lo haga una pestaña.
+      if (!oldKey) return askClientsToResubscribe()
+      const token = await csrfTokenFromCookie()
+      if (!token) return askClientsToResubscribe()
+      const subscription = await self.registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: oldKey,
+      })
+      const response = await fetch('/api/v1/push/subscriptions/', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': token },
+        body: JSON.stringify(subscription.toJSON()),
+      })
+      if (!response.ok) await askClientsToResubscribe()
+    })().catch(() => askClientsToResubscribe().catch(() => {})),
   )
 })
 
@@ -113,8 +153,12 @@ self.addEventListener('fetch', (event) => {
         (hit) =>
           hit ||
           fetch(request).then((response) => {
-            const copy = response.clone()
-            caches.open(CACHE).then((cache) => cache.put(request, copy))
+            // R5-52: solo se guarda lo que llegó bien. Un 404 en carrera con un
+            // despliegue quedaba clavado en caché para todo el build.
+            if (response.ok && response.type === 'basic') {
+              const copy = response.clone()
+              caches.open(CACHE).then((cache) => cache.put(request, copy))
+            }
             return response
           }),
       ),
@@ -128,8 +172,13 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone()
-          caches.open(CACHE).then((cache) => cache.put('/', copy))
+          // R5-52: un 502/503 de nginx durante un despliegue NO es el shell;
+          // guardarlo dejaba «Bad Gateway» como pantalla offline hasta el
+          // siguiente build.
+          if (response.ok && response.type === 'basic') {
+            const copy = response.clone()
+            caches.open(CACHE).then((cache) => cache.put('/', copy))
+          }
           return response
         })
         .catch(async () => {

@@ -22,7 +22,10 @@ createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <BrowserRouter>
         <LanguageProvider>
-          <AuthProvider bootstrap={bootstrap} onLogout={onLogout}>
+          {/* R5-55: es un móvil personal, no un puesto compartido — la
+              inactividad de 30 min de gestión expulsaba al conductor en mitad
+              de una jornada. El back sigue cortando con su sesión de 2 h. */}
+          <AuthProvider bootstrap={bootstrap} onLogout={onLogout} idleMs={2 * 60 * 60 * 1000}>
             <App />
           </AuthProvider>
         </LanguageProvider>

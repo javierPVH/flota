@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Badge, Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
@@ -51,6 +51,12 @@ const EMPTY: FormState = {
  * Los documentos (acta/parte/fotos) se ligan desde la ficha del vehículo. */
 export function IncidentsPage() {
   const t = useIncidentsCopy()
+  // R3-30/R5-33: la carga lee `t` por ref — con `t` en sus deps, el botón
+  // es/en abortaba y relanzaba la descarga completa de incidencias.
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  })
   // Las etiquetas de los estados del coche viven con los vehículos (son las
   // mismas siete de `stateLabel`): aquí se leen, no se repiten.
   const vt = useVehiclesCopy()
@@ -136,13 +142,13 @@ export function IncidentsPage() {
         })
         .catch((err) => {
           if (isAbortError(err)) return
-          setError(asErrorMessage(err, t.loadError))
+          setError(asErrorMessage(err, tRef.current.loadError))
         })
         .finally(() => {
           if (!signal?.aborted) setLoading(false)
         })
     },
-    [vehicleFilter, typeFilter, priorityFilter, t],
+    [vehicleFilter, typeFilter, priorityFilter],
   )
 
   // M14: cada carga aborta la anterior; la última en vuelo muere al desmontar.
@@ -164,17 +170,17 @@ export function IncidentsPage() {
 
   // O4: Map memoizada — el `find()` por celda era O(filas × vehículos).
   const vehicleById = useMemo(() => new Map(vehicles.map((v) => [v.id, v])), [vehicles])
-  const plateOf = (id: number) => vehicleById.get(id)?.plate ?? `#${id}`
+  const plateOf = useCallback((id: number) => vehicleById.get(id)?.plate ?? `#${id}`, [vehicleById])
 
   /** Cómo está HOY el coche de la incidencia: si rueda o por qué no. Sale del
    * índice de vehículos y, si ese coche no está cargado, del estado que el
    * back adjunta a la propia incidencia. */
-  const vehicleStateOf = (incident: Incident) => {
+  const vehicleStateOf = useCallback((incident: Incident) => {
     const vehicle = vehicleById.get(incident.vehicle)
     const state = vehicle?.state ?? incident.vehicle_state ?? null
     const label = vehicle?.state_display || (state ? (vt.stateLabel[state] ?? state) : '')
     return { state, label }
-  }
+  }, [vehicleById, vt.stateLabel])
 
   // Pestañas por estado + búsqueda en cliente (matrícula, tipo, descripción…).
   const visible = useMemo(() => {
@@ -253,7 +259,7 @@ export function IncidentsPage() {
     }
   }
 
-  const columns: Array<TableWithPanelColumn<Incident>> = [
+  const columns = useMemo<Array<TableWithPanelColumn<Incident>>>(() => [
     // La fecha manda: es por lo que se recorre la bandeja.
     {
       key: 'date',
@@ -366,7 +372,7 @@ export function IncidentsPage() {
         </div>
       ),
     },
-  ]
+  ], [navigate, plateOf, t.columns.actions, t.columns.cost, t.columns.date, t.columns.description, t.columns.priority, t.columns.status, t.columns.type, t.columns.vehicle, t.columns.vehicleState, t.documents, t.documentsTitle, t.edit, t.resolve, t.viewDescription, vehicleStateOf])
 
   return (
     <div>

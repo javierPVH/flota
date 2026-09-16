@@ -133,7 +133,7 @@ export function DocumentsPanel({
       .catch(() => setPicker({ enabled: false }))
   }, [])
 
-  function openCreate(replaceDoc: FlotaDocument | null = null) {
+  const openCreate = useCallback((replaceDoc: FlotaDocument | null = null) => {
     setReplacing(replaceDoc)
     setForm(
       replaceDoc
@@ -151,7 +151,7 @@ export function DocumentsPanel({
     listIncidents({ vehicle: vehicle.id })
       .then((page) => setIncidents(page.results))
       .catch(() => setIncidents([]))
-  }
+  }, [vehicle.id])
 
   async function pickFromDrive(mode: 'file' | 'upload') {
     if (!picker?.access_token || !picker.api_key) return
@@ -209,16 +209,16 @@ export function DocumentsPanel({
     }
   }
 
-  async function toggleStatus(doc: FlotaDocument) {
+  const toggleStatus = useCallback(async (doc: FlotaDocument) => {
     try {
       await updateDocument(doc.id, { status: doc.status === 'expired' ? 'valid' : 'expired' })
       load()
     } catch (err) {
       setError(asErrorMessage(err, t.statusError))
     }
-  }
+  }, [load, t.statusError])
 
-  async function handleDelete(doc: FlotaDocument) {
+  const handleDelete = useCallback(async (doc: FlotaDocument) => {
     // N7: nada se borra — doble confirmación y desactivación con motivo.
     const reason = await deactivateConfirm(t.deactivateTarget(doc.type_display))
     if (reason === null) return
@@ -228,7 +228,7 @@ export function DocumentsPanel({
     } catch (err) {
       setError(asErrorMessage(err, t.deactivateError))
     }
-  }
+  }, [deactivateConfirm, load, t])
 
   async function toggleFolder() {
     if (folderFiles) {
@@ -261,7 +261,7 @@ export function DocumentsPanel({
   }, [docs, search])
 
   // Tabla de documentos con el estilo unificado (TableWithPanel).
-  const columns: Array<TableWithPanelColumn<FlotaDocument>> = [
+  const columns = useMemo<Array<TableWithPanelColumn<FlotaDocument>>>(() => [
     {
       key: 'type',
       label: t.columns.type,
@@ -336,7 +336,7 @@ export function DocumentsPanel({
         )
       },
     },
-  ]
+  ], [handleDelete, openCreate, t, toggleStatus])
 
   return (
     <CollapsibleCard

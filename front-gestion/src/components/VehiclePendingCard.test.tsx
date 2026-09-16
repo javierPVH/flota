@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => ({
   listIncidents: vi.fn(),
   listKmReadingsAll: vi.fn(),
   listOpenIncidents: vi.fn(),
-  listWorkshops: vi.fn(),
   noticePreviewVehicle: vi.fn(),
   resolveIncident: vi.fn(),
 }))
@@ -30,7 +29,6 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listIncidents: mocks.listIncidents,
   listKmReadingsAll: mocks.listKmReadingsAll,
   listOpenIncidents: mocks.listOpenIncidents,
-  listWorkshops: mocks.listWorkshops,
   noticePreviewVehicle: mocks.noticePreviewVehicle,
   resolveIncident: mocks.resolveIncident,
 }))
@@ -184,7 +182,6 @@ describe('VehiclePendingCard (alertas e incidencias de la ficha)', () => {
     mocks.listIncidents.mockResolvedValue(page([CLOSED_INCIDENT]))
     mocks.listKmReadingsAll.mockResolvedValue(page([]))
     mocks.listOpenIncidents.mockResolvedValue(INCIDENTS)
-    mocks.listWorkshops.mockResolvedValue([])
     mocks.noticePreviewVehicle.mockResolvedValue({
       subject: 'Aviso',
       body_html: '<p>Aviso</p>',
@@ -254,8 +251,9 @@ describe('VehiclePendingCard (alertas e incidencias de la ficha)', () => {
     render(<Harness onChanged={onChanged} />)
     await userEvent.click(await screen.findByRole('button', { name: 'Resolver · Avería' }))
     const dialog = await screen.findByRole('dialog', { name: 'Resolver avería · 1234KLM' })
-    // Coche averiado: la casilla de vuelta a Activo viene marcada.
-    expect(within(dialog).getByRole('checkbox', { name: /Devolver el vehículo a Activo/ })).toBeChecked()
+    // Coche averiado: la casilla de vuelta al servicio (una por modal, arriba
+    // del todo) viene marcada.
+    expect(within(dialog).getByRole('checkbox', { name: /Devolver el coche a Activo/ })).toBeChecked()
     mocks.listOpenIncidents.mockResolvedValue([])
     await userEvent.click(within(dialog).getByRole('button', { name: 'Resolver y cerrar' }))
 
@@ -460,6 +458,17 @@ describe('VehiclePendingCard (alertas e incidencias de la ficha)', () => {
     mocks.listAlerts.mockRejectedValue(new Error('500'))
     mocks.listOpenIncidents.mockRejectedValue(new Error('500'))
     render(<Harness />)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/No se pudieron cargar/)
+  })
+
+  it('R5-32: si solo fallan las alertas, su pestaña avisa y las incidencias siguen a la vista', async () => {
+    mocks.listAlerts.mockRejectedValue(new Error('500'))
+    render(<Harness />)
+    // Las incidencias cargaron: se ven. Sin alerta global.
+    expect(await screen.findByRole('button', { name: 'Resolver · Avería' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+    // En la pestaña de alertas no se finge «nada pendiente»: se dice el fallo.
+    await userEvent.click(screen.getByRole('tab', { name: /Alertas/ }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/No se pudieron cargar/)
   })
   /** La ficha resume arriba lo que hay abierto: el dato sale de aquí, que ya

@@ -410,7 +410,7 @@ export function DownloadsTab() {
     sheetsLabel: d.sheetsLabel,
   }
 
-  const userColumns: Array<TableWithPanelColumn<ManagedUserFull>> = [
+  const userColumns = useMemo<Array<TableWithPanelColumn<ManagedUserFull>>>(() => [
     { key: 'username', label: d.columns.username, getValue: (u) => u.username },
     { key: 'name', label: d.columns.name, getValue: (u) => u.name || u.username },
     { key: 'email', label: d.columns.email, getValue: (u) => u.email || '', render: (u) => u.email || '—' },
@@ -421,7 +421,7 @@ export function DownloadsTab() {
     { key: 'fuelCard', label: d.columns.fuelCard, getValue: (u) => (u.fuel_card ? d.yes : d.no) },
     { key: 'dateJoined', label: d.columns.dateJoined, isDate: true, getValue: (u) => u.date_joined || '' },
     { key: 'active', label: d.columns.active, getValue: (u) => (u.is_active ? d.yes : d.no) },
-  ]
+  ], [d.columns.active, d.columns.dateJoined, d.columns.dni, d.columns.email, d.columns.fuelCard, d.columns.license, d.columns.name, d.columns.phone, d.columns.roles, d.columns.username, d.no, d.roleLabels, d.yes])
 
   return (
     <>

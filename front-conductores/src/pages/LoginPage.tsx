@@ -19,7 +19,9 @@ export function LoginPage() {
   const navigate = useNavigate()
   // El transporte redirige aquí con ?auth=required cuando la sesión caduca (401).
   const [searchParams] = useSearchParams()
-  const sessionExpired = searchParams.get('auth') === 'required'
+  // `?expired=1`: caducidad por inactividad/tope o 403 del transporte (R5-25).
+  const sessionExpired =
+    searchParams.get('auth') === 'required' || searchParams.get('expired') === '1'
   const { language, setLanguage, t } = useLang()
   const L = t.login
   const [config, setConfig] = useState<AuthConfig | null>(null)

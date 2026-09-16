@@ -8,22 +8,24 @@ import { LanguageProvider } from '../../i18n.tsx'
 import type { Alert, Incident, Vehicle } from '../../types.ts'
 
 const mocks = vi.hoisted(() => ({
-  listWorkshops: vi.fn(),
   fetchDriverCandidates: vi.fn(),
   listMaintenancePlans: vi.fn(),
   resolveIncident: vi.fn(),
   fetchVehicle: vi.fn(),
   updateVehicleFields: vi.fn(),
+  listVehicleLinks: vi.fn(),
+  releaseSubstitute: vi.fn(),
 }))
 
 vi.mock('../../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api.ts')>()),
-  listWorkshops: mocks.listWorkshops,
   fetchDriverCandidates: mocks.fetchDriverCandidates,
   listMaintenancePlans: mocks.listMaintenancePlans,
   resolveIncident: mocks.resolveIncident,
   fetchVehicle: mocks.fetchVehicle,
   updateVehicleFields: mocks.updateVehicleFields,
+  listVehicleLinks: mocks.listVehicleLinks,
+  releaseSubstitute: mocks.releaseSubstitute,
 }))
 
 const VEHICLE = { id: 21, plate: '1234KLM', brand: 'Seat', model: 'Leon', state: 'broken' } as unknown as Vehicle
@@ -65,28 +67,123 @@ const PLANS = {
   ],
 }
 
-function renderWith(target: Parameters<typeof ResolveDispatcher>[0]['target']) {
+function renderWith(
+  target: Parameters<typeof ResolveDispatcher>[0]['target'],
+  vehicle: Vehicle = VEHICLE,
+) {
   const onDone = vi.fn()
   render(
     <LanguageProvider>
-      <ResolveDispatcher target={target} vehicles={[VEHICLE]} onClose={vi.fn()} onDone={onDone} />
+      <ResolveDispatcher target={target} vehicles={[vehicle]} onClose={vi.fn()} onDone={onDone} />
     </LanguageProvider>,
   )
   return onDone
 }
 
+const SIN_VINCULOS = { count: 0, next: null, previous: null, results: [] }
+const CON_SUSTITUTO = {
+  count: 1,
+  next: null,
+  previous: null,
+  results: [{ id: 3, main_vehicle: 21, substitute_vehicle: 8, substitute_vehicle_plate: '2222BBB', end_date: null }],
+}
+
 describe('ResolveDispatcher — un mismo gesto, el modal de cada tipo', () => {
   beforeEach(() => {
+    // Sin esto, `mock.calls[0]` es la llamada de OTRO caso: los espías son
+    // compartidos y aquí se mira con qué se llamó, no solo cuántas veces.
+    vi.clearAllMocks()
     document.documentElement.lang = 'es'
-    mocks.listWorkshops.mockResolvedValue([])
     mocks.listMaintenancePlans.mockResolvedValue(PLANS)
     mocks.resolveIncident.mockResolvedValue({ id: 4, status: 'closed', vehicle_reactivated: false })
     mocks.fetchVehicle.mockResolvedValue({ ...VEHICLE, updated_at: 'fresh' })
     mocks.updateVehicleFields.mockResolvedValue({ ...VEHICLE, state: 'retired' })
+    mocks.listVehicleLinks.mockResolvedValue(SIN_VINCULOS)
+    mocks.releaseSubstitute.mockResolvedValue({
+      link_closed: true,
+      substitute_plate: '2222BBB',
+      vehicle_reactivated: true,
+      blocked_by: null,
+    })
     mocks.fetchDriverCandidates.mockResolvedValue({
       vehicle: { id: 21, plate: '1234KLM', monthly_avg: null, driver: null },
       candidates: [{ id: 7, name: 'Ana', vehicles: [], monthly_avg: null }],
     })
+  })
+
+  // --- Vuelta al servicio: una casilla para los siete modales ---------------
+
+  it('coche parado con sustituto: la casilla lo nombra y al resolver lo suelta', async () => {
+    mocks.listVehicleLinks.mockResolvedValue(CON_SUSTITUTO)
+    const onDone = renderWith(incidentTarget(incident('breakdown', 'Avería')))
+    const casilla = await screen.findByRole('checkbox', {
+      name: /dejar libre el de sustitución \(2222BBB\)/i,
+    })
+    // El coche está averiado y se cierra la avería: nace marcada.
+    expect(casilla).toBeChecked()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Resolver y cerrar' }))
+    await waitFor(() => expect(mocks.releaseSubstitute).toHaveBeenCalledWith(21))
+    expect(onDone.mock.calls[0][0]).toMatch(/2222BBB queda libre/)
+  })
+
+  it('el coche ya activo no pregunta nada', async () => {
+    const activo = { ...VEHICLE, state: 'active' } as Vehicle
+    renderWith(incidentTarget(incident('breakdown', 'Avería')), activo)
+    await screen.findByRole('dialog')
+    expect(screen.queryByRole('checkbox', { name: /Devolver el coche a Activo/i })).toBeNull()
+    // Y sin coche parado no se pregunta por sus vínculos.
+    expect(mocks.listVehicleLinks).not.toHaveBeenCalled()
+  })
+
+  it('parado por otra causa: la casilla sale sin marcar y, marcada, lo reactiva', async () => {
+    // Un «No activo» administrativo con una petición general: cerrarla no
+    // devuelve el coche a la calle por sí sola, así que se decide aquí.
+    const parado = { ...VEHICLE, state: 'non_active' } as Vehicle
+    mocks.releaseSubstitute.mockResolvedValue({
+      link_closed: false,
+      substitute_plate: '',
+      vehicle_reactivated: true,
+      blocked_by: null,
+    })
+    renderWith(incidentTarget(incident('general', 'Petición general')), parado)
+    const casilla = await screen.findByRole('checkbox', { name: /Devolver el coche a Activo/i })
+    expect(casilla).not.toBeChecked()
+
+    await userEvent.click(casilla)
+    await userEvent.click(screen.getByRole('button', { name: 'Resolver y cerrar' }))
+    await waitFor(() => expect(mocks.releaseSubstitute).toHaveBeenCalledWith(21))
+    // El cierre de una petición general no toca el estado: lo hace la acción.
+    expect(mocks.resolveIncident.mock.calls[0][1].return_to_active).toBeUndefined()
+  })
+
+  it('lo que bloquea la vuelta se cuenta, sin tumbar la resolución', async () => {
+    mocks.listVehicleLinks.mockResolvedValue(CON_SUSTITUTO)
+    mocks.releaseSubstitute.mockResolvedValue({
+      link_closed: true,
+      substitute_plate: '2222BBB',
+      vehicle_reactivated: false,
+      blocked_by: { id: 9, type_display: 'Mantenimiento' },
+    })
+    const onDone = renderWith(incidentTarget(incident('breakdown', 'Avería')))
+    await screen.findByRole('checkbox', { name: /2222BBB/ })
+    await userEvent.click(screen.getByRole('button', { name: 'Resolver y cerrar' }))
+    await waitFor(() => expect(onDone).toHaveBeenCalled())
+    expect(onDone.mock.calls[0][0]).toMatch(/sigue abierta una petición de Mantenimiento/)
+  })
+
+  it('el CP de la petición viene puesto y se manda si se corrige', async () => {
+    const conCp = incident('breakdown', 'Avería')
+    ;(conCp as unknown as { workshop_postal_code: string }).workshop_postal_code = '28045'
+    renderWith(incidentTarget(conCp))
+    const cp = await screen.findByLabelText(/CP de la ubicación/)
+    expect(cp).toHaveValue('28045')
+
+    await userEvent.clear(cp)
+    await userEvent.type(cp, '41001')
+    await userEvent.click(screen.getByRole('button', { name: 'Resolver y cerrar' }))
+    await waitFor(() => expect(mocks.resolveIncident).toHaveBeenCalled())
+    expect(mocks.resolveIncident.mock.calls[0][1].workshop_postal_code).toBe('41001')
   })
 
   it('sin target no hay diálogo', () => {

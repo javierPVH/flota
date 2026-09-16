@@ -146,11 +146,28 @@ Jira cada 15 min de forma idempotente. Para bare-metal hay un ejemplo de cron en
   columnas aporta cada bloque (la ayuda «?» del selector). El CSV va separado
   por `;` y con BOM (lo que espera Excel en español, igual que el export del
   front). Se usa `fmt` (no `format`, reservado por DRF). Requiere `openpyxl`.
+  Cada tabla tiene **tope de filas** (`FLEET_REPORT_MAX_ROWS`, 20000; 0 = sin
+  tope): por encima se recorta y la última fila dice cuántas faltan y cómo
+  acotar (R5-17); el libro se escribe en modo `write_only` para no montar una
+  celda por dato en memoria.
 - **Archivado de documentos** (`fleet/services/archiver.py`, HU-4.2): interfaz con
   backends intercambiables (`FLEET_ARCHIVE_BACKEND` = `none`|`local`|`gdrive`). Al
   subir un documento se archiva; si el backend no puede, queda `pendiente_archivar`
-  y el job `archive_pending_documents` lo **reintenta**. El backend `gdrive` es un
-  stub que se activa con credenciales de Drive (ver nota abajo).
+  y el job `archive_pending_documents` lo **reintenta**. El backend `gdrive` sube
+  al árbol **carpeta madre (`GOOGLE_DRIVE_ROOT_FOLDER_ID`) → matrícula → familia**
+  del documento (`DOCUMENT_FAMILIES`), buscando cada nivel antes de crearlo; el
+  `local` reproduce el mismo árbol en disco. **La cuenta** la decide quien subió:
+  con su OAuth conectado (gestión) sube con la **suya**; si no, la **cuenta de
+  servicio**, y solo si esa persona **entró con Google** (`User.last_google_login`).
+  Sin ninguna de las dos, el documento espera al reintento.
+- **Vuelta al servicio** (`fleet/services/substitution.py`):
+  `POST /api/v1/vehicles/{id}/release-substitute/` (gestión) cierra el vínculo de
+  sustitución vigente y devuelve el coche a `Activo` — una sola decisión, que se
+  toma al cerrar la petición y entra desde todos los modales de «Resolver».
+  Idempotente: sin vínculo solo reactiva y con el coche ya activo solo suelta.
+  Si queda abierta otra petición de las que paran el coche (avería,
+  mantenimiento, ITV, accidente) suelta el sustituto pero **no** cambia el
+  estado, y lo devuelve en `blocked_by`. Cuerpo: `{date?}`.
 - **Solicitudes de vehículo / Jira** (`fleet/services/jira.py`, Épica 8): la
   aprobación ocurre en Jira; `import_vehicle_requests` importa las aprobadas de
   forma idempotente (`jira_key`). `GET/POST /api/v1/vehicle-requests/` (gestión).
@@ -175,7 +192,7 @@ grupo lo gestiona el admin asignándole vehículos (HU-2.7).
 **Auditoría de campos** (`django-auditlog`): cada mutación de los modelos de
 dominio y de usuario deja un `LogEntry` con `{campo:[viejo,nuevo]}` y el actor de
 la petición (middleware). Registro en `fleet/audit.py` y `accounts/audit.py`. Ver
-diseño y fases en [`../MEJORAS.md`](../MEJORAS.md) §3.
+diseño y fases en [`../docs/MEJORAS.md`](../docs/MEJORAS.md) §3.
 
 ## API
 
@@ -329,8 +346,15 @@ Encaja con el `http-client` del front (`@gs/base/http`): peticiones con
 
 1. `GET /api/v1/auth/csrf/` → fija la cookie `csrftoken`.
 2. `POST /api/v1/auth/login/` con `X-CSRFToken` → crea la sesión (cookie httpOnly).
+   El token es **obligatorio** también aquí, aunque aún no haya sesión
+   (`CsrfOnlyAuthentication`): sin él, 403 «CSRF Failed».
 3. `GET /api/v1/auth/me/` → datos del usuario.
 4. `POST /api/v1/auth/logout/` → destruye la sesión.
+
+La sesión desliza (`SESSION_COOKIE_AGE`, 2 h de inactividad) y tiene además un
+**tope absoluto** desde el login (`SESSION_ABSOLUTE_AGE`, 10 h;
+`accounts/middleware.py`). El anti fuerza bruta del login (`accounts/ratelimit.py`:
+por IP + cuenta y por cuenta, en Redis) protege también la entrada al `/admin/`.
 
 ## Añadir un recurso de dominio
 

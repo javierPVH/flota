@@ -376,6 +376,12 @@ class VehicleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"driver": "El usuario asignado no tiene rol de conductor."}
             )
+        # R5-03: el supervisor, con rol y activo (misma regla que en set-driver
+        # y en los periodos de supervisor).
+        if attrs.get("supervisor") is not None:
+            from .services import supervisors
+
+            supervisors.validate_supervisor(attrs["supervisor"])
         # N3: con km ilimitados los km contratados no aplican — se limpian en el
         # alta para que no quede una cifra que nunca se usará.
         unlimited = attrs.get("unlimited_km", getattr(self.instance, "unlimited_km", False))
@@ -1519,6 +1525,17 @@ class IncidentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"status": "Para cerrar una incidencia usa la acción de resolver (/resolve/)."}
             )
+        # R5-09: nacer ya CERRADA (un servicio anotado a posteriori) es cosa de
+        # gestión; el conductor abre partes, y se cierran por /resolve/ con sus
+        # validaciones. El `cost` del alta sigue admitido: es el presupuesto del
+        # lanzamiento (GAP-6) y la resolución lo pisa con el coste real.
+        if self.instance is None and attrs.get("status") == IncidentStatus.CLOSED:
+            request = self.context.get("request")
+            is_management = getattr(getattr(request, "user", None), "is_management", False)
+            if not is_management:
+                raise serializers.ValidationError(
+                    {"status": "Una petición se abre abierta: cerrarla es resolverla."}
+                )
         incident_type = attrs.get("type", getattr(self.instance, "type", ""))
         details = attrs.get("details", getattr(self.instance, "details", {})) or {}
         mileage = attrs.get("mileage", getattr(self.instance, "mileage", None))
@@ -1677,6 +1694,10 @@ class IncidentResolutionSerializer(serializers.Serializer):
         queryset=Workshop.objects.filter(is_active=True), required=False, allow_null=True
     )
     km = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    # La ubicación preferente con la que se gestionó la petición. Llega para
+    # COMPLETARLA cuando se abrió sin ella (en campo no siempre se sabe): el
+    # cierre es la última oportunidad de dejar escrito a dónde fue el coche.
+    workshop_postal_code = serializers.CharField(required=False, allow_blank=True, max_length=12)
     return_to_active = serializers.BooleanField(required=False, default=False)
     maintenance_plan = serializers.PrimaryKeyRelatedField(
         queryset=MaintenancePlan.objects.filter(is_active=True), required=False, allow_null=True
@@ -1708,6 +1729,9 @@ class IncidentResolutionSerializer(serializers.Serializer):
                 errors["maintenance_plan"] = "Solo en incidencias de mantenimiento."
             elif plan.vehicle_id != incident.vehicle_id:
                 errors["maintenance_plan"] = "El plan no es de este vehículo."
+        postal = (attrs.get("workshop_postal_code") or "").strip()
+        if postal and (not postal.isdigit() or len(postal) != 5):
+            errors["workshop_postal_code"] = "Indica un código postal de 5 cifras."
         if errors:
             raise serializers.ValidationError(errors)
         return attrs
@@ -1731,6 +1755,7 @@ class IncidentResolutionSerializer(serializers.Serializer):
             "workshop": data.get("workshop"),
             "km": data.get("km"),
             "return_to_active": bool(data.get("return_to_active")),
+            "workshop_postal_code": (data.get("workshop_postal_code") or "").strip(),
             "extra": extra,
             "maintenance_plan": data.get("maintenance_plan"),
         }

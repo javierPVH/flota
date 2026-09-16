@@ -1,0 +1,8 @@
+# Scripts y ficheros que se ejecutan o montan dentro de contenedores Linux:
+# siempre LF, aunque se editen desde Windows (core.autocrlf=true los pasaria a
+# CRLF y sh fallaria con "crond -f\r: not found" o similares). Los de deploy/
+# se bind-montan desde el arbol de trabajo, asi que aqui no hay build que los salve.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

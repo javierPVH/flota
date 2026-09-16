@@ -147,15 +147,15 @@ export interface Alert {
   vehicle: number | null
   vehicle_plate: string
   /** Estado del vehículo (lo adjunta el back): decide si «Resolver» ofrece
-   * devolverlo a Activo sin cargar la ficha. */
-  vehicle_state?: VehicleState
+   * devolverlo a Activo sin cargar la ficha. Vacío en una alerta sin coche. */
+  vehicle_state: VehicleState
   user: number | null
   message: string
   due_date: string | null
   created_at: string
   /** Clave de idempotencia del motor de alertas. En mantenimiento codifica el
    * plan (`maintenance:{plan}:…`): el modal de resolver lo preselecciona. */
-  dedup_key?: string
+  dedup_key: string
   /** Conductor vigente del vehículo (lo resuelve el back en bloque). */
   driver_id: number | null
   driver_name: string
@@ -420,10 +420,9 @@ export interface Incident {
   type: IncidentType
   type_display: string
   /** Prioridad que decidió quien la abrió (la alerta, en cambio, calcula su
-   * nivel por la fecha). Opcional en el tipo para que los mocks antiguos
-   * compilen; el back la manda siempre. */
-  priority?: IncidentPriority
-  priority_display?: string
+   * nivel por la fecha). R5-41: el back la manda siempre, y el tipo lo dice. */
+  priority: IncidentPriority
+  priority_display: string
   date: string | null
   description: string
   /** Parte guiado (GAP-6): kilometraje y CP del taller. */
@@ -438,19 +437,19 @@ export interface Incident {
   /** Coste de la reparación/servicio; lo fija la resolución. */
   cost: string | null
   /** Resolución (fase «solución»): quién, cuándo y dónde. Solo `/resolve/`
-   * los escribe; el front los lee. Opcionales en el tipo para que los mocks
-   * antiguos sigan compilando; el back los manda siempre. */
-  resolution_date?: string | null
-  resolved_at?: string | null
-  resolved_by?: number | null
-  resolved_by_name?: string
+   * los escribe; el front los lee. R5-41: el back los manda siempre (nulos o
+   * vacíos mientras está abierta), y el tipo ya no finge que pueden faltar. */
+  resolution_date: string | null
+  resolved_at: string | null
+  resolved_by: number | null
+  resolved_by_name: string
   /** Taller del catálogo donde se resolvió (id) y su nombre. */
-  workshop?: number | null
-  workshop_name?: string
-  resolution_km?: number | null
+  workshop: number | null
+  workshop_name: string
+  resolution_km: number | null
   /** Contexto del vehículo que el back adjunta para no cruzar con el índice. */
-  vehicle_plate?: string
-  vehicle_state?: VehicleState
+  vehicle_plate: string
+  vehicle_state: VehicleState
   created_at: string
   updated_at: string
 }

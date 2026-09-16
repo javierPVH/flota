@@ -178,6 +178,24 @@ class ResolveIncidentServiceTests(TestCase):
         self.assertEqual(event.event_date, self.today)
         self.assertIn("Avería resuelta", event.notes)
 
+    def test_el_cierre_completa_el_cp_sin_pisar_el_que_ya_habia(self):
+        # En campo no siempre se sabe a qué taller va: el CP se puede rellenar
+        # al cerrar. Pero si la petición ya traía uno, mandar vacío NO lo borra.
+        vehicle = self._vehicle(VehicleState.BROKEN)
+        sin_cp = self._incident(vehicle)
+        incidents.resolve_incident(
+            sin_cp, actor=self.admin, resolution_date=self.today, workshop_postal_code="28045"
+        )
+        sin_cp.refresh_from_db()
+        self.assertEqual(sin_cp.workshop_postal_code, "28045")
+
+        con_cp = self._incident(self._vehicle(VehicleState.BROKEN, plate="SVC0002"))
+        con_cp.workshop_postal_code = "41001"
+        con_cp.save(update_fields=["workshop_postal_code"])
+        incidents.resolve_incident(con_cp, actor=self.admin, resolution_date=self.today)
+        con_cp.refresh_from_db()
+        self.assertEqual(con_cp.workshop_postal_code, "41001")
+
     def test_si_el_vehiculo_no_esta_en_el_estado_ligado_no_se_toca(self):
         # Activo: nada que devolver. En ITV: la avería no es lo que lo retiene.
         for state in (VehicleState.ACTIVE, VehicleState.ITV):

@@ -51,14 +51,12 @@ import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { CreateSubstituteButton } from '../components/CreateSubstituteButton.tsx'
 import { VehicleAssignmentsPanel } from '../components/VehicleAssignmentsPanel.tsx'
 import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
-import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
+import { EMAIL_MODAL_SIZE, VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleForm } from '../components/VehicleForm.tsx'
 import { VehicleInvoicesCard } from '../components/VehicleInvoicesCard.tsx'
 import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
 import { KmFuelModal } from '../components/KmFuelModal.tsx'
 import { ScheduleItvMaintenanceModal } from '../components/ScheduleItvMaintenanceModal.tsx'
-import { FuelConsumptionCard } from '../components/FuelConsumptionCard.tsx'
-import { MaintenancePlansCard } from '../components/MaintenancePlansCard.tsx'
 import {
   VehicleAccidentsCard,
   VehiclePendingCard,
@@ -88,17 +86,6 @@ import type {
 // Estados operables a mano (HU-1.6). La baja tiene su propio flujo (HU-1.5) y
 // algunos estados los dispara el back (p. ej. avería desde incidencias).
 // Las opciones y etiquetas de dominio viven en translations/vehicleDetail.ts (UX1).
-
-/**
- * Consumo y mantenimiento quedan FUERA de la ficha (como «Estados abiertos»
- * en el modal de estado: el código sigue, la interfaz no lo enseña).
- * — El consumo del mes se lee en su indicador y se registra en «Kilómetros y
- *   combustible», que es donde se registra en el resto de pantallas.
- * — El mantenimiento se lee en su indicador y se gestiona en «Programar ITV y
- *   mantenimiento», el único sitio donde se programa y se resuelve.
- */
-const SHOW_FUEL_CARD = false
-const SHOW_MAINTENANCE_CARD = false
 
 const today = todayIso
 
@@ -337,14 +324,16 @@ export function VehicleDetailPage() {
         flagPartial()
         if (alive) setReadings([])
       })
-    listEvents(vehicleId)
-      .then((page) => alive && setEvents(page.results))
+    // R5-39: el histórico ENTERO, no la primera página — la línea de tiempo y
+    // el filtro por origen presentaban 500 filas como si fueran el total.
+    listAll(listEvents(vehicleId))
+      .then((rows) => alive && setEvents(rows))
       .catch(() => {
         flagPartial()
         if (alive) setEvents([])
       })
-    fetchVehicleHistory(vehicleId)
-      .then((page) => alive && setAudit(page.results))
+    listAll(fetchVehicleHistory(vehicleId))
+      .then((rows) => alive && setAudit(rows))
       .catch(() => {
         flagPartial()
         if (alive) setAudit([])
@@ -1523,14 +1512,9 @@ export function VehicleDetailPage() {
         </CollapsibleCard>
 
         <VehicleInvoicesCard vehicle={vehicle} accordion={accordion} />
-
-        {/* Fuera de la ficha (v. SHOW_FUEL_CARD / SHOW_MAINTENANCE_CARD): el
-            consumo se registra en «Kilómetros y combustible» y el
-            mantenimiento en «Programar ITV y mantenimiento». */}
-        {SHOW_FUEL_CARD && <FuelConsumptionCard vehicle={vehicle} accordion={accordion} />}
-        {SHOW_MAINTENANCE_CARD && (
-          <MaintenancePlansCard vehicle={vehicle} accordion={accordion} />
-        )}
+        {/* Consumo y mantenimiento no tienen tarjeta aquí (R5-42 retiró las
+            apagadas): se leen en su indicador y se registran en «Kilómetros y
+            combustible» y en «Programar ITV y mantenimiento». */}
       </div>
 
       {/* Lo pendiente del vehículo (alertas abiertas e incidencias sin cerrar),
@@ -2227,7 +2211,7 @@ export function VehicleDetailPage() {
         open={kmEmailOpen}
         title={t.kmEmailModalTitle(vehicle.plate)}
         onClose={() => setKmEmailOpen(false)}
-        wide
+        {...EMAIL_MODAL_SIZE}
       >
         {kmEmailOpen && (
           <VehicleEmailModal
@@ -2244,7 +2228,7 @@ export function VehicleDetailPage() {
         open={emailOpen !== null}
         title={vt.email.title(vehicle.plate)}
         onClose={() => setEmailOpen(null)}
-        wide
+        {...EMAIL_MODAL_SIZE}
       >
         {emailOpen && (
           <VehicleEmailModal

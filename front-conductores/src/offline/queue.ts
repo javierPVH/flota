@@ -84,15 +84,40 @@ function openDb(): Promise<IDBDatabase> {
   })
 }
 
+// R5-57: UNA conexión compartida en vez de abrir y cerrar una por operación
+// (un flush de 20 elementos abría ~60). Se suelta si el navegador la cierra o
+// si otra pestaña pide subir de versión (`versionchange`), para no bloquear
+// una migración futura del esquema.
+let sharedDb: Promise<IDBDatabase> | null = null
+
+function db(): Promise<IDBDatabase> {
+  if (!sharedDb) {
+    sharedDb = openDb().then((conn) => {
+      conn.onclose = () => {
+        sharedDb = null
+      }
+      conn.onversionchange = () => {
+        conn.close()
+        sharedDb = null
+      }
+      return conn
+    })
+    sharedDb.catch(() => {
+      sharedDb = null
+    })
+  }
+  return sharedDb
+}
+
 function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  return openDb().then(
-    (db) =>
+  return db().then(
+    (conn) =>
       new Promise<T>((resolve, reject) => {
-        const transaction = db.transaction(STORE, mode)
+        const transaction = conn.transaction(STORE, mode)
         const request = run(transaction.objectStore(STORE))
         request.onsuccess = () => resolve(request.result)
         request.onerror = () => reject(request.error)
-        transaction.oncomplete = () => db.close()
+        transaction.onabort = () => reject(transaction.error ?? request.error)
       }),
   )
 }
@@ -282,7 +307,8 @@ let flushing = false
 /** Reenvía la cola en orden. Segura ante llamadas concurrentes. */
 export async function flush(): Promise<FlushResult> {
   const result: FlushResult = { sent: 0, rejected: [], remaining: 0 }
-  if (flushing) return result
+  // R5-59: la segunda llamada solapada no debe decir «no queda nada».
+  if (flushing) return { ...result, remaining: await queueSize().catch(() => 0) }
   flushing = true
   try {
     const items = await queuedItems()

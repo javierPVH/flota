@@ -47,6 +47,16 @@ class User(AbstractUser):
     license_type = models.CharField(
         "Tipo de permiso", max_length=5, choices=LicenseType.choices, blank=True
     )
+    # Lo escribe SOLO el login con Google (`GoogleLoginView`). No es decorativo:
+    # es lo que autoriza a subir sus documentos a Drive con la cuenta de
+    # servicio (`fleet/services/archiver.py`). Quien entra con usuario y clave
+    # —o con el dev-login— no la tiene, y sus documentos quedan pendientes.
+    last_google_login = models.DateTimeField(
+        "Última entrada con Google",
+        null=True,
+        blank=True,
+        help_text="Cuándo entró por última vez con su cuenta de Google.",
+    )
 
     class Meta(AbstractUser.Meta):
         constraints = [

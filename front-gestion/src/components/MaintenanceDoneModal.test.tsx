@@ -9,13 +9,11 @@ import type { Vehicle } from '../types.ts'
 
 const mocks = vi.hoisted(() => ({
   maintenancePlanDone: vi.fn(),
-  listWorkshops: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   maintenancePlanDone: mocks.maintenancePlanDone,
-  listWorkshops: mocks.listWorkshops,
 }))
 
 const VEHICLE = { id: 21, plate: '1234KLM', brand: 'Seat', model: 'Leon', state: 'active' } as unknown as Vehicle
@@ -24,7 +22,6 @@ describe('MaintenanceDoneModal (registrar servicio desde el desglose)', () => {
   beforeEach(() => {
     document.documentElement.lang = 'es'
     mocks.maintenancePlanDone.mockReset()
-    mocks.listWorkshops.mockResolvedValue([])
   })
 
   it('registra el servicio con fecha, km, coste y nota', async () => {

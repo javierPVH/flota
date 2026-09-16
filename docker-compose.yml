@@ -4,6 +4,8 @@
 #   back                -> Django + DRF (gunicorn).      SOLO red interna.
 #   front-gestion       -> nginx: SPA + proxy /api,/admin -> back.
 #   front-conductores   -> nginx: SPA + proxy /api      -> back.
+#   backup              -> pg_dump de la BD + tar de la media, diario, con
+#                          retención y healthcheck. Destino: BACKUP_HOST_DIR.
 #
 # Cada front es una PUERTA completa de su dominio, publicada en loopback:
 #   · conductores -> 127.0.0.1:8092   (se cuelga del Cloudflare Tunnel = internet)
@@ -27,10 +29,33 @@
 
 name: flota
 
+# --- Defaults reutilizables (auditoría srvgcptd 14-sep-2026) ------------------
+# no-new-privileges: un proceso del contenedor no puede ganar privilegios con
+# setuid/capabilities aunque lo consiga en local. Ya lo llevaban sap-budget y
+# list; flota y gastos no.
+x-security: &default-security
+  security_opt:
+    - no-new-privileges:true
+
+# Límites de memoria/PIDs: el host no tiene swap y son 15 GiB para ~20
+# contenedores de varios proyectos; sin tope, un proceso desbocado se lleva a
+# todos por delante. Cifras conservadoras (muy por encima del uso normal):
+# antes de bajarlas, mide con `docker stats --no-stream`.
+x-limits-db: &limits-db
+  resources: { limits: { memory: 1G, pids: 256 } }
+x-limits-app: &limits-app
+  resources: { limits: { memory: 1536M, pids: 512 } }
+x-limits-jobs: &limits-jobs
+  resources: { limits: { memory: 768M, pids: 256 } }
+x-limits-small: &limits-small
+  resources: { limits: { memory: 256M, pids: 128 } }
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    <<: *default-security
+    deploy: *limits-db
     environment:
       POSTGRES_DB: ${DB_NAME:-flota}
       POSTGRES_USER: ${DB_USER:-flota}
@@ -52,6 +77,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    <<: *default-security
+    deploy: *limits-small
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -67,6 +94,8 @@ services:
       dockerfile: Dockerfile
     image: flota-back:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    <<: *default-security
+    deploy: *limits-app
     depends_on:
       db:
         condition: service_healthy
@@ -100,6 +129,8 @@ services:
   jobs:
     image: flota-back:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    <<: *default-security
+    deploy: *limits-jobs
     depends_on:
       db:
         condition: service_healthy
@@ -127,12 +158,68 @@ services:
       # El healthcheck de la imagen apunta a gunicorn, que aquí no corre.
       disable: true
 
+  # OPS2: backup diario de la BD (pg_dump, formato custom) y de la media (tar),
+  # con retención y healthcheck. Hasta el 15-sep-2026 flota no tenía NINGUNA
+  # copia (auditoría srvgcptd): el deploy/backup.sh era un cron del host que
+  # nunca llegó a instalarse.
+  #
+  # Reutiliza la imagen de `db` (postgres:16-alpine): así pg_dump es SIEMPRE la
+  # misma versión que el servidor —el postgresql-client de Debian es la 15 y
+  # aborta contra un 16, nos pasó en sap-budget— y trae crond, con lo que no hay
+  # imagen que construir: los scripts van bind-montados desde deploy/. Corre
+  # como root porque crond y el bind del destino lo necesitan.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logrotate
+    <<: *default-security
+    deploy: *limits-small
+    environment:
+      # pg_dump lee las PG* directamente: no hace falta pasarle flags.
+      PGHOST: db
+      PGPORT: "5432"
+      PGDATABASE: ${DB_NAME:-flota}
+      PGUSER: ${DB_USER:-flota}
+      PGPASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en .env (sin el símbolo $)}
+      PGCONNECT_TIMEOUT: "15"
+      BACKUP_DIR: /backups
+      BACKUP_MEDIA_DIR: /data/media
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+      BACKUP_CRON: ${BACKUP_CRON:-30 3 * * *}
+    volumes:
+      # Destino. En el servidor apunta a OTRO disco (/mnt/data): ver .env.example.
+      - ${BACKUP_HOST_DIR:-./backups}:/backups
+      # La media (documentos subidos) va en el tar, solo lectura. Se monta ./data
+      # entero —existe seguro— y no ./data/media: si esa carpeta aún no existiera,
+      # Docker la crearía como root y el back (appuser) no podría escribir en ella.
+      - ${DATA_DIR:-./data}:/data:ro
+      - ./deploy/backup-entrypoint.sh:/deploy/backup-entrypoint.sh:ro
+      - ./deploy/backup.sh:/deploy/backup.sh:ro
+    entrypoint: []
+    command: ["sh", "/deploy/backup-entrypoint.sh"]
+    healthcheck:
+      # Sano = crond sigue siendo PID 1 Y hay un .last-backup-ok de menos de 26 h
+      # (solo lo escribe backup.sh tras verificar el dump). Se lee /proc/1/comm y
+      # no pgrep: la imagen no trae procps, y con pgrep el healthcheck de list
+      # llevaba semanas en rojo sobre un backup que iba bien.
+      test: ["CMD-SHELL", "[ \"$$(cat /proc/1/comm)\" = crond ] && [ -n \"$$(find /backups/.last-backup-ok -mmin -1560 2>/dev/null)\" ]"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      # margen para el backup inicial que lanza el entrypoint al arrancar
+      start_period: 10m
+
   front-gestion:
     build:
       context: .
       dockerfile: front-gestion/Dockerfile
     image: flota-front-gestion:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    <<: *default-security
+    deploy: *limits-small
     depends_on:
       back:
         # OPS4: sin esto el front daba 502 mientras el back migraba.
@@ -151,6 +238,8 @@ services:
       dockerfile: front-conductores/Dockerfile
     image: flota-front-conductores:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    <<: *default-security
+    deploy: *limits-small
     depends_on:
       back:
         condition: service_healthy
@@ -168,4 +257,17 @@ services:
       - "${CONDUCTORES_BIND:-127.0.0.1}:${CONDUCTORES_PORT:-8092}:80"
 
 volumes:
+  # La BD vive en una carpeta del host (bind) y no en un volumen interno de
+  # Docker, por dos motivos: puede estar en OTRO disco que la raíz (en srvgcptd,
+  # /mnt/data: el proyecto entero se movió allí el 15-sep-2026) y un `down -v`
+  # ya no la borra (solo quita el objeto volumen; la carpeta sigue ahí).
+  # El nombre real del volumen es flota_flota_pgdata (proyecto `flota` + clave).
+  # OJO: un volumen ya creado NO cambia de ruta al editar esto; hay que copiar
+  # los datos, `docker volume rm flota_flota_pgdata` y volver a levantar
+  # (procedimiento en deploy/README-DEPLOY.md).
   flota_pgdata:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PGDATA_HOST_DIR:-./pgdata}

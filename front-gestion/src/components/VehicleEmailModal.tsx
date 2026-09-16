@@ -3,12 +3,21 @@ import { Badge, Button, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import { useAppLang, type AppLanguage } from '@flota/ui/i18n'
 
-import { listIncidents, listKmReadingsAll, notifyVehicle, noticePreviewVehicle } from '../api.ts'
+import {
+  listEmailTemplates,
+  listIncidents,
+  listKmReadingsAll,
+  notifyVehicle,
+  noticePreviewVehicle,
+  type EmailTemplateRow,
+} from '../api.ts'
 import type { EmailKind } from '../emailKinds.ts'
 import { getNoticeLang, setNoticeLang, type NoticeLang } from '../emailPrefs.ts'
 import { fmtDate, fmtKm, vehicleStateTone } from '../format.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import { EmailOptions } from './EmailOptions.tsx'
+import { TemplateVars } from './TemplateVars.tsx'
+import { type TemplateVariable } from './templateVars.ts'
 import { OpsSection, OpsSteps } from './OpsSteps.tsx'
 import { useAsistente, type Paso } from './opsWizard.ts'
 import type { Incident, KmReading, Vehicle } from '../types.ts'
@@ -43,6 +52,8 @@ const TODAS = 'all'
 
 /** Pasos del correo: de qué avisa, qué dice, a quién va y cómo queda. */
 type PasoCorreo = 'kind' | 'text' | 'to' | 'preview'
+
+export { EMAIL_MODAL_SIZE } from './emailModalSize.ts'
 
 interface Props {
   vehicle: Vehicle
@@ -110,6 +121,13 @@ export function VehicleEmailModal({
   // Cómo se compone el correo: con plantilla o solo con el texto libre, y en
   // qué idioma. El idioma arranca en el último que se usó (queda guardado).
   const [useTemplate, setUseTemplate] = useState(true)
+  // Cuerpo de la plantilla, tal cual se enviará: se carga al elegir el tipo y
+  // se puede retocar aquí mismo (lo que se ve es lo que sale). Solo viaja al
+  // back si se ha tocado: sin tocar, manda la plantilla y sus dos idiomas.
+  const [body, setBody] = useState('')
+  const [bodyTouched, setBodyTouched] = useState(false)
+  const [plantillas, setPlantillas] = useState<EmailTemplateRow[] | null>(null)
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null)
   const [noticeLang, setNoticeLangState] = useState<NoticeLang>(getNoticeLang)
 
   const [preview, setPreview] = useState<{
@@ -309,6 +327,51 @@ export function VehicleEmailModal({
 
   // Sin plantilla, el back compone el correo solo con el texto libre.
   const sentTemplateKey = useTemplate ? kind : ''
+  // Cuerpo que se manda: solo el retocado a mano (si no, la plantilla manda).
+  const sentBody = useTemplate && bodyTouched ? body.trim() : ''
+
+  // Las plantillas se piden UNA vez por modal: el tipo y el idioma se cambian
+  // a menudo y el texto ya está aquí. `null` mientras llegan.
+  useEffect(() => {
+    let vivo = true
+    listEmailTemplates()
+      .then((page) => vivo && setPlantillas(page.results))
+      .catch(() => vivo && setPlantillas([]))
+    return () => {
+      vivo = false
+    }
+  }, [])
+
+  const plantilla = useMemo(
+    () => plantillas?.find((row) => row.key === kind && row.is_active) ?? null,
+    [plantillas, kind],
+  )
+  // El texto que toca según tipo e idioma; con «Ambos» se enseña el castellano
+  // (es el que se lee) y, si se retoca, sustituye a las dos versiones.
+  const plantillaBody = useMemo(() => {
+    if (!plantilla) return ''
+    const en = plantilla.body_html_en.trim()
+    return noticeLang === 'en' && en ? en : plantilla.body_html
+  }, [plantilla, noticeLang])
+
+  // Lo que se ve en la caja: la plantilla del tipo y el idioma de ahora o,
+  // en cuanto se toca, lo escrito. Derivado y no copiado con un efecto: así
+  // cambiar de tipo reenseña su plantilla sin pisar lo que nadie ha tocado.
+  const bodyValue = bodyTouched ? body : plantillaBody
+
+  /** Pega un marcador donde estuviera el cursor del cuerpo. */
+  function insertarVariable(name: TemplateVariable) {
+    const area = bodyRef.current
+    const desde = area?.selectionStart ?? bodyValue.length
+    const hasta = area?.selectionEnd ?? bodyValue.length
+    const trozo = `{{${name}}}`
+    setBody(`${bodyValue.slice(0, desde)}${trozo}${bodyValue.slice(hasta)}`)
+    setBodyTouched(true)
+    requestAnimationFrame(() => {
+      area?.focus()
+      area?.setSelectionRange(desde + trozo.length, desde + trozo.length)
+    })
+  }
 
   // Vista previa: se refresca al cambiar tipo, idioma o mensaje (debounce ligero).
   useEffect(() => {
@@ -318,6 +381,7 @@ export function VehicleEmailModal({
         template_key: sentTemplateKey,
         message: message.trim(),
         lang: noticeLang,
+        ...(sentBody ? { body: sentBody } : {}),
       })
         .then((res) => {
           if (cancelled) return
@@ -334,7 +398,7 @@ export function VehicleEmailModal({
       cancelled = true
       clearTimeout(id)
     }
-  }, [vehicle.id, sentTemplateKey, noticeLang, message])
+  }, [vehicle.id, sentTemplateKey, noticeLang, message, sentBody])
 
   function onChangeLang(next: NoticeLang) {
     setNoticeLangState(next)
@@ -401,6 +465,7 @@ export function VehicleEmailModal({
         template_key: sentTemplateKey,
         lang: noticeLang,
         message: message.trim(),
+        ...(sentBody ? { body: sentBody } : {}),
         to_admin: toAdmin,
         to_driver: toDriver,
         to_supervisor: toSupervisor,
@@ -504,16 +569,68 @@ export function VehicleEmailModal({
           onLangChange={onChangeLang}
           missingEnglish={missingEnglish}
         />
-        <label className="ops-field-label" htmlFor="email-extra">{t.extraMessage}</label>
-        <textarea
-          id="email-extra"
-          className="ops-textarea"
-          rows={3}
-          placeholder={t.extraPlaceholder}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-        />
-        {!useTemplate && <p className="muted ops-note">{t.noTemplateHint}</p>}
+        {useTemplate ? (
+          <>
+            {/* Lo que se va a enviar, en la caja y editable: antes solo se veía
+                (ya compuesto) en el último paso, y para cambiar una palabra
+                había que irse a Ajustes a tocar la plantilla de TODOS. */}
+            <div className="email-body-head">
+              <label className="ops-field-label" htmlFor="email-body">{t.bodyLabel}</label>
+              {bodyTouched && (
+                <button
+                  type="button"
+                  className="linklike"
+                  onClick={() => {
+                    setBody('')
+                    setBodyTouched(false)
+                  }}
+                >
+                  {t.bodyReset}
+                </button>
+              )}
+            </div>
+            <textarea
+              id="email-body"
+              ref={bodyRef}
+              className="ops-textarea email-body"
+              rows={10}
+              placeholder={plantillas === null ? t.bodyLoading : t.bodyMissing}
+              value={bodyValue}
+              onChange={(e) => {
+                setBody(e.target.value)
+                setBodyTouched(true)
+              }}
+            />
+            <TemplateVars onInsert={insertarVariable} />
+            <p className="muted ops-note">{t.bodyHint}</p>
+            {noticeLang === 'both' && <p className="muted ops-note">{t.bodyBothHint}</p>}
+            {/* El mensaje adicional NO desaparece por tener el cuerpo delante:
+                es lo que rellena `{{mensaje}}` y donde cae el texto de la
+                incidencia elegida en el paso anterior. */}
+            <label className="ops-field-label" htmlFor="email-extra">{t.extraMessage}</label>
+            <textarea
+              id="email-extra"
+              className="ops-textarea"
+              rows={3}
+              placeholder={t.extraPlaceholder}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+            />
+          </>
+        ) : (
+          <>
+            <label className="ops-field-label" htmlFor="email-extra">{t.extraMessage}</label>
+            <textarea
+              id="email-extra"
+              className="ops-textarea"
+              rows={8}
+              placeholder={t.extraPlaceholder}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+            />
+            <p className="muted ops-note">{t.noTemplateHint}</p>
+          </>
+        )}
       </OpsSection>
 
       {/* 3 · A quién va. */}

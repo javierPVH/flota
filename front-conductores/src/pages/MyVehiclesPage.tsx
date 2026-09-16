@@ -117,14 +117,10 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
   const loadPanelData = useCallback(() => {
     if (!dashKey) return
     const ids = dashKey.split(',').map(Number)
-    listAlerts('open')
-      .then((page) =>
-        setAlerts(
-          page.results.filter(
-            (alert) => alert.vehicle !== null && ids.includes(alert.vehicle),
-          ),
-        ),
-      )
+    // R5-56: las abiertas de ESTOS coches (1 o 2), no las de todo el ámbito —
+    // para un supervisor eran cientos de alertas por 4G en cada entrada.
+    Promise.all(ids.map((vid) => listAlerts('open', vid).then((page) => page.results)))
+      .then((pages) => setAlerts(pages.flat()))
       .catch(() => setAlerts([]))
     // Solo lo relacionado con averías, y sin las ya cerradas (mismo filtro
     // que la sección de averías del modal de Actualizar mantenimiento).

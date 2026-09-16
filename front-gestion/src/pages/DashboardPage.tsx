@@ -37,7 +37,7 @@ import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { useVehicleActions } from '../components/useVehicleActions.tsx'
 import { UserFormModal } from '../components/UserFormModal.tsx'
 import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
-import { VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
+import { EMAIL_MODAL_SIZE, VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
 import { AccidentModal } from '../components/AccidentModal.tsx'
 import { KmFuelModal } from '../components/KmFuelModal.tsx'
@@ -259,17 +259,46 @@ export function DashboardPage() {
 
   // Modal de gestión activo (uno por bloque informativo) y datos de ITV/seguro.
   const [manage, setManage] = useState<ManageKind | null>(null)
-  const [itvList, setItvList] = useState<Vehicle[] | null>(null)
-  const [insList, setInsList] = useState<Vehicle[] | null>(null)
   const [itvSeg, setItvSeg] = useState<DueSeg>('all') // corte del desglose de ITV
   const [insSeg, setInsSeg] = useState<DueSeg>('all') // corte del desglose de seguros
   // GAP-8: desglose del mantenimiento anual (vencido/próximo/sin plan/al día).
-  const [maintList, setMaintList] = useState<MaintRow[] | null>(null)
   const [maintSeg, setMaintSeg] = useState<MaintSeg>('all')
   const [alertTab, setAlertTab] = useState('all') // pestaña de tipo del modal de alertas
   const [incidentTab, setIncidentTab] = useState('all') // pestaña de tipo del modal de incidencias
   // Planes de mantenimiento (para la columna «Próx. mantenimiento» de la tabla).
   const [maintPlans, setMaintPlans] = useState<MaintenancePlan[]>([])
+
+  // R5-34: los desgloses de ITV, seguros y mantenimiento se DERIVAN de lo ya
+  // cargado (la flota y los planes) en vez de volver a bajar la flota entera al
+  // abrir cada uno; y como derivan, se refrescan solos al recargar (antes se
+  // cacheaban hasta el siguiente registro y se reabrían con datos viejos).
+  const activeVehicles = useMemo(
+    () => allVehicles.filter((v) => v.state !== 'retired'),
+    [allVehicles],
+  )
+  const itvList = useMemo<Vehicle[] | null>(() => {
+    if (manage !== 'itv') return null
+    return activeVehicles
+      .filter((v) => itvClass(v.next_itv_date) !== '')
+      .sort((a, b) => (a.next_itv_date ?? '').localeCompare(b.next_itv_date ?? ''))
+  }, [manage, activeVehicles])
+  const insList = useMemo<Vehicle[] | null>(() => {
+    if (manage !== 'insurance') return null
+    return activeVehicles
+      .filter((v) => dueClass(v.insurance_expiry_date) !== '')
+      .sort((a, b) =>
+        (a.insurance_expiry_date ?? '').localeCompare(b.insurance_expiry_date ?? ''),
+      )
+  }, [manage, activeVehicles])
+  const maintList = useMemo<MaintRow[] | null>(
+    () => (manage !== 'maintenance' ? null : buildMaintRows(activeVehicles, maintPlans)),
+    [manage, activeVehicles, maintPlans],
+  )
+  const reloadMaintPlans = useCallback(() => {
+    listAll(listMaintenancePlans())
+      .then(setMaintPlans)
+      .catch(() => setMaintPlans([]))
+  }, [])
 
   // Modales de acciones por fila (vehículos y personas).
   // «Alertas e incidencias»: el modal del menú ⋮ con las tres pestañas (nuevo
@@ -326,23 +355,37 @@ export function DashboardPage() {
       .finally(() => setUsersLoading(false))
   }, [])
 
+  // R5-37: una recarga que pisa a otra en vuelo descarta la respuesta vieja
+  // (la más reciente es la que vale), sin `AbortController`: `listAll` encadena
+  // páginas y cancelar a medias no ahorra nada que se note.
+  const alertsGen = useRef(0)
   const reloadAlerts = useCallback(() => {
-    listAlerts('open')
-      .then((result) =>
-        setAlerts([...result.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])),
-      )
-      .catch(() => setAlerts([]))
+    const gen = ++alertsGen.current
+    // R5-30: TODAS las abiertas, no la primera página: de aquí salen la cifra
+    // del cabecero, los chips y el corte «km sobrepasados».
+    listAll(listAlerts({ status: 'open' }))
+      .then((rows) => {
+        if (gen !== alertsGen.current) return
+        setAlerts([...rows].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]))
+      })
+      .catch(() => gen === alertsGen.current && setAlerts([]))
   }, [])
 
   // Incidencias SIN cerrar: abiertas Y en curso (antes solo `open`, y una
   // gestionada desaparecía del panel sin estar resuelta). Las «En ITV» quedan
   // fuera: la única ITV visible es la alerta «ITV programada» (el ciclo
   // interno sigue en la ficha/estado).
+  const incidentsGen = useRef(0)
   const reloadIncidents = useCallback(() => {
+    const gen = ++incidentsGen.current
     listOpenIncidents({})
-      .then((rows) => setIncidents(rows.filter((i) => i.type !== 'inspection')))
-      .catch(() => setIncidents([]))
+      .then((rows) => {
+        if (gen !== incidentsGen.current) return
+        setIncidents(rows.filter((i) => i.type !== 'inspection'))
+      })
+      .catch(() => gen === incidentsGen.current && setIncidents([]))
   }, [])
+
 
   useEffect(() => {
     fetchFleetSummary()
@@ -357,37 +400,6 @@ export function DashboardPage() {
     loadCore()
     loadUsers()
   }, [loadCore, loadUsers, reloadAlerts, reloadIncidents])
-
-  // ITV: carga perezosa al abrir su modal.
-  // C6/C7: `ordering=next_itv_date` NO estaba en `ordering_fields` del back, y
-  // DRF descarta en silencio el orden inválido → el modal listaba la primera
-  // página ordenada por MATRÍCULA y la presentaba como "las más próximas a
-  // vencer". Ahora el campo existe en el back y se recorren todas las páginas
-  // (`listAll`), así que no se pierde ningún vencimiento.
-  useEffect(() => {
-    if (manage !== 'itv' || itvList !== null) return
-    listAll(listVehicles({ ordering: 'next_itv_date' }))
-      .then((rows) => setItvList(rows.filter((v) => itvClass(v.next_itv_date) !== '')))
-      .catch(() => setItvList([]))
-  }, [manage, itvList])
-
-  // Seguros: carga perezosa análoga a la de ITV.
-  useEffect(() => {
-    if (manage !== 'insurance' || insList !== null) return
-    listAll(listVehicles({ ordering: 'insurance_expiry_date' }))
-      .then((rows) => setInsList(rows.filter((v) => dueClass(v.insurance_expiry_date) !== '')))
-      .catch(() => setInsList([]))
-  }, [manage, insList])
-
-  // Mantenimiento anual (GAP-8): carga perezosa al abrir su modal. Se piden los
-  // activos (sin bajas) y TODOS los planes vivos, y se clasifica en cliente con
-  // el mismo criterio que el KPI (`fleet_summary`).
-  useEffect(() => {
-    if (manage !== 'maintenance' || maintList !== null) return
-    Promise.all([listAll(listVehicles({})), listAll(listMaintenancePlans())])
-      .then(([vs, plans]) => setMaintList(buildMaintRows(vs, plans)))
-      .catch(() => setMaintList([]))
-  }, [manage, maintList])
 
   // Debounce: una petición por pausa de tecleo, no por tecla. Solo la búsqueda
   // de vehículos va al servidor; la de personas filtra la lista ya cargada.
@@ -453,6 +465,21 @@ export function DashboardPage() {
     load()
   }, [load, loadCore])
 
+  // R5-37: lo que se resuelve dentro de la lista de la flota (el modal de las
+  // dos tiras) recarga SU lista al momento; el panel, que está debajo y pide
+  // lo mismo (alertas abiertas, incidencias abiertas, vehículos), espera a
+  // que el modal se cierre y lo pide UNA vez. Antes cada ✓ lanzaba las dos
+  // tandas a la vez, la segunda para una pantalla que no se veía.
+  const panelDirty = useRef(false)
+  const closeManage = useCallback(() => {
+    setManage(null)
+    if (!panelDirty.current) return
+    panelDirty.current = false
+    reloadAlerts()
+    reloadIncidents()
+    reloadVehicles()
+  }, [reloadAlerts, reloadIncidents, reloadVehicles])
+
   function resetFilters() {
     setUseFilter('')
     setAssignFilter('')
@@ -477,7 +504,7 @@ export function DashboardPage() {
     setInsuranceOnly(false)
     setAlertFilter(cat)
     setToolsOpen(true)
-    setManage(null)
+    closeManage()
   }
 
   /** Cambia de pestaña y limpia filtros (la búsqueda es propia de cada grupo). */
@@ -513,7 +540,7 @@ export function DashboardPage() {
     setItvOnly(Boolean(target.itv))
     setInsuranceOnly(Boolean(target.insurance))
     setToolsOpen(true)
-    setManage(null)
+    closeManage()
   }
 
   /** Abre el modal de alertas en una pestaña de tipo concreta (o "todas"). */
@@ -528,7 +555,7 @@ export function DashboardPage() {
     setManage('incidents')
   }
 
-  async function toggleUserActive(u: ManagedUserFull) {
+  const toggleUserActive = useCallback(async (u: ManagedUserFull) => {
     try {
       if (u.is_active) {
         if (
@@ -543,7 +570,7 @@ export function DashboardPage() {
     } catch (err) {
       setError(asErrorMessage(err, ut.toggleError))
     }
-  }
+  }, [confirm, loadUsers, ut])
 
   // Sustitutos que están cubriendo a un vehículo (no se pueden convertir).
   const activeMainOfSub = useMemo(() => {
@@ -744,7 +771,7 @@ export function DashboardPage() {
   /** Cuánto lleva el coche sin que le lean los km, con el MISMO semáforo que
    * las fechas de la tabla: ámbar a vigilar (15-30 días), rojo vencida (>30 o
    * sin ninguna lectura). */
-  const staleCell = (date: string | null) => {
+  const staleCell = useCallback((date: string | null) => {
     const days = date ? daysSince(date) : null
     const tone = kmStaleTone(days)
     return (
@@ -752,10 +779,10 @@ export function DashboardPage() {
         {days === null ? t.home.kmNoReading : t.home.kmStale(days)}
       </span>
     )
-  }
+  }, [t.home])
 
   /** Kilómetros de un coche: el odómetro (o «—» si nunca se ha leído). */
-  const kmText = (v: Vehicle) => (v.km_current == null ? '—' : fmtKm(v.km_current, language))
+  const kmText = useCallback((v: Vehicle) => (v.km_current == null ? '—' : fmtKm(v.km_current, language)), [language])
 
   /**
    * Lo que cuelga de la fila de un coche cubierto: SU coche de sustitución,
@@ -831,11 +858,11 @@ export function DashboardPage() {
       {u.phone ? <div className="muted">{u.phone}</div> : null}
     </>
   )
-  const statusCell = (u: ManagedUserFull) => (
+  const statusCell = useCallback((u: ManagedUserFull) => (
     <Badge tone={u.is_active ? 'success' : 'neutral'}>
       {u.is_active ? t.home.statusActive : t.home.statusInactive}
     </Badge>
-  )
+  ), [t.home.statusActive, t.home.statusInactive])
 
   // Vencido = la fecha ya pasó; si no y está en la lista (dueClass≠''), es próximo.
   const isOverdue = (date: string | null) => date != null && date < todayIso()
@@ -911,19 +938,19 @@ export function DashboardPage() {
   }
 
   // Columnas del desglose de mantenimiento anual (GAP-8), ordenables.
-  const MAINT_TONE: Record<MaintRow['status'], 'danger' | 'warning' | 'success'> = {
+  const MAINT_TONE: Record<MaintRow['status'], 'danger' | 'warning' | 'success'> = useMemo(() => ({
     overdue: 'danger',
     no_plan: 'danger', // sin plan = incumple la anual, tan grave como vencido
     soon: 'warning',
     ok: 'success',
-  }
-  const MAINT_LABEL: Record<MaintRow['status'], string> = {
+  }), [])
+  const MAINT_LABEL: Record<MaintRow['status'], string> = useMemo(() => ({
     overdue: m.maintOverdue,
     no_plan: m.maintNoPlan,
     soon: m.maintSoon,
     ok: m.maintOk,
-  }
-  const maintColumns: Array<TableWithPanelColumn<MaintRow>> = [
+  }), [m.maintNoPlan, m.maintOk, m.maintOverdue, m.maintSoon])
+  const maintColumns = useMemo<Array<TableWithPanelColumn<MaintRow>>>(() => [
     { key: 'plate', label: t.home.thPlate, getValue: (r) => r.vehicle.plate, render: (r) => plateLink(r.vehicle) },
     {
       key: 'vehicle',
@@ -962,10 +989,10 @@ export function DashboardPage() {
           '—'
         ),
     },
-  ]
+  ], [MAINT_LABEL, MAINT_TONE, language, m.actionMarkService, m.maintDueColumn, m.maintPlanColumn, m.maintStateColumn, t.home.thActions, t.home.thPlate, t.home.thVehicle])
 
   // Listado de flota con el estilo unificado (TableWithPanel).
-  const vehicleColumns: Array<TableWithPanelColumn<Vehicle>> = [
+  const vehicleColumns = useMemo<Array<TableWithPanelColumn<Vehicle>>>(() => [
     {
       key: 'plate',
       label: t.home.thPlate,
@@ -1075,16 +1102,20 @@ export function DashboardPage() {
         </span>
       ),
     },
-  ]
+  ], [kmText, language, maintDueMap, staleCell, t.home.thDriver, t.home.thFuel, t.home.thInsurance, t.home.thItv, t.home.thKm, t.home.thMaintenance, t.home.thPlate, t.home.thState, t.home.thSupervisor, t.home.thUse, t.home.thVehicle, vt.useLabel])
+
+  const openDefaultEmail = useCallback((v: Vehicle) => {
+    setEmailKind(undefined)
+    setEmailVehicle(v)
+  }, [])
 
   // M18: el mismo menú (⋮) y las mismas dos operaciones serias que el
   // inventario, sin una segunda copia de sus avisos (ver `useVehicleActions`).
   const { actionsColumn: vehicleActionsColumn } = useVehicleActions({
     // El correo desde el menú ⋮ abre en su tipo por defecto (comunicado).
-    onEmail: (v) => {
-      setEmailKind(undefined)
-      setEmailVehicle(v)
-    },
+    // R5-38: estable (`useCallback`), o la columna de acciones —y con ella las
+    // columnas de la tabla— se rehacía en cada render.
+    onEmail: openDefaultEmail,
     onDriver: setDriverVehicle,
     onInvoices: setInvoicesVehicle,
     onPending: setPendingVehicle,
@@ -1097,8 +1128,22 @@ export function DashboardPage() {
     onError: setError,
   })
 
+  // El ⋮ de la fila no necesita rótulo: la columna se queda del ancho de su
+  // icono y ese espacio se lo quedan las columnas con datos. El `label` sigue
+  // ahí porque es el nombre con el que la columna aparece en el selector.
+  // R5-38: la lista que recibe la tabla se compone UNA vez por cambio real; una
+  // lista nueva en cada render obligaba a `TableWithPanel` a rehacer filtro,
+  // orden y agrupación de todas las filas.
+  const fleetTableColumns = useMemo<Array<TableWithPanelColumn<Vehicle>>>(
+    () => [
+      ...vehicleColumns,
+      { ...vehicleActionsColumn, header: <span aria-hidden />, width: 52 },
+    ],
+    [vehicleColumns, vehicleActionsColumn],
+  )
+
   // Acciones de persona: mismos botones que la vista de Conductores.
-  const peopleActionsColumn: TableWithPanelColumn<ManagedUserFull> = {
+  const peopleActionsColumn = useMemo<TableWithPanelColumn<ManagedUserFull>>(() => ({
     key: 'actions',
     label: ut.columns.actions,
     align: 'right',
@@ -1121,9 +1166,9 @@ export function DashboardPage() {
         </Button>
       </div>
     ),
-  }
+  }), [toggleUserActive, ut.columns.actions, ut.deactivate, ut.edit, ut.reactivate])
 
-  const supervisorColumns: Array<TableWithPanelColumn<ManagedUserFull>> = [
+  const supervisorColumns = useMemo<Array<TableWithPanelColumn<ManagedUserFull>>>(() => [
     { key: 'name', label: t.home.thName, getValue: (u) => `${u.name} ${u.username}`, render: personLink },
     { key: 'contact', label: t.home.thContact, getValue: (u) => `${u.email} ${u.phone}`, render: contactCell },
     {
@@ -1134,9 +1179,9 @@ export function DashboardPage() {
       render: (u) => String(supervisedBy(u.id).length),
     },
     { key: 'status', label: t.home.thStatus, getValue: (u) => (u.is_active ? t.home.statusActive : t.home.statusInactive), render: statusCell },
-  ]
+  ], [statusCell, supervisedBy, t.home.statusActive, t.home.statusInactive, t.home.thContact, t.home.thName, t.home.thStatus, t.home.thVehiclesCount])
 
-  const driverColumns: Array<TableWithPanelColumn<ManagedUserFull>> = [
+  const driverColumns = useMemo<Array<TableWithPanelColumn<ManagedUserFull>>>(() => [
     { key: 'name', label: t.home.thName, getValue: (u) => `${u.name} ${u.username}`, render: personLink },
     { key: 'contact', label: t.home.thContact, getValue: (u) => `${u.email} ${u.phone}`, render: contactCell },
     {
@@ -1162,7 +1207,12 @@ export function DashboardPage() {
     },
     { key: 'license', label: t.home.thLicense, getValue: (u) => u.license_type, render: (u) => u.license_type || '—' },
     { key: 'status', label: t.home.thStatus, getValue: (u) => (u.is_active ? t.home.statusActive : t.home.statusInactive), render: statusCell },
-  ]
+  ], [drivenBy, statusCell, t.home.statusActive, t.home.statusInactive, t.home.thAssigned, t.home.thContact, t.home.thLicense, t.home.thName, t.home.thStatus])
+
+  const peopleTableColumns = useMemo<Array<TableWithPanelColumn<ManagedUserFull>>>(
+    () => [...(tab === 'supervisors' ? supervisorColumns : driverColumns), peopleActionsColumn],
+    [tab, supervisorColumns, driverColumns, peopleActionsColumn],
+  )
 
   // Datos de la pestaña activa (filas, recuento, vacío, exportación).
   const activeCount =
@@ -1628,13 +1678,16 @@ export function DashboardPage() {
             // de quedar la última. El key fuerza el orden que pasamos (actions al final).
             key={tab}
             rows={tab === 'flota' ? flotaRows : subRows}
-            columns={[...vehicleColumns, vehicleActionsColumn]}
+            columns={fleetTableColumns}
             rowKey={(v) => String(v.id)}
             // Un coche cubierto lleva SU sustituto debajo, plegado: la flecha
             // sale solo en esas filas (`canExpandRow`), que son las que tienen
             // algo que enseñar.
             renderExpandedRow={renderSubstituteRow}
             canExpandRow={(v) => activeLinkOfMain.has(v.id)}
+            // La flecha va pegada a la matrícula, en su celda: una columna
+            // entera para un icono era ancho que le faltaba a lo que se lee.
+            expanderInFirstCell
             enableColumnSort
             showControlPanel={false}
             enablePagination
@@ -1646,7 +1699,7 @@ export function DashboardPage() {
           <TableWithPanel<ManagedUserFull>
             key={tab}
             rows={tab === 'supervisors' ? supervisorRows : driverRows}
-            columns={[...(tab === 'supervisors' ? supervisorColumns : driverColumns), peopleActionsColumn]}
+            columns={peopleTableColumns}
             rowKey={(u) => String(u.id)}
             rowClassName={(u) => (u.is_active ? '' : 'row-muted')}
             enableColumnSort
@@ -1663,7 +1716,7 @@ export function DashboardPage() {
       <Modal
         open={manage !== null}
         title={manage ? MANAGE_TITLE[manage] : ''}
-        onClose={() => setManage(null)}
+        onClose={closeManage}
         // Los desgloses con tabla + columna de acciones necesitan más ancho
         // para verse enteros sin scroll horizontal; alertas e incidencias
         // también (mismo ancho: son las dos tiras de atención y sus filas
@@ -1947,9 +2000,8 @@ export function DashboardPage() {
                   : incidentTab
             }
             onChanged={() => {
-              reloadAlerts()
-              reloadIncidents()
-              reloadVehicles()
+              // R5-37: el panel se recarga al cerrar (`closeManage`), una vez.
+              panelDirty.current = true
             }}
             footer={
               <div className="mng-actions">
@@ -2050,7 +2102,12 @@ export function DashboardPage() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => setPendingVehicle(editVehicle)}
+                  onClick={() => {
+                    // R5-40: un diálogo a la vez — el de edición se cierra al
+                    // abrir el de pendientes (y ya no vuelve con datos viejos).
+                    setPendingVehicle(editVehicle)
+                    setEditVehicle(null)
+                  }}
                 >
                   {vd.changeState}
                 </Button>
@@ -2074,7 +2131,7 @@ export function DashboardPage() {
           setEmailVehicle(null)
           setEmailKind(undefined)
         }}
-        wide
+        {...EMAIL_MODAL_SIZE}
       >
         {emailVehicle && (
           <VehicleEmailModal
@@ -2097,8 +2154,7 @@ export function DashboardPage() {
         onClose={() => setItvRegVehicle(null)}
         onSaved={() => {
           setItvRegVehicle(null)
-          // El desglose se recarga solo (carga perezosa sobre `null`).
-          setItvList(null)
+          // El desglose deriva de la flota: se refresca con ella (R5-34).
           reloadVehicles()
         }}
       />
@@ -2110,7 +2166,6 @@ export function DashboardPage() {
         onClose={() => setRenewVehicle(null)}
         onDone={() => {
           setRenewVehicle(null)
-          setInsList(null)
           reloadAlerts()
           reloadVehicles()
         }}
@@ -2130,7 +2185,9 @@ export function DashboardPage() {
         onClose={() => setMaintDone(null)}
         onSaved={() => {
           setMaintDone(null)
-          setMaintList(null)
+          // El plan se reancló: los planes se vuelven a pedir y el desglose
+          // (que deriva de ellos) se recalcula.
+          reloadMaintPlans()
           reloadVehicles()
         }}
       />

@@ -91,6 +91,10 @@ const es = {
     hideOrderColumns: 'Ocultar orden de columnas',
     showAllColumns: 'Mostrar todas las columnas',
     searchPlaceholder: 'Buscar...',
+    // R5-24: textos del cajón de detalle de celda (antes literales en el JSX).
+    panelNoResults: 'Sin resultados',
+    accordionLoading: 'Cargando...',
+    accordionError: 'No se pudieron cargar los datos',
     searchLockTitle: 'Bloquear búsqueda',
     searchClearTitle: 'Limpiar búsqueda',
     periodLabel: 'Periodo',
@@ -124,6 +128,10 @@ const es = {
     collapseRow: 'Plegar fila',
     columnTools: 'Herramientas de columna',
     close: 'Cerrar',
+  },
+  // R5-24: el guard de sesión (`RequireAuth`) también habla por el diccionario.
+  auth: {
+    loading: 'Cargando…',
   },
   modal: {
     close: 'Cerrar',
@@ -243,6 +251,9 @@ const en: typeof es = {
     hideOrderColumns: 'Hide column order',
     showAllColumns: 'Show all columns',
     searchPlaceholder: 'Search...',
+    panelNoResults: 'No results',
+    accordionLoading: 'Loading...',
+    accordionError: 'The data could not be loaded',
     searchLockTitle: 'Lock search',
     searchClearTitle: 'Clear search',
     periodLabel: 'Period',
@@ -276,6 +287,9 @@ const en: typeof es = {
     collapseRow: 'Collapse row',
     columnTools: 'Column tools',
     close: 'Close',
+  },
+  auth: {
+    loading: 'Loading…',
   },
   modal: {
     close: 'Close',

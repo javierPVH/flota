@@ -139,6 +139,12 @@ export interface TableWithPanelProps<RowType extends object> {
    * que abre un hueco vacío es una promesa que no se cumple.
    */
   canExpandRow?: (row: RowType, index: number) => boolean
+  /** N4c: la flecha va DENTRO de la primera columna, pegada a su contenido, en
+   * vez de en una columna propia. Una columna entera para un icono son ~40px
+   * que se le quitan a lo que sí se lee; y la flecha pertenece a la fila, que
+   * es lo que nombra esa primera celda (la matrícula, el nombre…). Las filas
+   * que no se abren dejan el hueco: las celdas siguen alineadas. */
+  expanderInFirstCell?: boolean
 }
 
 interface DateFilterState {
@@ -169,6 +175,9 @@ interface TableWithPanelCopy {
   hideOrderColumns: string
   showAllColumns: string
   searchPlaceholder: string
+  panelNoResults: string
+  accordionLoading: string
+  accordionError: string
   searchLockTitle: string
   searchClearTitle: string
   periodLabel: string
@@ -263,6 +272,8 @@ function PanelAccordionItem({ item, loader }: PanelAccordionItemProps) {
   const [open, setOpen] = useState(false)
   const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
   const [sections, setSections] = useState<ExpandSection[]>([])
+  // R5-24: los textos del cajón salen del diccionario del DS, no del JSX.
+  const uiCopy = useUiCopy().tableWithPanel
 
   if (!loader) {
     return (
@@ -298,10 +309,10 @@ function PanelAccordionItem({ item, loader }: PanelAccordionItemProps) {
       {open && (
         <div className={styles.accordionBody}>
           {status === 'loading' && (
-            <div className={styles.accordionLoading}>Cargando...</div>
+            <div className={styles.accordionLoading}>{uiCopy.accordionLoading}</div>
           )}
           {status === 'error' && (
-            <div className={styles.accordionError}>No se pudieron cargar los datos</div>
+            <div className={styles.accordionError}>{uiCopy.accordionError}</div>
           )}
           {status === 'ok' && sections.map((section, si) => (
             <div key={si} className={styles.accordionSection}>
@@ -370,6 +381,7 @@ export function TableWithPanel<RowType extends object>({
   rowTitle,
   renderExpandedRow,
   canExpandRow,
+  expanderInFirstCell = false,
 }: TableWithPanelProps<RowType>) {
   const tableSortScope = useId()
   // N4: filas abiertas + filas ya montadas (el contenido no se desmonta al
@@ -759,7 +771,10 @@ export function TableWithPanel<RowType extends object>({
     const grouped = new Map<string, RowType[]>()
     paginatedRows.forEach((row) => {
       const title = normalizeString(readCellValue(row, column)).trim() || '—'
-      grouped.set(title, [...(grouped.get(title) ?? []), row])
+      // R5-23: `push` sobre el acumulado (copiar el array por fila era O(n²)).
+      const bucket = grouped.get(title)
+      if (bucket) bucket.push(row)
+      else grouped.set(title, [row])
     })
 
     return [...grouped.entries()]
@@ -778,7 +793,9 @@ export function TableWithPanel<RowType extends object>({
       const grupos = new Map<string, RowType[]>()
       filas.forEach((row) => {
         const title = normalizeString(readCellValue(row, valueColumn)).trim() || '—'
-        grupos.set(title, [...(grupos.get(title) ?? []), row])
+        const bucket = grupos.get(title)
+        if (bucket) bucket.push(row)
+        else grupos.set(title, [row])
       })
       return [...grupos.entries()]
         .sort((left, right) => left[0].localeCompare(right[0], language))
@@ -789,7 +806,9 @@ export function TableWithPanel<RowType extends object>({
       const grupos = new Map<string, RowType[]>()
       filas.forEach((row) => {
         const monthKey = getMonthKey(toTimestamp(readCellValue(row, monthSortColumn)))
-        grupos.set(monthKey, [...(grupos.get(monthKey) ?? []), row])
+        const bucket = grupos.get(monthKey)
+        if (bucket) bucket.push(row)
+        else grupos.set(monthKey, [row])
       })
       return [...grupos.keys()]
         .sort((left, right) => {
@@ -1151,7 +1170,9 @@ export function TableWithPanel<RowType extends object>({
   const showPagination = enablePagination && sortedRows.length > 0
 
   // N4: nº de columnas del cuerpo (con la columna del expansor si aplica).
-  const bodyColSpan = visibleColumns.length + (renderExpandedRow ? 1 : 0)
+  // Con la flecha dentro de la primera celda no hay columna que sumar.
+  const expanderColumn = Boolean(renderExpandedRow) && !expanderInFirstCell
+  const bodyColSpan = visibleColumns.length + (expanderColumn ? 1 : 0)
 
   /** Fila de datos + (si aplica) su fila expandida animada. Compartido por el
    * render agrupado por meses y el plano. */
@@ -1199,6 +1220,24 @@ export function TableWithPanel<RowType extends object>({
     )
   }
 
+  /** La flecha de abrir/cerrar una fila; se pinta en su columna o en la 1ª celda. */
+  function expanderButton(resolvedRowKey: string, isOpen: boolean): ReactNode {
+    return (
+      <button
+        type="button"
+        className={cx(styles.expanderButton, isOpen && styles.expanderButtonOpen)}
+        aria-expanded={isOpen}
+        aria-label={isOpen ? copy.collapseRow : copy.expandRow}
+        onClick={(event) => {
+          event.stopPropagation()
+          toggleExpandedRow(resolvedRowKey)
+        }}
+      >
+        <ChevronDown size={15} />
+      </button>
+    )
+  }
+
   function renderBodyRow(row: RowType, index: number, resolvedRowKey: string): ReactNode {
     const isOpen = openExpandedRows.has(resolvedRowKey)
     // La tabla tiene filas expandibles, y ADEMÁS esta lo es (ver `canExpandRow`).
@@ -1222,27 +1261,19 @@ export function TableWithPanel<RowType extends object>({
               : undefined
           }
         >
-          {renderExpandedRow && (
+          {expanderColumn && (
             <td className={styles.expanderCell}>
-              {puedeAbrir && (
-                <button
-                  type="button"
-                  className={cx(styles.expanderButton, isOpen && styles.expanderButtonOpen)}
-                  aria-expanded={isOpen}
-                  aria-label={isOpen ? copy.collapseRow : copy.expandRow}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    toggleExpandedRow(resolvedRowKey)
-                  }}
-                >
-                  <ChevronDown size={15} />
-                </button>
-              )}
+              {puedeAbrir && expanderButton(resolvedRowKey, isOpen)}
             </td>
           )}
-          {visibleColumns.map((column) => {
+          {visibleColumns.map((column, columnIndex) => {
             const cellText = normalizeString(readCellValue(row, column))
             const isCellDivider = enableColumnResize && columnResizeDivider === column.key
+            // La flecha vive en la primera celda: va DELANTE de su contenido y,
+            // si esta fila no se abre, deja su hueco para no descuadrar la
+            // columna (misma razón que `canExpandRow`).
+            const conFlecha = Boolean(renderExpandedRow) && expanderInFirstCell && columnIndex === 0
+            const contenido = renderCellContent(row, column)
             return (
               <td
                 key={`${resolvedRowKey}-${column.key}`}
@@ -1250,7 +1281,18 @@ export function TableWithPanel<RowType extends object>({
                 style={column.align ? { textAlign: column.align } : undefined}
                 title={column.expandable ? undefined : (cellText || undefined)}
               >
-                {renderCellContent(row, column)}
+                {conFlecha ? (
+                  <span className={styles.cellWithExpander}>
+                    {puedeAbrir ? (
+                      expanderButton(resolvedRowKey, isOpen)
+                    ) : (
+                      <span className={styles.expanderSpacer} aria-hidden />
+                    )}
+                    {contenido}
+                  </span>
+                ) : (
+                  contenido
+                )}
               </td>
             )
           })}
@@ -1548,7 +1590,7 @@ export function TableWithPanel<RowType extends object>({
         <table className={styles.dataTable}>
           <thead>
             <tr>
-              {renderExpandedRow && <th scope="col" className={styles.expanderCell} aria-label={copy.expandRow} />}
+              {expanderColumn && <th scope="col" className={styles.expanderCell} aria-label={copy.expandRow} />}
               {visibleColumns.map((column) => {
                 const isSortable = enableColumnSort && column.sortable !== false && !column.header
                 const resolvedWidth = columnWidths[column.key] !== undefined
@@ -1792,7 +1834,7 @@ export function TableWithPanel<RowType extends object>({
                   type="text"
                   value={panelSearchTerm}
                   onChange={(e) => setPanelSearchTerm(e.target.value)}
-                  placeholder="Buscar..."
+                  placeholder={copy.searchPlaceholder}
                 />
                 {panelSearchTerm && (
                   <button className={styles.panelSearchClear} onClick={() => setPanelSearchTerm('')} aria-label={copy.searchClearTitle}>
@@ -1802,7 +1844,7 @@ export function TableWithPanel<RowType extends object>({
               </div>
               <div className={styles.panelDrawerBody}>
                 {filteredItems.length === 0 ? (
-                  <div className={styles.panelNoResults}>Sin resultados</div>
+                  <div className={styles.panelNoResults}>{copy.panelNoResults}</div>
                 ) : (
                   filteredItems.map((item, index) => (
                     <PanelAccordionItem key={item + index} item={item} loader={expandedCell.loader} />

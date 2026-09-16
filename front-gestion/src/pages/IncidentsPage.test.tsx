@@ -9,7 +9,6 @@ import { LanguageProvider } from '../i18n.tsx'
 const mocks = vi.hoisted(() => ({
   listIncidents: vi.fn(),
   listVehicles: vi.fn(),
-  listWorkshops: vi.fn(),
   resolveIncident: vi.fn(),
 }))
 
@@ -17,7 +16,6 @@ vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   listIncidents: mocks.listIncidents,
   listVehicles: mocks.listVehicles,
-  listWorkshops: mocks.listWorkshops,
   resolveIncident: mocks.resolveIncident,
 }))
 
@@ -81,7 +79,6 @@ describe('IncidentsPage (bandeja de incidencias)', () => {
     document.documentElement.lang = 'es'
     mocks.listIncidents.mockResolvedValue(page([OPEN, ON_GOING, CLOSED]))
     mocks.listVehicles.mockResolvedValue(page([VEHICLE]))
-    mocks.listWorkshops.mockResolvedValue([])
     mocks.resolveIncident.mockReset()
   })
 

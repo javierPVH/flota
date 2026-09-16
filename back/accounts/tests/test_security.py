@@ -5,7 +5,7 @@ from django.core.cache import cache
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
-from accounts import views
+from accounts import ratelimit, views
 from accounts.audit import auditlog  # noqa: F401 (asegura el registro)
 
 User = get_user_model()
@@ -19,12 +19,12 @@ class ClientIpTests(TestCase):
     def test_xff_ignored_without_trusted_proxy(self):
         req = self.rf.post("/", HTTP_X_FORWARDED_FOR="1.2.3.4", REMOTE_ADDR="10.0.0.1")
         # Sin proxy de confianza no se cree el XFF (falsificable): usa REMOTE_ADDR.
-        self.assertEqual(views._client_ip(req), "10.0.0.1")
+        self.assertEqual(ratelimit.client_ip(req), "10.0.0.1")
 
     @override_settings(TRUSTED_PROXY_COUNT=1)
     def test_xff_last_hop_used_with_one_proxy(self):
         req = self.rf.post("/", HTTP_X_FORWARDED_FOR="1.2.3.4, 5.6.7.8", REMOTE_ADDR="10.0.0.1")
-        self.assertEqual(views._client_ip(req), "5.6.7.8")
+        self.assertEqual(ratelimit.client_ip(req), "5.6.7.8")
 
 
 @override_settings(

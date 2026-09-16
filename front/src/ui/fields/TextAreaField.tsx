@@ -29,6 +29,7 @@ export function TextAreaField({
   className,
   disabled = false,
   rows = 4,
+  id: idProp,
   ...props
 }: TextAreaFieldProps) {
   return (
@@ -40,14 +41,18 @@ export function TextAreaField({
       warningMessage={warningMessage}
       warningClosable={warningClosable}
       onWarningClose={onWarningClose}
+      controlId={idProp}
       className={containerClassName}
     >
-      <textarea
-        rows={rows}
-        disabled={disabled}
-        className={cx(styles.fieldTextarea, className)}
-        {...props}
-      />
+      {(controlId) => (
+        <textarea
+          id={controlId}
+          rows={rows}
+          disabled={disabled}
+          className={cx(styles.fieldTextarea, className)}
+          {...props}
+        />
+      )}
     </FieldShell>
   )
 }

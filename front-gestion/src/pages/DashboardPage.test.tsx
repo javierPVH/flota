@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   listOpenIncidents: vi.fn(),
   listVehicles: vi.fn(),
   listVehicleLinks: vi.fn(),
-  listWorkshops: vi.fn(),
+  registerItv: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -25,7 +25,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listOpenIncidents: mocks.listOpenIncidents,
   listVehicles: mocks.listVehicles,
   listVehicleLinks: mocks.listVehicleLinks,
-  listWorkshops: mocks.listWorkshops,
+  registerItv: mocks.registerItv,
 }))
 
 const SUMMARY = {
@@ -169,8 +169,6 @@ describe('DashboardPage (vista general)', () => {
       incident(4, 'inspection', 'ITV'),
     ])
     mocks.listIncidents.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
-    // El modal de resolución carga el catálogo de talleres al abrirse.
-    mocks.listWorkshops.mockResolvedValue([])
   })
 
   it('«Añadir vehículo» avisa del salto y lleva a Vehículos pidiendo el alta', async () => {
@@ -445,5 +443,39 @@ describe('DashboardPage (vista general)', () => {
       await screen.findByRole('dialog', { name: 'Resolver avería · 1234KLM' }),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Resolver y cerrar' })).toBeInTheDocument()
+  })
+
+  it('R5-37: resolver dentro de la lista de la flota recarga el panel UNA vez, al cerrar', async () => {
+    mocks.registerItv.mockResolvedValue({
+      id: 9,
+      alerts_resolved: 1,
+      incident_closed: null,
+      vehicle_reactivated: false,
+    })
+    renderHome()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Alertas que requieren atención/i }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Resolver · 1234KLM · ITV programada' }),
+    )
+    await screen.findByRole('dialog', { name: 'Registrar ITV · 1234KLM' })
+    // Hasta aquí: el panel y la lista del modal han pedido las alertas.
+    const antes = mocks.listAlerts.mock.calls.length
+    const incidenciasAntes = mocks.listOpenIncidents.mock.calls.length
+    await userEvent.type(screen.getByLabelText('Próxima ITV'), '2028-09-01')
+    await userEvent.click(screen.getByRole('button', { name: 'Registrar' }))
+    await waitFor(() => expect(mocks.registerItv).toHaveBeenCalled())
+    // La lista del modal se recarga (una petición más); el panel, que está
+    // debajo y no se ve, todavía no.
+    await waitFor(() => expect(mocks.listAlerts.mock.calls.length).toBe(antes + 1))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Registrar ITV · 1234KLM' })).toBeNull(),
+    )
+    expect(mocks.listOpenIncidents.mock.calls.length).toBe(incidenciasAntes + 1)
+    // Al cerrar el modal, el panel pide lo suyo: una vez.
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(mocks.listAlerts.mock.calls.length).toBe(antes + 2))
+    expect(mocks.listOpenIncidents.mock.calls.length).toBe(incidenciasAntes + 2)
   })
 })

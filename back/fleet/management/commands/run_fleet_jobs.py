@@ -22,8 +22,15 @@ class Command(BaseCommand):
         # Los envíos programados van DESPUÉS de los chequeos: así el resumen del
         # correo cuenta las alertas de esta misma pasada y no las de la anterior.
         if notifications.enabled():
-            for key, value in notifications.dispatch().items():
-                summary[f"notif_{key}"] = value
+            # R5-04: un fallo al despachar los envíos programados no tumba la
+            # pasada (los chequeos y la cola de correo ya han corrido).
+            try:
+                for key, value in notifications.dispatch().items():
+                    summary[f"notif_{key}"] = value
+            except Exception as exc:  # noqa: BLE001 — se reporta, no se oculta
+                summary["notif_error"] = f"{type(exc).__name__}: {exc}"[:200]
         self.stdout.write(self.style.SUCCESS("Trabajos de flota ejecutados:"))
         for key, value in summary.items():
             self.stdout.write(f"  · {key}: {value}")
+        if any(str(key).endswith("_error") for key in summary):
+            self.stderr.write(self.style.WARNING("Algún trabajo falló: revisa las claves *_error."))

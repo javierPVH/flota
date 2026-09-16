@@ -44,6 +44,7 @@ export function TextInputField({
   disabled = false,
   type = 'text',
   title,
+  id: idProp,
   onChange,
   onFocus,
   onMouseEnter,
@@ -80,18 +81,22 @@ export function TextInputField({
       warningMessage={warningMessage}
       warningClosable={warningClosable}
       onWarningClose={onWarningClose}
+      controlId={idProp}
       className={containerClassName}
     >
-      <input
-        type={type}
-        disabled={disabled}
-        className={cx(styles.fieldInput, heightClass[inputHeight], className)}
-        onChange={handleChange}
-        onFocus={handleFocus}
-        onMouseEnter={handleMouseEnter}
-        title={title}
-        {...props}
-      />
+      {(controlId) => (
+        <input
+          id={controlId}
+          type={type}
+          disabled={disabled}
+          className={cx(styles.fieldInput, heightClass[inputHeight], className)}
+          onChange={handleChange}
+          onFocus={handleFocus}
+          onMouseEnter={handleMouseEnter}
+          title={title}
+          {...props}
+        />
+      )}
     </FieldShell>
   )
 }

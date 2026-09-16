@@ -459,7 +459,6 @@ describe('AlertsPage (bandeja de alertas)', () => {
       ]) as never,
     )
     const done = vi.spyOn(api, 'maintenancePlanDone').mockResolvedValue({} as never)
-    vi.spyOn(api, 'listWorkshops').mockResolvedValue([])
     mocks.listAlerts.mockResolvedValue(
       page([alert({ type: 'maintenance_due', type_display: 'Mantenimiento programado' })]),
     )

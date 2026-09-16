@@ -66,11 +66,12 @@ def close_vehicle_relations(
         link.save(update_fields=["end_date", "updated_at"])
         links_closed += 1
 
-    alerts_resolved = Alert.objects.filter(vehicle=vehicle, status=AlertStatus.OPEN).update(
-        status=AlertStatus.RESOLVED,
-        resolved_at=timezone.now(),
-        resolution_note=alert_note,
-    )
+    # R5-08 (R3-24): fila a fila, para que el cierre deje diff en auditlog,
+    # mueva `updated_at` y la bandeja de resueltas lo cuente como los demás.
+    alerts_resolved = 0
+    for alert in Alert.objects.filter(vehicle=vehicle, status=AlertStatus.OPEN):
+        alert.close(status=AlertStatus.RESOLVED, note=alert_note)
+        alerts_resolved += 1
 
     # Contrato vigente (el de inicio más reciente sin fin real): fin real = la baja.
     contract = (

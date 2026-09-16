@@ -268,6 +268,15 @@ a {
   font-weight: 700;
   color: var(--color-text-muted);
 }
+/* Entrada solo con Google: el botón lo pinta Google, aquí solo se centra. */
+.login-google {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.4rem 0;
+}
+
 .login-security {
   display: inline-flex;
   align-items: center;

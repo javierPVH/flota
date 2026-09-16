@@ -8,14 +8,12 @@ import type { Vehicle } from '../../types.ts'
 
 const mocks = vi.hoisted(() => ({
   registerItv: vi.fn(),
-  listWorkshops: vi.fn(),
   uploadDocument: vi.fn(),
 }))
 
 vi.mock('../../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api.ts')>()),
   registerItv: mocks.registerItv,
-  listWorkshops: mocks.listWorkshops,
   uploadDocument: mocks.uploadDocument,
 }))
 
@@ -24,12 +22,6 @@ const VEHICLES = [
   { id: 21, plate: '1234KLM', brand: 'Seat', model: 'Leon', state: 'itv' },
   { id: 22, plate: '5678XYZ', brand: 'Ford', model: 'Focus', state: 'active' },
 ] as unknown as Vehicle[]
-
-const WORKSHOPS = [
-  { id: 3, name: 'Taller Centro', kind: 'workshop' },
-  { id: 4, name: 'ITV Norte', kind: 'itv' },
-  { id: 5, name: 'Multiservicio', kind: 'both' },
-]
 
 type Props = Parameters<typeof RegisterItvForm>[0]
 
@@ -54,7 +46,6 @@ describe('RegisterItvForm (estación, km, informe y vuelta a Activo)', () => {
     document.documentElement.lang = 'es'
     mocks.registerItv.mockReset()
     mocks.uploadDocument.mockReset()
-    mocks.listWorkshops.mockResolvedValue(WORKSHOPS)
     mocks.registerItv.mockResolvedValue({
       id: 1,
       alerts_resolved: 1,

@@ -13,12 +13,12 @@ const mocks = vi.hoisted(() => ({
   createIncident: vi.fn(),
   listCatalog: vi.fn(),
   listIncidents: vi.fn(),
+  listOpenIncidents: vi.fn(),
   updateVehicleFields: vi.fn(),
   manageIncident: vi.fn(),
   resolveIncident: vi.fn(),
   updateIncident: vi.fn(),
   createCatalogEntry: vi.fn(),
-  listWorkshops: vi.fn(),
   createVehicleLink: vi.fn(),
   listKmReadingsAll: vi.fn(),
 }))
@@ -30,13 +30,13 @@ vi.mock('../api.ts', async (importOriginal) => ({
   createIncident: mocks.createIncident,
   listCatalog: mocks.listCatalog,
   listIncidents: mocks.listIncidents,
+  listOpenIncidents: mocks.listOpenIncidents,
   updateVehicleFields: mocks.updateVehicleFields,
   manageIncident: mocks.manageIncident,
   resolveIncident: mocks.resolveIncident,
   updateIncident: mocks.updateIncident,
   createCatalogEntry: mocks.createCatalogEntry,
   // El modal de resolver (dispatcher) carga el catálogo por esta función.
-  listWorkshops: mocks.listWorkshops,
   createVehicleLink: mocks.createVehicleLink,
   listKmReadingsAll: mocks.listKmReadingsAll,
 }))
@@ -162,8 +162,9 @@ describe('VehicleStateModal (Estado · matrícula)', () => {
       has_en: true,
     })
     mocks.listCatalog.mockResolvedValue(page(WORKSHOPS))
-    mocks.listWorkshops.mockResolvedValue(WORKSHOPS)
     mocks.listIncidents.mockResolvedValue(page([]))
+    // R5-35: las abiertas del coche llegan ya filtradas por el servidor.
+    mocks.listOpenIncidents.mockResolvedValue([])
     // Última lectura del odómetro: el parte de neumáticos no puede bajar de ahí.
     mocks.listKmReadingsAll.mockResolvedValue(page([{ id: 1, km_reading: 44000 }]))
     mocks.createVehicleLink.mockReset()
@@ -177,7 +178,8 @@ describe('VehicleStateModal (Estado · matrícula)', () => {
 
   it('abre en «Sin cambios» con todo desactivado (y sin fila «-- Ignorar --»)', () => {
     renderModal()
-    // «Estados abiertos» está oculto: lo pendiente se repasa en la ficha.
+    // Sin pestaña «Estados abiertos» (R5-42): lo pendiente se repasa en la
+    // ficha y en la pestaña «Incidencias» de al lado.
     expect(screen.queryByText(/Estados abiertos/)).toBeNull()
     // El formulario va por PASOS: solo el primero está disponible hasta que se
     // elige qué se hace; los demás se encienden según lo elegido.
@@ -449,13 +451,11 @@ describe('VehicleStateModal (Estado · matrícula)', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/neumáticos/i)
   })
 
-  /** Con la pestaña oculta, el modal no enseña ni pide lo que ya está abierto:
-   * eso se repasa en la ficha. El ciclo modificar → gestionar → resolver de una
-   * petición se prueba en `OpenIncidentsPanel.test.tsx`. */
   /** Lo abierto no se LISTA aquí (eso es la pestaña «Incidencias»), pero sí se
    * consulta: es lo que RETIENE al coche fuera de servicio. */
   it('lo que quedó abierto no se lista, pero sí retiene al coche', async () => {
     mocks.listIncidents.mockResolvedValue(page([OPEN_INCIDENT, CLOSED_INCIDENT]))
+    mocks.listOpenIncidents.mockResolvedValue([OPEN_INCIDENT])
     const parado = {
       ...VEHICLE,
       state: 'broken',

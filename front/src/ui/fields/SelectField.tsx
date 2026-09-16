@@ -347,6 +347,7 @@ export function SelectField({
       onWarningClose={onWarningClose}
       className={containerClassName}
     >
+      {(controlId) => (
       <div className={styles.fieldSelectLayout}>
         {enableSearchFilter && searchVisible && (
           <div className={styles.fieldSelectSearchBar}>
@@ -385,6 +386,7 @@ export function SelectField({
             </button>
           )}
           <select
+            id={controlId}
             disabled={disabled}
             className={cx(
               styles.fieldSelect,
@@ -428,6 +430,7 @@ export function SelectField({
           </select>
         </div>
       </div>
+      )}
     </FieldShell>
   )
 }

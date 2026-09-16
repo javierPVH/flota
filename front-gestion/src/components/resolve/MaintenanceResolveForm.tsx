@@ -29,6 +29,8 @@ interface Props {
   source: MaintenanceSource
   /** Estado actual del vehículo: decide si se ofrece «devolver a Activo». */
   vehicleState?: VehicleState
+  /** Con el coche parado, la casilla vive en el despachador (una por modal). */
+  returnToActive?: boolean
   onClose: () => void
   /** Registrado: texto para el aviso verde del padre (que recarga sus datos). */
   onDone: (notice: string) => void
@@ -67,12 +69,25 @@ function hintedPlan(source: MaintenanceSource): number | null {
  * cualquiera de las otras dos puertas. Una alerta sin planes se resuelve solo
  * con la nota, como cualquier otra. El padre pone el `Modal` y el título.
  */
-export function MaintenanceResolveForm({ source, vehicleState, onClose, onDone }: Props) {
+export function MaintenanceResolveForm({
+  source,
+  vehicleState,
+  returnToActive,
+  onClose,
+  onDone,
+}: Props) {
   const t = useResolveCopy()
   const m = t.maintenance
   const alertsCopy = useAlertsPageCopy()
   const vehicleId = vehicleOf(source)
-  const common = useResolutionCommon({ flow: 'maintenance', vehicleState })
+  const common = useResolutionCommon({
+    flow: 'maintenance',
+    vehicleState,
+    returnToActive,
+    // El CP solo se pinta cuando hay petición detrás: una alerta no tiene
+    // ubicación preferente que completar.
+    postalCode: source.kind === 'incident' ? source.incident.workshop_postal_code : undefined,
+  })
 
   // Planes del vehículo: solo los pide la ALERTA (hay que decir cuál se ha
   // hecho). El plan directo ya viene elegido y el puntual no lleva plan.

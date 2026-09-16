@@ -158,7 +158,6 @@ const es = {
     kpiMaintenanceOk: 'Todos al día',
     alertsTitle: 'Alertas que requieren atención',
     alertsOpen: (n: number) => `${n} abiertas`,
-    seeAll: 'Ver todas →',
     searchPlaceholder: 'Buscar matrícula, marca o conductor…',
     searchLabel: 'Buscar vehículos',
     showRetired: 'Mostrar bajas',
@@ -206,12 +205,6 @@ const es = {
     } as Record<string, string>,
     // Plazo en lenguaje natural (calculado en vivo desde la fecha de
     // vencimiento): más claro que «en 0 día(s)» / «vencido hace N día(s)».
-    alertDeadline: {
-      overdue: (n: number) => `Vencido hace ${n} día${n === 1 ? '' : 's'}`,
-      today: 'Vence hoy',
-      tomorrow: 'Vence mañana',
-      inDays: (n: number) => `Vence en ${n} días`,
-    },
     thPlate: 'Matrícula',
     thVehicle: 'Vehículo',
     thUse: 'Uso',
@@ -226,7 +219,6 @@ const es = {
     thFuel: 'Combustible (mes)',
     kmNoReading: 'Sin lecturas',
     kmStale: (n: number) => `${n} día${n === 1 ? '' : 's'} sin lectura`,
-    kmEstimated: 'Estimada',
     // Fila desplegable: el coche que está cubriendo a este.
     subRow: 'Coche de sustitución',
     subRowSince: (date: string) => `Cubre desde ${date}`,
@@ -264,18 +256,6 @@ const es = {
     clearFilters: 'Limpiar',
     toolsToggle: 'Buscar y exportar',
     toolsSummary: (n: number) => `${n} registros`,
-    alertGo: {
-      alerts: 'Ir a Alertas',
-      fleet: 'Ir a Flota',
-      mileage: 'Ir a Kilómetros',
-    },
-    alertDetail: {
-      level: 'Nivel',
-      vehicle: 'Vehículo',
-      message: 'Mensaje',
-      dueDate: 'Fecha límite',
-      noVehicle: 'Sin vehículo',
-    },
     incidentsTitle: 'Incidencias abiertas',
     incidentsOpen: (n: number) => `${n} abiertas`,
     // Catálogo del panel de incidencias (sin ITV: esa vive en las alertas).
@@ -503,7 +483,6 @@ const en: typeof es = {
     kpiMaintenanceOk: 'All up to date',
     alertsTitle: 'Alerts that need attention',
     alertsOpen: (n) => `${n} open`,
-    seeAll: 'See all →',
     searchPlaceholder: 'Search plate, brand or driver…',
     searchLabel: 'Search vehicles',
     showRetired: 'Show retired',
@@ -544,12 +523,6 @@ const en: typeof es = {
       maintenance: 'Scheduled maintenance',
       no_driver: 'No driver',
     } as Record<string, string>,
-    alertDeadline: {
-      overdue: (n: number) => `Overdue by ${n} day${n === 1 ? '' : 's'}`,
-      today: 'Due today',
-      tomorrow: 'Due tomorrow',
-      inDays: (n: number) => `Due in ${n} days`,
-    },
     thPlate: 'Plate',
     thVehicle: 'Vehicle',
     thUse: 'Use',
@@ -561,7 +534,6 @@ const en: typeof es = {
     thFuel: 'Fuel (month)',
     kmNoReading: 'No readings',
     kmStale: (n: number) => `${n} day${n === 1 ? '' : 's'} without a reading`,
-    kmEstimated: 'Estimated',
     subRow: 'Substitute vehicle',
     subRowSince: (date: string) => `Covering since ${date}`,
     thMaintenance: 'Next service',
@@ -599,18 +571,6 @@ const en: typeof es = {
     clearFilters: 'Clear',
     toolsToggle: 'Search & export',
     toolsSummary: (n) => `${n} records`,
-    alertGo: {
-      alerts: 'Go to Alerts',
-      fleet: 'Go to Fleet',
-      mileage: 'Go to Mileage',
-    },
-    alertDetail: {
-      level: 'Level',
-      vehicle: 'Vehicle',
-      message: 'Message',
-      dueDate: 'Due date',
-      noVehicle: 'No vehicle',
-    },
     incidentsTitle: 'Open incidents',
     incidentsOpen: (n) => `${n} open`,
     incidentTabs: {

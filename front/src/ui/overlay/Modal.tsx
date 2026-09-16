@@ -26,6 +26,17 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), ' +
   'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
+/**
+ * R5-21: pila de modales ABIERTOS a nivel de módulo. Cada instancia se apila al
+ * abrir y se desapila al cerrar; solo la CIMA atiende `Escape` y la trampa de
+ * `Tab`. Sin esto, con dos diálogos abiertos (el despachador de resolver sobre
+ * la lista de pendientes, la confirmación sobre la edición…) `Escape` cerraba
+ * los dos y las dos trampas se peleaban por el foco: cada una veía al otro
+ * card como «fuera» (los dos van al `body`) y lo devolvía a su primer control.
+ */
+const openModals: symbol[] = []
+const isTopModal = (id: symbol) => openModals[openModals.length - 1] === id
+
 export function Modal({ open, title, onClose, children, footer, wide = false, xl = false, maxWidth, height }: ModalProps) {
   const titleId = useId()
   const cardRef = useRef<HTMLDivElement | null>(null)
@@ -43,6 +54,8 @@ export function Modal({ open, title, onClose, children, footer, wide = false, xl
   // disparador al cerrar y bloqueo del scroll de fondo.
   useEffect(() => {
     if (!open) return
+    const stackId = Symbol('modal')
+    openModals.push(stackId)
     const previouslyFocused = document.activeElement as HTMLElement | null
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -56,6 +69,8 @@ export function Modal({ open, title, onClose, children, footer, wide = false, xl
     })
 
     const onKey = (e: KeyboardEvent) => {
+      // Solo el modal de encima responde a las teclas globales.
+      if (!isTopModal(stackId)) return
       if (e.key === 'Escape') {
         onCloseRef.current()
         return
@@ -86,6 +101,8 @@ export function Modal({ open, title, onClose, children, footer, wide = false, xl
     return () => {
       cancelAnimationFrame(frame)
       document.removeEventListener('keydown', onKey)
+      const at = openModals.indexOf(stackId)
+      if (at !== -1) openModals.splice(at, 1)
       document.body.style.overflow = previousOverflow
       previouslyFocused?.focus?.()
     }

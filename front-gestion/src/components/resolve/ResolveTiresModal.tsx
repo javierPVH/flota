@@ -28,7 +28,10 @@ export function ResolveTiresModal({ incident, onClose, onDone }: Props) {
   const t = useResolveCopy()
   const c = t.tires
   const details = incident.details ?? {}
-  const common = useResolutionCommon({ flow: 'tires' })
+  const common = useResolutionCommon({
+    flow: 'tires',
+    postalCode: incident.workshop_postal_code,
+  })
   const [size, setSize] = useState(() => prefillSize(details))
   const [brand, setBrand] = useState('')
   const [positions, setPositions] = useState<TirePosition[]>(() => prefillPositions(details))
