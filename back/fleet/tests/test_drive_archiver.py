@@ -3,8 +3,8 @@
 El `GoogleDriveArchiver` acepta un `service` inyectado (mismo contrato que el
 cliente de googleapiclient) — aquí se simula Drive: el árbol carpeta madre →
 matrícula → familia, la subida del binario y el efecto completo sobre
-`Document`/`Vehicle`, más QUIÉN puede archivar (hace falta haber entrado con
-Google).
+`Document`/`Vehicle`, más QUIÉN puede archivar: el administrador siempre (con su
+Google o con la cuenta de servicio); el resto, solo si entró con Google.
 """
 
 import tempfile
@@ -195,6 +195,30 @@ class GoogleDriveArchiverTests(TestCase):
         self.assertEqual(doc.status, DocumentStatus.PENDING_ARCHIVE)
         self.assertEqual(fake.created, [])
         self.assertTrue(doc.file)  # el binario sigue en staging
+
+    @override_settings(**DRIVE_ON)
+    def test_administrador_sin_google_sube_con_la_cuenta_de_servicio(self):
+        # Gestión va por dentro y el acceso se gestiona en casa: el administrador
+        # no necesita haber entrado con Google (ni tener Drive conectado) para
+        # que la cuenta de servicio archive lo que sube.
+        from accounts.models import Role, UserRole
+
+        admin = get_user_model().objects.create_user(username="jefa", email="jefa@flota.dev")
+        UserRole.objects.create(user=admin, role=Role.ADMIN)
+        self.assertIsNone(admin.last_google_login)
+        fake = _FakeFiles()
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            doc = self._doc_with_file(uploader=admin)
+            archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
+        self.assertEqual(doc.status, DocumentStatus.VALID)
+        self.assertEqual(doc.drive_url, "https://drive/file-456")
+        # Un conductor en la misma situación sigue esperando: la regla es por rol.
+        conductor = get_user_model().objects.create_user(username="cond", email="cond@flota.dev")
+        UserRole.objects.create(user=conductor, role=Role.DRIVER)
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            pendiente = self._doc_with_file(uploader=conductor)
+            archive_document(pendiente, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
+        self.assertEqual(pendiente.status, DocumentStatus.PENDING_ARCHIVE)
 
     @override_settings(**DRIVE_ON)
     def test_sin_quien_lo_suba_no_se_sube(self):

@@ -198,14 +198,21 @@ class GoogleDriveArchiver(BaseArchiver):
 
         Quien sube manda, porque son dos webs distintas:
 
-        - **Gestión** (el administrador ha conectado su Google): se sube con SU
-          cuenta. Es su Drive y su rastro, y esa web va por dentro.
+        - **Gestión**: si el administrador ha conectado su Google, se sube con
+          SU cuenta (es su Drive y su rastro). Si no, con la **cuenta de
+          servicio**: el administrador es el rol de confianza de la casa, entra
+          por la red interna y el acceso se gestiona dentro, así que no hace
+          falta una identidad de Google detrás para escribir en la carpeta de
+          la flota (gestión, además, no puede completar el OAuth de Google sin
+          un origen https público).
         - **Conductores** (web pública): a un conductor no se le pide Drive, así
           que sube la **cuenta de servicio** — pero solo si esa persona **entró
           con Google** (`last_google_login`), que es lo único que acredita que
-          hay una identidad de Google detrás del documento.
+          hay una identidad de Google detrás del documento. Es a propósito: un
+          usuario de la web pública no consigue, con una contraseña, que la
+          cuenta privilegiada escriba en Drive en su nombre.
 
-        Sin ninguna de las dos cosas no se sube: el documento queda pendiente y
+        Sin ninguna de esas cosas no se sube: el documento queda pendiente y
         el reintento (`archive_pending_documents`) lo recogerá si algún día la
         hay. Nunca lanza: lo peor que pasa es que no se archive todavía.
         """
@@ -216,6 +223,8 @@ class GoogleDriveArchiver(BaseArchiver):
         propia = self._cuenta_propia(uploader)
         if propia is not None:
             return propia
+        if getattr(uploader, "is_admin", False):
+            return self._get_service()
         if not getattr(uploader, "last_google_login", None):
             # Una vez por persona y pasada: el reintento repasa lo pendiente
             # entero cada vez, y una línea por documento tapaba el log.
