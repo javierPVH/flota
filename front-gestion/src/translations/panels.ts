@@ -3,6 +3,8 @@ import { useAppLang } from '@flota/ui/i18n'
 const es = {
   documents: {
     title: 'Documentos',
+    // En la ficha de un usuario: solo los suyos (permiso de conducir…).
+    titlePersonal: 'Documentos personales',
     filePickLabel: 'Foto o PDF (desde tu equipo)',
     typeOptions: {
       registration_certificate: 'Permiso de circulación',
@@ -32,7 +34,7 @@ const es = {
       uploaded: 'Subido',
       by: 'Por',
       expiry: 'Caducidad',
-      incident: 'Incidencia',
+      link: 'Ligado a',
       notes: 'Notas',
       status: 'Estado',
       actions: 'Acciones',
@@ -52,6 +54,7 @@ const es = {
       `El archivo de "${typeDisplay}" ya no existe en Drive. ¿Borrar definitivamente el registro? No pasa por erratas y no se puede deshacer.`,
     purgeError: 'No se pudo borrar definitivamente.',
     filterType: 'Tipo',
+    groupByType: 'Agrupar por tipo',
     allTypes: 'Todos',
     allVehicles: 'Todos',
     allStatuses: 'Todos',
@@ -87,6 +90,30 @@ const es = {
       `#${i.id} · ${i.type_display} · ${i.status_display}${i.date ? ` (${i.date})` : ''}`,
     noOpenIncident: (typeDisplay: string) =>
       `Un «${typeDisplay}» va ligado a un accidente abierto y este vehículo no tiene ninguno: comunica primero el accidente.`,
+    // La factura de taller acompaña SIEMPRE a algo: incidencia, ITV o mantenimiento.
+    linkRequiredLabel: 'Ligado a incidencia, ITV o mantenimiento',
+    linkChoose: 'Elige a qué acompaña…',
+    linkRequired: 'Elige la incidencia, la ITV o el mantenimiento al que acompaña la factura.',
+    noLinkCandidates: (typeDisplay: string) =>
+      `Una «${typeDisplay}» va ligada a una incidencia, una ITV o un mantenimiento y este vehículo no tiene ninguno registrado.`,
+    // La póliza y el informe de ITV pueden acompañar a su registro.
+    recordLabel: 'Registro al que acompaña (opcional)',
+    recordNone: 'Ninguno',
+    linkGroups: {
+      incidents: 'Incidencias',
+      itv: 'ITV',
+      maintenance: 'Mantenimientos',
+      insurance_renewal: 'Renovaciones de seguro',
+    },
+    eventOption: (e: {
+      event_type_display: string
+      event_date: string | null
+      details: Record<string, unknown> | null
+    }) => {
+      const base = `${e.event_type_display} · ${e.event_date ?? '—'}`
+      const vence = e.details?.kind === 'insurance_renewal' ? e.details.new_expiry : null
+      return vence ? `${base} (vence ${String(vence)})` : base
+    },
     notesLabel: 'Notas',
     fileLabel: 'Archivo',
     uploadToDrive: 'Subir a Drive',
@@ -241,6 +268,7 @@ const es = {
 const en: typeof es = {
   documents: {
     title: 'Documents',
+    titlePersonal: 'Personal documents',
     filePickLabel: 'Photo or PDF (from your computer)',
     typeOptions: {
       registration_certificate: 'Registration certificate',
@@ -270,7 +298,7 @@ const en: typeof es = {
       uploaded: 'Uploaded',
       by: 'By',
       expiry: 'Expiry',
-      incident: 'Incident',
+      link: 'Linked to',
       notes: 'Notes',
       status: 'Status',
       actions: 'Actions',
@@ -290,6 +318,7 @@ const en: typeof es = {
       `The file of "${typeDisplay}" no longer exists in Drive. Delete the record permanently? It skips the erratas space and cannot be undone.`,
     purgeError: 'Could not delete permanently.',
     filterType: 'Type',
+    groupByType: 'Group by type',
     allTypes: 'All',
     allVehicles: 'All',
     allStatuses: 'All',
@@ -325,6 +354,24 @@ const en: typeof es = {
       `#${i.id} · ${i.type_display} · ${i.status_display}${i.date ? ` (${i.date})` : ''}`,
     noOpenIncident: (typeDisplay) =>
       `A "${typeDisplay}" is linked to an open accident and this vehicle has none: report the accident first.`,
+    linkRequiredLabel: 'Linked to incident, MOT or maintenance',
+    linkChoose: 'Choose what it belongs to…',
+    linkRequired: 'Choose the incident, MOT or maintenance this invoice belongs to.',
+    noLinkCandidates: (typeDisplay) =>
+      `A "${typeDisplay}" is linked to an incident, an MOT or a maintenance and this vehicle has none on record.`,
+    recordLabel: 'Record it belongs to (optional)',
+    recordNone: 'None',
+    linkGroups: {
+      incidents: 'Incidents',
+      itv: 'MOT',
+      maintenance: 'Maintenance',
+      insurance_renewal: 'Insurance renewals',
+    },
+    eventOption: (e) => {
+      const base = `${e.event_type_display} · ${e.event_date ?? '—'}`
+      const vence = e.details?.kind === 'insurance_renewal' ? e.details.new_expiry : null
+      return vence ? `${base} (expires ${String(vence)})` : base
+    },
     notesLabel: 'Notes',
     fileLabel: 'File',
     uploadToDrive: 'Upload to Drive',

@@ -42,6 +42,17 @@ class Document(DeactivatableModel, TimeStampedModel):
         related_name="documents",
         verbose_name="Incidencia",
     )
+    event = models.ForeignKey(
+        "fleet.Event",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="documents",
+        verbose_name="Registro",
+        help_text="Registro del vehículo al que acompaña el documento: la ITV del informe, "
+        "la renovación de seguro de la póliza o la ITV/mantenimiento de la factura "
+        "(`EVENT_LINKABLE_DOCUMENT_TYPES`). Solo con titular coche y sin incidencia a la vez.",
+    )
     drive_url = models.CharField(
         "URL en Drive", max_length=500, blank=True, help_text="Ruta o URL al documento archivado."
     )

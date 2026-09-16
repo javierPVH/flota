@@ -14,7 +14,17 @@ import {
 
 import { TextCell } from './TextCell.tsx'
 
-import { documentExpires, incidentTypeRequiredBy, linkableIncidents } from '../documentRules.ts'
+import {
+  PERSONAL_DOCUMENT_TYPES,
+  VEHICLE_DOCUMENT_TYPES,
+  documentExpires,
+  documentLinkRequired,
+  incidentTypeRequiredBy,
+  linkableEventKinds,
+  linkableEvents,
+  linkableIncidents,
+  type EventKind,
+} from '../documentRules.ts'
 import { documentStatusTone } from '../format.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
 import { useConfirm, useDeactivateConfirm } from './ConfirmDialog.tsx'
@@ -28,7 +38,9 @@ import {
   fetchFolderFiles,
   fetchPickerConfig,
   listDocuments,
+  listIncidents,
   listOpenIncidents,
+  listVehicleEvents,
   purgeDocument,
   updateDocument,
   uploadDocument,
@@ -39,25 +51,32 @@ import { openDrivePicker, type PickedFile } from '../services/google-picker.ts'
 import type {
   DriveFile,
   FlotaDocument,
+  FlotaEvent,
   Incident,
+  ManagedUser,
   PickerConfig,
   Vehicle,
 } from '../types.ts'
 
-// Tipos de documento (lista cerrada del back, Épica 4). Etiquetas en panels.ts.
-const DOCUMENT_TYPE_VALUES = [
-  'registration_certificate',
-  'technical_datasheet',
-  'insurance',
-  'contract',
-  'delivery_report',
-  'return_report',
-  'accident_report',
-  'damage_photos',
-  'itv_report',
-  'workshop_invoice',
-  'other',
-] as const
+/** A qué acompaña el documento, codificado en el valor del desplegable:
+ * `incident:<id>` o `event:<id>`; vacío = a nada. */
+type DocumentLink = { incident: number | null; event: number | null }
+
+function parseLink(link: string): DocumentLink {
+  const [kind, id] = link.split(':')
+  const n = Number(id)
+  if (!n) return { incident: null, event: null }
+  return kind === 'event' ? { incident: null, event: n } : { incident: n, event: null }
+}
+
+function linkOf(doc: FlotaDocument | null): string {
+  if (doc?.incident) return `incident:${doc.incident}`
+  if (doc?.event) return `event:${doc.event}`
+  return ''
+}
+
+/** Los tipos de registro que se piden al back, en el orden de los grupos. */
+const EVENT_KINDS: readonly EventKind[] = ['itv', 'maintenance', 'insurance_renewal']
 
 /** Solo enlaces http(s): corta javascript:/data: aunque el back ya sanea. */
 function safeHref(url: string): string {
@@ -80,25 +99,47 @@ const EMPTY_ATTACH: AttachState = { picked: null, file: null, manualUrl: '' }
 interface FormState {
   type: string
   expiry_date: string
-  incident: string
+  /** A qué acompaña (`incident:<id>` / `event:<id>`), o vacío. */
+  link: string
   notes: string
 }
 
-const EMPTY_FORM: FormState = { type: 'insurance', expiry_date: '', incident: '', notes: '' }
+const emptyForm = (type: string): FormState => ({ type, expiry_date: '', link: '', notes: '' })
+
+/** El titular de los documentos: un vehículo (la ficha del coche) O una
+ * persona (la ficha del usuario: sus documentos personales, como el permiso
+ * de conducir). Exactamente uno, igual que exige el back. */
+type DocumentsOwner =
+  | { vehicle: Vehicle; user?: undefined }
+  | { user: ManagedUser; vehicle?: undefined }
 
 /** Sección "Documentos" de la ficha (G7): consultar, subir/elegir de Drive,
- * sustituir conservando versión, caducar/reactivar y eliminar. */
+ * sustituir conservando versión, caducar/reactivar y eliminar. En la ficha
+ * de un usuario enseña solo LOS SUYOS: sin incidencias (son del coche), sin
+ * carpeta de Drive que abrir y con los tipos personales. */
 export function DocumentsPanel({
   vehicle,
+  user,
   accordion,
-}: {
-  vehicle: Vehicle
-  accordion: AccordionState
-}) {
+}: DocumentsOwner & { accordion: AccordionState }) {
   const t = usePanelsCopy().documents
+  const personal = !vehicle
+  // Filtro/titular que viaja al back en cada llamada (`{vehicle}` o `{user}`).
+  const ownerFilter = useMemo<{ vehicle?: number; user?: number }>(
+    () => (vehicle ? { vehicle: vehicle.id } : { user: user.id }),
+    [vehicle, user],
+  )
+  const ownerLabel = vehicle
+    ? vehicle.plate
+    : `${user.first_name} ${user.last_name}`.trim() || user.username
+  const defaultType = personal ? 'driving_license' : 'insurance'
   const typeOptions = useMemo(
-    () => DOCUMENT_TYPE_VALUES.map((value) => ({ value, label: t.typeOptions[value] })),
-    [t],
+    () =>
+      (personal ? PERSONAL_DOCUMENT_TYPES : VEHICLE_DOCUMENT_TYPES).map((value) => ({
+        value,
+        label: t.typeOptions[value],
+      })),
+    [personal, t],
   )
   const deactivateConfirm = useDeactivateConfirm()
   const confirm = useConfirm()
@@ -108,6 +149,9 @@ export function DocumentsPanel({
   const [typeFilter, setTypeFilter] = useState('')
   // Búsqueda en cliente sobre los documentos ya cargados (barra informativa).
   const [search, setSearch] = useState('')
+  // Agrupar la tabla en bloques plegables por tipo de documento (un nivel,
+  // alfabético): la casilla de la barra.
+  const [groupByType, setGroupByType] = useState(false)
 
   const [picker, setPicker] = useState<PickerConfig | null>(null)
   const [folderFiles, setFolderFiles] = useState<DriveFile[] | null>(null)
@@ -115,9 +159,12 @@ export function DocumentsPanel({
 
   const [modalOpen, setModalOpen] = useState(false)
   const [replacing, setReplacing] = useState<FlotaDocument | null>(null)
-  const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  const [form, setForm] = useState<FormState>(() => emptyForm(defaultType))
   const [attach, setAttach] = useState<AttachState>(EMPTY_ATTACH)
   const [incidents, setIncidents] = useState<Incident[]>([])
+  // Los registros del coche a los que puede acompañar un documento (ITV,
+  // mantenimientos, renovaciones de seguro), cargados al abrir el alta.
+  const [events, setEvents] = useState<FlotaEvent[]>([])
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -130,14 +177,14 @@ export function DocumentsPanel({
 
   const load = useCallback(() => {
     setLoading(true)
-    listDocuments({ vehicle: vehicle.id, type: typeFilter || undefined })
+    listDocuments({ ...ownerFilter, type: typeFilter || undefined })
       .then((page) => {
         setDocs(page.results)
         setError('')
         // En cada carga se comprueba que los archivos siguen en Drive: lo que
         // ya no está se marca en la fila (y ofrece el borrado definitivo). La
         // tabla no espera a Drive: se pinta con la lista y se corrige después.
-        verifyDocuments({ vehicle: vehicle.id })
+        verifyDocuments(ownerFilter)
           .then(({ checked, missing }) => {
             const ahora = new Date().toISOString()
             setDocs((actuales) =>
@@ -154,7 +201,7 @@ export function DocumentsPanel({
       })
       .catch((err) => setError(asErrorMessage(err, tRef.current.loadError)))
       .finally(() => setLoading(false))
-  }, [vehicle.id, typeFilter])
+  }, [ownerFilter, typeFilter])
 
   useEffect(load, [load])
 
@@ -168,45 +215,96 @@ export function DocumentsPanel({
     setReplacing(replaceDoc)
     setForm(
       replaceDoc
-        ? {
-            type: replaceDoc.type,
-            expiry_date: '',
-            incident: replaceDoc.incident ? String(replaceDoc.incident) : '',
-            notes: '',
-          }
-        : EMPTY_FORM,
+        ? { type: replaceDoc.type, expiry_date: '', link: linkOf(replaceDoc), notes: '' }
+        : emptyForm(defaultType),
     )
     setAttach(EMPTY_ATTACH)
     setFormError('')
     setModalOpen(true)
-    // Solo lo que sigue abierto: lo que se adjunta se adjunta a lo que está
-    // en marcha. Si la incidencia del documento sustituido ya se cerró, se
-    // suelta (no se puede elegir lo que no se ofrece).
-    listOpenIncidents({ vehicle: vehicle.id })
-      .then((rows) => {
-        setIncidents(rows)
-        setForm((f) =>
-          rows.some((row) => String(row.id) === f.incident) ? f : { ...f, incident: '' },
-        )
+    // Las incidencias y los registros son del coche: un documento personal no
+    // se liga a nada.
+    if (!vehicle) {
+      setIncidents([])
+      setEvents([])
+      return
+    }
+    // Lo que tiene el coche a lo que puede acompañar un documento: sus
+    // incidencias (las abiertas siempre; las cerradas más recientes para la
+    // factura, que llega después de la reparación) y sus registros de ITV,
+    // mantenimiento y renovación de seguro. Cada carga que falle deja su
+    // lista vacía: el resto se ofrece igual.
+    const cargaIncidencias = Promise.allSettled([
+      listOpenIncidents({ vehicle: vehicle.id }),
+      listIncidents({ vehicle: vehicle.id, status: 'closed' }).then((page) => page.results),
+    ]).then((res) => {
+      const abiertas = res[0].status === 'fulfilled' ? res[0].value : []
+      const cerradas = res[1].status === 'fulfilled' ? res[1].value : []
+      const ids = new Set(abiertas.map((row) => row.id))
+      return [...abiertas, ...cerradas.filter((row) => !ids.has(row.id))]
+    })
+    const cargaRegistros = Promise.allSettled(
+      EVENT_KINDS.map((kind) => listVehicleEvents(vehicle.id, kind).then((page) => page.results)),
+    ).then((res) => res.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])))
+    Promise.all([cargaIncidencias, cargaRegistros]).then(([rows, registros]) => {
+      setIncidents(rows)
+      setEvents(registros)
+      // Si lo que ligaba el documento sustituido ya no se ofrece (la
+      // incidencia se cerró y el tipo no admite cerradas), se suelta.
+      setForm((f) => {
+        const { incident, event } = parseLink(f.link)
+        const sigue = incident
+          ? linkableIncidents(rows, f.type).some((row) => row.id === incident)
+          : event
+            ? linkableEvents(registros, f.type).some((row) => row.id === event)
+            : true
+        return sigue ? f : { ...f, link: '' }
       })
-      .catch(() => setIncidents([]))
-  }, [vehicle.id])
+    })
+  }, [defaultType, vehicle])
 
   // Qué pide el formulario según el tipo elegido (mismas reglas que el back).
   const expires = documentExpires(form.type)
   const boundTo = incidentTypeRequiredBy(form.type)
-  const linkable = useMemo(() => linkableIncidents(incidents, form.type), [incidents, form.type])
+  const linkRequired = documentLinkRequired(form.type)
+  const linkableInc = useMemo(() => linkableIncidents(incidents, form.type), [incidents, form.type])
+  const linkableEv = useMemo(() => linkableEvents(events, form.type), [events, form.type])
+  // Un solo desplegable con lo que tiene el coche, agrupado por su categoría:
+  // incidencias y, detrás, cada tipo de registro que el documento admita.
+  const linkOptions = useMemo(() => {
+    const grupos = t.linkGroups
+    const opciones = linkableInc.map((i) => ({
+      value: `incident:${i.id}`,
+      label: t.incidentOption(i),
+      group: grupos.incidents,
+    }))
+    for (const kind of linkableEventKinds(form.type)) {
+      for (const e of linkableEv) {
+        if (e.event_type !== kind) continue
+        opciones.push({ value: `event:${e.id}`, label: t.eventOption(e), group: grupos[kind] })
+      }
+    }
+    return opciones
+  }, [form.type, linkableEv, linkableInc, t])
+
+  /** ¿Sigue ofreciéndose `link` para un documento de `type`? */
+  const linkOffered = useCallback(
+    (link: string, type: string) => {
+      const { incident, event } = parseLink(link)
+      if (incident) return linkableIncidents(incidents, type).some((row) => row.id === incident)
+      if (event) return linkableEvents(events, type).some((row) => row.id === event)
+      return true
+    },
+    [events, incidents],
+  )
 
   function changeType(value: string) {
     // Al cambiar de tipo caen los campos que ese tipo no tiene: la caducidad
-    // de lo que no caduca y la incidencia que el tipo nuevo no admite.
+    // de lo que no caduca y el vínculo que el tipo nuevo no admite.
     setForm((f) => ({
       ...f,
       type: value,
       expiry_date: documentExpires(value) ? f.expiry_date : '',
-      incident: linkableIncidents(incidents, value).some((row) => String(row.id) === f.incident)
-        ? f.incident
-        : '',
+      link: linkOffered(f.link, value) ? f.link : '',
     }))
   }
 
@@ -237,17 +335,18 @@ export function DocumentsPanel({
       setFormError(t.expiryRequired)
       return
     }
-    if (boundTo && !form.incident) {
-      setFormError(t.incidentRequired)
+    if (linkRequired && !form.link) {
+      setFormError(boundTo ? t.incidentRequired : t.linkRequired)
       return
     }
     setSaving(true)
     setFormError('')
     const base: DocumentInput = {
-      vehicle: vehicle.id,
+      ...ownerFilter,
       type: form.type,
       expiry_date: form.expiry_date || null,
-      incident: form.incident ? Number(form.incident) : null,
+      // Un documento personal no acompaña a nada (el back lo rechazaría).
+      ...(personal ? {} : parseLink(form.link)),
       notes: form.notes || undefined,
       replaces: replacing?.id ?? null,
     }
@@ -316,7 +415,7 @@ export function DocumentsPanel({
   }, [confirm, load, t])
 
   async function toggleFolder() {
-    if (folderFiles) {
+    if (folderFiles || !vehicle) {
       setFolderFiles(null)
       return
     }
@@ -332,7 +431,10 @@ export function DocumentsPanel({
 
   const pickerReady = Boolean(picker?.enabled && picker.has_drive && picker.access_token)
   const needsConnect = Boolean(picker?.enabled && !picker.has_drive)
-  const folderUrl = safeHref(vehicle.drive_folder_url)
+  // La carpeta de Drive que se enlaza es la del coche; la de una persona
+  // (`Usuarios/<correo>`) la crea el archivador y no viaja en su ficha.
+  const folderUrl = vehicle ? safeHref(vehicle.drive_folder_url) : ''
+  const folderId = vehicle?.drive_folder_id ?? ''
 
   // Filtro en cliente: tipo, notas, usuario, estado, caducidad o fecha de subida.
   const visibleDocs = useMemo(() => {
@@ -379,10 +481,11 @@ export function DocumentsPanel({
       render: (doc) => doc.expiry_date ?? '—',
     },
     {
-      key: 'incident',
-      label: t.columns.incident,
-      getValue: (doc) => doc.incident ?? -1,
-      render: (doc) => (doc.incident ? `#${doc.incident}` : '—'),
+      // A qué acompaña: la incidencia (#id) o el registro (ITV, renovación…).
+      key: 'link',
+      label: t.columns.link,
+      getValue: (doc) => (doc.incident ? `#${doc.incident}` : doc.event_display || ''),
+      render: (doc) => (doc.incident ? `#${doc.incident}` : doc.event_display || '—'),
     },
     {
       // Las notas en columna propia: antes iban debajo del tipo y una nota
@@ -475,11 +578,17 @@ export function DocumentsPanel({
     },
   ], [handleDelete, handlePurge, openCreate, t, toggleStatus])
 
+  // Los documentos personales no acompañan a nada: la columna sobra.
+  const visibleColumns = useMemo(
+    () => (personal ? columns.filter((column) => column.key !== 'link') : columns),
+    [columns, personal],
+  )
+
   return (
     <CollapsibleCard
       id="documents"
       accordion={accordion}
-      title={t.title}
+      title={personal ? t.titlePersonal : t.title}
       actions={
         accordion.isOpen('documents') ? (
           <div className="section-tools">
@@ -505,7 +614,7 @@ export function DocumentsPanel({
         </div>
       )}
 
-      {(folderUrl || (pickerReady && vehicle.drive_folder_id)) && (
+      {(folderUrl || (pickerReady && folderId)) && (
         <p className="drive-folder-row">
           <FolderOpen size={15} aria-hidden />
           {folderUrl ? (
@@ -515,7 +624,7 @@ export function DocumentsPanel({
           ) : (
             <span>{t.driveFolder}</span>
           )}
-          {pickerReady && vehicle.drive_folder_id && (
+          {pickerReady && folderId && (
             <Button variant="secondary" size="sm" onClick={toggleFolder}>
               {folderFiles ? t.hideContents : t.showContents}
             </Button>
@@ -563,10 +672,20 @@ export function DocumentsPanel({
                 onValueChange={setTypeFilter}
               />
             </div>
+            {/* Los bloques por tipo: una cabecera plegable por cada tipo con
+                sus filas debajo, como agrupa la bandeja de alertas. */}
+            <label className="baja-toggle">
+              <input
+                type="checkbox"
+                checked={groupByType}
+                onChange={(e) => setGroupByType(e.target.checked)}
+              />
+              {t.groupByType}
+            </label>
           </TableInfoBar>
           <TableWithPanel<FlotaDocument>
             rows={visibleDocs}
-            columns={columns}
+            columns={visibleColumns}
             rowKey={(doc) => String(doc.id)}
             rowClassName={(doc) => (doc.status === 'expired' ? 'row-muted' : '')}
             enableColumnSort
@@ -575,13 +694,14 @@ export function DocumentsPanel({
             defaultPageSize={25}
             pageSizeOptions={[25, 50, 100]}
             emptyStateLabel={t.empty(Boolean(typeFilter) || Boolean(search))}
+            groupRowsByColumnKey={groupByType ? 'type' : undefined}
           />
         </>
       )}
 
       <Modal
         open={modalOpen}
-        title={replacing ? t.modalTitleReplace(replacing.type_display) : t.modalTitleNew(vehicle.plate)}
+        title={replacing ? t.modalTitleReplace(replacing.type_display) : t.modalTitleNew(ownerLabel)}
         onClose={() => setModalOpen(false)}
       >
         <form className="modal-form" onSubmit={handleSubmit}>
@@ -604,37 +724,45 @@ export function DocumentsPanel({
               onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
             />
           )}
-          {/* Incidencia: un parte de accidente va SIEMPRE ligado a un accidente
-              abierto; el resto se puede ligar a cualquier incidencia sin cerrar. */}
-          {boundTo ? (
-            linkable.length > 0 ? (
+          {/* A qué acompaña: un parte de accidente va SIEMPRE ligado a un
+              accidente abierto y una factura de taller a una incidencia, una
+              ITV o un mantenimiento; la póliza y el informe de ITV pueden ir
+              con su registro; lo demás, con cualquier incidencia sin cerrar.
+              Un solo desplegable con lo que tiene el coche, por categorías. */}
+          {linkRequired ? (
+            linkOptions.length > 0 ? (
               <SelectField
-                label={t.incidentRequiredLabel}
+                label={boundTo ? t.incidentRequiredLabel : t.linkRequiredLabel}
                 required
                 requiredVisual
                 options={[
-                  { value: '', label: t.incidentChoose },
-                  ...linkable.map((i) => ({ value: String(i.id), label: t.incidentOption(i) })),
+                  { value: '', label: boundTo ? t.incidentChoose : t.linkChoose },
+                  ...linkOptions,
                 ]}
-                value={form.incident}
-                onValueChange={(value) => setForm((f) => ({ ...f, incident: value }))}
+                value={form.link}
+                onValueChange={(value) => setForm((f) => ({ ...f, link: value }))}
               />
             ) : (
               <p className="form-error" role="status">
-                {t.noOpenIncident(t.typeOptions[form.type as keyof typeof t.typeOptions])}
+                {(boundTo ? t.noOpenIncident : t.noLinkCandidates)(
+                  t.typeOptions[form.type as keyof typeof t.typeOptions],
+                )}
               </p>
             )
           ) : (
-            linkable.length > 0 && (
+            linkOptions.length > 0 && (
               <SelectField
-                label={t.incidentLabel}
+                label={linkableEventKinds(form.type).length ? t.recordLabel : t.incidentLabel}
                 required
                 options={[
-                  { value: '', label: t.incidentNone },
-                  ...linkable.map((i) => ({ value: String(i.id), label: t.incidentOption(i) })),
+                  {
+                    value: '',
+                    label: linkableEventKinds(form.type).length ? t.recordNone : t.incidentNone,
+                  },
+                  ...linkOptions,
                 ]}
-                value={form.incident}
-                onValueChange={(value) => setForm((f) => ({ ...f, incident: value }))}
+                value={form.link}
+                onValueChange={(value) => setForm((f) => ({ ...f, link: value }))}
               />
             )
           )}
@@ -692,7 +820,7 @@ export function DocumentsPanel({
             <Button
               type="submit"
               variant="primary"
-              disabled={saving || (Boolean(boundTo) && linkable.length === 0)}
+              disabled={saving || (linkRequired && linkOptions.length === 0)}
             >
               {saving ? t.saving : replacing ? t.replace : t.save}
             </Button>

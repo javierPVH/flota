@@ -11,6 +11,7 @@ import {
   CollapsibleCard,
   useAccordion,
 } from '../components/CollapsibleCard.tsx'
+import { DocumentsPanel } from '../components/DocumentsPanel.tsx'
 import {
   TimelineChart,
   TimelineDayModal,
@@ -36,8 +37,10 @@ export function UserDetailPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [error, setError] = useState('')
 
-  // Acordeón de secciones (mejora): desplegadas por defecto.
-  const accordion = useAccordion(['history', 'group'])
+  // Acordeón de secciones (mejora): desplegadas por defecto. «documents» son
+  // SUS documentos personales (permiso de conducir…), el mismo panel que la
+  // ficha del vehículo con la persona como titular.
+  const accordion = useAccordion(['history', 'documents', 'group'])
 
   // O4: matrículas por Map (antes `find()` por celda) + grupo derivado (O3).
   const plateById = useMemo(() => new Map(vehicles.map((v) => [v.id, v.plate])), [vehicles])
@@ -160,6 +163,8 @@ export function UserDetailPage() {
             />
           )}
         </CollapsibleCard>
+
+        <DocumentsPanel user={user} accordion={accordion} />
 
         {user.roles.includes('supervisor') && (
           <CollapsibleCard id="group" accordion={accordion} title={t.groupTitle}>

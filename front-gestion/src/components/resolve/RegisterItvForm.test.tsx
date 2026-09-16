@@ -102,9 +102,9 @@ describe('RegisterItvForm (estación, km, informe y vuelta a Activo)', () => {
     expect(screen.getByRole('checkbox', { name: /Devolver el vehículo a Activo/ })).toBeChecked()
   })
 
-  it('el informe se sube DESPUÉS, ligado a la incidencia «En ITV» que se resolvía', async () => {
+  it('el informe se sube DESPUÉS, ligado a la ITV recién registrada (su registro)', async () => {
     mocks.uploadDocument.mockResolvedValue({})
-    const onSaved = renderForm({ incidentId: 5 })
+    const onSaved = renderForm()
     await screen.findByLabelText('Km en la inspección')
     await userEvent.type(screen.getByLabelText('Próxima ITV'), '2028-09-01')
     const file = new File(['pdf'], 'informe.pdf', { type: 'application/pdf' })
@@ -112,13 +112,14 @@ describe('RegisterItvForm (estación, km, informe y vuelta a Activo)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Registrar' }))
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    // Ni la incidencia dada ni la que el back cerró: el informe es DE esa ITV.
     expect(mocks.uploadDocument).toHaveBeenCalledWith(
-      { vehicle: 21, incident: 5, type: 'itv_report' },
+      { vehicle: 21, event: 1, type: 'itv_report' },
       file,
     )
   })
 
-  it('sin incidencia dada, el informe se liga a la que el back cerró; su fallo no rompe', async () => {
+  it('si el informe no se puede subir, el registro ya hecho no se rompe y se avisa', async () => {
     mocks.uploadDocument.mockRejectedValue(new Error('drive caído'))
     const onSaved = renderForm()
     await screen.findByLabelText('Km en la inspección')
@@ -129,7 +130,7 @@ describe('RegisterItvForm (estación, km, informe y vuelta a Activo)', () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
     expect(mocks.uploadDocument).toHaveBeenCalledWith(
-      { vehicle: 21, incident: 8, type: 'itv_report' },
+      { vehicle: 21, event: 1, type: 'itv_report' },
       file,
     )
     expect(onSaved.mock.calls[0][0]).toMatch(/no se pudo subir «informe.pdf»/)

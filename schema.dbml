@@ -642,6 +642,7 @@ Table documents {
   user_id int [ref: > drivers.id, note: 'titular persona (permiso de conducir…) — XOR con vehicle_id']
   type document_type_enum [not null]
   incident_id int [ref: > incidents.id, note: 'documento ligado a incidencia (acta/parte/fotos); solo con titular coche']
+  event_id int [ref: > events.id, note: 'registro al que acompaña (ITV del informe, renovación de seguro de la póliza, ITV/mantenimiento de la factura); solo con titular coche, excluyente con incident_id']
   drive_url varchar [note: 'webViewLink en Google Drive (Fase A3)']
   drive_file_id varchar [note: 'ID del fichero en Drive (Picker o archivador)']
   file varchar [note: 'staging local del multipart (Fase A1); se borra al archivar en Drive']

@@ -2,6 +2,7 @@
 
 from django.db import models
 
+from .event import EventType
 from .incident import IncidentType
 
 
@@ -44,6 +45,22 @@ EXPIRING_DOCUMENT_TYPES = frozenset(
 INCIDENT_BOUND_DOCUMENT_TYPES = {
     DocumentType.ACCIDENT_REPORT: IncidentType.ACCIDENT,
 }
+
+#: Tipos que pueden acompañar a un REGISTRO del coche (un `Event`) y a cuáles:
+#: la póliza, a la renovación del seguro que la trajo; el informe de ITV, a esa
+#: ITV; la factura del taller, a la ITV o al mantenimiento que la generó (o a
+#: una incidencia, que va por `incident`). Un tipo que no está aquí no se liga
+#: a ningún registro, y un registro de otro tipo → 400.
+EVENT_LINKABLE_DOCUMENT_TYPES = {
+    DocumentType.INSURANCE: frozenset({EventType.INSURANCE_RENEWAL}),
+    DocumentType.ITV_REPORT: frozenset({EventType.ITV}),
+    DocumentType.WORKSHOP_INVOICE: frozenset({EventType.ITV, EventType.MAINTENANCE}),
+}
+
+#: Tipos que EXIGEN acompañar a algo (una incidencia o un registro): una
+#: factura de taller siempre es la factura DE una reparación, una ITV o un
+#: mantenimiento. Suelta no dice nada.
+LINK_REQUIRED_DOCUMENT_TYPES = frozenset({DocumentType.WORKSHOP_INVOICE})
 
 
 class DocumentStatus(models.TextChoices):

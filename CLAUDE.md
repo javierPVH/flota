@@ -158,7 +158,27 @@ Dos capas que van **siempre juntas**:
   caduca, obligatoria en gestión; el accidente abierto como desplegable
   obligatorio, y sin ninguno abierto no se puede subir y se dice por qué), y
   solo ofrecen incidencias **sin cerrar**: lo que se adjunta se adjunta a lo
-  que está en marcha.
+  que está en marcha. Un documento puede acompañar también a un **registro**
+  del coche (`Document.event`, excluyente con la incidencia): la **póliza** a
+  la renovación de seguro que la trajo, el **informe de ITV** a esa ITV y la
+  **factura de taller** a la ITV o al mantenimiento
+  (`EVENT_LINKABLE_DOCUMENT_TYPES`), y la factura **exige** acompañar a algo
+  (`LINK_REQUIRED_DOCUMENT_TYPES`: incidencia —aquí también las cerradas,
+  porque la factura llega después de la reparación—, ITV o mantenimiento).
+  En gestión eso es **un solo desplegable** con lo que tiene el coche,
+  agrupado por categoría (`<optgroup>` del `SelectField`: Incidencias, ITV,
+  Mantenimientos, Renovaciones de seguro), y los formularios de resolver ya
+  ligan solos su justificante (`proof.ts`: el informe a la ITV registrada, la
+  póliza a la renovación, la factura a la incidencia que se cierra). El
+  **acta de entrega** no se ofrece al subir (las que haya se siguen viendo).
+  El **mismo `DocumentsPanel`** de la ficha del coche
+  vive en la **ficha del usuario** (`UserDetailPage`, tarjeta «Documentos
+  personales») con la **persona como titular** (`user` en vez de `vehicle`,
+  exactamente uno, como exige el back): enseña **solo los suyos**, ofrece los
+  tipos personales (`PERSONAL_DOCUMENT_TYPES`: permiso de conducir y «Otro»,
+  la misma lista que la PWA), no pide incidencia ni la pinta como columna, y
+  no enlaza carpeta de Drive (la de `Usuarios/<correo>` la crea el archivador
+  y no viaja en la ficha).
 - **Con qué cuenta se sube lo decide quien subió** (`_service_for`), porque son
   dos webs distintas: **gestión** va por dentro y el acceso se gestiona en
   casa, así que el **administrador** sube siempre: con **su** cuenta si ha

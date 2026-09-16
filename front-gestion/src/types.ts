@@ -345,6 +345,11 @@ export interface FlotaDocument {
   type: DocumentType
   type_display: string
   incident: number | null
+  /** Registro del coche al que acompaña (la ITV del informe, la renovación de
+   * seguro de la póliza, la ITV o el mantenimiento de la factura); excluyente
+   * con `incident`. `event_display` lo trae legible («ITV · 2026-03-01»). */
+  event: number | null
+  event_display: string
   /** webViewLink en Google Drive (Fase A3); vacío si aún no está archivado. */
   drive_url: string
   drive_file_id: string
