@@ -27,6 +27,9 @@ const MileagePage = page(() => import('./pages/MileagePage.tsx'), 'MileagePage')
 const AlertsPage = page(() => import('./pages/AlertsPage.tsx'), 'AlertsPage')
 const ReportsPage = page(() => import('./pages/ReportsPage.tsx'), 'ReportsPage')
 const UsersPage = page(() => import('./pages/UsersPage.tsx'), 'UsersPage')
+// Bandeja de solicitudes de vehículo (G9): Jira, self-service y las
+// peticiones de coche de sustitución que llegan de la app de campo.
+const RequestsPage = page(() => import('./pages/RequestsPage.tsx'), 'RequestsPage')
 const UserDetailPage = page(() => import('./pages/UserDetailPage.tsx'), 'UserDetailPage')
 // Ajustes agrupa Catálogos, Borrado definitivo, Plantillas de correo y Facturas
 // (cada una embebida) — un único chunk perezoso para todo el bloque de administración.
@@ -70,6 +73,7 @@ export default function App() {
           <Route path="/incidencias" element={<IncidentsPage />} />
           <Route path="/kilometraje" element={<MileagePage />} />
           <Route path="/alertas" element={<AlertsPage />} />
+          <Route path="/solicitudes" element={<RequestsPage />} />
           <Route path="/informes" element={<ReportsPage />} />
           {/* Ajustes (2 iconos de administración): pestañas en la URL. */}
           <Route path="/ajustes" element={<Navigate to="/ajustes/catalogos" replace />} />

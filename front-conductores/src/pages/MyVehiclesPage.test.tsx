@@ -120,8 +120,13 @@ describe('MyVehiclesPage (M1)', () => {
     expect(screen.getByText('Próximas citas')).toBeInTheDocument()
     expect(screen.getByText('Lectura de km')).toBeInTheDocument()
     expect(screen.getByText('el día 31 · en 3 días')).toBeInTheDocument()
-    // Los acordeones de averías y documentos, con su recuento.
-    expect(screen.getByText('Alertas y averías')).toBeInTheDocument()
+    // Lo pendiente son TRES acordeones, cada uno con su recuento a la vista
+    // (aquí, cero en los tres), más el de documentos.
+    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*0/)
+    expect(screen.getByRole('button', { name: /^Incidencias/ })).toHaveTextContent(
+      /Incidencias\s*0/,
+    )
+    expect(screen.getByRole('button', { name: /^Accidentes/ })).toHaveTextContent(/Accidentes\s*0/)
     expect(screen.getByText('Documentación')).toBeInTheDocument()
     expect(mocks.listDocuments).toHaveBeenCalledWith(1)
     // La ficha enlaza a la ficha de campo (M2).
@@ -201,6 +206,13 @@ describe('MyVehiclesPage (M1)', () => {
             tire_measure: '205/55 R16',
           },
         }),
+        // El accidente tiene tarjeta propia: no cuenta como incidencia.
+        incident({
+          id: 13,
+          type: 'accident',
+          type_display: 'Accidente',
+          description: 'Alcance en el parking.',
+        }),
       ],
     })
     mocks.listDocuments.mockResolvedValue({
@@ -221,20 +233,42 @@ describe('MyVehiclesPage (M1)', () => {
 
     renderPage()
     await screen.findByText('1234KLM')
-    // Plegados: el contenido no se ve hasta abrir cada acordeón.
+    // Plegados: el contenido no se ve hasta abrir cada acordeón, pero el
+    // recuento de cada familia sí — es lo que se lee sin abrir nada.
     expect(await screen.findByText(/No arranca en frío/)).not.toBeVisible()
-    await userEvent.click(screen.getByText('Alertas y averías'))
-    expect(screen.getByText('Falta la lectura de km de este mes.')).toBeVisible()
-    expect(screen.getByText(/No arranca en frío/)).toBeVisible()
-    expect(screen.getByText('Falta la lectura de km de este mes.').closest('.acc')).toBe(
-      screen.getByText(/No arranca en frío/).closest('.acc'),
+    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*1/)
+    expect(screen.getByRole('button', { name: /^Incidencias/ })).toHaveTextContent(
+      /Incidencias\s*3/,
     )
+    expect(screen.getByRole('button', { name: /^Accidentes/ })).toHaveTextContent(/Accidentes\s*1/)
+
+    // Cada familia en su tarjeta: la alerta en «Alertas»…
+    await userEvent.click(screen.getByRole('button', { name: /^Alertas/ }))
+    expect(screen.getByText('Falta la lectura de km de este mes.')).toBeVisible()
+    expect(screen.getByText(/No arranca en frío/)).not.toBeVisible()
+
+    // …la avería, el mantenimiento puntual y los neumáticos en «Incidencias»,
+    // y el accidente fuera.
+    await userEvent.click(screen.getByRole('button', { name: /^Incidencias/ }))
+    const incidencias = screen.getByText(/No arranca en frío/).closest('.acc')
+    expect(screen.getByText(/No arranca en frío/)).toBeVisible()
     expect(screen.getAllByText('Abierta')[0]).toBeVisible()
     // El neumático se explica sin comentario: motivo · rueda · medida.
     expect(screen.getByText('Pinchazo · Delantera izquierda · 205/55 R16')).toBeVisible()
-    // Fuera del acordeón: el mantenimiento no es una avería, y la cerrada ya
-    // no está abierta.
-    expect(screen.queryByText(/Cambio de aceite/)).not.toBeInTheDocument()
+    expect(screen.getByText('Falta la lectura de km de este mes.').closest('.acc')).not.toBe(
+      incidencias,
+    )
+    expect(screen.getByText(/Alcance en el parking/).closest('.acc')).not.toBe(incidencias)
+
+    // …y el accidente en la suya.
+    await userEvent.click(screen.getByRole('button', { name: /^Accidentes/ }))
+    expect(screen.getByText(/Alcance en el parking/)).toBeVisible()
+
+    // El mantenimiento PUNTUAL cuenta como incidencia: se abre desde esta
+    // misma app, así que tiene que poder verse y resolverse aquí (el
+    // programado es una alerta y va por su tarjeta).
+    expect(screen.getByText(/Cambio de aceite/).closest('.acc')).toBe(incidencias)
+    // Fuera: la cerrada ya no está abierta.
     expect(screen.queryByText(/Embrague duro/)).not.toBeInTheDocument()
     expect(screen.getByText('Permiso de circulación')).not.toBeVisible()
     await userEvent.click(screen.getByText('Documentación'))
@@ -321,7 +355,7 @@ describe('MyVehiclesPage (M1)', () => {
 
     renderPage()
     await screen.findByText('1234KLM')
-    await userEvent.click(await screen.findByText('Alertas y averías'))
+    await userEvent.click(await screen.findByRole('button', { name: /^Alertas/ }))
     expect(await screen.findByText('Falta la lectura de km de este mes.')).toBeVisible()
 
     await userEvent.click(screen.getByRole('button', { name: 'Registrar km' }))
@@ -336,7 +370,7 @@ describe('MyVehiclesPage (M1)', () => {
     await waitFor(() =>
       expect(screen.queryByText('Falta la lectura de km de este mes.')).not.toBeInTheDocument(),
     )
-    expect(screen.getByText('Sin alertas ni averías abiertas. Todo al día.')).toBeVisible()
+    expect(screen.getByText('Sin alertas abiertas. Todo al día.')).toBeVisible()
   })
 
   it('sin barra de acciones propia: las cinco acciones viven en el nav inferior', async () => {
@@ -374,7 +408,9 @@ describe('MyVehiclesPage (M1)', () => {
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
     // Km y acordeones del tablero; sin barra de acciones (nav del shell).
     expect(screen.getByText('31.000 km')).toBeInTheDocument()
-    expect(screen.getByText('Alertas y averías')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Alertas/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Incidencias/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Accidentes/ })).toBeInTheDocument()
     expect(screen.getByText('Documentación')).toBeInTheDocument()
     expect(document.querySelector('.home-quick')).toBeNull()
   })
@@ -484,11 +520,15 @@ describe('MyVehiclesPage (M1)', () => {
     expect(slides[1]).toHaveAttribute('aria-hidden', 'false')
     expect(slides[0].querySelector('.plate')?.textContent).toBe('5678BCD')
     expect(slides[1].querySelector('.plate')?.textContent).toBe('4567JKL')
-    // Los datos del tablero se cargan para LOS DOS coches de la pareja.
-    expect(mocks.listDocuments).toHaveBeenCalledWith(9)
-    expect(mocks.listDocuments).toHaveBeenCalledWith(2)
-    expect(mocks.listIncidents).toHaveBeenCalledWith(9)
-    expect(mocks.listIncidents).toHaveBeenCalledWith(2)
+    // Los datos del tablero se cargan para LOS DOS coches de la pareja. Con
+    // `waitFor` porque son cargas de dos tableros: con la suite cargada, la
+    // segunda no siempre ha salido cuando se mira.
+    await waitFor(() => {
+      expect(mocks.listDocuments).toHaveBeenCalledWith(9)
+      expect(mocks.listDocuments).toHaveBeenCalledWith(2)
+      expect(mocks.listIncidents).toHaveBeenCalledWith(9)
+      expect(mocks.listIncidents).toHaveBeenCalledWith(2)
+    })
   })
 
   it('la flecha junto a la matricula desliza al propio, que sale BLOQUEADO', async () => {

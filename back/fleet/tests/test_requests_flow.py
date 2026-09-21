@@ -7,18 +7,19 @@ administración (`grant` = asignar coche / `reject`). Con coche ya entra.
 
 from datetime import date, timedelta
 
+from django.core.cache import cache
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role, User
-from fleet.models import Assignment, Event, Vehicle, VehicleRequest
+from fleet.models import Assignment, Event, Incident, Vehicle, VehicleRequest
 from fleet.models.enums import (
     AssignmentStatus,
     VehicleRequestStatus,
     VehicleState,
 )
-from fleet.services import jira
+from fleet.services import jira, vehicle_requests
 
 from .helpers import make_user
 
@@ -397,3 +398,93 @@ class SetDriverTests(APITestCase):
         # del propio endpoint cubre el acceso con `?include_baja=1`).
         self.assertIn(resp.status_code, (status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND))
         self.assertFalse(Assignment.objects.filter(driver=self.nuevo).exists())
+
+
+class SubstituteRequestFromIncidentTests(APITestCase):
+    """El conductor pide coche de sustitución al comunicar la incidencia.
+
+    No toca el estado del vehiculo (eso lo decide la gestión): abre la solicitud
+    en la MISMA bandeja de siempre, que es donde se concede o se rechaza.
+    """
+
+    def setUp(self):
+        # El contador del throttle `public_write` vive en la cache del proceso y
+        # se indexa por pk de usuario: sin limpiarla, las peticiones de esta
+        # clase le gastan la cuota a los drivers con el mismo pk de otros
+        # módulos (y al revés). Se limpia al entrar y al salir.
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.driver = make_user("cond-sust", Role.DRIVER)
+        self.vehicle = Vehicle.objects.create(
+            plate="SUB1", brand="a", model="b", type="car", state=VehicleState.ACTIVE
+        )
+        Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.client.force_authenticate(self.driver)
+        self.url = reverse("incident-list")
+
+    def _post(self, availability, incident_type="breakdown", **extra):
+        payload = {
+            "vehicle": self.vehicle.pk,
+            "type": incident_type,
+            "date": date(2026, 9, 17).isoformat(),
+            "description": "No arranca.",
+            **extra,
+        }
+        if availability is not None:
+            payload["details"] = {"availability": availability}
+        return self.client.post(self.url, payload, format="json")
+
+    def test_substitute_opens_a_pending_request_for_that_incident(self):
+        resp = self._post("substitute")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        request = VehicleRequest.objects.get()
+        self.assertEqual(request.status, VehicleRequestStatus.PENDING)
+        self.assertEqual(request.requester, self.driver)
+        self.assertEqual(request.incident_id, resp.data["id"])
+        # El coche a CUBRIR sale de la incidencia; `vehicle` es el que se
+        # concede y sigue vacio hasta que la administración decida.
+        self.assertIsNone(request.vehicle)
+        self.assertEqual(request.incident.vehicle, self.vehicle)
+        self.assertEqual(request.requested_type, "car")
+
+    def test_the_state_of_the_vehicle_is_untouched(self):
+        self._post("substitute")
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.state, VehicleState.ACTIVE)
+
+    def test_staying_active_or_stopped_opens_no_request(self):
+        self._post("active")
+        self._post("stopped")
+        self.assertFalse(VehicleRequest.objects.exists())
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.state, VehicleState.ACTIVE)
+
+    def test_an_incident_without_availability_opens_no_request(self):
+        self._post(None)
+        self.assertFalse(VehicleRequest.objects.exists())
+
+    def test_an_invalid_availability_is_rejected(self):
+        resp = self._post("lo-que-sea")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(VehicleRequest.objects.exists())
+
+    def test_the_request_is_not_duplicated_for_the_same_incident(self):
+        resp = self._post("substitute")
+        incident = Incident.objects.get(pk=resp.data["id"])
+        vehicle_requests.open_substitute_request(incident, actor=self.driver)
+        self.assertEqual(VehicleRequest.objects.filter(incident=incident).count(), 1)
+
+    def test_the_management_sees_it_with_the_vehicle_it_has_to_cover(self):
+        self._post("substitute", incident_type="maintenance")
+        admin = make_user("admin-sust", Role.ADMIN)
+        self.client.force_authenticate(admin)
+        resp = self.client.get(reverse("vehiclerequest-list"), {"status": "pending"})
+        self.assertEqual(resp.data["count"], 1)
+        row = resp.data["results"][0]
+        self.assertEqual(row["incident_plate"], "SUB1")
+        self.assertEqual(row["incident_type_display"], "Mantenimiento puntual")

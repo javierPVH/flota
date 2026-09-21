@@ -157,6 +157,8 @@ const es = {
     // Gestión: la ubicación desde la que se busca el taller más cercano.
     manageSection: 'Gestión · ubicación',
     managePostalCode: 'Código postal de la ubicación',
+    /** CP del taller en el resumen de una fila (el rótulo no cabe entero). */
+    summaryPostalCode: (cp: string) => `CP ${cp}`,
     manageNote:
       'Indica el código postal desde el que se buscará el taller más cercano. Al guardar, la petición queda en curso.',
     manageOffNote:
@@ -456,7 +458,7 @@ const es = {
     { value: 'itv', label: 'No activo - ITV' },
     { value: 'broken', label: 'No activo - Averiado' },
     { value: 'accidente', label: 'No activo - Accidentado' },
-    { value: 'non_active', label: 'No activo' },
+    { value: 'non_active', label: 'No activo sin justificación' },
   ],
   // B4: el panel tenía estas dos tablas como constantes de módulo en castellano
   // (`USE_LABEL` / `STATE_LABEL`), así que en inglés se colaban tal cual.
@@ -471,7 +473,7 @@ const es = {
     itv: 'No activo - ITV',
     broken: 'No activo - Averiado',
     accidente: 'No activo - Accidentado',
-    non_active: 'No activo',
+    non_active: 'No activo sin justificación',
     retired: 'Devuelto (baja)',
   } as Record<string, string>,
   linkReasonOptions: [
@@ -645,6 +647,7 @@ const en: typeof es = {
     tabOpen: 'Open statuses',
     manageSection: 'Management · location',
     managePostalCode: 'Location postal code',
+    summaryPostalCode: (cp: string) => `Postcode ${cp}`,
     manageNote:
       'Enter the postal code used to find the nearest workshop. Saving moves the request to in progress.',
     manageOffNote:
@@ -912,7 +915,7 @@ const en: typeof es = {
     { value: 'itv', label: 'Not active - MOT' },
     { value: 'broken', label: 'Not active - Broken down' },
     { value: 'accidente', label: 'Not active - Crashed' },
-    { value: 'non_active', label: 'Not active' },
+    { value: 'non_active', label: 'Not active (no reason)' },
   ],
   useLabel: {
     on_project: 'Project',
@@ -925,7 +928,7 @@ const en: typeof es = {
     itv: 'Not active - MOT',
     broken: 'Not active - Broken down',
     accidente: 'Not active - Crashed',
-    non_active: 'Not active',
+    non_active: 'Not active (no reason)',
     retired: 'Returned (retired)',
   } as Record<string, string>,
   linkReasonOptions: [

@@ -1,31 +1,55 @@
-import { useEffect, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
-import { Button } from '@flota/ui/ui'
-import { asErrorMessage } from '@flota/ui/http'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { ClipboardCheck, ClipboardList, Fuel, Gauge, Wrench } from 'lucide-react'
+import { Badge, Button } from '@flota/ui/ui'
 
-import {
-  createKmReading,
-  listIncidents,
-  listMaintenancePlans,
-  manageIncident,
-  markMaintenanceDone,
-  resolveIncident,
-  type MaintenancePlanRow,
-} from '../api.ts'
-import { fmtDate, fmtKm, todayIso } from '../format.ts'
+import { listIncidents, listMaintenancePlans, type MaintenancePlanRow } from '../api.ts'
+import { fmtDate, isOpenFieldIncident } from '../format.ts'
 import { useLang } from '../i18n.tsx'
+import { priorityOf, priorityRank, priorityTone } from '../incidentPriority.ts'
 import type { Incident, Vehicle, VehicleSummary } from '../types.ts'
+import { IncidentResolveModal } from './IncidentResolveModal.tsx'
+import { ListFilter, matches, typeOptions } from './ListFilter.tsx'
+import { MaintenancePane } from './MaintenanceUpdateModal.tsx'
+import { FuelPane } from './RegisterFuelModal.tsx'
+import { KmPane } from './RegisterKmModal.tsx'
+import { ItvPane } from './RegisterItvModal.tsx'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
-type Tab = 'km' | 'maintenance' | 'incidents'
-type IncidentAction = 'view' | 'manage' | 'resolve'
+/** Las cinco cosas que se actualizan de un coche desde el campo. */
+export type UpdateTab = 'km' | 'fuel' | 'itv' | 'maintenance' | 'incidents'
+
+/** Orden fijo: de lo que se hace a diario a lo que se hace de tarde en tarde. */
+const TAB_ORDER: UpdateTab[] = ['km', 'fuel', 'itv', 'maintenance', 'incidents']
+
+/** El icono de cada pestaña es el MISMO con el que la app nombra esa acción
+ * (la barra de acciones del coche): el dibujo se reconoce antes que el rótulo,
+ * y dos dibujos distintos para lo mismo obligan a leerlo. */
+const TAB_ICON: Record<UpdateTab, typeof Gauge> = {
+  km: Gauge,
+  fuel: Fuel,
+  itv: ClipboardCheck,
+  maintenance: ClipboardList,
+  incidents: Wrench,
+}
 
 /**
- * Actualización de campo del supervisor sobre un vehículo del grupo: registrar
- * la lectura de km, marcar un mantenimiento como realizado y llevar el CICLO
- * de una incidencia (lanzada → gestión → solución). Las tres cosas son
- * responsabilidad del CONDUCTOR — el aviso fijo de arriba lo deja claro y el
- * back sella la autoría real.
+ * «Actualizar · MATRÍCULA» — UNA ventana con una pestaña por cosa que se
+ * actualiza: **km**, **combustible**, **ITV**, **mantenimiento** e
+ * **incidencias**.
+ *
+ * No hay pestaña de «alertas» a propósito: una alerta se cierra haciendo lo
+ * que pide —registrar la lectura, la ITV o la revisión—, así que ya está
+ * reflejada en la pestaña que le corresponde. Y cada pestaña sale **solo si el
+ * coche tiene eso**: sin ITV programada no hay ITV que registrar, sin plan no
+ * hay mantenimiento que marcar y sin incidencias abiertas no hay lista. Km y
+ * combustible salen siempre: se anotan en cualquier coche y en cualquier
+ * momento.
+ *
+ * Los formularios son los MISMOS que sus ventanas sueltas (`KmPane`,
+ * `FuelPane`, `ItvPane`, `MaintenancePane`): aquí se montan sin su marco. Y al
+ * guardar, la ventana **no se cierra** —se dice lo que se guardó y se sigue—,
+ * porque quien abre esto suele traer dos o tres cosas que anotar del mismo
+ * coche.
  */
 export function VehicleUpdateModal({
   vehicle,
@@ -35,422 +59,276 @@ export function VehicleUpdateModal({
   initialTab = 'km',
 }: {
   vehicle: Vehicle
-  summary: VehicleSummary | undefined
+  summary?: VehicleSummary | null
   onClose: () => void
-  /** Algo se guardó: la página puede refrescar sus datos. */
+  /** Algo se guardó: quien enmarca recarga sus datos. */
   onSaved?: () => void
-  /** La ficha puede abrir directamente el mantenimiento. */
-  initialTab?: Tab
+  /** Con qué pestaña se abre (la alerta que se está atendiendo). Si el coche
+   * no la tiene, manda la primera disponible. */
+  initialTab?: UpdateTab
 }) {
   const { t, language } = useLang()
-  const [tab, setTab] = useState<Tab>(initialTab)
+  const copy = t.carUpdate
+
+  const [plans, setPlans] = useState<MaintenancePlanRow[] | null>(null)
+  const [incidents, setIncidents] = useState<Incident[] | null>(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [tab, setTab] = useState<UpdateTab | null>(null)
+  const [resolving, setResolving] = useState<Incident | null>(null)
+  const [search, setSearch] = useState('')
+  const [incidentType, setIncidentType] = useState('')
+  const botones = useRef<Partial<Record<UpdateTab, HTMLButtonElement | null>>>({})
 
-  // --- Km ------------------------------------------------------------------
-  const [km, setKm] = useState('')
-  const [savingKm, setSavingKm] = useState(false)
-
-  // --- Mantenimiento (se carga al entrar en su pestaña) ---------------------
-  const [plans, setPlans] = useState<MaintenancePlanRow[] | null>(null)
-  const [savingPlan, setSavingPlan] = useState<number | null>(null)
-  const [expandedPlan, setExpandedPlan] = useState<number | null>(null)
-  const [planDateFor, setPlanDateFor] = useState<MaintenancePlanRow | null>(null)
-  const [planDate, setPlanDate] = useState(todayIso())
-  const [chosenPlanDates, setChosenPlanDates] = useState<Record<number, string>>({})
-
-  // --- Incidencias: el ciclo lanzada → gestión → solución --------------------
-  const [incidents, setIncidents] = useState<Incident[] | null>(null)
-  const [incidentId, setIncidentId] = useState('')
-  const [incidentAction, setIncidentAction] = useState<IncidentAction | null>(null)
-  const [managementPostalCode, setManagementPostalCode] = useState('')
-  const [resolution, setResolution] = useState({ date: todayIso(), observations: '' })
-  const [savingFlow, setSavingFlow] = useState(false)
-
-  const current = (incidents ?? []).find((i) => String(i.id) === incidentId) ?? null
-
-  /** Elegir incidencia precarga la ubicación preferente ya guardada. */
-  function selectIncident(id: string, list: Incident[]) {
-    setIncidentId(id)
-    const incident = list.find((i) => String(i.id) === id) ?? null
-    setManagementPostalCode(incident?.workshop_postal_code ?? '')
-    setResolution({ date: todayIso(), observations: '' })
-  }
-
-  function openIncidentAction(incident: Incident, action: IncidentAction) {
-    selectIncident(String(incident.id), incidents ?? [])
-    setIncidentAction(action)
-    setError('')
-    setNotice('')
-  }
-
+  // Las dos listas se piden AL ABRIR, antes de pintar las pestañas: son ellas
+  // las que dicen si hay mantenimiento o incidencias que enseñar. Pintar las
+  // pestañas antes y añadirlas después haría saltar la fila bajo el dedo.
   useEffect(() => {
-    if (tab === 'maintenance' && plans === null) {
-      listMaintenancePlans(vehicle.id)
-        .then((page) => setPlans(page.results))
-        .catch(() => setError(t.carUpdate.loadError))
+    let vivo = true
+    Promise.all([
+      listMaintenancePlans(vehicle.id).then((page) => page.results),
+      listIncidents(vehicle.id).then((page) => page.results.filter(isOpenFieldIncident)),
+    ])
+      .then(([planes, abiertas]) => {
+        if (!vivo) return
+        setPlans(planes)
+        setIncidents(abiertas)
+      })
+      .catch(() => {
+        if (!vivo) return
+        // Sin las listas se sigue: km y combustible no dependen de ellas.
+        setPlans([])
+        setIncidents([])
+        setError(copy.loadError)
+      })
+      .finally(() => vivo && setLoading(false))
+    return () => {
+      vivo = false
     }
-    if (tab === 'incidents' && incidents === null) {
-      listIncidents(vehicle.id)
-        .then((page) => {
-          const open = page.results.filter((i) => i.status !== 'closed')
-          setIncidents(open)
-          if (open.length > 0) selectIncident(String(open[0].id), open)
-        })
-        .catch(() => setError(t.carUpdate.loadError))
-    }
-    // selectIncident es estable a efectos prácticos (solo setters de estado).
+    // `copy` solo alimenta el texto del error (R3-30).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, plans, incidents, vehicle.id, t])
+  }, [vehicle.id])
 
-  function switchTab(next: Tab) {
-    setTab(next)
-    setError('')
-    setNotice('')
-  }
+  const nextItv = summary?.next_itv_date ?? vehicle.next_itv_date ?? null
 
-  function saveKm() {
-    const value = Number(km)
-    setSavingKm(true)
-    setError('')
-    createKmReading({ vehicle: vehicle.id, km_reading: value, reading_date: todayIso() })
-      .then(() => {
-        setNotice(t.carUpdate.kmSaved(fmtKm(value, language)))
-        setKm('')
-        onSaved?.()
-      })
-      .catch((err) => setError(asErrorMessage(err, t.carUpdate.error)))
-      .finally(() => setSavingKm(false))
-  }
-
-  function planCycle(plan: MaintenancePlanRow): string {
-    const parts: string[] = []
-    if (plan.every_km) parts.push(fmtKm(plan.every_km, language))
-    if (plan.every_months) parts.push(t.carUpdate.months(plan.every_months))
-    return t.carUpdate.planEvery(parts.join(' / ') || '—')
-  }
-
-  function planLast(plan: MaintenancePlanRow): string {
-    const parts: string[] = []
-    if (plan.last_done_date) parts.push(fmtDate(plan.last_done_date, language))
-    if (plan.last_done_km !== null) parts.push(fmtKm(plan.last_done_km, language))
-    return t.carUpdate.planLast(parts.join(' · ') || t.carUpdate.planNever)
-  }
-
-  function savePlan(plan: MaintenancePlanRow, date: string) {
-    setSavingPlan(plan.id)
-    setError('')
-    markMaintenanceDone(plan.id, { date })
-      .then((updated) => {
-        setPlans((rows) => (rows ?? []).map((p) => (p.id === plan.id ? updated : p)))
-        setChosenPlanDates((dates) => ({ ...dates, [plan.id]: date }))
-        setPlanDateFor(null)
-        const alerts =
-          updated.alerts_resolved > 0 ? ` ${t.carUpdate.planAlerts(updated.alerts_resolved)}` : ''
-        setNotice(`${t.carUpdate.planSaved(plan.name)}${alerts}`)
-        onSaved?.()
-      })
-      .catch((err) => setError(asErrorMessage(err, t.carUpdate.error)))
-      .finally(() => setSavingPlan(null))
-  }
-
-  /** Fase 2 — ubicación preferente para localizar el taller más cercano. */
-  function saveManage() {
-    if (!current) return
-    setSavingFlow(true)
-    setError('')
-    manageIncident(current.id, { workshop_postal_code: managementPostalCode })
-      .then((updated) => {
-        setIncidents((rows) => (rows ?? []).map((i) => (i.id === updated.id ? updated : i)))
-        setNotice(t.carUpdate.managed)
-        setIncidentAction(null)
-        onSaved?.()
-      })
-      .catch((err) => setError(asErrorMessage(err, t.carUpdate.error)))
-      .finally(() => setSavingFlow(false))
-  }
-
-  /** Días naturales entre la avería y su solución, calculados sin hora/DST. */
-  function resolutionDowntime(): number | null {
-    if (!current?.date || !resolution.date) return null
-    const start = Date.parse(`${current.date}T00:00:00Z`)
-    const end = Date.parse(`${resolution.date}T00:00:00Z`)
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null
-    return Math.floor((end - start) / 86_400_000)
-  }
-
-  /** Fase 3 — fecha de solución y observaciones → calcula el paro y CIERRA. */
-  function saveResolve() {
-    if (!current) return
-    setSavingFlow(true)
-    setError('')
-    const payload: { resolution_date: string; observations?: string } = {
-      resolution_date: resolution.date,
+  /** Qué pestañas tiene ESTE coche. */
+  const tabs = useMemo<UpdateTab[]>(() => {
+    const tiene: Record<UpdateTab, boolean> = {
+      km: true,
+      fuel: true,
+      itv: Boolean(nextItv),
+      maintenance: (plans ?? []).length > 0,
+      incidents: (incidents ?? []).length > 0,
     }
-    if (resolution.observations.trim()) payload.observations = resolution.observations.trim()
-    resolveIncident(current.id, payload)
-      .then((updated) => {
-        const rest = (incidents ?? []).filter((i) => i.id !== updated.id)
-        setIncidents(rest)
-        setIncidentId('')
-        setIncidentAction(null)
-        setNotice(t.carUpdate.resolvedNote)
-        onSaved?.()
-      })
-      .catch((err) => setError(asErrorMessage(err, t.carUpdate.error)))
-      .finally(() => setSavingFlow(false))
+    return TAB_ORDER.filter((kind) => tiene[kind])
+  }, [nextItv, plans, incidents])
+
+  // La pestaña de entrada es la que pidió quien abrió, si el coche la tiene.
+  const active = tab && tabs.includes(tab) ? tab : (tabs.includes(initialTab) ? initialTab : tabs[0])
+
+  const abiertas = incidents ?? []
+  const tiposIncidencia = typeOptions(abiertas)
+  // Si el tipo elegido desaparece (se resolvió la última de ese tipo), se
+  // vuelve a «todos» en vez de dejar la lista vacía filtrando por lo que ya
+  // no está.
+  const tipoElegido = tiposIncidencia.some(([value]) => value === incidentType) ? incidentType : ''
+  // Lo escrito y el tipo se SUMAN: lo que queda cumple las dos cosas. Y se
+  // ordena por prioridad —lo crítico arriba—, que es para lo que sirve
+  // marcarla; dentro de cada prioridad manda la fecha, como llega del back.
+  const incidenciasVistas = abiertas
+    .filter((incident) => !tipoElegido || incident.type === tipoElegido)
+    .filter((incident) =>
+      matches(
+        search,
+        incident.type_display,
+        incident.description,
+        incident.status_display,
+        incident.priority_display,
+      ),
+    )
+    .sort((a, b) => priorityRank(a) - priorityRank(b))
+
+  function guardado(message?: string) {
+    setNotice(message ?? '')
+    onSaved?.()
   }
 
-  const TABS: Tab[] = ['km', 'maintenance', 'incidents']
+  function cambiar(next: UpdateTab) {
+    setTab(next)
+    setNotice('')
+    setError('')
+    // Con la fila desplazada, la pestaña elegida tiene que quedar a la vista:
+    // si no, se toca una y «no pasa nada» porque su panel está debajo.
+    botones.current[next]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }
+
+  // Flechas para moverse por las pestañas (patrón `tablist`): en un teclado,
+  // tabular entre cinco pestañas antes de llegar al formulario es el camino
+  // largo para lo mismo.
+  function teclas(event: KeyboardEvent<HTMLDivElement>) {
+    const paso = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+    const next = paso
+      ? tabs[(tabs.indexOf(active) + paso + tabs.length) % tabs.length]
+      : event.key === 'Home'
+        ? tabs[0]
+        : event.key === 'End'
+          ? tabs[tabs.length - 1]
+          : undefined
+    if (!next) return
+    event.preventDefault()
+    cambiar(next)
+    botones.current[next]?.focus()
+  }
 
   return (
     <SupervisorModal
       open
-      title={t.carUpdate.title(vehicle.plate)}
+      // Ancha: aquí caben cinco pestañas, el aviso de responsabilidad y un
+      // formulario entero. Con el ancho de un modal corriente (460px) la fila
+      // de pestañas nacía ya desplazada y el aviso salía en cinco líneas.
+      wide
+      title={copy.title(vehicle.plate)}
       onClose={onClose}
-      footer={
-        <Button type="button" onClick={onClose}>
-          {t.carUpdate.close}
-        </Button>
-      }
+      footer={<Button type="button" onClick={onClose}>{copy.close}</Button>}
     >
-      <div className="update-tabs" role="tablist" aria-label={t.carUpdate.title(vehicle.plate)}>
-        {TABS.map((k) => (
-          <button
-            key={k}
-            type="button"
-            role="tab"
-            aria-selected={tab === k}
-            className={`update-tab${tab === k ? ' is-active' : ''}`}
-            onClick={() => switchTab(k)}
+      {loading ? (
+        <p role="status" className="gate-checking">{t.common.loading}</p>
+      ) : (
+        // El alto se reparte aquí: pestañas y avisos quietos, el panel con su
+        // propio scroll. Con el cuerpo del modal desplazándose entero, la fila
+        // de pestañas se iba de la pantalla en cuanto el panel era largo.
+        <div className="update-shell">
+          <div
+            className="update-tabs"
+            role="tablist"
+            aria-label={copy.tabsLabel}
+            onKeyDown={teclas}
           >
-            {t.carUpdate.tabs[k]}
-          </button>
-        ))}
-      </div>
-
-      {notice && (
-        <p className="reminder-done" role="status">
-          {notice}
-        </p>
-      )}
-      {error && (
-        <div role="alert" className="form-error">
-          {error}
-        </div>
-      )}
-
-      {tab === 'km' && (
-        <div className="update-pane">
-          <div className="update-km-last">
-            {summary?.km_current !== null && summary?.km_current !== undefined
-              ? t.carUpdate.kmLast(
-                  fmtKm(summary.km_current, language),
-                  summary.km_reading_date
-                    ? fmtDate(summary.km_reading_date, language)
-                    : t.carUpdate.kmDateUnknown,
-                )
-              : t.carUpdate.kmNever}
-          </div>
-          <div className="update-km-row">
-            <label className="reminder-check update-km-field">
-              {t.carUpdate.kmLabel} <span className="req-badge" aria-hidden>{t.common.required}</span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                className="update-input"
-                value={km}
-                onChange={(e) => setKm(e.target.value)}
-                required
-              />
-            </label>
-            <Button type="button" onClick={saveKm} disabled={savingKm || !km.trim()}>
-              {t.carUpdate.kmSubmit}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {tab === 'maintenance' && (
-        <div className="update-pane">
-          {plans !== null && plans.length === 0 && (
-            <p className="empty-note">{t.carUpdate.plansEmpty}</p>
-          )}
-          <ul className="update-plans">
-            {(plans ?? []).map((plan) => (
-              <li key={plan.id} className="update-plan">
-                <div className="update-plan-main">
-                  <div className="update-plan-info">
-                    <strong>{plan.name}</strong>
-                    <small>{planCycle(plan)} · {planLast(plan)}</small>
-                  </div>
-                  <div className="update-plan-actions">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      aria-expanded={expandedPlan === plan.id}
-                      onClick={() => setExpandedPlan((id) => id === plan.id ? null : plan.id)}
-                    >
-                      {t.carUpdate.planMore}
-                      <ChevronDown
-                        size={16}
-                        aria-hidden
-                        className={expandedPlan === plan.id ? 'is-open' : ''}
-                      />
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={() => {
-                        setPlanDate(todayIso())
-                        setPlanDateFor(plan)
-                      }}
-                      disabled={savingPlan === plan.id}
-                    >
-                      {t.carUpdate.planDoneOn}
-                    </Button>
-                  </div>
-                </div>
-                {expandedPlan === plan.id && (
-                  <div className="update-plan-detail">
-                    <dl>
-                      <dt>{t.carUpdate.planFrequency}</dt>
-                      <dd>{planCycle(plan)}</dd>
-                      <dt>{t.carUpdate.planLastDate}</dt>
-                      <dd>{plan.last_done_date ? fmtDate(plan.last_done_date, language) : t.carUpdate.planNever}</dd>
-                      <dt>{t.carUpdate.planLastKm}</dt>
-                      <dd>{plan.last_done_km !== null ? fmtKm(plan.last_done_km, language) : t.carUpdate.planNever}</dd>
-                    </dl>
-                  </div>
-                )}
-                {chosenPlanDates[plan.id] && (
-                  <div className="update-plan-chosen" role="status">
-                    {t.carUpdate.planChosen(fmtDate(chosenPlanDates[plan.id], language))}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {tab === 'incidents' && (
-        <div className="update-pane">
-          {incidents !== null && incidents.length === 0 && (
-            <p className="empty-note">{t.carUpdate.incidentsEmpty}</p>
-          )}
-          <ul className="update-incidents">
-            {(incidents ?? []).map((incident) => (
-              <li key={incident.id} className={`update-incident${incident.id === current?.id ? ' is-selected' : ''}`}>
-                <div className="update-incident-info">
-                  <strong>{incident.type_display}</strong>
-                  <small>
-                    {incident.date ? fmtDate(incident.date, language) : t.carUpdate.noDate}
-                    {' · '}{incident.status_display}
-                  </small>
-                  {incident.description && <span>{incident.description}</span>}
-                </div>
-                <div className="update-incident-actions">
-                  <Button type="button" size="sm" variant="secondary" onClick={() => openIncidentAction(incident, 'view')}>{t.carUpdate.actionView}</Button>
-                  <Button type="button" size="sm" variant="secondary" onClick={() => openIncidentAction(incident, 'manage')}>{t.carUpdate.actionManage}</Button>
-                  <Button type="button" size="sm" onClick={() => openIncidentAction(incident, 'resolve')}>{t.carUpdate.actionResolve}</Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-
-          {current && incidentAction && (
-            <SupervisorModal
-              open
-              title={`${t.carUpdate.actions[incidentAction]} · ${current.type_display}`}
-              onClose={() => setIncidentAction(null)}
-              footer={
-                <>
-                  <Button type="button" variant="secondary" onClick={() => setIncidentAction(null)}>
-                    {t.carUpdate.close}
-                  </Button>
-                  {incidentAction === 'manage' && (
-                    <Button
-                      type="button"
-                      onClick={saveManage}
-                      disabled={savingFlow || !/^[0-9]{5}$/.test(managementPostalCode)}
-                    >
-                      {t.carUpdate.manageSubmit}
-                    </Button>
+            {tabs.map((kind) => {
+              const Icon = TAB_ICON[kind]
+              return (
+                <button
+                  key={kind}
+                  ref={(node) => {
+                    botones.current[kind] = node
+                  }}
+                  type="button"
+                  role="tab"
+                  id={`update-tab-${kind}`}
+                  aria-controls={`update-pane-${kind}`}
+                  aria-selected={active === kind}
+                  // Roving tabindex: el tabulador entra en la pestaña activa y
+                  // el siguiente salto ya es el formulario.
+                  tabIndex={active === kind ? 0 : -1}
+                  className={`update-tab${active === kind ? ' is-active' : ''}`}
+                  onClick={() => cambiar(kind)}
+                >
+                  <Icon size={16} aria-hidden />
+                  {copy.tabs[kind]}
+                  {/* Cuántas hay abiertas se lee sin entrar en la pestaña. */}
+                  {kind === 'incidents' && (
+                    <span className="update-tab-count" aria-hidden>
+                      {(incidents ?? []).length}
+                    </span>
                   )}
-                  {incidentAction === 'resolve' && (
-                    <Button type="button" onClick={saveResolve} disabled={savingFlow || !resolution.date || resolutionDowntime() === null}>
-                      {t.carUpdate.resolveSubmit}
-                    </Button>
+                </button>
+              )
+            })}
+          </div>
+
+          {notice && <p className="reminder-done" role="status">{notice}</p>}
+          {error && <div role="alert" className="form-error">{error}</div>}
+
+          <div
+            className="update-pane"
+            role="tabpanel"
+            id={`update-pane-${active}`}
+            aria-labelledby={`update-tab-${active}`}
+          >
+            {active === 'km' && (
+              <KmPane vehicle={vehicle} summary={summary ?? null} onSaved={guardado} />
+            )}
+            {active === 'fuel' && (
+              <FuelPane vehicle={vehicle} summary={summary ?? null} onSaved={guardado} />
+            )}
+            {active === 'itv' && (
+              <ItvPane vehicle={vehicle} nextItvDate={nextItv} onSaved={guardado} />
+            )}
+            {active === 'maintenance' && (
+              <MaintenancePane
+                vehicle={vehicle}
+                summary={summary}
+                plans={plans ?? []}
+                onSaved={() => onSaved?.()}
+              />
+            )}
+            {active === 'incidents' && (
+              // Lo que el coche tiene abierto, para solucionarlo desde aquí:
+              // es la misma lista de su tarjeta y el mismo formulario de
+              // cierre, no una segunda manera de hacerlo.
+              <>
+                {/* Con una sola fila no hay nada que acotar. */}
+                {abiertas.length > 1 && (
+                  <ListFilter
+                    search={search}
+                    onSearch={setSearch}
+                    type={tipoElegido}
+                    onType={setIncidentType}
+                    options={tiposIncidencia}
+                  />
+                )}
+                <ul className="doc-list update-incidents">
+                  {incidenciasVistas.map((incident) => {
+                    const prioridad = priorityOf(incident)
+                    return (
+                      <li key={incident.id} className={`doc-item pri-row pri-${prioridad}`}>
+                        <div className="doc-info">
+                          <strong>
+                            {incident.type_display}{' '}
+                            {/* La urgencia con la que se abrió, escrita y en
+                                color: el borde de la fila la repite para poder
+                                barrer la lista sin leerla entera. */}
+                            <Badge tone={priorityTone(prioridad)} size="sm">
+                              {incident.priority_display ?? t.priority[prioridad]}
+                            </Badge>
+                          </strong>
+                          <span className="doc-sub">
+                            {incident.date ? fmtDate(incident.date, language) : copy.noDate}
+                            {' · '}
+                            {incident.status_display}
+                            {incident.description ? ` · ${incident.description}` : ''}
+                          </span>
+                        </div>
+                        <Button type="button" size="sm" onClick={() => setResolving(incident)}>
+                          {copy.actionResolve}
+                        </Button>
+                      </li>
+                    )
+                  })}
+                  {incidenciasVistas.length === 0 && (
+                    <li className="empty-note">{t.common.noMatches}</li>
                   )}
-                </>
-              }
-            >
-
-              {incidentAction === 'view' && (
-                <dl className="update-incident-detail">
-                  <dt>{t.carUpdate.detailStatus}</dt><dd>{current.status_display}</dd>
-                  <dt>{t.carUpdate.detailDate}</dt><dd>{current.date ? fmtDate(current.date, language) : t.carUpdate.noDate}</dd>
-                  <dt>{t.carUpdate.detailDescription}</dt><dd>{current.description || '—'}</dd>
-                  {current.mileage !== null && current.mileage !== undefined && <><dt>{t.carUpdate.detailMileage}</dt><dd>{fmtKm(current.mileage, language)}</dd></>}
-                  {current.workshop_postal_code && <><dt>{t.carUpdate.detailPostalCode}</dt><dd>{current.workshop_postal_code}</dd></>}
-                </dl>
-              )}
-
-              {incidentAction === 'manage' && <div className="update-action-form">
-                <label className="reminder-check">
-                  {t.carUpdate.preferredPostalCode} <span className="req-badge" aria-hidden>{t.common.required}</span>
-                  <input type="text" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} className="update-input" value={managementPostalCode} onChange={(e) => setManagementPostalCode(e.target.value)} required />
-                </label>
-              </div>}
-
-              {incidentAction === 'resolve' && <div className="update-action-form">
-                <label className="reminder-check">{t.carUpdate.resolutionDate} <span className="req-badge" aria-hidden>{t.common.required}</span><input type="date" min={current.date ?? undefined} max={todayIso()} className="update-input" value={resolution.date} onChange={(e) => setResolution((r) => ({ ...r, date: e.target.value }))} required /></label>
-                {resolutionDowntime() !== null && <div className="update-km-last">{t.carUpdate.calculatedDowntime(resolutionDowntime() ?? 0)}</div>}
-                <label className="reminder-check">{t.carUpdate.observations}<textarea className="reminder-message" value={resolution.observations} onChange={(e) => setResolution((r) => ({ ...r, observations: e.target.value }))} /></label>
-              </div>}
-            </SupervisorModal>
-          )}
+                </ul>
+              </>
+            )}
+          </div>
         </div>
       )}
 
-      {planDateFor && (
-        <SupervisorModal
-          open
-          title={t.carUpdate.planDateTitle(planDateFor.name)}
-          onClose={() => setPlanDateFor(null)}
-          footer={
-            <>
-              <Button type="button" variant="secondary" onClick={() => setPlanDateFor(null)}>
-                {t.common.cancel}
-              </Button>
-              <Button
-                type="button"
-                onClick={() => savePlan(planDateFor, planDate)}
-                disabled={!planDate || savingPlan === planDateFor.id}
-              >
-                {t.carUpdate.planDateAccept}
-              </Button>
-            </>
-          }
-        >
-          <div className="modal-form">
-            <label className="reminder-check">
-              {t.carUpdate.planDateLabel} <span className="req-badge" aria-hidden>{t.common.required}</span>
-              <input
-                type="date"
-                max={todayIso()}
-                className="update-input"
-                value={planDate}
-                onChange={(event) => setPlanDate(event.target.value)}
-                required
-              />
-            </label>
-            <Button type="button" variant="secondary" onClick={() => setPlanDate(todayIso())}>
-              {t.carUpdate.planToday}
-            </Button>
-          </div>
-        </SupervisorModal>
+      {resolving && (
+        <IncidentResolveModal
+          incident={resolving}
+          plate={vehicle.plate}
+          vehicleKm={summary?.km_current ?? null}
+          onClose={() => setResolving(null)}
+          onResolved={(aviso) => {
+            setIncidents((rows) => (rows ?? []).filter((row) => row.id !== resolving.id))
+            setResolving(null)
+            setNotice([copy.resolvedNote, aviso].filter(Boolean).join(' '))
+            onSaved?.()
+          }}
+        />
       )}
     </SupervisorModal>
   )

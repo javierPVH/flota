@@ -8,9 +8,11 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# `curl` para el HEALTHCHECK; el resto de dependencias traen wheels (no compilan).
+# `curl` para el HEALTHCHECK; `xmlsec1` lo invoca pysaml2 para verificar la
+# firma de las aserciones SAML (SSO de conductores). El resto de dependencias
+# traen wheels (no compilan).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl xmlsec1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

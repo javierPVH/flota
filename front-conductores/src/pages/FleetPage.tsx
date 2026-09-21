@@ -10,6 +10,7 @@ import {
   truncatedAt,
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
+import { SupervisorOverview } from '../components/SupervisorOverview.tsx'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
 import { pendingThisMonth } from '../format.ts'
 import { useLang } from '../i18n.tsx'
@@ -19,6 +20,11 @@ import type { Vehicle, VehicleSummary } from '../types.ts'
 // Orden canónico de los grupos por estado (los que existan en la flota).
 // El resto de estados —baja, no activo…— van detrás, en orden de aparición.
 const STATE_ORDER = ['active', 'maintenance', 'itv', 'broken', 'accidente']
+
+// Los dos cortes del selector que NO son un estado. Llevan prefijo para no
+// poder chocar nunca con un valor de `VehicleState` que llegue del back.
+const CUT_STOPPED = 'corte:parados'
+const CUT_SUBSTITUTED = 'corte:con-sustituto'
 
 /**
  * Flota a cargo (HU-2.8): la lista del grupo del supervisor, separada por
@@ -114,13 +120,31 @@ export function FleetPage() {
       })
   }, [searched])
 
+  // Los dos CORTES que no son un estado, arriba del todo con «Activo» porque
+  // son los que se miran a diario: todo lo que NO rueda (da igual por qué) y
+  // los coches que tienen un sustituto cubriéndolos.
+  const stopped = useMemo(
+    () => searched.filter((v) => v.state !== 'active'),
+    [searched],
+  )
+  const substituted = useMemo(
+    () => searched.filter((v) => summaries[v.id]?.blocked_by_link),
+    [searched, summaries],
+  )
+
   // Si la búsqueda deja sin coches al estado activo, su opción desaparece:
   // el corte vuelve a "Todos" en vez de quedarse en una lista vacía sin salida.
-  const activeTab = groups.some((g) => g.state === tab) ? tab : ''
-  const visible = useMemo(
-    () => (activeTab ? searched.filter((v) => v.state === activeTab) : searched),
-    [searched, activeTab],
-  )
+  // Los dos cortes se ofrecen siempre (también a cero): son fijos, y un menú
+  // que cambia de opciones al teclear se lee peor que un cero.
+  const activeTab =
+    tab === CUT_STOPPED || tab === CUT_SUBSTITUTED || groups.some((g) => g.state === tab)
+      ? tab
+      : ''
+  const visible = useMemo(() => {
+    if (activeTab === CUT_STOPPED) return stopped
+    if (activeTab === CUT_SUBSTITUTED) return substituted
+    return activeTab ? searched.filter((v) => v.state === activeTab) : searched
+  }, [searched, activeTab, stopped, substituted])
 
   if (!isSupervisor) return <Navigate to="/" replace />
   if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
@@ -147,6 +171,12 @@ export function FleetPage() {
         ]}
       />
 
+      {/* Las cifras de lo que supervisa encabezan SU pantalla: aquí es donde
+          se mira la flota, y desde cada una se abre y se resuelve su lista.
+          Antes estaban en «Mi perfil», que es quién eres y no cómo va tu
+          flota. Sin rol de supervisor no se llega hasta aquí (arriba). */}
+      <SupervisorOverview />
+
       <div className="fleet-toolbar">
         <input
           type="search"
@@ -165,9 +195,25 @@ export function FleetPage() {
           onChange={(e) => setTab(e.target.value)}
         >
           <option value="">{tf.tabAll} ({searched.length})</option>
-          {groups.map((g) => (
-            <option key={g.state} value={g.state}>{g.label} ({g.count})</option>
-          ))}
+          {/* Arriba, lo que se mira a diario: los que ruedan, los que no
+              (sea cual sea la causa) y los que están cubiertos. Debajo del
+              filete, el desglose por estado — que es el mismo «no activo»
+              contado por su porqué. */}
+          {groups
+            .filter((g) => g.state === 'active')
+            .map((g) => (
+              <option key={g.state} value={g.state}>{g.label} ({g.count})</option>
+            ))}
+          <option value={CUT_STOPPED}>{tf.tabStopped} ({stopped.length})</option>
+          <option value={CUT_SUBSTITUTED}>{tf.tabSubstituted} ({substituted.length})</option>
+          {/* Un `<select>` nativo no admite una línea: el filete es una opción
+              que no se puede elegir. */}
+          <option disabled>──────────</option>
+          {groups
+            .filter((g) => g.state !== 'active')
+            .map((g) => (
+              <option key={g.state} value={g.state}>{g.label} ({g.count})</option>
+            ))}
         </select>
       </div>
 

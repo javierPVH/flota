@@ -1,4 +1,4 @@
-import { PageHeader, Badge } from '@flota/ui/ui'
+import { Badge } from '@flota/ui/ui'
 
 import { useAuth } from '../auth.ts'
 import { PersonalDocumentsPanel, usePersonalDocuments } from '../components/PersonalDocuments.tsx'
@@ -45,8 +45,8 @@ export function ProfilePage() {
 
   return (
     <div className="field-page">
-      <PageHeader title={copy.title} />
-
+      {/* Sin encabezado: el tab de arriba ya dice dónde estás, y en un móvil
+          ese título se comía una pantalla de alto para repetirlo. */}
       <section className="card profile-head">
         <span className="profile-avatar" aria-hidden>
           {initials}

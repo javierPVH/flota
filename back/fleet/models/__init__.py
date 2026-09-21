@@ -33,7 +33,7 @@ from .catalogs import (
 )
 from .consumption import FuelConsumption
 from .contract import Contract, KmReading
-from .document import Document
+from .document import Document, DocumentDeletionRequest
 from .email import EmailLog, EmailOutbox, EmailSignature, EmailTemplate, EmailTemplateKey
 from .event import (
     Event,
@@ -52,7 +52,7 @@ from .incident import AccidentInjured, AccidentReport, AccidentThirdParty, Incid
 from .invoice import Invoice, InvoiceAllocation
 from .maintenance import MaintenancePlan, MaintenanceProgram
 from .notification import NotificationSchedule
-from .request import VehicleRequest
+from .request import DriverChangeRequest, VehicleRequest
 from .vehicle import Vehicle
 
 __all__ = [
@@ -107,7 +107,9 @@ __all__ = [
     "AccidentThirdParty",
     "AccidentInjured",
     "Document",
+    "DocumentDeletionRequest",
     "Alert",
     "VehicleRequest",
+    "DriverChangeRequest",
     "NotificationSchedule",
 ]

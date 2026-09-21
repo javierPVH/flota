@@ -11,7 +11,9 @@ from .views import (
     CompanyViewSet,
     ContractViewSet,
     CountryViewSet,
+    DocumentDeletionRequestViewSet,
     DocumentViewSet,
+    DriverChangeRequestViewSet,
     EmailLogViewSet,
     EmailSignatureViewSet,
     EmailTemplateViewSet,
@@ -58,8 +60,21 @@ router.register("fuel-consumptions", FuelConsumptionViewSet, basename="fuelconsu
 router.register("maintenance-plans", MaintenancePlanViewSet, basename="maintenanceplan")
 router.register("maintenance-programs", MaintenanceProgramViewSet, basename="maintenanceprogram")
 router.register("documents", DocumentViewSet, basename="document")
+# La papelera del campo no borra: abre una petición que resuelve la gestión.
+router.register(
+    "document-deletion-requests",
+    DocumentDeletionRequestViewSet,
+    basename="documentdeletionrequest",
+)
 router.register("alerts", AlertViewSet, basename="alert")
 router.register("vehicle-requests", VehicleRequestViewSet, basename="vehiclerequest")
+# El campo propone quién debería llevar el coche; la gestión lo decide en la
+# misma bandeja de solicitudes.
+router.register(
+    "driver-change-requests",
+    DriverChangeRequestViewSet,
+    basename="driverchangerequest",
+)
 # Catálogos
 router.register("countries", CountryViewSet, basename="country")
 router.register("business-units", BusinessUnitViewSet, basename="businessunit")

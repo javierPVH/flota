@@ -32,32 +32,23 @@ INTERNAL_PREFIX = "/_protected_media/"
 def _authorize(user, path: str) -> None:
     """Deja pasar solo si `user` puede ver el documento de `path`. Si no, 404.
 
-    El admin ve toda la flota. El supervisor y el conductor, solo los ficheros
-    de los vehículos de su ámbito — y los PERSONALES que les tocan (R3-01): el
-    titular de un documento es un vehículo O una persona (permiso de conducir),
-    y los personales se autorizan con `users_for` (uno mismo; el supervisor,
-    también sus conductores en curso), igual que su listado en la API. Un
-    fichero sin `Document` que lo respalde (huérfano de una subida a medias, o
-    algo dejado a mano en MEDIA_ROOT) no se sirve a nadie salvo al admin.
+    El admin ve toda la flota. Para el resto decide `readable_documents`, la
+    MISMA regla que el listado de la API: el ámbito del titular —vehículo o
+    persona (R3-01: los personales se autorizan con `users_for`, o el 404 se lo
+    comía hasta su propio dueño)— y encima la confidencialidad (responsable,
+    lectura compartida, protegido). Filtrar solo el listado no habría servido
+    de nada: con la URL del fichero en la mano, el binario se seguía bajando.
+    Un fichero sin `Document` que lo respalde (huérfano de una subida a medias,
+    o algo dejado a mano en MEDIA_ROOT) no se sirve a nadie salvo al admin.
     """
     # Imports locales: `core` no debe depender de `fleet` en tiempo de carga.
     from fleet.models import Document
-    from fleet.scoping import users_for, vehicles_for
+    from fleet.scoping import readable_documents
 
     if user.is_admin:
         return
-    document = Document.objects.filter(file=path).first()
-    if document is None:
+    if not readable_documents(user, Document.objects.filter(file=path)).exists():
         raise Http404
-    if document.vehicle_id is not None:
-        if vehicles_for(user).filter(pk=document.vehicle_id).exists():
-            return
-        raise Http404
-    # R3-01: documento personal — antes esta rama no existía y el 404 se lo
-    # comía hasta el propio titular.
-    if document.user_id is not None and users_for(user).filter(pk=document.user_id).exists():
-        return
-    raise Http404
 
 
 class ProtectedMediaView(APIView):

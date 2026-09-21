@@ -93,6 +93,7 @@ class _FakeFiles:
         self.created.append({"body": body, "media": media_body})
         if body.get("mimeType", "").endswith("folder"):
             new_id = f"folder-{body['name']}"
+            self.existing_files[new_id] = False  # Drive la conoce desde ahora (viva)
             return _FakeRequest({"id": new_id, "webViewLink": f"https://drive/{new_id}"})
         return _FakeRequest({"id": "file-456", "webViewLink": "https://drive/file-456"})
 
@@ -223,12 +224,16 @@ class GoogleDriveArchiverTests(TestCase):
         self.assertEqual(len(fake.created), 1)
         self.assertEqual(fake.created[0]["body"]["parents"], ["tipo-1"])
 
+    def _con_carpeta_recordada(self, folder_id="cacheada"):
+        self.vehicle.drive_folder_id = folder_id
+        self.vehicle.drive_folder_url = f"https://drive/{folder_id}"
+        self.vehicle.save(update_fields=["drive_folder_id", "drive_folder_url"])
+
     @override_settings(**DRIVE_ON)
     def test_known_folder_skips_lookup(self):
-        self.vehicle.drive_folder_id = "cacheada"
-        self.vehicle.drive_folder_url = "https://drive/cacheada"
-        self.vehicle.save(update_fields=["drive_folder_id", "drive_folder_url"])
-        fake = _FakeFiles()
+        self._con_carpeta_recordada()
+        # La carpeta recordada sigue viva en Drive (fuera de la papelera).
+        fake = _FakeFiles(existing_files={"cacheada": False})
         with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
             doc = self._doc_with_file()
             archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
@@ -237,6 +242,43 @@ class GoogleDriveArchiverTests(TestCase):
         self.assertEqual(len(fake.queries), 2)
         self.assertEqual(fake.created[0]["body"]["parents"], ["cacheada"])
         self.assertEqual(fake.created[1]["body"]["parents"], ["folder-Documentación"])
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.drive_folder_id, "cacheada")
+
+    @override_settings(**DRIVE_ON)
+    def test_carpeta_recordada_en_la_papelera_se_recrea(self):
+        # Borraron la carpeta del coche desde Drive: está en la papelera, y
+        # Drive seguiría aceptando subir dentro (el documento nacería en la
+        # papelera). El id recordado se comprueba y, muerto, se recrea el árbol.
+        self._con_carpeta_recordada("vieja")
+        fake = _FakeFiles(existing_folders={"Vehículos": "veh-1"}, existing_files={"vieja": True})
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            doc = self._doc_with_file()
+            archive_document(doc, archiver=GoogleDriveArchiver(service=_FakeDrive(fake)))
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.drive_folder_id, "folder-DRV111")
+        self.assertEqual(self.vehicle.drive_folder_url, "https://drive/folder-DRV111")
+        # Matrícula → Documentación → Seguro → fichero, todo nuevo bajo «Vehículos».
+        parents = [c["body"]["parents"] for c in fake.created]
+        self.assertEqual(
+            parents, [["veh-1"], ["folder-DRV111"], ["folder-Documentación"], ["folder-Seguro"]]
+        )
+        doc.refresh_from_db()
+        self.assertEqual(doc.status, DocumentStatus.VALID)
+
+    @override_settings(**DRIVE_ON)
+    def test_carpeta_recordada_borrada_del_todo_se_recrea(self):
+        # Drive ya no la conoce (404): mismo camino que la papelera.
+        self._con_carpeta_recordada("desaparecida")
+        fake = _FakeFiles(existing_folders={"Vehículos": "veh-1", "DRV111": "otra-que-habia"})
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            archive_document(
+                self._doc_with_file(), archiver=GoogleDriveArchiver(service=_FakeDrive(fake))
+            )
+        self.vehicle.refresh_from_db()
+        # Y antes de crear se busca: si alguien ya rehízo la carpeta, se reutiliza.
+        self.assertEqual(self.vehicle.drive_folder_id, "otra-que-habia")
+        self.assertEqual(fake.created[0]["body"]["parents"], ["otra-que-habia"])
 
     @override_settings(**DRIVE_ON)
     def test_una_pasada_resuelve_cada_carpeta_una_vez(self):

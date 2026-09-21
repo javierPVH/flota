@@ -5,9 +5,10 @@ from auditlog.models import LogEntry
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.db import models, transaction
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
+from django.utils.text import slugify
 from django_filters import rest_framework as filters
 from django_filters.widgets import BooleanWidget
 from rest_framework import mixins, status, viewsets
@@ -43,6 +44,8 @@ from .models import (
     Contract,
     Country,
     Document,
+    DocumentDeletionRequest,
+    DriverChangeRequest,
     EmailLog,
     EmailSignature,
     EmailTemplate,
@@ -75,14 +78,16 @@ from .models.enums import (
     AlertStatus,
     AlertType,
     AssignmentStatus,
+    DocumentDeletionStatus,
     DocumentStatus,
+    DriverChangeStatus,
     EventType,
     IncidentStatus,
     IncidentType,
     VehicleRequestStatus,
     VehicleState,
 )
-from .scoping import users_for, vehicles_for
+from .scoping import default_responsible, readable_documents, users_for, vehicles_for
 from .selectors import current_assignment_q
 from .serializers import (
     AlertSerializer,
@@ -92,7 +97,9 @@ from .serializers import (
     CompanySerializer,
     ContractSerializer,
     CountrySerializer,
+    DocumentDeletionRequestSerializer,
     DocumentSerializer,
+    DriverChangeRequestSerializer,
     EmailLogSerializer,
     EmailSignatureSerializer,
     EmailTemplateSerializer,
@@ -125,6 +132,8 @@ from .serializers import (
     sanitize_email_html,
 )
 from .services import (
+    document_requests,
+    driver_requests,
     events,
     importer,
     incidents,
@@ -138,10 +147,14 @@ from .services import (
     returns,
     substitution,
     supervisors,
+    vehicle_requests,
 )
 from .services.archiver import (
+    INLINE_MIME_TYPES,
     ExternalDeleteError,
     archive_document,
+    extension_of,
+    fetch_document,
     purge_document,
     verify_documents,
 )
@@ -1741,6 +1754,11 @@ class IncidentViewSet(
     def perform_create(self, serializer):
         super().perform_create(serializer)
         incident = serializer.instance
+        # Si quien lo comunica dice que el coche necesita sustituto, la petición
+        # abre además su SOLICITUD en la bandeja de vehículos: aquí no se toca
+        # el estado del coche ni se vincula nada — incluir el coche o no lo
+        # decide la administración desde esa bandeja.
+        vehicle_requests.open_substitute_request(incident, actor=self.request.user)
         # Un registro que nace ya CERRADO (p. ej. un mantenimiento realizado que
         # se anota a posteriori) deja igualmente actor y momento del cierre.
         if incident.status == IncidentStatus.CLOSED and incident.resolved_at is None:
@@ -1846,6 +1864,21 @@ class IncidentViewSet(
         return Response(data)
 
 
+def _document_filename(document, mime: str) -> str:
+    """Nombre con el que se guarda un documento al descargarlo.
+
+    El tipo, la matrícula (si es del coche) y el id, que es lo que distingue
+    dos pólizas del mismo vehículo. En **ASCII** a propósito (`slugify`): un
+    nombre con acentos en la cabecera obliga al RFC 5987 y no todos los
+    navegadores lo leen igual; aquí no aporta nada.
+    """
+    partes = [slugify(document.get_type_display()) or "documento"]
+    if document.vehicle_id:
+        partes.append(slugify(document.vehicle.plate))
+    partes.append(str(document.pk))
+    return "-".join(parte for parte in partes if parte) + extension_of(mime)
+
+
 class DocumentViewSet(
     IdempotentCreateMixin, DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet
 ):
@@ -1863,40 +1896,74 @@ class DocumentViewSet(
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
     queryset = Document.objects.select_related(
-        "vehicle", "user", "incident", "event", "uploaded_by"
+        "vehicle", "user", "incident", "event", "alert", "uploaded_by"
+    ).annotate(
+        # Si hay pedido su borrado y nadie lo ha decidido todavía. Va anotado y
+        # no resuelto por fila: la lista de la ficha son decenas de documentos.
+        deletion_pending=models.Exists(
+            DocumentDeletionRequest.objects.filter(
+                document=models.OuterRef("pk"), status=DocumentDeletionStatus.PENDING
+            )
+        )
     )
-    filterset_fields = ["vehicle", "user", "type", "status", "incident", "event"]
+    filterset_fields = ["vehicle", "user", "type", "status", "incident", "event", "alert"]
     ordering_fields = ["created_at", "expiry_date"]
 
     def scope_queryset(self, qs, user):
-        # Además de los documentos de los vehículos del ámbito, cada uno ve los
-        # PERSONALES que le tocan: los suyos y, el supervisor, los de sus
-        # conductores en curso (`users_for`).
-        vehicle_ids = vehicles_for(user).values_list("id", flat=True)
-        user_ids = users_for(user).values_list("id", flat=True)
-        return qs.filter(models.Q(vehicle_id__in=vehicle_ids) | models.Q(user_id__in=user_ids))
+        # El ámbito (de qué documentos se puede hablar) y la confidencialidad
+        # (cuáles de esos se leen) van juntos y viven los dos en `scoping`:
+        # `readable_documents` es la MISMA regla que aplican la descarga del
+        # binario y el informe de documentos.
+        return readable_documents(user, qs)
 
     def _assert_user_in_scope(self, serializer) -> None:
         # SEC1 para el titular PERSONA: un conductor solo se sube documentos a
-        # sí mismo; un supervisor, a sí mismo o a sus conductores en curso.
+        # sí mismo; un supervisor, a sí mismo o a sus conductores en curso. El
+        # RESPONSABLE va por lo mismo: sin esto, un supervisor podría poner de
+        # responsable a cualquiera de la organización.
         request_user = self.request.user
         if request_user.is_admin:
             return
-        target = serializer.validated_data.get("user")
-        if target is None:
+        data = serializer.validated_data
+        for campo in ("user", "responsible"):
+            target = data.get(campo)
+            if target is None:
+                continue
+            if not users_for(request_user).filter(pk=target.pk).exists():
+                raise PermissionDenied("El usuario está fuera de tu ámbito.")
+
+    def _fill_responsible(self, serializer) -> None:
+        """Responsable por defecto, antes de guardar.
+
+        `"responsible" in data` y no `is not None`: la gestión puede mandarlo a
+        `null` a propósito, y eso no es lo mismo que no mandarlo. Para quien no
+        es gestión el campo es de solo lectura, así que nunca está y el defecto
+        se aplica siempre.
+        """
+        data = serializer.validated_data
+        if "responsible" in data:
             return
-        if not users_for(request_user).filter(pk=target.pk).exists():
-            raise PermissionDenied("El usuario está fuera de tu ámbito.")
+        responsible = default_responsible(user=data.get("user"), vehicle=data.get("vehicle"))
+        if responsible is not None:
+            data["responsible"] = responsible
 
     def perform_update(self, serializer):
         self._assert_user_in_scope(serializer)
         super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        super().perform_destroy(instance)
+        # La gestión también elimina desde la ficha del coche, sin pasar por la
+        # bandeja: si alguien había pedido su borrado, ya está hecho y la
+        # petición no debe seguir esperando decisión.
+        document_requests.close_pending_as_deleted(instance, actor=self.request.user)
 
     def extra_create_kwargs(self) -> dict:
         return {"uploaded_by": self.request.user}
 
     def perform_create(self, serializer):
         self._assert_user_in_scope(serializer)
+        self._fill_responsible(serializer)
         # PR3: el archivado hace I/O de red (hasta >90 s con reintentos) — se
         # dispara en on_commit, FUERA de la transacción. Hasta entonces el
         # documento nace `pendiente_archivar` (estado veraz en la respuesta);
@@ -1908,6 +1975,57 @@ class DocumentViewSet(
                 document.status = DocumentStatus.PENDING_ARCHIVE
                 document.save(update_fields=["status", "updated_at"])
             transaction.on_commit(lambda: archive_document(document))
+
+    def _serve_file(self, document, *, as_attachment: bool):
+        """El binario de un documento, servido sin dejar copia en ningún sitio.
+
+        Lo trae la **cuenta de servicio** (`fetch_document`: el staging local
+        si aún está ahí y, si no, Drive) y se responde con la MISMA regla de
+        siempre — `get_object` ya pasó por `readable_documents`, así que se
+        sirve lo que se puede leer y nada más.
+
+        No se guarda copia de nada: los bytes van a memoria y de ahí a la
+        respuesta (`no-store`). Se sirve **inline** solo lo que es imagen o PDF
+        (`INLINE_MIME_TYPES`) y no se ha pedido como descarga; cualquier otra
+        cosa va como `attachment`, porque un HTML pintado en el origen de la
+        API sería un XSS.
+        """
+        archivo = fetch_document(document)
+        if archivo is None:
+            raise Http404("Ese documento no tiene archivo que enseñar.")
+        content, mime = archivo
+        conocido = mime in INLINE_MIME_TYPES
+        inline = conocido and not as_attachment
+        tipo = mime if conocido else "application/octet-stream"
+        response = HttpResponse(content, content_type=tipo)
+        disposition = "inline" if inline else "attachment"
+        nombre = _document_filename(document, mime)
+        response["Content-Disposition"] = f'{disposition}; filename="{nombre}"'
+        # Sin rastro en cachés intermedias ni en el disco del navegador.
+        response["Cache-Control"] = "no-store, private"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+
+    @action(detail=True, methods=["get"])
+    def preview(self, request, pk=None):
+        """GET /documents/{id}/preview/ — el archivo, para VERLO en el front.
+
+        Quien conduce **no tiene cuenta en Drive**: el enlace a la carpeta no
+        le abre nada, así que el archivo lo trae el back. Lo que llega al móvil
+        vive en un blob que la ventana suelta al cerrarse.
+        """
+        return self._serve_file(self.get_object(), as_attachment=False)
+
+    @action(detail=True, methods=["get"])
+    def download(self, request, pk=None):
+        """GET /documents/{id}/download/ — el archivo, para GUARDARLO.
+
+        Lo mismo que `preview` pero como `attachment` y con nombre: la descarga
+        tampoco puede ir por Drive (`uc?export=download`), que a un conductor
+        sin cuenta en esa carpeta le contesta «no tienes acceso». Aquí baja por
+        la misma puerta que ya autoriza la lectura.
+        """
+        return self._serve_file(self.get_object(), as_attachment=True)
 
     @action(detail=False, methods=["post"], permission_classes=[IsAdmin])
     def verify(self, request):
@@ -1951,6 +2069,95 @@ class DocumentViewSet(
         except ExternalDeleteError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
         return Response(result)
+
+
+class DocumentDeletionRequestViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Peticiones de borrado de un documento: el campo pide, la gestión decide.
+
+    La papelera de la app de conductores **no borra**: abre una petición aquí y
+    el documento se queda como estaba, marcado «Pendiente de borrado»
+    (`Document.deletion_pending`). La administración la resuelve en su bandeja
+    de solicitudes con `resolve`, y solo entonces el documento desaparece de la
+    vista del conductor — por baja (erratas) o por candado.
+
+    No hay `PUT`/`PATCH`/`DELETE`: una petición no se corrige, se resuelve. Y
+    lo que se resuelve queda: es el rastro de quién pidió y quién decidió.
+    """
+
+    serializer_class = DocumentDeletionRequestSerializer
+    permission_classes = [DocumentPermission]
+    # Misma superficie pública que la subida: el alta llega de internet.
+    throttle_classes = [UserRateThrottle, PublicWriteThrottle]
+    throttle_scope = "public_write"
+    queryset = DocumentDeletionRequest.objects.select_related(
+        "document", "document__vehicle", "document__user", "requested_by", "resolved_by"
+    )
+    filterset_fields = ["status", "document"]
+    ordering_fields = ["created_at", "resolved_at"]
+
+    def get_queryset(self):
+        """Cada uno ve lo suyo; la gestión, todo lo de su ámbito.
+
+        Las propias van por delante del documento a propósito: al resolverse,
+        el documento deja de ser legible (se va a erratas o queda protegido) y
+        sin esto quien la abrió perdería de vista su propia petición y no
+        sabría en qué quedó.
+        """
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_admin:
+            return qs
+        legibles = readable_documents(user).values("id")
+        return qs.filter(
+            models.Q(requested_by=user) | models.Q(document_id__in=legibles)
+        ).distinct()
+
+    def create(self, request, *args, **kwargs):
+        """Pide el borrado de un documento (o devuelve la petición ya abierta).
+
+        El documento tiene que estar **en el ámbito de quien pide**: se
+        comprueba con `readable_documents`, la misma regla que sirve el listado
+        y el binario — pedir el borrado de algo que no se puede ni leer no es
+        una petición, es una sonda.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        document = serializer.validated_data["document"]
+        if not readable_documents(request.user, Document.objects.filter(pk=document.pk)).exists():
+            raise PermissionDenied("Ese documento está fuera de tu ámbito.")
+        if not document.is_active:
+            raise ValidationError({"document": "Ese documento ya está dado de baja."})
+        peticion = document_requests.open_request(
+            document, actor=request.user, reason=serializer.validated_data.get("reason", "")
+        )
+        salida = self.get_serializer(peticion)
+        return Response(salida.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    def resolve(self, request, pk=None):
+        """POST /document-deletion-requests/{id}/resolve/ — la decide la gestión.
+
+        Cuerpo: `{"decision": "delete" | "hide" | "reject", "note": "…"}`.
+        `delete` la manda a erratas, `hide` la deja en la flota pero protegida
+        y a nombre de quien decide, y `reject` no toca el documento. Las tres
+        la sacan de pendiente, que es lo que quita la marca en el campo.
+        """
+        peticion = self.get_object()
+        if peticion.status != DocumentDeletionStatus.PENDING:
+            raise ValidationError({"status": "Esa petición ya está resuelta."})
+        decision = str(request.data.get("decision", "") or "")
+        if decision not in document_requests.DECISIONS:
+            raise ValidationError(
+                {"decision": f"Indica una decisión: {', '.join(document_requests.DECISIONS)}."}
+            )
+        note = str(request.data.get("note", "") or "").strip()[:255]
+        document_requests.resolve(peticion, decision=decision, actor=request.user, note=note)
+        return Response(self.get_serializer(peticion).data)
 
 
 # --- Alertas (Épicas 3/5/10) ---------------------------------------------
@@ -2794,3 +3001,110 @@ class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAdmin]
     filterset_fields = ["status", "template_key"]
     search_fields = ["recipient", "subject"]
+
+
+class DriverChangeRequestViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Propuestas de cambio de conductor: el campo propone, la gestión decide.
+
+    Nace al resolver la alerta de **km contratados**: si el coche va camino de
+    pasarse de los km del contrato, lo que lo arregla es que lo lleve otra
+    persona, y eso no lo hace quien supervisa. Se propone a alguien de su
+    ámbito (o se escribe una nota) y la fila espera en `/solicitudes`.
+
+    No hay `PUT`/`PATCH`/`DELETE`: una propuesta no se corrige, se resuelve. Y
+    resolverla NO mueve la asignación (`resolve` lo explica): el cambio se hace
+    en «Cambiar conductor», que es el gesto de siempre.
+    """
+
+    serializer_class = DriverChangeRequestSerializer
+    permission_classes = [ManagementOrDriverReadWrite]
+    # Misma superficie pública que el resto de escrituras de campo (SEC9).
+    throttle_classes = [UserRateThrottle, PublicWriteThrottle]
+    throttle_scope = "public_write"
+    queryset = DriverChangeRequest.objects.select_related(
+        "vehicle", "alert", "requested_by", "proposed_driver", "resolved_by"
+    )
+    filterset_fields = ["status", "vehicle"]
+    ordering_fields = ["created_at", "resolved_at"]
+
+    def get_queryset(self):
+        """El admin ve la bandeja entera; el resto, lo suyo y lo de su ámbito.
+
+        Las propias van por delante del vehículo a propósito: quien propuso
+        tiene que poder ver en qué quedó aunque el coche salga de su ámbito
+        (justo lo que pasa cuando se le cambia el conductor).
+        """
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_admin:
+            return qs
+        return qs.filter(
+            models.Q(requested_by=user) | models.Q(vehicle__in=vehicles_for(user))
+        ).distinct()
+
+    def create(self, request, *args, **kwargs):
+        """Propone un cambio de conductor (o devuelve la propuesta ya abierta).
+
+        El coche tiene que estar en el ámbito de quien propone, y el candidato
+        también: proponer a alguien de quien no se puede hablar no es una
+        propuesta. Para cualquier otra persona está la nota, que es lo que lee
+        la administración.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+        vehicle = datos["vehicle"]
+        if not vehicles_for(request.user).filter(pk=vehicle.pk).exists():
+            raise PermissionDenied("Ese vehículo está fuera de tu ámbito.")
+        propuesto = datos.get("proposed_driver")
+        if propuesto is not None and not users_for(request.user).filter(pk=propuesto.pk).exists():
+            raise PermissionDenied("Esa persona está fuera de tu ámbito.")
+        alerta = datos.get("alert")
+        if alerta is not None and alerta.vehicle_id != vehicle.pk:
+            raise ValidationError({"alert": "La alerta es de otro vehículo."})
+        peticion = driver_requests.open_request(
+            vehicle,
+            actor=request.user,
+            alert=alerta,
+            proposed_driver=propuesto,
+            proposed_name=datos.get("proposed_name", ""),
+            proposed_email=datos.get("proposed_email", ""),
+            note=datos.get("note", ""),
+        )
+        salida = self.get_serializer(peticion)
+        return Response(salida.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get"])
+    def candidates(self, request):
+        """GET /driver-change-requests/candidates/ — a quién se puede proponer.
+
+        Los conductores del ámbito de quien pregunta, con el coche que llevan
+        hoy: se busca a alguien que ruede menos, así que la matrícula es parte
+        de la elección. Cuando el directorio de Google esté conectado se suman
+        los suyos con `source: "directory"`.
+        """
+        return Response(driver_requests.candidates_for(request.user))
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    def resolve(self, request, pk=None):
+        """POST /driver-change-requests/{id}/resolve/ — la decide la gestión.
+
+        Cuerpo: `{"decision": "done" | "reject", "note": "…"}`. Las dos salidas
+        la sacan de pendiente; ninguna toca la asignación.
+        """
+        peticion = self.get_object()
+        if peticion.status != DriverChangeStatus.PENDING:
+            raise ValidationError({"status": "Esa propuesta ya está resuelta."})
+        decision = str(request.data.get("decision", "") or "")
+        if decision not in driver_requests.DECISIONS:
+            raise ValidationError(
+                {"decision": f"Indica una decisión: {', '.join(driver_requests.DECISIONS)}."}
+            )
+        note = str(request.data.get("note", "") or "").strip()[:255]
+        driver_requests.resolve(peticion, decision=decision, actor=request.user, note=note)
+        return Response(self.get_serializer(peticion).data)

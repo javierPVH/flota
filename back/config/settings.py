@@ -268,6 +268,83 @@ GOOGLE_ALLOWED_DOMAINS = env_list("GOOGLE_ALLOWED_DOMAINS")
 # SEC10: default CERRADO — sin auto-alta por Google salvo opt-in explícito.
 GOOGLE_AUTO_CREATE_USERS = env_bool("GOOGLE_AUTO_CREATE_USERS", False)
 
+# --- SSO por SAML contra Google Workspace (PWA de conductores, patrón `list`) --
+# El SP lo pone `djangosaml2`; quién entra lo decide `accounts.saml`: SOLO
+# usuarios ya dados de alta y activos, cruzados por correo. Nunca crea usuarios
+# (SEC10). Qué pedir al administrador de Google y qué darle, en
+# docs/SAML_CONDUCTORES.md. Con SAML_ENABLED=False no se carga nada de SAML.
+SAML_ENABLED = env_bool("SAML_ENABLED", False)
+# URLs PÚBLICAS del SP (las del túnel, https): tienen que ser idénticas a las
+# que se escriban en la consola de Google.
+SAML_SP_ENTITY_ID = env_str("SAML_SP_ENTITY_ID", "")  # https://HOST/api/v1/auth/saml/metadata/
+SAML_ACS_URL = env_str("SAML_ACS_URL", "")  # https://HOST/api/v1/auth/saml/acs/
+# XML de metadatos del IdP («Descargar metadatos» en la consola de Google):
+# URL de SSO, entity id y certificado de firma. No es secreto pero no va al
+# repo: en el servidor se deja en data/saml/ (montado en /app/data).
+SAML_IDP_METADATA_FILE = env_str(
+    "SAML_IDP_METADATA_FILE", str(BASE_DIR / "data" / "saml" / "google_idp_metadata.xml")
+)
+# Corralito de dominio: solo correos de estos dominios (vacío = sin filtro).
+SAML_ALLOWED_DOMAINS = env_list("SAML_ALLOWED_DOMAINS", ["gransolar.com"])
+# A dónde vuelve el navegador cuando el ACS rechaza la entrada (la PWA lee
+# `?saml=<motivo>` y enseña el modal). Relativa: ACS y PWA son el mismo origen.
+SAML_FAILURE_REDIRECT = env_str("SAML_FAILURE_REDIRECT", "/login")
+if SAML_ENABLED:
+    import saml2
+    from saml2.saml import NAMEID_FORMAT_EMAILADDRESS
+
+    INSTALLED_APPS.append("djangosaml2")
+    # Cookie propia de djangosaml2 (peticiones pendientes, id del sujeto), con
+    # SameSite=None porque el POST del ACS llega desde accounts.google.com, y
+    # forzada a Secure aunque SESSION_COOKIE_SECURE sea False (ver accounts.saml).
+    MIDDLEWARE.insert(
+        MIDDLEWARE.index("django.contrib.sessions.middleware.SessionMiddleware") + 1,
+        "accounts.saml.SecureSamlSessionMiddleware",
+    )
+    AUTHENTICATION_BACKENDS = [
+        "accounts.saml.FleetSaml2Backend",
+        # Contraseña, Google (ID token) y dev-login siguen entrando por aquí.
+        "django.contrib.auth.backends.ModelBackend",
+    ]
+    XMLSEC_BINARY = env_str("XMLSEC_BINARY", "/usr/bin/xmlsec1")
+    # Endurecimiento (mismos valores que list, verificados contra Google):
+    # la aserción SIEMPRE firmada; la respuesta y las peticiones no (Google no
+    # las firma por defecto); sin respuestas no solicitadas (anti-replay: el
+    # login es SP-initiated); ForceAuthn para que Google no reutilice en
+    # silencio la cuenta que tuviera abierta el navegador del móvil.
+    SAML_CONFIG = {
+        "xmlsec_binary": XMLSEC_BINARY,
+        "entityid": SAML_SP_ENTITY_ID,
+        "allow_unknown_attributes": True,
+        "service": {
+            "sp": {
+                "name": "Flota · Conductores",
+                "allow_unsolicited": env_bool("SAML_ALLOW_UNSOLICITED", False),
+                "authn_requests_signed": env_bool("SAML_AUTHN_REQUESTS_SIGNED", False),
+                "want_response_signed": env_bool("SAML_WANT_RESPONSE_SIGNED", False),
+                "want_assertions_signed": env_bool("SAML_WANT_ASSERTIONS_SIGNED", True),
+                "force_authn": env_bool("SAML_FORCE_AUTHN", True),
+                "name_id_format": NAMEID_FORMAT_EMAILADDRESS,
+                "endpoints": {
+                    "assertion_consumer_service": [(SAML_ACS_URL, saml2.BINDING_HTTP_POST)],
+                },
+            },
+        },
+        "metadata": {"local": [SAML_IDP_METADATA_FILE]},
+    }
+    # 302 directo a Google en vez de la página intermedia con formulario POST.
+    SAML_DEFAULT_BINDING = saml2.BINDING_HTTP_REDIRECT
+    # La CSP la pone nginx (no hay django-csp) y con el binding redirect no hay
+    # formulario intermedio que necesite excepciones: sin esto djangosaml2
+    # avisa en cada arranque.
+    SAML_CSP_HANDLER = ""
+    # NUNCA se crean usuarios desde la aserción ni se les tocan los datos: el
+    # backend busca por correo y, si no existe o está de baja, no entra.
+    SAML_CREATE_UNKNOWN_USER = False
+    SAML_ATTRIBUTE_MAPPING = {}
+    # Tras el ACS, a la raíz de la PWA (mismo origen; AccessGate decide).
+    ACS_DEFAULT_REDIRECT_URL = "/"
+
 # --- Google Drive / Picker (Fase A3, patrón `list`) ------------------------
 # OAuth de usuario para el Google Picker (subir/elegir documentos en el front
 # de gestión). Distinto del login con Google de arriba: aquí hace falta el
@@ -314,11 +391,30 @@ WEBPUSH_CONTACT = env_str("WEBPUSH_CONTACT", "mailto:admin@example.com")
 
 # Validaciones de coherencia (solo estrictas en producción para no estorbar en dev).
 if not DEBUG:
-    if not (AUTH_PASSWORD_ENABLED or AUTH_GOOGLE_ENABLED):
+    if not (AUTH_PASSWORD_ENABLED or AUTH_GOOGLE_ENABLED or SAML_ENABLED):
         raise ImproperlyConfigured(
             "Debes habilitar al menos un método de login "
-            "(AUTH_PASSWORD_ENABLED o AUTH_GOOGLE_ENABLED)."
+            "(AUTH_PASSWORD_ENABLED, AUTH_GOOGLE_ENABLED o SAML_ENABLED)."
         )
+    if SAML_ENABLED:
+        # Fallar cerrado y con mensaje: sin estas tres cosas el ACS rechazaría
+        # todo con un error de pysaml2 que no dice nada.
+        if not (SAML_SP_ENTITY_ID and SAML_ACS_URL):
+            raise ImproperlyConfigured(
+                "SAML_ENABLED=True requiere SAML_SP_ENTITY_ID y SAML_ACS_URL "
+                "(las URLs públicas https del SP, idénticas a las de la consola de Google)."
+            )
+        if not Path(SAML_IDP_METADATA_FILE).exists():
+            raise ImproperlyConfigured(
+                f"SAML_ENABLED=True pero no existe el XML de metadatos del IdP: "
+                f"{SAML_IDP_METADATA_FILE} (descárgalo de la consola de Google)."
+            )
+        # Mismo corralito que C4 para Google: sin dominios, una app SAML
+        # activada «para todos» o un IdP mal apuntado deja probar a cualquiera.
+        if not SAML_ALLOWED_DOMAINS:
+            raise ImproperlyConfigured(
+                "SAML_ENABLED=True exige SAML_ALLOWED_DOMAINS (p. ej. gransolar.com)."
+            )
     if AUTH_GOOGLE_ENABLED and not GOOGLE_OAUTH_CLIENT_ID:
         raise ImproperlyConfigured(
             "AUTH_GOOGLE_ENABLED=True requiere definir GOOGLE_OAUTH_CLIENT_ID."
@@ -495,6 +591,16 @@ FLEET_DOCUMENT_MAX_MB = max(1, env_int("FLEET_DOCUMENT_MAX_MB", 10))
 FLEET_ARCHIVE_BACKEND = env_str("FLEET_ARCHIVE_BACKEND", "none")
 FLEET_ARCHIVE_LOCAL_DIR = env_str("FLEET_ARCHIVE_LOCAL_DIR", str(BASE_DIR / "archive"))
 GOOGLE_DRIVE_ENABLED = env_bool("GOOGLE_DRIVE_ENABLED", False)
+
+# Directorio de Google (Admin SDK) como origen de candidatos al proponer un
+# cambio de conductor. Nace APAGADO y así se queda hasta que un superadmin del
+# Workspace habilite la API y conceda la delegación a nivel de dominio con los
+# permisos de solo lectura de usuarios y miembros de grupo; mientras tanto, los
+# candidatos salen de la aplicación y para los de fuera está la nota
+# (`fleet/services/driver_requests.py`).
+FLEET_GOOGLE_DIRECTORY_ENABLED = env_bool("FLEET_GOOGLE_DIRECTORY_ENABLED", False)
+#: Grupo del que salen los candidatos cuando lo anterior esté activo.
+FLEET_GOOGLE_DIRECTORY_GROUP = env_str("FLEET_GOOGLE_DIRECTORY_GROUP", "")
 
 # Importación de solicitudes de vehículo desde Jira (Épica 8).
 FLEET_JIRA_ENABLED = env_bool("FLEET_JIRA_ENABLED", False)

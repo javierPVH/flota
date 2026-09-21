@@ -77,12 +77,11 @@ export function daysSince(dateStr: string): number {
 /** Grupo del acordeón para lecturas sin fecha (van al final, sin delta). */
 export const UNDATED_YEAR = '—'
 
-/** Semáforo de antigüedad de la última lectura de km: <15 días al día,
- * 15-30 a vigilar, >30 vencida. En ámbar y rojo se ofrece reclamarla por
- * correo al conductor. Sin ninguna lectura cuenta como vencida. */
-export type KmStaleTone = 'ok' | 'warn' | 'danger'
-export const kmStaleTone = (days: number | null): KmStaleTone =>
-  days === null || days > 30 ? 'danger' : days >= 15 ? 'warn' : 'ok'
+/** Semáforo de antigüedad de la última lectura de km (<15 al día, 15-30 a
+ * vigilar, >30 o sin ninguna vencida): en ámbar y rojo se ofrece reclamarla por
+ * correo al conductor. La regla vive en el DS porque la app de campo avisa con
+ * ELLA MISMA; se reexporta aquí para no mover los tres sitios que ya la usan. */
+export { kmStaleTone, type KmStaleTone } from '@flota/ui/domain'
 
 export function label(map: Record<string, string>, value: string): string {
   return map[value] ?? (value || '—')

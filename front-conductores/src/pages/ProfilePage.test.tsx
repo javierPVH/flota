@@ -62,7 +62,9 @@ describe('ProfilePage (la pantalla del avatar)', () => {
       </LanguageProvider>,
     )
 
-    expect(screen.getByText('Mi perfil')).toBeInTheDocument()
+    // Sin encabezado: el tab de arriba ya dice dónde estás, y repetirlo se
+    // comía una pantalla de alto en el móvil.
+    expect(screen.queryByText('Mi perfil')).not.toBeInTheDocument()
     expect(screen.getByText('Carlos Ruiz')).toBeInTheDocument()
     expect(screen.getByText('@carlos')).toBeInTheDocument()
     expect(screen.getByText('Conductor')).toBeInTheDocument()
@@ -77,6 +79,11 @@ describe('ProfilePage (la pantalla del avatar)', () => {
     expect(await screen.findByText('Permiso de conducir')).toBeInTheDocument()
     expect(mocks.listPersonalDocuments).toHaveBeenCalledWith(7)
     expect(screen.getByRole('button', { name: 'Subir documento personal' })).toBeInTheDocument()
+
+    // El perfil es quién eres, no cómo va tu flota: las cifras de «A tu
+    // cargo» encabezan ahora «Flota», que es donde se mira. Aquí no salen ni
+    // aunque supervises — y de paso el perfil no pide cuatro listas.
+    expect(screen.queryByText('A tu cargo')).not.toBeInTheDocument()
   })
 
   it('no pinta el DNI entero: solo los últimos cuatro', async () => {

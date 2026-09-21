@@ -434,11 +434,11 @@ button.bottom-tab {
   font-size: var(--font-size-body);
 }
 
-.vehicle-cards { display: grid; gap: 0.9rem; }
-/* Mi vehículo: la tarjeta ocupa TODO el ancho (también en tablet, donde la
-   lista general va a columnas) y sin botones de parte — aquí cada acción
-   vive en el nav inferior, repetirlas solo estorba. */
-.own-vehicles .vehicle-cards { grid-template-columns: 1fr; }
+/* Una tarjeta por fila y a todo el ancho, en cualquier pantalla (el porqué,
+   donde estaba el reparto en columnas: «Fase 6: transversales»). */
+.vehicle-cards { display: grid; grid-template-columns: 1fr; gap: 0.9rem; }
+/* Mi vehículo: sin botones de parte — aquí cada acción vive en el nav
+   inferior, y repetirlas solo estorba. */
 .own-vehicles .card-report-actions { display: none; }
 
 /* --- Home "Mi vehículo": tablero del coche propio -------------------------
@@ -465,11 +465,18 @@ button.bottom-tab {
 /* El div de km compartido (home + ficha): cada dato del pie en su línea. */
 .km-stat-line { display: block; }
 .km-stat-line + .km-stat-line { margin-top: 0.2rem; }
+/* Matrícula, estado, «Tu coche», el recuento de incidencias y la flecha. Son
+   tantas chapas como tenga el coche, así que la fila ENVUELVE: en un móvil
+   estrecho no caben en una línea y antes se salían de la tarjeta. Y se
+   agrupan junto a la matrícula (la flecha se va sola al borde con
+   `margin-left: auto`): con `space-between` y la tarjeta a todo el ancho se
+   repartían media pantalla y no se leían como lo que son, las marcas de ESE
+   coche. */
 .vehicle-card-head {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.45rem 0.6rem;
 }
 .vehicle-card .plate {
   font-size: 1.3rem;
@@ -526,6 +533,9 @@ button.bottom-tab {
 
 /* --- Modal de actualización de campo (km / mantenimiento / partes) -------- */
 .update-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
   margin: 0 0 0.8rem;
   padding: 0.55rem 0.7rem;
   border-left: 3px solid var(--color-warning);
@@ -534,6 +544,43 @@ button.bottom-tab {
   color: var(--color-warning);
   font-size: 0.85rem;
   font-weight: 600;
+}
+/* La X que lo calla durante la sesión. Área de toque de 28px: va dentro de un
+   aviso, no sobre una foto, y con menos se falla. */
+.update-notice-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -0.15rem -0.25rem 0 auto;
+  border: none;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.update-notice-close:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+/* Con el aviso cerrado, su icono se queda en la CABECERA del modal, pegado a
+   la X (`headerAction` del DS) y con su misma caja: 30px cuadrados y el mismo
+   redondeo, para que se lean como dos botones de la misma fila y no como un
+   adorno suelto. Solo cambia el color, que es el del aviso que devuelve. */
+.update-notice-open {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  cursor: pointer;
+}
+.update-notice-open:hover {
+  background: var(--color-warning);
+  color: #fff;
 }
 /* Aviso informativo del modal de ITV: de qué cita es el registro. Mismo molde
    que `.update-notice`, en tono informativo (no es una advertencia) y con la
@@ -553,28 +600,55 @@ button.bottom-tab {
 .itv-notice strong { display: block; margin-bottom: 0.15rem; }
 .itv-notice span { color: var(--color-text-muted); }
 
-.update-tabs {
-  position: sticky;
-  top: -1rem;
-  z-index: 4;
+/* Formulario del registro de ITV. Las fechas ocupan el ancho del modal como
+   los demás campos: con el ancho natural del `input[type=date]` cada fila
+   terminaba donde le apetecía y el formulario se leía como una escalera. */
+.itv-form input[type='date'] { width: 100%; }
+.itv-field { display: grid; gap: 0.25rem; }
+/* Campo con su atajo a la derecha («Hoy», «Calcular»): el botón se alinea con
+   el input, no con la etiqueta, que va encima. */
+.field-action { display: grid; grid-template-columns: 1fr auto; gap: 0.5rem; align-items: end; }
+.field-action > button { white-space: nowrap; }
+.field-hint { color: var(--color-text-muted); font-size: 0.8rem; }
+
+/* «Actualizar» reparte el alto del modal en vez de dejar que el cuerpo entero
+   se desplace: la fila de pestañas y los avisos se quedan QUIETOS y **solo el
+   panel hace scroll** (el mismo reparto que la lista de pendientes de la
+   flota). Con la barra pegada con `sticky` desaparecía en los paneles largos
+   —km, mantenimiento, ITV—, que es justo cuando hace falta cambiar de
+   pestaña: dentro de un contenedor con `padding` y `gap` propios, quedarse
+   arriba dependía del navegador. Así no depende de nadie. */
+.update-shell {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
-  gap: 0.35rem;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.update-tabs {
+  flex: none;
+  display: flex;
+  gap: 0.3rem;
   width: 100%;
-  padding: 0.45rem 0;
-  margin-bottom: 0.7rem;
+  padding-bottom: 0.5rem;
   overflow-x: auto;
   background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
 }
 .update-tabs::-webkit-scrollbar { display: none; }
 .update-tab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 auto;
-  min-height: 40px;
-  padding: 0.35rem 0.8rem;
+  gap: 0.35rem;
+  /* Se reparten el ancho cuando caben (barra segmentada) y, cuando no, la
+     fila hace scroll con cada pestaña entera: nunca media pestaña cortada. */
+  flex: 1 0 auto;
+  min-height: 42px;
+  padding: 0.35rem 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: 999px;
   background: var(--color-surface);
@@ -584,17 +658,55 @@ button.bottom-tab {
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
+  scroll-snap-align: center;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
+.update-tab svg { flex: none; }
 .update-tab:hover {
   border-color: var(--color-brand);
   color: var(--color-brand);
 }
+/* La activa va RELLENA, como el botón principal: con el relleno suave de antes
+   había que mirar dos veces para saber en cuál se está. */
 .update-tab.is-active {
   border-color: var(--color-brand);
-  background: var(--color-primary-soft);
-  color: var(--color-brand);
+  background: var(--color-brand);
+  color: #fff;
 }
-.update-pane { display: grid; gap: 0.6rem; justify-items: start; width: 100%; }
+/* Cuántas hay abiertas, sin abrir la pestaña. */
+.update-tab-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.update-tab.is-active .update-tab-count {
+  background: rgba(255, 255, 255, 0.24);
+  color: #fff;
+}
+/* El contenido de una pestaña ocupa el ancho: encogido contra el borde
+   izquierdo, un formulario entero (o el aviso de la ITV) se leía a media
+   columna. */
+.update-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* Lo único que se desplaza: la barra de pestañas se queda arriba. */
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 0.6rem;
+  width: 100%;
+  /* Aire para que el foco de un campo no quede pegado al borde del recorte. */
+  padding: 0.2rem 0.15rem;
+}
+.update-pane > form,
+.update-pane > ul { width: 100%; }
 .update-input {
   display: block;
   width: 100%;
@@ -643,10 +755,22 @@ button.bottom-tab {
   border-radius: 0.6rem;
   padding: 0.55rem 0.7rem;
 }
-.update-plan-main { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.update-plan-main { display: grid; gap: 0.2rem; }
 .update-plan-info { display: grid; gap: 2px; min-width: 0; }
 .update-plan-info small { color: var(--color-text-muted); }
-.update-plan-actions { display: flex; gap: 0.4rem; align-items: center; }
+/* Cuándo toca la revisión, con el semáforo de los demás vencimientos. */
+.plan-due { font-weight: 700; }
+/* El gesto principal a lo ancho (dedo) y el detalle como enlace discreto: dos
+   botones iguales uno al lado del otro no decían cuál era la acción. */
+.update-plan-actions {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.6rem;
+}
+.update-plan-actions > button:first-child { flex: 1 1 auto; justify-content: center; }
+.update-plan-actions .link-btn { display: inline-flex; align-items: center; gap: 0.2rem; }
 .update-plan-actions svg { transition: transform 160ms ease; }
 .update-plan-actions svg.is-open { transform: rotate(180deg); }
 .update-plan-detail {
@@ -674,6 +798,138 @@ button.bottom-tab {
   color: var(--color-success);
   font-weight: 700;
 }
+/* --- Buscar y filtrar una lista de un modal (`ListFilter`) ----------------
+   Una sola barra para las tres listas que pueden traer decenas de filas: las
+   incidencias de un coche y las alertas e incidencias de toda la flota. */
+.list-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.7rem;
+}
+.list-filter-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1 1 10rem;
+  min-width: 8rem;
+  min-height: 36px;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+.list-filter-search:focus-within {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+/* El recuadro lo pone la etiqueta, con la lupa dentro: dos bordes (el de la
+   caja y el del input) se leían como dos campos. */
+.list-filter-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+/* --- Cierre de una incidencia (un formulario por tipo) --------------------
+   Dos campos por fila donde caben (km y coste, medida y marca): en una sola
+   columna, el formulario de neumáticos se iba de pantalla. */
+.resolve-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.6rem;
+}
+/* Las cuatro ruedas, en dos columnas: es un dibujo del coche, no una lista. */
+.resolve-wheels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.2rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  margin: 0;
+  padding: 0.5rem 0.7rem 0.7rem;
+}
+.resolve-wheels legend {
+  padding: 0 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+/* Cargar en «Kilometraje» la última lectura del coche, con el porqué debajo:
+   en el taller no rueda, así que sale con los km con los que entró. */
+.resolve-km-load {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.1rem 0 0.2rem;
+}
+.resolve-km-btn {
+  justify-self: start;
+  border: 1px solid var(--color-border-strong, var(--color-border));
+  border-radius: 0.6rem;
+  background: var(--color-surface);
+  color: var(--color-brand);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  min-height: 2.2rem;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+.resolve-km-btn:active {
+  background: var(--color-surface-alt, var(--color-surface));
+}
+
+/* «¿Requirió pasar por el taller?»: la casilla y su pregunta en una fila, y el
+   porqué debajo (fuera de la etiqueta, que si no sería parte de su nombre). */
+.resolve-workshop {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  margin-top: 0.2rem;
+}
+.resolve-workshop input {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--color-brand);
+}
+
+/* Proponer otro conductor dentro de la resolución de la alerta de km
+   contratados: es OTRA cosa que resolverla —abre una solicitud y no cierra el
+   aviso—, así que va en su propio bloque, separado por un filete. */
+.propose-driver {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--color-border);
+}
+.propose-driver h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.propose-driver > button {
+  justify-self: start;
+}
+
+/* --- Prioridad de una petición -------------------------------------------
+   La elige quien la abre, y en la lista se lee de dos maneras: escrita (la
+   chapa) y en el filete de la izquierda, que es lo que permite barrer la
+   lista sin leerla. Mismos colores que el nivel de una alerta. */
+.pri-row {
+  border-left: 4px solid var(--color-border);
+  padding-left: 0.6rem;
+}
+.pri-row.pri-critical { border-left-color: var(--color-danger); }
+.pri-row.pri-moderate { border-left-color: var(--color-warning); }
+.pri-row.pri-functional { border-left-color: var(--color-info); }
+.pri-row.pri-informative { border-left-color: var(--color-border); }
 .update-incidents { list-style: none; display: grid; gap: 0.55rem; width: 100%; margin: 0; padding: 0; }
 .update-incident {
   display: grid;
@@ -717,8 +973,39 @@ button.bottom-tab {
 @media (max-width: 560px) {
   .update-km-row { align-items: stretch; }
   .update-km-row > button { align-self: flex-end; }
-  .update-plan-main, .update-incident { grid-template-columns: 1fr; display: grid; }
-  .update-plan-actions, .update-incident-actions { justify-content: flex-start; }
+  .update-incident { grid-template-columns: 1fr; display: grid; }
+  .update-incident-actions { justify-content: flex-start; }
+}
+/* --- Teléfono estrecho (320px, el suelo de un móvil normal) ---------------
+   Ahí «Actualizar» tiene ~275px de contenido y las cinco pestañas no caben en
+   una línea: en vez de dejar la fila cortada por la derecha —«Mantenimi…» y
+   una quinta pestaña que no se ve—, se REPARTE EN DOS LÍNEAS. Todo a la
+   vista, nada que deslizar: la barra dice cuántas cosas hay que actualizar, y
+   eso no puede depender de un gesto que no se anuncia. */
+@media (max-width: 420px) {
+  .update-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    gap: 0.25rem;
+    padding-bottom: 0.4rem;
+  }
+  .update-tab {
+    /* Con dos líneas, cada una llena su ancho: se leen como una barra y no
+       como pastillas sueltas. */
+    flex: 1 1 auto;
+    min-height: 40px;
+    padding: 0.3rem 0.5rem;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+  }
+  /* El gesto principal y su detalle, uno debajo del otro si no caben. */
+  .update-plan-actions { flex-wrap: wrap; row-gap: 0.45rem; }
+  /* Etiqueta encima del dato: a dos columnas, «cada 15.100 km / 12 meses»
+     partía en tres líneas contra un rótulo de 120px. */
+  .update-plan-detail dl,
+  .update-incident-detail { grid-template-columns: 1fr; gap: 0.1rem; }
+  .update-plan-detail dd,
+  .update-incident-detail dd { margin-bottom: 0.35rem; }
 }
 /* La píldora de lectura pendiente, compacta bajo la cifra de km. */
 .pending-link { display: inline-flex; margin-left: 0.35rem; vertical-align: middle; }
@@ -726,9 +1013,17 @@ button.bottom-tab {
 /* --- Modal de recordatorio (correo / alerta) del supervisor --------------- */
 .reminder-recipient { margin: 0 0 0.7rem; font-size: 0.9rem; color: var(--color-text-muted); }
 .reminder-nodriver { color: var(--color-warning); font-weight: 600; }
-.reminder-kinds { display: grid; gap: 0.4rem; border: 0; margin: 0 0 0.8rem; padding: 0; }
-.reminder-kinds legend { font-weight: 700; font-size: 0.85rem; margin-bottom: 0.4rem; padding: 0; }
-.reminder-kind {
+/* Elegir entre DOS O TRES opciones con lo que implica cada una debajo: las
+   dos se ven a la vez y se pulsan con el dedo. El recordatorio
+   (`.reminder-kind`) y el resultado de la ITV (`.choice-card`) son el mismo
+   control, así que comparten reglas en vez de copiarlas. */
+.reminder-kinds,
+.choice-group { display: grid; gap: 0.4rem; border: 0; margin: 0 0 0.8rem; padding: 0; }
+.reminder-kinds legend,
+.choice-group legend { font-weight: 700; font-size: 0.85rem; margin-bottom: 0.4rem; padding: 0; }
+.choice-group { margin-bottom: 0; }
+.reminder-kind,
+.choice-card {
   display: flex;
   gap: 0.55rem;
   align-items: flex-start;
@@ -737,13 +1032,17 @@ button.bottom-tab {
   padding: 0.55rem 0.7rem;
   cursor: pointer;
 }
-.reminder-kind.is-active {
+.reminder-kind.is-active,
+.choice-card.is-active {
   border-color: var(--color-brand);
   background: var(--color-primary-soft);
 }
-.reminder-kind input { margin-top: 3px; }
-.reminder-kind span { display: grid; gap: 2px; }
-.reminder-kind small { color: var(--color-text-muted); }
+.reminder-kind input,
+.choice-card input { margin-top: 3px; }
+.reminder-kind span,
+.choice-card span { display: grid; gap: 2px; }
+.reminder-kind small,
+.choice-card small { color: var(--color-text-muted); }
 .reminder-check {
   display: flex;
   align-items: center;
@@ -785,6 +1084,11 @@ button.bottom-tab {
   border-color: var(--color-brand);
   color: var(--color-brand);
 }
+/* Caja de adjuntar en dos líneas: qué se pide y, en pequeño, lo que antes iba
+   entre paréntesis en el mismo renglón (formatos y que es opcional). */
+.attach-text { display: grid; gap: 2px; text-align: left; }
+.attach-text small { font-weight: 500; color: var(--color-text-muted); }
+.photo-attach.has-file .attach-text strong { overflow-wrap: anywhere; }
 
 /* Pasos del ciclo de una incidencia (lanzar → gestión → solución). */
 .flow-steps { display: flex; gap: 0.35rem; margin: 0.6rem 0; }
@@ -837,7 +1141,7 @@ button.bottom-tab {
   transform: translateY(-1px);
 }
 .card-chevron { color: var(--color-text-muted); margin-left: auto; }
-.vehicle-card-head .card-chevron { margin-left: 0.4rem; }
+.vehicle-card-head .card-chevron { margin-left: auto; }
 .card-search {
   width: 100%;
   min-height: 44px; /* objetivo táctil */
@@ -886,6 +1190,27 @@ button.bottom-tab {
 .field-page .vehicle-model { margin-top: -0.6rem; }
 /* Con mantenimiento (GAP-8) la ficha puede llevar 3 tarjetas: que quepan. */
 .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.7rem; }
+/* Cifra PULSABLE (el resumen del supervisor en «Mi perfil»): el StatCard del DS
+   es un div, así que el botón solo aporta el gesto — ni caja ni relleno
+   propios, o se vería un botón dentro de una tarjeta. */
+.stat-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: inherit;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.stat-button:active { transform: scale(0.98); }
+@media (prefers-reduced-motion: reduce) {
+  .stat-button:active { transform: none; }
+}
+/* Las listas de esos modales pueden traer decenas de filas: hacen scroll ellas
+   y el pie del modal se queda quieto. */
+.overview-list { max-height: 60dvh; overflow-y: auto; }
 /* Acceso rápido sin objeto (principal bloqueado por sustitución, N9). */
 .quick-action.is-disabled {
   opacity: 0.45;
@@ -911,6 +1236,85 @@ button.bottom-tab {
   border-bottom: 1px solid var(--color-surface-soft);
 }
 .doc-item:last-child { border-bottom: 0; }
+/* Abrir · descargar · pedir borrado. Tres objetivos táctiles no siempre caben
+   al lado del tipo y la chapa en un móvil estrecho: la fila envuelve y el
+   bloque de acciones baja entero a la línea de abajo, pegado a la derecha. */
+.doc-item { flex-wrap: wrap; }
+.doc-actions { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; }
+
+/* Ver · descargar · pedir borrado. Los tres son BOTONES —el archivo lo sirve
+   el back, no un enlace a Drive—, así que hay que quitarles el cromo que el
+   navegador le pone a un `<button>` (salían como cajas grises de esquina viva,
+   y la papelera de al lado desnuda: tres cosas que se pulsan igual pintadas de
+   tres maneras). Aquí son un grupo: mismo cuadrado táctil, mismo borde, y el
+   color dice lo que hace cada uno. Se acota a `.doc-actions` porque
+   `.doc-remove` es también la papelera de otras listas (adjuntos del parte,
+   implicados del accidente), y ahí va sin caja. */
+.doc-actions > .doc-open,
+.doc-actions > .doc-remove {
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-primary);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+.doc-actions > .doc-remove { color: var(--color-danger); }
+/* Solo con ratón: en el móvil el :hover se queda pegado tras el toque. */
+@media (hover: hover) {
+  .doc-actions > .doc-open:hover:not(:disabled) {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+  }
+  .doc-actions > .doc-remove:hover:not(:disabled) {
+    background: var(--color-danger-bg);
+    border-color: var(--color-danger-soft);
+  }
+}
+.doc-actions > .doc-open:active:not(:disabled),
+.doc-actions > .doc-remove:active:not(:disabled) { transform: scale(0.94); }
+.doc-actions > .doc-open:focus-visible,
+.doc-actions > .doc-remove:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+/* Apagado: la descarga en curso y la papelera de lo ya pedido. Se sigue
+   viendo (dice que ESO se puede hacer, pero ahora no), sin invitar al dedo. */
+.doc-actions > .doc-open:disabled,
+.doc-actions > .doc-remove:disabled {
+  background: var(--color-surface-soft);
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* Por qué la papelera está apagada: ya se pidió y lo está viendo la gestión.
+   La chapa lo dice entera («…por parte del administrador»), así que envuelve
+   en vez de salirse de la fila en un móvil estrecho. */
+.doc-pending { color: var(--color-warning); }
+.doc-item .doc-pending-badge {
+  white-space: normal; /* la chapa del DS no envuelve; esta frase es larga */
+  text-align: center;
+  max-width: 12rem;
+  line-height: 1.25;
+}
+
+/* Visor de un documento: lo que se ve sin salir de la app. Alto fijo para que
+   la ventana no salte entre una foto apaisada y un PDF, y el contenido dentro
+   sin recortar (una foto de un parte se mira entera, no ampliada). */
+.doc-viewer { display: grid; gap: 0.6rem; }
+.doc-viewer-image,
+.doc-viewer-frame {
+  width: 100%;
+  height: min(60vh, 460px);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-soft);
+}
+.doc-viewer-image { object-fit: contain; }
 .doc-icon { color: var(--color-text-muted); flex-shrink: 0; }
 .doc-info { display: grid; min-width: 0; flex: 1; }
 .doc-info strong { font-size: 0.92rem; }
@@ -921,6 +1325,19 @@ button.bottom-tab {
   min-width: 44px;
   min-height: 44px;
   color: var(--color-primary);
+}
+
+/* Quitar un adjunto de la lista antes de enviarlo (paso «Documentos» del parte
+   de avería): mismo objetivo táctil que abrir, pero en rojo — descarta. */
+.doc-remove {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--color-danger);
+  cursor: pointer;
 }
 
 /* --- Pestañas de documentación: del coche / del conductor ----------------
@@ -1393,9 +1810,6 @@ button.bottom-tab {
   border-top: 1px solid var(--color-border);
 }
 .vehicle-alerts-empty { padding: 0.5rem 0; }
-/* Incidencias dentro de la tarjeta fusionada «Alertas e incidencias»: si
-   conviven con alertas, un respiro entre las dos listas. */
-.vehicle-alerts-list + .vehicle-incidents-list { margin-top: 0.75rem; }
 .closed-title { margin: 1.4rem 0 0.7rem; font-size: 1rem; }
 
 /* --- Acordeón de advertencias del inicio (km / ITV) ----------------------- */
@@ -1672,18 +2086,12 @@ button.bottom-tab {
   box-shadow: inset 0 0 0 2px rgba(0, 148, 145, 0.38);
 }
 
-/* Tablet (≥760px): "Mis vehículos"/"Mi grupo" a dos columnas. El bottom-nav se
-   conserva también en tablet (consistencia de uso en campo). */
-@media (min-width: 760px) {
-  .vehicle-cards {
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    align-items: stretch;
-  }
-  .card-link,
-  .card-link .card {
-    height: 100%;
-  }
-}
+/* Las tarjetas de vehículo van SIEMPRE a una por fila, a todo el ancho, sea
+   cual sea la pantalla. En tablet y escritorio se repartían en columnas de
+   300px y la ficha no cabía: matrícula, estado, «Tu coche» y el recuento de
+   incidencias se salían de la tarjeta, y las cinco filas de datos quedaban
+   apretadas contra su valor. Una fila entera por coche se lee de un vistazo, y
+   el hueco sobrante lo aprovechan los datos, no una segunda columna. */
 
 /* --- Acordeones de la ficha de campo (CollapsibleCard) --------------------- */
 .acc-head {
@@ -1723,6 +2131,59 @@ button.bottom-tab {
 }
 .acc-actions {
   flex: 0 0 auto;
+}
+
+/* «A tu cargo»: UNA tarjeta plegable con los dos bloques de cifras dentro
+   —lo que lleva a su cargo y lo que hay que atender—. En dos tarjetas
+   ocupaban la pantalla entera antes de llegar a la lista de coches, y son
+   dos caras del mismo resumen. El rótulo del segundo bloque es un `h3`: el
+   primero ya lo lleva en la cabecera de la tarjeta. */
+.overview-card { margin-bottom: 1.2rem; }
+.overview-subtitle {
+  margin: 1.1rem 0 0.6rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-ink);
+}
+/* Filtro por tipo de las tarjetas de lo pendiente: va en la cabecera, a la
+   derecha del título, y solo con la tarjeta desplegada. Pequeño y discreto —
+   es un ajuste de lo que se mira, no una acción—, pero con el alto táctil de
+   siempre, que se usa con el dedo. En una pantalla estrecha se queda en su
+   línea y el título envuelve: bajarlo dejaría el filtro lejos de su lista. */
+.acc-filter {
+  max-width: 11rem;
+  min-height: 36px;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.82rem;
+  font-family: inherit;
+}
+.acc-filter:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+/* Recuento en el título de las tarjetas de lo pendiente (alertas, incidencias
+   y accidentes): con la tarjeta plegada es lo ÚNICO que se lee, así que va
+   pegado al nombre y no al otro extremo. En cero se apaga: dice que no hay
+   nada sin llamar la atención. */
+.acc-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.55rem;
+  height: 1.55rem;
+  margin-left: 0.5rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: var(--color-surface);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.acc-count.is-zero {
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
 }
 .acc-body {
   margin-top: 0.6rem;
@@ -1893,11 +2354,13 @@ button.bottom-tab {
 .km-chart-ideal-legend { color: var(--color-text-muted); }
 
 /* --- Flota a cargo: búsqueda y estado en una única barra ------------------ */
+/* La barra de búsqueda respira por arriba: encima va el resumen del
+   supervisor, y pegada a él parecía parte de esa tarjeta. */
 .fleet-toolbar {
   display: flex;
   align-items: stretch;
   gap: 0.65rem;
-  margin-bottom: 0.9rem;
+  margin: 1.2rem 0 0.9rem;
 }
 
 .fleet-toolbar .card-search {
@@ -1941,15 +2404,21 @@ button.bottom-tab {
   justify-content: center;
   gap: 0.4rem;
   min-height: 40px;
+  min-width: 0; /* con TRES caras, que el texto pueda encoger en vez de desbordar */
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--color-text-muted);
-  font-size: 0.92rem;
+  /* «Mi vehículo · Flota · Mi perfil» en un móvil estrecho: la fuente cede
+     antes que el botón, que ha de seguir siendo pulsable con el pulgar. */
+  font-size: clamp(0.76rem, 3.1vw, 0.92rem);
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
+
+.mode-switch-btn svg { flex: none; }
 
 .mode-switch-btn.is-active {
   background: var(--color-primary-soft);

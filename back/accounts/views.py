@@ -90,6 +90,11 @@ class AuthConfigView(APIView):
                 # Google). Solo con DEBUG + FLEET_SEED_DATA; el front pinta el
                 # selector únicamente si viene a True.
                 "dev_login_enabled": getattr(settings, "FLEET_SEED_DATA", False),
+                # SSO corporativo (SAML contra Google Workspace) de la PWA de
+                # conductores. La URL es a la que el front NAVEGA (redirección
+                # completa, no fetch): el back manda al IdP y vuelve por el ACS.
+                "saml_enabled": settings.SAML_ENABLED,
+                "saml_login_url": "/api/v1/auth/saml/login/" if settings.SAML_ENABLED else "",
                 # Dirección pública de Jira para pedir vehículo. Va aquí, en el
                 # único endpoint que el front consulta antes de tener sesión,
                 # para poder cambiarla sin reconstruir las SPAs.
@@ -210,7 +215,8 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         security_logger.info("registro nuevo user=%s", user.pk)
-        login(request, user)  # auto-login tras el alta (cómodo para la SPA)
+        # Backend explícito: con SAML activo hay varios backends y login() lo exige.
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
@@ -283,7 +289,8 @@ class GoogleLoginView(APIView):
         # habilita el archivado en Drive con la cuenta de servicio.
         user.last_google_login = timezone.now()
         user.save(update_fields=["last_google_login"])
-        login(request, user)
+        # Backend explícito: con SAML activo hay varios backends y login() lo exige.
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         security_logger.info("google login ok user=%s", user.pk)
         return Response(UserSerializer(user).data)
 

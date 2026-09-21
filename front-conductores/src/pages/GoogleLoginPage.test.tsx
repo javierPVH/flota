@@ -35,6 +35,8 @@ const CONFIG = {
   google_client_id: 'cliente-123.apps.googleusercontent.com',
   dev_login_enabled: false,
   jira_request_url: '',
+  saml_enabled: false,
+  saml_login_url: '',
 }
 
 /** Doble de la librería de Google: guarda el callback para poder dispararlo. */

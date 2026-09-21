@@ -9,6 +9,8 @@ import {
   type VehicleRequestRow,
   grantVehicleRequest,
   listAll,
+  listDocumentDeletionRequests,
+  listDriverChangeRequests,
   listVehicleRequests,
   listVehicles,
   rejectVehicleRequest,
@@ -16,15 +18,31 @@ import {
 import { exportCsv } from '../csv.ts'
 import { requestStatusTone } from '../format.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { DocumentRequestsTab } from '../components/DocumentRequestsTab.tsx'
+import { DriverRequestsTab } from '../components/DriverRequestsTab.tsx'
+import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
 import { useRequestsCopy } from '../translations/requests.ts'
 import type { Vehicle } from '../types.ts'
 
-/** Bandeja de solicitudes de vehículo (G9, Épica 8 + Fase A2). */
+/**
+ * Bandeja de solicitudes (G9, Épica 8 + Fase A2), en DOS pestañas: las de
+ * **vehículo** (Jira, portón y coche de sustitución pedido desde el campo) y
+ * las de **borrado de documentos**, que abre quien lee el documento en la app
+ * de conductores. Son la misma decisión de administración —conceder o no— y
+ * el aviso de la cabecera las cuenta juntas, así que se deciden en el mismo
+ * sitio y no en dos páginas que nadie recordaría visitar.
+ */
 export function RequestsPage() {
   const t = useRequestsCopy()
   const confirm = useConfirm()
   const [searchParams, setSearchParams] = useSearchParams()
   const statusFilter = searchParams.get('status') ?? ''
+  // La pestaña va en la URL: el aviso de la cabecera puede apuntar a la suya.
+  const tabParam = searchParams.get('tab')
+  const tab =
+    tabParam === 'documentos' || tabParam === 'conductores' ? tabParam : 'vehiculos'
+  const [pendingDocs, setPendingDocs] = useState(0)
+  const [pendingDrivers, setPendingDrivers] = useState(0)
 
   const [requests, setRequests] = useState<VehicleRequestRow[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -52,9 +70,14 @@ export function RequestsPage() {
   /** Origen de la solicitud: el portón self-service entra `pending` con ticket;
    * la importación de Jira entra ya `approved`. */
   const originOf = useCallback((request: VehicleRequestRow): string => {
+    // La de campo se reconoce por su incidencia, y ahí el origen es el coche
+    // que hay que cubrir: sin eso, la fila no dice para qué es la solicitud.
+    if (request.incident) {
+      return t.originField(request.incident_plate, request.incident_type_display)
+    }
     if (request.status === 'pending') return t.originSelfService
     return request.jira_key ? 'Jira' : t.originManual
-  }, [t.originManual, t.originSelfService])
+  }, [t.originField, t.originManual, t.originSelfService])
 
   // R3-30: `t` por ref — con el mensaje en las deps, el botón es/en
   // re-descargaba la bandeja entera (el diccionario solo pinta el error).
@@ -80,6 +103,22 @@ export function RequestsPage() {
   useEffect(() => {
     listAll(listVehicles()).then(setVehicles).catch(() => setVehicles([]))
   }, [])
+
+  /** Solo el RECUENTO: la lista entera la trae su pestaña cuando se abre. */
+  const loadPendingDocs = useCallback(() => {
+    listDocumentDeletionRequests({ status: 'pending' })
+      .then((page) => setPendingDocs(page.count))
+      .catch(() => setPendingDocs(0))
+  }, [])
+  useEffect(loadPendingDocs, [loadPendingDocs])
+
+  /** Ídem para las propuestas de cambio de conductor. */
+  const loadPendingDrivers = useCallback(() => {
+    listDriverChangeRequests({ status: 'pending' })
+      .then((page) => setPendingDrivers(page.count))
+      .catch(() => setPendingDrivers(0))
+  }, [])
+  useEffect(loadPendingDrivers, [loadPendingDrivers])
 
   const pendingCount = requests.filter((r) => r.status === 'pending').length
   const countOf = (status: string) =>
@@ -236,18 +275,48 @@ export function RequestsPage() {
       <PageHeader
         title={t.title}
         subtitle={t.subtitle}
-        stats={pendingCount > 0 ? [{ value: pendingCount, label: t.statPending }] : undefined}
+        stats={
+          pendingCount + pendingDocs + pendingDrivers > 0
+            ? [{ value: pendingCount + pendingDocs + pendingDrivers, label: t.statPending }]
+            : undefined
+        }
         actions={
-          <Button
-            variant="secondary"
-            disabled={filtered.length === 0}
-            onClick={() => exportCsv(t.csvName, columns, filtered)}
-          >
-            <Download size={16} aria-hidden /> {t.exportCsv}
-          </Button>
+          tab === 'vehiculos' ? (
+            <Button
+              variant="secondary"
+              disabled={filtered.length === 0}
+              onClick={() => exportCsv(t.csvName, columns, filtered)}
+            >
+              <Download size={16} aria-hidden /> {t.exportCsv}
+            </Button>
+          ) : undefined
         }
       />
 
+      <SettingsSubtabs
+        ariaLabel={t.title}
+        active={tab}
+        onChange={(key) => {
+          const next = new URLSearchParams(searchParams)
+          if (key === 'vehiculos') next.delete('tab')
+          else next.set('tab', key)
+          setSearchParams(next, { replace: true })
+        }}
+        items={[
+          { key: 'vehiculos', label: t.tabVehicles, badge: pendingCount || undefined },
+          { key: 'documentos', label: t.tabDocuments, badge: pendingDocs || undefined },
+          { key: 'conductores', label: t.tabDrivers, badge: pendingDrivers || undefined },
+        ]}
+      />
+
+      {tab === 'conductores' ? (
+        <DriverRequestsTab onCountsChange={loadPendingDrivers} />
+      ) : tab === 'documentos' ? (
+        <DocumentRequestsTab onCountsChange={loadPendingDocs} />
+      ) : (
+      // Desde aquí hasta el cierre del fragmento, la bandeja de VEHÍCULOS de
+      // siempre: chips de estado, ayuda, tabla y el modal de conceder.
+      <>
       {/* Filtro de estado como chips con contador (patrón de la home): un
           vistazo dice cuánto hay en cada bandeja antes de entrar. */}
       <div className="chips-row" role="group" aria-label={t.filterAria}>
@@ -267,6 +336,8 @@ export function RequestsPage() {
           </Chip>
         ))}
       </div>
+
+      <p className="muted">{t.jiraNote}</p>
 
       <p className="muted">
         <strong>{t.helpGrant}</strong>
@@ -334,6 +405,8 @@ export function RequestsPage() {
           </div>
         </form>
       </Modal>
+      </>
+      )}
     </div>
   )
 }

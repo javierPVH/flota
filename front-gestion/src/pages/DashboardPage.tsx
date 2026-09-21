@@ -1736,6 +1736,10 @@ export function DashboardPage() {
         // lista de filas, no el modal, así que las pestañas, los filtros y los
         // botones del pie están siempre a la vista (ver `.pending-fleet`).
         height={manage === 'alerts' || manage === 'incidents' ? '82dvh' : undefined}
+        // Y más anchas todavía que `xl` (960px): sus filas van en DOS líneas
+        // —título y descripción arriba, lo que recogió el parte debajo— y con
+        // el ancho de las demás la descripción se recortaba en casi todas.
+        maxWidth={manage === 'alerts' || manage === 'incidents' ? '1200px' : undefined}
       >
         {manage === 'vehicles' && summary && (
           <div className="mng">

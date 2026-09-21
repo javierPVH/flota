@@ -17,7 +17,7 @@ import { pairedWith } from '../substitution.ts'
 import { AccidentModal } from './AccidentModal.tsx'
 import { BreakdownModal } from './BreakdownModal.tsx'
 import { ReminderModal } from './ReminderModal.tsx'
-import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
+import { VehicleUpdateModal } from './VehicleUpdateModal.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 
 /**
@@ -55,7 +55,7 @@ export function VehicleCardList({
   // Actualización de campo (km / mantenimiento / partes), también del supervisor.
   const [updateFor, setUpdateFor] = useState<Vehicle | null>(null)
   const onUpdate = isSupervisor ? setUpdateFor : undefined
-  // Comunicar una avería, un cambio de neumáticos o una propuesta de mejora.
+  // Comunicar una incidencia, con el catálogo de tipos de gestión.
   const [breakdownFor, setBreakdownFor] = useState<Vehicle | null>(null)
   // El parte de accidente completo de Gestión, disponible solo al supervisor.
   const [accidentFor, setAccidentFor] = useState<Vehicle | null>(null)
@@ -152,8 +152,10 @@ export function VehicleCardList({
         />
       )}
       {updateFor && (
-        <MaintenanceUpdateModal
+        <VehicleUpdateModal
           vehicle={updateFor}
+          summary={summaries[updateFor.id]}
+          initialTab="maintenance"
           onClose={() => setUpdateFor(null)}
           onSaved={onRefresh}
         />
@@ -475,7 +477,7 @@ function VehicleCard({
                 onClick={(e) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  // Modal unificado: general, neumáticos o propuesta de mejora.
+                  // Modal unificado: mantenimiento, neumáticos, avería o petición.
                   onBreakdown?.(vehicle)
                 }}
               >

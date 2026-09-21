@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useOutletContext, useParams } from 'react-router-dom'
+import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Camera,
@@ -35,17 +35,18 @@ import { DocumentList } from '../components/DocumentList.tsx'
 import { RegisterFuelModal } from '../components/RegisterFuelModal.tsx'
 import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
-import { VehicleAlertsBreakdownsCard } from '../components/VehicleAlertsBreakdownsCard.tsx'
+import { VehiclePendingCards } from '../components/VehiclePendingCards.tsx'
 import { RegisterKmModal } from '../components/RegisterKmModal.tsx'
 import { ReminderModal } from '../components/ReminderModal.tsx'
-import { MaintenanceUpdateModal } from '../components/MaintenanceUpdateModal.tsx'
+import { VehicleUpdateModal } from '../components/VehicleUpdateModal.tsx'
 import { UploadDocumentModal } from '../components/UploadDocumentModal.tsx'
 import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { useLang } from '../i18n.tsx'
+import { PENDING_CARDS } from '../pendingCards.ts'
 import {
   fmtKm,
-  isOpenBreakdown,
+  isOpenFieldIncident,
   kmLevelTone,
   pendingThisMonth,
   scheduledActionAvailable,
@@ -60,6 +61,7 @@ import type { Alert, FlotaDocument, Incident, Vehicle, VehicleSummary } from '..
  */
 export function VehicleFieldPage() {
   const { id } = useParams()
+  const [params] = useSearchParams()
   const vehicleId = Number(id)
   const { t, language } = useLang()
   const { user } = useAuth()
@@ -74,7 +76,9 @@ export function VehicleFieldPage() {
 
   // Acordeón de tarjetas (mejora): desplegadas por defecto; en móvil plegar
   // ahorra mucho scroll.
-  const accordion = useAccordion(['situation', 'alerts', 'documents'])
+  // Las tres tarjetas de lo pendiente arrancan PLEGADAS (su recuento se lee en
+  // el título); las demás, desplegadas como siempre.
+  const accordion = useAccordion(['situation', ...PENDING_CARDS, 'documents'], PENDING_CARDS)
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [summary, setSummary] = useState<VehicleSummary | null>(null)
@@ -103,8 +107,11 @@ export function VehicleFieldPage() {
   const [documentOpen, setDocumentOpen] = useState(false)
   const [kmOpen, setKmOpen] = useState(false)
   // GAP-2: gasto de combustible (aqui lo usa la supervisora; el conductor lo
-  // tiene en el nav, donde viven sus acciones).
-  const [fuelOpen, setFuelOpen] = useState(false)
+  // tiene en el nav, donde viven sus acciones). Se abre SOLO si se llega con
+  // `?registrar=combustible`: es a donde apunta el aviso del inicio, y el modal
+  // no tiene página propia. Va en el estado inicial y no en un efecto —
+  // abrirlo después es una animación de más y un modal que parpadea.
+  const [fuelOpen, setFuelOpen] = useState(() => params.get('registrar') === 'combustible')
   // Parte guiado de accidente: la supervisora lo abre desde la ficha igual que
   // desde las tarjetas de la flota (el conductor lo tiene en el nav).
   const [accidentOpen, setAccidentOpen] = useState(false)
@@ -414,11 +421,11 @@ export function VehicleFieldPage() {
         </dl>
       </CollapsibleCard>
 
-      <VehicleAlertsBreakdownsCard
+      <VehiclePendingCards
         vehicle={vehicle}
         summary={summary}
         alerts={alerts}
-        breakdowns={incidents.filter(isOpenBreakdown)}
+        incidents={incidents.filter(isOpenFieldIncident)}
         canManage={canManage}
         accordion={accordion}
         onChanged={reload}
@@ -440,7 +447,7 @@ export function VehicleFieldPage() {
           </Link>
         }
       >
-        <DocumentList documents={documents} />
+        <DocumentList documents={documents} onChanged={loadDocuments} />
 
       </CollapsibleCard>
 
@@ -512,8 +519,10 @@ export function VehicleFieldPage() {
         />
       )}
       {updateOpen && (
-        <MaintenanceUpdateModal
+        <VehicleUpdateModal
           vehicle={vehicle}
+          summary={summary}
+          initialTab="maintenance"
           onClose={() => setUpdateOpen(false)}
           onSaved={reload}
         />

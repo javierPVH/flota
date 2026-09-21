@@ -7,8 +7,14 @@ import { useLang } from '../i18n.tsx'
 /**
  * Una fila de la tarjeta, siempre en el mismo orden de lectura: **fecha,
  * (matrícula,) título y descripción**; la matrícula solo cuando la lista no es
- * de un coche (la del panel, que es de toda la flota); las píldoras (plazo, estado) van al final, alineadas
- * a la derecha. Con `onResolve` el ✓ es el botón de cerrarla; sin él (ya
+ * de un coche (la del panel, que es de toda la flota); las píldoras (plazo,
+ * estado) van al final, alineadas a la derecha.
+ *
+ * Con algo que resumir del parte (`detail`), **del tipo en adelante la fila va
+ * en DOS líneas**: arriba lo de siempre y debajo lo que el parte recogió. En
+ * una sola se comían entre ellos —la medida y la descripción salían las dos
+ * con puntos suspensivos—, y lo que hay debajo es justo lo que no se lee en
+ * ningún otro sitio. Con `onResolve` el ✓ es el botón de cerrarla; sin él (ya
  * cerrada) queda como marca. Con `onEmail`, cierra la fila por la derecha el
  * sobre que avisa al responsable (N10) — solo donde tiene sentido: algo abierto.
  */
@@ -16,6 +22,7 @@ export function PendingRow({
   plate,
   date,
   title,
+  detail,
   description,
   badges,
   onResolve,
@@ -28,6 +35,9 @@ export function PendingRow({
   plate?: string
   date: string | null
   title: string
+  /** Lo del parte que no cabe en el título: medida de los neumáticos,
+   * kilometraje, CP del taller. Vacío en lo que no lo trae. */
+  detail?: string
   description: string
   badges?: ReactNode
   onResolve?: () => void
@@ -60,8 +70,13 @@ export function PendingRow({
       <div className="mng-alert-body pending-row" title={description}>
         <span className="pending-date">{fmtDate(date, language)}</span>
         {plate && <span className="pending-plate">{plate}</span>}
-        <strong>{title}</strong>
-        <span className="mng-grow mng-truncate">{description}</span>
+        <div className="pending-main">
+          <div className="pending-main-top">
+            <strong>{title}</strong>
+            <span className="mng-grow mng-truncate">{description}</span>
+          </div>
+          {detail && <span className="pending-detail">{detail}</span>}
+        </div>
         {badges}
       </div>
       {onEmail && (

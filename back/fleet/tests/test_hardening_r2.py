@@ -36,10 +36,22 @@ class ProtectedMediaTests(APITestCase):
             start_date=date(2026, 1, 1),
             status=AssignmentStatus.ACCEPTED,
         )
-        # El binario cuelga siempre de un Document (único FileField del proyecto).
-        Document.objects.create(vehicle=self.vehicle, type="accident_report", file=self.PATH)
+        # El binario cuelga siempre de un Document (único FileField del
+        # proyecto). Con el responsable que les pondría el alta: la
+        # autorización del fichero es la MISMA regla que la del listado.
+        Document.objects.create(
+            vehicle=self.vehicle,
+            type="accident_report",
+            file=self.PATH,
+            responsible=self.mine,
+        )
         # R3-01: documento PERSONAL (titular persona, sin vehículo).
-        Document.objects.create(user=self.mine, type="driving_license", file=self.PERSONAL_PATH)
+        Document.objects.create(
+            user=self.mine,
+            type="driving_license",
+            file=self.PERSONAL_PATH,
+            responsible=self.mine,
+        )
 
     def test_anonymous_cannot_fetch_media(self):
         resp = self.client.get(f"/media/{self.PATH}")
@@ -94,6 +106,19 @@ class ProtectedMediaTests(APITestCase):
         self.client.force_authenticate(self.other)
         resp = self.client.get(f"/media/{self.PERSONAL_PATH}")
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    @override_settings(DEBUG=False)
+    def test_protected_document_is_404_even_for_its_responsible(self):
+        """Filtrar solo el listado no habría servido de nada: con la URL del
+        fichero en la mano, el binario de un documento protegido se seguía
+        bajando. El admin sí, que es de quien es el protegido."""
+        Document.objects.filter(file=self.PATH).update(protected=True)
+        self.client.force_authenticate(self.mine)
+        self.assertEqual(
+            self.client.get(f"/media/{self.PATH}").status_code, status.HTTP_404_NOT_FOUND
+        )
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.client.get(f"/media/{self.PATH}").status_code, status.HTTP_200_OK)
 
     @override_settings(DEBUG=False)
     def test_path_traversal_is_rejected(self):

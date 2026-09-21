@@ -30,6 +30,8 @@ const CONFIG = {
   google_client_id: '',
   dev_login_enabled: true,
   jira_request_url: 'https://jira.example/crear-solicitud',
+  saml_enabled: false,
+  saml_login_url: '',
 }
 
 function renderPage() {

@@ -31,6 +31,8 @@ interface Props {
   vehicleState?: VehicleState
   /** Con el coche parado, la casilla vive en el despachador (una por modal). */
   returnToActive?: boolean
+  /** Última lectura del coche: la que carga el botón de «Km». */
+  vehicleKm?: number | null
   onClose: () => void
   /** Registrado: texto para el aviso verde del padre (que recarga sus datos). */
   onDone: (notice: string) => void
@@ -73,6 +75,7 @@ export function MaintenanceResolveForm({
   source,
   vehicleState,
   returnToActive,
+  vehicleKm,
   onClose,
   onDone,
 }: Props) {
@@ -84,6 +87,7 @@ export function MaintenanceResolveForm({
     flow: 'maintenance',
     vehicleState,
     returnToActive,
+    vehicleKm,
     // El CP solo se pinta cuando hay petición detrás: una alerta no tiene
     // ubicación preferente que completar.
     postalCode: source.kind === 'incident' ? source.incident.workshop_postal_code : undefined,

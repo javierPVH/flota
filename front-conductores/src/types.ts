@@ -28,6 +28,10 @@ export interface AuthConfig {
   dev_login_enabled: boolean
   /** Dirección pública donde pedir vehículo (Jira). Vacía = sin configurar. */
   jira_request_url: string
+  /** SSO corporativo (SAML contra Google Workspace): si está, la PWA entra SOLO por ahí. */
+  saml_enabled: boolean
+  /** URL a la que NAVEGAR (redirección completa) para arrancar el SSO. Vacía si no hay. */
+  saml_login_url: string
 }
 
 /** Usuario del selector de desarrollo (GET /auth/dev-login/). */
@@ -62,6 +66,9 @@ export interface Vehicle {
   supervisor_name: string
   fuel: string
   type: string
+  /** Fecha de matriculación: de ella sale la EDAD, que es lo que decide cada
+   * cuánto toca la ITV (`itvSchedule.ts`). */
+  registration_date: string | null
   business_use: string
   km_start: number | null
   /** Denormalizado del último EventItv; lo mantiene el back. */
@@ -222,6 +229,9 @@ export interface FlotaDocument {
   status_display: string
   replaces: number | null
   notes: string
+  /** Hay pedido su borrado y la gestión aún no lo ha decidido: la fila lo dice
+   * y su papelera se apaga (una petición por documento). */
+  deletion_pending: boolean
   created_at: string
   updated_at: string
 }

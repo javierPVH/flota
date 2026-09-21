@@ -1,8 +1,14 @@
 import { useAppLang } from '@flota/ui/i18n'
 
 const es = {
-  title: 'Solicitudes de vehículo',
-  subtitle:
+  title: 'Solicitudes',
+  subtitle: 'Lo que espera una decisión de administración: coches y borrado de documentos.',
+  /** Dos bandejas en una página: se decide lo mismo —conceder o no— y el
+   * aviso de la cabecera cuenta las dos juntas. */
+  tabVehicles: 'Vehículos',
+  tabDocuments: 'Borrado de documentos',
+  tabDrivers: 'Cambio de conductor',
+  jiraNote:
     'El estado del ticket lo sincroniza el job sync_jira_requests; si Jira no confirma, decide aquí.',
   statPending: 'Sin decidir',
   exportCsv: 'Exportar CSV',
@@ -28,6 +34,10 @@ const es = {
   } as Record<string, string>,
   originSelfService: 'Portón (self-service)',
   originManual: 'Manual',
+  /** La que abre un conductor desde la app de campo al comunicar que su
+   * coche se queda parado: dice cuál hay que cubrir y por qué. */
+  originField: (plate: string, tipo: string) =>
+    `Campo · ${plate || '—'}${tipo ? ` (${tipo})` : ''}`,
   columns: {
     requester: 'Solicitante',
     jiraKey: 'Ticket Jira',
@@ -62,11 +72,106 @@ const es = {
   cancel: 'Cancelar',
   grantSubmit: 'Conceder',
   grantSubmitting: 'Concediendo…',
+  /** Bandeja de peticiones de borrado: las abre quien lee el documento en la
+   * app de campo, y aquí se deciden. La papelera de allí no borra. */
+  docs: {
+    help:
+      'Las abre quien lee el documento en la app de conductores. Hasta que se deciden, el ',
+    helpStrong: 'documento sigue donde estaba',
+    helpRest: ', marcado «Pendiente de borrado» en su lista.',
+    statusPending: 'Pendientes',
+    statusDeleted: 'Borradas',
+    statusHidden: 'Ocultas',
+    statusRejected: 'Rechazadas',
+    empty: 'Sin peticiones de borrado con estos filtros.',
+    loadError: 'No se pudieron cargar las peticiones de borrado.',
+    csvName: 'peticiones-borrado-documentos',
+    columns: {
+      document: 'Documento',
+      owner: 'Titular',
+      requester: 'Lo pide',
+      reason: 'Motivo',
+      status: 'Estado',
+      resolved: 'Resuelta',
+      actions: 'Acciones',
+    },
+    noReason: 'Sin motivo',
+    manage: 'Gestionar…',
+    modalTitle: (what: string) => `Petición de borrado · ${what}`,
+    asked: (who: string, when: string) => `Pedido por ${who} el ${when}.`,
+    reasonLabel: 'Motivo de quien lo pide',
+    decision: 'Qué se hace con el documento',
+    optDelete: 'Borrarlo de verdad',
+    optDeleteHint:
+      'Se da de baja y va al espacio de erratas: de allí se restaura, y solo el superusuario ' +
+      'lo borra definitivamente (también su archivo en Drive).',
+    optHide: 'Ocultarlo para el conductor',
+    optHideHint:
+      'El documento se queda en la flota, pero pasa a ser tuyo —responsable— y queda ' +
+      'protegido: deja de verlo nadie de campo.',
+    optReject: 'Rechazar la petición',
+    optRejectHint: 'No se toca el documento: vuelve a verse como hasta ahora.',
+    note: 'Observaciones (opcional)',
+    submit: 'Aplicar',
+    submitting: 'Aplicando…',
+    okDelete: (what: string) => `${what} dado de baja: está en el espacio de erratas.`,
+    okHide: (what: string) => `${what} oculto para el campo: protegido y a tu nombre.`,
+    okReject: (what: string) => `Petición rechazada: ${what} se sigue viendo como hasta ahora.`,
+    error: 'No se pudo resolver la petición.',
+  },
+  /** Propuestas de cambio de conductor que llegan del campo al resolver la
+   * alerta de km contratados. */
+  drivers: {
+    help: 'Las propone quien supervisa al resolver la alerta de km contratados. Decidirlas ',
+    helpStrong: 'no cambia el conductor',
+    helpRest: ': el cambio se hace en la ficha del coche, con «Cambiar conductor».',
+    statusPending: 'Pendientes',
+    statusDone: 'Atendidas',
+    statusRejected: 'Rechazadas',
+    empty: 'Sin propuestas de cambio de conductor con estos filtros.',
+    loadError: 'No se pudieron cargar las propuestas.',
+    csvName: 'propuestas-cambio-conductor',
+    columns: {
+      vehicle: 'Vehículo',
+      proposed: 'A quién propone',
+      requester: 'Lo propone',
+      note: 'Nota',
+      status: 'Estado',
+      resolved: 'Resuelta',
+      actions: 'Acciones',
+    },
+    noProposed: 'Nadie en concreto',
+    noNote: 'Sin nota',
+    manage: 'Gestionar…',
+    modalTitle: (plate: string) => `Cambio de conductor · ${plate}`,
+    asked: (who: string, when: string) => `Propuesto por ${who} el ${when}.`,
+    proposedLabel: 'A quién propone',
+    noteLabel: 'Nota para administración',
+    whyLabel: 'Alerta de origen',
+    decision: 'Qué se hace con la propuesta',
+    optDone: 'Atendida',
+    optDoneHint:
+      'Se saca de la bandeja. El cambio de conductor se hace en la ficha del coche (allí está ' +
+      'el histórico y el bloqueo optimista); esto solo deja constancia de que se ha decidido.',
+    optReject: 'Rechazarla',
+    optRejectHint: 'El coche se queda con su conductor. La nota explica por qué.',
+    goToVehicle: 'Abrir la ficha del coche',
+    note: 'Observaciones (opcional)',
+    submit: 'Aplicar',
+    submitting: 'Aplicando…',
+    okDone: (plate: string) => `Propuesta de ${plate} marcada como atendida.`,
+    okReject: (plate: string) => `Propuesta de ${plate} rechazada.`,
+    error: 'No se pudo resolver la propuesta.',
+  },
 }
 
 const en: typeof es = {
-  title: 'Vehicle requests',
-  subtitle:
+  title: 'Requests',
+  subtitle: 'What is waiting for a decision: vehicles and document deletions.',
+  tabVehicles: 'Vehicles',
+  tabDrivers: 'Driver change',
+  tabDocuments: 'Document deletions',
+  jiraNote:
     'Ticket status is synced by the sync_jira_requests job; if Jira does not confirm, decide here.',
   statPending: 'Undecided',
   exportCsv: 'Export CSV',
@@ -92,6 +197,8 @@ const en: typeof es = {
   },
   originSelfService: 'Gate (self-service)',
   originManual: 'Manual',
+  originField: (plate: string, tipo: string) =>
+    `Field · ${plate || '—'}${tipo ? ` (${tipo})` : ''}`,
   columns: {
     requester: 'Requester',
     jiraKey: 'Jira ticket',
@@ -126,6 +233,92 @@ const en: typeof es = {
   cancel: 'Cancel',
   grantSubmit: 'Grant',
   grantSubmitting: 'Granting…',
+  docs: {
+    help: 'Opened by whoever reads the document in the drivers app. Until they are decided, the ',
+    helpStrong: 'document stays where it was',
+    helpRest: ', marked «Deletion pending» in their list.',
+    statusPending: 'Pending',
+    statusDeleted: 'Deleted',
+    statusHidden: 'Hidden',
+    statusRejected: 'Rejected',
+    empty: 'No deletion requests match these filters.',
+    loadError: 'Could not load the deletion requests.',
+    csvName: 'document-deletion-requests',
+    columns: {
+      document: 'Document',
+      owner: 'Owner',
+      requester: 'Requested by',
+      reason: 'Reason',
+      status: 'Status',
+      resolved: 'Resolved',
+      actions: 'Actions',
+    },
+    noReason: 'No reason given',
+    manage: 'Manage…',
+    modalTitle: (what: string) => `Deletion request · ${what}`,
+    asked: (who: string, when: string) => `Requested by ${who} on ${when}.`,
+    reasonLabel: 'Reason given',
+    decision: 'What happens to the document',
+    optDelete: 'Really delete it',
+    optDeleteHint:
+      'It is deactivated and moves to the errata space: it can be restored from there, and only ' +
+      'the superuser deletes it for good (its file in Drive too).',
+    optHide: 'Hide it from the driver',
+    optHideHint:
+      'The document stays in the fleet, but becomes yours —responsible— and is marked ' +
+      'protected: nobody in the field sees it any more.',
+    optReject: 'Reject the request',
+    optRejectHint: 'The document is not touched: it is visible just as before.',
+    note: 'Notes (optional)',
+    submit: 'Apply',
+    submitting: 'Applying…',
+    okDelete: (what: string) => `${what} deactivated: it is in the errata space.`,
+    okHide: (what: string) => `${what} hidden from the field: protected and under your name.`,
+    okReject: (what: string) => `Request rejected: ${what} is still visible as before.`,
+    error: 'Could not resolve the request.',
+  },
+  drivers: {
+    help: 'Proposed by the supervisor when resolving the contracted-km alert. Deciding them ',
+    helpStrong: 'does not change the driver',
+    helpRest: ": that is done on the vehicle's card, with «Change driver».",
+    statusPending: 'Pending',
+    statusDone: 'Handled',
+    statusRejected: 'Rejected',
+    empty: 'No driver change proposals match these filters.',
+    loadError: 'Could not load the proposals.',
+    csvName: 'driver-change-requests',
+    columns: {
+      vehicle: 'Vehicle',
+      proposed: 'Proposed driver',
+      requester: 'Proposed by',
+      note: 'Note',
+      status: 'Status',
+      resolved: 'Resolved',
+      actions: 'Actions',
+    },
+    noProposed: 'Nobody in particular',
+    noNote: 'No note',
+    manage: 'Handle…',
+    modalTitle: (plate: string) => `Driver change · ${plate}`,
+    asked: (who: string, when: string) => `Proposed by ${who} on ${when}.`,
+    proposedLabel: 'Proposed driver',
+    noteLabel: 'Note for administration',
+    whyLabel: 'Source alert',
+    decision: 'What happens to the proposal',
+    optDone: 'Handled',
+    optDoneHint:
+      "It leaves the inbox. The driver change is made on the vehicle's card (that is where the " +
+      'history and the optimistic lock live); this only records the decision.',
+    optReject: 'Reject it',
+    optRejectHint: 'The vehicle keeps its driver. The note explains why.',
+    goToVehicle: 'Open the vehicle card',
+    note: 'Notes (optional)',
+    submit: 'Apply',
+    submitting: 'Applying…',
+    okDone: (plate: string) => `Proposal for ${plate} marked as handled.`,
+    okReject: (plate: string) => `Proposal for ${plate} rejected.`,
+    error: 'Could not resolve the proposal.',
+  },
 }
 
 const dict = { es, en }

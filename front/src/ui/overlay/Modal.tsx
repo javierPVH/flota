@@ -19,6 +19,10 @@ export interface ModalProps {
   maxWidth?: number | string
   /** Altura fija del modal (p. ej. "80dvh"). El cuerpo hace scroll internamente. */
   height?: number | string
+  /** Control extra en la cabecera, a la IZQUIERDA de la X y con su mismo
+   * tamaño: acciones sobre el propio diálogo (volver a mostrar un aviso que se
+   * cerró, por ejemplo), que no son contenido del cuerpo. */
+  headerAction?: ReactNode
 }
 
 
@@ -37,7 +41,7 @@ const FOCUSABLE =
 const openModals: symbol[] = []
 const isTopModal = (id: symbol) => openModals[openModals.length - 1] === id
 
-export function Modal({ open, title, onClose, children, footer, wide = false, xl = false, maxWidth, height }: ModalProps) {
+export function Modal({ open, title, onClose, children, footer, wide = false, xl = false, maxWidth, height, headerAction }: ModalProps) {
   const titleId = useId()
   const cardRef = useRef<HTMLDivElement | null>(null)
   const onCloseRef = useRef(onClose)
@@ -143,9 +147,14 @@ export function Modal({ open, title, onClose, children, footer, wide = false, xl
           >
             <div className={styles.head}>
               <h2 className={styles.title} id={titleId}>{title}</h2>
-              <button className={styles.close} onClick={onClose} aria-label={copy.close}>
-                <X size={16} />
-              </button>
+              {/* Lo que se le hace al propio diálogo va junto a su X, en la
+                  misma fila y del mismo tamaño: no es contenido del cuerpo. */}
+              <div className={styles.headActions}>
+                {headerAction}
+                <button className={styles.close} onClick={onClose} aria-label={copy.close}>
+                  <X size={16} />
+                </button>
+              </div>
             </div>
             <div className={styles.body}>{children}</div>
             {footer && <div className={styles.footer}>{footer}</div>}

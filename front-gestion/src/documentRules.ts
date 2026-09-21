@@ -2,7 +2,7 @@
 // (`EXPIRING_DOCUMENT_TYPES` / `INCIDENT_BOUND_DOCUMENT_TYPES` en
 // `fleet/models/enums/document.py`): aquí solo deciden qué campos se piden y
 // qué incidencias se ofrecen; quien manda sigue siendo el back.
-import type { DocumentType, FlotaEvent, Incident, IncidentType } from './types.ts'
+import type { Alert, DocumentType, FlotaEvent, Incident, IncidentType } from './types.ts'
 
 /** Tipos que se pueden dar de alta en un VEHÍCULO (lista cerrada del back,
  * Épica 4, menos el permiso de conducir, que es de una persona, y el acta de
@@ -37,16 +37,52 @@ export function linkableEventKinds(type: string): readonly EventKind[] {
   return EVENT_LINKABLE_DOCUMENT_TYPES[type as DocumentType] ?? []
 }
 
+/** Tipos de ALERTA abierta a las que puede acompañar cada tipo de documento
+ * (`ALERT_LINKABLE_DOCUMENT_TYPES` del back): el informe de una ITV que
+ * estaba programada (la cita es la alerta `itv_due`) y aún no se ha
+ * registrado. Al registrarla, el back lo pasa al registro de la ITV. */
+export const ALERT_LINKABLE_DOCUMENT_TYPES: Partial<Record<DocumentType, readonly string[]>> = {
+  itv_report: ['itv_due'],
+}
+
+export function linkableAlertKinds(type: string): readonly string[] {
+  return ALERT_LINKABLE_DOCUMENT_TYPES[type as DocumentType] ?? []
+}
+
 /** Tipos que EXIGEN acompañar a algo (`LINK_REQUIRED_DOCUMENT_TYPES` del
- * back más el parte, que exige su accidente): sueltos no dicen nada. */
+ * back: factura de taller, fotos de daños e informe de ITV, más el parte,
+ * que exige su accidente): sueltos no dicen nada. */
+const LINK_REQUIRED_DOCUMENT_TYPES: ReadonlySet<string> = new Set<DocumentType>([
+  'workshop_invoice',
+  'damage_photos',
+  'itv_report',
+])
+
 export function documentLinkRequired(type: string): boolean {
-  return type === 'workshop_invoice' || incidentTypeRequiredBy(type) !== null
+  return LINK_REQUIRED_DOCUMENT_TYPES.has(type) || incidentTypeRequiredBy(type) !== null
 }
 
 /** ¿Se ofrece ligar el documento a una incidencia? Lo que acompaña a un
- * registro concreto (la póliza, el informe de ITV) no: su vínculo es ese. */
+ * registro concreto (la póliza, el informe de ITV) no: su vínculo es ese; y
+ * el permiso de circulación o el de conducir no tienen incidencia detrás. */
+const NO_INCIDENT_DOCUMENT_TYPES: ReadonlySet<string> = new Set<DocumentType>([
+  'insurance',
+  'itv_report',
+  'registration_certificate',
+  'driving_license',
+])
+
 export function documentAcceptsIncidents(type: string): boolean {
-  return type !== 'insurance' && type !== 'itv_report'
+  return !NO_INCIDENT_DOCUMENT_TYPES.has(type)
+}
+
+/** Las alertas del coche que se pueden ofrecer para un documento de `type`:
+ * solo abiertas (a una resuelta ya le sigue su registro). */
+export function linkableAlerts(alerts: Alert[], type: string): Alert[] {
+  const kinds = linkableAlertKinds(type)
+  return kinds.length
+    ? alerts.filter((alert) => alert.status === 'open' && kinds.includes(alert.type))
+    : []
 }
 
 /** Los eventos del coche que se pueden ofrecer para un documento de `type`. */

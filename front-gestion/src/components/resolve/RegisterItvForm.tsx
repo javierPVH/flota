@@ -59,6 +59,7 @@ export function RegisterItvForm({
     flow: 'itv',
     vehicleState: selected?.state,
     returnToActive,
+    vehicleKm: selected?.km_current ?? null,
   })
   const favourable = result === 'done'
 

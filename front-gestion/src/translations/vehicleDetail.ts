@@ -272,7 +272,7 @@ const es = {
     { value: 'itv', label: 'No activo - ITV' },
     { value: 'broken', label: 'No activo - Averiado' },
     { value: 'accidente', label: 'No activo - Accidentado' },
-    { value: 'non_active', label: 'No activo' },
+    { value: 'non_active', label: 'No activo sin justificación' },
   ],
   // Todos, incluida la baja: la auditoría enseña estados que ya no se eligen.
   stateLabel: {
@@ -281,7 +281,7 @@ const es = {
     itv: 'No activo - ITV',
     broken: 'No activo - Averiado',
     accidente: 'No activo - Accidentado',
-    non_active: 'No activo',
+    non_active: 'No activo sin justificación',
     retired: 'Devuelto (baja)',
   } as Record<string, string>,
   linkReasonOptions: [
@@ -728,7 +728,7 @@ const en: typeof es = {
     { value: 'itv', label: 'Not active - MOT' },
     { value: 'broken', label: 'Not active - Broken down' },
     { value: 'accidente', label: 'Not active - Crashed' },
-    { value: 'non_active', label: 'Not active' },
+    { value: 'non_active', label: 'Not active (no reason)' },
   ],
   stateLabel: {
     active: 'Active',
@@ -736,7 +736,7 @@ const en: typeof es = {
     itv: 'Not active - MOT',
     broken: 'Not active - Broken down',
     accidente: 'Not active - Crashed',
-    non_active: 'Not active',
+    non_active: 'Not active (no reason)',
     retired: 'Returned (retired)',
   } as Record<string, string>,
   linkReasonOptions: [

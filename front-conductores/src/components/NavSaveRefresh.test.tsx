@@ -149,6 +149,8 @@ describe('guardar desde el bottom-nav refresca la página', () => {
     })
     mocks.fetchVehicleSummaries.mockResolvedValue([{ ...SUMMARY, next_itv_date: null }])
 
+    // La fecha de la inspección se pone con su atajo: ya no viene puesta.
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Hoy' }))
     await userEvent.click(within(dialog).getByRole('button', { name: 'Registrar ITV' }))
 
     await waitFor(() => expect(mocks.registerItv).toHaveBeenCalled())
@@ -177,13 +179,14 @@ describe('guardar desde el bottom-nav refresca la página', () => {
     await waitFor(() => expect(maintenanceButton).toBeEnabled())
 
     await userEvent.click(maintenanceButton)
+    // El botón del nav abre «Actualizar» por su pestaña de mantenimiento.
     const dialog = await screen.findByRole(
       'dialog',
-      { name: 'Actualizar mantenimiento · 7890NPQ' },
+      { name: 'Actualizar · 7890NPQ' },
       { timeout: 3000 },
     )
     await userEvent.click(
-      await within(dialog).findByRole('button', { name: 'Realizado en:' }, { timeout: 3000 }),
+      await within(dialog).findByRole('button', { name: 'Marcar como realizado' }, { timeout: 3000 }),
     )
 
     // Al reanclar el plan, el back devuelve la cita a 12 meses.
@@ -191,7 +194,9 @@ describe('guardar desde el bottom-nav refresca la página', () => {
       { ...SUMMARY, next_itv_date: null, next_maintenance_date: inDays(365) },
     ])
 
-    await userEvent.click(screen.getByRole('button', { name: 'Aceptar fecha' }))
+    // La confirmacion vive en su propio dialogo (el mismo nombre de accion).
+    const dateDialog = await screen.findByRole('dialog', { name: /Cuando se hizo|Cuándo se hizo/ })
+    await userEvent.click(within(dateDialog).getByRole('button', { name: 'Marcar como realizado' }))
 
     await waitFor(() => expect(mocks.markMaintenanceDone).toHaveBeenCalledWith(9, { date: inDays(0) }))
     // El tablero de detrás ya no anuncia una cita cumplida.

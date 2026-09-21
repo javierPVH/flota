@@ -14,7 +14,7 @@
 ingress:
   # ... (tus reglas actuales: list, sap-budget, travel_expenses, ...)
 
-  - hostname: flota-conductores.gransolar.com   # <-- tu dominio real
+  - hostname: fleetdrivers.gransolar-app.com   # <-- tu dominio real
     service: http://localhost:8092
 
   # Regla final que ya tendrás al final de la lista:

@@ -19,6 +19,16 @@ urlpatterns = [
     # Notificaciones push del móvil (M8, Web Push/VAPID).
     path("api/v1/push/", include("accounts.push_urls")),
     path("api/v1/", include("fleet.urls")),  # /api/v1/vehicles/, …
+]
+
+# SSO por SAML (Google Workspace) de la PWA de conductores: solo con
+# SAML_ENABLED (sin él, ni la app ni sus rutas existen).
+if settings.SAML_ENABLED:
+    urlpatterns += [
+        path("api/v1/auth/saml/", include("accounts.saml_urls")),  # login/, acs/, metadata/
+    ]
+
+urlpatterns += [
     # SEC3: /media exige sesión — nginx lo reenvía aquí y sirve el binario por
     # X-Accel-Redirect (location internal). En dev lo sirve la propia vista.
     re_path(r"^media/(?P<path>.+)$", ProtectedMediaView.as_view(), name="protected-media"),

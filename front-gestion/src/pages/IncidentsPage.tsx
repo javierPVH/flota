@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Badge, Button, IconButton, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage, isAbortError } from '@flota/ui/http'
-import { AlertTriangle, CheckCircle2, Download, FileText, Pencil } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, Eye, FileText, Pencil } from 'lucide-react'
 
 import {
   type IncidentInput,
@@ -16,10 +16,15 @@ import {
 import { exportCsv } from '../csv.ts'
 import { incidentPriorityTone, incidentStatusTone, vehicleStateTone } from '../format.ts'
 import { DEFAULT_PRIORITY, priorityOptions } from '../incidentPriority.ts'
+import {
+  AccidentReportBlock,
+  IncidentDetailModal,
+} from '../components/IncidentDetailModal.tsx'
 import { ResolveDispatcher } from '../components/resolve/ResolveDispatcher.tsx'
 import { incidentTarget, type ResolveTarget } from '../components/resolve/resolveFlow.ts'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { TextCell } from '../components/TextCell.tsx'
+import { useIncidentSummary } from '../incidentSummary.ts'
 import { useIncidentsCopy } from '../translations/incidents.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import type { Incident, Vehicle } from '../types.ts'
@@ -51,6 +56,9 @@ const EMPTY: FormState = {
  * Los documentos (acta/parte/fotos) se ligan desde la ficha del vehículo. */
 export function IncidentsPage() {
   const t = useIncidentsCopy()
+  const resumen = useIncidentSummary()
+  /** La incidencia que se está mirando (solo lectura), si hay alguna. */
+  const [viendo, setViendo] = useState<Incident | null>(null)
   // R3-30/R5-33: la carga lee `t` por ref — con `t` en sus deps, el botón
   // es/en abortaba y relanzaba la descarga completa de incidencias.
   const tRef = useRef(t)
@@ -279,10 +287,22 @@ export function IncidentsPage() {
       ),
     },
     {
+      // Dos líneas: el tipo y, debajo, lo que el parte recogió y no tiene
+      // columna (la medida de los neumáticos, el kilometraje, el CP del
+      // taller). Va en el valor de la celda además de en su pintura: así se
+      // busca por «205/55» y sale también en el CSV.
       key: 'type',
       label: t.columns.type,
-      getValue: (i) => i.type_display,
-      render: (i) => i.type_display || '—',
+      getValue: (i) => [i.type_display, resumen(i)].filter(Boolean).join(' · '),
+      render: (i) => {
+        const sub = resumen(i)
+        return (
+          <div className="stack-cell">
+            <span>{i.type_display || '—'}</span>
+            {sub && <span className="stack-cell-sub muted">{sub}</span>}
+          </div>
+        )
+      },
     },
     {
       // Prioridad y estado son chapas cortas: no necesitan ancho, y lo que
@@ -344,6 +364,11 @@ export function IncidentsPage() {
       sortable: false,
       render: (i) => (
         <div className="row-actions">
+          {/* La incidencia entera: el parte, el cierre y lo que no cabe en la
+              tabla. Primero se mira y luego se hace, así que abre la fila. */}
+          <IconButton aria-label={t.view} title={t.view} onClick={() => setViendo(i)}>
+            <Eye size={15} />
+          </IconButton>
           {/* Cerrar es «Resolver» (modal específico del tipo), no un cambio
               de estado: solo en las que siguen abiertas o en curso. */}
           {i.status !== 'closed' && (
@@ -372,7 +397,7 @@ export function IncidentsPage() {
         </div>
       ),
     },
-  ], [navigate, plateOf, t.columns.actions, t.columns.cost, t.columns.date, t.columns.description, t.columns.priority, t.columns.status, t.columns.type, t.columns.vehicle, t.columns.vehicleState, t.documents, t.documentsTitle, t.edit, t.resolve, t.viewDescription, vehicleStateOf])
+  ], [navigate, plateOf, resumen, t.view, t.columns.actions, t.columns.cost, t.columns.date, t.columns.description, t.columns.priority, t.columns.status, t.columns.type, t.columns.vehicle, t.columns.vehicleState, t.documents, t.documentsTitle, t.edit, t.resolve, t.viewDescription, vehicleStateOf])
 
   return (
     <div>
@@ -481,6 +506,11 @@ export function IncidentsPage() {
           rows={visible}
           columns={columns}
           rowKey={(i) => String(i.id)}
+          // Solo los accidentes tienen parte que enseñar: las demás filas
+          // mantienen el hueco (las celdas siguen alineadas) pero sin flecha.
+          renderExpandedRow={(i) => <AccidentReportBlock incident={i} />}
+          canExpandRow={(i) => Boolean(i.accident_report)}
+          expanderInFirstCell
           enableColumnSort
           showControlPanel={false}
           enablePagination
@@ -569,6 +599,14 @@ export function IncidentsPage() {
           </div>
         </form>
       </Modal>
+
+      {viendo && (
+        <IncidentDetailModal
+          incident={viendo}
+          plate={plateOf(viendo.vehicle)}
+          onClose={() => setViendo(null)}
+        />
+      )}
 
       {/* Resolver: el modal específico del tipo (el mismo del Panel y la ficha). */}
       <ResolveDispatcher

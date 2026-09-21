@@ -66,16 +66,17 @@ function DecimalField({
  *
  * Sin red va a la cola offline (M7): en una gasolinera de obra es lo normal.
  */
-export function RegisterFuelModal({
+export function FuelPane({
   vehicle,
   summary,
-  onClose,
   onSaved,
+  onCancel,
 }: {
   vehicle: Vehicle
   summary: VehicleSummary | null
-  onClose: () => void
-  onSaved: () => void
+  /** Guardado. El mensaje es para quien enmarca (la pestaña lo enseña). */
+  onSaved: (message: string) => void
+  onCancel?: () => void
 }) {
   const { t, language } = useLang()
   const [consumption, setConsumption] = useState('')
@@ -107,14 +108,16 @@ export function RegisterFuelModal({
       // respuesta se perdió por el camino, el back no crea otra fila.
       client_ref: clientRef,
     }
+    const hecho = () => {
+      setConsumption('')
+      onSaved(t.fuel.saved)
+    }
     try {
       await addFuelEntry(payload)
-      onSaved()
-      onClose()
+      hecho()
     } catch (caught) {
       if (isNetworkError(caught) && (await safeEnqueue({ kind: 'fuel', payload }))) {
-        onSaved()
-        onClose()
+        hecho()
       } else {
         setError(asErrorMessage(caught, t.fuel.saveError))
       }
@@ -127,70 +130,92 @@ export function RegisterFuelModal({
   const lastDate = summary?.fuel_avg_date ?? null
 
   return (
-    <SupervisorModal
-      open
-      title={`${t.fuel.title} · ${vehicle.plate}`}
-      onClose={onClose}
-      footer={
-        <>
-          <Button type="button" variant="secondary" onClick={onClose}>{t.common.cancel}</Button>
-          <Button type="submit" form="vehicle-fuel-form" disabled={saving || !valueOk || !dateOk}>
-            {saving ? t.fuel.saving : t.fuel.save}
-          </Button>
-        </>
-      }
-    >
-      <form id="vehicle-fuel-form" className="modal-form" onSubmit={submit}>
-        {/* Qué cifra se anota, y cuál no: la misma nota que en gestión. */}
-        <Panel>
-          <p className="panel-note">
-            <Fuel size={16} aria-hidden /> {t.fuel.noteLead}
-          </p>
-          <p className="panel-note"><strong>{t.fuel.noteWarn}</strong></p>
-        </Panel>
-        <DecimalField
-          label={t.fuel.consumption}
+    <form id="vehicle-fuel-form" className="modal-form" onSubmit={submit}>
+      {/* Qué cifra se anota, y cuál no: la misma nota que en gestión. */}
+      <Panel>
+        <p className="panel-note">
+          <Fuel size={16} aria-hidden /> {t.fuel.noteLead}
+        </p>
+        <p className="panel-note"><strong>{t.fuel.noteWarn}</strong></p>
+      </Panel>
+      <DecimalField
+        label={t.fuel.consumption}
+        required
+        placeholder="6,80"
+        value={consumption}
+        onChange={setConsumption}
+        autoFocus
+      />
+      <label className="km-input-label">
+        <span>
+          {t.fuel.date} <span className="req-badge" aria-hidden>{t.common.required}</span>
+        </span>
+        <input
+          className="km-input"
+          type="date"
+          max={todayIso()}
+          value={date}
+          onChange={(event) => setDate(event.target.value)}
           required
-          placeholder="6,80"
-          value={consumption}
-          onChange={setConsumption}
-          autoFocus
         />
-        <label className="km-input-label">
-          <span>
-            {t.fuel.date} <span className="req-badge" aria-hidden>{t.common.required}</span>
-          </span>
-          <input
-            className="km-input"
-            type="date"
-            max={todayIso()}
-            value={date}
-            onChange={(event) => setDate(event.target.value)}
-            required
-          />
-        </label>
-        {/* La última anotación, solo si el resumen ha llegado — sin él no se
-            sabe, y no es lo mismo que «sin anotaciones». */}
-        {summary && (
-          <p className="doc-sub">
-            {last !== null ? (
-              <>
-                {t.fuel.lastNoted}:{' '}
-                <strong>
-                  {Number(last).toLocaleString(language, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </strong>
-                {lastDate ? ` · ${fmtDate(lastDate)}` : ''}
-              </>
-            ) : (
-              t.fuel.noneYet
-            )}
-          </p>
+      </label>
+      {/* La última anotación, solo si el resumen ha llegado — sin él no se
+          sabe, y no es lo mismo que «sin anotaciones». */}
+      {summary && (
+        <p className="doc-sub">
+          {last !== null ? (
+            <>
+              {t.fuel.lastNoted}:{' '}
+              <strong>
+                {Number(last).toLocaleString(language, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </strong>
+              {lastDate ? ` · ${fmtDate(lastDate)}` : ''}
+            </>
+          ) : (
+            t.fuel.noneYet
+          )}
+        </p>
+      )}
+      {error && <div role="alert" className="form-error">{error}</div>}
+      <div className="form-actions">
+        {onCancel && (
+          <Button type="button" variant="secondary" onClick={onCancel}>{t.common.cancel}</Button>
         )}
-        {error && <div role="alert" className="form-error">{error}</div>}
-      </form>
+        <Button type="submit" disabled={saving || !valueOk || !dateOk}>
+          {saving ? t.fuel.saving : t.fuel.save}
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+/** La misma anotación, en su propia ventana (ficha, tarjeta y nav de campo). */
+export function RegisterFuelModal({
+  vehicle,
+  summary,
+  onClose,
+  onSaved,
+}: {
+  vehicle: Vehicle
+  summary: VehicleSummary | null
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const { t } = useLang()
+  return (
+    <SupervisorModal open title={`${t.fuel.title} · ${vehicle.plate}`} onClose={onClose}>
+      <FuelPane
+        vehicle={vehicle}
+        summary={summary}
+        onCancel={onClose}
+        onSaved={() => {
+          onSaved()
+          onClose()
+        }}
+      />
     </SupervisorModal>
   )
 }

@@ -70,11 +70,13 @@ describe('PersonalDocumentsPanel (R3-43: documentos personales en campo)', () =>
     expect(await screen.findByText('Permiso de conducir')).toBeInTheDocument()
     // La consulta va por titular PERSONA, no por vehículo.
     expect(mocks.listPersonalDocuments).toHaveBeenCalledWith(7)
-    // El binario se abre por /media (autorizado por `users_for` tras R3-01).
-    expect(screen.getByRole('link', { name: /Abrir Permiso de conducir/ })).toHaveAttribute(
-      'href',
-      LICENSE.file_url,
-    )
+    // Se VE y se BAJA dentro de la app: los dos los sirve el back, que
+    // autoriza con la misma regla (`readable_documents`). Aquí no hay enlaces
+    // a Drive: quien conduce no tiene cuenta en esa carpeta.
+    expect(screen.getByRole('button', { name: /Ver Permiso de conducir/ })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Descargar Permiso de conducir/ }),
+    ).toBeInTheDocument()
   })
 
   it('sube un documento personal con titular USUARIO y su client_ref', async () => {

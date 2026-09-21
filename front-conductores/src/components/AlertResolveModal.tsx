@@ -1,8 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { createKmReading, resolveAlert } from '../api.ts'
+import {
+  createKmReading,
+  listDriverCandidates,
+  proposeDriverChange,
+  resolveAlert,
+  type DriverCandidate,
+} from '../api.ts'
 import { fmtDate, fmtKm, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, VehicleSummary } from '../types.ts'
@@ -32,10 +38,53 @@ export function AlertResolveModal({
 }) {
   const { t, language } = useLang()
   const isKm = alert.type === 'km_reading_pending' && alert.vehicle !== null
+  // Los km contratados NO se arreglan con una observación: el coche rueda más
+  // de lo que se contrató, y lo que lo cambia es que lo lleve otra persona.
+  const isOverage = alert.type === 'km_overage' && alert.vehicle !== null
   const [km, setKm] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  // --- Proponer otro conductor (solo en la alerta de km contratados) --------
+  const propose = t.alerts.propose
+  const [candidates, setCandidates] = useState<DriverCandidate[] | null>(null)
+  const [candidate, setCandidate] = useState('')
+  const [proposing, setProposing] = useState(false)
+  const [proposed, setProposed] = useState(false)
+  const [proposeError, setProposeError] = useState('')
+
+  useEffect(() => {
+    if (!isOverage) return
+    let vivo = true
+    listDriverCandidates()
+      .then((rows) => vivo && setCandidates(rows))
+      // Sin lista se sigue: la nota a administración vale por sí sola.
+      .catch(() => vivo && setCandidates([]))
+    return () => {
+      vivo = false
+    }
+  }, [isOverage])
+
+  async function enviarPropuesta() {
+    setProposing(true)
+    setProposeError('')
+    try {
+      await proposeDriverChange({
+        vehicle: alert.vehicle as number,
+        alert: alert.id,
+        proposed_driver: candidate ? Number(candidate) : null,
+        // El MISMO texto que, si se resuelve, queda en la alerta: en esta
+        // ventana solo hay una caja de notas y sirve para las dos cosas.
+        note: note.trim(),
+      })
+      setProposed(true)
+    } catch (err) {
+      setProposeError(asErrorMessage(err, propose.error))
+    } finally {
+      setProposing(false)
+    }
+  }
 
   async function handleResolve() {
     setSaving(true)
@@ -111,14 +160,74 @@ export function AlertResolveModal({
             )}
           </>
         ) : (
-          <label className="reminder-check" style={{ display: 'block' }}>
-            {t.alerts.resolveNoteLabel}
-            <textarea
-              className="reminder-message"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
-          </label>
+          // En km contratados la caja de notas vive abajo, con la propuesta:
+          // dos cajas de texto en la misma ventana —«observaciones» y «nota»—
+          // solo obligaban a elegir en cuál escribir lo mismo.
+          !isOverage && (
+            <label className="reminder-check" style={{ display: 'block' }}>
+              {t.alerts.resolveNoteLabel}
+              <textarea
+                className="reminder-message"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+            </label>
+          )
+        )}
+
+        {/* Proponer otro conductor: no resuelve la alerta —nada ha cambiado
+            todavía— sino que abre una solicitud que decide administración.
+            Quien supervisa no cambia conductores, igual que no cambia el
+            estado del coche. */}
+        {isOverage && (
+          <section className="propose-driver">
+            <h3>{propose.title}</h3>
+            <p className="update-hint">{propose.intro}</p>
+            {(candidates ?? []).length > 0 && (
+              <label className="reminder-check" style={{ display: 'block' }}>
+                {propose.whoLabel}
+                <select
+                  className="update-input"
+                  value={candidate}
+                  onChange={(event) => setCandidate(event.target.value)}
+                  disabled={proposed}
+                >
+                  <option value="">{propose.whoNone}</option>
+                  {(candidates ?? []).map((person) => (
+                    <option key={person.id ?? person.email} value={String(person.id ?? '')}>
+                      {person.plate ? `${person.name} · ${person.plate}` : person.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {/* La ÚNICA caja de texto de esta ventana: va con la propuesta y,
+                si en vez de proponer se resuelve, es lo que queda escrito en
+                la alerta. Por eso su rótulo lo dice. */}
+            <label className="reminder-check" style={{ display: 'block' }}>
+              {candidate ? propose.noteLabel : propose.noteRequiredLabel}
+              <textarea
+                className="reminder-message"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                disabled={proposed}
+              />
+            </label>
+            {proposeError && <div role="alert" className="form-error">{proposeError}</div>}
+            {proposed ? (
+              <p role="status" className="form-ok">{propose.sent}</p>
+            ) : (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={enviarPropuesta}
+                // Sin nadie elegido, la nota ES la petición (el back la exige).
+                disabled={proposing || (!candidate && !note.trim())}
+              >
+                {proposing ? propose.sending : propose.submit}
+              </Button>
+            )}
+          </section>
         )}
         {error && (
           <div role="alert" className="form-error">

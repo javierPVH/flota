@@ -16,6 +16,8 @@ interface Props {
   vehicleState?: VehicleState
   /** Con el coche parado, la casilla vive en el despachador (una por modal). */
   returnToActive?: boolean
+  /** Última lectura del coche: la que carga el botón de «Km». */
+  vehicleKm?: number | null
   onClose: () => void
   /** Cerrada: texto para el aviso verde del padre (que recarga sus datos). */
   onDone: (notice: string) => void
@@ -39,6 +41,7 @@ export function ResolveAccidentModal({
   incident,
   vehicleState,
   returnToActive,
+  vehicleKm,
   onClose,
   onDone,
   onRetire,
@@ -49,6 +52,7 @@ export function ResolveAccidentModal({
     flow: 'accident',
     vehicleState,
     returnToActive,
+    vehicleKm,
     postalCode: incident.workshop_postal_code,
   })
   const [claimRef, setClaimRef] = useState('')

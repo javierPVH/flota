@@ -22,6 +22,7 @@ import { ApiError } from '@flota/ui/http'
 import {
   enqueue,
   enqueueIncidentWithFiles,
+  enqueueItvWithReport,
   flush,
   isNetworkError,
   isTransientError,
@@ -35,7 +36,7 @@ async function drain() {
   // Vacía la cola entre tests (la BD fake persiste dentro del proceso).
   mocks.createIncident.mockResolvedValue({ id: 1, vehicle: 1 })
   mocks.createKmReading.mockResolvedValue({})
-  mocks.registerItv.mockResolvedValue({})
+  mocks.registerItv.mockResolvedValue({ id: 1 })
   mocks.uploadDocument.mockResolvedValue({})
   await flush()
   vi.clearAllMocks()
@@ -141,6 +142,34 @@ describe('cola offline (M7)', () => {
     const [payload, sent] = mocks.uploadDocument.mock.calls[0]
     expect(payload.incident).toBe(77)
     expect(sent.name).toBe('golpe.png')
+  })
+
+  it('el informe de una ITV encolada adopta el id del registro creado', async () => {
+    // Mismo mecanismo que el parte: el informe cuelga del REGISTRO de la
+    // inspección, cuyo id no existe hasta que la cola la envía.
+    mocks.registerItv.mockResolvedValue({ id: 88 })
+    mocks.uploadDocument.mockResolvedValue({})
+    const file = new File(['pdf'], 'informe.pdf', { type: 'application/pdf' })
+    const ok = await enqueueItvWithReport(
+      {
+        vehicle: 4,
+        event_date: '2026-09-10',
+        itv: { result: 'done', next_due: '2027-09-10' },
+        client_ref: 'ref-itv-1',
+      },
+      file,
+    )
+    expect(ok).toBe(true)
+
+    const result = await flush()
+    expect(result.sent).toBe(2)
+    expect(mocks.registerItv).toHaveBeenCalledWith(
+      expect.objectContaining({ vehicle: 4, client_ref: 'ref-itv-1' }),
+    )
+    const [payload, sent] = mocks.uploadDocument.mock.calls[0]
+    expect(payload.event).toBe(88)
+    expect(payload.type).toBe('itv_report')
+    expect(sent.name).toBe('informe.pdf')
   })
 
   it('R3-27: si el servidor rechaza el parte, el adjunto sube suelto (solo vehículo)', async () => {

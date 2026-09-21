@@ -20,10 +20,11 @@ import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
 import { DocumentsTabsCard } from '../components/DocumentsTabsCard.tsx'
 import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
-import { VehicleAlertsBreakdownsCard } from '../components/VehicleAlertsBreakdownsCard.tsx'
+import { VehiclePendingCards } from '../components/VehiclePendingCards.tsx'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
-import { isOpenBreakdown, pendingThisMonth, vehicleStateTone } from '../format.ts'
+import { isOpenFieldIncident, pendingThisMonth, vehicleStateTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
+import { PENDING_CARDS } from '../pendingCards.ts'
 import type { Alert, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
 
 /**
@@ -131,7 +132,7 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
           () => [] as Incident[],
         ),
       ),
-    ).then((pages) => setIncidents(pages.flat().filter(isOpenBreakdown)))
+    ).then((pages) => setIncidents(pages.flat().filter(isOpenFieldIncident)))
     Promise.all(
       ids.map((vid) =>
         listDocuments(vid).then(
@@ -306,7 +307,9 @@ function OwnVehiclePanel({
   reelButton?: ReelButton
 }) {
   const { t } = useLang()
-  const accordion = useAccordion(['alerts'], ['alerts'])
+  // Las tres tarjetas de lo pendiente arrancan PLEGADAS: su recuento se lee
+  // en el título y se abre solo la familia que interesa.
+  const accordion = useAccordion(PENDING_CARDS, PENDING_CARDS)
   const blocked = summary?.blocked_by_link ?? null
   const covering = summary?.substituting_for ?? null
 
@@ -359,11 +362,11 @@ function OwnVehiclePanel({
           que en la ficha, con la fecha y cuántos días faltan. */}
       <UpcomingDatesCard vehicle={vehicle} summary={summary} window={kmWindow} />
 
-      <VehicleAlertsBreakdownsCard
+      <VehiclePendingCards
         vehicle={vehicle}
         summary={summary}
         alerts={alerts}
-        breakdowns={incidents}
+        incidents={incidents}
         canManage={canManage}
         accordion={accordion}
         onChanged={onChanged}
@@ -371,7 +374,7 @@ function OwnVehiclePanel({
 
       {/* Documentación, en una tarjeta con dos pestañas: la del coche y la
           del conductor (el titular del documento es una cosa o la otra). */}
-      <DocumentsTabsCard documents={documents} />
+      <DocumentsTabsCard documents={documents} onChanged={onChanged} />
     </div>
   )
 }

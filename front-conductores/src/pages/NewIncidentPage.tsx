@@ -10,6 +10,7 @@ import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { fmtKm, todayIso } from '../format.ts'
 import { DEFAULT_PRIORITY, priorityOptions } from '../incidentPriority.ts'
+import { DEFAULT_INCIDENT_TYPE, INCIDENT_TYPES, attachmentDocType } from '../incidentTypes.ts'
 import { useLang } from '../i18n.tsx'
 import {
   enqueueIncidentWithFiles,
@@ -20,13 +21,10 @@ import {
 import { compressImages } from '../offline/images.ts'
 import type { Incident, Vehicle } from '../types.ts'
 
-// Lo que se abre desde aquí: petición general, neumáticos y mantenimiento
-// puntual. La avería tiene su modal (`BreakdownModal`) y el accidente su parte
-// (`AccidentModal`); R5-61 retiró de esta página las ramas de los dos, que no
-// se podían elegir y duplicaban aquellos formularios.
-const INCIDENT_TYPES = ['general', 'tires', 'maintenance']
-
-/** Alta unificada de avería: general, neumáticos o propuesta de mejora. */
+/** Alta unificada de incidencia, con el MISMO catálogo de tipos que el modal de
+ * la tarjeta y que gestión (`src/incidentTypes.ts`). El accidente tiene su
+ * parte (`AccidentModal`); R5-61 retiró de esta página sus ramas, que no se
+ * podían elegir y duplicaban aquel formulario. */
 export function NewIncidentPage() {
   const { user } = useAuth()
   const { t, language } = useLang()
@@ -45,7 +43,9 @@ export function NewIncidentPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [form, setForm] = useState({
     vehicle: params.get('vehiculo') ?? '',
-    type: INCIDENT_TYPES.includes(requestedType) ? requestedType : 'general',
+    type: (INCIDENT_TYPES as readonly string[]).includes(requestedType)
+      ? requestedType
+      : DEFAULT_INCIDENT_TYPE,
     date: todayIso(), description: '', mileage: '',
     // La prioridad la marca quien abre la petición (gestión tría por ella).
     priority: DEFAULT_PRIORITY as string,
@@ -147,12 +147,12 @@ export function NewIncidentPage() {
       form.type === 'tires' ? { ...details, report_version: 1 } : {}
     // En un reintento solo quedan las subidas que fallaron; la primera vez, todas.
     const uploads = pendingUploads ?? [
-      // Cualquier petición puede llevar adjunto. En la propuesta de mejora no
-      // hay daño que fotografiar, así que el archivo se archiva como «Otro».
+      // Cualquier petición puede llevar adjunto, y de qué tipo es lo dice la
+      // regla compartida (`incidentTypes.ts`), la misma que el modal.
       // Cada adjunto lleva su referencia desde el principio: el reintento
       // (`pendingUploads`) reutiliza la misma y no sube el archivo dos veces.
       ...photos.map((file) => ({
-        file, type: form.type === 'maintenance' ? 'other' : 'damage_photos',
+        file, type: attachmentDocType(form.type),
         client_ref: newClientRef(),
       })),
     ]
@@ -307,12 +307,15 @@ export function NewIncidentPage() {
           <TextAreaField label={t.newIncident.comment} rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
         </section>}
 
-        {(form.type === 'general' || form.type === 'maintenance') && <>
+        {/* Todo lo que no lleva parte guiado se cuenta escribiéndolo: los
+            neumáticos tienen el suyo (con su comentario opcional) y el resto
+            —avería, mantenimiento puntual y petición general— pide descripción. */}
+        {form.type !== 'tires' && (
           <TextAreaField label={t.newIncident.description} rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder={t.newIncident.descPlaceholder} required requiredVisual />
-        </>}
+        )}
         {/* El adjunto no depende del tipo: toda petición admite prueba, y
             acepta PDF además de foto (un presupuesto no se hace con la
-            cámara), como el modal de avería. */}
+            cámara), como el modal de la tarjeta. */}
         <label className={`photo-attach${photos.length > 0 ? ' has-file' : ''}`}>
           <Camera size={18} aria-hidden />
           {photos.length > 0 ? t.newIncident.attachmentsSelected(photos.length) : t.newIncident.attachments}

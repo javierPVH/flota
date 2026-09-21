@@ -21,7 +21,14 @@ const TABS: Tab[] = ['vehicle', 'driver']
  * O una persona: los del coche se quedan con la matrícula cuando lo devuelves,
  * los del conductor se van contigo. Las pestañas dicen eso sin explicarlo.
  */
-export function DocumentsTabsCard({ documents }: { documents: FlotaDocument[] }) {
+export function DocumentsTabsCard({
+  documents,
+  onChanged,
+}: {
+  documents: FlotaDocument[]
+  /** Recarga del tablero: pedir el borrado de un documento marca su fila. */
+  onChanged?: () => void
+}) {
   const { t } = useLang()
   const copy = t.docs
   const [tab, setTab] = useState<Tab>('vehicle')
@@ -69,7 +76,7 @@ export function DocumentsTabsCard({ documents }: { documents: FlotaDocument[] })
           {tab === 'vehicle' ? (
             <>
               <p className="doc-sub">{copy.vehicleHint}</p>
-              <DocumentList documents={documents} />
+              <DocumentList documents={documents} onChanged={onChanged} />
             </>
           ) : (
             <PersonalDocumentsPanel {...personal} />

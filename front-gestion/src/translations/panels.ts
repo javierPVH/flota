@@ -1,5 +1,13 @@
 import { useAppLang } from '@flota/ui/i18n'
 
+/** Textos del desplegable «a qué acompaña» de un documento que lo exige. */
+export interface LinkCopy {
+  label: string
+  choose: string
+  required: string
+  none: (typeDisplay: string) => string
+}
+
 const es = {
   documents: {
     title: 'Documentos',
@@ -37,8 +45,23 @@ const es = {
       link: 'Ligado a',
       notes: 'Notas',
       status: 'Estado',
+      visibility: 'Visibilidad',
       actions: 'Acciones',
     },
+    // Quién lee el documento: el interruptor de lectura y el candado.
+    visibility: 'Visibilidad',
+    sharedRead: 'Visible para todos los conductores del vehículo',
+    protected: 'Protegido',
+    onlyResponsible: 'Solo el responsable',
+    visibilityHint:
+      'Sin marcar, el documento lo lee solo su responsable —quien conducía el coche al subirlo— '
+      + 'y el supervisor mientras siga siendo el conductor actual.',
+    protectedHint: 'Protegido: no lo ve ningún conductor ni supervisor, solo la gestión.',
+    editVisibility: 'Cambiar la visibilidad',
+    visibilityTitle: (tipo: string) => `Visibilidad · ${tipo}`,
+    responsibleIs: (nombre: string) => `Responsable: ${nombre}.`,
+    noResponsible:
+      'Sin responsable: el coche no tenía conductor al subirlo. Solo lo ven la gestión y quien lo subió.',
     notesOpen: 'Ver la nota completa',
     replacesTag: (id: number) => ` · sustituye #${id}`,
     open: 'Abrir',
@@ -83,20 +106,47 @@ const es = {
     expiryRequired: 'Indica la fecha de caducidad.',
     incidentLabel: 'Ligado a incidencia abierta (opcional)',
     incidentNone: 'Ninguna',
-    incidentRequiredLabel: 'Accidente abierto',
-    incidentChoose: 'Elige el accidente…',
-    incidentRequired: 'Elige el accidente al que pertenece el parte.',
     incidentOption: (i: { id: number; type_display: string; status_display: string; date: string | null }) =>
       `#${i.id} · ${i.type_display} · ${i.status_display}${i.date ? ` (${i.date})` : ''}`,
-    noOpenIncident: (typeDisplay: string) =>
-      `Un «${typeDisplay}» va ligado a un accidente abierto y este vehículo no tiene ninguno: comunica primero el accidente.`,
-    // La factura de taller acompaña SIEMPRE a algo: incidencia, ITV o mantenimiento.
-    linkRequiredLabel: 'Ligado a incidencia, ITV o mantenimiento',
-    linkChoose: 'Elige a qué acompaña…',
-    linkRequired: 'Elige la incidencia, la ITV o el mantenimiento al que acompaña la factura.',
-    noLinkCandidates: (typeDisplay: string) =>
-      `Una «${typeDisplay}» va ligada a una incidencia, una ITV o un mantenimiento y este vehículo no tiene ninguno registrado.`,
-    // La póliza y el informe de ITV pueden acompañar a su registro.
+    // Lo que acompaña SIEMPRE a algo, por tipo: cómo se llama el desplegable,
+    // la opción de «elige», el aviso si se guarda sin elegir y el de «no hay».
+    linkCopyFor: (type: string): LinkCopy => {
+      if (type === 'accident_report') {
+        return {
+          label: 'Accidente abierto',
+          choose: 'Elige el accidente…',
+          required: 'Elige el accidente al que pertenece el parte.',
+          none: (typeDisplay) =>
+            `Un «${typeDisplay}» va ligado a un accidente abierto y este vehículo no tiene ninguno: comunica primero el accidente.`,
+        }
+      }
+      if (type === 'damage_photos') {
+        return {
+          label: 'Incidencia o accidente abierto',
+          choose: 'Elige la incidencia…',
+          required: 'Elige la incidencia o el accidente al que pertenecen las fotos.',
+          none: (typeDisplay) =>
+            `Unas «${typeDisplay}» van ligadas a una incidencia abierta y este vehículo no tiene ninguna: comunica primero la incidencia.`,
+        }
+      }
+      if (type === 'itv_report') {
+        return {
+          label: 'ITV a la que corresponde',
+          choose: 'Elige la ITV…',
+          required: 'Elige la ITV, registrada o programada, a la que corresponde el informe.',
+          none: (typeDisplay) =>
+            `Un «${typeDisplay}» va ligado a una ITV registrada o programada y este vehículo no tiene ninguna: regístrala o prográmala primero.`,
+        }
+      }
+      return {
+        label: 'Ligado a incidencia, ITV o mantenimiento',
+        choose: 'Elige a qué acompaña…',
+        required: 'Elige la incidencia, la ITV o el mantenimiento al que acompaña la factura.',
+        none: (typeDisplay) =>
+          `Una «${typeDisplay}» va ligada a una incidencia, una ITV o un mantenimiento y este vehículo no tiene ninguno registrado.`,
+      }
+    },
+    // La póliza puede acompañar a su renovación (opcional).
     recordLabel: 'Registro al que acompaña (opcional)',
     recordNone: 'Ninguno',
     linkGroups: {
@@ -104,7 +154,10 @@ const es = {
       itv: 'ITV',
       maintenance: 'Mantenimientos',
       insurance_renewal: 'Renovaciones de seguro',
+      scheduled: 'ITV programadas',
     },
+    alertOption: (a: { type_display: string; due_date: string | null }) =>
+      `${a.type_display} · ${a.due_date ?? '—'}`,
     eventOption: (e: {
       event_type_display: string
       event_date: string | null
@@ -301,8 +354,22 @@ const en: typeof es = {
       link: 'Linked to',
       notes: 'Notes',
       status: 'Status',
+      visibility: 'Visibility',
       actions: 'Actions',
     },
+    visibility: 'Visibility',
+    sharedRead: 'Visible to every driver of the vehicle',
+    protected: 'Protected',
+    onlyResponsible: 'Owner only',
+    visibilityHint:
+      'When off, only its owner —whoever was driving the vehicle when it was uploaded— can read '
+      + 'it, plus the supervisor while that person is still the current driver.',
+    protectedHint: 'Protected: no driver or supervisor can see it, only the office.',
+    editVisibility: 'Change visibility',
+    visibilityTitle: (tipo) => `Visibility · ${tipo}`,
+    responsibleIs: (nombre) => `Owner: ${nombre}.`,
+    noResponsible:
+      'No owner: the vehicle had no driver when it was uploaded. Only the office and the uploader can see it.',
     notesOpen: 'View the full note',
     replacesTag: (id) => ` · replaces #${id}`,
     open: 'Open',
@@ -347,18 +414,44 @@ const en: typeof es = {
     expiryRequired: 'Enter the expiry date.',
     incidentLabel: 'Linked to open incident (optional)',
     incidentNone: 'None',
-    incidentRequiredLabel: 'Open accident',
-    incidentChoose: 'Choose the accident…',
-    incidentRequired: 'Choose the accident this report belongs to.',
     incidentOption: (i) =>
       `#${i.id} · ${i.type_display} · ${i.status_display}${i.date ? ` (${i.date})` : ''}`,
-    noOpenIncident: (typeDisplay) =>
-      `A "${typeDisplay}" is linked to an open accident and this vehicle has none: report the accident first.`,
-    linkRequiredLabel: 'Linked to incident, MOT or maintenance',
-    linkChoose: 'Choose what it belongs to…',
-    linkRequired: 'Choose the incident, MOT or maintenance this invoice belongs to.',
-    noLinkCandidates: (typeDisplay) =>
-      `A "${typeDisplay}" is linked to an incident, an MOT or a maintenance and this vehicle has none on record.`,
+    linkCopyFor: (type) => {
+      if (type === 'accident_report') {
+        return {
+          label: 'Open accident',
+          choose: 'Choose the accident…',
+          required: 'Choose the accident this report belongs to.',
+          none: (typeDisplay) =>
+            `A "${typeDisplay}" is linked to an open accident and this vehicle has none: report the accident first.`,
+        }
+      }
+      if (type === 'damage_photos') {
+        return {
+          label: 'Open incident or accident',
+          choose: 'Choose the incident…',
+          required: 'Choose the incident or accident these photos belong to.',
+          none: (typeDisplay) =>
+            `"${typeDisplay}" are linked to an open incident and this vehicle has none: report the incident first.`,
+        }
+      }
+      if (type === 'itv_report') {
+        return {
+          label: 'MOT it belongs to',
+          choose: 'Choose the MOT…',
+          required: 'Choose the MOT, registered or scheduled, this report belongs to.',
+          none: (typeDisplay) =>
+            `An "${typeDisplay}" is linked to a registered or scheduled MOT and this vehicle has none: register or schedule it first.`,
+        }
+      }
+      return {
+        label: 'Linked to incident, MOT or maintenance',
+        choose: 'Choose what it belongs to…',
+        required: 'Choose the incident, MOT or maintenance this invoice belongs to.',
+        none: (typeDisplay) =>
+          `A "${typeDisplay}" is linked to an incident, an MOT or a maintenance and this vehicle has none on record.`,
+      }
+    },
     recordLabel: 'Record it belongs to (optional)',
     recordNone: 'None',
     linkGroups: {
@@ -366,7 +459,9 @@ const en: typeof es = {
       itv: 'MOT',
       maintenance: 'Maintenance',
       insurance_renewal: 'Insurance renewals',
+      scheduled: 'Scheduled MOTs',
     },
+    alertOption: (a) => `${a.type_display} · ${a.due_date ?? '—'}`,
     eventOption: (e) => {
       const base = `${e.event_type_display} · ${e.event_date ?? '—'}`
       const vence = e.details?.kind === 'insurance_renewal' ? e.details.new_expiry : null

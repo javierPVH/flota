@@ -1,4 +1,4 @@
-"""Enumerado de solicitudes de vehículo (Épica 8)."""
+"""Enumerados de solicitudes: de vehículo (Épica 8) y de cambio de conductor."""
 
 from django.db import models
 
@@ -18,3 +18,18 @@ class VehicleRequestStatus(models.TextChoices):
     ASSIGNED = "assigned", "Vehículo asignado"
     REJECTED = "rejected", "Rechazada"
     CLOSED = "closed", "Cerrada"
+
+
+class DriverChangeStatus(models.TextChoices):
+    """En qué queda la propuesta de cambio de conductor que manda el campo.
+
+    Dos salidas y ninguna más: la administración **la atiende** —el cambio se
+    hace donde se hace, en «Cambiar conductor», que es un gesto atómico con su
+    bloqueo optimista; esta fila no mueve asignaciones— o **la rechaza**,
+    diciendo por qué. Las dos la sacan de pendiente, que es lo que la quita de
+    la bandeja y de la cuenta del aviso.
+    """
+
+    PENDING = "pending", "Pendiente"
+    DONE = "done", "Atendida"
+    REJECTED = "rejected", "Rechazada"

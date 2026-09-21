@@ -109,7 +109,7 @@ renombras rompes la cadena. Contraseña de prueba de TODOS: **`flota-dev-2026`**
 | Usuario | Rol(es) | Situación sembrada |
 |---------|---------|--------------------|
 | `admin` | admin (superuser) | Administradora "Alicia" |
-| `sara`  | supervisor + driver | Su grupo: `1234KLM` y `5678BCD`; conduce `7890NPQ` (su tablero de campo trae alertas, documentos y mantenimiento con variantes) |
+| `sara`  | supervisor + driver | Su grupo: `1234KLM` y `5678BCD` (más el bloque de volumen); conduce `7890NPQ` (su tablero de campo trae alertas, documentos y mantenimiento con variantes). En **su ámbito** están los **seis** tipos de alerta y en **su coche**, cinco: **todos los que un conductor puede ver** (ITV, mantenimiento, exceso de km y lectura pendiente) más el **seguro**, que se siembra igual aunque X1 lo deje fuera de la app de campo — es lo que distingue la bandeja de gestión de la de campo. El sexto, `no_driver`, no cabe en un coche que ella conduce, así que se ve en los que supervisa |
 | `carlos`| driver | Conduce `1234KLM` (y tiene una **propuesta** pendiente) |
 | `lucia` | driver | Conduce `5678BCD` (en taller, cubierto por el Leaf) **y el propio Leaf `4567JKL`**: es el par sustituto↔principal de la app de campo |
 | `david` | driver | **SIN coche** → prueba el portón; solicitud `pending` con ticket **`FLT-123`** |
@@ -118,17 +118,29 @@ renombras rompes la cadena. Contraseña de prueba de TODOS: **`flota-dev-2026`**
 **Vehículos**: `1234KLM` (activo, proyección de km **en exceso**, ITV a 10 días,
 **seguro a 20 días**, timeline con los 18 tipos de evento y póliza versionada),
 `5678BCD` (en taller, **ITV y seguro vencidos**, vínculo de sustitución activo),
-`7890NPQ` (**km ilimitados**: sin proyección y, desde X2, tampoco recordatorio
-de lectura; es el coche de `sara` y el **escaparate del tablero de campo**:
-ITV a 12 días, seguro a 15 con la póliza anterior encadenada por `replaces`,
+`7890NPQ` (el coche de `sara` y el **escaparate del tablero de campo**, con
+**una alerta abierta de cada tipo que un conductor puede ver**:
+ITV a 12 días, seguro a 15 con la póliza anterior encadenada por `replaces`
+—que en campo no se ve, X1—, **proyección de km por encima de lo contratado**
+(15.400 km en 200 días de un contrato de 60.000) y la **lectura del mes sin
+dar** (la última es de hace 40 días). Esas dos últimas exigen que NO tenga km
+ilimitados, así que ese escaparate (N3/X2) se lleva el Leaf;
 SU único mantenimiento programado («Revisión general», del catálogo común),
-que avisa por las dos vías a la vez —a ~14 días por fecha y por km **ya
-superado**, alerta crítica; los neumáticos nunca son un programa: siempre son
-una avería—,
+que toca por las dos vías a la vez —por km **ya superado** y a ~14 días por
+fecha—, y que por eso deja **un solo aviso** con las dos cosas dichas en él
+(los km delante, que son los que mandan) en vez de dos alertas del mismo
+servicio; los neumáticos nunca son un programa: siempre son una avería—,
 documentos de 6 tipos con estados variados, uno pendiente de archivar — su
-documento «otros» es el que retira `seed_erratas` — y **dos averías sin
-cerrar** (avería y neumáticos) más una incidencia de mantenimiento que el
-acordeón «Averías» del tablero de campo debe filtrar), `4567JKL` (sustitución),
+documento «otros» es el que retira `seed_erratas` — y **una incidencia abierta
+de cada tipo que el campo puede abrir** (avería, mantenimiento **puntual**,
+neumáticos y petición general: las cuatro cuentan en su tarjeta «Incidencias» y
+son las opciones de su **filtro por tipo**), y un **accidente
+abierto** con su **parte completo** (dirección, hora, teléfono y un tercero, de
+ejemplo) del que cuelgan sus fotos de daños: es lo que llena la tarjeta
+«Accidentes» del tablero de campo, que si no salía siempre a cero justo en el
+coche que sirve de escaparate), `4567JKL` (sustitución y **km ilimitados**: sin
+proyección, sin alerta de exceso y, desde X2, tampoco recordatorio de lectura —
+es el que no tiene cupo que vigilar, en propiedad y sin contrato de renting),
 `0000ZZZ` (baja, con `km_end` y acta de devolución).
 
 ⚠️ El seguro de `1234KLM` se fija en DOS sitios que deben coincidir: la ficha

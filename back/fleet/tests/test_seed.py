@@ -275,11 +275,28 @@ class SeedCoverageTests(APITestCase):
             Document.objects.filter(vehicle=v3, is_active=True).values("type").distinct().count(),
             5,
         )
-        for alert_type in (AlertType.ITV_DUE, AlertType.INSURANCE_DUE, AlertType.MAINTENANCE_DUE):
+        # Y lleva TODOS los tipos que un conductor puede ver, que es para lo que
+        # está: los cinco del catálogo menos el seguro (X1 lo saca de la app de
+        # campo, y por eso se siembra igual: distingue lo que ve gestión) y
+        # menos `no_driver`, que no cabe en un coche con conductor. Las dos de
+        # km exigen que NO tenga km ilimitados, así que ese escaparate (N3) vive
+        # en el Leaf: si alguien se lo devuelve al Tesla, esto se cae aquí y no
+        # en la app.
+        self.assertFalse(v3.unlimited_km, "7890NPQ con km ilimitados: pierde las alertas de km")
+        for alert_type in (
+            AlertType.ITV_DUE,
+            AlertType.INSURANCE_DUE,
+            AlertType.MAINTENANCE_DUE,
+            AlertType.KM_OVERAGE,
+            AlertType.KM_READING_PENDING,
+        ):
             self.assertTrue(
                 Alert.objects.filter(vehicle=v3, type=alert_type, status=AlertStatus.OPEN).exists(),
                 f"7890NPQ sin alerta abierta {alert_type}",
             )
+        # N3 sigue teniendo su escaparate, ahora en el coche de sustitución: es
+        # el que no tiene cupo que vigilar (en propiedad, sin contrato).
+        self.assertTrue(Vehicle.objects.get(plate="4567JKL").unlimited_km)
         # Averías sin cerrar (avería + neumáticos): alimentan el acordeón
         # «Averías» del tablero de la app de campo.
         self.assertTrue(
@@ -290,6 +307,41 @@ class SeedCoverageTests(APITestCase):
             )
             .exclude(status=IncidentStatus.CLOSED)
             .exists()
+        )
+        # Las TRES familias que el tablero de campo enseña en su tarjeta
+        # «Incidencias» (avería, neumáticos y petición general): es lo que hace
+        # que su filtro por tipo tenga algo que filtrar.
+        self.assertEqual(
+            set(
+                Incident.objects.filter(vehicle=v3, is_active=True)
+                .exclude(status=IncidentStatus.CLOSED)
+                .values_list("type", flat=True)
+            ),
+            {
+                IncidentType.BREAKDOWN,
+                IncidentType.TIRES,
+                IncidentType.GENERAL,
+                IncidentType.MAINTENANCE,
+                IncidentType.ACCIDENT,
+            },
+        )
+        # Y un ACCIDENTE abierto con su parte materializado: es lo que enseña
+        # la tarjeta «Accidentes» del tablero de campo (y la fila desplegable
+        # de la bandeja de gestión), que sin él salía siempre a cero.
+        accidente = (
+            Incident.objects.filter(vehicle=v3, type=IncidentType.ACCIDENT, is_active=True)
+            .exclude(status=IncidentStatus.CLOSED)
+            .first()
+        )
+        self.assertIsNotNone(accidente, "7890NPQ sin accidente abierto")
+        self.assertTrue(hasattr(accidente, "accident_report"))
+        self.assertTrue(accidente.accident_report.third_parties.exists())
+        # Y sus fotos de daños cuelgan de él: sueltas, la API no las aceptaría.
+        self.assertEqual(
+            Document.objects.get(
+                vehicle=v3, type=DocumentType.DAMAGE_PHOTOS, is_active=True
+            ).incident_id,
+            accidente.id,
         )
         # GAP-2: una anotación RECIENTE del consumo medio — la pintan el KPI de
         # la ficha y la columna de gestión, y es la pista del modal de campo.
@@ -311,14 +363,15 @@ class SeedCoverageTests(APITestCase):
             ),
             "las incidencias de neumáticos del escaparate deben traer `details` del parte",
         )
-        # Y de las dos de mantenimiento, una es crítica (km superados) y otra
-        # aviso (revisión anual a ~14 días).
-        niveles = set(
-            Alert.objects.filter(
-                vehicle=v3, type=AlertType.MAINTENANCE_DUE, status=AlertStatus.OPEN
-            ).values_list("level", flat=True)
+        # Su plan toca por las DOS vías (km superados y revisión anual a ~14
+        # días) y eso es UN aviso, no dos: los km delante —mandan ellos— y la
+        # fecha detrás, con el peor de los dos niveles.
+        mantenimiento = Alert.objects.get(
+            vehicle=v3, type=AlertType.MAINTENANCE_DUE, status=AlertStatus.OPEN
         )
-        self.assertEqual(niveles, {AlertLevel.WARNING, AlertLevel.CRITICAL})
+        self.assertEqual(mantenimiento.level, AlertLevel.CRITICAL)
+        self.assertIn("superado el objetivo", mantenimiento.message)
+        self.assertIn("y, por fecha, toca en", mantenimiento.message)
 
 
 class DevLoginTests(APITestCase):

@@ -12,6 +12,7 @@ from .models import (
     Contract,
     Country,
     Document,
+    DocumentDeletionRequest,
     EmailLog,
     EmailOutbox,
     EmailSignature,
@@ -289,7 +290,24 @@ class DocumentAdmin(admin.ModelAdmin):
     list_display = ("vehicle", "user", "type", "status", "expiry_date", "uploaded_by")
     list_filter = ("type", "status")
     search_fields = ("vehicle__plate", "user__username")
-    autocomplete_fields = ("vehicle", "user", "incident", "event", "uploaded_by", "replaces")
+    autocomplete_fields = (
+        "vehicle",
+        "user",
+        "incident",
+        "event",
+        "alert",
+        "uploaded_by",
+        "replaces",
+    )
+
+
+@admin.register(DocumentDeletionRequest)
+class DocumentDeletionRequestAdmin(admin.ModelAdmin):
+    list_display = ("document", "requested_by", "status", "resolved_by", "resolved_at")
+    list_filter = ("status",)
+    search_fields = ("document__vehicle__plate", "reason", "resolution_note")
+    autocomplete_fields = ("document", "requested_by", "resolved_by")
+    readonly_fields = ("created_at", "updated_at", "resolved_at")
 
 
 # --- Solicitudes de vehículo ----------------------------------------------

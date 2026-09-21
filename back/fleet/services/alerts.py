@@ -662,8 +662,19 @@ def check_maintenance(today: date | None = None) -> int:
     `last_done_km`). El ciclo por tiempo avisa `FLEET_MAINTENANCE_ALERT_DAYS`
     días antes y pasa a crítica al vencer; el por km avisa a
     `FLEET_MAINTENANCE_KM_MARGIN` km del objetivo y pasa a crítica al llegar.
-    La `dedup_key` incluye el objetivo (fecha o km): al registrar el trabajo y
-    actualizar el ancla, el siguiente ciclo genera SU aviso propio.
+
+    **Un plan, un aviso.** Un mantenimiento puede ir por fecha, por km o por
+    las dos, y cuando van las dos es el MISMO servicio: se dice en una sola
+    alerta, con **los km por delante** —es el criterio que manda: el coche se
+    revisa por lo que ha rodado, y la fecha es el tope de arriba— y la fecha
+    detrás. Antes salían dos avisos idénticos en la bandeja, uno crítico por km
+    y otro de aviso por fecha, y había que resolver los dos.
+
+    La `dedup_key` es el CICLO (plan + objetivo de fecha + objetivo de km), no
+    su gravedad: mientras el objetivo no se mueva se refresca el mismo aviso
+    —de «quedan 500 km» a «superado el objetivo» sin abrir otro—, y al
+    registrar el trabajo las anclas se mueven y el siguiente ciclo trae el
+    suyo.
     """
     today = _today(today)
     warn_days = settings.FLEET_MAINTENANCE_ALERT_DAYS
@@ -690,60 +701,147 @@ def check_maintenance(today: date | None = None) -> int:
     return created
 
 
+def plan_due_date(plan: MaintenancePlan) -> date | None:
+    """Cuándo toca este plan POR FECHA, o None si no lleva ciclo por tiempo."""
+    if plan.every_months and plan.last_done_date:
+        return add_months(plan.last_done_date, plan.every_months)
+    return None
+
+
+def plan_target_km(plan: MaintenancePlan) -> int | None:
+    """A qué odómetro toca este plan, o None si no lleva ciclo por km."""
+    if plan.every_km and plan.last_done_km is not None:
+        return plan.last_done_km + plan.every_km
+    return None
+
+
+def _plan_cycle_key(plan: MaintenancePlan) -> str:
+    """La clave del ciclo VIGENTE del plan: sus dos objetivos, sin gravedad.
+
+    Sale de las anclas, no de si hoy toca avisar: así el aviso escala (de
+    «quedan 500 km» a «superado el objetivo») dentro de la MISMA alerta, y solo
+    cambia de clave cuando el trabajo se registra y las anclas se mueven.
+    """
+    due = plan_due_date(plan)
+    target = plan_target_km(plan)
+    return (
+        f"maintenance:{plan.pk}:"
+        f"{due.isoformat() if due else '-'}:{target if target is not None else '-'}"
+    )
+
+
+def _close_superseded_plan_alerts(plan: MaintenancePlan, *, keep: str) -> None:
+    """Cierra lo que siga ABIERTO de este plan y ya no sea el aviso de ahora.
+
+    Un plan tiene un aviso. Lo que quede de un objetivo anterior —o de cuando
+    cada ciclo abría el suyo, que es lo que dejaba dos alertas del mismo
+    servicio en la bandeja— se cierra aquí diciendo por qué: nada más lo
+    cerraría, porque una alerta solo se cierra resolviéndola o registrando el
+    mantenimiento.
+    """
+    prefijo = f"maintenance:{plan.pk}:"
+    cache = _alert_cache.get()
+    if cache is not None:
+        abiertas = [
+            (key, alert)
+            for key, alert in cache.items()
+            if alert is not None and key != keep and key.startswith(prefijo)
+        ]
+    else:  # sin la precarga de `known_alerts` (uso suelto del chequeo)
+        abiertas = [
+            (alert.dedup_key, alert)
+            for alert in Alert.objects.filter(
+                vehicle_id=plan.vehicle_id,
+                type=AlertType.MAINTENANCE_DUE,
+                status=AlertStatus.OPEN,
+            )
+            if alert.dedup_key.startswith(prefijo) and alert.dedup_key != keep
+        ]
+    for key, alert in abiertas:
+        alert.close(
+            status=AlertStatus.RESOLVED,
+            note="Unificada en el aviso vigente del plan (mandan los km).",
+        )
+        if cache is not None:
+            cache[key] = None  # existe y ya no está abierta: no se reabre
+
+
+def _leg_by_date(plan: MaintenancePlan, today: date, warn_days: int):
+    """El tramo por FECHA: `(nivel, frase, vencimiento)` o None si no toca."""
+    due = plan_due_date(plan)
+    if due is None:
+        return None
+    days_left = (due - today).days
+    if days_left < 0:
+        return (
+            AlertLevel.CRITICAL,
+            f"vencido hace {-days_left} día(s) (tocaba el {due.isoformat()})",
+            due,
+        )
+    if days_left <= warn_days:
+        return AlertLevel.WARNING, f"toca en {days_left} día(s) (el {due.isoformat()})", due
+    return None
+
+
+def _leg_by_km(plan: MaintenancePlan, km_margin: int, latest_km: dict[int, int]):
+    """El tramo por KM: `(nivel, frase)` o None si no toca (o no hay lecturas)."""
+    target = plan_target_km(plan)
+    if target is None:
+        return None
+    current = latest_km.get(plan.vehicle_id)
+    if current is None:
+        return None  # sin lecturas no hay ciclo por km que vigilar
+    if current >= target:
+        return (
+            AlertLevel.CRITICAL,
+            f"superado el objetivo de {target} km (odómetro: {current} km)",
+        )
+    if current >= target - km_margin:
+        return AlertLevel.WARNING, f"quedan {target - current} km para el objetivo de {target} km"
+    return None
+
+
 def _check_plan(
     plan: MaintenancePlan, today: date, warn_days: int, km_margin: int, latest_km: dict[int, int]
 ) -> int:
-    """Los avisos de UN plan (por tiempo y/o por km). Devuelve cuántos creó."""
-    created = 0
-    if plan.every_months and plan.last_done_date:
-        due = add_months(plan.last_done_date, plan.every_months)
-        days_left = (due - today).days
-        if days_left < 0:
-            created += upsert_alert(
-                dedup_key=f"maintenance:{plan.pk}:{due.isoformat()}:overdue",
-                type=AlertType.MAINTENANCE_DUE,
-                level=AlertLevel.CRITICAL,
-                message=(
-                    f"{plan.name}: vencido hace {-days_left} día(s) (tocaba el {due.isoformat()})."
-                ),
-                vehicle=plan.vehicle,
-                due_date=due,
-            )
-        elif days_left <= warn_days:
-            created += upsert_alert(
-                dedup_key=f"maintenance:{plan.pk}:{due.isoformat()}:due",
-                type=AlertType.MAINTENANCE_DUE,
-                level=AlertLevel.WARNING,
-                message=f"{plan.name}: toca en {days_left} día(s) (el {due.isoformat()}).",
-                vehicle=plan.vehicle,
-                due_date=due,
-            )
-    if plan.every_km and plan.last_done_km is not None:
-        current = latest_km.get(plan.vehicle_id)
-        if current is None:
-            return created  # sin lecturas no hay ciclo por km que vigilar
-        target = plan.last_done_km + plan.every_km
-        if current >= target:
-            created += upsert_alert(
-                dedup_key=f"maintenance:{plan.pk}:{target}:km-overdue",
-                type=AlertType.MAINTENANCE_DUE,
-                level=AlertLevel.CRITICAL,
-                message=(
-                    f"{plan.name}: superado el objetivo de {target} km (odómetro: {current} km)."
-                ),
-                vehicle=plan.vehicle,
-            )
-        elif current >= target - km_margin:
-            created += upsert_alert(
-                dedup_key=f"maintenance:{plan.pk}:{target}:km-due",
-                type=AlertType.MAINTENANCE_DUE,
-                level=AlertLevel.WARNING,
-                message=(
-                    f"{plan.name}: quedan {target - current} km para el objetivo de {target} km."
-                ),
-                vehicle=plan.vehicle,
-            )
-    return created
+    """EL aviso de un plan, con sus dos ciclos dichos a la vez. 1 si lo creó.
+
+    Los km van **primero** porque son el criterio que manda; la fecha se suma
+    detrás («y, por fecha, …») para que se vea de una lectura que el servicio
+    es el mismo y que además se echa encima el tope de calendario. El nivel es
+    el peor de los dos: una fecha vencida es crítica aunque por km solo sea un
+    aviso.
+    """
+    dedup_key = _plan_cycle_key(plan)
+    _close_superseded_plan_alerts(plan, keep=dedup_key)
+
+    por_km = _leg_by_km(plan, km_margin, latest_km)
+    por_fecha = _leg_by_date(plan, today, warn_days)
+    if por_km is None and por_fecha is None:
+        return 0
+
+    partes: list[str] = []
+    niveles: list[str] = []
+    due_date: date | None = None
+    if por_km is not None:
+        nivel_km, frase_km = por_km
+        partes.append(frase_km)
+        niveles.append(nivel_km)
+    if por_fecha is not None:
+        nivel_fecha, frase_fecha, due_date = por_fecha
+        partes.append(frase_fecha if por_km is None else f"y, por fecha, {frase_fecha}")
+        niveles.append(nivel_fecha)
+
+    return int(
+        upsert_alert(
+            dedup_key=dedup_key,
+            type=AlertType.MAINTENANCE_DUE,
+            level=AlertLevel.CRITICAL if AlertLevel.CRITICAL in niveles else AlertLevel.WARNING,
+            message=f"{plan.name}: {' '.join(partes)}.",
+            vehicle=plan.vehicle,
+            due_date=due_date,
+        )
+    )
 
 
 def run_all(today: date | None = None) -> dict[str, object]:

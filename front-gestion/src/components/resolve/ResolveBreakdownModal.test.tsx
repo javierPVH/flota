@@ -32,12 +32,17 @@ const INCIDENT = {
   cost: null,
 } as unknown as Incident
 
-function renderModal(vehicleState: VehicleState, onDone = vi.fn()) {
+function renderModal(
+  vehicleState: VehicleState,
+  onDone = vi.fn(),
+  extra: { incident?: Incident; vehicleKm?: number | null } = {},
+) {
   render(
     <LanguageProvider>
       <ResolveBreakdownModal
-        incident={INCIDENT}
+        incident={extra.incident ?? INCIDENT}
         vehicleState={vehicleState}
+        vehicleKm={extra.vehicleKm ?? null}
         onClose={vi.fn()}
         onDone={onDone}
       />
@@ -106,6 +111,49 @@ describe('ResolveBreakdownModal (resolver avería)', () => {
       file,
     )
     expect(onDone.mock.calls[0][0]).toMatch(/no se pudo subir «factura.pdf»/)
+  })
+
+  it('petición general: fecha y observaciones, y el taller solo si se marca', async () => {
+    // Puede no ir del coche (documentación, tarjetas, dudas): pedir siempre km,
+    // coste, CP y factura invitaba a cerrarla con ceros.
+    const general = { ...INCIDENT, type: 'general', type_display: 'Petición general' } as Incident
+    const onDone = renderModal('active', vi.fn(), { incident: general })
+    await screen.findByLabelText('Observaciones')
+    expect(screen.queryByLabelText('Coste (€)')).toBeNull()
+    expect(screen.queryByLabelText('Km al recoger el vehículo')).toBeNull()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /Requirió pasar por el taller/ }))
+    await userEvent.type(await screen.findByLabelText('Coste (€)'), '30')
+    // Desmarcarlo lo BORRA: si no, un coste escondido viajaría igual.
+    await userEvent.click(screen.getByRole('checkbox', { name: /Requirió pasar por el taller/ }))
+    expect(screen.queryByLabelText('Coste (€)')).toBeNull()
+
+    await userEvent.type(screen.getByLabelText('Observaciones'), 'Tarjeta entregada')
+    await userEvent.click(screen.getByRole('button', { name: 'Resolver y cerrar' }))
+    await waitFor(() => expect(onDone).toHaveBeenCalled())
+    expect(mocks.resolveIncident).toHaveBeenCalledWith(4, {
+      resolution_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      observations: 'Tarjeta entregada',
+    })
+  })
+
+  it('«Km» se carga del propio coche: en el taller no ha rodado', async () => {
+    const onDone = renderModal('active', vi.fn(), { vehicleKm: 40120 })
+    await userEvent.click(await screen.findByRole('button', { name: /Cargar los del coche/ }))
+    expect(screen.getByLabelText('Km al recoger el vehículo')).toHaveValue(40120)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Resolver y cerrar' }))
+    await waitFor(() => expect(onDone).toHaveBeenCalled())
+    expect(mocks.resolveIncident).toHaveBeenCalledWith(4, {
+      resolution_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      km: 40120,
+    })
+  })
+
+  it('sin última lectura conocida no se ofrece cargarla', async () => {
+    renderModal('active')
+    await screen.findByLabelText('Coste (€)')
+    expect(screen.queryByRole('button', { name: /Cargar los del coche/ })).toBeNull()
   })
 
   it('el cierre no consulta el catálogo de talleres', async () => {

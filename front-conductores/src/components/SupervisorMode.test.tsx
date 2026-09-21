@@ -62,6 +62,10 @@ function renderShell() {
           <Routes>
             <Route element={<Layout />}>
               <Route index element={<HomePage />} />
+              {/* El perfil es una RUTA (el tercer tab lleva a ella) y lo que
+                  aquí se prueba es el shell: qué tab manda y qué nav sale. La
+                  pantalla tiene su propio test. */}
+              <Route path="perfil" element={<p>pantalla de perfil</p>} />
             </Route>
           </Routes>
         </Suspense>
@@ -103,7 +107,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
     await waitFor(() => expect(within(nav).getByRole('button', { name: 'Km' })).toBeEnabled())
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Inicio', 'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Avería', 'Accidente', 'Subir documento',
+      'Inicio', 'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Incidencia', 'Accidente', 'Subir documento',
     ])
     expect(within(nav).getByRole('link', { name: 'Inicio' })).toHaveAttribute('href', '/')
 
@@ -140,7 +144,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(within(nav).getByRole('link', { name: 'Alertas' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Proyección km' })).toHaveAttribute('href', '/grupo')
     expect(within(nav).queryByRole('button', { name: 'Km' })).not.toBeInTheDocument()
-    expect(within(nav).queryByRole('button', { name: 'Avería' })).not.toBeInTheDocument()
+    expect(within(nav).queryByRole('button', { name: 'Incidencia' })).not.toBeInTheDocument()
     expect(within(nav).queryByRole('link', { name: 'Incidencia' })).not.toBeInTheDocument()
 
     // Y de vuelta a Mi vehículo.
@@ -168,7 +172,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     await waitFor(() =>
       expect(screen.queryByRole('link', { name: 'Km' })).not.toBeInTheDocument(),
     )
-    expect(screen.queryByRole('button', { name: 'Avería' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Incidencia' })).not.toBeInTheDocument()
     expect(document.querySelectorAll('.bottom-tab.is-disabled').length).toBe(7)
   })
 
@@ -180,7 +184,46 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(localStorage.getItem('flota:vista')).toBe('flota')
   })
 
-  it('el conductor solo tiene Mi vehículo y las mismas siete acciones sin aviso', async () => {
+  // --- El tercer tab: «Mi perfil» ----------------------------------------
+  it('el tercer tab abre el perfil y deja el nav en Inicio + Subir documento', async () => {
+    renderShell()
+    await screen.findByText('7890NPQ')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Mi perfil' }))
+    expect(await screen.findByText('pantalla de perfil')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mi perfil' })).toHaveAttribute('aria-pressed', 'true')
+    // Los otros dos se apagan: el modo sigue puesto por debajo, pero lo que se
+    // está mirando es el perfil.
+    expect(screen.getByRole('button', { name: 'Mi vehículo' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+
+    // En el perfil no hay coche del que hablar: ni km, ni ITV, ni avería.
+    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
+    expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
+      'Inicio',
+      'Subir documento',
+    ])
+    expect(within(nav).getByRole('link', { name: 'Subir documento' })).toHaveAttribute(
+      'href',
+      '/documentos/nuevo',
+    )
+  })
+
+  it('elegir un modo desde el perfil SALE del perfil', async () => {
+    // Si no, el tab cambiaría y la pantalla se quedaría donde estaba.
+    renderShell()
+    await screen.findByText('7890NPQ')
+    await userEvent.click(screen.getByRole('button', { name: 'Mi perfil' }))
+    await screen.findByText('pantalla de perfil')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Flota' }))
+    expect(await screen.findByText('Flota a cargo')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Flota' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('el conductor tiene su coche y su perfil, pero no Flota', async () => {
     mocks.roles = ['driver']
     // El endpoint del conductor devuelve únicamente sus vehículos.
     mocks.listVehicles.mockResolvedValue({ count: 1, results: [OWN] })
@@ -191,10 +234,12 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     renderShell()
     expect(screen.queryByRole('button', { name: 'Flota' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Mi vehículo' })).toHaveAttribute('aria-pressed', 'true')
+    // El perfil sí es suyo: todo el mundo tiene datos y documentación.
+    expect(screen.getByRole('button', { name: 'Mi perfil' })).toBeInTheDocument()
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
     await waitFor(() => expect(within(nav).getByRole('button', { name: 'Km' })).toBeEnabled())
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Inicio', 'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Avería', 'Accidente', 'Subir documento',
+      'Inicio', 'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Incidencia', 'Accidente', 'Subir documento',
     ])
     await userEvent.click(within(nav).getByRole('button', { name: 'Km' }))
     expect(screen.getByRole('dialog', { name: 'Registrar km · 7890NPQ' })).toBeInTheDocument()

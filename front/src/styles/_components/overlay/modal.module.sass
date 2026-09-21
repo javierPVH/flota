@@ -40,6 +40,12 @@
   font-weight: 800
   color: app.$ink-app
 
+.headActions
+  display: flex
+  align-items: center
+  gap: 0.35rem
+  flex: none
+
 .close
   display: grid
   place-items: center
@@ -71,6 +77,24 @@
   padding: 0.85rem 1.25rem
   border-top: 1px solid app.$border-app
   background: app.$surface-app
+
+// ── Teléfono estrecho ──
+// En una pantalla de 320px, el marco (1,25rem fuera + 1,25rem dentro, a los
+// dos lados) se lleva 80px de los 320: una cuarta parte del ancho para aire.
+// Se recorta, que es donde hace falta el sitio; de 560px para arriba no cambia
+// nada.
+@media (max-width: 420px)
+  .overlay
+    padding: 0.6rem
+
+  .head
+    padding: 0.7rem 0.85rem
+
+  .body
+    padding: 0.9rem 0.85rem
+
+  .footer
+    padding: 0.7rem 0.85rem
 
 // ── Selector de tipo de columna (rejilla compacta con hover) ──
 .typeGrid

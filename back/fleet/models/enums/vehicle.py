@@ -30,7 +30,10 @@ class VehicleState(models.TextChoices):
     ITV = "itv", "No activo - ITV"
     BROKEN = "broken", "No activo - Averiado"
     ACCIDENT = "accidente", "No activo - Accidentado"
-    NON_ACTIVE = "non_active", "No activo"
+    # «Sin justificación»: parado sin una causa con estado propio. El nombre
+    # lo pide el filtro de campo, donde «No activos» es el corte que los
+    # agrupa a TODOS y hacía falta distinguir este de aquel.
+    NON_ACTIVE = "non_active", "No activo sin justificación"
     BAJA = "retired", "Devuelto (baja)"
 
 

@@ -13,6 +13,12 @@ google-auth>=2.35,<3.0
 google-api-python-client>=2.140,<3.0
 google-auth-oauthlib>=1.2,<2.0
 google-auth-httplib2>=0.2,<1.0
+# SSO por SAML contra Google Workspace (PWA de conductores, SAML_ENABLED).
+# Necesita el binario `xmlsec1` (lo instala el Dockerfile). Solo se carga con
+# SAML_ENABLED=True; el resto del tiempo la app no lo importa.
+djangosaml2>=1.9,<2.0
+# Transitiva de djangosaml2: mínimo parcheado (validación XML/firma SAML).
+pysaml2>=7.5.0,<8.0
 # Cifrado en reposo de los tokens OAuth (accounts.fields.EncryptedTextField).
 cryptography>=43,<47
 # Auditoría de campos (quién cambió qué y cuándo) — ver MEJORAS.md §3.

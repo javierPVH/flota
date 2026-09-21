@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   listMaintenancePlans: vi.fn(),
   markMaintenanceDone: vi.fn(),
   resolveAlert: vi.fn(),
+  listDriverCandidates: vi.fn(),
+  proposeDriverChange: vi.fn(),
   roles: ['driver'] as Role[],
 }))
 
@@ -27,6 +29,8 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listMaintenancePlans: mocks.listMaintenancePlans,
   markMaintenanceDone: mocks.markMaintenanceDone,
   resolveAlert: mocks.resolveAlert,
+  listDriverCandidates: mocks.listDriverCandidates,
+  proposeDriverChange: mocks.proposeDriverChange,
 }))
 
 vi.mock('../auth.ts', async (importOriginal) => ({
@@ -66,6 +70,14 @@ const ITV_ALERT = {
   type_display: 'ITV próxima',
   message: 'La ITV vence el 2026-09-01.',
 }
+// Km contratados: la única alerta que se arregla cambiando quién lo lleva.
+const OVERAGE_ALERT = {
+  ...KM_ALERT,
+  id: 4,
+  type: 'km_overage',
+  type_display: 'Exceso de km proyectado',
+  message: 'Proyección 83767 km supera los 60000 km contratados (140%).',
+}
 const OTHER_CAR_ALERT = {
   ...KM_ALERT,
   id: 3,
@@ -102,6 +114,10 @@ describe('AlertsPage (M5)', () => {
     ])
     mocks.registerItv.mockResolvedValue({})
     mocks.listMaintenancePlans.mockResolvedValue({ count: 0, results: [] })
+    mocks.listDriverCandidates.mockResolvedValue([
+      { id: 5, name: 'Carlos C', email: 'c@x.es', plate: '1111AAA', source: 'app' },
+    ])
+    mocks.proposeDriverChange.mockResolvedValue({ id: 99 })
   })
 
   it('agrupa por coche en acordeones plegados con el desglose por tipo', async () => {
@@ -254,7 +270,9 @@ describe('AlertsPage (M5)', () => {
       .closest('.alert-card') as HTMLElement
     await userEvent.click(within(itvCard).getByRole('button', { name: 'Resolver' }))
     const itvDialog = screen.getByRole('dialog', { name: 'Registrar ITV · 7890NPQ' })
-    fireEvent.change(within(itvDialog).getByLabelText('Próxima ITV (opcional)'), {
+    // La fecha de la inspección ya no viene puesta: se pone con su atajo.
+    await userEvent.click(within(itvDialog).getByRole('button', { name: 'Hoy' }))
+    fireEvent.change(within(itvDialog).getByLabelText('Próxima ITV'), {
       target: { value: '2027-09-01' },
     })
     await userEvent.click(within(itvDialog).getByRole('button', { name: 'Registrar ITV' }))
@@ -313,10 +331,49 @@ describe('AlertsPage (M5)', () => {
     const dialog = screen.getByRole('dialog', { name: 'Actualizar mantenimiento · 7890NPQ' })
     expect(within(dialog).queryByRole('tab')).not.toBeInTheDocument()
     expect(await within(dialog).findByText('Revisión anual')).toBeInTheDocument()
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Realizado en:' }))
-    const dateDialog = screen.getByRole('dialog', { name: 'Realizar mantenimiento · Revisión anual' })
-    await userEvent.click(within(dateDialog).getByRole('button', { name: 'Aceptar fecha' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Marcar como realizado' }))
+    const dateDialog = screen.getByRole('dialog', { name: '¿Cuándo se hizo? · Revisión anual' })
+    await userEvent.click(within(dateDialog).getByRole('button', { name: 'Marcar como realizado' }))
     expect(mocks.markMaintenanceDone).toHaveBeenCalledWith(9, { date: expect.any(String) })
+  })
+
+  it('en km contratados se puede proponer otro conductor, y eso NO resuelve la alerta', async () => {
+    // El exceso de km no se arregla con una observación: se arregla si lo
+    // lleva quien rueda menos, y eso lo decide administración.
+    mocks.roles = ['driver', 'supervisor']
+    mocks.listAlerts.mockResolvedValue({ count: 1, results: [OVERAGE_ALERT] })
+    renderPage()
+    await userEvent.click(await screen.findByText('7890NPQ'))
+    await userEvent.click(screen.getByText('Exceso de km proyectado ×1'))
+    const card = screen
+      .getByText(/Proyección 83767 km/)
+      .closest('.alert-card') as HTMLElement
+    await userEvent.click(within(card).getByRole('button', { name: 'Resolver' }))
+
+    const dialog = screen.getByRole('dialog', { name: /Resolver alerta/ })
+    // Los candidatos son gente de su flota, con el coche que llevan.
+    const selector = await within(dialog).findByRole('combobox', {
+      name: /A quién propones/,
+    })
+    await userEvent.selectOptions(selector, '5')
+    // Una sola caja de texto: la de notas hace también de observaciones —dos
+    // obligaban a elegir en cuál escribir lo mismo—.
+    expect(within(dialog).queryByText(/Observaciones/)).not.toBeInTheDocument()
+    await userEvent.type(
+      within(dialog).getByLabelText(/Nota \(queda en la propuesta/),
+      'Hace menos ruta.',
+    )
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Enviar propuesta' }))
+
+    expect(mocks.proposeDriverChange).toHaveBeenCalledWith({
+      vehicle: 7,
+      alert: 4,
+      proposed_driver: 5,
+      note: 'Hace menos ruta.',
+    })
+    // Nada ha cambiado todavía: la alerta sigue abierta hasta que se decida.
+    expect(mocks.resolveAlert).not.toHaveBeenCalled()
+    expect(await within(dialog).findByText(/Propuesta enviada/)).toBeInTheDocument()
   })
 
   it('sin alertas abiertas, estado vacío amable', async () => {

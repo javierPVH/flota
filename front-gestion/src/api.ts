@@ -950,6 +950,11 @@ export interface VehicleRequestRow {
   start_date: string | null
   end_date: string | null
   jira_key: string
+  /** Petición de campo de la que nació: qué coche hay que CUBRIR y por qué
+   * (`vehicle` es el que se concede, y hasta entonces va vacío). */
+  incident: number | null
+  incident_plate: string
+  incident_type_display: string
   status: 'pending' | 'approved' | 'rejected' | 'assigned'
   status_display: string
   notes: string
@@ -965,6 +970,100 @@ export const grantVehicleRequest = (id: number, vehicle: number) =>
 
 export const rejectVehicleRequest = (id: number) =>
   postJson<VehicleRequestRow>(`${API}/vehicle-requests/${id}/reject/`, {})
+
+// --- Peticiones de borrado de documentos (las abre el campo) ----------------
+
+/** Lo que pide quien lee un documento en la app de conductores: que se borre.
+ * No borra nada — el documento sigue donde estaba, marcado, hasta que esta
+ * bandeja lo decide. */
+export interface DocumentDeletionRequestRow {
+  id: number
+  document: number
+  /** De qué documento habla la fila, sin tener que abrirlo. */
+  document_type_display: string
+  document_created_at: string | null
+  vehicle: number | null
+  vehicle_plate: string
+  /** Titular del documento: la matrícula del coche o el nombre de la persona. */
+  owner_name: string
+  requested_by: number | null
+  requested_by_name: string
+  reason: string
+  status: 'pending' | 'deleted' | 'hidden' | 'rejected'
+  status_display: string
+  resolved_by_name: string
+  resolved_at: string | null
+  resolution_note: string
+  created_at: string
+}
+
+/** Las tres salidas del modal de gestión (las mismas del back). */
+export type DeletionDecision = 'delete' | 'hide' | 'reject'
+
+export const listDocumentDeletionRequests = (filters: { status?: string } = {}) =>
+  getJson<Paginated<DocumentDeletionRequestRow>>(
+    `${API}/document-deletion-requests/${listQs({ ...filters })}`,
+  )
+
+/**
+ * Decide la petición: `delete` manda el documento a erratas (N7), `hide` lo
+ * deja en la flota pero protegido y a nombre de quien decide, y `reject` no
+ * toca el documento. Las tres la sacan de pendiente.
+ */
+export const resolveDocumentDeletionRequest = (
+  id: number,
+  decision: DeletionDecision,
+  note = '',
+) =>
+  postJson<DocumentDeletionRequestRow>(
+    `${API}/document-deletion-requests/${id}/resolve/`,
+    { decision, note },
+  )
+
+/** Lo que propone quien supervisa al resolver la alerta de km contratados:
+ * que el coche lo lleve otra persona. No cambia nada — el conductor se cambia
+ * en «Cambiar conductor», que es el gesto de siempre; esta fila es la petición
+ * y su decisión. */
+export interface DriverChangeRequestRow {
+  id: number
+  vehicle: number
+  vehicle_plate: string
+  alert: number | null
+  /** El porqué, tal como lo dice la alerta de origen. */
+  alert_message: string
+  requested_by: number | null
+  requested_by_name: string
+  proposed_driver: number | null
+  proposed_name: string
+  proposed_email: string
+  /** A quién se propone, venga de la app o escrito a mano. Vacío = solo nota. */
+  proposed_display: string
+  note: string
+  status: 'pending' | 'done' | 'rejected'
+  status_display: string
+  resolved_by_name: string
+  resolved_at: string | null
+  resolution_note: string
+  created_at: string
+}
+
+/** Las dos salidas: atenderla o rechazarla. Ninguna mueve la asignación. */
+export type DriverChangeDecision = 'done' | 'reject'
+
+export const listDriverChangeRequests = (filters: { status?: string } = {}) =>
+  getJson<Paginated<DriverChangeRequestRow>>(
+    `${API}/driver-change-requests/${listQs({ ...filters })}`,
+  )
+
+export const resolveDriverChangeRequest = (
+  id: number,
+  decision: DriverChangeDecision,
+  note = '',
+) =>
+  postJson<DriverChangeRequestRow>(`${API}/driver-change-requests/${id}/resolve/`, {
+    decision,
+    note,
+  })
 
 // --- G10: facturas y refacturación (Épica 7) --------------------------------
 
@@ -1052,10 +1151,17 @@ export interface DocumentInput {
   drive_file_id?: string
   expiry_date?: string | null
   incident?: number | null
-  /** Registro (evento) al que acompaña; excluyente con `incident`. */
+  /** Registro (evento) al que acompaña; excluyente con `incident` y `alert`. */
   event?: number | null
+  /** Alerta abierta a la que acompaña (informe de una ITV programada). */
+  alert?: number | null
   replaces?: number | null
   notes?: string
+  /** Confidencialidad: el back solo los acepta de gestión (en la PWA son de
+   * solo lectura y se ignoran). `responsible` vacío = que lo ponga el alta. */
+  responsible?: number | null
+  shared_read?: boolean
+  protected?: boolean
 }
 
 export const createDocument = (data: DocumentInput) =>

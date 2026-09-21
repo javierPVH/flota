@@ -7,10 +7,12 @@ aquí, dentro de `models/`, y se reexportan para poder importar cualquiera con
 
 from .alert import AlertLevel, AlertStatus, AlertType
 from .document import (
+    ALERT_LINKABLE_DOCUMENT_TYPES,
     EVENT_LINKABLE_DOCUMENT_TYPES,
     EXPIRING_DOCUMENT_TYPES,
     INCIDENT_BOUND_DOCUMENT_TYPES,
     LINK_REQUIRED_DOCUMENT_TYPES,
+    DocumentDeletionStatus,
     DocumentStatus,
     DocumentType,
 )
@@ -24,7 +26,7 @@ from .incident import (
 )
 from .invoice import AllocationTarget
 from .operations import AssignmentStatus, LinkReason
-from .request import VehicleRequestStatus
+from .request import DriverChangeStatus, VehicleRequestStatus
 from .vehicle import (
     MarketSegment,
     PropertyType,
@@ -50,6 +52,8 @@ __all__ = [
     "AllocationTarget",
     "DocumentType",
     "DocumentStatus",
+    "DocumentDeletionStatus",
+    "ALERT_LINKABLE_DOCUMENT_TYPES",
     "EVENT_LINKABLE_DOCUMENT_TYPES",
     "EXPIRING_DOCUMENT_TYPES",
     "INCIDENT_BOUND_DOCUMENT_TYPES",
@@ -63,4 +67,5 @@ __all__ = [
     "AlertLevel",
     "AlertStatus",
     "VehicleRequestStatus",
+    "DriverChangeStatus",
 ]

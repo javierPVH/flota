@@ -30,6 +30,11 @@ function summary(id: number, over: Partial<VehicleSummary> = {}): VehicleSummary
     // Lectura de un mes viejo → cuenta como pendiente (HU-3.2).
     km_reading_date: '2020-01-02',
     next_itv_date: null,
+    next_maintenance_date: null,
+    // GAP-2: anotado HOY salvo que el caso diga otra cosa — sin fecha, el
+    // combustible avisa en rojo («sin ninguna anotación») y ensuciaría todos
+    // los demás casos.
+    fuel_avg_date: todayIso(),
     unlimited_km: false,
     blocked_by_link: null,
     ...over,
@@ -118,18 +123,21 @@ describe('FieldDeadlines — acordeón de avisos (C2)', () => {
 
   // --- Km ---------------------------------------------------------------
   it('ventana abierta y lectura pendiente: cuenta los días que quedan', async () => {
-    renderDeadlines([vehicle(1, '1234KLM')], { 1: summary(1) }, windowOpen(3))
-    expect(screen.getByText('Registrar kilómetros')).toBeInTheDocument()
+    // Con la lectura pendiente desde 2020 el aviso nace ROJO y, por tanto,
+    // desplegado: el plazo se comprueba con una lectura reciente del mes
+    // anterior… que no se puede fabricar sin saber qué día es hoy. Así que se
+    // mira el detalle entero, que es una línea con dos trozos.
+    const { container } = renderDeadlines([vehicle(1, '1234KLM')], { 1: summary(1) }, windowOpen(3))
+    expect(screen.getByText('Kilómetros de 1234KLM')).toBeInTheDocument()
     expect(screen.getByText('quedan 3 días')).toBeInTheDocument()
-    expect(screen.getByText('hasta el día 23')).toBeInTheDocument()
+    expect(container.querySelector('.deadline-detail')?.textContent).toContain('hasta el día 23')
 
-    // Plegado, el panel está `hidden`: el enlace NO cuenta como accesible
-    // (es justo lo que queremos — no se navega a lo que no se ve).
+    await userEvent.click(screen.getByRole('button')) // plegar
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button'))
-    expect(screen.getByRole('link', { name: /Registrar kilómetros/ })).toHaveAttribute(
+    await userEvent.click(screen.getByRole('button')) // y desplegar
+    expect(screen.getByRole('link', { name: /Kilómetros de 1234KLM/ })).toHaveAttribute(
       'href',
-      '/registrar',
+      '/registrar?vehiculo=1',
     )
   })
 
@@ -139,19 +147,46 @@ describe('FieldDeadlines — acordeón de avisos (C2)', () => {
     expect(container.querySelector('.deadline-danger')).not.toBeNull()
   })
 
-  it('ventana cerrada pero a punto de abrir: avisa de cuándo se abre', () => {
-    const { container } = renderDeadlines(
-      [vehicle(1, '1234KLM')],
-      { 1: summary(1) },
-      windowClosed(2),
+  it('antes de la ventana lo dice como CONSEJO, no como puerta cerrada', () => {
+    // Es lo que se lee a principios de mes: la lectura todavía no toca, así que
+    // el aviso recomienda cuándo darla en vez de contar para cuándo «se abre».
+    const { container } = renderDeadlines([vehicle(1, '1234KLM')], { 1: summary(1) }, windowClosed(2))
+    expect(screen.getByText('recomendable del 20 a fin de mes')).toBeInTheDocument()
+    expect(container.querySelector('.deadline-detail')?.textContent).toContain(
+      'el mes acaba en 13 días', // día 18 de un mes de 31
     )
-    expect(screen.getByText('se abre en 2 días (día 20)')).toBeInTheDocument()
-    expect(container.querySelector('.deadline-info')).not.toBeNull()
   })
 
-  it('ventana cerrada y aún lejos: ningún aviso de km', () => {
+  it('con la ventana lejos el aviso SALE igual: la lectura sigue faltando', () => {
+    // Antes callaba hasta 3 días antes de abrir, así que del 1 al 17 no había
+    // aviso aunque el odómetro llevara meses sin leerse.
     renderDeadlines([vehicle(1, '1234KLM')], { 1: summary(1) }, windowClosed(9))
-    expect(screen.queryByText('Registrar kilómetros')).not.toBeInTheDocument()
+    expect(screen.getByText('Kilómetros de 1234KLM')).toBeInTheDocument()
+    expect(screen.getByText('recomendable del 20 a fin de mes')).toBeInTheDocument()
+  })
+
+  it('la lectura vieja manda sobre el plazo: en rojo aunque la ventana no haya abierto', () => {
+    const { container } = renderDeadlines(
+      [vehicle(1, '1234KLM')],
+      { 1: summary(1, { km_reading_date: isoIn(-40) }) },
+      windowClosed(9),
+    )
+    expect(screen.getByText('última hace 40 días')).toHaveClass('itv-overdue')
+    expect(container.querySelector('.deadline-danger')).not.toBeNull()
+  })
+
+  it('sin ninguna lectura, también en rojo', () => {
+    renderDeadlines(
+      [vehicle(1, '1234KLM')],
+      { 1: summary(1, { km_reading_date: null }) },
+      windowClosed(9),
+    )
+    expect(screen.getByText('sin ninguna lectura')).toHaveClass('itv-overdue')
+  })
+
+  it('sin ventana (N8a apagada) dice el mes que falta, sin plazo', () => {
+    renderDeadlines([vehicle(1, '1234KLM')], { 1: summary(1) }, null)
+    expect(screen.getByText(/falta la lectura de/)).toBeInTheDocument()
   })
 
   it('km ILIMITADOS: nunca se le piden lecturas (X2)', () => {
@@ -160,7 +195,7 @@ describe('FieldDeadlines — acordeón de avisos (C2)', () => {
       { 1: summary(1, { unlimited_km: true }) },
       windowOpen(1),
     )
-    expect(screen.queryByText('Registrar kilómetros')).not.toBeInTheDocument()
+    expect(screen.queryByText('Kilómetros de 1234KLM')).not.toBeInTheDocument()
     expect(container).toBeEmptyDOMElement()
   })
 
@@ -174,7 +209,80 @@ describe('FieldDeadlines — acordeón de avisos (C2)', () => {
       },
       windowOpen(2),
     )
-    expect(screen.queryByText('Registrar kilómetros')).not.toBeInTheDocument()
+    expect(screen.queryByText('Kilómetros de 1234KLM')).not.toBeInTheDocument()
+  })
+
+  // --- Combustible (GAP-2) ----------------------------------------------
+  it('el combustible avisa por ANTIGÜEDAD: ámbar a los 15 días, rojo pasados 30', () => {
+    const ambar = renderDeadlines(
+      [vehicle(1, '1234KLM')],
+      { 1: summary(1, { ...upToDate, fuel_avg_date: isoIn(-20) }) },
+      null,
+    )
+    expect(screen.getByText('sin anotar desde hace 20 días')).toBeInTheDocument()
+    expect(ambar.container.querySelector('.deadline-warning')).not.toBeNull()
+    ambar.unmount()
+
+    const rojo = renderDeadlines(
+      [vehicle(1, '1234KLM')],
+      { 1: summary(1, { ...upToDate, fuel_avg_date: isoIn(-40) }) },
+      null,
+    )
+    expect(rojo.container.querySelector('.deadline-danger')).not.toBeNull()
+  })
+
+  it('anotado hace poco: del combustible no se dice nada', () => {
+    const { container } = renderDeadlines(
+      [vehicle(1, '1234KLM')],
+      { 1: summary(1, { ...upToDate, fuel_avg_date: isoIn(-3) }) },
+      null,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('sin ninguna anotación es rojo, y el aviso dice que se anota por viaje', () => {
+    renderDeadlines(
+      [vehicle(1, '1234KLM')],
+      { 1: summary(1, { ...upToDate, fuel_avg_date: null }) },
+      null,
+    )
+    expect(screen.getByText('sin ninguna anotación')).toBeInTheDocument()
+    expect(screen.getByText(/se anota en cada viaje/)).toBeInTheDocument()
+    // Rojo → el acordeón nace abierto. Su modal no tiene página propia, así que
+    // el enlace lo abre desde la ficha con el query que ella entiende.
+    expect(screen.getByRole('link', { name: /Combustible de 1234KLM/ })).toHaveAttribute(
+      'href',
+      '/vehiculos/1?registrar=combustible',
+    )
+  })
+
+  // --- Mantenimiento programado (GAP-8) ----------------------------------
+  it('el mantenimiento sale a ≤30 días y no antes', () => {
+    const lejos = renderDeadlines(
+      [vehicle(1, '1234KLM')],
+      { 1: summary(1, { ...upToDate, next_maintenance_date: isoIn(40) }) },
+      null,
+    )
+    expect(screen.queryByText(/Mantenimiento de/)).not.toBeInTheDocument()
+    lejos.unmount()
+
+    renderDeadlines(
+      [vehicle(1, '1234KLM')],
+      { 1: summary(1, { ...upToDate, next_maintenance_date: isoIn(10) }) },
+      null,
+    )
+    expect(screen.getByText('Mantenimiento de 1234KLM')).toBeInTheDocument()
+    expect(screen.getByText('en 10 días')).toBeInTheDocument()
+  })
+
+  it('el mantenimiento vencido se cuenta hacia atrás y en rojo', () => {
+    const { container } = renderDeadlines(
+      [vehicle(1, '1234KLM')],
+      { 1: summary(1, { ...upToDate, next_maintenance_date: isoIn(-15) }) },
+      null,
+    )
+    expect(screen.getByText('venció hace 15 días')).toBeInTheDocument()
+    expect(container.querySelector('.deadline-danger')).not.toBeNull()
   })
 
   // --- ITV --------------------------------------------------------------
@@ -218,5 +326,17 @@ describe('FieldDeadlines — acordeón de avisos (C2)', () => {
     )
     const labels = [...container.querySelectorAll('.deadline-label')].map((el) => el.textContent)
     expect(labels).toEqual(['ITV de 5678BCD', 'ITV de 1234KLM'])
+  })
+
+  it('manda la GRAVEDAD: lo rojo va arriba aunque no tenga plazo', () => {
+    // El combustible no cuenta días hasta nada, así que ordenar solo por plazo
+    // lo dejaba debajo de una ITV a 20 días que corre menos prisa.
+    const { container } = renderDeadlines(
+      [vehicle(1, '1234KLM', isoIn(20))],
+      { 1: summary(1, { ...upToDate, fuel_avg_date: isoIn(-40) }) },
+      null,
+    )
+    const labels = [...container.querySelectorAll('.deadline-label')].map((el) => el.textContent)
+    expect(labels).toEqual(['Combustible de 1234KLM', 'ITV de 1234KLM'])
   })
 })

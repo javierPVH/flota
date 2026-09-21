@@ -1,4 +1,5 @@
-import { todayIso } from '@flota/ui/domain'
+import { tireReportSummary as resumenNeumaticos, todayIso } from '@flota/ui/domain'
+import type { TireReportCopy } from '@flota/ui/domain'
 import type { AppLanguage } from '@flota/ui/i18n'
 import type { Incident, VehicleSummary } from './types'
 
@@ -50,68 +51,37 @@ export function pendingThisMonth(summary: VehicleSummary): boolean {
   return !summary.km_reading_date || !summary.km_reading_date.startsWith(month)
 }
 
-/** ¿Es una AVERÍA sin cerrar? Tipos relacionados con averías: parte de avería,
- * general, neumáticos y accidente — mantenimiento e ITV van por su vía. Es el
- * filtro del acordeón «Averías» del tablero y de la sección de averías del
- * modal de Actualizar mantenimiento: misma lista en los dos sitios. */
-const BREAKDOWN_INCIDENT_TYPES = ['breakdown', 'general', 'tires', 'accident']
-export function isOpenBreakdown(incident: Incident): boolean {
-  return incident.status !== 'closed' && BREAKDOWN_INCIDENT_TYPES.includes(incident.type)
+/** ¿Es una INCIDENCIA sin cerrar de las que se comunican desde el coche?
+ *
+ * Los cuatro tipos que la app deja abrir (`INCIDENT_TYPES`: avería,
+ * mantenimiento PUNTUAL, neumáticos y petición general) más el accidente, que
+ * se comunica por su parte guiado. Es el filtro de las tarjetas «Incidencias»
+ * y «Accidentes» del tablero y de la ficha de campo.
+ *
+ * El **mantenimiento puntual** entra aquí: se abre desde esta misma app, así
+ * que esconderlo después dejaba una petición que se podía crear y no se podía
+ * ver (ni resolver) en ningún sitio de campo. Lo que sigue fuera es el
+ * mantenimiento **programado**, que es una ALERTA y va por su tarjeta, y la
+ * ITV, que también lo es; y el registro de un mantenimiento hecho tampoco
+ * asoma, porque nace CERRADO.
+ */
+const FIELD_INCIDENT_TYPES = ['breakdown', 'maintenance', 'general', 'tires', 'accident']
+export function isOpenFieldIncident(incident: Incident): boolean {
+  return incident.status !== 'closed' && FIELD_INCIDENT_TYPES.includes(incident.type)
 }
 
 /** Etiquetas del parte de neumáticos — las de `t.newIncident` valen tal cual. */
-export interface TireReportCopy {
-  wear: string
-  puncture: string
-  front: string
-  rear: string
-  allWheels: string
-  frontLeft: string
-  frontRight: string
-  rearLeft: string
-  rearRight: string
-}
-
-const WHEEL_KEYS = {
-  front_left: 'frontLeft',
-  front_right: 'frontRight',
-  rear_left: 'rearLeft',
-  rear_right: 'rearRight',
-} as const
-const SCOPE_KEYS = { front: 'front', rear: 'rear', all: 'allWheels' } as const
+export type { TireReportCopy }
 
 /**
- * Resumen del parte guiado de neumáticos: **motivo del cambio y qué
- * neumático** («Desgaste · Delanteras · 205/55 R16», «Pinchazo · Delantera
- * izquierda · 205/55 R16»).
+ * Resumen del parte guiado de neumáticos de UNA incidencia («Desgaste ·
+ * Delanteras · 205/55 R16»).
  *
- * Las listas de averías enseñaban solo la observación, que en este parte es un
- * comentario OPCIONAL: una incidencia de neumáticos salía sin un dato útil
- * aunque el parte estuviera completo. Cadena vacía si no es de neumáticos o si
- * el parte no trae detalles (los de antes de `report_version: 1`).
+ * La lógica vive en `@flota/ui/domain` desde que gestión la enseña también en
+ * sus dos bandejas: aquí solo se le pasan el tipo y los detalles.
  */
 export function tireReportSummary(incident: Incident, copy: TireReportCopy): string {
-  if (incident.type !== 'tires') return ''
-  const details = incident.details ?? {}
-  const text = (key: string) =>
-    typeof details[key] === 'string' ? (details[key] as string).trim() : ''
-  const parts: string[] = []
-  const reason = text('change_reason')
-  if (reason === 'wear') {
-    parts.push(copy.wear)
-    const scope = SCOPE_KEYS[text('wheel_scope') as keyof typeof SCOPE_KEYS]
-    if (scope) parts.push(copy[scope])
-    // Con las 4 ruedas a la misma medida, repetirla no aporta nada.
-    const measures = [...new Set([text('front_measure'), text('rear_measure')].filter(Boolean))]
-    if (measures.length > 0) parts.push(measures.join(' / '))
-  } else if (reason === 'puncture') {
-    parts.push(copy.puncture)
-    const wheel = WHEEL_KEYS[text('wheel') as keyof typeof WHEEL_KEYS]
-    if (wheel) parts.push(copy[wheel])
-    const measure = text('tire_measure')
-    if (measure) parts.push(measure)
-  }
-  return parts.join(' · ')
+  return resumenNeumaticos(incident.type, incident.details, copy)
 }
 
 /** Horizonte de «cita próxima», en días: por encima no hay nada que hacer aún.
@@ -137,6 +107,22 @@ export function daysUntil(
   const origin = Date.parse(`${from.slice(0, 10)}T00:00:00`)
   if (Number.isNaN(target) || Number.isNaN(origin)) return null
   return Math.round((target - origin) / 86_400_000)
+}
+
+/** Días transcurridos desde una fecha pasada (0 si es hoy o futura), o `null`
+ * si no hay fecha — que NO es lo mismo que cero: «nunca» es su propio caso y
+ * el semáforo lo pinta en rojo. Cuenta en local, como `daysUntil`. */
+export function daysSince(dateStr: string | null | undefined): number | null {
+  const days = daysUntil(dateStr)
+  return days === null ? null : Math.max(0, -days)
+}
+
+/** Nombre largo del mes de una fecha («septiembre», «September»): lo pide el
+ * aviso de la lectura pendiente, que se refiere al mes y no a un día. */
+export function fmtMonth(value: string, lang: AppLanguage = 'es'): string {
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString(LOCALE[lang], { month: 'long' })
 }
 
 /** ¿La actuación programada ya puede registrarse?

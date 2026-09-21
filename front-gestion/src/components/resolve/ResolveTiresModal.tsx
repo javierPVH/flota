@@ -8,11 +8,18 @@ import { useResolveCopy } from '../../translations/resolve.ts'
 import type { Incident } from '../../types.ts'
 import { uploadProof } from './proof.ts'
 import { ResolutionCommonFields } from './ResolutionCommonFields.tsx'
-import { prefillPositions, prefillSize, TIRE_POSITIONS, type TirePosition } from './tires.ts'
+import {
+  prefillPositions,
+  prefillSize,
+  TIRE_POSITIONS,
+  type TirePosition,
+} from '@flota/ui/domain'
 import { useResolutionCommon } from './useResolutionCommon.ts'
 
 interface Props {
   incident: Incident
+  /** Última lectura del coche: la que carga el botón de «Km». */
+  vehicleKm?: number | null
   onClose: () => void
   /** Cerrada: texto para el aviso verde del padre (que recarga sus datos). */
   onDone: (notice: string) => void
@@ -24,12 +31,13 @@ interface Props {
  * cantidad y posiciones, prellenados desde el parte). Sin casilla de vuelta a
  * Activo: cambiar ruedas no saca el coche del servicio. Contenido del modal.
  */
-export function ResolveTiresModal({ incident, onClose, onDone }: Props) {
+export function ResolveTiresModal({ incident, vehicleKm, onClose, onDone }: Props) {
   const t = useResolveCopy()
   const c = t.tires
   const details = incident.details ?? {}
   const common = useResolutionCommon({
     flow: 'tires',
+    vehicleKm,
     postalCode: incident.workshop_postal_code,
   })
   const [size, setSize] = useState(() => prefillSize(details))

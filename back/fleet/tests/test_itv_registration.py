@@ -9,7 +9,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Alert, Assignment, Event, Incident, Vehicle, Workshop
+from fleet.models import Alert, Assignment, Document, Event, Incident, Vehicle, Workshop
 from fleet.models.enums import (
     AlertStatus,
     AlertType,
@@ -93,6 +93,19 @@ class ItvRegistrationTests(APITestCase):
         ).last()
         self.assertIsNotNone(activation)
         self.assertEqual(activation.event_date, self.today)
+
+    def test_el_informe_subido_con_la_itv_programada_pasa_al_registro(self):
+        # El informe se subió antes de registrar la ITV, ligado a la cita (la
+        # alerta abierta). Al registrarla, la alerta se cierra y el informe
+        # pasa al registro de la ITV.
+        report = Document.objects.create(
+            vehicle=self.vehicle, type="itv_report", alert=self.alert, drive_url="https://d/x"
+        )
+        resp = self._register(self._payload())
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        report.refresh_from_db()
+        self.assertIsNone(report.alert)
+        self.assertEqual(report.event_id, resp.data["id"])
 
     def test_no_favorable_no_toca_nada(self):
         payload = self._payload(return_to_active=True)

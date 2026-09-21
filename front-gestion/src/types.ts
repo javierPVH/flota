@@ -350,6 +350,10 @@ export interface FlotaDocument {
    * con `incident`. `event_display` lo trae legible («ITV · 2026-03-01»). */
   event: number | null
   event_display: string
+  /** Alerta abierta a la que acompaña (el informe de una ITV programada aún
+   * sin registrar); al registrar la ITV el back lo pasa a `event`. */
+  alert: number | null
+  alert_display: string
   /** webViewLink en Google Drive (Fase A3); vacío si aún no está archivado. */
   drive_url: string
   drive_file_id: string
@@ -364,6 +368,14 @@ export interface FlotaDocument {
   /** Versión anterior a la que sustituye (HU-4.4). */
   replaces: number | null
   notes: string
+  /** Confidencialidad (solo la escribe gestión). `responsible` lo rellena el
+   * alta —el titular si es personal, el conductor vigente si es del coche— y
+   * es quien lo lee cuando `shared_read` está apagado; con él encendido, todos
+   * los conductores del vehículo. `protected` lo deja solo para gestión. */
+  responsible: number | null
+  responsible_name: string
+  shared_read: boolean
+  protected: boolean
   /** Desde cuándo la comprobación de existencia (`verifyDocuments`) no
    * encuentra el archivo en Drive/disco; null si existe o no se ha podido
    * comprobar. Con marca, la fila ofrece el borrado definitivo. */

@@ -6,16 +6,13 @@ import { asErrorMessage } from '@flota/ui/http'
 
 import { AlertCard } from '../components/AlertCard.tsx'
 import { fetchVehicleSummaries, listAlerts, truncatedAt } from '../api.ts'
-import { AlertResolveModal } from '../components/AlertResolveModal.tsx'
-import { RegisterKmModal } from '../components/RegisterKmModal.tsx'
-import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
-import { MaintenanceUpdateModal } from '../components/MaintenanceUpdateModal.tsx'
+import { AlertResolveDispatcher } from '../components/AlertResolveDispatcher.tsx'
 import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { alertLevelTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { disablePush, enablePush, pushState, type PushState } from '../push.ts'
-import type { Alert, Vehicle, VehicleSummary } from '../types.ts'
+import type { Alert, VehicleSummary } from '../types.ts'
 
 // Crítica primero: a pie de vehículo se atiende lo urgente.
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
@@ -328,37 +325,13 @@ export function AlertsPage() {
         </>
       )}
 
-      {resolveFor && resolveFor.vehicle !== null && resolveFor.type === 'km_reading_pending' && (
-        <RegisterKmModal
-          vehicle={{ id: resolveFor.vehicle, plate: resolveFor.vehicle_plate } as Vehicle}
-          summary={lastReadings[resolveFor.vehicle] ?? null}
-          onClose={() => setResolveFor(null)}
-          onSaved={() => resolved(resolveFor)}
-        />
-      )}
-
-      {resolveFor && resolveFor.vehicle !== null && resolveFor.type === 'itv_due' && (
-        <RegisterItvModal
-          vehicle={{ id: resolveFor.vehicle, plate: resolveFor.vehicle_plate } as Vehicle}
-          // La cita la trae el propio aviso: sin pedir el resumen del coche.
-          nextItvDate={resolveFor.due_date}
-          onClose={() => setResolveFor(null)}
-          onSaved={() => resolved(resolveFor)}
-        />
-      )}
-
-      {resolveFor && resolveFor.vehicle !== null && resolveFor.type === 'maintenance_due' && (
-        <MaintenanceUpdateModal
-          vehicle={{ id: resolveFor.vehicle, plate: resolveFor.vehicle_plate } as Vehicle}
-          onClose={() => setResolveFor(null)}
-          onSaved={() => resolved(resolveFor)}
-        />
-      )}
-
-      {resolveFor && !['km_reading_pending', 'itv_due', 'maintenance_due'].includes(resolveFor.type) && (
-        <AlertResolveModal
+      {/* El formulario lo decide el TIPO de la alerta, y ese reparto vive en
+          el despachador: lo comparten esta bandeja y el resumen de «Mi
+          perfil», que enseña las mismas alertas en un modal. */}
+      {resolveFor && (
+        <AlertResolveDispatcher
           alert={resolveFor}
-          summary={resolveFor.vehicle !== null ? lastReadings[resolveFor.vehicle] : undefined}
+          summary={resolveFor.vehicle !== null ? lastReadings[resolveFor.vehicle] : null}
           onClose={() => setResolveFor(null)}
           onResolved={() => resolved(resolveFor)}
         />

@@ -8,8 +8,8 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Assignment, Document, Event, Incident, Vehicle
-from fleet.models.enums import AssignmentStatus
+from fleet.models import Alert, Assignment, Document, Event, Incident, Vehicle
+from fleet.models.enums import AlertStatus, AlertType, AssignmentStatus
 
 from .helpers import make_user
 
@@ -49,8 +49,11 @@ class DocumentTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_driver_sees_only_own_vehicle_documents(self):
-        Document.objects.create(vehicle=self.my_vehicle, type="insurance")
-        Document.objects.create(vehicle=self.foreign, type="insurance")
+        # `responsible` a mano porque el fixture no pasa por el alta, que es
+        # quien lo rellena: sin responsable ni lectura compartida, el documento
+        # solo lo ve la gestión y este caso no probaría el ámbito.
+        Document.objects.create(vehicle=self.my_vehicle, type="insurance", responsible=self.driver)
+        Document.objects.create(vehicle=self.foreign, type="insurance", responsible=self.driver)
         self.client.force_authenticate(self.driver)
         resp = self.client.get(self.list_url)
         self.assertEqual(resp.data["count"], 1)
@@ -184,6 +187,66 @@ class DocumentRulesTests(APITestCase):
         resp = self._post(type="workshop_invoice", event=itv.pk, incident=inspection.pk)
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("event", resp.data["errors"])
+
+    def test_damage_photos_require_an_incident(self):
+        # Unas fotos de daños son las fotos DE una incidencia: sueltas → 400.
+        resp = self._post(type="damage_photos")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("incident", resp.data["errors"])
+        breakdown = Incident.objects.create(vehicle=self.vehicle, type="breakdown")
+        resp = self._post(type="damage_photos", incident=breakdown.pk)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+    def test_itv_report_links_a_registered_or_a_scheduled_itv(self):
+        # Suelto → 400. A la ITV registrada (evento) → 201. A la ITV PROGRAMADA
+        # (la alerta `itv_due` abierta) → 201; a una alerta de otro tipo o ya
+        # resuelta → 400.
+        resp = self._post(type="itv_report")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("event", resp.data["errors"])
+        itv = self._event("itv")
+        self.assertEqual(
+            self._post(type="itv_report", event=itv.pk).status_code, status.HTTP_201_CREATED
+        )
+        scheduled = Alert.objects.create(
+            type=AlertType.ITV_DUE,
+            vehicle=self.vehicle,
+            dedup_key="itv:doc:1",
+            due_date=date(2026, 11, 3),
+        )
+        resp = self._post(type="itv_report", alert=scheduled.pk)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["alert"], scheduled.pk)
+        self.assertEqual(resp.data["alert_display"], "ITV programada · 2026-11-03")
+        # Una alerta de otro tipo, de otro coche o ya resuelta no vale; ni las dos cosas.
+        other = Alert.objects.create(
+            type=AlertType.INSURANCE_DUE, vehicle=self.vehicle, dedup_key="ins:doc:1"
+        )
+        self.assertEqual(
+            self._post(type="itv_report", alert=other.pk).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        foreign = Alert.objects.create(
+            type=AlertType.ITV_DUE, vehicle=self.other_vehicle, dedup_key="itv:doc:2"
+        )
+        self.assertEqual(
+            self._post(type="itv_report", alert=foreign.pk).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        scheduled.status = AlertStatus.RESOLVED
+        scheduled.save(update_fields=["status"])
+        self.assertEqual(
+            self._post(type="itv_report", alert=scheduled.pk).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(
+            self._post(type="damage_photos", alert=scheduled.pk).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(
+            self._post(type="itv_report", event=itv.pk, alert=scheduled.pk).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
 
     def test_workshop_invoice_requires_a_link(self):
         # Suelta no dice nada → 400. Con una incidencia (aunque esté cerrada:
@@ -382,9 +445,17 @@ class PersonalDocumentTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_scope_covers_own_and_supervised_personal_documents(self):
-        mine = Document.objects.create(user=self.driver, type="driving_license")
-        foreign = Document.objects.create(user=self.other_driver, type="driving_license")
-        vehicle_doc = Document.objects.create(vehicle=self.group_vehicle, type="insurance")
+        # Con el responsable que les habría puesto el alta (el titular en los
+        # personales, el conductor vigente en el del coche).
+        mine = Document.objects.create(
+            user=self.driver, type="driving_license", responsible=self.driver
+        )
+        foreign = Document.objects.create(
+            user=self.other_driver, type="driving_license", responsible=self.other_driver
+        )
+        vehicle_doc = Document.objects.create(
+            vehicle=self.group_vehicle, type="insurance", responsible=self.driver
+        )
 
         # El conductor: su permiso + los documentos de su vehículo. El ajeno, no.
         self.client.force_authenticate(self.driver)
@@ -402,6 +473,169 @@ class PersonalDocumentTests(APITestCase):
         self.assertEqual([row["id"] for row in resp.data["results"]], [foreign.pk])
         # El nombre del titular viaja en la fila (columna «Titular» del front).
         self.assertEqual(resp.data["results"][0]["user_name"], "other")
+
+
+class DocumentVisibilityTests(APITestCase):
+    """Confidencialidad: responsable, lectura compartida y protegido.
+
+    Hasta aquí, quien alcanzaba el coche veía todos sus documentos. Ahora el
+    ámbito (`vehicles_for`/`users_for`) dice de qué se puede hablar y
+    `readable_documents` dice qué se lee, con la misma regla en las TRES
+    puertas: listado, binario e informe.
+    """
+
+    def setUp(self):
+        self.admin = make_user("admin", Role.ADMIN)
+        self.supervisor = make_user("sup", Role.SUPERVISOR)
+        self.driver = make_user("driver", Role.DRIVER)
+        self.mate = make_user("mate", Role.DRIVER)
+        # Dos coches del mismo supervisor, cada uno con SU conductor: es lo que
+        # distingue «el responsable es el conductor vigente DE ESTE coche» de
+        # «el responsable es alguno de mis conductores».
+        self.car_a = Vehicle.objects.create(
+            plate="1234ABC", brand="a", model="b", supervisor=self.supervisor
+        )
+        self.car_b = Vehicle.objects.create(
+            plate="2222BBB", brand="a", model="b", supervisor=self.supervisor
+        )
+        for vehicle, driver in ((self.car_a, self.driver), (self.car_b, self.mate)):
+            Assignment.objects.create(
+                vehicle=vehicle,
+                driver=driver,
+                start_date=date(2026, 1, 1),
+                status=AssignmentStatus.ACCEPTED,
+            )
+        self.list_url = reverse("document-list")
+
+    def _doc(self, **kwargs):
+        return Document.objects.create(vehicle=self.car_a, type="insurance", **kwargs)
+
+    def _ids(self, user):
+        self.client.force_authenticate(user)
+        return {row["id"] for row in self.client.get(self.list_url).data["results"]}
+
+    def test_upload_fills_the_responsible_with_the_current_driver(self):
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(
+            self.list_url,
+            {"vehicle": self.car_a.pk, "type": "insurance", "drive_url": "https://drive/x"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["responsible"], self.driver.pk)
+        self.assertEqual(resp.data["responsible_name"], "driver")
+
+        # Un coche sin conductor vigente deja el responsable vacío: lo ven la
+        # gestión y quien lo subió, nadie más.
+        huerfano = Vehicle.objects.create(
+            plate="9999ZZZ", brand="a", model="b", supervisor=self.supervisor
+        )
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            self.list_url,
+            {"vehicle": huerfano.pk, "type": "insurance", "drive_url": "https://drive/x"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertIsNone(resp.data["responsible"])
+
+    def test_personal_upload_answers_to_its_owner(self):
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(
+            self.list_url,
+            {"user": self.driver.pk, "type": "driving_license", "drive_url": "https://drive/x"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["responsible"], self.driver.pk)
+
+    def test_the_switch_decides_between_one_driver_and_all_of_them(self):
+        suyo = self._doc(responsible=self.driver)
+        ajeno = self._doc(responsible=self.mate)
+        self.assertEqual(self._ids(self.driver), {suyo.pk})
+
+        # Con el interruptor puesto lo leen todos los del coche.
+        ajeno.shared_read = True
+        ajeno.save(update_fields=["shared_read"])
+        self.assertEqual(self._ids(self.driver), {suyo.pk, ajeno.pk})
+
+    def test_supervisor_reads_what_belongs_to_the_current_driver(self):
+        doc = self._doc(responsible=self.driver)
+        self.assertEqual(self._ids(self.supervisor), {doc.pk})
+
+        # Al terminar esa asignación deja de ser «el conductor actual».
+        Assignment.objects.filter(vehicle=self.car_a).update(end_date=date(2026, 1, 2))
+        self.assertEqual(self._ids(self.supervisor), set())
+
+    def test_supervisor_does_not_cross_drivers_between_his_own_cars(self):
+        # El coche es suyo y el responsable es conductor suyo… pero del OTRO
+        # coche: el par (vehículo, conductor) no es una asignación vigente.
+        self._doc(responsible=self.mate)
+        self.assertEqual(self._ids(self.supervisor), set())
+
+    def test_protected_is_only_for_management(self):
+        doc = self._doc(responsible=self.driver, shared_read=True, protected=True)
+        self.assertEqual(self._ids(self.driver), set())
+        self.assertEqual(self._ids(self.supervisor), set())
+        self.assertEqual(self._ids(self.admin), {doc.pk})
+
+    def test_protected_never_hides_someone_their_own_papers(self):
+        # RGPD: el permiso de conducir de una persona lo sigue viendo ella.
+        doc = Document.objects.create(
+            user=self.driver, type="driving_license", responsible=self.driver, protected=True
+        )
+        self.assertEqual(self._ids(self.driver), {doc.pk})
+        self.assertEqual(self._ids(self.supervisor), set())
+
+    def test_the_uploader_keeps_sight_of_what_he_just_uploaded(self):
+        # Sin conductor vigente el documento nace sin responsable: si el autor
+        # no contara, recibiría su 201 y un 404 al recargar.
+        huerfano = Vehicle.objects.create(
+            plate="0000YYY", brand="a", model="b", supervisor=self.supervisor
+        )
+        doc = Document.objects.create(
+            vehicle=huerfano, type="insurance", uploaded_by=self.supervisor
+        )
+        self.assertEqual(self._ids(self.supervisor), {doc.pk})
+
+    def test_a_driver_cannot_set_the_confidentiality_himself(self):
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(
+            self.list_url,
+            {
+                "vehicle": self.car_a.pk,
+                "type": "insurance",
+                "drive_url": "https://drive/x",
+                "shared_read": True,
+                "protected": False,
+                "responsible": self.mate.pk,
+            },
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        # Los tres campos se ignoran: el responsable lo pone el alta.
+        self.assertEqual(resp.data["responsible"], self.driver.pk)
+        self.assertFalse(resp.data["shared_read"])
+
+    def test_management_does_set_it(self):
+        doc = self._doc(responsible=self.driver)
+        self.client.force_authenticate(self.admin)
+        url = reverse("document-detail", args=[doc.pk])
+        resp = self.client.patch(url, {"shared_read": True, "protected": True})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        doc.refresh_from_db()
+        self.assertTrue(doc.shared_read)
+        self.assertTrue(doc.protected)
+
+    def test_the_responsible_cannot_be_someone_out_of_scope(self):
+        fuera = make_user("fuera", Role.DRIVER)
+        self.client.force_authenticate(self.supervisor)
+        resp = self.client.post(
+            self.list_url,
+            {
+                "vehicle": self.car_a.pk,
+                "type": "insurance",
+                "drive_url": "https://drive/x",
+                "responsible": fuera.pk,
+            },
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class IncidentTests(APITestCase):

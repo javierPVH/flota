@@ -46,6 +46,9 @@ export interface ResolutionCommon {
   showPostalCode: boolean
   /** El coche está en el estado que este flujo «libera»: se ofrece la casilla. */
   showReturnToActive: boolean
+  /** Última lectura conocida del odómetro, para el botón que la carga en «Km».
+   * `null` = no se sabe, y entonces no hay botón que ofrecer. */
+  vehicleKm: number | null
   /** La casilla resuelta: lo marcado, o «marcada por defecto» si aplica. */
   returnToActive: boolean
   /** Payload común, SIN claves vacías: los tests aseveran llamadas exactas. */
@@ -62,8 +65,17 @@ export function useResolutionCommon(opts: {
    * para todo el modal (y arrastra soltar el sustituto), así que no puede
    * vivir por duplicado dentro de cada formulario. */
   returnToActive?: boolean
+  /** Última lectura conocida del coche: la que carga el botón de «Km». */
+  vehicleKm?: number | null
 }): ResolutionCommon {
-  const { flow, vehicleState, initialDate, postalCode, returnToActive: desdeFuera } = opts
+  const {
+    flow,
+    vehicleState,
+    initialDate,
+    postalCode,
+    returnToActive: desdeFuera,
+    vehicleKm,
+  } = opts
   const owned = FLOW_STATE[flow]
   const showReturnToActive =
     desdeFuera === undefined && owned !== undefined && vehicleState === owned
@@ -105,6 +117,7 @@ export function useResolutionCommon(opts: {
     set,
     showPostalCode: postalCode !== undefined,
     showReturnToActive,
+    vehicleKm: vehicleKm ?? null,
     returnToActive,
     payload,
   }

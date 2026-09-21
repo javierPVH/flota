@@ -283,3 +283,33 @@ class MultiRoleScopeTests(APITestCase):
             {"vehicle": self.own.pk, "reading_date": "2026-08-28", "km_reading": 1234},
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+    def test_can_log_the_itv_of_their_car_and_attach_its_report(self):
+        """El gesto de campo entero: registrar la ITV y subir su informe.
+
+        El informe cuelga del REGISTRO de la inspección (`event`), que es de lo
+        que es informe — sin vínculo el back lo rechaza.
+        """
+        itv = self.client.post(
+            reverse("event-list"),
+            {
+                "vehicle": self.own.pk,
+                "event_type": "itv",
+                "event_date": "2026-09-10",
+                "itv": {"result": "done", "next_due": "2027-09-10"},
+            },
+            format="json",
+        )
+        self.assertEqual(itv.status_code, status.HTTP_201_CREATED, itv.data)
+
+        informe = self.client.post(
+            reverse("document-list"),
+            {
+                "vehicle": self.own.pk,
+                "type": "itv_report",
+                "event": itv.data["id"],
+                "drive_url": "https://drive/itv",
+            },
+        )
+        self.assertEqual(informe.status_code, status.HTTP_201_CREATED, informe.data)
+        self.assertEqual(informe.data["event"], itv.data["id"])

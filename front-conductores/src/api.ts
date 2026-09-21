@@ -1,4 +1,4 @@
-import { ApiError, deleteJson, getJson, postForm, postJson } from '@flota/ui/http'
+import { ApiError, deleteJson, getJson, postForm, postJson, toUrl } from '@flota/ui/http'
 
 import type {
   Alert,
@@ -39,6 +39,16 @@ export async function login(username: string, password: string): Promise<FlotaUs
 export async function googleLogin(credential: string): Promise<FlotaUser> {
   await ensureCsrf()
   return postJson<FlotaUser>(`${AUTH}/google/`, { credential })
+}
+
+/**
+ * Arranca el SSO corporativo (SAML): es una **navegación completa** al back,
+ * que redirige a Google y vuelve por el ACS con la sesión puesta. No es un
+ * fetch (el flujo son redirecciones del navegador). `next` es a dónde vuelve
+ * tras entrar; relativo, mismo origen.
+ */
+export function startSamlLogin(loginUrl: string, next = '/'): void {
+  window.location.assign(`${loginUrl}?next=${encodeURIComponent(next)}`)
 }
 
 export async function logout(): Promise<void> {
@@ -197,6 +207,34 @@ export const listAlerts = (status: string, vehicle?: number) =>
 export const resolveAlert = (id: number, note?: string) =>
   invalidating(postJson<Alert>(`${API}/alerts/${id}/resolve/`, note ? { note } : {}))
 
+// --- Propuesta de cambio de conductor (alerta de km contratados) ------------
+
+/** A quién se puede proponer: la gente del ámbito de quien pregunta, con el
+ * coche que lleva hoy. `source` dice de dónde sale —hoy solo `app`; el
+ * directorio de Google se sumará con `directory` cuando esté conectado—. */
+export interface DriverCandidate {
+  id: number | null
+  name: string
+  email: string
+  plate: string
+  source: 'app' | 'directory'
+}
+
+export const listDriverCandidates = () =>
+  getJson<DriverCandidate[]>(`${API}/driver-change-requests/candidates/`)
+
+/** Propone que el coche lo lleve otra persona. **No cambia nada**: abre una
+ * solicitud que decide administración en `/solicitudes`. Sin candidato, la
+ * nota es la petición (el back la exige). */
+export const proposeDriverChange = (input: {
+  vehicle: number
+  alert?: number | null
+  proposed_driver?: number | null
+  proposed_name?: string
+  proposed_email?: string
+  note?: string
+}) => postJson<{ id: number }>(`${API}/driver-change-requests/`, input)
+
 // --- Actualización de campo del supervisor (km / mantenimiento / partes) ----
 
 /** Plan de mantenimiento preventivo (GAP-8), tal y como lo lista el back. */
@@ -234,11 +272,28 @@ export const manageIncident = (
   data: { workshop_postal_code: string },
 ) => invalidating(postJson<Incident>(`${API}/incidents/${id}/manage/`, data))
 
+/** Lo que se manda al cerrar una incidencia desde el campo. Mismo contrato que
+ * el de gestión, recortado a lo que se decide en la calle: sin taller del
+ * catálogo (aquí se sabe el CP, no el id), sin vuelta a Activo (el estado lo
+ * cambia gestión) y sin plan de mantenimiento (el programado se marca en su
+ * pestaña, que es la que reancla el ciclo). */
+export interface IncidentResolveInput {
+  resolution_date: string
+  observations?: string
+  cost?: string
+  km?: number
+  workshop_postal_code?: string
+  tires?: { size?: string; brand?: string; quantity?: number; positions?: string[] }
+  accident?: {
+    claim_ref?: string
+    liability?: 'own' | 'third_party' | 'deductible'
+    deductible_amount?: string
+  }
+}
+
 /** Fase 3: fecha de solución; el servidor calcula el tiempo parado y CIERRA. */
-export const resolveIncident = (
-  id: number,
-  data: { resolution_date: string; observations?: string },
-) => invalidating(postJson<Incident>(`${API}/incidents/${id}/resolve/`, data))
+export const resolveIncident = (id: number, data: IncidentResolveInput) =>
+  invalidating(postJson<Incident>(`${API}/incidents/${id}/resolve/`, data))
 
 /** Recordatorio del supervisor al conductor: correo inmediato y/o alerta en la
  * app (idempotente por día). El back acota por rol (management + su grupo). */
@@ -271,7 +326,10 @@ export const registerItv = (data: {
   itv: { result: string; next_due: string | null }
   /** R3-34: clave de idempotencia — el reenvío offline no crea otro evento. */
   client_ref?: string
-}) => invalidating(postJson(`${API}/events/`, { ...data, event_type: 'itv' }))
+}) =>
+  // Devuelve el REGISTRO creado: de él cuelga el informe de la ITV
+  // (`event`), que es lo que el back exige para ese tipo de documento.
+  invalidating(postJson<{ id: number }>(`${API}/events/`, { ...data, event_type: 'itv' }))
 
 // --- M3: odómetro (HU-3.1) — el back valida el no-retroceso ----------------
 export const createKmReading = (data: {
@@ -336,6 +394,9 @@ export interface DocumentUploadInput {
   type: string
   expiry_date?: string | null
   incident?: number | null
+  /** Registro del coche al que acompaña (el informe de ITV, a su inspección).
+   * Excluyente con `incident`. */
+  event?: number | null
   notes?: string
   /** R3-34: clave de idempotencia — el reenvío offline no duplica el documento. */
   client_ref?: string
@@ -358,6 +419,61 @@ export function uploadDocument(data: DocumentUploadInput, file: File): Promise<F
     postForm<FlotaDocument>(`${API}/documents/`, form, {}, 'No se pudo subir el documento.'),
   )
 }
+
+/**
+ * El ARCHIVO de un documento: para verlo dentro de la app (`preview`) o para
+ * guardarlo en el móvil (`download`).
+ *
+ * Quien conduce no tiene cuenta en Drive, así que ni el enlace a la carpeta ni
+ * el de descarga de Drive le abren nada: el back trae el binario con la cuenta
+ * de servicio y lo sirve por aquí, por la misma puerta que ya autoriza la
+ * lectura. Devuelve el binario, no JSON, y por eso es la única llamada que no
+ * pasa por los helpers del DS —que solo hablan JSON—; la sesión viaja igual
+ * (cookies).
+ *
+ * El nombre lo pone el back (`Content-Disposition`), que es quien sabe de qué
+ * documento y de qué coche es. Lo que se recibe para VER no se guarda: vive en
+ * un blob que la ventana suelta al cerrarse.
+ */
+export async function fetchDocumentFile(
+  id: number,
+  opts: { signal?: AbortSignal; download?: boolean } = {},
+): Promise<{ blob: Blob; filename: string }> {
+  const accion = opts.download ? 'download' : 'preview'
+  const response = await fetch(toUrl(`${API}/documents/${id}/${accion}/`), {
+    credentials: 'include',
+    signal: opts.signal,
+  })
+  if (!response.ok) {
+    throw new ApiError('No se pudo abrir el documento.', response.status)
+  }
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const nombre = /filename="([^"]+)"/.exec(disposition)?.[1]
+  return { blob: await response.blob(), filename: nombre || `documento-${id}` }
+}
+
+/** Petición de borrado de un documento: la papelera de campo NO borra.
+ *
+ * Abre la solicitud en la bandeja de gestión y devuelve la fila (si ya había
+ * una abierta, esa misma: el back es idempotente por documento). Hasta que se
+ * resuelva, el documento sigue en la lista marcado «Pendiente de borrado».
+ */
+export interface DocumentDeletionRequestRow {
+  id: number
+  document: number
+  status: 'pending' | 'deleted' | 'hidden' | 'rejected'
+  status_display: string
+  reason: string
+  created_at: string
+}
+
+export const requestDocumentDeletion = (document: number, reason: string) =>
+  postJson<DocumentDeletionRequestRow>(
+    `${API}/document-deletion-requests/`,
+    { document, reason },
+    {},
+    'No se pudo pedir el borrado del documento.',
+  )
 
 /** Incidencias (solo gestión; el back acota al grupo del supervisor). */
 export const listIncidents = (vehicle?: number) =>

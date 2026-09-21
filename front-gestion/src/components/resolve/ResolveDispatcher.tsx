@@ -174,6 +174,7 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
                 : { kind: 'incident', incident: target.incident }
             }
             vehicleState={vehicleState}
+            vehicleKm={vehicle?.km_current ?? null}
             onClose={handleClose}
             onDone={handleDone}
           />
@@ -190,13 +191,19 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
           />
         )}
         {target && target.kind === 'incident' && flow === 'tires' && (
-          <ResolveTiresModal incident={target.incident} onClose={handleClose} onDone={handleDone} />
+          <ResolveTiresModal
+            incident={target.incident}
+            vehicleKm={vehicle?.km_current ?? null}
+            onClose={handleClose}
+            onDone={handleDone}
+          />
         )}
         {target && target.kind === 'incident' && flow === 'accident' && (
           <ResolveAccidentModal
             incident={target.incident}
             vehicleState={vehicleState}
             returnToActive={stopped ? returnChecked : undefined}
+            vehicleKm={vehicle?.km_current ?? null}
             onClose={handleClose}
             onDone={handleDone}
             onRetire={() => {
@@ -210,6 +217,7 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
             incident={target.incident}
             vehicleState={vehicleState}
             returnToActive={stopped ? returnChecked : undefined}
+            vehicleKm={vehicle?.km_current ?? null}
             onClose={handleClose}
             onDone={handleDone}
           />

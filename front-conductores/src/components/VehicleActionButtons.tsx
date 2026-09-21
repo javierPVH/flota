@@ -7,7 +7,7 @@ import type { Vehicle, VehicleSummary } from '../types.ts'
 import { AccidentModal } from './AccidentModal.tsx'
 import { BreakdownModal } from './BreakdownModal.tsx'
 import { RegisterFuelModal } from './RegisterFuelModal.tsx'
-import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
+import { VehicleUpdateModal } from './VehicleUpdateModal.tsx'
 import { RegisterItvModal } from './RegisterItvModal.tsx'
 import { RegisterKmModal } from './RegisterKmModal.tsx'
 import { UploadDocumentModal } from './UploadDocumentModal.tsx'
@@ -134,7 +134,16 @@ export function VehicleActionButtons({
         />
       )}
       {vehicle && open === 'maintenance' && (
-        <MaintenanceUpdateModal vehicle={vehicle} onClose={() => setOpen(null)} onSaved={saved} />
+        // «Actualizar», con el mantenimiento por delante: la misma ventana
+        // sirve para lo demás que traiga ese coche (km, combustible, ITV e
+        // incidencias abiertas), que es lo que se viene a hacer.
+        <VehicleUpdateModal
+          vehicle={vehicle}
+          summary={summary ?? null}
+          initialTab="maintenance"
+          onClose={() => setOpen(null)}
+          onSaved={saved}
+        />
       )}
       {vehicle && open === 'breakdown' && (
         <BreakdownModal

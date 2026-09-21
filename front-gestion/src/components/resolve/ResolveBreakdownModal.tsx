@@ -16,6 +16,8 @@ interface Props {
   vehicleState?: VehicleState
   /** Con el coche parado, la casilla vive en el despachador (una por modal). */
   returnToActive?: boolean
+  /** Última lectura del coche: la que carga el botón de «Km». */
+  vehicleKm?: number | null
   onClose: () => void
   /** Cerrada: texto para el aviso verde del padre (que recarga sus datos). */
   onDone: (notice: string) => void
@@ -26,23 +28,47 @@ interface Props {
  * observaciones, factura y vuelta a Activo. Contenido del modal (el dispatcher
  * pone el `Modal` y el título). También es el cierre genérico de reparación
  * que usan neumáticos y accidente mientras no tienen su modal propio.
+ *
+ * La **petición general** se rellena en otro orden y con menos campos: puede no
+ * ir del coche (documentación, tarjetas, dudas), así que se cierra con **fecha
+ * y observaciones** y solo si se marca que **hubo taller** se piden los km, el
+ * coste, el CP y la factura. Preguntarlos siempre invitaba a rellenar con ceros
+ * una petición que nunca pisó un taller.
  */
 export function ResolveBreakdownModal({
   incident,
   vehicleState,
   returnToActive,
+  vehicleKm,
   onClose,
   onDone,
 }: Props) {
   const t = useResolveCopy()
+  const esGeneral = incident.type === 'general'
   const common = useResolutionCommon({
     flow: 'breakdown',
     vehicleState,
     returnToActive,
+    vehicleKm,
     postalCode: incident.workshop_postal_code,
   })
+  const [workshop, setWorkshop] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  /** Desmarcar «hubo taller» **borra** lo que se hubiera escrito: si no, un
+   * coste tecleado y luego escondido viajaría igual. */
+  function toggleWorkshop(checked: boolean) {
+    setWorkshop(checked)
+    if (!checked) {
+      common.set({
+        km: '',
+        cost: '',
+        proof: null,
+        postalCode: incident.workshop_postal_code ?? '',
+      })
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -70,14 +96,45 @@ export function ResolveBreakdownModal({
 
   return (
     <form className="ops-modal" onSubmit={submit}>
-      <p className="muted ops-note">{t.breakdown.intro}</p>
-      <ResolutionCommonFields
-        common={common}
-        minDate={incident.date}
-        maxDate={todayIso()}
-        proofType="workshop_invoice"
-        idPrefix={`resolve-breakdown-${incident.id}`}
-      />
+      <p className="muted ops-note">{esGeneral ? t.general.intro : t.breakdown.intro}</p>
+      {esGeneral ? (
+        <>
+          {/* Fecha y observaciones: con eso se cierra una petición que no fue
+              al taller, que son la mayoría. */}
+          <ResolutionCommonFields
+            common={common}
+            show={{ km: false, cost: false, postalCode: false, proof: false, returnToActive: false }}
+            minDate={incident.date}
+            maxDate={todayIso()}
+            idPrefix={`resolve-general-${incident.id}`}
+          />
+          <label className="baja-toggle">
+            <input
+              type="checkbox"
+              checked={workshop}
+              onChange={(e) => toggleWorkshop(e.target.checked)}
+            />
+            {t.general.workshop}
+            <span className="muted"> · {t.general.workshopHint}</span>
+          </label>
+          {workshop && (
+            <ResolutionCommonFields
+              common={common}
+              show={{ date: false, observations: false }}
+              proofType="workshop_invoice"
+              idPrefix={`resolve-general-shop-${incident.id}`}
+            />
+          )}
+        </>
+      ) : (
+        <ResolutionCommonFields
+          common={common}
+          minDate={incident.date}
+          maxDate={todayIso()}
+          proofType="workshop_invoice"
+          idPrefix={`resolve-breakdown-${incident.id}`}
+        />
+      )}
       {error && (
         <div role="alert" className="form-error">
           {error}

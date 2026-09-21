@@ -36,6 +36,67 @@ export function dueClass(dateStr: string | null): string {
 /** Alias histórico (la ITV fue el primer vencimiento con semáforo). */
 export const itvClass = dueClass
 
+// --- Resumen del parte guiado de neumáticos (GAP-6) -----------------------
+
+/** Etiquetas que necesita el resumen; las pone cada app (el dominio no sabe
+ * de i18n). */
+export interface TireReportCopy {
+  wear: string
+  puncture: string
+  front: string
+  rear: string
+  allWheels: string
+  frontLeft: string
+  frontRight: string
+  rearLeft: string
+  rearRight: string
+}
+
+const WHEEL_KEYS = {
+  front_left: 'frontLeft',
+  front_right: 'frontRight',
+  rear_left: 'rearLeft',
+  rear_right: 'rearRight',
+} as const
+const SCOPE_KEYS = { front: 'front', rear: 'rear', all: 'allWheels' } as const
+
+/**
+ * Resumen del parte guiado de neumáticos: **motivo del cambio y qué
+ * neumático** («Desgaste · Delanteras · 205/55 R16», «Pinchazo · Delantera
+ * izquierda · 205/55 R16»).
+ *
+ * Las listas de averías enseñaban solo la observación, que en este parte es un
+ * comentario OPCIONAL: una incidencia de neumáticos salía sin un dato útil
+ * aunque el parte estuviera completo. Cadena vacía si no es de neumáticos o si
+ * el parte no trae detalles (los de antes de `report_version: 1`).
+ */
+export function tireReportSummary(
+  type: string,
+  details: Record<string, unknown> | null | undefined,
+  copy: TireReportCopy,
+): string {
+  if (type !== 'tires') return ''
+  const datos = details ?? {}
+  const text = (key: string) => (typeof datos[key] === 'string' ? (datos[key] as string).trim() : '')
+  const parts: string[] = []
+  const reason = text('change_reason')
+  if (reason === 'wear') {
+    parts.push(copy.wear)
+    const scope = SCOPE_KEYS[text('wheel_scope') as keyof typeof SCOPE_KEYS]
+    if (scope) parts.push(copy[scope])
+    // Con las 4 ruedas a la misma medida, repetirla no aporta nada.
+    const measures = [...new Set([text('front_measure'), text('rear_measure')].filter(Boolean))]
+    if (measures.length > 0) parts.push(measures.join(' / '))
+  } else if (reason === 'puncture') {
+    parts.push(copy.puncture)
+    const wheel = WHEEL_KEYS[text('wheel') as keyof typeof WHEEL_KEYS]
+    if (wheel) parts.push(copy[wheel])
+    const measure = text('tire_measure')
+    if (measure) parts.push(measure)
+  }
+  return parts.join(' · ')
+}
+
 // --- Mapas de tonos de <Badge> por estado de dominio -----------------------
 
 const STATE_TONE: Record<string, BadgeTone> = {
@@ -102,3 +163,50 @@ const KM_LEVEL_TONE: Record<string, BadgeTone> = {
 }
 /** Nivel de proyección de km → tono de Badge. */
 export const kmLevelTone = (level: string): BadgeTone => KM_LEVEL_TONE[level] ?? 'neutral'
+
+/** Semáforo de antigüedad de un dato que se anota a mano (la lectura de km, la
+ * anotación de consumo): menos de 15 días al día, 15-30 a vigilar, más de 30
+ * vencido. **Sin ninguna anotación cuenta como vencido**: no saberlo no es
+ * estar al día.
+ *
+ * Vive aquí porque lo dicen los DOS fronts y tienen que decir lo mismo: la
+ * columna «Kilómetros» de gestión (panel, inventario y ficha) y el acordeón de
+ * avisos de la app de campo. Los DÍAS los cuenta cada app con su helper —el del
+ * escritorio parsea en UTC y el del móvil en local (E2/E6)—; lo compartido es
+ * la regla, que es lo que no puede divergir. */
+export type KmStaleTone = 'ok' | 'warn' | 'danger'
+export const kmStaleTone = (days: number | null): KmStaleTone =>
+  days === null || days > 30 ? 'danger' : days >= 15 ? 'warn' : 'ok'
+
+// --- Neumáticos: posiciones y prellenado del parte (GAP-6) ----------------
+
+/** Mismos valores que el parte guiado (`TIRE_POSITIONS` del back). */
+export const TIRE_POSITIONS = ['front_left', 'front_right', 'rear_left', 'rear_right'] as const
+export type TirePosition = (typeof TIRE_POSITIONS)[number]
+
+/** Posiciones que el parte ya señala: el alcance del desgaste (delante /
+ * detrás / las cuatro) o la rueda del pinchazo.
+ *
+ * Vive aquí porque lo leen los DOS fronts al cerrar un parte de neumáticos
+ * —gestión y la app de campo— y es contrato del back: dos copias acabarían
+ * prellenando ruedas distintas del mismo parte. */
+export function prefillPositions(details: Record<string, unknown>): TirePosition[] {
+  const scope = details.wheel_scope
+  if (scope === 'all') return [...TIRE_POSITIONS]
+  if (scope === 'front') return ['front_left', 'front_right']
+  if (scope === 'rear') return ['rear_left', 'rear_right']
+  const wheel = details.wheel
+  if (typeof wheel === 'string' && (TIRE_POSITIONS as readonly string[]).includes(wheel)) {
+    return [wheel as TirePosition]
+  }
+  return []
+}
+
+/** La medida que el parte ya trae (pinchazo, o la del eje desgastado). */
+export function prefillSize(details: Record<string, unknown>): string {
+  for (const key of ['tire_measure', 'front_measure', 'rear_measure']) {
+    const value = details[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}

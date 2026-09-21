@@ -20,7 +20,7 @@ from datetime import date
 from django.db import transaction
 from django.utils import timezone
 
-from fleet.models import Alert, Event, Incident, Vehicle
+from fleet.models import Alert, Document, Event, Incident, Vehicle
 from fleet.models.enums import AlertStatus, AlertType, IncidentStatus, IncidentType, VehicleState
 from fleet.services import events, incidents
 
@@ -93,6 +93,9 @@ def register_itv(event: Event, *, actor, return_to_active: bool = False) -> dict
         for alert in pending_alerts:
             alert.close(status=AlertStatus.RESOLVED, by=actor, note=note)
             result["alerts_resolved"] += 1
+            # El informe que se subió con la ITV aún PROGRAMADA (ligado a la
+            # alerta) pasa al registro de la ITV: la cita ya es una inspección.
+            Document.objects.filter(alert=alert, is_active=True).update(alert=None, event=event)
 
         # 2) La incidencia «En ITV» abierta/en curso (la más antigua) se cierra con
         # los datos de la inspección. Sin copiar el coste: vive en `EventItv.cost`

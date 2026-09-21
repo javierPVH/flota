@@ -68,19 +68,19 @@ describe('NewIncidentPage', () => {
     mocks.uploadDocument.mockResolvedValue({ id: 9 })
   })
 
-  // Toda petición que abre un conductor o un supervisor admite prueba: la
-  // propuesta de mejora no tenía dónde adjuntarla.
-  it('deja adjuntar un documento también en la propuesta de mejora', async () => {
+  // Toda petición que abre un conductor o un supervisor admite prueba, también
+  // la que no va del coche (documentación, tarjetas…) y no tiene daño.
+  it('deja adjuntar un documento también en la petición general', async () => {
     abrir()
     await waitFor(() => expect(mocks.fetchVehicleSummary).toHaveBeenCalled())
 
-    await userEvent.selectOptions(selectDe('Propuesta de mejora'), 'maintenance')
+    await userEvent.selectOptions(selectDe('Petición general'), 'general')
     const adjunto = screen.getByLabelText(/Fotos o documentos/)
     await userEvent.upload(adjunto, new File(['x'], 'presupuesto.pdf', { type: 'application/pdf' }))
     expect(screen.getByText('1 archivo seleccionado')).toBeInTheDocument()
 
-    await userEvent.type(screen.getByRole('textbox'), 'Cambiar la baca por una más alta')
-    await userEvent.click(screen.getByRole('button', { name: 'Crear avería' }))
+    await userEvent.type(screen.getByRole('textbox'), 'Falta la tarjeta de combustible')
+    await userEvent.click(screen.getByRole('button', { name: 'Crear incidencia' }))
 
     await waitFor(() => expect(mocks.uploadDocument).toHaveBeenCalled())
     // Sin daño que fotografiar, el adjunto se archiva como «Otro».
@@ -91,6 +91,7 @@ describe('NewIncidentPage', () => {
     })
   })
 
+  // El tipo por defecto es la avería, la misma que el modal de la tarjeta.
   it('en una avería el adjunto son fotos de daños', async () => {
     abrir()
     await waitFor(() => expect(mocks.fetchVehicleSummary).toHaveBeenCalled())
@@ -100,7 +101,7 @@ describe('NewIncidentPage', () => {
       new File(['x'], 'golpe.jpg', { type: 'image/jpeg' }),
     )
     await userEvent.type(screen.getByRole('textbox'), 'Ruido en el motor')
-    await userEvent.click(screen.getByRole('button', { name: 'Crear avería' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Crear incidencia' }))
 
     await waitFor(() => expect(mocks.uploadDocument).toHaveBeenCalled())
     expect(mocks.uploadDocument.mock.calls[0][0]).toMatchObject({ type: 'damage_photos' })

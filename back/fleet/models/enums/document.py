@@ -2,6 +2,7 @@
 
 from django.db import models
 
+from .alert import AlertType
 from .event import EventType
 from .incident import IncidentType
 
@@ -57,10 +58,22 @@ EVENT_LINKABLE_DOCUMENT_TYPES = {
     DocumentType.WORKSHOP_INVOICE: frozenset({EventType.ITV, EventType.MAINTENANCE}),
 }
 
-#: Tipos que EXIGEN acompañar a algo (una incidencia o un registro): una
+#: Tipos que pueden acompañar a una ALERTA abierta del coche: el informe de una
+#: ITV que estaba PROGRAMADA (la cita es la alerta `itv_due`) y aún no se ha
+#: registrado. Al registrarla, `services/itv.register_itv` pasa el informe de
+#: la alerta al registro de la ITV (`event`).
+ALERT_LINKABLE_DOCUMENT_TYPES = {
+    DocumentType.ITV_REPORT: frozenset({AlertType.ITV_DUE}),
+}
+
+#: Tipos que EXIGEN acompañar a algo (incidencia, registro o alerta): una
 #: factura de taller siempre es la factura DE una reparación, una ITV o un
-#: mantenimiento. Suelta no dice nada.
-LINK_REQUIRED_DOCUMENT_TYPES = frozenset({DocumentType.WORKSHOP_INVOICE})
+#: mantenimiento; unas fotos de daños son las fotos DE una incidencia; un
+#: informe de ITV es el informe DE una ITV (registrada o programada). Sueltos
+#: no dicen nada.
+LINK_REQUIRED_DOCUMENT_TYPES = frozenset(
+    {DocumentType.WORKSHOP_INVOICE, DocumentType.DAMAGE_PHOTOS, DocumentType.ITV_REPORT}
+)
 
 
 class DocumentStatus(models.TextChoices):
@@ -69,3 +82,17 @@ class DocumentStatus(models.TextChoices):
     VALID = "valid", "Vigente"
     EXPIRED = "expired", "Caducado"
     PENDING_ARCHIVE = "pending_archive", "Pendiente de archivar"
+
+
+class DocumentDeletionStatus(models.TextChoices):
+    """En qué quedó la petición de borrado que abre quien lee el documento.
+
+    Los tres finales son las tres salidas del modal de la gestión: borrarlo de
+    verdad (va a erratas), taparlo solo para el campo (sigue en la flota) o
+    decir que no (el documento se queda como estaba).
+    """
+
+    PENDING = "pending", "Pendiente"
+    DELETED = "deleted", "Borrado (en erratas)"
+    HIDDEN = "hidden", "Oculto para el conductor"
+    REJECTED = "rejected", "Rechazada"

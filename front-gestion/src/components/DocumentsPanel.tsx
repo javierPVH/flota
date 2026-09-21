@@ -8,8 +8,10 @@ import {
   ExternalLink,
   FileX2,
   FolderOpen,
+  Lock,
   Replace,
   Trash2,
+  Users,
 } from 'lucide-react'
 
 import { TextCell } from './TextCell.tsx'
@@ -17,9 +19,11 @@ import { TextCell } from './TextCell.tsx'
 import {
   PERSONAL_DOCUMENT_TYPES,
   VEHICLE_DOCUMENT_TYPES,
+  documentAcceptsIncidents,
   documentExpires,
   documentLinkRequired,
-  incidentTypeRequiredBy,
+  linkableAlertKinds,
+  linkableAlerts,
   linkableEventKinds,
   linkableEvents,
   linkableIncidents,
@@ -37,6 +41,7 @@ import {
   deleteDocument,
   fetchFolderFiles,
   fetchPickerConfig,
+  listAlerts,
   listDocuments,
   listIncidents,
   listOpenIncidents,
@@ -49,6 +54,7 @@ import {
 } from '../api.ts'
 import { openDrivePicker, type PickedFile } from '../services/google-picker.ts'
 import type {
+  Alert,
   DriveFile,
   FlotaDocument,
   FlotaEvent,
@@ -59,21 +65,31 @@ import type {
 } from '../types.ts'
 
 /** A qué acompaña el documento, codificado en el valor del desplegable:
- * `incident:<id>` o `event:<id>`; vacío = a nada. */
-type DocumentLink = { incident: number | null; event: number | null }
+ * `incident:<id>`, `event:<id>` o `alert:<id>`; vacío = a nada. */
+type DocumentLink = { incident: number | null; event: number | null; alert: number | null }
+
+const NO_LINK: DocumentLink = { incident: null, event: null, alert: null }
 
 function parseLink(link: string): DocumentLink {
   const [kind, id] = link.split(':')
   const n = Number(id)
-  if (!n) return { incident: null, event: null }
-  return kind === 'event' ? { incident: null, event: n } : { incident: n, event: null }
+  if (!n) return NO_LINK
+  if (kind === 'event') return { ...NO_LINK, event: n }
+  if (kind === 'alert') return { ...NO_LINK, alert: n }
+  return { ...NO_LINK, incident: n }
 }
 
 function linkOf(doc: FlotaDocument | null): string {
   if (doc?.incident) return `incident:${doc.incident}`
   if (doc?.event) return `event:${doc.event}`
+  if (doc?.alert) return `alert:${doc.alert}`
   return ''
 }
+
+/** Valor del desplegable para «a nada»: un `<select required>` con la opción
+ * vacía seleccionada no pasa la validación nativa («Selecciona un elemento de
+ * la lista»), así que la opción de «ninguna» lleva un centinela. */
+const LINK_NONE = 'none'
 
 /** Los tipos de registro que se piden al back, en el orden de los grupos. */
 const EVENT_KINDS: readonly EventKind[] = ['itv', 'maintenance', 'insurance_renewal']
@@ -86,6 +102,47 @@ function safeHref(url: string): string {
 /** Enlace al archivo: Drive si ya está archivado; staging local si no. */
 function documentHref(doc: FlotaDocument): string {
   return safeHref(doc.drive_url) || safeHref(doc.file_url)
+}
+
+/** Quién lee el documento, en dos controles: el interruptor de lectura y el
+ * candado. Los usan el alta y el modal que lo cambia después, para que digan
+ * lo mismo en los dos sitios. */
+function VisibilityFields({
+  copy,
+  sharedRead,
+  onSharedRead,
+  guarded,
+  onGuarded,
+}: {
+  copy: ReturnType<typeof usePanelsCopy>['documents']
+  sharedRead: boolean
+  onSharedRead: (value: boolean) => void
+  guarded: boolean
+  onGuarded: (value: boolean) => void
+}) {
+  return (
+    <div className="doc-visibility">
+      <span className="doc-attach-label">{copy.visibility}</span>
+      {/* Protegido manda: con el candado puesto no lo lee nadie de campo, así
+          que el interruptor de lectura deja de tener nada que decidir. */}
+      <label className="switch">
+        <input
+          type="checkbox"
+          role="switch"
+          checked={sharedRead}
+          disabled={guarded}
+          onChange={(e) => onSharedRead(e.target.checked)}
+        />
+        <span className="switch-track" aria-hidden />
+        <span>{copy.sharedRead}</span>
+      </label>
+      <label className="baja-toggle">
+        <input type="checkbox" checked={guarded} onChange={(e) => onGuarded(e.target.checked)} />
+        {copy.protected}
+      </label>
+      <p className="muted ops-note">{guarded ? copy.protectedHint : copy.visibilityHint}</p>
+    </div>
+  )
 }
 
 interface AttachState {
@@ -102,9 +159,21 @@ interface FormState {
   /** A qué acompaña (`incident:<id>` / `event:<id>`), o vacío. */
   link: string
   notes: string
+  /** Confidencialidad: el interruptor de lectura y el candado. Nacen apagados
+   * —un documento nuevo lo lee solo su responsable— y el responsable no se
+   * pide aquí: lo pone el back con el conductor vigente. */
+  shared_read: boolean
+  protected: boolean
 }
 
-const emptyForm = (type: string): FormState => ({ type, expiry_date: '', link: '', notes: '' })
+const emptyForm = (type: string): FormState => ({
+  type,
+  expiry_date: '',
+  link: '',
+  notes: '',
+  shared_read: false,
+  protected: false,
+})
 
 /** El titular de los documentos: un vehículo (la ficha del coche) O una
  * persona (la ficha del usuario: sus documentos personales, como el permiso
@@ -141,12 +210,20 @@ export function DocumentsPanel({
       })),
     [personal, t],
   )
+  /** Cómo se lee la regla de un documento, en una chapa. */
+  const visibilityLabel = useCallback(
+    (doc: FlotaDocument) =>
+      doc.protected ? t.protected : doc.shared_read ? t.sharedRead : t.onlyResponsible,
+    [t],
+  )
   const deactivateConfirm = useDeactivateConfirm()
   const confirm = useConfirm()
   const [docs, setDocs] = useState<FlotaDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  /** El documento cuya visibilidad se está cambiando, si hay alguno. */
+  const [visibilityDoc, setVisibilityDoc] = useState<FlotaDocument | null>(null)
   // Búsqueda en cliente sobre los documentos ya cargados (barra informativa).
   const [search, setSearch] = useState('')
   // Agrupar la tabla en bloques plegables por tipo de documento (un nivel,
@@ -165,6 +242,8 @@ export function DocumentsPanel({
   // Los registros del coche a los que puede acompañar un documento (ITV,
   // mantenimientos, renovaciones de seguro), cargados al abrir el alta.
   const [events, setEvents] = useState<FlotaEvent[]>([])
+  // Las alertas abiertas a las que puede acompañar (la ITV programada del informe).
+  const [alerts, setAlerts] = useState<Alert[]>([])
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -215,7 +294,16 @@ export function DocumentsPanel({
     setReplacing(replaceDoc)
     setForm(
       replaceDoc
-        ? { type: replaceDoc.type, expiry_date: '', link: linkOf(replaceDoc), notes: '' }
+        ? {
+            type: replaceDoc.type,
+            expiry_date: '',
+            link: linkOf(replaceDoc),
+            notes: '',
+            // La versión nueva se lee como la anterior: sustituir es cambiar
+            // el papel, no a quién se le enseña.
+            shared_read: replaceDoc.shared_read,
+            protected: replaceDoc.protected,
+          }
         : emptyForm(defaultType),
     )
     setAttach(EMPTY_ATTACH)
@@ -226,6 +314,7 @@ export function DocumentsPanel({
     if (!vehicle) {
       setIncidents([])
       setEvents([])
+      setAlerts([])
       return
     }
     // Lo que tiene el coche a lo que puede acompañar un documento: sus
@@ -245,31 +334,40 @@ export function DocumentsPanel({
     const cargaRegistros = Promise.allSettled(
       EVENT_KINDS.map((kind) => listVehicleEvents(vehicle.id, kind).then((page) => page.results)),
     ).then((res) => res.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])))
-    Promise.all([cargaIncidencias, cargaRegistros]).then(([rows, registros]) => {
-      setIncidents(rows)
-      setEvents(registros)
-      // Si lo que ligaba el documento sustituido ya no se ofrece (la
-      // incidencia se cerró y el tipo no admite cerradas), se suelta.
-      setForm((f) => {
-        const { incident, event } = parseLink(f.link)
-        const sigue = incident
-          ? linkableIncidents(rows, f.type).some((row) => row.id === incident)
-          : event
-            ? linkableEvents(registros, f.type).some((row) => row.id === event)
-            : true
-        return sigue ? f : { ...f, link: '' }
-      })
-    })
+    // La ITV programada es la alerta `itv_due` abierta del coche.
+    const cargaAlertas = listAlerts({ vehicle: vehicle.id, type: 'itv_due', status: 'open' })
+      .then((page) => page.results)
+      .catch((): Alert[] => [])
+    Promise.all([cargaIncidencias, cargaRegistros, cargaAlertas]).then(
+      ([rows, registros, avisos]) => {
+        setIncidents(rows)
+        setEvents(registros)
+        setAlerts(avisos)
+        // Si lo que ligaba el documento sustituido ya no se ofrece (la
+        // incidencia se cerró y el tipo no admite cerradas), se suelta.
+        setForm((f) => {
+          const { incident, event, alert } = parseLink(f.link)
+          const sigue = incident
+            ? linkableIncidents(rows, f.type).some((row) => row.id === incident)
+            : event
+              ? linkableEvents(registros, f.type).some((row) => row.id === event)
+              : alert
+                ? linkableAlerts(avisos, f.type).some((row) => row.id === alert)
+                : true
+          return sigue ? f : { ...f, link: '' }
+        })
+      },
+    )
   }, [defaultType, vehicle])
 
   // Qué pide el formulario según el tipo elegido (mismas reglas que el back).
   const expires = documentExpires(form.type)
-  const boundTo = incidentTypeRequiredBy(form.type)
   const linkRequired = documentLinkRequired(form.type)
   const linkableInc = useMemo(() => linkableIncidents(incidents, form.type), [incidents, form.type])
   const linkableEv = useMemo(() => linkableEvents(events, form.type), [events, form.type])
+  const linkableAl = useMemo(() => linkableAlerts(alerts, form.type), [alerts, form.type])
   // Un solo desplegable con lo que tiene el coche, agrupado por su categoría:
-  // incidencias y, detrás, cada tipo de registro que el documento admita.
+  // incidencias y, detrás, cada tipo de registro o alerta que el documento admita.
   const linkOptions = useMemo(() => {
     const grupos = t.linkGroups
     const opciones = linkableInc.map((i) => ({
@@ -283,18 +381,31 @@ export function DocumentsPanel({
         opciones.push({ value: `event:${e.id}`, label: t.eventOption(e), group: grupos[kind] })
       }
     }
+    if (linkableAlertKinds(form.type).length) {
+      for (const a of linkableAl) {
+        opciones.push({ value: `alert:${a.id}`, label: t.alertOption(a), group: grupos.scheduled })
+      }
+    }
     return opciones
-  }, [form.type, linkableEv, linkableInc, t])
+  }, [form.type, linkableAl, linkableEv, linkableInc, t])
+  // Cómo se llama el desplegable y qué se dice si está vacío, según el tipo.
+  const linkCopy = t.linkCopyFor(form.type)
+  // Con solo incidencias que ofrecer, el rótulo habla de incidencias.
+  const soloIncidencias =
+    documentAcceptsIncidents(form.type) &&
+    !linkableEventKinds(form.type).length &&
+    !linkableAlertKinds(form.type).length
 
   /** ¿Sigue ofreciéndose `link` para un documento de `type`? */
   const linkOffered = useCallback(
     (link: string, type: string) => {
-      const { incident, event } = parseLink(link)
+      const { incident, event, alert } = parseLink(link)
       if (incident) return linkableIncidents(incidents, type).some((row) => row.id === incident)
       if (event) return linkableEvents(events, type).some((row) => row.id === event)
+      if (alert) return linkableAlerts(alerts, type).some((row) => row.id === alert)
       return true
     },
-    [events, incidents],
+    [alerts, events, incidents],
   )
 
   function changeType(value: string) {
@@ -336,7 +447,7 @@ export function DocumentsPanel({
       return
     }
     if (linkRequired && !form.link) {
-      setFormError(boundTo ? t.incidentRequired : t.linkRequired)
+      setFormError(linkCopy.required)
       return
     }
     setSaving(true)
@@ -349,6 +460,8 @@ export function DocumentsPanel({
       ...(personal ? {} : parseLink(form.link)),
       notes: form.notes || undefined,
       replaces: replacing?.id ?? null,
+      shared_read: form.shared_read,
+      protected: form.protected,
     }
     try {
       if (file) {
@@ -484,8 +597,10 @@ export function DocumentsPanel({
       // A qué acompaña: la incidencia (#id) o el registro (ITV, renovación…).
       key: 'link',
       label: t.columns.link,
-      getValue: (doc) => (doc.incident ? `#${doc.incident}` : doc.event_display || ''),
-      render: (doc) => (doc.incident ? `#${doc.incident}` : doc.event_display || '—'),
+      getValue: (doc) =>
+        doc.incident ? `#${doc.incident}` : doc.event_display || doc.alert_display || '',
+      render: (doc) =>
+        doc.incident ? `#${doc.incident}` : doc.event_display || doc.alert_display || '—',
     },
     {
       // Las notas en columna propia: antes iban debajo del tipo y una nota
@@ -510,6 +625,22 @@ export function DocumentsPanel({
             </span>
           )}
         </span>
+      ),
+    },
+    {
+      // Quién lo lee, en dos líneas: la regla arriba y de quién es debajo.
+      key: 'visibility',
+      label: t.columns.visibility,
+      getValue: (doc) => visibilityLabel(doc),
+      render: (doc) => (
+        <div className="stack-cell">
+          <Badge tone={doc.protected ? 'danger' : doc.shared_read ? 'success' : 'warning'}>
+            {visibilityLabel(doc)}
+          </Badge>
+          {doc.responsible_name && (
+            <span className="stack-cell-sub muted">{doc.responsible_name}</span>
+          )}
+        </div>
       ),
     },
     {
@@ -542,6 +673,15 @@ export function DocumentsPanel({
             )}
             <IconButton aria-label={t.replace} title={t.replace} onClick={() => openCreate(doc)}>
               <Replace size={15} />
+            </IconButton>
+            {/* Quién lo lee se decide también DESPUÉS de subirlo: un
+                interruptor que solo se puede poner en el alta no sirve. */}
+            <IconButton
+              aria-label={t.editVisibility}
+              title={t.editVisibility}
+              onClick={() => setVisibilityDoc(doc)}
+            >
+              {doc.protected ? <Lock size={15} /> : <Users size={15} />}
             </IconButton>
             {doc.status !== 'pending_archive' && (
               <IconButton
@@ -576,7 +716,7 @@ export function DocumentsPanel({
         )
       },
     },
-  ], [handleDelete, handlePurge, openCreate, t, toggleStatus])
+  ], [handleDelete, handlePurge, openCreate, t, toggleStatus, visibilityLabel])
 
   // Los documentos personales no acompañan a nada: la columna sobra.
   const visibleColumns = useMemo(
@@ -732,37 +872,31 @@ export function DocumentsPanel({
           {linkRequired ? (
             linkOptions.length > 0 ? (
               <SelectField
-                label={boundTo ? t.incidentRequiredLabel : t.linkRequiredLabel}
+                label={linkCopy.label}
                 required
                 requiredVisual
-                options={[
-                  { value: '', label: boundTo ? t.incidentChoose : t.linkChoose },
-                  ...linkOptions,
-                ]}
+                options={[{ value: '', label: linkCopy.choose }, ...linkOptions]}
                 value={form.link}
                 onValueChange={(value) => setForm((f) => ({ ...f, link: value }))}
               />
             ) : (
               <p className="form-error" role="status">
-                {(boundTo ? t.noOpenIncident : t.noLinkCandidates)(
-                  t.typeOptions[form.type as keyof typeof t.typeOptions],
-                )}
+                {linkCopy.none(t.typeOptions[form.type as keyof typeof t.typeOptions])}
               </p>
             )
           ) : (
             linkOptions.length > 0 && (
               <SelectField
-                label={linkableEventKinds(form.type).length ? t.recordLabel : t.incidentLabel}
+                label={soloIncidencias ? t.incidentLabel : t.recordLabel}
                 required
                 options={[
-                  {
-                    value: '',
-                    label: linkableEventKinds(form.type).length ? t.recordNone : t.incidentNone,
-                  },
+                  { value: LINK_NONE, label: soloIncidencias ? t.incidentNone : t.recordNone },
                   ...linkOptions,
                 ]}
-                value={form.link}
-                onValueChange={(value) => setForm((f) => ({ ...f, link: value }))}
+                value={form.link || LINK_NONE}
+                onValueChange={(value) =>
+                  setForm((f) => ({ ...f, link: value === LINK_NONE ? '' : value }))
+                }
               />
             )
           )}
@@ -770,6 +904,14 @@ export function DocumentsPanel({
             label={t.notesLabel}
             value={form.notes}
             onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+          />
+
+          <VisibilityFields
+            copy={t}
+            sharedRead={form.shared_read}
+            onSharedRead={(value) => setForm((f) => ({ ...f, shared_read: value }))}
+            guarded={form.protected}
+            onGuarded={(value) => setForm((f) => ({ ...f, protected: value }))}
           />
 
           <div className="doc-attach">
@@ -827,6 +969,79 @@ export function DocumentsPanel({
           </div>
         </form>
       </Modal>
+
+      {visibilityDoc && (
+        <VisibilityModal
+          doc={visibilityDoc}
+          copy={t}
+          onClose={() => setVisibilityDoc(null)}
+          onSaved={() => {
+            setVisibilityDoc(null)
+            load()
+          }}
+        />
+      )}
     </CollapsibleCard>
+  )
+}
+
+/** Cambiar quién lee un documento YA subido. Solo eso: lo demás de la fila se
+ * corrige sustituyéndolo, que es como funciona el histórico (HU-4.4). */
+function VisibilityModal({
+  doc,
+  copy,
+  onClose,
+  onSaved,
+}: {
+  doc: FlotaDocument
+  copy: ReturnType<typeof usePanelsCopy>['documents']
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [sharedRead, setSharedRead] = useState(doc.shared_read)
+  const [guarded, setGuarded] = useState(doc.protected)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      await updateDocument(doc.id, { shared_read: sharedRead, protected: guarded })
+      onSaved()
+    } catch (err) {
+      setError(asErrorMessage(err, copy.saveError))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal open title={copy.visibilityTitle(doc.type_display)} onClose={onClose}>
+      <form className="ops-modal" onSubmit={submit}>
+        <VisibilityFields
+          copy={copy}
+          sharedRead={sharedRead}
+          onSharedRead={setSharedRead}
+          guarded={guarded}
+          onGuarded={setGuarded}
+        />
+        {/* El responsable no se edita aquí: lo puso el alta y cambiarlo es
+            cambiar de quién es el documento, no cómo se lee. */}
+        <p className="muted ops-note">
+          {doc.responsible_name ? copy.responsibleIs(doc.responsible_name) : copy.noResponsible}
+        </p>
+        {error && <div role="alert" className="form-error">{error}</div>}
+        <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            {copy.cancel}
+          </Button>
+          <Button type="submit" variant="primary" disabled={saving}>
+            {saving ? copy.saving : copy.save}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   )
 }

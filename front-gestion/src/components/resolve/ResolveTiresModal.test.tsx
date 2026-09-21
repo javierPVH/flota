@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ResolveTiresModal } from './ResolveTiresModal.tsx'
-import { prefillPositions, prefillSize } from './tires.ts'
+import { prefillPositions, prefillSize } from '@flota/ui/domain'
 import { LanguageProvider } from '../../i18n.tsx'
 import type { Incident } from '../../types.ts'
 

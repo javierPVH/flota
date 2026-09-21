@@ -16,8 +16,8 @@ const es = {
       vehicles: 'Vehículos',
       registerKm: 'Registrar km',
       alerts: 'Alertas',
-      breakdown: 'Avería',
-      incident: 'Avería',
+      breakdown: 'Incidencia',
+      incident: 'Incidencia',
       projection: 'Proyección km',
       /* Etiquetas CORTAS de las acciones del nav de "Mi vehículo". */
       km: 'Km',
@@ -31,6 +31,7 @@ const es = {
       label: 'Cambiar de vista',
       vehicle: 'Mi vehículo',
       fleet: 'Flota',
+      profile: 'Mi perfil',
     },
     /** Modo "Mi vehículo" sin coche propio: las acciones van desactivadas. */
     noVehicle: 'Sin vehículo asignado',
@@ -56,6 +57,9 @@ const es = {
     required: 'Obligatorio',
     yes: 'Sí',
     no: 'No',
+    /** Barra de buscar y filtrar de las listas largas (`ListFilter`). */
+    search: 'Buscar',
+    noMatches: 'Nada coincide con lo que buscas.',
     /** R3-31: la lista no cabe en una página — se dice, no se recorta en silencio. */
     truncated: (shown: number, total: number) =>
       `Lista recortada: se muestran ${shown} de ${total} registros.`,
@@ -110,17 +114,18 @@ const es = {
     kmDateDay: (d: number) => `el día ${d}`,
     nextItv: 'Próx. ITV',
     nextMaintenance: 'Próx. mantenimiento',
-    /** Acordeón del tablero: SOLO lo relacionado con averías (partes de
-     * avería, neumáticos y accidentes abiertos; mantenimiento e ITV, no). */
-    breakdownsTitle: 'Averías',
-    noBreakdowns: 'Sin averías abiertas.',
+    /** Acordeón del tablero: SOLO las incidencias (avería, neumáticos,
+     * mantenimiento puntual, petición general y accidentes abiertos; el
+     * mantenimiento programado y la ITV, no). */
+    breakdownsTitle: 'Incidencias',
+    noBreakdowns: 'Sin incidencias abiertas.',
     driver: 'Conductor',
     /* Datos de gestión de la tarjeta (solo supervisor). */
     lastReading: 'Última lectura',
     noReading: 'Sin lectura',
     projection: 'Proyección',
     openIncidents: (n: number) =>
-      n === 1 ? '1 avería abierta' : `${n} averías abiertas`,
+      n === 1 ? '1 incidencia abierta' : `${n} incidencias abiertas`,
     substitute: '🔁 sustitución',
     blocked: 'Bloqueado',
     blockedNote: (reason: string, plate: string) =>
@@ -140,23 +145,42 @@ const es = {
     ownEmptyCta: 'Ver la flota a cargo',
     quickRegister: 'Registrar km',
     quickUpload: 'Subir documento',
-    quickBreakdown: 'Avería',
+    quickBreakdown: 'Incidencia',
     loadError: 'No se pudieron cargar tus vehículos.',
     // Acordeón de advertencias del inicio: solo sale cuando queda poco.
     // X1: del seguro, nada — es asunto de administración.
     deadlines: {
       title: 'Te queda poco',
       count: (n: number) => (n === 1 ? '1 aviso' : `${n} avisos`),
-      km: 'Registrar kilómetros',
+      km: (plate: string) => `Kilómetros de ${plate}`,
       itv: (plate: string) => `ITV de ${plate}`,
+      maintenance: (plate: string) => `Mantenimiento de ${plate}`,
+      fuel: (plate: string) => `Combustible de ${plate}`,
       // Cuenta atrás en lenguaje natural (evita "en 1 días").
       inDays: (days: number) =>
         days <= 0 ? 'hoy es el último día' : days === 1 ? 'mañana es el último día' : `quedan ${days} días`,
       dueIn: (days: number) => (days === 0 ? 'hoy' : days === 1 ? 'mañana' : `en ${days} días`),
       overdue: (days: number) => (days === 1 ? 'venció ayer' : `venció hace ${days} días`),
       kmUntil: (lastDay: number) => `hasta el día ${lastDay}`,
-      kmOpens: (days: number, startDay: number) =>
-        `${days === 1 ? 'se abre mañana' : `se abre en ${days} días`} (día ${startDay})`,
+      /** Antes de la ventana esto es un CONSEJO, no una cuenta atrás: se lee a
+       * principios de mes, cuando la lectura aún no toca, y «se abre en 2 días»
+       * sonaba a puerta cerrada en vez de a cuándo conviene darla. */
+      kmOpens: (startDay: number) => `recomendable del ${startDay} a fin de mes`,
+      /** Sin ventana (N8a desactivada) no hay plazo: se dice el mes que falta. */
+      kmMissing: (month: string) => `falta la lectura de ${month}`,
+      kmMonthEnd: (days: number) =>
+        days <= 0 ? 'el mes acaba hoy' : days === 1 ? 'el mes acaba mañana' : `el mes acaba en ${days} días`,
+      /** Antigüedad de la última lectura: lo que dice si esto va en rojo. */
+      kmLast: (days: number) =>
+        days === 0 ? 'última hoy' : days === 1 ? 'última ayer' : `última hace ${days} días`,
+      kmNever: 'sin ninguna lectura',
+      fuelStale: (days: number) =>
+        days === 1 ? 'sin anotar desde ayer' : `sin anotar desde hace ${days} días`,
+      fuelNever: 'sin ninguna anotación',
+      /** GAP-2: el consumo se anota POR VIAJE, no una cifra al mes. Sin esta
+       * línea el aviso se lee como si tuviera plazo mensual, y no lo tiene. */
+      fuelPerTrip: 'se anota en cada viaje',
+      lastOn: (date: string) => `última el ${date}`,
     },
   },
   gate: {
@@ -206,10 +230,18 @@ const es = {
     noDriver: 'Sin conductor asignado',
     supervisor: 'Supervisor',
     use: 'Uso',
-    /** Tarjeta fusionada de la ficha: alertas + incidencias abiertas, todo
-     * resoluble desde ahí (las incidencias, solo por el supervisor). */
-    alertsIncidentsTitle: 'Alertas y averías',
-    alertsIncidentsEmpty: 'Sin alertas ni averías abiertas. Todo al día.',
+    /** Las TRES tarjetas de lo que el coche tiene abierto (tablero y ficha):
+     * una por familia, con su recuento en el título y plegadas de salida.
+     * Todo es resoluble desde ahí (las incidencias, solo por el supervisor). */
+    alertsTitle: 'Alertas',
+    alertsEmpty: 'Sin alertas abiertas. Todo al día.',
+    incidentsTitle: 'Incidencias',
+    incidentsEmpty: 'Sin incidencias abiertas.',
+    accidentsTitle: 'Accidentes',
+    accidentsEmpty: 'Sin accidentes abiertos.',
+    /** Filtro de la cabecera: sale al desplegar y solo si hay varios tipos. */
+    filterByType: 'Filtrar por tipo',
+    filterAllTypes: 'Todos los tipos',
     noDate: 'Sin fecha',
     documentsTitle: 'Documentos',
     upload: 'Subir',
@@ -218,15 +250,31 @@ const es = {
     openDoc: (name: string) => `Abrir ${name}`,
     itvTitle: (plate: string) => `Registrar ITV · ${plate}`,
     itvDate: 'Fecha de la ITV',
+    itvDateRequired: 'Indica la fecha de la ITV.',
+    itvToday: 'Hoy',
+    itvCalc: 'Calcular',
+    /** De dónde sale la fecha que ha puesto «Calcular». */
+    itvCalcNote: (periodo: string) =>
+      `Propuesta: ${periodo} desde la fecha de la ITV, por la edad del vehículo. Si el informe dice otra, corrígela.`,
+    itvEveryYears: (n: number) => (n === 1 ? '1 año' : `${n} años`),
+    itvEveryMonths: (n: number) => `${n} meses`,
     itvResult: 'Resultado',
     itvResultDone: 'Favorable',
     itvResultNotDone: 'Desfavorable',
-    itvNextDue: 'Próxima ITV (opcional)',
+    /** Lo que está en juego al elegir, junto a cada opción. */
+    itvResultDoneNote: 'Cierra los avisos de ITV del vehículo.',
+    itvResultNotDoneNote: 'La cita sigue pendiente: los avisos no se cierran.',
+    itvNextDue: 'Próxima ITV',
+    itvNextDueHint: 'Opcional: la que indique el informe. En blanco, el coche queda sin próxima cita hasta que se registre.',
     /** R3-32: espejo del back — la próxima ITV es posterior a la inspección. */
     itvNextDueInvalid: 'La próxima ITV debe ser posterior a la fecha de la inspección.',
     itvAnyDate: 'Se puede registrar antes o después de esa fecha.',
-    itvAutoClose: 'Al registrarla, los avisos de ITV del vehículo se cierran automáticamente.',
-    itvNotDoneNote: 'Una ITV desfavorable no cierra los avisos: la cita sigue pendiente.',
+    itvNoDate: 'Este vehículo no tiene próxima ITV registrada.',
+    itvReport: 'Informe de la ITV',
+    itvReportHint: 'Foto o PDF · opcional',
+    itvReportChange: 'Toca para cambiarlo',
+    itvReportQueued: 'Sin conexión: el informe se subirá al recuperar la cobertura.',
+    itvReportFailed: 'El informe no se pudo subir: súbelo desde Documentos del vehículo.',
     itvSubmit: 'Registrar ITV',
     itvSubmitting: 'Registrando…',
     itvOk: 'ITV registrada. Los avisos asociados se cierran y la próxima fecha queda actualizada.',
@@ -253,6 +301,12 @@ const es = {
     linkAccidentRequired: 'Elige el accidente al que pertenece el parte.',
     noOpenAccident:
       'Un parte de accidente va ligado a un accidente abierto y este vehículo no tiene ninguno: comunica primero el accidente.',
+    // Las fotos de daños son las fotos DE una incidencia: obligatoria.
+    linkIncidentOpen: 'Incidencia abierta',
+    linkChooseIncident: 'Elige la incidencia…',
+    linkIncidentRequired: 'Elige la incidencia a la que pertenecen las fotos.',
+    noOpenIncident:
+      'Unas fotos de daños van ligadas a una incidencia abierta y este vehículo no tiene ninguna: comunica primero la incidencia.',
     notes: 'Notas (opcional)',
     chooseFile: 'Elige una foto o un PDF.',
     uploadSubmitting: 'Subiendo…',
@@ -326,6 +380,25 @@ const es = {
     resolveTitle: (plate: string) => `Resolver alerta · ${plate}`,
     resolveSubmit: 'Resolver alerta',
     resolveNoteLabel: 'Observaciones (opcional, quedan en la alerta resuelta)',
+    /** Proponer otro conductor: solo en la alerta de km contratados, que es la
+     * única que se arregla cambiando quién lleva el coche. No resuelve nada:
+     * abre una solicitud que decide administración. */
+    propose: {
+      title: '¿Debería llevarlo otra persona?',
+      intro:
+        'Si el coche va camino de pasarse de los km contratados, propón a quien ruede menos. ' +
+        'No se cambia nada ahora: la propuesta la decide administración.',
+      whoLabel: 'A quién propones (de tu flota)',
+      whoNone: 'Nadie de la lista — lo explico abajo',
+      /** La única caja de texto de esa ventana: viaja con la propuesta y, si
+       * se resuelve la alerta, es lo que queda escrito en ella. */
+      noteLabel: 'Nota (queda en la propuesta y en la alerta)',
+      noteRequiredLabel: 'Nota para administración (di a quién y por qué)',
+      submit: 'Enviar propuesta',
+      sending: 'Enviando…',
+      sent: 'Propuesta enviada. Administración la decide en sus solicitudes.',
+      error: 'No se pudo enviar la propuesta.',
+    },
     resolveKmTitle: (plate: string) => `Registrar km · ${plate}`,
     resolveKmIntro: 'Registrar la lectura de este mes resuelve la alerta.',
     resolveKmLabel: 'Lectura del cuentakilómetros',
@@ -364,7 +437,7 @@ const es = {
     unlimitedNote: 'Km ilimitados: este vehículo no tiene proyección ni límite de km.',
     showChart: 'Ver evolución',
     hideChart: 'Ocultar evolución',
-    incidents: 'Averías',
+    incidents: 'Incidencias',
     newIncident: 'Nueva',
   },
   // Recordatorio del supervisor (correo y/o alerta) desde la tarjeta del coche.
@@ -395,12 +468,44 @@ const es = {
     error: 'No se pudo enviar el recordatorio.',
     close: 'Cerrar',
   },
-  // Lanzar una avería desde la tarjeta/ficha, con el coche fijado. En DOS
-  // pasos: los datos de la avería y, con animación, la ubicación preferente,
-  // donde ya se comunica.
+  // Lanzar una incidencia desde la tarjeta/ficha, con el coche fijado. En TRES
+  // pasos: qué pasa · qué lo prueba · dónde se arregla.
   breakdown: {
-    title: (plate: string) => `Comunicar avería · ${plate}`,
+    title: (plate: string) => `Comunicar incidencia · ${plate}`,
+    stepTires: 'Neumáticos',
+    stepAvailability: 'Disponibilidad',
+    stepDocs: 'Documentos',
     stepManage: 'Gestión',
+    docsHint:
+      'Adjunta lo que ayude a entenderlo: fotos del daño, el presupuesto del ' +
+      'taller… Puedes añadir varios y no es obligatorio.',
+    /** Único requisito de la petición de coche: justificarla con algo. */
+    docsRequired:
+      'Para pedir coche de sustitución hay que adjuntar al menos un documento ' +
+      '(foto del daño, informe del taller…). Puedes añadir varios.',
+    substituteDocsTitle: 'Documentación del coche de sustitución',
+    substituteDocsHint:
+      'Si ya te han dado uno, sube aquí su documentación: permiso de ' +
+      'circulación, ficha técnica, seguro… Puedes subir varios y es opcional ' +
+      '(lo normal al comunicarlo es no tenerlo todavía).',
+    substituteAttach: 'Adjuntar documentación del coche de sustitución',
+    availabilityLabel: '¿Cómo queda el coche?',
+    availabilityHint:
+      'Esto no cambia el estado del vehículo: lo registra la gestión, que es ' +
+      'quien decide.',
+    availability: {
+      active: 'Sigue en servicio',
+      stopped: 'No se puede usar',
+      substitute: 'Necesito coche de sustitución',
+    },
+    availabilityNotes: {
+      active: 'Puedo seguir conduciéndolo mientras se atiende.',
+      stopped: 'El coche se queda parado, pero no hace falta otro.',
+      substitute:
+        'Se abre una solicitud de coche a administración, que decide si lo ' +
+        'facilita. Hay que adjuntar algún documento.',
+    },
+    removeFile: (name: string) => `Quitar ${name}`,
     vehicle: 'Vehículo',
     date: 'Fecha',
     description: 'Descripción',
@@ -411,38 +516,46 @@ const es = {
     workshopHint: 'Indica el código postal de la ubicación desde la que prefieres acudir al taller más cercano.',
     preferredPostalCode: 'Código postal de la ubicación preferente',
     cost: 'Coste (€)',
-    submit: 'Comunicar avería',
-    saved: 'Avería comunicada.',
-    savedUploadFailed: 'Avería comunicada; algún adjunto no se pudo subir.',
+    submit: 'Comunicar incidencia',
+    saved: 'Incidencia comunicada.',
+    savedRequest:
+      'Incidencia comunicada. Tu solicitud de coche de sustitución queda ' +
+      'pendiente de administración.',
+    savedUploadFailed: 'Incidencia comunicada; algún adjunto no se pudo subir.',
     /** R3-27: el adjunto quedó en la cola offline — llegará al reconectar. */
     savedUploadQueued:
-      'Avería comunicada; sin conexión, el adjunto quedó guardado y se subirá al recuperar la cobertura.',
+      'Incidencia comunicada; sin conexión, el adjunto quedó guardado y se subirá al recuperar la cobertura.',
     /** R3-27: el parte entero quedó en la cola offline. */
     queued:
-      'Sin conexión: la avería quedó guardada en el móvil y se comunicará al recuperar la cobertura.',
-    error: 'No se pudo comunicar la avería.',
+      'Sin conexión: la incidencia quedó guardada en el móvil y se comunicará al recuperar la cobertura.',
+    error: 'No se pudo comunicar la incidencia.',
     close: 'Cerrar',
   },
-  // Nueva incidencia desde la tarjeta: selector de tipo (neumáticos / general /
-  // mantenimiento), cada uno con su div informativo.
+  // Nueva incidencia desde la tarjeta: selector de tipo, cada uno con su div
+  // informativo. Los tipos son los de gestión (`src/incidentTypes.ts`).
   incidentModal: {
-    title: (plate: string) => `Avería · ${plate}`,
+    title: (plate: string) => `Incidencia · ${plate}`,
     kind: 'Tipo',
     kinds: {
-      general: 'General',
-      tires: 'Cambio de neumático',
-      maintenance: 'Propuesta de mejora',
+      maintenance: 'Mantenimiento puntual',
+      tires: 'Cambio de neumáticos',
+      breakdown: 'Avería',
+      general: 'Petición general',
     },
     info: {
+      maintenance:
+        'Mantenimiento puntual: cosas rotas o cambios necesarios que no ' +
+        'impiden conducir; se atienden sin urgencia. El programado va por su ' +
+        'plan, no por aquí.',
       tires:
         'Cambio de neumáticos por desgaste o pinchazo. El taller y la cita se ' +
-        'concretan después, en la gestión de la avería.',
+        'concretan después, en la gestión.',
+      breakdown:
+        'El vehículo ha fallado: no está en condiciones de circular o no se ' +
+        'puede usar con normalidad.',
       general:
         'Solicitud general: peticiones que quizá no tienen que ver con el ' +
         'vehículo (documentación, tarjetas, dudas…).',
-      maintenance:
-        'Mantenimiento: cosas rotas o cambios necesarios que no impiden ' +
-        'conducir; se atienden sin urgencia.',
     },
     date: 'Fecha',
     description: 'Descripción',
@@ -450,10 +563,10 @@ const es = {
     tireRequiredBase: 'Obligatorios para continuar: kilometraje y motivo.',
     tireRequiredWear: 'En desgaste: qué ruedas y las medidas de los ejes elegidos.',
     tireRequiredPuncture: 'En pinchazo: qué rueda y medida del neumático.',
-    submit: 'Comunicar avería',
-    saved: 'Avería comunicada.',
-    savedUploadFailed: 'Avería comunicada; el adjunto no se pudo subir.',
-    error: 'No se pudo comunicar la avería.',
+    submit: 'Comunicar incidencia',
+    saved: 'Incidencia comunicada.',
+    savedUploadFailed: 'Incidencia comunicada; el adjunto no se pudo subir.',
+    error: 'No se pudo comunicar la incidencia.',
     close: 'Cerrar',
   },
   // Actualización de campo del supervisor: km, mantenimiento y partes de
@@ -463,10 +576,23 @@ const es = {
     maintenanceButton: 'Actualizar mantenimiento',
     title: (plate: string) => `Actualizar · ${plate}`,
     notice:
-      'La responsabilidad de registrar los km, el mantenimiento y las averías es ' +
+      'La responsabilidad de registrar los km, el mantenimiento y las incidencias es ' +
       'del conductor, no del responsable. Usa esto solo en su lugar cuando haga ' +
       'falta: quedará registrado a tu nombre.',
-    tabs: { km: 'Km', maintenance: 'Mantenimiento', incidents: 'Averías' },
+    /** La X del aviso. Dice hasta cuándo se calla: no es «cerrar» y ya está. */
+    noticeHide: 'Ocultar el aviso en esta sesión',
+    /** El icono que lo devuelve, en el hueco que deja la X. */
+    noticeShow: 'Ver el aviso de responsabilidad',
+    /** Una pestaña por cosa que se actualiza; no hay «Alertas»: cada alerta se
+     * cierra haciendo lo suyo en su pestaña. */
+    tabsLabel: 'Qué actualizar',
+    tabs: {
+      km: 'Km',
+      fuel: 'Combustible',
+      itv: 'ITV',
+      maintenance: 'Mantenimiento',
+      incidents: 'Incidencias',
+    },
     kmLabel: 'Lectura del cuentakilómetros',
     kmCurrent: (v: string) => `Última conocida: ${v}`,
     kmLast: (value: string, date: string) => `Última lectura: ${value} · ${date}`,
@@ -477,19 +603,28 @@ const es = {
     planEvery: (txt: string) => `cada ${txt}`,
     planLast: (txt: string) => `último: ${txt}`,
     planNever: 'sin registrar',
-    planDoneOn: 'Realizado en:',
-    planDateTitle: (name: string) => `Realizar mantenimiento · ${name}`,
+    /** Es un BOTÓN, no la etiqueta de un campo: «Realizado en:» prometía un
+     * hueco donde escribir y lo que hace es preguntar la fecha. */
+    planDone: 'Marcar como realizado',
+    planNext: (date: string) => `Próxima: ${date}`,
+    planDateTitle: (name: string) => `¿Cuándo se hizo? · ${name}`,
     planDateLabel: 'Fecha de realizaci\u00f3n',
-    planToday: 'Realizado hoy',
-    planDateAccept: 'Aceptar fecha',
+    planToday: 'Hoy',
+    planDateAccept: 'Marcar como realizado',
     planChosen: (date: string) => `Mantenimiento realizado el ${date}.`,
-    planMore: 'Más información',
+    planMore: 'Ver detalles',
+    planLess: 'Ocultar detalles',
     planFrequency: 'Periodicidad',
     planLastDate: 'Última realización',
     planLastKm: 'Kilometraje de la última realización',
     planSaved: (name: string) => `«${name}» reanclado a hoy.`,
     planAlerts: (n: number) => (n === 1 ? '1 alerta resuelta.' : `${n} alertas resueltas.`),
     plansEmpty: 'Este vehículo no tiene planes de mantenimiento (los crea administración).',
+    /** Este modal es SOLO el mantenimiento programado: las incidencias viven en
+     * su tarjeta, y quien las cerraba aquí tiene que saber adónde ir. */
+    plansOnly:
+      'Mantenimiento programado del coche. Las incidencias se comunican y se solucionan ' +
+      'en su tarjeta «Incidencias».',
     months: (n: number) => (n === 1 ? '1 mes' : `${n} meses`),
     actionView: 'Ver',
     actionManage: 'Gestión',
@@ -506,14 +641,14 @@ const es = {
     preferredPostalCode: 'Código postal de la ubicación preferente',
     cost: 'Coste (€)',
     manageSubmit: 'Guardar gestión',
-    managed: 'Gestión guardada: la avería queda en curso.',
+    managed: 'Gestión guardada: la incidencia queda en curso.',
     observations: 'Observaciones',
     downtime: 'Tiempo parado (días)',
     resolutionDate: 'Fecha de solución',
     calculatedDowntime: (n: number) => `Tiempo parado calculado: ${n === 1 ? '1 día' : `${n} días`}`,
-    resolveSubmit: 'Cerrar avería',
-    resolvedNote: 'Avería cerrada.',
-    incidentsEmpty: 'Sin averías abiertas.',
+    resolveSubmit: 'Cerrar incidencia',
+    resolvedNote: 'Incidencia cerrada.',
+    incidentsEmpty: 'Sin incidencias abiertas.',
     loadError: 'No se pudo cargar.',
     error: 'No se pudo guardar.',
     close: 'Cerrar',
@@ -521,6 +656,20 @@ const es = {
   // Vista propia de subida de documentos; los campos reutilizan `vehicle.*`.
   uploadDoc: {
     title: 'Subir documento',
+    /** Los tres pasos: qué se sube, de qué es y qué más hay que decir. */
+    stepFile: 'Tipo y documento',
+    stepLink: 'Ligado a',
+    stepNotes: 'Notas',
+    linkHint:
+      'A qué incidencia del coche acompaña este documento. Lo exigen la '
+      + 'factura del taller, las fotos de daños y el parte de accidente; el '
+      + 'resto lo llevan si viene a cuento.',
+    linkNothing:
+      'Este documento no se liga a ninguna incidencia: sigue al paso '
+      + 'siguiente.',
+    notesHint:
+      'Algo que ayude a reconocerlo después en la lista de documentos. Es '
+      + 'opcional.',
     back: 'Volver',
     vehicle: 'Vehículo',
     choose: 'Elige un vehículo…',
@@ -530,19 +679,20 @@ const es = {
     backHome: 'Volver al inicio',
   },
   newIncident: {
-    title: 'Nueva avería',
-    /** El inicio tiene un acceso propio para "Avería": el título lo refleja. */
-    titleBreakdown: 'Comunicar avería',
+    title: 'Nueva incidencia',
+    /** El inicio tiene un acceso propio para "Incidencia": el título lo refleja. */
+    titleBreakdown: 'Comunicar incidencia',
     back: 'Volver',
     vehicle: 'Vehículo',
     choose: 'Elige un vehículo…',
     type: 'Tipo',
+    // Los mismos nombres que gestión y que el back (`IncidentType`).
     types: {
-      general: 'General',
+      general: 'Petición general',
       breakdown: 'Avería',
       accident: 'Accidente',
-      maintenance: 'Propuesta de mejora',
-      tires: 'Cambio de neumático',
+      maintenance: 'Mantenimiento puntual',
+      tires: 'Cambio de neumáticos',
       inspection: 'Revisión',
     } as Record<string, string>,
     date: 'Fecha',
@@ -550,6 +700,17 @@ const es = {
     descPlaceholder: 'Qué ha pasado, dónde, estado del vehículo…',
     tiresData: 'Datos del cambio',
     accidentData: 'Datos del accidente',
+    /** Pasos del parte, los mismos que en gestión. */
+    stepWhere: 'Dónde y cuándo',
+    stepDamage: 'Daños',
+    stepPeople: 'Implicados',
+    stepReport: 'Atestado y archivo',
+    peopleHint:
+      'Otros vehículos y personas heridas, si las hay. Es opcional: un '
+      + 'accidente sin implicados también se comunica.',
+    reportHint:
+      'El número de atestado y el parte en papel, si los tienes. También '
+      + 'son opcionales: puedes añadirlos después desde la ficha.',
     mileage: 'Kilometraje actual',
     /** Pista bajo el odómetro cuando viene precargado del resumen del coche. */
     mileageFromReading: (value: string) => `Última lectura conocida: ${value}`,
@@ -584,8 +745,19 @@ const es = {
     thirdParties: 'Terceros implicados',
     injuredPeople: 'Lesionados',
     add: 'Añadir',
-    removeThirdParty: 'Quitar tercero',
-    removeInjured: 'Quitar lesionado',
+    /** Cada implicado se rellena en su propio modal y en la lista se lee
+     * en una línea, con sus dos acciones. */
+    thirdPartyTitle: 'Tercero implicado',
+    injuredTitle: 'Lesionado',
+    save: 'Guardar',
+    edit: (quien: string) => `Modificar ${quien}`,
+    noThirdParties: 'Sin terceros implicados.',
+    noInjured: 'Sin lesionados.',
+    unnamed: 'Sin nombre',
+    thirdPartyRequired: 'Del tercero hacen falta el nombre y la matrícula.',
+    injuredRequired: 'Del lesionado hace falta el nombre.',
+    removeThirdParty: (quien: string) => `Quitar a ${quien}`,
+    removeInjured: (quien: string) => `Quitar a ${quien}`,
     plate: 'Matrícula',
     brand: 'Marca',
     model: 'Modelo',
@@ -598,21 +770,21 @@ const es = {
     passenger: 'Ocupante',
     policeReportReference: 'Referencia del atestado (opcional)',
     accidentReport: 'Archivo del parte (opcional)',
-    // Vale para cualquier tipo: una foto del daño, pero también un
-    // presupuesto o una captura de la propuesta de mejora.
+    // Vale para cualquier tipo: una foto del daño, pero también el
+    // presupuesto del taller o el papel de una petición general.
     attachments: 'Fotos o documentos (cámara, galería o archivo; opcional)',
     attachmentsSelected: (n: number) =>
       `${n} archivo${n === 1 ? '' : 's'} seleccionado${n === 1 ? '' : 's'}`,
-    submit: 'Crear avería',
+    submit: 'Crear incidencia',
     submitting: 'Creando…',
-    createError: 'No se pudo crear la avería.',
+    createError: 'No se pudo crear la incidencia.',
     uploadFailed: (names: string) =>
-      `Avería creada, pero no se pudieron subir: ${names}. Puedes añadirlas desde la ` +
+      `Incidencia creada, pero no se pudieron subir: ${names}. Puedes añadirlas desde la ` +
       'ficha del vehículo.',
     /** R3-27: el parte quedó en la cola offline (con sus adjuntos). */
     queuedTitle: 'Guardado sin conexión',
     queuedNote:
-      'La avería quedó guardada en este dispositivo (con sus adjuntos) y se comunicará ' +
+      'La incidencia quedó guardada en este dispositivo (con sus adjuntos) y se comunicará ' +
       'automáticamente al recuperar la cobertura.',
   },
   accidentModal: {
@@ -665,6 +837,31 @@ const es = {
     vehicleHint:
       'Papeles del vehículo: permiso de circulación, ficha técnica, seguro… Se ' +
       'quedan con el coche cuando lo devuelves.',
+    /** Lo que se puede hacer con un documento desde el campo: verlo,
+     * descargarlo y PEDIR su borrado — que no lo borra: lo decide la gestión. */
+    viewDoc: (name: string) => `Ver ${name}`,
+    viewTitle: (name: string) => `Ver · ${name}`,
+    viewLoading: 'Abriendo el documento…',
+    viewError: 'No se pudo abrir el documento. Inténtalo de nuevo.',
+    /** Por qué no queda nada en el móvil después de mirarlo. */
+    viewNote: 'Se trae solo para verlo: al cerrar esta ventana, la copia desaparece del móvil.',
+    viewNewTab: 'Verlo a pantalla completa',
+    download: 'Descargar',
+    downloadDoc: (name: string) => `Descargar ${name}`,
+    /** La descarga también pasa por el back: tampoco se va a Drive a por ella. */
+    downloadError: 'No se pudo descargar el documento. Inténtalo de nuevo.',
+    askDeleteDoc: (name: string) => `Pedir el borrado de ${name}`,
+    deleteTitle: (name: string) => `Pedir el borrado · ${name}`,
+    deleteHint:
+      'No se borra aquí: la petición va a la gestión, que decide. Hasta entonces el ' +
+      'documento sigue en la lista, marcado «Pendiente de borrado».',
+    deleteReason: 'Motivo (opcional)',
+    deleteSubmit: 'Pedir borrado',
+    deleteSubmitting: 'Enviando…',
+    deleteOk: 'Petición enviada. La gestión decidirá qué hacer con el documento.',
+    deleteError: 'No se pudo pedir el borrado. Inténtalo de nuevo.',
+    deletePending: 'Pendiente de borrado por parte del administrador',
+    deletePendingNote: 'Borrado pedido: la gestión lo está revisando.',
   },
   /** Pantalla del avatar del header: los datos del usuario y su documentación. */
   profile: {
@@ -682,6 +879,8 @@ const es = {
       supervisor: 'Supervisor',
       driver: 'Conductor',
     } as Record<'admin' | 'supervisor' | 'driver', string>,
+    /** Resumen de lo que lleva a cargo quien supervisa: cinco cifras y, tras
+     * cada una, la lista de lo que la compone. */
   },
   /** GAP-2: consumo medio de campo (hermano del de km): lo que marca el
    * ordenador de a bordo, con su día. */
@@ -693,6 +892,9 @@ const es = {
     consumption: 'Consumo medio real en ese momento (l/km o kWh/km)',
     date: 'Fecha',
     save: 'Guardar consumo',
+    /** Lo enseña la pestaña «Combustible» de «Actualizar», que no se cierra al
+     * guardar: la ventana sigue abierta por si toca otra cosa. */
+    saved: 'Consumo anotado.',
     saving: 'Guardando…',
     saveError: 'No se pudo guardar el consumo.',
     lastNoted: 'Última anotación',
@@ -708,8 +910,8 @@ const en: typeof es = {
       vehicles: 'Vehicles',
       registerKm: 'Log km',
       alerts: 'Alerts',
-      breakdown: 'Breakdown',
-      incident: 'Breakdown',
+      breakdown: 'Incident',
+      incident: 'Incident',
       projection: 'Km projection',
       km: 'Km',
       itv: 'MOT',
@@ -721,6 +923,7 @@ const en: typeof es = {
       label: 'Switch view',
       vehicle: 'My vehicle',
       fleet: 'Fleet',
+      profile: 'My profile',
     },
     noVehicle: 'No vehicle assigned',
     logout: 'Log out',
@@ -741,6 +944,8 @@ const en: typeof es = {
     required: 'Required',
     yes: 'Yes',
     no: 'No',
+    search: 'Search',
+    noMatches: 'Nothing matches your search.',
     truncated: (shown: number, total: number) =>
       `List truncated: showing ${shown} of ${total} records.`,
   },
@@ -787,13 +992,13 @@ const en: typeof es = {
     kmDateDay: (d) => `day ${d}`,
     nextItv: 'Next MOT',
     nextMaintenance: 'Next service',
-    breakdownsTitle: 'Breakdowns',
-    noBreakdowns: 'No open breakdowns.',
+    breakdownsTitle: 'Incidents',
+    noBreakdowns: 'No open incidents.',
     driver: 'Driver',
     lastReading: 'Last reading',
     noReading: 'No readings',
     projection: 'Projection',
-    openIncidents: (n) => (n === 1 ? '1 open breakdown' : `${n} open breakdowns`),
+    openIncidents: (n) => (n === 1 ? '1 open incident' : `${n} open incidents`),
     substitute: '🔁 substitute',
     blocked: 'Blocked',
     blockedNote: (reason, plate) =>
@@ -810,20 +1015,35 @@ const en: typeof es = {
     ownEmptyCta: 'See the fleet in my care',
     quickRegister: 'Log km',
     quickUpload: 'Upload document',
-    quickBreakdown: 'Breakdown',
+    quickBreakdown: 'Incident',
     loadError: 'Could not load your vehicles.',
     deadlines: {
       title: 'Due soon',
       count: (n) => (n === 1 ? '1 notice' : `${n} notices`),
-      km: 'Log mileage',
+      km: (plate) => `Mileage for ${plate}`,
       itv: (plate) => `MOT for ${plate}`,
+      maintenance: (plate) => `Service for ${plate}`,
+      fuel: (plate) => `Fuel for ${plate}`,
       inDays: (days) =>
         days <= 0 ? 'today is the last day' : days === 1 ? 'tomorrow is the last day' : `${days} days left`,
       dueIn: (days) => (days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`),
       overdue: (days) => (days === 1 ? 'expired yesterday' : `expired ${days} days ago`),
       kmUntil: (lastDay) => `until day ${lastDay}`,
-      kmOpens: (days, startDay) =>
-        `${days === 1 ? 'opens tomorrow' : `opens in ${days} days`} (day ${startDay})`,
+      kmOpens: (startDay) => `best from the ${startDay}th to month end`,
+      kmMissing: (month) => `${month} reading still missing`,
+      kmMonthEnd: (days) =>
+        days <= 0
+          ? 'the month ends today'
+          : days === 1
+            ? 'the month ends tomorrow'
+            : `the month ends in ${days} days`,
+      kmLast: (days) =>
+        days === 0 ? 'last one today' : days === 1 ? 'last one yesterday' : `last one ${days} days ago`,
+      kmNever: 'no reading yet',
+      fuelStale: (days) => (days === 1 ? 'not logged since yesterday' : `not logged for ${days} days`),
+      fuelNever: 'never logged',
+      fuelPerTrip: 'logged on every trip',
+      lastOn: (date) => `last one on ${date}`,
     },
   },
   gate: {
@@ -866,8 +1086,14 @@ const en: typeof es = {
     noDriver: 'No driver assigned',
     supervisor: 'Supervisor',
     use: 'Use',
-    alertsIncidentsTitle: 'Alerts & breakdowns',
-    alertsIncidentsEmpty: 'No open alerts or breakdowns. All clear.',
+    alertsTitle: 'Alerts',
+    alertsEmpty: 'No open alerts. All clear.',
+    incidentsTitle: 'Incidents',
+    incidentsEmpty: 'No open incidents.',
+    accidentsTitle: 'Accidents',
+    accidentsEmpty: 'No open accidents.',
+    filterByType: 'Filter by type',
+    filterAllTypes: 'All types',
     noDate: 'No date',
     documentsTitle: 'Documents',
     upload: 'Upload',
@@ -876,14 +1102,28 @@ const en: typeof es = {
     openDoc: (name) => `Open ${name}`,
     itvTitle: (plate) => `Log MOT · ${plate}`,
     itvDate: 'MOT date',
+    itvDateRequired: 'Enter the MOT date.',
+    itvToday: 'Today',
+    itvCalc: 'Work it out',
+    itvCalcNote: (periodo) =>
+      `Proposed: ${periodo} from the MOT date, based on the vehicle's age. If the report says otherwise, correct it.`,
+    itvEveryYears: (n) => (n === 1 ? '1 year' : `${n} years`),
+    itvEveryMonths: (n) => `${n} months`,
     itvResult: 'Result',
     itvResultDone: 'Passed',
     itvResultNotDone: 'Failed',
-    itvNextDue: 'Next MOT (optional)',
+    itvResultDoneNote: "Closes the vehicle's MOT alerts.",
+    itvResultNotDoneNote: 'The appointment stays open: alerts are not closed.',
+    itvNextDue: 'Next MOT',
+    itvNextDueHint: 'Optional: the one on the report. Left blank, the vehicle has no next MOT until one is logged.',
     itvNextDueInvalid: 'The next MOT must be after the inspection date.',
     itvAnyDate: 'It can be logged before or after that date.',
-    itvAutoClose: "Logging it automatically closes the vehicle's MOT alerts.",
-    itvNotDoneNote: 'A failed MOT does not close the alerts: the appointment stays open.',
+    itvNoDate: 'This vehicle has no next MOT on record.',
+    itvReport: 'MOT report',
+    itvReportHint: 'Photo or PDF · optional',
+    itvReportChange: 'Tap to replace it',
+    itvReportQueued: 'Offline: the report will upload once you reconnect.',
+    itvReportFailed: "The report could not be uploaded: add it from the vehicle's Documents.",
     itvSubmit: 'Log MOT',
     itvSubmitting: 'Logging…',
     itvOk: 'MOT logged. Related alerts are closed and the next date is updated.',
@@ -910,6 +1150,11 @@ const en: typeof es = {
     linkAccidentRequired: 'Choose the accident this report belongs to.',
     noOpenAccident:
       'An accident report is linked to an open accident and this vehicle has none: report the accident first.',
+    linkIncidentOpen: 'Open incident',
+    linkChooseIncident: 'Choose the incident…',
+    linkIncidentRequired: 'Choose the incident these photos belong to.',
+    noOpenIncident:
+      'Damage photos are linked to an open incident and this vehicle has none: report the incident first.',
     notes: 'Notes (optional)',
     chooseFile: 'Choose a photo or a PDF.',
     uploadSubmitting: 'Uploading…',
@@ -978,6 +1223,20 @@ const en: typeof es = {
     resolveTitle: (plate) => `Resolve alert · ${plate}`,
     resolveSubmit: 'Resolve alert',
     resolveNoteLabel: 'Notes (optional, kept on the resolved alert)',
+    propose: {
+      title: 'Should someone else drive it?',
+      intro:
+        'If the vehicle is heading past its contracted km, propose whoever drives less. ' +
+        'Nothing changes now: administration decides on the proposal.',
+      whoLabel: 'Who you propose (from your fleet)',
+      whoNone: 'Nobody on the list — I explain below',
+      noteLabel: 'Note (kept on the proposal and on the alert)',
+      noteRequiredLabel: 'Note for administration (say who and why)',
+      submit: 'Send proposal',
+      sending: 'Sending…',
+      sent: 'Proposal sent. Administration decides on it in their requests.',
+      error: 'Could not send the proposal.',
+    },
     resolveKmTitle: (plate) => `Register km · ${plate}`,
     resolveKmIntro: "Registering this month's reading resolves the alert.",
     resolveKmLabel: 'Odometer reading',
@@ -1011,7 +1270,7 @@ const en: typeof es = {
     unlimitedNote: 'Unlimited km: this vehicle has no projection or mileage cap.',
     showChart: 'Show trend',
     hideChart: 'Hide trend',
-    incidents: 'Breakdowns',
+    incidents: 'Incidents',
     newIncident: 'New',
   },
   reminder: {
@@ -1042,8 +1301,40 @@ const en: typeof es = {
     close: 'Close',
   },
   breakdown: {
-    title: (plate) => `Report a breakdown · ${plate}`,
+    title: (plate) => `Report an incident · ${plate}`,
+    stepTires: 'Tyres',
+    stepAvailability: 'Availability',
+    stepDocs: 'Documents',
     stepManage: 'Management',
+    docsHint:
+      'Attach whatever helps explain it: photos of the damage, the workshop ' +
+      'quote… You can add several, and none is required.',
+    docsRequired:
+      'To request a replacement car you must attach at least one document ' +
+      '(photo of the damage, workshop report…). You can add several.',
+    substituteDocsTitle: 'Replacement car paperwork',
+    substituteDocsHint:
+      'If you have already been given one, upload its paperwork here: ' +
+      'registration certificate, technical sheet, insurance… You can upload ' +
+      'several and it is optional (you usually do not have it yet).',
+    substituteAttach: 'Attach the replacement car paperwork',
+    availabilityLabel: 'How is the car left?',
+    availabilityHint:
+      "This does not change the vehicle's state: management records it and " +
+      'decides.',
+    availability: {
+      active: 'Still in service',
+      stopped: 'Cannot be used',
+      substitute: 'I need a replacement car',
+    },
+    availabilityNotes: {
+      active: 'I can keep driving it while it is handled.',
+      stopped: 'The car stays off the road, but no other one is needed.',
+      substitute:
+        'A car request is opened for administration, who decide whether to ' +
+        'provide one. You must attach a document.',
+    },
+    removeFile: (name) => `Remove ${name}`,
     vehicle: 'Vehicle',
     date: 'Date',
     description: 'Description',
@@ -1054,34 +1345,42 @@ const en: typeof es = {
     workshopHint: 'Enter the postal code of the preferred location for finding the nearest workshop.',
     preferredPostalCode: 'Preferred location postal code',
     cost: 'Cost (€)',
-    submit: 'Report breakdown',
-    saved: 'Breakdown reported.',
-    savedUploadFailed: 'Breakdown reported; an attachment could not be uploaded.',
+    submit: 'Report incident',
+    saved: 'Incident reported.',
+    savedRequest:
+      'Incident reported. Your replacement car request is pending with ' +
+      'administration.',
+    savedUploadFailed: 'Incident reported; an attachment could not be uploaded.',
     savedUploadQueued:
-      'Breakdown reported; offline — the attachment was saved and will upload once back online.',
+      'Incident reported; offline — the attachment was saved and will upload once back online.',
     queued:
-      'Offline: the breakdown was saved on this device and will be reported once back online.',
-    error: 'Could not report the breakdown.',
+      'Offline: the incident was saved on this device and will be reported once back online.',
+    error: 'Could not report the incident.',
     close: 'Close',
   },
   incidentModal: {
-    title: (plate) => `Request · ${plate}`,
+    title: (plate) => `Incident · ${plate}`,
     kind: 'Type',
     kinds: {
-      general: 'General',
+      maintenance: 'One-off maintenance',
       tires: 'Tyre change',
-      maintenance: 'Improvement proposal',
+      breakdown: 'Breakdown',
+      general: 'General request',
     },
     info: {
+      maintenance:
+        'One-off maintenance: broken things or needed changes that do not ' +
+        'prevent driving; handled without urgency. Scheduled maintenance goes ' +
+        'through its plan, not here.',
       tires:
         'Tyre change due to wear or a puncture. The workshop and appointment ' +
-        'are set later, while managing the request.',
+        'are set later, while managing it.',
+      breakdown:
+        'The vehicle has failed: it is not roadworthy or cannot be used ' +
+        'normally.',
       general:
         'General request: things that may not be related to the vehicle ' +
         '(paperwork, cards, questions…).',
-      maintenance:
-        'Maintenance: broken things or needed changes that do not prevent ' +
-        'driving; handled without urgency.',
     },
     date: 'Date',
     description: 'Description',
@@ -1089,10 +1388,10 @@ const en: typeof es = {
     tireRequiredBase: 'Required to continue: mileage and reason.',
     tireRequiredWear: 'For wear: which tyres and the sizes for the selected axles.',
     tireRequiredPuncture: 'For a puncture: which tyre and its size.',
-    submit: 'Send request',
-    saved: 'Request sent.',
-    savedUploadFailed: 'Request sent; the attachment could not be uploaded.',
-    error: 'Could not report the breakdown.',
+    submit: 'Report incident',
+    saved: 'Incident reported.',
+    savedUploadFailed: 'Incident reported; the attachment could not be uploaded.',
+    error: 'Could not report the incident.',
     close: 'Close',
   },
   carUpdate: {
@@ -1100,10 +1399,19 @@ const en: typeof es = {
     maintenanceButton: 'Update maintenance',
     title: (plate) => `Update · ${plate}`,
     notice:
-      'Logging km, maintenance and breakdowns is the responsibility of the driver, ' +
+      'Logging km, maintenance and incidents is the responsibility of the driver, ' +
       'not the supervisor. Use this only on their behalf when needed: it will be ' +
       'recorded under your name.',
-    tabs: { km: 'Km', maintenance: 'Maintenance', incidents: 'Breakdowns' },
+    noticeHide: 'Hide this notice for this session',
+    noticeShow: 'Show the responsibility notice',
+    tabsLabel: 'What to update',
+    tabs: {
+      km: 'Km',
+      fuel: 'Fuel',
+      itv: 'MOT',
+      maintenance: 'Maintenance',
+      incidents: 'Incidents',
+    },
     kmLabel: 'Odometer reading',
     kmCurrent: (v) => `Last known: ${v}`,
     kmLast: (value, date) => `Last reading: ${value} · ${date}`,
@@ -1114,19 +1422,24 @@ const en: typeof es = {
     planEvery: (txt) => `every ${txt}`,
     planLast: (txt) => `last: ${txt}`,
     planNever: 'never logged',
-    planDoneOn: 'Completed on:',
-    planDateTitle: (name) => `Complete maintenance · ${name}`,
+    planDone: 'Mark as done',
+    planNext: (date) => `Next: ${date}`,
+    planDateTitle: (name) => `When was it done? · ${name}`,
     planDateLabel: 'Completion date',
-    planToday: 'Completed today',
-    planDateAccept: 'Accept date',
+    planToday: 'Today',
+    planDateAccept: 'Mark as done',
     planChosen: (date) => `Maintenance completed on ${date}.`,
-    planMore: 'More information',
+    planMore: 'See details',
+    planLess: 'Hide details',
     planFrequency: 'Frequency',
     planLastDate: 'Last completed',
     planLastKm: 'Mileage when last completed',
     planSaved: (name) => `“${name}” re-anchored to today.`,
     planAlerts: (n) => (n === 1 ? '1 alert resolved.' : `${n} alerts resolved.`),
     plansEmpty: 'This vehicle has no maintenance plans (administration creates them).',
+    plansOnly:
+      "The car's scheduled maintenance. Incidents are reported and resolved in " +
+      "their own «Incidents» card.",
     months: (n) => (n === 1 ? '1 month' : `${n} months`),
     actionView: 'View',
     actionManage: 'Handling',
@@ -1142,20 +1455,31 @@ const en: typeof es = {
     preferredPostalCode: 'Preferred location postal code',
     cost: 'Cost (€)',
     manageSubmit: 'Save handling',
-    managed: 'Handling saved: the breakdown is now in progress.',
+    managed: 'Handling saved: the incident is now in progress.',
     observations: 'Notes',
     downtime: 'Days out of service',
     resolutionDate: 'Resolution date',
     calculatedDowntime: (n) => `Calculated downtime: ${n === 1 ? '1 day' : `${n} days`}`,
-    resolveSubmit: 'Close breakdown',
-    resolvedNote: 'Breakdown closed.',
-    incidentsEmpty: 'No open breakdowns.',
+    resolveSubmit: 'Close incident',
+    resolvedNote: 'Incident closed.',
+    incidentsEmpty: 'No open incidents.',
     loadError: 'Could not load.',
     error: 'Could not save.',
     close: 'Close',
   },
   uploadDoc: {
     title: 'Upload document',
+    stepFile: 'Type and file',
+    stepLink: 'Linked to',
+    stepNotes: 'Notes',
+    linkHint:
+      "Which of the vehicle's requests this document belongs to. The "
+      + 'workshop invoice, damage photos and accident report require one; '
+      + 'the rest carry it when it makes sense.',
+    linkNothing: 'This document is not linked to any request: move on.',
+    notesHint:
+      'Anything that helps you recognise it later in the document list. '
+      + 'Optional.',
     back: 'Back',
     vehicle: 'Vehicle',
     choose: 'Choose a vehicle…',
@@ -1165,17 +1489,17 @@ const en: typeof es = {
     backHome: 'Back to home',
   },
   newIncident: {
-    title: 'New breakdown',
-    titleBreakdown: 'Report a breakdown',
+    title: 'New incident',
+    titleBreakdown: 'Report an incident',
     back: 'Back',
     vehicle: 'Vehicle',
     choose: 'Choose a vehicle…',
     type: 'Type',
     types: {
-      general: 'General',
+      general: 'General request',
       breakdown: 'Breakdown',
       accident: 'Accident',
-      maintenance: 'Improvement proposal',
+      maintenance: 'One-off maintenance',
       tires: 'Tyre change',
       inspection: 'Inspection',
     },
@@ -1184,6 +1508,16 @@ const en: typeof es = {
     descPlaceholder: 'What happened, where, vehicle condition…',
     tiresData: 'Replacement details',
     accidentData: 'Accident details',
+    stepWhere: 'Where and when',
+    stepDamage: 'Damage',
+    stepPeople: 'People involved',
+    stepReport: 'Police report and file',
+    peopleHint:
+      'Other vehicles and anyone injured, if any. Optional: an accident '
+      + 'with nobody else involved is reported too.',
+    reportHint:
+      'The police report reference and the paper report, if you have them. '
+      + 'Also optional: you can add them later from the vehicle card.',
     mileage: 'Current mileage',
     mileageFromReading: (value) => `Last known reading: ${value}`,
     mileageFromReadingEstimated: (value) =>
@@ -1216,8 +1550,17 @@ const en: typeof es = {
     thirdParties: 'Third parties involved',
     injuredPeople: 'Injured people',
     add: 'Add',
-    removeThirdParty: 'Remove third party',
-    removeInjured: 'Remove injured person',
+    thirdPartyTitle: 'Third party involved',
+    injuredTitle: 'Injured person',
+    save: 'Save',
+    edit: (quien: string) => `Edit ${quien}`,
+    noThirdParties: 'No third parties involved.',
+    noInjured: 'No injured people.',
+    unnamed: 'Unnamed',
+    thirdPartyRequired: 'A third party needs a name and a plate.',
+    injuredRequired: 'An injured person needs a name.',
+    removeThirdParty: (quien: string) => `Remove ${quien}`,
+    removeInjured: (quien: string) => `Remove ${quien}`,
     plate: 'Registration',
     brand: 'Make',
     model: 'Model',
@@ -1232,15 +1575,15 @@ const en: typeof es = {
     accidentReport: 'Accident report file (optional)',
     attachments: 'Photos or documents (camera, gallery or file; optional)',
     attachmentsSelected: (n) => `${n} file${n === 1 ? '' : 's'} selected`,
-    submit: 'Create breakdown',
+    submit: 'Create incident',
     submitting: 'Creating…',
-    createError: 'Could not create the breakdown.',
+    createError: 'Could not create the incident.',
     uploadFailed: (names) =>
-      `Breakdown created, but these could not be uploaded: ${names}. You can add them from ` +
+      `Incident created, but these could not be uploaded: ${names}. You can add them from ` +
       "the vehicle's card.",
     queuedTitle: 'Saved offline',
     queuedNote:
-      'The breakdown was saved on this device (with its attachments) and will be reported ' +
+      'The incident was saved on this device (with its attachments) and will be reported ' +
       'automatically once back online.',
   },
   accidentModal: {
@@ -1286,6 +1629,27 @@ const en: typeof es = {
     vehicleHint:
       'Vehicle paperwork: registration, technical datasheet, insurance… It stays ' +
       'with the car when you return it.',
+    viewDoc: (name) => `View ${name}`,
+    viewTitle: (name) => `View · ${name}`,
+    viewLoading: 'Opening the document…',
+    viewError: 'The document could not be opened. Try again.',
+    viewNote: 'Fetched just to look at it: when you close this window, the copy is gone.',
+    viewNewTab: 'Open it full screen',
+    download: 'Download',
+    downloadDoc: (name) => `Download ${name}`,
+    downloadError: 'The document could not be downloaded. Try again.',
+    askDeleteDoc: (name) => `Request deletion of ${name}`,
+    deleteTitle: (name) => `Request deletion · ${name}`,
+    deleteHint:
+      'This does not delete it: the request goes to fleet management, who decide. ' +
+      'Until then the document stays in the list, marked «Deletion pending».',
+    deleteReason: 'Reason (optional)',
+    deleteSubmit: 'Request deletion',
+    deleteSubmitting: 'Sending…',
+    deleteOk: 'Request sent. Fleet management will decide what to do with it.',
+    deleteError: 'The deletion request could not be sent. Try again.',
+    deletePending: 'Deletion pending administrator approval',
+    deletePendingNote: 'Deletion requested: fleet management is reviewing it.',
   },
   profile: {
     title: 'My profile',
@@ -1311,6 +1675,7 @@ const en: typeof es = {
     consumption: 'Actual average consumption at that moment (l/km or kWh/km)',
     date: 'Date',
     save: 'Save consumption',
+    saved: 'Consumption noted.',
     saving: 'Saving…',
     saveError: 'The consumption could not be saved.',
     lastNoted: 'Last entry',

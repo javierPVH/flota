@@ -3,36 +3,36 @@ import { ChevronDown } from 'lucide-react'
 import { Button } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import {
-  listIncidents,
-  listMaintenancePlans,
-  markMaintenanceDone,
-  type MaintenancePlanRow,
-} from '../api.ts'
-import { useAuth } from '../auth.ts'
-import { fmtDate, fmtKm, isOpenBreakdown, tireReportSummary, todayIso } from '../format.ts'
+import { listMaintenancePlans, markMaintenanceDone, type MaintenancePlanRow } from '../api.ts'
+import { daysUntil, fmtDate, fmtKm, itvClass, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import type { Incident, Vehicle } from '../types.ts'
-import { IncidentResolveModal } from './IncidentResolveModal.tsx'
+import type { Vehicle, VehicleSummary } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
-/** Gestión del mantenimiento (planes) y, debajo, las AVERÍAS sin cerrar del
- * coche — las mismas del acordeón del tablero — para poder SOLUCIONARLAS aquí
- * mismo. Cerrar incidencias es cosa de gestión (el back exige IsManagement),
- * así que el botón solo sale al supervisor; el conductor las ve. */
-export function MaintenanceUpdateModal({
+/** Mantenimiento PROGRAMADO del coche: sus planes y el gesto de «ya se pasó
+ * la revisión», que reancla el ciclo y cierra los avisos.
+ *
+ * Solo eso. Las incidencias —el mantenimiento puntual también lo es— se
+ * comunican y se solucionan en su tarjeta «Incidencias» (tablero y ficha), que
+ * es donde vive esa lista; tenerlas aquí además era la misma lista dos veces,
+ * y volvía este modal un cajón de sastre. */
+export function MaintenancePane({
   vehicle,
-  onClose,
+  summary,
+  plans: plansProp,
   onSaved,
 }: {
   vehicle: Vehicle
-  onClose: () => void
+  /** Resumen del coche: de ahí sale CUÁNDO vence la revisión, calculado en el
+   * back (`next_maintenance_date`). Sin él, la tarjeta no inventa la fecha. */
+  summary?: VehicleSummary | null
+  /** Los planes ya cargados. Los trae la ventana de pestañas, que necesita
+   * saber si HAY antes de ofrecer la pestaña; sin ellos, se piden aquí. */
+  plans?: MaintenancePlanRow[]
   onSaved?: () => void
 }) {
   const { t, language } = useLang()
-  const { user } = useAuth()
-  const isSupervisor = user?.roles.includes('supervisor') ?? false
-  const [plans, setPlans] = useState<MaintenancePlanRow[] | null>(null)
+  const [plans, setPlans] = useState<MaintenancePlanRow[] | null>(plansProp ?? null)
   const [savingPlan, setSavingPlan] = useState<number | null>(null)
   const [expandedPlan, setExpandedPlan] = useState<number | null>(null)
   const [planDateFor, setPlanDateFor] = useState<MaintenancePlanRow | null>(null)
@@ -41,25 +41,19 @@ export function MaintenanceUpdateModal({
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
-  // Averías sin cerrar y su solución (el modal compartido las cierra).
-  const [incidents, setIncidents] = useState<Incident[] | null>(null)
-  const [resolveFor, setResolveFor] = useState<Incident | null>(null)
-
-  // R3-30: `t` por ref — con `t` en las deps, cambiar de idioma recargaba
-  // planes e incidencias del modal (el diccionario solo pinta el error).
+  // R3-30: `t` por ref — con `t` en las deps, cambiar de idioma recargaba los
+  // planes del modal (el diccionario solo pinta el error).
   const tRef = useRef(t)
   useEffect(() => {
     tRef.current = t
   })
 
   useEffect(() => {
+    if (plansProp) return // ya los trae quien enmarca
     listMaintenancePlans(vehicle.id)
       .then((page) => setPlans(page.results))
       .catch(() => setError(tRef.current.carUpdate.loadError))
-    listIncidents(vehicle.id)
-      .then((page) => setIncidents(page.results.filter(isOpenBreakdown)))
-      .catch(() => setIncidents([]))
-  }, [vehicle.id])
+  }, [vehicle.id, plansProp])
 
   function planCycle(plan: MaintenancePlanRow): string {
     const parts: string[] = []
@@ -94,34 +88,48 @@ export function MaintenanceUpdateModal({
   }
 
   return (
-    <SupervisorModal
-      open
-      title={`${t.carUpdate.maintenanceButton} · ${vehicle.plate}`}
-      onClose={onClose}
-      footer={<Button type="button" onClick={onClose}>{t.carUpdate.close}</Button>}
-    >
+    <>
       {notice && <p className="reminder-done" role="status">{notice}</p>}
       {error && <div role="alert" className="form-error">{error}</div>}
+      {/* De qué va esto, y dónde está lo otro: aquí se resolvían también las
+          incidencias, y quien lo tuviera por costumbre debe saber adónde ir. */}
+      <p className="update-hint">{t.carUpdate.plansOnly}</p>
       {plans !== null && plans.length === 0 && <p className="empty-note">{t.carUpdate.plansEmpty}</p>}
 
       <ul className="update-plans">
-        {(plans ?? []).map((plan) => (
-          <li key={plan.id} className="update-plan">
-            <div className="update-plan-main">
-              <div className="update-plan-info">
-                <strong>{plan.name}</strong>
-                <small>{planCycle(plan)} · {planLast(plan)}</small>
+        {(plans ?? []).map((plan) => {
+          // Cuándo vence lo dice el resumen, que lo calcula el BACK: una
+          // segunda regla aquí acabaría contando distinto. El back solo deja un
+          // plan activo por coche, así que con uno se sabe de cuál habla; con
+          // varios (histórico raro) no se pinta. Y una vez marcado realizado,
+          // la fecha del resumen ya es vieja: manda el aviso de abajo.
+          const due =
+            plans !== null && plans.length === 1 && !chosenPlanDates[plan.id]
+              ? summary?.next_maintenance_date ?? null
+              : null
+          const dueDays = daysUntil(due)
+          return (
+            <li key={plan.id} className="update-plan">
+              <div className="update-plan-main">
+                <div className="update-plan-info">
+                  <strong>{plan.name}</strong>
+                  {/* Lo primero es CUÁNDO toca, que es a lo que se abre esto;
+                      el ciclo y la última revisión son el detalle. */}
+                  {due && (
+                    <span className={`plan-due ${itvClass(due)}`}>
+                      {t.carUpdate.planNext(fmtDate(due, language))}
+                      {dueDays !== null &&
+                        ` · ${dueDays < 0
+                          ? t.home.deadlines.overdue(-dueDays)
+                          : t.home.deadlines.dueIn(dueDays)}`}
+                    </span>
+                  )}
+                  <small>{planCycle(plan)} · {planLast(plan)}</small>
+                </div>
               </div>
               <div className="update-plan-actions">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  aria-expanded={expandedPlan === plan.id}
-                  onClick={() => setExpandedPlan((id) => id === plan.id ? null : plan.id)}
-                >
-                  {t.carUpdate.planMore}
-                  <ChevronDown size={16} aria-hidden className={expandedPlan === plan.id ? 'is-open' : ''} />
-                </Button>
+                {/* Un solo gesto, a lo ancho y con nombre de acción: «Realizado
+                    en:» parecía la etiqueta de un campo, no un botón. */}
                 <Button
                   type="button"
                   onClick={() => {
@@ -130,75 +138,36 @@ export function MaintenanceUpdateModal({
                   }}
                   disabled={savingPlan === plan.id}
                 >
-                  {t.carUpdate.planDoneOn}
+                  {t.carUpdate.planDone}
                 </Button>
+                <button
+                  type="button"
+                  className="link-btn"
+                  aria-expanded={expandedPlan === plan.id}
+                  onClick={() => setExpandedPlan((id) => id === plan.id ? null : plan.id)}
+                >
+                  {expandedPlan === plan.id ? t.carUpdate.planLess : t.carUpdate.planMore}
+                  <ChevronDown size={16} aria-hidden className={expandedPlan === plan.id ? 'is-open' : ''} />
+                </button>
               </div>
-            </div>
-            {expandedPlan === plan.id && (
-              <div className="update-plan-detail">
-                <dl>
-                  <dt>{t.carUpdate.planFrequency}</dt><dd>{planCycle(plan)}</dd>
-                  <dt>{t.carUpdate.planLastDate}</dt><dd>{plan.last_done_date ? fmtDate(plan.last_done_date, language) : t.carUpdate.planNever}</dd>
-                  <dt>{t.carUpdate.planLastKm}</dt><dd>{plan.last_done_km !== null ? fmtKm(plan.last_done_km, language) : t.carUpdate.planNever}</dd>
-                </dl>
-              </div>
-            )}
-            {chosenPlanDates[plan.id] && (
-              <div className="update-plan-chosen" role="status">
-                {t.carUpdate.planChosen(fmtDate(chosenPlanDates[plan.id], language))}
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
-
-      {/* AVERÍAS sin cerrar (las del acordeón del tablero): el supervisor las
-          soluciona aquí con su fecha; el conductor las ve, sin botón. */}
-      <h3 className="panel-title update-subtitle">{t.home.breakdownsTitle}</h3>
-      {incidents !== null && incidents.length === 0 && (
-        <p className="empty-note">{t.home.noBreakdowns}</p>
-      )}
-      <ul className="update-incidents">
-        {(incidents ?? []).map((incident) => (
-          <li key={incident.id} className="update-incident">
-            <div className="update-incident-info">
-              <strong>{incident.type_display}</strong>
-              <small>
-                {incident.date ? fmtDate(incident.date, language) : t.carUpdate.noDate}
-                {' · '}{incident.status_display}
-              </small>
-              {/* Neumáticos: motivo del cambio y rueda — en ese parte la
-                  observación es opcional, así que no puede ser el único dato. */}
-              {tireReportSummary(incident, t.newIncident) && (
-                <span className="incident-tire-line">
-                  {tireReportSummary(incident, t.newIncident)}
-                </span>
+              {expandedPlan === plan.id && (
+                <div className="update-plan-detail">
+                  <dl>
+                    <dt>{t.carUpdate.planFrequency}</dt><dd>{planCycle(plan)}</dd>
+                    <dt>{t.carUpdate.planLastDate}</dt><dd>{plan.last_done_date ? fmtDate(plan.last_done_date, language) : t.carUpdate.planNever}</dd>
+                    <dt>{t.carUpdate.planLastKm}</dt><dd>{plan.last_done_km !== null ? fmtKm(plan.last_done_km, language) : t.carUpdate.planNever}</dd>
+                  </dl>
+                </div>
               )}
-              {incident.description && <span>{incident.description}</span>}
-            </div>
-            {isSupervisor && (
-              <div className="update-incident-actions">
-                <Button type="button" size="sm" onClick={() => setResolveFor(incident)}>
-                  {t.carUpdate.actionResolve}
-                </Button>
-              </div>
-            )}
-          </li>
-        ))}
+              {chosenPlanDates[plan.id] && (
+                <div className="update-plan-chosen" role="status">
+                  {t.carUpdate.planChosen(fmtDate(chosenPlanDates[plan.id], language))}
+                </div>
+              )}
+            </li>
+          )
+        })}
       </ul>
-
-      {resolveFor && (
-        <IncidentResolveModal
-          incident={resolveFor}
-          onClose={() => setResolveFor(null)}
-          onResolved={() => {
-            setIncidents((rows) => (rows ?? []).filter((item) => item.id !== resolveFor.id))
-            setResolveFor(null)
-            setNotice(t.carUpdate.resolvedNote)
-            onSaved?.()
-          }}
-        />
-      )}
 
       {planDateFor && (
         <SupervisorModal
@@ -221,6 +190,32 @@ export function MaintenanceUpdateModal({
           </div>
         </SupervisorModal>
       )}
+    </>
+  )
+}
+
+/** El mismo mantenimiento, en su propia ventana. La usa quien solo quiere
+ * eso; «Actualizar» lo enseña como una pestaña más. */
+export function MaintenanceUpdateModal({
+  vehicle,
+  summary,
+  onClose,
+  onSaved,
+}: {
+  vehicle: Vehicle
+  summary?: VehicleSummary | null
+  onClose: () => void
+  onSaved?: () => void
+}) {
+  const { t } = useLang()
+  return (
+    <SupervisorModal
+      open
+      title={`${t.carUpdate.maintenanceButton} · ${vehicle.plate}`}
+      onClose={onClose}
+      footer={<Button type="button" onClick={onClose}>{t.carUpdate.close}</Button>}
+    >
+      <MaintenancePane vehicle={vehicle} summary={summary} onSaved={onSaved} />
     </SupervisorModal>
   )
 }

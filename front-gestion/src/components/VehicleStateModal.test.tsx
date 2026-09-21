@@ -98,7 +98,11 @@ const CLOSED_INCIDENT = {
 
 // El mismo coche, ya parado a mano desde su ficha: sin ninguna petición
 // abierta que lo retenga, se puede devolver a Activo desde aquí.
-const PARADO = { ...VEHICLE, state: 'non_active', state_display: 'No activo' } as Vehicle
+const PARADO = {
+  ...VEHICLE,
+  state: 'non_active',
+  state_display: 'No activo sin justificación',
+} as Vehicle
 
 /** Sacar el coche de la calle exige justificar la sustitución (paso «Disponibilidad»). */
 async function sinSustituto(motivo = 'Parada de un día') {
@@ -239,7 +243,9 @@ describe('VehicleStateModal (Estado · matrícula)', () => {
     renderModal()
     const select = screen.getByRole('combobox', { name: 'Nuevo estado' })
     expect(within(select).queryByRole('option', { name: 'Activo' })).toBeNull()
-    expect(within(select).queryByRole('option', { name: 'No activo' })).toBeNull()
+    expect(
+      within(select).queryByRole('option', { name: 'No activo sin justificación' }),
+    ).toBeNull()
   })
 
   /** El camino de vuelta al servicio vive en el paso «Disponibilidad», y está

@@ -46,7 +46,7 @@ from fleet.models.enums import (
     IncidentStatus,
     VehicleState,
 )
-from fleet.scoping import users_for, vehicles_for
+from fleet.scoping import readable_documents, users_for, vehicles_for
 from fleet.selectors import active_link_q, current_driver_map, latest_reading_map
 from fleet.services.alerts import add_months
 
@@ -246,8 +246,11 @@ def _documents_table(user, filters: dict | None = None, vehicle_ids=None) -> Tab
     alcance = Q(vehicle_id__in=vehicle_ids)
     if not solo_vehiculo:
         alcance |= Q(user_id__in=users_for(user).values("id"))
+    # La confidencialidad vale también aquí: este informe lo descarga un
+    # SUPERVISOR (la vista es `IsManagement`), así que sin este filtro el Excel
+    # sacaría los metadatos de lo protegido y de lo que no le toca leer.
     documents = (
-        Document.objects.filter(alcance, is_active=True)
+        readable_documents(user, Document.objects.filter(alcance, is_active=True))
         .select_related("vehicle", "user", "uploaded_by", "incident")
         .order_by("-created_at")
     )
@@ -840,7 +843,9 @@ def _active_sections(filters: dict | None) -> list[str]:
     return sections
 
 
-def _ficha_extras(vehicle_ids: list[int], sections: list[str]) -> tuple[list[str], list[tuple]]:
+def _ficha_extras(
+    vehicle_ids: list[int], sections: list[str], user=None
+) -> tuple[list[str], list[tuple]]:
     """Columnas resumen del «súper registro», por sección activa y EN SU ORDEN.
 
     Es la parte de «unir todas las tablas con FK al vehículo»: cada sección
@@ -980,14 +985,16 @@ def _ficha_extras(vehicle_ids: list[int], sections: list[str]) -> tuple[list[str
         )
 
     def _documents() -> None:
+        # Cuenta solo lo que quien pide el informe puede leer: un contador que
+        # incluyera lo protegido delataría que existe. Sin `user` (la llamada
+        # que solo construye las CABECERAS del esquema, con la lista vacía) no
+        # hay a quién acotar y no hay nada que contar.
+        documents = Document.objects.filter(vehicle_id__in=vehicle_ids, is_active=True)
+        if user is not None:
+            documents = readable_documents(user, documents)
         add(
             "Documentos",
-            dict(
-                Document.objects.filter(vehicle_id__in=vehicle_ids, is_active=True)
-                .values_list("vehicle_id")
-                .annotate(n=Count("id"))
-                .order_by()
-            ),
+            dict(documents.values_list("vehicle_id").annotate(n=Count("id")).order_by()),
             0,
         )
 
@@ -1059,7 +1066,7 @@ def _ficha_extras(vehicle_ids: list[int], sections: list[str]) -> tuple[list[str
     return headers, columns
 
 
-def _vehicles_ficha_table(vehicles_qs, sections: list[str] | None = None) -> Table:
+def _vehicles_ficha_table(vehicles_qs, sections: list[str] | None = None, user=None) -> Table:
     """La ficha COMPLETA del vehículo, una columna por campo relevante."""
     vehicles = list(
         vehicles_qs.select_related(
@@ -1145,7 +1152,7 @@ def _vehicles_ficha_table(vehicles_qs, sections: list[str] | None = None) -> Tab
     # Súper registro: cada sección activa añade sus columnas resumen (el
     # vigente/último/total de su tabla) a la fila del coche.
     if sections:
-        extra_headers, extra_columns = _ficha_extras([v.id for v in vehicles], sections)
+        extra_headers, extra_columns = _ficha_extras([v.id for v in vehicles], sections, user)
         headers += extra_headers
         for vehicle, row in zip(vehicles, rows, strict=True):
             row.extend(mapping.get(vehicle.id, default) for mapping, default in extra_columns)
@@ -1186,7 +1193,7 @@ def _vehicles_report(user, filters: dict | None = None) -> list[Table]:
     ids = list(vehicles.values_list("id", flat=True))
     sections = _active_sections(filters)
     detalles = _detail_builders(user, ids, vehicles)
-    tables = [_vehicles_ficha_table(vehicles, sections)]
+    tables = [_vehicles_ficha_table(vehicles, sections, user)]
     tables.extend(detalles[key]() for key in sections)
     return tables
 

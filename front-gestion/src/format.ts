@@ -21,6 +21,23 @@ export function fmtDate(iso: string | null | undefined, lang: AppLanguage = 'es'
   return date.toLocaleDateString(LOCALE[lang], { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+/** Fecha ISO con hora → local legible ("22 jul 2026, 14:35").
+ *
+ * En un accidente la hora es parte del dato (el parte la pide y el atestado la
+ * usa), así que no vale con la fecha a secas de `fmtDate`. */
+export function fmtDateTime(iso: string | null | undefined, lang: AppLanguage = 'es'): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleString(LOCALE[lang], {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 /** Importe CON céntimos ("62,30 €"): el gasto de combustible se compara al
  * céntimo, y `fmtEur` redondea a euros para las cifras de contrato. */
 export function fmtEurCents(value: string | number | null, lang: AppLanguage = 'es'): string {

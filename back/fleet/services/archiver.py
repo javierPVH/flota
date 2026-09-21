@@ -48,6 +48,54 @@ from fleet.models.enums import DocumentStatus, DocumentType
 logger = logging.getLogger("fleet.archiver")
 
 
+#: Lo único que se sirve INLINE en la vista previa. Un documento solo puede ser
+#: imagen o PDF (`DOCUMENT_ALLOWED_EXTENSIONS`), pero el tipo lo dice el
+#: archivo, no nosotros: cualquier otra cosa (un HTML o un SVG colado en la
+#: carpeta de Drive) se servirá como descarga, porque un HTML pintado en el
+#: origen de la API sería un XSS de manual.
+INLINE_MIME_TYPES = frozenset(
+    {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"}
+)
+
+#: Extensión → tipo MIME de lo que admitimos. `mimetypes` del sistema depende
+#: del registro de Windows y ahí no siempre está el PDF.
+_MIME_BY_EXTENSION = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+    ".pdf": "application/pdf",
+}
+
+
+def mime_of(name: str) -> str:
+    """Tipo MIME por la extensión del nombre; genérico si no lo conocemos."""
+    return _MIME_BY_EXTENSION.get(Path(name).suffix.lower(), "application/octet-stream")
+
+
+def extension_of(mime: str) -> str:
+    """Extensión de un tipo MIME conocido (`.pdf`); vacía si no lo conocemos.
+
+    Es lo que pone la extensión al nombre con el que se guarda la descarga: el
+    binario puede venir de Drive, donde el nombre del fichero no es asunto
+    nuestro, y un archivo sin extensión no lo abre nadie de un doble clic.
+    """
+    for extension, tipo in _MIME_BY_EXTENSION.items():
+        if tipo == mime:
+            return extension
+    return ""
+
+
+def _max_bytes() -> int:
+    """Techo de lo que se trae a memoria: el mismo que acepta la subida.
+
+    `int()` a propósito: el ajuste llega en MB y nadie promete que sea entero.
+    """
+    return int(settings.FLEET_DOCUMENT_MAX_MB * 1024 * 1024)
+
+
 class ExternalDeleteError(Exception):
     """El archivo del documento no se pudo borrar de su destino (Drive/disco).
 
@@ -73,6 +121,18 @@ class BaseArchiver:
 
         `None` = no se puede saber (una URL pegada a mano, un backend que no
         guarda nada…): quien pregunta no debe tomarlo ni por sí ni por no.
+        """
+        return None
+
+    def fetch(self, document: Document) -> tuple[bytes, str] | None:
+        """Trae el archivo archivado: `(contenido, tipo MIME)`, o `None`.
+
+        Es lo que le faltaba al contrato: sabía subir, mirar y borrar, pero no
+        **leer**. Lo necesita la vista previa de la app de campo — quien
+        conduce no tiene cuenta en Drive, así que el enlace a la carpeta no le
+        sirve y es el backend quien trae el binario con la cuenta de servicio.
+        No escribe nada en disco: los bytes van a memoria y de ahí a la
+        respuesta.
         """
         return None
 
@@ -131,6 +191,15 @@ class LocalArchiver(BaseArchiver):
             logger.exception("No se pudo borrar %s del archivo local.", path)
             return False
         return True
+
+    def fetch(self, document: Document) -> tuple[bytes, str] | None:
+        path = self._path_of(document)
+        if path is None or not path.is_file():
+            return None
+        if path.stat().st_size > _max_bytes():
+            logger.warning("El documento %s pasa del máximo: no se sirve.", document.pk)
+            return None
+        return path.read_bytes(), mime_of(path.name)
 
     def ensure_folder(self, vehicle) -> str:
         folder = self.base_dir.joinpath(*vehicle_path_of(vehicle))
@@ -258,6 +327,7 @@ class GoogleDriveArchiver(BaseArchiver):
         self._sa = None  # cliente de la cuenta de servicio
         self._de_usuario: dict[int, object] = {}  # id de usuario -> su cliente
         self._carpetas: dict[tuple[str, str], str] = {}  # (padre, nombre) -> id
+        self._vivas: set[str] = set()  # ids de carpeta recordada ya comprobados
         self._avisados: set[int] = set()  # de quién ya se dijo que no puede
 
     def _get_service(self):
@@ -400,11 +470,52 @@ class GoogleDriveArchiver(BaseArchiver):
                 return ""
         return parent_id
 
+    def _folder_alive(self, service, folder_id: str) -> bool:
+        """¿La carpeta sigue en Drive y fuera de la papelera?
+
+        Una carpeta borrada desde Drive no desaparece: va a la papelera, y Drive
+        sigue aceptando subir dentro de ella — el documento nacería en la
+        papelera sin que nadie lo viera. Por eso el id recordado se comprueba
+        antes de usarlo (una vez por pasada). Si Drive no responde se da por
+        viva: no se recrea a ciegas por un fallo de red.
+        """
+        if folder_id in self._vivas:
+            return True
+        from googleapiclient.errors import HttpError
+
+        try:
+            meta = (
+                service.files()
+                .get(fileId=folder_id, fields="id,trashed", supportsAllDrives=True)
+                .execute(num_retries=self._num_retries())
+            )
+        except HttpError as exc:
+            if getattr(exc.resp, "status", None) == 404:
+                return False
+            logger.warning("Drive no respondió por la carpeta %s: %s", folder_id, exc)
+            return True
+        if meta.get("trashed", False):
+            return False
+        self._vivas.add(folder_id)
+        return True
+
     def ensure_folder(self, vehicle, service=None) -> str:
-        """Asegura `Vehículos/<matrícula>` en Drive; devuelve su URL (o '')."""
-        if vehicle.drive_folder_id:
-            return vehicle.drive_folder_url
+        """Asegura `Vehículos/<matrícula>` en Drive; devuelve su URL (o '').
+
+        El id recordado en `Vehicle.drive_folder_id` vale mientras la carpeta
+        siga viva: si la borraron desde Drive (papelera o del todo), se olvida
+        y se vuelve a crear con el resto del árbol debajo.
+        """
         service = service or self._get_service()
+        if vehicle.drive_folder_id:
+            if not service or self._folder_alive(service, vehicle.drive_folder_id):
+                return vehicle.drive_folder_url
+            logger.info(
+                "La carpeta de %s ya no está en Drive (borrada o en la papelera): se recrea.",
+                vehicle.plate,
+            )
+            vehicle.drive_folder_id = ""
+            vehicle.drive_folder_url = ""
         root = getattr(settings, "GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
         if not service or not root:
             return ""
@@ -414,6 +525,8 @@ class GoogleDriveArchiver(BaseArchiver):
         folder = self._child_folder(service, vehicles_id, vehicle.plate)
         vehicle.drive_folder_id = folder.get("id") or ""
         vehicle.drive_folder_url = folder.get("webViewLink") or ""
+        if vehicle.drive_folder_id:
+            self._vivas.add(vehicle.drive_folder_id)  # recién resuelta: no se re-comprueba
         vehicle.save(update_fields=["drive_folder_id", "drive_folder_url", "updated_at"])
         return vehicle.drive_folder_url
 
@@ -512,6 +625,55 @@ class GoogleDriveArchiver(BaseArchiver):
             return False
         return True
 
+    def fetch(self, document: Document) -> tuple[bytes, str] | None:
+        """Descarga el binario de Drive **a memoria**, con la cuenta de servicio.
+
+        La usa la vista previa: el conductor no tiene Drive, así que el enlace
+        a la carpeta no le abre nada — el archivo lo trae quien sí puede. No se
+        guarda una copia en el servidor (ni temporal): los bytes viven lo que
+        dura la respuesta.
+        """
+        if not document.drive_file_id:
+            return None
+        service = self._service_to_look(document)
+        if not service:
+            return None
+        import io
+
+        from googleapiclient.errors import HttpError
+        from googleapiclient.http import MediaIoBaseDownload
+
+        try:
+            meta = (
+                service.files()
+                .get(
+                    fileId=document.drive_file_id,
+                    fields="mimeType,size,name,trashed",
+                    supportsAllDrives=True,
+                )
+                .execute(num_retries=self._num_retries())
+            )
+            if meta.get("trashed", False):
+                return None
+            # El tamaño se mira ANTES de descargar: lo que sube por la API ya
+            # está acotado, pero en esa carpeta puede dejar cosas cualquiera.
+            if int(meta.get("size") or 0) > _max_bytes():
+                logger.warning("El documento %s pasa del máximo: no se sirve.", document.pk)
+                return None
+            buffer = io.BytesIO()
+            downloader = MediaIoBaseDownload(
+                buffer,
+                service.files().get_media(fileId=document.drive_file_id, supportsAllDrives=True),
+            )
+            done = False
+            while not done:
+                _, done = downloader.next_chunk(num_retries=self._num_retries())
+        except HttpError as exc:
+            logger.warning("Drive no sirvió el documento %s: %s", document.pk, exc)
+            return None
+        # El tipo que dice Drive manda; si no lo dice, se deduce del nombre.
+        return buffer.getvalue(), meta.get("mimeType") or mime_of(meta.get("name", ""))
+
 
 #: Formas en que un usuario puede pegar una carpeta de Drive en el formulario.
 _FOLDER_URL_PATTERNS = (
@@ -592,6 +754,38 @@ def get_archiver() -> BaseArchiver:
     if backend == "gdrive":
         return GoogleDriveArchiver()
     return NullArchiver()
+
+
+def fetch_document(
+    document: Document, *, archiver: BaseArchiver | None = None
+) -> tuple[bytes, str] | None:
+    """El archivo de un documento, para enseñarlo: `(contenido, tipo MIME)`.
+
+    Mira primero el **staging local** (`file`): mientras el binario sigue en el
+    servidor —recién subido, o pendiente de archivar— es una lectura de disco y
+    no hay que molestar a Drive. Si ya se archivó, lo trae el archivador con la
+    **cuenta de servicio**, que es la única que ve esa carpeta: el conductor no
+    tiene Drive, y por eso el enlace a la carpeta no le abre nada.
+
+    Devuelve `None` cuando no hay de dónde traerlo (sin credenciales, archivo
+    borrado en Drive, demasiado grande): quien llama responde un 404, que es la
+    verdad — ese archivo no se puede enseñar.
+
+    **No deja copias**: ni ficheros temporales ni caché. Los bytes viven lo que
+    dura la respuesta, y en el navegador, lo que dure la ventana abierta.
+    """
+    if document.file:
+        try:
+            with document.file.open("rb") as handle:
+                content = handle.read(_max_bytes() + 1)
+        except (OSError, ValueError):
+            logger.warning("No se pudo leer el staging del documento %s.", document.pk)
+        else:
+            if len(content) <= _max_bytes():
+                return content, mime_of(document.file.name)
+            logger.warning("El documento %s pasa del máximo: no se sirve.", document.pk)
+            return None
+    return (archiver or get_archiver()).fetch(document)
 
 
 def archive_document(document: Document, *, archiver: BaseArchiver | None = None) -> Document:

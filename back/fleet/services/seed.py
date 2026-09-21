@@ -26,6 +26,7 @@ from __future__ import annotations
 from datetime import date, time, timedelta
 from decimal import Decimal
 
+from django.db.models import F
 from django.utils import timezone
 
 from accounts.models import LicenseType, PushSubscription, Role, User, UserRole
@@ -38,6 +39,8 @@ from fleet.models import (
     Contract,
     Country,
     Document,
+    DocumentDeletionRequest,
+    DriverChangeRequest,
     EmailLog,
     EmailOutbox,
     EmailSignature,
@@ -692,7 +695,6 @@ def seed_vehicles(stdout=None) -> None:
         business_use=UseType.PERSONAL,
         property=PropertyType.RENTING,
         km_start=100,
-        unlimited_km=True,  # N3: sin proyección ni alertas de exceso
         **common,
     )
     Vehicle.objects.create(
@@ -714,6 +716,14 @@ def seed_vehicles(stdout=None) -> None:
         property=PropertyType.OWNED,
         is_substitute=True,  # vehículo de sustitución
         km_start=30000,
+        # N3: el escaparate de los km ilimitados (sin proyección, sin exceso y
+        # sin recordatorio de lectura). Vive en ESTE coche y no en el de la
+        # supervisora porque es de los dos el que no tiene cupo que vigilar: en
+        # propiedad y sin contrato de renting. El de sara lo llevó hasta que se
+        # le pidió enseñar en campo TODAS las alertas de un conductor, y las dos
+        # de kilómetros (`km_reading_pending`, `km_overage`) quedan fuera por
+        # diseño en un coche con km ilimitados (X2/N3).
+        unlimited_km=True,
         **common,
     )
     Vehicle.objects.create(
@@ -906,22 +916,31 @@ def seed_contracts(stdout=None) -> None:
     )
     KmReading.objects.create(vehicle=v2, reading_date=today - timedelta(days=15), km_reading=30000)
 
-    # v3: sin lectura ESTE MES. Ojo, NO genera aviso de "lectura pendiente":
-    # tiene `unlimited_km` y X2 dejó esos vehículos fuera del recordatorio (sin
-    # cupo que vigilar no hay nada que recordar). El aviso lo dan los de volumen.
+    # v3: el escaparate del tablero de campo, y por eso sus kilómetros son los
+    # de un coche que se pasa del cupo Y no ha dado el parte del mes — las dos
+    # alertas de km que un CONDUCTOR puede recibir (`km_overage` y
+    # `km_reading_pending`). Ninguna de las dos saltaría con `unlimited_km`
+    # (N3/X2), así que ese escaparate se mudó al Leaf de sustitución.
+    #
+    # Los números salen de la fórmula de `alerts.check_km_overage`, que proyecta
+    # el ritmo de la ÚLTIMA lectura al contrato entero: 15.300 km en los 200
+    # días corridos desde el contrato → 83.767 km sobre los 60.000 contratados
+    # (140% → crítica). Y la última lectura es de hace 40 días, o sea del mes
+    # pasado: falta la de este mes → recordatorio de lectura.
     Contract.objects.create(
         vehicle=v3,
         renting=ald,
         contract_number="R-2026-055",
         contract_time=36,
         contract_km=60000,
-        start_date=today - timedelta(days=60),
-        planned_end_date=today + timedelta(days=1035),
+        start_date=today - timedelta(days=240),
+        planned_end_date=today + timedelta(days=855),
         month_fee=Decimal("620.00"),
         drive_url="https://drive.example/contratos/R-2026-055.pdf",
         **client,
     )
-    KmReading.objects.create(vehicle=v3, reading_date=today - timedelta(days=45), km_reading=2500)
+    KmReading.objects.create(vehicle=v3, reading_date=today - timedelta(days=200), km_reading=3000)
+    KmReading.objects.create(vehicle=v3, reading_date=today - timedelta(days=40), km_reading=15400)
 
     # -- Volumen: contrato (si es renting) + hasta 12 meses de lecturas.
     rentings = list(Renting.objects.order_by("name"))
@@ -1309,8 +1328,10 @@ def _seed_event(vehicle, event_type, *, days_ago, index, projects, cecos, driver
 def seed_operations(stdout=None) -> None:
     for model in (
         VehicleRequest,
+        DriverChangeRequest,
         InvoiceAllocation,
         Invoice,
+        DocumentDeletionRequest,  # antes que sus documentos
         Document,
         Incident,
         Event,  # cascada: subtipos EventItv, etc.
@@ -1520,7 +1541,7 @@ def seed_operations(stdout=None) -> None:
         status=DocumentStatus.VALID,
         notes="Acta de entrega firmada al recoger el coche.",
     )
-    Document.objects.create(
+    fotos_v3 = Document.objects.create(
         vehicle=v3,
         type=DocumentType.DAMAGE_PHOTOS,
         drive_url="",
@@ -1528,10 +1549,10 @@ def seed_operations(stdout=None) -> None:
         status=DocumentStatus.PENDING_ARCHIVE,  # se ve el estado "pendiente"
         notes="Rozadura en la llanta delantera derecha.",
     )
-    # Y sus AVERÍAS abiertas: el acordeón «Averías» del tablero de campo lista
-    # los partes de avería/neumáticos/accidente sin cerrar. La incidencia de
-    # MANTENIMIENTO no debe salir ahí (va por su vía): sembrarla permite
-    # comprobar el filtro en QA.
+    # Y sus INCIDENCIAS abiertas, una de cada tipo que el campo puede abrir
+    # (avería, mantenimiento puntual, neumáticos y petición general) más el
+    # accidente, que va en su tarjeta: es lo que llena las tarjetas del tablero
+    # de campo y le da opciones a su filtro por tipo.
     Incident.objects.create(
         vehicle=v3,
         type=IncidentType.BREAKDOWN,
@@ -1557,13 +1578,67 @@ def seed_operations(stdout=None) -> None:
             "front_measure": "205/55 R16",
         },
     )
+    # Un mantenimiento PUNTUAL, que es uno de los cuatro tipos que la app de
+    # campo deja abrir y por tanto cuenta en su tarjeta «Incidencias» (el
+    # programado es otra cosa: es una ALERTA y va por su tarjeta).
     Incident.objects.create(
         vehicle=v3,
         type=IncidentType.MAINTENANCE,
         date=today - timedelta(days=15),
-        description="Revisión anual pendiente de cita con el taller.",
+        description="Escobillas gastadas y frenos con ruido: pedida cita con el taller.",
         status=IncidentStatus.OPEN,
     )
+    # Una PETICIÓN GENERAL, que es el otro tipo que el campo puede abrir y que
+    # su coche no tenía: con ella, la tarjeta «Incidencias» de sara enseña los
+    # tres tipos que se ven ahí (avería, neumáticos y petición general) y su
+    # filtro por tipo tiene algo que filtrar. La ITV no se siembra aquí: la
+    # incidencia `inspection` es el ciclo interno «En ITV», no se ofrece como
+    # categoría en ninguna de las dos apps y, abierta en un coche ACTIVO,
+    # diría que está en la estación cuando no lo está.
+    Incident.objects.create(
+        vehicle=v3,
+        type=IncidentType.GENERAL,
+        date=today - timedelta(days=1),
+        description="Falta el triángulo de emergencia en el maletero.",
+        status=IncidentStatus.OPEN,
+    )
+    # Y un ACCIDENTE, que desde R5 tiene TARJETA PROPIA en el tablero de campo
+    # («Alertas», «Incidencias» y «Accidentes»): el coche de la supervisora es
+    # el escaparate y su tarjeta de accidentes salía siempre a cero, así que no
+    # había forma de mirarla sin inventarse uno a mano. Con el PARTE entero
+    # (`report_version: 1`): la señal de `services/accidents.py` lo materializa
+    # en `AccidentReport` con sus terceros, que es lo que despliega la fila de
+    # la bandeja de gestión. Sigue ABIERTO a propósito — es lo que se resuelve
+    # desde la tarjeta, con el mismo modal que una avería.
+    accidente_v3 = Incident.objects.create(
+        vehicle=v3,
+        type=IncidentType.ACCIDENT,
+        date=today - timedelta(days=5),
+        description="Roce en el lateral derecho al salir de un aparcamiento.",
+        status=IncidentStatus.IN_PROGRESS,
+        mileage=2380,
+        details={
+            "report_version": 1,
+            "street": "Calle de Ejemplo",
+            "street_number": "5",
+            "postal_code": "28020",
+            "locality": "Madrid",
+            "province": "Madrid",
+            "occurred_at": (timezone.now() - timedelta(days=5, hours=3)).isoformat(),
+            # Datos de EJEMPLO (nunca personales reales) — política GRS.
+            "phone": "600 000 002",
+            "damage_description": "Rozadura en la aleta y en la llanta delantera derecha.",
+            "third_parties": [{"name": "Conductor de ejemplo", "plate": "0000YYY"}],
+            # Sin lesionados: es el caso corriente, y el parte guiado tiene que
+            # leerse bien también con la tabla vacía.
+            "injured_people": [],
+        },
+    )
+    # Las fotos de daños de arriba son de ESE roce, y unas fotos de daños
+    # EXIGEN incidencia (`LINK_REQUIRED_DOCUMENT_TYPES`): colgadas de nada, el
+    # seed enseñaba algo que la API no deja subir.
+    fotos_v3.incident = accidente_v3
+    fotos_v3.save(update_fields=["incident", "updated_at"])
     # Documentos PERSONALES (titular = usuario, no coche): el permiso de
     # conducir de cada conductor. Uno vigente y otro caducado, para que la
     # pantalla de Documentos enseñe ambos estados y el filtro por usuario.
@@ -1586,6 +1661,30 @@ def seed_operations(stdout=None) -> None:
         expiry_date=today - timedelta(days=15),
         status=DocumentStatus.EXPIRED,
         notes="Permiso B — pendiente de renovar.",
+    )
+
+    # Y una petición de borrado SIN DECIDIR: en la app de campo esas fotos salen
+    # marcadas «Pendiente de borrado» y con la papelera apagada, y en gestión
+    # esperan en Solicitudes → Borrado de documentos.
+    DocumentDeletionRequest.objects.create(
+        document=fotos_v3,
+        requested_by=sara,
+        reason="Son de un roce que ya se reparó; las subí dos veces.",
+    )
+
+    # Y una propuesta de CAMBIO DE CONDUCTOR sin decidir: la manda sara al
+    # resolver la alerta de km contratados de su coche (7890NPQ va al 140% de
+    # lo contratado). No cambia nada por sí sola — espera en Solicitudes →
+    # Cambio de conductor—. Sin `alert` a propósito: las alertas se regeneran
+    # después en la cadena del seed y el enlace se quedaría a null.
+    DriverChangeRequest.objects.create(
+        vehicle=v3,
+        requested_by=sara,
+        proposed_driver=carlos,
+        note=(
+            "Va camino de pasarse de los km del contrato. Carlos hace menos "
+            "ruta este trimestre; ¿lo cambiamos?"
+        ),
     )
 
     # Facturas de v1: mes actual y anterior (tendencia del dashboard) + reparto.
@@ -1837,8 +1936,10 @@ def seed_operations(stdout=None) -> None:
             )
 
     # GAP-8: el catálogo COMÚN de programas y, por vehículo, UNO programado.
-    # Un mismo plan puede avisar por las dos vías: por fecha (vencida → alerta
-    # crítica) y por km (a punto → aviso), que es justo lo que enseña v1.
+    # Un mismo plan puede tocar por las dos vías —por fecha y por km— y es el
+    # MISMO servicio: sale UN aviso que las dice a la vez, con los km delante
+    # (mandan ellos) y la fecha detrás. Es lo que enseñan v1 (vencido por fecha
+    # y a punto por km) y v3 (superado por km y con la fecha encima).
     # REGLA de dominio: los neumáticos SIEMPRE son una avería (incidencia
     # `tires`), nunca un programa de mantenimiento — ver PLAN_MANTENIMIENTOS_
     # ANUALES §3.1/§12. Los ciclos por km del seed usan conceptos de taller.
@@ -2166,6 +2267,16 @@ def seed_operations(stdout=None) -> None:
             notes=f"Solicitud importada de Jira ({jira}).",
         )
 
+    # Lo ÚLTIMO del paso, con todos los documentos ya creados (también los de la
+    # flota de volumen). Confidencialidad (migración 0064): el alta por API
+    # rellena `responsible` y la gestión decide `shared_read`, pero el seed crea
+    # las filas a pelo — sin esto, en dev NINGÚN conductor vería un documento de
+    # su coche y media app de campo quedaría vacía. Se deja como dejó la
+    # migración lo ya subido: los del coche compartidos y el personal a nombre
+    # de su titular.
+    Document.objects.filter(vehicle__isnull=False).update(shared_read=True)
+    Document.objects.filter(user__isnull=False).update(responsible=F("user"))
+
 
 # --- 7) Alertas (motor real sobre lo sembrado) -----------------------------
 
@@ -2174,10 +2285,19 @@ def seed_alerts(stdout=None) -> None:
     """Borra las alertas y deja que el MOTOR REAL las regenere.
 
     Así la bandeja refleja exactamente lo sembrado: ITV a 10 días + vencida,
-    seguro a 20 días + vencido, exceso de km proyectado (v1), el coche de la
-    supervisora (7890NPQ) con ITV a 12 días, seguro a 15 y mantenimiento a
-    punto Y vencido (su tablero de campo enseña las cuatro alertas) y, de la
-    capa de volumen, lecturas pendientes y vehículos sin conductor.
+    seguro a 20 días + vencido, exceso de km proyectado (v1) y, de la capa de
+    volumen, lecturas pendientes y vehículos sin conductor.
+
+    El coche de la supervisora (7890NPQ) lleva **todos los tipos que un
+    conductor puede ver en campo**, que son los cinco del catálogo menos el
+    seguro —X1 lo deja fuera de la app de campo— y menos «sin conductor», que
+    por definición no puede tocarle a un coche que alguien conduce: ITV a 12
+    días, mantenimiento a punto por fecha Y vencido por km, proyección de km
+    por encima de lo contratado y la lectura del mes sin dar. Se sembró así
+    porque su tarjeta de alertas enseñaba dos y no se podía probar con ella ni
+    el filtro por tipo ni los caminos de resolución de cada aviso. Sigue
+    llevando la del seguro: es la que distingue lo que ve gestión de lo que ve
+    el campo.
 
     El motor solo crea alertas ABIERTAS, así que después se cierran dos a mano
     —los dos únicos estados son abierta y resuelta— para que la pestaña de

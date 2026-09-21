@@ -1,9 +1,18 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarClock, ChevronDown, Gauge } from 'lucide-react'
+import { CalendarClock, ChevronDown, Fuel, Gauge, Wrench } from 'lucide-react'
+import { kmStaleTone } from '@flota/ui/domain'
 
 import type { KmWindow } from '../api.ts'
-import { SOON_DAYS, daysUntil, fmtDate, pendingThisMonth } from '../format.ts'
+import {
+  SOON_DAYS,
+  daysSince,
+  daysUntil,
+  fmtDate,
+  fmtMonth,
+  pendingThisMonth,
+  todayIso,
+} from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 
@@ -11,8 +20,6 @@ import type { Vehicle, VehicleSummary } from '../types.ts'
  * Encima, nada — el acordeón solo debe salir cuando hay algo que hacer YA. */
 const ITV_SOON_DAYS = SOON_DAYS // el horizonte común de «cita próxima»
 const URGENT_DAYS = 7 // ≤ 7 días (o ya vencido) → rojo en vez de naranja
-const KM_CLOSING_SOON_DAYS = 5 // quedan ≤ 5 días de ventana y falta la lectura
-const KM_OPENING_SOON_DAYS = 3 // la ventana abre en ≤ 3 días y falta la lectura
 
 // X1: el seguro NO entra aquí. Es asunto de administración (front de gestión y
 // aviso al renting); ni el conductor ni el supervisor lo ven en campo.
@@ -22,6 +29,24 @@ type Tone = 'danger' | 'warning' | 'info'
 /** Orden de gravedad para elegir el tono de la cabecera del acordeón. */
 const TONE_RANK: Record<Tone, number> = { danger: 0, warning: 1, info: 2 }
 
+/** De los dos tonos, el peor: un aviso vale lo que su peor motivo. */
+const worstTone = (a: Tone, b: Tone): Tone => (TONE_RANK[a] <= TONE_RANK[b] ? a : b)
+
+/** Semáforo compartido con gestión (`kmStaleTone` del DS) → tono del aviso.
+ * «Al día» no es un aviso: eso lo decide quien llama, que no crea la fila. */
+const STALE_TONE: Record<'ok' | 'warn' | 'danger', Tone> = {
+  ok: 'info',
+  warn: 'warning',
+  danger: 'danger',
+}
+
+/** Clase del trozo «última hace N días»: es lo que se lee en color. */
+const STALE_CLASS: Record<'ok' | 'warn' | 'danger', string> = {
+  ok: '',
+  warn: 'itv-soon',
+  danger: 'itv-overdue',
+}
+
 interface Deadline {
   key: string
   tone: Tone
@@ -29,8 +54,9 @@ interface Deadline {
   label: string
   /** Cuenta atrás en claro ("quedan 3 días", "venció hace 2 días"). */
   count: string
-  /** Segunda línea tenue: la fecha concreta o el límite de la ventana. */
-  detail?: string
+  /** Segunda línea tenue: el plazo, la fecha concreta o cuánto hace del dato
+   * (esto último en su color, que es lo que avisa de verdad). */
+  detail?: ReactNode
   to: string
   /** Días restantes — ordena de lo más urgente a lo menos. */
   days: number
@@ -49,74 +75,130 @@ function buildDeadlines(
   language: 'es' | 'en',
 ): Deadline[] {
   const list: Deadline[] = []
+  // El día lo manda el BACK: es quien valida la ventana (misma zona horaria).
+  const hoy = kmWindow?.today ?? todayIso()
+  const day = Number(hoy.slice(8, 10))
+  const left = kmWindow ? kmWindow.last_day - day : 0
+  const toOpen = kmWindow ? kmWindow.start_day - day : 0
 
-  // --- Km: una sola entrada para todos (el destino es el mismo) ------------
-  // N9: un principal bloqueado por sustitución no admite lecturas — no cuenta.
-  // X2: `pendingThisMonth` ya descarta los de km ilimitados.
-  const kmPending = vehicles.some((v) => {
-    const summary = summaries[v.id]
-    return summary && !summary.blocked_by_link && pendingThisMonth(summary)
-  })
-  // N8a desactivada (`enabled: false`): no hay plazo, así que no se avisa de
-  // cuánto queda ni de cuándo abre.
-  if (kmWindow?.enabled && kmPending) {
-    // El día lo manda el BACK: es quien valida la ventana (misma zona horaria).
-    const day = Number(kmWindow.today.slice(8, 10))
-    if (kmWindow.open) {
-      const left = kmWindow.last_day - day
-      if (left <= KM_CLOSING_SOON_DAYS) {
+  for (const vehicle of vehicles) {
+    const summary: VehicleSummary | undefined = summaries[vehicle.id]
+
+    // --- Km: mientras FALTE la lectura del mes, y no solo al filo de la
+    // ventana. Antes salía a 3 días de que abriera o a 5 de que cerrara, así
+    // que del día 1 al 17 no había aviso aunque el odómetro llevara 40 días sin
+    // leerse — que es justo cuando hay que decirlo.
+    // N9: un principal bloqueado por sustitución no admite lecturas — no cuenta.
+    // X2: `pendingThisMonth` ya descarta los de km ilimitados.
+    if (summary && !summary.blocked_by_link && pendingThisMonth(summary)) {
+      const desde = daysSince(summary.km_reading_date)
+      const stale = kmStaleTone(desde)
+      const abierta = Boolean(kmWindow?.enabled && kmWindow.open)
+      // El plazo es el de la ventana (N8a); sin ventana no hay fecha tope que
+      // dar, pero la lectura sigue faltando y se dice de qué mes.
+      const plazo: { count: string; tone: Tone; days: number } = !kmWindow?.enabled
+        ? { count: copy.kmMissing(fmtMonth(hoy, language)), tone: 'info', days: left }
+        : abierta
+          ? { count: copy.inDays(left), tone: left <= 1 ? 'danger' : 'warning', days: left }
+          : { count: copy.kmOpens(kmWindow.start_day), tone: 'info', days: toOpen }
+      list.push({
+        key: `km-${vehicle.id}`,
+        // Un aviso vale lo que su PEOR motivo: la ventana puede no haber abierto
+        // todavía y la lectura llevar dos meses sin darse.
+        tone: worstTone(plazo.tone, STALE_TONE[stale]),
+        icon: <Gauge size={18} aria-hidden />,
+        label: copy.km(vehicle.plate),
+        count: plazo.count,
+        detail: (
+          <>
+            {abierta && kmWindow ? copy.kmUntil(kmWindow.last_day) : copy.kmMonthEnd(left)}
+            {' · '}
+            <span className={STALE_CLASS[stale]}>
+              {desde === null ? copy.kmNever : copy.kmLast(desde)}
+            </span>
+          </>
+        ),
+        to: `/registrar?vehiculo=${vehicle.id}`,
+        days: plazo.days,
+      })
+    }
+
+    // --- Combustible (GAP-2): no tiene plazo de calendario, se anota EN CADA
+    // VIAJE, así que lo que se avisa es la ANTIGÜEDAD, con el mismo semáforo
+    // que la lectura de km. En verde no hay nada que decir y no se crea fila.
+    if (summary && !summary.blocked_by_link) {
+      const desde = daysSince(summary.fuel_avg_date)
+      const stale = kmStaleTone(desde)
+      if (stale !== 'ok') {
         list.push({
-          key: 'km',
-          tone: left <= 1 ? 'danger' : 'warning',
-          icon: <Gauge size={18} aria-hidden />,
-          label: copy.km,
-          count: copy.inDays(left),
-          detail: copy.kmUntil(kmWindow.last_day),
-          to: '/registrar',
-          days: left,
-        })
-      }
-    } else {
-      const toOpen = kmWindow.start_day - day
-      if (toOpen > 0 && toOpen <= KM_OPENING_SOON_DAYS) {
-        list.push({
-          key: 'km',
-          tone: 'info',
-          icon: <Gauge size={18} aria-hidden />,
-          label: copy.km,
-          count: copy.kmOpens(toOpen, kmWindow.start_day),
-          to: '/registrar',
-          days: toOpen,
+          key: `fuel-${vehicle.id}`,
+          tone: STALE_TONE[stale],
+          icon: <Fuel size={18} aria-hidden />,
+          label: copy.fuel(vehicle.plate),
+          count: desde === null ? copy.fuelNever : copy.fuelStale(desde),
+          detail: (
+            <>
+              {copy.fuelPerTrip}
+              {summary.fuel_avg_date
+                ? ` · ${copy.lastOn(fmtDate(summary.fuel_avg_date, language))}`
+                : ''}
+            </>
+          ),
+          to: `/vehiculos/${vehicle.id}?registrar=combustible`,
+          // Sin plazo que contar: dentro de su tono, lo más viejo arriba.
+          days: -(desde ?? 999),
         })
       }
     }
+
+    // --- ITV: el summary manda; el listado suple ----------------------------
+    const itv = summary?.next_itv_date ?? vehicle.next_itv_date
+    const itvDays = daysUntil(itv)
+    if (itvDays !== null && itvDays <= ITV_SOON_DAYS) {
+      list.push({
+        key: `itv-${vehicle.id}`,
+        tone: itvDays <= URGENT_DAYS ? 'danger' : 'warning',
+        icon: <CalendarClock size={18} aria-hidden />,
+        label: copy.itv(vehicle.plate),
+        count: itvDays < 0 ? copy.overdue(-itvDays) : copy.dueIn(itvDays),
+        detail: fmtDate(itv, language),
+        to: `/vehiculos/${vehicle.id}`,
+        days: itvDays,
+      })
+    }
+
+    // --- Mantenimiento programado (GAP-8): hermano de la ITV. El dato ya
+    // viajaba en el resumen y lo pinta «Próximas citas», pero aquí faltaba: una
+    // revisión vencida no se leía en el inicio, que es donde se mira.
+    const maintenanceDays = daysUntil(summary?.next_maintenance_date)
+    if (maintenanceDays !== null && maintenanceDays <= ITV_SOON_DAYS) {
+      list.push({
+        key: `maintenance-${vehicle.id}`,
+        tone: maintenanceDays <= URGENT_DAYS ? 'danger' : 'warning',
+        icon: <Wrench size={18} aria-hidden />,
+        label: copy.maintenance(vehicle.plate),
+        count: maintenanceDays < 0 ? copy.overdue(-maintenanceDays) : copy.dueIn(maintenanceDays),
+        detail: fmtDate(summary?.next_maintenance_date, language),
+        to: `/vehiculos/${vehicle.id}`,
+        days: maintenanceDays,
+      })
+    }
   }
 
-  // --- ITV: una por vehículo (el summary manda; el listado suple) ----------
-  for (const vehicle of vehicles) {
-    const date = summaries[vehicle.id]?.next_itv_date ?? vehicle.next_itv_date
-    const days = daysUntil(date)
-    if (days === null || days > ITV_SOON_DAYS) continue
-    list.push({
-      key: `itv-${vehicle.id}`,
-      tone: days <= URGENT_DAYS ? 'danger' : 'warning',
-      icon: <CalendarClock size={18} aria-hidden />,
-      label: copy.itv(vehicle.plate),
-      count: days < 0 ? copy.overdue(-days) : copy.dueIn(days),
-      detail: fmtDate(date, language),
-      to: `/vehiculos/${vehicle.id}`,
-      days,
-    })
-  }
-
-  return list.sort((a, b) => a.days - b.days)
+  // Por gravedad y, dentro de ella, por lo que antes vence: el combustible no
+  // tiene plazo, así que ordenar solo por días lo colocaba donde no tocaba.
+  return list.sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone] || a.days - b.days)
 }
 
 /**
- * C2 — Acordeón de advertencias del inicio de campo: ventana de registro de km
- * (N8a) e ITV. Cabecera-resumen siempre visible; el detalle se pliega. Arranca
- * ABIERTO si hay algo crítico (ITV vencida, último día de la ventana) y cerrado
- * en el resto de casos. Sin avisos no pinta nada.
+ * C2 — Acordeón de advertencias del inicio de campo. Avisa de **cuatro** cosas,
+ * y solo cuando hay algo que hacer: la **lectura de km** que falta este mes
+ * (con su ventana N8a y cuánto hace de la última), el **combustible** sin
+ * anotar, la **ITV** y el **mantenimiento programado**. Cabecera-resumen
+ * siempre visible; el detalle se pliega. Arranca ABIERTO si hay algo crítico
+ * (una cita vencida, el último día de la ventana, un dato de hace más de un
+ * mes) y cerrado en el resto de casos. Sin avisos no pinta nada, que es lo que
+ * lo distingue de un panel de estado: aquí solo sale lo pendiente.
  */
 export function FieldDeadlines({
   vehicles,

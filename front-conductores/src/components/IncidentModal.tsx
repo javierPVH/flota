@@ -1,24 +1,124 @@
 import { useState } from 'react'
-import { Camera } from 'lucide-react'
+import { Camera, FileText, Trash2 } from 'lucide-react'
 import { Button, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { createIncident, uploadDocument } from '../api.ts'
 import { DEFAULT_PRIORITY, priorityOptions } from '../incidentPriority.ts'
+import {
+  DEFAULT_INCIDENT_TYPE,
+  INCIDENT_TYPES,
+  attachmentDocType,
+  type IncidentKind,
+} from '../incidentTypes.ts'
 import type { IncidentInput } from '../api.ts'
 import { fmtKm, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { enqueueIncidentWithFiles, isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
-import { compressImage } from '../offline/images.ts'
+import { compressImages } from '../offline/images.ts'
 import type { Vehicle } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
-type IncidentKind = 'general' | 'tires' | 'maintenance'
-type Step = 'launch' | 'manage'
-const KINDS: IncidentKind[] = ['general', 'tires', 'maintenance']
+/** Recorrido del parte: qué pasa · [lo suyo] · qué lo prueba · dónde se arregla.
+ *
+ * El paso del medio lo pone el tipo: el **parte de neumáticos** tiene el suyo
+ * (km, motivo, ruedas y medidas — en el primer paso eran diez campos de scroll)
+ * y la **avería** y el **mantenimiento puntual** preguntan cómo queda el coche.
+ * La petición general no tiene ninguno: va derecha a los documentos. */
+type Step = 'launch' | 'tires' | 'availability' | 'docs' | 'manage'
 
-/** Avería unificada en dos fases. Neumáticos usa exactamente el
- * parte guiado de Gestión (`report_version: 1`) y sus mismos nombres de campo. */
+/** Cómo queda el coche según quien lo conduce. NO cambia el estado del
+ * vehículo —eso lo decide la gestión—; pedir sustitución abre su solicitud. */
+const AVAILABILITY = ['active', 'stopped', 'substitute'] as const
+type Availability = (typeof AVAILABILITY)[number]
+
+function stepsFor(kind: IncidentKind): Step[] {
+  if (kind === 'tires') return ['launch', 'tires', 'docs', 'manage']
+  if (kind === 'breakdown' || kind === 'maintenance') {
+    return ['launch', 'availability', 'docs', 'manage']
+  }
+  return ['launch', 'docs', 'manage']
+}
+
+/** Un adjunto y SU referencia: se genera al elegir el archivo, no al enviar,
+ * para que un reintento (o el reenvío de la cola) no lo suba dos veces. */
+interface Attachment {
+  file: File
+  ref: string
+}
+
+/** Nota con la que se archiva la documentación del coche de sustitución. Es
+ * DATO (viaja al back y se lee en la ficha), no interfaz: va fija en
+ * castellano como el resto de lo que escribe el servidor. */
+const SUBSTITUTE_DOC_NOTE = 'Documentación del coche de sustitución facilitado al conductor.'
+
+/** Caja de adjuntar con su lista y su papelera. Son dos en el paso de
+ * documentos —lo que prueba la incidencia y, si ya lo han dado, los papeles
+ * del coche de sustitución—, y las dos se manejan igual. */
+function AttachBox({
+  label,
+  removeLabel,
+  files,
+  onAdd,
+  onRemove,
+  selectedLabel,
+}: {
+  label: string
+  removeLabel: (name: string) => string
+  files: Attachment[]
+  onAdd: (files: Attachment[]) => void
+  onRemove: (ref: string) => void
+  selectedLabel: (n: number) => string
+}) {
+  return (
+    <>
+      <label className={`photo-attach${files.length > 0 ? ' has-file' : ''}`}>
+        <Camera size={18} aria-hidden />
+        {files.length > 0 ? selectedLabel(files.length) : label}
+        <input
+          type="file"
+          aria-label={label}
+          accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
+          multiple
+          onChange={async (event) => {
+            const input = event.target
+            const picked = Array.from(input.files ?? [])
+            // Se limpia el input: si no, volver a elegir el MISMO archivo (lo
+            // normal al equivocarse y repetir) no dispara `change` y parecería
+            // que no ha pasado nada.
+            input.value = ''
+            const ready = await compressImages(picked)
+            onAdd(ready.map((file) => ({ file, ref: newClientRef() })))
+          }}
+        />
+      </label>
+      {files.length > 0 && (
+        <ul className="doc-list">
+          {files.map(({ file, ref }) => (
+            <li key={ref} className="doc-item">
+              <FileText size={18} aria-hidden className="doc-icon" />
+              <div className="doc-info">
+                <strong>{file.name}</strong>
+              </div>
+              <button
+                type="button"
+                className="doc-remove"
+                aria-label={removeLabel(file.name)}
+                onClick={() => onRemove(ref)}
+              >
+                <Trash2 size={18} aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
+}
+
+/** Incidencia unificada en tres pasos. Los tipos que ofrece son los MISMOS que
+ * gestión (`src/incidentTypes.ts`), y neumáticos usa exactamente el parte
+ * guiado de Gestión (`report_version: 1`) y sus mismos nombres de campo. */
 export function BreakdownModal({
   vehicle,
   kmCurrent,
@@ -41,12 +141,18 @@ export function BreakdownModal({
   const b = t.breakdown
   const [step, setStep] = useState<Step>('launch')
   const [cameBack, setCameBack] = useState(false)
-  const [kind, setKind] = useState<IncidentKind>('general')
+  const [kind, setKind] = useState<IncidentKind>(DEFAULT_INCIDENT_TYPE)
   // Prioridad de la petición: la marca quien la abre (gestión tría por ella).
   const [priority, setPriority] = useState<string>(DEFAULT_PRIORITY)
   const [date, setDate] = useState(todayIso())
   const [description, setDescription] = useState('')
-  const [launchFile, setLaunchFile] = useState<File | null>(null)
+  // Paso «Documentos»: varios archivos (la foto del daño Y el presupuesto del
+  // taller, que no se hace con la cámara). Opcional: se puede enviar sin nada.
+  const [files, setFiles] = useState<Attachment[]>([])
+  // Segunda caja del mismo paso, solo al pedir coche de sustitución: los
+  // papeles del que ya le hayan dado (permiso, ficha técnica, seguro…).
+  // Opcionales de verdad: lo normal al comunicar es no tener coche todavía.
+  const [substituteFiles, setSubstituteFiles] = useState<Attachment[]>([])
 
   // Parte guiado de neumáticos: mismos campos que Gestión.
   const [mileage, setMileage] = useState(kmCurrent != null ? String(kmCurrent) : '')
@@ -57,13 +163,18 @@ export function BreakdownModal({
   const [wheel, setWheel] = useState('front_left')
   const [tireMeasure, setTireMeasure] = useState('')
 
+  // Paso «Disponibilidad»: nace en «sigue en servicio», que es el caso normal
+  // (una avería no para el coche por sí sola — mismo criterio que gestión).
+  const [availability, setAvailability] = useState<Availability>('active')
+
   // Segunda fase: gestión, igual que Avería.
   const [managementPostalCode, setManagementPostalCode] = useState('')
   const [saving, setSaving] = useState(false)
-  // R5-50: UNA referencia por captura (petición y adjunto), no por pulsación:
-  // el reintento manual tras un 502/504 manda la misma y el back no duplica.
-  // El modal se remonta al cerrarse, así que la siguiente petición estrena otra.
-  const [refs] = useState(() => ({ incident: newClientRef(), document: newClientRef() }))
+  // R5-50: UNA referencia por captura, no por pulsación: el reintento manual
+  // tras un 502/504 manda la misma y el back no duplica. El modal se remonta al
+  // cerrarse, así que la siguiente petición estrena otra (los adjuntos llevan
+  // la suya desde que se eligen).
+  const [incidentRef] = useState(newClientRef)
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
 
@@ -75,11 +186,27 @@ export function BreakdownModal({
         ((wheelScope !== 'rear' && wheelScope !== 'all') || rearMeasure.trim())
       : changeReason === 'puncture' && wheel && tireMeasure.trim()),
   )
-  const launchValid = Boolean(kind === 'tires' ? tiresValid : description.trim())
+  // El comentario del parte de neumáticos es opcional; el resto se cuenta.
+  const launchValid = Boolean(kind === 'tires' || description.trim())
+  // Lo ÚNICO que se exige al pedir coche de sustitución: algún documento que lo
+  // justifique (uno o varios). Sin pedirlo, los adjuntos siguen siendo libres.
+  const needsDocument = availability === 'substitute' && stepsFor(kind).includes('availability')
+  const docsValid = !needsDocument || files.length > 0
   const managementValid = /^[0-9]{5}$/.test(managementPostalCode)
+  const steps = stepsFor(kind)
+  const current = steps.indexOf(step)
+  const nextStep = steps[current + 1]
+  const previousStep = steps[current - 1]
+  const stepValid: Record<Step, boolean> = {
+    launch: launchValid,
+    tires: tiresValid,
+    availability: true,
+    docs: docsValid,
+    manage: managementValid,
+  }
 
   function goTo(next: Step) {
-    setCameBack(next === 'launch')
+    setCameBack(steps.indexOf(next) < current)
     setStep(next)
     setError('')
   }
@@ -103,7 +230,13 @@ export function BreakdownModal({
   async function handleSend() {
     setSaving(true)
     setError('')
-    const guided = kind === 'tires' ? tireDetails() : {}
+    const guided: Record<string, unknown> = {
+      ...(kind === 'tires' ? tireDetails() : {}),
+      // Cómo queda el coche, tal y como lo cuenta quien conduce: es dato de la
+      // petición, no una orden. Con «substitute» el back abre además la
+      // solicitud de coche en la bandeja de administración.
+      ...(steps.includes('availability') ? { availability } : {}),
+    }
     const payload: IncidentInput & { client_ref: string } = {
       vehicle: vehicle.id,
       type: kind,
@@ -116,20 +249,40 @@ export function BreakdownModal({
       } : {}),
       ...(Object.keys(guided).length > 0 ? { details: guided } : {}),
       // R3-34: misma referencia en el intento directo y en el reenvío offline.
-      client_ref: refs.incident,
+      client_ref: incidentRef,
     }
-    const uploads = launchFile
-      ? [{ file: launchFile, type: kind === 'tires' ? 'damage_photos' : 'other' }]
-      : []
+    // El tipo del documento lo decide lo que se comunica, no el formulario, y
+    // la regla es UNA para las dos puertas de alta de la PWA (esta y
+    // `NewIncidentPage`): vive en `incidentTypes.ts`.
+    const uploads = [
+      ...files.map(({ file, ref }) => ({
+        file,
+        type: attachmentDocType(kind),
+        client_ref: ref,
+        notes: '',
+      })),
+      // Los del coche de sustitución van como «Otro» y con su nota: no son
+      // papeles del coche de la incidencia —el sustituto puede no existir aún
+      // en la flota—, pero cuelgan de la petición, que es donde se tramita.
+      ...(needsDocument ? substituteFiles : []).map(({ file, ref }) => ({
+        file,
+        type: 'other',
+        client_ref: ref,
+        notes: SUBSTITUTE_DOC_NOTE,
+      })),
+    ]
     try {
       const incident = await createIncident(payload)
-      let notice = b.saved
+      // Con sustitución pedida, lo que hay que saber es que la solicitud queda
+      // en manos de administración: el coche no llega por comunicarlo.
+      let notice = needsDocument ? b.savedRequest : b.saved
       for (const upload of uploads) {
         const docPayload = {
           vehicle: vehicle.id,
           incident: incident.id,
           type: upload.type,
-          client_ref: refs.document,
+          client_ref: upload.client_ref,
+          ...(upload.notes ? { notes: upload.notes } : {}),
         }
         try {
           await uploadDocument(docPayload, upload.file)
@@ -168,30 +321,54 @@ export function BreakdownModal({
     }
   }
 
+  const stepLabels: Record<Step, string> = {
+    launch: t.shell.tabs.breakdown,
+    tires: b.stepTires,
+    availability: b.stepAvailability,
+    docs: b.stepDocs,
+    manage: b.stepManage,
+  }
+
   return (
     <SupervisorModal
       open
+      // Tres pasos y un parte de neumáticos con rejillas de dos columnas: con
+      // el ancho de serie se leía estrecho en tableta.
+      wide
       title={b.title(vehicle.plate)}
       onClose={onClose}
+      // El pie es el mismo en todos los pasos: se sale por la izquierda y se
+      // avanza por la derecha, y solo el último envía. «Continuar» exige lo
+      // obligatorio del paso que se deja (los adjuntos solo lo son si se pide
+      // coche de sustitución).
       footer={done ? (
         <Button type="button" onClick={onClose}>{t.incidentModal.close}</Button>
-      ) : step === 'launch' ? (
-        <>
-          <Button type="button" onClick={onClose}>{t.incidentModal.close}</Button>
-          <Button type="button" onClick={() => goTo('manage')} disabled={!launchValid}>{b.next}</Button>
-        </>
       ) : (
         <>
-          <Button type="button" onClick={() => goTo('launch')}>{b.back}</Button>
-          <Button type="button" onClick={handleSend} disabled={saving || !managementValid}>{b.submit}</Button>
+          {previousStep === undefined ? (
+            <Button type="button" onClick={onClose}>{t.incidentModal.close}</Button>
+          ) : (
+            <Button type="button" onClick={() => goTo(previousStep)}>{b.back}</Button>
+          )}
+          {nextStep === undefined ? (
+            <Button type="button" onClick={handleSend} disabled={saving || !managementValid}>{b.submit}</Button>
+          ) : (
+            <Button type="button" onClick={() => goTo(nextStep)} disabled={!stepValid[step]}>{b.next}</Button>
+          )}
         </>
       )}
     >
       {done ? <p className="reminder-done" role="status">{done}</p> : (
         <>
           <div className="flow-steps" aria-hidden>
-            <span className={`flow-step ${step === 'launch' ? 'is-current' : 'is-done'}`}>{t.shell.tabs.breakdown}</span>
-            <span className={`flow-step${step === 'manage' ? ' is-current' : ''}`}>{b.stepManage}</span>
+            {steps.map((key, index) => (
+              <span
+                key={key}
+                className={`flow-step${index === current ? ' is-current' : index < current ? ' is-done' : ''}`}
+              >
+                {stepLabels[key]}
+              </span>
+            ))}
           </div>
           <div key={step} className={`step-pane${cameBack ? ' from-left' : ''}`}>
             {step === 'launch' ? (
@@ -200,7 +377,7 @@ export function BreakdownModal({
                   <SelectField
                     label={t.incidentModal.kind}
                     aria-label={t.incidentModal.kind}
-                    options={KINDS.map((value) => ({ value, label: t.incidentModal.kinds[value] }))}
+                    options={INCIDENT_TYPES.map((value) => ({ value, label: t.incidentModal.kinds[value] }))}
                     value={kind}
                     onValueChange={(value) => setKind(value as IncidentKind)}
                     required
@@ -217,12 +394,19 @@ export function BreakdownModal({
                   required
                   requiredVisual
                 />
-                {kind !== 'general' && (
-                  <p className="update-notice">{t.incidentModal.info[kind]}</p>
-                )}
+                {/* Qué es cada tipo. Sale con TODOS (antes, con «General» no):
+                    son cuatro y la diferencia entre ellos es justo lo que hay
+                    que acertar para que la petición llegue a quien la atiende. */}
+                <p className="update-notice">{t.incidentModal.info[kind]}</p>
 
-                {kind === 'tires' ? (
-                  <>
+                {/* El parte de neumáticos tiene su propio paso: aquí solo se
+                    dice QUÉ pasa. */}
+                {kind !== 'tires' && (
+                  <TextAreaField label={t.incidentModal.description} aria-label={t.incidentModal.description} value={description} onChange={(e) => setDescription(e.target.value)} required requiredVisual />
+                )}
+              </div>
+            ) : step === 'tires' ? (
+              <div className="modal-form">
                     <p className="update-hint">
                       {t.incidentModal.tireRequiredBase}{' '}
                       {changeReason === 'wear'
@@ -261,17 +445,69 @@ export function BreakdownModal({
                       <TextInputField label={n.tireMeasure} aria-label={n.tireMeasure} placeholder="205/55 R16" value={tireMeasure} onChange={(e) => setTireMeasure(e.target.value)} required requiredVisual />
                     </div>}
                     <TextAreaField label={n.comment} aria-label={n.comment} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
-                  </>
-                ) : kind ? (
-                  <>
-                    <TextAreaField label={t.incidentModal.description} aria-label={t.incidentModal.description} value={description} onChange={(e) => setDescription(e.target.value)} required requiredVisual />
-                  </>
-                ) : null}
-                {kind && <label className={`photo-attach${launchFile ? ' has-file' : ''}`}>
-                  <Camera size={18} aria-hidden />
-                  {launchFile ? launchFile.name : t.incidentModal.attach}
-                  <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,application/pdf" onChange={async (e) => { const f = e.target.files?.[0]; setLaunchFile(f ? await compressImage(f) : null) }} />
-                </label>}
+              </div>
+            ) : step === 'availability' ? (
+              <div className="modal-form">
+                {/* Lo que se dice aquí NO mueve el coche de estado: eso lo hace
+                    la gestión. Pedir sustitución abre una solicitud, y es lo
+                    único que obliga a adjuntar algo (paso siguiente). */}
+                <p className="update-hint">{b.availabilityHint}</p>
+                <fieldset className="choice-group">
+                  <legend>{b.availabilityLabel}</legend>
+                  {AVAILABILITY.map((value) => (
+                    <label
+                      key={value}
+                      className={`choice-card${availability === value ? ' is-active' : ''}`}
+                    >
+                      <input
+                        type="radio"
+                        name="incident-availability"
+                        value={value}
+                        checked={availability === value}
+                        onChange={() => setAvailability(value)}
+                      />
+                      <span>
+                        <strong>{b.availability[value]}</strong>
+                        <small>{b.availabilityNotes[value]}</small>
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              </div>
+            ) : step === 'docs' ? (
+              <div className="modal-form">
+                {/* Con coche de sustitución pedido, el adjunto deja de ser
+                    opcional: es lo único que se exige para tramitarla. */}
+                <p className={needsDocument ? 'update-notice' : 'update-hint'}>
+                  {needsDocument ? b.docsRequired : b.docsHint}
+                </p>
+                <AttachBox
+                  label={t.incidentModal.attach}
+                  removeLabel={b.removeFile}
+                  selectedLabel={n.attachmentsSelected}
+                  files={files}
+                  onAdd={(added) => setFiles((current) => [...current, ...added])}
+                  onRemove={(ref) => setFiles((current) => current.filter((item) => item.ref !== ref))}
+                />
+                {/* Si el taller o la empresa ya le han dado un coche mientras
+                    se tramita, sus papeles se suben aquí y quedan con la
+                    petición. Es opcional: lo normal es no tenerlo todavía. */}
+                {needsDocument && (
+                  <section className="incident-section" aria-labelledby="substitute-docs-title">
+                    <h2 id="substitute-docs-title">{b.substituteDocsTitle}</h2>
+                    <p className="update-hint">{b.substituteDocsHint}</p>
+                    <AttachBox
+                      label={b.substituteAttach}
+                      removeLabel={b.removeFile}
+                      selectedLabel={n.attachmentsSelected}
+                      files={substituteFiles}
+                      onAdd={(added) => setSubstituteFiles((current) => [...current, ...added])}
+                      onRemove={(ref) =>
+                        setSubstituteFiles((current) => current.filter((item) => item.ref !== ref))
+                      }
+                    />
+                  </section>
+                )}
               </div>
             ) : (
               <div className="modal-form">

@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Bell,
+  Camera,
   Car,
   CloudOff,
   Home,
   LineChart,
   LogOut,
   RefreshCw,
+  User,
   Users,
 } from 'lucide-react'
 import { LanguageToggleButton } from '@flota/ui/ui'
@@ -60,6 +62,10 @@ export function Layout() {
   const { user, logout } = useAuth()
   const { t, language, setLanguage } = useLang()
   const navigate = useNavigate()
+  // «Mi perfil» es una RUTA y no un modo: el switch de arriba enseña las tres
+  // caras juntas, pero por debajo `fleetMode` sigue siendo cosa de dos. Así,
+  // al volver del perfil se vuelve a la vista que se estaba usando.
+  const enPerfil = useLocation().pathname === '/perfil'
   const [queueNotice, setQueueNotice] = useState('')
 
   const isSupervisor = user?.roles.includes('supervisor') ?? false
@@ -245,32 +251,65 @@ export function Layout() {
           {queueNotice}
         </button>
       )}
-      {/* Switch del supervisor: o estás en TU coche o estás en la flota. Es un
-          modo, no una ruta — cambia a la vez la home y los iconos del nav. */}
+      {/* Switch del shell: o estás en TU coche, o en la flota, o en tu perfil.
+          Los dos primeros son un MODO (cambian a la vez la home y los iconos
+          del nav); el tercero es una ruta, así que al elegir modo estando en el
+          perfil hay que salir de él — si no, el tab cambiaría sin que cambiase
+          la pantalla. */}
       <div className="mode-switch" role="group" aria-label={t.shell.mode.label}>
         <button
           type="button"
-          aria-pressed={!fleetMode}
-          className={`mode-switch-btn${!fleetMode ? ' is-active' : ''}`}
-          onClick={() => setFleetMode(false)}
+          aria-pressed={!enPerfil && !fleetMode}
+          className={`mode-switch-btn${!enPerfil && !fleetMode ? ' is-active' : ''}`}
+          onClick={() => {
+            setFleetMode(false)
+            if (enPerfil) navigate('/')
+          }}
         >
           <Car size={16} aria-hidden /> {t.shell.mode.vehicle}
         </button>
         {isSupervisor && (
           <button
             type="button"
-            aria-pressed={fleetMode}
-            className={`mode-switch-btn${fleetMode ? ' is-active' : ''}`}
-            onClick={() => setFleetMode(true)}
+            aria-pressed={!enPerfil && fleetMode}
+            className={`mode-switch-btn${!enPerfil && fleetMode ? ' is-active' : ''}`}
+            onClick={() => {
+              setFleetMode(true)
+              if (enPerfil) navigate('/')
+            }}
           >
             <Users size={16} aria-hidden /> {t.shell.mode.fleet}
           </button>
         )}
+        <button
+          type="button"
+          aria-pressed={enPerfil}
+          className={`mode-switch-btn${enPerfil ? ' is-active' : ''}`}
+          onClick={() => navigate('/perfil')}
+        >
+          <User size={16} aria-hidden /> {t.shell.mode.profile}
+        </button>
       </div>
       <main className="app-main">
         <Outlet context={{ fleetMode, setFleetMode, ownPair, dataVersion } satisfies LayoutContext} />
       </main>
       <nav className="bottom-nav" aria-label={t.shell.navLabel}>
+        {/* En el perfil no hay coche del que hablar: el nav se queda en volver
+            a casa y subir un documento, que es lo único que se hace desde
+            aquí. Manda sobre las dos ramas de abajo. */}
+        {enPerfil ? (
+          <>
+            <NavLink to="/" end className="bottom-tab">
+              <Home size={22} strokeWidth={2.4} aria-hidden />
+              <span>{t.shell.tabs.home}</span>
+            </NavLink>
+            <NavLink to="/documentos/nuevo" className="bottom-tab">
+              <Camera size={22} strokeWidth={2.4} aria-hidden />
+              <span>{t.vehicle.quickUpload}</span>
+            </NavLink>
+          </>
+        ) : (
+          <>
         {!fleetMode && (
           <>
             {/* Inicio primero, como en el nav de Flota: vuelve a la tarjeta. */}
@@ -301,6 +340,8 @@ export function Layout() {
               <LineChart size={22} strokeWidth={2.4} aria-hidden />
               <span>{t.shell.tabs.projection}</span>
             </NavLink>
+          </>
+        )}
           </>
         )}
       </nav>

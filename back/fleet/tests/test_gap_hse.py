@@ -17,6 +17,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import Role
 from fleet.models import (
+    Alert,
     Assignment,
     Contract,
     Event,
@@ -30,6 +31,8 @@ from fleet.models import (
 )
 from fleet.models.enums import (
     AlertLevel,
+    AlertStatus,
+    AlertType,
     AssignmentStatus,
     EventType,
     IncidentPriority,
@@ -557,15 +560,72 @@ class MaintenancePlanTests(APITestCase):
         self.assertEqual(alerts.check_maintenance(), 1)
         aviso = self.vehicle.alerts.get()
         self.assertEqual(aviso.level, AlertLevel.WARNING)
-        # Al superar el objetivo, el aviso escala con SU propia clave.
+        # Al superar el objetivo escala EL MISMO aviso: es el mismo servicio y
+        # el mismo ciclo, así que no se abre otro (antes quedaban los dos: el
+        # de «quedan 500 km» y el de «superado el objetivo»).
+        KmReading.objects.create(
+            vehicle=self.vehicle, reading_date=timezone.localdate(), km_reading=10200
+        )
+        self.assertEqual(alerts.check_maintenance(), 0)
+        aviso.refresh_from_db()
+        self.assertEqual(self.vehicle.alerts.count(), 1)
+        self.assertEqual(aviso.level, AlertLevel.CRITICAL)
+        self.assertIn("superado el objetivo de 10000 km", aviso.message)
+        self.assertEqual(aviso.dedup_key, f"maintenance:{plan.pk}:-:10000")
+
+    def test_both_cycles_speak_in_ONE_alert_and_the_km_lead(self):
+        """Por fecha y por km es el MISMO servicio: un aviso, no dos.
+
+        Mandan los km (el coche se revisa por lo que ha rodado), así que van
+        delante; la fecha se suma detrás. Antes salían dos alertas idénticas en
+        la bandeja —una crítica por km y otra de aviso por fecha— y había que
+        resolver las dos.
+        """
+        plan = MaintenancePlan.objects.create(
+            vehicle=self.vehicle,
+            name="Revisión general",
+            every_months=12,
+            every_km=10000,
+            last_done_date=timezone.localdate() - timedelta(days=358),  # toca en 7 días
+            last_done_km=0,
+        )
+        KmReading.objects.create(
+            vehicle=self.vehicle, reading_date=timezone.localdate(), km_reading=10500
+        )
+        self.assertEqual(alerts.check_maintenance(), 1)
+        alerta = self.vehicle.alerts.get()
+        # Los km primero y la fecha detrás, en la misma frase.
+        self.assertIn("superado el objetivo de 10000 km (odómetro: 10500 km)", alerta.message)
+        self.assertIn("y, por fecha, toca en 7 día(s)", alerta.message)
+        # El peor de los dos niveles, y la fecha viaja para que se vea el «Vence».
+        self.assertEqual(alerta.level, AlertLevel.CRITICAL)
+        self.assertEqual(alerta.due_date, alerts.plan_due_date(plan))
+
+    def test_the_old_split_alerts_are_folded_into_the_current_one(self):
+        """Lo que quedó abierto del reparto anterior se cierra solo.
+
+        Si no, un aviso con la clave vieja se quedaba en la bandeja para
+        siempre: nada lo cierra salvo resolverlo o registrar el mantenimiento.
+        """
+        plan = MaintenancePlan.objects.create(
+            vehicle=self.vehicle, name="Cambio de aceite", every_km=10000, last_done_km=0
+        )
+        vieja = Alert.objects.create(
+            vehicle=self.vehicle,
+            type=AlertType.MAINTENANCE_DUE,
+            level=AlertLevel.WARNING,
+            message="Cambio de aceite: quedan 500 km para el objetivo de 10000 km.",
+            dedup_key=f"maintenance:{plan.pk}:10000:km-due",
+        )
         KmReading.objects.create(
             vehicle=self.vehicle, reading_date=timezone.localdate(), km_reading=10200
         )
         self.assertEqual(alerts.check_maintenance(), 1)
-        self.assertTrue(
-            self.vehicle.alerts.filter(
-                level=AlertLevel.CRITICAL, dedup_key=f"maintenance:{plan.pk}:10000:km-overdue"
-            ).exists()
+        vieja.refresh_from_db()
+        self.assertEqual(vieja.status, AlertStatus.RESOLVED)
+        self.assertIn("Unificada", vieja.resolution_note)
+        self.assertEqual(
+            self.vehicle.alerts.filter(status=AlertStatus.OPEN).count(), 1, "quedan dos avisos"
         )
 
     def test_healthy_plan_stays_quiet(self):
@@ -748,15 +808,16 @@ class MaintenanceDoneAndIncidentReportTests(APITestCase):
         KmReading.objects.create(
             vehicle=self.vehicle, reading_date=timezone.localdate(), km_reading=12500
         )
-        # Vencida por FECHA y por KM: el motor abre un aviso por cada ciclo.
-        self.assertEqual(alerts.check_maintenance(), 2)
+        # Vencida por FECHA y por KM: es el MISMO servicio, así que es UN aviso
+        # (con los km delante y la fecha detrás), no uno por ciclo.
+        self.assertEqual(alerts.check_maintenance(), 1)
 
         resp = self.client.post(reverse("maintenanceplan-done", args=[plan.pk]), {})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         plan.refresh_from_db()
         self.assertEqual(plan.last_done_date, timezone.localdate())
         self.assertEqual(plan.last_done_km, 12500)  # reancla a la ultima lectura
-        self.assertEqual(resp.data["alerts_resolved"], 2)
+        self.assertEqual(resp.data["alerts_resolved"], 1)
         for alerta in self.vehicle.alerts.all():
             self.assertEqual(alerta.status, "resolved")
             self.assertEqual(alerta.resolved_by, self.supervisor)

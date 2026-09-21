@@ -23,6 +23,8 @@ from .models import (
     Contract,
     Country,
     Document,
+    DocumentDeletionRequest,
+    DriverChangeRequest,
     EmailLog,
     EmailSignature,
     EmailTemplate,
@@ -58,11 +60,13 @@ from .models import (
     vehicle_assignment_overlap,
 )
 from .models.enums import (
+    ALERT_LINKABLE_DOCUMENT_TYPES,
     EVENT_LINKABLE_DOCUMENT_TYPES,
     EXPIRING_DOCUMENT_TYPES,
     INCIDENT_BOUND_DOCUMENT_TYPES,
     LINK_REQUIRED_DOCUMENT_TYPES,
     TIRE_POSITIONS,
+    AlertStatus,
     AllocationTarget,
     AssignmentStatus,
     DocumentType,
@@ -75,6 +79,7 @@ from .models.enums import (
     VehicleState,
 )
 from .selectors import current_driver_map, latest_reading_map
+from .services import vehicle_requests
 
 
 class LogEntrySerializer(serializers.ModelSerializer):
@@ -1533,6 +1538,13 @@ class IncidentSerializer(serializers.ModelSerializer):
             )
 
         errors = {}
+        # Cómo queda el coche según quien lo comunica (app de campo). Es un dato
+        # de la petición, no una orden: no cambia `Vehicle.state` — solo
+        # «substitute» tiene efecto, y es abrir su solicitud de coche.
+        availability = details.get("availability")
+        if availability is not None and availability not in vehicle_requests.AVAILABILITY_VALUES:
+            errors["details"] = "Disponibilidad no válida."
+
         if guided_report and incident_type in ("breakdown", "tires"):
             if mileage is None:
                 errors["mileage"] = "Indica el kilometraje actual."
@@ -1746,13 +1758,39 @@ class IncidentResolutionSerializer(serializers.Serializer):
 DOCUMENT_ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "pdf"}
 
 
+#: Qué le falta a un documento que exige vínculo, por tipo (campo y texto).
+_LINK_REQUIRED_ERRORS = {
+    DocumentType.WORKSHOP_INVOICE: {
+        "incident": (
+            "Una «Factura de taller» va ligada a una incidencia, una ITV o un mantenimiento "
+            "del vehículo."
+        )
+    },
+    DocumentType.DAMAGE_PHOTOS: {
+        "incident": "Unas «Fotos de daños» van ligadas a una incidencia del vehículo."
+    },
+    DocumentType.ITV_REPORT: {
+        "event": "Un «Informe de ITV» va ligado a una ITV registrada o a una ITV programada."
+    },
+}
+
+
+#: Confidencialidad del documento: solo la GESTIÓN decide de quién es, si lo
+#: leen todos los conductores del coche y si queda protegido. Para el resto son
+#: de solo lectura (ver `DocumentSerializer.get_fields`).
+MANAGEMENT_ONLY_DOCUMENT_FIELDS = ("responsible", "shared_read", "protected")
+
+
 class DocumentSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source="get_type_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     uploaded_by_name = serializers.SerializerMethodField()
     user_name = serializers.SerializerMethodField()
+    responsible_name = serializers.SerializerMethodField()
     event_display = serializers.SerializerMethodField()
+    alert_display = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
+    deletion_pending = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
@@ -1771,17 +1809,41 @@ class DocumentSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def get_uploaded_by_name(self, obj) -> str:
-        user = obj.uploaded_by
-        if not user:
+    def get_fields(self):
+        """Los tres campos de confidencialidad, de solo lectura salvo gestión.
+
+        Silencioso y no un 400 a propósito: cubre por construcción todos los
+        caminos del serializer (alta, PATCH, importación), es el mismo trato
+        que ya reciben `uploaded_by` y `drive_missing_at`, y la cola offline de
+        la PWA reintenta de forma idempotente — un 400 permanente la dejaría
+        atascada. Lo que se corta aquí no es el formulario del conductor, que
+        no manda estos campos, sino una petición fabricada.
+        """
+        fields = super().get_fields()
+        # En la generación del esquema OpenAPI no hay petición ni usuario.
+        user = getattr(self.context.get("request"), "user", None)
+        if not getattr(user, "is_management", False):
+            for name in MANAGEMENT_ONLY_DOCUMENT_FIELDS:
+                fields[name].read_only = True
+        return fields
+
+    @staticmethod
+    def _person_name(person) -> str:
+        """Nombre legible de una persona del documento; '' si no hay."""
+        if not person:
             return ""
-        return user.get_full_name() or user.get_username()
+        return person.get_full_name() or person.get_username()
+
+    def get_responsible_name(self, obj) -> str:
+        """Nombre del responsable: de quién es el documento. '' si no tiene."""
+        return self._person_name(obj.responsible)
+
+    def get_uploaded_by_name(self, obj) -> str:
+        return self._person_name(obj.uploaded_by)
 
     def get_user_name(self, obj) -> str:
         """Nombre del titular PERSONA (documentos personales); '' si es de coche."""
-        if not obj.user_id:
-            return ""
-        return obj.user.get_full_name() or obj.user.get_username()
+        return self._person_name(obj.user if obj.user_id else None)
 
     def get_event_display(self, obj) -> str:
         """El registro al que acompaña, legible («ITV · 2026-03-01»); '' si no hay."""
@@ -1790,6 +1852,23 @@ class DocumentSerializer(serializers.ModelSerializer):
         event = obj.event
         when = event.event_date.isoformat() if event.event_date else "—"
         return f"{event.get_event_type_display()} · {when}"
+
+    def get_alert_display(self, obj) -> str:
+        """La alerta a la que acompaña («ITV programada · 2026-11-03»); '' si no hay."""
+        if not obj.alert_id:
+            return ""
+        alert = obj.alert
+        when = alert.due_date.isoformat() if alert.due_date else "—"
+        return f"{alert.get_type_display()} · {when}"
+
+    def get_deletion_pending(self, obj) -> bool:
+        """¿Hay pedido su borrado y sin decidir? Lo anota el queryset de la vista.
+
+        Es lo que marca la fila en la app de campo («Pendiente de borrado») y lo
+        que apaga su papelera. Un documento recién creado no trae la anotación
+        y tampoco puede tener petición: `False` es la respuesta correcta.
+        """
+        return bool(getattr(obj, "deletion_pending", False))
 
     def get_file_url(self, obj) -> str:
         if not obj.file:
@@ -1843,6 +1922,14 @@ class DocumentSerializer(serializers.ModelSerializer):
         # un tipo que el documento admita y nunca a la vez que una incidencia —
         # un documento acompaña a UNA cosa.
         event = attrs.get("event", getattr(self.instance, "event", None))
+        # …o a una ALERTA abierta (el informe de una ITV programada que aún no
+        # se ha registrado). Un documento acompaña a UNA cosa.
+        alert = attrs.get("alert", getattr(self.instance, "alert", None))
+        vinculos = [v for v in (incident, event, alert) if v is not None]
+        if len(vinculos) > 1:
+            raise serializers.ValidationError(
+                {"event": "Liga el documento a una sola cosa: incidencia, registro o alerta."}
+            )
         if event is not None:
             if vehicle is None:
                 raise serializers.ValidationError(
@@ -1850,10 +1937,6 @@ class DocumentSerializer(serializers.ModelSerializer):
                 )
             if event.vehicle_id != vehicle.pk:
                 raise serializers.ValidationError({"event": "El registro es de otro vehículo."})
-            if incident is not None:
-                raise serializers.ValidationError(
-                    {"event": "Liga el documento a una incidencia O a un registro, no a los dos."}
-                )
             allowed = EVENT_LINKABLE_DOCUMENT_TYPES.get(doc_type)
             if not allowed:
                 raise serializers.ValidationError(
@@ -1865,21 +1948,27 @@ class DocumentSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"event": f"Un «{label}» solo acompaña a un registro de: {kinds}."}
                 )
-        # Lo que exige acompañar a algo (la factura de taller) no entra suelto.
-        # Se exige al crear y al cambiar tipo o vínculo, no en un PATCH de estado.
-        if doc_type in LINK_REQUIRED_DOCUMENT_TYPES and (
-            self.instance is None or {"incident", "event", "type"} & set(attrs)
-        ):
-            if incident is None and event is None:
-                label = DocumentType(doc_type).label
+        if alert is not None:
+            if vehicle is None or alert.vehicle_id != vehicle.pk:
+                raise serializers.ValidationError({"alert": "La alerta es de otro vehículo."})
+            allowed = ALERT_LINKABLE_DOCUMENT_TYPES.get(doc_type)
+            if not allowed or alert.type not in allowed:
                 raise serializers.ValidationError(
-                    {
-                        "incident": (
-                            f"Una «{label}» va ligada a una incidencia, una ITV o un "
-                            "mantenimiento del vehículo."
-                        )
-                    }
+                    {"alert": "Este tipo de documento no se liga a esa alerta."}
                 )
+            if alert.status != AlertStatus.OPEN:
+                raise serializers.ValidationError(
+                    {"alert": "Esa alerta ya está resuelta: liga el informe a la ITV registrada."}
+                )
+        # Lo que exige acompañar a algo (factura de taller, fotos de daños,
+        # informe de ITV) no entra suelto. Se exige al crear y al cambiar tipo o
+        # vínculo, no en un PATCH de estado.
+        if (
+            doc_type in LINK_REQUIRED_DOCUMENT_TYPES
+            and not vinculos
+            and (self.instance is None or {"incident", "event", "alert", "type"} & set(attrs))
+        ):
+            raise serializers.ValidationError(_LINK_REQUIRED_ERRORS[doc_type])
         # Un parte de accidente es el parte DE un accidente: va ligado a uno y
         # sin cerrar. Se exige al crear y al cambiar tipo o incidencia; un PATCH
         # de estado sobre un parte antiguo (accidente ya cerrado) no lo re-exige.
@@ -1988,9 +2077,76 @@ class AlertSerializer(serializers.ModelSerializer):
 # --- Solicitudes de vehículo (Épica 8) -----------------------------------
 
 
+class DocumentDeletionRequestSerializer(serializers.ModelSerializer):
+    """Petición de borrado de un documento, tal como la lee la bandeja.
+
+    Trae de quién es el documento —matrícula o persona—, de qué tipo es y
+    cuándo se subió, porque la fila tiene que decir **qué se está pidiendo
+    borrar** sin abrir el documento. `status` y el rastro de la resolución los
+    fija el servidor: se cambian por `resolve` (gestión) y nunca por un PATCH.
+    """
+
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    requested_by_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+    document_type_display = serializers.CharField(
+        source="document.get_type_display", read_only=True, default=""
+    )
+    document_created_at = serializers.DateTimeField(
+        source="document.created_at", read_only=True, default=None
+    )
+    vehicle = serializers.IntegerField(source="document.vehicle_id", read_only=True, default=None)
+    vehicle_plate = serializers.CharField(
+        source="document.vehicle.plate", read_only=True, default=""
+    )
+    owner_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DocumentDeletionRequest
+        fields = "__all__"
+        read_only_fields = [
+            "id",
+            "requested_by",
+            "status",
+            "resolved_by",
+            "resolved_at",
+            "resolution_note",
+            "created_at",
+            "updated_at",
+        ]
+
+    @staticmethod
+    def _name(person) -> str:
+        if not person:
+            return ""
+        return person.get_full_name() or person.get_username()
+
+    def get_requested_by_name(self, obj) -> str:
+        return self._name(obj.requested_by)
+
+    def get_resolved_by_name(self, obj) -> str:
+        return self._name(obj.resolved_by)
+
+    def get_owner_name(self, obj) -> str:
+        """Titular del documento: la matrícula del coche o el nombre de la persona."""
+        document = obj.document
+        if document.vehicle_id:
+            return document.vehicle.plate
+        return self._name(document.user)
+
+
 class VehicleRequestSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     requester_name = serializers.SerializerMethodField()
+    # De dónde viene la solicitud, para la bandeja: si nació de una incidencia
+    # de campo, el coche que hay que CUBRIR y por qué (no es el de `vehicle`,
+    # que es el que se concede y normalmente aún está vacío).
+    incident_plate = serializers.CharField(
+        source="incident.vehicle.plate", read_only=True, default=""
+    )
+    incident_type_display = serializers.CharField(
+        source="incident.get_type_display", read_only=True, default=""
+    )
 
     class Meta:
         model = VehicleRequest
@@ -2492,3 +2648,71 @@ class EmailLogSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+class DriverChangeRequestSerializer(serializers.ModelSerializer):
+    """Propuesta de cambio de conductor, tal como la lee la bandeja.
+
+    La fila tiene que decir **de qué coche se habla y a quién se propone** sin
+    abrir nada: de ahí la matrícula, el nombre del candidato —sea usuario de la
+    app o texto suelto— y el mensaje de la alerta de origen, que es el porqué.
+
+    De entrada solo se aceptan el vehículo, la alerta, el candidato y la nota:
+    el estado y el rastro de la resolución los fija el servidor (`resolve`).
+    """
+
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True, default="")
+    requested_by_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+    proposed_display = serializers.SerializerMethodField()
+    alert_message = serializers.CharField(source="alert.message", read_only=True, default="")
+
+    class Meta:
+        model = DriverChangeRequest
+        fields = "__all__"
+        read_only_fields = [
+            "id",
+            "requested_by",
+            "status",
+            "resolved_by",
+            "resolved_at",
+            "resolution_note",
+            "created_at",
+            "updated_at",
+        ]
+
+    @staticmethod
+    def _name(person) -> str:
+        if not person:
+            return ""
+        return person.get_full_name() or person.get_username()
+
+    def get_requested_by_name(self, obj) -> str:
+        return self._name(obj.requested_by)
+
+    def get_resolved_by_name(self, obj) -> str:
+        return self._name(obj.resolved_by)
+
+    def get_proposed_display(self, obj) -> str:
+        """A quién se propone, venga de la app o escrito a mano."""
+        if obj.proposed_driver_id:
+            return self._name(obj.proposed_driver)
+        if obj.proposed_name:
+            if obj.proposed_email:
+                return f"{obj.proposed_name} ({obj.proposed_email})"
+            return obj.proposed_name
+        return ""
+
+    def validate(self, attrs):
+        """Sin candidato, la nota ES la petición: entonces es obligatoria.
+
+        Una fila sin nadie propuesto y sin nada escrito no le dice nada a quien
+        la tiene que decidir.
+        """
+        candidato = attrs.get("proposed_driver") or (attrs.get("proposed_name") or "").strip()
+        if not candidato and not (attrs.get("note") or "").strip():
+            raise serializers.ValidationError(
+                {"note": "Propón a alguien o escribe una nota para administración."}
+            )
+        return attrs

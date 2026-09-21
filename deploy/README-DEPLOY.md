@@ -86,7 +86,7 @@ Tu túnel usa un `config.yml` local. Añade la regla de `deploy/cloudflared/ingr
 a la lista `ingress:` (antes del `- service: http_status:404` final):
 
 ```yaml
-  - hostname: flota-conductores.gransolar.com     # tu dominio real
+  - hostname: fleetdrivers.gransolar-app.com     # tu dominio real
     service: http://localhost:8092
 ```
 
@@ -94,7 +94,7 @@ Crea el DNS del hostname y recarga:
 
 ```bash
 # Si gestionas rutas por CLI (ajusta el nombre del túnel):
-cloudflared tunnel route dns <tunel> flota-conductores.gransolar.com
+cloudflared tunnel route dns <tunel> fleetdrivers.gransolar-app.com
 sudo docker restart cloudflared
 ```
 
@@ -108,6 +108,46 @@ sudo docker restart cloudflared
 > `http://<IP-interna-o-DNS>:8093` (recuerda poner ese host en `ALLOWED_HOSTS` y
 > en `CSRF_TRUSTED_ORIGINS`). Para que la VPN llegue, `GESTION_BIND` debe ser la
 > IP interna (p. ej. `10.3.4.6`), no `127.0.0.1`.
+
+### 4.1 Entrada de conductores por SSO (SAML contra Google Workspace)
+
+En producción la PWA entra **solo** por el SSO corporativo. Quién entra lo
+decide la app, no Google: **únicamente un correo ya dado de alta en Flota y
+activo**; si no existe, no se abre sesión y la PWA enseña el modal que manda a
+abrir el Jira de solicitud de vehículo (`FLEET_JIRA_REQUEST_URL`). Nunca se
+crean usuarios desde el SSO.
+
+1. **Consola de Google** (superadministrador, `admin.google.com`): crear la app
+   SAML personalizada con los valores de `docs/SAML_CONDUCTORES.md`:
+   - ACS URL: `https://fleetdrivers.gransolar-app.com/api/v1/auth/saml/acs/`
+   - Entity ID: `https://fleetdrivers.gransolar-app.com/api/v1/auth/saml/metadata/`
+   - Name ID: correo principal, formato `EMAIL`; atributos `email`,
+     `first_name`, `last_name`; «Respuesta firmada» sin marcar.
+   - Activar la app para el grupo/unidad de los conductores (tarda hasta 24 h).
+   - **Descargar metadatos** (XML) y traerlo al servidor.
+2. **Servidor**:
+
+   ```bash
+   cd /mnt/data/proyectos/2026/flota
+   sudo mkdir -p data/saml
+   sudo cp ~/google_idp_metadata.xml data/saml/google_idp_metadata.xml
+   sudo chown -R 10001:10001 data/saml && sudo chmod 400 data/saml/google_idp_metadata.xml
+   # back/.env.prod: bloque SAML_* (ver back/.env.prod.example) y el dominio en
+   # ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS / CORS_ALLOWED_ORIGINS.
+   sudo docker compose up -d --build back jobs   # la imagen trae xmlsec1 y djangosaml2
+   curl -s https://fleetdrivers.gransolar-app.com/api/v1/auth/config/   # "saml_enabled": true
+   curl -s https://fleetdrivers.gransolar-app.com/api/v1/auth/saml/metadata/ | head -3
+   ```
+
+3. **Prueba**: abrir `https://fleetdrivers.gransolar-app.com/` → «Entrar con mi
+   cuenta corporativa» → Google → vuelve con sesión (usuario existente) o con el
+   modal «Aún no tienes acceso» (correo sin alta). Un fallo de firma o de
+   entity id vuelve con `?saml=error`; el motivo real está en
+   `docker compose logs back | grep saml`.
+
+Detalles: sin cierre de sesión único (Google no lo soporta en apps SAML
+personalizadas: salir de la app no cierra Google); el certificado del IdP
+caduca y hay que renovarlo en `data/saml/` cuando el administrador lo rote.
 
 ## 5. Operación
 

@@ -34,6 +34,10 @@ const es = {
     shortcutsHint: 'Atajos: "/" busca · "n" nuevo vehículo · "?" ayuda',
     menu: 'Menú',
     notifications: 'Notificaciones',
+    /** Aviso de la cabecera: solicitudes esperando decisión — de coche y de
+     * borrado de documentos, que se deciden en la misma bandeja. */
+    pendingRequests: (n: number) =>
+      n === 1 ? '1 solicitud sin decidir' : `${n} solicitudes sin decidir`,
     noAlerts: 'Sin alertas abiertas. Todo al día.',
     noIncidents: 'Sin incidencias abiertas.',
     alertsLoadError: 'No se pudieron cargar las alertas.',
@@ -364,6 +368,8 @@ const en: typeof es = {
     shortcutsHint: 'Shortcuts: "/" search · "n" new vehicle · "?" help',
     menu: 'Menu',
     notifications: 'Notifications',
+    pendingRequests: (n: number) =>
+      n === 1 ? '1 request awaiting a decision' : `${n} requests awaiting a decision`,
     noAlerts: 'No open alerts. All clear.',
     noIncidents: 'No open incidents.',
     alertsLoadError: 'Alerts could not be loaded.',

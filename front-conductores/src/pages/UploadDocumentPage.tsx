@@ -7,11 +7,17 @@ import { asErrorMessage } from '@flota/ui/http'
 import { listIncidents, listVehicles, uploadDocument } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
-import { documentExpires, incidentTypeRequiredBy, linkableIncidents } from '../documentRules.ts'
+import {
+  documentExpires,
+  documentLinkRequired,
+  incidentTypeRequiredBy,
+  linkableIncidents,
+} from '../documentRules.ts'
 import { fmtDate } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Incident, Vehicle } from '../types.ts'
+import { UPLOAD_STEPS, type UploadStep } from '../uploadSteps.ts'
 
 // Tipos de documento (lista cerrada del back, Épica 4); etiquetas en i18n.
 const DOCUMENT_TYPES = [
@@ -50,6 +56,9 @@ export function UploadDocumentPage() {
   const [vehicleId, setVehicleId] = useState(params.get('vehiculo') ?? '')
   const [form, setForm] = useState({ type: 'other', expiry_date: '', incident: '', notes: '' })
   const [file, setFile] = useState<File | null>(null)
+  // Los MISMOS tres pasos que el modal de la ficha (`uploadSteps.ts`).
+  const [step, setStep] = useState<UploadStep>('file')
+  const [cameBack, setCameBack] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
@@ -89,6 +98,8 @@ export function UploadDocumentPage() {
   // caducidad solo a lo que caduca; el parte de accidente, un accidente abierto.
   const expires = documentExpires(form.type)
   const boundTo = incidentTypeRequiredBy(form.type)
+  // Obligatorio también para las fotos de daños (son las fotos DE una incidencia).
+  const linkRequired = documentLinkRequired(form.type)
   const linkable = linkableIncidents(incidents, form.type)
 
   function changeType(value: string) {
@@ -102,6 +113,38 @@ export function UploadDocumentPage() {
     }))
   }
 
+  // Lo que exige cada paso. Aquí el coche también: la vista se abre sin él
+  // cuando se llega desde el inicio con varios vehículos.
+  const stepValid: Record<UploadStep, boolean> = {
+    file: Boolean(vehicleId && file),
+    link: !linkRequired || Boolean(form.incident),
+    notes: true,
+  }
+  const current = UPLOAD_STEPS.indexOf(step)
+  const nextStep = UPLOAD_STEPS[current + 1]
+  const previousStep = UPLOAD_STEPS[current - 1]
+  const stepLabels: Record<UploadStep, string> = {
+    file: copy.stepFile,
+    link: copy.stepLink,
+    notes: copy.stepNotes,
+  }
+
+  function goTo(next: UploadStep) {
+    setCameBack(UPLOAD_STEPS.indexOf(next) < current)
+    setStep(next)
+    setError('')
+  }
+
+  /** Intro: antes del último paso avanza, no sube. */
+  function onFormSubmit(event: FormEvent) {
+    event.preventDefault()
+    if (nextStep !== undefined) {
+      if (stepValid[step]) goTo(nextStep)
+      return
+    }
+    void handleSubmit(event)
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     if (!vehicleId) return
@@ -109,8 +152,8 @@ export function UploadDocumentPage() {
       setError(doc.chooseFile)
       return
     }
-    if (boundTo && !form.incident) {
-      setError(doc.linkAccidentRequired)
+    if (linkRequired && !form.incident) {
+      setError(boundTo ? doc.linkAccidentRequired : doc.linkIncidentRequired)
       return
     }
     setSaving(true)
@@ -153,6 +196,7 @@ export function UploadDocumentPage() {
               setDone('')
               setFile(null)
               setForm({ type: 'other', expiry_date: '', incident: '', notes: '' })
+              setStep('file')
             }}
           >
             {copy.another}
@@ -176,7 +220,19 @@ export function UploadDocumentPage() {
         title={copy.title}
       />
 
-      <form className="modal-form" onSubmit={handleSubmit}>
+      <form className="modal-form" onSubmit={onFormSubmit}>
+        <div className="flow-steps" aria-hidden>
+          {UPLOAD_STEPS.map((key, index) => (
+            <span
+              key={key}
+              className={`flow-step${index === current ? ' is-current' : index < current ? ' is-done' : ''}`}
+            >
+              {stepLabels[key]}
+            </span>
+          ))}
+        </div>
+        <div key={step} className={`step-pane${cameBack ? ' from-left' : ''}`}>
+        {step === 'file' && <>
         {vehicles.length > 1 && (
           <SelectField
             label={copy.vehicle}
@@ -231,14 +287,22 @@ export function UploadDocumentPage() {
             onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))}
           />
         )}
-        {vehicleId && boundTo ? (
+        </>}
+
+        {step === 'link' && <>
+        {/* De qué es el documento; con tipos que no llevan nada, el paso
+            lo dice en vez de quedarse en blanco. */}
+        <p className="update-hint">
+          {linkRequired || linkable.length > 0 ? copy.linkHint : copy.linkNothing}
+        </p>
+        {vehicleId && linkRequired ? (
           linkable.length > 0 ? (
             <SelectField
-              label={doc.linkAccident}
+              label={boundTo ? doc.linkAccident : doc.linkIncidentOpen}
               required
               requiredVisual
               options={[
-                { value: '', label: doc.linkChoose },
+                { value: '', label: boundTo ? doc.linkChoose : doc.linkChooseIncident },
                 ...linkable.map((i) => ({
                   value: String(i.id),
                   label: `#${i.id} · ${i.type_display}${i.date ? ` (${fmtDate(i.date)})` : ''}`,
@@ -248,42 +312,65 @@ export function UploadDocumentPage() {
               onValueChange={(value) => setForm((f) => ({ ...f, incident: value }))}
             />
           ) : (
-            <p className="form-error" role="status">{doc.noOpenAccident}</p>
+            <p className="form-error" role="status">
+              {boundTo ? doc.noOpenAccident : doc.noOpenIncident}
+            </p>
           )
         ) : (
           vehicleId &&
           linkable.length > 0 && (
+            // Opcional: la opción «ninguna» lleva centinela, porque un
+            // `<select required>` con la opción vacía no pasa la validación
+            // nativa y bloqueaba el envío.
             <SelectField
               label={doc.linkIncident}
               required
               options={[
-                { value: '', label: doc.linkNone },
+                { value: 'none', label: doc.linkNone },
                 ...linkable.map((i) => ({
                   value: String(i.id),
                   label: `#${i.id} · ${i.type_display} · ${i.status_display}${i.date ? ` (${fmtDate(i.date)})` : ''}`,
                 })),
               ]}
-              value={form.incident}
-              onValueChange={(value) => setForm((f) => ({ ...f, incident: value }))}
+              value={form.incident || 'none'}
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, incident: value === 'none' ? '' : value }))
+              }
             />
           )
         )}
+        </>}
+
+        {step === 'notes' && <>
+        <p className="update-hint">{copy.notesHint}</p>
         <TextInputField
           label={doc.notes}
           value={form.notes}
           onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
         />
+        </>}
         {error && <div role="alert" className="form-error">{error}</div>}
+        </div>
         <div className="form-actions">
-          <Button type="button" variant="secondary" onClick={() => navigate('/')}>
-            {t.common.cancel}
-          </Button>
-          <Button
-            type="submit"
-            disabled={saving || !vehicleId || (Boolean(boundTo) && linkable.length === 0)}
-          >
-            {saving ? doc.uploadSubmitting : copy.submit}
-          </Button>
+          {previousStep === undefined ? (
+            <Button type="button" variant="secondary" onClick={() => navigate('/')}>
+              {t.common.cancel}
+            </Button>
+          ) : (
+            <Button type="button" onClick={() => goTo(previousStep)}>{t.breakdown.back}</Button>
+          )}
+          {nextStep === undefined ? (
+            <Button
+              type="submit"
+              disabled={saving || !vehicleId || (Boolean(boundTo) && linkable.length === 0)}
+            >
+              {saving ? doc.uploadSubmitting : copy.submit}
+            </Button>
+          ) : (
+            <Button type="button" onClick={() => goTo(nextStep)} disabled={!stepValid[step]}>
+              {t.breakdown.next}
+            </Button>
+          )}
         </div>
       </form>
     </div>

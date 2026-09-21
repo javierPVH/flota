@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
   Bell,
@@ -13,6 +13,7 @@ import {
   FileText,
   Gauge,
   Home,
+  KeyRound,
   LogOut,
   Menu,
   Settings,
@@ -21,7 +22,13 @@ import {
 } from 'lucide-react'
 import { Badge, LanguageToggleButton } from '@flota/ui/ui'
 
-import { listAlerts, listIncidents } from '../api.ts'
+import {
+  listAlerts,
+  listDocumentDeletionRequests,
+  listDriverChangeRequests,
+  listIncidents,
+  listVehicleRequests,
+} from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { incidentStatusTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
@@ -55,11 +62,30 @@ export function AppHeader() {
   const bellBtnRef = useRef<HTMLButtonElement | null>(null)
   const [bellPos, setBellPos] = useState({ top: 88, right: 20, maxHeight: 480 })
   const bellCount = openAlerts + openIncidents
+  // Solicitudes sin decidir, las TRES bandejas de `/solicitudes`: las de coche
+  // (Jira, portón y la sustitución que llega de la app de campo), las de
+  // borrado de documentos y las propuestas de cambio de conductor, que abre el
+  // campo al resolver la alerta de km contratados. Decidirlas es de
+  // administración, así que el aviso vive en su cabecera; se suman porque el
+  // aviso dice cuántas decisiones esperan, no de qué tipo son.
+  const [pendingRequests, setPendingRequests] = useState(0)
+  const [pendingDocRequests, setPendingDocRequests] = useState(0)
+  const [pendingDriverRequests, setPendingDriverRequests] = useState(0)
+  const pendingTotal = pendingRequests + pendingDocRequests + pendingDriverRequests
 
   // Recuentos "abiertas" para las pestañas y el contador del icono.
   const loadCounts = () => {
     listAlerts({ status: 'open' }).then((p) => setOpenAlerts(p.count)).catch(() => {})
     listIncidents({ status: 'open' }).then((p) => setOpenIncidents(p.count)).catch(() => {})
+    listVehicleRequests({ status: 'pending' })
+      .then((p) => setPendingRequests(p.count))
+      .catch(() => {})
+    listDocumentDeletionRequests({ status: 'pending' })
+      .then((p) => setPendingDocRequests(p.count))
+      .catch(() => {})
+    listDriverChangeRequests({ status: 'pending' })
+      .then((p) => setPendingDriverRequests(p.count))
+      .catch(() => {})
   }
 
   // Lista de la vista activa (pestaña + subtab), primera página.
@@ -205,6 +231,7 @@ export function AppHeader() {
       items: [
         { to: '/incidencias', label: nav.incidents, icon: <Wrench size={16} /> },
         { to: '/alertas', label: nav.alerts, icon: <AlertTriangle size={16} /> },
+        { to: '/solicitudes', label: nav.requests, icon: <KeyRound size={16} /> },
       ],
     },
     {
@@ -234,6 +261,26 @@ export function AppHeader() {
             {user?.email && <span className="shell-user-email">{user.email}</span>}
           </span>
         </div>
+
+        {pendingTotal > 0 && (
+          <Link
+            // Sin solicitudes de coche sin decidir, el aviso es de documentos:
+            // que abra directamente la pestaña donde hay algo que hacer.
+            to={
+              pendingRequests > 0
+                ? '/solicitudes?status=pending'
+                : '/solicitudes?tab=documentos'
+            }
+            className="shell-iconbtn"
+            aria-label={t.shell.pendingRequests(pendingTotal)}
+            title={t.shell.pendingRequests(pendingTotal)}
+          >
+            <KeyRound size={18} />
+            <span className="shell-count-badge" aria-hidden="true">
+              {pendingTotal > 99 ? '99+' : pendingTotal}
+            </span>
+          </Link>
+        )}
 
         <button
           ref={bellBtnRef}

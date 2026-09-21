@@ -54,6 +54,10 @@ export type QueuedItem =
       /** R3-27: `client_ref` del parte encolado del que depende este adjunto;
        * al crearse el parte se sustituye por el `payload.incident` real. */
       incidentRef?: string
+      /** Lo mismo para el informe de una ITV capturada sin cobertura: el
+       * informe cuelga del REGISTRO, cuyo id no existe hasta que la cola lo
+       * crea (`payload.event`). */
+      eventRef?: string
     }
 
 export interface StoredItem {
@@ -201,7 +205,7 @@ export function newClientRef(): string {
  * quepa se pierde en silencio — el parte, que es lo crítico, ya está a salvo. */
 export async function enqueueIncidentWithFiles(
   payload: IncidentInput & { client_ref: string },
-  files: Array<{ file: File; type: string }>,
+  files: Array<{ file: File; type: string; notes?: string }>,
 ): Promise<boolean> {
   if (!(await safeEnqueue({ kind: 'incident', payload }))) return false
   for (const upload of files) {
@@ -209,11 +213,44 @@ export async function enqueueIncidentWithFiles(
       kind: 'document',
       // Sin `incident`: el id no existe aún — `incidentRef` lo resolverá el
       // flush cuando el parte se cree.
-      payload: { vehicle: payload.vehicle, type: upload.type, client_ref: newClientRef() },
+      payload: {
+        vehicle: payload.vehicle,
+        type: upload.type,
+        client_ref: newClientRef(),
+        // La nota dice de qué son (los papeles del coche de sustitución): sin
+        // ella, al reenviarse quedarían como un «Otro» más de la incidencia.
+        ...(upload.notes ? { notes: upload.notes } : {}),
+      },
       file: upload.file,
       fileName: upload.file.name,
       fileType: upload.file.type,
       incidentRef: payload.client_ref,
+    })
+  }
+  return true
+}
+
+/** ITV capturada sin cobertura, con su informe: se encolan los dos y el
+ * informe queda esperando (`eventRef`) al id del registro que creará el flush.
+ * Devuelve `false` si ni siquiera la ITV pudo guardarse (sin IndexedDB). */
+export async function enqueueItvWithReport(
+  payload: Extract<QueuedItem, { kind: 'itv' }>['payload'] & { client_ref: string },
+  report: File | null,
+): Promise<boolean> {
+  if (!(await safeEnqueue({ kind: 'itv', payload }))) return false
+  if (report) {
+    await safeEnqueue({
+      kind: 'document',
+      // Sin `event`: el registro no existe aún.
+      payload: {
+        vehicle: payload.vehicle,
+        type: 'itv_report',
+        client_ref: newClientRef(),
+      },
+      file: report,
+      fileName: report.name,
+      fileType: report.type,
+      eventRef: payload.client_ref,
     })
   }
   return true
@@ -248,15 +285,16 @@ async function bumpAttempts(stored: StoredItem): Promise<number> {
   return attempts
 }
 
-/** Reenvía un elemento. Para un parte de incidencia devuelve el id creado
- * (R3-27: sus adjuntos encolados lo esperan); el resto no devuelve nada. */
+/** Reenvía un elemento. Para un parte de incidencia y para una ITV devuelve el
+ * id creado (sus adjuntos encolados lo esperan); el resto no devuelve nada. */
 async function send(item: QueuedItem): Promise<number | undefined> {
   if (item.kind === 'km') {
     await createKmReading(item.payload)
   } else if (item.kind === 'fuel') {
     await addFuelEntry(item.payload)
   } else if (item.kind === 'itv') {
-    await registerItv(item.payload)
+    const event = await registerItv(item.payload)
+    return event.id
   } else if (item.kind === 'incident') {
     const incident = await createIncident(item.payload)
     return incident.id
@@ -268,6 +306,10 @@ async function send(item: QueuedItem): Promise<number | undefined> {
       // mejor suelto que perdido.
       payload.incident = null
     }
+    if (item.eventRef) {
+      // Ídem con la ITV que nunca llegó a registrarse.
+      payload.event = null
+    }
     const file = new File([item.file], item.fileName || 'documento', {
       type: item.fileType || item.file.type || 'application/octet-stream',
     })
@@ -276,15 +318,22 @@ async function send(item: QueuedItem): Promise<number | undefined> {
   return undefined
 }
 
-/** R3-27: al crearse por fin un parte encolado, sus adjuntos pendientes pasan
- * a apuntar al id real — en el array en memoria (este mismo flush los envía) y
- * en IndexedDB (por si el flush se corta antes de llegar a ellos). */
-async function adoptIncident(items: StoredItem[], ref: string, incidentId: number): Promise<void> {
+/** R3-27: al crearse por fin lo que esperaban (el parte de una incidencia, el
+ * registro de una ITV), sus adjuntos pendientes pasan a apuntar al id real —
+ * en el array en memoria (este mismo flush los envía) y en IndexedDB (por si
+ * el flush se corta antes de llegar a ellos). */
+async function adopt(
+  items: StoredItem[],
+  link: 'incident' | 'event',
+  ref: string,
+  id: number,
+): Promise<void> {
+  const refField = link === 'incident' ? 'incidentRef' : 'eventRef'
   for (const stored of items) {
     const item = stored.item
-    if (item.kind !== 'document' || item.incidentRef !== ref) continue
-    item.payload = { ...item.payload, incident: incidentId }
-    delete item.incidentRef
+    if (item.kind !== 'document' || item[refField] !== ref) continue
+    item.payload = { ...item.payload, [link]: id }
+    delete item[refField]
     try {
       await tx('readwrite', (store) => store.put({ ...stored }))
     } catch {
@@ -314,9 +363,14 @@ export async function flush(): Promise<FlushResult> {
     const items = await queuedItems()
     for (const stored of items) {
       try {
-        const createdIncident = await send(stored.item)
-        if (stored.item.kind === 'incident' && createdIncident !== undefined) {
-          await adoptIncident(items, stored.item.payload.client_ref, createdIncident)
+        const createdId = await send(stored.item)
+        if (stored.item.kind === 'incident' && createdId !== undefined) {
+          await adopt(items, 'incident', stored.item.payload.client_ref, createdId)
+        }
+        // La ITV siempre se encola con `client_ref` (idempotencia R3-34); es
+        // esa misma referencia la que espera su informe.
+        if (stored.item.kind === 'itv' && createdId !== undefined && stored.item.payload.client_ref) {
+          await adopt(items, 'event', stored.item.payload.client_ref, createdId)
         }
         await remove(stored.id)
         result.sent += 1

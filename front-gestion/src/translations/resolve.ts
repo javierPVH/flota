@@ -33,6 +33,10 @@ const es = {
     releaseBlocked: (kind: string) =>
       `El coche no vuelve a Activo: sigue abierta una petición de ${kind}.`,
     releaseFailed: 'La resolución se guardó, pero no se pudo liberar el coche de sustitución.',
+    // El coche no rueda mientras está en el taller: casi siempre se cierra con
+    // la misma lectura con la que entró, y tecleada a mano se equivoca.
+    loadKm: (km: string) => `Cargar los del coche (${km})`,
+    loadKmHint: 'En el taller no hace kilómetros: si no ha rodado, esta lectura vale.',
     cancel: 'Cancelar',
     saving: 'Guardando…',
     genericError: 'No se pudo guardar la resolución.',
@@ -46,6 +50,13 @@ const es = {
     intro:
       'Cierra la avería con lo que se hizo: dónde, cuánto costó y con qué km se recogió el coche.',
     confirm: 'Resolver y cerrar',
+  },
+  /** Petición general: puede no ir del coche (documentación, tarjetas, dudas),
+   * así que lo del taller solo se pregunta si lo hubo. */
+  general: {
+    intro: 'Cierra la petición con lo que se hizo. Si no hubo taller, basta con las observaciones.',
+    workshop: 'Requirió pasar por el taller',
+    workshopHint: 'Al marcarlo se piden los kilómetros, el coste, el CP y la factura.',
   },
   itv: {
     km: 'Km en la inspección',
@@ -208,6 +219,8 @@ const en: typeof es = {
     releasedNotice: (plate) => `Replacement car ${plate} is now free.`,
     releaseBlocked: (kind) => `The car stays off the road: a ${kind} request is still open.`,
     releaseFailed: 'The resolution was saved, but the replacement car could not be freed.',
+    loadKm: (km) => `Load the car's own (${km})`,
+    loadKmHint: 'A car in the workshop covers no distance: if it has not moved, this reading holds.',
     cancel: 'Cancel',
     saving: 'Saving…',
     genericError: 'The resolution could not be saved.',
@@ -220,6 +233,11 @@ const en: typeof es = {
   breakdown: {
     intro: 'Close the breakdown with what was done: where, how much it cost and the odometer when collected.',
     confirm: 'Resolve & close',
+  },
+  general: {
+    intro: 'Close the request with what was done. If there was no workshop, the notes are enough.',
+    workshop: 'It had to go to the workshop',
+    workshopHint: 'Ticking it asks for the odometer, the cost, the postcode and the invoice.',
   },
   itv: {
     km: 'Odometer at inspection',

@@ -12,7 +12,10 @@
       "Bash(.venv/Scripts/python.exe -m ruff format fleet/services/incidents.py fleet/serializers.py fleet/views.py fleet/tests/test_incident_resolution.py fleet/tests/test_gap_hse.py)",
       "Bash(.venv/Scripts/python.exe manage.py test fleet.tests.test_incident_resolution fleet.tests.test_gap_hse fleet.tests.test_accident_tables)",
       "Bash(.venv/Scripts/python.exe -m ruff format fleet/services/incidents.py fleet/tests/test_incident_resolution.py fleet/tests/test_gap_hse.py)",
-      "Bash(.venv/Scripts/python.exe manage.py test fleet.tests.test_gap_hse.ReturnVehicleTests)"
+      "Bash(.venv/Scripts/python.exe manage.py test fleet.tests.test_gap_hse.ReturnVehicleTests)",
+      "Bash(.venv/Scripts/python.exe manage.py makemigrations fleet)",
+      "Bash(.venv/Scripts/python.exe manage.py test fleet.tests.test_documents.DocumentVisibilityTests)",
+      "Bash(node ../node_modules/typescript/bin/tsc -b)"
     ]
   }
 }

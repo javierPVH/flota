@@ -10,6 +10,7 @@ import {
 } from '../api.ts'
 import { ALERT_EMAIL_KIND, INCIDENT_EMAIL_KIND, type EmailKind } from '../emailKinds.ts'
 import { daysUntilDate, incidentTypeTone } from '../format.ts'
+import { useIncidentSummary } from '../incidentSummary.ts'
 import { useAlertsPageCopy } from '../translations/alertsPage.ts'
 import { useResolveCopy } from '../translations/resolve.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
@@ -73,6 +74,8 @@ interface FilaData {
   /** Clave del tipo (filtro) y su nombre (título de la fila y orden por tipo). */
   tipo: string
   tipoLabel: string
+  /** Lo del parte guiado que no cabe en el título (neumáticos, km, CP). */
+  detail?: string
   /** Nivel de la alerta: la «prioridad» por la que se filtra y se ordena. */
   nivel?: string
   nivelLabel?: string
@@ -161,6 +164,7 @@ export function usePending({
   const t = useResolveCopy().pending
   const alertsCopy = useAlertsPageCopy()
   const vt = useVehiclesCopy()
+  const resumenIncidencia = useIncidentSummary()
 
   const [grupoPedido, setGrupo] = useState<Grupo>(grupoInicial ?? 'incidents')
   // Acotada a un tipo no hay más grupo que el de las incidencias.
@@ -353,6 +357,7 @@ export function usePending({
             plate: vehicle ? undefined : (coche?.plate ?? `#${inc.vehicle}`),
             tipo: inc.type,
             tipoLabel: inc.type_display,
+            detail: resumenIncidencia(inc),
             // Abierta: la fecha del parte. Cerrada: la de la solución.
             date: abierta ? inc.date : (inc.resolution_date ?? inc.date),
             description: inc.description,
@@ -553,6 +558,7 @@ export function usePending({
             plate={fila.plate}
             date={fila.date}
             title={fila.tipoLabel}
+            detail={fila.detail}
             description={fila.description}
             badges={fila.badges}
             onResolve={fila.onResolve}

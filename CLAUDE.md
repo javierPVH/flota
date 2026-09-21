@@ -132,8 +132,11 @@ Dos capas que van **siempre juntas**:
   `returns.py` (GAP-7: devolución de vehículo como operación única — lectura
   final, cierre de contrato, fin de asignaciones, baja y exceso de km),
   `reports.py` (Excel/CSV acotado por rol), `archiver.py` (backends
-  `none|local|gdrive` + reintento; árbol y credenciales, abajo), `jira.py`, `importer.py`, `events.py`,
-  `seed.py`.
+  `none|local|gdrive` + reintento; árbol y credenciales, abajo),
+  `vehicle_requests.py` (la petición de coche de sustitución que abre una
+  incidencia de campo), `document_requests.py` (la petición de borrado de un
+  documento que abre el campo y decide la gestión), `jira.py`, `importer.py`,
+  `events.py`, `seed.py`.
 - **En Drive todo cuelga del mismo árbol**, bajo la carpeta madre
   (`GOOGLE_DRIVE_ROOT_FOLDER_ID`): **`Vehículos/<matrícula>`** para los
   documentos del coche y **`Usuarios/<correo>`** para los personales (permiso
@@ -143,9 +146,29 @@ Dos capas que van **siempre juntas**:
   etiqueta («Seguro», «Fotos de daños»…). Cada nivel se **busca antes de
   crearse** (`_child_folder`), así que dos subidas seguidas del mismo coche no
   duplican carpetas; el de la matrícula se recuerda en `Vehicle.drive_folder_id`
-  y el resto se resuelve una vez por pasada. El backend `local` monta **el
+  y el resto se resuelve una vez por pasada. Ese id recordado **se comprueba
+  antes de usarse** (`_folder_alive`: `files.get` con `trashed`): una carpeta
+  borrada desde Drive va a la papelera y Drive seguiría aceptando subir
+  dentro, con lo que el documento nacería en la papelera; si está en la
+  papelera o ya no existe, se olvida y se recrea el árbol. El backend `local` monta **el
   mismo árbol** en disco, para que lo que se prueba en dev sea lo que luego se
   ve en Drive.
+- **Un mantenimiento programado es UN aviso, aunque toque por dos caminos.**
+  Un plan puede ir por fecha, por km o por las dos (`MaintenancePlan`), y
+  cuando van las dos es el **mismo servicio**: `alerts._check_plan` abre una
+  sola alerta que lo dice todo, con **los km por delante** —mandan ellos: el
+  coche se revisa por lo que ha rodado y la fecha es el tope de arriba— y la
+  fecha detrás («…superado el objetivo de 10000 km (odómetro: 10500 km) **y,
+  por fecha,** toca en 7 día(s)…»), con el **peor** de los dos niveles. Antes
+  salían dos alertas del mismo mantenimiento, una crítica por km y otra de
+  aviso por fecha, y había que resolver las dos. Por eso la `dedup_key` es el
+  **ciclo** (`maintenance:{plan}:{fecha}:{km}`) y no su gravedad: mientras el
+  objetivo no se mueva se refresca **ese** aviso —de «quedan 500 km» a
+  «superado el objetivo», sin abrir otro—, y al registrar el trabajo las
+  anclas se mueven y el siguiente ciclo trae el suyo. Lo que quede abierto de
+  un ciclo anterior lo cierra el propio chequeo
+  (`_close_superseded_plan_alerts`, con su motivo): una alerta no se cierra
+  sola, y si no se quedaría en la bandeja para siempre.
 - **Lo que se pide a un documento lo dice su tipo**, y lo dice el back
   (`fleet/models/enums/document.py`): solo **caducan** la póliza, el contrato,
   el informe de ITV y el permiso de conducir (`EXPIRING_DOCUMENT_TYPES`; una
@@ -159,18 +182,27 @@ Dos capas que van **siempre juntas**:
   obligatorio, y sin ninguno abierto no se puede subir y se dice por qué), y
   solo ofrecen incidencias **sin cerrar**: lo que se adjunta se adjunta a lo
   que está en marcha. Un documento puede acompañar también a un **registro**
-  del coche (`Document.event`, excluyente con la incidencia): la **póliza** a
-  la renovación de seguro que la trajo, el **informe de ITV** a esa ITV y la
-  **factura de taller** a la ITV o al mantenimiento
-  (`EVENT_LINKABLE_DOCUMENT_TYPES`), y la factura **exige** acompañar a algo
-  (`LINK_REQUIRED_DOCUMENT_TYPES`: incidencia —aquí también las cerradas,
-  porque la factura llega después de la reparación—, ITV o mantenimiento).
-  En gestión eso es **un solo desplegable** con lo que tiene el coche,
-  agrupado por categoría (`<optgroup>` del `SelectField`: Incidencias, ITV,
-  Mantenimientos, Renovaciones de seguro), y los formularios de resolver ya
-  ligan solos su justificante (`proof.ts`: el informe a la ITV registrada, la
-  póliza a la renovación, la factura a la incidencia que se cierra). El
-  **acta de entrega** no se ofrece al subir (las que haya se siguen viendo).
+  del coche (`Document.event`) o a una **alerta abierta** (`Document.alert`),
+  y a **una sola cosa**: la **póliza** a la renovación de seguro que la trajo,
+  el **informe de ITV** a esa ITV —registrada (evento) o **programada** (la
+  alerta `itv_due` abierta; al registrar la ITV, `register_itv` pasa el
+  informe de la alerta al evento)— y la **factura de taller** a la ITV o al
+  mantenimiento (`EVENT_LINKABLE_DOCUMENT_TYPES` /
+  `ALERT_LINKABLE_DOCUMENT_TYPES`). **Exigen** acompañar a algo
+  (`LINK_REQUIRED_DOCUMENT_TYPES`) la factura —incidencia, aquí también las
+  cerradas porque llega después de la reparación, ITV o mantenimiento—, las
+  **fotos de daños** (una incidencia o accidente abierto) y el **informe de
+  ITV**. Contrato, ficha técnica, acta de devolución y «Otro» llevan la
+  incidencia **opcional**; el permiso de circulación, la póliza y el permiso
+  de conducir no la ofrecen. En gestión eso es **un solo desplegable** con lo
+  que tiene el coche, agrupado por categoría (`<optgroup>` del `SelectField`:
+  Incidencias, ITV, Mantenimientos, Renovaciones de seguro, ITV programadas);
+  la opción «Ninguna» del desplegable **opcional lleva centinela** (`none`),
+  porque un `<select required>` con la opción vacía no pasa la validación
+  nativa y bloqueaba el envío. Los formularios de resolver ya ligan solos su
+  justificante (`proof.ts`: el informe a la ITV registrada, la póliza a la
+  renovación, la factura a la incidencia que se cierra). El **acta de
+  entrega** no se ofrece al subir (las que haya se siguen viendo).
   El **mismo `DocumentsPanel`** de la ficha del coche
   vive en la **ficha del usuario** (`UserDetailPage`, tarjeta «Documentos
   personales») con la **persona como titular** (`user` en vez de `vehicle`,
@@ -179,6 +211,104 @@ Dos capas que van **siempre juntas**:
   la misma lista que la PWA), no pide incidencia ni la pinta como columna, y
   no enlaza carpeta de Drive (la de `Usuarios/<correo>` la crea el archivador
   y no viaja en la ficha).
+- **Alcanzar el coche ya no es poder leerlo todo.** Hasta ahora el documento
+  solo tenía titular, así que cualquier conductor con asignación vigente veía
+  **todos** los documentos de ese coche y el supervisor los de su grupo entero.
+  Ahora son **dos capas que van juntas**: `vehicles_for`/`users_for` dicen de
+  qué documentos se puede hablar, y **`scoping.readable_documents`** dice
+  cuáles se **leen**, con tres campos que **solo escribe la gestión**
+  (`MANAGEMENT_ONLY_DOCUMENT_FIELDS`; para el resto son de solo lectura por
+  `get_fields`, en silencio y no con un 400, porque la cola offline de la PWA
+  reintenta y un 400 permanente la atasca) — **`responsible`** (de quién es),
+  **`shared_read`** (el interruptor: lo leen todos los conductores del coche) y
+  **`protected`** (solo gestión). Se lee un documento si está compartido, si se
+  es su responsable, si se es **quien lo subió** —o el autor perdería de vista
+  lo que acaba de subir a un coche sin conductor— o, siendo **supervisor**, si
+  su responsable es el **conductor vigente de ESE coche** (un `Exists`
+  correlado sobre `current_assignment_q`, el criterio único: no vale «alguno de
+  mis conductores», que dejaría cruzar los documentos de un coche con el
+  conductor de otro). El **responsable lo rellena el alta** (`perform_create` →
+  `default_responsible`): el titular si es personal, el conductor vigente si es
+  del coche, y vacío si no hay ninguno; es una **foto fija**, así que al rotar
+  el conductor el documento no cambia de manos. `protected` no oculta a nadie
+  **su propio documento personal** (derecho de acceso, RGPD). La regla tapa las
+  **tres puertas** —el listado, la **descarga del binario**
+  (`core.media_views._authorize`, o con la URL en la mano el fichero se seguía
+  bajando) y el **informe de documentos** (`services.reports`, que lo descarga
+  un supervisor)— y la migración `0064` deja lo ya subido en `shared_read=True`:
+  lo nuevo se restringe, el histórico no desaparece de golpe. En gestión eso es
+  un **interruptor** y un candado en el alta (`.doc-visibility`), la columna
+  «Visibilidad» con su chapa y el responsable debajo, y un icono en la fila que
+  abre el modal para cambiarlo **después** — un interruptor que solo se pudiera
+  poner al subir no serviría de nada.
+- **La papelera de la app de campo no borra: pide.** Quien lee un documento en
+  conductores puede **descargarlo** y **pedir su borrado**, y eso abre una
+  `DocumentDeletionRequest` (`fleet/services/document_requests.py`) — el
+  documento se queda donde estaba, marcado **«Pendiente de borrado»** en su
+  lista (`Document.deletion_pending`, anotado en el queryset) y con su papelera
+  apagada: hay **una petición viva por documento** y el alta es idempotente.
+  Quien conduce no da de baja documentación de la flota, igual que no cambia el
+  estado del coche. La decide la gestión en `/solicitudes` —la **misma**
+  bandeja de las solicitudes de coche, en su pestaña, y el aviso de la cabecera
+  cuenta las dos juntas— con **tres salidas** y ninguna más: **borrarlo de
+  verdad** (se desactiva → erratas, con el motivo de la petición como razón de
+  la baja; de ahí se restaura y solo el superusuario lo purga), **ocultarlo
+  para el conductor** (se queda en la flota pero `protected` y con
+  `responsible` = quien decide —y `shared_read` apagado, que con el candado
+  puesto no decide nada—, así que `readable_documents` deja de servírselo a
+  nadie de campo) o **rechazarla** (no se toca el documento). La tercera no
+  estaba en el encargo y hace falta: sin ella, un administrador que no esté de
+  acuerdo solo podría borrar u ocultar, y la marca se quedaría puesta para
+  siempre. Las tres la sacan de pendiente, que es lo que quita la marca en el
+  campo.
+- **El exceso de km se arregla cambiando quién lo lleva, y eso también se
+  PIDE.** La alerta `km_overage` dice que el coche va camino de pasarse de los
+  km del contrato: cerrarla con una observación no cambia nada. Por eso su
+  modal de campo ofrece **proponer otro conductor**
+  (`DriverChangeRequest` + `services/driver_requests.py`), y es la **única
+  alerta que lo ofrece** — en una ITV o un seguro, cambiar de conductor no
+  resuelve nada. Se propone a alguien del **ámbito de quien propone**
+  (`GET /driver-change-requests/candidates/` → `users_for`, con la matrícula
+  que lleva hoy cada uno, que es lo que permite elegir) o, si no hay a quien,
+  **solo con una nota**: sin candidato el back la exige, porque una fila sin
+  nadie y sin nada escrito no le dice nada a quien decide. Ni el listado entero
+  de usuarios ni el directorio de la empresa viajan a una app pública por si
+  acaso. Enviarla **no resuelve la alerta**: no ha cambiado nada todavía, y
+  quien supervisa no cambia conductores igual que no cambia el estado del
+  coche. La decide la administración en `/solicitudes` —**tercera pestaña**, y
+  el aviso de la cabecera cuenta ya las tres bandejas— con **dos salidas**:
+  **atendida** o **rechazada**, y **ninguna mueve la asignación**: el cambio se
+  hace en «Cambiar conductor», que es el gesto atómico de siempre con su
+  histórico y su bloqueo optimista (de ahí el enlace al coche en el modal de la
+  decisión). Es idempotente por vehículo, como la petición de borrado. El
+  **directorio de Google** (proponer a alguien de fuera de la app) queda
+  **preparado y apagado**: `FLEET_GOOGLE_DIRECTORY_ENABLED` +
+  `driver_requests.directory_candidates()`, que devuelve vacío hasta que un
+  superadministrador del Workspace habilite la Admin SDK y conceda la
+  delegación a nivel de dominio con los permisos de solo lectura de usuarios y
+  miembros de grupo; el modelo ya guarda `proposed_name`/`proposed_email` para
+  que conectarlo no sea una migración.
+- **En la app de campo un documento se VE sin pasar por Drive.** El botón del
+  ojo abre `GET /documents/{id}/preview/`: el back trae el archivo —del staging
+  local si aún está ahí y, si no, de Drive con la **cuenta de servicio**
+  (`archiver.fetch_document`, que es lo que le faltaba al contrato del
+  archivador: sabía subir, mirar y borrar, pero no **leer**)— y lo sirve con la
+  MISMA regla de lectura de siempre (`readable_documents`; fuera de ámbito,
+  404). **No queda copia en ninguna parte**: ni fichero temporal ni caché en el
+  servidor (los bytes van a memoria y de ahí a la respuesta, con `no-store`), y
+  en el móvil viven en un blob que el modal **suelta al cerrarse**
+  (`revokeObjectURL`). Se sirve **inline** solo imagen o PDF
+  (`INLINE_MIME_TYPES`) y lo demás como descarga: un HTML pintado en el origen
+  de la API sería un XSS, y el tipo lo dice el archivo, no nosotros. Por eso en
+  conductores **ya no hay enlace a Drive**: esa app es de quien conduce, y un
+  conductor no tiene cuenta en esa carpeta — el enlace le abría un «no tienes
+  acceso». En gestión, donde sí hay cuentas de Drive, el enlace sigue. Y la
+  **descarga va por la misma puerta** (`/documents/{id}/download/`: el mismo
+  archivo, siempre `attachment` y con un nombre que dice qué es y de qué coche,
+  en ASCII), porque el `uc?export=download` de Drive le contestaba lo mismo que
+  el enlace de la carpeta. Desde el visor, «Descargar» guarda **el blob que ya
+  está en el móvil**: no se vuelve a pedir el archivo por cambiar de idea
+  mirándolo.
 - **Con qué cuenta se sube lo decide quien subió** (`_service_for`), porque son
   dos webs distintas: **gestión** va por dentro y el acceso se gestiona en
   casa, así que el **administrador** sube siempre: con **su** cuenta si ha
@@ -253,7 +383,52 @@ Dos capas que van **siempre juntas**:
   cumple. Con **`expanderInFirstCell`** (N4c) esa flecha no tiene columna
   propia: va **dentro de la primera celda**, delante de lo que nombra la fila
   (la matrícula), y ese ancho se lo quedan las columnas con datos — una columna
-  entera para un icono son ~40px que no se leen. Así lo usa la tabla del **panel**: un coche cubierto despliega **su
+  entera para un icono son ~40px que no se leen. Así lo usa la **bandeja de
+  incidencias**: un **accidente** despliega **su parte** —dónde y cuándo
+  ocurrió (con la hora: el atestado la usa, de ahí `fmtDateTime`), teléfono,
+  atestado, kilometraje, CP del taller y las tablas de **terceros** y
+  **lesionados**—, que `Incident.accident_report` trae ya en el listado
+  (prefetch del back) y que hasta ahora **no se leía en ningún sitio de
+  gestión**: se recogía en el parte guiado y solo se veía en el admin de
+  Django. Las demás peticiones no despliegan nada (`canExpandRow`): meter ocho
+  columnas más que solo un tipo rellena habría vaciado la tabla para todos.
+  En esa misma bandeja, **«Tipo» va en dos líneas** (`.stack-cell`): el tipo
+  arriba y, debajo, **lo que el parte recogió y no tiene columna**
+  (`incidentSummary.ts`, `useIncidentSummary`) — la **medida de los
+  neumáticos** con el motivo y qué rueda (el resumen del parte guiado, ahora en
+  el DS: `tireReportSummary` de `@flota/ui/domain`, una sola copia para las dos
+  apps), el **kilometraje** y el **CP del taller**. Es lo que la descripción no
+  dice: en el parte de neumáticos la descripción es un comentario OPCIONAL, así
+  que un cambio de ruedas salía en gestión sin decir cuáles ni de qué medida
+  aunque el parte estuviera entero. Va también en el **valor** de la celda, no
+  solo en su pintura, así que se busca por «205/55» y sale en el CSV. La misma
+  línea la enseña la lista de lo pendiente (`PendingRow`), que es la otra cara
+  de lo mismo —las dos llaman al mismo hook—, y **con el mismo reparto**: del
+  tipo en adelante la fila se parte en dos (`.pending-main`), arriba el título
+  y la descripción y debajo el parte (`.pending-detail`). En una sola línea se
+  comían entre ellos: la medida y la descripción salían las dos con puntos
+  suspensivos. Lo que no trae parte (mantenimiento, petición general) se queda
+  en una línea, aquí y en la bandeja. Y para lo que no cabe ni en dos líneas
+  está el **ojo** de «Acciones»: `IncidentDetailModal`, la incidencia **entera**
+  y de **solo lectura** en tres bloques — **la petición** (vehículo, tipo,
+  fecha, kilometraje, CP, taller, coste y la descripción), **el parte** con el
+  que se comunicó (el de neumáticos como línea; el de accidente, su ficha) y
+  **la solución** con la que se cerró (fecha, días parado, taller, km, coste,
+  quién y cuándo, los neumáticos MONTADOS, el expediente del siniestro y las
+  observaciones), o el aviso de que sigue abierta. Sale de lo que ya viaja en
+  el listado —columnas y `details.resolution`—, que hasta ahora solo se leía
+  entero en el admin de Django. Lo que se **toca** se sigue tocando donde se
+  tocaba (editar, resolver): esto es para mirar. El parte del accidente lo
+  pinta `AccidentReportBlock`, el **mismo** componente que despliega la fila
+  (con `sinPeticion` cuando el kilometraje y el CP ya están arriba), y los
+  textos del cierre salen de `translations/resolve.ts`, los mismos que escribió
+  el formulario que lo guardó. Las tres primeras piezas de la fila
+  —fecha, matrícula y título— van a **ancho fijo**, así que **la descripción
+  empieza siempre en la misma columna**: con cada fila colocándola donde le
+  tocaba (una fecha de un dígito, una matrícula más corta, un título que
+  envuelve) la lista dejaba de leerse en vertical. El título que no cabe
+  envuelve DENTRO de su hueco en vez de empujar lo de al lado.
+  Así lo usa también la tabla del **panel**: un coche cubierto despliega **su
   coche de sustitución** (`.sub-row`, en el morado de la sustitución) con lo
   mismo que se lee en la fila de arriba —quién lo lleva, kilómetros, gasto del
   mes, ITV y seguro— y desde cuándo lo cubre. Esa tabla lleva la flecha **pegada a la matrícula**
@@ -305,6 +480,22 @@ Dos capas que van **siempre juntas**:
   corregir al cerrar** —en campo no siempre se sabe a qué taller irá—; vacío no
   borra el que hubiera, y solo se pinta donde hay petición detrás (una alerta no
   tiene ubicación que completar).
+- **La «petición general» se cierra en otro orden y con menos campos**, a los
+  dos lados (`ResolveBreakdownModal` en gestión, `ResolveBreakdownForm` en
+  campo): **fecha**, **observaciones** y una casilla, **«Requirió pasar por el
+  taller»**, que es la que despliega km, coste, CP y factura. Puede no ir del
+  coche —documentación, tarjetas, dudas—, así que pedir siempre lo del taller
+  invitaba a cerrarla con ceros; y **desmarcarla borra** lo que se hubiera
+  escrito, o un coste tecleado y luego escondido viajaría igual. Comparte
+  formulario con la avería pero no lo que pregunta, y en campo tampoco el
+  título: es un flujo propio (`general`), «Cerrar petición».
+- **El kilometraje del cierre se carga del coche de un toque**, en **todos** los
+  formularios de resolver (`ResolutionCommonFields`, los dos fronts): un botón
+  con la **última lectura conocida** —`Vehicle.km_current` en gestión, la del
+  resumen en campo— y la nota de por qué vale: **en el taller no hace
+  kilómetros**, así que sale con los que entró. Sin lectura conocida no hay
+  botón. Teclear cinco dígitos a mano, y más en un móvil, es de donde salían
+  los odómetros imposibles.
 - **Volver al servicio es UNA decisión y vive en el despachador**, no dentro de
   cada formulario: con el coche parado, todos los modales de «Resolver» abren
   con la misma casilla arriba —«Devolver el coche a Activo» y, si le cubre un
@@ -350,7 +541,9 @@ Dos capas que van **siempre juntas**:
   enseña es su alerta). Su modal va a **alto fijo** y reparte ese alto
   (`.pending-fleet`): pestañas, filtros y pie se quedan quietos y **solo las
   filas hacen scroll** — son decenas, y con el modal entero desplazándose los
-  botones del pie se perdían de vista. Dentro de «Nuevo
+  botones del pie se perdían de vista. Va **más ancho que el `xl` del DS**
+  (1200px, como el 1180 del modal del ⋮): sus filas llevan dos líneas y con
+  960px la descripción se recortaba en casi todas. Dentro de «Nuevo
   estado», las secciones son **pasos** (sub-pestañas) que se habilitan según lo
   elegido; siguen todas montadas (`hidden`) para no perder lo escrito ni la
   validación nativa, y `data-section` es lo que permite saltar al paso del
@@ -559,7 +752,10 @@ Dos capas que van **siempre juntas**:
   son **siete** y todos están vivos: o el coche rueda (`active`) o la etiqueta
   dice **por qué** está parado — «No activo - Mantenimiento» (`maintenance`),
   «- ITV» (`itv`), «- Averiado» (`broken`), «- Accidentado» (`accidente`)— o
-  «No activo» a secas (`non_active`) cuando no hay causa con estado propio.
+  **«No activo sin justificación»** (`non_active`) cuando no hay causa con
+  estado propio — se llamaba «No activo» a secas y se renombró (migración
+  `0066`, solo `choices`) porque en el filtro de campo **«No activos»** es el
+  corte que los agrupa a TODOS y los dos nombres eran el mismo.
   `retired` es «Devuelto (baja)»: la salida de la flota, con flujo propio, y no
   se elige de un desplegable. Las etiquetas son solo presentación (cambiarlas
   genera una migración de `choices`, no de datos) y el front las repite en
@@ -633,16 +829,229 @@ Dos capas que van **siempre juntas**:
   vencimiento antes de guardar. Un vehículo tiene **un** plan activo: el back
   rechaza el segundo, y retirarlo (N7) se hace desde este mismo modal: la ficha
   no tiene tarjeta de mantenimiento.
+- **En la PWA una incidencia se llama igual que en gestión.** Las dos puertas de
+  alta de campo —el modal de la tarjeta (`BreakdownModal`, que vive en
+  `IncidentModal.tsx`) y `NewIncidentPage`— ofrecen **el mismo catálogo de
+  tipos**, que vive en `front-conductores/src/incidentTypes.ts`: mantenimiento
+  puntual, cambio de neumáticos, **avería** y petición general, o sea el
+  `CHOICE_INCIDENT_TYPE` de gestión con los valores de `IncidentType` del back
+  y en su mismo orden (fuera, por lo mismo que allí: el **accidente** tiene su
+  parte y la **ITV** es una alerta). Antes esta app tenía tres tipos suyos
+  —«General», «Cambio de neumático» y «Propuesta de mejora»—, así que una avería
+  de verdad entraba como «General» y el mismo tipo se llamaba distinto a cada
+  lado. Por eso el botón y el modal son **«Incidencia»**, no «Avería»: la avería
+  es **uno** de los tipos, no el cajón que los contiene, y la lista que las
+  enseña se llama «Incidencias», como en gestión.
+- **Lo que un coche tiene abierto son TRES tarjetas, no una**
+  (`VehiclePendingCards`, compartida por el tablero y la ficha de campo):
+  **Alertas**, **Incidencias** y **Accidentes**, en ese orden, cada una con su
+  **recuento en el título** y **plegada de salida** (`PENDING_CARDS`, los ids
+  del acordeón, en `front-conductores/src/pendingCards.ts`, para que las dos
+  pantallas digan las mismas). El accidente sale de la lista de incidencias y
+  se mira aparte —el mismo corte que hace gestión con su
+  `VehicleAccidentsCard`—, pero es la misma incidencia: se resuelve con el
+  mismo modal. Antes era una sola tarjeta, «Alertas e incidencias», y había
+  que desplegarla para saber si había algo; ahora el número se lee sin abrir
+  nada y se abre solo la familia que interesa. **Desplegada**, la cabecera
+  ofrece un **filtro por tipo** (el hueco `actions` de `CollapsibleCard`, fuera
+  del botón de plegar: un `<select>` dentro lo abriría y cerraría al usarlo),
+  con los tipos **que tienen esas filas** —no el catálogo entero, que solo
+  serviría para vaciar la lista— y solo si hay **más de uno**: por eso
+  «Accidentes» no lo lleva. El recuento del título no se filtra: dice lo que el
+  coche tiene abierto, no lo que se está mirando. Lo que entra en esas
+  tarjetas lo decide `format.isOpenFieldIncident`: **los cuatro tipos que la
+  app deja abrir** (avería, **mantenimiento puntual**, neumáticos y petición
+  general) más el accidente. El mantenimiento puntual estaba fuera y era un
+  agujero: se podía abrir desde esta misma app y después no se veía —ni se
+  resolvía— en ningún sitio de campo. Fuera siguen el mantenimiento
+  **programado** y la **ITV**, que son ALERTAS y tienen su tarjeta, y el
+  registro de un mantenimiento hecho, que nace cerrado.
+- **En campo, «Solucionar» también es UN gesto con un formulario por TIPO**
+  (`front-conductores/src/components/resolve/`), el mismo reparto que hace
+  gestión con su `ResolveDispatcher`: `IncidentResolveModal` dejó de ser un
+  formulario único y es el **despachador** que monta el de neumáticos (medida,
+  marca, cantidad y **las cuatro ruedas**, prellenadas desde el parte), el de
+  accidente (**expediente** y **quién asume el coste**, con su franquicia) o el
+  de reparación (avería y mantenimiento puntual, que no tienen nada más que
+  preguntar, y la **petición general**, que lo pregunta en otro orden: fecha,
+  observaciones y la casilla del taller). Antes los cuatro tipos se cerraban con el
+  mismo cajón —fecha y observaciones—, así que lo que en el escritorio era un
+  dato estructurado se perdía o se escribía a mano dentro de un texto libre.
+  Lo común vive una vez (`useResolutionCommon` + `ResolutionCommonFields`:
+  fecha, km, coste, CP del taller, observaciones y la **factura**, que se sube
+  **después** del cierre y, sin cobertura, por la cola). **Lo que en campo no
+  se decide no se pregunta**: ni el taller del catálogo (aquí se sabe el CP),
+  ni la **vuelta a Activo** —el estado lo cambia gestión—, ni el **siniestro
+  total**, que da de baja el coche. El prellenado del parte de neumáticos
+  (`prefillSize`/`prefillPositions`/`TIRE_POSITIONS`) subió al DS
+  (`@flota/ui/domain`, con `tireReportSummary`): lo leen los dos fronts y es
+  contrato del back, así que dos copias acabarían marcando ruedas distintas
+  del mismo parte.
+- **«Actualizar» es UNA ventana con una pestaña por cosa**
+  (`VehicleUpdateModal`): **km**, **combustible**, **ITV**, **mantenimiento** e
+  **incidencias**. No hay pestaña de «alertas» a propósito — una alerta se
+  cierra **haciendo lo que pide** (registrar la lectura, la ITV o la revisión),
+  así que ya está reflejada en la pestaña que le toca—, y cada pestaña sale
+  **solo si el coche tiene eso**: sin ITV programada no hay ITV que registrar,
+  sin plan activo no hay mantenimiento que marcar y sin incidencias abiertas no
+  hay lista; **km y combustible salen siempre**, que se anotan en cualquier
+  coche. Por eso las dos listas (planes e incidencias) se piden **al abrir**,
+  antes de pintar la fila de pestañas: añadirlas después la haría saltar bajo
+  el dedo. Los formularios son los **mismos** que sus ventanas sueltas, montados
+  sin marco (`KmPane`, `FuelPane`, `ItvPane`, `MaintenancePane`, y para cerrar
+  una incidencia el mismo `IncidentResolveModal`): una sola implementación, o
+  dos copias del mismo formulario acaban validando distinto. Al guardar **no se
+  cierra**: dice lo que guardó y sigue abierta, porque quien la abre suele traer
+  dos o tres cosas del mismo coche. Las ventanas sueltas siguen vivas y son el
+  camino rápido de **resolver una alerta** (`AlertResolveDispatcher`): el aviso
+  ya dice qué hay que hacer, así que abre su formulario y no las cinco pestañas.
+  La **fila de pestañas se lee como una barra**: el modal es **ancho** (con el
+  de 460px la fila nacía ya desplazada y el aviso de responsabilidad salía en
+  cinco líneas), cada pestaña lleva **el icono con el que la app nombra esa
+  acción** (los de la barra de acciones del coche: el dibujo se reconoce antes
+  que el rótulo), la activa va **rellena** en el color de marca —el relleno
+  suave de antes se confundía con las demás—, «Incidencias» lleva **cuántas hay
+  abiertas** y la fila se recorre con las **flechas** (`tablist` con roving
+  tabindex, y la pestaña elegida se trae a la vista si la fila está
+  desplazada). Y **se queda arriba** porque la ventana **reparte su alto**
+  (`.update-shell`, el mismo reparto que la lista de pendientes de la flota):
+  pestañas y avisos quietos, y **solo el panel hace scroll**. Pegarla con
+  `sticky` no bastaba —dentro de un cuerpo con su propio `padding` y `gap`,
+  quedarse arriba dependía del navegador—: desaparecía justo en los paneles
+  largos (km, mantenimiento, ITV), que es cuando hace falta cambiar de
+  pestaña. En un **teléfono estrecho** (≤420px, que es el suelo real: 320px de
+  pantalla dejan ~275px de contenido) la fila **se reparte en dos líneas** en
+  vez de quedarse cortada por la derecha —con scroll, la quinta pestaña no
+  existía para quien no adivinara el gesto—, y el `Modal` del DS **recorta su
+  marco** ahí (`@media (max-width: 420px)`): 1,25rem por fuera y otro tanto por
+  dentro se llevaban 80px de los 320 solo en aire. El **aviso de responsabilidad** que encabeza estos modales de campo
+  cuando actúa un supervisor (`SupervisorModal`) lleva una **X**: se calla y no
+  vuelve **en lo que dure la sesión** (`sessionStorage`, no `localStorage` —es
+  un recordatorio de que lo que se registre queda a su nombre, así que vuelve a
+  leerse en la siguiente entrada—), porque quien lleva una flota abre esa
+  ventana decenas de veces al día. Cerrado **deja su icono en la cabecera del
+  modal**, a la izquierda de la X y con su misma caja (`headerAction` del
+  `Modal` del DS, que se añadió para esto: lo que se le hace al propio diálogo
+  va en su fila, no en el cuerpo), y ese icono lo devuelve y olvida lo
+  recordado: un aviso de responsabilidad no puede irse sin dejar cómo volver a
+  leerlo. En la pestaña de **incidencias**, cada fila dice **con qué prioridad
+  se abrió** —la chapa con su nombre y el filete de color de la fila, en los
+  colores del nivel de una alerta (`incidentPriority.ts`:
+  `priorityOf`/`priorityRank`/`priorityTone`; una fila sin prioridad es
+  «moderada», que es el defecto del back)— y la lista va **ordenada por
+  prioridad**, no por fecha: marcarla no serviría de nada si lo crítico
+  quedara debajo.
+- **Las listas largas de un modal se acotan igual** (`components/ListFilter.tsx`):
+  una barra con **buscar** y **filtrar por tipo** que comparten las tres que
+  pueden traer decenas de filas —las incidencias de un coche en «Actualizar» y
+  las **alertas** e **incidencias** de la flota en «A tu cargo»—. Lo escrito y
+  el tipo se **suman**, la búsqueda va **sin acentos y por palabras sueltas**
+  (en un móvil «avería» se teclea «averia») y mira lo que se lee en la fila,
+  **incluida la matrícula** en las listas de flota; el desplegable ofrece
+  **solo los tipos que hay en esas filas** (`typeOptions`) y desaparece con uno
+  solo, y la barra entera no se pinta con una sola fila. Lo tecleado es de **esa
+  lista**: al abrir otra cifra se empieza en limpio.
+- **Quien conduce dice cómo queda el coche; el estado lo cambia gestión.** El
+  modal de campo pregunta la **disponibilidad** en un paso propio —solo en
+  **avería** y **mantenimiento puntual**: los neumáticos usan ese hueco para su
+  parte guiado y la petición general no va del coche— con tres respuestas que
+  viajan en `details["availability"]` (`active` / `stopped` / `substitute`,
+  `services/vehicle_requests.py`). **No tocan `Vehicle.state`**: un conductor no
+  para un coche desde internet, eso se decide en gestión. Lo único que tiene
+  efecto es `substitute`: el back, al crear la incidencia
+  (`IncidentViewSet.perform_create`), abre además una **`VehicleRequest`
+  pendiente** ligada a esa incidencia —de ahí sale la matrícula que hay que
+  **cubrir**, porque `VehicleRequest.vehicle` es el que se **concede**— y la
+  administración concede o rechaza en la bandeja de siempre
+  (`/solicitudes`, `RequestsPage`, con su aviso en la cabecera junto a la
+  campana). Se hace en el back y no con una segunda llamada del front para que
+  la petición y su solicitud nazcan juntas, y para que el parte que llega de la
+  cola offline arrastre la solicitud sin recordar un segundo envío. Pedir coche
+  es **lo único** que obliga a adjuntar algo: al menos un documento (o varios).
+  Y añade una **segunda caja opcional** en ese mismo paso, «Documentación del
+  coche de sustitución», para cuando ya le hayan dado uno: esos archivos suben
+  como **«Otro»** con su `notes` fija, colgados de la incidencia y con el coche
+  **averiado** como titular — el sustituto puede no existir todavía en la flota
+  y un `Document` tiene un solo titular—, así que la nota es lo que dice de qué
+  son (viaja también por la cola offline).
 - **Toda petición que abren el conductor o el supervisor admite adjunto**, sin
-  excepciones por tipo: el alta de la PWA (`NewIncidentPage`), el modal de
-  avería (`BreakdownModal`, que vive en `IncidentModal.tsx`) y el parte de
-  accidente aceptan **foto o PDF** —un presupuesto no se hace con la cámara— y
-  lo suben ligado a la incidencia recién creada (`Document.incident`). El
-  **tipo** de documento lo decide lo que se comunica, no el formulario: «Fotos
-  de daños» donde hay daño y **«Otro»** en la propuesta de mejora, que no lo
-  tiene. Si la subida se queda sin red, el adjunto se va a la cola y la
-  incidencia **no se crea dos veces** (R3-27: se guarda su id y el reintento
-  solo termina las subidas que faltaban).
+  excepciones por tipo: las dos altas de la PWA y el parte de accidente aceptan
+  **foto o PDF** —un presupuesto no se hace con la cámara— y lo suben ligado a
+  la incidencia recién creada (`Document.incident`). El **tipo** de documento lo
+  decide lo que se comunica, no el formulario, y la regla es **una**
+  (`attachmentDocType`): «Fotos de daños» donde hay daño y **«Otro»** en la
+  petición general, que puede ni ir del coche. Si la subida se queda sin red, el
+  adjunto se va a la cola y la incidencia **no se crea dos veces** (R3-27: se
+  guarda su id y el reintento solo termina las subidas que faltaban).
+- **«Te queda poco» solo dice lo que falta** (`FieldDeadlines`, el acordeón del
+  inicio de campo). Son **cuatro** familias, una fila por coche: la **lectura de
+  km** del mes, el **combustible**, la **ITV** y el **mantenimiento
+  programado** — del **seguro, nada** (X1: es de administración). Las dos citas
+  van como siempre (≤30 días, rojas a ≤7 o vencidas), y las otras dos son el
+  cambio: la de **km** sale mientras FALTE la lectura del mes —antes solo
+  asomaba a 3 días de que abriera la ventana o a 5 de que cerrara, así que del
+  día 1 al 17 no se decía nada aunque el odómetro llevara 40 días sin leerse— y
+  dice **las dos cosas**: el plazo y **cuánto hace de la última**, que es lo que
+  se pinta en color. Dentro de la ventana N8a el plazo son los días que quedan;
+  **antes de ella es un consejo** —«recomendable del 20 a fin de mes»— y no una
+  cuenta atrás: eso se lee a principios de mes, cuando la lectura todavía no
+  toca, y «se abre en 2 días» sonaba a puerta cerrada en vez de a cuándo
+  conviene darla. Sin ventana (N8a apagada) se dice el mes que falta. La de **combustible** no tiene plazo que contar: se
+  anota **en cada viaje** (GAP-2, el consumo del ordenador de a bordo) y lo que
+  avisa es la antigüedad, con el enlace que **abre su modal** en la ficha
+  (`/vehiculos/{id}?registrar=combustible`: no tiene página propia). El
+  semáforo de esa antigüedad es **el mismo que usa gestión** en su columna
+  «Kilómetros» —`kmStaleTone` en `@flota/ui/domain`: <15 días al día, 15-30
+  ámbar, >30 **o sin ninguna anotación** rojo—, y por eso vive en el DS: los
+  días los cuenta cada app con su helper (el del escritorio parsea en UTC y el
+  del móvil en local, E2/E6), pero la regla no puede decir dos cosas distintas.
+  Un aviso **vale lo que su peor motivo** (la ventana puede no haber abierto y
+  la lectura llevar dos meses), y la lista ordena **por gravedad** y luego por
+  plazo: el combustible no cuenta días hasta nada y, por plazo a secas, caía
+  debajo de una ITV que corre menos prisa. Con todo al día **no se pinta nada**:
+  es un aviso, no un panel de estado — el estado está en «Próximas citas» y en
+  las tarjetas del tablero.
+- **El conmutador de arriba tiene TRES caras, y solo dos son un modo**: «Mi
+  vehículo» y «Flota» siguen siendo `fleetMode` (recordado por dispositivo, y
+  cambia a la vez la home y los iconos del nav), mientras que **«Mi perfil» es
+  una ruta** (`/perfil`). Por eso el tab activo lo decide `pathname === '/perfil'`
+  antes que el modo, y elegir un modo **estando** en el perfil navega a la home:
+  si no, cambiaría el tab sin cambiar la pantalla. Al volver del perfil se vuelve
+  a la vista que se estaba usando, porque el modo no se ha tocado. El **avatar
+  del header sigue llevando ahí**: es la puerta de siempre. En el perfil, el
+  **nav inferior se queda en dos** —Inicio y Subir documento (`/documentos/nuevo`,
+  el mismo de «Mi vehículo»)—: ahí no hay coche del que hablar, así que las siete
+  acciones sobre el vehículo no pintan nada. Y la pantalla **no lleva título**:
+  el tab ya dice dónde estás y en un móvil ese encabezado se comía una pantalla
+  de alto para repetirlo.
+- **«A tu cargo»: quien supervisa lee su flota al entrar en «Flota»**
+  (`SupervisorOverview`, encabezando `FleetPage`, que ya exige el rol). Estaba
+  en «Mi perfil», que es **quién eres** y no **cómo va tu flota** — y era el
+  único sitio del que había que salir para actuar. Cinco cifras en **UNA
+  tarjeta plegable** (`CollapsibleCard`, abierta de salida) con **dos bloques**
+  dentro, porque son dos preguntas del mismo resumen: **«A tu cargo»** —el
+  título de la tarjeta— dice lo que tiene (**coches** y **conductores**) y
+  **«Alertas e incidencias»** lo que hay que atender (**alertas**,
+  **incidencias** y **accidentes**). En dos tarjetas ocupaban la pantalla
+  entera antes de llegar a la lista; plegada, se va al grano. Cada cifra abre
+  **su lista** en un modal. Su copy vive en `translations/fleet.ts`, con el de la
+  página (R3-36), no ya en el diccionario del shell. Se cuenta **lo abierto**, que es lo que hay que
+  atender, y **solo de los coches que supervisa**: el ámbito que devuelve el back
+  es más ancho (incluye el coche que ella conduce), así que todo se filtra contra
+  `listVehicles({ supervisor })`. Los «conductores» no son un endpoint: son los
+  **conductores vigentes de sus coches** (el `driver` de cada resumen), que es
+  exactamente lo que define `scoping.users_for` en el back. Y las dos listas que
+  se atienden **se resuelven ahí mismo**, con los mismos formularios que la
+  bandeja y el tablero —si hubiera que salir a otra pantalla, la cifra solo
+  serviría para inquietar—: la alerta pasa por **`AlertResolveDispatcher`**, el
+  reparto por tipo que vivía dentro de `AlertsPage` (km → registrar la lectura,
+  ITV → registrarla, mantenimiento → anotarlo, el resto → observaciones) y que se
+  extrajo al necesitarlo un segundo sitio; la incidencia, por
+  `IncidentResolveModal`. Al cerrar algo, el bloque **recarga**: las cifras tienen
+  que cuadrar con lo que acaba de resolverse. Ojo a una diferencia que se lee
+  en la misma pantalla y es correcta: el «Vehículos» de la cabecera cuenta lo
+  que la lista enseña (su grupo **más su propio coche**) y «Coches» cuenta solo
+  lo que **supervisa**.
 - `front-conductores` es PWA: **cola offline** en IndexedDB
   (`src/offline/queue.ts` — solo encola ante fallo de red, un error HTTP se
   muestra; FIFO con reintento en `online`), **Web Push** (`src/push.ts`) y un

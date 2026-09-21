@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   listMaintenancePlans: vi.fn(),
   markMaintenanceDone: vi.fn(),
   listIncidents: vi.fn(),
+  // La página encabeza con «A tu cargo», que pide también las alertas.
+  listAlerts: vi.fn(),
   listWorkshops: vi.fn(),
   manageIncident: vi.fn(),
   resolveIncident: vi.fn(),
@@ -38,6 +40,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listMaintenancePlans: mocks.listMaintenancePlans,
   markMaintenanceDone: mocks.markMaintenanceDone,
   listIncidents: mocks.listIncidents,
+  listAlerts: mocks.listAlerts,
   listWorkshops: mocks.listWorkshops,
   manageIncident: mocks.manageIncident,
   resolveIncident: mocks.resolveIncident,
@@ -99,6 +102,8 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
       vehicle(3, '3333CCC'),
     ]
     mocks.listVehicles.mockResolvedValue({ count: 3, results: group })
+    mocks.listAlerts.mockResolvedValue({ count: 0, results: [] })
+    mocks.listIncidents.mockResolvedValue({ count: 0, results: [] })
     // El ámbito personal por defecto = el grupo (ninguno lo conduce el usuario,
     // así que no se añade ni marca ningún «Tu coche»): los casos base no cambian.
     mocks.listVehiclesCached.mockResolvedValue({ count: 3, results: group })
@@ -138,11 +143,15 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     // el filtro un supervisor-admin vería aquí toda la flota.
     expect(mocks.listVehicles).toHaveBeenCalledWith({ supervisor: 1 })
 
-    // "Todos" + un grupo por estado presente, cada uno con su recuento.
+    // Arriba lo que se mira a diario —los que ruedan, los que no y los
+    // cubiertos por un sustituto—, un filete, y debajo el desglose por estado.
     const filter = screen.getByRole('combobox', { name: 'Grupos de la flota' })
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       'Todos (3)',
       'Activo (2)',
+      'No activos (1)',
+      'Con coche de sustitución (0)',
+      '──────────',
       'En taller (1)',
     ])
     expect(filter).toHaveValue('')
@@ -161,6 +170,46 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     expect(screen.getByText('1111AAA')).toBeInTheDocument()
   })
 
+  it('los dos cortes de arriba: lo que no rueda y lo que tiene sustituto', async () => {
+    // El 3333CCC está parado sin causa con estado propio y al 1111AAA le cubre
+    // un sustituto: un coche por corte, y ninguno es el otro.
+    mocks.listVehicles.mockResolvedValue({
+      count: 3,
+      results: [
+        vehicle(1, '1111AAA'),
+        vehicle(2, '2222BBB', 'maintenance', 'En taller'),
+        vehicle(3, '3333CCC', 'non_active', 'No activo sin justificación'),
+      ],
+    })
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      summary(1, {
+        blocked_by_link: { substitute_id: 9, plate: '9999ZZZ', reason: 'breakdown', since: '2026-09-01' },
+      }),
+      summary(2),
+      summary(3),
+    ])
+    renderPage()
+    const filter = await screen.findByRole('combobox', { name: 'Grupos de la flota' })
+
+    // «No activos» los agrupa a TODOS, sea cual sea la causa: el que está en
+    // taller y el que está parado sin justificación.
+    await userEvent.selectOptions(filter, screen.getByRole('option', { name: 'No activos (2)' }))
+    expect(screen.getByText('2222BBB')).toBeInTheDocument()
+    expect(screen.getByText('3333CCC')).toBeInTheDocument()
+    expect(screen.queryByText('1111AAA')).not.toBeInTheDocument()
+
+    // Y el otro corte no va del estado: va de tener quien te cubra.
+    await userEvent.selectOptions(
+      filter,
+      screen.getByRole('option', { name: 'Con coche de sustitución (1)' }),
+    )
+    expect(screen.getByText('1111AAA')).toBeInTheDocument()
+    expect(screen.queryByText('2222BBB')).not.toBeInTheDocument()
+
+    // El filete no se puede elegir.
+    expect(screen.getByRole('option', { name: '──────────' })).toBeDisabled()
+  })
+
   it('cada tarjeta lleva conductor, última lectura y proyección; sin acceso a /grupo', async () => {
     renderPage()
     expect(await screen.findByText('Conductor 1')).toBeInTheDocument()
@@ -177,8 +226,9 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     expect(screen.getByText('15/9/2026')).toBeInTheDocument()
 
     // Altas de campo por tarjeta, con el coche ya preseleccionado.
-    expect(screen.getAllByRole('button', { name: 'Avería' }).length).toBe(3)
-    expect(screen.queryByRole('button', { name: 'Incidencia' })).not.toBeInTheDocument()
+    // Ese botón se llamaba «Avería» y ofrecía tres tipos suyos; ahora es
+    // «Incidencia» con el catálogo de gestión, avería incluida.
+    expect(screen.getAllByRole('button', { name: 'Incidencia' }).length).toBe(3)
     expect(screen.getAllByRole('button', { name: 'Accidente' }).length).toBe(3)
 
     // El acceso a la proyección del grupo vive en el bottom-nav, no aquí.
@@ -252,8 +302,23 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
       description: 'No arranca.',
       details: {},
       cost: null,
+      // La urgencia con la que se abrió: la pestaña la pinta y ordena por ella.
+      priority: 'critical',
+      priority_display: 'Crítica',
     }
-    mocks.listIncidents.mockResolvedValue({ count: 1, results: [incident] })
+    // Una segunda, MENOS urgente y más reciente: sirve para ver que manda la
+    // prioridad sobre la fecha y que con dos filas aparece la barra de filtro.
+    const menor = {
+      ...incident,
+      id: 5,
+      type: 'maintenance',
+      type_display: 'Mantenimiento puntual',
+      date: '2026-08-28',
+      description: 'Escobillas gastadas.',
+      priority: 'informative',
+      priority_display: 'Informativa',
+    }
+    mocks.listIncidents.mockResolvedValue({ count: 2, results: [menor, incident] })
     mocks.manageIncident.mockResolvedValue({
       ...incident,
       status: 'on_going',
@@ -269,89 +334,257 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
 
     // El div informativo: la responsabilidad es del conductor, no del responsable.
     expect(screen.getByText(/responsabilidad de registrar los km/)).toBeInTheDocument()
-    expect(screen.getByRole('dialog', { name: 'Actualizar mantenimiento · 1111AAA' })).toBeInTheDocument()
-    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/Lectura del cuentakilómetros/)).not.toBeInTheDocument()
-    expect(screen.queryByText('Averías / Incidencias')).not.toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: 'Actualizar · 1111AAA' })).toBeInTheDocument()
 
-    // Solo lista los planes y permite registrar su fecha de realización.
+    // UNA ventana con una pestaña por cosa que actualizar, y solo las que ese
+    // coche TIENE: sin ITV programada, no hay pestaña de ITV. Ninguna de
+    // «Alertas»: cada alerta se cierra haciendo lo suyo en su pestaña.
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Km',
+      'Combustible',
+      'Mantenimiento',
+      // La chapa dice cuántas hay abiertas sin entrar en la pestaña.
+      'Incidencias2',
+    ])
+    // Se abre por la que se pidió al abrirla.
+    expect(screen.getByRole('tab', { name: 'Mantenimiento' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+
+    // La pestaña del mantenimiento lista los planes y registra su fecha.
     expect(await screen.findByText('Revisión general')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Más información' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Ver detalles' }))
     expect(screen.getByText('Periodicidad')).toBeInTheDocument()
     expect(screen.getByText('Última realización')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Realizado en:' }))
-    const dateDialog = screen.getByRole('dialog', { name: /Realizar mantenimiento/ })
-    expect(within(dateDialog).getByRole('button', { name: 'Realizado hoy' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Marcar como realizado' }))
+    const dateDialog = screen.getByRole('dialog', { name: /Cuándo se hizo/ })
+    expect(within(dateDialog).getByRole('button', { name: 'Hoy' })).toBeInTheDocument()
     fireEvent.change(within(dateDialog).getByLabelText(/Fecha de realización/), {
       target: { value: '2026-08-24' },
     })
-    await userEvent.click(within(dateDialog).getByRole('button', { name: 'Aceptar fecha' }))
+    await userEvent.click(within(dateDialog).getByRole('button', { name: 'Marcar como realizado' }))
     expect(mocks.markMaintenanceDone).toHaveBeenCalledWith(9, { date: '2026-08-24' })
     expect(await screen.findByText('Mantenimiento realizado el 24/8/2026.')).toBeInTheDocument()
     expect(await screen.findByText(/2 alertas resueltas/)).toBeInTheDocument()
 
+    // Y las otras pestañas son los MISMOS formularios que sus ventanas
+    // sueltas: la de km pide la lectura y la de incidencias lista lo abierto.
+    await userEvent.click(screen.getByRole('tab', { name: 'Km' }))
+    expect(screen.getByLabelText(/Odómetro|Lectura/)).toBeInTheDocument()
+    // Y la fila se recorre con las flechas, como cualquier `tablist` (con el
+    // foco en la pestaña: al entrar en «Km» se lo lleva el campo del odómetro).
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Km' }), { key: 'ArrowRight' })
+    expect(screen.getByRole('tab', { name: 'Combustible' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await userEvent.click(screen.getByRole('tab', { name: 'Incidencias' }))
+    // Dentro del diálogo: «Avería» es también una opción del filtro por tipo.
+    const modal = screen.getByRole('dialog', { name: 'Actualizar · 1111AAA' })
+    // La prioridad SALE (chapa) y se lee en el color de la fila; lo crítico va
+    // primero aunque sea lo más antiguo, que es para lo que se marca.
+    const filas = within(modal).getAllByRole('listitem')
+    expect(filas).toHaveLength(2)
+    expect(filas[0]).toHaveTextContent('Avería')
+    expect(filas[0]).toHaveTextContent(/No arranca/)
+    expect(filas[0]).toHaveTextContent('Crítica')
+    expect(filas[0].className).toContain('pri-critical')
+    expect(filas[1]).toHaveTextContent('Informativa')
+    expect(filas[1].className).toContain('pri-informative')
+
+    // Y con dos filas la lista se puede acotar.
+    await userEvent.type(within(modal).getByRole('searchbox', { name: 'Buscar' }), 'escobillas')
+    const queda = within(modal).getAllByRole('listitem')
+    expect(queda).toHaveLength(1)
+    expect(queda[0]).toHaveTextContent('Mantenimiento puntual')
+
+    // El aviso se puede callar con su X, y se queda callado el resto de la
+    // sesión (no del dispositivo: es un recordatorio de responsabilidad).
+    await userEvent.click(screen.getByRole('button', { name: 'Ocultar el aviso en esta sesión' }))
+    expect(screen.queryByText(/responsabilidad de registrar los km/)).not.toBeInTheDocument()
+    expect(sessionStorage.getItem('flota:update-notice-hidden')).toBe('1')
+
+    // Y en su hueco queda el icono que lo devuelve: cerrado no es perdido.
+    await userEvent.click(screen.getByRole('button', { name: 'Ver el aviso de responsabilidad' }))
+    expect(screen.getByText(/responsabilidad de registrar los km/)).toBeInTheDocument()
+    expect(sessionStorage.getItem('flota:update-notice-hidden')).toBeNull()
   })
 
-  it('el botón Avería abre el modal en dos pasos y solo pide la ubicación preferente', async () => {
+  it('el botón Incidencia abre el modal por pasos y solo pide la ubicación preferente', async () => {
     mocks.createIncident.mockResolvedValue({ id: 30, vehicle: 1, type: 'general' })
     renderPage()
     await screen.findByText('1111AAA')
 
     // La marca 🔧 de averías abiertas (el 2222BBB trae dos).
-    expect(screen.getByTitle('2 averías abiertas')).toHaveTextContent('Avería 2')
+    expect(screen.getByTitle('2 incidencias abiertas')).toHaveTextContent('Incidencia 2')
 
-    await userEvent.click(screen.getAllByRole('button', { name: 'Avería' })[0])
-    expect(screen.getByText('Comunicar avería · 1111AAA')).toBeInTheDocument()
-    const breakdownDialog = screen.getByRole('dialog', { name: 'Comunicar avería · 1111AAA' })
+    await userEvent.click(screen.getAllByRole('button', { name: 'Incidencia' })[0])
+    expect(screen.getByText('Comunicar incidencia · 1111AAA')).toBeInTheDocument()
+    const breakdownDialog = screen.getByRole('dialog', { name: 'Comunicar incidencia · 1111AAA' })
     const typeSelect = within(breakdownDialog).getByLabelText('Tipo')
-    expect(typeSelect).toHaveValue('general')
+    // El catálogo es el MISMO que el de gestión («Nuevo estado»), en su orden:
+    // el campo y la oficina tienen que llamar igual a lo que se comunica.
+    expect(typeSelect).toHaveValue('breakdown')
     expect(within(typeSelect).getAllByRole('option').map((option) => option.textContent)).toEqual([
-      'General', 'Cambio de neumático', 'Propuesta de mejora',
+      'Mantenimiento puntual', 'Cambio de neumáticos', 'Avería', 'Petición general',
     ])
     // En el primer paso no se comunica nada: se pasa a la gestión.
-    expect(screen.queryByRole('button', { name: 'Comunicar avería' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Comunicar incidencia' })).toBeNull()
 
     await userEvent.type(screen.getByLabelText('Descripción'), 'No arranca.')
     // La prioridad la marca quien abre la petición, en el primer paso.
     await userEvent.selectOptions(screen.getByLabelText('Prioridad'), 'critical')
     await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
 
+    // Segundo paso (avería y mantenimiento): cómo queda el coche. Nace «sigue
+    // en servicio» — una avería no lo para por sí sola — y se pasa de largo.
+    expect(await screen.findByRole('radio', { name: /Sigue en servicio/ })).toBeChecked()
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+
+    // Tercero: los documentos, que aquí son opcionales — se pasa de largo.
+    expect(await screen.findByText(/fotos del daño/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+
     await screen.findByLabelText('Código postal de la ubicación preferente')
     expect(screen.queryByLabelText('Taller')).toBeNull()
 
-    // "Atrás" vuelve al primer paso sin perder lo escrito.
+    // "Atrás" vuelve paso a paso sin perder lo escrito.
+    await userEvent.click(screen.getByRole('button', { name: 'Atrás' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Atrás' }))
     await userEvent.click(screen.getByRole('button', { name: 'Atrás' }))
     expect(screen.getByLabelText('Descripción')).toHaveValue('No arranca.')
     await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
 
-    expect(screen.getByRole('button', { name: 'Comunicar avería' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Comunicar incidencia' })).toBeDisabled()
     expect(screen.queryByLabelText('Día y hora')).toBeNull()
     expect(screen.queryByLabelText('Coste (€)')).toBeNull()
     await userEvent.type(screen.getByLabelText('Código postal de la ubicación preferente'), '28001')
-    await userEvent.click(screen.getByRole('button', { name: 'Comunicar avería' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Comunicar incidencia' }))
     expect(mocks.createIncident).toHaveBeenCalledWith({
       vehicle: 1,
-      type: 'general',
+      type: 'breakdown',
       priority: 'critical',
       date: expect.any(String),
       description: 'No arranca.',
       workshop_postal_code: '28001',
+      // Lo que dice el conductor de cómo queda el coche viaja en el parte; el
+      // estado del vehículo NO lo toca esto (lo decide la gestión).
+      details: { availability: 'active' },
       client_ref: expect.any(String),
     })
-    expect(await screen.findByText('Avería comunicada.')).toBeInTheDocument()
+    expect(await screen.findByText('Incidencia comunicada.')).toBeInTheDocument()
   })
 
-  it('Avería permite registrar una propuesta de mejora y después pasa a Gestión', async () => {
+  it('pedir coche de sustitución EXIGE adjuntar algo y deja la solicitud en administración', async () => {
+    mocks.createIncident.mockResolvedValue({ id: 34, vehicle: 1, type: 'breakdown' })
+    mocks.uploadDocument.mockResolvedValue({ id: 71 })
+    renderPage()
+    await screen.findByText('1111AAA')
+    await userEvent.click(screen.getAllByRole('button', { name: 'Incidencia' })[0])
+
+    await userEvent.type(screen.getByLabelText('Descripción'), 'Se ha parado en ruta.')
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    await userEvent.click(await screen.findByRole('radio', { name: /Necesito coche de sustitución/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+
+    // Es lo ÚNICO que se le exige: sin documento no se pasa del paso.
+    expect(await screen.findByText(/hay que adjuntar al menos un documento/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continuar' })).toBeDisabled()
+    await userEvent.upload(
+      screen.getByLabelText('Adjuntar documento o foto (opcional)'),
+      new File(['1'], 'parte.pdf', { type: 'application/pdf' }),
+    )
+    expect(screen.getByRole('button', { name: 'Continuar' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+
+    await userEvent.type(
+      await screen.findByLabelText('Código postal de la ubicación preferente'),
+      '28001',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Comunicar incidencia' }))
+
+    expect(mocks.createIncident).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'breakdown', details: { availability: 'substitute' } }),
+    )
+    // Solo el justificante: la caja del coche de sustitución se queda vacía
+    // porque al comunicarlo aún no hay coche.
+    expect(mocks.uploadDocument).toHaveBeenCalledTimes(1)
+    // La solicitud de coche la abre el BACK con el parte (una sola llamada, y
+    // así el parte encolado sin cobertura la arrastra al reenviarse).
+    expect(await screen.findByText(/queda pendiente de administración/)).toBeInTheDocument()
+  })
+
+  it('si ya le han dado un coche de sustitución, sube su documentación aparte', async () => {
+    mocks.createIncident.mockResolvedValue({ id: 35, vehicle: 1, type: 'breakdown' })
+    mocks.uploadDocument.mockResolvedValue({ id: 72 })
+    renderPage()
+    await screen.findByText('1111AAA')
+    await userEvent.click(screen.getAllByRole('button', { name: 'Incidencia' })[0])
+
+    await userEvent.type(screen.getByLabelText('Descripción'), 'Se ha parado en ruta.')
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    await userEvent.click(await screen.findByRole('radio', { name: /Necesito coche de sustitución/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+
+    await userEvent.upload(
+      await screen.findByLabelText('Adjuntar documento o foto (opcional)'),
+      new File(['1'], 'parte.pdf', { type: 'application/pdf' }),
+    )
+    // Caja aparte, y VARIOS papeles: el permiso y la ficha del coche prestado.
+    const substitute = screen.getByLabelText('Adjuntar documentación del coche de sustitución')
+    await userEvent.upload(substitute, new File(['2'], 'permiso.pdf', { type: 'application/pdf' }))
+    await userEvent.upload(substitute, new File(['3'], 'ficha.pdf', { type: 'application/pdf' }))
+    expect(screen.getByText('permiso.pdf')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    await userEvent.type(
+      await screen.findByLabelText('Código postal de la ubicación preferente'),
+      '28001',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Comunicar incidencia' }))
+
+    await waitFor(() => expect(mocks.uploadDocument).toHaveBeenCalledTimes(3))
+    // El justificante es del coche averiado; los del prestado van como «Otro»
+    // y con su nota (el sustituto puede no estar todavía en la flota).
+    expect(mocks.uploadDocument.mock.calls[0][0]).toMatchObject({ type: 'damage_photos' })
+    expect(mocks.uploadDocument.mock.calls[1][0]).toMatchObject({
+      vehicle: 1,
+      incident: 35,
+      type: 'other',
+      notes: 'Documentación del coche de sustitución facilitado al conductor.',
+    })
+    expect(mocks.uploadDocument.mock.calls[2][1].name).toBe('ficha.pdf')
+  })
+
+  it('sin pedir coche de sustitución, esa caja no existe', async () => {
+    renderPage()
+    await screen.findByText('1111AAA')
+    await userEvent.click(screen.getAllByRole('button', { name: 'Incidencia' })[0])
+
+    await userEvent.type(screen.getByLabelText('Descripción'), 'Ruido raro.')
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Continuar' }))
+
+    expect(await screen.findByLabelText('Adjuntar documento o foto (opcional)')).toBeInTheDocument()
+    expect(
+      screen.queryByLabelText('Adjuntar documentación del coche de sustitución'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('Incidencia permite registrar un mantenimiento puntual y después pasa a Gestión', async () => {
     mocks.createIncident.mockResolvedValue({ id: 31, vehicle: 1, type: 'general' })
     renderPage()
     await screen.findByText('1111AAA')
 
-    await userEvent.click(screen.getAllByRole('button', { name: 'Avería' })[0])
-    expect(screen.getByText('Comunicar avería · 1111AAA')).toBeInTheDocument()
+    await userEvent.click(screen.getAllByRole('button', { name: 'Incidencia' })[0])
+    expect(screen.getByText('Comunicar incidencia · 1111AAA')).toBeInTheDocument()
 
-    // General es el tipo predeterminado; sin descripción no permite continuar.
+    // Avería es el tipo predeterminado; sin descripción no permite continuar.
     expect(screen.getByRole('button', { name: 'Continuar' })).toBeDisabled()
-    expect(screen.queryByRole('button', { name: 'Comunicar avería' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Comunicar incidencia' })).toBeNull()
 
     // Cada tipo trae su div informativo.
     const kindSelect = screen.getByLabelText('Tipo')
@@ -363,10 +596,14 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
       'Instalar una baliza adicional.',
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    // El mantenimiento puntual también pregunta cómo queda el coche.
+    expect(await screen.findByRole('radio', { name: /Sigue en servicio/ })).toBeChecked()
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
     const preferredCp = await screen.findByLabelText('Código postal de la ubicación preferente')
     expect(screen.queryByLabelText('Taller')).toBeNull()
     await userEvent.type(preferredCp, '28001')
-    await userEvent.click(screen.getByRole('button', { name: 'Comunicar avería' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Comunicar incidencia' }))
     expect(mocks.createIncident).toHaveBeenCalledWith({
       vehicle: 1,
       type: 'maintenance',
@@ -374,18 +611,25 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
       date: expect.any(String),
       description: 'Instalar una baliza adicional.',
       workshop_postal_code: '28001',
+      details: { availability: 'active' },
       client_ref: expect.any(String),
     })
-    expect(await screen.findByText('Avería comunicada.')).toBeInTheDocument()
+    expect(await screen.findByText('Incidencia comunicada.')).toBeInTheDocument()
   })
 
   it('Neumáticos usa los mismos campos y contrato guiado que Gestión', async () => {
     mocks.createIncident.mockResolvedValue({ id: 32, vehicle: 1, type: 'tires' })
     renderPage()
     await screen.findByText('1111AAA')
-    await userEvent.click(screen.getAllByRole('button', { name: 'Avería' })[0])
+    await userEvent.click(screen.getAllByRole('button', { name: 'Incidencia' })[0])
 
     await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'tires')
+    // El parte de neumáticos tiene su PROPIO paso: en el primero no está (eran
+    // diez campos seguidos), y como su comentario es opcional, se pasa sin más.
+    expect(screen.queryByLabelText('Kilometraje actual')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    expect(await screen.findByText(/Obligatorios para continuar/)).toBeInTheDocument()
+
     // CP y fecha/hora ya no están en el parte inicial: viven en Gestión.
     expect(screen.queryByLabelText('Código postal del taller')).toBeNull()
     expect(screen.queryByLabelText('Fecha y hora de preferencia')).toBeNull()
@@ -408,10 +652,11 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     expect(screen.getByRole('button', { name: 'Continuar' })).toBeEnabled()
 
     await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
     const preferredCp = await screen.findByLabelText('Código postal de la ubicación preferente')
-    expect(screen.getByRole('button', { name: 'Comunicar avería' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Comunicar incidencia' })).toBeDisabled()
     await userEvent.type(preferredCp, '28001')
-    await userEvent.click(screen.getByRole('button', { name: 'Comunicar avería' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Comunicar incidencia' }))
 
     expect(mocks.createIncident).toHaveBeenCalledWith({
       vehicle: 1,
@@ -429,15 +674,62 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
       },
       client_ref: expect.any(String),
     })
+    // Los neumáticos no preguntan disponibilidad: su paso propio es el parte.
+    expect(screen.queryByRole('radio', { name: /coche de sustitución/ })).toBeNull()
+  })
+
+  it('el paso Documentos admite varios adjuntos y se puede quitar uno antes de enviar', async () => {
+    mocks.createIncident.mockResolvedValue({ id: 33, vehicle: 1, type: 'general' })
+    mocks.uploadDocument.mockResolvedValue({ id: 70 })
+    renderPage()
+    await screen.findByText('1111AAA')
+    await userEvent.click(screen.getAllByRole('button', { name: 'Incidencia' })[0])
+
+    await userEvent.type(screen.getByLabelText('Descripción'), 'Golpe en el paragolpes.')
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    // Disponibilidad (el tipo por defecto es avería): se pasa sin tocarla.
+    await userEvent.click(await screen.findByRole('button', { name: 'Continuar' }))
+
+    // Dos archivos en dos tandas: el segundo SE SUMA al ya elegido (la foto del
+    // daño y el presupuesto del taller no se eligen a la vez).
+    const picker = await screen.findByLabelText('Adjuntar documento o foto (opcional)')
+    await userEvent.upload(picker, new File(['1'], 'golpe.jpg', { type: 'image/jpeg' }))
+    await userEvent.upload(picker, new File(['2'], 'presupuesto.pdf', { type: 'application/pdf' }))
+    expect(screen.getByText('golpe.jpg')).toBeInTheDocument()
+    expect(screen.getByText('2 archivos seleccionados')).toBeInTheDocument()
+
+    // Quitar uno deja el otro donde estaba.
+    await userEvent.click(screen.getByRole('button', { name: 'Quitar golpe.jpg' }))
+    expect(screen.queryByText('golpe.jpg')).not.toBeInTheDocument()
+    expect(screen.getByText('1 archivo seleccionado')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    await userEvent.type(screen.getByLabelText('Código postal de la ubicación preferente'), '28001')
+    await userEvent.click(screen.getByRole('button', { name: 'Comunicar incidencia' }))
+
+    expect(await screen.findByText('Incidencia comunicada.')).toBeInTheDocument()
+    // Solo el que quedaba, ligado a la incidencia recién creada y archivado
+    // como el alta de la PWA: donde hay daño, «Fotos de daños».
+    expect(mocks.uploadDocument).toHaveBeenCalledTimes(1)
+    expect(mocks.uploadDocument).toHaveBeenCalledWith(
+      { vehicle: 1, incident: 33, type: 'damage_photos', client_ref: expect.any(String) },
+      expect.objectContaining({ name: 'presupuesto.pdf' }),
+    )
   })
 
   it('la búsqueda recorta y el selector se recalcula sobre el recorte', async () => {
     renderPage()
     await screen.findByText('1111AAA')
     await userEvent.type(screen.getByRole('searchbox', { name: 'Buscar vehículo' }), '2222')
-    // Solo queda el grupo del coche encontrado (y "Todos" con su nuevo total).
+    // Solo queda el grupo del coche encontrado, y todos los recuentos se
+    // recalculan sobre el recorte. Los dos cortes de arriba siguen ahí aunque
+    // se queden a cero: son fijos, y un menú que cambia de opciones mientras
+    // tecleas se lee peor que un cero.
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       'Todos (1)',
+      'No activos (1)',
+      'Con coche de sustitución (0)',
+      '──────────',
       'En taller (1)',
     ])
     expect(screen.getByText('2222BBB')).toBeInTheDocument()

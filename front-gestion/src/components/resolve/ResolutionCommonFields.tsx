@@ -1,5 +1,7 @@
-import { FileField, TextInputField } from '@flota/ui/ui'
+import { Button, FileField, TextInputField } from '@flota/ui/ui'
 
+import { fmtKm } from '../../format.ts'
+import { useLang } from '../../i18n.tsx'
 import { useResolveCopy } from '../../translations/resolve.ts'
 import type { DocumentType } from '../../types.ts'
 import type { ResolutionCommon } from './useResolutionCommon.ts'
@@ -42,6 +44,7 @@ export function ResolutionCommonFields({
   idPrefix,
 }: Props) {
   const t = useResolveCopy()
+  const { language } = useLang()
   const c = t.common
   const visible = (key: FieldKey) => show[key] !== false
   const { values, set } = common
@@ -84,6 +87,22 @@ export function ResolutionCommonFields({
           />
         )}
       </div>
+
+      {/* El coche parado no suma kilómetros: se cierra con la misma lectura con
+          la que entró. Tecleada a mano se equivoca, así que se carga de un
+          toque y se dice por qué vale. */}
+      {visible('km') && common.vehicleKm !== null && (
+        <div className="km-load">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => set({ km: String(common.vehicleKm) })}
+          >
+            {c.loadKm(fmtKm(common.vehicleKm, language))}
+          </Button>
+          <span className="muted">{c.loadKmHint}</span>
+        </div>
+      )}
 
       {visible('postalCode') && common.showPostalCode && (
         <TextInputField

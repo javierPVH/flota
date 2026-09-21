@@ -131,7 +131,9 @@ export function PersonalDocumentsPanel({
           {notice}
         </p>
       )}
-      {documents !== null && <DocumentList documents={documents} emptyNote={copy.empty} />}
+      {documents !== null && (
+        <DocumentList documents={documents} emptyNote={copy.empty} onChanged={reload} />
+      )}
 
       {!showForm && (
         <Button type="button" variant="secondary" size="sm" onClick={() => setShowForm(true)}>

@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   listOpenIncidents: vi.fn(),
   listIncidents: vi.fn(),
   listVehicleEvents: vi.fn(),
+  listAlerts: vi.fn(),
   fetchPickerConfig: vi.fn(),
   updateDocument: vi.fn(),
   createDocument: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listOpenIncidents: mocks.listOpenIncidents,
   listIncidents: mocks.listIncidents,
   listVehicleEvents: mocks.listVehicleEvents,
+  listAlerts: mocks.listAlerts,
   fetchPickerConfig: mocks.fetchPickerConfig,
   updateDocument: mocks.updateDocument,
   createDocument: mocks.createDocument,
@@ -76,6 +78,8 @@ function doc(overrides: Partial<FlotaDocument>): FlotaDocument {
     incident: null,
     event: null,
     event_display: '',
+    alert: null,
+    alert_display: '',
     drive_url: 'https://drive/file-1',
     drive_file_id: 'file-1',
     file: null,
@@ -87,6 +91,10 @@ function doc(overrides: Partial<FlotaDocument>): FlotaDocument {
     status_display: 'Vigente',
     replaces: null,
     notes: '',
+    responsible: 7,
+    responsible_name: 'Sara Ortiz',
+    shared_read: false,
+    protected: false,
     drive_missing_at: null,
     created_at: '2026-09-16T09:00:00Z',
     updated_at: '2026-09-16T09:00:00Z',
@@ -167,6 +175,19 @@ describe('DocumentsPanel (tabla de documentos)', () => {
       .mockImplementation((_vehicle: number, kind: string) =>
         Promise.resolve(page(EVENTS.filter((e) => e.event_type === kind))),
       )
+    // La ITV programada del coche: su alerta `itv_due` abierta.
+    mocks.listAlerts.mockReset().mockResolvedValue(
+      page([
+        {
+          id: 41,
+          vehicle: 21,
+          type: 'itv_due',
+          type_display: 'ITV programada',
+          status: 'open',
+          due_date: '2026-11-03',
+        },
+      ]),
+    )
     mocks.fetchPickerConfig.mockReset().mockResolvedValue({ enabled: false })
     mocks.updateDocument.mockReset().mockResolvedValue(undefined)
     mocks.createDocument.mockReset().mockResolvedValue(doc({ id: 9 }))
@@ -216,18 +237,28 @@ describe('DocumentsPanel (tabla de documentos)', () => {
     ])
     expect(within(dialog).queryByRole('combobox', { name: /incidencia/i })).toBeNull()
 
-    // Fotos de daños: cualquier incidencia sin cerrar sirve, y es opcional.
+    // Fotos de daños: son las fotos DE una incidencia (o accidente) abierta: obligatoria.
     await userEvent.selectOptions(tipo, 'damage_photos')
+    const fotos = within(dialog).getByRole('combobox', { name: /Incidencia o accidente abierto/ })
+    expect(fotos).toBeRequired()
+    expect(within(fotos).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Elige la incidencia…',
+      '#7 · Avería · Abierta (2026-09-10)',
+      '#8 · Accidente · En curso (2026-09-10)',
+    ])
+
+    // Ficha técnica: no caduca → la fecha desaparece; la incidencia es opcional.
+    await userEvent.selectOptions(tipo, 'technical_datasheet')
+    expect(within(dialog).queryByLabelText(/Fecha de caducidad/)).toBeNull()
     const ligado = within(dialog).getByRole('combobox', { name: /Ligado a incidencia abierta/ })
     expect(within(ligado).getAllByRole('option').map((o) => o.textContent)).toEqual([
       'Ninguna',
       '#7 · Avería · Abierta (2026-09-10)',
       '#8 · Accidente · En curso (2026-09-10)',
     ])
-
-    // Ficha técnica: no caduca → la fecha desaparece.
-    await userEvent.selectOptions(tipo, 'technical_datasheet')
-    expect(within(dialog).queryByLabelText(/Fecha de caducidad/)).toBeNull()
+    // El permiso de circulación no tiene incidencia detrás: no se ofrece.
+    await userEvent.selectOptions(tipo, 'registration_certificate')
+    expect(within(dialog).queryByRole('combobox', { name: /incidencia|acompaña/i })).toBeNull()
 
     // Parte de accidente: solo accidentes abiertos, y obligatorio.
     await userEvent.selectOptions(tipo, 'accident_report')
@@ -280,6 +311,62 @@ describe('DocumentsPanel (tabla de documentos)', () => {
     await waitFor(() =>
       expect(mocks.createDocument).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'workshop_invoice', event: 31, incident: null }),
+      ),
+    )
+  })
+
+  it('un vínculo opcional dejado en «Ninguna» no bloquea el guardado', async () => {
+    // Un `<select required>` con la opción vacía elegida no pasaba la
+    // validación nativa («Selecciona un elemento de la lista») y el contrato o
+    // la ficha técnica no se podían guardar sin incidencia.
+    renderPanel()
+    await screen.findByRole('table')
+    await userEvent.click(screen.getByRole('button', { name: 'Añadir documento' }))
+    const dialog = await screen.findByRole('dialog')
+    await within(dialog).findByRole('combobox', { name: /Registro al que acompaña/ })
+    await userEvent.selectOptions(
+      within(dialog).getByRole('combobox', { name: /Tipo de documento/ }),
+      'contract',
+    )
+    expect(within(dialog).getByRole('combobox', { name: /Ligado a incidencia abierta/ })).toHaveValue('none')
+    await userEvent.type(within(dialog).getByLabelText(/Fecha de caducidad/), '2028-01-01')
+    await userEvent.type(within(dialog).getByLabelText(/URL del documento/), 'https://drive/contrato')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }))
+    await waitFor(() =>
+      expect(mocks.createDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'contract', incident: null, event: null, alert: null }),
+      ),
+    )
+  })
+
+  it('el informe de ITV corresponde a una ITV registrada o a la programada (la alerta abierta)', async () => {
+    renderPanel()
+    await screen.findByRole('table')
+    await userEvent.click(screen.getByRole('button', { name: 'Añadir documento' }))
+    const dialog = await screen.findByRole('dialog')
+    await within(dialog).findByRole('combobox', { name: /Registro al que acompaña/ })
+    await userEvent.selectOptions(
+      within(dialog).getByRole('combobox', { name: /Tipo de documento/ }),
+      'itv_report',
+    )
+    const itv = within(dialog).getByRole('combobox', { name: /ITV a la que corresponde/ })
+    expect(itv).toBeRequired()
+    expect(within(itv).getAllByRole('group').map((g) => g.getAttribute('label'))).toEqual([
+      'ITV',
+      'ITV programadas',
+    ])
+    expect(within(itv).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Elige la ITV…',
+      'ITV · 2026-03-01',
+      'ITV programada · 2026-11-03',
+    ])
+    await userEvent.selectOptions(itv, 'alert:41')
+    await userEvent.type(within(dialog).getByLabelText(/Fecha de caducidad/), '2028-03-01')
+    await userEvent.type(within(dialog).getByLabelText(/URL del documento/), 'https://drive/informe')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }))
+    await waitFor(() =>
+      expect(mocks.createDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'itv_report', alert: 41, event: null, incident: null }),
       ),
     )
   })
@@ -417,6 +504,7 @@ describe('DocumentsPanel (tabla de documentos)', () => {
     expect(within(dialog).getByLabelText(/Fecha de caducidad/)).toBeRequired()
     expect(mocks.listOpenIncidents).not.toHaveBeenCalled()
     expect(mocks.listVehicleEvents).not.toHaveBeenCalled()
+    expect(mocks.listAlerts).not.toHaveBeenCalled()
     expect(within(dialog).queryByRole('combobox', { name: /incidencia|acompaña/i })).toBeNull()
 
     await userEvent.type(within(dialog).getByLabelText(/Fecha de caducidad/), '2031-03-01')
@@ -428,5 +516,72 @@ describe('DocumentsPanel (tabla de documentos)', () => {
       ),
     )
     expect(mocks.createDocument.mock.calls[0][0]).not.toHaveProperty('vehicle')
+  })
+
+  // Quién lee el documento: hasta ahora, cualquier conductor del coche veía
+  // todo lo que colgaba de él.
+  it('el alta decide quién lo lee, y nace solo para su responsable', async () => {
+    renderPanel()
+    await screen.findByRole('table')
+    await userEvent.click(screen.getByRole('button', { name: 'Añadir documento' }))
+    const dialog = await screen.findByRole('dialog')
+
+    const interruptor = within(dialog).getByRole('switch', {
+      name: 'Visible para todos los conductores del vehículo',
+    })
+    expect(interruptor).not.toBeChecked()
+
+    await userEvent.click(interruptor)
+    await userEvent.type(within(dialog).getByLabelText(/Fecha de caducidad/), '2027-03-01')
+    await userEvent.type(within(dialog).getByLabelText(/URL del documento/), 'https://drive/x')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }))
+
+    await waitFor(() =>
+      expect(mocks.createDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ shared_read: true, protected: false }),
+      ),
+    )
+  })
+
+  it('con el candado puesto, el interruptor de lectura ya no decide nada', async () => {
+    renderPanel()
+    await screen.findByRole('table')
+    await userEvent.click(screen.getByRole('button', { name: 'Añadir documento' }))
+    const dialog = await screen.findByRole('dialog')
+
+    await userEvent.click(within(dialog).getByLabelText('Protegido'))
+    expect(
+      within(dialog).getByRole('switch', {
+        name: 'Visible para todos los conductores del vehículo',
+      }),
+    ).toBeDisabled()
+    expect(
+      within(dialog).getByText(/no lo ve ningún conductor ni supervisor/i),
+    ).toBeInTheDocument()
+  })
+
+  it('la fila dice quién lo lee y de quién es, y se puede cambiar después', async () => {
+    renderPanel()
+    await screen.findByRole('table')
+    const fila_ = fila('Seguro')
+    expect(within(fila_).getByText('Solo el responsable')).toBeInTheDocument()
+    expect(within(fila_).getByText('Sara Ortiz')).toBeInTheDocument()
+
+    await userEvent.click(within(fila_).getByRole('button', { name: 'Cambiar la visibilidad' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Responsable: Sara Ortiz.')).toBeInTheDocument()
+
+    await userEvent.click(
+      within(dialog).getByRole('switch', {
+        name: 'Visible para todos los conductores del vehículo',
+      }),
+    )
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }))
+    await waitFor(() =>
+      expect(mocks.updateDocument).toHaveBeenCalledWith(1, {
+        shared_read: true,
+        protected: false,
+      }),
+    )
   })
 })

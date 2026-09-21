@@ -90,6 +90,23 @@ const INCIDENTS = [
   },
 ]
 
+/** Neumáticos con el parte guiado: la medida es el dato de la fila. */
+const TIRES = {
+  ...INCIDENTS[0],
+  id: 9,
+  type: 'tires',
+  type_display: 'Avería de neumáticos',
+  description: 'Necesito cambiar las ruedas',
+  mileage: 82000,
+  workshop_postal_code: '28045',
+  details: {
+    report_version: 1,
+    change_reason: 'puncture',
+    wheel: 'front_left',
+    tire_measure: '205/55 R16',
+  },
+}
+
 /** Un accidente abierto, para la tarjeta que solo mira ese tipo. */
 const ACCIDENT = {
   ...INCIDENTS[0],
@@ -222,6 +239,23 @@ describe('VehiclePendingCard (alertas e incidencias de la ficha)', () => {
     expect(row.textContent).toMatch(/20 ago 2026.*Avería.*No arranca en frío/)
     // La píldora de estado cierra la fila, detrás de la descripción.
     expect(within(row).getByText('En curso')).toBeInTheDocument()
+  })
+
+  // La descripción del parte de neumáticos es un comentario opcional: la
+  // medida y la rueda solo se leían en la app de campo.
+  it('la fila dice también lo que recogió el parte: rueda, medida, km y CP', async () => {
+    mocks.listOpenIncidents.mockResolvedValue([TIRES])
+    render(<Harness />)
+    const row = await screen.findByTitle('Necesito cambiar las ruedas')
+    expect(
+      within(row).getByText(/^Pinchazo · Delantera izquierda · 205\/55 R16 · .* km · CP 28045$/),
+    ).toBeInTheDocument()
+    // Arriba, lo de siempre; el parte va DEBAJO, en su propia línea (en una
+    // sola, la medida y la descripción se comían entre ellas).
+    expect(row.textContent).toMatch(/Avería de neumáticos.*Necesito cambiar las ruedas.*Pinchazo/)
+    expect(row.querySelector('.pending-main-top')?.textContent).toBe(
+      'Avería de neumáticosNecesito cambiar las ruedas',
+    )
   })
 
   it('«Cerradas» pide el histórico y lo enseña con la fecha de la solución', async () => {

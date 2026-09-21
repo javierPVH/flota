@@ -1,110 +1,84 @@
-import { useState } from 'react'
-import { Button } from '@flota/ui/ui'
-import { asErrorMessage } from '@flota/ui/http'
-
-import { resolveIncident } from '../api.ts'
-import { todayIso } from '../format.ts'
-import { useLang } from '../i18n.tsx'
+import { useResolveCopy } from '../translations/resolve.ts'
 import type { Incident } from '../types.ts'
+import { ResolveAccidentForm } from './resolve/ResolveAccidentForm.tsx'
+import { ResolveBreakdownForm } from './resolve/ResolveBreakdownForm.tsx'
+import { ResolveTiresForm } from './resolve/ResolveTiresForm.tsx'
+import { flowFor } from './resolve/resolveFlow.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
 /**
- * Solucionar una avería/incidencia (fase 3 del ciclo): fecha de solución,
- * tiempo parado calculado y observaciones → CIERRA la incidencia. Cerrar es
- * cosa de gestión (el back exige IsManagement), así que quien pinta el botón
- * que abre este modal ya lo condiciona al rol. Lo comparten la ficha de campo
- * y el modal de Actualizar mantenimiento.
+ * **Solucionar una incidencia es UN gesto y el formulario lo decide su TIPO**,
+ * igual que en gestión (`components/resolve/ResolveDispatcher`): un parte de
+ * neumáticos se cierra diciendo qué se montó, un accidente con su expediente y
+ * quién asume el coste, y una avería o una petición general con lo que se hizo.
+ *
+ * Antes esta app cerraba **los cuatro tipos con el mismo cajón** —fecha y
+ * observaciones—, así que lo que en el escritorio era un dato estructurado
+ * (las ruedas, la medida, el expediente, la responsabilidad) se perdía o
+ * acababa escrito a mano dentro de un texto libre. Ahora el reparto es el
+ * mismo a los dos lados y lo dice un solo sitio (`resolve/resolveFlow.ts`).
+ *
+ * Lo común vive una vez (`useResolutionCommon` + `ResolutionCommonFields`), y
+ * lo que en campo NO se decide no se pregunta: ni el taller del catálogo (aquí
+ * se sabe el CP) ni la vuelta a Activo, que es de administración.
+ *
+ * El despachador pone la ventana y el título; los formularios son el cuerpo.
  */
 export function IncidentResolveModal({
   incident,
+  plate = '',
+  vehicleKm = null,
   onClose,
   onResolved,
 }: {
   incident: Incident
+  /** Matrícula para el título, si quien abre la conoce: la incidencia solo
+   * trae el id del coche. */
+  plate?: string
+  /** Última lectura del coche, si quien abre la tiene a mano (el resumen del
+   * vehículo): es lo que carga el botón del kilometraje. */
+  vehicleKm?: number | null
   onClose: () => void
-  /** Cerrada: la página avisa, recarga sus datos y cierra este modal. */
-  onResolved: () => void
+  /** Cerrada: la página avisa, recarga sus datos y cierra este modal. El aviso
+   * opcional dice qué pasó con la factura (se encoló, o no subió). */
+  onResolved: (notice?: string) => void
 }) {
-  const { t } = useLang()
-  const [resolution, setResolution] = useState({ date: todayIso(), observations: '' })
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-
-  /** Días naturales entre la avería y su solución, sin hora ni DST de por
-   * medio (misma cuenta que el modal de actualización del supervisor). */
-  function downtime(): number | null {
-    if (!incident.date || !resolution.date) return null
-    const start = Date.parse(`${incident.date}T00:00:00Z`)
-    const end = Date.parse(`${resolution.date}T00:00:00Z`)
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null
-    return Math.floor((end - start) / 86_400_000)
-  }
-
-  function save() {
-    setSaving(true)
-    setError('')
-    const payload: { resolution_date: string; observations?: string } = {
-      resolution_date: resolution.date,
-    }
-    if (resolution.observations.trim()) payload.observations = resolution.observations.trim()
-    resolveIncident(incident.id, payload)
-      .then(onResolved)
-      .catch((caught) => {
-        setError(asErrorMessage(caught, t.carUpdate.error))
-        setSaving(false)
-      })
-  }
+  const t = useResolveCopy()
+  const flow = flowFor(incident)
+  // El mantenimiento puntual comparte formulario con la avería —no hay nada
+  // más que preguntar—, pero no comparte título: dice lo que se cierra.
+  const titulo = t.titleOf[flow]
 
   return (
     <SupervisorModal
       open
-      title={`${t.carUpdate.actions.resolve} · ${incident.type_display}`}
+      title={t.title(titulo, plate)}
       onClose={onClose}
-      footer={(
-        <>
-          <Button type="button" variant="secondary" onClick={onClose}>
-            {t.common.cancel}
-          </Button>
-          <Button
-            type="button"
-            onClick={save}
-            disabled={saving || !resolution.date || downtime() === null}
-          >
-            {t.carUpdate.resolveSubmit}
-          </Button>
-        </>
-      )}
     >
-      <div className="update-action-form">
-        <label className="reminder-check">
-          {t.carUpdate.resolutionDate} <span className="req-badge" aria-hidden>{t.common.required}</span>
-          <input
-            type="date"
-            min={incident.date ?? undefined}
-            max={todayIso()}
-            className="update-input"
-            value={resolution.date}
-            onChange={(e) => setResolution((r) => ({ ...r, date: e.target.value }))}
-            required
-          />
-        </label>
-        {downtime() !== null && (
-          <div className="update-km-last">{t.carUpdate.calculatedDowntime(downtime() ?? 0)}</div>
-        )}
-        <label className="reminder-check">
-          {t.carUpdate.observations}
-          <textarea
-            className="reminder-message"
-            value={resolution.observations}
-            onChange={(e) => setResolution((r) => ({ ...r, observations: e.target.value }))}
-          />
-        </label>
-        {error && (
-          <div role="alert" className="form-error">
-            {error}
-          </div>
-        )}
-      </div>
+      {flow === 'tires' ? (
+        <ResolveTiresForm
+          incident={incident}
+          vehicleKm={vehicleKm}
+          onClose={onClose}
+          onResolved={onResolved}
+        />
+      ) : flow === 'accident' ? (
+        <ResolveAccidentForm
+          incident={incident}
+          vehicleKm={vehicleKm}
+          onClose={onClose}
+          onResolved={onResolved}
+        />
+      ) : (
+        // Avería, mantenimiento puntual y petición general: el mismo
+        // formulario, y él reparte lo que pregunta cada uno.
+        <ResolveBreakdownForm
+          incident={incident}
+          vehicleKm={vehicleKm}
+          onClose={onClose}
+          onResolved={onResolved}
+        />
+      )}
     </SupervisorModal>
   )
 }
