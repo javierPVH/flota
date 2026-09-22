@@ -941,6 +941,18 @@ Dos capas que van **siempre juntas**:
   resolvía— en ningún sitio de campo. Fuera siguen el mantenimiento
   **programado** y la **ITV**, que son ALERTAS y tienen su tarjeta, y el
   registro de un mantenimiento hecho, que nace cerrado.
+  **La de «Alertas» cuenta DOS cosas**: las que abre el motor del back y los
+  avisos de **«Te queda poco»** de ese coche (`useFieldDeadlines`), que
+  calcula el móvil con su resumen. Son orígenes distintos pero la misma
+  pregunta —qué tengo pendiente—, y contando solo los primeros la tarjeta
+  marcaba **0** con la lectura de km sin dar, el consumo sin anotar y la ITV
+  a doce días a la vista dos dedos más arriba: el motor abre los suyos cuando
+  pasan sus trabajos programados, así que entre pasada y pasada los dos
+  números no tenían por qué coincidir. Van **debajo** de las alertas, con sus
+  mismos recuadros (`DeadlineNotices`, una sola copia) y abriendo cada uno su
+  formulario ahí mismo; el «no hay nada» solo sale con las dos listas vacías,
+  y con un tipo elegido en el filtro **no se pintan** —ese filtro es de tipos
+  de ALERTA y dejarlos puestos contradiría lo elegido—.
 - **En campo, «Solucionar» también es UN gesto con un formulario por TIPO**
   (`front-conductores/src/components/resolve/`), el mismo reparto que hace
   gestión con su `ResolveDispatcher`: `IncidentResolveModal` dejó de ser un
@@ -1080,8 +1092,7 @@ Dos capas que van **siempre juntas**:
   petición general, que puede ni ir del coche. Si la subida se queda sin red, el
   adjunto se va a la cola y la incidencia **no se crea dos veces** (R3-27: se
   guarda su id y el reintento solo termina las subidas que faltaban).
-- **«Te queda poco» solo dice lo que falta** (`FieldDeadlines`, el acordeón del
-  inicio de campo). Son **cuatro** familias, una fila por coche: la **lectura de
+- **«Te queda poco» solo dice lo que falta** (`FieldDeadlines`). Son **cuatro** familias, una fila por coche: la **lectura de
   km** del mes, el **combustible**, la **ITV** y el **mantenimiento
   programado** — del **seguro, nada** (X1: es de administración). Las dos citas
   van como siempre (≤30 días, rojas a ≤7 o vencidas), y las otras dos son el
@@ -1095,8 +1106,7 @@ Dos capas que van **siempre juntas**:
   toca, y «se abre en 2 días» sonaba a puerta cerrada en vez de a cuándo
   conviene darla. Sin ventana (N8a apagada) se dice el mes que falta. La de **combustible** no tiene plazo que contar: se
   anota **en cada viaje** (GAP-2, el consumo del ordenador de a bordo) y lo que
-  avisa es la antigüedad, con el enlace que **abre su modal** en la ficha
-  (`/vehiculos/{id}?registrar=combustible`: no tiene página propia). El
+  avisa es la antigüedad. El
   semáforo de esa antigüedad es **el mismo que usa gestión** en su columna
   «Kilómetros» —`kmStaleTone` en `@flota/ui/domain`: <15 días al día, 15-30
   ámbar, >30 **o sin ninguna anotación** rojo—, y por eso vive en el DS: los
@@ -1108,6 +1118,28 @@ Dos capas que van **siempre juntas**:
   debajo de una ITV que corre menos prisa. Con todo al día **no se pinta nada**:
   es un aviso, no un panel de estado — el estado está en «Próximas citas» y en
   las tarjetas del tablero.
+  Cada aviso **abre su formulario ahí mismo** —la lectura de km, el consumo,
+  la ITV y el mantenimiento, los MISMOS modales que abre el nav y que cierran
+  su alerta (`RegisterKmModal`, `RegisterFuelModal`, `RegisterItvModal`,
+  `MaintenanceUpdateModal`); ninguno nuevo, que dos copias del mismo
+  formulario acaban validando distinto—. Antes cada uno era un **enlace** que
+  sacaba de la pantalla —a `/registrar`, o a la ficha con
+  `?registrar=combustible` porque el consumo no tiene página propia— y volver
+  era cosa de quien lo pulsara: se venía a atender un aviso y se acababa en
+  otro sitio. El modal lo monta el propio bloque, así que vale igual en las
+  dos pantallas, y al guardar **no se cierra** (enseña lo que guardó, como el
+  resto de la app): solo avisa hacia arriba con `onSaved` para que la lista se
+  rehaga y el aviso recién atendido desaparezca.
+  Se lee en **dos** pantallas y en las dos encabeza: el **inicio** de campo y
+  la bandeja de **Alertas**, esta solo en **«Mi vehículo»**. Lo que vence es
+  lo que hay que HACER —y una lectura de km que falta o una ITV encima son
+  avisos como los del motor—, así que se lee donde se miran los avisos y no
+  solo al entrar. En **«Flota»** no sale: ahí lo del grupo se lee en «A tu
+  cargo», y estos avisos son de **lo suyo** (los coches que uno CONDUCE: al
+  ámbito de gestión el back le manda más, así que la bandeja filtra por
+  conductor vigente, el mismo criterio que la home). No añade una vuelta al
+  back —vehículos y resúmenes salen de la caché del arranque (R3-28)— y si esa
+  carga falla, la bandeja se pinta igual: el bloque simplemente no sale.
 - **El conmutador de arriba tiene TRES caras, y solo dos son un modo**: «Mi
   vehículo» y «Flota» siguen siendo `fleetMode` (recordado por dispositivo, y
   cambia a la vez la home y los iconos del nav), mientras que **«Mi perfil» es

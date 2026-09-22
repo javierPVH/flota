@@ -689,6 +689,14 @@ const es = {
     stepFile: 'Tipo y documento',
     stepLink: 'Ligado a',
     stepNotes: 'Notas',
+    /** De quién es el documento: del coche (sus papeles) o de la persona que
+     * lo conduce (su permiso…). Decide qué tipos se ofrecen y a qué carpeta va. */
+    owner: 'Documento de',
+    ownerVehicle: (plate: string) => `El vehículo · ${plate}`,
+    ownerDriver: (name: string) => `El conductor · ${name}`,
+    ownerHint:
+      'Los del coche cuelgan de su matrícula y pueden ir ligados a una '
+      + 'incidencia; los personales van con la persona y no llevan incidencia.',
     linkHint:
       'A qué incidencia del coche acompaña este documento. Lo exigen la '
       + 'factura del taller, las fotos de daños y el parte de accidente; el '
@@ -1716,6 +1724,12 @@ const en: typeof es = {
     stepFile: 'Type and file',
     stepLink: 'Linked to',
     stepNotes: 'Notes',
+    owner: 'Document of',
+    ownerVehicle: (plate: string) => `The vehicle · ${plate}`,
+    ownerDriver: (name: string) => `The driver · ${name}`,
+    ownerHint:
+      "Vehicle documents hang from its plate and may be linked to an incident; "
+      + 'personal ones go with the person and carry no incident.',
     linkHint:
       "Which of the vehicle's incidents this document belongs to. The "
       + 'workshop invoice, damage photos and accident report require one; '

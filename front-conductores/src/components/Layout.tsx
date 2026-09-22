@@ -402,6 +402,7 @@ export function Layout() {
       {uploadOpen && actionVehicle && (
         <UploadDocumentModal
           vehicle={actionVehicle}
+          driver={actionSummary?.driver ?? null}
           onClose={() => setUploadOpen(false)}
           onSaved={() => setDataVersion((version) => version + 1)}
         />

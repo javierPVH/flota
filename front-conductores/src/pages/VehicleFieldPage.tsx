@@ -445,6 +445,7 @@ export function VehicleFieldPage() {
         canManage={canManage}
         accordion={accordion}
         onChanged={reload}
+        window={kmWindow}
       />
 
       {/* Documentos (HU-4.1/4.3): viven en Drive; aquí solo la referencia. */}
@@ -523,6 +524,7 @@ export function VehicleFieldPage() {
       {documentOpen && (
         <UploadDocumentModal
           vehicle={vehicle}
+          driver={summary?.driver ?? null}
           onClose={() => setDocumentOpen(false)}
           onSaved={loadDocuments}
         />

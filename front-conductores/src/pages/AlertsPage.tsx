@@ -5,7 +5,16 @@ import { Badge, Button, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { AlertCard } from '../components/AlertCard.tsx'
-import { fetchVehicleSummaries, listAlerts, truncatedAt } from '../api.ts'
+import {
+  fetchKmWindow,
+  fetchVehicleSummaries,
+  fetchVehicleSummariesCached,
+  type KmWindow,
+  listAlerts,
+  listVehiclesCached,
+  truncatedAt,
+} from '../api.ts'
+import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
 import { AlertResolveDispatcher } from '../components/AlertResolveDispatcher.tsx'
 import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
@@ -20,7 +29,7 @@ import {
   PUSH_NOT_CONFIGURED,
   type PushState,
 } from '../push.ts'
-import type { Alert, VehicleSummary } from '../types.ts'
+import type { Alert, Vehicle, VehicleSummary } from '../types.ts'
 
 // Crítica primero: a pie de vehículo se atiende lo urgente.
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
@@ -68,6 +77,50 @@ export function AlertsPage() {
   const [push, setPush] = useState<PushState>('disabled')
   const [pushBusy, setPushBusy] = useState(false)
   const [pushError, setPushError] = useState('')
+
+  // --- «Te queda poco», también aquí ------------------------------------
+  // El mismo bloque de vencimientos que encabeza la home de campo: la
+  // lectura de km que falta este mes, el combustible sin anotar, la ITV y el
+  // mantenimiento. Es lo que hay que HACER, así que se lee donde se miran
+  // los avisos y no solo al entrar. Solo en «Mi vehículo»: en «Flota» los
+  // del grupo se leen en «A tu cargo», que es su sitio.
+  const miVehiculo = !ctx?.fleetMode
+  const [fleet, setFleet] = useState<Vehicle[]>([])
+  const [summaries, setSummaries] = useState<Record<number, VehicleSummary>>({})
+  const [kmWindow, setKmWindow] = useState<KmWindow | null>(null)
+  // Sube al guardar algo desde un aviso: la caché ya está invalidada (R3-28)
+  // y esto es lo que vuelve a pedirla, o el aviso atendido seguiría ahí.
+  const [deadlineVersion, setDeadlineVersion] = useState(0)
+
+  useEffect(() => {
+    if (!miVehiculo) return
+    let alive = true
+    // R3-28: vehículos y resúmenes salen de la caché del arranque, así que
+    // esto no añade una vuelta al back. Y si algo falla, simplemente no se
+    // pinta el bloque: la bandeja no depende de él.
+    void Promise.all([
+      listVehiclesCached().catch(() => null),
+      fetchVehicleSummariesCached().catch(() => [] as VehicleSummary[]),
+      fetchKmWindow().catch(() => null),
+    ]).then(([page, loaded, window_]) => {
+      if (!alive) return
+      if (page) setFleet(page.results)
+      setSummaries(Object.fromEntries(loaded.map((sum) => [sum.vehicle, sum])))
+      setKmWindow(window_)
+    })
+    return () => {
+      alive = false
+    }
+  }, [miVehiculo, dataVersion, deadlineVersion])
+
+  // Los coches que CONDUCE quien mira: al ámbito de gestión el back le manda
+  // más (su grupo entero) y estos avisos son de lo suyo. Mismo criterio que
+  // la home, de donde viene el bloque.
+  const ownVehicles = useMemo(() => {
+    const gestion = user?.roles.some((role) => role === 'admin' || role === 'supervisor')
+    if (!gestion) return fleet
+    return fleet.filter((v) => summaries[v.id]?.driver?.id === user?.id)
+  }, [fleet, summaries, user?.id, user?.roles])
 
   useEffect(() => {
     pushState().then(setPush, () => setPush('unknown'))
@@ -244,6 +297,20 @@ export function AlertsPage() {
         <p role="status" className="empty-note">
           {t.common.truncated(alerts.length, truncated)}
         </p>
+      )}
+
+      {/* Lo que vence va ARRIBA: sin avisos no pinta nada, así que con todo
+          al día la bandeja se lee igual que antes. */}
+      {miVehiculo && (
+        <FieldDeadlines
+          vehicles={ownVehicles}
+          summaries={summaries}
+          window={kmWindow}
+          onSaved={() => {
+            setDeadlineVersion((v) => v + 1)
+            load()
+          }}
+        />
       )}
 
       {/* M8: avisos push de este dispositivo (oculto si el back no los tiene).

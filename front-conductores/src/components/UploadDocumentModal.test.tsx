@@ -34,10 +34,10 @@ const ACCIDENTE = {
   date: '2026-09-10',
 }
 
-function abrir() {
+function abrir(driver: { id: number; name: string } | null = null) {
   render(
     <LanguageProvider>
-      <UploadDocumentModal vehicle={VEHICLE} onClose={vi.fn()} onSaved={vi.fn()} />
+      <UploadDocumentModal vehicle={VEHICLE} driver={driver} onClose={vi.fn()} onSaved={vi.fn()} />
     </LanguageProvider>,
   )
   return userEvent.setup()
@@ -99,5 +99,46 @@ describe('UploadDocumentModal: tres pasos', () => {
         expect.anything(),
       ),
     )
+  })
+
+  it('sin conductor a quien colgárselo, no se pregunta de quién es', async () => {
+    abrir()
+    await waitFor(() => expect(mocks.listIncidents).toHaveBeenCalled())
+    // Quien sube es supervisor (no conduce) y el coche no trae conductor.
+    expect(screen.queryByLabelText('Documento de')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Tipo de documento')).toHaveDisplayValue('Otro')
+  })
+
+  it('«Del conductor» cambia el catálogo de tipos, salta «Ligado a» y sube a la persona', async () => {
+    const user = abrir({ id: 5, name: 'Ana Conductora' })
+    await waitFor(() => expect(mocks.listIncidents).toHaveBeenCalled())
+
+    const titular = screen.getByLabelText('Documento de')
+    expect(titular).toHaveDisplayValue('El vehículo · 7890NPQ')
+    await user.selectOptions(titular, 'driver')
+
+    // Los tipos son ahora los personales: el permiso de conducir está y el
+    // parte de accidente no.
+    const tipo = screen.getByLabelText('Tipo de documento')
+    expect(screen.getByRole('option', { name: 'Permiso de conducir' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Parte de accidente' })).not.toBeInTheDocument()
+    await user.selectOptions(tipo, 'driving_license')
+    // El permiso caduca: pide la fecha aquí mismo.
+    await user.type(screen.getByLabelText(/Caducidad/), '2030-05-01')
+    await user.upload(screen.getByLabelText(/Foto o PDF/), PDF())
+    await user.click(screen.getByRole('button', { name: 'Continuar' }))
+
+    // Sin paso «Ligado a»: del archivo se pasa a las notas y se sube.
+    expect(screen.queryByText(/A qué incidencia del coche acompaña/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Notas (opcional)')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Subir' }))
+
+    await waitFor(() =>
+      expect(mocks.uploadDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ user: 5, type: 'driving_license', expiry_date: '2030-05-01', incident: null }),
+        expect.anything(),
+      ),
+    )
+    expect(mocks.uploadDocument.mock.calls[0][0]).not.toHaveProperty('vehicle')
   })
 })

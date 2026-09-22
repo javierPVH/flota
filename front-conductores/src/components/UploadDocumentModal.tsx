@@ -4,6 +4,7 @@ import { Button, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { listIncidents, uploadDocument } from '../api.ts'
+import { useAuth } from '../auth.ts'
 import {
   documentExpires,
   documentLinkRequired,
@@ -29,20 +30,53 @@ const DOCUMENT_TYPES = [
   'other',
 ]
 
-/** Subida de documentos desde la ficha, con el vehículo fijado. */
+/** Tipos con sentido como documento PERSONAL (la misma lista cerrada del back
+ * que usa «Mis documentos»: el permiso de conducir y «Otro»). */
+const PERSONAL_TYPES = ['driving_license', 'other']
+
+/** De quién es lo que se sube: del coche o de la persona que lo conduce. */
+type Owner = 'vehicle' | 'driver'
+
+/**
+ * Subida de documentos desde la ficha, con el vehículo fijado.
+ *
+ * El primer paso pregunta **de quién es** el documento: los papeles del coche
+ * cuelgan de la matrícula (`vehicle`) y pueden ir ligados a una incidencia;
+ * el permiso de conducir es de la **persona** (`user`, la carpeta
+ * `Usuarios/<correo>` del archivador) y no lleva incidencia, así que con él
+ * el paso «Ligado a» desaparece. Antes desde aquí solo se subían los del
+ * coche, y el permiso había que ir a buscarlo a «Mi perfil».
+ */
 export function UploadDocumentModal({
   vehicle,
+  driver = null,
   onClose,
   onSaved,
 }: {
   vehicle: Vehicle
+  /** Conductor vigente del coche (el `driver` del resumen): el titular de un
+   * documento personal cuando quien sube es quien supervisa. Sin él, la
+   * persona es quien está usando la app, si conduce. */
+  driver?: { id: number; name: string } | null
   onClose: () => void
   onSaved?: () => void
 }) {
   const { t } = useLang()
+  const { user } = useAuth()
   const etiqueta = useDomainLabels()
   const doc = t.vehicle
   const copy = t.uploadDoc
+  // A quién se le cuelga un documento personal: al conductor del coche y, si
+  // el resumen no lo trae, a quien está subiendo (si conduce).
+  const personalTarget =
+    driver ??
+    (user && user.roles.includes('driver')
+      ? {
+          id: user.id,
+          name: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username,
+        }
+      : null)
+  const [owner, setOwner] = useState<Owner>('vehicle')
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [form, setForm] = useState({ type: 'other', expiry_date: '', incident: '', notes: '' })
   const [file, setFile] = useState<File | null>(null)
@@ -78,25 +112,39 @@ export function UploadDocumentModal({
     }))
   }
 
+  /** Cambiar de titular cambia el catálogo de tipos: se vuelve a «Otro», que
+   * está en los dos, y se suelta la incidencia (un personal no la lleva). */
+  function changeOwner(value: string) {
+    const next: Owner = value === 'driver' && personalTarget ? 'driver' : 'vehicle'
+    setOwner(next)
+    setForm((current) => ({ ...current, type: 'other', expiry_date: '', incident: '' }))
+  }
+
   function reset() {
     setDone('')
     setError('')
     setFile(null)
+    setOwner('vehicle')
     setForm({ type: 'other', expiry_date: '', incident: '', notes: '' })
     setStep('file')
   }
+
+  const personal = owner === 'driver'
+  const types = personal ? PERSONAL_TYPES : DOCUMENT_TYPES
+  // Un documento personal no se liga a nada: su recorrido se salta «Ligado a».
+  const steps: readonly UploadStep[] = personal ? ['file', 'notes'] : UPLOAD_STEPS
 
   // Lo que exige cada paso para dejar pasar al siguiente. El vínculo es el
   // único que puede quedarse sin salida: un parte de accidente sin accidente
   // abierto no se puede subir, y ahí lo que hay que hacer es decirlo.
   const stepValid: Record<UploadStep, boolean> = {
     file: Boolean(file),
-    link: !linkRequired || Boolean(form.incident),
+    link: personal || !linkRequired || Boolean(form.incident),
     notes: true,
   }
-  const current = UPLOAD_STEPS.indexOf(step)
-  const nextStep = UPLOAD_STEPS[current + 1]
-  const previousStep = UPLOAD_STEPS[current - 1]
+  const current = steps.indexOf(step)
+  const nextStep = steps[current + 1]
+  const previousStep = steps[current - 1]
   const stepLabels: Record<UploadStep, string> = {
     file: copy.stepFile,
     link: copy.stepLink,
@@ -125,17 +173,19 @@ export function UploadDocumentModal({
       setError(doc.chooseFile)
       return
     }
-    if (linkRequired && !form.incident) {
+    if (!personal && linkRequired && !form.incident) {
       setError(boundTo ? doc.linkAccidentRequired : doc.linkIncidentRequired)
       return
     }
     setSaving(true)
     setError('')
+    // Titular único, como exige el back: el coche O la persona.
+    const titular = personal && personalTarget ? { user: personalTarget.id } : { vehicle: vehicle.id }
     const payload = {
-      vehicle: vehicle.id,
+      ...titular,
       type: form.type,
       expiry_date: form.expiry_date || null,
-      incident: form.incident ? Number(form.incident) : null,
+      incident: !personal && form.incident ? Number(form.incident) : null,
       notes: form.notes,
       // R3-34: misma referencia en el intento directo y en el reenvío offline.
       client_ref: newClientRef(),
@@ -180,7 +230,7 @@ export function UploadDocumentModal({
             <Button
               type="button"
               onClick={(event) => void handleSubmit(event)}
-              disabled={saving || (Boolean(boundTo) && linkable.length === 0)}
+              disabled={saving || (!personal && Boolean(boundTo) && linkable.length === 0)}
             >
               {saving ? doc.uploadSubmitting : copy.submit}
             </Button>
@@ -201,7 +251,7 @@ export function UploadDocumentModal({
       ) : (
         <form className="modal-form" onSubmit={onFormSubmit}>
           <div className="flow-steps" aria-hidden>
-            {UPLOAD_STEPS.map((key, index) => (
+            {steps.map((key, index) => (
               <span
                 key={key}
                 className={`flow-step${index === current ? ' is-current' : index < current ? ' is-done' : ''}`}
@@ -212,9 +262,25 @@ export function UploadDocumentModal({
           </div>
           <div key={step} className={`step-pane${cameBack ? ' from-left' : ''}`}>
           {step === 'file' && <>
+          {/* De quién es: solo se pregunta si hay una persona a la que
+              colgárselo (el conductor del coche, o quien sube si conduce). */}
+          {personalTarget && (
+            <>
+              <SelectField
+                label={copy.owner}
+                options={[
+                  { value: 'vehicle', label: copy.ownerVehicle(vehicle.plate) },
+                  { value: 'driver', label: copy.ownerDriver(personalTarget.name) },
+                ]}
+                value={owner}
+                onValueChange={changeOwner}
+              />
+              <p className="update-hint">{copy.ownerHint}</p>
+            </>
+          )}
           <SelectField
             label={doc.docType}
-            options={DOCUMENT_TYPES.map((value) => ({ value, label: doc.docTypes[value] ?? value }))}
+            options={types.map((value) => ({ value, label: doc.docTypes[value] ?? value }))}
             value={form.type}
             onValueChange={changeType}
           />

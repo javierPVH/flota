@@ -207,7 +207,12 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
       {/* Vencimientos a la vista (km e ITV) cuando quedan pocos días. Va antes
           del tablero para que lo urgente se lea primero. Solo de LO SUYO:
           los del grupo viven en "Flota a cargo". */}
-      <FieldDeadlines vehicles={ownVehicles} summaries={summaries} window={kmWindow} />
+      <FieldDeadlines
+        vehicles={ownVehicles}
+        summaries={summaries}
+        window={kmWindow}
+        onSaved={refreshSummaries}
+      />
 
       {/* Tablero de un solo coche (con sus marcas si está bloqueado o es un
           sustituto huérfano de pareja visible). */}
@@ -372,6 +377,7 @@ function OwnVehiclePanel({
         canManage={canManage}
         accordion={accordion}
         onChanged={onChanged}
+        window={kmWindow}
       />
 
       {/* Documentación, en una tarjeta con dos pestañas: la del coche y la

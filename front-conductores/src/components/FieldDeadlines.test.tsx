@@ -1,13 +1,21 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FieldDeadlines } from './FieldDeadlines.tsx'
 import { LanguageProvider } from '../i18n.tsx'
 import { todayIso } from '../format.ts'
 import type { KmWindow } from '../api.ts'
 import type { Vehicle, VehicleSummary } from '../types.ts'
+
+// Los avisos abren sus formularios, y esos van dentro de «SupervisorModal»,
+// que pregunta quién eres para decidir si avisa de que actúas en nombre de
+// otro. Sin sesión no se puede ni montar.
+vi.mock('../auth.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../auth.ts')>()),
+  useAuth: () => ({ user: { id: 1, username: 'x', roles: ['driver'] } }),
+}))
 
 /** Fecha a N días de hoy, en LOCAL (igual que `daysUntil`): con UTC el test
  * saldría desplazado un día según la hora a la que se ejecute. */
@@ -118,7 +126,10 @@ describe('FieldDeadlines — acordeón de avisos (C2)', () => {
 
   it('arranca ABIERTO si hay algo crítico (no se esconde tras un toque)', () => {
     renderDeadlines([vehicle(1, '1234KLM', isoIn(-3))], { 1: summary(1, upToDate) }, null)
-    expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: /Te queda poco/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
   })
 
   // --- Km ---------------------------------------------------------------
@@ -132,13 +143,15 @@ describe('FieldDeadlines — acordeón de avisos (C2)', () => {
     expect(screen.getByText('quedan 3 días')).toBeInTheDocument()
     expect(container.querySelector('.deadline-detail')?.textContent).toContain('hasta el día 23')
 
-    await userEvent.click(screen.getByRole('button')) // plegar
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button')) // y desplegar
-    expect(screen.getByRole('link', { name: /Kilómetros de 1234KLM/ })).toHaveAttribute(
-      'href',
-      '/registrar?vehiculo=1',
-    )
+    const cabecera = screen.getByRole('button', { name: /Te queda poco/ })
+    await userEvent.click(cabecera) // plegar
+    expect(screen.queryByRole('button', { name: /Kilómetros de 1234KLM/ })).not.toBeInTheDocument()
+    await userEvent.click(cabecera) // y desplegar
+
+    // Pulsar el aviso abre el formulario de SIEMPRE, y aquí mismo: antes
+    // era un enlace que sacaba de la pantalla y volver era cosa de uno.
+    await userEvent.click(screen.getByRole('button', { name: /Kilómetros de 1234KLM/ }))
+    expect(await screen.findByRole('dialog', { name: /1234KLM/ })).toBeInTheDocument()
   })
 
   it('el último día avisa en rojo', () => {
@@ -240,7 +253,7 @@ describe('FieldDeadlines — acordeón de avisos (C2)', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('sin ninguna anotación es rojo, y el aviso dice que se anota por viaje', () => {
+  it('sin ninguna anotación es rojo, y el aviso dice que se anota por viaje', async () => {
     renderDeadlines(
       [vehicle(1, '1234KLM')],
       { 1: summary(1, { ...upToDate, fuel_avg_date: null }) },
@@ -248,12 +261,11 @@ describe('FieldDeadlines — acordeón de avisos (C2)', () => {
     )
     expect(screen.getByText('sin ninguna anotación')).toBeInTheDocument()
     expect(screen.getByText(/se anota en cada viaje/)).toBeInTheDocument()
-    // Rojo → el acordeón nace abierto. Su modal no tiene página propia, así que
-    // el enlace lo abre desde la ficha con el query que ella entiende.
-    expect(screen.getByRole('link', { name: /Combustible de 1234KLM/ })).toHaveAttribute(
-      'href',
-      '/vehiculos/1?registrar=combustible',
-    )
+    // Rojo → el acordeón nace abierto, así que el aviso se puede pulsar ya.
+    // Su formulario no tenía página propia y por eso antes había que ir a la
+    // ficha con un query; ahora se abre donde se lee el aviso.
+    await userEvent.click(screen.getByRole('button', { name: /Combustible de 1234KLM/ }))
+    expect(await screen.findByRole('dialog', { name: /1234KLM/ })).toBeInTheDocument()
   })
 
   // --- Mantenimiento programado (GAP-8) ----------------------------------

@@ -120,9 +120,13 @@ describe('MyVehiclesPage (M1)', () => {
     expect(screen.getByText('Próximas citas')).toBeInTheDocument()
     expect(screen.getByText('Lectura de km')).toBeInTheDocument()
     expect(screen.getByText('el día 31 · en 3 días')).toBeInTheDocument()
-    // Lo pendiente son TRES acordeones, cada uno con su recuento a la vista
-    // (aquí, cero en los tres), más el de documentos.
-    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*0/)
+    // «Alertas» cuenta DOS cosas: las del motor del back (aquí ninguna) y
+    // los avisos de lo que vence, que calcula el móvil con el resumen del
+    // coche (aquí dos). Con la tarjeta contando solo las primeras marcaba
+    // 0 teniendo cosas pendientes a la vista.
+    // Lo pendiente son TRES acordeones, cada uno con su recuento a la vista,
+    // más el de documentos.
+    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*2/)
     expect(screen.getByRole('button', { name: /^Incidencias/ })).toHaveTextContent(
       /Incidencias\s*0/,
     )
@@ -135,6 +139,27 @@ describe('MyVehiclesPage (M1)', () => {
       '/vehiculos/1',
     )
     expect(document.querySelector('.own-panel')).not.toBeNull()
+  })
+
+  it('los avisos de lo que vence se leen y se atienden DENTRO de «Alertas»', async () => {
+    // Sin ninguna alerta del motor, la tarjeta marcaba 0 con la lectura de km
+    // pendiente y el consumo sin anotar a la vista, dos dedos más arriba. Ahora
+    // los cuenta, los lista y cada uno abre SU formulario sin salir de aquí.
+    mocks.listAlerts.mockResolvedValue({ count: 0, results: [] })
+
+    renderPage()
+    await screen.findByText('1234KLM')
+    await userEvent.click(screen.getByRole('button', { name: /^Alertas/ }))
+
+    // Acotado a la tarjeta: el mismo aviso se lee también en «Te queda poco»,
+    // arriba del tablero, así que por nombre solo saldrían dos.
+    const tarjeta = document.querySelector('.vehicle-alerts-list') as HTMLElement
+    const aviso = within(tarjeta).getByRole('button', { name: /Kilómetros de 1234KLM/ })
+    expect(aviso).toBeVisible()
+    expect(screen.queryByText('Sin alertas abiertas. Todo al día.')).not.toBeInTheDocument()
+
+    await userEvent.click(aviso)
+    expect(await screen.findByRole('dialog', { name: /1234KLM/ })).toBeInTheDocument()
   })
 
   it('los acordeones nacen plegados y al abrirlos enseñan su contenido', async () => {
@@ -234,9 +259,10 @@ describe('MyVehiclesPage (M1)', () => {
     renderPage()
     await screen.findByText('1234KLM')
     // Plegados: el contenido no se ve hasta abrir cada acordeón, pero el
-    // recuento de cada familia sí — es lo que se lee sin abrir nada.
+    // recuento de cada familia sí — es lo que se lee sin abrir nada (y el
+    // de alertas suma la del motor más los dos avisos de vencimiento).
     expect(await screen.findByText(/No arranca en frío/)).not.toBeVisible()
-    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*1/)
+    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*3/)
     expect(screen.getByRole('button', { name: /^Incidencias/ })).toHaveTextContent(
       /Incidencias\s*3/,
     )
@@ -358,7 +384,7 @@ describe('MyVehiclesPage (M1)', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Alertas/ }))
     expect(await screen.findByText('Falta la lectura de km de este mes.')).toBeVisible()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Registrar km' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Solucionar: Lectura de km pendiente' }))
     const dialog = screen.getByRole('dialog', { name: 'Registrar km · 1234KLM' })
     await userEvent.type(
       within(dialog).getByLabelText(/Odómetro \(km totales del cuadro\)/),
@@ -370,7 +396,10 @@ describe('MyVehiclesPage (M1)', () => {
     await waitFor(() =>
       expect(screen.queryByText('Falta la lectura de km de este mes.')).not.toBeInTheDocument(),
     )
-    expect(screen.getByText('Sin alertas abiertas. Todo al día.')).toBeVisible()
+    // Lo que se va es la ALERTA; los avisos de lo que vence siguen ahí
+    // (este coche tiene el consumo sin anotar), así que la tarjeta no se
+    // queda vacía — justo lo que dice su recuento.
+    expect(screen.queryByText('Sin alertas abiertas. Todo al día.')).not.toBeInTheDocument()
   })
 
   it('sin barra de acciones propia: las cinco acciones viven en el nav inferior', async () => {

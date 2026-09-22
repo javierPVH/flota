@@ -283,10 +283,10 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     const situationTitle = screen.getByText('Situación')
     const alertsTitle = screen.getByRole('heading', { name: /^Alertas/ })
     expect(situationTitle.compareDocumentPosition(alertsTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.getByText('La ITV vence pronto.').closest('.alert-card')).toHaveClass('level-warning')
+    expect(screen.getByText('La ITV vence pronto.').closest('.doc-item')).toHaveClass('level-warning')
     // Cada familia en su tarjeta, y el recuento se lee sin abrir ninguna.
     expect(await screen.findByText(/Testigo de motor encendido/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*1/)
+    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*5/)
     expect(screen.getByRole('button', { name: /^Incidencias/ })).toHaveTextContent(/Incidencias\s*2/)
     expect(screen.getByRole('button', { name: /^Accidentes/ })).toHaveTextContent(/Accidentes\s*0/)
 
@@ -352,19 +352,23 @@ describe('VehicleFieldPage (ficha de campo)', () => {
   // Resolver va por TIPO, como en la bandeja: cada alerta abre el MISMO modal
   // que su botón del nav/página (ITV → Registrar ITV…); solo las que no tienen
   // registro propio (seguro…) van al modal genérico de observaciones.
+  // La fila la nombra el TIPO traducido por código (domainLabels), no el
+  // `type_display` del back; el botón «Solucionar» lleva ese nombre en su
+  // etiqueta accesible, igual que los avisos de vencimiento llevan el suyo.
   it.each([
-    ['itv_due', 'ITV próxima', 'Registrar ITV · 1234KLM'],
+    ['itv_due', 'ITV programada', 'Registrar ITV · 1234KLM'],
     ['km_reading_pending', 'Lectura de km pendiente', 'Registrar km · 1234KLM'],
-    ['maintenance_due', 'Mantenimiento próximo', 'Actualizar mantenimiento · 1234KLM'],
-    ['insurance_due', 'Seguro próximo a vencer', 'Resolver alerta · 1234KLM'],
+    ['maintenance_due', 'Mantenimiento programado', 'Actualizar mantenimiento · 1234KLM'],
+    ['insurance_due', 'Seguro próximo / vencido', 'Resolver alerta · 1234KLM'],
   ])('Resolver una alerta %s abre el mismo modal que su botón', async (type, label, dialogName) => {
     mocks.listAlerts.mockResolvedValue({ count: 1, results: [openAlert(type, label)] })
     renderPage()
     await screen.findByText('1234KLM')
 
-    // La tarjeta nace plegada: se abre y desde ahí se resuelve.
+    // La tarjeta nace plegada: se abre y desde ahí se resuelve. Misma fila
+    // que una incidencia: su botón dice «Solucionar» y nombra la alerta.
     await userEvent.click(await screen.findByRole('button', { name: /^Alertas/ }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Resolver' }))
+    await userEvent.click(await screen.findByRole('button', { name: `Solucionar: ${label}` }))
     expect(await screen.findByRole('dialog', { name: dialogName })).toBeInTheDocument()
   })
 

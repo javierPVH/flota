@@ -1,5 +1,4 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { CalendarClock, ChevronDown, Fuel, Gauge, Wrench } from 'lucide-react'
 import { kmStaleTone } from '@flota/ui/domain'
 
@@ -14,6 +13,10 @@ import {
   todayIso,
 } from '../format.ts'
 import { useLang } from '../i18n.tsx'
+import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
+import { RegisterFuelModal } from './RegisterFuelModal.tsx'
+import { RegisterItvModal } from './RegisterItvModal.tsx'
+import { RegisterKmModal } from './RegisterKmModal.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 
 /** Umbrales de "queda poco": por debajo de esto el aviso aparece en el inicio.
@@ -47,7 +50,7 @@ const STALE_CLASS: Record<'ok' | 'warn' | 'danger', string> = {
   danger: 'itv-overdue',
 }
 
-interface Deadline {
+export interface Deadline {
   key: string
   tone: Tone
   icon: ReactNode
@@ -57,7 +60,15 @@ interface Deadline {
   /** Segunda línea tenue: el plazo, la fecha concreta o cuánto hace del dato
    * (esto último en su color, que es lo que avisa de verdad). */
   detail?: ReactNode
-  to: string
+  /** Qué hay que hacer: es lo que decide el formulario que se abre. Antes
+   * cada aviso llevaba un `to` y sacaba de la pantalla —a la ficha del
+   * coche o a la página de registrar—, y volver era cosa de quien lo
+   * pulsara; lo que se pide aquí se resuelve aquí. */
+  kind: 'km' | 'fuel' | 'itv' | 'maintenance'
+  /** El coche del aviso: lo piden los cuatro modales. */
+  vehicle: Vehicle
+  /** La cita, cuando la hay (la ITV se la lleva a su formulario). */
+  due?: string | null
   /** Días restantes — ordena de lo más urgente a lo menos. */
   days: number
 }
@@ -118,7 +129,8 @@ function buildDeadlines(
             </span>
           </>
         ),
-        to: `/registrar?vehiculo=${vehicle.id}`,
+        kind: 'km',
+        vehicle,
         days: plazo.days,
       })
     }
@@ -144,7 +156,8 @@ function buildDeadlines(
                 : ''}
             </>
           ),
-          to: `/vehiculos/${vehicle.id}?registrar=combustible`,
+          kind: 'fuel',
+          vehicle,
           // Sin plazo que contar: dentro de su tono, lo más viejo arriba.
           days: -(desde ?? 999),
         })
@@ -162,7 +175,9 @@ function buildDeadlines(
         label: copy.itv(vehicle.plate),
         count: itvDays < 0 ? copy.overdue(-itvDays) : copy.dueIn(itvDays),
         detail: fmtDate(itv, language),
-        to: `/vehiculos/${vehicle.id}`,
+        kind: 'itv',
+        vehicle,
+        due: itv,
         days: itvDays,
       })
     }
@@ -179,7 +194,8 @@ function buildDeadlines(
         label: copy.maintenance(vehicle.plate),
         count: maintenanceDays < 0 ? copy.overdue(-maintenanceDays) : copy.dueIn(maintenanceDays),
         detail: fmtDate(summary?.next_maintenance_date, language),
-        to: `/vehiculos/${vehicle.id}`,
+        kind: 'maintenance',
+        vehicle,
         days: maintenanceDays,
       })
     }
@@ -188,6 +204,72 @@ function buildDeadlines(
   // Por gravedad y, dentro de ella, por lo que antes vence: el combustible no
   // tiene plazo, así que ordenar solo por días lo colocaba donde no tocaba.
   return list.sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone] || a.days - b.days)
+}
+
+/**
+ * **Los avisos de unos coches, ya calculados.** Lo usan el acordeón del
+ * inicio y la tarjeta «Alertas» del coche, que los cuenta junto a las del
+ * motor: son dos maneras de mirar lo mismo, así que las reglas viven una
+ * sola vez.
+ */
+export function useFieldDeadlines(
+  vehicles: Vehicle[],
+  summaries: Record<number, VehicleSummary>,
+  kmWindow: KmWindow | null,
+): Deadline[] {
+  const { t, language } = useLang()
+  const d = t.home.deadlines
+  return useMemo(
+    () => buildDeadlines(vehicles, summaries, kmWindow, d, language),
+    [vehicles, summaries, kmWindow, d, language],
+  )
+}
+
+/**
+ * **Los recuadros**, sin el acordeón que los envuelve en el inicio. Cada uno
+ * abre su formulario aquí mismo; van aparte para que la tarjeta «Alertas»
+ * pinte exactamente los mismos, y no una copia que acabe divergiendo.
+ */
+export function DeadlineNotices({
+  notices,
+  summaries,
+  onSaved,
+}: {
+  notices: Deadline[]
+  summaries: Record<number, VehicleSummary>
+  onSaved?: () => void
+}) {
+  // El aviso que se está atendiendo, o null. Al guardar NO se cierra —la
+  // ventana enseña lo que guardó, como el resto de la app—: solo se avisa
+  // hacia arriba para que la lista se rehaga por detrás.
+  const [atendiendo, setAtendiendo] = useState<Deadline | null>(null)
+  return (
+    <>
+      {notices.map((notice) => (
+        <button
+          key={notice.key}
+          type="button"
+          className={`deadline deadline-${notice.tone}`}
+          onClick={() => setAtendiendo(notice)}
+        >
+          <span className="deadline-icon">{notice.icon}</span>
+          <span className="deadline-body">
+            <span className="deadline-label">{notice.label}</span>
+            <strong className="deadline-count">{notice.count}</strong>
+            {notice.detail && <span className="deadline-detail">{notice.detail}</span>}
+          </span>
+        </button>
+      ))}
+      {atendiendo && (
+        <DeadlineModal
+          notice={atendiendo}
+          summary={summaries[atendiendo.vehicle.id] ?? null}
+          onClose={() => setAtendiendo(null)}
+          onSaved={onSaved}
+        />
+      )}
+    </>
+  )
 }
 
 /**
@@ -204,18 +286,18 @@ export function FieldDeadlines({
   vehicles,
   summaries,
   window: kmWindow,
+  onSaved,
 }: {
   vehicles: Vehicle[]
   summaries: Record<number, VehicleSummary>
   window: KmWindow | null
+  /** Se ha guardado algo desde aquí: quien lo monta recarga lo suyo, o el
+   * aviso recién atendido seguiría en la lista. */
+  onSaved?: () => void
 }) {
-  const { t, language } = useLang()
+  const { t } = useLang()
   const d = t.home.deadlines
-
-  const notices = useMemo(
-    () => buildDeadlines(vehicles, summaries, kmWindow, d, language),
-    [vehicles, summaries, kmWindow, d, language],
-  )
+  const notices = useFieldDeadlines(vehicles, summaries, kmWindow)
 
   const worst = notices.reduce<Tone>(
     (acc, n) => (TONE_RANK[n.tone] < TONE_RANK[acc] ? n.tone : acc),
@@ -249,17 +331,66 @@ export function FieldDeadlines({
       </button>
 
       <div id="deadlines-panel" className="deadlines-panel" hidden={!expanded}>
-        {notices.map((notice) => (
-          <Link key={notice.key} to={notice.to} className={`deadline deadline-${notice.tone}`}>
-            <span className="deadline-icon">{notice.icon}</span>
-            <span className="deadline-body">
-              <span className="deadline-label">{notice.label}</span>
-              <strong className="deadline-count">{notice.count}</strong>
-              {notice.detail && <span className="deadline-detail">{notice.detail}</span>}
-            </span>
-          </Link>
-        ))}
+        <DeadlineNotices notices={notices} summaries={summaries} onSaved={onSaved} />
       </div>
     </section>
+  )
+}
+
+/**
+ * El formulario que pide cada aviso, que son los MISMOS de siempre: la
+ * lectura de km, el consumo, la ITV y el mantenimiento. No hay ninguno
+ * nuevo a propósito —dos copias del mismo formulario acaban validando
+ * distinto— y son también los que abre el nav y los que cierran su alerta.
+ */
+export function DeadlineModal({
+  notice,
+  summary,
+  onClose,
+  onSaved,
+}: {
+  notice: Deadline
+  summary: VehicleSummary | null
+  onClose: () => void
+  onSaved?: () => void
+}) {
+  const guardado = () => onSaved?.()
+  if (notice.kind === 'km') {
+    return (
+      <RegisterKmModal
+        vehicle={notice.vehicle}
+        summary={summary}
+        onClose={onClose}
+        onSaved={guardado}
+      />
+    )
+  }
+  if (notice.kind === 'fuel') {
+    return (
+      <RegisterFuelModal
+        vehicle={notice.vehicle}
+        summary={summary}
+        onClose={onClose}
+        onSaved={guardado}
+      />
+    )
+  }
+  if (notice.kind === 'itv') {
+    return (
+      <RegisterItvModal
+        vehicle={notice.vehicle}
+        nextItvDate={notice.due}
+        onClose={onClose}
+        onSaved={guardado}
+      />
+    )
+  }
+  return (
+    <MaintenanceUpdateModal
+      vehicle={notice.vehicle}
+      summary={summary}
+      onClose={onClose}
+      onSaved={guardado}
+    />
   )
 }

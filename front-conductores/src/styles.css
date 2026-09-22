@@ -1876,11 +1876,14 @@ button.bottom-tab {
 }
 .vehicle-alerts-panel { display: grid; gap: 0.75rem; }
 .vehicle-alerts-list { padding: 0; }
-.vehicle-alerts-list .alert-card + .alert-card {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--color-border);
-}
+/* Las alertas van en la MISMA fila que las incidencias (`.doc-item`); lo único
+   que añaden es la franja izquierda con el color del nivel, que es lo que
+   distingue la crítica del aviso de un vistazo, como en la bandeja. */
+.alert-row { border-left: 3px solid var(--color-border); padding-left: 0.6rem; }
+.alert-row.level-critical { border-left-color: var(--color-danger); }
+.alert-row.level-warning { border-left-color: var(--color-warning); }
+.alert-row.level-info { border-left-color: var(--color-info); }
+.alert-row .doc-icon { flex: none; display: grid; place-items: center; color: var(--color-text-muted); }
 .vehicle-alerts-empty { padding: 0.5rem 0; }
 .closed-title { margin: 1.4rem 0 0.7rem; font-size: 1rem; }
 
@@ -1948,6 +1951,13 @@ button.bottom-tab {
   color: var(--color-text);
   text-decoration: none;
   transition: transform 120ms ease;
+  /* Es un <button> (abre su formulario aquí mismo, ya no navega): sin
+     esto hereda la tipografía del navegador, se centra y no ocupa la
+     columna. */
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .deadline:active { transform: scale(0.98); }
 .deadline-icon { display: grid; place-items: center; flex: none; }

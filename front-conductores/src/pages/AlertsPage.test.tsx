@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AlertsPage } from './AlertsPage.tsx'
@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   resolveAlert: vi.fn(),
   listDriverCandidates: vi.fn(),
   proposeDriverChange: vi.fn(),
+  listVehiclesCached: vi.fn(),
+  fetchVehicleSummariesCached: vi.fn(),
+  fetchKmWindow: vi.fn(),
   roles: ['driver'] as Role[],
 }))
 
@@ -31,6 +34,9 @@ vi.mock('../api.ts', async (importOriginal) => ({
   resolveAlert: mocks.resolveAlert,
   listDriverCandidates: mocks.listDriverCandidates,
   proposeDriverChange: mocks.proposeDriverChange,
+  listVehiclesCached: mocks.listVehiclesCached,
+  fetchVehicleSummariesCached: mocks.fetchVehicleSummariesCached,
+  fetchKmWindow: mocks.fetchKmWindow,
 }))
 
 vi.mock('../auth.ts', async (importOriginal) => ({
@@ -118,6 +124,11 @@ describe('AlertsPage (M5)', () => {
       { id: 5, name: 'Carlos C', email: 'c@x.es', plate: '1111AAA', source: 'app' },
     ])
     mocks.proposeDriverChange.mockResolvedValue({ id: 99 })
+    // Sin nada que vencer, «Te queda poco» no pinta nada (es un aviso, no
+    // un panel de estado), así que el resto de casos se leen igual.
+    mocks.listVehiclesCached.mockResolvedValue({ count: 0, results: [] })
+    mocks.fetchVehicleSummariesCached.mockResolvedValue([])
+    mocks.fetchKmWindow.mockResolvedValue(null)
   })
 
   it('agrupa por coche en acordeones plegados con el desglose por tipo', async () => {
@@ -374,6 +385,58 @@ describe('AlertsPage (M5)', () => {
     // Nada ha cambiado todavía: la alerta sigue abierta hasta que se decida.
     expect(mocks.resolveAlert).not.toHaveBeenCalled()
     expect(await within(dialog).findByText(/Propuesta enviada/)).toBeInTheDocument()
+  })
+
+  // --- «Te queda poco» también aquí ---------------------------------------
+  // Lo que vence (la lectura de km, el combustible, la ITV, el mantenimiento)
+  // se leía solo en la home. Es lo que hay que HACER, así que encabeza también
+  // la bandeja —en «Mi vehículo»; en «Flota» eso se lee en «A tu cargo»—.
+  describe('los vencimientos encabezan la bandeja', () => {
+    /** Una ITV dentro de los 30 días: basta el vehículo, sin resumen. */
+    function conItvProxima() {
+      const dia = new Date()
+      dia.setDate(dia.getDate() + 12)
+      mocks.listVehiclesCached.mockResolvedValue({
+        count: 1,
+        results: [{ id: 7, plate: '7890NPQ', next_itv_date: dia.toISOString().slice(0, 10) }],
+      })
+    }
+
+    it('en «Mi vehículo» sale, con su coche y sus días', async () => {
+      conItvProxima()
+      renderPage()
+      expect(await screen.findByText('Te queda poco')).toBeInTheDocument()
+      expect(screen.getByText('ITV de 7890NPQ')).toBeInTheDocument()
+    })
+
+    it('en «Flota» no: los del grupo se leen en «A tu cargo»', async () => {
+      conItvProxima()
+      mocks.roles = ['driver', 'supervisor']
+      render(
+        <LanguageProvider>
+          <MemoryRouter>
+            <Routes>
+              <Route
+                element={
+                  <Outlet
+                    context={{
+                      fleetMode: true,
+                      setFleetMode: () => {},
+                      ownPair: null,
+                      dataVersion: 0,
+                    }}
+                  />
+                }
+              >
+                <Route path="/" element={<AlertsPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LanguageProvider>,
+      )
+      expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
+      expect(screen.queryByText('Te queda poco')).not.toBeInTheDocument()
+    })
   })
 
   it('sin alertas abiertas, estado vacío amable', async () => {
