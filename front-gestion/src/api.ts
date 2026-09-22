@@ -170,9 +170,18 @@ export type VehicleInput = Partial<
 
 export const createVehicle = (data: VehicleInput) => postJson<Vehicle>(`${API}/vehicles/`, data)
 
+/**
+ * FE-7: el motivo de una baja (N7) es texto libre y viaja en el CUERPO del
+ * `DELETE` (`{ reason }`), no en la query string: la URL entera acaba en los
+ * access logs del proxy y del servidor, y ahí no puede quedar lo que alguien
+ * escribió como motivo. Sin motivo no se manda cuerpo.
+ */
+const deleteWithReason = (path: string, reason = '') =>
+  deleteJson(path, {}, undefined, reason ? { reason } : undefined)
+
 /** N7: no borra el vehículo — el back lo pasa a «baja» (restaurable en erratas). */
 export const deactivateVehicle = (id: number, reason = '') =>
-  deleteJson(`${API}/vehicles/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
+  deleteWithReason(`${API}/vehicles/${id}/`, reason)
 
 /** N9: sustituto → flota (vía explícita; solo sin vínculo activo). */
 export const convertToFleet = (id: number) =>
@@ -339,7 +348,7 @@ export const updateCatalogEntry = (
   data: Record<string, unknown>,
 ) => patchJson<CatalogEntry>(`${API}/${resource}/${id}/`, data)
 
-// N7: DELETE desactiva en el back; el motivo viaja como query.
+// N7: DELETE desactiva en el back; el motivo viaja en el cuerpo (FE-7).
 // --- GAP-2: consumo medio (ordenador de a bordo) ----------------------------
 
 /** Una ANOTACIÓN del consumo medio que marcaba el ordenador de a bordo en una
@@ -374,7 +383,7 @@ export const updateFuelConsumption = (id: number, data: Partial<FuelConsumptionI
   patchJson<FuelConsumption>(`${API}/fuel-consumptions/${id}/`, data)
 
 export const deleteFuelConsumption = (id: number, reason = '') =>
-  deleteJson(`${API}/fuel-consumptions/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
+  deleteWithReason(`${API}/fuel-consumptions/${id}/`, reason) // FE-7
 
 // --- GAP-8: planes de mantenimiento preventivo ------------------------------
 
@@ -479,10 +488,10 @@ export const maintenancePlanDone = (
   >(`${API}/maintenance-plans/${id}/done/`, data)
 
 export const deleteMaintenancePlan = (id: number, reason = '') =>
-  deleteJson(`${API}/maintenance-plans/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
+  deleteWithReason(`${API}/maintenance-plans/${id}/`, reason) // FE-7
 
 export const deleteCatalogEntry = (resource: CatalogResource, id: number, reason = '') =>
-  deleteJson(`${API}/${resource}/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
+  deleteWithReason(`${API}/${resource}/${id}/`, reason) // FE-7
 
 // --- G1/G8: alertas ---------------------------------------------------------
 
@@ -1149,7 +1158,7 @@ export const updateInvoice = (id: number, data: Partial<InvoiceInput>) =>
   patchJson<InvoiceRow>(`${API}/invoices/${id}/`, data)
 
 export const deleteInvoice = (id: number, reason = '') =>
-  deleteJson(`${API}/invoices/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
+  deleteWithReason(`${API}/invoices/${id}/`, reason) // FE-7
 
 
 // --- G7: documentación e incidencias ---------------------------------------
@@ -1234,7 +1243,7 @@ export const updateDocument = (id: number, data: Partial<DocumentInput> & { stat
   patchJson<FlotaDocument>(`${API}/documents/${id}/`, data)
 
 export const deleteDocument = (id: number, reason = '') =>
-  deleteJson(`${API}/documents/${id}/${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`)
+  deleteWithReason(`${API}/documents/${id}/`, reason) // FE-7
 
 /** Comprueba en Drive (o en disco) que los archivos de los documentos de un
  * titular siguen existiendo. `checked` son los que se pudieron comprobar y

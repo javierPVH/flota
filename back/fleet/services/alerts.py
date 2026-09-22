@@ -40,6 +40,7 @@ from fleet.models.enums import (
     ItvResult,
 )
 from fleet.selectors import current_assignment_q, current_driver_map, latest_reading_map
+from fleet.services.alert_messages import compose
 
 
 def _today(today: date | None) -> date:
@@ -115,15 +116,44 @@ def known_alerts(alert_type: str, vehicle_ids: Iterable[int]):
         _alert_cache.reset(token)
 
 
-def _refresh_open_alert(alert: Alert, *, level: str, message: str, due_date: date | None) -> None:
-    """Refresca los campos volátiles de una alerta abierta si han cambiado."""
+def _refresh_open_alert(
+    alert: Alert,
+    *,
+    level: str,
+    message: str,
+    due_date: date | None,
+    message_code: str = "",
+    message_args: dict | None = None,
+) -> None:
+    """Refresca los campos volátiles de una alerta abierta si han cambiado.
+
+    El mensaje son ahora TRES campos y se refrescan a la vez: si la frase
+    cambiara sin sus datos (de «quedan 500 km» a «superado el objetivo»),
+    el front seguiría pintando el aviso anterior, que es el que sabe
+    traducir.
+    """
     changed = False
-    for field, value in (("level", level), ("message", message), ("due_date", due_date)):
+    for field, value in (
+        ("level", level),
+        ("message", message),
+        ("due_date", due_date),
+        ("message_code", message_code),
+        ("message_args", message_args or {}),
+    ):
         if getattr(alert, field) != value:
             setattr(alert, field, value)
             changed = True
     if changed:
-        alert.save(update_fields=["level", "message", "due_date", "updated_at"])
+        alert.save(
+            update_fields=[
+                "level",
+                "message",
+                "due_date",
+                "message_code",
+                "message_args",
+                "updated_at",
+            ]
+        )
 
 
 def upsert_alert(
@@ -132,6 +162,8 @@ def upsert_alert(
     type: str,
     level: str,
     message: str,
+    message_code: str = "",
+    message_args: dict | None = None,
     vehicle: Vehicle | None = None,
     user=None,
     due_date: date | None = None,
@@ -152,7 +184,14 @@ def upsert_alert(
         # R5-12: ya se sabe que existe; si sigue abierta se refresca sin consultar.
         cached = cache[dedup_key]
         if cached is not None:
-            _refresh_open_alert(cached, level=level, message=message, due_date=due_date)
+            _refresh_open_alert(
+                cached,
+                level=level,
+                message=message,
+                due_date=due_date,
+                message_code=message_code,
+                message_args=message_args,
+            )
         return False
     alert, created = Alert.objects.get_or_create(
         dedup_key=dedup_key,
@@ -160,6 +199,8 @@ def upsert_alert(
             "type": type,
             "level": level,
             "message": message,
+            "message_code": message_code,
+            "message_args": message_args or {},
             "vehicle": vehicle,
             "user": user,
             "due_date": due_date,
@@ -176,7 +217,14 @@ def upsert_alert(
 
             mailer.queue_for_alert(alert)
     if not created and alert.status == AlertStatus.OPEN:
-        _refresh_open_alert(alert, level=level, message=message, due_date=due_date)
+        _refresh_open_alert(
+            alert,
+            level=level,
+            message=message,
+            due_date=due_date,
+            message_code=message_code,
+            message_args=message_args,
+        )
     if cache is not None:
         cache[dedup_key] = alert if alert.status == AlertStatus.OPEN else None
     return created
@@ -386,7 +434,7 @@ def check_itv(today: date | None = None) -> int:
             if days_left < 0:
                 key = f"itv:{vehicle.pk}:{due}:overdue"
                 level = AlertLevel.CRITICAL
-                message = f"ITV vencida hace {-days_left} día(s) (venció el {due})."
+                msg = compose("itv_overdue", days=-days_left, due=due)
             else:
                 buckets = [t for t in thresholds if t >= days_left]
                 if not buckets:
@@ -394,12 +442,12 @@ def check_itv(today: date | None = None) -> int:
                 bucket = min(buckets)
                 level = _itv_level(bucket, thresholds)
                 key = f"itv:{vehicle.pk}:{due}:{bucket}"
-                message = f"ITV en {days_left} día(s) (vence el {due})."
+                msg = compose("itv_due", days=days_left, due=due)
             created += upsert_alert(
                 dedup_key=key,
                 type=AlertType.ITV_DUE,
                 level=level,
-                message=message,
+                **msg,
                 vehicle=vehicle,
                 due_date=vehicle.next_itv_date,
             )
@@ -426,7 +474,7 @@ def check_insurance(today: date | None = None) -> int:
             if days_left < 0:
                 key = f"insurance:{vehicle.pk}:{due}:overdue"
                 level = AlertLevel.CRITICAL
-                message = f"Seguro vencido hace {-days_left} día(s) (venció el {due})."
+                msg = compose("insurance_overdue", days=-days_left, due=due)
             else:
                 buckets = [t for t in thresholds if t >= days_left]
                 if not buckets:
@@ -434,12 +482,12 @@ def check_insurance(today: date | None = None) -> int:
                 bucket = min(buckets)
                 level = _itv_level(bucket, thresholds)
                 key = f"insurance:{vehicle.pk}:{due}:{bucket}"
-                message = f"Seguro en {days_left} día(s) (vence el {due})."
+                msg = compose("insurance_due", days=days_left, due=due)
             created += upsert_alert(
                 dedup_key=key,
                 type=AlertType.INSURANCE_DUE,
                 level=level,
-                message=message,
+                **msg,
                 vehicle=vehicle,
                 due_date=vehicle.insurance_expiry_date,
             )
@@ -495,7 +543,7 @@ def check_km_readings(today: date | None = None) -> int:
                 dedup_key=f"km_pending:{vehicle.pk}:{period}",
                 type=AlertType.KM_READING_PENDING,
                 level=AlertLevel.WARNING,
-                message=f"Falta la lectura de km de {period}.",
+                **compose("km_pending", period=period),
                 vehicle=vehicle,
                 user=drivers.get(vehicle.id),
             )
@@ -550,7 +598,7 @@ def check_no_driver(today: date | None = None) -> int:
                 dedup_key=f"no_driver:{vehicle.pk}:{today:%Y-%m}",
                 type=AlertType.NO_DRIVER,
                 level=AlertLevel.WARNING,
-                message=f"Sin conductor asignado desde hace más de {grace_days} día(s).",
+                **compose("no_driver", days=grace_days),
                 vehicle=vehicle,
             )
     return created
@@ -631,9 +679,11 @@ def check_km_overage(today: date | None = None) -> int:
                 dedup_key=f"km_overage:{vehicle.pk}:{contract.pk}:{period}",
                 type=AlertType.KM_OVERAGE,
                 level=level,
-                message=(
-                    f"Proyección {int(projected)} km supera los "
-                    f"{contract.contract_km} km contratados ({pct:.0f}%)."
+                **compose(
+                    "km_overage",
+                    projected=int(projected),
+                    contracted=contract.contract_km,
+                    pct=int(round(pct)),
                 ),
                 vehicle=vehicle,
                 due_date=contract.planned_end_date,
@@ -767,7 +817,11 @@ def _close_superseded_plan_alerts(plan: MaintenancePlan, *, keep: str) -> None:
 
 
 def _leg_by_date(plan: MaintenancePlan, today: date, warn_days: int):
-    """El tramo por FECHA: `(nivel, frase, vencimiento)` o None si no toca."""
+    """El tramo por FECHA: `(nivel, datos, vencimiento)` o None si no toca.
+
+    Devuelve los DATOS del tramo y no su frase: la escribe
+    `alert_messages`, que es quien la sabe decir también en inglés.
+    """
     due = plan_due_date(plan)
     if due is None:
         return None
@@ -775,16 +829,20 @@ def _leg_by_date(plan: MaintenancePlan, today: date, warn_days: int):
     if days_left < 0:
         return (
             AlertLevel.CRITICAL,
-            f"vencido hace {-days_left} día(s) (tocaba el {due.isoformat()})",
+            {"kind": "overdue", "days": -days_left, "due": due.isoformat()},
             due,
         )
     if days_left <= warn_days:
-        return AlertLevel.WARNING, f"toca en {days_left} día(s) (el {due.isoformat()})", due
+        return (
+            AlertLevel.WARNING,
+            {"kind": "soon", "days": days_left, "due": due.isoformat()},
+            due,
+        )
     return None
 
 
 def _leg_by_km(plan: MaintenancePlan, km_margin: int, latest_km: dict[int, int]):
-    """El tramo por KM: `(nivel, frase)` o None si no toca (o no hay lecturas)."""
+    """El tramo por KM: `(nivel, datos)` o None si no toca (o no hay lecturas)."""
     target = plan_target_km(plan)
     if target is None:
         return None
@@ -792,12 +850,12 @@ def _leg_by_km(plan: MaintenancePlan, km_margin: int, latest_km: dict[int, int])
     if current is None:
         return None  # sin lecturas no hay ciclo por km que vigilar
     if current >= target:
-        return (
-            AlertLevel.CRITICAL,
-            f"superado el objetivo de {target} km (odómetro: {current} km)",
-        )
+        return AlertLevel.CRITICAL, {"kind": "over", "target": target, "current": current}
     if current >= target - km_margin:
-        return AlertLevel.WARNING, f"quedan {target - current} km para el objetivo de {target} km"
+        return (
+            AlertLevel.WARNING,
+            {"kind": "near", "target": target, "remaining": target - current},
+        )
     return None
 
 
@@ -820,16 +878,15 @@ def _check_plan(
     if por_km is None and por_fecha is None:
         return 0
 
-    partes: list[str] = []
     niveles: list[str] = []
     due_date: date | None = None
+    km_args: dict | None = None
+    fecha_args: dict | None = None
     if por_km is not None:
-        nivel_km, frase_km = por_km
-        partes.append(frase_km)
+        nivel_km, km_args = por_km
         niveles.append(nivel_km)
     if por_fecha is not None:
-        nivel_fecha, frase_fecha, due_date = por_fecha
-        partes.append(frase_fecha if por_km is None else f"y, por fecha, {frase_fecha}")
+        nivel_fecha, fecha_args, due_date = por_fecha
         niveles.append(nivel_fecha)
 
     return int(
@@ -837,7 +894,7 @@ def _check_plan(
             dedup_key=dedup_key,
             type=AlertType.MAINTENANCE_DUE,
             level=AlertLevel.CRITICAL if AlertLevel.CRITICAL in niveles else AlertLevel.WARNING,
-            message=f"{plan.name}: {' '.join(partes)}.",
+            **compose("maintenance", plan=plan.name, km=km_args, date=fecha_args),
             vehicle=plan.vehicle,
             due_date=due_date,
         )

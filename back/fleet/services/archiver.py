@@ -158,6 +158,26 @@ class LocalArchiver(BaseArchiver):
     def __init__(self, base_dir: str | Path):
         self.base_dir = Path(base_dir)
 
+    def _safe_path(self, *parts: str) -> Path:
+        """INP-7: `base_dir/<parts>` resuelta, o `ValueError` si se sale de `base_dir`.
+
+        Los tramos del árbol salen de datos de negocio —la matrícula, el correo
+        del titular, la etiqueta del tipo— y la matrícula se usaba tal cual
+        como carpeta: una `../../x` (que el validador del modelo ya rechaza,
+        pero que puede entrar por el ORM, por una migración o por un fichero
+        antiguo) habría escrito fuera de `FLEET_ARCHIVE_LOCAL_DIR`. Se resuelve
+        la ruta entera y se exige que siga colgando de la base; con
+        `is_relative_to`, no con un `startswith` (R4-04: `/srv/archive-evil`
+        pasaría un corte por prefijo).
+        """
+        base = self.base_dir.resolve()
+        target = base.joinpath(*parts).resolve()
+        if not target.is_relative_to(base):
+            raise ValueError(
+                f"Ruta de archivado fuera de la carpeta base: {'/'.join(parts)!r} (INP-7)."
+            )
+        return target
+
     @staticmethod
     def _path_of(document: Document) -> Path | None:
         """Ruta en disco de un documento archivado en local (`file://`), o None."""
@@ -202,9 +222,9 @@ class LocalArchiver(BaseArchiver):
         return path.read_bytes(), mime_of(path.name)
 
     def ensure_folder(self, vehicle) -> str:
-        folder = self.base_dir.joinpath(*vehicle_path_of(vehicle))
+        folder = self._safe_path(*vehicle_path_of(vehicle))
         folder.mkdir(parents=True, exist_ok=True)
-        url = folder.resolve().as_uri()
+        url = folder.as_uri()
         if vehicle.drive_folder_url != url:
             vehicle.drive_folder_url = url
             vehicle.save(update_fields=["drive_folder_url", "updated_at"])
@@ -216,9 +236,14 @@ class LocalArchiver(BaseArchiver):
         # que se verá luego en Drive.
         if document.vehicle_id is not None:
             self.ensure_folder(document.vehicle)
-        folder = self.base_dir.joinpath(*holder_path_of(document), *folder_path_of(document.type))
-        folder.mkdir(parents=True, exist_ok=True)
-        target = folder / f"doc-{document.pk}-{document.type}"
+        # INP-7: la ruta completa (carpetas Y nombre del fichero) se comprueba
+        # contra la base antes de crear nada.
+        target = self._safe_path(
+            *holder_path_of(document),
+            *folder_path_of(document.type),
+            f"doc-{document.pk}-{document.type}",
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
         # Si hay binario, se deja una copia en el árbol: así `exists` y `delete`
         # tienen algo real que mirar, igual que en Drive. El staging se conserva
         # (es lo que sirve el front en dev).
@@ -227,7 +252,7 @@ class LocalArchiver(BaseArchiver):
 
             with document.file.open("rb") as source, target.open("wb") as sink:
                 shutil.copyfileobj(source, sink)
-        return target.resolve().as_uri()
+        return target.as_uri()
 
 
 _FOLDER_MIME = "application/vnd.google-apps.folder"

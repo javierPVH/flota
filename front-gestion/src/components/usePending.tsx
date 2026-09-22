@@ -413,7 +413,7 @@ export function usePending({
           : alert.resolved_at
             ? alert.resolved_at.slice(0, 10)
             : alert.due_date,
-        description: alert.message,
+        description: etiqueta.alertMessage(alert),
         badges: abierta
           ? chip && <Badge tone={chip.tone}>{chip.label}</Badge>
           : alert.resolved_by_name

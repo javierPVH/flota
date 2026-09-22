@@ -9,6 +9,7 @@ import {
   resolveAlert,
   type DriverCandidate,
 } from '../api.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { fmtDate, fmtKm, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, VehicleSummary } from '../types.ts'
@@ -37,6 +38,7 @@ export function AlertResolveModal({
   onResolved: () => void
 }) {
   const { t, language } = useLang()
+  const etiqueta = useDomainLabels()
   const isKm = alert.type === 'km_reading_pending' && alert.vehicle !== null
   // Los km contratados NO se arreglan con una observación: el coche rueda más
   // de lo que se contrató, y lo que lo cambia es que lo lleve otra persona.
@@ -134,7 +136,7 @@ export function AlertResolveModal({
     >
       <div className="modal-form">
         {/* El contexto de lo que se está resolviendo, siempre a la vista. */}
-        <p className="update-hint">{alert.message}</p>
+        <p className="update-hint">{etiqueta.alertMessage(alert)}</p>
         {isKm ? (
           <>
             <p className="update-hint">{t.alerts.resolveKmIntro}</p>

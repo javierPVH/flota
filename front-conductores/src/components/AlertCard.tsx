@@ -52,7 +52,7 @@ export function AlertCard({
             {alert.vehicle_plate}
           </Link>
         )}{' '}
-        {alert.message}
+        {etiqueta.alertMessage(alert)}
       </p>
       <div className="alert-foot">
         <span className="alert-meta">

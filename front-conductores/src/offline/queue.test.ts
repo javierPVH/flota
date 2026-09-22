@@ -20,6 +20,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
 import { ApiError } from '@flota/ui/http'
 
 import {
+  clearQueue,
   enqueue,
   enqueueIncidentWithFiles,
   enqueueItvWithReport,
@@ -28,17 +29,16 @@ import {
   isTransientError,
   queueSize,
   queuedItems,
+  setQueueOwner,
 } from './queue.ts'
 
 const KM = { kind: 'km' as const, payload: { vehicle: 1, km_reading: 32000, reading_date: '2026-07-22' } }
 
 async function drain() {
   // Vacía la cola entre tests (la BD fake persiste dentro del proceso).
-  mocks.createIncident.mockResolvedValue({ id: 1, vehicle: 1 })
-  mocks.createKmReading.mockResolvedValue({})
-  mocks.registerItv.mockResolvedValue({ id: 1 })
-  mocks.uploadDocument.mockResolvedValue({})
-  await flush()
+  // FE-2: la cola tiene dueño; los tests de siempre corren como el usuario 1.
+  setQueueOwner(1)
+  await clearQueue()
   vi.clearAllMocks()
 }
 
@@ -258,5 +258,68 @@ describe('cola offline (M7)', () => {
 
   it('AbortError cuenta como fallo de red: conservar', async () => {
     expect(isNetworkError(new DOMException('The operation was aborted.', 'AbortError'))).toBe(true)
+  })
+
+  // --- FE-2: la cola es de quien la llenó ----------------------------------
+
+  it('FE-2: cada elemento se guarda con el usuario que lo encoló', async () => {
+    setQueueOwner(7)
+    await enqueue(KM)
+    const [stored] = await queuedItems()
+    expect(stored.userId).toBe(7)
+  })
+
+  it('FE-2: clearQueue vacía la cola entera (el cierre de sesión manual)', async () => {
+    await enqueue(KM)
+    await enqueueIncidentWithFiles(
+      { vehicle: 4, type: 'accident', client_ref: 'ref-clear' },
+      [{ file: new File(['foto'], 'golpe.png', { type: 'image/png' }), type: 'accident_report' }],
+    )
+    expect(await queueSize()).toBe(3)
+    await clearQueue()
+    expect(await queueSize()).toBe(0)
+  })
+
+  it('FE-2: lo encolado por otro usuario se DESCARTA sin enviarse (sesión caducada + otra persona)', async () => {
+    mocks.createKmReading.mockResolvedValue({})
+    setQueueOwner(1)
+    await enqueue(KM) // de la persona que se fue
+    setQueueOwner(2)
+    await enqueue({ ...KM, payload: { ...KM.payload, km_reading: 40000 } }) // de quien entra
+
+    const result = await flush()
+    expect(result.sent).toBe(1)
+    expect(result.discarded).toBe(1)
+    expect(result.remaining).toBe(0)
+    // Solo viajó lo del usuario vigente, con su sesión.
+    expect(mocks.createKmReading).toHaveBeenCalledTimes(1)
+    expect(mocks.createKmReading).toHaveBeenCalledWith(expect.objectContaining({ km_reading: 40000 }))
+  })
+
+  it('FE-2: un elemento SIN dueño (anterior a la marca) tampoco se reenvía', async () => {
+    mocks.createKmReading.mockResolvedValue({})
+    setQueueOwner(null)
+    await enqueue(KM) // userId: null
+    setQueueOwner(1)
+
+    const result = await flush()
+    expect(result.sent).toBe(0)
+    expect(result.discarded).toBe(1)
+    expect(mocks.createKmReading).not.toHaveBeenCalled()
+    expect(await queueSize()).toBe(0)
+  })
+
+  it('FE-2: sin usuario vigente no se reenvía NADA y se conserva todo', async () => {
+    mocks.createKmReading.mockResolvedValue({})
+    await enqueue(KM) // como el usuario 1
+    setQueueOwner(null)
+
+    const result = await flush()
+    expect(result.sent).toBe(0)
+    expect(result.remaining).toBe(1)
+    expect(mocks.createKmReading).not.toHaveBeenCalled()
+    // Al volver el mismo usuario, sale.
+    setQueueOwner(1)
+    expect((await flush()).sent).toBe(1)
   })
 })

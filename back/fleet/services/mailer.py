@@ -277,8 +277,15 @@ def _context_for(alert: Alert) -> dict[str, object]:
     renting = contract.renting if contract is not None else None
     overage = ""
     if alert.type == AlertType.KM_OVERAGE:
-        match = re.search(r"\d[\d.]*(?=\s*km)", alert.message or "")
-        overage = match.group(0) if match else ""
+        # Los km salen de los DATOS del mensaje. Se sacaban de la frase con una
+        # expresión regular, que ataba el contenido del correo a cómo estuviera
+        # redactada: cambiarle una palabra al aviso dejaba el correo sin cifra.
+        proyectado = (alert.message_args or {}).get("projected")
+        if proyectado is not None:
+            overage = str(proyectado)
+        else:  # alertas anteriores al mensaje estructurado: solo queda la frase
+            match = re.search(r"\d[\d.]*(?=\s*km)", alert.message or "")
+            overage = match.group(0) if match else ""
     return {
         "matricula": vehicle.plate if vehicle else "",
         "conductor": (driver.get_full_name() or driver.get_username()) if driver else "",

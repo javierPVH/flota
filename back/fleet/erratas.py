@@ -15,7 +15,7 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError, Q
 from django.db.models.deletion import Collector
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -319,6 +319,11 @@ class ErratasRestoreView(APIView):
 
     def post(self, request):
         kind, obj = _resolve(request)
+        # AUTH-7: reactivar a un SUPERUSUARIO es devolverle la cuenta que purga
+        # y que manda sobre todo lo demás; un administrador normal no puede
+        # tocarlo por la API de usuarios (C2) y tampoco debe poder por aquí.
+        if kind == "users" and obj.is_superuser and not request.user.is_superuser:
+            raise PermissionDenied("Solo un superusuario puede restaurar a otro superusuario.")
         # R3-06: guardar sin red de seguridad devolvía un 500 cuando el hueco
         # de una constraint parcial ya estaba ocupado (asignación aceptada en
         # curso con otra vigente, consumo con el mes ya corregido…). El atomic

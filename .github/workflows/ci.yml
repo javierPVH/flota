@@ -10,6 +10,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# CFG-9: todas las `uses:` van fijadas por SHA de commit (el tag al lado es
+# informativo). Un tag se puede mover; un SHA no. Para actualizar una action:
+#   git ls-remote --tags https://github.com/<owner>/<repo>.git refs/tags/vX.Y.Z
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -20,10 +24,10 @@ jobs:
       # Dev-mode: settings usa defaults seguros y no exige SECRET_KEY/ALLOWED_HOSTS.
       DEBUG: "True"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.13"
           cache: pip
@@ -59,23 +63,31 @@ jobs:
           coverage run manage.py test
           coverage report
 
-      - name: Auditoría de dependencias (informativa)
-        continue-on-error: true
+      # CFG-7: BLOQUEANTE (antes `continue-on-error: true`, o sea decorativo).
+      # Si una vulnerabilidad concreta no aplica o no tiene arreglo aún, se
+      # excluye con `--ignore-vuln <ID>` y un comentario que diga por qué y
+      # hasta cuándo; nunca volviendo a poner el continue-on-error.
+      - name: Auditoría de dependencias (pip-audit)
         run: pip-audit -r requirements.txt
 
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      # CFG-7: solo las dependencias que llegan al bundle (--omit=dev) y a
+      # partir de gravedad alta. Bloqueante.
+      - name: Auditoría de dependencias (npm audit)
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Build design system (@flota/ui)
         run: npm run build:ui
@@ -95,10 +107,29 @@ jobs:
   deploy-config:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: docker compose config (valida la composición)
         run: |
           cp .env.example .env
           cp back/.env.prod.example back/.env.prod
           docker compose config -q
+
+  # CFG-7: secretos en el histórico. fetch-depth 0 para que mire TODOS los
+  # commits del push/PR y no solo el último. La allowlist está en .gitleaks.toml.
+  # En un repositorio de ORGANIZACIÓN la action exige GITLEAKS_LICENSE (clave
+  # gratuita en gitleaks.io); en uno personal no hace falta y el secreto puede
+  # quedar vacío.
+  gitleaks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

@@ -11,6 +11,14 @@ const mocks = vi.hoisted(() => ({
   uploadDocument: vi.fn(),
   listVehiclesCached: vi.fn(),
   fetchVehicleSummariesCached: vi.fn(),
+  disablePushOnLogout: vi.fn(),
+}))
+
+// FE-3: la baja del push al salir, mockeada para afirmar el ORDEN respecto al
+// cierre de sesión y que su fallo no lo impide.
+vi.mock('../push.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../push.ts')>()),
+  disablePushOnLogout: mocks.disablePushOnLogout,
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -39,7 +47,7 @@ vi.mock('../auth.ts', async (importOriginal) => ({
 
 import { Layout } from './Layout.tsx'
 import { LanguageProvider } from '../i18n.tsx'
-import { enqueue, flush } from '../offline/queue.ts'
+import { clearQueue, enqueue, setQueueOwner } from '../offline/queue.ts'
 
 const KM = {
   kind: 'km' as const,
@@ -69,11 +77,12 @@ function renderShell() {
 async function drain() {
   // Vacía la cola entre tests (la BD fake persiste dentro del proceso).
   setOnline(true)
-  mocks.createKmReading.mockResolvedValue({})
-  mocks.registerItv.mockResolvedValue({})
-  mocks.uploadDocument.mockResolvedValue({})
-  await flush()
+  // FE-2: lo que se encola en estos tests es del usuario del shell (id 1), que
+  // es contra quien `flush` compara al montar.
+  setQueueOwner(1)
+  await clearQueue()
   vi.clearAllMocks()
+  mocks.disablePushOnLogout.mockResolvedValue(undefined)
   // Los datos del shell: vacíos y estables (lo que afirmamos es CUÁNTAS veces
   // se piden, no su contenido).
   mocks.listVehiclesCached.mockResolvedValue({ count: 0, results: [] })
@@ -170,6 +179,37 @@ describe('cola offline en el shell (banner → flush → aviso)', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /sin enviar/ })).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('cerrar sesión (FE-3: el push se da de baja ANTES y nunca lo impide)', () => {
+  beforeEach(drain)
+
+  it('da de baja el push y después cierra la sesión y va al login', async () => {
+    const orden: string[] = []
+    mocks.disablePushOnLogout.mockImplementation(async () => {
+      orden.push('push')
+    })
+    STABLE_AUTH.logout.mockImplementation(() => {
+      orden.push('logout')
+    })
+    renderShell()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Salir' }))
+
+    await waitFor(() => expect(STABLE_AUTH.logout).toHaveBeenCalledTimes(1))
+    // El DELETE de la suscripción va autenticado: primero el push, luego salir.
+    expect(orden).toEqual(['push', 'logout'])
+  })
+
+  it('si la baja del push falla, se sale igual', async () => {
+    mocks.disablePushOnLogout.mockRejectedValue(new TypeError('Failed to fetch'))
+    renderShell()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Salir' }))
+
+    await waitFor(() => expect(STABLE_AUTH.logout).toHaveBeenCalledTimes(1))
+    expect(mocks.disablePushOnLogout).toHaveBeenCalledTimes(1)
   })
 })
 

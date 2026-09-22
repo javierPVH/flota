@@ -227,7 +227,7 @@ export function SupervisorOverview() {
         search,
         etiqueta.alertType(alert),
         alert.type_display,
-        alert.message,
+        etiqueta.alertMessage(alert),
         alert.vehicle_plate,
         etiqueta.alertLevel(alert),
       ),

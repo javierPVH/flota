@@ -1,0 +1,28 @@
+# CFG-11: configuración de gitleaks (pre-commit y CI). Parte de las reglas por
+# defecto y añade SOLO la lista blanca mínima de lo que en este repo es un
+# marcador, no un secreto. Cualquier otra cosa que salte se corrige o se
+# justifica aquí con un comentario, nunca desactivando el hook.
+title = "flota"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Marcadores y credenciales de desarrollo que no son secretos"
+regexTarget = "line"
+# Los ficheros de ejemplo solo llevan placeholders (CAMBIA_ESTO...) y el .env
+# real está en .gitignore.
+paths = [
+    '''(^|/)\.env\.example$''',
+    '''(^|/)\.env\.prod\.example$''',
+    '''(^|/)package-lock\.json$''',
+]
+regexes = [
+    # Placeholders de los .env de ejemplo y de la documentación.
+    '''CAMBIA_ESTO''',
+    '''cambia-esto''',
+    # Contraseña del seed de desarrollo (back/SEED_DEV.md, CLAUDE.md, tests).
+    '''flota-dev-2026''',
+    # SECRET_KEY de usar y tirar del job de CI.
+    '''ci-only-not-a-real-secret''',
+]

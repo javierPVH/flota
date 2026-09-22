@@ -24,7 +24,8 @@ import { ProfileEditSheet } from './ProfileEditModal.tsx'
 import { UploadDocumentModal } from './UploadDocumentModal.tsx'
 import { VehicleActionButtons } from './VehicleActionButtons.tsx'
 import { useOfflineQueue } from '../offline/useOfflineQueue.ts'
-import type { FlushResult } from '../offline/queue.ts'
+import { setQueueOwner, type FlushResult } from '../offline/queue.ts'
+import { disablePushOnLogout } from '../push.ts'
 import { applyUpdate, onUpdateAvailable } from '../sw-update.ts'
 import logoUrl from '../assets/img/gransolar-logo.png'
 
@@ -56,6 +57,10 @@ export interface LayoutContext {
 }
 
 const MODE_KEY = 'flota:vista'
+
+/** FE-3: tope de espera a la baja del push al salir. Un back lento o una red
+ * a medias no pueden retener a quien quiere cerrar sesión. */
+const PUSH_LOGOUT_TIMEOUT_MS = 4000
 
 /**
  * Shell móvil (M0): header compacto + contenido + bottom-nav pulgar-friendly
@@ -154,6 +159,13 @@ export function Layout() {
     }
   }, [hasManagementScope, user, dataVersion])
 
+  // FE-2: la cola offline es del dispositivo y la sesión, de la persona: se le
+  // dice a la cola de quién es lo que se encola desde aquí (y contra quién
+  // comparar lo que ya había) ANTES de que el hook de abajo reenvíe al montar.
+  useEffect(() => {
+    setQueueOwner(user?.id ?? null)
+  }, [user])
+
   const onFlushed = useCallback(
     (result: FlushResult) => {
       const parts: string[] = []
@@ -180,7 +192,19 @@ export function Layout() {
   const [hasUpdate, setHasUpdate] = useState(false)
   useEffect(() => onUpdateAvailable(setHasUpdate), [])
 
-  function handleLogout() {
+  async function handleLogout() {
+    // FE-3: la suscripción push se da de baja ANTES de cerrar la sesión (el
+    // DELETE al back va autenticado), y su fallo nunca impide salir.
+    try {
+      await Promise.race([
+        disablePushOnLogout(),
+        new Promise<void>((resolve) => setTimeout(resolve, PUSH_LOGOUT_TIMEOUT_MS)),
+      ])
+    } catch {
+      // Sin push, sin red o sin permiso: se sale igual.
+    }
+    // FE-2: `onLogout('manual')` (auth.ts) vacía la cola offline y olvida el
+    // último /me (FE-1).
     logout()
     navigate('/login', { replace: true })
   }
@@ -224,7 +248,7 @@ export function Layout() {
             className="hdr-iconbtn"
             aria-label={t.shell.logout}
             title={t.shell.logout}
-            onClick={handleLogout}
+            onClick={() => void handleLogout()}
           >
             <LogOut size={18} />
           </button>

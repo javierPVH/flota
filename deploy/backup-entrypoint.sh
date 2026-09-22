@@ -25,6 +25,17 @@ DEST="${BACKUP_DIR:-/backups}"
 KEEP="${BACKUP_KEEP_DAYS:-30}"
 ENVFILE=/tmp/backup.env
 
+# --- CFG-6: `age` para cifrar los backups. La imagen (postgres:16-alpine) no lo
+#     trae y no hay imagen propia que construir, así que se instala al arrancar
+#     SOLO si se ha pedido cifrar (BACKUP_AGE_RECIPIENT). Si apk falla (sin
+#     salida a internet), no se tumba el arranque: backup.sh lo detecta y falla
+#     ÉL con su motivo (healthcheck en rojo) antes que guardar en claro.
+if [ -n "${BACKUP_AGE_RECIPIENT:-}" ] && ! command -v age > /dev/null 2>&1; then
+    echo "[backup] instalando age (cifrado de backups)..."
+    apk add --no-cache age > /dev/null 2>&1 \
+        || echo "[backup] AVISO: no se pudo instalar age; los backups FALLARAN hasta que haya salida a internet o se quite BACKUP_AGE_RECIPIENT" >&2
+fi
+
 # --- Volcado sourceable de PG* / BACKUP_* (sin BACKUP_CRON, que solo es el horario).
 #     Cada valor entre comillas simples con las internas escapadas ( ' -> '\'' ).
 : > "$ENVFILE"

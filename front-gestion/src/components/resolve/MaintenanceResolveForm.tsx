@@ -191,7 +191,7 @@ export function MaintenanceResolveForm({
   return (
     <form className="ops-modal" onSubmit={submit}>
       {source.kind === 'alert' && source.alert.message && (
-        <p className="muted ops-note">{source.alert.message}</p>
+        <p className="muted ops-note">{etiqueta.alertMessage(source.alert)}</p>
       )}
 
       {source.kind === 'plan' ? (

@@ -177,7 +177,7 @@ export function ResolveAlertModal({ alert, onClose, onDone }: Props) {
           <strong>{etiqueta.alertType(alert)}</strong>
           {alert.vehicle_plate && <span>· {alert.vehicle_plate}</span>}
         </div>
-        {alert.message && <p>{alert.message}</p>}
+        {alert.message && <p>{etiqueta.alertMessage(alert)}</p>}
         <p className="muted">
           {alert.due_date && `${m.dueDate}: ${fmtDate(alert.due_date, language)}`}
           {alert.due_date && alert.driver_name && ' · '}

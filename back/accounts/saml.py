@@ -103,7 +103,13 @@ class FleetSaml2Backend(Saml2Backend):
             elif not user.is_active:
                 reason = DENIED_INACTIVE
         if reason:
-            security_logger.warning("saml denegado motivo=%s email=%s", reason, email)
+            # AUTH-8: el correo es dato personal; al log va en resumen, como
+            # el identificador del login por contraseña (R5-13).
+            from .ratelimit import digest
+
+            security_logger.warning(
+                "saml denegado motivo=%s id=%s", reason, digest(email or "")[:12]
+            )
             if request is not None:
                 setattr(request, _DENIED_ATTR, reason)
             return None, False

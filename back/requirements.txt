@@ -1,7 +1,9 @@
 # Backend base (@gs/base back) — Django + DRF. Rangos acotados para
 # reproducibilidad razonable sin lockfile.
 Django>=5.2,<5.3
-djangorestframework>=3.16,<3.17
+# CFG-2: ≥3.18.1 lleva parcheado el salto del límite de tamaño de cuerpo
+# (DATA_UPLOAD_MAX_MEMORY_SIZE) que 3.16 ignoraba al leer el stream.
+djangorestframework>=3.18.1,<3.19
 django-cors-headers>=4.6,<5.0
 python-dotenv>=1.0,<2.0
 # OpenAPI generado (docs solo en dev/staging).
@@ -18,9 +20,11 @@ google-auth-httplib2>=0.2,<1.0
 # SAML_ENABLED=True; el resto del tiempo la app no lo importa.
 djangosaml2>=1.9,<2.0
 # Transitiva de djangosaml2: mínimo parcheado (validación XML/firma SAML).
-pysaml2>=7.5.0,<8.0
+# CFG-2: 7.5.5 es la primera que admite pyOpenSSL ≥ 26 y, con él, cryptography ≥ 46.
+pysaml2>=7.5.5,<8.0
 # Cifrado en reposo de los tokens OAuth (accounts.fields.EncryptedTextField).
-cryptography>=43,<47
+# CFG-2: OpenSSL empaquetado con CVE en <46; la verificación SAML pasa por aquí.
+cryptography>=50,<51
 # Auditoría de campos (quién cambió qué y cuándo) — ver MEJORAS.md §3.
 django-auditlog>=3,<4
 # Filtrado/búsqueda declarativos para la API (listados de la Épica 1).

@@ -409,6 +409,37 @@ Dos capas que van **siempre juntas**:
   Para que la bandeja pudiera traducir, el back manda ahora también el
   **código**: `document_type` en la petición sobre un documento e
   `incident_type` en la solicitud de vehículo.
+- **Y lo que el back ESCRIBE tampoco lo es: la frase de una alerta viaja como
+  dato.** Un `*_display` se traduce por su código porque es un enumerado, pero
+  el `message` de una alerta es **prosa con números dentro** —«ITV vencida hace
+  12 día(s) (venció el 2026-03-01)»— y ahí no hay código que traducir: con la
+  app en inglés, la tarjeta del aviso salía en castellano. Ahora el back manda
+  **las tres cosas**: el `message` de siempre y, al lado, `message_code` +
+  `message_args`. Las frases se componen en **un solo sitio**
+  (`back/fleet/services/alert_messages.py`, `compose()`): allí están las nueve
+  plantillas del catálogo —los cuatro vencimientos de ITV y seguro, la lectura
+  de km, el coche sin conductor, el exceso proyectado, el mantenimiento y el
+  recordatorio manual— y de ahí salen a la vez la frase castellana y su par,
+  que por eso no pueden contar cosas distintas. `message` **no se retira**: lo
+  leen el correo y el Excel de informes, y es la **reserva** de los dos fronts
+  para una alerta anterior a esto o un código que esa versión no conozca —se
+  lee en castellano, que es mejor que un hueco—. Quien la escribe es el DS
+  (`alertMessage` de `@flota/ui/domain`), porque esas plantillas son contrato
+  del back y las pintan las dos apps; la **copia** la pone cada una en su tabla
+  `alertMessage`, como ya hace `tireReportSummary` (el dominio no sabe de
+  i18n). El **mantenimiento** es el único compuesto —un plan puede tocar por km
+  y por fecha y es el mismo servicio—: sus dos tramos viajan **sueltos** y el
+  front los junta en el orden de SU idioma, que en inglés no es el castellano
+  («y, por fecha, …»). Dos cosas siguen sin traducirse y es correcto: el
+  **nombre del plan** (dato del catálogo) y la **nota** que escribe a mano quien
+  supervisa en un recordatorio, que la escribió una persona. De paso se arregló
+  un atado que no se veía: el correo del exceso de km sacaba la cifra de la
+  frase **con una expresión regular** (`mailer._context_for`), así que
+  cambiarle una palabra al aviso dejaba el correo sin número; ahora la lee de
+  `message_args`. Lo que **sigue pendiente** por el mismo motivo son los
+  **errores de validación de DRF**, que llegan como frase castellana: ahí la
+  salida no es un campo nuevo sino el `code` que DRF ya lleva en cada error y
+  que el front tira.
 - Páginas en `lazy` (PF2); tablas grandes con `TableWithPanel` del DS
   (columnas, orden, paginación en cliente, fila expandible, export). Puede
   **partir las filas en bloques plegables** de dos maneras: por **fecha**

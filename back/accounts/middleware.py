@@ -47,3 +47,27 @@ class SessionAbsoluteAgeMiddleware:
                 security_logger.info("sesión caducada por tope absoluto user=%s", user.pk)
                 logout(request)
         return self.get_response(request)
+
+
+class SecureCookiesOnHttpsMiddleware:
+    """AUTH-3: `Secure` en las cookies de sesión y CSRF si la petición vino por https.
+
+    El mismo backend sirve la gestión (http interno, `*_COOKIE_SECURE=False`
+    en el `.env.prod`) y la app pública (https por el túnel). Con el ajuste
+    global apagado, la cookie de la app pública salía sin `Secure`; aquí se
+    decide por petición, con `request.is_secure()` (que ya entiende
+    `X-Forwarded-Proto` con `SECURE_BEHIND_PROXY`). Mismo patrón que
+    `accounts.saml.SecureSamlSessionMiddleware`.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if request.is_secure():
+            for name in (settings.SESSION_COOKIE_NAME, settings.CSRF_COOKIE_NAME):
+                morsel = response.cookies.get(name)
+                if morsel is not None and not morsel["secure"]:
+                    morsel["secure"] = True
+        return response

@@ -2,6 +2,7 @@
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
 
 from .base import TimeStampedModel
@@ -24,6 +25,23 @@ class VehicleQuerySet(models.QuerySet):
         return self.exclude(state=VehicleState.BAJA)
 
 
+#: INP-7: la matrícula es un componente de RUTA en el archivador (la carpeta
+#: `Vehículos/<matrícula>`, en Drive y en el backend `local`) y sale en nombres
+#: de fichero, así que no puede llevar barras, puntos ni nada que no sea lo que
+#: lleva una matrícula: mayúsculas, dígitos, guion y espacio interior (los
+#: formatos históricos españoles van con guion o con espacio), de 3 a 15
+#: caracteres y empezando y acabando en letra o dígito. El importador masivo ya
+#: pasa a mayúsculas y quita los espacios antes de validar.
+PLATE_VALIDATOR = RegexValidator(
+    regex=r"^[A-Z0-9][A-Z0-9 -]{1,13}[A-Z0-9]$",
+    message=(
+        "Matrícula no válida: solo mayúsculas, dígitos, guion o espacio interior "
+        "(de 3 a 15 caracteres)."
+    ),
+    code="invalid_plate",
+)
+
+
 class Vehicle(TimeStampedModel):
     """Vehículo de la flota.
 
@@ -35,7 +53,7 @@ class Vehicle(TimeStampedModel):
     # filtro de `baja` se aplican donde corresponde). `active()` excluye baja.
     objects = VehicleQuerySet.as_manager()
 
-    plate = models.CharField("Matrícula", max_length=15, unique=True)
+    plate = models.CharField("Matrícula", max_length=15, unique=True, validators=[PLATE_VALIDATOR])
     business_unit = models.ForeignKey(
         "fleet.BusinessUnit",
         on_delete=models.SET_NULL,

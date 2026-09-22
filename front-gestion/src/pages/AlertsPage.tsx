@@ -321,7 +321,7 @@ export function AlertsPage() {
       if (!persona(a.supervisor_id, supervisorFilter)) return false
       if (
         term &&
-        !`${a.vehicle_plate ?? ''} ${etiqueta.alertType(a)} ${a.type_display} ${a.message ?? ''} ${
+        !`${a.vehicle_plate ?? ''} ${etiqueta.alertType(a)} ${a.type_display} ${etiqueta.alertMessage(a)} ${a.message ?? ''} ${
           a.driver_name
         } ${a.supervisor_name} ${a.resolved_by_name}`
           .toLowerCase()
@@ -444,9 +444,14 @@ export function AlertsPage() {
       label: t.columns.message,
       sortable: false,
       width: 360,
-      getValue: (a) => a.message,
+      getValue: (a) => etiqueta.alertMessage(a),
       render: (a) => (
-        <TextCell inline text={a.message} title={t.columns.message} label={t.viewMessage} />
+        <TextCell
+          inline
+          text={etiqueta.alertMessage(a)}
+          title={t.columns.message}
+          label={t.viewMessage}
+        />
       ),
     },
     {

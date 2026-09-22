@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -274,6 +275,18 @@ class VehicleSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def to_internal_value(self, data):
+        """INP-7: la matrícula se normaliza (mayúsculas, sin espacios) ANTES de
+        que corra el validador del modelo, igual que hace el importador; el
+        formulario de gestión la manda tal cual se teclea."""
+        plate = data.get("plate") if hasattr(data, "get") else None
+        if isinstance(plate, str):
+            normalizada = plate.strip().upper().replace(" ", "")
+            if normalizada != plate:
+                data = data.copy()
+                data["plate"] = normalizada
+        return super().to_internal_value(data)
 
     def get_supervisor_name(self, obj: Vehicle) -> str:
         sup = obj.supervisor
@@ -1451,6 +1464,62 @@ class AccidentReportSerializer(serializers.ModelSerializer):
         ]
 
 
+#: INP-2: techos del JSON libre que llega de la app (partes, cambios pedidos).
+JSON_PAYLOAD_MAX_BYTES = 64 * 1024
+JSON_PAYLOAD_MAX_ITEMS = 20
+JSON_PAYLOAD_MAX_TEXT = 4000
+JSON_PAYLOAD_MAX_DEPTH = 6
+
+
+def limit_json_payload(
+    value,
+    *,
+    field: str,
+    max_bytes: int = JSON_PAYLOAD_MAX_BYTES,
+    max_items: int = JSON_PAYLOAD_MAX_ITEMS,
+    max_text: int = JSON_PAYLOAD_MAX_TEXT,
+    max_depth: int = JSON_PAYLOAD_MAX_DEPTH,
+) -> None:
+    """Acota un JSON libre (`details`, `changes`): tamaño, listas, textos y anidación.
+
+    Sin techo, un conductor guarda megabytes por incidencia y ese JSON viaja
+    entero en cada listado de gestión. Lanza `ValidationError` sobre `field`.
+    """
+    import json
+
+    def _walk(node, depth: int) -> None:
+        if depth > max_depth:
+            raise serializers.ValidationError({field: "Estructura demasiado anidada."})
+        if isinstance(node, dict):
+            if len(node) > max_items * 4:
+                raise serializers.ValidationError({field: "Demasiados campos."})
+            for key, child in node.items():
+                if len(str(key)) > 100:
+                    raise serializers.ValidationError({field: "Nombre de campo demasiado largo."})
+                _walk(child, depth + 1)
+        elif isinstance(node, list):
+            if len(node) > max_items:
+                raise serializers.ValidationError(
+                    {field: f"Una lista no puede tener más de {max_items} elementos."}
+                )
+            for child in node:
+                _walk(child, depth + 1)
+        elif isinstance(node, str) and len(node) > max_text:
+            raise serializers.ValidationError(
+                {field: f"Un texto no puede superar los {max_text} caracteres."}
+            )
+
+    _walk(value, 1)
+    try:
+        size = len(json.dumps(value, ensure_ascii=False, default=str).encode("utf-8"))
+    except (TypeError, ValueError) as exc:
+        raise serializers.ValidationError({field: "Contenido no serializable."}) from exc
+    if size > max_bytes:
+        raise serializers.ValidationError(
+            {field: f"El contenido supera el máximo de {max_bytes // 1024} KB."}
+        )
+
+
 class IncidentSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source="get_type_display", read_only=True)
     priority_display = serializers.CharField(source="get_priority_display", read_only=True)
@@ -1532,6 +1601,9 @@ class IncidentSerializer(serializers.ModelSerializer):
 
         if not isinstance(details, dict):
             raise serializers.ValidationError({"details": "Debe ser un objeto."})
+        # INP-2: el JSON libre del parte tiene techo (tamaño, listas y textos):
+        # viaja entero en los listados de gestión y se guarda tal cual.
+        limit_json_payload(details, field="details")
         guided_report = details.get("report_version") == 1
         if postal_code and (not postal_code.isdigit() or len(postal_code) != 5):
             raise serializers.ValidationError(
@@ -1758,6 +1830,46 @@ class IncidentResolutionSerializer(serializers.Serializer):
 # Extensiones admitidas en la subida de documentos (fotos de cámara + PDF).
 DOCUMENT_ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "pdf"}
 
+#: INP-3: firmas («magic bytes») que tiene que llevar cada extensión admitida.
+#: HEIC/HEIF es un contenedor ISO-BMFF: la marca va en el `ftyp` (bytes 4-12).
+_HEIC_BRANDS = (b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"mif1", b"msf1")
+
+
+def file_signature_matches(uploaded, extension: str) -> bool:
+    """Comprueba que los primeros bytes del fichero son de lo que dice ser.
+
+    Solo mira la cabecera, así que no valida el fichero entero (eso lo hará
+    quien lo abra); basta para que un HTML o un ejecutable no entren con
+    nombre de foto o de PDF. Deja el puntero del fichero donde estaba.
+    """
+    try:
+        pos = uploaded.tell()
+    except (AttributeError, OSError):
+        pos = None
+    try:
+        uploaded.seek(0)
+        head = uploaded.read(16) or b""
+    except (AttributeError, OSError):
+        return False
+    finally:
+        if pos is not None:
+            try:
+                uploaded.seek(pos)
+            except OSError:
+                pass
+    ext = extension.lower()
+    if ext in ("jpg", "jpeg"):
+        return head.startswith(b"\xff\xd8\xff")
+    if ext == "png":
+        return head.startswith(b"\x89PNG\r\n\x1a\n")
+    if ext == "webp":
+        return head[:4] == b"RIFF" and head[8:12] == b"WEBP"
+    if ext == "heic":
+        return head[4:8] == b"ftyp" and head[8:12] in _HEIC_BRANDS
+    if ext == "pdf":
+        return head.startswith(b"%PDF-")
+    return False
+
 
 #: Qué le falta a un documento que exige vínculo, por tipo (campo y texto).
 _LINK_REQUIRED_ERRORS = {
@@ -1781,6 +1893,11 @@ _LINK_REQUIRED_ERRORS = {
 #: de solo lectura (ver `DocumentSerializer.get_fields`).
 MANAGEMENT_ONLY_DOCUMENT_FIELDS = ("responsible", "shared_read", "protected")
 
+#: AUTH-1: el estado del documento lo mueven el archivador y la gestión; un
+#: conductor no lo marca «vigente» ni lo saca de «pendiente de archivar».
+#: Mismo trato silencioso que los campos de confidencialidad.
+MANAGEMENT_ONLY_DOCUMENT_STATE_FIELDS = ("status",)
+
 
 class DocumentSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source="get_type_display", read_only=True)
@@ -1800,6 +1917,11 @@ class DocumentSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "uploaded_by",
+            # AUTH-1: el id de Drive lo escribe SOLO el archivador al subir. Si
+            # llegara por la API, la vista previa y la descarga (que bajan por
+            # id con la cuenta de servicio) servirían cualquier fichero del
+            # Drive de la flota a quien conociera su id, y la purga lo borraría.
+            "drive_file_id",
             # Lo escribe la comprobación de existencia (`/documents/verify/`).
             "drive_missing_at",
             "is_active",
@@ -1824,7 +1946,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         # En la generación del esquema OpenAPI no hay petición ni usuario.
         user = getattr(self.context.get("request"), "user", None)
         if not getattr(user, "is_management", False):
-            for name in MANAGEMENT_ONLY_DOCUMENT_FIELDS:
+            for name in MANAGEMENT_ONLY_DOCUMENT_FIELDS + MANAGEMENT_ONLY_DOCUMENT_STATE_FIELDS:
                 fields[name].read_only = True
         return fields
 
@@ -1892,6 +2014,12 @@ class DocumentSerializer(serializers.ModelSerializer):
             valid = ", ".join(sorted(DOCUMENT_ALLOWED_EXTENSIONS))
             raise serializers.ValidationError(
                 f"Extensión '.{extension}' no admitida. Válidas: {valid}."
+            )
+        # INP-3: la extensión la pone quien sube; la firma la pone el fichero.
+        # Un HTML o un ejecutable renombrado a `.pdf` no pasa de aquí.
+        if not file_signature_matches(value, extension):
+            raise serializers.ValidationError(
+                "El contenido del fichero no se corresponde con su extensión."
             )
         return value
 
@@ -2027,6 +2155,8 @@ class AlertSerializer(serializers.ModelSerializer):
             "vehicle",
             "user",
             "message",
+            "message_code",
+            "message_args",
             "due_date",
             "dedup_key",
             "status",
@@ -2341,10 +2471,29 @@ class NotificationScheduleSerializer(serializers.ModelSerializer):
             limpio[str(clave)] = str(valor)
         return limpio
 
+    def _is_admin_request(self) -> bool:
+        user = getattr(self.context.get("request"), "user", None)
+        return bool(getattr(user, "is_admin", False))
+
     def validate_extra_recipients(self, value: str) -> str:
-        """Direcciones separadas por comas, validadas una a una."""
+        """Direcciones separadas por comas, validadas una a una.
+
+        AUTH-2: el informe de usuarios lleva correo, teléfono y DNI. Quien no
+        es administrador solo puede mandarlo a dominios corporativos
+        (`FLEET_EMAIL_ALLOWED_DOMAINS`): un destinatario libre desde el correo
+        corporativo es una exfiltración programada.
+        """
         from django.core.validators import validate_email
 
+        permitidos = {
+            d.strip().lower()
+            for d in (
+                getattr(settings, "FLEET_EMAIL_ALLOWED_DOMAINS", None)
+                or getattr(settings, "SAML_ALLOWED_DOMAINS", [])
+            )
+            if d.strip()
+        }
+        es_admin = self._is_admin_request()
         limpias = []
         for addr in value.split(","):
             addr = addr.strip()
@@ -2354,8 +2503,24 @@ class NotificationScheduleSerializer(serializers.ModelSerializer):
                 validate_email(addr)
             except DjangoValidationError as exc:
                 raise serializers.ValidationError(f"«{addr}» no es un correo válido.") from exc
+            dominio = addr.rsplit("@", 1)[-1].lower()
+            if not es_admin and permitidos and dominio not in permitidos:
+                raise serializers.ValidationError(
+                    f"«{addr}» está fuera de los dominios corporativos; solo administración "
+                    "puede añadir destinatarios externos."
+                )
             limpias.append(addr)
         return ", ".join(limpias)
+
+    def validate_drive_folder(self, value):
+        """AUTH-2: la carpeta de Drive donde escribe la cuenta de servicio la
+        elige administración; quien no lo es conserva la que tenga, sin más."""
+        actual = getattr(self.instance, "drive_folder", "") or ""
+        if value and value != actual and not self._is_admin_request():
+            raise serializers.ValidationError(
+                "Solo administración puede elegir la carpeta de Drive del envío."
+            )
+        return value
 
     def validate(self, attrs):
         """Delega en `NotificationSchedule.clean` para no duplicar las reglas."""
@@ -2619,6 +2784,43 @@ _EMAIL_HTML_ATTRS = {
 }
 
 
+#: FE-5: lo único que se admite dentro de un `style` del editor de plantillas
+#: (propiedad: valor simple). Sin `url(`, sin `expression(`, sin `@import`.
+_EMAIL_STYLE_PROPS = {
+    "color",
+    "background-color",
+    "font-weight",
+    "font-style",
+    "font-size",
+    "text-align",
+    "text-decoration",
+}
+_EMAIL_STYLE_VALUE = re.compile(r"^[a-zA-Z0-9#%.,() -]{1,60}$")
+
+
+def _clean_email_style(value: str) -> str | None:
+    """Deja solo las declaraciones seguras de un `style`; None si no queda nada."""
+    limpias = []
+    for decl in value.split(";"):
+        if ":" not in decl:
+            continue
+        prop, _, val = decl.partition(":")
+        prop, val = prop.strip().lower(), val.strip()
+        if prop in _EMAIL_STYLE_PROPS and _EMAIL_STYLE_VALUE.match(val) and "(" not in val:
+            limpias.append(f"{prop}: {val}")
+    return "; ".join(limpias) or None
+
+
+def _email_attribute_filter(tag: str, attr: str, value: str) -> str | None:
+    """FE-5: imágenes solo por https (un `http` deja rastro del lector en claro)
+    y `style` reducido a la lista blanca. Devolver None quita el atributo."""
+    if tag == "img" and attr == "src":
+        return value if value.lower().startswith("https://") else None
+    if attr == "style":
+        return _clean_email_style(value)
+    return value
+
+
 def sanitize_email_html(value: str) -> str:
     """Sanea el HTML del editor (nh3): fuera scripts/handlers/iframes."""
     import nh3
@@ -2628,6 +2830,8 @@ def sanitize_email_html(value: str) -> str:
         tags=_EMAIL_HTML_TAGS,
         attributes=_EMAIL_HTML_ATTRS,
         url_schemes={"http", "https", "mailto"},
+        attribute_filter=_email_attribute_filter,
+        link_rel="noopener noreferrer",
     )
 
 
@@ -2849,6 +3053,12 @@ class ProfileChangeRequestSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Esos campos no se piden por aquí: " + ", ".join(sorted(sobra))
             )
+        # INP-2: valores planos y cortos; es una ficha personal, no un documento.
+        for campo, valor in value.items():
+            if valor is not None and not isinstance(valor, str | bool | int):
+                raise serializers.ValidationError(f"«{campo}» tiene un valor no válido.")
+            if isinstance(valor, str) and len(valor) > 200:
+                raise serializers.ValidationError(f"«{campo}» es demasiado largo.")
         return value
 
     def validate(self, attrs):

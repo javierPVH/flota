@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AlertsPage } from './AlertsPage.tsx'
 import { LanguageProvider } from '../i18n.tsx'
@@ -380,5 +380,60 @@ describe('AlertsPage (M5)', () => {
     mocks.listAlerts.mockResolvedValue({ count: 0, results: [] })
     renderPage()
     expect(await screen.findByText('Sin alertas abiertas. Todo al día.')).toBeInTheDocument()
+  })
+
+  // --- La FRASE del aviso, en el idioma de la app -------------------------
+  // El back la componía en castellano y se pintaba tal cual, así que con la
+  // app en inglés el aviso salía en castellano y no había nada que traducir:
+  // era prosa. Ahora manda además su código con los números dentro.
+  describe('el mensaje se escribe en el idioma de la app', () => {
+    /** Un mantenimiento que toca por km Y por fecha: el aviso compuesto. */
+    const MANTENIMIENTO = {
+      ...KM_ALERT,
+      id: 9,
+      type: 'maintenance_due',
+      type_display: 'Mantenimiento programado',
+      message: 'Revisión anual: superado el objetivo de 10000 km (odómetro: 10500 km) '
+        + 'y, por fecha, toca en 7 día(s) (el 2026-03-01).',
+      message_code: 'maintenance',
+      message_args: {
+        plan: 'Revisión anual',
+        km: { kind: 'over', target: 10000, current: 10500 },
+        date: { kind: 'soon', days: 7, due: '2026-03-01' },
+      },
+    }
+
+    beforeEach(() => {
+      mocks.listAlerts.mockResolvedValue({ count: 1, results: [MANTENIMIENTO] })
+    })
+
+    afterEach(() => {
+      localStorage.removeItem('gs_base_lang')
+    })
+
+    it('en castellano dice exactamente lo que decía el back', async () => {
+      renderPage()
+      expect(await screen.findByText(MANTENIMIENTO.message)).toBeInTheDocument()
+    })
+
+    it('en inglés lo dice en inglés, con sus dos tramos', async () => {
+      // El provider aplica el idioma PERSISTIDO al montar.
+      localStorage.setItem('gs_base_lang', 'en')
+      renderPage()
+      expect(
+        await screen.findByText(
+          'Revisión anual: target of 10000 km passed (odometer: 10500 km) '
+            + 'and, by date, due in 7 day(s) (on 2026-03-01).',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('una alerta SIN código —de antes de esto— sigue pintándose', async () => {
+      const vieja = { ...KM_ALERT, message: 'Aviso antiguo, sin código.' }
+      mocks.listAlerts.mockResolvedValue({ count: 1, results: [vieja] })
+      localStorage.setItem('gs_base_lang', 'en')
+      renderPage()
+      expect(await screen.findByText('Aviso antiguo, sin código.')).toBeInTheDocument()
+    })
   })
 })

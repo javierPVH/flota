@@ -1281,25 +1281,42 @@ def _autosize(ws, headers, rows) -> None:
         ws.column_dimensions[get_column_letter(col)].width = min(width + 2, 50)
 
 
+def _xlsx_cell(ws, value, font: Font | None = None):
+    """INP-1: una celda del XLSX que NUNCA se interpreta como fórmula.
+
+    openpyxl guarda como fórmula (`data_type="f"`) cualquier cadena que empiece
+    por `=`, así que una nota o una descripción tecleadas por un usuario
+    («=HYPERLINK(...)», «=CMD|...») se ejecutarían al abrir el informe. El CSV
+    ya lo neutralizaba (`_csv_cell`) pero el Excel no. Aquí se fuerza el tipo
+    cadena DESPUÉS de asignar el valor —que es cuando openpyxl decide el tipo—,
+    de modo que el texto se conserva legible tal cual (sin el apóstrofo del
+    CSV). Los valores que no son texto (números, fechas, None) van como están.
+    """
+    cell = WriteOnlyCell(ws, value=value)
+    if isinstance(value, str):
+        cell.data_type = "s"
+    if font is not None:
+        cell.font = font
+    return cell
+
+
 def to_xlsx(tables: list[Table]) -> bytes:
     # R5-17: `write_only` vuelca cada fila al fichero según llega, sin construir
     # un objeto celda por dato (con treinta columnas y miles de filas eran
     # cientos de MB). Anchos y paneles fijos van ANTES de escribir, que es lo
     # que exige ese modo; la negrita del cabecero, por celda.
+    # INP-1: cada dato pasa por `_xlsx_cell`, que fija el tipo cadena; el
+    # `WriteOnlyCell` se crea igualmente por fila y se descarta al volcarla,
+    # así que no rompe el modo de bajo consumo.
     wb = Workbook(write_only=True)
     negrita = Font(bold=True)
     for title, headers, rows in tables:
         ws = wb.create_sheet(title[:31])
         _autosize(ws, headers, rows)
         ws.freeze_panes = "A2"
-        cabecera = []
-        for header in headers:
-            cell = WriteOnlyCell(ws, value=header)
-            cell.font = negrita
-            cabecera.append(cell)
-        ws.append(cabecera)
+        ws.append([_xlsx_cell(ws, header, negrita) for header in headers])
         for row in rows:
-            ws.append(row)
+            ws.append([_xlsx_cell(ws, value) for value in row])
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

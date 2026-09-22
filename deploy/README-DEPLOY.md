@@ -14,9 +14,14 @@ VPN / LAN ─────────────────────► 127
 ```
 
 - Cada front sirve su **SPA** y hace de **proxy de `/api`** hacia el back por la
-  red interna. `/static` y `/media` salen del volumen `./data` (solo lectura).
+  red interna. `/static` y `/media` salen del volumen `./data` (solo lectura, y
+  **solo esas dos subcarpetas**: `data/secrets/` y `data/saml/` no se montan en
+  los nginx — CFG-4).
 - **conductores** → público por el túnel. **gestión** → solo interna/VPN, **no**
   entra en el túnel. El **back** no publica ningún puerto al host.
+- **Dos redes** (CFG-5): `frontend` (los dos nginx + back) y `backend` (back,
+  jobs, db, redis, backup). Un nginx no alcanza la BD ni Redis; Redis lleva
+  contraseña (`REDIS_PASSWORD`).
 
 ---
 
@@ -35,19 +40,31 @@ for p in 8092 8093; do ss -tln | grep -q ":$p " && echo "$p OCUPADO" || echo "$p
 cd flota
 
 cp .env.example .env
-#   GESTION_BIND=127.0.0.1  -> cámbialo a 10.3.4.6 (IP interna) para llegar por VPN
+#   DB_PASSWORD           -> obligatoria (sin '$')
+#   REDIS_PASSWORD        -> OBLIGATORIA (CFG-5): openssl rand -hex 32
+#                            Sin ella el compose no arranca (a propósito).
+#   CONDUCTORES_BIND      -> 127.0.0.1 en el servidor (CFG-13): el túnel entra por
+#                            localhost:8092 y NADA más debe alcanzar ese puerto.
+#   BACKUP_AGE_RECIPIENT  -> clave pública age1... (CFG-6, ver §6.1). Vacía =
+#                            backups en claro (el log lo avisa).
+#   GESTION_BIND=127.0.0.1 -> cámbialo a la IP interna del servidor para llegar por VPN
 #   (no hay perfiles: el `up` levanta el back y LOS DOS fronts)
 
 cp back/.env.prod.example back/.env.prod
 #   - SECRET_KEY:  python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
-#   - ALLOWED_HOSTS / *_ORIGINS: tu dominio de conductores + el host de gestión (IP/DNS interno)
+#   - ALLOWED_HOSTS / *_ORIGINS: tu dominio de conductores + el host de gestión
+#     (sustituye IP_INTERNA_DEL_SERVIDOR por la IP/DNS interno real)
 #   - ADMIN_USERNAME / ADMIN_PASSWORD / ADMIN_EMAIL
+#   - SECURE_HSTS_SECONDS=0 y TRUSTED_PROXY_COUNT=2 se quedan como están (explicados ahí)
 ```
 
-Carpeta de datos con permisos del usuario del contenedor (uid **10001**):
+Carpeta de datos con permisos del usuario del contenedor (uid **10001**).
+**Crea también `media/` y `staticfiles/`**: desde CFG-4 los nginx montan solo
+esas dos subcarpetas, y si no existieran Docker las crearía como root y el back
+(`appuser`) no podría escribir en `media/`:
 
 ```bash
-mkdir -p data
+mkdir -p data/media data/staticfiles
 sudo chown -R 10001:10001 data
 ```
 
@@ -59,7 +76,8 @@ docker compose ps
 docker compose logs -f back      # migraciones + creación del admin
 ```
 
-`docker compose ps` debe listar **seis** servicios; si falta `front-conductores`,
+`docker compose ps` debe listar **siete** servicios (db, redis, back, jobs,
+backup y los dos fronts); si falta `front-conductores`,
 no está corriendo este compose (o se nombraron servicios sueltos en el `up`).
 Para levantar solo una de las dos apps:
 
@@ -99,15 +117,18 @@ sudo docker restart cloudflared
 ```
 
 > El túnel entra por `http://localhost:8092`, así que `CONDUCTORES_BIND` tiene
-> que seguir cubriendo el loopback: `127.0.0.1` (por defecto) o `0.0.0.0`. Usa
-> `0.0.0.0` si además quieres abrir conductores desde la VPN para probarlo. Si
-> lo fijas a la IP interna a secas (`10.3.4.6`), el loopback deja de publicarse
-> y el túnel se queda sin destino hasta que cambies el `service:` del ingress.
+> que cubrir el loopback. **En el servidor pon `CONDUCTORES_BIND=127.0.0.1`
+> en el `.env`** (CFG-13): es el valor por defecto y el único que deja el puerto
+> alcanzable SOLO desde cloudflared, que es quien pone el TLS y el filtro
+> delante. `0.0.0.0` abre además el puerto en claro a toda la LAN/VPN (solo
+> para una prueba puntual, y vuelve atrás). Si lo fijas a la IP interna a
+> secas, el loopback deja de publicarse y el túnel se queda sin destino hasta
+> que cambies el `service:` del ingress.
 
 > Gestión **no** se añade al túnel. Se accede por la VPN a
 > `http://<IP-interna-o-DNS>:8093` (recuerda poner ese host en `ALLOWED_HOSTS` y
 > en `CSRF_TRUSTED_ORIGINS`). Para que la VPN llegue, `GESTION_BIND` debe ser la
-> IP interna (p. ej. `10.3.4.6`), no `127.0.0.1`.
+> IP interna del servidor, no `127.0.0.1`.
 
 ### 4.1 Entrada de conductores por SSO (SAML contra Google Workspace)
 
@@ -156,8 +177,13 @@ docker compose up -d --build     # redeploy
 docker compose restart back
 docker compose logs -f back
 
-# Cambiar contraseña del admin: edita ADMIN_PASSWORD en back/.env.prod y:
-docker compose up -d back        # bootstrap_admin la re-sincroniza
+# Contraseña del admin (CFG-14): bootstrap_admin corre en cada arranque, pero
+# con ADMIN_UPDATE_PASSWORD=False (el valor del ejemplo y el recomendado) la
+# contraseña del entorno SOLO se usa al crear el usuario; después se cambia
+# desde la aplicación o /admin y ningún arranque la pisa. Para forzarla desde
+# el entorno: ADMIN_PASSWORD nueva + ADMIN_UPDATE_PASSWORD=True en back/.env.prod y
+docker compose up -d back        # la reaplica; luego vuelve a poner False
+#   (un `restart` no relee el env_file: hace falta el `up`)
 
 # Jobs del back (ITV, seguro, km, alertas, Drive, Jira): los ejecuta el
 # servicio `jobs` del compose cada 15 min (idempotentes; OPS1). Para forzar uno:
@@ -169,13 +195,80 @@ docker compose logs -f jobs
 # (en srvgcptd: /mnt/data/backups/flota, OTRO disco que el de la BD).
 docker compose ps backup                 # debe estar "healthy": crond vivo + backup de < 26 h
 docker compose logs --tail 20 backup     # "[backup] BD hecha y verificada -> ..." o el motivo del fallo
-ls -la /mnt/data/backups/flota           # db-<fecha>.dump, media-<fecha>.tar.gz y .last-backup-ok
+ls -la /mnt/data/backups/flota           # db-<fecha>.dump[.age], media-<fecha>.tar.gz[.age] y .last-backup-ok
 # Forzar uno ahora:
 docker compose exec backup sh -c '. /tmp/backup.env; sh /deploy/backup.sh'
-# Restaurar:
-#   docker compose exec -T db pg_restore -U flota -d flota --clean --if-exists < /mnt/data/backups/flota/db-<fecha>.dump
-#   tar -xzf /mnt/data/backups/flota/media-<fecha>.tar.gz -C ./data
+# Restaurar (si están cifrados, primero descifra con la clave PRIVADA, que no
+# está en el servidor: cópiala de forma temporal y bórrala al acabar, ver §6.1):
+#   age -d -i flota-backup.key -o db-<fecha>.dump /mnt/data/backups/flota/db-<fecha>.dump.age
+#   age -d -i flota-backup.key -o media-<fecha>.tar.gz /mnt/data/backups/flota/media-<fecha>.tar.gz.age
+#   docker compose exec -T db pg_restore -U flota -d flota --clean --if-exists < db-<fecha>.dump
+#   tar -xzf media-<fecha>.tar.gz -C ./data
 ```
+
+## 6. Seguridad del despliegue (auditoría de ciberseguridad, sep-2026)
+
+Lo que aplica el `docker-compose.yml` y los `nginx.conf` sin nada que
+configurar, salvo las variables del `.env` que se indican:
+
+| Código | Qué | Dónde |
+|---|---|---|
+| CFG-4 | Los nginx montan solo `data/media` y `data/staticfiles` (no `data/secrets`, `data/saml`) | `docker-compose.yml` |
+| CFG-5 | Redis con `requirepass` (`REDIS_PASSWORD`, obligatoria) y redes `frontend`/`backend` | `docker-compose.yml`, `.env` |
+| CFG-6 | Backups cifrados con `age` si `BACKUP_AGE_RECIPIENT` está definida | `deploy/backup.sh`, `.env` |
+| CFG-8 | `cap_drop: [ALL]` en back, jobs, redis y los dos nginx (+ las mínimas de vuelta) | `docker-compose.yml` |
+| CFG-10/SRV-5 | `server_tokens off`; HSTS solo desde el nginx de conductores (`SECURE_HSTS_SECONDS=0`); sin cabeceras duplicadas en `/api` | `nginx.conf` × 2, `back/.env.prod` |
+| CFG-12 | El access-log de gunicorn no registra la query string (`?code=`, `?SAMLResponse=`) | `back/entrypoint.sh` |
+| CFG-13/AUTH-5 | `X-Forwarded-Proto` fijo a `https` en conductores; `CONDUCTORES_BIND=127.0.0.1` | `front-conductores/nginx.conf`, `.env` |
+| FE-4 | CSP en modo `Report-Only` en gestión (mirar la consola del navegador antes de hacerla bloqueante) | `front-gestion/nginx.conf` |
+
+### 6.1 Backups cifrados (`age`)
+
+El dump lleva datos personales (conductores, permisos, partes de accidente), así
+que en el servidor **debe** ir cifrado. Es cifrado a **clave pública**: el
+servidor solo conoce la pública (`age1...`) y no puede descifrar lo que guarda.
+
+```bash
+# En TU equipo (no en el servidor). age: https://github.com/FiloSottile/age
+age-keygen -o flota-backup.key
+#   Public key: age1qxyz...        <- esto es BACKUP_AGE_RECIPIENT
+```
+
+- La **clave privada** (`flota-backup.key`) se guarda **fuera del servidor**, en
+  el gestor de contraseñas del equipo (con una copia en otro sitio: sin ella
+  los backups no valen nada). Nunca en el repo ni en `/mnt/data`.
+- En el `.env` del servidor: `BACKUP_AGE_RECIPIENT=age1qxyz...` y
+  `docker compose up -d backup`. El entrypoint instala `age` (`apk add`) al
+  arrancar; el siguiente backup sale como `.dump.age` / `.tar.gz.age`, con
+  permisos `0600` y la carpeta `0700`. Si se pidió cifrar y no se puede, el
+  backup **falla** (healthcheck en rojo) en vez de guardarse en claro.
+- Para restaurar, descifra con `age -d -i flota-backup.key` (comandos en §5) en
+  un equipo de confianza o copiando la clave al servidor solo durante la
+  restauración.
+- Sin la variable, el backup sigue funcionando en claro y lo avisa en cada
+  pasada (`[backup] AVISO: BACKUP_AGE_RECIPIENT vacio`).
+
+### 6.2 Pendiente (valorado y NO aplicado a ciegas en producción)
+
+- **nginx sin root** (`nginxinc/nginx-unprivileged`): obliga a cambiar la
+  imagen base de los dos `Dockerfile`, el `listen 80` → `8080`, el
+  `HEALTHCHECK` y los `ports` del compose a la vez. Se hará en una ventana con
+  prueba; mientras, los nginx corren como root con las cuatro capacidades
+  mínimas (CFG-8).
+- **`read_only: true`** en los contenedores (con `tmpfs` para `/tmp`,
+  `/var/cache/nginx`, `/var/run`…): hay que inventariar qué escribe cada imagen.
+- **Imágenes por digest** (`postgres:16-alpine@sha256:...`, `redis`, `nginx`,
+  `node`, `python`): fija exactamente lo que se despliega, pero exige un proceso
+  de actualización (Renovate/Dependabot) para no quedarse sin parches.
+- **`cap_drop` en `db` y `backup`**: el entrypoint de postgres hace `chown` de
+  PGDATA y baja de root (`CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID`), y el
+  `crond` de BusyBox necesita `setgroups` para lanzar cada job. Probarlo primero
+  en local con un volumen de prueba.
+- **CSP bloqueante en gestión**: pasar `Content-Security-Policy-Report-Only` a
+  `Content-Security-Policy` cuando la consola del navegador no enseñe
+  violaciones con el Picker de Drive y el login de Google en uso.
+- **Cookies `Secure`** (A15): siguen a `False` por el http interno de gestión;
+  pendiente de TLS interno.
 
 ## Notas
 
@@ -193,9 +286,11 @@ docker compose exec backup sh -c '. /tmp/backup.env; sh /deploy/backup.sh'
   `deploy/backup-entrypoint.sh` instala el cron y `deploy/backup.sh` hace el
   trabajo: `pg_dump` en formato custom a `.part`, verificación con
   `pg_restore --list` y tamaño mínimo, tar de la media, marcador
-  `.last-backup-ok` y retención (`BACKUP_KEEP_DAYS`, 30 días). El healthcheck
+  `.last-backup-ok` y retención (`BACKUP_KEEP_DAYS`, 30 días), cifrado con
+  `age` si hay `BACKUP_AGE_RECIPIENT` (§6.1). El healthcheck
   del servicio se pone en rojo si no hay un backup verificado en 26 h. Variables
-  en `.env` (`BACKUP_HOST_DIR`, `BACKUP_KEEP_DAYS`, `BACKUP_CRON`). Hasta el
+  en `.env` (`BACKUP_HOST_DIR`, `BACKUP_KEEP_DAYS`, `BACKUP_CRON`,
+  `BACKUP_AGE_RECIPIENT`). Hasta el
   15-sep-2026 no había ninguna copia: el script era un cron del host que nunca
   se instaló (auditoría srvgcptd). Prueba la restauración al configurarlo.
 - **RGPD (conductores es público)**: resuelto (SEC3) — `/media` ya NO se sirve

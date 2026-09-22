@@ -151,6 +151,11 @@ export interface Alert {
   vehicle_state: VehicleState
   user: number | null
   message: string
+  /** El MISMO mensaje dicho como dato, para poder escribirlo en inglés:
+   * el código de la plantilla y sus números. Van vacíos en las alertas
+   * anteriores a esto, que se siguen pintando con `message`. */
+  message_code?: string
+  message_args?: Record<string, unknown>
   due_date: string | null
   created_at: string
   /** Clave de idempotencia del motor de alertas. En mantenimiento codifica el

@@ -94,9 +94,15 @@ front, cada uno puerta completa de su dominio:
 
 - **conductores** → `127.0.0.1:8092`, colgado del túnel de Cloudflare (internet).
 - **gestión** → `8093`, SOLO red interna/VPN (nunca en el túnel).
+- Dos redes (`frontend`/`backend`): los nginx no alcanzan la BD ni Redis, que
+  lleva contraseña (`REDIS_PASSWORD`, obligatoria en el `.env`).
 - `/media` exige sesión (X-Accel-Redirect); backups con `deploy/backup.sh`
-  (pg_dump + media + retención). Aunque el conductor llegue al API desde
+  (pg_dump + media + retención, cifrados con `age` si se define
+  `BACKUP_AGE_RECIPIENT`). Aunque el conductor llegue al API desde
   internet, el backend le corta todo lo que no sea suyo (permisos por rol).
+- El administrador se crea en el primer arranque desde `ADMIN_*`; con
+  `ADMIN_UPDATE_PASSWORD=False` (recomendado) su contraseña se cambia luego
+  desde la aplicación y ningún arranque la pisa (ver `deploy/README-DEPLOY.md` §5).
 
 ## Modelo de dominio (app `fleet`)
 

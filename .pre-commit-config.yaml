@@ -21,3 +21,11 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
       - id: detect-private-key
+
+  # CFG-11: secretos antes de que lleguen a un commit (la CI los busca después
+  # en todo el histórico, pero entonces ya hay que rotarlos). Allowlist mínima
+  # en .gitleaks.toml. El hook compila gitleaks con Go la primera vez.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

@@ -80,6 +80,10 @@ MIDDLEWARE = [
     "core.observability.RequestIDMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # AUTH-3: cookies de sesión y CSRF con `Secure` cuando la petición llegó
+    # por https, aunque *_COOKIE_SECURE sea False porque la gestión va por
+    # http interno. Va ANTES de Session/Csrf para verlas ya puestas al salir.
+    "accounts.middleware.SecureCookiesOnHttpsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -192,6 +196,11 @@ CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
 # El front lee la cookie CSRF y la reenvía como cabecera X-CSRFToken ⇒ NO httponly.
 CSRF_COOKIE_HTTPONLY = env_bool("CSRF_COOKIE_HTTPONLY", False)
 CSRF_COOKIE_SAMESITE = env_str("CSRF_COOKIE_SAMESITE", "Lax")
+
+# INP-2: techo del cuerpo (no multipart) que se lee en memoria. Django ya trae
+# 2,5 MB por defecto; se fija explícito porque es el límite que aplica también
+# al JSON de DRF (≥ 3.16.1) y nginx solo acota por encima (12 MB, para ficheros).
+DATA_UPLOAD_MAX_MEMORY_SIZE = env_int("DATA_UPLOAD_MAX_MEMORY_SIZE", 2_621_440)
 # SameSite: con front y back en el MISMO dominio (o subdominios) → "Lax". Si van
 # en dominios DISTINTOS y la SPA usa cookies, hace falta "None" (+ Secure, que ya
 # es automático fuera de dev). Configúralo por entorno con *_COOKIE_SAMESITE.
@@ -286,6 +295,9 @@ SAML_IDP_METADATA_FILE = env_str(
 )
 # Corralito de dominio: solo correos de estos dominios (vacío = sin filtro).
 SAML_ALLOWED_DOMAINS = env_list("SAML_ALLOWED_DOMAINS", ["gransolar.com"])
+# AUTH-2: dominios a los que puede mandar informes quien NO es administrador
+# (destinatarios extra de los envíos programados). Por defecto, los del SSO.
+FLEET_EMAIL_ALLOWED_DOMAINS = env_list("FLEET_EMAIL_ALLOWED_DOMAINS", SAML_ALLOWED_DOMAINS)
 # A dónde vuelve el navegador cuando el ACS rechaza la entrada (la PWA lee
 # `?saml=<motivo>` y enseña el modal). Relativa: ACS y PWA son el mismo origen.
 SAML_FAILURE_REDIRECT = env_str("SAML_FAILURE_REDIRECT", "/login")

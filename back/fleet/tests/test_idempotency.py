@@ -128,7 +128,10 @@ class ClientRefIdempotencyTests(APITestCase):
         def post():
             # Un fichero NUEVO por intento: el reenvío real también reconstruye
             # el multipart desde el binario guardado en la cola.
-            file = SimpleUploadedFile("foto.jpg", b"jpg-bytes", content_type="image/jpeg")
+            # INP-3: cabecera JPEG real, que la firma del fichero se comprueba.
+            file = SimpleUploadedFile(
+                "foto.jpg", b"\xff\xd8\xff\xe0jpg-bytes", content_type="image/jpeg"
+            )
             return self.client.post(
                 url,
                 {

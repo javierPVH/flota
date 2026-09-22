@@ -16,6 +16,7 @@ vi.mock('./api.ts', async (importOriginal) => ({
 
 import {
   disablePush,
+  disablePushOnLogout,
   enablePush,
   pushState,
   pushSupported,
@@ -148,6 +149,38 @@ describe('push (M8: estado, alta y baja en este dispositivo)', () => {
     withPushSupport(null)
     mocks.deletePushSubscription.mockClear()
     await disablePush()
+    expect(mocks.deletePushSubscription).not.toHaveBeenCalled()
+  })
+
+  // --- FE-3: la baja al cerrar sesión -----------------------------------------
+
+  it('FE-3: disablePushOnLogout da de baja la suscripción del registro (local + back)', async () => {
+    const subscription = fakeSubscription('https://push.test/sesion')
+    const pushManager = withPushSupport(subscription)
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: {
+        // `ready` que NUNCA se resuelve: sin SW activo no puede colgar el logout.
+        ready: new Promise(() => {}),
+        getRegistration: vi.fn().mockResolvedValue({ pushManager }),
+      },
+      configurable: true,
+    })
+    await disablePushOnLogout()
+    expect(subscription.unsubscribe).toHaveBeenCalled()
+    expect(mocks.deletePushSubscription).toHaveBeenCalledWith('https://push.test/sesion')
+  })
+
+  it('FE-3: sin registro de SW (dev) o sin soporte, no hace nada y termina', async () => {
+    withPushSupport(null)
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { ready: new Promise(() => {}), getRegistration: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    })
+    await disablePushOnLogout()
+    expect(mocks.deletePushSubscription).not.toHaveBeenCalled()
+
+    Reflect.deleteProperty(window, 'PushManager')
+    await disablePushOnLogout()
     expect(mocks.deletePushSubscription).not.toHaveBeenCalled()
   })
 })

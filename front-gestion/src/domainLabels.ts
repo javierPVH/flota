@@ -17,6 +17,8 @@
  */
 import { useMemo } from 'react'
 
+import { alertMessage, type AlertMessageSource } from '@flota/ui/domain'
+
 import { useDomainCopy } from './translations/domain.ts'
 
 interface Coded {
@@ -45,6 +47,14 @@ function etiquetas(d: ReturnType<typeof useDomainCopy>) {
       pick(d.docStatus, { code: doc.status, fallback: doc.status_display }),
     alertType: (alert: { type?: string | null; type_display?: string | null }): string =>
       pick(d.alertType, { code: alert.type, fallback: alert.type_display }),
+    /**
+     * La FRASE del aviso. No es un enumerado como las de arriba: la
+     * escribía el back en castellano y se pintaba tal cual, así que con la
+     * app en inglés el aviso salía en castellano —en la bandeja, en la
+     * campana y en el CSV—. Ahora llega su código con los números dentro
+     * y la escribe el DS; sin código (alertas de antes) sigue la del back.
+     */
+    alertMessage: (alert: AlertMessageSource): string => alertMessage(alert, d.alertMessage),
     alertLevel: (alert: { level?: string | null; level_display?: string | null }): string =>
       pick(d.alertLevel, { code: alert.level, fallback: alert.level_display }),
     alertStatus: (alert: { status?: string | null; status_display?: string | null }): string =>

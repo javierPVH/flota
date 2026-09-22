@@ -67,12 +67,34 @@ export async function enablePush(): Promise<void> {
   await savePushSubscription(subscription.toJSON())
 }
 
-/** Desactiva los avisos en este dispositivo (baja local + en el back). */
-export async function disablePush(): Promise<void> {
-  const registration = await navigator.serviceWorker.ready
+/** Baja local + en el back de la suscripción de ese registro, si la hay. */
+async function unsubscribeFrom(registration: ServiceWorkerRegistration): Promise<void> {
   const subscription = await registration.pushManager.getSubscription()
   if (!subscription) return
   const endpoint = subscription.endpoint
   await subscription.unsubscribe()
   await deletePushSubscription(endpoint)
+}
+
+/** Desactiva los avisos en este dispositivo (baja local + en el back). */
+export async function disablePush(): Promise<void> {
+  await unsubscribeFrom(await navigator.serviceWorker.ready)
+}
+
+/**
+ * FE-3: la misma baja, pero al CERRAR SESIÓN. La suscripción push es del
+ * dispositivo, no de la sesión: sin esto sobrevivía al logout y el móvil seguía
+ * recibiendo los avisos de quien se fue (y el back la seguía teniendo a su
+ * nombre). Diferencias con `disablePush`:
+ * - no espera a `serviceWorker.ready`, que sin SW registrado (dev, navegador
+ *   sin soporte) no se resuelve nunca y dejaría el logout colgado: si no hay
+ *   registro, no hay suscripción que dar de baja;
+ * - se llama ANTES de cerrar la sesión, porque el `DELETE` al back va
+ *   autenticado (cookies de sesión + CSRF).
+ */
+export async function disablePushOnLogout(): Promise<void> {
+  if (!pushSupported()) return
+  const registration = await navigator.serviceWorker.getRegistration()
+  if (!registration) return
+  await unsubscribeFrom(registration)
 }

@@ -16,6 +16,7 @@ para que la app arranque aunque no estén instaladas o el OAuth esté apagado.
 
 import logging
 import os
+import re
 
 from django.conf import settings
 from django.utils import timezone
@@ -174,17 +175,37 @@ _DRIVE_MIME_FILTERS = {
 }
 
 
+#: INP-5: forma de un id de Drive. La query de `files.list` se compone por
+#: interpolación, así que lo que llega del front (`?folder_id=`) se valida
+#: ANTES de meterlo en ella: quitar la comilla no bastaba (quedaban `\`, espacios
+#: y operadores del lenguaje de consulta de Drive).
+_DRIVE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def validate_drive_id(value) -> str:
+    """Devuelve `value` como cadena si tiene forma de id de Drive; si no, `ValueError`."""
+    folder_id = str(value or "")
+    if not _DRIVE_ID_RE.match(folder_id):
+        raise ValueError("Identificador de Drive no válido.")
+    return folder_id
+
+
 def list_folder_files(user, folder_id, kind="all", limit=100, service=None):
     """Lista los archivos (no carpetas) de una carpeta de Drive.
 
     Devuelve dicts listos para el front (`id,name,mime,url,iconUrl,
     thumbnailUrl`). `service` permite inyectar un cliente ya construido (tests).
+    Un `folder_id` que no tenga forma de id de Drive lanza `ValueError` (INP-5).
     """
+    if not folder_id:
+        return []
+    # Se valida antes de construir el cliente: un id malformado no merece ni
+    # refrescar el token del usuario.
+    safe_id = validate_drive_id(folder_id)
     service = service or drive_service(user)
-    if not service or not folder_id:
+    if not service:
         return []
 
-    safe_id = str(folder_id).replace("'", "")
     query = f"'{safe_id}' in parents and trashed = false and mimeType != '{_FOLDER_MIME}'"
     mime_filter = _DRIVE_MIME_FILTERS.get(kind)
     if mime_filter:

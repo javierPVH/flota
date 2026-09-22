@@ -13,6 +13,8 @@
  *   reintentará al volver la conexión); si el servidor lo rechaza, el elemento
  *   se descarta y se notifica: los demás no se bloquean.
  * - Reintento automático: evento `online` + al arrancar la app.
+ * - FE-2: cada elemento lleva el `userId` de quien lo encoló; `flush` descarta
+ *   lo ajeno y el cierre de sesión vacía la cola (`clearQueue`).
  */
 
 import { ApiError } from '@flota/ui/http'
@@ -66,6 +68,22 @@ export interface StoredItem {
   item: QueuedItem
   /** BG3: reintentos consumidos por errores transitorios (429/5xx/408/401). */
   attempts?: number
+  /** FE-2: de quién es el dato. La cola sobrevive al cierre de sesión (es
+   * IndexedDB del dispositivo), así que lo encolado por una persona NO puede
+   * reenviarse con la sesión de la siguiente: `flush` descarta lo que no sea
+   * del usuario vigente. Ausente (elementos anteriores a esta marca) cuenta
+   * como ajeno. */
+  userId?: number | null
+}
+
+// FE-2: usuario vigente al que pertenece lo que se encola. Lo fija la app al
+// arrancar/entrar (`setQueueOwner`) y lo vacía al salir. Sin dueño no se
+// reenvía nada: no hay sesión con la que hacerlo.
+let owner: number | null = null
+
+/** FE-2: fija (o borra, con `null`) el usuario al que pertenece la cola. */
+export function setQueueOwner(userId: number | null): void {
+  owner = userId
 }
 
 /** BG3: tras N reintentos transitorios fallidos, el elemento se descarta con
@@ -167,8 +185,22 @@ export function onQueueChange(listener: () => void): () => void {
 
 export async function enqueue(item: QueuedItem): Promise<void> {
   await tx('readwrite', (store) =>
-    store.add({ createdAt: new Date().toISOString(), item } as Omit<StoredItem, 'id'>),
+    store.add({
+      createdAt: new Date().toISOString(),
+      item,
+      // FE-2: marcado con su dueño, que es lo que permite descartarlo si lo
+      // reenvía otra sesión.
+      userId: owner,
+    } as Omit<StoredItem, 'id'>),
   )
+  notify()
+}
+
+/** FE-2: vacía la cola entera. Se llama al cerrar sesión: lo que quedara sin
+ * enviar (km, repostajes, partes, adjuntos) es de quien se va, y no puede
+ * salir con la sesión de quien entre después. */
+export async function clearQueue(): Promise<void> {
+  await tx('readwrite', (store) => store.clear())
   notify()
 }
 
@@ -349,19 +381,32 @@ export interface FlushResult {
   rejected: string[]
   /** Quedan pendientes por seguir sin red. */
   remaining: number
+  /** FE-2: descartados sin enviar por ser de OTRO usuario (o sin dueño). */
+  discarded?: number
 }
 
 let flushing = false
 
 /** Reenvía la cola en orden. Segura ante llamadas concurrentes. */
 export async function flush(): Promise<FlushResult> {
-  const result: FlushResult = { sent: 0, rejected: [], remaining: 0 }
+  const result: FlushResult = { sent: 0, rejected: [], remaining: 0, discarded: 0 }
   // R5-59: la segunda llamada solapada no debe decir «no queda nada».
   if (flushing) return { ...result, remaining: await queueSize().catch(() => 0) }
+  // FE-2: sin usuario vigente no hay sesión con la que reenviar; se conserva
+  // todo hasta que alguien entre (y entonces se decide de quién es cada cosa).
+  if (owner === null) return { ...result, remaining: await queueSize().catch(() => 0) }
   flushing = true
   try {
     const items = await queuedItems()
     for (const stored of items) {
+      // FE-2: lo que no es del usuario vigente se BORRA sin enviarlo — cubre
+      // la sesión caducada seguida de la entrada de otra persona en el mismo
+      // móvil, donde el cierre manual (que vacía la cola) no ha ocurrido.
+      if (stored.userId !== owner) {
+        await remove(stored.id)
+        result.discarded = (result.discarded ?? 0) + 1
+        continue
+      }
       try {
         const createdId = await send(stored.item)
         if (stored.item.kind === 'incident' && createdId !== undefined) {

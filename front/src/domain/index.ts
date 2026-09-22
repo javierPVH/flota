@@ -97,6 +97,114 @@ export function tireReportSummary(
   return parts.join(' · ')
 }
 
+// --- El mensaje de una alerta (su frase, en el idioma de la app) ----------
+
+/**
+ * Lo que el back manda del mensaje: la frase ya escrita **en castellano** y,
+ * desde el código estructurado, el par código + datos.
+ */
+export interface AlertMessageSource {
+  message?: string | null
+  message_code?: string | null
+  message_args?: Record<string, unknown> | null
+}
+
+/**
+ * Las plantillas del mensaje; las pone cada app (el dominio no sabe de i18n,
+ * igual que en `tireReportSummary`). Cada una lleva sus marcadores `{dato}`.
+ *
+ * Las claves son el contrato con `back/fleet/services/alert_messages.py`:
+ * `itv_overdue`, `itv_due`, `insurance_overdue`, `insurance_due`,
+ * `km_pending`, `no_driver`, `km_overage`, el marco y los tramos del
+ * `maintenance` y los tres `reminder_*`.
+ */
+export type AlertMessageCopy = Record<string, string>
+
+/** `{dato}` → su valor. Un marcador sin dato se queda vacío, no «undefined». */
+function rellena(plantilla: string, args: Record<string, unknown>): string {
+  return plantilla.replace(/\{(\w+)\}/g, (_, clave: string) => {
+    const valor = args[clave]
+    return valor === undefined || valor === null ? '' : String(valor)
+  })
+}
+
+/**
+ * **La frase del aviso, en el idioma de la app.**
+ *
+ * El back componía esta frase en castellano y la mandaba escrita, así que con
+ * la app en inglés la tarjeta del aviso salía en castellano y no había nada
+ * que traducir: era prosa, no un dato. Ahora manda además **el código de la
+ * plantilla y sus números**, y la frase se escribe aquí.
+ *
+ * Vive en el DS porque esas plantillas son **contrato del back** y las pintan
+ * las dos apps: con una copia en cada una, la del móvil y la del escritorio
+ * acabarían leyendo distinto el mismo aviso.
+ *
+ * Sin código (alertas anteriores a esto) o con uno que esta versión no
+ * conozca, devuelve la frase del back: se lee en castellano, que es mucho
+ * mejor que un hueco o un código crudo.
+ */
+export function alertMessage(alert: AlertMessageSource, copy: AlertMessageCopy): string {
+  const code = alert.message_code || ''
+  const args = alert.message_args ?? {}
+  const reserva = alert.message ?? ''
+  if (!code) return reserva
+
+  if (code === 'maintenance') return mantenimiento(args, copy, reserva)
+  if (code === 'reminder') return recordatorio(args, copy, reserva)
+
+  const plantilla = copy[code]
+  return plantilla ? rellena(plantilla, args) : reserva
+}
+
+/**
+ * El mantenimiento es EL único aviso compuesto: un plan puede tocar por km y
+ * por fecha a la vez y es el mismo servicio, así que sus dos tramos vienen
+ * sueltos y se juntan aquí. En castellano mandan los km y la fecha se suma
+ * detrás; el orden lo decide la copia de cada idioma, no esta función.
+ */
+function mantenimiento(
+  args: Record<string, unknown>,
+  copy: AlertMessageCopy,
+  reserva: string,
+): string {
+  const km = args.km as { kind?: string } | undefined
+  const fecha = args.date as { kind?: string } | undefined
+  const partes: string[] = []
+  if (km?.kind && copy[`maintenance_km_${km.kind}`]) {
+    partes.push(rellena(copy[`maintenance_km_${km.kind}`], km as Record<string, unknown>))
+  }
+  if (fecha?.kind && copy[`maintenance_date_${fecha.kind}`]) {
+    const tramo = rellena(copy[`maintenance_date_${fecha.kind}`], fecha as Record<string, unknown>)
+    // Con los dos tramos, el de fecha se engancha al anterior («y, por
+    // fecha, …»): es el mismo servicio dicho por sus dos caminos.
+    partes.push(
+      partes.length && copy.maintenance_date_join
+        ? rellena(copy.maintenance_date_join, { leg: tramo })
+        : tramo,
+    )
+  }
+  if (!partes.length || !copy.maintenance) return reserva
+  return rellena(copy.maintenance, { plan: args.plan, parts: partes.join(' ') })
+}
+
+/**
+ * El recordatorio que manda a mano quien supervisa. Su `note` la escribió una
+ * persona: viaja tal cual y no se traduce en ningún idioma.
+ */
+function recordatorio(
+  args: Record<string, unknown>,
+  copy: AlertMessageCopy,
+  reserva: string,
+): string {
+  const base = copy[`reminder_${String(args.kind ?? '')}`]
+  if (!base) return reserva
+  const partes = [base]
+  if (args.due && copy.reminder_due) partes.push(rellena(copy.reminder_due, args))
+  if (args.note) partes.push(String(args.note))
+  return partes.join(' ').trim()
+}
+
 // --- Mapas de tonos de <Badge> por estado de dominio -----------------------
 
 const STATE_TONE: Record<string, BadgeTone> = {

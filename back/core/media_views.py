@@ -40,6 +40,11 @@ def _authorize(user, path: str) -> None:
     de nada: con la URL del fichero en la mano, el binario se seguía bajando.
     Un fichero sin `Document` que lo respalde (huérfano de una subida a medias,
     o algo dejado a mano en MEDIA_ROOT) no se sirve a nadie salvo al admin.
+
+    AUTH-10: un documento DESACTIVADO (N7, está en erratas) tampoco: el
+    listado ya lo escondía, pero con la URL del fichero en la mano el binario
+    se seguía bajando. Solo la gestión, que es quien lo ve en erratas y decide
+    si restaurarlo, sigue pudiendo abrirlo.
     """
     # Imports locales: `core` no debe depender de `fleet` en tiempo de carga.
     from fleet.models import Document
@@ -47,7 +52,8 @@ def _authorize(user, path: str) -> None:
 
     if user.is_admin:
         return
-    if not readable_documents(user, Document.objects.filter(file=path)).exists():
+    documents = Document.objects.filter(file=path, is_active=True)
+    if not readable_documents(user, documents).exists():
         raise Http404
 
 

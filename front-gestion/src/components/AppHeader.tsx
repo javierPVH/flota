@@ -396,7 +396,7 @@ export function AppHeader() {
                     >
                       <span className="shell-alertitem-body">
                         <strong>{alert.vehicle_plate || etiqueta.alertType(alert)}</strong>
-                        <span className="shell-alertitem-msg">{alert.message}</span>
+                        <span className="shell-alertitem-msg">{etiqueta.alertMessage(alert)}</span>
                       </span>
                     </NavLink>
                   ))

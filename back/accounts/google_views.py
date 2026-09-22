@@ -9,6 +9,7 @@ login/callback son navegaciones de página completa (usan la sesión de Django);
 el resto son APIs DRF normales (sesión + CSRF).
 """
 
+import hmac
 import logging
 
 from django.conf import settings
@@ -34,10 +35,19 @@ def _frontend(path: str = "") -> str:
     return f"{base}{path}"
 
 
+def _is_management(request) -> bool:
+    """AUTH-4: login/callback son vistas Django (sin DRF), así que el mismo
+    criterio de `IsManagement` se comprueba aquí a mano."""
+    return bool(getattr(request.user, "is_management", False))
+
+
 def google_oauth_login(request):
     """Arranca el consentimiento OAuth y redirige a Google."""
     if not request.user.is_authenticated:
         return JsonResponse({"detail": "Necesitas iniciar sesión."}, status=403)
+    if not _is_management(request):
+        # AUTH-4: vincular un Drive es cosa de gestión (SEC8, como el Picker).
+        return JsonResponse({"detail": "Solo personal de gestión."}, status=403)
     if not oauth_enabled():
         return JsonResponse({"detail": "Google OAuth no está habilitado."}, status=503)
 
@@ -58,13 +68,28 @@ def google_oauth_callback(request):
     """Recibe el código de Google, lo intercambia por tokens y los guarda."""
     if not request.user.is_authenticated:
         return JsonResponse({"detail": "Necesitas iniciar sesión."}, status=403)
+    if not _is_management(request):
+        return JsonResponse({"detail": "Solo personal de gestión."}, status=403)
     if not oauth_enabled():
         return JsonResponse({"detail": "Google OAuth no está habilitado."}, status=503)
 
-    state = request.session.get("google_oauth_state")
+    # AUTH-4: `state` y `code_verifier` son OBLIGATORIOS y de un solo uso. Sin
+    # exigirlos, un enlace al callback con un `code` ajeno vincularía el Drive
+    # del atacante a la sesión de quien lo abra (CSRF de vinculación), y todo
+    # lo que esa persona subiera «con su Drive» acabaría en el del atacante.
+    expected_state = request.session.pop("google_oauth_state", None)
+    code_verifier = request.session.pop("google_code_verifier", None)
+    received_state = request.GET.get("state", "")
+    if (
+        not expected_state
+        or not code_verifier
+        or not hmac.compare_digest(str(expected_state), str(received_state))
+    ):
+        logger.warning("Callback de Google OAuth sin state/PKCE válidos user=%s", request.user.pk)
+        return HttpResponseRedirect(_frontend("/?google=error"))
     try:
-        flow = build_flow(state=state)
-        flow.code_verifier = request.session.get("google_code_verifier")
+        flow = build_flow(state=expected_state)
+        flow.code_verifier = code_verifier
         # Reconstruye la URL https aunque internamente sea http (proxy/túnel).
         authorization_response = request.build_absolute_uri()
         if authorization_response.startswith("http://") and request.is_secure():

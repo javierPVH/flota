@@ -1076,6 +1076,35 @@ const es = {
     },
     alertLevel: { info: 'Informativa', warning: 'Aviso', critical: 'Crítica' },
     alertStatus: { open: 'Abierta', resolved: 'Resuelta' },
+    /**
+     * La frase de un aviso. El back manda el código de la plantilla y sus
+     * números (`alert_messages.py`), y se escribe aquí; los marcadores
+     * `{dato}` los rellena `alertMessage` del DS. Un código que no esté en
+     * esta tabla cae en la frase castellana que manda el back.
+     */
+    alertMessage: {
+      itv_overdue: 'ITV vencida hace {days} día(s) (venció el {due}).',
+      itv_due: 'ITV en {days} día(s) (vence el {due}).',
+      insurance_overdue: 'Seguro vencido hace {days} día(s) (venció el {due}).',
+      insurance_due: 'Seguro en {days} día(s) (vence el {due}).',
+      km_pending: 'Falta la lectura de km de {period}.',
+      no_driver: 'Sin conductor asignado desde hace más de {days} día(s).',
+      km_overage: 'Proyección {projected} km supera los {contracted} km contratados ({pct}%).',
+      // El mantenimiento es el único compuesto: el marco y los tramos que
+      // toquen (por km, por fecha o los dos; en castellano mandan los km).
+      maintenance: '{plan}: {parts}.',
+      maintenance_km_over: 'superado el objetivo de {target} km (odómetro: {current} km)',
+      maintenance_km_near: 'quedan {remaining} km para el objetivo de {target} km',
+      maintenance_date_overdue: 'vencido hace {days} día(s) (tocaba el {due})',
+      maintenance_date_soon: 'toca en {days} día(s) (el {due})',
+      maintenance_date_join: 'y, por fecha, {leg}',
+      // El recordatorio que manda a mano quien supervisa; su nota la escribió
+      // una persona y va tal cual, sin traducir.
+      reminder_km_reading_pending: 'Recordatorio: lectura de km pendiente este mes.',
+      reminder_itv_due: 'Recordatorio: ITV del vehículo.',
+      reminder_maintenance_due: 'Recordatorio: mantenimiento programado.',
+      reminder_due: 'Vencimiento: {due}.',
+    },
     incidentStatus: { open: 'Abierta', on_going: 'En curso', closed: 'Cerrada' },
     vehicleState: {
       active: 'Activo',
@@ -2014,6 +2043,25 @@ const en: typeof es = {
     },
     alertLevel: { info: 'Informative', warning: 'Warning', critical: 'Critical' },
     alertStatus: { open: 'Open', resolved: 'Resolved' },
+    alertMessage: {
+      itv_overdue: 'MOT overdue by {days} day(s) (it expired on {due}).',
+      itv_due: 'MOT in {days} day(s) (expires on {due}).',
+      insurance_overdue: 'Insurance overdue by {days} day(s) (it expired on {due}).',
+      insurance_due: 'Insurance in {days} day(s) (expires on {due}).',
+      km_pending: 'The km reading for {period} is missing.',
+      no_driver: 'No driver assigned for more than {days} day(s).',
+      km_overage: 'Projected {projected} km exceeds the {contracted} km contracted ({pct}%).',
+      maintenance: '{plan}: {parts}.',
+      maintenance_km_over: 'target of {target} km passed (odometer: {current} km)',
+      maintenance_km_near: '{remaining} km left to the {target} km target',
+      maintenance_date_overdue: 'overdue by {days} day(s) (it was due on {due})',
+      maintenance_date_soon: 'due in {days} day(s) (on {due})',
+      maintenance_date_join: 'and, by date, {leg}',
+      reminder_km_reading_pending: 'Reminder: km reading due this month.',
+      reminder_itv_due: 'Reminder: vehicle MOT.',
+      reminder_maintenance_due: 'Reminder: scheduled maintenance.',
+      reminder_due: 'Due date: {due}.',
+    },
     incidentStatus: { open: 'Open', on_going: 'In progress', closed: 'Closed' },
     vehicleState: {
       active: 'Active',

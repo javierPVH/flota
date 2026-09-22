@@ -895,6 +895,19 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         # `to_renting`: email de la compañía de renting del contrato vigente
         # (destinatario típico del aviso de seguro, N10a).
         to_renting = bool(request.data.get("to_renting"))
+        # AUTH-11: quien no es administrador escribe al conductor y al
+        # supervisor de SU coche, con el texto escapado o la plantilla tal
+        # cual. Asunto y cuerpo HTML libres hacia todos los administradores o
+        # hacia la renting desde el remitente corporativo es phishing interno.
+        if not request.user.is_admin:
+            if to_admin or to_renting:
+                raise ValidationError(
+                    {"detail": "Solo administración puede escribir a administración o a la renting"}
+                )
+            if body_override or (request.data.get("subject") or "").strip():
+                raise ValidationError(
+                    {"detail": "Solo administración puede cambiar el asunto o el cuerpo."}
+                )
         extra_email = (request.data.get("email") or "").strip()
         if extra_email:
             # R5-10: un destinatario LIBRE desde el SMTP corporativo es un vector
@@ -1049,8 +1062,8 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         el email es la casilla del modal, encolar además lo duplicaría.
         """
         from .selectors import current_driver_map
+        from .services import alert_messages, mailer
         from .services import alerts as alerts_service
-        from .services import mailer
         from .services.metrics import _maintenance_due_map
 
         vehicle = self.get_object()
@@ -1070,14 +1083,16 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         elif kind == AlertType.MAINTENANCE_DUE:
             due = _maintenance_due_map([vehicle.id]).get(vehicle.id)
 
-        base = {
-            AlertType.KM_READING_PENDING: "Recordatorio: lectura de km pendiente este mes.",
-            AlertType.ITV_DUE: "Recordatorio: ITV del vehículo.",
-            AlertType.MAINTENANCE_DUE: "Recordatorio: mantenimiento programado.",
-        }[kind]
-        if due:
-            base += f" Vencimiento: {due.isoformat()}."
-        text = f"{base} {message}".strip()
+        # La frase y su código salen del mismo sitio que las de los chequeos
+        # (`services/alert_messages.py`). Lo que escribió quien supervisa viaja
+        # como dato dentro del mensaje: eso no se traduce en ningún idioma.
+        msg = alert_messages.compose(
+            "reminder",
+            kind=kind,
+            due=due.isoformat() if due else "",
+            note=message,
+        )
+        text = msg["message"]
 
         driver = current_driver_map([vehicle.id]).get(vehicle.id)
 
@@ -1087,7 +1102,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 dedup_key=f"reminder:{kind}:{vehicle.pk}:{today.isoformat()}",
                 type=kind,
                 level=AlertLevel.WARNING,
-                message=text,
+                **msg,
                 vehicle=vehicle,
                 user=driver,
                 due_date=due,
@@ -1527,6 +1542,16 @@ class VehicleUsageViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewse
         user = request.user
         if not user.is_admin and not vehicles_for(user).filter(pk=vehicle.pk).exists():
             raise PermissionDenied("El vehículo está fuera de tu ámbito.")
+        if not user.is_admin:
+            # AUTH-9: las personas del reparto tienen que ser de su ámbito
+            # (`users_for`), igual que el coche; si no, un supervisor mete en
+            # su reparto a cualquier conductor de la empresa.
+            propuestos = {item["driver"].pk for item in data["items"]}
+            alcanzables = set(
+                users_for(user).filter(pk__in=propuestos).values_list("pk", flat=True)
+            )
+            if propuestos - alcanzables:
+                raise PermissionDenied("Hay personas del reparto fuera de tu ámbito.")
         with transaction.atomic():
             # R3-24: cierre fila a fila (no `queryset.update()`) — VehicleUsage
             # está auditado y el diff del cierre debe quedar, con su updated_at.
@@ -2046,6 +2071,12 @@ class DocumentViewSet(
         user = request.data.get("user")
         if not vehicle and not user:
             raise ValidationError({"vehicle": "Indica el vehículo o el usuario a comprobar."})
+        # INP-6: un id que no es un entero era un 500 al filtrar.
+        try:
+            vehicle = int(vehicle) if vehicle else None
+            user = int(user) if user else None
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"vehicle": "El identificador debe ser numérico."}) from exc
         rows = Document.objects.filter(is_active=True).select_related(
             "vehicle", "user", "uploaded_by"
         )

@@ -165,6 +165,12 @@ class LogoutView(APIView):
 
     def post(self, request):
         security_logger.info("logout user=%s", request.user.pk)
+        # FE-3: cerrar sesión retira las suscripciones push de la persona; si
+        # no, el dispositivo seguiría recibiendo sus alertas (matrícula, texto)
+        # en la pantalla de bloqueo con otra persona, o nadie, dentro.
+        from .models import PushSubscription
+
+        PushSubscription.objects.filter(user=request.user).delete()
         logout(request)
         return Response({"detail": "Sesión cerrada."})
 
@@ -188,11 +194,14 @@ class DriversView(APIView):
     permission_classes = [IsManagement]
 
     def get(self, request):
-        drivers = (
-            User.objects.filter(roles__role=Role.DRIVER, is_active=True)
-            .distinct()
-            .order_by("first_name", "username")
-        )
+        drivers = User.objects.filter(roles__role=Role.DRIVER, is_active=True)
+        if not request.user.is_admin:
+            # AUTH-9: quien supervisa ve a SU gente (`users_for`, el criterio
+            # canónico del ámbito), no el directorio de conductores entero.
+            from fleet.scoping import users_for
+
+            drivers = drivers.filter(pk__in=users_for(request.user).values("pk"))
+        drivers = drivers.distinct().order_by("first_name", "username")
         return Response(DriverSerializer(drivers, many=True).data)
 
 
@@ -267,7 +276,10 @@ class GoogleLoginView(APIView):
 
         if user is None:
             if not settings.GOOGLE_AUTO_CREATE_USERS:
-                security_logger.info("google login sin cuenta (auto-create off) email=%s", email)
+                # AUTH-8: el correo es dato personal; al log va en resumen (R5-13).
+                security_logger.info(
+                    "google login sin cuenta (auto-create off) id=%s", digest(email)[:12]
+                )
                 return Response(
                     {"detail": "No existe una cuenta para este email de Google."},
                     status=status.HTTP_403_FORBIDDEN,
