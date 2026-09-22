@@ -12,7 +12,9 @@ from .document import (
     EXPIRING_DOCUMENT_TYPES,
     INCIDENT_BOUND_DOCUMENT_TYPES,
     LINK_REQUIRED_DOCUMENT_TYPES,
+    PERSONAL_DOCUMENT_TYPES,
     DocumentDeletionStatus,
+    DocumentRequestKind,
     DocumentStatus,
     DocumentType,
 )
@@ -26,7 +28,7 @@ from .incident import (
 )
 from .invoice import AllocationTarget
 from .operations import AssignmentStatus, LinkReason
-from .request import DriverChangeStatus, VehicleRequestStatus
+from .request import DriverChangeStatus, ProfileChangeStatus, VehicleRequestStatus
 from .vehicle import (
     MarketSegment,
     PropertyType,
@@ -53,6 +55,8 @@ __all__ = [
     "DocumentType",
     "DocumentStatus",
     "DocumentDeletionStatus",
+    "DocumentRequestKind",
+    "PERSONAL_DOCUMENT_TYPES",
     "ALERT_LINKABLE_DOCUMENT_TYPES",
     "EVENT_LINKABLE_DOCUMENT_TYPES",
     "EXPIRING_DOCUMENT_TYPES",
@@ -68,4 +72,5 @@ __all__ = [
     "AlertStatus",
     "VehicleRequestStatus",
     "DriverChangeStatus",
+    "ProfileChangeStatus",
 ]

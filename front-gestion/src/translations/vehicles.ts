@@ -1,5 +1,10 @@
 import { useAppLang } from '@flota/ui/i18n'
 
+// Los estados del vehículo salen de la tabla común del dominio: dos copias de
+// un mismo enumerado acaban diciendo cosas distintas (aquí y en la chapa que
+// pinta cada tabla).
+import { en as domainEn, es as domainEs } from './domain.ts'
+
 const es = {
   title: 'Vehículos',
   subtitle: 'Inventario de la flota.',
@@ -422,8 +427,8 @@ const es = {
     injEmail: 'Email',
     injPlate: 'Matrícula del vehículo',
     injSeat: 'Posición',
-    seatDriver: 'Conductor',
-    seatPassenger: 'Pasajero',
+    seatDriver: domainEs.seat.driver,
+    seatPassenger: domainEs.seat.passenger,
     policeRef: 'Referencia del atestado (opcional)',
     file: 'Archivo del parte (opcional)',
     markState: 'Marcar el vehículo como «Accidentado»',
@@ -467,15 +472,7 @@ const es = {
     personal: 'Personal',
     works: 'Obras',
   } as Record<string, string>,
-  stateLabel: {
-    active: 'Activo',
-    maintenance: 'No activo - Mantenimiento',
-    itv: 'No activo - ITV',
-    broken: 'No activo - Averiado',
-    accidente: 'No activo - Accidentado',
-    non_active: 'No activo sin justificación',
-    retired: 'Devuelto (baja)',
-  } as Record<string, string>,
+  stateLabel: domainEs.vehicleState,
   linkReasonOptions: [
     { value: 'breakdown', label: 'Avería' },
     { value: 'maintenance', label: 'Mantenimiento' },
@@ -884,8 +881,8 @@ const en: typeof es = {
     injEmail: 'Email',
     injPlate: 'Vehicle plate',
     injSeat: 'Seat',
-    seatDriver: 'Driver',
-    seatPassenger: 'Passenger',
+    seatDriver: domainEn.seat.driver,
+    seatPassenger: domainEn.seat.passenger,
     policeRef: 'Police report reference (optional)',
     file: 'Report file (optional)',
     markState: 'Set the vehicle to “In accident”',
@@ -922,15 +919,7 @@ const en: typeof es = {
     personal: 'Personal',
     works: 'Works',
   } as Record<string, string>,
-  stateLabel: {
-    active: 'Active',
-    maintenance: 'Not active - Maintenance',
-    itv: 'Not active - MOT',
-    broken: 'Not active - Broken down',
-    accidente: 'Not active - Crashed',
-    non_active: 'Not active (no reason)',
-    retired: 'Returned (retired)',
-  } as Record<string, string>,
+  stateLabel: domainEn.vehicleState,
   linkReasonOptions: [
     { value: 'breakdown', label: 'Breakdown' },
     { value: 'maintenance', label: 'Maintenance' },

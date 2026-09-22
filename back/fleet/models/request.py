@@ -12,7 +12,12 @@ from django.conf import settings
 from django.db import models
 
 from .base import DeactivatableModel, TimeStampedModel
-from .enums import DriverChangeStatus, VehicleRequestStatus, VehicleType
+from .enums import (
+    DriverChangeStatus,
+    ProfileChangeStatus,
+    VehicleRequestStatus,
+    VehicleType,
+)
 
 
 class VehicleRequest(DeactivatableModel, TimeStampedModel):
@@ -186,3 +191,92 @@ class DriverChangeRequest(TimeStampedModel):
     def __str__(self) -> str:
         quien = self.proposed_driver or self.proposed_name or "sin candidato"
         return f"{self.vehicle} - {quien} ({self.get_status_display()})"
+
+
+class ProfileChangeRequest(TimeStampedModel):
+    """Petición de corregir la ficha personal: la persona pide, la gestión decide.
+
+    En la app de campo «Mi perfil» es de LECTURA —el back no deja a nadie
+    editarse su ficha, que es lo que sostiene que el teléfono o el permiso de
+    conducir de una flota sean un dato fiable—, pero hasta ahora la pantalla
+    solo decía «avisa a gestión»: el aviso salía de la aplicación (un correo,
+    un mensaje) y no quedaba rastro de quién pidió qué. Esto es ese aviso
+    dentro de la herramienta, en la MISMA bandeja de `/solicitudes` que el
+    coche de sustitución, el borrado de un documento y el cambio de conductor.
+
+    `changes` es un diccionario `{campo: valor propuesto}` con **solo lo que
+    cambia** y solo de los campos que se dejan pedir
+    (`services.profile_requests.EDITABLE_FIELDS`): nombre, apellidos, teléfono
+    y tipo de permiso. **El DNI y el correo no viajan aquí** — el correo es la
+    clave de identidad (login, Google y resolución del solicitante de Jira) y
+    el DNI es un documento de identidad, que ni se teclea en una web pública ni
+    se copia a una tabla nueva por si acaso (dato mínimo, RGPD). Para eso está
+    la `note`: se escribe qué hay que corregir y la gestión lo verifica contra
+    el documento, que es como se verifica un DNI.
+
+    Al aplicarla, el servicio **escribe esos campos en el usuario** y el
+    `auditlog` de `accounts` guarda el diff campo a campo, así que el rastro de
+    quién cambió qué sigue siendo el de siempre.
+
+    Como las otras dos peticiones de campo, no es `DeactivatableModel`: es el
+    rastro de una petición y su decisión, no un dato que se corrija.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="profile_change_requests",
+        verbose_name="Ficha",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="Solicitante",
+    )
+    changes = models.JSONField(
+        "Cambios propuestos",
+        default=dict,
+        blank=True,
+        help_text="Solo lo que cambia: {campo: valor propuesto}.",
+    )
+    note = models.TextField(
+        "Nota",
+        blank=True,
+        help_text="Lo que quien la abre le cuenta a administración.",
+    )
+    status = models.CharField(
+        "Estado",
+        max_length=15,
+        choices=ProfileChangeStatus.choices,
+        default=ProfileChangeStatus.PENDING,
+    )
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="Resuelta por",
+    )
+    resolved_at = models.DateTimeField("Resuelta el", null=True, blank=True)
+    resolution_note = models.TextField("Observaciones de la resolución", blank=True)
+
+    class Meta:
+        verbose_name = "petición de corrección de ficha"
+        verbose_name_plural = "peticiones de corrección de ficha"
+        ordering = ["-created_at", "-pk"]  # R3-23/R5-19: desempate estable
+        constraints = [
+            # Una petición viva por persona: dos envíos seguidos no llenan la
+            # bandeja de filas iguales, igual que las otras dos de campo.
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(status=ProfileChangeStatus.PENDING),
+                name="unique_pending_profile_change",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} - {self.get_status_display()}"

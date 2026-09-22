@@ -38,6 +38,7 @@ import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { TemplateVars } from '../components/TemplateVars.tsx'
 import { useEmailTemplatesCopy } from '../translations/emailTemplates.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 // Pestaña especial (primera): traza de últimos envíos (EmailLog).
 const LOGS_TAB = 'logs'
@@ -63,6 +64,7 @@ const TEMPLATE_KEYS = [
  */
 export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } = {}) {
   const t = useEmailTemplatesCopy()
+  const etiqueta = useDomainLabels()
   const lang = useAppLang()
   const [templates, setTemplates] = useState<EmailTemplateRow[]>([])
   const [signatures, setSignatures] = useState<EmailSignatureRow[]>([])
@@ -185,10 +187,10 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     if (logTerms.length === 0) return logs
     return logs.filter((log) => {
       const heno =
-        `${log.recipient} ${log.subject} ${log.status_display} ${t.templateKeys[log.template_key] ?? log.template_key}`.toLowerCase()
+        `${log.recipient} ${log.subject} ${etiqueta.emailStatus(log)} ${t.templateKeys[log.template_key] ?? log.template_key}`.toLowerCase()
       return logTerms.some((term) => heno.includes(term))
     })
-  }, [logs, logTerms, t])
+  }, [logs, logTerms, t, etiqueta])
 
   // Columnas de la tabla de últimos envíos (mismo estilo que las de vehículos).
   const logColumns = useMemo<Array<TableWithPanelColumn<EmailLogRow>>>(() => [
@@ -246,16 +248,16 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     {
       key: 'status',
       label: t.logColumns.status,
-      getValue: (log) => log.status_display,
+      getValue: (log) => etiqueta.emailStatus(log),
       render: (log) => (
         <Badge
           tone={log.status === 'sent' ? 'success' : log.status === 'failed' ? 'danger' : 'neutral'}
         >
-          {log.status_display}
+          {etiqueta.emailStatus(log)}
         </Badge>
       ),
     },
-  ], [isHit, lang, sortedRecipients, t])
+  ], [isHit, lang, sortedRecipients, t, etiqueta])
 
   // Vuelca la plantilla activa al editor al cambiar DE PLANTILLA (no en cada
   // recarga: A9). Se vuelve siempre al castellano: es la versión de referencia.

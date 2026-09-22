@@ -29,6 +29,7 @@ import { EmailOptions } from './EmailOptions.tsx'
 import { OpsSection, OpsSteps } from './OpsSteps.tsx'
 import { useAsistente, type Paso } from './opsWizard.ts'
 import type { Incident, Vehicle, VehicleLinkRow } from '../types.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 // Tipos de documento (lista cerrada del back). Etiquetas desde panels.ts.
 const DOC_TYPES = [
@@ -152,6 +153,7 @@ interface Props {
  * el gesto de resolver, que es uno (`ResolveDispatcher`). */
 export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone }: Props) {
   const t = useVehiclesCopy()
+  const etiqueta = useDomainLabels()
 
   /**
    * Disponibilidad tras el guardado (paso «Disponibilidad»), y el único sitio
@@ -901,7 +903,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
       <div className="ops-info">
         <span>
           {t.ops.currentState}:{' '}
-          <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+          <Badge tone={vehicleStateTone(vehicle.state)}>{etiqueta.vehicleState(vehicle) || '—'}</Badge>
         </span>
         <span>{t.ops.driverLabel}: <strong>{vehicle.driver_name || t.ops.none}</strong></span>
         <span>{t.ops.supervisorLabel}: <strong>{vehicle.supervisor_name || t.ops.none}</strong></span>
@@ -983,7 +985,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
               ))}
             </div>
             {bloqueo && (
-              <p className="ops-note tone-warn">{t.ops.blockedByIncident(bloqueo.type_display)}</p>
+              <p className="ops-note tone-warn">{t.ops.blockedByIncident(etiqueta.incidentType(bloqueo))}</p>
             )}
             {puedeActivar && <p className="muted ops-note">{t.ops.canReactivate}</p>}
             {availChoice === 'none' && (

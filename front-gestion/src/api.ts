@@ -954,6 +954,7 @@ export interface VehicleRequestRow {
    * (`vehicle` es el que se concede, y hasta entonces va vacío). */
   incident: number | null
   incident_plate: string
+  incident_type: string
   incident_type_display: string
   status: 'pending' | 'approved' | 'rejected' | 'assigned'
   status_display: string
@@ -980,6 +981,8 @@ export interface DocumentDeletionRequestRow {
   id: number
   document: number
   /** De qué documento habla la fila, sin tener que abrirlo. */
+  /** El código del tipo (lo que traduce la bandeja) y su etiqueta del back. */
+  document_type: string
   document_type_display: string
   document_created_at: string | null
   vehicle: number | null
@@ -989,7 +992,14 @@ export interface DocumentDeletionRequestRow {
   requested_by: number | null
   requested_by_name: string
   reason: string
-  status: 'pending' | 'deleted' | 'hidden' | 'rejected'
+  /** Qué se pide: borrarlo (la papelera del campo) o corregirlo. */
+  kind: 'delete' | 'change'
+  kind_display: string
+  /** Solo en una corrección: {campo: valor propuesto}. */
+  changes: Record<string, string>
+  /** Lo mismo ya legible: etiqueta, lo que hay hoy y lo que se propone. */
+  changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
+  status: 'pending' | 'deleted' | 'hidden' | 'applied' | 'rejected'
   status_display: string
   resolved_by_name: string
   resolved_at: string | null
@@ -997,8 +1007,10 @@ export interface DocumentDeletionRequestRow {
   created_at: string
 }
 
-/** Las tres salidas del modal de gestión (las mismas del back). */
-export type DeletionDecision = 'delete' | 'hide' | 'reject'
+/** Las salidas del modal de gestión (las mismas del back): las tres primeras
+ * son de un BORRADO y `apply` es la de una corrección; `reject` vale para las
+ * dos. */
+export type DeletionDecision = 'delete' | 'hide' | 'apply' | 'reject'
 
 export const listDocumentDeletionRequests = (filters: { status?: string } = {}) =>
   getJson<Paginated<DocumentDeletionRequestRow>>(
@@ -1061,6 +1073,45 @@ export const resolveDriverChangeRequest = (
   note = '',
 ) =>
   postJson<DriverChangeRequestRow>(`${API}/driver-change-requests/${id}/resolve/`, {
+    decision,
+    note,
+  })
+
+/** Petición de corregir la ficha personal, tal como la lee la bandeja. */
+export interface ProfileChangeRequestRow {
+  id: number
+  user: number
+  user_name: string
+  user_username: string
+  requested_by: number | null
+  requested_by_name: string
+  /** Lo pedido, en crudo: {campo: valor propuesto}. */
+  changes: Record<string, string>
+  /** Lo mismo ya legible: etiqueta, lo que hay hoy y lo que se propone. */
+  changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
+  note: string
+  status: 'pending' | 'done' | 'rejected'
+  status_display: string
+  resolved_by_name: string
+  resolved_at: string | null
+  resolution_note: string
+  created_at: string
+}
+
+/** Las dos salidas: aplicarla sobre la ficha o rechazarla. */
+export type ProfileChangeDecision = 'done' | 'reject'
+
+export const listProfileChangeRequests = (filters: { status?: string; user?: number } = {}) =>
+  getJson<Paginated<ProfileChangeRequestRow>>(
+    `${API}/profile-change-requests/${listQs({ ...filters })}`,
+  )
+
+export const resolveProfileChangeRequest = (
+  id: number,
+  decision: ProfileChangeDecision,
+  note = '',
+) =>
+  postJson<ProfileChangeRequestRow>(`${API}/profile-change-requests/${id}/resolve/`, {
     decision,
     note,
   })

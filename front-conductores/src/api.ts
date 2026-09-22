@@ -223,6 +223,24 @@ export interface DriverCandidate {
 export const listDriverCandidates = () =>
   getJson<DriverCandidate[]>(`${API}/driver-change-requests/candidates/`)
 
+/** Propuesta de cambio de conductor, tal como la lee quien la mandó. */
+export interface DriverChangeRequestRow {
+  id: number
+  vehicle: number
+  vehicle_plate: string
+  requested_by: number | null
+  proposed_display: string
+  note: string
+  status: 'pending' | 'done' | 'rejected'
+  status_display: string
+  created_at: string
+}
+
+/** Las que alcanza quien pregunta: las suyas y las de los coches de su ámbito
+ * (el perfil se queda con las suyas, que es de lo que responde). */
+export const listDriverChangeRequests = () =>
+  getJson<Paginated<DriverChangeRequestRow>>(`${API}/driver-change-requests/?${PS}`)
+
 /** Propone que el coche lo lleve otra persona. **No cambia nada**: abre una
  * solicitud que decide administración en `/solicitudes`. Sin candidato, la
  * nota es la petición (el back la exige). */
@@ -234,6 +252,47 @@ export const proposeDriverChange = (input: {
   proposed_email?: string
   note?: string
 }) => postJson<{ id: number }>(`${API}/driver-change-requests/`, input)
+
+// --- Corrección de la ficha personal ---------------------------------------
+
+/** Lo que se puede pedir corregir de la propia ficha: los siete campos, el
+ * correo y el DNI incluidos —son los dos de identidad, así que el back
+ * comprueba que no sean ya de otra cuenta y la gestión los verifica contra el
+ * documento antes de aplicarlos—. Cualquier otro campo lo rechaza el back. */
+export type ProfileField =
+  | 'first_name'
+  | 'last_name'
+  | 'email'
+  | 'dni'
+  | 'phone'
+  | 'license_type'
+  | 'fuel_card'
+
+/** Lo pedido: texto en casi todos, sí/no en la tarjeta de combustible. */
+export type ProfileChanges = Partial<Record<ProfileField, string | boolean>>
+
+export interface ProfileChangeRequestRow {
+  id: number
+  changes: ProfileChanges
+  changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
+  note: string
+  status: 'pending' | 'done' | 'rejected'
+  status_display: string
+  resolution_note: string
+  created_at: string
+}
+
+/** La petición viva de la propia ficha, si la hay (el back solo sirve las
+ * tuyas). Es lo que permite decir «ya la pediste» en vez de ofrecer el
+ * formulario otra vez. */
+export const listMyProfileChangeRequests = () =>
+  getJson<Paginated<ProfileChangeRequestRow>>(`${API}/profile-change-requests/?${PS}`)
+
+/** Pide corregir la PROPIA ficha. **No cambia nada**: abre una solicitud que
+ * decide administración en `/solicitudes`. Sin cambios, la nota es la
+ * petición (el back la exige). */
+export const requestProfileChange = (input: { changes: ProfileChanges; note?: string }) =>
+  postJson<ProfileChangeRequestRow>(`${API}/profile-change-requests/`, input)
 
 // --- Actualización de campo del supervisor (km / mantenimiento / partes) ----
 
@@ -415,9 +474,10 @@ export function uploadDocument(data: DocumentUploadInput, file: File): Promise<F
   for (const [key, value] of Object.entries(data)) {
     if (value !== undefined && value !== null && value !== '') form.set(key, String(value))
   }
-  return invalidating(
-    postForm<FlotaDocument>(`${API}/documents/`, form, {}, 'No se pudo subir el documento.'),
-  )
+  // Sin mensaje de reserva propio: el del transporte va en los DOS idiomas
+  // (R3-35) y el de cada pantalla gana cuando lo pasa. Uno escrito aquí salía
+  // en castellano con la app en inglés.
+  return invalidating(postForm<FlotaDocument>(`${API}/documents/`, form))
 }
 
 /**
@@ -445,23 +505,30 @@ export async function fetchDocumentFile(
     signal: opts.signal,
   })
   if (!response.ok) {
-    throw new ApiError('No se pudo abrir el documento.', response.status)
+    // Sin texto: `asErrorMessage` usa entonces el de quien lo pinta, que está
+    // traducido («No se pudo abrir el documento» / «could not be opened»).
+    throw new ApiError('', response.status)
   }
   const disposition = response.headers.get('Content-Disposition') ?? ''
   const nombre = /filename="([^"]+)"/.exec(disposition)?.[1]
   return { blob: await response.blob(), filename: nombre || `documento-${id}` }
 }
 
-/** Petición de borrado de un documento: la papelera de campo NO borra.
+/** Petición SOBRE un documento: en campo ni la papelera borra ni se corrige.
  *
  * Abre la solicitud en la bandeja de gestión y devuelve la fila (si ya había
- * una abierta, esa misma: el back es idempotente por documento). Hasta que se
- * resuelva, el documento sigue en la lista marcado «Pendiente de borrado».
+ * una abierta, esa misma: el back es idempotente por documento, sea de la clase
+ * que sea). Hasta que se resuelva, el documento sigue como estaba y marcado.
  */
 export interface DocumentDeletionRequestRow {
   id: number
   document: number
-  status: 'pending' | 'deleted' | 'hidden' | 'rejected'
+  /** Qué se pide: borrarlo o corregirlo. */
+  kind: 'delete' | 'change'
+  kind_display: string
+  changes: Record<string, string>
+  changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
+  status: 'pending' | 'deleted' | 'hidden' | 'applied' | 'rejected'
   status_display: string
   reason: string
   created_at: string
@@ -471,9 +538,24 @@ export const requestDocumentDeletion = (document: number, reason: string) =>
   postJson<DocumentDeletionRequestRow>(
     `${API}/document-deletion-requests/`,
     { document, reason },
-    {},
-    'No se pudo pedir el borrado del documento.',
   )
+
+/** Pide CORREGIR un documento (tipo, caducidad o nota). Tampoco lo cambia: lo
+ * decide la gestión, igual que el borrado. */
+export const requestDocumentChange = (
+  document: number,
+  changes: { type?: string; expiry_date?: string; notes?: string },
+  reason = '',
+) =>
+  postJson<DocumentDeletionRequestRow>(
+    `${API}/document-deletion-requests/`,
+    { document, kind: 'change', changes, reason },
+  )
+
+/** Las peticiones sobre documentos que ha abierto quien pregunta (el back solo
+ * sirve las suyas y las de lo que puede leer). */
+export const listMyDocumentRequests = () =>
+  getJson<Paginated<DocumentDeletionRequestRow>>(`${API}/document-deletion-requests/?${PS}`)
 
 /** Incidencias (solo gestión; el back acota al grupo del supervisor). */
 export const listIncidents = (vehicle?: number) =>

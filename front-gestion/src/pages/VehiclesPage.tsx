@@ -42,6 +42,7 @@ import { useVehicleDetailCopy } from '../translations/vehicleDetail.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import { useVehicleFormCopy } from '../translations/vehicleForm.ts'
 import type { Alert, Vehicle, VehicleLinkRow } from '../types.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 // Estado que representa la baja del vehículo (VehicleState.BAJA = 'retired').
 const BAJA_STATE = 'retired'
@@ -220,6 +221,7 @@ export function VehiclesPage() {
   const rootRef = useRef<HTMLDivElement>(null)
   const { language } = useLang()
   const t = useVehiclesCopy()
+  const etiqueta = useDomainLabels()
   // Solo para el título del modal de edición (el formulario es el de la ficha).
   const tForm = useVehicleFormCopy()
   // Los nombres de las acciones del coche son los de la ficha: las mismas
@@ -620,7 +622,7 @@ export function VehiclesPage() {
           <strong>{sub.plate}</strong>
         </Link>
         <span>{`${sub.brand} ${sub.model}`}</span>
-        <Badge tone={vehicleStateTone(sub.state)}>{sub.state_display || '—'}</Badge>
+        <Badge tone={vehicleStateTone(sub.state)}>{etiqueta.vehicleState(sub) || '—'}</Badge>
         <span className="sub-row-item">
           <span className="muted">{t.columns.driver}: </span>
           {sub.driver_name || '—'}
@@ -672,9 +674,9 @@ export function VehiclesPage() {
     {
       key: 'state',
       label: t.columns.state,
-      getValue: (v) => v.state_display,
+      getValue: (v) => etiqueta.vehicleState(v),
       render: (v) => {
-        const badge = <Badge tone={vehicleStateTone(v.state)}>{v.state_display || '—'}</Badge>
+        const badge = <Badge tone={vehicleStateTone(v.state)}>{etiqueta.vehicleState(v) || '—'}</Badge>
         // Vehículo de flota: su coche de sustitución NO va aquí — cuelga de la
         // fila, desplegable (`renderSubstituteRow`), como en el panel.
         if (!v.is_substitute) return badge
@@ -801,7 +803,7 @@ export function VehiclesPage() {
       getValue: (v) => v.created_at,
       render: (v) => fmtDate(v.created_at, language),
     },
-  ], [activeMainOfSub, byId, language, maintDue, staleCell, t.busy, t.columns.company, t.columns.created, t.columns.driver, t.columns.fuelMonth, t.columns.insurance, t.columns.km, t.columns.maintenance, t.columns.nextItv, t.columns.plate, t.columns.state, t.columns.supervisor, t.columns.vehicle, t.columns.year, t.free])
+  ], [activeMainOfSub, byId, language, maintDue, staleCell, t.busy, t.columns.company, t.columns.created, t.columns.driver, t.columns.fuelMonth, t.columns.insurance, t.columns.km, t.columns.maintenance, t.columns.nextItv, t.columns.plate, t.columns.state, t.columns.supervisor, t.columns.vehicle, t.columns.year, t.free, etiqueta])
 
   const colByKey = useMemo(() => (new Map(allColumns.map((c) => [c.key, c]))), [allColumns])
 
@@ -1168,7 +1170,7 @@ export function VehiclesPage() {
             // vive en la ficha; desde el listado se llega por la matrícula.
             stateBadge={
               <Badge tone={vehicleStateTone(editVehicle.state)}>
-                {editVehicle.state_display || '—'}
+                {etiqueta.vehicleState(editVehicle) || '—'}
               </Badge>
             }
             // Solo lo que se hace a diario; dar de baja vive en el ⋮ de la fila.

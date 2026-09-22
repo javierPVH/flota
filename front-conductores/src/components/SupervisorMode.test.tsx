@@ -102,14 +102,16 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
     expect(screen.queryByText('5678BCD')).not.toBeInTheDocument()
 
-    // La barra personal: Inicio primero (como en Flota) + las siete acciones,
-    // con sus etiquetas CORTAS (Km · ITV · Mantenimiento).
+    // La barra personal: las siete acciones con sus etiquetas CORTAS (Km ·
+    // ITV · Mantenimiento) y SIN «Inicio» —el conmutador de arriba ya devuelve
+    // a la tarjeta del coche, y el hueco vale más para lo que solo se hace
+    // desde aquí—.
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
     await waitFor(() => expect(within(nav).getByRole('button', { name: 'Km' })).toBeEnabled())
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Inicio', 'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Incidencia', 'Accidente', 'Subir documento',
+      'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Incidencia', 'Accidente', 'Subir documento',
     ])
-    expect(within(nav).getByRole('link', { name: 'Inicio' })).toHaveAttribute('href', '/')
+    expect(within(nav).queryByRole('link', { name: 'Inicio' })).not.toBeInTheDocument()
 
     // En Mi vehículo actúa sobre SU coche: el aviso de "quedará registrado a
     // tu nombre" (que sí sale en Flota) aquí no pinta nada.
@@ -133,8 +135,10 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(await screen.findByText('Flota a cargo', undefined, { timeout: 10000 })).toBeInTheDocument()
     expect(await screen.findByText('5678BCD', undefined, { timeout: 10000 })).toBeInTheDocument()
     expect(
+      // La etiqueta del estado la pone el diccionario de la app por CÓDIGO,
+      // no el `state_display` del back (que llega siempre en castellano).
       within(screen.getByRole('combobox', { name: 'Grupos de la flota' })).getByRole('option', {
-        name: /En taller/,
+        name: /No activo - Mantenimiento/,
       }),
     ).toBeInTheDocument()
 
@@ -185,7 +189,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
   })
 
   // --- El tercer tab: «Mi perfil» ----------------------------------------
-  it('el tercer tab abre el perfil y deja el nav en Inicio + Subir documento', async () => {
+  it('el tercer tab abre el perfil y deja el nav en Mis datos + Subir documento', async () => {
     renderShell()
     await screen.findByText('7890NPQ')
 
@@ -199,16 +203,20 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
       'false',
     )
 
-    // En el perfil no hay coche del que hablar: ni km, ni ITV, ni avería.
+    // En el perfil no hay coche del que hablar: ni km, ni ITV, ni avería. Y
+    // tampoco «Inicio»: el conmutador de arriba ya devuelve a la home, y el
+    // hueco vale para lo que SOLO se hace aquí.
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Inicio',
+      'Mis datos',
       'Subir documento',
     ])
-    expect(within(nav).getByRole('link', { name: 'Subir documento' })).toHaveAttribute(
-      'href',
-      '/documentos/nuevo',
-    )
+    // Y «Subir documento» abre el MISMO modal que en «Mi vehículo», sobre el
+    // coche propio: subir no saca del perfil.
+    await userEvent.click(within(nav).getByRole('button', { name: 'Subir documento' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Subir documento · 7890NPQ' }),
+    ).toBeInTheDocument()
   })
 
   it('elegir un modo desde el perfil SALE del perfil', async () => {
@@ -239,7 +247,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
     await waitFor(() => expect(within(nav).getByRole('button', { name: 'Km' })).toBeEnabled())
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Inicio', 'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Incidencia', 'Accidente', 'Subir documento',
+      'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Incidencia', 'Accidente', 'Subir documento',
     ])
     await userEvent.click(within(nav).getByRole('button', { name: 'Km' }))
     expect(screen.getByRole('dialog', { name: 'Registrar km · 7890NPQ' })).toBeInTheDocument()

@@ -16,6 +16,7 @@ import type { Alert, Incident, VehicleState } from '../../types.ts'
 import { uploadProof } from './proof.ts'
 import { ResolutionCommonFields } from './ResolutionCommonFields.tsx'
 import { useResolutionCommon } from './useResolutionCommon.ts'
+import { useDomainLabels } from '../../domainLabels.ts'
 
 /** De dónde viene el gesto: la alerta «Mantenimiento programado», la incidencia
  * de mantenimiento PUNTUAL (que no lleva plan) o el plan directamente (botón
@@ -82,6 +83,7 @@ export function MaintenanceResolveForm({
   const t = useResolveCopy()
   const m = t.maintenance
   const alertsCopy = useAlertsPageCopy()
+  const etiqueta = useDomainLabels()
   const vehicleId = vehicleOf(source)
   const common = useResolutionCommon({
     flow: 'maintenance',
@@ -149,7 +151,7 @@ export function MaintenanceResolveForm({
           : t.notices.incidentResolved
       } else if (source.kind === 'alert' && !usesPlan) {
         await resolveAlert(source.alert.id, p.observations ?? '')
-        notice = alertsCopy.closedNotice(source.alert.vehicle_plate || source.alert.type_display)
+        notice = alertsCopy.closedNotice(source.alert.vehicle_plate || etiqueta.alertType(source.alert))
       } else {
         const res = await maintenancePlanDone(Number(planId), {
           date: p.resolution_date,

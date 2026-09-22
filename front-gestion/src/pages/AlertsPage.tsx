@@ -36,6 +36,7 @@ import { EMAIL_MODAL_SIZE, VehicleEmailModal } from '../components/VehicleEmailM
 import { useLang } from '../i18n.tsx'
 import { useAlertsPageCopy } from '../translations/alertsPage.ts'
 import type { Alert, Vehicle } from '../types.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 // Orden interno por urgencia: el nivel ya no se enseña ni se filtra (lo calcula
 // el motor por cercanía de la fecha), pero sigue decidiendo qué sale primero.
@@ -126,6 +127,7 @@ function resolverKind(a: Alert): ResolverKind {
 /** Panel de alertas (G8, HU-5.1/3.3/3.5/1.7) + Registrar ITV. */
 export function AlertsPage() {
   const t = useAlertsPageCopy()
+  const etiqueta = useDomainLabels()
   const { language } = useLang()
 
   /** Plazo en lenguaje natural bajo la fecha límite (`null` si la alerta no
@@ -319,7 +321,7 @@ export function AlertsPage() {
       if (!persona(a.supervisor_id, supervisorFilter)) return false
       if (
         term &&
-        !`${a.vehicle_plate ?? ''} ${a.type_display} ${a.message ?? ''} ${
+        !`${a.vehicle_plate ?? ''} ${etiqueta.alertType(a)} ${a.type_display} ${a.message ?? ''} ${
           a.driver_name
         } ${a.supervisor_name} ${a.resolved_by_name}`
           .toLowerCase()
@@ -328,7 +330,7 @@ export function AlertsPage() {
         return false
       return true
     })
-  }, [alerts, search, dueFilter, driverFilter, supervisorFilter])
+  }, [alerts, search, dueFilter, driverFilter, supervisorFilter, etiqueta])
 
   // El vehículo completo hace falta para el modal de correo (destinatarios y
   // datos que lo justifican); las alertas solo traen id y matrícula.
@@ -406,8 +408,8 @@ export function AlertsPage() {
     {
       key: 'type',
       label: t.columns.type,
-      getValue: (a) => a.type_display,
-      render: (a) => a.type_display || '—',
+      getValue: (a) => etiqueta.alertType(a),
+      render: (a) => etiqueta.alertType(a) || '—',
     },
     {
       // Una matrícula mide lo que mide; el ancho que se le quita se lo lleva
@@ -544,7 +546,7 @@ export function AlertsPage() {
       ),
         }] as Array<TableWithPanelColumn<Alert>>)
       : []),
-  ], [deadlineLabel, language, navigate, resolverCell, showActions, showClosing, t.columns.actions, t.columns.driver, t.columns.dueDate, t.columns.message, t.columns.resolutionNote, t.columns.resolvedAt, t.columns.resolvedBy, t.columns.supervisor, t.columns.type, t.columns.vehicle, t.documents, t.documentsTitle, t.resolve, t.sendEmail, t.viewMessage, vehicleById])
+  ], [deadlineLabel, language, navigate, resolverCell, showActions, showClosing, t.columns.actions, t.columns.driver, t.columns.dueDate, t.columns.message, t.columns.resolutionNote, t.columns.resolvedAt, t.columns.resolvedBy, t.columns.supervisor, t.columns.type, t.columns.vehicle, t.documents, t.documentsTitle, t.resolve, t.sendEmail, t.viewMessage, vehicleById, etiqueta])
 
   return (
     <div>

@@ -126,7 +126,7 @@ describe('AlertsPage (M5)', () => {
     expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
     expect(screen.getByText('2 alertas')).toBeInTheDocument()
     expect(
-      screen.getByText('Lectura de km pendiente ×1 · ITV próxima ×1'),
+      screen.getByText('Lectura de km pendiente ×1 · ITV programada ×1'),
     ).toBeInTheDocument()
     // El otro coche, con la suya (crítica: su grupo va primero).
     expect(screen.getByText('1111AAA')).toBeInTheDocument()
@@ -160,7 +160,7 @@ describe('AlertsPage (M5)', () => {
     expect(within(filter).getAllByRole('option').map((x) => x.textContent)).toEqual([
       'Todas (2)',
       'Lectura de km pendiente (1)',
-      'ITV próxima (1)',
+      'ITV programada (1)',
     ])
 
     // En «Todas», las alertas van SECCIONADAS por tipo: línea divisoria y un
@@ -198,7 +198,7 @@ describe('AlertsPage (M5)', () => {
     expect(global).toHaveValue('all')
     expect(within(global).getAllByRole('option').map((x) => x.textContent)).toEqual([
       'Todas (3)',
-      'ITV próxima (2)',
+      'ITV programada (2)',
       'Lectura de km pendiente (1)',
     ])
 
@@ -264,7 +264,7 @@ describe('AlertsPage (M5)', () => {
 
     // ITV: reutiliza exactamente el modal Registrar ITV de la ficha.
     await userEvent.click(screen.getAllByText('7890NPQ')[0])
-    await userEvent.click(screen.getAllByText('ITV próxima ×1')[1])
+    await userEvent.click(screen.getAllByText('ITV programada ×1')[1])
     const itvCard = screen
       .getByText('La ITV vence el 2026-09-01.')
       .closest('.alert-card') as HTMLElement
@@ -324,7 +324,7 @@ describe('AlertsPage (M5)', () => {
 
     renderPage()
     await userEvent.click(await screen.findByText('7890NPQ'))
-    await userEvent.click(screen.getByText('Mantenimiento próximo ×1'))
+    await userEvent.click(screen.getByText('Mantenimiento programado ×1'))
     const card = screen.getByText('La revisión anual está pendiente.').closest('.alert-card') as HTMLElement
     await userEvent.click(within(card).getByRole('button', { name: 'Resolver' }))
 

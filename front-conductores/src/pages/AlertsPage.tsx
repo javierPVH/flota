@@ -10,8 +10,16 @@ import { AlertResolveDispatcher } from '../components/AlertResolveDispatcher.tsx
 import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { alertLevelTone } from '../format.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
-import { disablePush, enablePush, pushState, type PushState } from '../push.ts'
+import {
+  disablePush,
+  enablePush,
+  pushState,
+  PUSH_DENIED,
+  PUSH_NOT_CONFIGURED,
+  type PushState,
+} from '../push.ts'
 import type { Alert, VehicleSummary } from '../types.ts'
 
 // Crítica primero: a pie de vehículo se atiende lo urgente.
@@ -36,6 +44,7 @@ interface AlertGroup {
 export function AlertsPage() {
   const { user } = useAuth()
   const { t } = useLang()
+  const etiqueta = useDomainLabels()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
   // Modo "Mi vehículo" del supervisor: la bandeja se acota a su pareja (coche
   // propio + sustitución). Conductor o modo Flota: sin recorte.
@@ -76,7 +85,15 @@ export function AlertsPage() {
         setPush('on')
       }
     } catch (err) {
-      setPushError(asErrorMessage(err, t.alerts.pushError))
+      // El porqué viene en código, no escrito: el texto es de aquí.
+      const codigo = err instanceof Error ? err.message : ''
+      setPushError(
+        codigo === PUSH_DENIED
+          ? t.alerts.pushBlocked
+          : codigo === PUSH_NOT_CONFIGURED
+            ? t.alerts.pushNotConfigured
+            : asErrorMessage(err, t.alerts.pushError),
+      )
       pushState().then(setPush, () => {})
     } finally {
       setPushBusy(false)
@@ -163,10 +180,11 @@ export function AlertsPage() {
     for (const alert of open) {
       const row = rows.find((x) => x.key === alert.type)
       if (row) row.count += 1
-      else rows.push({ key: alert.type, label: alert.type_display, count: 1 })
+      else rows.push({ key: alert.type, label: etiqueta.alertType(alert), count: 1 })
     }
     return rows
-  }, [open])
+    // `etiqueta` es estable por diccionario (`useDomainLabels` lo memoriza).
+  }, [open, etiqueta])
   // Si el tipo elegido desaparece (p. ej. tras resolver), vuelta a «Todas».
   const activeGlobal =
     globalType === 'all' || allTypes.some((x) => x.key === globalType) ? globalType : 'all'
@@ -196,7 +214,7 @@ export function AlertsPage() {
       if (LEVEL_RANK[alert.level] < LEVEL_RANK[group.worst]) group.worst = alert.level
       const row = group.types.find((x) => x.key === alert.type)
       if (row) row.count += 1
-      else group.types.push({ key: alert.type, label: alert.type_display, count: 1 })
+      else group.types.push({ key: alert.type, label: etiqueta.alertType(alert), count: 1 })
     }
     return [...map.values()].sort(
       (a, b) =>
@@ -204,7 +222,7 @@ export function AlertsPage() {
         b.alerts.length - a.alerts.length ||
         a.plate.localeCompare(b.plate),
     )
-  }, [shownOpen, t])
+  }, [shownOpen, t, etiqueta])
 
   if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
   if (error) return <div role="alert" className="form-error">{error}</div>

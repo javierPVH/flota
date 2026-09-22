@@ -13,6 +13,7 @@ import { daysUntilDate, incidentTypeTone } from '../format.ts'
 import { useIncidentSummary } from '../incidentSummary.ts'
 import { useAlertsPageCopy } from '../translations/alertsPage.ts'
 import { useResolveCopy } from '../translations/resolve.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import type { Alert, Incident, Vehicle, VehicleLinkRow } from '../types.ts'
 import { AccidentReportForm } from './AccidentReportForm.tsx'
@@ -164,6 +165,7 @@ export function usePending({
   const t = useResolveCopy().pending
   const alertsCopy = useAlertsPageCopy()
   const vt = useVehiclesCopy()
+  const etiqueta = useDomainLabels()
   const resumenIncidencia = useIncidentSummary()
 
   const [grupoPedido, setGrupo] = useState<Grupo>(grupoInicial ?? 'incidents')
@@ -280,26 +282,32 @@ export function usePending({
   }, [estado, grupo, vehicleId, closedAlerts, closedIncidents, excluidos])
 
   /**
-   * Lo abierto agrupado por tipo, con el nombre que le da el back
-   * (`type_display`) y ordenado de más a menos. Es lo que resume el KPI de la
+   * Lo abierto agrupado por tipo, con el nombre en el idioma de la app
+   * (`domainLabels`; el del back queda de reserva) y ordenado de más a menos. Es lo que resume el KPI de la
    * ficha: se calcula aquí porque los datos ya están pedidos.
    */
   const resumen = useMemo<PendingResumen | null>(() => {
     if (alerts === null || incidents === null) return null
-    const agrupar = (filas: Array<{ type: string; type_display: string }>): ResumenTipo[] => {
+    const agrupar = (
+      filas: Array<{ type: string; type_display: string }>,
+      nombre: (fila: { type: string; type_display: string }) => string,
+    ): ResumenTipo[] => {
       const mapa = new Map<string, ResumenTipo>()
       for (const fila of filas) {
         const ya = mapa.get(fila.type)
         if (ya) ya.total += 1
-        else mapa.set(fila.type, { tipo: fila.type, label: fila.type_display || fila.type, total: 1 })
+        else mapa.set(fila.type, { tipo: fila.type, label: nombre(fila) || fila.type, total: 1 })
       }
       return [...mapa.values()].sort((a, b) => b.total - a.total)
     }
     return {
-      alerts: agrupar(alerts),
-      incidents: agrupar(incidents.filter((inc) => !soloTipo || inc.type === soloTipo)),
+      alerts: agrupar(alerts, etiqueta.alertType),
+      incidents: agrupar(
+        incidents.filter((inc) => !soloTipo || inc.type === soloTipo),
+        etiqueta.incidentType,
+      ),
     }
-  }, [alerts, incidents, soloTipo])
+  }, [alerts, incidents, soloTipo, etiqueta])
 
   const deadline = (due: string | null): { label: string; tone: 'danger' | 'warning' | 'info' } | null => {
     const days = daysUntilDate(due)
@@ -356,7 +364,7 @@ export function usePending({
             key: `i-${inc.id}`,
             plate: vehicle ? undefined : (coche?.plate ?? `#${inc.vehicle}`),
             tipo: inc.type,
-            tipoLabel: inc.type_display,
+            tipoLabel: etiqueta.incidentType(inc),
             detail: resumenIncidencia(inc),
             // Abierta: la fecha del parte. Cerrada: la de la solución.
             date: abierta ? inc.date : (inc.resolution_date ?? inc.date),
@@ -371,7 +379,7 @@ export function usePending({
                     : incidentTypeTone(inc.type)
                 }
               >
-                {inc.status_display}
+                {etiqueta.incidentStatus(inc)}
               </Badge>
             ),
             onResolve: abierta ? () => setResolving(incidentTarget(inc)) : undefined,
@@ -397,9 +405,9 @@ export function usePending({
         key: `a-${alert.id}`,
         plate: vehicle ? undefined : alert.vehicle_plate || undefined,
         tipo: alert.type,
-        tipoLabel: alert.type_display,
+        tipoLabel: etiqueta.alertType(alert),
         nivel: alert.level,
-        nivelLabel: alert.level_display,
+        nivelLabel: etiqueta.alertLevel(alert),
         date: abierta
           ? alert.due_date
           : alert.resolved_at

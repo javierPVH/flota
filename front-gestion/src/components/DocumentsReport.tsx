@@ -13,6 +13,7 @@ import { exportCsv } from '../csv.ts'
 import { TableInfoBar } from './TableInfoBar.tsx'
 import { VehicleSelect } from './VehicleSelect.tsx'
 import type { FlotaDocument, Vehicle } from '../types.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 const safeHref = (url: string) => (/^https?:\/\//i.test(url) ? url : '')
 
@@ -87,6 +88,7 @@ export function DocumentsReport({
   onCreated: () => void
 }) {
   const t = usePanelsCopy().documents
+  const etiqueta = useDomainLabels()
   const docsCopy = useReportsCopy().docs
   const [search, setSearch] = useState('')
   const [vehicleFilter, setVehicleFilter] = useState('')
@@ -208,10 +210,10 @@ export function DocumentsReport({
     for (const doc of typed) {
       const entry = seen.get(doc.status)
       if (entry) entry.count += 1
-      else seen.set(doc.status, { label: doc.status_display || doc.status, count: 1 })
+      else seen.set(doc.status, { label: etiqueta.docStatus(doc), count: 1 })
     }
     return [...seen.entries()].map(([value, info]) => ({ value, ...info }))
-  }, [typed])
+  }, [typed, etiqueta])
 
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -227,10 +229,10 @@ export function DocumentsReport({
       if (statusFilter && doc.status !== statusFilter) return false
       if (!term) return true
       const titular = doc.vehicle != null ? (plateById.get(doc.vehicle) ?? doc.vehicle) : doc.user_name
-      const haystack = `${titular} ${doc.type_display} ${doc.uploaded_by_name ?? ''} ${doc.status_display} ${doc.expiry_date ?? ''} ${doc.created_at.slice(0, 10)}`
+      const haystack = `${titular} ${etiqueta.docType(doc)} ${doc.uploaded_by_name ?? ''} ${etiqueta.docStatus(doc)} ${doc.expiry_date ?? ''} ${doc.created_at.slice(0, 10)}`
       return haystack.toLowerCase().includes(term)
     })
-  }, [typed, search, vehicleFilter, userFilter, uploaderFilter, statusFilter, plateById, driverByVehicle])
+  }, [typed, search, vehicleFilter, userFilter, uploaderFilter, statusFilter, plateById, driverByVehicle, etiqueta])
 
   const columns = useMemo<Array<TableWithPanelColumn<FlotaDocument>>>(() => [
     {
@@ -255,7 +257,7 @@ export function DocumentsReport({
           {
             key: 'type',
             label: docsCopy.typeColumn,
-            getValue: (doc: FlotaDocument) => doc.type_display,
+            getValue: (doc: FlotaDocument) => etiqueta.docType(doc),
           },
         ]),
     {
@@ -281,8 +283,8 @@ export function DocumentsReport({
     {
       key: 'status',
       label: t.columns.status,
-      getValue: (doc) => doc.status_display,
-      render: (doc) => <Badge tone={documentStatusTone(doc.status)}>{doc.status_display}</Badge>,
+      getValue: (doc) => etiqueta.docStatus(doc),
+      render: (doc) => <Badge tone={documentStatusTone(doc.status)}>{etiqueta.docStatus(doc)}</Badge>,
     },
     {
       key: 'actions',
@@ -301,7 +303,7 @@ export function DocumentsReport({
         )
       },
     },
-  ], [docsCopy.driverColumn, docsCopy.ownerColumn, docsCopy.typeColumn, driverNameByVehicle, owner, t.columns.actions, t.columns.by, t.columns.expiry, t.columns.status, t.columns.uploaded, t.open, type])
+  ], [docsCopy.driverColumn, docsCopy.ownerColumn, docsCopy.typeColumn, driverNameByVehicle, owner, t.columns.actions, t.columns.by, t.columns.expiry, t.columns.status, t.columns.uploaded, t.open, type, etiqueta])
 
   const csvColumns = columns.filter((c) => c.key !== 'actions')
   // Dentro del acordeón el titular y el conductor ya están en la fila del

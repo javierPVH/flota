@@ -60,6 +60,7 @@ from .models import (
     MaintenanceProgram,
     NotificationSchedule,
     Pep,
+    ProfileChangeRequest,
     Project,
     Renting,
     Site,
@@ -79,11 +80,13 @@ from .models.enums import (
     AlertType,
     AssignmentStatus,
     DocumentDeletionStatus,
+    DocumentRequestKind,
     DocumentStatus,
     DriverChangeStatus,
     EventType,
     IncidentStatus,
     IncidentType,
+    ProfileChangeStatus,
     VehicleRequestStatus,
     VehicleState,
 )
@@ -117,6 +120,7 @@ from .serializers import (
     MaintenanceProgramSerializer,
     NotificationScheduleSerializer,
     PepSerializer,
+    ProfileChangeRequestSerializer,
     ProjectSerializer,
     RentingSerializer,
     SiteSerializer,
@@ -143,6 +147,7 @@ from .services import (
     maintenance,
     metrics,
     notifications,
+    profile_requests,
     reports,
     returns,
     substitution,
@@ -2118,22 +2123,36 @@ class DocumentDeletionRequestViewSet(
         ).distinct()
 
     def create(self, request, *args, **kwargs):
-        """Pide el borrado de un documento (o devuelve la petición ya abierta).
+        """Pide algo sobre un documento (o devuelve la petición ya abierta).
 
-        El documento tiene que estar **en el ámbito de quien pide**: se
-        comprueba con `readable_documents`, la misma regla que sirve el listado
-        y el binario — pedir el borrado de algo que no se puede ni leer no es
-        una petición, es una sonda.
+        Dos clases: **borrarlo** (la de siempre) y **corregirlo** (`kind`
+        = `"change"` con `changes`). El documento tiene que estar **en el
+        ámbito de quien pide**: se comprueba con `readable_documents`, la misma
+        regla que sirve el listado y el binario — pedir algo sobre lo que no se
+        puede ni leer no es una petición, es una sonda.
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        document = serializer.validated_data["document"]
+        datos = serializer.validated_data
+        document = datos["document"]
         if not readable_documents(request.user, Document.objects.filter(pk=document.pk)).exists():
             raise PermissionDenied("Ese documento está fuera de tu ámbito.")
         if not document.is_active:
             raise ValidationError({"document": "Ese documento ya está dado de baja."})
+        kind = datos.get("kind") or DocumentRequestKind.DELETE
+        cambios = datos.get("changes") or {}
+        if kind == DocumentRequestKind.CHANGE and not document_requests.clean_document_changes(
+            cambios, document=document
+        ):
+            # Sin nada que cambiar no hay corrección que decidir: se dice aquí
+            # en vez de llenar la bandeja de filas vacías.
+            raise ValidationError({"changes": "No hay nada que corregir en ese documento."})
         peticion = document_requests.open_request(
-            document, actor=request.user, reason=serializer.validated_data.get("reason", "")
+            document,
+            actor=request.user,
+            reason=datos.get("reason", ""),
+            kind=kind,
+            changes=cambios,
         )
         salida = self.get_serializer(peticion)
         return Response(salida.data, status=status.HTTP_201_CREATED)
@@ -2142,19 +2161,29 @@ class DocumentDeletionRequestViewSet(
     def resolve(self, request, pk=None):
         """POST /document-deletion-requests/{id}/resolve/ — la decide la gestión.
 
-        Cuerpo: `{"decision": "delete" | "hide" | "reject", "note": "…"}`.
-        `delete` la manda a erratas, `hide` la deja en la flota pero protegida
-        y a nombre de quien decide, y `reject` no toca el documento. Las tres
-        la sacan de pendiente, que es lo que quita la marca en el campo.
+        Cuerpo: `{"decision": …, "note": "…"}`. En una de **borrado**, `delete`
+        la manda a erratas, `hide` la deja en la flota pero protegida y a
+        nombre de quien decide, y `reject` no toca el documento; en una de
+        **corrección**, `apply` escribe los cambios y `reject` no. Todas la
+        sacan de pendiente, que es lo que quita la marca en el campo.
         """
         peticion = self.get_object()
         if peticion.status != DocumentDeletionStatus.PENDING:
             raise ValidationError({"status": "Esa petición ya está resuelta."})
         decision = str(request.data.get("decision", "") or "")
-        if decision not in document_requests.DECISIONS:
-            raise ValidationError(
-                {"decision": f"Indica una decisión: {', '.join(document_requests.DECISIONS)}."}
+        # Cada clase tiene SUS salidas: aplicar un borrado o dar de baja un
+        # documento porque su fecha estaba mal son cosas distintas.
+        posibles = (
+            (document_requests.DECISION_APPLY, document_requests.DECISION_REJECT)
+            if peticion.kind == DocumentRequestKind.CHANGE
+            else (
+                document_requests.DECISION_DELETE,
+                document_requests.DECISION_HIDE,
+                document_requests.DECISION_REJECT,
             )
+        )
+        if decision not in posibles:
+            raise ValidationError({"decision": f"Indica una decisión: {', '.join(posibles)}."})
         note = str(request.data.get("note", "") or "").strip()[:255]
         document_requests.resolve(peticion, decision=decision, actor=request.user, note=note)
         return Response(self.get_serializer(peticion).data)
@@ -3107,4 +3136,93 @@ class DriverChangeRequestViewSet(
             )
         note = str(request.data.get("note", "") or "").strip()[:255]
         driver_requests.resolve(peticion, decision=decision, actor=request.user, note=note)
+        return Response(self.get_serializer(peticion).data)
+
+
+class ProfileChangeRequestViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Peticiones de corregir la ficha personal: la persona pide, gestión decide.
+
+    En la app de campo «Mi perfil» es de lectura, así que la corrección se pide
+    desde ahí y espera en `/solicitudes` con las otras tres. Se pide **sobre la
+    propia ficha y nada más**: `user` no viaja en el cuerpo, lo pone la sesión.
+
+    No hay `PUT`/`PATCH`/`DELETE`: una petición no se corrige, se resuelve.
+    """
+
+    serializer_class = ProfileChangeRequestSerializer
+    permission_classes = [ManagementOrDriverReadWrite]
+    # Misma superficie pública que el resto de escrituras de campo (SEC9).
+    throttle_classes = [UserRateThrottle, PublicWriteThrottle]
+    throttle_scope = "public_write"
+    queryset = ProfileChangeRequest.objects.select_related("user", "requested_by", "resolved_by")
+    filterset_fields = ["status", "user"]
+    ordering_fields = ["created_at", "resolved_at"]
+
+    def get_queryset(self):
+        """El admin ve la bandeja entera; cualquier otro, solo la de su ficha.
+
+        Ni siquiera quien supervisa ve las de su gente: son datos personales de
+        otro (teléfono, permiso), y verlos no es parte de supervisar un coche.
+        """
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_admin:
+            return qs
+        return qs.filter(user=user)
+
+    def create(self, request, *args, **kwargs):
+        """Pide corregir la PROPIA ficha (o devuelve la petición ya abierta).
+
+        La ficha es la de quien firma: mandar `user` en el cuerpo no sirve de
+        nada porque es de solo lectura, y así no hay forma de abrir una
+        petición sobre la ficha de otra persona.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+        cambios = datos.get("changes") or {}
+        # El correo y el DNI identifican a la persona en otras tablas: si el
+        # nuevo ya es de otra cuenta se dice AQUÍ, y no cuando alguien intente
+        # aplicar una petición que nunca pudo aplicarse.
+        choque = profile_requests.conflicts(cambios, user=request.user)
+        if choque:
+            raise ValidationError(choque)
+        peticion = profile_requests.open_request(
+            request.user,
+            actor=request.user,
+            changes=cambios,
+            note=datos.get("note", ""),
+        )
+        salida = self.get_serializer(peticion)
+        return Response(salida.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    def resolve(self, request, pk=None):
+        """POST /profile-change-requests/{id}/resolve/ — la decide la gestión.
+
+        Cuerpo: `{"decision": "done" | "reject", "note": "…"}`. `done` **aplica**
+        lo pedido sobre la ficha (`services.profile_requests.resolve` dice por
+        qué); `reject` no toca nada. Las dos la sacan de pendiente.
+        """
+        peticion = self.get_object()
+        if peticion.status != ProfileChangeStatus.PENDING:
+            raise ValidationError({"status": "Esa petición ya está resuelta."})
+        decision = str(request.data.get("decision", "") or "")
+        if decision not in profile_requests.DECISIONS:
+            raise ValidationError(
+                {"decision": f"Indica una decisión: {', '.join(profile_requests.DECISIONS)}."}
+            )
+        note = str(request.data.get("note", "") or "").strip()[:255]
+        try:
+            profile_requests.resolve(peticion, decision=decision, actor=request.user, note=note)
+        except profile_requests.ConflictingProfileChange as choque:
+            # Otra cuenta se ha quedado ese correo o ese DNI: la petición sigue
+            # pendiente y se dice qué campo estorba, que es lo accionable.
+            raise ValidationError(choque.errors) from choque
+        peticion.refresh_from_db()
         return Response(self.get_serializer(peticion).data)

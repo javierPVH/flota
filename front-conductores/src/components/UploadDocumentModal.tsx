@@ -11,6 +11,7 @@ import {
   linkableIncidents,
 } from '../documentRules.ts'
 import { fmtDate } from '../format.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Incident, Vehicle } from '../types.ts'
@@ -39,6 +40,7 @@ export function UploadDocumentModal({
   onSaved?: () => void
 }) {
   const { t } = useLang()
+  const etiqueta = useDomainLabels()
   const doc = t.vehicle
   const copy = t.uploadDoc
   const [incidents, setIncidents] = useState<Incident[]>([])
@@ -260,7 +262,7 @@ export function UploadDocumentModal({
                   { value: '', label: boundTo ? doc.linkChoose : doc.linkChooseIncident },
                   ...linkable.map((incident) => ({
                     value: String(incident.id),
-                    label: `#${incident.id} · ${incident.type_display}${incident.date ? ` (${fmtDate(incident.date)})` : ''}`,
+                    label: `#${incident.id} · ${etiqueta.incidentType(incident)}${incident.date ? ` (${fmtDate(incident.date)})` : ''}`,
                   })),
                 ]}
                 value={form.incident}
@@ -283,7 +285,7 @@ export function UploadDocumentModal({
                   { value: 'none', label: doc.linkNone },
                   ...linkable.map((incident) => ({
                     value: String(incident.id),
-                    label: `#${incident.id} · ${incident.type_display} · ${incident.status_display}${incident.date ? ` (${fmtDate(incident.date)})` : ''}`,
+                    label: `#${incident.id} · ${etiqueta.incidentType(incident)} · ${etiqueta.incidentStatus(incident)}${incident.date ? ` (${fmtDate(incident.date)})` : ''}`,
                   })),
                 ]}
                 value={form.incident || 'none'}

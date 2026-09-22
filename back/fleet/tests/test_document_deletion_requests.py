@@ -208,3 +208,141 @@ class DocumentDeletionRequestTests(APITestCase):
         resp = self.client.get(f"{self.list_url}?status=pending")
         self.assertEqual(resp.data["count"], 1)
         self.assertEqual(resp.data["results"][0]["requested_by_name"], "driver")
+
+
+class DocumentChangeRequestTests(APITestCase):
+    """Corregir un documento tampoco lo hace el campo: lo pide.
+
+    Misma bandeja y misma fila que el borrado (`kind`), porque un documento
+    tiene una petición viva. Lo que se prueba aquí es que solo viaje lo que se
+    puede pedir, que aplicarla escriba de verdad y que cada clase se decida con
+    sus propias salidas.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        self.admin = make_user("admin", Role.ADMIN)
+        self.driver = make_user("driver", Role.DRIVER)
+        # Un documento PERSONAL: es el caso de «Mi perfil», donde se piden.
+        self.document = Document.objects.create(
+            user=self.driver,
+            type="driving_license",
+            expiry_date=date(2030, 1, 1),
+            drive_url="https://drive/x",
+            responsible=self.driver,
+        )
+        self.list_url = reverse("documentdeletionrequest-list")
+
+    def _pedir(self, changes, reason="La fecha esta mal."):
+        return self.client.post(
+            self.list_url,
+            {
+                "document": self.document.pk,
+                "kind": "change",
+                "changes": changes,
+                "reason": reason,
+            },
+            format="json",
+        )
+
+    def test_the_owner_asks_to_fix_the_expiry_date(self):
+        self.client.force_authenticate(self.driver)
+        resp = self._pedir({"expiry_date": "2031-05-31"})
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        peticion = DocumentDeletionRequest.objects.get()
+        self.assertEqual(peticion.kind, "change")
+        self.assertEqual(peticion.changes, {"expiry_date": "2031-05-31"})
+        # El documento NO se toca al pedirlo.
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.expiry_date, date(2030, 1, 1))
+
+    def test_a_personal_document_only_takes_personal_types(self):
+        """Nadie convierte su permiso de conducir en la poliza de un coche."""
+        self.client.force_authenticate(self.driver)
+        resp = self._pedir({"type": "insurance"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(DocumentDeletionRequest.objects.count(), 0)
+
+    def test_asking_for_what_is_already_there_is_refused(self):
+        self.client.force_authenticate(self.driver)
+        resp = self._pedir({"expiry_date": "2030-01-01"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_applying_it_writes_the_document(self):
+        self.client.force_authenticate(self.driver)
+        peticion_id = self._pedir({"expiry_date": "2031-05-31", "notes": "Renovado."}).data["id"]
+
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            reverse("documentdeletionrequest-resolve", args=[peticion_id]),
+            {"decision": "apply", "note": "Visto el permiso."},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.expiry_date, date(2031, 5, 31))
+        self.assertEqual(self.document.notes, "Renovado.")
+        peticion = DocumentDeletionRequest.objects.get(pk=peticion_id)
+        self.assertEqual(peticion.status, DocumentDeletionStatus.APPLIED)
+        self.assertEqual(peticion.resolved_by, self.admin)
+
+    def test_rejecting_it_leaves_the_document_alone(self):
+        self.client.force_authenticate(self.driver)
+        peticion_id = self._pedir({"expiry_date": "2031-05-31"}).data["id"]
+        self.client.force_authenticate(self.admin)
+        self.client.post(
+            reverse("documentdeletionrequest-resolve", args=[peticion_id]),
+            {"decision": "reject", "note": "El permiso dice otra cosa."},
+            format="json",
+        )
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.expiry_date, date(2030, 1, 1))
+
+    def test_a_change_is_not_decided_with_the_decisions_of_a_deletion(self):
+        """Cada clase tiene SUS salidas: un cambio no se manda a erratas."""
+        self.client.force_authenticate(self.driver)
+        peticion_id = self._pedir({"expiry_date": "2031-05-31"}).data["id"]
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            reverse("documentdeletionrequest-resolve", args=[peticion_id]),
+            {"decision": "delete"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_one_live_request_per_document(self):
+        """Con una correccion esperando, la papelera devuelve ESA."""
+        self.client.force_authenticate(self.driver)
+        self._pedir({"expiry_date": "2031-05-31"})
+        resp = self.client.post(
+            self.list_url, {"document": self.document.pk, "reason": "Mejor borralo."}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(DocumentDeletionRequest.objects.count(), 1)
+        self.assertEqual(DocumentDeletionRequest.objects.get().kind, "change")
+
+    def test_the_row_says_what_would_change(self):
+        self.client.force_authenticate(self.driver)
+        peticion_id = self._pedir({"type": "other"}).data["id"]
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse("documentdeletionrequest-detail", args=[peticion_id]))
+        self.assertEqual(
+            resp.data["changes_display"],
+            [
+                {
+                    "field": "type",
+                    "label": "Tipo",
+                    "current": "Permiso de conducir",
+                    "proposed": "Otro",
+                },
+                # El tipo nuevo no caduca: la fecha que habia deja de valer.
+                {
+                    "field": "expiry_date",
+                    "label": "Fecha de caducidad",
+                    "current": "2030-01-01",
+                    "proposed": "",
+                },
+            ],
+        )

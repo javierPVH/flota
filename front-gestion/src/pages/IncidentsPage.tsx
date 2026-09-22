@@ -26,6 +26,7 @@ import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { TextCell } from '../components/TextCell.tsx'
 import { useIncidentSummary } from '../incidentSummary.ts'
 import { useIncidentsCopy } from '../translations/incidents.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import type { Incident, Vehicle } from '../types.ts'
 
@@ -68,6 +69,7 @@ export function IncidentsPage() {
   // Las etiquetas de los estados del coche viven con los vehículos (son las
   // mismas siete de `stateLabel`): aquí se leen, no se repiten.
   const vt = useVehiclesCopy()
+  const etiqueta = useDomainLabels()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const vehicleFilter = searchParams.get('vehicle') ?? ''
@@ -168,7 +170,6 @@ export function IncidentsPage() {
     return () => controller.abort()
   }, [load])
 
-
   function setFilter(key: string, value: string) {
     const next = new URLSearchParams(searchParams)
     if (value) next.set(key, value)
@@ -186,7 +187,9 @@ export function IncidentsPage() {
   const vehicleStateOf = useCallback((incident: Incident) => {
     const vehicle = vehicleById.get(incident.vehicle)
     const state = vehicle?.state ?? incident.vehicle_state ?? null
-    const label = vehicle?.state_display || (state ? (vt.stateLabel[state] ?? state) : '')
+    // La etiqueta la pone el diccionario por CÓDIGO; el `state_display` del
+    // back (castellano) solo es la reserva.
+    const label = state ? (vt.stateLabel[state] ?? vehicle?.state_display ?? state) : ''
     return { state, label }
   }, [vehicleById, vt.stateLabel])
 
@@ -199,7 +202,9 @@ export function IncidentsPage() {
       if (tab === 'closed' ? !cerrada : cerrada) return false
       if (
         term &&
-        !`${plateOf(i.vehicle)} ${i.type_display} ${i.description ?? ''} ${i.status_display}`
+        !`${plateOf(i.vehicle)} ${etiqueta.incidentType(i)} ${i.type_display} ${
+          i.description ?? ''
+        } ${etiqueta.incidentStatus(i)}`
           .toLowerCase()
           .includes(term)
       )
@@ -293,12 +298,12 @@ export function IncidentsPage() {
       // busca por «205/55» y sale también en el CSV.
       key: 'type',
       label: t.columns.type,
-      getValue: (i) => [i.type_display, resumen(i)].filter(Boolean).join(' · '),
+      getValue: (i) => [etiqueta.incidentType(i), resumen(i)].filter(Boolean).join(' · '),
       render: (i) => {
         const sub = resumen(i)
         return (
           <div className="stack-cell">
-            <span>{i.type_display || '—'}</span>
+            <span>{etiqueta.incidentType(i) || '—'}</span>
             {sub && <span className="stack-cell-sub muted">{sub}</span>}
           </div>
         )
@@ -310,17 +315,19 @@ export function IncidentsPage() {
       key: 'priority',
       label: t.columns.priority,
       width: 116,
-      getValue: (i) => i.priority_display ?? '',
+      getValue: (i) => etiqueta.incidentPriority(i),
       render: (i) => (
-        <Badge tone={incidentPriorityTone(i.priority)}>{i.priority_display || '—'}</Badge>
+        <Badge tone={incidentPriorityTone(i.priority)}>{etiqueta.incidentPriority(i) || '—'}</Badge>
       ),
     },
     {
       key: 'status',
       label: t.columns.status,
       width: 116,
-      getValue: (i) => i.status_display,
-      render: (i) => <Badge tone={incidentStatusTone(i.status)}>{i.status_display || '—'}</Badge>,
+      getValue: (i) => etiqueta.incidentStatus(i),
+      render: (i) => (
+        <Badge tone={incidentStatusTone(i.status)}>{etiqueta.incidentStatus(i) || '—'}</Badge>
+      ),
     },
     {
       // Si la incidencia deja el coche parado o no: el estado del vehículo,
@@ -397,7 +404,7 @@ export function IncidentsPage() {
         </div>
       ),
     },
-  ], [navigate, plateOf, resumen, t.view, t.columns.actions, t.columns.cost, t.columns.date, t.columns.description, t.columns.priority, t.columns.status, t.columns.type, t.columns.vehicle, t.columns.vehicleState, t.documents, t.documentsTitle, t.edit, t.resolve, t.viewDescription, vehicleStateOf])
+  ], [navigate, plateOf, resumen, t.view, t.columns.actions, t.columns.cost, t.columns.date, t.columns.description, t.columns.priority, t.columns.status, t.columns.type, t.columns.vehicle, t.columns.vehicleState, t.documents, t.documentsTitle, t.edit, t.resolve, t.viewDescription, vehicleStateOf, etiqueta])
 
   return (
     <div>

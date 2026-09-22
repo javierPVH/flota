@@ -23,6 +23,7 @@ import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
 import { VehiclePendingCards } from '../components/VehiclePendingCards.tsx'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
 import { isOpenFieldIncident, pendingThisMonth, vehicleStateTone } from '../format.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import { PENDING_CARDS } from '../pendingCards.ts'
 import type { Alert, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
@@ -307,6 +308,7 @@ function OwnVehiclePanel({
   reelButton?: ReelButton
 }) {
   const { t } = useLang()
+  const etiqueta = useDomainLabels()
   // Las tres tarjetas de lo pendiente arrancan PLEGADAS: su recuento se lee
   // en el título y se abre solo la familia que interesa.
   const accordion = useAccordion(PENDING_CARDS, PENDING_CARDS)
@@ -336,7 +338,7 @@ function OwnVehiclePanel({
             </button>
           )}
           <span className="plate plate-lg">{vehicle.plate}</span>
-          <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+          <Badge tone={vehicleStateTone(vehicle.state)}>{etiqueta.vehicleState(vehicle) || '—'}</Badge>
           {covering && <Badge tone="info">{t.home.substituteTag}</Badge>}
           {blocked && <Badge tone="warning">🔒 {t.home.blocked}</Badge>}
         </div>

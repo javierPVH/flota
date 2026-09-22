@@ -75,6 +75,12 @@ LINK_REQUIRED_DOCUMENT_TYPES = frozenset(
     {DocumentType.WORKSHOP_INVOICE, DocumentType.DAMAGE_PHOTOS, DocumentType.ITV_REPORT}
 )
 
+#: Tipos que tienen sentido con titular PERSONA: el permiso de conducir y el
+#: cajón «Otro». Es la lista que ya ofrecen los dos fronts al subir un documento
+#: personal, y la que acota una petición de corregir uno: nadie convierte su
+#: permiso en la póliza de un coche.
+PERSONAL_DOCUMENT_TYPES = frozenset({DocumentType.DRIVING_LICENSE, DocumentType.OTHER})
+
 
 class DocumentStatus(models.TextChoices):
     """Estado del documento."""
@@ -84,15 +90,32 @@ class DocumentStatus(models.TextChoices):
     PENDING_ARCHIVE = "pending_archive", "Pendiente de archivar"
 
 
-class DocumentDeletionStatus(models.TextChoices):
-    """En qué quedó la petición de borrado que abre quien lee el documento.
+class DocumentRequestKind(models.TextChoices):
+    """Qué se pide sobre un documento desde el campo.
 
-    Los tres finales son las tres salidas del modal de la gestión: borrarlo de
-    verdad (va a erratas), taparlo solo para el campo (sigue en la flota) o
-    decir que no (el documento se queda como estaba).
+    Son dos cosas distintas con la misma doctrina —el campo pide, la gestión
+    decide— y la misma bandeja: **borrarlo** (la papelera de la app no borra) o
+    **corregirlo** (el tipo, la caducidad o la nota están mal). Comparten fila
+    porque un documento tiene **una petición viva**: pedir a la vez que se
+    corrija y que se borre no es una petición, es un cambio de idea.
+    """
+
+    DELETE = "delete", "Borrado"
+    CHANGE = "change", "Corrección"
+
+
+class DocumentDeletionStatus(models.TextChoices):
+    """En qué quedó la petición que abre quien lee el documento.
+
+    Las tres primeras salidas son las del **borrado**: borrarlo de verdad (va a
+    erratas), taparlo solo para el campo (sigue en la flota) o decir que no. La
+    **corrección** tiene las suyas: aplicarla —se escriben esos campos en el
+    documento— o rechazarla. Todas lo sacan de pendiente, que es lo que quita
+    la marca en el campo.
     """
 
     PENDING = "pending", "Pendiente"
     DELETED = "deleted", "Borrado (en erratas)"
     HIDDEN = "hidden", "Oculto para el conductor"
+    APPLIED = "applied", "Corrección aplicada"
     REJECTED = "rejected", "Rechazada"

@@ -17,6 +17,7 @@ import { exportCsv } from '../csv.ts'
 import { fmtDate, fmtDateTime } from '../format.ts'
 import { useAppLang } from '@flota/ui/i18n'
 import { useRequestsCopy } from '../translations/requests.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 /** Estado → tono de la chapa. Pendiente avisa; las dos salidas informan. */
 const TONE: Record<DriverChangeRequestRow['status'], BadgeTone> = {
@@ -41,6 +42,7 @@ const DECISIONS: DriverChangeDecision[] = ['done', 'reject']
  */
 export function DriverRequestsTab({ onCountsChange }: { onCountsChange?: () => void }) {
   const t = useRequestsCopy()
+  const etiqueta = useDomainLabels()
   const copy = t.drivers
   const lang = useAppLang()
 
@@ -168,8 +170,8 @@ export function DriverRequestsTab({ onCountsChange }: { onCountsChange?: () => v
       {
         key: 'status',
         label: copy.columns.status,
-        getValue: (r) => r.status_display,
-        render: (r) => <Badge tone={TONE[r.status]}>{r.status_display}</Badge>,
+        getValue: (r) => etiqueta.requestStatus('driver', r),
+        render: (r) => <Badge tone={TONE[r.status]}>{etiqueta.requestStatus('driver', r)}</Badge>,
       },
       {
         key: 'resolved',
@@ -199,7 +201,7 @@ export function DriverRequestsTab({ onCountsChange }: { onCountsChange?: () => v
           ) : null,
       },
     ],
-    [copy, lang],
+    [copy, lang, etiqueta],
   )
 
   const hint: Record<DriverChangeDecision, string> = useMemo(

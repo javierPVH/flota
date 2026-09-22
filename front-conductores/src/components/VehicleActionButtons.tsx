@@ -6,10 +6,11 @@ import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 import { AccidentModal } from './AccidentModal.tsx'
 import { BreakdownModal } from './BreakdownModal.tsx'
+import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
 import { RegisterFuelModal } from './RegisterFuelModal.tsx'
-import { VehicleUpdateModal } from './VehicleUpdateModal.tsx'
 import { RegisterItvModal } from './RegisterItvModal.tsx'
 import { RegisterKmModal } from './RegisterKmModal.tsx'
+import { ScheduledActionInfo, type ScheduledKind } from './ScheduledActionInfo.tsx'
 import { UploadDocumentModal } from './UploadDocumentModal.tsx'
 
 type Action = 'km' | 'fuel' | 'itv' | 'maintenance' | 'breakdown' | 'accident' | 'document'
@@ -30,6 +31,8 @@ export function VehicleActionButtons({
 }) {
   const { t } = useLang()
   const [open, setOpen] = useState<Action | null>(null)
+  // Cita todavía lejos: el botón se pulsa igual y lo que abre es el porqué.
+  const [info, setInfo] = useState<ScheduledKind | null>(null)
   const className = variant === 'nav' ? 'bottom-tab' : 'quick-action'
   const iconSize = variant === 'nav' ? 22 : 18
   // En el nav las etiquetas van CORTAS (Km · ITV · Mantenimiento): siete
@@ -89,10 +92,14 @@ export function VehicleActionButtons({
         <button
           key={key}
           type="button"
-          className={`${className}${isUnavailable(key) ? ' is-disabled' : ''}`}
-          disabled={isUnavailable(key)}
+          // Apagado pero VIVO cuando la cita está lejos: el toque abre el
+          // aviso que cuenta cuándo se podrá. Antes iba `disabled` con un
+          // `title`, que en un móvil no se lee y deja un botón muerto.
+          className={`${className}${isUnavailable(key) ? ' is-waiting' : ''}`}
           title={isUnavailable(key) ? t.vehicle.scheduledActionUnavailable : undefined}
-          onClick={() => setOpen(key)}
+          onClick={() =>
+            isUnavailable(key) ? setInfo(key as ScheduledKind) : setOpen(key)
+          }
         >
           {variant === 'nav' && key === 'km' ? (
             <span className="tab-icon">
@@ -134,13 +141,14 @@ export function VehicleActionButtons({
         />
       )}
       {vehicle && open === 'maintenance' && (
-        // «Actualizar», con el mantenimiento por delante: la misma ventana
-        // sirve para lo demás que traiga ese coche (km, combustible, ITV e
-        // incidencias abiertas), que es lo que se viene a hacer.
-        <VehicleUpdateModal
+        // Solo el mantenimiento. Abría «Actualizar» con esa pestaña por
+        // delante, pero esta barra es la de Mi vehículo y ya trae km,
+        // combustible, ITV e incidencia cada uno en su botón: la fila de
+        // pestañas era el mismo nav dos veces. En Flota sí sigue entera, que
+        // ahí se actualiza el coche de otro y se trae todo de una vez.
+        <MaintenanceUpdateModal
           vehicle={vehicle}
           summary={summary ?? null}
-          initialTab="maintenance"
           onClose={() => setOpen(null)}
           onSaved={saved}
         />
@@ -159,6 +167,18 @@ export function VehicleActionButtons({
       )}
       {vehicle && open === 'document' && (
         <UploadDocumentModal vehicle={vehicle} onClose={() => setOpen(null)} onSaved={saved} />
+      )}
+      {vehicle && info && (
+        <ScheduledActionInfo
+          kind={info}
+          date={
+            info === 'itv'
+              ? summary?.next_itv_date ?? vehicle.next_itv_date
+              : summary?.next_maintenance_date
+          }
+          plate={vehicle.plate}
+          onClose={() => setInfo(null)}
+        />
       )}
     </>
   )

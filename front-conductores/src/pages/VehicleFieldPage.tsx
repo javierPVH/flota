@@ -32,16 +32,22 @@ import {
 import { AccidentModal } from '../components/AccidentModal.tsx'
 import { BreakdownModal } from '../components/BreakdownModal.tsx'
 import { DocumentList } from '../components/DocumentList.tsx'
+import { MaintenanceUpdateModal } from '../components/MaintenanceUpdateModal.tsx'
 import { RegisterFuelModal } from '../components/RegisterFuelModal.tsx'
 import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
 import { VehiclePendingCards } from '../components/VehiclePendingCards.tsx'
 import { RegisterKmModal } from '../components/RegisterKmModal.tsx'
 import { ReminderModal } from '../components/ReminderModal.tsx'
+import {
+  ScheduledActionInfo,
+  type ScheduledKind,
+} from '../components/ScheduledActionInfo.tsx'
 import { VehicleUpdateModal } from '../components/VehicleUpdateModal.tsx'
 import { UploadDocumentModal } from '../components/UploadDocumentModal.tsx'
 import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
 import type { LayoutContext } from '../components/Layout.tsx'
+import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import { PENDING_CARDS } from '../pendingCards.ts'
 import {
@@ -64,6 +70,7 @@ export function VehicleFieldPage() {
   const [params] = useSearchParams()
   const vehicleId = Number(id)
   const { t, language } = useLang()
+  const etiqueta = useDomainLabels()
   const { user } = useAuth()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
   const canManage =
@@ -99,6 +106,8 @@ export function VehicleFieldPage() {
   // dejaba al conductor esperando una respuesta que nadie podía dar.
   const [itvOpen, setItvOpen] = useState(false)
   const [itvOk, setItvOk] = useState('')
+  // La cita está lejos: en vez de un botón muerto, el aviso de cuándo se abre.
+  const [scheduledInfo, setScheduledInfo] = useState<ScheduledKind | null>(null)
 
   // Herramientas del supervisor (las mismas de las tarjetas de la flota).
   const [remindOpen, setRemindOpen] = useState(false)
@@ -196,7 +205,7 @@ export function VehicleFieldPage() {
 
       <header className="field-head">
         <span className="plate plate-lg">{vehicle.plate}</span>
-        <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+        <Badge tone={vehicleStateTone(vehicle.state)}>{etiqueta.vehicleState(vehicle) || '—'}</Badge>
         {/* Las marcas N9, como en las tarjetas: se ven sin bajar a los paneles. */}
         {(vehicle.is_substitute || summary?.substituting_for) && (
           <Badge tone="info">{t.home.substituteTag}</Badge>
@@ -328,12 +337,18 @@ export function VehicleFieldPage() {
           </button>
         )}
 
+        {/* Con la cita lejos estos dos van apagados pero VIVOS: el toque abre
+            el aviso que dice cuándo es y desde qué día se podrá registrar. Un
+            botón muerto con un `title` no se explica en un móvil. */}
         <button
           type="button"
-          className={`quick-action${itvAvailable ? '' : ' is-disabled'}`}
-          disabled={!itvAvailable}
+          className={`quick-action${itvAvailable ? '' : ' is-waiting'}`}
           title={!itvAvailable ? t.vehicle.scheduledActionUnavailable : undefined}
           onClick={() => {
+            if (!itvAvailable) {
+              setScheduledInfo('itv')
+              return
+            }
             setItvOk('')
             setItvOpen(true)
           }}
@@ -344,10 +359,11 @@ export function VehicleFieldPage() {
         {isSupervisor && (
           <button
             type="button"
-            className={`quick-action${maintenanceAvailable ? '' : ' is-disabled'}`}
-            disabled={!maintenanceAvailable}
+            className={`quick-action${maintenanceAvailable ? '' : ' is-waiting'}`}
             title={!maintenanceAvailable ? t.vehicle.scheduledActionUnavailable : undefined}
-            onClick={() => setUpdateOpen(true)}
+            onClick={() =>
+              maintenanceAvailable ? setUpdateOpen(true) : setScheduledInfo('maintenance')
+            }
           >
             <ClipboardList size={20} aria-hidden /> {t.carUpdate.maintenanceButton}
           </button>
@@ -404,7 +420,7 @@ export function VehicleFieldPage() {
         <dl className="vehicle-meta">
           <dt>{t.vehicle.state}</dt>
           <dd>
-            <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+            <Badge tone={vehicleStateTone(vehicle.state)}>{etiqueta.vehicleState(vehicle) || '—'}</Badge>
           </dd>
           <dt>{t.vehicle.substitution}</dt>
           <dd>{vehicle.is_substitute ? t.vehicle.isSubstitute : t.vehicle.mainVehicle}</dd>
@@ -518,15 +534,39 @@ export function VehicleFieldPage() {
           onClose={() => setRemindOpen(false)}
         />
       )}
-      {updateOpen && (
-        <VehicleUpdateModal
-          vehicle={vehicle}
-          summary={summary}
-          initialTab="maintenance"
-          onClose={() => setUpdateOpen(false)}
-          onSaved={reload}
+      {scheduledInfo && (
+        <ScheduledActionInfo
+          kind={scheduledInfo}
+          date={
+            scheduledInfo === 'itv'
+              ? summary?.next_itv_date ?? vehicle.next_itv_date
+              : summary?.next_maintenance_date
+          }
+          plate={vehicle.plate}
+          onClose={() => setScheduledInfo(null)}
         />
       )}
+      {updateOpen &&
+        // Ese botón dice «Mantenimiento»: en **Mi vehículo** abre eso y nada
+        // más —km, combustible e ITV ya están arriba, cada uno en el suyo—, y
+        // en **Flota** sigue abriendo «Actualizar» entera, que es donde se
+        // repasa el coche de otro de una sentada.
+        (ctx?.fleetMode ?? true ? (
+          <VehicleUpdateModal
+            vehicle={vehicle}
+            summary={summary}
+            initialTab="maintenance"
+            onClose={() => setUpdateOpen(false)}
+            onSaved={reload}
+          />
+        ) : (
+          <MaintenanceUpdateModal
+            vehicle={vehicle}
+            summary={summary}
+            onClose={() => setUpdateOpen(false)}
+            onSaved={reload}
+          />
+        ))}
     </div>
   )
 }

@@ -12,11 +12,15 @@ import {
   scheduledActionAvailable,
   vehicleStateTone,
 } from '../format.ts'
+import { useDomainLabels } from '../domainLabels.ts'
+import { useFleetMode } from '../fleetMode.ts'
 import { useLang } from '../i18n.tsx'
 import { pairedWith } from '../substitution.ts'
 import { AccidentModal } from './AccidentModal.tsx'
 import { BreakdownModal } from './BreakdownModal.tsx'
+import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
 import { ReminderModal } from './ReminderModal.tsx'
+import { ScheduledActionInfo } from './ScheduledActionInfo.tsx'
 import { VehicleUpdateModal } from './VehicleUpdateModal.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 
@@ -48,6 +52,9 @@ export function VehicleCardList({
   onRefresh?: () => void
 }) {
   const { t } = useLang()
+  // La misma lista sirve a las dos vistas, y «Mantenimiento» no abre lo mismo
+  // en cada una (abajo).
+  const fleetMode = useFleetMode()
   // Recordatorio (correo/alerta) del supervisor: un modal para toda la lista,
   // FUERA de las tarjetas — cada una es un <Link> y no puede contenerlo.
   const [remindFor, setRemindFor] = useState<Vehicle | null>(null)
@@ -151,15 +158,39 @@ export function VehicleCardList({
           onClose={() => setRemindFor(null)}
         />
       )}
-      {updateFor && (
-        <VehicleUpdateModal
-          vehicle={updateFor}
-          summary={summaries[updateFor.id]}
-          initialTab="maintenance"
+      {updateFor && !scheduledActionAvailable(summaries[updateFor.id]?.next_maintenance_date) && (
+        // La cita todavía está lejos: lo que se abre es el porqué, no el
+        // formulario.
+        <ScheduledActionInfo
+          kind="maintenance"
+          date={summaries[updateFor.id]?.next_maintenance_date}
+          plate={updateFor.plate}
           onClose={() => setUpdateFor(null)}
-          onSaved={onRefresh}
         />
       )}
+      {updateFor &&
+        scheduledActionAvailable(summaries[updateFor.id]?.next_maintenance_date) &&
+        // El botón dice «Mantenimiento», y en **Mi vehículo** eso es lo que
+        // abre: la fila de pestañas de «Actualizar» repetía el nav de abajo,
+        // que ya trae km, combustible, ITV e incidencia por separado. En
+        // **Flota** sigue entera: ahí se actualiza el coche de otro y se suele
+        // traer todo de una vez.
+        (fleetMode ? (
+          <VehicleUpdateModal
+            vehicle={updateFor}
+            summary={summaries[updateFor.id]}
+            initialTab="maintenance"
+            onClose={() => setUpdateFor(null)}
+            onSaved={onRefresh}
+          />
+        ) : (
+          <MaintenanceUpdateModal
+            vehicle={updateFor}
+            summary={summaries[updateFor.id]}
+            onClose={() => setUpdateFor(null)}
+            onSaved={onRefresh}
+          />
+        ))}
       {breakdownFor && (
         <BreakdownModal
           vehicle={breakdownFor}
@@ -301,6 +332,7 @@ function VehicleCard({
   onAccident?: (vehicle: Vehicle) => void
 }) {
   const { t, language } = useLang()
+  const etiqueta = useDomainLabels()
   const navigate = useNavigate()
   const kmPending = summary ? pendingThisMonth(summary) : false
   const maintenanceAvailable = scheduledActionAvailable(summary?.next_maintenance_date)
@@ -341,7 +373,7 @@ function VehicleCard({
               </button>
             )}
             <span className="plate">{vehicle.plate}</span>
-            <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+            <Badge tone={vehicleStateTone(vehicle.state)}>{etiqueta.vehicleState(vehicle) || '—'}</Badge>
             {isOwn && (
               <span className="own-vehicle-mark" title={t.home.ownTitle}>
                 <Badge tone="primary" variant="solid" icon={<Car size={13} aria-hidden />}>
@@ -498,13 +530,15 @@ function VehicleCard({
                 </button>
               )}
               {onUpdate && (
-                // Actualización de mantenimiento en nombre del conductor.
+                // Actualización de mantenimiento en nombre del conductor. Con
+                // la cita lejos va apagado pero VIVO: quien lo abre recibe el
+                // aviso de cuándo se podrá (lo decide la lista, que es quien
+                // monta los modales).
                 <button
                   type="button"
                   className={`report-btn report-btn-icon${
-                    maintenanceAvailable ? '' : ' is-disabled'
+                    maintenanceAvailable ? '' : ' is-waiting'
                   }`}
-                  disabled={!maintenanceAvailable}
                   aria-label={t.carUpdate.maintenanceButton}
                   title={
                     maintenanceAvailable

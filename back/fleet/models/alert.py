@@ -43,6 +43,13 @@ class Alert(TimeStampedModel):
         help_text="Destinatario/sujeto de la alerta (p. ej. el conductor).",
     )
     message = models.CharField("Mensaje", max_length=255, blank=True)
+    # El MISMO mensaje, dicho como dato: el código de la plantilla y sus
+    # números (`services/alert_messages.py`). `message` sigue siendo la frase
+    # en castellano —la que leen el correo y el Excel— y estos dos son con lo
+    # que cada front la escribe en su idioma; van vacíos en las alertas
+    # anteriores a esto, que por eso se siguen pintando con `message`.
+    message_code = models.CharField("Código del mensaje", max_length=40, blank=True)
+    message_args = models.JSONField("Datos del mensaje", default=dict, blank=True)
     due_date = models.DateField("Fecha límite", null=True, blank=True)
     dedup_key = models.CharField(
         "Clave de deduplicación",

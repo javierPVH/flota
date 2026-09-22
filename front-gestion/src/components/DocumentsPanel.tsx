@@ -53,6 +53,7 @@ import {
   type DocumentInput,
 } from '../api.ts'
 import { openDrivePicker, type PickedFile } from '../services/google-picker.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import type {
   Alert,
   DriveFile,
@@ -192,6 +193,7 @@ export function DocumentsPanel({
   accordion,
 }: DocumentsOwner & { accordion: AccordionState }) {
   const t = usePanelsCopy().documents
+  const etiqueta = useDomainLabels()
   const personal = !vehicle
   // Filtro/titular que viaja al back en cada llamada (`{vehicle}` o `{user}`).
   const ownerFilter = useMemo<{ vehicle?: number; user?: number }>(
@@ -370,24 +372,39 @@ export function DocumentsPanel({
   // incidencias y, detrás, cada tipo de registro o alerta que el documento admita.
   const linkOptions = useMemo(() => {
     const grupos = t.linkGroups
+    // La copia compone la opción; lo que el back manda en castellano
+    // (`type_display`, `status_display`, `event_type_display`) se le pasa ya
+    // traducido.
     const opciones = linkableInc.map((i) => ({
       value: `incident:${i.id}`,
-      label: t.incidentOption(i),
+      label: t.incidentOption({
+        ...i,
+        type_display: etiqueta.incidentType(i),
+        status_display: etiqueta.incidentStatus(i),
+      }),
       group: grupos.incidents,
     }))
     for (const kind of linkableEventKinds(form.type)) {
       for (const e of linkableEv) {
         if (e.event_type !== kind) continue
-        opciones.push({ value: `event:${e.id}`, label: t.eventOption(e), group: grupos[kind] })
+        opciones.push({
+          value: `event:${e.id}`,
+          label: t.eventOption({ ...e, event_type_display: etiqueta.eventType(e) }),
+          group: grupos[kind],
+        })
       }
     }
     if (linkableAlertKinds(form.type).length) {
       for (const a of linkableAl) {
-        opciones.push({ value: `alert:${a.id}`, label: t.alertOption(a), group: grupos.scheduled })
+        opciones.push({
+          value: `alert:${a.id}`,
+          label: t.alertOption({ ...a, type_display: etiqueta.alertType(a) }),
+          group: grupos.scheduled,
+        })
       }
     }
     return opciones
-  }, [form.type, linkableAl, linkableEv, linkableInc, t])
+  }, [form.type, linkableAl, linkableEv, linkableInc, t, etiqueta])
   // Cómo se llama el desplegable y qué se dice si está vacío, según el tipo.
   const linkCopy = t.linkCopyFor(form.type)
   // Con solo incidencias que ofrecer, el rótulo habla de incidencias.
@@ -498,7 +515,7 @@ export function DocumentsPanel({
   const handleDelete = useCallback(async (doc: FlotaDocument) => {
     // N7: nada se borra — doble confirmación y desactivación con motivo. El
     // borrado definitivo (también en Drive) lo hace el superusuario en erratas.
-    const reason = await deactivateConfirm(t.deactivateTarget(doc.type_display))
+    const reason = await deactivateConfirm(t.deactivateTarget(etiqueta.docType(doc)))
     if (reason === null) return
     try {
       await deleteDocument(doc.id, reason)
@@ -506,7 +523,7 @@ export function DocumentsPanel({
     } catch (err) {
       setError(asErrorMessage(err, t.deactivateError))
     }
-  }, [deactivateConfirm, load, t])
+  }, [deactivateConfirm, load, t, etiqueta])
 
   const handlePurge = useCallback(async (doc: FlotaDocument) => {
     // El archivo ya no existe (lo comprobó la carga): no hay nada que
@@ -514,7 +531,7 @@ export function DocumentsPanel({
     // sin pasar por erratas. El back lo exige igual (solo con la marca).
     const ok = await confirm({
       title: t.purge,
-      message: t.purgeConfirm(doc.type_display),
+      message: t.purgeConfirm(etiqueta.docType(doc)),
       confirmLabel: t.purge,
       tone: 'danger',
     })
@@ -525,7 +542,7 @@ export function DocumentsPanel({
     } catch (err) {
       setError(asErrorMessage(err, t.purgeError))
     }
-  }, [confirm, load, t])
+  }, [confirm, load, t, etiqueta])
 
   async function toggleFolder() {
     if (folderFiles || !vehicle) {
@@ -554,21 +571,21 @@ export function DocumentsPanel({
     const term = search.trim().toLowerCase()
     if (!term) return docs
     return docs.filter((doc) =>
-      `${doc.type_display} ${doc.notes ?? ''} ${doc.uploaded_by_name ?? ''} ${doc.status_display} ${doc.expiry_date ?? ''} ${doc.created_at.slice(0, 10)}`
+      `${etiqueta.docType(doc)} ${doc.notes ?? ''} ${doc.uploaded_by_name ?? ''} ${etiqueta.docStatus(doc)} ${doc.expiry_date ?? ''} ${doc.created_at.slice(0, 10)}`
         .toLowerCase()
         .includes(term),
     )
-  }, [docs, search])
+  }, [docs, search, etiqueta])
 
   // Tabla de documentos con el estilo unificado (TableWithPanel).
   const columns = useMemo<Array<TableWithPanelColumn<FlotaDocument>>>(() => [
     {
       key: 'type',
       label: t.columns.type,
-      getValue: (doc) => doc.type_display,
+      getValue: (doc) => etiqueta.docType(doc),
       render: (doc) => (
         <span>
-          <strong>{doc.type_display}</strong>
+          <strong>{etiqueta.docType(doc)}</strong>
           {doc.replaces ? <span className="doc-version">{t.replacesTag(doc.replaces)}</span> : null}
         </span>
       ),
@@ -615,10 +632,10 @@ export function DocumentsPanel({
     {
       key: 'status',
       label: t.columns.status,
-      getValue: (doc) => doc.status_display,
+      getValue: (doc) => etiqueta.docStatus(doc),
       render: (doc) => (
         <span className="doc-status">
-          <Badge tone={documentStatusTone(doc.status)}>{doc.status_display}</Badge>
+          <Badge tone={documentStatusTone(doc.status)}>{etiqueta.docStatus(doc)}</Badge>
           {doc.drive_missing_at && (
             <span title={t.driveMissingTitle}>
               <Badge tone="danger">{t.driveMissing}</Badge>
@@ -716,7 +733,7 @@ export function DocumentsPanel({
         )
       },
     },
-  ], [handleDelete, handlePurge, openCreate, t, toggleStatus, visibilityLabel])
+  ], [handleDelete, handlePurge, openCreate, t, toggleStatus, visibilityLabel, etiqueta])
 
   // Los documentos personales no acompañan a nada: la columna sobra.
   const visibleColumns = useMemo(
@@ -841,7 +858,7 @@ export function DocumentsPanel({
 
       <Modal
         open={modalOpen}
-        title={replacing ? t.modalTitleReplace(replacing.type_display) : t.modalTitleNew(ownerLabel)}
+        title={replacing ? t.modalTitleReplace(etiqueta.docType(replacing)) : t.modalTitleNew(ownerLabel)}
         onClose={() => setModalOpen(false)}
       >
         <form className="modal-form" onSubmit={handleSubmit}>
@@ -998,6 +1015,7 @@ function VisibilityModal({
   onClose: () => void
   onSaved: () => void
 }) {
+  const etiqueta = useDomainLabels()
   const [sharedRead, setSharedRead] = useState(doc.shared_read)
   const [guarded, setGuarded] = useState(doc.protected)
   const [saving, setSaving] = useState(false)
@@ -1018,7 +1036,7 @@ function VisibilityModal({
   }
 
   return (
-    <Modal open title={copy.visibilityTitle(doc.type_display)} onClose={onClose}>
+    <Modal open title={copy.visibilityTitle(etiqueta.docType(doc))} onClose={onClose}>
       <form className="ops-modal" onSubmit={submit}>
         <VisibilityFields
           copy={copy}

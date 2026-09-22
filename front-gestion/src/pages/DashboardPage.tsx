@@ -54,6 +54,7 @@ import { useVehicleDetailCopy } from '../translations/vehicleDetail.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import { useVehicleFormCopy } from '../translations/vehicleForm.ts'
 import type { Alert, FleetSummary, Incident, IncidentType, Vehicle, VehicleLinkRow } from '../types.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
 
@@ -174,6 +175,7 @@ export function DashboardPage() {
     tRef.current = t
   })
   const vt = useVehiclesCopy()
+  const etiqueta = useDomainLabels()
   // Solo para el título del modal de edición (el formulario es el de la ficha).
   const tForm = useVehicleFormCopy()
   // Mismos nombres que en la ficha para las mismas operaciones.
@@ -385,7 +387,6 @@ export function DashboardPage() {
       })
       .catch(() => gen === incidentsGen.current && setIncidents([]))
   }, [])
-
 
   useEffect(() => {
     fetchFleetSummary()
@@ -800,7 +801,7 @@ export function DashboardPage() {
           <strong>{sub.plate}</strong>
         </Link>
         <span>{`${sub.brand} ${sub.model}`}</span>
-        <Badge tone={vehicleStateTone(sub.state)}>{sub.state_display || '—'}</Badge>
+        <Badge tone={vehicleStateTone(sub.state)}>{etiqueta.vehicleState(sub) || '—'}</Badge>
         <span className="sub-row-item">
           <span className="muted">{t.home.thDriver}: </span>
           {sub.driver_name || '—'}
@@ -1021,8 +1022,8 @@ export function DashboardPage() {
     {
       key: 'state',
       label: t.home.thState,
-      getValue: (v) => v.state_display || '',
-      render: (v) => <Badge tone={vehicleStateTone(v.state)}>{v.state_display || '—'}</Badge>,
+      getValue: (v) => etiqueta.vehicleState(v),
+      render: (v) => <Badge tone={vehicleStateTone(v.state)}>{etiqueta.vehicleState(v) || '—'}</Badge>,
     },
     {
       key: 'driver',
@@ -1106,7 +1107,7 @@ export function DashboardPage() {
         </span>
       ),
     },
-  ], [kmText, language, maintDueMap, staleCell, t.home.thDriver, t.home.thFuel, t.home.thInsurance, t.home.thItv, t.home.thKm, t.home.thMaintenance, t.home.thPlate, t.home.thState, t.home.thSupervisor, t.home.thUse, t.home.thVehicle, vt.useLabel])
+  ], [kmText, language, maintDueMap, staleCell, t.home.thDriver, t.home.thFuel, t.home.thInsurance, t.home.thItv, t.home.thKm, t.home.thMaintenance, t.home.thPlate, t.home.thState, t.home.thSupervisor, t.home.thUse, t.home.thVehicle, vt.useLabel, etiqueta])
 
   const openDefaultEmail = useCallback((v: Vehicle) => {
     setEmailKind(undefined)
@@ -2099,7 +2100,7 @@ export function DashboardPage() {
             vehicleId={editVehicle.id}
             stateBadge={
               <Badge tone={vehicleStateTone(editVehicle.state)}>
-                {editVehicle.state_display || '—'}
+                {etiqueta.vehicleState(editVehicle) || '—'}
               </Badge>
             }
             // Lo que se le HACE al coche, arriba, y solo lo de cada día.

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { AlertTriangle, Wrench } from 'lucide-react'
 import { Badge, Button } from '@flota/ui/ui'
 
+import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import { fmtDate, incidentStatusTone, tireReportSummary } from '../format.ts'
 import type { Alert, Incident, Vehicle, VehicleSummary } from '../types.ts'
@@ -84,6 +85,7 @@ export function VehiclePendingCards({
   onChanged: () => void
 }) {
   const { t, language } = useLang()
+  const etiqueta = useDomainLabels()
   const [kmOpen, setKmOpen] = useState(false)
   const [itvOpen, setItvOpen] = useState(false)
   const [maintenanceOpen, setMaintenanceOpen] = useState(false)
@@ -99,8 +101,8 @@ export function VehiclePendingCards({
   const accidents = incidents.filter((incident) => incident.type === 'accident')
   const others = incidents.filter((incident) => incident.type !== 'accident')
 
-  const alertTypes = typeOptions(alerts)
-  const incidentTypes = typeOptions(others)
+  const alertTypes = typeOptions(alerts, etiqueta.alertType)
+  const incidentTypes = typeOptions(others, etiqueta.incidentType)
   // Si al resolver algo desaparece el tipo elegido, se vuelve a «todos» en vez
   // de dejar la tarjeta en blanco filtrando por algo que ya no está.
   const alertPick = alertTypes.some(([type]) => type === alertType) ? alertType : ''
@@ -134,7 +136,7 @@ export function VehiclePendingCards({
           <li key={incident.id} className="doc-item">
             {icon}
             <div className="doc-info">
-              <strong>{incident.type_display}</strong>
+              <strong>{etiqueta.incidentType(incident)}</strong>
               {tireReportSummary(incident, t.newIncident) && (
                 <span className="doc-sub incident-tire-line">
                   {tireReportSummary(incident, t.newIncident)}
@@ -145,7 +147,7 @@ export function VehiclePendingCards({
                 {incident.description ? ` · ${incident.description}` : ''}
               </span>
             </div>
-            <Badge tone={incidentStatusTone(incident.status)}>{incident.status_display}</Badge>
+            <Badge tone={incidentStatusTone(incident.status)}>{etiqueta.incidentStatus(incident)}</Badge>
             {canManage && (
               <Button type="button" size="sm" onClick={() => setResolveIncident(incident)}>
                 {t.carUpdate.actionResolve}

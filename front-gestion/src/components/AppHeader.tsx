@@ -26,6 +26,7 @@ import {
   listAlerts,
   listDocumentDeletionRequests,
   listDriverChangeRequests,
+  listProfileChangeRequests,
   listIncidents,
   listVehicleRequests,
 } from '../api.ts'
@@ -34,6 +35,7 @@ import { incidentStatusTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, Incident } from '../types.ts'
 import logoUrl from '../assets/img/gransolar-logo.png'
+import { useDomainLabels } from '../domainLabels.ts'
 
 // Crítica primero, como en la bandeja de alertas.
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
@@ -42,6 +44,7 @@ type BellTab = 'alerts' | 'incidents'
 export function AppHeader() {
   const { user, logout } = useAuth()
   const { language, setLanguage, t } = useLang()
+  const etiqueta = useDomainLabels()
   const navigate = useNavigate()
   const location = useLocation()
   const [navOpen, setNavOpen] = useState(false)
@@ -62,16 +65,19 @@ export function AppHeader() {
   const bellBtnRef = useRef<HTMLButtonElement | null>(null)
   const [bellPos, setBellPos] = useState({ top: 88, right: 20, maxHeight: 480 })
   const bellCount = openAlerts + openIncidents
-  // Solicitudes sin decidir, las TRES bandejas de `/solicitudes`: las de coche
-  // (Jira, portón y la sustitución que llega de la app de campo), las de
-  // borrado de documentos y las propuestas de cambio de conductor, que abre el
-  // campo al resolver la alerta de km contratados. Decidirlas es de
-  // administración, así que el aviso vive en su cabecera; se suman porque el
-  // aviso dice cuántas decisiones esperan, no de qué tipo son.
+  // Solicitudes sin decidir, las CUATRO bandejas de `/solicitudes`: las de
+  // coche (Jira, portón y la sustitución que llega de la app de campo), las de
+  // borrado de documentos, las propuestas de cambio de conductor —que abre el
+  // campo al resolver la alerta de km contratados— y las correcciones de ficha
+  // personal, que se piden desde «Mi perfil». Decidirlas es de administración,
+  // así que el aviso vive en su cabecera; se suman porque el aviso dice
+  // cuántas decisiones esperan, no de qué tipo son.
   const [pendingRequests, setPendingRequests] = useState(0)
   const [pendingDocRequests, setPendingDocRequests] = useState(0)
   const [pendingDriverRequests, setPendingDriverRequests] = useState(0)
-  const pendingTotal = pendingRequests + pendingDocRequests + pendingDriverRequests
+  const [pendingProfileRequests, setPendingProfileRequests] = useState(0)
+  const pendingTotal =
+    pendingRequests + pendingDocRequests + pendingDriverRequests + pendingProfileRequests
 
   // Recuentos "abiertas" para las pestañas y el contador del icono.
   const loadCounts = () => {
@@ -85,6 +91,9 @@ export function AppHeader() {
       .catch(() => {})
     listDriverChangeRequests({ status: 'pending' })
       .then((p) => setPendingDriverRequests(p.count))
+      .catch(() => {})
+    listProfileChangeRequests({ status: 'pending' })
+      .then((p) => setPendingProfileRequests(p.count))
       .catch(() => {})
   }
 
@@ -386,7 +395,7 @@ export function AppHeader() {
                       onClick={() => setBellOpen(false)}
                     >
                       <span className="shell-alertitem-body">
-                        <strong>{alert.vehicle_plate || alert.type_display}</strong>
+                        <strong>{alert.vehicle_plate || etiqueta.alertType(alert)}</strong>
                         <span className="shell-alertitem-msg">{alert.message}</span>
                       </span>
                     </NavLink>
@@ -402,9 +411,9 @@ export function AppHeader() {
                     className="shell-alertitem"
                     onClick={() => setBellOpen(false)}
                   >
-                    <Badge tone={incidentStatusTone(incident.status)}>{incident.status_display}</Badge>
+                    <Badge tone={incidentStatusTone(incident.status)}>{etiqueta.incidentStatus(incident)}</Badge>
                     <span className="shell-alertitem-body">
-                      <strong>{incident.type_display}</strong>
+                      <strong>{etiqueta.incidentType(incident)}</strong>
                       <span className="shell-alertitem-msg">{incident.description}</span>
                     </span>
                   </NavLink>

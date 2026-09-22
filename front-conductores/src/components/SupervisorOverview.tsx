@@ -13,6 +13,7 @@ import {
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { fmtDate, incidentStatusTone, isOpenFieldIncident } from '../format.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import { useFleetCopy } from '../translations/fleet.ts'
 import type { Alert, Incident, Vehicle, VehicleSummary } from '../types.ts'
@@ -56,6 +57,7 @@ interface DriverRow {
 export function SupervisorOverview() {
   const { user } = useAuth()
   const { t, language } = useLang()
+  const etiqueta = useDomainLabels()
   const copy = useFleetCopy().overview
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -158,14 +160,14 @@ export function SupervisorOverview() {
 
   function alertResolved(alert: Alert) {
     setResolveAlert(null)
-    setNotice(copy.resolved(alert.type_display))
+    setNotice(copy.resolved(etiqueta.alertType(alert)))
     load()
   }
 
   function incidentResolved(incident: Incident, aviso?: string) {
     setResolveIncident(null)
     // El aviso extra (la factura se encoló, o no subió) viaja con el cierre.
-    setNotice([copy.resolved(incident.type_display), aviso].filter(Boolean).join(' '))
+    setNotice([copy.resolved(etiqueta.incidentType(incident)), aviso].filter(Boolean).join(' '))
     load()
   }
 
@@ -216,25 +218,33 @@ export function SupervisorOverview() {
   // Las dos listas que pueden traer decenas de filas se acotan igual: por tipo
   // y por lo escrito, que aquí incluye la MATRÍCULA — en la flota entera se
   // busca por coche tanto como por texto.
-  const alertTypes = typeOptions(myAlerts)
+  const alertTypes = typeOptions(myAlerts, etiqueta.alertType)
   const alertPick = alertTypes.some(([value]) => value === typePick) ? typePick : ''
   const shownAlerts = myAlerts
     .filter((alert) => !alertPick || alert.type === alertPick)
     .filter((alert) =>
-      matches(search, alert.type_display, alert.message, alert.vehicle_plate, alert.level_display),
+      matches(
+        search,
+        etiqueta.alertType(alert),
+        alert.type_display,
+        alert.message,
+        alert.vehicle_plate,
+        etiqueta.alertLevel(alert),
+      ),
     )
 
   const incidentRows = open === 'accidents' ? accidents : others
-  const incidentTypes = typeOptions(incidentRows)
+  const incidentTypes = typeOptions(incidentRows, etiqueta.incidentType)
   const incidentPick = incidentTypes.some(([value]) => value === typePick) ? typePick : ''
   const shownIncidents = incidentRows
     .filter((incident) => !incidentPick || incident.type === incidentPick)
     .filter((incident) =>
       matches(
         search,
+        etiqueta.incidentType(incident),
         incident.type_display,
         incident.description,
-        incident.status_display,
+        etiqueta.incidentStatus(incident),
         plates.get(incident.vehicle),
       ),
     )
@@ -289,7 +299,7 @@ export function SupervisorOverview() {
                       {vehicle.brand} {vehicle.model}
                     </span>
                   </div>
-                  <Badge tone="neutral">{vehicle.state_display}</Badge>
+                  <Badge tone="neutral">{etiqueta.vehicleState(vehicle)}</Badge>
                 </li>
               ))}
               {vehicles.length === 0 && <li className="empty-note">{copy.emptyVehicles}</li>}
@@ -359,7 +369,7 @@ export function SupervisorOverview() {
                 {shownIncidents.map((incident) => (
                   <li key={incident.id} className="doc-item">
                     <div className="doc-info">
-                      <strong>{incident.type_display}</strong>
+                      <strong>{etiqueta.incidentType(incident)}</strong>
                       <span className="doc-sub">
                         <Link
                           to={`/vehiculos/${incident.vehicle}`}
@@ -372,7 +382,7 @@ export function SupervisorOverview() {
                         {incident.description ? ` · ${incident.description}` : ''}
                       </span>
                     </div>
-                    <Badge tone={incidentStatusTone(incident.status)}>{incident.status_display}</Badge>
+                    <Badge tone={incidentStatusTone(incident.status)}>{etiqueta.incidentStatus(incident)}</Badge>
                     <Button type="button" size="sm" onClick={() => setResolveIncident(incident)}>
                       {copy.resolve}
                     </Button>

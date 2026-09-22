@@ -40,15 +40,22 @@ export async function pushState(): Promise<PushState> {
   }
 }
 
-/** Activa los avisos en este dispositivo. Lanza Error con mensaje pintable. */
+/** Por qué no se pudo activar. El texto lo pone quien lo pinta: este módulo no
+ * tiene diccionario, y un mensaje escrito aquí salía en castellano con la app
+ * en inglés. */
+export const PUSH_NOT_CONFIGURED = 'push:not_configured'
+export const PUSH_DENIED = 'push:denied'
+
+/** Activa los avisos en este dispositivo. Lanza Error con uno de los códigos
+ * de arriba, o el del navegador si falla la suscripción. */
 export async function enablePush(): Promise<void> {
   const config = await fetchPushConfig()
   if (!config.enabled || !config.public_key) {
-    throw new Error('Los avisos push no están configurados en el servidor.')
+    throw new Error(PUSH_NOT_CONFIGURED)
   }
   const permission = await Notification.requestPermission()
   if (permission !== 'granted') {
-    throw new Error('Sin permiso de notificaciones: actívalo en los ajustes del navegador.')
+    throw new Error(PUSH_DENIED)
   }
   const registration = await navigator.serviceWorker.ready
   const subscription =

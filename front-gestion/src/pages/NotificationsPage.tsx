@@ -526,7 +526,9 @@ export function NotificationsPage({ embedded = false }: { embedded?: boolean } =
                   )}
                 </td>
                 <td>
-                  {row.content_display}
+                  {/* La tabla de la propia pantalla manda: el `content_display`
+                      del back llega siempre en castellano. */}
+                  {t.content[row.content] ?? row.content_display}
                   {row.content !== 'summary' && <span className="muted"> · {t.fmt[row.fmt]}</span>}
                 </td>
                 <td>{whenLabel(row)}</td>

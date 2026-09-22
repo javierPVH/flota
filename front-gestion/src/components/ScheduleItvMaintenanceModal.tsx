@@ -23,6 +23,7 @@ import { MaintenanceDoneModal } from './MaintenanceDoneModal.tsx'
 import { MaintenanceProgramModal } from './MaintenanceProgramModal.tsx'
 import { RegisterItvModal } from './RegisterItvModal.tsx'
 import type { FlotaEvent, Vehicle } from '../types.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 /** Valor del select que abre el alta de un programa del catálogo. */
 const NUEVO = 'new'
@@ -158,6 +159,7 @@ function Historico({
 }) {
   const language = useAppLang()
   const t = useScheduleCopy()
+  const etiqueta = useDomainLabels()
   return (
     <div className="schedule-history">
       <p className="ops-field-label">
@@ -175,7 +177,7 @@ function Historico({
             <li key={evento.id}>
               <span>{fmtDate(evento.event_date, language)}</span>
               <span className="mng-truncate" title={evento.notes}>
-                {evento.notes || evento.event_type_display}
+                {evento.notes || etiqueta.eventType(evento)}
               </span>
             </li>
           ))}

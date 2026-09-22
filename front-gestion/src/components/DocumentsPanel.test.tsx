@@ -584,4 +584,20 @@ describe('DocumentsPanel (tabla de documentos)', () => {
       }),
     )
   })
+  it('con la app en inglés, la tabla NO repite lo que manda el back', async () => {
+    // El back escribe `type_display`/`status_display` siempre en castellano
+    // (son los `choices` de su enumerado): la tabla los traduce por CÓDIGO
+    // (`domainLabels`), o en inglés salía «Seguro · Vigente».
+    // El provider aplica al montar el idioma PERSISTIDO, así que se cambia ahí.
+    localStorage.setItem('gs_base_lang', 'en')
+    renderPanel()
+    // «Insurance» sale también como opción del filtro de tipo: basta con que
+    // la FILA lo diga (el tipo va en negrita).
+    await screen.findByRole('table')
+    expect(fila('Insurance')).toBeInTheDocument()
+    expect(fila('Contract')).toBeInTheDocument()
+    expect(screen.getAllByText('Valid').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Seguro')).not.toBeInTheDocument()
+    expect(screen.queryByText('Caducado')).not.toBeInTheDocument()
+  })
 })

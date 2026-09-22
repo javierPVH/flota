@@ -21,10 +21,12 @@ import {
 import { assignmentStatusTone } from '../format.ts'
 import { useUserDetailCopy } from '../translations/userDetail.ts'
 import type { AssignmentRow, ManagedUser, Vehicle } from '../types.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 /** Detalle de un usuario: qué vehículos ha tenido (HU-2.6) y, si es
  * supervisor, su grupo (HU-2.7). */
 export function UserDetailPage() {
+  const etiqueta = useDomainLabels()
   const t = useUserDetailCopy()
   // `user` es el usuario CONSULTADO; el de la sesión es `me` (para el gate admin).
   const { user: me } = useAuth()
@@ -177,7 +179,7 @@ export function UserDetailPage() {
                     <Link to={`/vehiculos/${v.id}`}>
                       <strong>{v.plate}</strong>
                     </Link>{' '}
-                    — {v.brand} {v.model} ({v.state_display || '—'})
+                    — {v.brand} {v.model} ({etiqueta.vehicleState(v) || '—'})
                   </li>
                 ))}
               </ul>

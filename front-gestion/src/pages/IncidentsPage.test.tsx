@@ -225,7 +225,9 @@ describe('IncidentsPage (bandeja de incidencias)', () => {
     expect(screen.getByText('Aseguradora Ejemplo')).toBeInTheDocument()
     expect(screen.getByText('Lesionados (1)')).toBeInTheDocument()
     expect(screen.getByText('Marta Gil')).toBeInTheDocument()
-    expect(screen.getByText('Ocupante')).toBeInTheDocument()
+    // La plaza la nombra el diccionario por CÓDIGO, como el propio parte
+    // («Pasajero»): el `seat_display` del back solo es la reserva.
+    expect(screen.getByText('Pasajero')).toBeInTheDocument()
   })
 
   // El parte de neumáticos deja la descripción como COMENTARIO opcional: sin

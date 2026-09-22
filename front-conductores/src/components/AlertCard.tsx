@@ -2,6 +2,7 @@ import { Gauge } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Badge, Button } from '@flota/ui/ui'
 
+import { useDomainLabels } from '../domainLabels.ts'
 import { alertLevelTone, fmtDate, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert } from '../types.ts'
@@ -25,6 +26,7 @@ export function AlertCard({
   showType?: boolean
 }) {
   const { t } = useLang()
+  const etiqueta = useDomainLabels()
   const isOpen = alert.status === 'open'
   // Vencimiento ya pasado: la fecha se resalta (el rojo dice "esto ya tocaba").
   const overdue = Boolean(alert.due_date && alert.due_date < todayIso())
@@ -34,13 +36,13 @@ export function AlertCard({
   return (
     <div className={`alert-card level-${alert.level}${isOpen ? '' : ' alert-closed'}`}>
       <div className="alert-card-head">
-        {showType && <span className="alert-type">{alert.type_display}</span>}
+        {showType && <span className="alert-type">{etiqueta.alertType(alert)}</span>}
         <Badge tone={alertLevelTone(alert.level)} size="sm">
-          {alert.level_display}
+          {etiqueta.alertLevel(alert)}
         </Badge>
         {!isOpen && (
           <Badge tone="success" size="sm">
-            {alert.status_display}
+            {etiqueta.alertStatus(alert)}
           </Badge>
         )}
       </div>

@@ -173,6 +173,9 @@ export interface TimelineLabels {
   boolNo: string
   /** Traduce el valor de una lista cerrada (`active`, `LPG`, `suv`…). */
   valueLabel: (source: string, field: string, value: string) => string
+  /** El tipo de registro en el idioma de la app: el `event_type_display` del
+   * back llega siempre en castellano (`domainLabels`). */
+  eventTypeLabel: (event: { event_type: string; event_type_display: string }) => string
 }
 
 /** Normaliza el valor crudo de la auditoría: `None`/vacío → «—» y los
@@ -281,7 +284,7 @@ export function buildTimeline(
       date: e.event_date ?? '',
       at: e.event_date ?? '',
       hasTime: false,
-      title: e.event_type_display,
+      title: labels.eventTypeLabel(e),
       actor: '',
       note: e.notes,
       changes: [] as TimelineChange[],

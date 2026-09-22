@@ -13,6 +13,7 @@ import { RenewInsuranceForm } from './RenewInsuranceForm.tsx'
 import { ResolveAccidentModal } from './ResolveAccidentModal.tsx'
 import { ResolveBreakdownModal } from './ResolveBreakdownModal.tsx'
 import { ResolveTiresModal } from './ResolveTiresModal.tsx'
+import { useDomainLabels } from '../../domainLabels.ts'
 import {
   FLOW_STATE,
   flowFor,
@@ -46,6 +47,7 @@ interface Props {
 export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRenting }: Props) {
   const t = useResolveCopy()
   const alertsCopy = useAlertsPageCopy()
+  const etiqueta = useDomainLabels()
   // Identidad estable: el `Modal` del DS engancha `onClose` a su efecto de foco.
   const handleClose = useCallback(() => onClose(), [onClose])
   // Baja encadenada tras un accidente con siniestro total.
@@ -108,7 +110,7 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
         const done = await releaseSubstitute(vehicleId)
         const extra = [
           done.substitute_plate ? t.common.releasedNotice(done.substitute_plate) : '',
-          done.blocked_by ? t.common.releaseBlocked(done.blocked_by.type_display) : '',
+          done.blocked_by ? t.common.releaseBlocked(etiqueta.incidentType(done.blocked_by)) : '',
         ].filter(Boolean)
         onDone([notice, ...extra].join(' '))
       } catch {
@@ -116,7 +118,16 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
         onDone(`${notice} ${t.common.releaseFailed}`)
       }
     },
-    [flowOwnsState, onDone, returnChecked, stopped, substitutePlate, t.common, vehicleId],
+    [
+      etiqueta,
+      flowOwnsState,
+      onDone,
+      returnChecked,
+      stopped,
+      substitutePlate,
+      t.common,
+      vehicleId,
+    ],
   )
 
   // Qué formulario propio toca (el resto de alertas cae en el genérico).
@@ -129,10 +140,10 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
   if (target && flow) {
     if (isItv) title = t.titles.itv(plate)
     else if (target.kind === 'incident')
-      title = t.titles.incident(target.incident.type_display, plate)
+      title = t.titles.incident(etiqueta.incidentType(target.incident), plate)
     else if (isMaintenance) title = t.titles.maintenance(plate)
     else if (isInsurance) title = t.titles.insurance(plate)
-    else title = alertsCopy.resolveModal.title(plate || target.alert.type_display)
+    else title = alertsCopy.resolveModal.title(plate || etiqueta.alertType(target.alert))
   }
 
   return (
@@ -141,7 +152,7 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
         {target && stopped && (
           <div className="resolve-back">
             <p className="resolve-back-title">
-              {t.common.stoppedTitle(vehicle?.state_display ?? '')}
+              {t.common.stoppedTitle(vehicle ? etiqueta.vehicleState(vehicle) : '')}
             </p>
             <label className="baja-toggle">
               <input

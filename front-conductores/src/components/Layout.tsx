@@ -10,6 +10,7 @@ import {
   LogOut,
   RefreshCw,
   User,
+  UserCog,
   Users,
 } from 'lucide-react'
 import { LanguageToggleButton } from '@flota/ui/ui'
@@ -19,6 +20,8 @@ import { useAuth } from '../auth.ts'
 import { FleetModeContext } from '../fleetMode.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
+import { ProfileEditSheet } from './ProfileEditModal.tsx'
+import { UploadDocumentModal } from './UploadDocumentModal.tsx'
 import { VehicleActionButtons } from './VehicleActionButtons.tsx'
 import { useOfflineQueue } from '../offline/useOfflineQueue.ts'
 import type { FlushResult } from '../offline/queue.ts'
@@ -168,6 +171,11 @@ export function Layout() {
 
   const { pending, sending, flushNow } = useOfflineQueue(onFlushed)
 
+  // Los dos del nav del perfil («Mis datos» y «Subir documento»): sus modales
+  // viven aquí porque los botones son del nav, que está fuera del Outlet.
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+
   // BG5: hay un service worker nuevo esperando → ofrecer recargar.
   const [hasUpdate, setHasUpdate] = useState(false)
   useEffect(() => onUpdateAvailable(setHasUpdate), [])
@@ -294,37 +302,58 @@ export function Layout() {
         <Outlet context={{ fleetMode, setFleetMode, ownPair, dataVersion } satisfies LayoutContext} />
       </main>
       <nav className="bottom-nav" aria-label={t.shell.navLabel}>
-        {/* En el perfil no hay coche del que hablar: el nav se queda en volver
-            a casa y subir un documento, que es lo único que se hace desde
-            aquí. Manda sobre las dos ramas de abajo. */}
+        {/* En el perfil no hay coche del que hablar: el nav se queda en lo que
+            se hace CON uno mismo —sus datos y subir un documento—. Sin
+            «Inicio» a propósito: el conmutador de arriba ya devuelve a la home
+            al elegir una vista, y el hueco vale más para lo que solo se puede
+            hacer aquí. Manda sobre las dos ramas de abajo. */}
         {enPerfil ? (
           <>
-            <NavLink to="/" end className="bottom-tab">
-              <Home size={22} strokeWidth={2.4} aria-hidden />
-              <span>{t.shell.tabs.home}</span>
-            </NavLink>
-            <NavLink to="/documentos/nuevo" className="bottom-tab">
-              <Camera size={22} strokeWidth={2.4} aria-hidden />
-              <span>{t.vehicle.quickUpload}</span>
-            </NavLink>
+            {user && (
+              <button
+                type="button"
+                className="bottom-tab"
+                onClick={() => setProfileOpen(true)}
+              >
+                <UserCog size={22} strokeWidth={2.4} aria-hidden />
+                <span>{t.profile.edit.button}</span>
+              </button>
+            )}
+            {/* El MISMO modal que en «Mi vehículo», sobre el coche propio: se
+                sube sin salir del perfil. Antes llevaba a la vista suelta, que
+                pide otra vez el coche y deja la pantalla atrás. Sin coche
+                propio se ofrece apagado, como el resto de acciones del nav. */}
+            {actionVehicle ? (
+              <button
+                type="button"
+                className="bottom-tab"
+                onClick={() => setUploadOpen(true)}
+              >
+                <Camera size={22} strokeWidth={2.4} aria-hidden />
+                <span>{t.vehicle.quickUpload}</span>
+              </button>
+            ) : (
+              <span className="bottom-tab is-disabled" aria-disabled="true" title={t.shell.noVehicle}>
+                <Camera size={22} strokeWidth={2.4} aria-hidden />
+                <span>{t.vehicle.quickUpload}</span>
+              </span>
+            )}
           </>
         ) : (
           <>
         {!fleetMode && (
-          <>
-            {/* Inicio primero, como en el nav de Flota: vuelve a la tarjeta. */}
-            <NavLink to="/" end className="bottom-tab">
-              <Home size={22} strokeWidth={2.4} aria-hidden />
-              <span>{t.shell.tabs.home}</span>
-            </NavLink>
-            <VehicleActionButtons
-              vehicle={noCar ? null : actionVehicle}
-              summary={actionSummary}
-              variant="nav"
-              pending={pending > 0}
-              onSaved={() => setDataVersion((version) => version + 1)}
-            />
-          </>
+          /* Sin «Inicio», igual que el perfil: el conmutador de arriba ya
+             devuelve a la tarjeta del coche al elegir «Mi vehículo», y el
+             hueco vale más para las acciones, que es lo único que solo se
+             hace desde aquí. En «Flota» sí sigue: ahí el nav lleva a tres
+             pantallas distintas y hace falta la de vuelta. */
+          <VehicleActionButtons
+            vehicle={noCar ? null : actionVehicle}
+            summary={actionSummary}
+            variant="nav"
+            pending={pending > 0}
+            onSaved={() => setDataVersion((version) => version + 1)}
+          />
         )}
         {isSupervisor && fleetMode && (
           <>
@@ -345,6 +374,23 @@ export function Layout() {
           </>
         )}
       </nav>
+
+      {uploadOpen && actionVehicle && (
+        <UploadDocumentModal
+          vehicle={actionVehicle}
+          onClose={() => setUploadOpen(false)}
+          onSaved={() => setDataVersion((version) => version + 1)}
+        />
+      )}
+      {profileOpen && user && (
+        <ProfileEditSheet
+          user={user}
+          onClose={() => setProfileOpen(false)}
+          // Lo pedido cambia lo que enseña «Mi perfil»: se recarga con el mismo
+          // contador que el resto de guardados del nav.
+          onSent={() => setDataVersion((version) => version + 1)}
+        />
+      )}
     </div>
     </FleetModeContext.Provider>
   )

@@ -156,7 +156,9 @@ describe('guardar desde el bottom-nav refresca la página', () => {
     await waitFor(() => expect(mocks.registerItv).toHaveBeenCalled())
     // La cita desaparece sola: ya se ha realizado.
     await waitFor(() => expect(screen.queryByText('Próx. ITV')).not.toBeInTheDocument())
-    expect(within(nav).getByRole('button', { name: 'ITV' })).toBeDisabled()
+    // Sin cita, el botón queda apagado — pero vivo: lo que abre es el aviso de
+    // que no hay ninguna programada.
+    expect(within(nav).getByRole('button', { name: 'ITV' })).toHaveClass('is-waiting')
   })
 
   it('marcar el mantenimiento realizado quita su cita (el ciclo va a un año)', async () => {
@@ -179,12 +181,15 @@ describe('guardar desde el bottom-nav refresca la página', () => {
     await waitFor(() => expect(maintenanceButton).toBeEnabled())
 
     await userEvent.click(maintenanceButton)
-    // El botón del nav abre «Actualizar» por su pestaña de mantenimiento.
+    // En Mi vehículo el botón abre SOLO el mantenimiento: la fila de pestañas
+    // de «Actualizar» repetía el nav de abajo, que ya trae km, combustible,
+    // ITV e incidencia cada uno en el suyo. Esa ventana entera es de Flota.
     const dialog = await screen.findByRole(
       'dialog',
-      { name: 'Actualizar · 7890NPQ' },
+      { name: 'Actualizar mantenimiento · 7890NPQ' },
       { timeout: 3000 },
     )
+    expect(within(dialog).queryByRole('tab', { name: /Km/ })).not.toBeInTheDocument()
     await userEvent.click(
       await within(dialog).findByRole('button', { name: 'Marcar como realizado' }, { timeout: 3000 }),
     )
@@ -203,10 +208,10 @@ describe('guardar desde el bottom-nav refresca la página', () => {
     await waitFor(() =>
       expect(screen.queryByText('Próx. mantenimiento')).not.toBeInTheDocument(),
     )
-    expect(within(nav).getByRole('button', { name: 'Mantenimiento' })).toBeDisabled()
+    expect(within(nav).getByRole('button', { name: 'Mantenimiento' })).toHaveClass('is-waiting')
   })
 
-  it('mantiene vencidas activas y desactiva las fechas a más de 30 días', async () => {
+  it('con la cita lejos el botón no se muere: cuenta cuándo se podrá', async () => {
     mocks.listVehicles.mockResolvedValue({
       count: 1,
       results: [{ ...VEHICLE, next_itv_date: inDays(-2) }],
@@ -221,7 +226,19 @@ describe('guardar desde el bottom-nav refresca la página', () => {
     renderShell()
 
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
-    expect(await waitFor(() => within(nav).getByRole('button', { name: 'ITV' }))).toBeEnabled()
-    expect(within(nav).getByRole('button', { name: 'Mantenimiento' })).toBeDisabled()
+    // La ITV vencida sigue registrándose (esa es la que corre prisa).
+    const itv = await waitFor(() => within(nav).getByRole('button', { name: 'ITV' }))
+    expect(itv).not.toHaveClass('is-waiting')
+
+    // El mantenimiento, a 31 días, va apagado: pulsarlo NO abre el formulario
+    // sino el porqué, con la fecha desde la que se podrá.
+    const mantenimiento = within(nav).getByRole('button', { name: 'Mantenimiento' })
+    expect(mantenimiento).toHaveClass('is-waiting')
+    await userEvent.click(mantenimiento)
+    const aviso = await screen.findByRole('dialog', { name: 'Mantenimiento programado · 7890NPQ' })
+    expect(within(aviso).getByText('Faltan 31 días.')).toBeInTheDocument()
+    expect(
+      within(aviso).getByText(/Podrás marcarlo como realizado a partir del/),
+    ).toBeInTheDocument()
   })
 })

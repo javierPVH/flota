@@ -42,6 +42,7 @@ from .models import (
     MaintenanceProgram,
     NotificationSchedule,
     Pep,
+    ProfileChangeRequest,
     Project,
     Renting,
     Site,
@@ -79,7 +80,7 @@ from .models.enums import (
     VehicleState,
 )
 from .selectors import current_driver_map, latest_reading_map
-from .services import vehicle_requests
+from .services import document_requests, profile_requests, vehicle_requests
 
 
 class LogEntrySerializer(serializers.ModelSerializer):
@@ -2078,17 +2079,24 @@ class AlertSerializer(serializers.ModelSerializer):
 
 
 class DocumentDeletionRequestSerializer(serializers.ModelSerializer):
-    """Petición de borrado de un documento, tal como la lee la bandeja.
+    """Petición sobre un documento (borrarlo o corregirlo), como la lee la bandeja.
 
     Trae de quién es el documento —matrícula o persona—, de qué tipo es y
-    cuándo se subió, porque la fila tiene que decir **qué se está pidiendo
-    borrar** sin abrir el documento. `status` y el rastro de la resolución los
-    fija el servidor: se cambian por `resolve` (gestión) y nunca por un PATCH.
+    cuándo se subió, porque la fila tiene que decir **sobre qué se está
+    pidiendo** sin abrir el documento; y en una corrección, `changes_display`
+    dice **qué cambiaría**, con el antes y el después. `status` y el rastro de
+    la resolución los fija el servidor: se cambian por `resolve` (gestión) y
+    nunca por un PATCH.
     """
 
     status_display = serializers.CharField(source="get_status_display", read_only=True)
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    changes_display = serializers.SerializerMethodField()
     requested_by_name = serializers.SerializerMethodField()
     resolved_by_name = serializers.SerializerMethodField()
+    #: El CÓDIGO del tipo, además de su etiqueta: la bandeja lo traduce a su
+    #: idioma (`domainLabels`) y `document_type_display` se queda de reserva.
+    document_type = serializers.CharField(source="document.type", read_only=True, default="")
     document_type_display = serializers.CharField(
         source="document.get_type_display", read_only=True, default=""
     )
@@ -2134,6 +2142,38 @@ class DocumentDeletionRequestSerializer(serializers.ModelSerializer):
             return document.vehicle.plate
         return self._name(document.user)
 
+    def get_changes_display(self, obj) -> list[dict]:
+        """Lo que cambiaría, legible: etiqueta, lo que hay hoy y lo propuesto.
+
+        El tipo se pinta con su nombre («Permiso de conducir»), no con su
+        valor: quien decide lee la fila, no el catálogo del back.
+        """
+        document = obj.document
+        etiquetas = {
+            campo: str(document._meta.get_field(campo).verbose_name)
+            for campo in document_requests.EDITABLE_DOCUMENT_FIELDS
+        }
+        tipos = dict(DocumentType.choices)
+        actual = {
+            "type": tipos.get(document.type, document.type),
+            "expiry_date": document.expiry_date.isoformat() if document.expiry_date else "",
+            "notes": document.notes or "",
+        }
+        salida = []
+        for campo, valor in (obj.changes or {}).items():
+            if campo not in document_requests.EDITABLE_DOCUMENT_FIELDS:
+                continue
+            propuesto = tipos.get(valor, valor) if campo == "type" else valor
+            salida.append(
+                {
+                    "field": campo,
+                    "label": etiquetas[campo],
+                    "current": actual[campo],
+                    "proposed": "" if propuesto is None else str(propuesto),
+                }
+            )
+        return salida
+
 
 class VehicleRequestSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
@@ -2144,6 +2184,9 @@ class VehicleRequestSerializer(serializers.ModelSerializer):
     incident_plate = serializers.CharField(
         source="incident.vehicle.plate", read_only=True, default=""
     )
+    #: El CÓDIGO del tipo además de su etiqueta: la bandeja lo traduce a su
+    #: idioma y `incident_type_display` se queda de reserva.
+    incident_type = serializers.CharField(source="incident.type", read_only=True, default="")
     incident_type_display = serializers.CharField(
         source="incident.get_type_display", read_only=True, default=""
     )
@@ -2714,5 +2757,109 @@ class DriverChangeRequestSerializer(serializers.ModelSerializer):
         if not candidato and not (attrs.get("note") or "").strip():
             raise serializers.ValidationError(
                 {"note": "Propón a alguien o escribe una nota para administración."}
+            )
+        return attrs
+
+
+class ProfileChangeRequestSerializer(serializers.ModelSerializer):
+    """Petición de corregir la ficha personal, tal como la lee la bandeja.
+
+    La fila tiene que decir **de quién es la ficha y qué se pide** sin abrir
+    nada, así que `changes_display` trae lo pedido ya legible —etiqueta, lo que
+    hay hoy y lo que se propone—: quien decide lee el antes y el después, que
+    es lo único que hace falta para decidir.
+
+    De entrada solo se aceptan los cambios y la nota: la ficha es la de quien
+    firma la petición (la vista la fija) y el estado y el rastro de la
+    resolución los escribe el servidor (`resolve`).
+    """
+
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    user_name = serializers.SerializerMethodField()
+    user_username = serializers.CharField(source="user.username", read_only=True, default="")
+    requested_by_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+    #: Lo pedido, ya legible: [{field, label, current, proposed}] para que la
+    #: bandeja pinte el antes y el después sin repetir aquí las etiquetas.
+    changes_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProfileChangeRequest
+        fields = "__all__"
+        read_only_fields = [
+            "id",
+            "user",
+            "requested_by",
+            "status",
+            "resolved_by",
+            "resolved_at",
+            "resolution_note",
+            "created_at",
+            "updated_at",
+        ]
+
+    @staticmethod
+    def _name(person) -> str:
+        if not person:
+            return ""
+        return person.get_full_name() or person.get_username()
+
+    def get_user_name(self, obj) -> str:
+        return self._name(obj.user)
+
+    def get_requested_by_name(self, obj) -> str:
+        return self._name(obj.requested_by)
+
+    def get_resolved_by_name(self, obj) -> str:
+        return self._name(obj.resolved_by)
+
+    @staticmethod
+    def _legible(valor) -> str:
+        """Lo que se pinta en la bandeja: un sí/no para las casillas, texto para
+        el resto. Un `true` crudo en la columna «Qué pide» no dice nada."""
+        if isinstance(valor, bool):
+            return "Sí" if valor else "No"
+        return "" if valor is None else str(valor)
+
+    def get_changes_display(self, obj) -> list[dict]:
+        persona = obj.user
+        etiquetas = {
+            campo: persona._meta.get_field(campo).verbose_name
+            for campo in profile_requests.EDITABLE_FIELDS
+        }
+        salida = []
+        for campo, valor in (obj.changes or {}).items():
+            if campo not in profile_requests.EDITABLE_FIELDS:
+                continue
+            salida.append(
+                {
+                    "field": campo,
+                    "label": str(etiquetas[campo]),
+                    "current": self._legible(getattr(persona, campo, "")),
+                    "proposed": self._legible(valor),
+                }
+            )
+        return salida
+
+    def validate_changes(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Se esperaba un objeto {campo: valor}.")
+        sobra = set(value) - set(profile_requests.EDITABLE_FIELDS)
+        if sobra:
+            raise serializers.ValidationError(
+                "Esos campos no se piden por aquí: " + ", ".join(sorted(sobra))
+            )
+        return value
+
+    def validate(self, attrs):
+        """Sin cambios, la nota ES la petición: entonces es obligatoria.
+
+        Una fila sin nada que corregir y sin nada escrito no le dice nada a
+        quien la tiene que decidir.
+        """
+        cambios = attrs.get("changes") or {}
+        if not cambios and not (attrs.get("note") or "").strip():
+            raise serializers.ValidationError(
+                {"note": "Di qué hay que corregir o escribe una nota para administración."}
             )
         return attrs

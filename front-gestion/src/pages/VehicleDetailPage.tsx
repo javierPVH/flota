@@ -73,6 +73,7 @@ import {
 } from '../components/TimelineChart.tsx'
 import { useAuth } from '../auth.ts'
 import { CollapsibleCard, useAccordion } from '../components/CollapsibleCard.tsx'
+import { useDomainLabels } from '../domainLabels.ts'
 import type {
   AuditEntry,
   FlotaEvent,
@@ -115,6 +116,7 @@ export function VehicleDetailPage() {
   // «Kilómetros y combustible» es el mismo modal del inventario: su copia
   // viene de allí.
   const vt = useVehiclesCopy()
+  const etiqueta = useDomainLabels()
   // «Desplegar todo» / «Plegar todo»: la copia del DS, que es de donde salen
   // esos dos botones (aquí van sueltos, dentro de la cabecera).
   const accCopy = useUiCopy().accordion
@@ -401,6 +403,7 @@ export function VehicleDetailPage() {
       systemActor: t.systemActor,
       boolYes: t.boolYes,
       boolNo: t.boolNo,
+      eventTypeLabel: etiqueta.eventType,
       valueLabel: (source: string, field: string, value: string) => {
         const dict: Record<string, string> | null =
           field === 'state'
@@ -427,7 +430,7 @@ export function VehicleDetailPage() {
         return dict?.[value] ?? value
       },
     }),
-    [t, tForm],
+    [t, tForm, etiqueta],
   )
 
   const timeline = useMemo(
@@ -1098,7 +1101,7 @@ export function VehicleDetailPage() {
               ` · ${label(t.useLabel, vehicle.business_use)}`}
             <span className="detail-marks-row">
               <span className="detail-badges">
-                <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+                <Badge tone={vehicleStateTone(vehicle.state)}>{etiqueta.vehicleState(vehicle) || '—'}</Badge>
                 {vehicle.is_substitute && <Badge tone="info">{t.substituteBadge}</Badge>}
                 {vehicle.unlimited_km && <Badge tone="info">{t.unlimitedKmBadge}</Badge>}
                 {vehicle.driver_name ? (
@@ -1175,7 +1178,7 @@ export function VehicleDetailPage() {
           <aside className={`status-callout tone-${vehicleStateTone(vehicle.state)}`} role="status">
             <div className="status-callout-head">
               <span className="status-callout-label">{t.statusLabel}</span>
-              <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+              <Badge tone={vehicleStateTone(vehicle.state)}>{etiqueta.vehicleState(vehicle) || '—'}</Badge>
             </div>
             <div className="status-callout-facts">
               {summary?.blocked_by_link ? (
@@ -1664,7 +1667,6 @@ export function VehicleDetailPage() {
           />
         </CollapsibleCard>
       )}
-
 
       <VehicleAssignmentsPanel vehicle={vehicle} onChanged={load} accordion={accordion} />
 
@@ -2383,7 +2385,7 @@ export function VehicleDetailPage() {
             // Cómo está el coche, junto al tipo: es lo primero que se mira
             // antes de tocar nada (y lo que decide si el resto tiene sentido).
             stateBadge={
-              <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || '—'}</Badge>
+              <Badge tone={vehicleStateTone(vehicle.state)}>{etiqueta.vehicleState(vehicle) || '—'}</Badge>
             }
             // Lo que se le HACE sin cerrar la edición (sus modales viven en
             // esta página).

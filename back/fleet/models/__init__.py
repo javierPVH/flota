@@ -52,7 +52,7 @@ from .incident import AccidentInjured, AccidentReport, AccidentThirdParty, Incid
 from .invoice import Invoice, InvoiceAllocation
 from .maintenance import MaintenancePlan, MaintenanceProgram
 from .notification import NotificationSchedule
-from .request import DriverChangeRequest, VehicleRequest
+from .request import DriverChangeRequest, ProfileChangeRequest, VehicleRequest
 from .vehicle import Vehicle
 
 __all__ = [
@@ -111,5 +111,6 @@ __all__ = [
     "Alert",
     "VehicleRequest",
     "DriverChangeRequest",
+    "ProfileChangeRequest",
     "NotificationSchedule",
 ]

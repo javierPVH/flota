@@ -1414,6 +1414,78 @@ button.bottom-tab {
 .profile-row dt { color: var(--color-text-muted); font-size: 0.82rem; }
 .profile-row dd { margin: 0; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
 
+/* --- «Mis datos y mis documentos» ----------------------------------------
+   Un aviso arriba del todo (qué es esta ventana: aquí se PIDE) que no se va en
+   ningún paso, y debajo el mismo carrusel que subir un documento: la tira de
+   `flow-steps`, el `step-pane` que entra deslizándose y el pie con «Atrás /
+   Siguiente». Tres pasos: tus datos, tus documentos —que se piden uno a uno
+   desde su fila— y enviar, que enseña lo que se va a pedir. Los documentos van
+   ANTES del envío para que al llegar al botón ya se haya visto todo lo que se
+   puede pedir desde aquí. */
+.profile-edit { display: grid; gap: 1rem; }
+.profile-edit-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.7rem;
+  border-left: 3px solid var(--color-brand);
+  background: var(--color-primary-soft);
+}
+.profile-edit-intro svg { flex: none; margin-top: 0.1rem; color: var(--color-brand); }
+.profile-edit-intro strong { display: block; }
+.profile-edit-intro p { margin: 0.15rem 0 0; font-size: 0.86rem; }
+.profile-edit .flow-steps { margin: 0; }
+.profile-edit-step { margin: 0 0 0.35rem; font-size: 1rem; }
+.profile-edit-step + .update-hint { margin-top: 0; margin-bottom: 0.2rem; }
+/* La ficha, COMPACTA: en cuanto el hueco da para dos columnas (190px por
+   campo) se reparte, y cada campo lleva su etiqueta pequeña encima y su pista
+   pegada debajo. Apilados a lo ancho, los siete no cabían en una pantalla de
+   móvil y había que recorrer el paso a ciegas. El alto del control se queda en
+   los 44px de dedo: lo que se aprieta es el aire, no el objetivo. */
+.profile-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.45rem 0.7rem;
+}
+.profile-field { display: grid; gap: 0.1rem; min-width: 0; }
+.profile-field .reminder-check {
+  display: block;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.profile-field .update-input { margin-top: 0.15rem; }
+.profile-field .update-hint { margin: 0; font-size: 0.74rem; }
+.profile-field .resolve-workshop { margin: 0.1rem 0 0; }
+.profile-field-full { grid-column: 1 / -1; }
+/* Lo que se va a pedir, campo a campo: lo que hay tachado y, al lado, lo que
+   se propone. Enviar no puede ser un salto a ciegas. */
+.profile-review { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.profile-review li {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-brand);
+  border-radius: 0.6rem;
+}
+.profile-review-label { font-size: 0.8rem; color: var(--color-text-muted); }
+.profile-review-values { overflow-wrap: anywhere; }
+.profile-review-values s { color: var(--color-text-muted); }
+
+/* Ya hay una corrección pedida: con una viva no se ofrece abrir otra (el back
+   es idempotente por persona), así que el hueco del botón lo ocupa el aviso. */
+.profile-pending {
+  display: grid;
+  gap: 0.15rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-brand);
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.7rem;
+}
+
 /* --- M9: micro-interacciones sobrias (respetando reduced-motion) --------- */
 .card-link,
 .quick-action,
@@ -2437,3 +2509,26 @@ button.bottom-tab {
   font-weight: 600;
   color: var(--color-text);
 }
+
+/* Acción CITADA cuya fecha aún está lejos (ITV, mantenimiento): el botón se
+   ofrece apagado —dice que todavía no toca— pero SE PUEDE PULSAR, y el toque
+   abre el aviso con la cita y desde qué día se podrá registrar. Antes iba
+   `disabled` con un `title`, que en un móvil no se lee nunca: quedaba un botón
+   muerto sin explicación. */
+.bottom-tab.is-waiting,
+.quick-action.is-waiting,
+.report-btn.is-waiting {
+  opacity: 0.55;
+}
+.scheduled-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.7rem;
+  border-left: 3px solid var(--color-brand);
+  background: var(--color-primary-soft);
+}
+.scheduled-info svg { flex: none; margin-top: 0.1rem; color: var(--color-brand); }
+.scheduled-info p { margin: 0.2rem 0 0; }
+.scheduled-info-open { font-weight: 700; }

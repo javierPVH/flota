@@ -152,7 +152,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
       'No activos (1)',
       'Con coche de sustitución (0)',
       '──────────',
-      'En taller (1)',
+      'No activo - Mantenimiento (1)',
     ])
     expect(filter).toHaveValue('')
     expect(screen.getByText('1111AAA')).toBeInTheDocument()
@@ -730,7 +730,7 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
       'No activos (1)',
       'Con coche de sustitución (0)',
       '──────────',
-      'En taller (1)',
+      'No activo - Mantenimiento (1)',
     ])
     expect(screen.getByText('2222BBB')).toBeInTheDocument()
     expect(screen.queryByText('1111AAA')).not.toBeInTheDocument()

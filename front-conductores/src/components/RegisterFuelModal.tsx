@@ -141,7 +141,7 @@ export function FuelPane({
       <DecimalField
         label={t.fuel.consumption}
         required
-        placeholder="6,80"
+        placeholder={t.fuel.consumptionPlaceholder}
         value={consumption}
         onChange={setConsumption}
         autoFocus

@@ -3715,6 +3715,16 @@ table.data tbody tr:hover {
   accent-color: var(--color-brand);
 }
 
+/* Lo que pide una corrección de ficha, línea por campo: el antes y el después
+   se leen de un vistazo, que es lo único que hace falta para decidir. */
+.change-list {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+}
+.change-list li {
+  margin-bottom: 0.15rem;
+}
+
 /* Cargar en «Km» la última lectura del coche, con el porqué al lado: en el
    taller no rueda, así que la lectura de entrada suele ser la de salida. */
 .km-load {

@@ -13,6 +13,7 @@ import { useAuth } from '../auth.ts'
 import { SupervisorOverview } from '../components/SupervisorOverview.tsx'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
 import { pendingThisMonth } from '../format.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import { useFleetCopy } from '../translations/fleet.ts'
 import type { Vehicle, VehicleSummary } from '../types.ts'
@@ -37,6 +38,7 @@ const CUT_SUBSTITUTED = 'corte:con-sustituto'
 export function FleetPage() {
   const { user } = useAuth()
   const { t } = useLang()
+  const etiqueta = useDomainLabels()
   // R3-36: el copy propio de la página viaja en su chunk, no en el shell.
   const tf = useFleetCopy()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
@@ -102,14 +104,15 @@ export function FleetPage() {
     return vehicles.filter((v) => `${v.plate} ${v.brand} ${v.model}`.toLowerCase().includes(q))
   }, [vehicles, query])
 
-  // Grupos por estado. La etiqueta sale del `state_display` del
-  // back (lista cerrada); solo se ofrecen los estados con algún coche.
+  // Grupos por estado. La etiqueta la pone el diccionario por CÓDIGO
+  // (`domainLabels`: el back la manda siempre en castellano); solo se ofrecen
+  // los estados con algún coche.
   const groups = useMemo(() => {
     const byState = new Map<string, { label: string; count: number }>()
     searched.forEach((v) => {
       const entry = byState.get(v.state)
       if (entry) entry.count += 1
-      else byState.set(v.state, { label: v.state_display || '—', count: 1 })
+      else byState.set(v.state, { label: etiqueta.vehicleState(v) || '—', count: 1 })
     })
     return [...byState.entries()]
       .map(([state, { label, count }]) => ({ state, label, count }))
@@ -118,7 +121,7 @@ export function FleetPage() {
         const bi = STATE_ORDER.indexOf(b.state)
         return (ai === -1 ? STATE_ORDER.length : ai) - (bi === -1 ? STATE_ORDER.length : bi)
       })
-  }, [searched])
+  }, [searched, etiqueta])
 
   // Los dos CORTES que no son un estado, arriba del todo con «Activo» porque
   // son los que se miran a diario: todo lo que NO rueda (da igual por qué) y

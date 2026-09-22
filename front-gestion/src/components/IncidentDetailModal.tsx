@@ -12,6 +12,7 @@ import { useTireSummary } from '../incidentSummary.ts'
 import { useIncidentsCopy } from '../translations/incidents.ts'
 import { useResolveCopy } from '../translations/resolve.ts'
 import type { Incident } from '../types.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 /** Un dato: se omite ENTERO si no se recogió. Una etiqueta con un guion
  * delante no dice nada que no diga ya su ausencia, y son muchas. */
@@ -43,6 +44,7 @@ export function AccidentReportBlock({
 }) {
   const language = useAppLang()
   const rt = useIncidentsCopy().report
+  const etiqueta = useDomainLabels()
   const r = incident.accident_report
   if (!r) return null
   const calle = [r.street, r.street_number].filter(Boolean).join(' ')
@@ -121,7 +123,7 @@ export function AccidentReportBlock({
                     <td>{p.phone || rt.empty}</td>
                     <td>{p.email || rt.empty}</td>
                     <td>{p.plate || rt.empty}</td>
-                    <td>{p.seat_display || rt.empty}</td>
+                    <td>{etiqueta.seat(p) || rt.empty}</td>
                   </tr>
                 ))}
               </tbody>
@@ -160,6 +162,7 @@ export function IncidentDetailModal({
 }) {
   const language = useAppLang()
   const t = useIncidentsCopy()
+  const etiqueta = useDomainLabels()
   const d = t.detail
   const rc = useResolveCopy()
   const resumenNeumaticos = useTireSummary()
@@ -195,15 +198,15 @@ export function IncidentDetailModal({
     >
       <div className="incident-detail">
         <div className="detail-chips">
-          <Badge tone={incidentStatusTone(incident.status)}>{incident.status_display}</Badge>
-          <Badge tone={incidentPriorityTone(incident.priority)}>{incident.priority_display}</Badge>
+          <Badge tone={incidentStatusTone(incident.status)}>{etiqueta.incidentStatus(incident)}</Badge>
+          <Badge tone={incidentPriorityTone(incident.priority)}>{etiqueta.incidentPriority(incident)}</Badge>
         </div>
 
         <div className="report-block">
           <strong className="report-title">{d.request}</strong>
           <div className="report-facts">
             {dato(t.columns.vehicle, plate)}
-            {dato(t.columns.type, incident.type_display)}
+            {dato(t.columns.type, etiqueta.incidentType(incident))}
             {dato(t.columns.date, incident.date ? fmtDate(incident.date, language) : '')}
             {dato(
               t.report.mileage,

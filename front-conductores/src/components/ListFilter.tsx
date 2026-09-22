@@ -67,9 +67,14 @@ export function ListFilter({
  * Salen de lo que se está mirando y no del catálogo entero: un filtro con
  * tipos que no están en la lista solo sirve para dejarla vacía.
  */
-export function typeOptions(rows: { type: string; type_display: string }[]): [string, string][] {
+export function typeOptions(
+  rows: { type: string; type_display: string }[],
+  /** Cómo se nombra ese tipo en el idioma de la app. Sin ella manda la
+   * etiqueta del back, que viene siempre en castellano (`domainLabels.ts`). */
+  label?: (row: { type: string; type_display: string }) => string,
+): [string, string][] {
   const tipos = new Map<string, string>()
-  for (const row of rows) tipos.set(row.type, row.type_display || row.type)
+  for (const row of rows) tipos.set(row.type, label?.(row) || row.type_display || row.type)
   return [...tipos].sort((a, b) => a[1].localeCompare(b[1]))
 }
 

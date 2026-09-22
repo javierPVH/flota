@@ -13,7 +13,9 @@ import {
 } from '../api.ts'
 import type { EmailKind } from '../emailKinds.ts'
 import { getNoticeLang, setNoticeLang, type NoticeLang } from '../emailPrefs.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { fmtDate, fmtKm, vehicleStateTone } from '../format.ts'
+import { en as domainEn, es as domainEs } from '../translations/domain.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import { EmailOptions } from './EmailOptions.tsx'
 import { TemplateVars } from './TemplateVars.tsx'
@@ -22,13 +24,20 @@ import { OpsSection, OpsSteps } from './OpsSteps.tsx'
 import { useAsistente, type Paso } from './opsWizard.ts'
 import type { Incident, KmReading, Vehicle } from '../types.ts'
 
+const domain = { es: domainEs, en: domainEn }
+
 /** Días desde una fecha ISO; negativo si aún está por llegar. */
 const dayGap = (iso: string) => Math.round((Date.now() - new Date(iso).getTime()) / 86_400_000)
 
-/** Frase con la que una incidencia entra en el cuerpo del correo. */
+/** Frase con la que una incidencia entra en el cuerpo del correo.
+ *
+ * El tipo sale de la tabla del dominio en el idioma de quien escribe: el
+ * `type_display` del back viene siempre en castellano y aquí se está
+ * redactando lo que se va a mandar. */
 function incidentText(inc: Incident, lang: AppLanguage): string {
   const description = inc.description.trim()
-  const base = description ? `${inc.type_display}: ${description}` : inc.type_display
+  const tipo = domain[lang].incidentType[inc.type] ?? inc.type_display
+  const base = description ? `${tipo}: ${description}` : tipo
   return inc.date ? `${base} (${fmtDate(inc.date, lang)})` : base
 }
 
@@ -83,6 +92,7 @@ export function VehicleEmailModal({
   onDone,
 }: Props) {
   const copy = useVehiclesCopy()
+  const etiqueta = useDomainLabels()
   const t = copy.email
   const lang = useAppLang()
 
@@ -229,10 +239,10 @@ export function VehicleEmailModal({
       ...(incidents.length > 1 ? [{ value: TODAS, label: t.incidentAll(incidents.length) }] : []),
       ...incidents.map((inc) => ({
         value: String(inc.id),
-        label: `${inc.type_display} · ${fmtDate(inc.date, lang)} · ${inc.status_display}`,
+        label: `${etiqueta.incidentType(inc)} · ${fmtDate(inc.date, lang)} · ${etiqueta.incidentStatus(inc)}`,
       })),
     ],
-    [incidents, lang, t],
+    [incidents, lang, t, etiqueta],
   )
 
   function onChangeIncident(next: string) {
@@ -506,7 +516,7 @@ export function VehicleEmailModal({
       <div className="ops-info">
         <span>
           {copy.ops.currentState}:{' '}
-          <Badge tone={vehicleStateTone(vehicle.state)}>{vehicle.state_display || copy.ops.none}</Badge>
+          <Badge tone={vehicleStateTone(vehicle.state)}>{etiqueta.vehicleState(vehicle) || copy.ops.none}</Badge>
         </span>
         <span>{copy.ops.driverLabel}: <strong>{vehicle.driver_name || copy.ops.none}</strong></span>
         <span>{copy.ops.supervisorLabel}: <strong>{vehicle.supervisor_name || copy.ops.none}</strong></span>

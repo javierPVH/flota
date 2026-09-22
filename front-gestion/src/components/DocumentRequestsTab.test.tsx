@@ -21,6 +21,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
 const PETICION: DocumentDeletionRequestRow = {
   id: 5,
   document: 12,
+  document_type: 'insurance',
   document_type_display: 'Seguro',
   document_created_at: '2026-09-01T09:00:00Z',
   vehicle: 3,
@@ -29,6 +30,10 @@ const PETICION: DocumentDeletionRequestRow = {
   requested_by: 9,
   requested_by_name: 'Carlos Ruiz',
   reason: 'Es de otro coche.',
+  kind: 'delete',
+  kind_display: 'Borrado',
+  changes: {},
+  changes_display: [],
   status: 'pending',
   status_display: 'Pendiente',
   resolved_by_name: '',
@@ -118,7 +123,7 @@ describe('Bandeja de peticiones de borrado de documentos', () => {
     })
     const user = pintar()
     // La bandeja abre por «Pendientes»: lo resuelto está en su chip.
-    expect(await screen.findByText(/Sin peticiones de borrado/)).toBeInTheDocument()
+    expect(await screen.findByText(/Sin peticiones sobre documentos/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Ocultas/ }))
     expect(screen.getByText('Ana Gestora')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Gestionar…' })).not.toBeInTheDocument()

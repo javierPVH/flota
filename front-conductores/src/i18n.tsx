@@ -221,6 +221,28 @@ const es = {
     quickItv: 'Registrar ITV',
     scheduledActionUnavailable:
       'Disponible cuando falten 30 días o menos, o cuando la fecha esté vencida.',
+    /** Lo que sale al pulsar ITV o Mantenimiento con la cita todavía lejos: un
+     * `title` no se lee en un móvil, y un botón muerto tampoco se explica. */
+    scheduledInfo: {
+      title: { itv: 'ITV programada', maintenance: 'Mantenimiento programado' },
+      due: {
+        itv: (fecha: string) => `La ITV está citada para el ${fecha}.`,
+        maintenance: (fecha: string) => `El mantenimiento toca el ${fecha}.`,
+      },
+      remaining: (dias: number) =>
+        dias === 1 ? 'Falta 1 día.' : dias < 0 ? 'La fecha ya pasó.' : `Faltan ${dias} días.`,
+      opens: {
+        itv: (fecha: string) => `Podrás registrarla a partir del ${fecha}.`,
+        maintenance: (fecha: string) => `Podrás marcarlo como realizado a partir del ${fecha}.`,
+      },
+      why: 'Se abre 30 días antes de la cita: así no se registra por error una que todavía no toca.',
+      none: {
+        itv: 'Este coche no tiene ninguna ITV programada.',
+        maintenance: 'Este coche no tiene ningún mantenimiento programado.',
+      },
+      noneHint: 'Las programa la gestión de flota. En cuanto haya una, este botón se abre solo.',
+      ok: 'Entendido',
+    },
     situationTitle: 'Situación',
     state: 'Estado',
     substitution: 'Sustitución',
@@ -290,6 +312,12 @@ const es = {
       return_report: 'Acta de devolución',
       accident_report: 'Parte de accidente',
       damage_photos: 'Fotos de daños',
+      // No se ofrecen al subir (los cuelga el formulario que cierra la ITV o
+      // la incidencia), pero SÍ salen en la lista: sin ellos, esas dos filas
+      // se quedaban con la etiqueta que manda el back, en castellano.
+      itv_report: 'Informe de ITV',
+      workshop_invoice: 'Factura de taller',
+      driving_license: 'Permiso de conducir',
       other: 'Otro',
     } as Record<string, string>,
     filePick: 'Foto o PDF (cámara / galería)',
@@ -366,6 +394,7 @@ const es = {
     pushTitle: 'Avisos en este dispositivo',
     pushOn: 'Recibirás las alertas aunque la app esté cerrada.',
     pushBlocked: 'Bloqueados por el navegador: actívalos en sus ajustes.',
+    pushNotConfigured: 'Los avisos no están configurados en el servidor. Avisa a Sistemas.',
     pushUnknown: 'No se pudo comprobar el estado (¿sin conexión?).',
     pushRetry: 'Reintentar',
     pushOff: 'ITV, lecturas pendientes y más, aunque la app esté cerrada.',
@@ -577,7 +606,7 @@ const es = {
     title: (plate: string) => `Actualizar · ${plate}`,
     notice:
       'La responsabilidad de registrar los km, el mantenimiento y las incidencias es ' +
-      'del conductor, no del responsable. Usa esto solo en su lugar cuando haga ' +
+      'del conductor, no del supervisor. Usa esto solo en su lugar cuando haga ' +
       'falta: quedará registrado a tu nombre.',
     /** La X del aviso. Dice hasta cuándo se calla: no es «cerrar» y ya está. */
     noticeHide: 'Ocultar el aviso en esta sesión',
@@ -608,7 +637,7 @@ const es = {
     planDone: 'Marcar como realizado',
     planNext: (date: string) => `Próxima: ${date}`,
     planDateTitle: (name: string) => `¿Cuándo se hizo? · ${name}`,
-    planDateLabel: 'Fecha de realizaci\u00f3n',
+    planDateLabel: 'Fecha de realización',
     planToday: 'Hoy',
     planDateAccept: 'Marcar como realizado',
     planChosen: (date: string) => `Mantenimiento realizado el ${date}.`,
@@ -854,20 +883,34 @@ const es = {
     deleteTitle: (name: string) => `Pedir el borrado · ${name}`,
     deleteHint:
       'No se borra aquí: la petición va a la gestión, que decide. Hasta entonces el ' +
-      'documento sigue en la lista, marcado «Pendiente de borrado».',
+      'documento sigue en la lista, con su chapa de pendiente de borrado.',
     deleteReason: 'Motivo (opcional)',
     deleteSubmit: 'Pedir borrado',
     deleteSubmitting: 'Enviando…',
     deleteOk: 'Petición enviada. La gestión decidirá qué hacer con el documento.',
     deleteError: 'No se pudo pedir el borrado. Inténtalo de nuevo.',
     deletePending: 'Pendiente de borrado por parte del administrador',
-    deletePendingNote: 'Borrado pedido: la gestión lo está revisando.',
+    deletePendingNote: 'Ya hay una petición sobre este documento: la gestión la está revisando.',
+    /** Corregir tampoco lo hace el campo: lo pide, como el borrado. */
+    fixDoc: (what: string) => `Pedir que se corrija ${what}`,
+    fixTitle: (what: string) => `Corregir ${what}`,
+    fixHint:
+      'Esto no cambia el documento: manda una petición a la gestión, que la aplica o la rechaza. El archivo se queda donde está.',
+    fixType: 'Tipo de documento',
+    fixExpiry: 'Fecha de caducidad',
+    fixNotes: 'Nota del documento',
+    fixReason: 'Por qué hay que corregirlo',
+    fixSubmit: 'Enviar petición',
+    fixSubmitting: 'Enviando…',
+    fixOk: 'Petición enviada. La gestión decidirá si se corrige.',
+    fixError: 'No se pudo pedir la corrección. Inténtalo de nuevo.',
   },
   /** Pantalla del avatar del header: los datos del usuario y su documentación. */
   profile: {
     title: 'Mi perfil',
     dataTitle: 'Mis datos',
-    dataHint: 'Si algún dato no es correcto, avisa a la gestión de flota: aquí solo se consultan.',
+    dataHint:
+      'Aquí solo se consultan: corregirlos lo decide la gestión de flota, y se le pide desde aquí.',
     email: 'Correo',
     phone: 'Teléfono',
     dni: 'DNI',
@@ -881,6 +924,72 @@ const es = {
     } as Record<'admin' | 'supervisor' | 'driver', string>,
     /** Resumen de lo que lleva a cargo quien supervisa: cinco cifras y, tras
      * cada una, la lista de lo que la compone. */
+    /** Pedir que la gestión corrija la ficha: la pantalla es de lectura, así
+     * que lo que se manda es una solicitud a su bandeja. */
+    edit: {
+      button: 'Mis datos',
+      title: 'Mis datos y mis documentos',
+      introTitle: 'Desde aquí se PIDE, no se guarda',
+      intro:
+        'Nada de esto cambia tu ficha al momento: manda una petición a la gestión de flota, que la aplica o la rechaza.',
+      /** Los tres pasos del carrusel, como en subir documento. */
+      stepData: 'Tus datos',
+      stepDocs: 'Documentos',
+      stepSend: 'Enviar',
+      dataTitle: 'Tus datos',
+      dataHint: 'Corrige solo lo que esté mal: viaja únicamente lo que toques.',
+      firstName: 'Nombre',
+      lastName: 'Apellidos',
+      emailHint: 'Es la cuenta con la que entras: cambiarlo lo revisa la gestión.',
+      dniHint: 'Lo comprueban con tu documento antes de aplicarlo.',
+      note: 'Nota para la gestión',
+      noteHint: 'Cuéntales por qué hay que corregirlo: es lo que leen para decidir.',
+      licenseNone: 'Sin especificar',
+      /** Los tipos de permiso del back (`accounts.LicenseType`). La letra es la
+       * misma en los dos idiomas; lo que se traduce es lo que lleva al lado. */
+      licenseTypes: {
+        B: 'B (turismos)',
+        C1: 'C1',
+        C: 'C (camiones)',
+        'C+E': 'C+E (camión con remolque)',
+        D1: 'D1',
+        D: 'D (autobuses)',
+      } as Record<string, string>,
+      submit: 'Enviar petición',
+      submitting: 'Enviando…',
+      nothing: 'Cambia algún dato o escribe una nota.',
+      error: 'No se pudo enviar la petición. Inténtalo de nuevo.',
+      ok: 'Petición enviada. La gestión la revisará.',
+      savedTitle: 'Petición enviada',
+      backToDocs: 'Volver a mis documentos',
+      /** Último paso: lo que se va a pedir, campo a campo. Enviar no puede ser
+       * un salto a ciegas («¿mandé el teléfono o no?»). */
+      reviewTitle: 'Lo que vas a pedir',
+      reviewEmpty: 'No has cambiado ningún dato. Si solo quieres avisar de algo, escríbelo aquí.',
+      submitHint: 'Esto manda solo tus datos: cada documento va por su cuenta.',
+      docsTitle: 'Modificar los documentos subidos',
+      docsHint:
+        'Cada documento se corrige o se pide borrar por su cuenta, con los botones de su fila.',
+      pending: 'Tienes una petición de ficha esperando decisión.',
+      pendingSince: (when: string) => `Pedida el ${when}.`,
+      pendingNote: 'Mientras tanto, la ficha sigue como está.',
+    },
+    /** Lo que uno tiene pedido, en la propia pantalla: pendiente y resuelto. */
+    requests: {
+      title: 'Peticiones',
+      tabsLabel: 'Peticiones pendientes o resueltas',
+      tabPending: 'Pendientes',
+      tabDone: 'Resueltas',
+      emptyPending: 'No tienes nada pendiente de decisión.',
+      emptyDone: 'Todavía no te han resuelto ninguna.',
+      loadError: 'No se pudieron cargar tus peticiones.',
+      kindProfile: 'Mi ficha',
+      kindDocument: 'Documento',
+      kindVehicle: 'Coche',
+      kindDriver: 'Cambio de conductor',
+      asked: (when: string) => `Pedida el ${when}`,
+      noDetail: 'Sin detalle',
+    },
   },
   /** GAP-2: consumo medio de campo (hermano del de km): lo que marca el
    * ordenador de a bordo, con su día. */
@@ -890,6 +999,9 @@ const es = {
       'Por favor, anota el consumo medio que marca el ordenador de a bordo correspondiente a tu último trayecto o ciclo de repostaje.',
     noteWarn: 'NO anotes el "consumo histórico" o acumulado total del vehículo.',
     consumption: 'Consumo medio real en ese momento (l/km o kWh/km)',
+    /** El ejemplo del campo lleva el separador decimal del idioma: con la app
+     * en inglés (`en-GB`) se teclea con punto, no con coma. */
+    consumptionPlaceholder: '6,80',
     date: 'Fecha',
     save: 'Guardar consumo',
     /** Lo enseña la pestaña «Combustible» de «Actualizar», que no se cierra al
@@ -899,6 +1011,81 @@ const es = {
     saveError: 'No se pudo guardar el consumo.',
     lastNoted: 'Última anotación',
     noneYet: 'Sin anotaciones de consumo todavía.',
+  },
+  /**
+   * **Las etiquetas del dominio, por código.** El back las manda ya escritas
+   * (`type_display`, `state_display`, `status_display`…) y las manda SIEMPRE en
+   * castellano: con la app en inglés, la lista de documentos decía «Permiso de
+   * conducir · Vigente» y el botón salía mezclado («Ask for Permiso de conducir
+   * to be fixed»). Aquí están las mismas por su **código**, que es lo estable
+   * del contrato; lo que llega del back queda de reserva por si aparece uno
+   * nuevo (`domainLabels.ts`).
+   *
+   * Los tipos de documento y de incidencia y las prioridades no se repiten:
+   * viven en `vehicle.docTypes`, `newIncident.types` y `priority`, que son las
+   * mismas tablas que pintan sus formularios.
+   */
+  domain: {
+    docStatus: {
+      valid: 'Vigente',
+      expired: 'Caducado',
+      pending_archive: 'Pendiente de archivar',
+    },
+    alertType: {
+      itv_due: 'ITV programada',
+      insurance_due: 'Seguro próximo / vencido',
+      km_reading_pending: 'Lectura de km pendiente',
+      km_overage: 'Exceso de km proyectado',
+      no_driver: 'Vehículo sin conductor',
+      maintenance_due: 'Mantenimiento programado',
+    },
+    /** En qué quedó cada petición. Una tabla por bandeja porque el MISMO
+     * código dice cosas distintas: `done` es «Aplicada» en una ficha personal
+     * y «Atendida» en una propuesta de conductor. */
+    requestStatus: {
+      profile: { pending: 'Pendiente', done: 'Aplicada', rejected: 'Rechazada' },
+      document: {
+        pending: 'Pendiente',
+        deleted: 'Borrado (en erratas)',
+        hidden: 'Oculto para el conductor',
+        applied: 'Corrección aplicada',
+        rejected: 'Rechazada',
+      },
+      vehicle: {
+        pending: 'Pendiente de aprobación',
+        approved: 'Aprobada',
+        assigned: 'Vehículo asignado',
+        rejected: 'Rechazada',
+        closed: 'Cerrada',
+      },
+      driver: { pending: 'Pendiente', done: 'Atendida', rejected: 'Rechazada' },
+    },
+    docRequestKind: { delete: 'Borrado', change: 'Corrección' },
+    /** Los campos que se piden corregir, tal como los nombra su formulario. */
+    fieldNames: {
+      first_name: 'Nombre',
+      last_name: 'Apellidos',
+      email: 'Correo',
+      dni: 'DNI',
+      phone: 'Teléfono',
+      license_type: 'Tipo de permiso',
+      fuel_card: 'Tarjeta de combustible',
+      type: 'Tipo de documento',
+      expiry_date: 'Fecha de caducidad',
+      notes: 'Nota del documento',
+    },
+    alertLevel: { info: 'Informativa', warning: 'Aviso', critical: 'Crítica' },
+    alertStatus: { open: 'Abierta', resolved: 'Resuelta' },
+    incidentStatus: { open: 'Abierta', on_going: 'En curso', closed: 'Cerrada' },
+    vehicleState: {
+      active: 'Activo',
+      maintenance: 'No activo - Mantenimiento',
+      itv: 'No activo - ITV',
+      broken: 'No activo - Averiado',
+      accidente: 'No activo - Accidentado',
+      non_active: 'No activo sin justificación',
+      retired: 'Devuelto (baja)',
+    },
   },
 }
 
@@ -991,7 +1178,7 @@ const en: typeof es = {
     kmDateLabel: 'Km reading',
     kmDateDay: (d) => `day ${d}`,
     nextItv: 'Next MOT',
-    nextMaintenance: 'Next service',
+    nextMaintenance: 'Next maintenance',
     breakdownsTitle: 'Incidents',
     noBreakdowns: 'No open incidents.',
     driver: 'Driver',
@@ -1022,14 +1209,16 @@ const en: typeof es = {
       count: (n) => (n === 1 ? '1 notice' : `${n} notices`),
       km: (plate) => `Mileage for ${plate}`,
       itv: (plate) => `MOT for ${plate}`,
-      maintenance: (plate) => `Service for ${plate}`,
+      maintenance: (plate) => `Maintenance for ${plate}`,
       fuel: (plate) => `Fuel for ${plate}`,
       inDays: (days) =>
         days <= 0 ? 'today is the last day' : days === 1 ? 'tomorrow is the last day' : `${days} days left`,
       dueIn: (days) => (days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`),
       overdue: (days) => (days === 1 ? 'expired yesterday' : `expired ${days} days ago`),
       kmUntil: (lastDay) => `until day ${lastDay}`,
-      kmOpens: (startDay) => `best from the ${startDay}th to month end`,
+      // Sin ordinal inglés a mano: con la ventana abriendo el 21, 22 o 31
+      // salía «21th». El día va suelto, que es lo que dice el back.
+      kmOpens: (startDay) => `best from day ${startDay} to month end`,
       kmMissing: (month) => `${month} reading still missing`,
       kmMonthEnd: (days) =>
         days <= 0
@@ -1077,8 +1266,30 @@ const en: typeof es = {
     quickItv: 'Log MOT',
     scheduledActionUnavailable:
       'Available when 30 days or less remain, or when the due date has passed.',
+    scheduledInfo: {
+      title: { itv: 'Scheduled MOT', maintenance: 'Scheduled maintenance' },
+      due: {
+        itv: (fecha) => `The MOT is booked for ${fecha}.`,
+        maintenance: (fecha) => `The maintenance is due on ${fecha}.`,
+      },
+      remaining: (dias) =>
+        dias === 1 ? '1 day to go.' : dias < 0 ? 'The date has already passed.' : `${dias} days to go.`,
+      opens: {
+        itv: (fecha) => `You will be able to log it from ${fecha}.`,
+        maintenance: (fecha) => `You will be able to mark it as done from ${fecha}.`,
+      },
+      why: 'It opens 30 days before the date, so something that is not due yet is not logged by mistake.',
+      none: {
+        itv: 'This vehicle has no MOT scheduled.',
+        maintenance: 'This vehicle has no maintenance scheduled.',
+      },
+      noneHint: 'Fleet management schedules them. As soon as there is one, this button opens on its own.',
+      ok: 'Got it',
+    },
     situationTitle: 'Status',
-    state: 'State',
+    // El estado de un coche en inglés es «status», como las otras dos
+    // etiquetas del mismo dato (`situationTitle`, `carUpdate.detailStatus`).
+    state: 'Status',
     substitution: 'Substitution',
     isSubstitute: '🔁 Substitute vehicle',
     mainVehicle: 'Main vehicle',
@@ -1139,6 +1350,9 @@ const en: typeof es = {
       return_report: 'Return report',
       accident_report: 'Accident report',
       damage_photos: 'Damage photos',
+      itv_report: 'MOT report',
+      workshop_invoice: 'Workshop invoice',
+      driving_license: 'Driving licence',
       other: 'Other',
     },
     filePick: 'Photo or PDF (camera / gallery)',
@@ -1210,6 +1424,7 @@ const en: typeof es = {
     pushTitle: 'Notifications on this device',
     pushOn: 'You will receive alerts even with the app closed.',
     pushBlocked: 'Blocked by the browser: enable them in its settings.',
+    pushNotConfigured: 'Notifications are not set up on the server. Contact IT.',
     pushUnknown: 'Could not check the status (offline?).',
     pushRetry: 'Retry',
     pushOff: 'MOT, pending readings and more, even with the app closed.',
@@ -1439,7 +1654,7 @@ const en: typeof es = {
     plansEmpty: 'This vehicle has no maintenance plans (administration creates them).',
     plansOnly:
       "The car's scheduled maintenance. Incidents are reported and resolved in " +
-      "their own «Incidents» card.",
+      "their own “Incidents” card.",
     months: (n) => (n === 1 ? '1 month' : `${n} months`),
     actionView: 'View',
     actionManage: 'Handling',
@@ -1473,10 +1688,10 @@ const en: typeof es = {
     stepLink: 'Linked to',
     stepNotes: 'Notes',
     linkHint:
-      "Which of the vehicle's requests this document belongs to. The "
+      "Which of the vehicle's incidents this document belongs to. The "
       + 'workshop invoice, damage photos and accident report require one; '
       + 'the rest carry it when it makes sense.',
-    linkNothing: 'This document is not linked to any request: move on.',
+    linkNothing: 'This document is not linked to any incident: move on to the next step.',
     notesHint:
       'Anything that helps you recognise it later in the document list. '
       + 'Optional.',
@@ -1642,19 +1857,32 @@ const en: typeof es = {
     deleteTitle: (name) => `Request deletion · ${name}`,
     deleteHint:
       'This does not delete it: the request goes to fleet management, who decide. ' +
-      'Until then the document stays in the list, marked «Deletion pending».',
+      'Until then the document stays in the list, with its deletion-pending chip.',
     deleteReason: 'Reason (optional)',
     deleteSubmit: 'Request deletion',
     deleteSubmitting: 'Sending…',
     deleteOk: 'Request sent. Fleet management will decide what to do with it.',
     deleteError: 'The deletion request could not be sent. Try again.',
     deletePending: 'Deletion pending administrator approval',
-    deletePendingNote: 'Deletion requested: fleet management is reviewing it.',
+    deletePendingNote: 'There is already a request on this document: fleet management is reviewing it.',
+    fixDoc: (what: string) => `Ask for ${what} to be fixed`,
+    fixTitle: (what: string) => `Fix ${what}`,
+    fixHint:
+      'This does not change the document: it sends a request to fleet management, who apply or reject it. The file stays where it is.',
+    fixType: 'Document type',
+    fixExpiry: 'Expiry date',
+    fixNotes: 'Document note',
+    fixReason: 'Why it needs fixing',
+    fixSubmit: 'Send request',
+    fixSubmitting: 'Sending…',
+    fixOk: 'Request sent. Fleet management will decide whether to apply it.',
+    fixError: 'The correction request could not be sent. Try again.',
   },
   profile: {
     title: 'My profile',
     dataTitle: 'My details',
-    dataHint: 'If anything is wrong, tell fleet management: these are read-only here.',
+    dataHint:
+      'Read-only here: correcting them is fleet management’s call, and you ask for it from here.',
     email: 'Email',
     phone: 'Phone',
     dni: 'ID number',
@@ -1666,6 +1894,63 @@ const en: typeof es = {
       supervisor: 'Supervisor',
       driver: 'Driver',
     },
+    edit: {
+      button: 'My details',
+      title: 'My details and my documents',
+      introTitle: 'This ASKS, it does not save',
+      intro:
+        'None of this changes your record right away: it sends a request to fleet management, who apply or reject it.',
+      stepData: 'Your details',
+      stepDocs: 'Documents',
+      stepSend: 'Send',
+      dataTitle: 'Your details',
+      dataHint: 'Only fix what is wrong: just what you touch is sent.',
+      firstName: 'First name',
+      lastName: 'Surname',
+      emailHint: 'It is the account you sign in with: changing it is reviewed by management.',
+      dniHint: 'They check it against your document before applying it.',
+      note: 'Note for management',
+      noteHint: 'Tell them why it needs fixing: that is what they read to decide.',
+      licenseNone: 'Not set',
+      licenseTypes: {
+        B: 'B (cars)',
+        C1: 'C1',
+        C: 'C (lorries)',
+        'C+E': 'C+E (lorry with trailer)',
+        D1: 'D1',
+        D: 'D (buses)',
+      },
+      submit: 'Send request',
+      submitting: 'Sending…',
+      nothing: 'Change something or write a note.',
+      error: 'The request could not be sent. Try again.',
+      ok: 'Request sent. Fleet management will review it.',
+      savedTitle: 'Request sent',
+      backToDocs: 'Back to my documents',
+      reviewTitle: 'What you are asking for',
+      reviewEmpty: 'You have not changed anything. If you just want to flag something, write it here.',
+      submitHint: 'This sends your details only: each document goes on its own.',
+      docsTitle: 'Change the documents you uploaded',
+      docsHint: 'Each document is fixed or asked to be deleted on its own, from its row.',
+      pending: 'You have a record request awaiting a decision.',
+      pendingSince: (when: string) => `Asked on ${when}.`,
+      pendingNote: 'Meanwhile, your record stays as it is.',
+    },
+    requests: {
+      title: 'Requests',
+      tabsLabel: 'Pending or decided requests',
+      tabPending: 'Pending',
+      tabDone: 'Decided',
+      emptyPending: 'Nothing of yours is awaiting a decision.',
+      emptyDone: 'None of yours has been decided yet.',
+      loadError: 'Your requests could not be loaded.',
+      kindProfile: 'My record',
+      kindDocument: 'Document',
+      kindVehicle: 'Vehicle',
+      kindDriver: 'Driver change',
+      asked: (when: string) => `Asked on ${when}`,
+      noDetail: 'No detail',
+    },
   },
   fuel: {
     title: 'Average consumption',
@@ -1673,6 +1958,7 @@ const en: typeof es = {
       'Please note the average consumption shown by the on-board computer for your last trip or refuelling cycle.',
     noteWarn: 'Do NOT note the "historical" or total accumulated consumption of the vehicle.',
     consumption: 'Actual average consumption at that moment (l/km or kWh/km)',
+    consumptionPlaceholder: '6.80',
     date: 'Date',
     save: 'Save consumption',
     saved: 'Consumption noted.',
@@ -1680,6 +1966,64 @@ const en: typeof es = {
     saveError: 'The consumption could not be saved.',
     lastNoted: 'Last entry',
     noneYet: 'No consumption entries yet.',
+  },
+  domain: {
+    docStatus: {
+      valid: 'Valid',
+      expired: 'Expired',
+      pending_archive: 'Pending archiving',
+    },
+    alertType: {
+      itv_due: 'Scheduled MOT',
+      insurance_due: 'Insurance due / expired',
+      km_reading_pending: 'Km reading due',
+      km_overage: 'Projected km overage',
+      no_driver: 'Vehicle without a driver',
+      maintenance_due: 'Scheduled maintenance',
+    },
+    requestStatus: {
+      profile: { pending: 'Pending', done: 'Applied', rejected: 'Rejected' },
+      document: {
+        pending: 'Pending',
+        deleted: 'Deleted (in corrections)',
+        hidden: 'Hidden from the driver',
+        applied: 'Correction applied',
+        rejected: 'Rejected',
+      },
+      vehicle: {
+        pending: 'Pending approval',
+        approved: 'Approved',
+        assigned: 'Vehicle assigned',
+        rejected: 'Rejected',
+        closed: 'Closed',
+      },
+      driver: { pending: 'Pending', done: 'Handled', rejected: 'Rejected' },
+    },
+    docRequestKind: { delete: 'Deletion', change: 'Correction' },
+    fieldNames: {
+      first_name: 'First name',
+      last_name: 'Surname',
+      email: 'Email',
+      dni: 'ID number',
+      phone: 'Phone',
+      license_type: 'Licence type',
+      fuel_card: 'Fuel card',
+      type: 'Document type',
+      expiry_date: 'Expiry date',
+      notes: 'Document note',
+    },
+    alertLevel: { info: 'Informative', warning: 'Warning', critical: 'Critical' },
+    alertStatus: { open: 'Open', resolved: 'Resolved' },
+    incidentStatus: { open: 'Open', on_going: 'In progress', closed: 'Closed' },
+    vehicleState: {
+      active: 'Active',
+      maintenance: 'Off the road - Maintenance',
+      itv: 'Off the road - MOT',
+      broken: 'Off the road - Broken down',
+      accidente: 'Off the road - Crashed',
+      non_active: 'Off the road, no reason given',
+      retired: 'Returned (written off)',
+    },
   },
 }
 

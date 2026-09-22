@@ -17,6 +17,7 @@ import { exportCsv } from '../csv.ts'
 import { fmtDate, fmtDateTime } from '../format.ts'
 import { useAppLang } from '@flota/ui/i18n'
 import { useRequestsCopy } from '../translations/requests.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 /** Estado de la petición → tono de la chapa. Pendiente avisa; borrada es la
  * salida grave; oculta y rechazada, informativas. */
@@ -24,16 +25,24 @@ const TONE: Record<DocumentDeletionRequestRow['status'], BadgeTone> = {
   pending: 'warning',
   deleted: 'danger',
   hidden: 'info',
+  applied: 'success',
   rejected: 'neutral',
 }
 
-const DECISIONS: DeletionDecision[] = ['delete', 'hide', 'reject']
+/** Cada clase de petición tiene SUS salidas: un cambio no se manda a erratas,
+ * y un borrado no se «aplica». El desplegable ofrece las de la fila abierta. */
+const DECISIONS: Record<DocumentDeletionRequestRow['kind'], DeletionDecision[]> = {
+  delete: ['delete', 'hide', 'reject'],
+  change: ['apply', 'reject'],
+}
 
 /**
- * Bandeja de peticiones de borrado de documentos: las abre quien lee el
- * documento en la app de campo (allí la papelera **no borra**) y aquí se
- * deciden, con una de tres salidas — borrarlo de verdad (erratas), ocultarlo
- * para el conductor (protegido y a nombre de quien decide) o rechazar.
+ * Bandeja de peticiones **sobre un documento**: las abre quien lo lee en la app
+ * de campo, donde ni la papelera borra ni se corrige nada por cuenta propia.
+ * Son dos clases y cada una tiene sus salidas: un **borrado** se decide con
+ * tres —borrarlo de verdad (erratas), ocultarlo para el conductor (protegido y
+ * a nombre de quien decide) o rechazar— y una **corrección**, con dos:
+ * aplicarla —se escriben esos campos en el documento— o rechazarla.
  *
  * Vive en la misma página que las solicitudes de vehículo porque es la misma
  * decisión de siempre —conceder o no— y el aviso de la cabecera las cuenta
@@ -41,6 +50,7 @@ const DECISIONS: DeletionDecision[] = ['delete', 'hide', 'reject']
  */
 export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () => void }) {
   const t = useRequestsCopy()
+  const etiqueta = useDomainLabels()
   const copy = t.docs
   const lang = useAppLang()
 
@@ -82,6 +92,7 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
       { value: 'pending', label: copy.statusPending },
       { value: 'deleted', label: copy.statusDeleted },
       { value: 'hidden', label: copy.statusHidden },
+      { value: 'applied', label: copy.statusApplied },
       { value: 'rejected', label: copy.statusRejected },
     ],
     [copy, t.statusAll],
@@ -92,13 +103,16 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
 
   const whatOf = useCallback(
     (row: DocumentDeletionRequestRow) =>
-      `${row.document_type_display}${row.owner_name ? ` · ${row.owner_name}` : ''}`,
-    [],
+      `${etiqueta.docType({ type: row.document_type, type_display: row.document_type_display })}${
+        row.owner_name ? ` · ${row.owner_name}` : ''
+      }`,
+    [etiqueta],
   )
 
   function openManage(row: DocumentDeletionRequestRow) {
     setManaging(row)
-    setDecision('delete')
+    // La primera de las suyas: borrar en una de borrado, aplicar en un cambio.
+    setDecision(DECISIONS[row.kind][0])
     setNote('')
     setModalError('')
   }
@@ -116,7 +130,9 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
           ? copy.okDelete(what)
           : decision === 'hide'
             ? copy.okHide(what)
-            : copy.okReject(what),
+            : decision === 'apply'
+              ? copy.okApply(what)
+              : copy.okReject(what),
       )
       setManaging(null)
       load()
@@ -133,10 +149,12 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
       {
         key: 'document',
         label: copy.columns.document,
-        getValue: (r) => r.document_type_display,
+        getValue: (r) => etiqueta.docType({ type: r.document_type, type_display: r.document_type_display }),
         render: (r) => (
           <>
-            <strong>{r.document_type_display}</strong>
+            <strong>
+              {etiqueta.docType({ type: r.document_type, type_display: r.document_type_display })}
+            </strong>
             <div className="muted">{fmtDate(r.document_created_at, lang)}</div>
           </>
         ),
@@ -166,6 +184,32 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
         ),
       },
       {
+        key: 'kind',
+        label: copy.columns.kind,
+        // Lo que cambiaría viaja en el VALOR, no solo en la pintura: así se
+        // busca por ello en la tabla y sale en el CSV.
+        getValue: (r) =>
+          [
+            etiqueta.docRequestKind(r),
+            ...r.changes_display.map(
+              (c) => `${etiqueta.fieldName(c)}: ${etiqueta.proposedValue(c, r.changes?.[c.field])}`,
+            ),
+          ].join(
+            ' · ',
+          ),
+        render: (r) => (
+          <>
+            <strong>{etiqueta.docRequestKind(r)}</strong>
+            {r.changes_display.map((change) => (
+              <div key={change.field} className="muted">
+                {etiqueta.fieldName(change)}: {change.current || '—'} →{' '}
+                {etiqueta.proposedValue(change, r.changes?.[change.field]) || '—'}
+              </div>
+            ))}
+          </>
+        ),
+      },
+      {
         key: 'reason',
         label: copy.columns.reason,
         getValue: (r) => r.reason,
@@ -179,8 +223,8 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
       {
         key: 'status',
         label: copy.columns.status,
-        getValue: (r) => r.status_display,
-        render: (r) => <Badge tone={TONE[r.status]}>{r.status_display}</Badge>,
+        getValue: (r) => etiqueta.requestStatus('document', r),
+        render: (r) => <Badge tone={TONE[r.status]}>{etiqueta.requestStatus('document', r)}</Badge>,
       },
       {
         key: 'resolved',
@@ -210,19 +254,25 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
           ) : null,
       },
     ],
-    [copy, lang],
+    [copy, lang, etiqueta],
   )
 
   const hint = useMemo(
     () => ({
       delete: copy.optDeleteHint,
       hide: copy.optHideHint,
+      apply: copy.optApplyHint,
       reject: copy.optRejectHint,
     }),
     [copy],
   )
   const label: Record<DeletionDecision, string> = useMemo(
-    () => ({ delete: copy.optDelete, hide: copy.optHide, reject: copy.optReject }),
+    () => ({
+      delete: copy.optDelete,
+      hide: copy.optHide,
+      apply: copy.optApply,
+      reject: copy.optReject,
+    }),
     [copy],
   )
 
@@ -291,11 +341,30 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
                 <strong>{copy.reasonLabel}:</strong>{' '}
                 {managing.reason || <span className="muted">{copy.noReason}</span>}
               </p>
+              {managing.changes_display.length > 0 && (
+                <div>
+                  <strong>{copy.changesLabel}:</strong>
+                  <ul className="change-list">
+                    {managing.changes_display.map((change) => (
+                      <li key={change.field}>
+                        {etiqueta.fieldName(change)}:{' '}
+                        <span className="muted">{change.current || '—'}</span> →{' '}
+                        <strong>
+                          {etiqueta.proposedValue(change, managing.changes?.[change.field]) || '—'}
+                        </strong>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </>
           )}
           <SelectField
             label={copy.decision}
-            options={DECISIONS.map((value) => ({ value, label: label[value] }))}
+            options={DECISIONS[managing?.kind ?? 'delete'].map((value) => ({
+              value,
+              label: label[value],
+            }))}
             value={decision}
             onValueChange={(value) => setDecision(value as DeletionDecision)}
           />

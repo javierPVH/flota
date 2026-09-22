@@ -1,4 +1,5 @@
-"""Enumerados de solicitudes: de vehículo (Épica 8) y de cambio de conductor."""
+"""Enumerados de solicitudes: de vehículo (Épica 8), de cambio de conductor y de
+corrección de la ficha personal."""
 
 from django.db import models
 
@@ -32,4 +33,19 @@ class DriverChangeStatus(models.TextChoices):
 
     PENDING = "pending", "Pendiente"
     DONE = "done", "Atendida"
+    REJECTED = "rejected", "Rechazada"
+
+
+class ProfileChangeStatus(models.TextChoices):
+    """En qué queda la petición de corregir la ficha personal.
+
+    Dos salidas, como la propuesta de cambio de conductor: la administración
+    **la aplica** —son datos escalares, y reescribirlos a mano en la ficha
+    invita a que los dos lados no digan lo mismo— o **la rechaza**, diciendo
+    por qué. Las dos la sacan de pendiente, que es lo que la quita de la
+    bandeja y de la cuenta del aviso.
+    """
+
+    PENDING = "pending", "Pendiente"
+    DONE = "done", "Aplicada"
     REJECTED = "rejected", "Rechazada"

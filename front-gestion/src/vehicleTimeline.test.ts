@@ -16,6 +16,8 @@ import {
 import type { AuditEntry, FlotaEvent } from './types.ts'
 
 const LABELS: TimelineLabels = {
+  // El tipo del registro se traduce por código, como en la app.
+  eventTypeLabel: (e) => ({ itv: 'ITV', maintenance: 'Mantenimiento' })[e.event_type] ?? e.event_type_display,
   modelLabel: (model) => ({ vehicle: 'Vehículo', contract: 'Contrato' })[model] ?? model,
   actionLabel: (action) => ({ create: 'Alta', update: 'Modificación' })[action] ?? action,
   // Sin etiqueta = campo interno del back: no se enseña.

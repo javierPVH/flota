@@ -260,7 +260,18 @@ Dos capas que van **siempre juntas**:
   estaba en el encargo y hace falta: sin ella, un administrador que no esté de
   acuerdo solo podría borrar u ocultar, y la marca se quedaría puesta para
   siempre. Las tres la sacan de pendiente, que es lo que quita la marca en el
-  campo.
+  campo. **Corregirlo tampoco lo hace el campo**: el lápiz de la fila abre la
+  MISMA fila con `kind="change"` y `changes` —tipo, caducidad y nota, y nada
+  más: cambiar de coche un documento o quitarle el candado no es corregir una
+  errata—, y la gestión la **aplica** (se escriben esos campos, vueltos a
+  comparar con el documento de ahora) o la rechaza. Es la misma fila a
+  propósito: un documento tiene **una petición viva**, y pedir a la vez que se
+  corrija y que se borre no es una petición, es un cambio de idea. Sin esto, la
+  única salida a una fecha mal tecleada era pedir el borrado y volver a subir
+  el archivo, que pierde el archivo y su rastro. El modelo y su endpoint
+  conservan el nombre (`DocumentDeletionRequest`,
+  `/document-deletion-requests/`) para no romper el contrato de la API, aunque
+  ahora lleven las dos clases.
 - **El exceso de km se arregla cambiando quién lo lleva, y eso también se
   PIDE.** La alerta `km_overage` dice que el coche va camino de pasarse de los
   km del contrato: cerrarla con una observación no cambia nada. Por eso su
@@ -275,8 +286,9 @@ Dos capas que van **siempre juntas**:
   de usuarios ni el directorio de la empresa viajan a una app pública por si
   acaso. Enviarla **no resuelve la alerta**: no ha cambiado nada todavía, y
   quien supervisa no cambia conductores igual que no cambia el estado del
-  coche. La decide la administración en `/solicitudes` —**tercera pestaña**, y
-  el aviso de la cabecera cuenta ya las tres bandejas— con **dos salidas**:
+  coche. La decide la administración en `/solicitudes` —**tercera pestaña**; la
+  cuarta son las correcciones de ficha personal, y el aviso de la cabecera
+  cuenta las cuatro bandejas— con **dos salidas**:
   **atendida** o **rechazada**, y **ninguna mueve la asignación**: el cambio se
   hace en «Cambiar conductor», que es el gesto atómico de siempre con su
   histórico y su bloqueo optimista (de ahí el enlace al coche en el modal de la
@@ -365,6 +377,38 @@ Dos capas que van **siempre juntas**:
 - i18n con **diccionario tipado**: el shell en `src/i18n.tsx` y un módulo por
   página en `src/translations/<ns>.ts`. Si falta una clave en un idioma, no
   compila.
+- **Lo que el back manda escrito NO es una traducción.** `type_display`,
+  `state_display`, `status_display`, `level_display`… son los `choices` de sus
+  enumerados y llegan **siempre en castellano**: con la app en inglés, la lista
+  de documentos decía «Permiso de conducir · Vigente» y el rótulo del botón
+  salía mezclado («Ask for Permiso de conducir to be fixed»). En conductores eso
+  se resuelve en **`src/domainLabels.ts`** (`useDomainLabels`), que las traduce
+  por **código** —lo estable del contrato— con el texto del back **de reserva**
+  para un valor nuevo; las tablas son las que ya pintan los formularios
+  (`vehicle.docTypes`, `newIncident.types`, `priority`) más el bloque `domain`
+  del diccionario (estados de documento, tipos/niveles/estados de alerta,
+  estados de incidencia, estados del vehículo, estados de petición **por
+  bandeja** —el mismo `done` es «Aplicada» en una ficha y «Atendida» en una
+  propuesta de conductor— y los nombres de campo). El hook va **memorizado por
+  diccionario**: hay listas que agrupan dentro de un `useMemo` con él dentro.
+  Al pintar, `_display` solo se usa ya como segundo término de una búsqueda (se
+  sigue encontrando lo que se teclee en castellano).
+  **Gestión lleva el mismo mecanismo**: `src/domainLabels.ts` sobre
+  `src/translations/domain.ts` —un módulo de copia propio, no el diccionario
+  del shell, porque lo leen paneles y páginas de varios chunks—, con las tablas
+  de documento, alerta, incidencia, vehículo, **registro** (`event_type`),
+  petición, plaza del parte y estado de correo. `translations/vehicles.ts`
+  **toma de ahí** `stateLabel` y las plazas, para que no haya dos tablas del
+  mismo enumerado. Donde la copia compone una opción (`panels.ts`:
+  `incidentOption`, `eventOption`, `alertOption`) el llamante le pasa el
+  `*_display` **ya traducido**, y la línea de tiempo recibe su
+  `eventTypeLabel`. Dos `*_display` no se traducen a propósito: el
+  `event_display`/`alert_display` de un documento, que el back manda ya
+  compuesto («ITV · 2026-03-01») sin su código, y todo lo que es **dato** y no
+  enumerado —empresa, sede, CECO, marca, el nombre de quien se propone—.
+  Para que la bandeja pudiera traducir, el back manda ahora también el
+  **código**: `document_type` en la petición sobre un documento e
+  `incident_type` en la solicitud de vehículo.
 - Páginas en `lazy` (PF2); tablas grandes con `TableWithPanel` del DS
   (columnas, orden, paginación en cliente, fila expandible, export). Puede
   **partir las filas en bloques plegables** de dos maneras: por **fecha**
@@ -887,6 +931,20 @@ Dos capas que van **siempre juntas**:
   (`@flota/ui/domain`, con `tireReportSummary`): lo leen los dos fronts y es
   contrato del back, así que dos copias acabarían marcando ruedas distintas
   del mismo parte.
+- **Un botón que aún no toca EXPLICA por qué, no se muere.** La ITV y el
+  mantenimiento solo se registran desde **30 días antes** de la cita
+  (`scheduledActionAvailable`); hasta entonces sus botones iban `disabled` con
+  un `title`, y en un móvil un `title` no se lee nunca: quedaba un botón apagado
+  sin explicación. Ahora van **apagados pero vivos** (`.is-waiting`) y el toque
+  abre `ScheduledActionInfo`: **cuándo es la cita**, cuánto falta y **desde qué
+  día** se podrá registrar —una fecha (`scheduledActionOpensOn`), no «cuando
+  falten 30 días», que obliga a echar la cuenta a mano— más el porqué de la
+  ventana (que no se registre por error una revisión que todavía no toca). Sin
+  cita programada dice eso mismo y **de quién depende** (la programa la
+  gestión), que es la otra mitad de la pregunta. Está en los **tres** sitios con
+  esos botones: el nav de Mi vehículo, las acciones de la ficha de campo y el
+  icono de mantenimiento de la tarjeta de la lista —ahí lo decide la lista, que
+  es quien monta los modales—.
 - **«Actualizar» es UNA ventana con una pestaña por cosa**
   (`VehicleUpdateModal`): **km**, **combustible**, **ITV**, **mantenimiento** e
   **incidencias**. No hay pestaña de «alertas» a propósito — una alerta se
@@ -902,7 +960,15 @@ Dos capas que van **siempre juntas**:
   una incidencia el mismo `IncidentResolveModal`): una sola implementación, o
   dos copias del mismo formulario acaban validando distinto. Al guardar **no se
   cierra**: dice lo que guardó y sigue abierta, porque quien la abre suele traer
-  dos o tres cosas del mismo coche. Las ventanas sueltas siguen vivas y son el
+  dos o tres cosas del mismo coche. **Esa ventana es de «Flota»**: los tres
+  botones que dicen «Mantenimiento» —el del nav, el de la tarjeta de la lista y
+  el de la ficha— la abrían por esa pestaña, pero en **«Mi vehículo»** abren
+  solo el mantenimiento (`MaintenanceUpdateModal`), porque ahí la fila de
+  pestañas era **el nav de abajo otra vez**: km, combustible, ITV e incidencia
+  ya están cada uno en su botón. Lo decide `useFleetMode()` donde la pantalla
+  sirve a las dos vistas (`VehicleCards`, `VehicleFieldPage`); el nav de Mi
+  vehículo (`VehicleActionButtons`) no pregunta, que solo existe ahí. Las
+  ventanas sueltas siguen vivas y son también el
   camino rápido de **resolver una alerta** (`AlertResolveDispatcher`): el aviso
   ya dice qué hay que hacer, así que abre su formulario y no las cinco pestañas.
   La **fila de pestañas se lee como una barra**: el modal es **ancho** (con el
@@ -1019,11 +1085,86 @@ Dos capas que van **siempre juntas**:
   si no, cambiaría el tab sin cambiar la pantalla. Al volver del perfil se vuelve
   a la vista que se estaba usando, porque el modo no se ha tocado. El **avatar
   del header sigue llevando ahí**: es la puerta de siempre. En el perfil, el
-  **nav inferior se queda en dos** —Inicio y Subir documento (`/documentos/nuevo`,
-  el mismo de «Mi vehículo»)—: ahí no hay coche del que hablar, así que las siete
-  acciones sobre el vehículo no pintan nada. Y la pantalla **no lleva título**:
+  **nav inferior se queda en dos** —**«Mis datos»** y **«Subir documento»**—:
+  ahí no hay coche del que hablar, así que las siete acciones sobre el vehículo
+  no pintan nada. **«Inicio» no está ni ahí ni en «Mi vehículo»** —el
+  conmutador de arriba ya devuelve a la home al elegir una vista, y el hueco
+  vale más para lo que solo se puede hacer en esa pantalla—; en **«Flota»** sí
+  sigue, porque ahí el nav lleva a tres pantallas distintas y hace falta la de
+  vuelta. Y «Subir documento» abre el **mismo modal que en «Mi vehículo»**
+  (`UploadDocumentModal` sobre el coche propio, montado en el `Layout` porque el
+  botón es del nav): antes llevaba a `/documentos/nuevo`, que es la vista suelta
+  —vuelve a pedir el coche y deja el perfil atrás—. Sin coche propio se ofrece
+  apagado, como el resto de acciones del nav. Y la pantalla **no lleva título**:
   el tab ya dice dónde estás y en un móvil ese encabezado se comía una pantalla
   de alto para repetirlo.
+- **La ficha personal se lee en campo y su corrección se PIDE**
+  (`ProfileEditModal` → `POST /profile-change-requests/`). «Mi perfil» sigue
+  siendo de lectura —nadie se edita su ficha, que es lo que sostiene que el
+  teléfono o el tipo de permiso de una flota sean un dato fiable—, pero hasta
+  ahora solo decía «avisa a gestión»: el aviso salía de la herramienta y no
+  quedaba rastro de quién pidió qué. Ahora es la **cuarta bandeja** de
+  `/solicitudes`, y el aviso de la cabecera cuenta ya las cuatro. Se pide la
+  **ficha entera** (`services.profile_requests.EDITABLE_FIELDS`: nombre,
+  apellidos, correo, DNI, teléfono, tipo de permiso y tarjeta de combustible) y
+  viaja **solo lo que cambia**; cualquier otro campo lo rechaza el back. El
+  **correo** y el **DNI** son **identidad** y por eso se comprueban contra el
+  resto de cuentas al pedirlo —y otra vez al aplicarlo, porque entre una cosa y
+  otra ese dato ha podido ser de otra persona—: así se dice qué campo estorba
+  en vez de reventar la restricción de la base de datos. Lo que sigue sin
+  cambiar es quién verifica un DNI: se mira **contra el documento**, y eso lo
+  hace la gestión antes de aplicar. La **nota** explica el porqué y es
+  obligatoria cuando no cambia ningún campo. Es idempotente por persona, como
+  las otras dos peticiones de campo. Al contrario que la propuesta de
+  conductor, **decidirla sí escribe**: `done` copia esos campos a la ficha (con
+  su diff en `auditlog`), volviéndolos a comparar con la ficha de AHORA por si
+  la gestión ya la corrigió; `reject` no toca nada. Y cada uno ve **solo las
+  suyas**: ni quien supervisa lee las de su gente, que son datos personales de
+  otro.
+- **«Mis datos» es una ventana POR PASOS y vive en el nav del perfil**, con el
+  mismo carrusel que **subir un documento** (`flow-steps` + `step-pane` que
+  entra deslizándose + pie de «Atrás / Continuar»): en un móvil, una ventana con
+  siete campos, una lista de documentos y un botón de enviar se recorre a
+  ciegas. Encabezándolo todo y **en todos los pasos**, un **aviso** de qué es
+  esto —«Desde aquí se PIDE, no se guarda»—, que es lo primero que hay que
+  entender y no una nota al pie. Los tres pasos: **1 · Tus datos** (los siete
+  campos, que viajan enteros en **una** petición con solo lo que cambia, en
+  **rejilla compacta** —`auto-fit` de 190px: dos columnas en cuanto hay hueco,
+  etiqueta pequeña encima y la pista de cada campo pegada a él, con los 44px de
+  dedo intactos; apilados no cabían en una pantalla de móvil—);
+  **2 · Documentos**, «Modificar los documentos subidos», la **misma** lista de
+  documentos personales de la pantalla —con las mismas acciones, que son
+  peticiones cada una—, porque dos maneras de hacer lo mismo acaban haciendo
+  cosas distintas; y **3 · Enviar**, que **repasa lo que se va a pedir** campo a
+  campo (lo que hay tachado → lo propuesto, con el sí/no de la tarjeta legible),
+  recoge la nota y lleva el botón. Los documentos van **antes** del envío: al
+  llegar al botón ya se ha visto todo lo que se puede pedir desde aquí. Ese
+  botón manda **solo el paso 1** y lo dice; el paso 2 no va dentro de ningún
+  `<form>` porque el panel trae el suyo para subir. Enviada, la ventana **no se
+  cierra**: enseña el acuse (el mismo `km-saved` que subir un documento) con
+  **«Volver a mis documentos»** al lado de «Cerrar», porque quien viene a
+  corregir su ficha suele traer también algo de ahí. Y es un `Modal` a secas y
+  no `SupervisorModal`: su aviso dice que lo registrado queda a nombre de quien
+  supervisa, y aquí se habla de la ficha de uno mismo, nunca en nombre de otra
+  persona.
+- **El perfil son DOS acordeones**, **«Mis documentos»** y **«Peticiones»**,
+  **plegados de salida** como los del vehículo y cada uno con su **recuento en
+  el título**: cuántos documentos hay y cuántas peticiones esperan decisión se
+  leen sin abrir nada, y la pantalla entra entera en un móvil. Las listas
+  seguidas eran tres pantallas de scroll para averiguar que no había nada.
+- **Lo que uno tiene pedido se lee en su perfil** (`MyRequests`, bajo los
+  documentos, en **dos pestañas** dentro de esa tarjeta —«Pendientes» y
+  «Resueltas», cada una con su recuento; el del título es el de lo pendiente,
+  que es lo único que sigue pidiendo algo): **pendientes** y **resueltas**,
+  juntando las CUATRO bandejas en
+  las que una persona de campo puede tener algo —su ficha, sus documentos, el
+  coche de sustitución que pidió y el cambio de conductor que propuso—, porque
+  desde aquí no se leen «bandejas»: se lee «lo mío». Las **rechazadas salen
+  igual** (la chapa lo dice): pedir algo y no poder ver que se decidió que no
+  es la mitad de un camino. Las cuatro listas se piden con `allSettled` —una
+  que falle no puede llevarse la tarjeta entera— y de las propuestas de
+  conductor se filtran **las propias**: quien supervisa alcanza también las de
+  sus coches, y esta pantalla no es la bandeja.
 - **«A tu cargo»: quien supervisa lee su flota al entrar en «Flota»**
   (`SupervisorOverview`, encabezando `FleetPage`, que ya exige el rol). Estaba
   en «Mi perfil», que es **quién eres** y no **cómo va tu flota** — y era el

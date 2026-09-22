@@ -14,6 +14,7 @@ import {
   linkableIncidents,
 } from '../documentRules.ts'
 import { fmtDate } from '../format.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Incident, Vehicle } from '../types.ts'
@@ -39,6 +40,7 @@ const DOCUMENT_TYPES = [
  */
 export function UploadDocumentPage() {
   const { t } = useLang()
+  const etiqueta = useDomainLabels()
   const { user } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -305,7 +307,7 @@ export function UploadDocumentPage() {
                 { value: '', label: boundTo ? doc.linkChoose : doc.linkChooseIncident },
                 ...linkable.map((i) => ({
                   value: String(i.id),
-                  label: `#${i.id} · ${i.type_display}${i.date ? ` (${fmtDate(i.date)})` : ''}`,
+                  label: `#${i.id} · ${etiqueta.incidentType(i)}${i.date ? ` (${fmtDate(i.date)})` : ''}`,
                 })),
               ]}
               value={form.incident}
@@ -329,7 +331,7 @@ export function UploadDocumentPage() {
                 { value: 'none', label: doc.linkNone },
                 ...linkable.map((i) => ({
                   value: String(i.id),
-                  label: `#${i.id} · ${i.type_display} · ${i.status_display}${i.date ? ` (${fmtDate(i.date)})` : ''}`,
+                  label: `#${i.id} · ${etiqueta.incidentType(i)} · ${etiqueta.incidentStatus(i)}${i.date ? ` (${fmtDate(i.date)})` : ''}`,
                 })),
               ]}
               value={form.incident || 'none'}

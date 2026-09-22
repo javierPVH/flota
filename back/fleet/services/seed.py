@@ -66,6 +66,7 @@ from fleet.models import (
     MaintenanceProgram,
     NotificationSchedule,
     Pep,
+    ProfileChangeRequest,
     Project,
     Renting,
     Site,
@@ -82,6 +83,7 @@ from fleet.models.enums import (
     AlertType,
     AllocationTarget,
     AssignmentStatus,
+    DocumentRequestKind,
     DocumentStatus,
     DocumentType,
     EventType,
@@ -1329,6 +1331,7 @@ def seed_operations(stdout=None) -> None:
     for model in (
         VehicleRequest,
         DriverChangeRequest,
+        ProfileChangeRequest,
         InvoiceAllocation,
         Invoice,
         DocumentDeletionRequest,  # antes que sus documentos
@@ -1652,7 +1655,7 @@ def seed_operations(stdout=None) -> None:
         status=DocumentStatus.VALID,
         notes="Permiso B.",
     )
-    Document.objects.create(
+    permiso_lucia = Document.objects.create(
         user=lucia,
         type=DocumentType.DRIVING_LICENSE,
         drive_url="https://drive.example/permiso-conducir-lucia",
@@ -1665,11 +1668,20 @@ def seed_operations(stdout=None) -> None:
 
     # Y una petición de borrado SIN DECIDIR: en la app de campo esas fotos salen
     # marcadas «Pendiente de borrado» y con la papelera apagada, y en gestión
-    # esperan en Solicitudes → Borrado de documentos.
+    # esperan en Solicitudes → Documentos.
     DocumentDeletionRequest.objects.create(
         document=fotos_v3,
         requested_by=sara,
         reason="Son de un roce que ya se reparó; las subí dos veces.",
+    )
+    # Y una de CORRECCIÓN, la otra clase de la misma bandeja: lucía ya renovó
+    # su permiso y la fecha de la ficha se quedó vieja. Aplicarla la escribe.
+    DocumentDeletionRequest.objects.create(
+        document=permiso_lucia,
+        requested_by=lucia,
+        kind=DocumentRequestKind.CHANGE,
+        changes={"expiry_date": (today + timedelta(days=365 * 5)).isoformat()},
+        reason="Ya lo renové: la caducidad es la nueva.",
     )
 
     # Y una propuesta de CAMBIO DE CONDUCTOR sin decidir: la manda sara al
@@ -1685,6 +1697,16 @@ def seed_operations(stdout=None) -> None:
             "Va camino de pasarse de los km del contrato. Carlos hace menos "
             "ruta este trimestre; ¿lo cambiamos?"
         ),
+    )
+
+    # Y una petición de CORRECCIÓN DE FICHA sin decidir: la manda carlos desde
+    # «Mi perfil» de la app de campo, que es de lectura. Espera en Solicitudes
+    # → Fichas, y al aplicarla se escriben esos campos en su usuario.
+    ProfileChangeRequest.objects.create(
+        user=carlos,
+        requested_by=carlos,
+        changes={"phone": "600 111 222", "license_type": "C"},
+        note="Me saqué el C el mes pasado y el móvil de la ficha es el antiguo.",
     )
 
     # Facturas de v1: mes actual y anterior (tendencia del dashboard) + reparto.

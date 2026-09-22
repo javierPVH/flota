@@ -14,6 +14,7 @@ import { useLang } from '../i18n.tsx'
 import { useAlertsPageCopy } from '../translations/alertsPage.ts'
 import { useResolveCopy } from '../translations/resolve.ts'
 import type { Alert } from '../types.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 interface Props {
   alert: Alert
@@ -42,6 +43,7 @@ function variantOf(alert: Alert): Variant {
  * opcional que queda en el histórico. */
 export function ResolveAlertModal({ alert, onClose, onDone }: Props) {
   const t = useAlertsPageCopy()
+  const etiqueta = useDomainLabels()
   const m = t.resolveModal
   const r = useResolveCopy()
   const { language } = useLang()
@@ -144,7 +146,7 @@ export function ResolveAlertModal({ alert, onClose, onDone }: Props) {
       } else {
         await resolveAlert(alert.id, trimmed)
       }
-      onDone(t.closedNotice(alert.vehicle_plate || alert.type_display))
+      onDone(t.closedNotice(alert.vehicle_plate || etiqueta.alertType(alert)))
     } catch (err) {
       setError(asErrorMessage(err, t.closeError))
     } finally {
@@ -172,7 +174,7 @@ export function ResolveAlertModal({ alert, onClose, onDone }: Props) {
       {/* El aviso que se va a cerrar, delante de los ojos al confirmarlo. */}
       <div className="resolve-summary">
         <div className="resolve-summary-head">
-          <strong>{alert.type_display}</strong>
+          <strong>{etiqueta.alertType(alert)}</strong>
           {alert.vehicle_plate && <span>· {alert.vehicle_plate}</span>}
         </div>
         {alert.message && <p>{alert.message}</p>}

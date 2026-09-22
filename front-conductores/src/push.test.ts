@@ -14,7 +14,14 @@ vi.mock('./api.ts', async (importOriginal) => ({
   deletePushSubscription: mocks.deletePushSubscription,
 }))
 
-import { disablePush, enablePush, pushState, pushSupported } from './push.ts'
+import {
+  disablePush,
+  enablePush,
+  pushState,
+  pushSupported,
+  PUSH_DENIED,
+  PUSH_NOT_CONFIGURED,
+} from './push.ts'
 
 // «AQID» en base64url son los bytes 1, 2, 3 (sin relleno: hay que añadirlo).
 const PUBLIC_KEY = 'AQID'
@@ -89,11 +96,11 @@ describe('push (M8: estado, alta y baja en este dispositivo)', () => {
     expect(await pushState()).toBe('unknown')
   })
 
-  it('enablePush: sin permiso lanza con un mensaje pintable y no se suscribe', async () => {
+  it('enablePush: sin permiso lanza su CÓDIGO (el texto lo pone la pantalla) y no se suscribe', async () => {
     const pushManager = withPushSupport(null)
     mocks.fetchPushConfig.mockResolvedValue({ enabled: true, public_key: PUBLIC_KEY })
     ;(window.Notification.requestPermission as ReturnType<typeof vi.fn>).mockResolvedValue('denied')
-    await expect(enablePush()).rejects.toThrow(/Sin permiso de notificaciones/)
+    await expect(enablePush()).rejects.toThrow(PUSH_DENIED)
     expect(pushManager.subscribe).not.toHaveBeenCalled()
     expect(mocks.savePushSubscription).not.toHaveBeenCalled()
   })
@@ -101,7 +108,7 @@ describe('push (M8: estado, alta y baja en este dispositivo)', () => {
   it('enablePush: sin clave en el servidor lanza antes de pedir permiso', async () => {
     withPushSupport(null)
     mocks.fetchPushConfig.mockResolvedValue({ enabled: true, public_key: '' })
-    await expect(enablePush()).rejects.toThrow(/no están configurados/)
+    await expect(enablePush()).rejects.toThrow(PUSH_NOT_CONFIGURED)
     expect(window.Notification.requestPermission).not.toHaveBeenCalled()
   })
 

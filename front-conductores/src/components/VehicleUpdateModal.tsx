@@ -4,6 +4,7 @@ import { Badge, Button } from '@flota/ui/ui'
 
 import { listIncidents, listMaintenancePlans, type MaintenancePlanRow } from '../api.ts'
 import { fmtDate, isOpenFieldIncident } from '../format.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import { priorityOf, priorityRank, priorityTone } from '../incidentPriority.ts'
 import type { Incident, Vehicle, VehicleSummary } from '../types.ts'
@@ -68,6 +69,7 @@ export function VehicleUpdateModal({
   initialTab?: UpdateTab
 }) {
   const { t, language } = useLang()
+  const etiqueta = useDomainLabels()
   const copy = t.carUpdate
 
   const [plans, setPlans] = useState<MaintenancePlanRow[] | null>(null)
@@ -128,7 +130,7 @@ export function VehicleUpdateModal({
   const active = tab && tabs.includes(tab) ? tab : (tabs.includes(initialTab) ? initialTab : tabs[0])
 
   const abiertas = incidents ?? []
-  const tiposIncidencia = typeOptions(abiertas)
+  const tiposIncidencia = typeOptions(abiertas, etiqueta.incidentType)
   // Si el tipo elegido desaparece (se resolvió la última de ese tipo), se
   // vuelve a «todos» en vez de dejar la lista vacía filtrando por lo que ya
   // no está.
@@ -141,10 +143,11 @@ export function VehicleUpdateModal({
     .filter((incident) =>
       matches(
         search,
+        etiqueta.incidentType(incident),
         incident.type_display,
         incident.description,
-        incident.status_display,
-        incident.priority_display,
+        etiqueta.incidentStatus(incident),
+        etiqueta.incidentPriority(incident),
       ),
     )
     .sort((a, b) => priorityRank(a) - priorityRank(b))
@@ -285,18 +288,18 @@ export function VehicleUpdateModal({
                       <li key={incident.id} className={`doc-item pri-row pri-${prioridad}`}>
                         <div className="doc-info">
                           <strong>
-                            {incident.type_display}{' '}
+                            {etiqueta.incidentType(incident)}{' '}
                             {/* La urgencia con la que se abrió, escrita y en
                                 color: el borde de la fila la repite para poder
                                 barrer la lista sin leerla entera. */}
                             <Badge tone={priorityTone(prioridad)} size="sm">
-                              {incident.priority_display ?? t.priority[prioridad]}
+                              {etiqueta.incidentPriority(incident)}
                             </Badge>
                           </strong>
                           <span className="doc-sub">
                             {incident.date ? fmtDate(incident.date, language) : copy.noDate}
                             {' · '}
-                            {incident.status_display}
+                            {etiqueta.incidentStatus(incident)}
                             {incident.description ? ` · ${incident.description}` : ''}
                           </span>
                         </div>

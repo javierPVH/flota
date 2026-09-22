@@ -181,4 +181,15 @@ describe('DocumentList: descargar y pedir el borrado', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/No se pudo pedir el borrado/)
     expect(screen.queryByText(/Pendiente de borrado por parte del administrador/)).not.toBeInTheDocument()
   })
+  it('con la app en inglés, la fila NO repite lo que manda el back', () => {
+    // El back escribe `type_display`/`status_display` siempre en castellano:
+    // la fila los traduce por CÓDIGO (`domainLabels`), o en inglés salía
+    // «Seguro · Vigente» y el botón, mezclado.
+    localStorage.setItem('gs_base_lang', 'en')
+    pintar([doc()])
+    expect(screen.getByText('Insurance')).toBeInTheDocument()
+    expect(screen.getByText('Valid')).toBeInTheDocument()
+    expect(screen.queryByText('Seguro')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ask for Insurance to be fixed' })).toBeInTheDocument()
+  })
 })

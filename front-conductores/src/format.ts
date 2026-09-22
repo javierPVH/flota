@@ -137,6 +137,21 @@ export function scheduledActionAvailable(
   return days !== null && days <= SOON_DAYS
 }
 
+/** Desde qué DÍA se podrá registrar esa actuación: los 30 días de
+ * `scheduledActionAvailable` contados hacia atrás desde la cita.
+ *
+ * Lo pide el aviso que sale al pulsar un botón cuya cita aún está lejos: decir
+ * «disponible cuando falten 30 días» obliga a echar la cuenta a mano, y una
+ * fecha no. Medianoche LOCAL, como el resto (E2/E6). */
+export function scheduledActionOpensOn(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null
+  const date = new Date(`${dateStr.slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return null
+  date.setDate(date.getDate() - SOON_DAYS)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
 // --- Estado de dominio → tono de <Badge> (Fase 3) ---------------------------
 // Espejo de front-gestion/src/format.ts para paridad visual entre apps.
 // Candidatos a moverse a @flota/ui cuando se pueda recompilar la librería.

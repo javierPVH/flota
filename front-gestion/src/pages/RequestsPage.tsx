@@ -11,6 +11,7 @@ import {
   listAll,
   listDocumentDeletionRequests,
   listDriverChangeRequests,
+  listProfileChangeRequests,
   listVehicleRequests,
   listVehicles,
   rejectVehicleRequest,
@@ -20,9 +21,11 @@ import { requestStatusTone } from '../format.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { DocumentRequestsTab } from '../components/DocumentRequestsTab.tsx'
 import { DriverRequestsTab } from '../components/DriverRequestsTab.tsx'
+import { ProfileRequestsTab } from '../components/ProfileRequestsTab.tsx'
 import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
 import { useRequestsCopy } from '../translations/requests.ts'
 import type { Vehicle } from '../types.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 
 /**
  * Bandeja de solicitudes (G9, Épica 8 + Fase A2), en DOS pestañas: las de
@@ -34,15 +37,19 @@ import type { Vehicle } from '../types.ts'
  */
 export function RequestsPage() {
   const t = useRequestsCopy()
+  const etiqueta = useDomainLabels()
   const confirm = useConfirm()
   const [searchParams, setSearchParams] = useSearchParams()
   const statusFilter = searchParams.get('status') ?? ''
   // La pestaña va en la URL: el aviso de la cabecera puede apuntar a la suya.
   const tabParam = searchParams.get('tab')
   const tab =
-    tabParam === 'documentos' || tabParam === 'conductores' ? tabParam : 'vehiculos'
+    tabParam === 'documentos' || tabParam === 'conductores' || tabParam === 'fichas'
+      ? tabParam
+      : 'vehiculos'
   const [pendingDocs, setPendingDocs] = useState(0)
   const [pendingDrivers, setPendingDrivers] = useState(0)
+  const [pendingProfiles, setPendingProfiles] = useState(0)
 
   const [requests, setRequests] = useState<VehicleRequestRow[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -73,11 +80,17 @@ export function RequestsPage() {
     // La de campo se reconoce por su incidencia, y ahí el origen es el coche
     // que hay que cubrir: sin eso, la fila no dice para qué es la solicitud.
     if (request.incident) {
-      return t.originField(request.incident_plate, request.incident_type_display)
+      return t.originField(
+        request.incident_plate,
+        etiqueta.incidentType({
+          type: request.incident_type,
+          type_display: request.incident_type_display,
+        }),
+      )
     }
     if (request.status === 'pending') return t.originSelfService
     return request.jira_key ? 'Jira' : t.originManual
-  }, [t.originField, t.originManual, t.originSelfService])
+  }, [t, etiqueta])
 
   // R3-30: `t` por ref — con el mensaje en las deps, el botón es/en
   // re-descargaba la bandeja entera (el diccionario solo pinta el error).
@@ -119,6 +132,14 @@ export function RequestsPage() {
       .catch(() => setPendingDrivers(0))
   }, [])
   useEffect(loadPendingDrivers, [loadPendingDrivers])
+
+  /** Ídem para las peticiones de corrección de ficha. */
+  const loadPendingProfiles = useCallback(() => {
+    listProfileChangeRequests({ status: 'pending' })
+      .then((page) => setPendingProfiles(page.count))
+      .catch(() => setPendingProfiles(0))
+  }, [])
+  useEffect(loadPendingProfiles, [loadPendingProfiles])
 
   const pendingCount = requests.filter((r) => r.status === 'pending').length
   const countOf = (status: string) =>
@@ -223,8 +244,10 @@ export function RequestsPage() {
     {
       key: 'status',
       label: t.columns.status,
-      getValue: (r) => r.status_display,
-      render: (r) => <Badge tone={requestStatusTone(r.status)}>{r.status_display}</Badge>,
+      getValue: (r) => etiqueta.requestStatus('vehicle', r),
+      render: (r) => (
+        <Badge tone={requestStatusTone(r.status)}>{etiqueta.requestStatus('vehicle', r)}</Badge>
+      ),
     },
     {
       key: 'vehicle',
@@ -268,7 +291,7 @@ export function RequestsPage() {
           </div>
         ) : null,
     },
-  ], [busyId, handleReject, openGrant, originOf, plateOf, t.columns.actions, t.columns.dates, t.columns.jiraKey, t.columns.origin, t.columns.requester, t.columns.status, t.columns.type, t.columns.vehicle, t.grantAction, t.noRequesterTitle, t.rejectAction, t.typeLabel])
+  ], [busyId, handleReject, openGrant, originOf, plateOf, t.columns.actions, t.columns.dates, t.columns.jiraKey, t.columns.origin, t.columns.requester, t.columns.status, t.columns.type, t.columns.vehicle, t.grantAction, t.noRequesterTitle, t.rejectAction, t.typeLabel, etiqueta])
 
   return (
     <div>
@@ -276,8 +299,13 @@ export function RequestsPage() {
         title={t.title}
         subtitle={t.subtitle}
         stats={
-          pendingCount + pendingDocs + pendingDrivers > 0
-            ? [{ value: pendingCount + pendingDocs + pendingDrivers, label: t.statPending }]
+          pendingCount + pendingDocs + pendingDrivers + pendingProfiles > 0
+            ? [
+                {
+                  value: pendingCount + pendingDocs + pendingDrivers + pendingProfiles,
+                  label: t.statPending,
+                },
+              ]
             : undefined
         }
         actions={
@@ -306,10 +334,13 @@ export function RequestsPage() {
           { key: 'vehiculos', label: t.tabVehicles, badge: pendingCount || undefined },
           { key: 'documentos', label: t.tabDocuments, badge: pendingDocs || undefined },
           { key: 'conductores', label: t.tabDrivers, badge: pendingDrivers || undefined },
+          { key: 'fichas', label: t.tabProfiles, badge: pendingProfiles || undefined },
         ]}
       />
 
-      {tab === 'conductores' ? (
+      {tab === 'fichas' ? (
+        <ProfileRequestsTab onCountsChange={loadPendingProfiles} />
+      ) : tab === 'conductores' ? (
         <DriverRequestsTab onCountsChange={loadPendingDrivers} />
       ) : tab === 'documentos' ? (
         <DocumentRequestsTab onCountsChange={loadPendingDocs} />

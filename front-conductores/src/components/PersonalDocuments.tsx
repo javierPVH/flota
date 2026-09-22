@@ -60,7 +60,13 @@ export function PersonalDocumentsPanel({
   documents,
   loadFailed,
   reload,
-}: PersonalDocumentsState) {
+  hideHint = false,
+}: PersonalDocumentsState & {
+  /** Sin la línea de «qué son estos documentos»: la usa «Mis datos», donde el
+   * bloque ya lleva la suya —lo que hay que saber ahí es que cada documento se
+   * pide por su cuenta— y dos prosas seguidas no se leen. */
+  hideHint?: boolean
+}) {
   const { t } = useLang()
   const copy = t.myDocs
 
@@ -120,7 +126,7 @@ export function PersonalDocumentsPanel({
 
   return (
     <>
-      <p className="doc-sub">{copy.hint}</p>
+      {!hideHint && <p className="doc-sub">{copy.hint}</p>}
       {loadFailed && (
         <div role="alert" className="form-error">
           {copy.loadError}

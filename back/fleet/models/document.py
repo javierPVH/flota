@@ -10,7 +10,12 @@ from django.conf import settings
 from django.db import models
 
 from .base import DeactivatableModel, TimeStampedModel
-from .enums import DocumentDeletionStatus, DocumentStatus, DocumentType
+from .enums import (
+    DocumentDeletionStatus,
+    DocumentRequestKind,
+    DocumentStatus,
+    DocumentType,
+)
 
 
 class Document(DeactivatableModel, TimeStampedModel):
@@ -174,13 +179,23 @@ class Document(DeactivatableModel, TimeStampedModel):
 
 
 class DocumentDeletionRequest(TimeStampedModel):
-    """Petición de borrado de un documento: quien lo lee la abre, la gestión decide.
+    """Petición SOBRE un documento: quien lo lee la abre, la gestión decide.
 
-    En la app de campo la papelera de un documento **no borra**: abre esta
-    petición y el documento se queda donde estaba, marcado «Pendiente de
-    borrado» — quien conduce no da de baja documentación de la flota, igual que
-    no cambia el estado del coche. La gestión la resuelve en su bandeja de
-    solicitudes con una de tres salidas (`DocumentDeletionStatus`):
+    Nació para el **borrado** —la papelera de la app de campo no borra: abre
+    esta petición y el documento se queda donde estaba, marcado «Pendiente de
+    borrado», porque quien conduce no da de baja documentación de la flota
+    igual que no cambia el estado del coche— y ahora lleva también la
+    **corrección** (`kind`): lo que está mal en el tipo, la caducidad o la nota
+    de un documento tampoco lo arregla el campo por su cuenta, y sin esto la
+    única salida era pedir que se borrara y volver a subirlo.
+
+    Las dos comparten fila porque un documento tiene **una petición viva**:
+    pedir a la vez que se corrija y que se borre no es una petición, es un
+    cambio de idea. El nombre de la clase y el de su endpoint se mantienen para
+    no romper el contrato de la API.
+
+    La gestión la resuelve en su bandeja de solicitudes; del **borrado** salen
+    tres caminos (`DocumentDeletionStatus`):
 
     - **Borrar de verdad**: el documento se desactiva (N7) y va al espacio de
       erratas, con actor, momento y motivo, de donde se restaura o lo purga el
@@ -191,7 +206,11 @@ class DocumentDeletionRequest(TimeStampedModel):
       que no lo vea nadie de campo.
     - **Rechazar**: no se toca nada; el documento vuelve a verse como siempre.
 
-    En los tres casos deja de estar pendiente, que es lo que quita la marca de
+    Y de la **corrección**, dos: **aplicarla** —se escriben en el documento los
+    campos de `changes`, que son los tres que el campo puede pedir— o
+    rechazarla.
+
+    En todos los casos deja de estar pendiente, que es lo que quita la marca de
     la lista del conductor. No es `DeactivatableModel` a propósito: es el
     rastro de una decisión, no un dato que se corrija — se consulta, y la fila
     dice quién pidió, quién resolvió y cómo.
@@ -211,10 +230,21 @@ class DocumentDeletionRequest(TimeStampedModel):
         related_name="document_deletion_requests",
         verbose_name="Solicitante",
     )
+    kind = models.CharField(
+        "Qué se pide",
+        max_length=10,
+        choices=DocumentRequestKind.choices,
+        default=DocumentRequestKind.DELETE,
+    )
+    #: Solo en las de corrección: {campo: valor propuesto} sobre el documento,
+    #: acotado a lo que el campo puede pedir (`EDITABLE_DOCUMENT_FIELDS`).
+    changes = models.JSONField("Cambios propuestos", default=dict, blank=True)
     reason = models.TextField(
         "Motivo",
         blank=True,
-        help_text="Por qué pide borrarlo quien lo ve (está repetido, es de otro coche…).",
+        help_text=(
+            "Por qué lo pide quien lo ve (está repetido, es de otro coche, la fecha está mal…)."
+        ),
     )
     status = models.CharField(
         "Estado",

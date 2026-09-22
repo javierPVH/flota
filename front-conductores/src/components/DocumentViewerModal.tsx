@@ -4,6 +4,7 @@ import { Button } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { fetchDocumentFile } from '../api.ts'
+import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import type { FlotaDocument } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
@@ -29,6 +30,7 @@ export function DocumentViewerModal({
   onClose: () => void
 }) {
   const { t } = useLang()
+  const etiqueta = useDomainLabels()
   const copy = t.docs
   const [url, setUrl] = useState('')
   const [tipo, setTipo] = useState('')
@@ -62,7 +64,7 @@ export function DocumentViewerModal({
   return (
     <SupervisorModal
       open
-      title={copy.viewTitle(doc.type_display)}
+      title={copy.viewTitle(etiqueta.docType(doc))}
       onClose={onClose}
       footer={
         <>
@@ -90,9 +92,9 @@ export function DocumentViewerModal({
         {!error && !url && <p role="status" className="loading-state">{copy.viewLoading}</p>}
         {url &&
           (esImagen ? (
-            <img src={url} alt={doc.type_display} className="doc-viewer-image" />
+            <img src={url} alt={etiqueta.docType(doc)} className="doc-viewer-image" />
           ) : (
-            <iframe src={url} title={doc.type_display} className="doc-viewer-frame" />
+            <iframe src={url} title={etiqueta.docType(doc)} className="doc-viewer-frame" />
           ))}
         <p className="doc-sub">{copy.viewNote}</p>
       </div>

@@ -29,6 +29,7 @@ from .views import (
     MaintenanceProgramViewSet,
     NotificationScheduleViewSet,
     PepViewSet,
+    ProfileChangeRequestViewSet,
     ProjectViewSet,
     RentingViewSet,
     ReportsView,
@@ -74,6 +75,13 @@ router.register(
     "driver-change-requests",
     DriverChangeRequestViewSet,
     basename="driverchangerequest",
+)
+# En campo la ficha personal es de lectura: corregirla se PIDE, y la petición
+# espera en la misma bandeja.
+router.register(
+    "profile-change-requests",
+    ProfileChangeRequestViewSet,
+    basename="profilechangerequest",
 )
 # Catálogos
 router.register("countries", CountryViewSet, basename="country")
