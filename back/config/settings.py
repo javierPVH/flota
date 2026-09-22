@@ -261,6 +261,11 @@ TRUSTED_PROXY_COUNT = max(0, env_int("TRUSTED_PROXY_COUNT", 0))
 #   · ambos a la vez         → los dos a True
 # El front descubre qué está activo en GET /api/auth/config/ y pinta la UI acorde.
 AUTH_PASSWORD_ENABLED = env_bool("AUTH_PASSWORD_ENABLED", True)
+# Hosts (sin puerto) en los que la contraseña NO se acepta aunque esté activa:
+# el mismo backend sirve la gestión (que entra con contraseña por red interna)
+# y la PWA pública (que entra por SSO). Sin esto, la pantalla vieja de
+# usuario/clave —o cualquiera con la API a mano— seguía entrando desde internet.
+AUTH_PASSWORD_BLOCKED_HOSTS = [h.lower() for h in env_list("AUTH_PASSWORD_BLOCKED_HOSTS", [])]
 # Alta de usuarios (self-signup). Por defecto sigue a la de contraseña.
 # SEC10: default CERRADO — el alta libre se abre explícitamente por entorno.
 AUTH_REGISTRATION_ENABLED = env_bool("AUTH_REGISTRATION_ENABLED", False)

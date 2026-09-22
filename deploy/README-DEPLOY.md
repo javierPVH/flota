@@ -154,9 +154,12 @@ crean usuarios desde el SSO.
    sudo cp ~/google_idp_metadata.xml data/saml/google_idp_metadata.xml
    sudo chown -R 10001:10001 data/saml && sudo chmod 400 data/saml/google_idp_metadata.xml
    # back/.env.prod: bloque SAML_* (ver back/.env.prod.example) y el dominio en
-   # ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS / CORS_ALLOWED_ORIGINS.
+   # ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS / CORS_ALLOWED_ORIGINS. Y, con el SSO
+   # ya activo, cerrar la contraseña en la dirección pública (la gestión, que
+   # llega por la IP interna, sigue entrando con contraseña):
+   #   AUTH_PASSWORD_BLOCKED_HOSTS=fleetdrivers.gransolar-app.com
    sudo docker compose up -d --build back jobs   # la imagen trae xmlsec1 y djangosaml2
-   curl -s https://fleetdrivers.gransolar-app.com/api/v1/auth/config/   # "saml_enabled": true
+   curl -s https://fleetdrivers.gransolar-app.com/api/v1/auth/config/   # "saml_enabled": true, "password_enabled": false
    curl -s https://fleetdrivers.gransolar-app.com/api/v1/auth/saml/metadata/ | head -3
    ```
 

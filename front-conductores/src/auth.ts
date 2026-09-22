@@ -99,6 +99,45 @@ export async function bootstrap(): Promise<FlotaUser | null> {
   }
 }
 
+/** El último cierre manual ya llegó al servidor: `onLogout` no lo repite. */
+let serverSessionClosed = false
+
+/** Tope para el POST de cierre: sin red, la app tiene que decirlo, no colgarse. */
+const LOGOUT_TIMEOUT_MS = 8000
+
+/**
+ * Cierra la sesión EN EL SERVIDOR y espera la respuesta.
+ *
+ * Antes el POST iba «a fuego» y su error se tragaba: el cliente se ponía en
+ * anónimo, pero si la petición no llegaba (sin cobertura, CSRF caducado, la
+ * app cerrada a medias) la sesión seguía viva en el back, la app volvía a
+ * entrar sola al abrirse y «Entrar con cuenta corporativa» ni pasaba por
+ * Google. Devuelve `false` si no se pudo confirmar: entonces NO se sale.
+ */
+export async function closeServerSession(): Promise<boolean> {
+  let timer = 0
+  try {
+    await Promise.race([
+      logout(),
+      new Promise<never>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error('logout timeout')), LOGOUT_TIMEOUT_MS)
+      }),
+    ])
+    serverSessionClosed = true
+    return true
+  } catch (caught) {
+    // Un 401/403 significa que el servidor ya no reconoce la sesión: para el
+    // caso está igual de cerrada. Solo la red (o el tope) impide confirmarlo.
+    if (!isNetworkError(caught) && (caught as { status?: number })?.status !== undefined) {
+      serverSessionClosed = true
+      return true
+    }
+    return false
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
 export function onLogout(reason: 'manual' | 'expired' = 'manual'): void {
   // FE-1: el último /me se olvida en los DOS cierres, también al caducar
   // (idle, tope, 403). R5-55 lo conservaba al caducar para poder arrancar sin
@@ -113,6 +152,13 @@ export function onLogout(reason: 'manual' | 'expired' = 'manual'): void {
     // FE-2: quien cierra sesión a mano se lleva lo que dejó sin enviar — no
     // puede salir con la sesión de la siguiente persona que entre en el móvil.
     void clearQueue().catch(() => {})
+  }
+  // El cierre manual del Layout ya lo hizo (y lo esperó) `closeServerSession`;
+  // los demás caminos (caducidad, portones con «salir») avisan al back desde
+  // aquí, sin esperar: no hay nada que confirmar al usuario.
+  if (serverSessionClosed) {
+    serverSessionClosed = false
+    return
   }
   void logout().catch(() => {})
 }

@@ -12,12 +12,13 @@ cierre de sesión único; salir de la app cierra solo la sesión de la app
 """
 
 from django.urls import path
-from djangosaml2.views import LoginView, MetadataView
+from djangosaml2.views import MetadataView
 
-from .saml import FleetAcsView
+from .saml import FleetAcsView, FleetSamlLoginView
 
 urlpatterns = [
-    path("login/", LoginView.as_view(), name="saml2_login"),
+    # Cierra la sesión previa antes de ir al IdP (ver FleetSamlLoginView).
+    path("login/", FleetSamlLoginView.as_view(), name="saml2_login"),
     path("acs/", FleetAcsView.as_view(), name="saml2_acs"),
     path("metadata/", MetadataView.as_view(), name="saml2_metadata"),
 ]

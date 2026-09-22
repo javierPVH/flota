@@ -40,9 +40,13 @@ const STABLE_AUTH = {
   logout: vi.fn(),
 }
 
+// El cierre en el servidor se espera y se comprueba: por defecto confirma.
+const closeServerSession = vi.fn(async () => true)
+
 vi.mock('../auth.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../auth.ts')>()),
   useAuth: () => STABLE_AUTH,
+  closeServerSession: () => closeServerSession(),
 }))
 
 import { Layout } from './Layout.tsx'
@@ -210,6 +214,20 @@ describe('cerrar sesión (FE-3: el push se da de baja ANTES y nunca lo impide)',
 
     await waitFor(() => expect(STABLE_AUTH.logout).toHaveBeenCalledTimes(1))
     expect(mocks.disablePushOnLogout).toHaveBeenCalledTimes(1)
+  })
+
+  it('si el servidor no confirma el cierre, NO se sale y se dice', async () => {
+    closeServerSession.mockResolvedValueOnce(false)
+    renderShell()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Salir' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/No se pudo cerrar la sesión/)
+    expect(STABLE_AUTH.logout).not.toHaveBeenCalled()
+    // Se puede reintentar: el botón sigue vivo.
+    closeServerSession.mockResolvedValueOnce(true)
+    await userEvent.click(screen.getByRole('button', { name: 'Salir' }))
+    await waitFor(() => expect(STABLE_AUTH.logout).toHaveBeenCalledTimes(1))
   })
 })
 

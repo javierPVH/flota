@@ -8,7 +8,6 @@ import {
   Home,
   LineChart,
   LogOut,
-  RefreshCw,
   User,
   UserCog,
   Users,
@@ -16,7 +15,7 @@ import {
 import { LanguageToggleButton } from '@flota/ui/ui'
 
 import { fetchVehicleSummariesCached, listVehiclesCached } from '../api.ts'
-import { useAuth } from '../auth.ts'
+import { closeServerSession, useAuth } from '../auth.ts'
 import { FleetModeContext } from '../fleetMode.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
@@ -26,7 +25,6 @@ import { VehicleActionButtons } from './VehicleActionButtons.tsx'
 import { useOfflineQueue } from '../offline/useOfflineQueue.ts'
 import { setQueueOwner, type FlushResult } from '../offline/queue.ts'
 import { disablePushOnLogout } from '../push.ts'
-import { applyUpdate, onUpdateAvailable } from '../sw-update.ts'
 import logoUrl from '../assets/img/gransolar-logo.png'
 
 /** La pareja del supervisor en modo "Mi vehículo": su(s) coche(s) y, si hay
@@ -188,11 +186,14 @@ export function Layout() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
 
-  // BG5: hay un service worker nuevo esperando → ofrecer recargar.
-  const [hasUpdate, setHasUpdate] = useState(false)
-  useEffect(() => onUpdateAvailable(setHasUpdate), [])
+  // Salir que no pudo confirmarse en el servidor: se dice y se sigue dentro.
+  const [logoutError, setLogoutError] = useState('')
+  const [loggingOut, setLoggingOut] = useState(false)
 
   async function handleLogout() {
+    if (loggingOut) return
+    setLoggingOut(true)
+    setLogoutError('')
     // FE-3: la suscripción push se da de baja ANTES de cerrar la sesión (el
     // DELETE al back va autenticado), y su fallo nunca impide salir.
     try {
@@ -203,10 +204,27 @@ export function Layout() {
     } catch {
       // Sin push, sin red o sin permiso: se sale igual.
     }
+    // La sesión se cierra PRIMERO en el servidor y se espera la respuesta: si
+    // no llega, no se finge que se ha salido — la app volvería a entrar sola
+    // y el SSO ni pasaría por Google.
+    const closed = await closeServerSession()
+    if (!closed) {
+      setLoggingOut(false)
+      setLogoutError(t.shell.logoutFailed)
+      return
+    }
     // FE-2: `onLogout('manual')` (auth.ts) vacía la cola offline y olvida el
     // último /me (FE-1).
     logout()
-    navigate('/login', { replace: true })
+    // Navegación COMPLETA, no un cambio de ruta: recarga el bundle (el
+    // service worker sirve las navegaciones red-primero), así que un cliente
+    // abierto desde antes de un despliegue no aterriza en el login del código
+    // viejo. La ruta interna queda de reserva para donde no hay navegación.
+    try {
+      window.location.assign('/login')
+    } catch {
+      navigate('/login', { replace: true })
+    }
   }
 
   // Modo "Mi vehículo": las acciones van sobre SU coche (o el sustituto) y sin
@@ -254,11 +272,12 @@ export function Layout() {
           </button>
         </div>
       </header>
-      {hasUpdate && (
-        <button type="button" className="offline-banner update-banner" onClick={applyUpdate}>
-          <RefreshCw size={16} aria-hidden />
-          {t.shell.updateAvailable}
-        </button>
+      {/* El aviso de versión nueva (BG5) vive ahora en App: también en el login. */}
+      {logoutError && (
+        <div role="alert" className="offline-banner">
+          <CloudOff size={16} aria-hidden />
+          {logoutError}
+        </div>
       )}
       {pending > 0 && (
         <button

@@ -44,6 +44,9 @@ const es = {
       `${n} registro${n === 1 ? '' : 's'} pendiente${n === 1 ? '' : 's'} enviado${n === 1 ? '' : 's'}.`,
     offlineRejected: (detail: string) => `Rechazados por el servidor: ${detail}`,
     updateAvailable: 'Hay una versión nueva — toca para recargar',
+    /** El cierre de sesión no llegó al servidor: la sesión sigue viva y no
+     * se finge lo contrario. */
+    logoutFailed: 'No se pudo cerrar la sesión (sin conexión). Inténtalo de nuevo.',
     dismissNotice: 'Descartar el aviso',
   },
   common: {
@@ -1157,6 +1160,7 @@ const en: typeof es = {
     offlineSent: (n) => `${n} pending record${n === 1 ? '' : 's'} sent.`,
     offlineRejected: (detail) => `Rejected by the server: ${detail}`,
     updateAvailable: 'A new version is available — tap to reload',
+    logoutFailed: 'Could not sign out (no connection). Please try again.',
     dismissNotice: 'Dismiss notice',
   },
   common: {

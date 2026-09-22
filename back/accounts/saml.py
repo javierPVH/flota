@@ -29,11 +29,12 @@ públicas son las que se dan de alta en la consola de Google
 import logging
 
 from django.conf import settings
+from django.contrib.auth import logout as django_logout
 from django.http import HttpResponseRedirect
 from django.utils import timezone
 from djangosaml2.backends import Saml2Backend
 from djangosaml2.middleware import SamlSessionMiddleware
-from djangosaml2.views import AssertionConsumerServiceView
+from djangosaml2.views import AssertionConsumerServiceView, LoginView
 
 logger = logging.getLogger(__name__)
 security_logger = logging.getLogger("security")
@@ -114,6 +115,23 @@ class FleetSaml2Backend(Saml2Backend):
                 setattr(request, _DENIED_ATTR, reason)
             return None, False
         return user, False
+
+
+class FleetSamlLoginView(LoginView):
+    """«Entrar con cuenta corporativa» pasa SIEMPRE por Google.
+
+    La vista de djangosaml2, con una sesión todavía viva (un cierre que no
+    llegó al servidor, otra pestaña), redirige a `next` sin ir al IdP: quien
+    pulsó «Entrar» volvía dentro con la sesión anterior y sin que Google le
+    pidiera nada, y el `force_authn` no llegaba a aplicarse. Aquí la sesión
+    previa se cierra antes de empezar: entrar es entrar de nuevo.
+    """
+
+    def get(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            security_logger.info("saml login: sesión previa cerrada user=%s", request.user.pk)
+            django_logout(request)
+        return super().get(request, *args, **kwargs)
 
 
 class FleetAcsView(AssertionConsumerServiceView):

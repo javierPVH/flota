@@ -5,6 +5,7 @@ import { RequireAuth } from './auth.ts'
 import { AccessGate } from './components/AccessGate.tsx'
 import { Layout } from './components/Layout.tsx'
 import { LoginSwitch } from './components/LoginSwitch.tsx'
+import { UpdateBanner } from './components/UpdateBanner.tsx'
 import { HomePage } from './pages/HomePage.tsx'
 
 // M7: rutas secundarias en chunks propios (presupuesto de JS móvil). Login y
@@ -38,6 +39,9 @@ const fallback = <p className="gate-checking">Cargando…</p>
 export default function App() {
   return (
     <Suspense fallback={fallback}>
+      {/* Por encima de las rutas: también en el login, que es donde acaba
+          quien sale con el código viejo tras un despliegue. */}
+      <UpdateBanner />
       <Routes>
         {/* Qué login se pinta lo dice el back: SSO corporativo (SAML) en
             producción; usuario/clave o Google en los demás casos. */}

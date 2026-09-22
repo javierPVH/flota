@@ -170,6 +170,78 @@ class Auth9DriversDirectoryTests(APITestCase):
         self.assertEqual(self._ids(self.admin), {self.mine.pk, self.other.pk})
 
 
+@override_settings(
+    AUTH_PASSWORD_ENABLED=True,
+    AUTH_PASSWORD_BLOCKED_HOSTS=["fleetdrivers.example.com"],
+    ALLOWED_HOSTS=["fleetdrivers.example.com", "gestion.internal", "testserver"],
+)
+class PasswordBlockedHostTests(APITestCase):
+    """La contraseña no se acepta desde el host público (SSO); sí desde gestión."""
+
+    def setUp(self):
+        _user("ana", Role.DRIVER)
+
+    def test_public_host_announces_password_off_and_rejects_login(self):
+        resp = self.client.get(reverse("csrf"), HTTP_HOST="fleetdrivers.example.com")
+        self.assertEqual(resp.status_code, 200)
+        config = self.client.get(reverse("auth-config"), HTTP_HOST="fleetdrivers.example.com")
+        self.assertFalse(config.data["password_enabled"])
+        resp = self.client.post(
+            reverse("login"),
+            {"username": "ana", "password": "test-pass-123"},
+            format="json",
+            HTTP_HOST="fleetdrivers.example.com",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_internal_host_keeps_password_login(self):
+        config = self.client.get(reverse("auth-config"), HTTP_HOST="gestion.internal:8093")
+        self.assertTrue(config.data["password_enabled"])
+        resp = self.client.post(
+            reverse("login"),
+            {"username": "ana", "password": "test-pass-123"},
+            format="json",
+            HTTP_HOST="gestion.internal:8093",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+
+
+class SamlLoginClosesPreviousSessionTests(TestCase):
+    """«Entrar con cuenta corporativa» pasa siempre por el IdP: la sesión viva se cierra."""
+
+    def test_authenticated_user_is_logged_out_before_redirecting_to_idp(self):
+        from django.test import RequestFactory
+
+        from accounts.saml import FleetSamlLoginView
+
+        user = _user("ana", Role.DRIVER)
+        request = RequestFactory().get("/api/v1/auth/saml/login/?next=/")
+        request.user = user
+        with (
+            patch("accounts.saml.django_logout") as django_logout,
+            patch("djangosaml2.views.LoginView.get", return_value="idp") as parent_get,
+        ):
+            resp = FleetSamlLoginView.as_view()(request)
+        self.assertEqual(resp, "idp")
+        django_logout.assert_called_once_with(request)
+        parent_get.assert_called_once()
+
+    def test_anonymous_user_goes_straight_to_the_idp(self):
+        from django.contrib.auth.models import AnonymousUser
+        from django.test import RequestFactory
+
+        from accounts.saml import FleetSamlLoginView
+
+        request = RequestFactory().get("/api/v1/auth/saml/login/")
+        request.user = AnonymousUser()
+        with (
+            patch("accounts.saml.django_logout") as django_logout,
+            patch("djangosaml2.views.LoginView.get", return_value="idp"),
+        ):
+            FleetSamlLoginView.as_view()(request)
+        django_logout.assert_not_called()
+
+
 @override_settings(AUTH_GOOGLE_ENABLED=True, GOOGLE_AUTO_CREATE_USERS=False)
 class Auth8NoEmailInLogsTests(APITestCase):
     def test_auth8_google_login_without_account_does_not_log_the_email(self):

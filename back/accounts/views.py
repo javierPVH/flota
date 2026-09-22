@@ -70,6 +70,22 @@ class CsrfView(APIView):
         return Response({"detail": "CSRF cookie establecida."})
 
 
+def password_login_allowed(request) -> bool:
+    """¿Se admite usuario/clave desde el host por el que llega la petición?
+
+    Además del interruptor global, un host de `AUTH_PASSWORD_BLOCKED_HOSTS`
+    (la dirección pública de la PWA, que entra por SSO) lo tiene cerrado. El
+    host es el de `get_host()`, que Django ya ha validado contra ALLOWED_HOSTS.
+    """
+    if not settings.AUTH_PASSWORD_ENABLED:
+        return False
+    blocked = getattr(settings, "AUTH_PASSWORD_BLOCKED_HOSTS", [])
+    if not blocked:
+        return True
+    host = request.get_host().rsplit(":", 1)[0].lower() if request else ""
+    return host not in blocked
+
+
 class AuthConfigView(APIView):
     """GET /api/auth/config/ — métodos de login activos (para que el front pinte la UI)."""
 
@@ -77,10 +93,11 @@ class AuthConfigView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        password_ok = password_login_allowed(request)
         return Response(
             {
-                "password_enabled": settings.AUTH_PASSWORD_ENABLED,
-                "registration_enabled": settings.AUTH_REGISTRATION_ENABLED,
+                "password_enabled": password_ok,
+                "registration_enabled": settings.AUTH_REGISTRATION_ENABLED and password_ok,
                 "google_enabled": settings.AUTH_GOOGLE_ENABLED,
                 # El Client ID es público (lo necesita el botón de Google del front).
                 "google_client_id": (
@@ -111,7 +128,7 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        if not settings.AUTH_PASSWORD_ENABLED:
+        if not password_login_allowed(request):
             return Response(
                 {"detail": "El login con contraseña está deshabilitado."},
                 status=status.HTTP_403_FORBIDDEN,
