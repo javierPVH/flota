@@ -18,7 +18,7 @@ import type { LayoutContext } from '../components/Layout.tsx'
 import { useAccordion } from '../components/CollapsibleCard.tsx'
 import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
 import { DocumentsTabsCard } from '../components/DocumentsTabsCard.tsx'
-import { KmFuelRow } from '../components/KmFuelRow.tsx'
+import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
 import { VehiclePendingCards } from '../components/VehiclePendingCards.tsx'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
@@ -367,11 +367,10 @@ function OwnVehiclePanel({
         </Link>
       </div>
 
-      {/* Km y consumo, la MISMA fila que en la ficha de campo: a la
-          izquierda la última lectura del odómetro (con el mejor día para
-          registrarla y la píldora de pendiente) y a la derecha la última
-          anotación del consumo. Registrar vive en el nav inferior. */}
-      <KmFuelRow summary={summary} window={kmWindow} />
+      {/* Km, a todo el ancho: el MISMO div que en la ficha de campo (última
+          lectura, mejor día para registrar y píldora de pendiente; la acción
+          de registrar vive en el nav inferior). */}
+      <KmStatCard summary={summary} window={kmWindow} />
 
       {/* Próximas citas: lectura de km, ITV y mantenimiento — el MISMO div
           que en la ficha, con la fecha y cuántos días faltan. */}

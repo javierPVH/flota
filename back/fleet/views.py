@@ -2885,7 +2885,12 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
     """GAP-8: el mantenimiento programado de cada vehículo (uno a la vez)."""
 
     serializer_class = MaintenancePlanSerializer
-    permission_classes = [AdminWriteManagementRead | HseReadOnly]
+    # El CONDUCTOR lee el plan de su coche: la app de campo lo necesita para
+    # «Mantenimiento» (nav de Mi vehiculo, «Te queda poco» y la alerta
+    # `maintenance_due`), que abre el plan y lo marca hecho. Con solo gestion
+    # ese boton acababa en un 403 para quien conduce. El ambito lo acota el
+    # mixin (sus vehiculos); crear, editar y retirar el plan sigue siendo admin.
+    permission_classes = [AdminWriteManagementOrDriverRead | HseReadOnly]
     queryset = MaintenancePlan.objects.select_related("vehicle", "program")
     filterset_fields = ["vehicle"]
     search_fields = ["name", "vehicle__plate"]
@@ -2910,11 +2915,20 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
                         note="Mantenimiento programado retirado.",
                     )
 
-    @action(detail=True, methods=["post"], permission_classes=[IsManagement])
+    #: Lo que solo decide la gestion al marcar un mantenimiento: cerrar una
+    #: incidencia, devolver el coche a Activo y elegir el taller del catalogo.
+    DONE_MANAGEMENT_ONLY = ("incident", "return_to_active", "workshop")
+
+    @action(detail=True, methods=["post"], permission_classes=[IsManagement | IsDriver])
     def done(self, request, pk=None):
         """POST /api/v1/maintenance-plans/{id}/done/ — marca el plan como
-        realizado (gestión; supervisor solo su grupo — editar el plan sigue
-        siendo de admin).
+        realizado (gestion, supervisor solo su grupo, y el CONDUCTOR el de su
+        coche — editar el plan sigue siendo de admin).
+
+        El conductor manda fecha, km, coste y nota, que es lo que sabe desde
+        el taller; `incident`, `return_to_active` y `workshop` son decisiones
+        de gestion y a el le contestan 403 (`DONE_MANAGEMENT_ONLY`), igual que
+        cerrar una incidencia o cambiar el estado del coche.
 
         Cuerpo: `{date?, km?, cost?, note?, workshop?, return_to_active?,
         incident?}`. `services/maintenance.mark_plan_done` reancla el ciclo
@@ -2926,6 +2940,14 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
         `vehicle_reactivated`, `event`.
         """
         plan = self.get_object()
+        if not request.user.is_management:
+            vetados = [
+                k for k in self.DONE_MANAGEMENT_ONLY if request.data.get(k) not in (None, "")
+            ]
+            if vetados:
+                raise PermissionDenied(
+                    "Solo la gestion decide " + ", ".join(vetados) + " al marcar un mantenimiento."
+                )
         note = str(request.data.get("note", "") or "").strip()[:255]
         cost = None
         raw_cost = request.data.get("cost")

@@ -1146,7 +1146,14 @@ Dos capas que van **siempre juntas**:
   el de la ficha— la abrían por esa pestaña, pero en **«Mi vehículo»** abren
   solo el mantenimiento (`MaintenanceUpdateModal`), porque ahí la fila de
   pestañas era **el nav de abajo otra vez**: km, combustible, ITV e incidencia
-  ya están cada uno en su botón. Lo decide `useFleetMode()` donde la pantalla
+  ya están cada uno en su botón. Por eso el **conductor lee el plan de su
+  coche y lo marca hecho** (`maintenance-plans` lo lee como el resto de campo
+  y `done/` admite `IsDriver`; `incident`, `return_to_active` y `workshop`
+  siguen siendo de gestión y a él le contestan 403): con el permiso solo de
+  gestión, ese botón acababa en un 403 para quien conduce. El recorrido
+  entero del rol conductor sobre el seed vive en
+  `fleet/tests/test_driver_journey.py`: cada endpoint que la PWA llama, lo
+  que alcanza, lo que no, y lo que le contesta 403. Lo decide `useFleetMode()` donde la pantalla
   sirve a las dos vistas (`VehicleCards`, `VehicleFieldPage`); el nav de Mi
   vehículo (`VehicleActionButtons`) no pregunta, que solo existe ahí. Las
   ventanas sueltas siguen vivas y son también el

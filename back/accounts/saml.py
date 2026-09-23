@@ -161,9 +161,10 @@ class FleetSamlLoginView(LoginView):
             security_logger.info("saml login: sesión previa cerrada user=%s", request.user.pk)
             django_logout(request)
         response = super().get(request, *args, **kwargs)
-        location = response.get("Location") if response.status_code in (302, 303) else None
-        if location:
-            response["Location"] = with_account_chooser(location)
+        # Solo se toca una redireccion real (binding redirect al IdP): con el
+        # binding POST djangosaml2 devuelve una pagina con el formulario.
+        if getattr(response, "status_code", None) in (302, 303) and response.get("Location"):
+            response["Location"] = with_account_chooser(response["Location"])
         return response
 
 

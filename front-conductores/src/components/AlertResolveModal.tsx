@@ -12,6 +12,7 @@ import {
 import { useDomainLabels } from '../domainLabels.ts'
 import { fmtDate, fmtKm, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
+import { newClientRef } from '../offline/queue.ts'
 import type { Alert, VehicleSummary } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
@@ -46,6 +47,7 @@ export function AlertResolveModal({
   const [km, setKm] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const [kmRef] = useState(newClientRef)
   const [error, setError] = useState('')
 
   // --- Proponer otro conductor (solo en la alerta de km contratados) --------
@@ -98,6 +100,9 @@ export function AlertResolveModal({
           vehicle: alert.vehicle as number,
           km_reading: value,
           reading_date: todayIso(),
+          // R5-50: una referencia por apertura del modal, no por pulsacion:
+          // el reintento tras un fallo de red no duplica la lectura.
+          client_ref: kmRef,
         })
         await resolveAlert(alert.id, t.alerts.resolveKmNote(fmtKm(value, language)))
       } else {

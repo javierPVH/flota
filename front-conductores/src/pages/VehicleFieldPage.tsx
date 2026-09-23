@@ -34,7 +34,7 @@ import { BreakdownModal } from '../components/BreakdownModal.tsx'
 import { DocumentList } from '../components/DocumentList.tsx'
 import { MaintenanceUpdateModal } from '../components/MaintenanceUpdateModal.tsx'
 import { RegisterFuelModal } from '../components/RegisterFuelModal.tsx'
-import { KmFuelRow } from '../components/KmFuelRow.tsx'
+import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
 import { VehiclePendingCards } from '../components/VehiclePendingCards.tsx'
 import { RegisterKmModal } from '../components/RegisterKmModal.tsx'
@@ -217,9 +217,10 @@ export function VehicleFieldPage() {
         {vehicle.year ? ` · ${vehicle.year}` : ''}
       </p>
 
-      {/* La MISMA fila que el tablero de la home (`KmFuelRow`): los km a la
-          izquierda y el consumo medio a la derecha. */}
-      <KmFuelRow summary={summary} window={kmWindow} />
+      {/* El MISMO div de km que el tablero de la home (`KmStatCard`), a todo
+          el ancho: última lectura, mejor día para registrar y píldora de
+          pendiente. */}
+      <KmStatCard summary={summary} window={kmWindow} />
 
       {/* Y las MISMAS «Próximas citas» que el tablero: lectura de km, ITV y
           mantenimiento, cada una con su fecha y cuántos días faltan. */}

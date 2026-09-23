@@ -64,6 +64,9 @@ export function ItvPane({
   // R5-50: una referencia por captura, no por pulsación (el reintento manual
   // tras un 502 no debe crear un segundo documento).
   const [reportRef] = useState(newClientRef)
+  // Y la del propio registro: generada en `submit()` cambiaba en cada pulsacion,
+  // asi que el reintento manual tras un 502 podia crear DOS eventos de ITV.
+  const [itvRef] = useState(newClientRef)
 
   const favourable = form.result === 'done'
 
@@ -96,7 +99,7 @@ export function ItvPane({
         next_due: favourable ? form.next_due || null : null,
       },
       // R3-34: misma referencia en el intento directo y en el reenvío offline.
-      client_ref: newClientRef(),
+      client_ref: itvRef,
     }
     try {
       const saved = await registerItv(payload)
