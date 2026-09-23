@@ -400,7 +400,7 @@ export const createKmReading = (data: {
 }) => invalidating(postJson<KmReading>(`${API}/km-readings/`, data))
 
 /** GAP-2: anotación de campo del consumo medio que marca el ordenador de a
- * bordo (l/km o kWh/km, el del último trayecto o ciclo de repostaje). Cada
+ * bordo (l/100km o kWh/100km, el del último trayecto o ciclo de repostaje). Cada
  * anotación es una fila con su día; `reading_date` es opcional (hoy si no se
  * dice) y viaja fijada al capturar, por si la cola offline la entrega días
  * después. Ni litros, ni importe, ni origen. */

@@ -59,7 +59,7 @@ function DecimalField({
 
 /**
  * GAP-2 — Consumo medio de campo, hermano del modal de km: se anota lo que
- * marca el ORDENADOR DE A BORDO (l/km o kWh/km) para el último trayecto o
+ * marca el ORDENADOR DE A BORDO (l/100km o kWh/100km) para el último trayecto o
  * ciclo de repostaje, con el día. Cada anotación es una fila: ni litros, ni
  * importe, ni origen, ni una cifra por mes. La nota de arriba dice qué cifra
  * se anota y cuál no (el histórico acumulado del coche no sirve).

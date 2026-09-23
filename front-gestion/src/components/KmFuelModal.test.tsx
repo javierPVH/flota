@@ -106,7 +106,7 @@ describe('KmFuelModal (kilómetros y combustible)', () => {
     await userEvent.type(fecha, '2026-08-14')
     await userEvent.type(
       screen.getByRole('spinbutton', {
-        name: 'Consumo medio real en ese momento (l/km o kWh/km)',
+        name: 'Consumo medio real en ese momento (l/100km o kWh/100km)',
       }),
       '7.15',
     )

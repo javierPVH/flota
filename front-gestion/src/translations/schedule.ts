@@ -31,6 +31,14 @@ const es = {
 
   /** Registrar la ITV realizada (el mismo formulario que resuelve su alerta). */
   resolveItv: 'Registrar ITV',
+  /** Quitar la cita: la ficha se queda sin próxima ITV y queda en su histórico. */
+  itvDelete: 'Eliminar la cita',
+  itvDeleteTitle: 'Eliminar la cita de ITV',
+  itvDeleteMessage: (date: string) =>
+    `El vehículo se quedará sin próxima ITV (la cita del ${date} se quita y sus avisos abiertos se cierran). Queda registrado en el histórico de la ficha y se puede volver a programar cuando haga falta.`,
+  itvDeleteConfirm: 'Sí, eliminar la cita',
+  itvDeleted: 'Cita de ITV eliminada. Queda en el histórico de la ficha.',
+  itvDeleteError: 'No se pudo eliminar la cita.',
 
   // --- Mantenimiento ---------------------------------------------------------
   maintenanceIntro:
@@ -68,6 +76,15 @@ const es = {
   maintenanceLoadError: 'No se pudo cargar el catálogo de programas.',
   /** Registrar el mantenimiento realizado (reancla el ciclo). */
   resolveMaintenance: 'Ya se pasó la revisión',
+  /** Retirar el mantenimiento programado: queda en el histórico de la ficha. */
+  maintenanceDelete: 'Eliminar el mantenimiento',
+  maintenanceDeleteTitle: 'Eliminar el mantenimiento programado',
+  maintenanceDeleteMessage: (name: string) =>
+    `El vehículo se quedará sin mantenimiento programado («${name}» se retira y sus avisos abiertos se cierran). Queda registrado en el histórico de la ficha y se puede volver a programar cuando haga falta.`,
+  maintenanceDeleteConfirm: 'Sí, eliminar el mantenimiento',
+  maintenanceDeleted: 'Mantenimiento programado eliminado. Queda en el histórico de la ficha.',
+  maintenanceDeleteError: 'No se pudo eliminar el mantenimiento programado.',
+  maintenanceDeleteReason: 'Retirado desde «Programar ITV y mantenimiento».',
 
   // --- Catálogo de programas (su propio modal) -------------------------------
   programNewTitle: 'Nuevo programa de mantenimiento',
@@ -128,6 +145,13 @@ const en: typeof es = {
   itvError: 'The MOT could not be scheduled.',
 
   resolveItv: 'Register MOT',
+  itvDelete: 'Remove the booking',
+  itvDeleteTitle: 'Remove the MOT booking',
+  itvDeleteMessage: (date) =>
+    `The vehicle will have no upcoming MOT (the booking of ${date} is removed and its open alerts are closed). It is recorded in the vehicle history and can be scheduled again whenever needed.`,
+  itvDeleteConfirm: 'Yes, remove the booking',
+  itvDeleted: 'MOT booking removed. It is recorded in the vehicle history.',
+  itvDeleteError: 'The booking could not be removed.',
 
   maintenanceIntro:
     'A vehicle has ONE scheduled maintenance, and its cycle comes from the shared programme catalogue. The preferred postcode is the location used to find the nearest workshop.',
@@ -162,6 +186,14 @@ const en: typeof es = {
   maintenanceError: 'The maintenance could not be scheduled.',
   maintenanceLoadError: 'The programme catalogue could not be loaded.',
   resolveMaintenance: 'Service already done',
+  maintenanceDelete: 'Remove the maintenance',
+  maintenanceDeleteTitle: 'Remove the scheduled maintenance',
+  maintenanceDeleteMessage: (name) =>
+    `The vehicle will have no scheduled maintenance ("${name}" is withdrawn and its open alerts are closed). It is recorded in the vehicle history and can be scheduled again whenever needed.`,
+  maintenanceDeleteConfirm: 'Yes, remove the maintenance',
+  maintenanceDeleted: 'Scheduled maintenance removed. It is recorded in the vehicle history.',
+  maintenanceDeleteError: 'The scheduled maintenance could not be removed.',
+  maintenanceDeleteReason: 'Withdrawn from "Schedule MOT and maintenance".',
 
   programNewTitle: 'New maintenance programme',
   programEditTitle: (name) => `Programme “${name}”`,

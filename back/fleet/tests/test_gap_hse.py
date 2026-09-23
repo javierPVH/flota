@@ -348,7 +348,7 @@ class FuelConsumptionTests(APITestCase):
         self._reading(self.ajeno, date(2026, 6, 1), "9")
         [(titulo, headers, rows)] = reports.build_report("fuel", self.admin)
         self.assertEqual(titulo, "Consumo de combustible")
-        self.assertEqual(headers, ["Vehículo", "Fecha", "Consumo medio real (l/km o kWh/km)"])
+        self.assertEqual(headers, ["Vehículo", "Fecha", "Consumo medio real (l/100km o kWh/100km)"])
         self.assertNotIn("Importe", headers)
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0][1], "2026-06-14")  # con día, no el mes

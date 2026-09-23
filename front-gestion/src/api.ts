@@ -218,6 +218,14 @@ export const scheduleItv = (id: number, data: { date: string; postal_code?: stri
     }
   >(`${API}/vehicles/${id}/schedule-itv/`, data)
 
+/** Elimina la cita de ITV: la ficha se queda sin próxima ITV (queda en su
+ * histórico como un cambio más) y sus avisos abiertos se cierran. */
+export const unscheduleItv = (id: number) =>
+  postJson<Vehicle & { previous_next_itv_date: string | null; alerts_resolved: number }>(
+    `${API}/vehicles/${id}/unschedule-itv/`,
+    {},
+  )
+
 // --- G3: alta/edición seccionada -------------------------------------------
 
 /** Alta transaccional (HU-1.3): campos del vehículo + anidados opcionales. */
@@ -352,7 +360,7 @@ export const updateCatalogEntry = (
 // --- GAP-2: consumo medio (ordenador de a bordo) ----------------------------
 
 /** Una ANOTACIÓN del consumo medio que marcaba el ordenador de a bordo en una
- * fecha con día (l/km o kWh/km; el del último trayecto o ciclo de repostaje,
+ * fecha con día (l/100km o kWh/100km; el del último trayecto o ciclo de repostaje,
  * no el acumulado). Ni litros, ni importe, ni origen: la serie mensual se
  * retiró. */
 export interface FuelConsumption {

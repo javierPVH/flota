@@ -2,7 +2,7 @@
 
 Cada fila es una ANOTACIÓN: el consumo medio real que enseñaba el ordenador de
 a bordo del coche en una fecha —el del último trayecto o ciclo de repostaje—,
-en l/km o kWh/km según de qué reposte. No es el histórico acumulado del
+en l/100km o kWh/100km según de qué reposte. No es el histórico acumulado del
 vehículo (ese número no dice nada de cómo se está conduciendo ahora), ni los
 litros echados, ni lo que costó: lo que se sigue en la flota es cómo consume el
 coche, y el gasto se mira donde se factura.
@@ -31,7 +31,7 @@ class FuelConsumption(DeactivatableModel, TimeStampedModel):
     #: Con día: es una anotación de un momento, no la cifra de un mes.
     reading_date = models.DateField("Fecha")
     avg_consumption = models.DecimalField(
-        "Consumo medio real (l/km o kWh/km)",
+        "Consumo medio real (l/100km o kWh/100km)",
         max_digits=8,
         decimal_places=2,
         help_text="El del último trayecto o ciclo de repostaje que marca el ordenador de a "

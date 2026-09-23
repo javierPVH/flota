@@ -1019,7 +1019,7 @@ const es = {
     noteLead:
       'Por favor, anota el consumo medio que marca el ordenador de a bordo correspondiente a tu último trayecto o ciclo de repostaje.',
     noteWarn: 'NO anotes el "consumo histórico" o acumulado total del vehículo.',
-    consumption: 'Consumo medio real en ese momento (l/km o kWh/km)',
+    consumption: 'Consumo medio real en ese momento (l/100km o kWh/100km)',
     /** El ejemplo del campo lleva el separador decimal del idioma: con la app
      * en inglés (`en-GB`) se teclea con punto, no con coma. */
     consumptionPlaceholder: '6,80',
@@ -2018,7 +2018,7 @@ const en: typeof es = {
     noteLead:
       'Please note the average consumption shown by the on-board computer for your last trip or refuelling cycle.',
     noteWarn: 'Do NOT note the "historical" or total accumulated consumption of the vehicle.',
-    consumption: 'Actual average consumption at that moment (l/km or kWh/km)',
+    consumption: 'Actual average consumption at that moment (l/100km or kWh/100km)',
     consumptionPlaceholder: '6.80',
     date: 'Date',
     save: 'Save consumption',

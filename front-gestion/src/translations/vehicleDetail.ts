@@ -190,6 +190,7 @@ const es = {
     incident: 'Incidencia',
     document: 'Documento',
     event: 'Evento',
+    maintenanceplan: 'Mantenimiento programado',
   } as Record<string, string>,
   auditModelOther: 'Otro',
   auditActions: {
@@ -197,6 +198,7 @@ const es = {
     update: 'Modificación',
     revert: 'Reversión',
     delete: 'Eliminación',
+    restore: 'Restauración',
     access: 'Acceso',
   } as Record<string, string>,
   fieldLabels: {
@@ -251,6 +253,13 @@ const es = {
     paid: 'Pagada',
     result: 'Resultado',
     next_due: 'Próxima ITV',
+    // Mantenimiento programado (plan del coche).
+    name: 'Nombre',
+    every_km: 'Cada (km)',
+    every_months: 'Cada (meses)',
+    last_done_date: 'Se cuenta desde (fecha)',
+    last_done_km: 'Se cuenta desde (km)',
+    workshop_postal_code: 'CP preferente',
   } as Record<string, string>,
 
   // --- Tarjeta de facturas ---------------------------------------------------
@@ -656,6 +665,7 @@ const en: typeof es = {
     incident: 'Incident',
     document: 'Document',
     event: 'Event',
+    maintenanceplan: 'Scheduled maintenance',
   },
   auditModelOther: 'Other',
   auditActions: {
@@ -663,6 +673,7 @@ const en: typeof es = {
     update: 'Updated',
     revert: 'Reverted',
     delete: 'Deleted',
+    restore: 'Restored',
     access: 'Accessed',
   },
   fieldLabels: {
@@ -717,6 +728,12 @@ const en: typeof es = {
     paid: 'Paid',
     result: 'Result',
     next_due: 'Next MOT',
+    name: 'Name',
+    every_km: 'Every (km)',
+    every_months: 'Every (months)',
+    last_done_date: 'Counted from (date)',
+    last_done_km: 'Counted from (km)',
+    workshop_postal_code: 'Preferred postcode',
   },
 
   // --- Invoices card ---------------------------------------------------------

@@ -27,7 +27,7 @@ interface Props {
  * Kilómetros y combustible del vehículo (menú ⋮), en dos pestañas:
  * — Kilómetros: registrar una lectura (HU-3.x; la del mes cierra su aviso).
  * — Combustible: ANOTAR el consumo medio que marca el ordenador de a bordo
- *   (GAP-2, l/km o kWh/km) en una fecha con día. Cada anotación es una fila:
+ *   (GAP-2, l/100km o kWh/100km) en una fecha con día. Cada anotación es una fila:
  *   ni litros, ni importe, ni origen, ni una cifra por mes. La nota de arriba
  *   es la misma que lee el conductor en la PWA: el consumo del último
  *   trayecto o ciclo de repostaje, no el histórico del coche.

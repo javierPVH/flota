@@ -240,6 +240,24 @@ describe('reversiones en el histórico', () => {
     expect(items[0]).toMatchObject({ action: 'revert', reverts: 10, title: 'Vehículo · revert' })
   })
 
+  it('la baja lógica (is_active) se lee como eliminación y su vuelta como restauración', () => {
+    const retirada = audit({
+      id: 20,
+      model: 'maintenanceplan',
+      changes: { is_active: ['True', 'False'], deactivated_at: ['None', '2026-03-02'] },
+    })
+    const vuelta = audit({
+      id: 21,
+      model: 'maintenanceplan',
+      timestamp: '2026-03-03T10:00:00Z',
+      changes: { is_active: ['False', 'True'] },
+    })
+    const items = buildTimeline([], [retirada, vuelta], LABELS)
+    // Se ven aunque no les quede ningún campo con etiqueta: son la acción.
+    expect(items.map((i) => i.action)).toEqual(['restore', 'delete'])
+    expect(items[1].changes).toEqual([])
+  })
+
   it('no ofrece revertir lo que no tiene ningún campo visible ni lo que el back no marca', () => {
     const interno = audit({ id: 12, changes: { cost_center: ['1', '2'] }, revertible: true })
     const sinMarca = audit({ id: 13 })

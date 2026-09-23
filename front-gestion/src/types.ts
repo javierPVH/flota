@@ -81,7 +81,7 @@ export interface Vehicle {
   /** GAP-3: ¿reposta con tarjeta de combustible? */
   fuel_card: boolean
   /** GAP-2: última anotación del consumo medio (cadena con 2 decimales o
-   * null, l/km o kWh/km) y de qué día es. Lo resuelve el back en bloque para
+   * null, l/100km o kWh/100km) y de qué día es. Lo resuelve el back en bloque para
    * el listado; la serie completa vive en `fuel-consumptions`. */
   fuel_avg_consumption: string | null
   fuel_avg_date: string | null

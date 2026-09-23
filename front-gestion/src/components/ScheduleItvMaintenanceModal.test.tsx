@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ScheduleItvMaintenanceModal } from './ScheduleItvMaintenanceModal.tsx'
+import { ConfirmProvider } from './ConfirmDialog.tsx'
 import { fmtDate, todayIso } from '../format.ts'
 import { LanguageProvider } from '../i18n.tsx'
 import type { Vehicle } from '../types.ts'
@@ -16,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   listKmReadingsAll: vi.fn(),
   listVehicleEvents: vi.fn(),
   scheduleItv: vi.fn(),
+  unscheduleItv: vi.fn(),
+  deleteMaintenancePlan: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -28,6 +31,8 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listKmReadingsAll: mocks.listKmReadingsAll,
   listVehicleEvents: mocks.listVehicleEvents,
   scheduleItv: mocks.scheduleItv,
+  unscheduleItv: mocks.unscheduleItv,
+  deleteMaintenancePlan: mocks.deleteMaintenancePlan,
 }))
 
 const page = (rows: unknown[]) => ({ count: rows.length, next: null, previous: null, results: rows })
@@ -100,7 +105,9 @@ function renderModal(vehicle: Vehicle) {
   const onSaved = vi.fn()
   render(
     <LanguageProvider>
-      <ScheduleItvMaintenanceModal vehicle={vehicle} onClose={vi.fn()} onSaved={onSaved} />
+      <ConfirmProvider>
+        <ScheduleItvMaintenanceModal vehicle={vehicle} onClose={vi.fn()} onSaved={onSaved} />
+      </ConfirmProvider>
     </LanguageProvider>,
   )
   return { onSaved }
@@ -120,6 +127,13 @@ describe('Programar ITV y mantenimiento', () => {
     mocks.updateMaintenancePlan.mockReset()
     mocks.createMaintenanceProgram.mockReset()
     mocks.scheduleItv.mockReset()
+    mocks.unscheduleItv.mockReset().mockResolvedValue({
+      ...SIN_CITA,
+      next_itv_manual: true,
+      previous_next_itv_date: '2026-11-20',
+      alerts_resolved: 1,
+    })
+    mocks.deleteMaintenancePlan.mockReset().mockResolvedValue(undefined)
     mocks.scheduleItv.mockResolvedValue({
       ...CON_CITA,
       next_itv_date: '2027-03-01',
@@ -173,6 +187,52 @@ describe('Programar ITV y mantenimiento', () => {
     await userEvent.type(fecha, '2027-03-01')
     await userEvent.click(screen.getByRole('button', { name: 'Guardar la cita' }))
     expect(mocks.scheduleItv).toHaveBeenCalledWith(7, { date: '2027-03-01', postal_code: '28100' })
+  })
+
+  it('modificando la cita se puede eliminar: confirma, la quita y deja programar otra', async () => {
+    const { onSaved } = renderModal(CON_CITA)
+    // Sin estar modificando no se ofrece: es una acción de la edición.
+    expect(screen.queryByRole('button', { name: 'Eliminar la cita' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Modificar la cita' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar la cita' }))
+
+    // El modal de programar también es un diálogo: el de confirmar va por su título.
+    const dialogo = await screen.findByRole('dialog', { name: 'Eliminar la cita de ITV' })
+    expect(dialogo).toHaveTextContent(/20 nov 2026/)
+    expect(mocks.unscheduleItv).not.toHaveBeenCalled()
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Sí, eliminar la cita' }))
+
+    await waitFor(() => expect(mocks.unscheduleItv).toHaveBeenCalledWith(7))
+    expect(await screen.findByText(/Cita de ITV eliminada/)).toBeInTheDocument()
+    expect(onSaved).toHaveBeenCalled()
+    // Sin cita: vuelve el aviso y el formulario en blanco para programar otra.
+    expect(screen.getByText(/No hay ninguna ITV a la vista/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Fecha de la ITV')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Programar ITV' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Eliminar la cita' })).not.toBeInTheDocument()
+  })
+
+  it('modificando el mantenimiento se puede eliminar: lo retira y deja programar otro', async () => {
+    mocks.listMaintenancePlans.mockResolvedValue(page([PLAN]))
+    const { onSaved } = renderModal(SIN_CITA)
+    await irAMantenimiento()
+    await userEvent.click(await screen.findByRole('button', { name: 'Modificar el mantenimiento' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Eliminar el mantenimiento' }))
+
+    const dialogo = await screen.findByRole('dialog', {
+      name: 'Eliminar el mantenimiento programado',
+    })
+    expect(dialogo).toHaveTextContent('Revisión general')
+    await userEvent.click(
+      within(dialogo).getByRole('button', { name: 'Sí, eliminar el mantenimiento' }),
+    )
+    await waitFor(() =>
+      expect(mocks.deleteMaintenancePlan).toHaveBeenCalledWith(4, expect.stringMatching(/Programar ITV/)),
+    )
+    expect(await screen.findByText(/Mantenimiento programado eliminado/)).toBeInTheDocument()
+    expect(onSaved).toHaveBeenCalled()
+    expect(screen.getByText(/No hay ningún mantenimiento programado/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Programar mantenimiento' })).toBeInTheDocument()
   })
 
   /** El «cada cuánto» sale del catálogo común, y el ciclo por meses se cuenta

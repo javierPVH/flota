@@ -321,7 +321,7 @@ def _compose_summary(
         # tarjeta de campo pinta con esto su marca de "algo abierto".
         "open_incidents": open_incidents,
         # GAP-2: la última anotación del consumo medio (ordenador de a bordo,
-        # l/km o kWh/km) y de qué día es. Alimenta el KPI de la ficha, la
+        # l/100km o kWh/100km) y de qué día es. Alimenta el KPI de la ficha, la
         # columna del listado y la pista del modal de campo.
         "fuel_avg_consumption": decimal_str((fuel_latest or {}).get("avg_consumption")),
         "fuel_avg_date": (fuel_latest or {}).get("reading_date"),

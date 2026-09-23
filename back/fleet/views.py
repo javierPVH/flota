@@ -645,6 +645,26 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         data["alerts_resolved"] = result["alerts_resolved"]
         return Response(data)
 
+    @action(detail=True, methods=["post"], url_path="unschedule-itv", permission_classes=[IsAdmin])
+    def unschedule_itv(self, request, pk=None):
+        """POST /api/v1/vehicles/{id}/unschedule-itv/ — elimina la cita de ITV.
+
+        La cita no es un registro sino un dato de la ficha: quitarla es un
+        cambio más y queda en la auditoría del vehículo (el histórico de la
+        ficha lo enseña como «Próxima ITV: fecha → —»). Se conserva el candado
+        manual para que el job no la reponga desde el histórico de inspecciones
+        (`services.itv.unschedule_itv`). Responde el vehículo +
+        `previous_next_itv_date` y `alerts_resolved`.
+        """
+        vehicle = self.get_object()
+        if vehicle.next_itv_date is None:
+            raise ValidationError({"vehicle": "El vehículo no tiene ninguna cita de ITV."})
+        result = itv.unschedule_itv(vehicle, actor=request.user)
+        data = self.get_serializer(vehicle).data
+        data["previous_next_itv_date"] = result["previous"]
+        data["alerts_resolved"] = result["alerts_resolved"]
+        return Response(data)
+
     @action(detail=True, methods=["get"], permission_classes=[IsManagement | HseReadOnly])
     def history(self, request, pk=None):
         """GET /api/vehicles/{id}/history/ — auditoría EXHAUSTIVA del vehículo.
@@ -668,6 +688,8 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             VehicleLink.objects.filter(
                 models.Q(main_vehicle=vehicle) | models.Q(substitute_vehicle=vehicle)
             ),
+            # Con los retirados (N7): la retirada es justo lo que hay que leer.
+            MaintenancePlan.objects.filter(vehicle=vehicle),
         )
         # M4: UNA consulta con `(content_type, object_id IN subconsulta)` por
         # modelo. Antes se traían a memoria los ids de LogEntry de los nueve
@@ -2736,7 +2758,7 @@ class WorkshopViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
 class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
     """GAP-2: anotaciones del consumo medio del ordenador de a bordo.
 
-    Cada fila es lo que marcaba el ordenador en una FECHA (l/km o kWh/km, el
+    Cada fila es lo que marcaba el ordenador en una FECHA (l/100km o kWh/100km, el
     del último trayecto o ciclo de repostaje). Lo anota el conductor desde la
     PWA (`add/`) igual que registra los km, y también la gestión desde la
     ficha; siempre con el ámbito del rol acotando.
@@ -2856,6 +2878,26 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
     queryset = MaintenancePlan.objects.select_related("vehicle", "program")
     filterset_fields = ["vehicle"]
     search_fields = ["name", "vehicle__plate"]
+
+    def perform_destroy(self, instance):
+        """Retirar el mantenimiento programado (N7: se desactiva) cierra con
+        actor los avisos abiertos de ESE plan: hablan de un ciclo que ya no
+        existe y nada más los cerraría, porque el chequeo solo mira planes
+        activos. Queda en el histórico de la ficha por la auditoría del plan."""
+        with transaction.atomic():
+            super().perform_destroy(instance)
+            prefijo = f"maintenance:{instance.pk}:"
+            for alert in Alert.objects.filter(
+                vehicle_id=instance.vehicle_id,
+                type=AlertType.MAINTENANCE_DUE,
+                status=AlertStatus.OPEN,
+            ):
+                if alert.dedup_key.startswith(prefijo):
+                    alert.close(
+                        status=AlertStatus.RESOLVED,
+                        by=self.request.user,
+                        note="Mantenimiento programado retirado.",
+                    )
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
     def done(self, request, pk=None):

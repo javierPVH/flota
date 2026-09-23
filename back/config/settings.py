@@ -187,10 +187,12 @@ SESSION_COOKIE_AGE = env_int("SESSION_COOKIE_AGE", 60 * 60 * 2)  # 2 h
 SESSION_SAVE_EVERY_REQUEST = True
 # R6-07: tope ABSOLUTO desde el inicio de sesión, haya o no actividad (la sesión
 # deslizante sola no caduca nunca mientras se use). Lo aplica
-# `accounts.middleware.SessionAbsoluteAgeMiddleware`; 0 = sin tope. Las SPAs
-# cortan antes (30 min inactividad / 6 h) por experiencia de uso, pero eso es
-# cliente: el tope de verdad es este.
-SESSION_ABSOLUTE_AGE = max(0, env_int("SESSION_ABSOLUTE_AGE", 60 * 60 * 10))  # 10 h
+# `accounts.middleware.SessionAbsoluteAgeMiddleware` a cualquier sesión, se
+# haya entrado por contraseña, Google, SAML o el admin; 0 = sin tope. Las SPAs
+# cortan a los 30 min de inactividad y a estas mismas 2 h (`ABSOLUTE_MS` del
+# DS), pero eso es cliente: el tope de verdad es este. Y una persona tiene UNA
+# sesión: al entrar se cierran las demás (`accounts.sessions`).
+SESSION_ABSOLUTE_AGE = max(0, env_int("SESSION_ABSOLUTE_AGE", 60 * 60 * 2))  # 2 h
 
 CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
 # El front lee la cookie CSRF y la reenvía como cabecera X-CSRFToken ⇒ NO httponly.

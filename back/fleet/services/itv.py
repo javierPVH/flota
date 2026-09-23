@@ -63,6 +63,36 @@ def schedule_itv(vehicle: Vehicle, due: date, *, actor, postal_code: str = "") -
     return result
 
 
+def unschedule_itv(vehicle: Vehicle, *, actor) -> dict[str, object]:
+    """Elimina la cita de ITV del vehículo (la deja sin próxima ITV).
+
+    Devuelve `{"previous", "alerts_resolved"}`. No se borra ningún registro:
+    la cita es un dato de la ficha (`next_itv_date`), así que quitarla es un
+    cambio más y queda en la auditoría del vehículo («Próxima ITV: fecha →
+    —»). Se deja el candado puesto (`next_itv_manual=True`) porque, si no,
+    `refresh_next_itv` volvería a poner la fecha que sale de la última
+    inspección registrada en la pasada siguiente y la cita «borrada»
+    reaparecería sola; registrar una ITV real vuelve a soltar el candado (la
+    señal `on_itv_registered`). Los avisos `itv_due` abiertos se cierran con
+    actor: hablaban de una cita que ya no existe.
+    """
+    previous = vehicle.next_itv_date
+    result: dict[str, object] = {
+        "previous": previous.isoformat() if previous else None,
+        "alerts_resolved": 0,
+    }
+    with transaction.atomic():
+        vehicle.next_itv_date = None
+        vehicle.next_itv_manual = True
+        vehicle.save(update_fields=["next_itv_date", "next_itv_manual", "updated_at"])
+        for alert in Alert.objects.filter(
+            vehicle=vehicle, type=AlertType.ITV_DUE, status=AlertStatus.OPEN
+        ):
+            alert.close(status=AlertStatus.RESOLVED, by=actor, note="Cita de ITV eliminada.")
+            result["alerts_resolved"] += 1
+    return result
+
+
 def register_itv(event: Event, *, actor, return_to_active: bool = False) -> dict[str, object]:
     """Efectos de una ITV recién registrada.
 

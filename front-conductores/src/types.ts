@@ -119,8 +119,8 @@ export interface VehicleSummary {
   next_maintenance_date: string | null
   /** Incidencias sin cerrar (avería, mantenimiento, neumáticos…): la marca. */
   open_incidents: number
-  /** GAP-2: última anotación del consumo medio (ordenador de a bordo, l/km o
-   * kWh/km): cadena con 2 decimales o null, y de qué día es. */
+  /** GAP-2: última anotación del consumo medio (ordenador de a bordo, l/100km
+   * o kWh/100km): cadena con 2 decimales o null, y de qué día es. */
   fuel_avg_consumption: string | null
   fuel_avg_date: string | null
   // X1: `insurance_expiry_date` viaja en el payload (el endpoint lo comparte el

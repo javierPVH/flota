@@ -125,7 +125,21 @@ const RAW_ID_FIELDS = new Set([
   'incident',
   'replaces',
   'uploaded_by',
+  'program',
 ])
+
+/** La baja lógica (N7) y su vuelta llegan como una modificación de `is_active`:
+ * se leen como lo que son —«Eliminación» / «Restauración»— y no como un cambio
+ * de un campo interno, que además no tiene etiqueta y las dejaba invisibles. */
+function auditAction(a: AuditEntry): string {
+  if (a.reverts != null) return 'revert'
+  if (a.action === 'update') {
+    const active = a.changes?.is_active
+    if (active?.[0] === 'True' && active?.[1] === 'False') return 'delete'
+    if (active?.[0] === 'False' && active?.[1] === 'True') return 'restore'
+  }
+  return a.action
+}
 
 export interface TimelineChange {
   field: string
@@ -302,9 +316,10 @@ export function buildTimeline(
       const source = a.model || 'vehicle'
       const actor = a.actor || labels.systemActor
       const changes = usefulChanges(a.changes, labels, source)
-      // Una reversión es una modificación que deshace otra: se nombra como tal
-      // (y así no se pliega en la misma ráfaga que los cambios corrientes).
-      const action = a.reverts != null ? 'revert' : a.action
+      // Una reversión es una modificación que deshace otra, y una baja lógica
+      // una eliminación: se nombran como tal (y así no se pliegan en la misma
+      // ráfaga que los cambios corrientes).
+      const action = auditAction(a)
       return {
         key: `a${a.id}`,
         repr: a.object_repr,

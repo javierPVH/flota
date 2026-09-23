@@ -197,3 +197,34 @@ class PushSubscription(models.Model):
 
     def __str__(self) -> str:
         return f"PushSubscription({self.user}, …{self.endpoint[-24:]})"
+
+
+class UserSession(models.Model):
+    """La sesión de Django que tiene abierta cada persona: UNA por usuario.
+
+    Django no sabe de quién es cada fila de `django_session` sin descifrarla,
+    así que aquí se apunta `usuario → clave de sesión` al entrar (señal
+    `user_logged_in`, por cualquier vía: contraseña, Google, SAML, admin). Al
+    iniciar sesión se cierran las demás sesiones de ESA persona y se deja solo
+    la que está entrando (`accounts.sessions`): dos puestos con la misma cuenta
+    acababan pisándose la ficha (bloqueo optimista) y dejando sesiones
+    olvidadas abiertas. Al salir, o cuando la sesión caduca por el tope
+    absoluto, la fila se borra; las de sesiones que expiraron en silencio se
+    limpian en el siguiente inicio de sesión de esa persona.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="open_sessions",
+    )
+    session_key = models.CharField("Clave de sesión", max_length=40, unique=True)
+    user_agent = models.CharField("User-Agent", max_length=255, blank=True, default="")
+    created_at = models.DateTimeField("Inicio de sesión", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "sesión abierta"
+        verbose_name_plural = "sesiones abiertas"
+
+    def __str__(self) -> str:
+        return f"UserSession({self.user}, …{self.session_key[-6:]})"

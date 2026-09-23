@@ -398,7 +398,22 @@ Dos capas que van **siempre juntas**:
   200 sin rastro. El histórico de gestión pone **«Revertir»** en cada
   entrada que el back marca `revertible`, confirma enseñando a qué valor
   vuelve cada campo y pinta la reversión como acción propia («Reversión ·
-  Deshace el cambio del …»).
+  Deshace el cambio del …»). **Quitar una cita también se lee ahí**: la cita
+  de ITV se elimina con `POST /vehicles/{id}/unschedule-itv/`
+  (`services.itv.unschedule_itv`: `next_itv_date` a nulo **con el candado
+  manual puesto**, o `refresh_next_itv` la repondría desde la última
+  inspección en la pasada siguiente; cierra sus `itv_due` con actor) y no
+  pasa por erratas porque no es un registro sino un dato de la ficha —el
+  histórico lo enseña como «Próxima ITV: fecha → —»—; el mantenimiento
+  programado se retira con el `DELETE` de siempre (N7, se desactiva), que
+  además cierra los avisos de ESE plan, y como `MaintenancePlan` está ahora
+  en `AUDITED_MODELS` y en el `history` del vehículo, su alta, sus cambios y
+  su retirada salen en la ficha. El front lee la baja lógica de cualquier
+  modelo (`is_active` True→False) como **«Eliminación»** y su vuelta como
+  «Restauración» (`vehicleTimeline.auditAction`): antes esas entradas no
+  tenían ningún campo con etiqueta y eran invisibles. Los dos botones
+  («Eliminar la cita» / «Eliminar el mantenimiento») viven en el pie de
+  «Programar ITV y mantenimiento», solo mientras se **modifica** lo que hay.
 - **Lecturas optimizadas en `fleet/selectors.py`** (`current_driver_map`,
   `latest_reading_map`, `active_link_q`…): úsalas en listados e informes en vez
   de resolver por fila — los N+1 ya se han cazado varias veces aquí. El
@@ -423,7 +438,17 @@ Dos capas que van **siempre juntas**:
   no llaman a `fetch`.
 - Sesión: `src/auth.ts` (`createAuth` del DS) + `bootstrap()` (CSRF → `/me`).
   Cada front decide si el rol le corresponde (`isAllowed`) y muestra un 403 con
-  logout (`AdminGate`, `AccessGate`) en vez de un login en bucle.
+  logout (`AdminGate`, `AccessGate`) en vez de un login en bucle. **La sesión
+  dura 2 h y es UNA por persona**: el back la corta a las 2 h del login
+  (`SESSION_ABSOLUTE_AGE`, `SessionAbsoluteAgeMiddleware`) y a las 2 h sin
+  actividad (`SESSION_COOKIE_AGE`), se haya entrado por contraseña, Google,
+  SAML o el admin, y el DS corta igual en cliente (`ABSOLUTE_MS` = 2 h, 30 min
+  de inactividad). Al iniciar sesión, `accounts/sessions.py` (señal
+  `user_logged_in`, con la tabla `UserSession` usuario → clave) **cierra las
+  demás sesiones de esa persona** y deja solo la que entra: la sesión vieja
+  recibe el 403 `not_authenticated` de siempre en su siguiente petición y el
+  front la manda al login. Con la misma cuenta en dos puestos, la ficha se
+  guardaba desde los dos y el segundo chocaba con el bloqueo optimista.
 - i18n con **diccionario tipado**: el shell en `src/i18n.tsx` y un módulo por
   página en `src/translations/<ns>.ts`. Si falta una clave en un idioma, no
   compila.
@@ -564,7 +589,7 @@ Dos capas que van **siempre juntas**:
   30 o sin ninguna lectura, pintado con las mismas clases `itv-soon` /
   `itv-overdue` que los vencimientos), «Consumo medio» —en dos líneas también:
   la **última anotación** del consumo medio que marcaba el ordenador de a
-  bordo (`FuelConsumption`: `avg_consumption` en l/km o kWh/km con
+  bordo (`FuelConsumption`: `avg_consumption` en l/100km o kWh/100km con
   `reading_date`, el del último trayecto o ciclo de repostaje, **no** el
   acumulado del coche) y, debajo, **de qué reposta** (el tipo del catálogo,
   GAP-1) y de qué día es la anotación; ni litros, ni importe, ni origen: la

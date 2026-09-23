@@ -5,6 +5,7 @@ import { asErrorMessage } from '@flota/ui/http'
 
 import {
   createMaintenancePlan,
+  deleteMaintenancePlan,
   fetchVehicle,
   listAll,
   listKmReadingsAll,
@@ -12,10 +13,12 @@ import {
   listMaintenancePrograms,
   listVehicleEvents,
   scheduleItv,
+  unscheduleItv,
   updateMaintenancePlan,
   type MaintenancePlan,
   type MaintenanceProgram,
 } from '../api.ts'
+import { useConfirm } from './ConfirmDialog.tsx'
 import { fmtDate, fmtKm, todayIso } from '../format.ts'
 import { useScheduleCopy } from '../translations/schedule.ts'
 import { useVehicleDetailCopy } from '../translations/vehicleDetail.ts'
@@ -200,6 +203,7 @@ function Cuerpo({
 }) {
   const t = useScheduleCopy()
   const tv = useVehicleDetailCopy()
+  const confirm = useConfirm()
   const language = useAppLang()
 
   const [tab, setTab] = useState<'itv' | 'maintenance'>(initialTab)
@@ -233,6 +237,35 @@ function Cuerpo({
       .catch(() => setItvEventos([]))
   }, [vehicle.id])
   useEffect(cargarItvEventos, [cargarItvEventos])
+
+  /** Quitar la cita: la ficha se queda sin próxima ITV. No se borra nada —la
+   * cita es un dato de la ficha y su cambio queda en el histórico—, así que no
+   * pasa por erratas; el formulario vuelve abierto para programar otra. */
+  async function eliminarCita() {
+    if (!cita) return
+    const ok = await confirm({
+      title: t.itvDeleteTitle,
+      message: t.itvDeleteMessage(fmtDate(cita.date, language)),
+      confirmLabel: t.itvDeleteConfirm,
+      tone: 'danger',
+    })
+    if (!ok) return
+    setItvError('')
+    setItvInfo('')
+    setItvSaving(true)
+    try {
+      await unscheduleItv(vehicle.id)
+      setCita(null)
+      setItvDate('')
+      setEditandoItv(true)
+      setItvInfo(t.itvDeleted)
+      onSaved()
+    } catch (err) {
+      setItvError(asErrorMessage(err, t.itvDeleteError))
+    } finally {
+      setItvSaving(false)
+    }
+  }
 
   async function submitItv(event: FormEvent) {
     event.preventDefault()
@@ -326,6 +359,35 @@ function Cuerpo({
       : ''
   const planKm =
     plan?.every_km != null && plan.last_done_km != null ? plan.last_done_km + plan.every_km : null
+
+  /** Retirar el mantenimiento programado. El back lo desactiva (N7) y cierra
+   * sus avisos; la retirada se lee en el histórico de la ficha por la
+   * auditoría del plan. El formulario vuelve abierto para programar otro. */
+  async function retirarPlan() {
+    if (!plan) return
+    const ok = await confirm({
+      title: t.maintenanceDeleteTitle,
+      message: t.maintenanceDeleteMessage(plan.program_name || plan.name),
+      confirmLabel: t.maintenanceDeleteConfirm,
+      tone: 'danger',
+    })
+    if (!ok) return
+    setPlanError('')
+    setPlanInfo('')
+    setPlanSaving(true)
+    try {
+      await deleteMaintenancePlan(plan.id, t.maintenanceDeleteReason)
+      setPlan(null)
+      rellenar(null, desdeKm)
+      setEditandoPlan(true)
+      setPlanInfo(t.maintenanceDeleted)
+      onSaved()
+    } catch (err) {
+      setPlanError(asErrorMessage(err, t.maintenanceDeleteError))
+    } finally {
+      setPlanSaving(false)
+    }
+  }
 
   async function submitPlan(event: FormEvent) {
     event.preventDefault()
@@ -620,9 +682,33 @@ function Cuerpo({
           su porqué, y la principal en el extremo—. Los botones de guardar
           envían su formulario por `form=`, que queda arriba. */}
       <div className="form-actions schedule-foot">
-        <Button variant="secondary" onClick={onClose}>
-          {t.close}
-        </Button>
+        <div className="schedule-foot-left">
+          <Button variant="secondary" onClick={onClose}>
+            {t.close}
+          </Button>
+          {/* Editando lo que ya hay, también se puede quitar: la cita se
+              elimina (queda en el histórico) y el plan se retira. */}
+          {tab === 'itv' && editandoItv && cita && (
+            <Button
+              type="button"
+              variant="danger"
+              disabled={itvSaving}
+              onClick={() => void eliminarCita()}
+            >
+              {t.itvDelete}
+            </Button>
+          )}
+          {tab === 'maintenance' && editandoPlan && plan && (
+            <Button
+              type="button"
+              variant="danger"
+              disabled={planSaving}
+              onClick={() => void retirarPlan()}
+            >
+              {t.maintenanceDelete}
+            </Button>
+          )}
+        </div>
         {tab === 'itv' && editandoItv && (
           <div className="schedule-foot-actions">
             {cita ? (

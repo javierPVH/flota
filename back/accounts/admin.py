@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
 from .forms import RateLimitedAdminAuthenticationForm
-from .models import User, UserRole
+from .models import User, UserRole, UserSession
 
 # R6-04: la entrada al /admin/ con el mismo anti fuerza bruta que la API.
 admin.site.login_form = RateLimitedAdminAuthenticationForm
@@ -43,3 +43,21 @@ class FlotaUserAdmin(UserAdmin):
     @admin.display(description="Roles")
     def roles_display(self, obj) -> str:
         return ", ".join(sorted(obj.roles.values_list("role", flat=True))) or "—"
+
+
+@admin.register(UserSession)
+class UserSessionAdmin(admin.ModelAdmin):
+    """Solo lectura: quién tiene sesión abierta y desde cuándo (una por persona).
+    Borrar una fila desde aquí NO cierra la sesión: eso lo hace el siguiente
+    inicio de sesión de esa persona, o el tope absoluto."""
+
+    list_display = ("user", "created_at", "user_agent")
+    search_fields = ("user__username", "user__email")
+    readonly_fields = ("user", "session_key", "user_agent", "created_at")
+    ordering = ("-created_at",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

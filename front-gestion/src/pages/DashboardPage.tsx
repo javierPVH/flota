@@ -1054,7 +1054,7 @@ export function DashboardPage() {
     },
     {
       // GAP-2: la ÚLTIMA anotación del consumo medio (ordenador de a bordo,
-      // l/km o kWh/km) y, debajo, de qué reposta (GAP-1, el tipo del catálogo)
+      // l/100km o kWh/100km) y, debajo, de qué reposta (GAP-1, el tipo del catálogo)
       // y de qué día es. Ordena por la cifra.
       key: 'fuel_avg',
       label: t.home.thFuel,

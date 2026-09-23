@@ -224,7 +224,7 @@ def _fuel_table(user, filters: dict | None = None, vehicle_ids=None) -> Table:
     vehicle = _pick(filters, "vehicle")
     if vehicle:
         consumptions = consumptions.filter(vehicle_id=vehicle)
-    headers = ["Vehículo", "Fecha", "Consumo medio real (l/km o kWh/km)"]
+    headers = ["Vehículo", "Fecha", "Consumo medio real (l/100km o kWh/100km)"]
     rows = [
         [
             c.vehicle.plate if c.vehicle_id else "",
@@ -928,7 +928,7 @@ def _ficha_extras(
 
         ultimo = fuel_latest_map(list(vehicle_ids))
         add(
-            "Consumo medio (última anotación, l/km o kWh/km)",
+            "Consumo medio (última anotación, l/100km o kWh/100km)",
             {k: v["avg_consumption"] for k, v in ultimo.items()},
         )
         add("Fecha del consumo medio", {k: _d(v["reading_date"]) for k, v in ultimo.items()})

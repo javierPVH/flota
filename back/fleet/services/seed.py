@@ -2178,7 +2178,7 @@ def seed_operations(stdout=None) -> None:
         )
 
     # GAP-2: anotaciones del consumo medio (lo que marcaba el ordenador de a
-    # bordo, en l/km o kWh/km) — seis para el vehículo de referencia, dos para
+    # bordo, en l/100km o kWh/100km) — seis para el vehículo de referencia, dos para
     # el de la supervisora y cuatro para tres de volumen. Con día, no por mes.
     wipe(FuelConsumption, stdout)
     v1 = Vehicle.objects.get(plate="1234KLM")

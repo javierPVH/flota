@@ -19,6 +19,7 @@ from .models import (
     Invoice,
     InvoiceAllocation,
     KmReading,
+    MaintenancePlan,
     Vehicle,
     VehicleLink,
     VehicleRequest,
@@ -29,6 +30,10 @@ AUDITED_MODELS = (
     Vehicle,
     Contract,
     KmReading,
+    # El mantenimiento programado del coche: su alta, sus cambios y su
+    # retirada se leen en el histórico de la ficha (antes retirarlo no dejaba
+    # rastro en ningún sitio que mirara la gestión).
+    MaintenancePlan,
     Assignment,
     VehicleUsage,
     VehicleLink,

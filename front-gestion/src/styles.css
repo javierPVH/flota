@@ -5929,6 +5929,8 @@ kbd {
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
 }
+/* A la izquierda del pie: salir y, editando, quitar la cita. */
+.schedule-foot-left { display: flex; align-items: center; gap: 0.6rem; }
 .schedule-foot-actions {
   display: flex;
   flex-wrap: nowrap;
