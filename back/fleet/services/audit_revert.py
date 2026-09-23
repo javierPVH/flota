@@ -145,13 +145,21 @@ def target_of(entry: LogEntry, vehicle: Vehicle):
     return Contract.objects.get(pk=entry.object_id, vehicle=vehicle)
 
 
-def guard(entry: LogEntry, payload: dict) -> None:
+def guard(entry: LogEntry, payload: dict, vehicle: Vehicle) -> None:
     """Lo que ni con el valor viejo delante se hace desde aquí."""
     if not payload:
         raise ValidationError({"entry": "Esta entrada no tiene ningún cambio que revertir."})
     if _model_of(entry) is Vehicle and payload.get("state") == VehicleState.BAJA:
         raise ValidationError(
             {"state": "Dar de baja no se revierte desde el histórico: usa «Devolver»."}
+        )
+    # Un coche de baja no se toca desde el histórico: revertir su propia baja
+    # lo devolvería a la flota saltándose la restauración de erratas (que es
+    # quien reabre lo que la baja cerró) y cualquier otro campo se corrige
+    # después de restaurarlo. Mismo corte que `schedule-itv` o `set-driver`.
+    if vehicle.state == VehicleState.BAJA:
+        raise ValidationError(
+            {"vehicle": "El vehículo está de baja: se restaura desde erratas, no desde aquí."}
         )
 
 

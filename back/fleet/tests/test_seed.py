@@ -206,10 +206,17 @@ class SeedCoverageTests(APITestCase):
         - `IdempotencyRecord` (R3-34): recibo técnico que solo escribe un POST
           real con `client_ref` — no es un dato de negocio que enseñar en QA y
           además caduca solo a los 30 días.
+        - `UserSession`: la sesión abierta de cada persona, que solo escribe un
+          inicio de sesión real (y apunta a una fila de `django_session` que
+          el seed no crea). Sembrarla sería apuntar a sesiones inexistentes.
         """
         from django.apps import apps
 
-        exempt = {"accounts.GoogleCredential", "fleet.IdempotencyRecord"}
+        exempt = {
+            "accounts.GoogleCredential",
+            "accounts.UserSession",
+            "fleet.IdempotencyRecord",
+        }
         empty = []
         for model in apps.get_models():
             label = f"{model._meta.app_label}.{model.__name__}"

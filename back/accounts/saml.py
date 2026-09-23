@@ -27,6 +27,7 @@ públicas son las que se dan de alta en la consola de Google
 """
 
 import logging
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.contrib.auth import logout as django_logout
@@ -117,21 +118,53 @@ class FleetSaml2Backend(Saml2Backend):
         return user, False
 
 
+#: El selector de cuentas de Google. Con `continue=<URL de SSO>` enseña las
+#: cuentas abiertas en el navegador (y «Usar otra cuenta») y, elegida una,
+#: sigue a la URL de SSO con esa cuenta. Solo acepta destinos de Google.
+GOOGLE_ACCOUNT_CHOOSER_URL = "https://accounts.google.com/AccountChooser"
+_GOOGLE_ACCOUNTS_HOST = "accounts.google.com"
+
+
+def with_account_chooser(location: str) -> str:
+    """Antepone el selector de cuentas de Google a la URL de SSO del IdP.
+
+    Sin esto, Google entra en silencio con la cuenta que tuviera abierta el
+    navegador (o, con ForceAuthn, pide la contraseña de ESA cuenta): en un
+    móvil con una cuenta personal y la corporativa no había forma de elegir.
+    Solo se envuelve un destino de `accounts.google.com`: cualquier otro IdP
+    se deja tal cual, y con `SAML_ACCOUNT_CHOOSER=False` tampoco se toca.
+    """
+    if not getattr(settings, "SAML_ACCOUNT_CHOOSER", True):
+        return location
+    if urlparse(location).netloc.lower() != _GOOGLE_ACCOUNTS_HOST:
+        return location
+    if urlparse(location).path.startswith("/AccountChooser"):
+        return location
+    return f"{GOOGLE_ACCOUNT_CHOOSER_URL}?{urlencode({'continue': location})}"
+
+
 class FleetSamlLoginView(LoginView):
-    """«Entrar con cuenta corporativa» pasa SIEMPRE por Google.
+    """«Entrar con cuenta corporativa» pasa SIEMPRE por Google, y por su
+    selector de cuentas.
 
     La vista de djangosaml2, con una sesión todavía viva (un cierre que no
     llegó al servidor, otra pestaña), redirige a `next` sin ir al IdP: quien
     pulsó «Entrar» volvía dentro con la sesión anterior y sin que Google le
     pidiera nada, y el `force_authn` no llegaba a aplicarse. Aquí la sesión
-    previa se cierra antes de empezar: entrar es entrar de nuevo.
+    previa se cierra antes de empezar: entrar es entrar de nuevo. Y el 302 al
+    IdP (binding redirect) se envuelve en el selector de cuentas de Google
+    (`with_account_chooser`) para que quien entra elija con qué cuenta.
     """
 
     def get(self, request, *args, **kwargs):
         if request.user.is_authenticated:
             security_logger.info("saml login: sesión previa cerrada user=%s", request.user.pk)
             django_logout(request)
-        return super().get(request, *args, **kwargs)
+        response = super().get(request, *args, **kwargs)
+        location = response.get("Location") if response.status_code in (302, 303) else None
+        if location:
+            response["Location"] = with_account_chooser(location)
+        return response
 
 
 class FleetAcsView(AssertionConsumerServiceView):

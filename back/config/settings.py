@@ -308,6 +308,10 @@ FLEET_EMAIL_ALLOWED_DOMAINS = env_list("FLEET_EMAIL_ALLOWED_DOMAINS", SAML_ALLOW
 # A dónde vuelve el navegador cuando el ACS rechaza la entrada (la PWA lee
 # `?saml=<motivo>` y enseña el modal). Relativa: ACS y PWA son el mismo origen.
 SAML_FAILURE_REDIRECT = env_str("SAML_FAILURE_REDIRECT", "/login")
+# «Entrar con cuenta corporativa» pasa por el selector de cuentas de Google
+# (`accounts.saml.with_account_chooser`): quien entra elige con qué cuenta, en
+# vez de que Google use en silencio la que tuviera abierta el navegador.
+SAML_ACCOUNT_CHOOSER = env_bool("SAML_ACCOUNT_CHOOSER", True)
 if SAML_ENABLED:
     import saml2
     from saml2.saml import NAMEID_FORMAT_EMAILADDRESS

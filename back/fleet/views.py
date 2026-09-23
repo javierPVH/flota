@@ -744,7 +744,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         except LogEntry.DoesNotExist:
             raise Http404 from None
         payload = audit_revert.revert_payload(entry)
-        audit_revert.guard(entry, payload)
+        audit_revert.guard(entry, payload, vehicle)
         with transaction.atomic():
             target = audit_revert.target_of(entry, vehicle)
             if isinstance(target, Vehicle):
@@ -871,9 +871,14 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         start = parse_date(str(request.data.get("start_date") or "")) or timezone.localdate()
 
         with transaction.atomic():
-            vehicle = (
-                Vehicle.objects.select_for_update().select_related("supervisor").get(pk=vehicle.pk)
-            )
+            # Sin `select_related("supervisor")` a propósito: `supervisor` es
+            # nulo cuando no hay nadie, así que iría en LEFT OUTER JOIN, y
+            # Postgres no admite `FOR UPDATE` sobre el lado nulo de un join
+            # externo («FOR UPDATE cannot be applied to the nullable side of an
+            # outer join» → 500 en producción en CADA cambio de conductor).
+            # SQLite ignora el candado, por eso los tests no lo veían. El
+            # supervisor se lee aparte solo cuando se va a tocar.
+            vehicle = Vehicle.objects.select_for_update().get(pk=vehicle.pk)
             if expected and (expected_parsed is None or expected_parsed != vehicle.updated_at):
                 raise Conflict()
             if "supervisor" in request.data:

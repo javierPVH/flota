@@ -387,6 +387,13 @@ Encaja con el `http-client` del front (`@gs/base/http`): peticiones con
 3. `GET /api/v1/auth/me/` → datos del usuario.
 4. `POST /api/v1/auth/logout/` → destruye la sesión.
 
+El SSO corporativo de la PWA (`/api/v1/auth/saml/login/`, SAML con Google
+Workspace) antepone al IdP el **selector de cuentas de Google**
+(`accounts.saml.with_account_chooser`: `AccountChooser?continue=<URL de SSO>`,
+solo si el destino es `accounts.google.com`; `SAML_ACCOUNT_CHOOSER=False` lo
+apaga), para que quien entra elija la cuenta en vez de que Google use la que
+tuviera abierta el navegador.
+
 La sesión desliza (`SESSION_COOKIE_AGE`, 2 h de inactividad) y tiene además un
 **tope absoluto** desde el login (`SESSION_ABSOLUTE_AGE`, 2 h;
 `accounts/middleware.py`), que vale para cualquier entrada: contraseña, Google,
@@ -394,7 +401,9 @@ SAML y `/admin/`. Y una persona tiene **una sola sesión**: al iniciar sesión,
 `accounts/sessions.py` (señal `user_logged_in`, tabla `UserSession` usuario →
 clave de sesión) cierra las demás sesiones de ese usuario y deja solo la que
 entra; la vieja recibe el 403 `not_authenticated` en su siguiente petición.
-Las sesiones abiertas se ven en el admin («Sesiones abiertas»). El anti fuerza
+Las sesiones abiertas se ven en el admin («Sesiones abiertas»), sin la clave
+—que es la cookie: con ella se entra como esa persona— y **borrar una fila la
+cierra de verdad** (`sessions.close_session`). El anti fuerza
 bruta del login (`accounts/ratelimit.py`: por IP + cuenta y por cuenta, en
 Redis) protege también la entrada al `/admin/`.
 

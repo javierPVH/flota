@@ -69,6 +69,23 @@ class SingleSessionTests(TestCase):
         self.assertEqual(pc.get(reverse("me")).status_code, 200)
         self.assertEqual(UserSession.objects.filter(user=self.alice).count(), 1)
 
+    def test_borrar_la_fila_desde_el_admin_cierra_la_sesion(self):
+        """Administración puede echar a alguien: borrar su sesión abierta la
+        destruye de verdad (no solo la fila) y la clave no se enseña."""
+        from django.contrib.admin.sites import site
+
+        from accounts.admin import UserSessionAdmin
+
+        pc = Client()
+        self._login(pc)
+        row = UserSession.objects.get(user=self.alice)
+        modeladmin = UserSessionAdmin(UserSession, site)
+        self.assertNotIn("session_key", modeladmin.fields)
+        self.assertNotIn("session_key", modeladmin.list_display)
+        modeladmin.delete_model(request=None, obj=row)
+        self.assertIn(pc.get(reverse("me")).status_code, (401, 403))
+        self.assertEqual(UserSession.objects.filter(user=self.alice).count(), 0)
+
     def test_el_tope_absoluto_por_defecto_es_de_dos_horas(self):
         self.assertEqual(settings.SESSION_ABSOLUTE_AGE, 2 * 60 * 60)
         self.assertEqual(settings.SESSION_COOKIE_AGE, 2 * 60 * 60)

@@ -159,6 +159,22 @@ class AuditRevertTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("state", resp.data["errors"])
 
+    def test_a_retired_vehicle_is_not_touched_from_history(self):
+        """Revertir la propia baja devolvería el coche a la flota saltándose la
+        restauración de erratas (que reabre lo que la baja cerró)."""
+        entry = self._change_brand("Seat")  # una modificación anterior a la baja
+        self.vehicle.refresh_from_db()  # el PATCH cambió la fila, no esta instancia
+        self.vehicle.state = VehicleState.BAJA
+        self.vehicle.save()
+        retire = self._last_update(self.vehicle)  # active → retired
+        for target in (entry, retire):
+            resp = self.client.post(self.revert_url, {"entry": target.pk}, format="json")
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("vehicle", resp.data["errors"])
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.state, VehicleState.BAJA)
+        self.assertEqual(self.vehicle.brand, "Seat")
+
     def test_payload_skips_what_is_not_a_field_correction(self):
         entry = LogEntry(
             action=LogEntry.Action.UPDATE,

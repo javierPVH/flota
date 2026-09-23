@@ -82,6 +82,9 @@ export function SsoLoginPage({ config }: { config: AuthConfig }) {
             <button type="button" className="login-submit" disabled={busy} onClick={entrar}>
               {busy ? S.redirecting : S.button}
             </button>
+            {/* Lo primero que verá tras pulsar es el selector de cuentas de
+                Google (lo antepone el back): que no le pille de sorpresa. */}
+            <p className="login-security">{S.chooser}</p>
           </div>
         ) : (
           <div role="alert" className="form-warn">

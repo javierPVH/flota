@@ -32,6 +32,13 @@ def _store(session_key: str):
     return engine.SessionStore(session_key=session_key)
 
 
+def close_session(row: UserSession) -> None:
+    """Cierra la sesión apuntada por `row` (la destruye en el motor de
+    sesiones) y olvida la fila. Es lo que hace «borrar» en el admin."""
+    _store(row.session_key).delete()
+    row.delete()
+
+
 def close_other_sessions(user, keep_key: str | None) -> int:
     """Cierra todas las sesiones apuntadas de `user` salvo `keep_key`.
 
@@ -43,8 +50,7 @@ def close_other_sessions(user, keep_key: str | None) -> int:
         rows = rows.exclude(session_key=keep_key)
     closed = 0
     for row in rows:
-        _store(row.session_key).delete()
-        row.delete()
+        close_session(row)
         closed += 1
     return closed
 

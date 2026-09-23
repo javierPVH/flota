@@ -12,21 +12,27 @@ aquí. Lo que se prueba es la regla de negocio del acceso, que es nuestra:
 """
 
 from types import SimpleNamespace
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 from django.contrib.auth import get_user_model
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
+from djangosaml2.views import LoginView
 
 from accounts.saml import (
     DENIED_DOMAIN,
     DENIED_ERROR,
     DENIED_INACTIVE,
     DENIED_NO_USER,
+    GOOGLE_ACCOUNT_CHOOSER_URL,
     FleetAcsView,
     FleetSaml2Backend,
+    FleetSamlLoginView,
     SecureSamlSessionMiddleware,
     email_from_assertion,
+    with_account_chooser,
 )
 
 User = get_user_model()
@@ -160,3 +166,40 @@ class AuthConfigSamlTests(TestCase):
         data = self.client.get(reverse("auth-config")).json()
         self.assertFalse(data["saml_enabled"])
         self.assertEqual(data["saml_login_url"], "")
+
+
+IDP_SSO_URL = "https://accounts.google.com/o/saml2/idp?idpid=C0abc&SAMLRequest=fZFB&RelayState=%2F"
+
+
+class AccountChooserTests(TestCase):
+    """«Entrar con cuenta corporativa» enseña el selector de cuentas de Google
+    antes del SSO: quien entra elige la cuenta, en vez de que Google use en
+    silencio la que tuviera abierta el navegador."""
+
+    def test_envuelve_la_url_de_sso_de_google_en_el_selector(self):
+        wrapped = with_account_chooser(IDP_SSO_URL)
+        self.assertTrue(wrapped.startswith(GOOGLE_ACCOUNT_CHOOSER_URL + "?"))
+        parsed = urlparse(wrapped)
+        # El destino viaja ENTERO (SAMLRequest y RelayState incluidos) y codificado.
+        self.assertEqual(parse_qs(parsed.query)["continue"], [IDP_SSO_URL])
+
+    def test_no_toca_otros_proveedores_ni_se_envuelve_dos_veces(self):
+        otro = "https://idp.example.com/sso?SAMLRequest=x"
+        self.assertEqual(with_account_chooser(otro), otro)
+        una_vez = with_account_chooser(IDP_SSO_URL)
+        self.assertEqual(with_account_chooser(una_vez), una_vez)
+
+    @override_settings(SAML_ACCOUNT_CHOOSER=False)
+    def test_se_puede_apagar(self):
+        self.assertEqual(with_account_chooser(IDP_SSO_URL), IDP_SSO_URL)
+
+    def test_la_vista_de_login_redirige_al_selector(self):
+        """djangosaml2 contesta el 302 al IdP (binding redirect); la vista lo
+        envuelve. No se monta el IdP: se sustituye esa respuesta."""
+        request = RequestFactory().get("/api/v1/auth/saml/login/")
+        request.user = SimpleNamespace(is_authenticated=False)
+        with patch.object(LoginView, "get", return_value=HttpResponseRedirect(IDP_SSO_URL)):
+            response = FleetSamlLoginView.as_view()(request)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].startswith(GOOGLE_ACCOUNT_CHOOSER_URL))
+        self.assertEqual(parse_qs(urlparse(response["Location"]).query)["continue"], [IDP_SSO_URL])
