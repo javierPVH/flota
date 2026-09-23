@@ -5904,16 +5904,24 @@ kbd {
 /* La salida alternativa («¿Ya se ha pasado? Registrar ITV») va con su porqué
    al lado, delante de la acción principal. */
 .schedule-alt {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.82rem;
+  /* Lo que cede sitio es el texto (se parte en dos líneas si hace falta);
+     los botones no bajan de fila. */
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+  text-align: right;
 }
+.schedule-alt .muted { flex: 0 1 auto; min-width: 0; }
 /* El pie del modal, común a las dos pestañas: «Cerrar» a la izquierda y las
    acciones del formulario abierto a la derecha. Se queda pegado abajo mientras
    el cuerpo hace scroll, como `.ops-actions`. */
 .schedule-foot {
   justify-content: space-between;
+  flex-wrap: nowrap;
   position: sticky;
   bottom: 0;
   z-index: 2;
@@ -5923,12 +5931,16 @@ kbd {
 }
 .schedule-foot-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-end;
   gap: 0.6rem;
   margin-left: auto;
+  flex: 1 1 auto;
+  min-width: 0;
 }
+/* Todos los botones del pie en UNA fila: ninguno se encoge ni se parte. */
+.schedule-foot button { flex: 0 0 auto; white-space: nowrap; }
 /* Abajo del todo, lo ya realizado (las últimas cinco). */
 .schedule-history {
   display: flex;

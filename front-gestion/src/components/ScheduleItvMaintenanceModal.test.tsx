@@ -205,7 +205,7 @@ describe('Programar ITV y mantenimiento', () => {
     const fila = screen
       .getByRole('button', { name: 'Programar mantenimiento' })
       .closest('.form-actions')!
-    expect(within(fila as HTMLElement).getByText(/Ya se ha hecho una revisión/)).toBeInTheDocument()
+    expect(within(fila as HTMLElement).getByText(/Revisión ya hecha/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Programar mantenimiento' }))
     expect(mocks.createMaintenancePlan).toHaveBeenCalledWith({
       vehicle: 7,

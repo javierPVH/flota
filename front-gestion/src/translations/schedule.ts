@@ -37,7 +37,7 @@ const es = {
     'El vehículo tiene UN mantenimiento programado, y su ciclo sale del catálogo común de programas. El CP preferente es la ubicación desde la que se busca el taller más cercano.',
   maintenanceNone:
     'No hay ningún mantenimiento programado. Prográmalo aquí; si ya se ha hecho una revisión, pon su fecha en «Se cuenta desde» y el ciclo arranca de ahí.',
-  maintenanceAlreadyDone: '¿Ya se ha hecho una revisión? Pon su fecha en «Se cuenta desde».',
+  maintenanceAlreadyDone: '¿Revisión ya hecha? Pon su fecha en «Se cuenta desde».',
   maintenanceScheduledLabel: 'Mantenimiento programado',
   maintenanceOverdueLabel: 'Mantenimiento vencido',
   /** Un programa solo por km no tiene fecha que enseñar. */
@@ -133,7 +133,7 @@ const en: typeof es = {
     'A vehicle has ONE scheduled maintenance, and its cycle comes from the shared programme catalogue. The preferred postcode is the location used to find the nearest workshop.',
   maintenanceNone:
     'There is no scheduled maintenance. Schedule it here; if a service has already been done, enter its date in "Counted from" and the cycle starts there.',
-  maintenanceAlreadyDone: 'Service already done? Enter its date in "Counted from".',
+  maintenanceAlreadyDone: 'Already serviced? Enter its date in "Counted from".',
   maintenanceScheduledLabel: 'Maintenance scheduled',
   maintenanceOverdueLabel: 'Maintenance overdue',
   maintenanceOnlyKm: 'By mileage',
