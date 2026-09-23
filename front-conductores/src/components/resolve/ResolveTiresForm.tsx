@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from 'react'
-import { Button } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import {
   prefillPositions,
@@ -12,6 +11,7 @@ import type { IncidentResolveInput } from '../../api.ts'
 import { newClientRef } from '../../offline/queue.ts'
 import { useResolveCopy } from '../../translations/resolve.ts'
 import { ResolutionCommonFields } from './ResolutionCommonFields.tsx'
+import { ResolveActions, ResolveStepBar, useResolveSteps } from './ResolveSteps.tsx'
 import { sendResolution } from './sendResolution.ts'
 import { useResolutionCommon } from './useResolutionCommon.ts'
 import type { ResolveFormProps } from './types.ts'
@@ -22,6 +22,10 @@ import type { ResolveFormProps } from './types.ts'
  * viene **prellenado** (`prefillSize`/`prefillPositions` del DS, la misma
  * lectura que hace el escritorio), porque quien cierra no tiene que volver a
  * teclear lo que ya se comunicó.
+ *
+ * Los neumáticos ocupan su propio paso (**cuándo → detalles → taller →
+ * cierre**): en una sola columna, las cuatro ruedas quedaban debajo de la
+ * factura y había que recorrer el formulario entero para verlas.
  *
  * Marcar ruedas fija la cantidad: el back la exige coherente y dos campos que
  * se contradicen acaban en un 400 que en el móvil no se entiende.
@@ -50,6 +54,7 @@ export function ResolveTiresForm({
   const [proofRef] = useState(newClientRef)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const pasos = useResolveSteps(['when', 'what', 'workshop', 'close'])
 
   function togglePosition(position: TirePosition, checked: boolean) {
     const next = checked
@@ -70,6 +75,11 @@ export function ResolveTiresForm({
 
   async function submit(event: FormEvent) {
     event.preventDefault()
+    // Intro antes del último paso AVANZA: no cierra la incidencia a medias.
+    if (pasos.next !== undefined) {
+      pasos.goTo(pasos.next)
+      return
+    }
     if (!common.values.date) return
     setSaving(true)
     setError('')
@@ -92,61 +102,89 @@ export function ResolveTiresForm({
   return (
     <form className="update-action-form" onSubmit={submit}>
       <p className="update-hint">{c.intro}</p>
-      <ResolutionCommonFields common={common} minDate={incident.date} />
+      <ResolveStepBar steps={pasos} />
+      <div key={pasos.step} className={`step-pane${pasos.cameBack ? ' from-left' : ''}`}>
+        {pasos.step === 'when' && (
+          <ResolutionCommonFields
+            common={common}
+            minDate={incident.date}
+            show={{ km: false, cost: false, postalCode: false, observations: false, proof: false }}
+          />
+        )}
 
-      <div className="resolve-grid">
-        <label className="reminder-check">
-          {c.size}
-          <input
-            type="text"
-            className="update-input"
-            value={size}
-            onChange={(event) => setSize(event.target.value)}
+        {pasos.step === 'what' && (
+          <>
+            <div className="resolve-grid">
+              <label className="reminder-check">
+                {c.size}
+                <input
+                  type="text"
+                  className="update-input"
+                  value={size}
+                  onChange={(event) => setSize(event.target.value)}
+                />
+              </label>
+              <label className="reminder-check">
+                {c.brand}
+                <input
+                  type="text"
+                  className="update-input"
+                  value={brand}
+                  onChange={(event) => setBrand(event.target.value)}
+                />
+              </label>
+            </div>
+            <label className="reminder-check">
+              {c.quantity}
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                className="update-input"
+                value={quantity}
+                onChange={(event) => setQuantity(event.target.value.replace(/\D/g, ''))}
+              />
+            </label>
+
+            <fieldset className="resolve-wheels">
+              <legend>{c.positions}</legend>
+              {TIRE_POSITIONS.map((position) => (
+                <label key={position} className="reminder-check">
+                  <input
+                    type="checkbox"
+                    checked={positions.includes(position)}
+                    onChange={(event) => togglePosition(position, event.target.checked)}
+                  />{' '}
+                  {c[position]}
+                </label>
+              ))}
+            </fieldset>
+          </>
+        )}
+
+        {pasos.step === 'workshop' && (
+          <ResolutionCommonFields
+            common={common}
+            show={{ date: false, observations: false, proof: false }}
           />
-        </label>
-        <label className="reminder-check">
-          {c.brand}
-          <input
-            type="text"
-            className="update-input"
-            value={brand}
-            onChange={(event) => setBrand(event.target.value)}
+        )}
+
+        {pasos.step === 'close' && (
+          <ResolutionCommonFields
+            common={common}
+            show={{ date: false, km: false, cost: false, postalCode: false }}
           />
-        </label>
+        )}
       </div>
-      <label className="reminder-check">
-        {c.quantity}
-        <input
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          className="update-input"
-          value={quantity}
-          onChange={(event) => setQuantity(event.target.value.replace(/\D/g, ''))}
-        />
-      </label>
-
-      <fieldset className="resolve-wheels">
-        <legend>{c.positions}</legend>
-        {TIRE_POSITIONS.map((position) => (
-          <label key={position} className="reminder-check">
-            <input
-              type="checkbox"
-              checked={positions.includes(position)}
-              onChange={(event) => togglePosition(position, event.target.checked)}
-            />{' '}
-            {c[position]}
-          </label>
-        ))}
-      </fieldset>
 
       {error && <div role="alert" className="form-error">{error}</div>}
-      <div className="form-actions">
-        <Button type="button" variant="secondary" onClick={onClose}>{t.common.cancel}</Button>
-        <Button type="submit" disabled={saving || !common.values.date}>
-          {saving ? t.common.submitting : t.common.submit}
-        </Button>
-      </div>
+      <ResolveActions
+        steps={pasos}
+        onCancel={onClose}
+        canContinue={pasos.step !== 'when' || Boolean(common.values.date)}
+        canSave={Boolean(common.values.date)}
+        saving={saving}
+      />
     </form>
   )
 }

@@ -1642,11 +1642,15 @@ class IncidentSerializer(serializers.ModelSerializer):
         if availability is not None and availability not in vehicle_requests.AVAILABILITY_VALUES:
             errors["details"] = "Disponibilidad no válida."
 
+        # El CP es la ubicación PREFERENTE desde la que buscar taller, y al
+        # comunicar no siempre se sabe a cuál se irá: es opcional aquí y se
+        # completa (o se corrige) al cerrar. Si se escribe, el formato manda
+        # —eso lo comprueba la regla de arriba—. El kilometraje sí se exige:
+        # es lo que marca el odómetro en ese momento y solo lo sabe quien
+        # tiene el coche delante.
         if guided_report and incident_type in ("breakdown", "tires"):
             if mileage is None:
                 errors["mileage"] = "Indica el kilometraje actual."
-            if not postal_code:
-                errors["workshop_postal_code"] = "Indica el código postal del taller."
 
         if (
             guided_report

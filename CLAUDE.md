@@ -637,7 +637,12 @@ Dos capas que van **siempre juntas**:
   de la petición (`Incident.workshop_postal_code`) y se puede **completar o
   corregir al cerrar** —en campo no siempre se sabe a qué taller irá—; vacío no
   borra el que hubiera, y solo se pinta donde hay petición detrás (una alerta no
-  tiene ubicación que completar).
+  tiene ubicación que completar). Por eso **al ABRIRLA es opcional** en los dos
+  lados, y el back tampoco lo exige en el parte guiado de avería y neumáticos
+  (sí el **kilometraje**, que solo lo sabe quien tiene el coche delante): es la
+  ubicación *preferente* desde la que buscar taller, no el taller. Lo que sigue
+  mandando es el **formato** si se escribe algo —cinco cifras—, a los dos lados,
+  porque un CP a medias no sirve para buscar nada.
 - **La «petición general» se cierra en otro orden y con menos campos**, a los
   dos lados (`ResolveBreakdownModal` en gestión, `ResolveBreakdownForm` en
   campo): **fecha**, **observaciones** y una casilla, **«Requirió pasar por el
@@ -1093,7 +1098,20 @@ Dos capas que van **siempre juntas**:
   (`prefillSize`/`prefillPositions`/`TIRE_POSITIONS`) subió al DS
   (`@flota/ui/domain`, con `tireReportSummary`): lo leen los dos fronts y es
   contrato del back, así que dos copias acabarían marcando ruedas distintas
-  del mismo parte.
+  del mismo parte. Y esos cuatro formularios son **carruseles**
+  (`resolve/ResolveSteps.tsx`: la misma tira de `flow-steps`, el mismo pane que
+  entra deslizándose y el mismo pie de «Atrás / Continuar» que el parte guiado
+  y «Mis datos»), con cuatro pasos de los que cada flujo usa los suyos:
+  **cuándo** (la fecha, lo único obligatorio), **detalles** (lo propio del tipo:
+  las ruedas montadas, el expediente del siniestro), **taller** (km, coste y CP)
+  y **cierre** (observaciones y factura). Una avería no tiene «detalles» que
+  preguntar, y en la **petición general** el taller es un paso que **solo
+  existe** si se marca la casilla —y desmarcarla se lo lleva con lo escrito—.
+  En una sola columna se rellenaban a ciegas: siete campos y la factura en una
+  pantalla de móvil que había que recorrer entera, de pie en el taller, para
+  saber si quedaba algo. **Guardar solo aparece en el último paso** (e Intro
+  antes avanza, no cierra la incidencia a medias), como en el asistente de
+  gestión: el botón que cierra no nace bajo el dedo donde estaba «Continuar».
 - **Un botón que aún no toca EXPLICA por qué, no se muere.** La ITV y el
   mantenimiento solo se registran desde **30 días antes** de la cita
   (`scheduledActionAvailable`); hasta entonces sus botones iban `disabled` con

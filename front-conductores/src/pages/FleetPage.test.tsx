@@ -458,7 +458,12 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
     await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
 
+    // El CP es opcional: sin él se puede enviar (lo que no vale es medio
+    // escrito, que no sirve para buscar taller).
+    expect(screen.getByRole('button', { name: 'Comunicar incidencia' })).toBeEnabled()
+    await userEvent.type(screen.getByLabelText('Código postal de la ubicación preferente'), '280')
     expect(screen.getByRole('button', { name: 'Comunicar incidencia' })).toBeDisabled()
+    await userEvent.clear(screen.getByLabelText('Código postal de la ubicación preferente'))
     expect(screen.queryByLabelText('Día y hora')).toBeNull()
     expect(screen.queryByLabelText('Coste (€)')).toBeNull()
     await userEvent.type(screen.getByLabelText('Código postal de la ubicación preferente'), '28001')
@@ -654,7 +659,8 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
     await userEvent.click(screen.getByRole('button', { name: 'Continuar' }))
     const preferredCp = await screen.findByLabelText('Código postal de la ubicación preferente')
-    expect(screen.getByRole('button', { name: 'Comunicar incidencia' })).toBeDisabled()
+    // Opcional: en blanco se puede enviar, y se completa al cerrar.
+    expect(screen.getByRole('button', { name: 'Comunicar incidencia' })).toBeEnabled()
     await userEvent.type(preferredCp, '28001')
     await userEvent.click(screen.getByRole('button', { name: 'Comunicar incidencia' }))
 

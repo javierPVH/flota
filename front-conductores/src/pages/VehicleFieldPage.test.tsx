@@ -384,10 +384,13 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Incidencias/ }))
     await userEvent.click(await screen.findByRole('button', { name: 'Solucionar' }))
     // El título dice QUÉ se cierra: cada tipo tiene su formulario.
-    expect(
-      screen.getByRole('dialog', { name: 'Solucionar avería · 1234KLM' }),
-    ).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Cerrar incidencia' }))
+    const dialog = screen.getByRole('dialog', { name: 'Solucionar avería · 1234KLM' })
+    // Se rellena POR PASOS (cuándo → taller → cierre): el botón de guardar
+    // no existe hasta el último, para no cerrarla a medias.
+    expect(within(dialog).queryByRole('button', { name: 'Cerrar incidencia' })).toBeNull()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cerrar incidencia' }))
 
     await waitFor(() =>
       expect(mocks.resolveIncident).toHaveBeenCalledWith(31, {
@@ -421,11 +424,14 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Incidencias/ }))
     await userEvent.click(await screen.findByRole('button', { name: 'Solucionar' }))
     const dialog = screen.getByRole('dialog', { name: 'Solucionar neumáticos · 1234KLM' })
-    // Medida y ruedas, tomadas del parte.
+    // Medida y ruedas viven en su propio paso, tomadas del parte.
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
     expect(within(dialog).getByDisplayValue('205/55 R16')).toBeInTheDocument()
     expect(within(dialog).getByLabelText('Delantera izquierda')).toBeChecked()
     expect(within(dialog).getByLabelText('Trasera derecha')).not.toBeChecked()
 
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cerrar incidencia' }))
     await waitFor(() =>
       expect(mocks.resolveIncident).toHaveBeenCalledWith(32, {
@@ -448,8 +454,11 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Accidentes/ }))
     await userEvent.click(await screen.findByRole('button', { name: 'Solucionar' }))
     const dialog = screen.getByRole('dialog', { name: 'Solucionar accidente · 1234KLM' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
     await userEvent.type(within(dialog).getByLabelText(/Expediente/), 'SIN-2026-14')
     await userEvent.selectOptions(within(dialog).getByLabelText(/Quién asume/), 'third_party')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cerrar incidencia' }))
 
     await waitFor(() =>
@@ -476,12 +485,18 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Incidencias/ }))
     await userEvent.click(await screen.findByRole('button', { name: 'Solucionar' }))
     const dialog = screen.getByRole('dialog', { name: 'Cerrar petición · 1234KLM' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
     expect(within(dialog).queryByLabelText('Kilometraje')).not.toBeInTheDocument()
     expect(within(dialog).queryByLabelText('Coste (€)')).not.toBeInTheDocument()
+    // Sin taller, el cierre es el ÚLTIMO paso: se guarda desde aquí.
+    expect(within(dialog).getByRole('button', { name: 'Cerrar incidencia' })).toBeInTheDocument()
 
-    // Al marcarlo se despliegan; al desmarcarlo se van y NO viajan.
+    // Marcarlo AÑADE el paso del taller; desmarcarlo se lo lleva, y lo que se
+    // hubiera escrito NO viaja.
     await userEvent.click(within(dialog).getByLabelText(/Requirió pasar por el taller/))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
     await userEvent.type(within(dialog).getByLabelText('Coste (€)'), '40')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Atrás' }))
     await userEvent.click(within(dialog).getByLabelText(/Requirió pasar por el taller/))
     expect(within(dialog).queryByLabelText('Coste (€)')).not.toBeInTheDocument()
 
@@ -504,10 +519,12 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Incidencias/ }))
     await userEvent.click(await screen.findByRole('button', { name: 'Solucionar' }))
     const dialog = screen.getByRole('dialog', { name: 'Solucionar avería · 1234KLM' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
     await userEvent.click(within(dialog).getByRole('button', { name: /Cargar los del coche/ }))
     // La última lectura del resumen (4679 km), sin teclear cinco dígitos.
     expect(within(dialog).getByLabelText('Kilometraje')).toHaveValue('4679')
 
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cerrar incidencia' }))
     await waitFor(() =>
       expect(mocks.resolveIncident).toHaveBeenCalledWith(31, {

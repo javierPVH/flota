@@ -554,7 +554,10 @@ const es = {
     next: 'Continuar',
     back: 'Atrás',
     workshop: 'Taller',
-    workshopHint: 'Indica el código postal de la ubicación desde la que prefieres acudir al taller más cercano.',
+    workshopHint:
+      'Si lo sabes, indica el código postal de la ubicación desde la que prefieres '
+      + 'acudir al taller más cercano. Es opcional: puedes dejarlo en blanco y '
+      + 'completarlo al cerrar la incidencia.',
     preferredPostalCode: 'Código postal de la ubicación preferente',
     cost: 'Coste (€)',
     submit: 'Comunicar incidencia',
@@ -1613,7 +1616,10 @@ const en: typeof es = {
     next: 'Continue',
     back: 'Back',
     workshop: 'Workshop',
-    workshopHint: 'Enter the postal code of the preferred location for finding the nearest workshop.',
+    workshopHint:
+      'If you know it, enter the postal code of the preferred location for finding '
+      + 'the nearest workshop. It is optional: you can leave it blank and fill it in '
+      + 'when closing the incident.',
     preferredPostalCode: 'Preferred location postal code',
     cost: 'Cost (€)',
     submit: 'Report incident',

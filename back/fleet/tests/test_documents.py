@@ -710,6 +710,49 @@ class IncidentTests(APITestCase):
         self.assertEqual(resp.data["details"]["wheel_scope"], "all")
         self.assertEqual(resp.data["mileage"], 45000)
 
+    def test_guided_report_does_not_require_the_preferred_postal_code(self):
+        """El CP es la ubicación PREFERENTE desde la que buscar taller, y al
+        comunicar no siempre se sabe a cuál se irá: se completa al cerrar. Como
+        alta obligatoria dejaba sin abrir una avería por un dato que quien
+        conduce no tiene por qué saber."""
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(
+            self.list_url,
+            {
+                "vehicle": self.group_vehicle.pk,
+                "type": "tires",
+                "mileage": 45000,
+                "details": {
+                    "report_version": 1,
+                    "change_reason": "wear",
+                    "wheel_scope": "all",
+                    "front_measure": "205/55 R16",
+                    "rear_measure": "205/55 R16",
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(Incident.objects.get().workshop_postal_code, "")
+
+    def test_a_half_typed_postal_code_is_still_rejected(self):
+        """Opcional no es «cualquier cosa»: con cinco cifras o en blanco."""
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(
+            self.list_url,
+            {
+                "vehicle": self.group_vehicle.pk,
+                "type": "breakdown",
+                "description": "No arranca",
+                "mileage": 45000,
+                "workshop_postal_code": "280",
+                "details": {"report_version": 1},
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("workshop_postal_code", resp.data["errors"])
+
     def test_guided_accident_requires_core_fields(self):
         self.client.force_authenticate(self.driver)
         resp = self.client.post(

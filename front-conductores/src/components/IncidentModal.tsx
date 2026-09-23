@@ -192,7 +192,11 @@ export function BreakdownModal({
   // justifique (uno o varios). Sin pedirlo, los adjuntos siguen siendo libres.
   const needsDocument = availability === 'substitute' && stepsFor(kind).includes('availability')
   const docsValid = !needsDocument || files.length > 0
-  const managementValid = /^[0-9]{5}$/.test(managementPostalCode)
+  // El CP es OPCIONAL: en blanco la petición se abre igual (se completa al
+  // cerrarla, que es cuando se sabe el taller). Lo que no vale es medio
+  // escrito, que no sirve para buscar nada.
+  const managementValid =
+    !managementPostalCode.trim() || /^[0-9]{5}$/.test(managementPostalCode)
   const steps = stepsFor(kind)
   const current = steps.indexOf(step)
   const nextStep = steps[current + 1]
@@ -512,7 +516,7 @@ export function BreakdownModal({
             ) : (
               <div className="modal-form">
                 <p className="update-hint">{b.workshopHint}</p>
-                <TextInputField label={b.preferredPostalCode} aria-label={b.preferredPostalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={managementPostalCode} onChange={(e) => setManagementPostalCode(e.target.value)} required requiredVisual />
+                <TextInputField label={b.preferredPostalCode} aria-label={b.preferredPostalCode} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={managementPostalCode} onChange={(e) => setManagementPostalCode(e.target.value)} />
               </div>
             )}
             {error && <div role="alert" className="form-error">{error}</div>}

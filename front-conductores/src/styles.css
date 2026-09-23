@@ -2080,6 +2080,10 @@ button.bottom-tab {
 .file-field { display: grid; gap: 0.35rem; font-size: 0.9rem; font-weight: 600; }
 .file-field input { font-size: 0.9rem; }
 .form-actions { display: flex; gap: 0.6rem; justify-content: flex-end; }
+/* El pie de un formulario POR PASOS: se sale por la izquierda y se avanza
+   por la derecha, como el resto de los carruseles de la app —así el botón
+   de guardar no aparece bajo el dedo donde estaba «Continuar»—. */
+.form-actions-steps { justify-content: space-between; margin-top: 0.2rem; }
 
 .incident-section {
   display: grid;

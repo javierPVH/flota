@@ -36,6 +36,16 @@ const es = {
     proofChange: 'Toca para cambiarla',
     downtime: (days: number) => (days === 1 ? '1 día parado' : `${days} días parado`),
     cancel: 'Cancelar',
+    /** El carrusel: la tira de arriba y los dos botones del pie. Cuatro
+     * pasos, y cada flujo usa los suyos. */
+    steps: {
+      when: 'Cuándo',
+      what: 'Detalles',
+      workshop: 'Taller',
+      close: 'Cierre',
+    },
+    back: 'Atrás',
+    next: 'Continuar',
     submit: 'Cerrar incidencia',
     submitting: 'Guardando…',
     required: 'Obligatorio',
@@ -104,6 +114,14 @@ const en: typeof es = {
     proofChange: 'Tap to change it',
     downtime: (days) => (days === 1 ? '1 day off the road' : `${days} days off the road`),
     cancel: 'Cancel',
+    steps: {
+      when: 'When',
+      what: 'Details',
+      workshop: 'Workshop',
+      close: 'Wrap-up',
+    },
+    back: 'Back',
+    next: 'Continue',
     submit: 'Close incident',
     submitting: 'Saving…',
     required: 'Required',
