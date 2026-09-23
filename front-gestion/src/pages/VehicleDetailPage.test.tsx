@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   listDrivers: vi.fn(),
   listSupervisorChanges: vi.fn(),
   fetchManagedUser: vi.fn(),
+  revertVehicleChange: vi.fn(),
   useAuth: vi.fn(),
 }))
 
@@ -55,6 +56,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listDrivers: mocks.listDrivers,
   listSupervisorChanges: mocks.listSupervisorChanges,
   fetchManagedUser: mocks.fetchManagedUser,
+  revertVehicleChange: mocks.revertVehicleChange,
 }))
 
 vi.mock('../auth.ts', async (importOriginal) => ({
@@ -381,5 +383,45 @@ describe('VehicleDetailPage (la ficha del vehículo)', () => {
     renderPage()
     await screen.findByRole('heading', { name: '1234KLM' })
     expect(screen.getByRole('button', { name: '← Vista general' })).toBeInTheDocument()
+  })
+
+  it('histórico: «Revertir» en el paquete de cambios, con confirmación, y la ficha se recarga', async () => {
+    const cambio = {
+      id: 77,
+      action: 'update',
+      actor: 'Laura Martin',
+      changes: { brand: ['Seat', 'Cupra'], model: ['Leon', 'Formentor'] },
+      model: 'vehicle',
+      object_repr: '1234KLM',
+      timestamp: '2026-09-23T09:55:00Z',
+      reverts: null,
+      revertible: true,
+    }
+    const alta = { ...cambio, id: 70, action: 'create', changes: { plate: ['', '1234KLM'] }, revertible: false }
+    mocks.fetchVehicleHistory.mockResolvedValue(page([cambio, alta]))
+    mocks.revertVehicleChange.mockReset().mockResolvedValue({
+      entry: { ...cambio, id: 78, reverts: 77, changes: { brand: ['Cupra', 'Seat'], model: ['Formentor', 'Leon'] } },
+      vehicle: VEHICLE,
+    })
+    renderPage()
+    await screen.findByRole('heading', { name: '1234KLM' })
+    await userEvent.click(screen.getByRole('button', { name: /Desplegar todo/ }))
+
+    // Solo el paquete de cambios lo ofrece: el alta no tiene valor anterior.
+    const botones = await screen.findAllByRole('button', { name: /^Revertir/ })
+    expect(botones).toHaveLength(1)
+    await userEvent.click(botones[0])
+
+    // La confirmación dice a qué valor vuelve cada campo.
+    const dialogo = await screen.findByRole('dialog')
+    expect(dialogo).toHaveTextContent('Revertir este cambio')
+    expect(dialogo).toHaveTextContent(/Marca.*Cupra.*Seat/)
+    expect(mocks.revertVehicleChange).not.toHaveBeenCalled()
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Sí, revertir' }))
+
+    await waitFor(() => expect(mocks.revertVehicleChange).toHaveBeenCalledWith(21, 77))
+    expect(await screen.findByText('Cambio revertido. Queda registrado en el histórico.')).toBeInTheDocument()
+    // La ficha entera se vuelve a pedir: el histórico trae ya la reversión.
+    await waitFor(() => expect(mocks.fetchVehicleHistory).toHaveBeenCalledTimes(2))
   })
 })

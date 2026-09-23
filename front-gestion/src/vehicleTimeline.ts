@@ -158,8 +158,14 @@ export interface TimelineItem {
   kind: 'event' | 'audit'
   /** Modelo de origen (event/vehicle/contract/assignment/…), para etiqueta y filtro. */
   source: string
-  /** Acción de auditoría cruda (create/update/delete) — para el render de la lista. */
+  /** Acción de auditoría cruda (create/update/delete/revert) — para el render de la lista. */
   action?: string
+  /** Id de la entrada de auditoría (para revertirla). */
+  entryId?: number
+  /** Si la entrada se puede revertir desde la ficha (lo dice el back). */
+  revertible?: boolean
+  /** Id de la entrada que esta deshizo, si es una reversión. */
+  reverts?: number | null
 }
 
 export interface TimelineLabels {
@@ -296,6 +302,9 @@ export function buildTimeline(
       const source = a.model || 'vehicle'
       const actor = a.actor || labels.systemActor
       const changes = usefulChanges(a.changes, labels, source)
+      // Una reversión es una modificación que deshace otra: se nombra como tal
+      // (y así no se pliega en la misma ráfaga que los cambios corrientes).
+      const action = a.reverts != null ? 'revert' : a.action
       return {
         key: `a${a.id}`,
         repr: a.object_repr,
@@ -303,7 +312,7 @@ export function buildTimeline(
         at: a.timestamp,
         hasTime: true,
         // Título legible para la línea temporal y su modal: "Contrato · Modificación".
-        title: `${labels.modelLabel(source)} · ${labels.actionLabel(a.action)}`,
+        title: `${labels.modelLabel(source)} · ${labels.actionLabel(action)}`,
         actor,
         note: '',
         changes,
@@ -311,14 +320,20 @@ export function buildTimeline(
         detail: changes.map((c) => `${c.field}: ${c.before} → ${c.after}`),
         kind: 'audit' as const,
         source,
-        action: a.action,
+        action,
+        entryId: a.id,
+        revertible: Boolean(a.revertible) && changes.length > 0,
+        reverts: a.reverts ?? null,
       }
     }),
   ]
   // Una modificación de la que no queda ningún campo visible no cuenta nada:
   // fuera. Un alta sí se sostiene sola (el objeto se creó).
   const visible = items.filter(
-    (i) => i.kind === 'event' || i.action !== 'update' || i.changes.length > 0,
+    (i) =>
+      i.kind === 'event' ||
+      (i.action !== 'update' && i.action !== 'revert') ||
+      i.changes.length > 0,
   )
   // De más reciente a más antiguo. La auditoría trae el instante completo, así
   // que dos cambios del mismo día quedan en su orden real.

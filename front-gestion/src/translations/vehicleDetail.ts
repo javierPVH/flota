@@ -167,6 +167,16 @@ const es = {
   historyGroupTitle: (n: number, action: string) => `${n} × ${action}`,
   historyGroupOpen: (n: number) => `Ver el detalle (${n})`,
   historyDayItems: (n: number) => `${n} movimiento${n === 1 ? '' : 's'}`,
+  // Revertir un paquete de cambios: los valores anteriores vuelven como una
+  // modificación nueva; el histórico no se toca.
+  revertBtn: 'Revertir',
+  revertTitle: 'Revertir este cambio',
+  revertIntro:
+    'Estos campos volverán a su valor anterior. El histórico no se borra: quedará una entrada nueva con la reversión, a tu nombre.',
+  revertConfirm: 'Sí, revertir',
+  revertDone: 'Cambio revertido. Queda registrado en el histórico.',
+  revertError: 'No se pudo revertir el cambio.',
+  revertsNote: (when: string) => `Deshace el cambio del ${when}.`,
   boolYes: 'Sí',
   boolNo: 'No',
   auditModels: {
@@ -185,6 +195,7 @@ const es = {
   auditActions: {
     create: 'Alta',
     update: 'Modificación',
+    revert: 'Reversión',
     delete: 'Eliminación',
     access: 'Acceso',
   } as Record<string, string>,
@@ -624,6 +635,14 @@ const en: typeof es = {
   historyGroupTitle: (n, action) => `${n} × ${action}`,
   historyGroupOpen: (n) => `View details (${n})`,
   historyDayItems: (n) => `${n} entr${n === 1 ? 'y' : 'ies'}`,
+  revertBtn: 'Revert',
+  revertTitle: 'Revert this change',
+  revertIntro:
+    'These fields will go back to their previous value. History is not erased: a new entry with the reversal will be recorded under your name.',
+  revertConfirm: 'Yes, revert',
+  revertDone: 'Change reverted. It is recorded in the history.',
+  revertError: 'The change could not be reverted.',
+  revertsNote: (when) => `Undoes the change of ${when}.`,
   boolYes: 'Yes',
   boolNo: 'No',
   auditModels: {
@@ -642,6 +661,7 @@ const en: typeof es = {
   auditActions: {
     create: 'Created',
     update: 'Updated',
+    revert: 'Reverted',
     delete: 'Deleted',
     access: 'Accessed',
   },

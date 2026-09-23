@@ -15,6 +15,10 @@ class Role(models.TextChoices):
     ADMIN = "admin", "Administrador"
     SUPERVISOR = "supervisor", "Supervisor"
     DRIVER = "driver", "Conductor"
+    # Solo LECTURA sobre toda la flota en el front de gestión (prevención de
+    # riesgos): no escribe, no ve personas ni Ajustes. NO es gestión
+    # (`is_management` no lo incluye): se compone aparte con `HseReadOnly`.
+    HSE = "hse", "HSE"
 
 
 class LicenseType(models.TextChoices):
@@ -108,8 +112,19 @@ class User(AbstractUser):
         return Role.DRIVER in self.role_values
 
     @property
+    def is_hse(self) -> bool:
+        """Lectura de toda la flota (HSE). Se suma a los demás roles: un
+        conductor con HSE opera su coche y lee el resto."""
+        return Role.HSE in self.role_values
+
+    @property
     def is_management(self) -> bool:
-        """Acceso al front de gestión (VPN): administrador o supervisor."""
+        """Acceso al front de gestión (VPN): administrador o supervisor.
+
+        HSE NO cuenta: entra en gestión, pero solo a leer, y eso lo decide
+        `HseReadOnly` endpoint a endpoint, no esta propiedad (que abre también
+        `/auth/drivers/`, las bandejas y las escrituras del supervisor).
+        """
         return bool(self.role_values & {Role.ADMIN, Role.SUPERVISOR})
 
 

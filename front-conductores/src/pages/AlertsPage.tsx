@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
-import { BellOff, BellRing, ChevronRight } from 'lucide-react'
+import { AlertTriangle, BellRing, Wrench } from 'lucide-react'
 import { Badge, Button, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
@@ -11,14 +11,26 @@ import {
   fetchVehicleSummariesCached,
   type KmWindow,
   listAlerts,
+  listIncidents,
+  listVehicles,
   listVehiclesCached,
   truncatedAt,
 } from '../api.ts'
 import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
 import { AlertResolveDispatcher } from '../components/AlertResolveDispatcher.tsx'
-import { useAuth } from '../auth.ts'
+import { CollapsibleCard, useAccordion } from '../components/CollapsibleCard.tsx'
+import { IncidentResolveModal } from '../components/IncidentResolveModal.tsx'
+import { ListFilter, matches, typeOptions, type ListOrder } from '../components/ListFilter.tsx'
+import { hasWideReadScope, useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
-import { alertLevelTone } from '../format.ts'
+import {
+  fmtDate,
+  incidentStatusTone,
+  isOpenFieldIncident,
+  tireReportSummary,
+} from '../format.ts'
+import { priorityOf, priorityRank, priorityTone } from '../incidentPriority.ts'
+import { PENDING_CARDS } from '../pendingCards.ts'
 import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import {
@@ -29,41 +41,88 @@ import {
   PUSH_NOT_CONFIGURED,
   type PushState,
 } from '../push.ts'
-import type { Alert, Vehicle, VehicleSummary } from '../types.ts'
+import type { Alert, Incident, Vehicle, VehicleSummary } from '../types.ts'
 
-// Crítica primero: a pie de vehículo se atiende lo urgente.
+// Crítica primero: a pie de vehículo se atiende lo urgente. En una alerta la
+// «prioridad» es su NIVEL, que el motor calcula por cercanía de la fecha (en
+// una petición la marca quien la abre, y eso es `incidentPriority`).
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
 
-/** Acordeón por coche: sus alertas y el desglose por tipo de la cabecera. */
-interface AlertGroup {
-  key: string
-  vehicle: number | null
-  plate: string
-  alerts: Alert[]
-  /** Recuento por tipo, en orden de aparición (la lista ya viene por nivel). */
-  types: Array<{ key: string; label: string; count: number }>
-  worst: Alert['level']
+/** Lo escrito, el tipo elegido y el orden de UNA tarjeta.
+ *
+ * Cada una guarda lo suyo: acotar las alertas no puede recortar de paso las
+ * incidencias, que es otra lista y otra pregunta.
+ */
+function useListControls() {
+  const [search, setSearch] = useState('')
+  const [type, setType] = useState('')
+  const [order, setOrder] = useState<ListOrder>('priority')
+  return { search, setSearch, type, setType, order, setOrder }
+}
+
+/** Las alertas, ordenadas: por prioridad (el nivel, y a igualdad la más
+ * reciente) o por fecha a secas. */
+function sortAlerts(rows: Alert[], order: ListOrder): Alert[] {
+  const recientes = (a: Alert, b: Alert) => b.created_at.localeCompare(a.created_at)
+  return [...rows].sort((a, b) =>
+    order === 'date'
+      ? recientes(a, b)
+      : LEVEL_RANK[a.level] - LEVEL_RANK[b.level] || recientes(a, b),
+  )
+}
+
+/** Y las peticiones, con la prioridad que marcó quien la abrió. Una fila sin
+ * fecha cae al final: no hay con qué compararla. */
+function sortIncidents(rows: Incident[], order: ListOrder): Incident[] {
+  const recientes = (a: Incident, b: Incident) => (b.date ?? '').localeCompare(a.date ?? '')
+  return [...rows].sort((a, b) =>
+    order === 'date' ? recientes(a, b) : priorityRank(a) - priorityRank(b) || recientes(a, b),
+  )
 }
 
 /**
- * M5 — Bandeja de alertas del ámbito (HU-3.2/3.3/3.5/5.1/1.7). El back acota
- * por rol (conductor: sus vehículos; supervisor: su grupo) y solo la gestión
- * resuelve/descarta. Cada alerta enlaza a su acción natural.
+ * M5 — Bandeja de lo que hay pendiente en el ámbito (HU-3.2/3.3/3.5/5.1/1.7).
+ * El back acota por rol (conductor: sus vehículos; supervisor: su grupo) y
+ * solo la gestión resuelve.
+ *
+ * Son **tres tarjetas plegables** —**Alertas**, **Incidencias** y
+ * **Accidentes**—, las mismas familias y en el mismo orden que la ficha de
+ * campo y el tablero (`PENDING_CARDS`), con su recuento en el título y
+ * **plegadas de salida**: lo que hay se lee sin abrir nada. Antes la bandeja
+ * era un acordeón por COCHE y solo de alertas, así que las incidencias
+ * abiertas —que son la otra mitad de lo pendiente— no se leían aquí y para
+ * saber qué había que atender había que desplegar coche a coche.
+ *
+ * Desplegada, cada tarjeta se acota igual que el resto de listas largas de la
+ * app (`ListFilter`: buscar y filtrar por tipo, que aquí busca también por
+ * matrícula) y se **ordena por prioridad** —lo primero que hay que atender— o
+ * por fecha. El recuento del título no se filtra: dice lo que hay abierto, no
+ * lo que se está mirando.
  */
 export function AlertsPage() {
   const { user } = useAuth()
-  const { t } = useLang()
+  const { t, language } = useLang()
   const etiqueta = useDomainLabels()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
+  // Resolver una petición es de gestión, como en la ficha de campo: quien
+  // conduce comunica, no cierra.
+  const canManage = user?.roles.some((role) => role === 'admin' || role === 'supervisor') ?? false
   // Modo "Mi vehículo" del supervisor: la bandeja se acota a su pareja (coche
   // propio + sustitución). Conductor o modo Flota: sin recorte.
   const ctx = useOutletContext<LayoutContext | null>()
   const ownIds = ctx && !ctx.fleetMode ? (ctx.ownPair?.ids ?? null) : null
+  // Modo Flota del supervisor: la bandeja se acota a lo que SUPERVISA más lo
+  // que conduce, como «A tu cargo». Antes se pintaba lo que mandara el back,
+  // que para un supervisor a secas era eso mismo; con HSE sumado el back le
+  // manda en LECTURA toda la empresa, y aquí salían alertas de coches ajenos
+  // con un «Resolver» que el back rechaza (404: fuera del ámbito de acción).
+  const fleetScopeOf = ctx?.fleetMode && isSupervisor ? user?.id ?? null : null
   // Registrar desde el bottom-nav cierra alertas (ITV, lectura de km): la
   // bandeja tiene que releerse aunque el modal no sea suyo.
   const dataVersion = ctx?.dataVersion ?? 0
 
   const [alerts, setAlerts] = useState<Alert[]>([])
+  const [incidents, setIncidents] = useState<Incident[]>([])
   // R3-31: la bandeja no cabe en la página de 500 → se dice, no se recorta
   // en silencio (el C6 de gestión, portado).
   const [truncated, setTruncated] = useState<number | null>(null)
@@ -73,17 +132,23 @@ export function AlertsPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
+  // Las tres tarjetas, PLEGADAS: el recuento del título es lo que se lee de
+  // entrada, y desplegar es elegir qué familia se atiende.
+  const accordion = useAccordion(PENDING_CARDS, PENDING_CARDS)
+  const alertCtl = useListControls()
+  const incidentCtl = useListControls()
+  const accidentCtl = useListControls()
+
   // M8: estado del push en ESTE dispositivo ('disabled' oculta el toggle).
   const [push, setPush] = useState<PushState>('disabled')
   const [pushBusy, setPushBusy] = useState(false)
   const [pushError, setPushError] = useState('')
 
-  // --- «Te queda poco», también aquí ------------------------------------
-  // El mismo bloque de vencimientos que encabeza la home de campo: la
-  // lectura de km que falta este mes, el combustible sin anotar, la ITV y el
-  // mantenimiento. Es lo que hay que HACER, así que se lee donde se miran
-  // los avisos y no solo al entrar. Solo en «Mi vehículo»: en «Flota» los
-  // del grupo se leen en «A tu cargo», que es su sitio.
+  // --- La flota del ámbito, para poner nombre a lo que se lee -------------
+  // Las incidencias llegan con el id de su coche y no con la matrícula, así
+  // que los vehículos hacen falta en los dos modos; los resúmenes dan además
+  // el kilometraje con el que se prellena el cierre. Y de aquí sale «Te queda
+  // poco», que solo se pinta en «Mi vehículo».
   const miVehiculo = !ctx?.fleetMode
   const [fleet, setFleet] = useState<Vehicle[]>([])
   const [summaries, setSummaries] = useState<Record<number, VehicleSummary>>({})
@@ -93,11 +158,10 @@ export function AlertsPage() {
   const [deadlineVersion, setDeadlineVersion] = useState(0)
 
   useEffect(() => {
-    if (!miVehiculo) return
     let alive = true
     // R3-28: vehículos y resúmenes salen de la caché del arranque, así que
-    // esto no añade una vuelta al back. Y si algo falla, simplemente no se
-    // pinta el bloque: la bandeja no depende de él.
+    // esto no añade una vuelta al back. Y si algo falla, la bandeja se pinta
+    // igual: lo único que se pierde es la matrícula y los vencimientos.
     void Promise.all([
       listVehiclesCached().catch(() => null),
       fetchVehicleSummariesCached().catch(() => [] as VehicleSummary[]),
@@ -111,16 +175,20 @@ export function AlertsPage() {
     return () => {
       alive = false
     }
-  }, [miVehiculo, dataVersion, deadlineVersion])
+  }, [dataVersion, deadlineVersion])
 
   // Los coches que CONDUCE quien mira: al ámbito de gestión el back le manda
   // más (su grupo entero) y estos avisos son de lo suyo. Mismo criterio que
   // la home, de donde viene el bloque.
+  // El ámbito ANCHO es el de admin, supervisor y HSE (`hasWideReadScope`), no
+  // el permiso de gestión: un conductor con HSE recibe toda la flota y sus
+  // avisos son solo de lo que conduce.
   const ownVehicles = useMemo(() => {
-    const gestion = user?.roles.some((role) => role === 'admin' || role === 'supervisor')
-    if (!gestion) return fleet
+    if (!hasWideReadScope(user)) return fleet
     return fleet.filter((v) => summaries[v.id]?.driver?.id === user?.id)
-  }, [fleet, summaries, user?.id, user?.roles])
+  }, [fleet, summaries, user])
+
+  const plates = useMemo(() => new Map(fleet.map((v) => [v.id, v.plate])), [fleet])
 
   useEffect(() => {
     pushState().then(setPush, () => setPush('unknown'))
@@ -162,22 +230,59 @@ export function AlertsPage() {
 
   const load = useCallback(() => {
     setLoading(true)
-    listAlerts(showClosed ? '' : 'open')
-      .then((page) => {
-        setTruncated(truncatedAt(page))
-        let sorted = [...page.results].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level])
+    // En modo Flota, los coches de los que se habla: su grupo (`supervisor=<yo>`,
+    // el mismo corte que «A tu cargo») más el que conduce (el conductor
+    // vigente del resumen, como la home). Los dos listados sin filtro son los
+    // de la caché del arranque (R3-28): no añaden una vuelta al back. Si algo
+    // falla, `null` = sin recorte, que es lo que el back acota de por sí.
+    const fleetScope: Promise<Set<number> | null> =
+      fleetScopeOf === null
+        ? Promise.resolve(null)
+        : Promise.all([
+            listVehicles({ supervisor: fleetScopeOf }),
+            listVehiclesCached().catch(() => null),
+            fetchVehicleSummariesCached().catch(() => [] as VehicleSummary[]),
+          ])
+            .then(([group, scope, sums]) => {
+              const ids = new Set(group.results.map((v) => v.id))
+              const conductor = new Map(sums.map((s) => [s.vehicle, s.driver?.id ?? null]))
+              for (const v of scope?.results ?? []) {
+                if (conductor.get(v.id) === fleetScopeOf) ids.add(v.id)
+              }
+              return ids
+            })
+            .catch(() => null)
+    Promise.all([
+      listAlerts(showClosed ? '' : 'open'),
+      // Si las incidencias fallan, la bandeja se lee igual: sus dos tarjetas
+      // salen vacías. Lo que no puede es tumbar las alertas.
+      listIncidents().catch(() => null),
+      fleetScope,
+    ])
+      .then(([page, incidentPage, fleetIds]) => {
+        setTruncated(truncatedAt(page) ?? (incidentPage ? truncatedAt(incidentPage) : null))
         // Modo "Mi vehículo" del supervisor: solo lo de su pareja (coche
-        // propio + sustitución); en modo Flota se ve el grupo entero.
-        if (ownIds) {
-          sorted = sorted.filter((a) => a.vehicle !== null && ownIds.includes(a.vehicle))
-        }
-        setAlerts(sorted)
+        // propio + sustitución); en modo Flota, su grupo más su coche.
+        const recorte = ownIds ? new Set(ownIds) : fleetIds
+        const dentro = (vehicle: number | null) =>
+          recorte === null || (vehicle !== null && recorte.has(vehicle))
+        // X1: el seguro es de administración y la app de campo no lo enseña.
+        // El back ya lo excluye al conductor y al supervisor, pero a un lector
+        // HSE se lo manda (en gestión sí se revisa), y eso aquí no cambia.
+        const suyas = page.results.filter(
+          (a) => a.type !== 'insurance_due' && dentro(a.vehicle),
+        )
+        setAlerts(suyas)
+        // Lo que la app de campo deja abrir (y el accidente): el mantenimiento
+        // programado y la ITV son ALERTAS y ya están en su tarjeta.
+        const abiertas = (incidentPage?.results ?? []).filter(isOpenFieldIncident)
+        setIncidents(abiertas.filter((i) => dentro(i.vehicle)))
         // HU-3.3 (supervisor): la última lectura conocida de cada pendiente —
         // alimenta la pista «Última conocida» del modal de resolver por km.
         if (isSupervisor) {
           const pendingVehicles = [
             ...new Set(
-              sorted
+              suyas
                 .filter((a) => a.type === 'km_reading_pending' && a.status === 'open' && a.vehicle)
                 .map((a) => a.vehicle as number),
             ),
@@ -200,7 +305,7 @@ export function AlertsPage() {
       })
       .catch((err) => setError(asErrorMessage(err, tRef.current.alerts.loadError)))
       .finally(() => setLoading(false))
-  }, [showClosed, isSupervisor, ownIds])
+  }, [showClosed, isSupervisor, ownIds, fleetScopeOf])
 
   // `dataVersion`: registrar desde el nav cierra alertas — hay que releerlas.
   useEffect(load, [load, dataVersion])
@@ -209,6 +314,7 @@ export function AlertsPage() {
   // un modal PERSONALIZADO por tipo: en lectura pendiente, registrar la
   // lectura; en el resto, observaciones que quedan en la resuelta.
   const [resolveFor, setResolveFor] = useState<Alert | null>(null)
+  const [resolveIncident, setResolveIncident] = useState<Incident | null>(null)
   function close(alert: Alert) {
     setNotice('')
     setResolveFor(alert)
@@ -222,63 +328,139 @@ export function AlertsPage() {
 
   const open = useMemo(() => alerts.filter((a) => a.status === 'open'), [alerts])
   const closed = useMemo(() => alerts.filter((a) => a.status !== 'open'), [alerts])
+  // El accidente es una incidencia mirada aparte —tiene su parte y su propia
+  // tarjeta—: el mismo corte que hacen el tablero, la ficha y gestión.
+  const accidents = useMemo(() => incidents.filter((i) => i.type === 'accident'), [incidents])
+  const others = useMemo(() => incidents.filter((i) => i.type !== 'accident'), [incidents])
 
-  // Clasificador GLOBAL de la bandeja. En «Todas», cada acordeón conserva su
-  // select y sus secciones por tipo; al clasificar aquí, los acordeones se
-  // quedan solo con ese tipo y, sin nada que clasificar dentro, pierden el
-  // select y las secciones (lista plana).
-  const [globalType, setGlobalType] = useState('all')
-  const allTypes = useMemo(() => {
-    const rows: Array<{ key: string; label: string; count: number }> = []
-    for (const alert of open) {
-      const row = rows.find((x) => x.key === alert.type)
-      if (row) row.count += 1
-      else rows.push({ key: alert.type, label: etiqueta.alertType(alert), count: 1 })
-    }
-    return rows
-    // `etiqueta` es estable por diccionario (`useDomainLabels` lo memoriza).
-  }, [open, etiqueta])
-  // Si el tipo elegido desaparece (p. ej. tras resolver), vuelta a «Todas».
-  const activeGlobal =
-    globalType === 'all' || allTypes.some((x) => x.key === globalType) ? globalType : 'all'
-  const shownOpen =
-    activeGlobal === 'all' ? open : open.filter((a) => a.type === activeGlobal)
+  // --- Lo que enseña cada tarjeta ----------------------------------------
+  // El tipo elegido se cae solo si desaparece de las filas (al resolver algo),
+  // en vez de dejar la tarjeta en blanco filtrando por lo que ya no está.
+  const alertTypes = typeOptions(open, etiqueta.alertType)
+  const alertPick = alertTypes.some(([value]) => value === alertCtl.type) ? alertCtl.type : ''
+  const shownAlerts = sortAlerts(
+    open
+      .filter((alert) => !alertPick || alert.type === alertPick)
+      .filter((alert) =>
+        matches(
+          alertCtl.search,
+          etiqueta.alertType(alert),
+          alert.type_display,
+          etiqueta.alertMessage(alert),
+          alert.vehicle_plate,
+          etiqueta.alertLevel(alert),
+        ),
+      ),
+    alertCtl.order,
+  )
 
-  // Un acordeón por coche (las alertas de flota, sin vehículo, van juntas al
-  // suyo), ordenados por urgencia: peor nivel primero y, a igualdad, el que
-  // más alertas acumula.
-  const groups = useMemo<AlertGroup[]>(() => {
-    const map = new Map<string, AlertGroup>()
-    for (const alert of shownOpen) {
-      const key = alert.vehicle !== null ? String(alert.vehicle) : 'fleet'
-      let group = map.get(key)
-      if (!group) {
-        group = {
-          key,
-          vehicle: alert.vehicle,
-          plate: alert.vehicle !== null ? alert.vehicle_plate : t.alerts.groupFleet,
-          alerts: [],
-          types: [],
-          worst: alert.level,
-        }
-        map.set(key, group)
-      }
-      group.alerts.push(alert)
-      if (LEVEL_RANK[alert.level] < LEVEL_RANK[group.worst]) group.worst = alert.level
-      const row = group.types.find((x) => x.key === alert.type)
-      if (row) row.count += 1
-      else group.types.push({ key: alert.type, label: etiqueta.alertType(alert), count: 1 })
-    }
-    return [...map.values()].sort(
-      (a, b) =>
-        LEVEL_RANK[a.worst] - LEVEL_RANK[b.worst] ||
-        b.alerts.length - a.alerts.length ||
-        a.plate.localeCompare(b.plate),
+  /** Las dos listas de peticiones se acotan igual; solo cambian las filas. */
+  function filtrar(rows: Incident[], ctl: ReturnType<typeof useListControls>) {
+    const tipos = typeOptions(rows, etiqueta.incidentType)
+    const pick = tipos.some(([value]) => value === ctl.type) ? ctl.type : ''
+    const shown = sortIncidents(
+      rows
+        .filter((incident) => !pick || incident.type === pick)
+        .filter((incident) =>
+          matches(
+            ctl.search,
+            etiqueta.incidentType(incident),
+            incident.type_display,
+            incident.description,
+            etiqueta.incidentStatus(incident),
+            etiqueta.incidentPriority(incident),
+            plates.get(incident.vehicle),
+          ),
+        ),
+      ctl.order,
     )
-  }, [shownOpen, t, etiqueta])
+    return { tipos, pick, shown }
+  }
+
+  const incidentView = filtrar(others, incidentCtl)
+  const accidentView = filtrar(accidents, accidentCtl)
 
   if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
   if (error) return <div role="alert" className="form-error">{error}</div>
+
+  /** Título con su recuento: es lo único que se lee con la tarjeta plegada, y
+   * cuenta lo ABIERTO, no lo que dejan pasar los filtros. */
+  function titleWith(text: string, count: number): ReactNode {
+    return (
+      <>
+        {text}
+        <span className={`acc-count${count === 0 ? ' is-zero' : ''}`}>{count}</span>
+      </>
+    )
+  }
+
+  /** La barra de la tarjeta: buscar, tipo y orden. Con una sola fila no hay
+   * nada que acotar y no se pinta. */
+  function barra(
+    total: number,
+    ctl: ReturnType<typeof useListControls>,
+    options: [string, string][],
+    pick: string,
+  ) {
+    if (total < 2) return null
+    return (
+      <ListFilter
+        search={ctl.search}
+        onSearch={ctl.setSearch}
+        type={pick}
+        onType={ctl.setType}
+        options={options}
+        order={ctl.order}
+        onOrder={ctl.setOrder}
+      />
+    )
+  }
+
+  function incidentList(rows: Incident[], total: number, icon: ReactNode, vacio: string) {
+    return (
+      <ul className="doc-list vehicle-incidents-list">
+        {rows.map((incident) => {
+          const prioridad = priorityOf(incident)
+          const parte = tireReportSummary(incident, t.newIncident)
+          return (
+            <li key={incident.id} className={`doc-item pri-row pri-${prioridad}`}>
+              {icon}
+              <div className="doc-info">
+                <strong>
+                  {etiqueta.incidentType(incident)}{' '}
+                  {/* La urgencia con la que se abrió, escrita y en color: el
+                      filete de la fila la repite para barrer la lista sin
+                      leerla entera, y es con lo que ordena la tarjeta. */}
+                  <Badge tone={priorityTone(prioridad)} size="sm">
+                    {etiqueta.incidentPriority(incident)}
+                  </Badge>
+                </strong>
+                {parte && <span className="doc-sub incident-tire-line">{parte}</span>}
+                <span className="doc-sub">
+                  <Link to={`/vehiculos/${incident.vehicle}`} className="plate">
+                    {plates.get(incident.vehicle) ?? ''}
+                  </Link>{' '}
+                  {incident.date ? fmtDate(incident.date, language) : t.vehicle.noDate}
+                  {incident.description ? ` · ${incident.description}` : ''}
+                </span>
+              </div>
+              <Badge tone={incidentStatusTone(incident.status)}>
+                {etiqueta.incidentStatus(incident)}
+              </Badge>
+              {canManage && (
+                <Button type="button" size="sm" onClick={() => setResolveIncident(incident)}>
+                  {t.alerts.resolve}
+                </Button>
+              )}
+            </li>
+          )
+        })}
+        {rows.length === 0 && (
+          <li className="empty-note">{total === 0 ? vacio : t.common.noMatches}</li>
+        )}
+      </ul>
+    )
+  }
 
   return (
     <div>
@@ -356,45 +538,62 @@ export function AlertsPage() {
         </section>
       )}
 
-      {open.length === 0 && (
-        <div className="alerts-empty">
-          <BellOff size={40} aria-hidden />
-          <p>{t.alerts.empty}</p>
-        </div>
-      )}
-
-      {/* Clasificador global: con un solo tipo abierto no hay nada que
-          clasificar y no se pinta. */}
-      {allTypes.length > 1 && (
-        <select
-          className="fleet-state-select alert-global-select"
-          aria-label={t.alerts.classifyLabel}
-          value={activeGlobal}
-          onChange={(e) => setGlobalType(e.target.value)}
+      {/* Las tres familias de lo pendiente, en el mismo orden que la ficha de
+          campo y el tablero. Plegadas: el número del título se lee sin abrir. */}
+      <div className="vehicle-alerts-panel">
+        <CollapsibleCard
+          id="alerts"
+          accordion={accordion}
+          headingClassName="panel-title"
+          title={titleWith(t.vehicle.alertsTitle, open.length)}
         >
-          <option value="all">
-            {t.alerts.tabAll} ({open.length})
-          </option>
-          {allTypes.map((x) => (
-            <option key={x.key} value={x.key}>
-              {x.label} ({x.count})
-            </option>
-          ))}
-        </select>
-      )}
+          {barra(open.length, alertCtl, alertTypes, alertPick)}
+          <div className="alert-list">
+            {shownAlerts.map((alert) => (
+              <AlertCard
+                key={alert.id}
+                alert={alert}
+                isSupervisor={isSupervisor}
+                onClose={close}
+              />
+            ))}
+            {shownAlerts.length === 0 && (
+              <p className="empty-note">
+                {open.length === 0 ? t.vehicle.alertsEmpty : t.common.noMatches}
+              </p>
+            )}
+          </div>
+        </CollapsibleCard>
 
-      {/* Un acordeón por coche, PLEGADO: la cabecera resume cuántas alertas
-          hay y cuántas de cada tipo; desplegar enseña las tarjetas con su
-          propio clasificador por tipo. */}
-      <div className="alert-groups">
-        {groups.map((group) => (
-          <AlertGroupItem
-            key={group.key}
-            group={group}
-            isSupervisor={isSupervisor}
-            onClose={close}
-          />
-        ))}
+        <CollapsibleCard
+          id="incidents"
+          accordion={accordion}
+          headingClassName="panel-title"
+          title={titleWith(t.vehicle.incidentsTitle, others.length)}
+        >
+          {barra(others.length, incidentCtl, incidentView.tipos, incidentView.pick)}
+          {incidentList(
+            incidentView.shown,
+            others.length,
+            <Wrench size={18} aria-hidden className="doc-icon" />,
+            t.vehicle.incidentsEmpty,
+          )}
+        </CollapsibleCard>
+
+        <CollapsibleCard
+          id="accidents"
+          accordion={accordion}
+          headingClassName="panel-title"
+          title={titleWith(t.vehicle.accidentsTitle, accidents.length)}
+        >
+          {barra(accidents.length, accidentCtl, accidentView.tipos, accidentView.pick)}
+          {incidentList(
+            accidentView.shown,
+            accidents.length,
+            <AlertTriangle size={18} aria-hidden className="doc-icon" />,
+            t.vehicle.accidentsEmpty,
+          )}
+        </CollapsibleCard>
       </div>
 
       {showClosed && closed.length > 0 && (
@@ -421,106 +620,31 @@ export function AlertsPage() {
           onResolved={() => resolved(resolveFor)}
         />
       )}
-    </div>
-  )
-}
 
-/**
- * Acordeón de UN coche. Dentro, un select clasifica sus alertas por tipo
- * («Todas (N)» por defecto + un tipo por opción con su recuento); la cabecera
- * sigue resumiendo el total sin filtrar.
- */
-function AlertGroupItem({
-  group,
-  isSupervisor,
-  onClose,
-}: {
-  group: AlertGroup
-  isSupervisor: boolean
-  onClose: (alert: Alert) => void
-}) {
-  const { t } = useLang()
-  const [type, setType] = useState('all')
-  const active = type === 'all' || group.types.some((x) => x.key === type) ? type : 'all'
-  const shown = active === 'all' ? group.alerts : group.alerts.filter((a) => a.type === active)
-  return (
-    <details className="card alert-group">
-      <summary className="alert-group-head">
-        <ChevronRight size={16} aria-hidden className="alert-group-chev" />
-        <div className="alert-group-info">
-          <div className="alert-group-title">
-            <span className="plate">{group.plate}</span>
-            <Badge tone={alertLevelTone(group.worst)} size="sm">
-              {t.alerts.groupCount(group.alerts.length)}
-            </Badge>
-          </div>
-          <span className="alert-group-types">
-            {group.types.map((x) => `${x.label} ×${x.count}`).join(' · ')}
-          </span>
-        </div>
-      </summary>
-      <div className="alert-group-body">
-        {/* Con un solo tipo no hay nada que clasificar: el select no se pinta. */}
-        {group.types.length > 1 && (
-          <select
-            className="fleet-state-select alert-type-select"
-            aria-label={t.alerts.typeFilter}
-            value={active}
-            onChange={(e) => setType(e.target.value)}
-          >
-            <option value="all">
-              {t.alerts.tabAll} ({group.alerts.length})
-            </option>
-            {group.types.map((x) => (
-              <option key={x.key} value={x.key}>
-                {x.label} ({x.count})
-              </option>
-            ))}
-          </select>
-        )}
-        {active === 'all' && group.types.length > 1
-          ? // En «Todas», las alertas van por SECCIONES de tipo: una línea
-            // horizontal divide los grupos y el título pliega/despliega.
-            // Nacen ENCOGIDAS: al abrir el coche se ve el índice de tipos.
-            group.types.map((row) => (
-              <details key={row.key} className="alert-type-section">
-                <summary className="alert-type-head">
-                  <ChevronRight size={14} aria-hidden className="alert-type-chev" />
-                  {`${row.label} ×${row.count}`}
-                </summary>
-                {group.alerts
-                  .filter((alert) => alert.type === row.key)
-                  .map((alert) => (
-                    <AlertCard
-                      key={alert.id}
-                      alert={alert}
-                      isSupervisor={isSupervisor}
-                      onClose={onClose}
-                      showPlate={false}
-                      showType={false}
-                    />
-                  ))}
-              </details>
-            ))
-          : shown.map((alert) => (
-              <AlertCard
-                key={alert.id}
-                alert={alert}
-                isSupervisor={isSupervisor}
-                onClose={onClose}
-                showPlate={false}
-              />
-            ))}
-        {/* La ficha es la MISMA para todas las alertas del coche: un solo
-            enlace al pie, en vez de repetir el botón en cada una. */}
-        {group.vehicle !== null && (
-          <div className="alert-group-foot">
-            <Link to={`/vehiculos/${group.vehicle}`} className="link-btn">
-              {t.common.seeCard} · {group.plate}
-            </Link>
-          </div>
-        )}
-      </div>
-    </details>
+      {/* Y la petición, con el MISMO despachador por tipo que el tablero y la
+          ficha: neumáticos, accidente o reparación. */}
+      {resolveIncident && (
+        <IncidentResolveModal
+          incident={resolveIncident}
+          plate={plates.get(resolveIncident.vehicle) ?? ''}
+          vehicleKm={summaries[resolveIncident.vehicle]?.km_current ?? null}
+          onClose={() => setResolveIncident(null)}
+          onResolved={(aviso) => {
+            setResolveIncident(null)
+            // El aviso extra (la factura se encoló, o no subió) viaja con el
+            // cierre: es lo que hay que leer justo después de guardarlo.
+            setNotice(
+              [
+                t.alerts.resolvedIncident(plates.get(resolveIncident.vehicle) ?? t.alerts.fleet),
+                aviso,
+              ]
+                .filter(Boolean)
+                .join(' '),
+            )
+            load()
+          }}
+        />
+      )}
+    </div>
   )
 }

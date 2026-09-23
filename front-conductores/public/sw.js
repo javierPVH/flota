@@ -19,7 +19,7 @@
  *   re-suscribe y re-registra en el back (antes los avisos morían en silencio).
  */
 const CACHE = 'flota-campo-__BUILD_ID__'
-const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png']
+const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/favicon.svg']
 
 self.addEventListener('install', (event) => {
   // Sin skipWaiting: queda "waiting" hasta que la app lo acepte (o se cierren

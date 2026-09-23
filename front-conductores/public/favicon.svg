@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  La marca de la app: un coche sobre el cuadrado redondeado de siempre, en el
+  teal del tema (#009491, el mismo `theme_color` del manifiesto y el de los
+  iconos instalables). Va en SVG porque la pestaña lo pide a 16 y 32 px y un
+  PNG de 192 ahí se empasta; el dibujo es deliberadamente gordo por lo mismo.
+  Lo comparten las dos apps: es el mismo producto.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="14" fill="#009491" />
+  <g fill="#ffffff">
+    <!-- Techo y capó, de una pieza: a 16 px los detalles desaparecen. -->
+    <path d="M20 28 L25.5 15 H38.5 L44 28 Z" />
+    <rect x="9" y="27" width="46" height="13.5" rx="6.75" />
+    <!-- Ruedas asomando bajo la carrocería, con el hueco en el color del fondo. -->
+    <circle cx="21" cy="43" r="6.5" />
+    <circle cx="43" cy="43" r="6.5" />
+  </g>
+  <circle cx="21" cy="43" r="2.6" fill="#009491" />
+  <circle cx="43" cy="43" r="2.6" fill="#009491" />
+</svg>

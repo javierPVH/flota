@@ -338,6 +338,14 @@ BULK_LOCATIONS = [
 ]
 
 
+#: Vehículo de volumen que supervisa la administradora: el 8 es el primero
+#: que cumple las dos reglas de abajo a la vez —sin supervisor (`i % 3 == 2`) y
+#: sin conductor (`i % 5 == 3`)—, así que ponerle supervisora no se lo quita a
+#: nadie y le da a Alicia el aviso `no_driver`, el único que su propio coche no
+#: puede darle. Si se toca, hay que comprobar que sigue cumpliendo las dos.
+ADMIN_NO_DRIVER_INDEX = 8
+
+
 def _bulk_plate(i: int) -> str:
     """Matrícula determinista del vehículo i de volumen (2000BBB, 2001CKR…)."""
     letters = _PLATE_LETTERS
@@ -373,14 +381,23 @@ def seed_users(stdout=None) -> None:
     """Usuarios de referencia con roles. El borrado cascada limpia sus FK."""
     wipe(User, stdout)  # cascada: roles, asignaciones, solicitudes…
 
+    # La cuenta de administración lleva LOS CUATRO roles: es la única que
+    # prueba la suma completa —gestión, campo y HSE en la misma persona— y sin
+    # los de campo no podía entrar en la PWA (`isManagementOnly` la manda al
+    # portón), así que su coche, sus alertas y sus incidencias no se podían
+    # mirar desde dentro. Por eso también tiene permiso y tarjeta: conduce.
     admin = User.objects.create_superuser(
         username="admin",
         email="admin@flota.dev",
         password=DEV_PASSWORD,
         first_name="Alicia",
         phone=_phone(1),
+        dni="55555555K",
+        license_type=LicenseType.B,
+        fuel_card=True,
     )
-    UserRole.objects.create(user=admin, role=Role.ADMIN)
+    for role in (Role.ADMIN, Role.SUPERVISOR, Role.DRIVER, Role.HSE):
+        UserRole.objects.create(user=admin, role=role)
 
     sara = User.objects.create_user(
         username="sara",
@@ -419,6 +436,29 @@ def seed_users(stdout=None) -> None:
     User.objects.create_user(
         username="nuevo", email="nuevo@flota.dev", password=DEV_PASSWORD, first_name="Nuevo"
     )
+
+    # HSE: lectura de toda la flota en gestión, sin escribir ni ver personas.
+    # `hse` a secas prueba el rol puro; `ana_hse` (admin + hse) que sumar el
+    # rol no le quita nada a una administradora.
+    hse = User.objects.create_user(
+        username="hse",
+        email="hse@flota.dev",
+        password=DEV_PASSWORD,
+        first_name="Hugo",
+        last_name="Prevención",
+        phone=_phone(7),
+    )
+    UserRole.objects.create(user=hse, role=Role.HSE)
+    ana = User.objects.create_user(
+        username="ana_hse",
+        email="ana_hse@flota.dev",
+        password=DEV_PASSWORD,
+        first_name="Ana",
+        last_name="Riesgos",
+        phone=_phone(8),
+    )
+    UserRole.objects.create(user=ana, role=Role.ADMIN)
+    UserRole.objects.create(user=ana, role=Role.HSE)
 
     # -- Volumen: segunda supervisora + plantilla de conductores.
     marta = User.objects.create_user(
@@ -619,6 +659,7 @@ def seed_vehicles(stdout=None) -> None:
     Company.objects.create(code="GS-ES", name="Gransolar España", description="Sociedad matriz")
     Company.objects.create(code="GS-PT", name="Gransolar Portugal")
     sara = User.objects.get(username="sara")
+    alicia = User.objects.get(username="admin")
     country = Country.objects.get(name="España")
     ops = BusinessUnit.objects.get(code="OPS")
     obra = Project.objects.get(project_name="Obra Norte A-12")
@@ -750,6 +791,39 @@ def seed_vehicles(stdout=None) -> None:
         **common,
     )
 
+    # El coche de la ADMINISTRADORA (8888TRX): lo conduce y lo supervisa ella
+    # misma. Es el escaparate de «todo lo que le puede pasar a un coche» visto
+    # desde la cuenta con todos los roles — los cinco avisos que caben en un
+    # coche con conductor (ITV, seguro, mantenimiento, exceso de km y lectura
+    # del mes) más las cinco peticiones que se pueden abrir. El sexto aviso,
+    # «sin conductor», no cabe aquí por definición: se lo da un coche de su
+    # grupo (ver `ADMIN_NO_DRIVER_INDEX`, abajo).
+    Vehicle.objects.create(
+        plate="8888TRX",
+        brand="Seat",
+        model="León ST",
+        version="1.5 TSI 150 Style",
+        year=2023,
+        vin="VSSZZZ1KZ8W123456",
+        registration_date=date(2023, 7, 11),
+        state=VehicleState.ACTIVE,
+        fuel="Gasolina",
+        type=VehicleType.TURISMO,
+        size=VehicleSize.MEDIUM,
+        market_segment=MarketSegment.LOWER_MEDIUM,
+        veh_use=VehUse.PASSENGERS,
+        consumption=6,
+        business_use=UseType.PERSONAL,
+        property=PropertyType.RENTING,
+        supervisor=alicia,
+        km_start=500,
+        # N2: seguro a 8 días → aviso. El DOCUMENTO de la póliza lleva esta
+        # MISMA fecha (`seed_operations`): con una posterior, la señal la
+        # denormalizaría encima y el aviso no llegaría a saltar.
+        insurance_expiry_date=timezone.localdate() + timedelta(days=8),
+        **common,
+    )
+
     # -- Volumen: BULK_VEHICLES vehículos repartidos entre los grupos de sara
     # y marta (y algunos sin supervisor), con estados/usos/tipos variados.
     marta = User.objects.get(username="marta")
@@ -804,7 +878,20 @@ def seed_vehicles(stdout=None) -> None:
             business_use=use,
             project=project,
             property=PropertyType.OWNED if i % 5 == 4 else PropertyType.RENTING,
-            supervisor=sara if i % 3 == 0 else marta if i % 3 == 1 else None,
+            supervisor=(
+                # El único aviso que un coche con conductor no puede dar es
+                # «sin conductor», así que la administradora lo recibe por un
+                # coche de su grupo. Se elige uno que ya nacía sin supervisor
+                # NI conductor por las reglas de abajo, para no quitarle
+                # ninguno a sara ni a marta.
+                alicia
+                if i == ADMIN_NO_DRIVER_INDEX
+                else sara
+                if i % 3 == 0
+                else marta
+                if i % 3 == 1
+                else None
+            ),
             # 4 sustitutos (2, 9, 16, 23): uno por cada motivo de vínculo.
             is_substitute=i % 7 == 2,
             km_start=(i * 3573) % 40000,
@@ -863,6 +950,7 @@ def seed_contracts(stdout=None) -> None:
     v1 = Vehicle.objects.get(plate="1234KLM")
     v2 = Vehicle.objects.get(plate="5678BCD")
     v3 = Vehicle.objects.get(plate="7890NPQ")
+    v_admin = Vehicle.objects.get(plate="8888TRX")
 
     northgate = Renting.objects.get(name="Northgate")
     # Datos de cliente comunes a los contratos sembrados (sociedad titular).
@@ -943,6 +1031,33 @@ def seed_contracts(stdout=None) -> None:
     )
     KmReading.objects.create(vehicle=v3, reading_date=today - timedelta(days=200), km_reading=3000)
     KmReading.objects.create(vehicle=v3, reading_date=today - timedelta(days=40), km_reading=15400)
+
+    # El coche de la administradora: mismas dos alertas de km que el de sara,
+    # con sus propios números. `check_km_overage` proyecta el ritmo de la
+    # ÚLTIMA lectura al contrato entero: 13.500 km (14.000 − los 500 de alta)
+    # en los 260 días corridos desde el inicio del contrato → 56.596 km sobre
+    # los 45.000 contratados (126% → crítica, que es pasar del 110% + 2×5% de
+    # margen). Y esa última lectura es de hace 40 días, o sea del mes pasado:
+    # falta la de este mes → recordatorio de lectura.
+    Contract.objects.create(
+        vehicle=v_admin,
+        renting=northgate,
+        contract_number="R-2026-088",
+        contract_time=36,
+        contract_km=45000,
+        start_date=today - timedelta(days=300),
+        planned_end_date=today + timedelta(days=790),
+        month_fee=Decimal("410.00"),
+        penalty_per_km=Decimal("0.065"),
+        drive_url="https://drive.example/contratos/R-2026-088.pdf",
+        **client,
+    )
+    KmReading.objects.create(
+        vehicle=v_admin, reading_date=today - timedelta(days=260), km_reading=1200
+    )
+    KmReading.objects.create(
+        vehicle=v_admin, reading_date=today - timedelta(days=40), km_reading=14000
+    )
 
     # -- Volumen: contrato (si es renting) + hasta 12 meses de lecturas.
     rentings = list(Renting.objects.order_by("name"))
@@ -1044,6 +1159,14 @@ def seed_assignments(stdout=None) -> None:
         vehicle=v3,
         driver=sara,  # la supervisora también conduce
         start_date=today - timedelta(days=60),
+        status=AssignmentStatus.ACCEPTED,
+    )
+    # La administradora conduce el suyo (y lo supervisa): con los cuatro roles,
+    # su cuenta entra también en la app de campo y ahí hace falta un coche.
+    Assignment.objects.create(
+        vehicle=Vehicle.objects.get(plate="8888TRX"),
+        driver=User.objects.get(username="admin"),
+        start_date=today - timedelta(days=90),
         status=AssignmentStatus.ACCEPTED,
     )
     # Propuesta pendiente (bandeja de la gestión, HU-2.3/2.4).
@@ -1349,6 +1472,7 @@ def seed_operations(stdout=None) -> None:
     v1 = Vehicle.objects.get(plate="1234KLM")
     v2 = Vehicle.objects.get(plate="5678BCD")
     v3 = Vehicle.objects.get(plate="7890NPQ")
+    v_admin = Vehicle.objects.get(plate="8888TRX")
     v_baja = Vehicle.objects.get(plate="0000ZZZ")
     obra = Project.objects.get(project_name="Obra Norte A-12")
     ceco = Pep.objects.get(code="4300")
@@ -1362,6 +1486,7 @@ def seed_operations(stdout=None) -> None:
         (v1, today + timedelta(days=10)),
         (v2, today - timedelta(days=6)),
         (v3, today + timedelta(days=12)),
+        (v_admin, today + timedelta(days=5)),  # el coche de la administradora
     ):
         event = Event.objects.create(
             vehicle=vehicle,
@@ -1642,6 +1767,137 @@ def seed_operations(stdout=None) -> None:
     # seed enseñaba algo que la API no deja subir.
     fotos_v3.incident = accidente_v3
     fotos_v3.save(update_fields=["incident", "updated_at"])
+    # -- El coche de la administradora (8888TRX): su póliza, su ficha y TODO
+    # lo que se le puede abrir. Es el escaparate de la cuenta con los cuatro
+    # roles: desde la app de campo se ven sus cinco avisos y sus cinco
+    # peticiones sin salir del coche, y desde gestión, lo mismo en su ficha.
+    Document.objects.create(
+        vehicle=v_admin,
+        type=DocumentType.INSURANCE,
+        drive_url="https://drive.example/seguro-8888TRX",
+        drive_file_id="drv-file-seguro-8888TRX",
+        uploaded_by=admin,
+        # La MISMA fecha que puso `seed_vehicles`: la señal denormaliza la del
+        # documento al vehículo, y una posterior se llevaría por delante el aviso.
+        expiry_date=today + timedelta(days=8),
+        status=DocumentStatus.VALID,
+    )
+    Document.objects.create(
+        vehicle=v_admin,
+        type=DocumentType.TECHNICAL_SHEET,
+        drive_url="https://drive.example/ficha-8888TRX",
+        drive_file_id="drv-file-ficha-8888TRX",
+        uploaded_by=admin,
+        status=DocumentStatus.VALID,
+    )
+    fotos_admin = Document.objects.create(
+        vehicle=v_admin,
+        type=DocumentType.DAMAGE_PHOTOS,
+        drive_url="https://drive.example/danos-8888TRX",
+        drive_file_id="drv-file-danos-8888TRX",
+        uploaded_by=admin,
+        status=DocumentStatus.VALID,
+        notes="Fotos del golpe en el paragolpes trasero.",
+    )
+    # Las CINCO peticiones que caben: los cuatro tipos que la app de campo deja
+    # abrir (avería, mantenimiento puntual, neumáticos y petición general) más
+    # el accidente, que va en su tarjeta aparte. La ITV no se siembra como
+    # incidencia: `inspection` es el ciclo interno «En ITV», no se ofrece como
+    # categoría en ninguna de las dos apps y, abierta en un coche ACTIVO, diría
+    # que está en la estación cuando no lo está — su cita es la ALERTA de
+    # arriba. Con prioridades distintas, que es lo que ordena la lista de campo.
+    Incident.objects.create(
+        vehicle=v_admin,
+        type=IncidentType.BREAKDOWN,
+        date=today - timedelta(days=2),
+        description="Pérdida de potencia en caliente y testigo del motor encendido.",
+        status=IncidentStatus.OPEN,
+        priority=IncidentPriority.CRITICAL,
+    )
+    Incident.objects.create(
+        vehicle=v_admin,
+        type=IncidentType.MAINTENANCE,
+        date=today - timedelta(days=11),
+        description="Cambio de aceite y filtros: pedida cita con el taller.",
+        status=IncidentStatus.OPEN,
+        priority=IncidentPriority.MODERATE,
+    )
+    Incident.objects.create(
+        vehicle=v_admin,
+        type=IncidentType.TIRES,
+        date=today - timedelta(days=6),
+        description="",  # el comentario del parte de neumáticos es OPCIONAL
+        status=IncidentStatus.IN_PROGRESS,
+        priority=IncidentPriority.FUNCTIONAL,
+        mileage=13900,
+        workshop_postal_code="28020",
+        # Parte guiado completo: sin estos detalles, la lista de campo no sabe
+        # ni la medida ni qué rueda (la descripción va vacía a propósito).
+        details={
+            "report_version": 1,
+            "change_reason": "puncture",
+            "wheel_scope": "rear",
+            "rear_measure": "225/45 R17",
+        },
+    )
+    Incident.objects.create(
+        vehicle=v_admin,
+        type=IncidentType.GENERAL,
+        date=today - timedelta(days=1),
+        description="Renovar la tarjeta de combustible, que caduca este mes.",
+        status=IncidentStatus.OPEN,
+        priority=IncidentPriority.INFORMATIVE,
+    )
+    accidente_admin = Incident.objects.create(
+        vehicle=v_admin,
+        type=IncidentType.ACCIDENT,
+        date=today - timedelta(days=9),
+        description="Alcance por detrás en un semáforo, sin heridos.",
+        status=IncidentStatus.IN_PROGRESS,
+        priority=IncidentPriority.CRITICAL,
+        mileage=13850,
+        details={
+            "report_version": 1,
+            "street": "Avenida de Ejemplo",
+            "street_number": "120",
+            "postal_code": "28019",
+            "locality": "Madrid",
+            "province": "Madrid",
+            "occurred_at": (timezone.now() - timedelta(days=9, hours=7)).isoformat(),
+            # Datos de EJEMPLO (nunca personales reales) — política GRS.
+            "phone": "600 000 003",
+            # El atestado es la REFERENCIA, no un sí/no: es lo que pinta la
+            # ficha del parte (`police_report_ref`).
+            "police_report_reference": "ATG-2026-104",
+            "damage_description": "Paragolpes trasero hundido y portón rozado.",
+            "third_parties": [
+                {
+                    "full_name": "Tercero de ejemplo",
+                    "plate": "0000XXX",
+                    "brand": "Opel",
+                    "model": "Corsa",
+                    "insurer": "Aseguradora de ejemplo",
+                    "policy_number": "POL-000-EJEMPLO",
+                    "damage_description": "Faro delantero izquierdo roto.",
+                }
+            ],
+            # Con lesionado: el parte guiado tiene que leerse también con la
+            # tabla llena, y el de sara la lleva vacía a propósito. Las claves
+            # son las del parte de la PWA (`full_name`, `seat`), que son las
+            # que `services/accidents.py` materializa.
+            "injured_people": [
+                {
+                    "full_name": "Acompañante de ejemplo",
+                    "seat": "passenger",
+                    "phone": "600 000 004",
+                }
+            ],
+        },
+    )
+    # Unas fotos de daños EXIGEN incidencia (`LINK_REQUIRED_DOCUMENT_TYPES`).
+    fotos_admin.incident = accidente_admin
+    fotos_admin.save(update_fields=["incident", "updated_at"])
+
     # Documentos PERSONALES (titular = usuario, no coche): el permiso de
     # conducir de cada conductor. Uno vigente y otro caducado, para que la
     # pantalla de Documentos enseñe ambos estados y el filtro por usuario.
@@ -2023,6 +2279,26 @@ def seed_operations(stdout=None) -> None:
         every_km=max(1, km_actual_v3 - 300),  # objetivo ya superado → crítica
         last_done_km=0,
         workshop_postal_code="41001",
+        notes="Revisión general del fabricante.",
+    )
+    # El de la administradora: igual que el de sara —ciclo por FECHA a ~14 días
+    # y ciclo por KM ya superado en el MISMO plan (un aviso, no dos)—, para que
+    # su tarjeta de mantenimiento tenga la cita y la alerta crítica.
+    ultima_admin = (
+        KmReading.objects.filter(vehicle=v_admin, km_reading__isnull=False, is_active=True)
+        .order_by("-reading_date", "-id")
+        .first()
+    )
+    km_actual_admin = ultima_admin.km_reading if ultima_admin else 0
+    MaintenancePlan.objects.create(
+        vehicle=v_admin,
+        program=revision_general,
+        name=revision_general.name,
+        every_months=12,
+        last_done_date=today - timedelta(days=351),  # toca en ~14 días → aviso
+        every_km=max(1, km_actual_admin - 400),  # objetivo ya superado → crítica
+        last_done_km=0,
+        workshop_postal_code="28020",
         notes="Revisión general del fabricante.",
     )
     MaintenancePlan.objects.create(

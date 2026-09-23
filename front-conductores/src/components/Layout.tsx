@@ -15,7 +15,7 @@ import {
 import { LanguageToggleButton } from '@flota/ui/ui'
 
 import { fetchVehicleSummariesCached, listVehiclesCached } from '../api.ts'
-import { closeServerSession, useAuth } from '../auth.ts'
+import { closeServerSession, hasWideReadScope, useAuth } from '../auth.ts'
 import { FleetModeContext } from '../fleetMode.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
@@ -75,8 +75,11 @@ export function Layout() {
   const [queueNotice, setQueueNotice] = useState('')
 
   const isSupervisor = user?.roles.includes('supervisor') ?? false
-  const hasManagementScope =
-    user?.roles.some((role) => role === 'admin' || role === 'supervisor') ?? false
+  // ÁMBITO, no permiso: a admin, supervisor y HSE el back les manda más coches
+  // que los que conducen, y la pareja «mía» se saca de lo que conduce. Con
+  // `admin|supervisor` a secas, un conductor con HSE se quedaba con toda la
+  // flota como propia: sin tablero y con el nav apagado (target nulo).
+  const hasWideScope = hasWideReadScope(user)
 
   // Switch del supervisor: "Mi vehículo" ↔ "Flota". Recordado por dispositivo;
   // en jsdom o con el almacenamiento vetado simplemente arranca en vehículo.
@@ -123,7 +126,7 @@ export function Layout() {
       .then(([page, summaries]) => {
         if (!alive) return
         const byId = new Map(summaries.map((s) => [s.vehicle, s]))
-        const own = hasManagementScope
+        const own = hasWideScope
           ? page.results.filter((v) => byId.get(v.id)?.driver?.id === user.id)
           : page.results
         const ids = new Set<number>()
@@ -155,7 +158,7 @@ export function Layout() {
     return () => {
       alive = false
     }
-  }, [hasManagementScope, user, dataVersion])
+  }, [hasWideScope, user, dataVersion])
 
   // FE-2: la cola offline es del dispositivo y la sesión, de la persona: se le
   // dice a la cola de quién es lo que se encola desde aquí (y contra quién

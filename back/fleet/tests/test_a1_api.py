@@ -394,7 +394,10 @@ class SummaryTests(APITestCase):
         )
 
     def test_vehicle_summary_projects_overage_with_penalty(self):
-        self.client.force_authenticate(self.driver)  # el conductor ve SU vehículo
+        # La proyección es de gestión: la lee quien supervisa (y el admin).
+        self.vehicle.supervisor = self.supervisor
+        self.vehicle.save(update_fields=["supervisor"])
+        self.client.force_authenticate(self.supervisor)
         resp = self.client.get(reverse("vehicle-summary", args=[self.vehicle.pk]))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["km_current"], 30000)
@@ -404,6 +407,21 @@ class SummaryTests(APITestCase):
         self.assertEqual(projection["projected_end"], 60497)
         self.assertEqual(projection["overage_km"], 10497)
         self.assertEqual(projection["estimated_penalty"], Decimal("1049.70"))
+
+    def test_vehicle_summary_hides_projection_from_the_driver(self):
+        """El conductor ve SU vehículo (km, contrato) pero no la proyección:
+        el exceso proyectado se arregla cambiando quién lleva el coche, y eso
+        lo decide gestión, no quien conduce."""
+        self.client.force_authenticate(self.driver)
+        resp = self.client.get(reverse("vehicle-summary", args=[self.vehicle.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["km_current"], 30000)
+        self.assertEqual(resp.data["contract"]["month_fee"], Decimal("540.00"))
+        self.assertIsNone(resp.data["projection"])
+        # Y en el listado de resúmenes, lo mismo.
+        resp = self.client.get(reverse("vehicle-summaries"))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(all(row["projection"] is None for row in resp.data))
 
     def test_fleet_summary_aggregates_and_scopes(self):
         other = Vehicle.objects.create(

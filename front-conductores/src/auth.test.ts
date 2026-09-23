@@ -22,8 +22,15 @@ vi.mock('./offline/queue.ts', async (importOriginal) => ({
   setQueueOwner: mocks.setQueueOwner,
 }))
 
-import { bootstrap, onLogout } from './auth.ts'
-import type { FlotaUser } from './types.ts'
+import {
+  bootstrap,
+  hasFieldRole,
+  hasWideReadScope,
+  isAdminOnly,
+  isManagementOnly,
+  onLogout,
+} from './auth.ts'
+import type { FlotaUser, Role } from './types.ts'
 
 const LAST_ME_KEY = 'flota:last-me'
 
@@ -108,5 +115,48 @@ describe('auth: caché del último /me (FE-1) y cierre de sesión (FE-2)', () =>
     expect(localStorage.getItem(LAST_ME_KEY)).toBeNull()
     expect(mocks.clearQueue).not.toHaveBeenCalled()
     expect(mocks.setQueueOwner).toHaveBeenCalledWith(null)
+  })
+})
+
+// Quién entra en la app de campo y a quién le manda el back más de lo suyo.
+// El rol `hse` es el que obligó a separarlo: LEE toda la flota pero no
+// conduce ni supervisa, así que ni entra solo ni cuenta como «mío» lo que ve.
+describe('auth: roles de campo, gestión pura y ámbito ancho (hse)', () => {
+  const con = (...roles: Role[]): FlotaUser => ({ ...ME, roles })
+
+  it('hasFieldRole: conducir o supervisar, con lo que sea sumado', () => {
+    expect(hasFieldRole(con('driver'))).toBe(true)
+    expect(hasFieldRole(con('supervisor'))).toBe(true)
+    expect(hasFieldRole(con('driver', 'hse'))).toBe(true)
+    expect(hasFieldRole(con('admin'))).toBe(false)
+    expect(hasFieldRole(con('hse'))).toBe(false)
+    expect(hasFieldRole(con())).toBe(false)
+    expect(hasFieldRole(null)).toBe(false)
+  })
+
+  it('isManagementOnly: admin y/o hse SIN rol de campo → portón de «Sin acceso»', () => {
+    expect(isManagementOnly(con('admin'))).toBe(true)
+    expect(isManagementOnly(con('hse'))).toBe(true)
+    expect(isManagementOnly(con('admin', 'hse'))).toBe(true)
+    // Con rol de campo sumado, entra y actúa como conductor/supervisor.
+    expect(isManagementOnly(con('driver', 'hse'))).toBe(false)
+    expect(isManagementOnly(con('supervisor', 'hse'))).toBe(false)
+    expect(isManagementOnly(con('admin', 'driver'))).toBe(false)
+    expect(isManagementOnly(con('driver'))).toBe(false)
+    // SIN NINGÚN rol no es gestión: su camino es el 403 del back → solicitar.
+    expect(isManagementOnly(con())).toBe(false)
+    expect(isManagementOnly(null)).toBe(false)
+    // El nombre histórico sigue valiendo y dice lo mismo.
+    expect(isAdminOnly(con('hse'))).toBe(true)
+  })
+
+  it('hasWideReadScope: admin, supervisor y hse reciben más coches que los que conducen', () => {
+    expect(hasWideReadScope(con('admin'))).toBe(true)
+    expect(hasWideReadScope(con('supervisor'))).toBe(true)
+    expect(hasWideReadScope(con('driver', 'hse'))).toBe(true)
+    // Al conductor puro el back ya le devuelve exactamente los suyos.
+    expect(hasWideReadScope(con('driver'))).toBe(false)
+    expect(hasWideReadScope(con())).toBe(false)
+    expect(hasWideReadScope(null)).toBe(false)
   })
 })

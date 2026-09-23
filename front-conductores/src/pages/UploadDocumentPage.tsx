@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, CheckCircle2, Paperclip } from 'lucide-react'
 import { Button, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
@@ -44,9 +44,13 @@ export function UploadDocumentPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  // Modo Flota: el selector pide al back SOLO los coches que supervisa (los
-  // roles se suman; sin filtro un supervisor-admin vería toda la flota).
+  // Modo "Mi vehículo": el selector queda acotado a su pareja (coche propio +
+  // sustitución), como en registrar km y en la incidencia; al conductor puro
+  // el back ya le manda los suyos. Modo Flota: el selector pide al back SOLO
+  // los coches que supervisa (los roles se suman; sin filtro un
+  // supervisor-admin vería toda la flota, y un conductor con HSE también).
   const ctx = useOutletContext<LayoutContext | null>()
+  const ownIds = ctx && !ctx.fleetMode ? (ctx.ownPair?.ids ?? null) : null
   const supervisedBy = ctx?.fleetMode ? user?.id ?? null : null
   // Las etiquetas de los campos ya viven en `t.vehicle` (la ficha las usaba):
   // aquí solo se añade lo propio de la vista (título, vuelta, confirmación).
@@ -81,6 +85,18 @@ export function UploadDocumentPage() {
       alive = false
     }
   }, [params, supervisedBy])
+
+  const selectable = useMemo(
+    () => (ownIds ? vehicles.filter((v) => ownIds.includes(v.id)) : vehicles),
+    [vehicles, ownIds],
+  )
+  // El recorte puede dejar UNA opción (se elige sola) o invalidar la elegida
+  // (un `?vehiculo=` de un coche que no es suyo). Mismo gesto que registrar km.
+  useEffect(() => {
+    if (!ownIds) return
+    if (vehicleId && !ownIds.includes(Number(vehicleId))) setVehicleId('')
+    else if (!vehicleId && selectable.length === 1) setVehicleId(String(selectable[0].id))
+  }, [ownIds, selectable, vehicleId])
 
   // Incidencias del vehículo elegido: permiten ligar la foto a un parte. El
   // efecto SOLO carga; limpiar la selección al cambiar de coche se hace en el
@@ -235,13 +251,13 @@ export function UploadDocumentPage() {
         </div>
         <div key={step} className={`step-pane${cameBack ? ' from-left' : ''}`}>
         {step === 'file' && <>
-        {vehicles.length > 1 && (
+        {selectable.length > 1 && (
           <SelectField
             label={copy.vehicle}
             requiredVisual
             options={[
               { value: '', label: copy.choose },
-              ...vehicles.map((v) => ({
+              ...selectable.map((v) => ({
                 value: String(v.id),
                 label: `${v.plate} · ${v.brand} ${v.model}`,
               })),

@@ -18,6 +18,9 @@ const es = {
     projection: 'Proyección a fin de contrato/año',
     unlimited: 'Flota con km ilimitados',
   },
+  /** «Resolver» de la pestaña de proyección: el coche con la alerta de exceso abierta. */
+  resolveOverage: 'Resolver',
+  resolveOverageLabel: (plate: string) => `Resolver el exceso de km de ${plate}`,
   levels: {
     within: 'Dentro',
     watch: 'A vigilar',
@@ -163,6 +166,8 @@ const en: typeof es = {
     projection: 'End-of-contract/year projection',
     unlimited: 'Fleet with unlimited km',
   },
+  resolveOverage: 'Resolve',
+  resolveOverageLabel: (plate) => `Resolve the km overage of ${plate}`,
   levels: {
     within: 'Within',
     watch: 'Watch',

@@ -24,6 +24,9 @@ const es = {
   roleFilterLabel: 'Filtrar por rol',
   roleFilterAll: 'Todos los roles',
   roleFilterNone: 'Sin rol',
+  /** Los dos grupos del desplegable de rol (la línea divisoria del listado). */
+  roleGroupSingle: 'Con este rol',
+  roleGroupCombo: 'Exactamente estos roles',
   lblRecords: 'Registros',
   lblSearch: 'Buscar',
   lblRole: 'Rol',
@@ -46,6 +49,14 @@ const es = {
   deactivate: 'Desactivar',
   reactivate: 'Reactivar',
   edit: 'Editar',
+  /** La tabla de arriba: la cuenta de administración y la de quien mira. */
+  ownTitle: 'Tu cuenta y la de administración',
+  ownHint:
+    'Estos dos registros no salen en la lista de abajo. La cuenta de administración del sistema no se edita ni se desactiva desde aquí (salvo que sea la tuya: tu ficha sí la corriges), y tu propia cuenta no puedes desactivarla tú.',
+  ownSystem: 'Cuenta del sistema',
+  ownSelf: 'Tu cuenta',
+  /** Cuando entras CON la cuenta de administración: es la tuya y es la del sistema. */
+  ownSelfSystem: 'Tu cuenta, y la del sistema',
   yes: 'Sí',
   no: 'No',
   active: 'Activo',
@@ -64,6 +75,7 @@ const es = {
     admin: 'Admin',
     supervisor: 'Supervisor',
     driver: 'Conductor',
+    hse: 'HSE',
   },
   licenses: {
     B: 'B (turismos)',
@@ -90,9 +102,9 @@ const es = {
   rolesLabel: 'Roles (tipo de permisos)',
   rolesRequired: 'Selecciona al menos un rol (tipo de permisos).',
   passwordRequiredHint:
-    'Obligatoria para administradores (es su acceso a la gestión). Mínimo 8 caracteres; evita contraseñas comunes o solo numéricas.',
+    'Obligatoria para administradores y HSE (es su acceso a la gestión). Mínimo 8 caracteres; evita contraseñas comunes o solo numéricas.',
   passwordOptionalHint:
-    'Opcional para no administradores: sin contraseña, el usuario entrará con Google o el selector de desarrollo.',
+    'Opcional para conductores y supervisores: sin contraseña, el usuario entrará con Google o el selector de desarrollo.',
   cancel: 'Cancelar',
   saving: 'Guardando…',
   save: 'Guardar',
@@ -122,6 +134,8 @@ const en: typeof es = {
   roleFilterLabel: 'Filter by role',
   roleFilterAll: 'All roles',
   roleFilterNone: 'No role',
+  roleGroupSingle: 'With this role',
+  roleGroupCombo: 'Exactly these roles',
   lblRecords: 'Records',
   lblSearch: 'Search',
   lblRole: 'Role',
@@ -143,6 +157,12 @@ const en: typeof es = {
   deactivate: 'Deactivate',
   reactivate: 'Reactivate',
   edit: 'Edit',
+  ownTitle: 'Your account and the admin one',
+  ownHint:
+    'These two records are not in the list below. The system admin account cannot be edited or deactivated here (unless it is your own: you can still fix your details), and you cannot deactivate your own account.',
+  ownSystem: 'System account',
+  ownSelf: 'Your account',
+  ownSelfSystem: 'Your account, and the system one',
   yes: 'Yes',
   no: 'No',
   active: 'Active',
@@ -161,6 +181,7 @@ const en: typeof es = {
     admin: 'Admin',
     supervisor: 'Supervisor',
     driver: 'Driver',
+    hse: 'HSE',
   },
   licenses: {
     B: 'B (cars)',
@@ -187,9 +208,9 @@ const en: typeof es = {
   rolesLabel: 'Roles (permission type)',
   rolesRequired: 'Select at least one role (permission type).',
   passwordRequiredHint:
-    'Required for administrators (their access to management). At least 8 characters; avoid common or all-numeric passwords.',
+    'Required for administrators and HSE (their access to management). At least 8 characters; avoid common or all-numeric passwords.',
   passwordOptionalHint:
-    'Optional for non-admins: without a password, the user signs in with Google or the dev selector.',
+    'Optional for drivers and supervisors: without a password, the user signs in with Google or the dev selector.',
   cancel: 'Cancel',
   saving: 'Saving…',
   save: 'Save',

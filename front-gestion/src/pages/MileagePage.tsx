@@ -10,6 +10,7 @@ import { AlertTriangle, ChevronLeft, ChevronRight, Download, Mail } from 'lucide
 import {
   fetchKmEstimatePreview,
   fetchVehicleSummaries,
+  listAlerts,
   listAll,
   listEmailTemplates,
   listKmReadingsAll,
@@ -24,9 +25,11 @@ import {
 import { exportCsv } from '../csv.ts'
 import { kmLevelTone } from '../format.ts'
 import { ReadingsHistory } from '../components/ReadingsHistory.tsx'
+import { ResolveDispatcher } from '../components/resolve/ResolveDispatcher.tsx'
+import type { ResolveTarget } from '../components/resolve/resolveFlow.ts'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { useMileageCopy } from '../translations/mileage.ts'
-import type { KmReading, Vehicle, VehicleSummary } from '../types.ts'
+import type { Alert, KmReading, Vehicle, VehicleSummary } from '../types.ts'
 
 const LOCALES: Record<AppLanguage, string> = { es: 'es-ES', en: 'en-GB' }
 
@@ -83,6 +86,12 @@ export function MileagePage() {
   )
 
   const [rows, setRows] = useState<Row[]>([])
+  // La alerta de exceso ABIERTA de cada coche (`km_overage`): es lo que hace a
+  // un coche «problemático» en la pestaña de proyección y lo que se resuelve
+  // desde ahí, con el mismo despachador que la bandeja y la ficha.
+  const [overages, setOverages] = useState<Map<number, Alert>>(new Map())
+  const [resolving, setResolving] = useState<ResolveTarget | null>(null)
+  const [notice, setNotice] = useState('')
   const [allReadings, setAllReadings] = useState<KmReading[]>([])
   const [loading, setLoading] = useState(true)
   // M10: al navegar de mes se recarga la ventana de lecturas. La pantalla
@@ -190,8 +199,12 @@ export function MileagePage() {
           ),
           req,
         ),
+        // Si las alertas fallan, la proyección se lee igual: solo falta «Resolver».
+        listAll(listAlerts({ status: 'open', type: 'km_overage' }, req), req).catch(
+          () => [] as Alert[],
+        ),
       ])
-        .then(([vehicles, summaries, readings]) => {
+        .then(([vehicles, summaries, readings, overageAlerts]) => {
           const byId = new Map(summaries.map((s) => [s.vehicle, s]))
           setRows(
             vehicles.flatMap((v) => {
@@ -200,6 +213,13 @@ export function MileagePage() {
             }),
           )
           setAllReadings(readings)
+          setOverages(
+            new Map(
+              overageAlerts
+                .filter((a) => a.vehicle !== null)
+                .map((a) => [a.vehicle as number, a]),
+            ),
+          )
           setError('')
         })
         .catch((err) => {
@@ -652,8 +672,35 @@ export function MileagePage() {
           )
         },
       },
+      {
+        // Solo el coche con la alerta de exceso ABIERTA: es la que se resuelve
+        // (proponiendo o cambiando quién lo lleva), no el nivel de la proyección.
+        key: 'actions',
+        label: t.columns.actions,
+        align: 'right',
+        searchable: false,
+        sortable: false,
+        render: ({ vehicle }) => {
+          const alert = overages.get(vehicle.id)
+          if (!alert) return null
+          return (
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-label={t.resolveOverageLabel(vehicle.plate)}
+              onClick={() => setResolving({ kind: 'alert', alert })}
+            >
+              {t.resolveOverage}
+            </Button>
+          )
+        },
+      },
     ]
-  }, [t, km, locale, projMode, vehicleColumn])
+  }, [t, km, locale, projMode, vehicleColumn, overages])
+
+  // El índice de vehículos que pide el despachador (matrícula y estado del
+  // coche que se resuelve).
+  const vehicles = useMemo(() => rows.map((r) => r.vehicle), [rows])
 
   const supervisors = useMemo(() => {
     const map = new Map<number, string>()
@@ -898,6 +945,25 @@ export function MileagePage() {
       <PageHeader title={t.title} subtitle={t.subtitle} />
 
       {error && <div role="alert" className="form-error">{error}</div>}
+      {notice && (
+        <p role="status" className="form-ok">
+          {notice}
+        </p>
+      )}
+
+      {/* Resolver el exceso de km desde la proyección: el mismo despachador
+          que la bandeja y la ficha (la alerta `km_overage` → proponer/cambiar
+          conductor). Al cerrarla, la fila pierde su botón al recargar. */}
+      <ResolveDispatcher
+        target={resolving}
+        vehicles={vehicles}
+        onClose={() => setResolving(null)}
+        onDone={(text) => {
+          setResolving(null)
+          setNotice(text)
+          load()
+        }}
+      />
       {loading ? (
         <p className="loading-state" role="status">{t.loading}</p>
       ) : (

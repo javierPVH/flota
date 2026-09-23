@@ -5,9 +5,11 @@ import { isAllowed, useAuth } from '../auth.ts'
 import { useLang } from '../i18n.tsx'
 
 /**
- * Portón de rol (G0): este front es SOLO para `admin`. Un usuario autenticado
- * sin ese rol ve un 403 claro con logout — nunca un login en bucle. Ocultar no
- * es autorizar: el backend corta igualmente sus endpoints.
+ * Portón de rol (G0): este front es para `admin` **o** `hse` (`isAllowed`). Un
+ * usuario autenticado sin ninguno de los dos ve un 403 claro con logout —
+ * nunca un login en bucle. Ocultar no es autorizar: el backend corta
+ * igualmente sus endpoints. Lo que un HSE puro puede pisar una vez dentro
+ * (solo `/hse`) lo decide `HseGate`.
  */
 export function AdminGate({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()

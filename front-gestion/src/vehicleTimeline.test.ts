@@ -221,3 +221,30 @@ describe('buildSupervisorHistory', () => {
     expect(reigns[reigns.length - 1].supervisor).toBe('Laura Martin')
   })
 })
+
+describe('reversiones en el histórico', () => {
+  it('lleva el id y si se puede revertir, y nombra la reversión como tal', () => {
+    const original = audit({ id: 10, revertible: true })
+    const reversal = audit({
+      id: 11,
+      timestamp: '2026-03-02T11:00:00Z',
+      changes: { state: ['maintenance', 'active'] },
+      reverts: 10,
+      revertible: true,
+    })
+    const items = buildTimeline([], [original, reversal], LABELS)
+    expect(items.map((i) => i.entryId)).toEqual([11, 10])
+    expect(items[1]).toMatchObject({ action: 'update', revertible: true, reverts: null })
+    // La reversión es una acción propia: no se pliega en la ráfaga de las
+    // modificaciones corrientes y su título lo dice.
+    expect(items[0]).toMatchObject({ action: 'revert', reverts: 10, title: 'Vehículo · revert' })
+  })
+
+  it('no ofrece revertir lo que no tiene ningún campo visible ni lo que el back no marca', () => {
+    const interno = audit({ id: 12, changes: { cost_center: ['1', '2'] }, revertible: true })
+    const sinMarca = audit({ id: 13 })
+    const items = buildTimeline([], [interno, sinMarca], LABELS)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ entryId: 13, revertible: false })
+  })
+})

@@ -219,6 +219,17 @@ def vehicle_summary(vehicle: Vehicle, today: date | None = None) -> dict:
     )
 
 
+def projection_visible(user) -> bool:
+    """¿Se le enseña a `user` la proyección de km (y su alerta de exceso)?
+
+    Es cosa de gestión —supervisor y admin— y de HSE, que lee. El conductor
+    registra los km, pero el exceso proyectado se arregla cambiando quién lleva
+    el coche, y esa decisión no es suya: a él no se le pinta ni la barra de
+    proyección ni la alerta `km_overage` (misma regla en `AlertViewSet`).
+    """
+    return bool(getattr(user, "is_management", False) or getattr(user, "is_hse", False))
+
+
 def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
     """Summaries de TODOS los vehículos visibles por `user` (O2 de
     OPTIMIZACION_Y_ERRORES.md): la app de campo hacía un GET por coche.
@@ -258,7 +269,7 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
         .annotate(n=Count("id"))
         .order_by()
     )
-    return [
+    summaries = [
         _compose_summary(
             v,
             contracts.get(v.id),
@@ -273,6 +284,10 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
         )
         for v in vehicles
     ]
+    if not projection_visible(user):
+        for summary in summaries:
+            summary["projection"] = None
+    return summaries
 
 
 def _compose_summary(

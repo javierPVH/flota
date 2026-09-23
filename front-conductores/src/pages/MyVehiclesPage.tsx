@@ -13,7 +13,7 @@ import {
   listVehiclesCached,
   type KmWindow,
 } from '../api.ts'
-import { useAuth } from '../auth.ts'
+import { hasWideReadScope, useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { useAccordion } from '../components/CollapsibleCard.tsx'
 import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
@@ -80,18 +80,23 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
   }, [dataVersion])
 
   const isSupervisor = user?.roles.includes('supervisor')
+  // PERMISO: resolver y recordar son de gestión (admin|supervisor); HSE no lo da.
   const hasManagementScope = Boolean(
     user?.roles.some((role) => role === 'admin' || role === 'supervisor'),
   )
+  // ÁMBITO: a quién le manda el back más coches que los que conduce.
+  const hasWideScope = hasWideReadScope(user)
 
-  // El ámbito de gestión trae más que los coches propios: toda la flota para
-  // admin y todo su grupo para supervisor. Aquí solo interesan los que conduce
-  // el usuario (asignación vigente = `summary.driver`). Al conductor puro el
-  // back ya le devuelve exactamente los suyos.
+  // El ámbito ancho trae más que los coches propios: toda la flota para admin
+  // y para HSE (en lectura), todo su grupo para supervisor. Aquí solo
+  // interesan los que conduce el usuario (asignación vigente =
+  // `summary.driver`). Al conductor puro el back ya le devuelve exactamente
+  // los suyos. Son dos preguntas distintas y por eso dos variables: un
+  // conductor con HSE tiene el ámbito ancho y NINGÚN permiso de gestión.
   const ownVehicles = useMemo(() => {
-    if (!hasManagementScope) return vehicles
+    if (!hasWideScope) return vehicles
     return vehicles.filter((v) => summaries[v.id]?.driver?.id === user?.id)
-  }, [hasManagementScope, vehicles, summaries, user?.id])
+  }, [hasWideScope, vehicles, summaries, user?.id])
 
   // El tablero cubre el caso normal (regla "un coche por conductor"): un solo
   // coche, o el sustituto que conduce + su principal. Con varios coches
@@ -245,12 +250,14 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
         </div>
       )}
 
-      {/* Supervisor sin coche propio: se dice, y se le manda a su flota
-          (girando el switch del shell, que es la única puerta a esa vista). */}
+      {/* Sin coche propio: se dice. Al supervisor, además, se le manda a su
+          flota (girando el switch del shell, que es la única puerta a esa
+          vista); quien solo conduce no tiene flota a cargo que ver, así que
+          el botón no se le ofrece aunque el shell haya pasado el callback. */}
       {ownVehicles.length === 0 && (
         <div className="card">
           <p className="empty-note">{t.home.ownEmpty}</p>
-          {onGoFleet && (
+          {onGoFleet && isSupervisor && (
             <button type="button" className="quick-action" onClick={onGoFleet}>
               <Users size={18} aria-hidden /> {t.home.ownEmptyCta}
             </button>

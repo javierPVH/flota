@@ -21,13 +21,22 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listDocumentDeletionRequests: mocks.listDocumentDeletionRequests,
 }))
 
+// Quién está dentro lo decide cada caso: la cabecera cambia con los roles.
+const session = vi.hoisted(() => ({
+  user: { id: 1, username: 'admin', roles: ['admin'] } as FlotaUser,
+}))
+
 vi.mock('../auth.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../auth.ts')>()),
   useAuth: () => ({
-    user: { id: 1, username: 'admin', roles: ['admin'] } as FlotaUser,
+    user: session.user,
     logout: vi.fn(),
   }),
 }))
+
+const conRoles = (roles: FlotaUser['roles']) => {
+  session.user = { id: 1, username: 'admin', roles } as FlotaUser
+}
 
 function pintar() {
   render(
@@ -42,6 +51,7 @@ function pintar() {
 describe('AppHeader: las solicitudes sin decidir', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    conRoles(['admin'])
     mocks.listAlerts.mockResolvedValue({ count: 0, results: [] })
     mocks.listIncidents.mockResolvedValue({ count: 0, results: [] })
     mocks.listVehicleRequests.mockResolvedValue({ count: 3, results: [] })
@@ -77,5 +87,54 @@ describe('AppHeader: las solicitudes sin decidir', () => {
 
     await waitFor(() => expect(mocks.listVehicleRequests).toHaveBeenCalled())
     expect(screen.queryByRole('link', { name: /solicitudes sin decidir/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('AppHeader: el rol HSE', () => {
+  const HSE_LINK = 'Vista HSE de la flota (solo lectura)'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.listAlerts.mockResolvedValue({ count: 0, results: [] })
+    mocks.listIncidents.mockResolvedValue({ count: 0, results: [] })
+    mocks.listVehicleRequests.mockResolvedValue({ count: 3, results: [] })
+    mocks.listDocumentDeletionRequests.mockResolvedValue({ count: 0, results: [] })
+  })
+
+  it('admin+hse: el botón «HSE» va a /hse y a la IZQUIERDA del aviso de solicitudes', async () => {
+    conRoles(['admin', 'hse'])
+    pintar()
+
+    const hse = screen.getByRole('link', { name: HSE_LINK })
+    expect(hse).toHaveAttribute('href', '/hse')
+    expect(hse).toHaveTextContent('HSE')
+    const aviso = await screen.findByRole('link', { name: '3 solicitudes sin decidir' })
+    // DOCUMENT_POSITION_FOLLOWING (4): el aviso viene DESPUÉS del botón HSE.
+    expect(hse.compareDocumentPosition(aviso) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Y conserva la gestión entera: campana y menú.
+    expect(screen.getByRole('button', { name: 'Notificaciones' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Menú' })).toBeInTheDocument()
+  })
+
+  it('un admin sin el rol no ve el botón', async () => {
+    conRoles(['admin'])
+    pintar()
+
+    await screen.findByRole('link', { name: '3 solicitudes sin decidir' })
+    expect(screen.queryByRole('link', { name: HSE_LINK })).not.toBeInTheDocument()
+  })
+
+  it('HSE puro: marca «HSE», idioma y salir; ni menú, ni campana, ni solicitudes', async () => {
+    conRoles(['hse'])
+    pintar()
+
+    expect(screen.getByText('Flota · HSE')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Salir' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Menú' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Notificaciones' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    // Tampoco pide lo que el back le negaría (solicitudes, recuentos de la campana).
+    await waitFor(() => expect(mocks.listVehicleRequests).not.toHaveBeenCalled())
+    expect(mocks.listAlerts).not.toHaveBeenCalled()
   })
 })

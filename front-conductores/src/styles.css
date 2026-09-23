@@ -182,9 +182,8 @@ a {
   height: 38px;
   border-radius: 0.6rem;
   background: linear-gradient(135deg, #e87a1e, #d06a14);
+  /* El coche es un SVG de lucide y pinta con currentColor. */
   color: #fff;
-  font-weight: 800;
-  font-size: 1.1rem;
   box-shadow: 0 8px 16px rgba(232, 122, 30, 0.3);
 }
 .login-brand-name {
@@ -924,7 +923,9 @@ button.bottom-tab {
    lista sin leerla. Mismos colores que el nivel de una alerta. */
 .pri-row {
   border-left: 4px solid var(--color-border);
-  padding-left: 0.6rem;
+  /* Aire entre el filete y lo primero de la fila: con menos, el icono nace
+     pegado a la línea de color y las dos cosas se leen como una sola. */
+  padding-left: 0.9rem;
 }
 .pri-row.pri-critical { border-left-color: var(--color-danger); }
 .pri-row.pri-moderate { border-left-color: var(--color-warning); }
@@ -1721,6 +1722,13 @@ button.bottom-tab {
   font-size: 0.85rem;
   font-weight: 700;
 }
+/* «Resolver» del coche con la alerta de exceso abierta: a la derecha, bajo
+   las cifras, con aire para el dedo. */
+.km-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.4rem;
+}
 .km-chart { margin-top: 0.7rem; }
 .km-chart svg { width: 100%; height: auto; }
 .km-chart-legend {
@@ -1763,7 +1771,9 @@ button.bottom-tab {
   cursor: pointer;
   text-decoration: none;
 }
-.alert-type { font-weight: 700; font-size: 0.9rem; }
+/* min-width: un hijo flex no baja de su contenido; sin esto el tipo largo
+   empujaría la chapa fuera de la línea. */
+.alert-type { font-weight: 700; font-size: 0.9rem; min-width: 0; }
 .alert-message { margin: 0.35rem 0 0.2rem; }
 .alert-plate { font-size: 1rem; text-decoration: underline; }
 /* La franja izquierda lleva el color del nivel (crítica/aviso/info): el ojo
@@ -1772,74 +1782,63 @@ button.bottom-tab {
 .alert-card.level-critical { border-left-color: var(--color-danger); }
 .alert-card.level-warning { border-left-color: var(--color-warning); }
 .alert-card.level-info { border-left-color: var(--color-info); }
-.alert-card-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-/* Pie de la alerta: fechas a la izquierda, acciones ligeras a la derecha. */
+/* El tipo y su chapa, en una línea: el tipo se reparte en varias si hace
+   falta, pero la chapa no baja sola a un renglón propio. */
+.alert-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+}
+.alert-card-head > span:not(.alert-type) { flex: none; }
+/* Pie de la alerta: fechas a la izquierda, acciones ligeras a la derecha,
+   SIEMPRE en la misma línea. Con `wrap`, en cuanto la caja se estrechaba
+   —un móvil de 320px, o este mismo modal en una ventana a medias— el
+   botón caía a un renglón propio y la tarjeta crecía de alto. Ahora lo que
+   cede es el texto, que es lo único que puede repartirse. */
 .alert-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   margin-top: 0.45rem;
 }
-.alert-meta { font-size: 0.78rem; color: var(--color-text-muted); }
+.alert-meta {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  /* Sin esto un hijo flex no baja de su contenido y empujaría al botón. */
+  min-width: 0;
+}
+/* Cada fecha, entera: la línea puede partirse ENTRE «Vence» y «Creada»,
+   nunca dentro de una de ellas («Vence:» arriba y el día abajo no se lee). */
+.alert-meta > span { white-space: nowrap; }
 .alert-due-over { color: var(--color-danger); font-weight: 700; }
-.alert-actions-inline { display: inline-flex; align-items: center; gap: 0.75rem; }
+.alert-actions-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: none; /* el botón no se estruja ni se parte */
+}
 .alert-actions-inline .link-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
   min-height: 44px; /* objetivo táctil sin el peso visual del botón grande */
 }
-/* Clasificador por tipo dentro del acordeón: mismo select que el de la flota,
-   a todo el ancho y separado de la primera alerta. */
-.alert-group-body .alert-type-select {
-  width: 100%;
-  margin-bottom: 0.8rem;
-}
-/* En «Todas»: las alertas del coche van por SECCIONES de tipo — una línea
-   horizontal divide los grupos y su título pliega/despliega (acordeón). */
-.alert-type-section {
-  border-top: 1px solid var(--color-border);
-  margin-top: 0.5rem;
-}
-.alert-type-section > summary { list-style: none; }
-.alert-type-section > summary::-webkit-details-marker { display: none; }
-.alert-type-head {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 40px; /* objetivo táctil */
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--color-text-muted);
-}
-.alert-type-chev { flex: none; transition: transform 0.15s ease; }
-.alert-type-section[open] .alert-type-chev { transform: rotate(90deg); }
-.alert-type-section .alert-card { margin-bottom: 0.7rem; }
-/* Un solo "Ver ficha" para todo el coche, al pie del acordeón. */
-.alert-group-foot {
-  border-top: 1px solid var(--color-border);
-  margin-top: 0.8rem;
-  padding-top: 0.35rem;
-}
-.alert-group-foot .link-btn { display: inline-flex; align-items: center; min-height: 44px; }
 .alert-closed { opacity: 0.65; }
 
-/* Clasificador GLOBAL de la bandeja: mismo select que el de la flota, a todo
-   el ancho, encima de los acordeones. Clasificar deja solo ese tipo y retira
-   los clasificadores internos de cada coche. */
-.alert-global-select {
-  display: block;
-  width: 100%;
-  margin-top: 0.75rem;
+/* La lista de alertas de la tarjeta «Alertas»: una tras otra, separadas por
+   una regla fina. Sin sangrado propio —el cuerpo de la tarjeta ya lo pone—,
+   que es lo que la distingue de `.alert-group-body`. */
+.alert-list > .alert-card + .alert-card {
+  border-top: 1px solid var(--color-border);
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
 }
 
-/* Bandeja agrupada: un acordeón <details> por coche, PLEGADO por defecto. La
-   cabecera resume el total (chapa con el tono del peor nivel) y el desglose
-   por tipo; el cuerpo lista las tarjetas separadas por una regla fina. */
-.alert-groups { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
+/* Bloque plegable <details> con cabecera propia: lo usa la tarjeta de
+   documentos de la ficha de campo. */
 .alert-group { padding: 0; }
 .alert-group > summary { list-style: none; }
 .alert-group > summary::-webkit-details-marker { display: none; }
@@ -1859,7 +1858,6 @@ button.bottom-tab {
 .alert-group[open] .alert-group-chev { transform: rotate(90deg); }
 .alert-group-info { display: grid; gap: 0.15rem; min-width: 0; }
 .alert-group-title { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.alert-group-types { font-size: 0.78rem; color: var(--color-text-muted); }
 .alert-group-body { padding: 0 1rem 0.9rem; }
 .alert-group-body .alert-card + .alert-card {
   border-top: 1px solid var(--color-border);

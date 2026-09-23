@@ -11,7 +11,7 @@ import {
 import { useUsersCopy } from '../translations/users.ts'
 import type { Role } from '../types.ts'
 
-const ALL_ROLES: Role[] = ['admin', 'supervisor', 'driver']
+const ALL_ROLES: Role[] = ['admin', 'supervisor', 'driver', 'hse']
 
 interface FormState {
   username: string
@@ -94,8 +94,11 @@ export function UserFormModal({
     setFormError('')
   }, [open, editing])
 
-  // Solo los ADMIN requieren contraseña al crear (es su acceso a la gestión).
-  const passwordRequiredOnCreate = !editing && form.roles.includes('admin')
+  // Requieren contraseña al crear quienes entran por gestión —ADMIN y HSE—,
+  // que es su único acceso: el login de gestión no tiene Google ni SAML, y sin
+  // contraseña el back deja la cuenta sin credencial utilizable.
+  const passwordRequiredOnCreate =
+    !editing && form.roles.some((role) => role === 'admin' || role === 'hse')
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()

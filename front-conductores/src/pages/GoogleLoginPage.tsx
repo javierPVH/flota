@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ShieldCheck } from 'lucide-react'
+import { Car, ShieldCheck } from 'lucide-react'
 import { LanguageToggleButton } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
@@ -118,7 +118,12 @@ export function GoogleLoginPage() {
       <div className="login-card login-card-branded">
         <header className="login-topline">
           <div className="login-brand">
-            <span className="login-brand-mark" aria-hidden="true">F</span>
+            {/* Un coche, no la inicial: es lo que dice de qué va esto sin
+                leer nada, y es la misma marca del icono de la pestaña y del
+                de instalar. */}
+            <span className="login-brand-mark" aria-hidden="true">
+              <Car size={22} strokeWidth={2.4} />
+            </span>
             <span className="login-brand-name">{L.brand}</span>
           </div>
           <LanguageToggleButton activeLanguage={language} onChange={setLanguage} />

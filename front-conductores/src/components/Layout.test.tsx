@@ -243,3 +243,40 @@ describe('avatar del header', () => {
     expect(avatar).toHaveTextContent('AP')
   })
 })
+
+describe('la pareja «mía» del nav con el ámbito ancho de HSE', () => {
+  beforeEach(drain)
+  afterEach(() => {
+    STABLE_AUTH.user.roles = ['driver']
+  })
+
+  it('un conductor con HSE recibe toda la flota y el nav apunta SOLO al coche que conduce', async () => {
+    // Antes, sin admin|supervisor no se filtraba: los tres coches contaban como
+    // suyos, no había un único destino y el nav salía apagado («Sin vehículo»).
+    STABLE_AUTH.user.roles = ['driver', 'hse']
+    mocks.listVehiclesCached.mockResolvedValue({
+      count: 3,
+      results: [
+        { id: 1, plate: '1234ASD', state: 'active', next_itv_date: null },
+        { id: 2, plate: '3546LKR', state: 'active', next_itv_date: null },
+        { id: 3, plate: '5960JSF', state: 'active', next_itv_date: null },
+      ],
+    })
+    mocks.fetchVehicleSummariesCached.mockResolvedValue([
+      { vehicle: 1, plate: '1234ASD', driver: { id: 8, name: 'Otro' } },
+      { vehicle: 2, plate: '3546LKR', driver: { id: 1, name: 'Ana Pérez' } },
+      { vehicle: 3, plate: '5960JSF', driver: null },
+    ])
+
+    renderShell()
+
+    // La acción de km del nav es un BOTÓN vivo (con vehículo), no el hueco
+    // apagado de «Sin vehículo asignado».
+    const km = await screen.findByRole('button', { name: 'Km' })
+    expect(km).not.toHaveAttribute('aria-disabled')
+    expect(screen.queryByTitle('Sin vehículo asignado')).not.toBeInTheDocument()
+    // Y abre el formulario sobre SU coche, no sobre otro de la flota leída.
+    await userEvent.click(km)
+    expect(await screen.findByRole('dialog')).toHaveTextContent('3546LKR')
+  })
+})

@@ -64,7 +64,10 @@ la BD (`FleetConfig.ready()` → `seed_dev_data` → cadena de `reset_*` en
 `runserver`. Habilita además `/api/v1/auth/dev-login/` (selector de usuarios sin
 Google).
 
-Usuarios sembrados (contraseña `flota-dev-2026`): `admin` (superuser), `sara`
+Usuarios sembrados (contraseña `flota-dev-2026`): `admin` (superuser con
+**los cuatro roles** —admin, supervisor, conductor y HSE—, que conduce y
+supervisa `8888TRX`: el escaparate con todos los avisos y todas las peticiones
+que puede tener un coche), `sara`
 (supervisor+driver), `marta` (segunda supervisora, con plantilla de conductores
 en bloque), `carlos`/`lucia` (driver), `david` (driver sin coche → prueba el
 portón de acceso), `nuevo` (sin rol) y `expedro` (usuario desactivado). Muchos
@@ -81,7 +84,7 @@ Monorepo: **un backend y dos SPAs**, más un design-system compartido.
 |---|---|---|
 | `back/` | Django + DRF, API versionada en `/api/v1/` | — |
 | `front/` (`@flota/ui`) | DS: componentes, `http`, `auth`, `i18n`, `table`, `excel`, `forms` | — |
-| `front-gestion/` | SPA escritorio, red interna/VPN | **solo `admin`** |
+| `front-gestion/` | SPA escritorio, red interna/VPN | **`admin`** (todo) y **`hse`** (solo la pantalla `/hse`, de lectura) |
 | `front-conductores/` | PWA móvil, internet | `supervisor` + `driver` |
 
 La separación de red la impone el despliegue (nginx + Cloudflare Tunnel solo para
@@ -91,8 +94,25 @@ permiso por rol y queryset acotado.
 ### Roles y acotado (lo que hay que respetar en cada endpoint nuevo)
 
 Una persona = un `User` (`accounts.models`), con **roles multi-valor** en
-`UserRole` (`admin` / `supervisor` / `driver`; helpers `is_admin`,
-`is_supervisor`, `is_driver`, `is_management`).
+`UserRole` (`admin` / `supervisor` / `driver` / `hse`; helpers `is_admin`,
+`is_supervisor`, `is_driver`, `is_hse`, `is_management`). **`hse` es solo
+lectura y NO es gestión** (`is_management` sigue siendo admin|supervisor): lee
+toda la flota —vehículos, incidencias y accidentes, alertas, documentos del
+coche, histórico, contratos, facturas, informes salvo el de usuarios— por la
+clase `HseReadOnly` compuesta con `|` solo en esos endpoints; nada de usuarios,
+Ajustes, solicitudes ni escrituras. En gestión tiene su pantalla `/hse`
+(pestañas de tablas sin acciones); un HSE puro no sale de ahí, y un admin+hse
+llega desde el botón «HSE» de la cabecera, a la izquierda de «Solicitudes».
+**Leer no es actuar**: `vehicles_for` y `readable_documents` llevan
+`write=True` en todo lo que escribe, en las acciones POST y en las bandejas de
+decisión (`ScopedByVehicleMixin.acting()`), y ahí HSE no añade nada — un
+supervisor+hse lee toda la flota pero solo resuelve su grupo. En la **PWA** el
+rol no da acceso: un admin o HSE **sin** rol de campo ve el portón de
+`AccessGate` (`isManagementOnly`), y donde una pantalla quiere «lo mío» el
+criterio de ámbito es `hasWideReadScope` (admin|supervisor|hse: el back manda
+más de lo que se conduce), distinto del permiso `admin|supervisor`. Los
+usuarios de la casa que entran solo por gestión (admin y hse) necesitan
+contraseña al crearse (el login de gestión no tiene Google ni SAML).
 
 Dos capas que van **siempre juntas**:
 
@@ -299,7 +319,21 @@ Dos capas que van **siempre juntas**:
   superadministrador del Workspace habilite la Admin SDK y conceda la
   delegación a nivel de dominio con los permisos de solo lectura de usuarios y
   miembros de grupo; el modelo ya guarda `proposed_name`/`proposed_email` para
-  que conectarlo no sea una migración.
+  que conectarlo no sea una migración. **Al conductor no se le enseña nada de
+  esto**: la proyección y su alerta son de gestión (supervisor y admin; HSE
+  las lee), porque lo que las arregla no está en su mano. Lo impone el back
+  —`metrics.projection_visible`: los resúmenes le llegan con `projection`
+  nulo, `AlertViewSet` le excluye `km_overage` como al seguro y el push del
+  exceso va solo a quien supervisa— y el correo automático del exceso
+  (plantilla «Exceso de km (al conductor)») es lo único que sigue yendo al
+  conductor, a propósito, porque es una plantilla de Ajustes que la
+  administración decide. Y donde se MIRA la proyección se puede resolver:
+  la pantalla «Proyección de km» de campo (`GroupPage`) y la pestaña de
+  proyección de «Kilómetros» en gestión (`MileagePage`) piden las alertas
+  `km_overage` abiertas y ponen **«Resolver»** solo en el coche que la tiene
+  —la alerta es lo que hace «problemático» a un coche, no el nivel de la
+  barra—, con el mismo modal de siempre (`AlertResolveDispatcher` en campo,
+  `ResolveDispatcher` en gestión).
 - **En la app de campo un documento se VE sin pasar por Drive.** El botón del
   ojo abre `GET /documents/{id}/preview/`: el back trae el archivo —del staging
   local si aún está ahí y, si no, de Drive con la **cuenta de servicio**
@@ -349,6 +383,22 @@ Dos capas que van **siempre juntas**:
   `accounts/audit.py`). Registrar una ITV refresca `next_itv_date` vía
   `fleet/signals.py`; el cierre de sus alertas (con actor), de la incidencia
   «En ITV» y la vuelta a Activo van en `services/itv.py`, llamado desde la vista.
+  **Un paquete de cambios del histórico se puede revertir, y eso es una
+  entrada nueva, no un borrado** (`services/audit_revert.py`, `POST
+  /vehicles/{id}/revert-change/ {entry}`, solo admin): se vuelven a escribir
+  los valores ANTERIORES de esa entrada sobre la ficha de ahora, por el
+  mismo serializer y —en el vehículo— por el mismo `perform_update` que un
+  PATCH (eventos de estado, relevo de supervisor…), y la entrada que deja la
+  auditoría se marca con `additional_data["reverts"]`. Solo **ficha y
+  contrato**: lo demás del histórico (asignaciones, reparto, sustituciones,
+  documentos) tiene reglas entre filas que «poner el valor viejo» no respeta.
+  Nunca se revierte la baja lógica (eso es erratas), el tipo del coche (N9),
+  el vehículo de un contrato ni un estado a «Devuelto (baja)» (eso es
+  «Devolver»), y si la ficha ya tiene esos valores contesta 400 en vez de
+  200 sin rastro. El histórico de gestión pone **«Revertir»** en cada
+  entrada que el back marca `revertible`, confirma enseñando a qué valor
+  vuelve cada campo y pinta la reversión como acción propia («Reversión ·
+  Deshace el cambio del …»).
 - **Lecturas optimizadas en `fleet/selectors.py`** (`current_driver_map`,
   `latest_reading_map`, `active_link_q`…): úsalas en listados e informes en vez
   de resolver por fila — los N+1 ya se han cazado varias veces aquí. El
@@ -904,6 +954,43 @@ Dos capas que van **siempre juntas**:
   vencimiento antes de guardar. Un vehículo tiene **un** plan activo: el back
   rechaza el segundo, y retirarlo (N7) se hace desde este mismo modal: la ficha
   no tiene tarjeta de mantenimiento.
+- **Dos cuentas no se gestionan como las demás, y por eso van aparte**
+  (`UsersPage`): entre los filtros y el listado hay una tabla con **las mismas
+  columnas** y dos filas fijas —la **cuenta de administración del sistema** y la
+  de **quien ha entrado**—, que **dejan de salir en el listado de abajo** (un
+  mismo registro en dos tablas de la misma pantalla se acaba tocando en la que
+  no toca, y el contador «Registros» cuenta lo que la tabla enseña). La del
+  sistema no ofrece **ni lápiz ni «Desactivar»**… salvo que sea **la tuya**:
+  quien entra con ella tiene que poder corregir su propia ficha, que si no se
+  queda sin ningún sitio donde hacerlo (y entonces la tabla trae **una sola
+  fila**, que es las dos cosas). Lo que no se ofrece nunca es **desactivar**: ni
+  la del sistema ni la propia. En el hueco del botón que falta se dice **por
+  qué** —y cuando son la misma cuenta, las **dos** razones—, que un botón
+  ausente sin explicación se lee como un fallo. **Tu fila va con fondo propio**
+  (`row-self`): en dos registros casi iguales, cuál es el tuyo no puede
+  depender de leer el nombre de usuario. No es una regla nueva: el back ya rechaza desactivarte a ti mismo y que
+  un no-superusuario desactive a un superusuario (`UserViewSet.destroy`) — esto
+  es no ofrecer un botón que solo podía acabar en error. Quién es esa cuenta lo
+  dice el back: `is_superuser` viaja **de solo lectura** en
+  `ManagedUserSerializer` para no tener que adivinarlo por el nombre de usuario,
+  y el privilegio se sigue concediendo en el admin de Django y no aquí. Va en
+  una ficha **plegable y cerrada de salida** (`CollapsibleCard` con su
+  `useAccordion`, que guarda las cerradas) y con **alto fijo** para esas dos
+  filas (`fixedHeight` de `TableWithPanel`): son registros que casi nunca se
+  tocan, y abierta empujaba el listado fuera de pantalla. La **barra de filtros
+  las alcanza** —buscar, rol, fechas y «mostrar desactivados» valen para las dos
+  tablas: la barra manda sobre todo lo que la pantalla enseña, y una búsqueda
+  que no llegara a estas dos filas se leería como que no funciona—, pero la
+  ficha se sigue pintando aunque el filtro las deje fuera (si apareciera y
+  desapareciera al teclear, el listado bailaría bajo el cursor). El **CSV sigue
+  exportando a todo el mundo**: es un informe, no la tabla. El **filtro por rol**
+  de esa barra va en **dos `<optgroup>`**, que es la línea que los separa,
+  porque son dos maneras distintas de buscar: un rol **suelto** lista a quien lo
+  **tenga** (un admin+hse sale en «Admin» y en «HSE») y una **combinación** es
+  el conjunto **exacto** (`matchesRoleFilter`). Las combinaciones **se generan**
+  a partir de `ROLE_ORDER` —todas las de dos o más, de menos a más— y no se
+  escriben a mano: escritas se quedaron sin ninguna de HSE, y quien fuera
+  admin+hse o supervisor+hse no salía con ningún filtro exacto.
 - **En la PWA una incidencia se llama igual que en gestión.** Las dos puertas de
   alta de campo —el modal de la tarjeta (`BreakdownModal`, que vive en
   `IncidentModal.tsx`) y `NewIncidentPage`— ofrecen **el mismo catálogo de
@@ -1050,16 +1137,38 @@ Dos capas que van **siempre juntas**:
   «moderada», que es el defecto del back)— y la lista va **ordenada por
   prioridad**, no por fecha: marcarla no serviría de nada si lo crítico
   quedara debajo.
-- **Las listas largas de un modal se acotan igual** (`components/ListFilter.tsx`):
-  una barra con **buscar** y **filtrar por tipo** que comparten las tres que
-  pueden traer decenas de filas —las incidencias de un coche en «Actualizar» y
-  las **alertas** e **incidencias** de la flota en «A tu cargo»—. Lo escrito y
-  el tipo se **suman**, la búsqueda va **sin acentos y por palabras sueltas**
+- **Las listas largas se acotan igual** (`components/ListFilter.tsx`): una
+  barra con **buscar** y **filtrar por tipo** que comparten todas las que
+  pueden traer decenas de filas —las incidencias de un coche en
+  «Actualizar», las **alertas** e **incidencias** de la flota en «A tu
+  cargo» y las tres tarjetas de la **bandeja** de campo—. Lo escrito y el
+  tipo se **suman**, la búsqueda va **sin acentos y por palabras sueltas**
   (en un móvil «avería» se teclea «averia») y mira lo que se lee en la fila,
   **incluida la matrícula** en las listas de flota; el desplegable ofrece
   **solo los tipos que hay en esas filas** (`typeOptions`) y desaparece con uno
   solo, y la barra entera no se pinta con una sola fila. Lo tecleado es de **esa
-  lista**: al abrir otra cifra se empieza en limpio.
+  lista**: al abrir otra cifra se empieza en limpio. Donde hay algo que
+  **atender** lleva además el **orden** (`ListOrder`): por **prioridad**
+  —que no es lo mismo en las dos listas, y por eso lo dice cada una: en una
+  petición la marca quien la abre y en una alerta es su **nivel**, que el
+  motor calcula por cercanía de la fecha— o por fecha, lo más reciente
+  arriba. Ordenar por prioridad es decidir por dónde empezar.
+- **La bandeja de campo son las MISMAS tres tarjetas que la ficha**
+  (`AlertsPage`): **Alertas**, **Incidencias** y **Accidentes**, en el orden
+  de `PENDING_CARDS`, con su recuento en el título y **plegadas de salida**
+  —lo que hay se lee sin abrir nada— y, desplegada cada una, su barra de
+  buscar, filtrar y ordenar. Antes era un acordeón por **coche** y solo de
+  alertas: las incidencias abiertas —que son la otra mitad de lo pendiente—
+  no se leían aquí, y para saber qué había que atender había que desplegar
+  coche por coche y, dentro, cada tipo. Lo que agrupaba aquel acordeón lo
+  hace ahora la búsqueda, que mira también la **matrícula**. El recuento
+  del título **no se filtra**: dice lo que hay abierto, no lo que se está
+  mirando. Las filas y los cierres son los de siempre —`AlertCard` con su
+  `AlertResolveDispatcher`, y la petición con el `IncidentResolveModal` que
+  reparte por tipo—, y cada fila dice **de qué coche** es, porque aquí se
+  mezcla el ámbito entero. Las incidencias solo las cierra la gestión, como
+  en el resto de la app. «Te queda poco» sigue **encabezando** la bandeja en
+  «Mi vehículo», fuera de las tarjetas: no es una alerta del motor.
 - **Quien conduce dice cómo queda el coche; el estado lo cambia gestión.** El
   modal de campo pregunta la **disponibilidad** en un paso propio —solo en
   **avería** y **mantenimiento puntual**: los neumáticos usan ese hueco para su
@@ -1167,7 +1276,24 @@ Dos capas que van **siempre juntas**:
   teléfono o el tipo de permiso de una flota sean un dato fiable—, pero hasta
   ahora solo decía «avisa a gestión»: el aviso salía de la herramienta y no
   quedaba rastro de quién pidió qué. Ahora es la **cuarta bandeja** de
-  `/solicitudes`, y el aviso de la cabecera cuenta ya las cuatro. Se pide la
+  `/solicitudes`, y el aviso de la cabecera cuenta ya las cuatro —y esa
+  página **abre por lo pendiente** en las cuatro: se entra a decidir, no a
+  leer el histórico. La de vehículos era la única que abría con todo
+  mezclado, así que había que buscar a ojo lo que esperaba respuesta; su
+  filtro vive en la **URL** (el aviso de la cabecera enlaza `?status=pending`),
+  y por eso «Todas» escribe `?status=` —presente y vacío— en vez de quitar el
+  parámetro: borrarlo devolvería al defecto y el chip no haría nada. Vacía
+  con ese filtro no dice «sin resultados» sino que **no queda nada por
+  decidir**, que es otra cosa. Qué hace cada botón va en **una caja**
+  (`.status-callout`) y no en dos párrafos grises seguidos, que es lo que el
+  ojo se salta. Y la de vehículos filtra también por **origen** —todos /
+  coche de sustitución / sin vehículo—, porque esa pestaña mezcla **dos
+  flujos** que se conceden igual pero no se leen igual: cubrir un coche parado,
+  que lo pide el parte de campo (se reconoce por su `incident`, y lo que se
+  concede es el coche que aún no tiene), y dar coche a quien no tiene (Jira o
+  portón). Cada barra cuenta sobre lo que deja pasar **la otra**: contando
+  sobre el total ofrecería chips con números que al pulsarlos dan tabla
+  vacía—. Se pide la
   **ficha entera** (`services.profile_requests.EDITABLE_FIELDS`: nombre,
   apellidos, correo, DNI, teléfono, tipo de permiso y tarjeta de combustible) y
   viaja **solo lo que cambia**; cualquier otro campo lo rechaza el back. El

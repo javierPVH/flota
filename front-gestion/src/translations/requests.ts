@@ -2,30 +2,46 @@ import { useAppLang } from '@flota/ui/i18n'
 
 const es = {
   title: 'Solicitudes',
-  subtitle: 'Lo que espera una decisión de administración: coches y borrado de documentos.',
-  /** Dos bandejas en una página: se decide lo mismo —conceder o no— y el
-   * aviso de la cabecera cuenta las dos juntas. */
+  subtitle:
+    'Lo que espera una decisión: coches de sustitución, documentos, cambios de conductor y fichas personales.',
+  /** CUATRO bandejas en una página: se decide lo mismo —conceder o no— y el
+   * aviso de la cabecera las cuenta juntas. El subtítulo las nombra: decía
+   * «coches y borrado de documentos» cuando ya eran cuatro, así que la
+   * página prometia menos de lo que hace. */
   tabVehicles: 'Vehículos',
   tabDocuments: 'Documentos',
   tabDrivers: 'Cambio de conductor',
   tabProfiles: 'Fichas personales',
+  helpTitle: 'Cómo se decide',
+  // Sin el nombre del job: quién decide aquí no sabe (ni tiene por qué)
+  // cómo se llama el proceso que lo sincroniza.
   jiraNote:
-    'El estado del ticket lo sincroniza el job sync_jira_requests; si Jira no confirma, decide aquí.',
+    'El estado del ticket de Jira se sincroniza solo. Si Jira no confirma, se decide aquí.',
   statPending: 'Sin decidir',
   exportCsv: 'Exportar CSV',
   csvName: 'solicitudes',
   filterAria: 'Filtrar por estado',
+  // La pestaña mezcla DOS flujos: cubrir un coche parado (lo pide el
+  // parte de campo) y dar coche a quien no tiene (Jira o portón). Se
+  // conceden igual, pero no se leen igual, y sin este filtro no había
+  // forma de mirar solo uno de los dos.
+  filterOriginAria: 'Filtrar por origen',
+  originLabel: 'Origen',
+  originAll: 'Todos',
+  originSubstitute: 'Coche de sustitución',
+  originNoVehicle: 'Sin vehículo',
   statusAll: 'Todas',
   statusPending: 'Pendientes',
   statusApproved: 'Aprobadas (Jira)',
   statusAssigned: 'Concedidas',
   statusRejected: 'Rechazadas',
   helpGrant: 'Conceder',
-  helpGrantRest: ' asigna el vehículo y deja entrar al solicitante; ',
-  helpReject: 'rechazar',
-  helpRejectRest: ' cierra la solicitud.',
+  helpGrantRest: 'asigna el vehículo y deja entrar a quien lo pidió.',
+  helpReject: 'Rechazar',
+  helpRejectRest: 'cierra la solicitud sin tocar nada.',
   loading: 'Cargando…',
   empty: 'Sin solicitudes con estos filtros.',
+  emptyPending: 'Nada sin decidir por aquí.',
   loadError: 'No se pudieron cargar las solicitudes.',
   typeLabel: {
     car: 'Turismo',
@@ -219,28 +235,35 @@ const es = {
 
 const en: typeof es = {
   title: 'Requests',
-  subtitle: 'What is waiting for a decision: vehicles and document deletions.',
+  subtitle:
+    'What is waiting for a decision: replacement cars, documents, driver changes and personal details.',
   tabVehicles: 'Vehicles',
   tabDrivers: 'Driver change',
   tabProfiles: 'Personal records',
   tabDocuments: 'Documents',
-  jiraNote:
-    'Ticket status is synced by the sync_jira_requests job; if Jira does not confirm, decide here.',
+  helpTitle: 'How it is decided',
+  jiraNote: 'The Jira ticket status syncs on its own. If Jira does not confirm, decide here.',
   statPending: 'Undecided',
   exportCsv: 'Export CSV',
   csvName: 'requests',
   filterAria: 'Filter by status',
+  filterOriginAria: 'Filter by origin',
+  originLabel: 'Origin',
+  originAll: 'All',
+  originSubstitute: 'Replacement car',
+  originNoVehicle: 'No vehicle',
   statusAll: 'All',
   statusPending: 'Pending',
   statusApproved: 'Approved (Jira)',
   statusAssigned: 'Granted',
   statusRejected: 'Rejected',
   helpGrant: 'Grant',
-  helpGrantRest: ' assigns the vehicle and lets the requester in; ',
-  helpReject: 'reject',
-  helpRejectRest: ' closes the request.',
+  helpGrantRest: 'assigns the vehicle and lets the requester in.',
+  helpReject: 'Reject',
+  helpRejectRest: 'closes the request without changing anything.',
   loading: 'Loading…',
   empty: 'No requests match these filters.',
+  emptyPending: 'Nothing to decide here.',
   loadError: 'Could not load requests.',
   typeLabel: {
     car: 'Car',

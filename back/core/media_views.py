@@ -40,6 +40,8 @@ def _authorize(user, path: str) -> None:
     de nada: con la URL del fichero en la mano, el binario se seguía bajando.
     Un fichero sin `Document` que lo respalde (huérfano de una subida a medias,
     o algo dejado a mano en MEDIA_ROOT) no se sirve a nadie salvo al admin.
+    HSE pasa por la misma regla: el binario de un documento de vehículo sí, el
+    de uno personal de otra persona no (`readable_documents` lo decide).
 
     AUTH-10: un documento DESACTIVADO (N7, está en erratas) tampoco: el
     listado ya lo escondía, pero con la URL del fichero en la mano el binario

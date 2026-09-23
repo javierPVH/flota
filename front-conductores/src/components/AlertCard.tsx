@@ -62,7 +62,7 @@ export function AlertCard({
             </span>
           )}
           {alert.due_date ? ' · ' : ''}
-          {t.alerts.created(fmtDate(alert.created_at))}
+          <span>{t.alerts.created(fmtDate(alert.created_at))}</span>
         </span>
         {isOpen && (
           <span className="alert-actions-inline">

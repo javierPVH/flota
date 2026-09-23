@@ -35,12 +35,24 @@ import { useDomainLabels } from '../domainLabels.ts'
  * el aviso de la cabecera las cuenta juntas, así que se deciden en el mismo
  * sitio y no en dos páginas que nadie recordaría visitar.
  */
+/** Los dos flujos que caben en la bandeja de vehículos, más «todos». */
+const ORIGIN_KEYS = ['', 'sustitucion', 'sin-vehiculo'] as const
+
 export function RequestsPage() {
   const t = useRequestsCopy()
   const etiqueta = useDomainLabels()
   const confirm = useConfirm()
   const [searchParams, setSearchParams] = useSearchParams()
-  const statusFilter = searchParams.get('status') ?? ''
+  // Abre por lo PENDIENTE, como las otras tres bandejas de esta misma
+  // página: aquí se entra a decidir, no a leer el histórico, y con todo
+  // mezclado había que buscar a ojo qué esperaba una respuesta.
+  // `?status=` —presente pero vacío— es «todas»: así el chip puede pedirlas
+  // sin que el defecto vuelva a colarse, y `?status=pending` (el enlace del
+  // aviso de la cabecera) sigue significando lo mismo que antes.
+  const statusFilter = searchParams.has('status') ? (searchParams.get('status') ?? '') : 'pending'
+  // Origen: '' = todos. A diferencia del estado, aquí el defecto SÍ es
+  // «todos», así que su chip puede limitarse a quitar el parámetro.
+  const originFilter = searchParams.get('origen') ?? ''
   // La pestaña va en la URL: el aviso de la cabecera puede apuntar a la suya.
   const tabParam = searchParams.get('tab')
   const tab =
@@ -142,9 +154,32 @@ export function RequestsPage() {
   useEffect(loadPendingProfiles, [loadPendingProfiles])
 
   const pendingCount = requests.filter((r) => r.status === 'pending').length
+
+  /** Nacida de un parte: lo que se pide es CUBRIR ese coche. Se reconoce
+   * por su incidencia, el mismo criterio que usa la columna «Origen». */
+  const esSustitucion = (r: VehicleRequestRow) => Boolean(r.incident)
+  const casaOrigen = (r: VehicleRequestRow) =>
+    !originFilter || (originFilter === 'sustitucion' ? esSustitucion(r) : !esSustitucion(r))
+  const casaEstado = (r: VehicleRequestRow) => !statusFilter || r.status === statusFilter
+
+  // Cada barra cuenta sobre lo que deja pasar LA OTRA: si contara sobre
+  // todo, ofrecería chips con números que al pulsarlos dan tabla vacía.
+  const porOrigen = requests.filter(casaOrigen)
+  const porEstado = requests.filter(casaEstado)
   const countOf = (status: string) =>
-    status ? requests.filter((r) => r.status === status).length : requests.length
-  const filtered = statusFilter ? requests.filter((r) => r.status === statusFilter) : requests
+    status ? porOrigen.filter((r) => r.status === status).length : porOrigen.length
+  const countOrigin = (origen: string) =>
+    origen
+      ? porEstado.filter((r) =>
+          origen === 'sustitucion' ? esSustitucion(r) : !esSustitucion(r),
+        ).length
+      : porEstado.length
+  const originLabels: Record<string, string> = {
+    '': t.originAll,
+    sustitucion: t.originSubstitute,
+    'sin-vehiculo': t.originNoVehicle,
+  }
+  const filtered = requests.filter((r) => casaEstado(r) && casaOrigen(r))
   // O4: Map memoizada — el `find()` por celda era O(filas × vehículos).
   const plateById = useMemo(() => new Map(vehicles.map((v) => [v.id, v.plate])), [vehicles])
   const plateOf = useCallback((id: number) => plateById.get(id) ?? `#${id}`, [plateById])
@@ -358,8 +393,8 @@ export function RequestsPage() {
             count={countOf(o.value)}
             onClick={() => {
               const next = new URLSearchParams(searchParams)
-              if (o.value) next.set('status', o.value)
-              else next.delete('status')
+              // También el vacío: quitarlo devolvería al defecto (pendientes).
+              next.set('status', o.value)
               setSearchParams(next, { replace: true })
             }}
           >
@@ -368,14 +403,47 @@ export function RequestsPage() {
         ))}
       </div>
 
-      <p className="muted">{t.jiraNote}</p>
+      {/* Segunda barra: por ORIGEN. Esta pestaña mezcla dos flujos que se
+          conceden igual pero no se leen igual —cubrir un coche parado, que lo
+          pide el parte de campo, y dar coche a quien no tiene—, y sin esto no
+          había forma de mirar solo uno de los dos. */}
+      <div className="chips-row chips-row-origin" role="group" aria-label={t.filterOriginAria}>
+        <span className="chips-row-label">{t.originLabel}</span>
+        {ORIGIN_KEYS.map((key) => (
+          <Chip
+            key={key || 'todos'}
+            active={originFilter === key}
+            count={countOrigin(key)}
+            onClick={() => {
+              const next = new URLSearchParams(searchParams)
+              if (key) next.set('origen', key)
+              else next.delete('origen')
+              setSearchParams(next, { replace: true })
+            }}
+          >
+            {originLabels[key]}
+          </Chip>
+        ))}
+      </div>
 
-      <p className="muted">
-        <strong>{t.helpGrant}</strong>
-        {t.helpGrantRest}
-        <strong>{t.helpReject}</strong>
-        {t.helpRejectRest}
-      </p>
+      {/* Qué hace cada botón, en una caja con su rótulo. Eran dos párrafos
+          grises seguidos —y uno nombraba el job que sincroniza Jira—, o sea
+          justo lo que se salta el ojo por parecer relleno, cuando es lo que
+          hay que saber ANTES de pulsar. */}
+      <aside className="status-callout tone-info requests-help">
+        <div className="status-callout-head">
+          <span className="status-callout-label">{t.helpTitle}</span>
+        </div>
+        <div className="status-callout-facts">
+          <span className="status-callout-row">
+            <strong>{t.helpGrant}</strong> {t.helpGrantRest}
+          </span>
+          <span className="status-callout-row">
+            <strong>{t.helpReject}</strong> {t.helpRejectRest}
+          </span>
+          <span className="status-callout-note">{t.jiraNote}</span>
+        </div>
+      </aside>
 
       {notice && <div role="status" className="notice-ok">{notice}</div>}
       {error && <div role="alert" className="form-error">{error}</div>}
@@ -392,7 +460,9 @@ export function RequestsPage() {
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel={t.empty}
+          // Con el filtro en «Pendientes», vacío no es «no hay resultados»:
+          // es que no queda nada por decidir, que es una buena noticia.
+          emptyStateLabel={statusFilter === 'pending' ? t.emptyPending : t.empty}
         />
       )}
 

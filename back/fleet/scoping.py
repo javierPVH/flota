@@ -3,10 +3,19 @@
 - Administrador: toda la flota.
 - Supervisor: los vehículos de su grupo (`supervisor=user`).
 - Conductor: los vehículos con asignación ACEPTADA en curso a su nombre.
+- HSE: toda la flota, pero SOLO PARA LEER.
 
 Los roles son multi-valor y los ámbitos se SUMAN: una supervisora que además
 conduce ve su grupo Y su propio coche, aunque ese coche lo supervise otra
 persona (o nadie) — sin la unión no podía ni registrar los km de su coche.
+
+Lo que HSE aporta es distinto de lo demás: es un ámbito de LECTURA. Por eso
+`vehicles_for` y `readable_documents` llevan `write`: con `write=True` devuelven
+el ámbito sobre el que el usuario ACTÚA —escrituras, acciones POST y bandejas
+de decisión—, que es el de siempre y deja fuera lo que añade HSE. Sin esa
+distinción, un conductor con HSE podría registrar km en cualquier coche y un
+supervisor con HSE resolver las alertas de toda la flota: el ámbito de lectura
+se colaría en la escritura por el mismo `get_object`.
 """
 
 from django.contrib.auth import get_user_model
@@ -16,10 +25,16 @@ from .models import Assignment, Document, Vehicle
 from .selectors import current_assignment_q, current_driver_map
 
 
-def vehicles_for(user):
-    """Queryset de vehículos que `user` puede ver, según sus roles (unidos)."""
+def vehicles_for(user, *, write: bool = False):
+    """Queryset de vehículos que `user` puede ver, según sus roles (unidos).
+
+    `write=True` pide el ámbito sobre el que ACTÚA: el mismo sin lo que añade
+    HSE, que es solo lectura (ver la cabecera del módulo).
+    """
     qs = Vehicle.objects.all()
     if user.is_admin:
+        return qs
+    if user.is_hse and not write:
         return qs
     scope = Q()
     if user.is_supervisor:
@@ -44,6 +59,8 @@ def users_for(user):
     Mismo espíritu que `vehicles_for`: el admin ve a todos; el supervisor, a sí
     mismo y a los conductores con asignación ACEPTADA en curso sobre sus
     vehículos; cualquier otro, solo a sí mismo (su permiso de conducir…).
+    HSE no añade a nadie: lee la flota, no a las personas (ni sus documentos
+    personales, ni `/auth/drivers/`, ni el informe de usuarios).
     """
     User = get_user_model()
     qs = User.objects.all()
@@ -59,7 +76,7 @@ def users_for(user):
     return qs.filter(pk=user.pk)
 
 
-def readable_documents(user, qs=None):
+def readable_documents(user, qs=None, *, write: bool = False):
     """Los documentos que `user` puede LEER, de entre los de su ámbito.
 
     Son DOS capas que van juntas y hacen cosas distintas: `vehicles_for` /
@@ -78,6 +95,13 @@ def readable_documents(user, qs=None):
     suyo, porque taparle a alguien su propia documentación choca con su derecho
     de acceso (RGPD).
 
+    HSE lee TODOS los documentos DE VEHÍCULO (`user` nulo), compartidos o no,
+    protegidos o no: son documentación de la flota y ese rol existe para
+    leerla entera. Los PERSONALES (permiso de conducir…) quedan fuera, ni en
+    listado: son datos personales de otro. Solo los suyos propios, por lo
+    mismo de siempre (RGPD). Con `write=True` (lo que se puede tocar o pedir)
+    HSE no añade nada.
+
     Es la única fuente de verdad, y la usan las TRES puertas por las que sale
     un documento: el listado de la API, la descarga del binario
     (`core.media_views`) y el informe de documentos (`services.reports`).
@@ -85,7 +109,7 @@ def readable_documents(user, qs=None):
     qs = Document.objects.all() if qs is None else qs
     if user.is_admin:
         return qs
-    ambito = Q(vehicle_id__in=vehicles_for(user).values("id")) | Q(
+    ambito = Q(vehicle_id__in=vehicles_for(user, write=write).values("id")) | Q(
         user_id__in=users_for(user).values("id")
     )
     # Las disyuntivas BARATAS primero: así el planificador solo evalúa el
@@ -109,8 +133,12 @@ def readable_documents(user, qs=None):
         visible |= Q(user__isnull=False, responsible=F("user"))
     # Lo propio manda sobre las dos reglas: un documento personal lo ve su
     # titular aunque no esté compartido y aunque esté protegido (RGPD).
-    propio = Q(user=user)
-    return qs.filter(ambito & (propio | (visible & Q(protected=False))))
+    legible = Q(user=user) | (visible & Q(protected=False))
+    if user.is_hse and not write:
+        # Todo lo del coche y nada de las personas. `user` nulo basta: un
+        # documento tiene exactamente un titular (lo valida el serializer).
+        legible |= Q(user__isnull=True)
+    return qs.filter(ambito & legible)
 
 
 def default_responsible(user=None, vehicle=None):

@@ -13,7 +13,15 @@ import {
 } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import { useAppLang } from '@flota/ui/i18n'
-import { ChevronDown, ChevronsDown, ChevronsUp, ExternalLink, Mail, UserRound } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronsDown,
+  ChevronsUp,
+  ExternalLink,
+  Mail,
+  Undo2,
+  UserRound,
+} from 'lucide-react'
 
 import {
   closeVehicleLink,
@@ -28,6 +36,7 @@ import {
   listVehicleLinks,
   listVehicles,
   reopenVehicleLink,
+  revertVehicleChange,
   updateContract,
   updateVehicleFields,
 } from '../api.ts'
@@ -162,6 +171,13 @@ export function VehicleDetailPage() {
   const [readings, setReadings] = useState<KmReading[]>([])
   const [events, setEvents] = useState<FlotaEvent[]>([])
   const [audit, setAudit] = useState<AuditEntry[]>([])
+  // Revertir un paquete de cambios del histórico: qué entrada está en curso y
+  // el resultado de la última (aviso o error, en la propia tarjeta).
+  const [reverting, setReverting] = useState<number | null>(null)
+  const [revertNotice, setRevertNotice] = useState('')
+  const [revertError, setRevertError] = useState('')
+  // Para decir «Deshace el cambio del …» hay que encontrar la entrada deshecha.
+  const auditById = useMemo(() => new Map(audit.map((a) => [a.id, a])), [audit])
   const [linkInfo, setLinkInfo] = useState<{ role: 'main' | 'substitute'; plate: string; otherId: number; since: string } | null>(null)
   const [allLinks, setAllLinks] = useState<VehicleLinkRow[]>([])
   const [activeLink, setActiveLink] = useState<VehicleLinkRow | null>(null)
@@ -933,6 +949,77 @@ export function VehicleDetailPage() {
     )
   }
 
+  /** Revertir un paquete de cambios: se confirma enseñando a qué valor vuelve
+   * cada campo, el back lo escribe como una modificación nueva (con su entrada
+   * de auditoría marcada como reversión) y la ficha se recarga entera. */
+  const handleRevert = async (item: TimelineItem) => {
+    if (!vehicleId || !item.entryId || reverting !== null) return
+    const ok = await confirm({
+      title: t.revertTitle,
+      message: (
+        <>
+          <p>{t.revertIntro}</p>
+          <ul className="tl-revert-list">
+            {item.changes.map((change) => (
+              <li key={change.field}>
+                <span className="tl-field">{change.field}</span>{' '}
+                <span className="tl-before">{change.after}</span>{' '}
+                <span className="tl-arrow" aria-hidden>
+                  →
+                </span>{' '}
+                <strong className="tl-after">{change.before}</strong>
+              </li>
+            ))}
+          </ul>
+        </>
+      ),
+      confirmLabel: t.revertConfirm,
+      tone: 'warning',
+    })
+    if (!ok) return
+    setReverting(item.entryId)
+    setRevertNotice('')
+    setRevertError('')
+    try {
+      await revertVehicleChange(vehicleId, item.entryId)
+      setRevertNotice(t.revertDone)
+      void load()
+    } catch (err) {
+      setRevertError(asErrorMessage(err, t.revertError))
+    } finally {
+      setReverting(null)
+    }
+  }
+
+  /** El botón «Revertir» de una entrada, solo si el back la da por revertible
+   * (ficha y contrato, modificaciones) y quien mira es administrador. */
+  const renderRevert = (item: TimelineItem) =>
+    isAdmin && item.revertible && item.entryId ? (
+      <Button
+        variant="secondary"
+        size="sm"
+        className="tl-revert"
+        aria-label={`${t.revertBtn} · ${item.title} · ${hhmm(item.at)}`}
+        disabled={reverting !== null}
+        aria-busy={reverting === item.entryId || undefined}
+        onClick={() => void handleRevert(item)}
+      >
+        <Undo2 size={13} aria-hidden /> {t.revertBtn}
+      </Button>
+    ) : null
+
+  /** «Deshace el cambio del …»: la entrada deshecha, si sigue en el histórico. */
+  const revertsNote = (item: TimelineItem) => {
+    if (item.reverts == null) return null
+    const undone = auditById.get(item.reverts)
+    if (!undone) return null
+    return (
+      <p className="timeline-sub muted">
+        {t.revertsNote(`${fmtDate(undone.timestamp, lang)} · ${hhmm(undone.timestamp)}`)}
+      </p>
+    )
+  }
+
   /** Una entrada del histórico. El alta es el caso especial: vuelca la ficha
    * entera, así que sus campos van plegados y sin flecha (no hay valor
    * anterior que enseñar). */
@@ -959,6 +1046,7 @@ export function VehicleDetailPage() {
             {/* Qué objeto se tocó: distingue el alta del vehículo de la del
                 contrato o la de cada factura. */}
             {item.repr && <span className="tl-repr">{item.repr}</span>}
+            {renderRevert(item)}
           </div>
           {item.actor && (
             <p className="timeline-actor">
@@ -966,6 +1054,7 @@ export function VehicleDetailPage() {
               {t.doneByLabel} <strong>{item.actor}</strong>
             </p>
           )}
+          {revertsNote(item)}
           {item.note && <p className="timeline-sub muted">{item.note}</p>}
           {item.changes.length > 0 && (
             <details className="timeline-changes-acc" open={changesOpen}>
@@ -1028,6 +1117,7 @@ export function VehicleDetailPage() {
                 <li key={item.key}>
                   <span className="tl-run-time">{item.hasTime ? hhmm(item.at) : ''}</span>
                   <span className="tl-run-repr">{item.repr || item.title}</span>
+                  {renderRevert(item)}
                 </li>
               ))}
             </ul>
@@ -1694,6 +1784,17 @@ export function VehicleDetailPage() {
         {/* Línea temporal con muescas (solo admin): hover = qué cambió,
             click = detalle del día en modal. */}
         {isAdmin && <TimelineChart items={filteredTimeline} onSelectDay={setTimelineDay} />}
+
+        {revertNotice && (
+          <p className="form-ok" role="status">
+            {revertNotice}
+          </p>
+        )}
+        {revertError && (
+          <p className="form-error" role="alert">
+            {revertError}
+          </p>
+        )}
 
         {/* Filtro por origen del cambio (vehículo, contrato, conductor, km…). */}
         {timeline.length > 0 && historySources.length > 1 && (

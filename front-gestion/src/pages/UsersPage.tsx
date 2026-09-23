@@ -21,6 +21,8 @@ import {
   listUsers,
   updateUser,
 } from '../api.ts'
+import { useAuth } from '../auth.ts'
+import { CollapsibleCard, useAccordion } from '../components/CollapsibleCard.tsx'
 import { ColumnsPicker } from '../components/ColumnsPicker.tsx'
 import { exportCsv } from '../csv.ts'
 import { BulkImportModal } from '../components/bulk-import/BulkImportModal.tsx'
@@ -29,12 +31,51 @@ import { UserFormModal } from '../components/UserFormModal.tsx'
 import { useUsersCopy } from '../translations/users.ts'
 import type { Role } from '../types.ts'
 
+// La tarjeta de las dos cuentas fijas es un acordeón de una sola ficha y nace
+// PLEGADA (`useAccordion` guarda las CERRADAS): son dos registros que casi
+// nunca se tocan, y desplegada de salida empujaba el listado fuera de pantalla.
+const OWN_CARD = 'users-own'
+const OWN_CARD_IDS = [OWN_CARD]
+/** Cabecera + dos filas de dos líneas (nombre y usuario) + la barra de scroll
+ *  horizontal que la tabla trae por su ancho mínimo. Ni un hueco más. */
+const OWN_TABLE_HEIGHT = 168
+
 // Orden por defecto de las columnas y cuáles arrancan ocultas (ninguna).
 const COLUMN_KEYS = ['name', 'dni', 'contact', 'license_type', 'fuel_card', 'roles', 'is_active']
 const DEFAULT_HIDDEN: string[] = []
 
 // Clave canónica del conjunto de roles (orden alfabético) para el filtro por rol.
 const roleKey = (roles: Role[]) => (roles.length ? [...roles].sort().join(',') : 'none')
+
+// Los cuatro roles, en el orden en que se leen (el mismo de la chapa de la
+// fila). La clave del filtro va en alfabético (`roleKey`); esto es la PINTURA.
+const ROLE_ORDER: Role[] = ['admin', 'supervisor', 'driver', 'hse']
+
+/**
+ * Todas las combinaciones de DOS o más roles, de menos a más. Se generan y no
+ * se escriben a mano: la lista escrita se quedó sin ninguna de HSE —y una
+ * persona puede ser admin, supervisor, conductor y HSE a la vez—, así que
+ * quien tuviera una de esas combinaciones no salía con ningún filtro exacto.
+ * Añadir un quinto rol a `ROLE_ORDER` las trae solas.
+ */
+const ROLE_COMBOS: Role[][] = Array.from(
+  { length: 1 << ROLE_ORDER.length },
+  (_, mask) => ROLE_ORDER.filter((_role, i) => mask & (1 << i)),
+)
+  .filter((combo) => combo.length >= 2)
+  // Estable: dentro del mismo tamaño se conserva el orden de `ROLE_ORDER`.
+  .sort((a, b) => a.length - b.length)
+
+// Filtro por rol: una opción de UN rol lista a quien lo TENGA (un admin+hse
+// sale en «Administración» y en «HSE»); las combinaciones y «sin rol» van por
+// conjunto exacto. Antes todo era exacto y los usuarios con una combinación
+// que no estuviera en la lista (admin+hse, hse+conductor…) no salían con
+// ningún filtro salvo «Todos».
+function matchesRoleFilter(roles: Role[], filter: string): boolean {
+  if (!filter) return true
+  if (filter === 'none' || filter.includes(',')) return roleKey(roles) === filter
+  return roles.includes(filter as Role)
+}
 
 // Fecha local (YYYY-MM-DD) de hace N días (para el preset "Últimos 30 días").
 function isoDaysAgo(days: number): string {
@@ -60,7 +101,7 @@ function filterUsers(list: ManagedUserFull[], f: UserFilter): ManagedUserFull[] 
   return list.filter((u) => {
     if (f.status === 'active' && !u.is_active) return false
     if (f.status === 'inactive' && u.is_active) return false
-    if (f.role && roleKey(u.roles) !== f.role) return false
+    if (!matchesRoleFilter(u.roles, f.role)) return false
     if (term) {
       const hay = `${u.name} ${u.username} ${u.email} ${u.dni ?? ''} ${u.phone}`.toLowerCase()
       if (!hay.includes(term)) return false
@@ -79,6 +120,7 @@ function filterUsers(list: ManagedUserFull[], f: UserFilter): ManagedUserFull[] 
  * el histórico se conserva y el desactivado no sale en asignación. */
 export function UsersPage() {
   const t = useUsersCopy()
+  const { user: me } = useAuth()
   const confirm = useConfirm()
   const [users, setUsers] = useState<ManagedUserFull[]>([])
   const [loading, setLoading] = useState(true)
@@ -113,20 +155,24 @@ export function UsersPage() {
   const [expStatus, setExpStatus] = useState<UserStatus>('all')
   const [expCols, setExpCols] = useState<Set<string>>(() => new Set())
 
-  // Opciones del filtro por rol: roles sueltos + combinaciones (clave = roleKey).
+  // Opciones del filtro por rol: roles sueltos y combinaciones (clave =
+  // `roleKey`), en DOS grupos. El `<optgroup>` es la línea divisoria: un rol
+  // suelto lista a quien lo TENGA y una combinación es el conjunto EXACTO
+  // (`matchesRoleFilter`), que son dos maneras distintas de buscar y conviene
+  // que se lean separadas.
   const roleFilterOptions = useMemo(
     () => [
       { value: '', label: t.roleFilterAll },
-      { value: 'admin', label: t.roles.admin },
-      { value: 'supervisor', label: t.roles.supervisor },
-      { value: 'driver', label: t.roles.driver },
-      { value: 'driver,supervisor', label: `${t.roles.supervisor} · ${t.roles.driver}` },
-      { value: 'admin,supervisor', label: `${t.roles.supervisor} · ${t.roles.admin}` },
-      { value: 'admin,driver', label: `${t.roles.admin} · ${t.roles.driver}` },
-      {
-        value: 'admin,driver,supervisor',
-        label: `${t.roles.admin} · ${t.roles.supervisor} · ${t.roles.driver}`,
-      },
+      ...ROLE_ORDER.map((role) => ({
+        value: role,
+        label: t.roles[role],
+        group: t.roleGroupSingle,
+      })),
+      ...ROLE_COMBOS.map((combo) => ({
+        value: roleKey(combo),
+        label: combo.map((role) => t.roles[role]).join(' · '),
+        group: t.roleGroupCombo,
+      })),
       { value: 'none', label: t.roleFilterNone },
     ],
     [t],
@@ -196,6 +242,31 @@ export function UsersPage() {
     }
   }, [confirm, load, t])
 
+  // Las dos cuentas que van arriba y NO abajo: la de administración del
+  // sistema y la de quien está mirando. Pasan por la MISMA barra de filtros que
+  // el listado —la barra manda sobre todo lo que la pantalla enseña, y una
+  // búsqueda que no llegara a estas dos filas se leería como que no funciona—,
+  // y el estado del acordeón vive en `ownAccordion`.
+  const ownRows = useMemo(
+    () =>
+      filterUsers(users, {
+        status: showInactive ? 'inactive' : 'active',
+        role: roleFilter,
+        search,
+        from: appliedFrom,
+        to: appliedTo,
+      }).filter((u) => u.is_superuser || u.id === me?.id),
+    [users, showInactive, roleFilter, search, appliedFrom, appliedTo, me?.id],
+  )
+
+  // La tarjeta se pinta mientras exista alguna de las dos cuentas, filtren o no
+  // los criterios de arriba: si apareciera y desapareciera al teclear, el
+  // listado bailaría bajo el cursor. Vacía, la tabla lo dice en su hueco.
+  const hasOwnRows = useMemo(
+    () => users.some((u) => u.is_superuser || u.id === me?.id),
+    [users, me?.id],
+  )
+
   const rows = useMemo(
     () =>
       filterUsers(users, {
@@ -205,8 +276,11 @@ export function UsersPage() {
         search,
         from: appliedFrom,
         to: appliedTo,
-      }),
-    [users, showInactive, roleFilter, search, appliedFrom, appliedTo],
+      })
+        // Los dos de arriba no se repiten aquí: un mismo registro en dos
+        // tablas de la misma pantalla se acaba tocando en la que no toca.
+        .filter((u) => !u.is_superuser && u.id !== me?.id),
+    [users, showInactive, roleFilter, search, appliedFrom, appliedTo, me?.id],
   )
 
   // Vista previa de lo que exportará el modal (filtros independientes de la barra).
@@ -283,6 +357,12 @@ export function UsersPage() {
     },
   ], [t.active, t.columns.contact, t.columns.dni, t.columns.fuelCard, t.columns.license, t.columns.name, t.columns.roles, t.columns.status, t.inactive, t.no, t.roles, t.yes])
 
+  // Qué se le puede hacer a un registro. Vive aquí —y no dentro de la celda—
+  // porque lo consultan las DOS tablas: la de arriba, que enseña estos dos
+  // registros, y la de abajo, que ya no los trae.
+  const isSystemAccount = (u: ManagedUserFull) => u.is_superuser
+  const isSelf = (u: ManagedUserFull) => u.id === me?.id
+
   const actionsColumn: TableWithPanelColumn<ManagedUserFull> = useMemo(() => ({
     key: 'actions',
     label: t.columns.actions,
@@ -291,19 +371,44 @@ export function UsersPage() {
     sortable: false,
     render: (u) => (
       <div className="row-actions">
-        <IconButton aria-label={t.edit} title={t.edit} onClick={() => openEdit(u)}>
-          <Pencil size={15} />
-        </IconButton>
-        <Button
-          variant={u.is_active ? 'danger' : 'primary'}
-          size="sm"
-          onClick={() => toggleActive(u)}
-        >
-          {u.is_active ? t.deactivate : t.reactivate}
-        </Button>
+        {/* La cuenta de administración del sistema no se toca desde aquí…
+            salvo que sea la TUYA: quien entra con ella tiene que poder
+            corregir su propia ficha (teléfono, correo), que si no se queda
+            sin ningún sitio donde hacerlo. Lo que no se ofrece nunca es
+            desactivarla, que es lo que el back rechaza
+            (`UserViewSet.destroy`), y un botón que siempre da error es peor
+            que no tener botón. */}
+        {(!isSystemAccount(u) || isSelf(u)) && (
+          <IconButton aria-label={t.edit} title={t.edit} onClick={() => openEdit(u)}>
+            <Pencil size={15} />
+          </IconButton>
+        )}
+        {isSystemAccount(u) || isSelf(u) ? (
+          // El hueco dice POR QUÉ no hay botón: nadie se desactiva a sí mismo
+          // (te quedarías fuera) y el sistema necesita su cuenta. Cuando son la
+          // misma, se dicen las dos cosas: explican una cada una.
+          <span className="muted">
+            {isSelf(u) && isSystemAccount(u)
+              ? t.ownSelfSystem
+              : isSystemAccount(u)
+                ? t.ownSystem
+                : t.ownSelf}
+          </span>
+        ) : (
+          <Button
+            variant={u.is_active ? 'danger' : 'primary'}
+            size="sm"
+            onClick={() => toggleActive(u)}
+          >
+            {u.is_active ? t.deactivate : t.reactivate}
+          </Button>
+        )}
       </div>
     ),
-  }), [t.columns.actions, t.deactivate, t.edit, t.reactivate, toggleActive])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [t.columns.actions, t.deactivate, t.edit, t.ownSelf, t.ownSelfSystem, t.ownSystem, t.reactivate, toggleActive, me?.id])
+
+  const ownAccordion = useAccordion(OWN_CARD_IDS, OWN_CARD_IDS)
 
   const colByKey = useMemo(() => (new Map(allColumns.map((c) => [c.key, c]))), [allColumns])
 
@@ -473,6 +578,41 @@ export function UsersPage() {
       </div>
 
       {error && <div role="alert" className="form-error">{error}</div>}
+
+      {/* Entre los filtros y el listado, las dos cuentas que no se gestionan
+          como las demás: la del sistema y la propia. Es la MISMA tabla (mismas
+          columnas, mismo orden y mismas ocultas) y sin paginación —son dos
+          filas—, en una ficha plegable que nace cerrada. El alto es FIJO y da
+          justo para esas dos: sin tope, la tabla crecía como si fuera a traer
+          un listado. */}
+      {!loading && hasOwnRows && (
+        <CollapsibleCard
+          id={OWN_CARD}
+          title={t.ownTitle}
+          accordion={ownAccordion}
+          className="users-own"
+        >
+          <TableWithPanel<ManagedUserFull>
+            rows={ownRows}
+            columns={tableColumns}
+            hiddenColumns={[...hiddenCols]}
+            rowKey={(u) => String(u.id)}
+            // Tu propia fila va con fondo propio: en una tabla de dos registros
+            // casi iguales, saber cuál es el tuyo no puede depender de leer el
+            // nombre de usuario.
+            rowClassName={(u) =>
+              [u.is_active ? '' : 'row-muted', isSelf(u) ? 'row-self' : '']
+                .filter(Boolean)
+                .join(' ')
+            }
+            showControlPanel={false}
+            fixedHeight
+            fixedHeightPx={OWN_TABLE_HEIGHT}
+            emptyStateLabel={t.empty}
+          />
+          <p className="muted ops-note">{t.ownHint}</p>
+        </CollapsibleCard>
+      )}
 
       {loading ? (
         <p className="loading-state" role="status">{t.loading}</p>

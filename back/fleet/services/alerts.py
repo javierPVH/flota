@@ -304,10 +304,13 @@ def deferred_push():
 def _push_alert(alert: Alert, driver) -> None:
     """Envía el push de UNA alerta a sus afectados (driver ya resuelto)."""
     recipients = set()
-    if alert.user_id:
-        recipients.add(alert.user)
-    elif driver is not None:
-        recipients.add(driver)
+    # El exceso de km proyectado es de gestión: al conductor no se le enseña
+    # (ni en su bandeja ni por push); quien lo atiende es quien supervisa.
+    if alert.type != AlertType.KM_OVERAGE:
+        if alert.user_id:
+            recipients.add(alert.user)
+        elif driver is not None:
+            recipients.add(driver)
     if alert.vehicle_id and alert.vehicle.supervisor_id:
         recipients.add(alert.vehicle.supervisor)
     plate = alert.vehicle.plate if alert.vehicle_id else "Flota"

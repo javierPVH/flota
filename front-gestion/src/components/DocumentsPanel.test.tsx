@@ -110,6 +110,7 @@ const USER: ManagedUser = {
   license_type: 'B',
   fuel_card: false,
   roles: ['driver'],
+  is_superuser: false,
 }
 
 function Harness({ personal = false }: { personal?: boolean }) {

@@ -26,12 +26,17 @@ El esquema de datos está en [`ERD.md`](docs/ERD.md) (diagrama Mermaid) y en
 | `admin`      | gestión      | **VPN**  | CRUD completo de la flota, aprovisionar usuarios y roles |
 | `supervisor` | campo (móvil)| internet | Su **grupo** de vehículos: km, ITV, reparto de uso, incidencias, alertas |
 | `driver`     | campo (móvil)| internet | Ver/aportar sobre su(s) vehículo(s): km, propuestas de fechas, ITV, documentos |
+| `hse`        | gestión (`/hse`) | **VPN** | **Solo lectura** de toda la flota (vehículos, incidencias, accidentes, alertas, documentos del coche, informes); nada de usuarios, Ajustes ni escrituras |
 
 Los roles son **multi-rol**: una persona puede acumular varios (p. ej.
 supervisor que además conduce). Se modelan en `accounts.UserRole` (mapea la tabla
 `driver_roles` del DBML) y una persona = un `User` (mapea `drivers`). El front de
-**gestión** (VPN, escritorio) es **solo para `admin`**; el front de **campo**
-(internet, móvil) es para **`supervisor` y `driver`**.
+**gestión** (VPN, escritorio) es para **`admin`** y, en su pantalla de lectura,
+**`hse`**; el front de **campo** (internet, móvil) es para **`supervisor` y
+`driver`** (un admin o HSE sin rol de campo ve ahí un portón de «sin acceso»).
+`hse` no es gestión (`is_management` = admin|supervisor): se compone endpoint a
+endpoint con `HseReadOnly`, y los roles se suman sin que la lectura se cuele en
+la escritura (un supervisor+hse lee toda la flota y solo resuelve su grupo).
 
 La separación por red la impone el despliegue (nginx/firewall/VPN), pero el
 **backend no se fía de la red**: cada endpoint está protegido por rol

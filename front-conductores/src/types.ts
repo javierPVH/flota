@@ -1,6 +1,12 @@
 // Contrato v1 del backend (M0): multi-rol + esquema nuevo + portón de acceso.
 
-export type Role = 'admin' | 'supervisor' | 'driver'
+/** `hse` (prevención/seguridad) solo LEE la flota desde la web de gestión:
+ * vehículos, incidencias, accidentes y alertas. Un HSE puro no entra aquí
+ * (`isManagementOnly` en `auth.ts`, que es lo que mira el `AccessGate`), pero
+ * `/me` puede traerlo —solo o sumado a conductor/supervisor— y el tipo tiene
+ * que admitirlo. Sumado, el back le manda toda la flota en LECTURA: las
+ * pantallas de «lo mío» se acotan con `hasWideReadScope`. */
+export type Role = 'admin' | 'supervisor' | 'driver' | 'hse'
 
 export interface FlotaUser {
   id: number

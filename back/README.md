@@ -37,7 +37,7 @@ gunicorn config.wsgi:application --bind 0.0.0.0:8000   # producción
 **Datos de prueba en desarrollo** — ver [`SEED_DEV.md`](./SEED_DEV.md). Con
 `FLEET_SEED_DATA=True` (+`DEBUG=True`) en `.env`, cada `runserver` **borra y
 siembra** un juego completo de datos (usuarios `admin`/`sara`/`carlos`/`lucia`/
-`david`/`nuevo`, contraseña `flota-dev-2026`, vehículos, alertas…) y habilita el
+`david`/`nuevo`/`hse`/`ana_hse`, contraseña `flota-dev-2026`, vehículos, alertas…) y habilita el
 **login de desarrollo** (`/api/v1/auth/dev-login/`, selector de usuarios sin
 Google). 🔴 Destructivo: jamás fuera de desarrollo.
 
@@ -220,15 +220,16 @@ logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
 | GET/POST | `/api/v1/auth/dev-login/` | — (404 fuera de dev) | **Solo desarrollo** (`DEBUG`+`FLEET_SEED_DATA`): selector de usuarios de prueba e inicio de sesión sin Google — [SEED_DEV.md](./SEED_DEV.md) |
 | CRUD   | `/api/v1/auth/users/`    | admin | Gestión de usuarios/conductores: roles multi-valor, DNI/permiso/tarjeta; `DELETE` **desactiva** (HU-2.6) — Fase A1 |
 | CRUD   | `/api/v1/vehicles/`      | ✔*   | Vehículos. Gestión: CRUD. Conductor: solo lectura de los suyos |
-| GET    | `/api/v1/vehicles/{id}/history/` | gestión | Auditoría de campos del vehículo (quién cambió qué y cuándo) |
+| GET    | `/api/v1/vehicles/{id}/history/` | gestión / HSE | Auditoría de campos del vehículo (quién cambió qué y cuándo) |
 | POST   | `/api/v1/vehicles/{id}/preview/` | gestión | Diff de los cambios propuestos sin guardar (HU-1.4) |
+| POST   | `/api/v1/vehicles/{id}/revert-change/` | admin | Revierte un paquete de cambios del histórico (`{entry}`): los valores anteriores se escriben como una modificación NUEVA (su entrada lleva `reverts`); solo ficha y contrato, y el histórico no se toca (`services.audit_revert`) |
 | POST   | `/api/v1/vehicles/{id}/return/` | admin | **Devolución guiada** (GAP-7): `{km_end?, end_date?, reason?}` → en una transacción registra la lectura final y `km_end`, cierra el contrato vigente, finaliza las asignaciones, cierra los vínculos de sustitución activos y resuelve las alertas abiertas (R3-04: `links_closed`/`alerts_resolved` en la respuesta) y da de BAJA con su evento; devuelve el **exceso de km** sobre lo contratado y la **penalización estimada** (`penalty_per_km`) |
 | POST   | `/api/v1/vehicles/{id}/renew-insurance/` | admin | **Renovación del seguro** (N2): `{expiry_date*, notes?}` — aplica el vencimiento nuevo, emite `insurance_renewal` (fecha anterior y nueva) y cierra las alertas de seguro **con actor**. Idempotente (misma fecha → `changed: false`); una fecha anterior → 400 (se corrige desde la ficha, cuyo PATCH cierra las alertas atrasadas sin evento). La póliza se sube aparte como documento de seguro y no duplica el evento. Responde el vehículo + `previous_expiry_date`, `changed`, `event`, `alerts_resolved` |
 | POST   | `/api/v1/vehicles/{id}/schedule-itv/` | admin | **Programar la próxima ITV** a mano: `{date*, postal_code?}` (CP preferente de 5 cifras: la ubicación desde la que un tercero busca la estación). Es UNA cita por vehículo (`next_itv_date`), así que una segunda llamada la **corrige**; queda marcada (`next_itv_manual`) para que el job `refresh_next_itv` no la borre —el histórico de `EventItv` no la conoce— y registrar la ITV real vuelve a dejar el mando al histórico. Al cambiar de fecha cierra con actor las alertas `itv_due` de la cita anterior. Responde el vehículo + `previous_next_itv_date`, `changed`, `alerts_resolved` |
 | GET    | `/api/v1/vehicles/{id}/summary/` | ✔ᵃ | Métricas de la ficha: coste, km, **proyección** `within/watch/over`, penalización estimada (HU-1.2/3.4), las dos caras del vínculo N9 (`blocked_by_link` en el principal, `substituting_for` en el sustituto) y `next_maintenance_date` (GAP-8: el plan anclado que antes venza, ciclo efectivo mín. 12 meses) y `open_incidents` (incidencias sin cerrar, la marca de la tarjeta de campo) — Fase A1 |
 | POST   | `/api/v1/vehicles/{id}/remind/` | gestión | **Recordatorio al conductor** (app de campo): `{kind: km_reading_pending\|itv_due\|maintenance_due, send_email?, create_alert?, message?}`. Correo inmediato best-effort (plantilla del tipo si existe, traza en `EmailLog`) y/o alerta en la app con push, idempotente por día (`dedup_key reminder:*`); el correo automático del motor no se encola aquí |
 | GET    | `/api/v1/vehicles/{id}/driver-candidates/` | admin | Conductores ordenados por su **media mensual de km** observada (sin coche/sin datos primero), con los coches que llevan ahora; es la antesala de `set-driver` en el modal de resolver un **exceso de km proyectado** |
-| GET    | `/api/v1/summary/`       | gestión | Agregados del dashboard: totales, coste mensual, facturado (mes/anterior), ITV 30 días, alertas — Fase A1 |
+| GET    | `/api/v1/summary/`       | gestión / HSE | Agregados del dashboard: totales, coste mensual, facturado (mes/anterior), ITV 30 días, alertas — Fase A1 |
 | CRUD   | `/api/v1/{contracts,km-readings,assignments,vehicle-usages,vehicle-links,invoices,invoice-allocations}/` | ✔ᵃ | Recursos de dominio (acotados por rol) |
 | CRUD   | `/api/v1/supervisor-periods/` | admin escribe / gestión lee | Histórico de supervisores con fechas (uno por coche a la vez). Cada escritura sincroniza `Vehicle.supervisor` con el periodo que cubre hoy y deja su evento |
 | POST   | `/api/v1/assignments/propose/` | conductor | Propone fechas de SU vehículo → `proposed`, sin tocar la vigente (HU-2.3) — Fase A1. **Solo API** (R3-44): la UI del flujo se retiró de ambos fronts en 2026-08; `proposed` no da ámbito (C1) |
@@ -236,14 +237,14 @@ logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
 | POST   | `/api/v1/vehicle-usages/set/` | gestiónᵃ | Aplica el reparto completo (suma **= 100**) cerrando el vigente (HU-2.5) — Fase A1 |
 | POST   | `/api/v1/invoices/{id}/allocate/` | admin | Refacturación por líneas (proyecto/CECO, % suma **= 100**, importes autocalculados) — Fase A1 |
 | GET/POST | `/api/v1/events/`      | ✔ᵃ | Histórico de eventos + **registro manual** (`fee_change`, `location_change` e `itv`; el conductor solo ITV) — Fase A1. ITV: `itv: {result*, next_due?, cost?, workshop? (estación ITV del catálogo), km?}` + `return_to_active?`. Si es favorable: refresca `next_itv_date`, cierra las alertas `itv_due` **con actor**, cierra la incidencia «En ITV» abierta y, si `return_to_active` y el coche está «En ITV» (solo gestión), lo devuelve a Activo con su evento. La respuesta añade `alerts_resolved`, `incident_closed`, `vehicle_reactivated` (y el recibo de `client_ref` la guarda completa) |
-| CRUD   | `/api/v1/incidents/`     | gestiónᵃ | Incidencias / mantenimiento (Épica 6). Tipos: avería, mantenimiento, **neumáticos** (GAP-6), ITV, accidente y **general** (solicitudes desde la app de campo que quizá no tienen que ver con el vehículo). El **parte de accidente** (`details.report_version = 1`) se materializa por señal en sus TABLAS (`AccidentReport` + terceros + lesionados, `services/accidents.py`) y la lectura lo devuelve anidado en `accident_report` (solo lectura; null en el resto) |
+| CRUD   | `/api/v1/incidents/`     | gestiónᵃ (HSE lee) | Incidencias / mantenimiento (Épica 6). Tipos: avería, mantenimiento, **neumáticos** (GAP-6), ITV, accidente y **general** (solicitudes desde la app de campo que quizá no tienen que ver con el vehículo). El **parte de accidente** (`details.report_version = 1`) se materializa por señal en sus TABLAS (`AccidentReport` + terceros + lesionados, `services/accidents.py`) y la lectura lo devuelve anidado en `accident_report` (solo lectura; null en el resto) |
 | POST   | `/api/v1/incidents/{id}/report/` | gestión | **Parte rápido** (app de campo): `{text?, status?}` — añade la actualización a la descripción con sello de fecha y autor (lo pone el servidor) y opcionalmente cambia el estado a `open`/`on_going`. **No cierra** (`closed` → 400): cerrar es `/resolve/` |
 | POST   | `/api/v1/incidents/{id}/manage/` | gestión | **Fase 2 del ciclo** (gestión): `{workshop_postal_code, workshop?}` — CP (5 cifras, obligatorio) de la ubicación preferente y, opcional, el taller del catálogo; deja la incidencia EN CURSO. No aplica a una cerrada (400). Documentos y fotos van por `/documents/` ligados a la incidencia |
 | POST   | `/api/v1/incidents/{id}/resolve/` | gestión | **Fase 3 del ciclo** (solución), **tipada por tipo**: común `{resolution_date*, observations?, cost? (alias legado overcost), workshop?, km?, return_to_active?}`; neumáticos `{tires: {size, brand, quantity, positions}}`; accidente `{accident: {claim_ref, liability: own\|third_party\|deductible, deductible_amount, total_loss}}`; mantenimiento `{maintenance_plan?}` (reancla el plan y cierra SUS alertas). Deja `resolved_at/resolved_by/resolution_date/resolution_km/workshop/cost` y el bloque en `details.resolution`; si `return_to_active` y el coche está en el estado ligado al tipo, vuelve a **Activo** con su evento. Responde la incidencia + `vehicle_reactivated`, `alerts_resolved`. Ya cerrada → 400 |
 | CRUD   | `/api/v1/fuel-consumptions/` | ✔ᵃ | **Consumo medio** (GAP-2): anotaciones de lo que marcaba el **ordenador de a bordo** (`avg_consumption`, l/km o kWh/km, el del último trayecto o ciclo de repostaje, no el acumulado) en una **fecha con día** (`reading_date`, nunca futura). Varias por vehículo; la última alimenta el KPI de la ficha, la columna del listado (`fuel_avg_consumption` / `fuel_avg_date`) y el informe `fuel`. El CRUD (crear/editar/borrar, fecha libre) es de **gestión**; el conductor anota solo por `add/` (R3-38, append-only como las lecturas de km). Ni litros, ni importe, ni origen: la serie mensual anterior se retiró (migración `0060`, filas desactivadas a erratas) |
 | POST   | `/api/v1/fuel-consumptions/add/` | ✔ᵃ | **Anotación de campo**: `{vehicle, avg_consumption, reading_date?, client_ref?}` crea una anotación (por defecto de hoy; el conductor solo del mes en curso o el anterior). `client_ref` evita que el reenvío offline cree otra fila |
-| CRUD   | `/api/v1/maintenance-programs/` | gestiónᵃ | **Catálogo COMÚN de programas de mantenimiento**: `name` (único, case-insensitive), `every_km` y/o `every_months` (al menos uno: sin ciclo no vence nunca) y `notes`. No cuelga de ningún vehículo — se define una vez para toda la flota y de aquí sale el «cada cuánto» al programar un coche |
-| CRUD   | `/api/v1/maintenance-plans/` | gestiónᵃ | **El mantenimiento programado de un vehículo** (GAP-8): `program` (del catálogo, cuyo ciclo se **copia** al programarlo, para que tocar el catálogo no mueva por detrás lo ya programado), ciclo por km y/o meses con su ancla («último realizado») y `workshop_postal_code` (CP preferente de 5 cifras, para que un tercero busque el taller más cercano). Los vigila el job `check_maintenance` con alertas escalonadas. Es **uno a la vez**: un segundo plan activo en el mismo vehículo es 400 (`vehicle`) — el que existe se modifica o se resuelve |
+| CRUD   | `/api/v1/maintenance-programs/` | gestiónᵃ (HSE lee) | **Catálogo COMÚN de programas de mantenimiento**: `name` (único, case-insensitive), `every_km` y/o `every_months` (al menos uno: sin ciclo no vence nunca) y `notes`. No cuelga de ningún vehículo — se define una vez para toda la flota y de aquí sale el «cada cuánto» al programar un coche |
+| CRUD   | `/api/v1/maintenance-plans/` | gestiónᵃ (HSE lee) | **El mantenimiento programado de un vehículo** (GAP-8): `program` (del catálogo, cuyo ciclo se **copia** al programarlo, para que tocar el catálogo no mueva por detrás lo ya programado), ciclo por km y/o meses con su ancla («último realizado») y `workshop_postal_code` (CP preferente de 5 cifras, para que un tercero busque el taller más cercano). Los vigila el job `check_maintenance` con alertas escalonadas. Es **uno a la vez**: un segundo plan activo en el mismo vehículo es 400 (`vehicle`) — el que existe se modifica o se resuelve |
 | POST   | `/api/v1/maintenance-plans/{id}/done/` | gestión | **«Realizado»** (app de campo y modal de resolver): `{date?, km?, cost?, note?, workshop?, return_to_active?, incident?}` — reancla el ciclo (hoy y/o la última lectura por defecto), deja **siempre** una incidencia de mantenimiento cerrada como registro (fecha, km, coste, taller, actor; o cierra la abierta indicada en `incident`), **resuelve** solo las alertas **de ese plan** (y los recordatorios manuales) con `note`, emite el evento «Mantenimiento realizado» y, si `return_to_active` y el coche está «En mantenimiento», lo devuelve a Activo. Responde el plan + `alerts_resolved`, `incident`, `vehicle_reactivated`, `event`. Editar el plan sigue siendo de admin |
 | CRUD   | `/api/v1/documents/`     | ✔ᵃ | Documentos del vehículo o **personales de un usuario** (permiso de conducir): el titular es `vehicle` O `user`, exactamente uno. Filtros `?vehicle=` y `?user=`. Conductor sube los de su vehículo y los suyos propios; borra solo gestión (Épica 4). Acepta **multipart** (`file`, máx. `FLEET_DOCUMENT_MAX_MB`, foto/PDF) o `drive_url` — Fase A1. Reglas por tipo: `expiry_date` solo en los que caducan (`EXPIRING_DOCUMENT_TYPES`: seguro, contrato, informe de ITV, permiso de conducir; en el resto → 400); `incident` ha de ser del mismo vehículo; un **parte de accidente** va ligado a un **accidente abierto** (`INCIDENT_BOUND_DOCUMENT_TYPES`; sin incidencia, de otro tipo o cerrada → 400, exigido al crear y al cambiar tipo/incidencia, no en un PATCH de estado). Un documento puede acompañar además a un **registro** del coche (`event`, un `Event` del mismo vehículo) o a una **alerta abierta** (`alert`, hoy solo el informe de ITV a su `itv_due`: la ITV programada aún sin registrar; al registrarla pasa al evento), y a una sola cosa (dos vínculos → 400): la póliza a una renovación de seguro, el informe de ITV a esa ITV, la factura de taller a la ITV o al mantenimiento (`EVENT_LINKABLE_DOCUMENT_TYPES` / `ALERT_LINKABLE_DOCUMENT_TYPES`; otro tipo de registro, alerta resuelta o un tipo que no se liga → 400). **Exigen** acompañar a algo (`LINK_REQUIRED_DOCUMENT_TYPES`; sueltos → 400) la factura de taller (incidencia, también cerrada, ITV o mantenimiento), las fotos de daños (incidencia) y el informe de ITV (ITV registrada o programada). Responde `event_display` / `alert_display` legibles («ITV · 2026-03-01»); filtros `?event=` y `?alert=` |
 | POST   | `/api/v1/documents/verify/` | admin | `{vehicle}` o `{user}`: comprueba en Drive (o en disco, backend `local`) que el archivo de cada documento activo del titular **sigue existiendo** (`files.get`; en la papelera cuenta como ausente). Marca/desmarca `drive_missing_at` y responde `{checked: [ids], missing: [ids]}`; lo que no se puede comprobar (URL pegada a mano, sin id de Drive) no se toca. La lista de gestión lo llama en cada carga |
@@ -261,7 +262,7 @@ logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
 | POST   | `/api/v1/document-deletion-requests/{id}/resolve/` | admin | La decide, **con las salidas de su clase**: un borrado, `{decision: "delete"\|"hide"\|"reject", note?}`; una corrección, `{decision: "apply"\|"reject", note?}` — **apply** escribe esos campos en el documento (vueltos a comparar con el documento de ahora) y deja el archivo y su rastro donde están. **delete** desactiva el documento (N7 → erratas, con el motivo como razón de la baja), **hide** lo deja en la flota pero `protected` y con `responsible` = quien decide (deja de verlo el campo, lo sigue viendo gestión) y **reject** no toca el documento. Ya resuelta → 400 |
 | GET/POST | `/api/v1/profile-change-requests/` | gestión o conductor | **Peticiones de corregir la ficha personal**: en la app de campo «Mi perfil» es de lectura, así que la corrección se pide (`{changes: {campo: valor}, note}`) y espera en la misma bandeja. La ficha es la de quien firma (`user` es de solo lectura) e idempotente por persona. Se pide la ficha entera —**nombre, apellidos, correo, DNI, teléfono, tipo de permiso y tarjeta de combustible**— y viaja **solo lo que cambia**; cualquier otro campo → 400. El **correo** y el **DNI** son identidad: si el nuevo ya es de otra cuenta, 400 con ese campo. Cada uno ve **solo la suya**; la gestión, todas |
 | POST   | `/api/v1/profile-change-requests/{id}/resolve/` | admin | La decide: `{decision: "done"\|"reject", note?}`. **done** ESCRIBE esos campos en el usuario (con su rastro en `auditlog`), volviendo a comparar con la ficha de ahora y a comprobar correo y DNI —si se los ha quedado otra cuenta, 400 y la petición sigue pendiente—; **reject** no toca nada. Ya resuelta → 400 |
-| GET    | `/api/v1/reports/?kind=&fmt=` | gestión | Descarga Excel/CSV acotado por rol. `kind=vehicles` genera el documento completo: súper registro (una fila por coche con resúmenes de todas las tablas relacionadas) + una hoja de detalle por sección, con filtros de marca, modelo, activo/baja y flota/sustitución y el selector `fields` (CSV de secciones, que además fija el orden de hojas y columnas resumen); `fmt=json` devuelve las tablas para la vista previa y `fmt=columns` las columnas de cada bloque (ayuda «?»); `kind=users` admite estado y rol. Los informes individuales siguen disponibles para envíos programados — Épica 10 |
+| GET    | `/api/v1/reports/?kind=&fmt=` | gestión / HSE (salvo `users`) | Descarga Excel/CSV acotado por rol. `kind=vehicles` genera el documento completo: súper registro (una fila por coche con resúmenes de todas las tablas relacionadas) + una hoja de detalle por sección, con filtros de marca, modelo, activo/baja y flota/sustitución y el selector `fields` (CSV de secciones, que además fija el orden de hojas y columnas resumen); `fmt=json` devuelve las tablas para la vista previa y `fmt=columns` las columnas de cada bloque (ayuda «?»); `kind=users` admite estado y rol. Los informes individuales siguen disponibles para envíos programados — Épica 10 |
 | CRUD   | `/api/v1/{countries,business-units,projects,peps,rentings,brands,vehicle-models,companies,fuel-types,sites,workshops}/` | gestión / admin | Catálogos (lectura gestión, escritura admin). `fuel-types` (GAP-1) es la lista HSE de combustibles con `co2_factor` opcional; `sites` (GAP-4) son las sedes/oficinas; `workshops` son los **talleres y estaciones de ITV** (nombre, tipo `workshop\|itv\|both`, dirección, CP y teléfono; filtro `?kind=`) y es el único catálogo que **también lee el conductor** (elige el taller al lanzar una avería desde la app de campo). Unicidad **sin distinguir mayúsculas** y contando los desactivados: si el nombre lo ocupa uno dado de baja, responde **409** `inactive_conflict` con `context: {kind, id}` para ofrecer restaurarlo en vez de un «ya existe» sobre algo invisible |
 | CRUD   | `/api/v1/notification-schedules/` | gestión | **Envíos programados** del propio usuario (Ajustes → Notificaciones): resumen o cualquiera de los **9 informes** (`vehicles` completo más Flota, Kilometraje, Consumo, Documentos, Alertas, Facturas, Costes y Conductores) **en CSV** (`vehicles` se entrega como el CSV plano del súper registro), con los filtros validados por `reports.REPORT_FILTERS`, a una hora, por correo y/o Drive. `name_with_date`/`name_with_time` añaden fecha u hora. El correo va solo a `extra_recipients`; cada usuario ve sus envíos y el contenido se genera con su ámbito. `DELETE` borra de verdad porque es configuración, no histórico |
 | POST   | `/api/v1/notification-schedules/{id}/run/` | gestión | Lo envía ahora, para probarlo — entrega SOLO lo que acaba de encolar (R3-15); el resto de la cola sale con el job |
@@ -269,13 +270,34 @@ logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
 
 ᵃ **Acotado por rol** (`fleet/scoping.py` + `accounts/permissions.py`): el admin
 ve/gestiona toda la flota; el **supervisor** su grupo (`Vehicle.supervisor`);
-el **conductor** sus vehículos asignados. Los roles son multi-valor y los
+el **conductor** sus vehículos asignados; **HSE** lee toda la flota y no
+escribe nada. Los roles son multi-valor y los
 ámbitos se **suman**: una supervisora que además conduce ve su grupo **y** su
 propio coche aunque lo supervise otra persona. Escritura de vehículos y
 asignaciones = solo admin; reparto de uso = admin o supervisor de su grupo;
 lecturas de km = también el conductor de su vehículo. El listado de vehículos
 soporta búsqueda (`?search=`), filtros (`?state=&business_use=&assigned=`) y orden
 (`?ordering=`); los vehículos en `baja` se ocultan salvo `?include_baja=1`.
+
+**HSE (solo lectura).** El rol `hse` entra en el front de gestión a **leer**:
+`HseReadOnly` (True solo con GET/HEAD/OPTIONS) se compone con `|` en los
+endpoints que le tocan y en ningún otro — no va dentro de `IsManagement`, que
+abriría `/auth/drivers/`, las bandejas y las escrituras. **Lee** (toda la flota):
+`vehicles` (con `summary`, `history`), `summary/`, `summary/vehicles/`,
+`incidents` (con `accident_report`), `alerts` (seguro incluido), `documents`
+**de vehículo** con su `preview`/`download` y `/media` —los **personales**
+(`user` no nulo) quedan fuera, ni en listado—, `events`, `km-readings`,
+`fuel-consumptions`, `maintenance-plans`, `maintenance-programs`, `contracts`,
+`invoices`, `invoice-allocations`, `vehicle-links`, `assignments`,
+`supervisor-periods` y `reports/` **menos `kind=users`** (403). **No** puede:
+ninguna escritura ni acción POST (`notify`, `resolve`, `verify`, `set-driver`…
+→ 403), `/auth/users/`, `/auth/drivers/`, catálogos, `catalogs/`, plantillas
+y firmas de correo, `notification-schedules`, `vehicle-usages`, erratas, las
+cuatro bandejas de solicitudes, Google/Drive. Los roles se **suman**: `admin`
++`hse` conserva todo lo de admin; `hse`+`driver` opera su coche y lee el
+resto. Para que la lectura no se cuele en la escritura, `vehicles_for` y
+`readable_documents` llevan `write=True` en todo lo que actúa (métodos no
+seguros, acciones POST y bandejas): ahí HSE no añade nada.
 
 **Idempotencia de la cola offline (R3-34).** Las altas que reenvía la cola de
 la PWA — lecturas de km, eventos, documentos, incidencias y
@@ -296,19 +318,21 @@ la flota; `driver` solo lee sus vehículos asignados (permisos en
 - **Una persona = un `User`** (mapea `drivers`; `AbstractUser` aporta nombre y
   email, y se añade `fuel_card`). Todas las personas inician sesión.
 - **Roles multi-valor** en `UserRole` (mapea `driver_roles`), únicos por
-  `(user, role)`. Valores: `admin`, `supervisor`, `driver`. Una persona puede
-  tener varios (p. ej. supervisor que además conduce).
+  `(user, role)`. Valores: `admin`, `supervisor`, `driver`, `hse`. Una persona
+  puede tener varios (p. ej. supervisor que además conduce).
 - **Helpers** en `User`: `role_values`, `has_role()`, `is_admin`,
-  `is_supervisor`, `is_driver`, `is_management` (=admin o supervisor). Un
-  superusuario de Django cuenta como `admin`.
+  `is_supervisor`, `is_driver`, `is_hse`, `is_management` (=admin o
+  supervisor; **HSE no cuenta**: es lectura, no gestión). Un superusuario de
+  Django cuenta como `admin`.
 - **Permisos DRF** (`accounts/permissions.py`): `IsAdmin`, `IsSupervisor`,
-  `IsManagement`, `IsDriver`, `IsManagementOrDriverReadOnly`. Se combinan con un
-  `get_queryset` que acota lo que ve cada rol.
+  `IsManagement`, `IsDriver`, `IsManagementOrDriverReadOnly`, `HseReadOnly`
+  (solo métodos seguros, compuesto con `|` endpoint a endpoint). Se combinan
+  con un `get_queryset` que acota lo que ve cada rol.
 - **Aprovisionamiento**: desde `/admin/` (roles inline en el usuario). El
   self-registro público, si se habilita, crea siempre un `driver`.
-- **Enrutado a fronts**: `admin`/`supervisor` → gestión (VPN); `driver` →
-  conductores (internet). El backend lo impone por permisos; los fronts, además,
-  filtran en el login/bootstrap.
+- **Enrutado a fronts**: `admin`/`supervisor`/`hse` → gestión (VPN; HSE solo
+  lee); `driver` → conductores (internet). El backend lo impone por permisos;
+  los fronts, además, filtran en el login/bootstrap.
 
 ## Métodos de autenticación (por variable de entorno)
 

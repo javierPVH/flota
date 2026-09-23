@@ -63,6 +63,12 @@ const es = {
     /** Barra de buscar y filtrar de las listas largas (`ListFilter`). */
     search: 'Buscar',
     noMatches: 'Nada coincide con lo que buscas.',
+    /** Por dónde empezar a leer una lista de lo pendiente. «Prioridad» es
+     * lo primero que hay que atender —el nivel en una alerta, la urgencia
+     * que marcó quien la abrió en una petición—. */
+    sortBy: 'Ordenar',
+    sortPriority: 'Prioridad',
+    sortRecent: 'Más recientes',
     /** R3-31: la lista no cabe en una página — se dice, no se recorta en silencio. */
     truncated: (shown: number, total: number) =>
       `Lista recortada: se muestran ${shown} de ${total} registros.`,
@@ -191,10 +197,11 @@ const es = {
     offline:
       'Sin conexión: no se puede comprobar tu flota ahora mismo. Reintenta cuando tengas cobertura.',
     retry: 'Reintentar',
-    adminTitle: 'Sin acceso',
-    adminBody: (username: string) =>
+    /** El 403 de campo: administración o HSE sin conducir ni supervisar. */
+    managementTitle: 'Sin acceso',
+    managementBody: (username: string) =>
       `Esta app es para conductores y supervisores. Tu usuario (${username}) es de ` +
-      'administración: usa el front de gestión (red interna / VPN).',
+      'gestión o HSE: entra por el front de gestión (red interna / VPN).',
   },
   // R3-36: el copy de los chunks perezosos (noFleet, request, fleet, split)
   // vive en `src/translations/<ns>.ts` — cada chunk se lleva su texto. Aquí
@@ -384,14 +391,11 @@ const es = {
     showClosed: 'Ver cerradas',
     onlyOpen: 'Solo abiertas',
     fleet: 'flota',
-    /* Acordeón por coche: total y desglose por tipo en la cabecera. */
+    /* Sin coche del que hablar (una alerta de flota), en el título del
+       modal de resolver. */
     groupFleet: 'Flota',
-    groupCount: (n: number) => (n === 1 ? '1 alerta' : `${n} alertas`),
-    /* Clasificadores por tipo: el global de la bandeja y el de cada coche. */
-    tabAll: 'Todas',
-    typeFilter: 'Filtrar por tipo de alerta',
-    classifyLabel: 'Clasificar las alertas por tipo',
     resolved: (plate: string) => `Alerta de ${plate} resuelta.`,
+    resolvedIncident: (plate: string) => `Incidencia de ${plate} resuelta.`,
     loadError: 'No se pudieron cargar las alertas.',
     closeError: 'No se pudo cerrar la alerta.',
     pushTitle: 'Avisos en este dispositivo',
@@ -471,6 +475,11 @@ const es = {
     hideChart: 'Ocultar evolución',
     incidents: 'Incidencias',
     newIncident: 'Nueva',
+    /** El coche tiene abierta la alerta de exceso: se resuelve desde aquí,
+     * con el mismo modal de la bandeja (proponer otro conductor). */
+    resolve: 'Resolver',
+    resolveLabel: (plate: string) => `Resolver el exceso de km de ${plate}`,
+    resolved: 'Alerta resuelta.',
   },
   // Recordatorio del supervisor (correo y/o alerta) desde la tarjeta del coche.
   reminder: {
@@ -932,7 +941,8 @@ const es = {
       admin: 'Administración',
       supervisor: 'Supervisor',
       driver: 'Conductor',
-    } as Record<'admin' | 'supervisor' | 'driver', string>,
+      hse: 'HSE',
+    } as Record<'admin' | 'supervisor' | 'driver' | 'hse', string>,
     /** Resumen de lo que lleva a cargo quien supervisa: cinco cifras y, tras
      * cada una, la lista de lo que la compone. */
     /** Pedir que la gestión corrija la ficha: la pantalla es de lectura, así
@@ -1174,6 +1184,9 @@ const en: typeof es = {
     no: 'No',
     search: 'Search',
     noMatches: 'Nothing matches your search.',
+    sortBy: 'Sort',
+    sortPriority: 'Priority',
+    sortRecent: 'Most recent',
     truncated: (shown: number, total: number) =>
       `List truncated: showing ${shown} of ${total} records.`,
   },
@@ -1280,10 +1293,10 @@ const en: typeof es = {
     checking: 'Checking your access…',
     offline: 'Offline: your fleet cannot be checked right now. Retry once you have coverage.',
     retry: 'Retry',
-    adminTitle: 'No access',
-    adminBody: (username) =>
-      `This app is for drivers and supervisors. Your user (${username}) is an admin ` +
-      'account: use the management front (internal network / VPN).',
+    managementTitle: 'No access',
+    managementBody: (username) =>
+      `This app is for drivers and supervisors. Your user (${username}) is a management ` +
+      'or HSE account: sign in through the management front (internal network / VPN).',
   },
   vehicle: {
     back: 'Back',
@@ -1455,11 +1468,8 @@ const en: typeof es = {
     onlyOpen: 'Open only',
     fleet: 'fleet',
     groupFleet: 'Fleet',
-    groupCount: (n) => (n === 1 ? '1 alert' : `${n} alerts`),
-    tabAll: 'All',
-    typeFilter: 'Filter by alert type',
-    classifyLabel: 'Classify alerts by type',
     resolved: (plate) => `Alert for ${plate} resolved.`,
+    resolvedIncident: (plate) => `Incident for ${plate} resolved.`,
     loadError: 'Could not load the alerts.',
     closeError: 'Could not close the alert.',
     pushTitle: 'Notifications on this device',
@@ -1528,6 +1538,9 @@ const en: typeof es = {
     hideChart: 'Hide trend',
     incidents: 'Incidents',
     newIncident: 'New',
+    resolve: 'Resolve',
+    resolveLabel: (plate) => `Resolve the km overage of ${plate}`,
+    resolved: 'Alert resolved.',
   },
   reminder: {
     button: 'Send reminder',
@@ -1940,6 +1953,7 @@ const en: typeof es = {
       admin: 'Management',
       supervisor: 'Supervisor',
       driver: 'Driver',
+      hse: 'HSE',
     },
     edit: {
       button: 'My details',

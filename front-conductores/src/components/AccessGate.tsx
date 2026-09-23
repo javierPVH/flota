@@ -2,12 +2,12 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { Button, Panel } from '@flota/ui/ui'
 
-import { isAdminOnly, useAuth } from '../auth.ts'
+import { isManagementOnly, useAuth } from '../auth.ts'
 import { listVehiclesCached } from '../api.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError } from '../offline/queue.ts'
 
-type GateState = 'checking' | 'ok' | 'no-vehicle' | 'no-fleet' | 'admin-only' | 'offline'
+type GateState = 'checking' | 'ok' | 'no-vehicle' | 'no-fleet' | 'management-only' | 'offline'
 
 // BG6: último recuento de vehículos conocido — arrancar sin red no debe
 // mandar al portón de "solicita tu vehículo" a quien SÍ tiene coche.
@@ -15,7 +15,10 @@ const LAST_COUNT_KEY = 'flota:last-vehicle-count'
 
 /**
  * Portón de acceso (M0 + Fase A2 del back). Tras autenticarse:
- * - admin "puro" → 403 con enlace a gestión (esta app es de campo);
+ * - admin o HSE "puros" (sin conducir ni supervisar) → 403 con enlace a
+ *   gestión (esta app es de campo). Se decide ANTES de preguntar al back, y
+ *   con los roles: a HSE el back le deja LEER toda la flota, así que su
+ *   `GET /vehicles/` viene lleno y no sirve para saber si tiene coche;
  * - sin vehículo (conductor sin coche, o sin rol — recién creado por Google,
  *   su GET /vehicles/ devuelve 403) → pantalla "Solicita tu vehículo";
  * - supervisor con el grupo vacío → aviso "sin flota";
@@ -28,8 +31,8 @@ export function AccessGate({ children }: { children: ReactNode }) {
 
   const check = useCallback(() => {
     if (!user) return () => {}
-    if (isAdminOnly(user)) {
-      setState('admin-only')
+    if (isManagementOnly(user)) {
+      setState('management-only')
       return () => {}
     }
     let alive = true
@@ -92,12 +95,13 @@ export function AccessGate({ children }: { children: ReactNode }) {
           <Button onClick={check}>{t.gate.retry}</Button>
         </div>
       )
-    case 'admin-only':
-      return <AdminOnlyScreen />
+    case 'management-only':
+      return <ManagementOnlyScreen />
   }
 }
 
-function AdminOnlyScreen() {
+/** El 403 de la app de campo: administración o HSE sin rol de campo. */
+function ManagementOnlyScreen() {
   const { user, logout } = useAuth()
   const { t } = useLang()
   return (
@@ -105,9 +109,9 @@ function AdminOnlyScreen() {
     // las pantallas fuera del shell (Fase 2, patrón del AdminGate de gestión).
     <div className="login-scene">
       <div className="login-card">
-        <h1>{t.gate.adminTitle}</h1>
+        <h1>{t.gate.managementTitle}</h1>
         <Panel tone="warning">
-          <p style={{ margin: 0 }}>{t.gate.adminBody(user?.username ?? '')}</p>
+          <p style={{ margin: 0 }}>{t.gate.managementBody(user?.username ?? '')}</p>
         </Panel>
         <Button variant="secondary" fullWidth onClick={logout}>
           {t.common.logout}

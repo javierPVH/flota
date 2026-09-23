@@ -5,6 +5,7 @@ import { RequireAuth } from './auth.ts'
 import { useLang } from './i18n.tsx'
 import { AdminGate } from './components/AdminGate.tsx'
 import { ConfirmProvider } from './components/ConfirmDialog.tsx'
+import { HseOnlyRedirect, RequireHse } from './components/HseGate.tsx'
 import { Layout } from './components/Layout.tsx'
 // El login queda estático: es el primer paint y no debe esperar a un chunk.
 import { LoginPage } from './pages/LoginPage.tsx'
@@ -34,6 +35,10 @@ const UserDetailPage = page(() => import('./pages/UserDetailPage.tsx'), 'UserDet
 // Ajustes agrupa Catálogos, Borrado definitivo, Plantillas de correo y Facturas
 // (cada una embebida) — un único chunk perezoso para todo el bloque de administración.
 const AjustesPage = page(() => import('./pages/AjustesPage.tsx'), 'AjustesPage')
+// Vista HSE (prevención): la flota de SOLO LECTURA —vehículos, incidencias,
+// accidentes y alertas— en pestañas. Quien es HSE sin ser admin solo puede
+// estar aquí (`HseOnlyRedirect`); un admin sin el rol no entra (`RequireHse`).
+const HsePage = page(() => import('./pages/HsePage.tsx'), 'HsePage')
 // PF2: el ui-kit era una ruta PÚBLICA en producción — ahora solo existe en dev
 // (el import dinámico condicionado deja el chunk fuera del build de prod).
 const UiKitPage = import.meta.env.DEV
@@ -58,14 +63,24 @@ export default function App() {
           element={
             <RequireAuth>
               <AdminGate>
-                <ConfirmProvider>
-                  <Layout />
-                </ConfirmProvider>
+                <HseOnlyRedirect>
+                  <ConfirmProvider>
+                    <Layout />
+                  </ConfirmProvider>
+                </HseOnlyRedirect>
               </AdminGate>
             </RequireAuth>
           }
         >
           <Route path="/" element={<DashboardPage />} />
+          <Route
+            path="/hse"
+            element={
+              <RequireHse>
+                <HsePage />
+              </RequireHse>
+            }
+          />
           <Route path="/vehiculos" element={<VehiclesPage />} />
           <Route path="/vehiculos/nuevo" element={<VehicleFormPage />} />
           <Route path="/vehiculos/:id" element={<VehicleDetailPage />} />

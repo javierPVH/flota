@@ -104,13 +104,17 @@ class VehicleSummariesTests(APITestCase):
         # Mismo shape que /vehicles/<id>/summary/ (lo consume el mismo front).
         self.assertEqual(summary["km_current"], 15000)
         self.assertIsNotNone(summary["contract"])
-        self.assertIsNotNone(summary["projection"])
+        # La proyección es de gestión: al conductor le llega vacía (la alerta
+        # de exceso que sale de ella tampoco se le enseña).
+        self.assertIsNone(summary["projection"])
         self.assertEqual(summary["driver"]["id"], self.driver.pk)
 
     def test_supervisor_gets_group(self):
         self.client.force_authenticate(self.supervisor)
         resp = self.client.get(reverse(URL))
         self.assertEqual({s["vehicle"] for s in resp.data}, {self.mine.pk, self.group_only.pk})
+        # Y con la proyección, que es suya.
+        self.assertTrue(all(s["projection"] is not None for s in resp.data))
 
     def test_admin_gets_all_and_matches_single_endpoint(self):
         self.client.force_authenticate(self.admin)

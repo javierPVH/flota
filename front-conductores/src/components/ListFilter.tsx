@@ -21,6 +21,8 @@ export function ListFilter({
   type,
   onType,
   options,
+  order,
+  onOrder,
 }: {
   search: string
   onSearch: (value: string) => void
@@ -28,6 +30,10 @@ export function ListFilter({
   onType: (value: string) => void
   /** Los tipos que hay en estas filas, como `[valor, etiqueta]`. */
   options: [string, string][]
+  /** Orden de la lista. Solo lo llevan las listas donde hay algo que
+   * ATENDER: ordenar por prioridad es decidir por dónde empezar. */
+  order?: ListOrder
+  onOrder?: (value: ListOrder) => void
 }) {
   const { t } = useLang()
   return (
@@ -57,9 +63,30 @@ export function ListFilter({
           ))}
         </select>
       )}
+      {onOrder && (
+        <select
+          className="acc-filter"
+          aria-label={t.common.sortBy}
+          value={order ?? 'priority'}
+          onChange={(event) => onOrder(event.target.value as ListOrder)}
+        >
+          <option value="priority">{t.common.sortPriority}</option>
+          <option value="date">{t.common.sortRecent}</option>
+        </select>
+      )}
     </div>
   )
 }
+
+/**
+ * Por qué se ordena una lista de lo pendiente: por **prioridad** —lo primero
+ * que hay que atender— o por **fecha**, lo más reciente arriba.
+ *
+ * Qué es «prioridad» lo dice cada lista, porque no es lo mismo en las dos: en
+ * una petición la marca quien la abre (`incidentPriority`) y en una alerta es
+ * su nivel, que el motor calcula por cercanía de la fecha.
+ */
+export type ListOrder = 'priority' | 'date'
 
 /**
  * Los tipos que hay EN ESTAS FILAS, con su etiqueta, para el desplegable.

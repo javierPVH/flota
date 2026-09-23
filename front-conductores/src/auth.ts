@@ -1,6 +1,6 @@
 import { createAuth } from '@flota/ui/auth'
 
-import type { FlotaUser } from './types'
+import type { FlotaUser, Role } from './types'
 import { ensureCsrf, fetchMe, logout } from './api'
 import { clearQueue, isNetworkError, setQueueOwner } from './offline/queue.ts'
 
@@ -52,18 +52,48 @@ function forgetCachedMe(): void {
 
 export const { AuthProvider, useAuth, RequireAuth } = createAuth<FlotaUser>()
 
-/** ¿Es un usuario SOLO de administración? (usa gestión, no esta app). */
-export const isAdminOnly = (user: FlotaUser | null): boolean =>
-  !!user &&
-  user.roles.includes('admin') &&
-  !user.roles.includes('driver') &&
-  !user.roles.includes('supervisor')
+/** Los roles DE CAMPO: los que operan un coche desde esta app. */
+const FIELD_ROLES: readonly Role[] = ['driver', 'supervisor']
+
+/** Los roles que NO son de campo pero sí de la casa: administración y HSE.
+ * Su sitio es el front de gestión (HSE, en su pantalla de solo lectura). */
+const OFFICE_ROLES: readonly Role[] = ['admin', 'hse']
+
+/** ¿Conduce o supervisa? Es lo que da acceso a esta app. */
+export const hasFieldRole = (user: FlotaUser | null): boolean =>
+  !!user && user.roles.some((role) => FIELD_ROLES.includes(role))
+
+/**
+ * ¿Es un usuario SOLO de gestión (administración y/o HSE, sin conducir ni
+ * supervisar)? Usa el front de gestión, no esta app. Ojo: el usuario SIN
+ * NINGÚN rol (recién creado por Google) no entra aquí a propósito — su
+ * camino es el 403 del back en el `AccessGate` → «Solicita tu vehículo».
+ *
+ * Antes solo se miraba `admin`, y un HSE puro —al que el back deja LEER toda
+ * la flota— pasaba el portón y veía la empresa entera como si fuera suya.
+ */
+export const isManagementOnly = (user: FlotaUser | null): boolean =>
+  !!user && !hasFieldRole(user) && user.roles.some((role) => OFFICE_ROLES.includes(role))
+
+/** Nombre histórico: hoy cubre también al HSE puro. */
+export const isAdminOnly = isManagementOnly
+
+/**
+ * ¿El back le manda MÁS coches que los que conduce? Al administrador toda la
+ * flota, al supervisor su grupo y a HSE toda la flota en LECTURA. Es un
+ * criterio de ÁMBITO, no de permiso: donde una pantalla quiere «lo mío» tiene
+ * que quedarse con lo que conduce (`summary.driver.id === user.id`); al
+ * conductor puro el back ya le devuelve exactamente los suyos. No confundir
+ * con `admin|supervisor` como PERMISO (resolver, recordar…), que HSE no da.
+ */
+export const hasWideReadScope = (user: FlotaUser | null): boolean =>
+  !!user && user.roles.some((role) => role === 'admin' || role === 'supervisor' || role === 'hse')
 
 /**
  * Carga inicial de sesión: fija CSRF y pide /me. Devuelve al usuario
  * autenticado AUNQUE no tenga rol de campo: el `AccessGate` decide qué ve
- * (403 para admin puro; portón de solicitud si no tiene vehículo; aviso si el
- * supervisor no tiene flota). La autoridad real es el backend.
+ * (403 para admin o HSE puros; portón de solicitud si no tiene vehículo; aviso
+ * si el supervisor no tiene flota). La autoridad real es el backend.
  */
 export async function bootstrap(): Promise<FlotaUser | null> {
   try {

@@ -94,11 +94,35 @@ class LogEntrySerializer(serializers.ModelSerializer):
     # que el histórico exhaustivo pueda etiquetar de dónde viene cada cambio.
     model = serializers.SerializerMethodField()
     object_repr = serializers.CharField(read_only=True)
+    # Reversión (services.audit_revert): `reverts` es el id de la entrada que
+    # esta deshizo, y `revertible` si ESTA se puede deshacer desde la ficha.
+    reverts = serializers.SerializerMethodField()
+    revertible = serializers.SerializerMethodField()
 
     class Meta:
         model = LogEntry
-        fields = ["id", "action", "actor", "changes", "model", "object_repr", "timestamp"]
+        fields = [
+            "id",
+            "action",
+            "actor",
+            "changes",
+            "model",
+            "object_repr",
+            "timestamp",
+            "reverts",
+            "revertible",
+        ]
         read_only_fields = fields
+
+    def get_reverts(self, obj) -> int | None:
+        data = obj.additional_data if isinstance(obj.additional_data, dict) else {}
+        value = data.get("reverts")
+        return int(value) if isinstance(value, int) else None
+
+    def get_revertible(self, obj) -> bool:
+        from .services import audit_revert
+
+        return audit_revert.is_revertible(obj)
 
     def get_actor(self, obj) -> str:
         actor = obj.actor

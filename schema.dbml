@@ -28,6 +28,7 @@ Enum role_enum {
   admin
   supervisor
   driver
+  hse // solo lectura de toda la flota en gestión; no es gestión
 }
 
 Enum license_type_enum {

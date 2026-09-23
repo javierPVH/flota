@@ -9,6 +9,7 @@ import type { Role } from '../types.ts'
 
 const mocks = vi.hoisted(() => ({
   listAlerts: vi.fn(),
+  listIncidents: vi.fn(),
   fetchVehicleSummaries: vi.fn(),
   createKmReading: vi.fn(),
   registerItv: vi.fn(),
@@ -20,12 +21,14 @@ const mocks = vi.hoisted(() => ({
   listVehiclesCached: vi.fn(),
   fetchVehicleSummariesCached: vi.fn(),
   fetchKmWindow: vi.fn(),
+  listVehicles: vi.fn(),
   roles: ['driver'] as Role[],
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   listAlerts: mocks.listAlerts,
+  listIncidents: mocks.listIncidents,
   fetchVehicleSummaries: mocks.fetchVehicleSummaries,
   createKmReading: mocks.createKmReading,
   registerItv: mocks.registerItv,
@@ -37,6 +40,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listVehiclesCached: mocks.listVehiclesCached,
   fetchVehicleSummariesCached: mocks.fetchVehicleSummariesCached,
   fetchKmWindow: mocks.fetchKmWindow,
+  listVehicles: mocks.listVehicles,
 }))
 
 vi.mock('../auth.ts', async (importOriginal) => ({
@@ -67,14 +71,15 @@ const KM_ALERT = {
   created_at: '2026-07-22T00:00:00Z',
 }
 
-// Segunda alerta del MISMO coche (para el desglose de la cabecera) y una
-// crítica de otro coche (para el orden por urgencia).
+// Segunda alerta del MISMO coche y una crítica de otro: entre las tres se lee
+// el orden (por nivel y, a igualdad, la más reciente) y la búsqueda.
 const ITV_ALERT = {
   ...KM_ALERT,
   id: 2,
   type: 'itv_due',
   type_display: 'ITV próxima',
   message: 'La ITV vence el 2026-09-01.',
+  created_at: '2026-07-25T00:00:00Z',
 }
 // Km contratados: la única alerta que se arregla cambiando quién lo lleva.
 const OVERAGE_ALERT = {
@@ -94,6 +99,43 @@ const OTHER_CAR_ALERT = {
   vehicle: 8,
   vehicle_plate: '1111AAA',
   message: 'ITV vencida.',
+  created_at: '2026-07-20T00:00:00Z',
+}
+
+/** Las peticiones abiertas del ámbito: dos de taller y un accidente, que se
+ * lee en su propia tarjeta. */
+const AVERIA = {
+  id: 11,
+  vehicle: 7,
+  type: 'breakdown',
+  type_display: 'Avería',
+  priority: 'informative' as const,
+  priority_display: 'Informativa',
+  date: '2026-07-01',
+  description: 'No arranca en frío',
+  mileage: null,
+  workshop_postal_code: '',
+  details: {},
+  status: 'open',
+  status_display: 'Abierta',
+  cost: null,
+}
+const NEUMATICOS = {
+  ...AVERIA,
+  id: 12,
+  type: 'tires',
+  type_display: 'Cambio de neumáticos',
+  priority: 'critical' as const,
+  priority_display: 'Crítica',
+  date: '2026-06-01',
+  description: 'Rueda pinchada',
+}
+const ACCIDENTE = {
+  ...AVERIA,
+  id: 13,
+  type: 'accident',
+  type_display: 'Accidente',
+  description: 'Alcance en el parking',
 }
 
 function renderPage() {
@@ -107,6 +149,27 @@ function renderPage() {
   )
 }
 
+/** Abre una de las tres tarjetas (nacen plegadas), esperando a que la bandeja
+ * haya cargado: su cabecera es lo primero que aparece. */
+async function abrir(nombre: RegExp) {
+  await userEvent.click(await screen.findByRole('button', { name: nombre }))
+}
+
+/** Lo que enseña la tarjeta de alertas, EN ORDEN. */
+function alertas(): string[] {
+  return [...document.querySelectorAll('.alert-list .alert-card .alert-message')].map(
+    (node) => node.textContent?.trim() ?? '',
+  )
+}
+
+/** Y lo que enseña una tarjeta de peticiones, también en orden. */
+function filas(): string[] {
+  // Solo la tarjeta DESPLEGADA: las otras dos siguen montadas (`hidden`).
+  return [
+    ...document.querySelectorAll('.acc:not(.acc-closed) .vehicle-incidents-list .doc-item'),
+  ].map((node) => node.textContent ?? '')
+}
+
 describe('AlertsPage (M5)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -114,6 +177,10 @@ describe('AlertsPage (M5)', () => {
     mocks.listAlerts.mockResolvedValue({
       count: 3,
       results: [KM_ALERT, ITV_ALERT, OTHER_CAR_ALERT],
+    })
+    mocks.listIncidents.mockResolvedValue({
+      count: 3,
+      results: [AVERIA, NEUMATICOS, ACCIDENTE],
     })
     mocks.fetchVehicleSummaries.mockResolvedValue([
       { vehicle: 7, plate: '7890NPQ', km_reading_date: null, km_current: null, driver: null },
@@ -125,108 +192,126 @@ describe('AlertsPage (M5)', () => {
     ])
     mocks.proposeDriverChange.mockResolvedValue({ id: 99 })
     // Sin nada que vencer, «Te queda poco» no pinta nada (es un aviso, no
-    // un panel de estado), así que el resto de casos se leen igual.
-    mocks.listVehiclesCached.mockResolvedValue({ count: 0, results: [] })
+    // un panel de estado), así que el resto de casos se leen igual. Los
+    // vehículos sí hacen falta: de ahí sale la matrícula de una petición.
+    mocks.listVehiclesCached.mockResolvedValue({
+      count: 2,
+      results: [
+        { id: 7, plate: '7890NPQ' },
+        { id: 8, plate: '1111AAA' },
+      ],
+    })
     mocks.fetchVehicleSummariesCached.mockResolvedValue([])
     mocks.fetchKmWindow.mockResolvedValue(null)
+    // En modo Flota la bandeja pide el grupo (`supervisor=<yo>`): por defecto
+    // es el mismo par de coches del ámbito, así que nada se recorta.
+    mocks.listVehicles.mockResolvedValue({
+      count: 2,
+      results: [
+        { id: 7, plate: '7890NPQ' },
+        { id: 8, plate: '1111AAA' },
+      ],
+    })
   })
 
-  it('agrupa por coche en acordeones plegados con el desglose por tipo', async () => {
+  // --- Las tres familias, en tres tarjetas --------------------------------
+  it('lo pendiente son TRES tarjetas plegadas, con su recuento en el título', async () => {
     renderPage()
-    // Cabecera del 7890NPQ: total y cuántas de cada tipo.
-    expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
-    expect(screen.getByText('2 alertas')).toBeInTheDocument()
-    expect(
-      screen.getByText('Lectura de km pendiente ×1 · ITV programada ×1'),
-    ).toBeInTheDocument()
-    // El otro coche, con la suya (crítica: su grupo va primero).
-    expect(screen.getByText('1111AAA')).toBeInTheDocument()
-    expect(screen.getByText('1 alerta')).toBeInTheDocument()
-
-    // Plegados por defecto: el detalle de la alerta no se ve…
-    expect(screen.getByText('Falta la lectura de km de 2026-07.')).not.toBeVisible()
-    // …hasta desplegar el acordeón de su coche Y el subgrupo de su tipo
-    // (los subgrupos también nacen encogidos).
-    await userEvent.click(screen.getByText('7890NPQ'))
-    expect(screen.getByText('Falta la lectura de km de 2026-07.')).not.toBeVisible()
-    await userEvent.click(screen.getByText('Lectura de km pendiente ×1'))
-    expect(screen.getByText('Falta la lectura de km de 2026-07.')).toBeVisible()
-    // Acción natural: registrar km con el vehículo preseleccionado.
-    expect(screen.getByRole('link', { name: /Registrar km/ })).toHaveAttribute(
-      'href',
-      '/registrar?vehiculo=7',
+    expect(await screen.findByRole('button', { name: /^Alertas/ })).toHaveTextContent(
+      /Alertas\s*3/,
     )
+    expect(screen.getByRole('button', { name: /^Incidencias/ })).toHaveTextContent(
+      /Incidencias\s*2/,
+    )
+    expect(screen.getByRole('button', { name: /^Accidentes/ })).toHaveTextContent(
+      /Accidentes\s*1/,
+    )
+
+    // Plegadas: el detalle no se lee hasta abrir la familia que interesa.
+    expect(screen.getByText('Falta la lectura de km de 2026-07.')).not.toBeVisible()
+    await abrir(/^Alertas/)
+    expect(screen.getByText('Falta la lectura de km de 2026-07.')).toBeVisible()
     // El conductor no resuelve.
     expect(screen.queryByRole('button', { name: 'Resolver' })).not.toBeInTheDocument()
   })
 
-  it('cada acordeón clasifica sus alertas con un select por tipo, en "Todas" por defecto', async () => {
+  it('cada familia en la suya: el accidente no se lee entre las incidencias', async () => {
     renderPage()
-    await userEvent.click(await screen.findByText('7890NPQ'))
+    await abrir(/^Incidencias/)
+    const incidencias = screen.getByText(/No arranca en frío/).closest('.acc')
+    expect(screen.getByText(/No arranca en frío/)).toBeVisible()
+    expect(screen.getByText(/Rueda pinchada/)).toBeVisible()
+    expect(screen.getByText(/Alcance en el parking/).closest('.acc')).not.toBe(incidencias)
 
-    // El select del coche con dos tipos: "Todas (2)" por defecto + un tipo por
-    // opción con su recuento. El coche de un solo tipo no lo pinta.
-    const filter = screen.getByRole('combobox', { name: 'Filtrar por tipo de alerta' })
-    expect(filter).toHaveValue('all')
-    expect(within(filter).getAllByRole('option').map((x) => x.textContent)).toEqual([
-      'Todas (2)',
-      'Lectura de km pendiente (1)',
-      'ITV programada (1)',
-    ])
-
-    // En «Todas», las alertas van SECCIONADAS por tipo: línea divisoria y un
-    // título por tipo que funciona como acordeón. Los subgrupos nacen
-    // ENCOGIDOS: al abrir el coche se ve solo el índice de tipos.
-    const kmSection = screen.getByText('Lectura de km pendiente ×1')
-    expect(screen.getByText('Falta la lectura de km de 2026-07.')).not.toBeVisible()
-    expect(screen.getByText('La ITV vence el 2026-09-01.')).not.toBeVisible()
-    // El título abre SOLO su grupo (el de ITV sigue plegado).
-    await userEvent.click(kmSection)
-    expect(screen.getByText('Falta la lectura de km de 2026-07.')).toBeVisible()
-    expect(screen.getByText('La ITV vence el 2026-09-01.')).not.toBeVisible()
-    await userEvent.click(kmSection)
-    expect(screen.getByText('Falta la lectura de km de 2026-07.')).not.toBeVisible()
-
-    // Clasificar por ITV recorta la lista del coche (plana, sin subgrupos);
-    // la cabecera no cambia.
-    await userEvent.selectOptions(filter, 'itv_due')
-    expect(screen.getByText('La ITV vence el 2026-09-01.')).toBeVisible()
-    expect(screen.queryByText('Falta la lectura de km de 2026-07.')).not.toBeInTheDocument()
-    expect(screen.getByText('2 alertas')).toBeInTheDocument()
-
-    // Y de vuelta a "Todas": los subgrupos vuelven encogidos.
-    await userEvent.selectOptions(filter, 'all')
-    expect(screen.getByText('Falta la lectura de km de 2026-07.')).not.toBeVisible()
+    await abrir(/^Accidentes/)
+    expect(screen.getByText(/Alcance en el parking/)).toBeVisible()
+    // Cada fila dice de qué coche es: aquí se mezclan los del ámbito.
+    expect(within(incidencias as HTMLElement).getAllByText('7890NPQ')[0]).toBeVisible()
   })
 
-  it('el clasificador global deja solo ese tipo y retira los selects internos', async () => {
+  // --- Buscar, filtrar y ordenar ------------------------------------------
+  it('la tarjeta de alertas se busca, se filtra por tipo y se ordena', async () => {
     renderPage()
-    // Al inicio de la bandeja, en «Todas» por defecto, con el recuento global
-    // por tipo (el orden sigue la urgencia: la crítica de ITV va primero).
-    const global = await screen.findByRole('combobox', {
-      name: 'Clasificar las alertas por tipo',
-    })
-    expect(global).toHaveValue('all')
-    expect(within(global).getAllByRole('option').map((x) => x.textContent)).toEqual([
-      'Todas (3)',
-      'ITV programada (2)',
-      'Lectura de km pendiente (1)',
+    await abrir(/^Alertas/)
+
+    // De salida, por prioridad: la crítica arriba y, a igualdad de nivel, la
+    // más reciente antes.
+    expect(alertas()).toEqual([
+      expect.stringContaining('ITV vencida.'),
+      expect.stringContaining('La ITV vence el 2026-09-01.'),
+      expect.stringContaining('Falta la lectura de km de 2026-07.'),
     ])
 
-    // Clasificar por lectura pendiente: el coche sin ese tipo desaparece y el
-    // que queda pierde su select interno y sus subgrupos (lista plana).
-    await userEvent.selectOptions(global, 'km_reading_pending')
-    expect(screen.queryByText('1111AAA')).not.toBeInTheDocument()
-    expect(screen.getByText('Lectura de km pendiente ×1')).toBeInTheDocument()
-    expect(
-      screen.queryByRole('combobox', { name: 'Filtrar por tipo de alerta' }),
-    ).not.toBeInTheDocument()
-    await userEvent.click(screen.getByText('7890NPQ'))
-    expect(screen.getByText('Falta la lectura de km de 2026-07.')).toBeVisible()
+    // Por fecha manda la de creación, sin mirar el nivel.
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Ordenar' }), 'date')
+    expect(alertas()).toEqual([
+      expect.stringContaining('La ITV vence el 2026-09-01.'),
+      expect.stringContaining('Falta la lectura de km de 2026-07.'),
+      expect.stringContaining('ITV vencida.'),
+    ])
 
-    // De vuelta a «Todas», la bandeja completa.
-    await userEvent.selectOptions(global, 'all')
-    expect(screen.getByText('1111AAA')).toBeInTheDocument()
+    // El tipo recorta la lista; el recuento del título NO se filtra.
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Filtrar por tipo' }),
+      'km_reading_pending',
+    )
+    expect(alertas()).toHaveLength(1)
+    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*3/)
+
+    // Y lo escrito busca también por MATRÍCULA, que es como se distingue un
+    // coche de otro en una bandeja de flota.
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Filtrar por tipo' }),
+      '',
+    )
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Buscar' }), '1111')
+    expect(alertas()).toEqual([expect.stringContaining('ITV vencida.')])
+  })
+
+  it('las incidencias se ordenan por la prioridad con la que se abrieron', async () => {
+    renderPage()
+    await abrir(/^Incidencias/)
+
+    // La crítica primero aunque sea la más antigua: ordenar por prioridad es
+    // decidir por dónde empezar.
+    expect(filas()[0]).toContain('Rueda pinchada')
+    expect(filas()[0]).toContain('Crítica')
+    expect(filas()[1]).toContain('No arranca en frío')
+
+    const tarjeta = screen.getByText(/Rueda pinchada/).closest('.acc') as HTMLElement
+    await userEvent.selectOptions(
+      within(tarjeta).getByRole('combobox', { name: 'Ordenar' }),
+      'date',
+    )
+    expect(filas()[0]).toContain('No arranca en frío')
+  })
+
+  it('con una sola fila no hay nada que acotar: la barra no se pinta', async () => {
+    mocks.listIncidents.mockResolvedValue({ count: 1, results: [AVERIA] })
+    renderPage()
+    await abrir(/^Incidencias/)
+    const tarjeta = screen.getByText(/No arranca en frío/).closest('.acc') as HTMLElement
+    expect(within(tarjeta).queryByRole('combobox', { name: 'Ordenar' })).not.toBeInTheDocument()
   })
 
   it('R4-06: sin pendientes de km no se piden summaries (ids vacío = ámbito entero)', async () => {
@@ -252,9 +337,8 @@ describe('AlertsPage (M5)', () => {
     expect(screen.queryByRole('button', { name: 'Descartar' })).not.toBeInTheDocument()
 
     // Lectura pendiente: Resolver abre el FORMULARIO de registrar km (y el
-    // botón suelto de "Registrar km" desaparece para el supervisor).
-    await userEvent.click(screen.getAllByText('7890NPQ')[0])
-    await userEvent.click(screen.getByText('Lectura de km pendiente ×1'))
+    // enlace suelto de "Registrar km" desaparece para el supervisor).
+    await abrir(/^Alertas/)
     expect(screen.queryByRole('link', { name: /Registrar km/ })).not.toBeInTheDocument()
     const kmCard = screen
       .getByText('Falta la lectura de km de 2026-07.')
@@ -274,8 +358,6 @@ describe('AlertsPage (M5)', () => {
     expect(await screen.findByText('Alerta de 7890NPQ resuelta.')).toBeInTheDocument()
 
     // ITV: reutiliza exactamente el modal Registrar ITV de la ficha.
-    await userEvent.click(screen.getAllByText('7890NPQ')[0])
-    await userEvent.click(screen.getAllByText('ITV programada ×1')[1])
     const itvCard = screen
       .getByText('La ITV vence el 2026-09-01.')
       .closest('.alert-card') as HTMLElement
@@ -334,8 +416,8 @@ describe('AlertsPage (M5)', () => {
     })
 
     renderPage()
-    await userEvent.click(await screen.findByText('7890NPQ'))
-    await userEvent.click(screen.getByText('Mantenimiento programado ×1'))
+    await screen.findByRole('button', { name: /^Alertas/ })
+    await abrir(/^Alertas/)
     const card = screen.getByText('La revisión anual está pendiente.').closest('.alert-card') as HTMLElement
     await userEvent.click(within(card).getByRole('button', { name: 'Resolver' }))
 
@@ -354,8 +436,8 @@ describe('AlertsPage (M5)', () => {
     mocks.roles = ['driver', 'supervisor']
     mocks.listAlerts.mockResolvedValue({ count: 1, results: [OVERAGE_ALERT] })
     renderPage()
-    await userEvent.click(await screen.findByText('7890NPQ'))
-    await userEvent.click(screen.getByText('Exceso de km proyectado ×1'))
+    await screen.findByRole('button', { name: /^Alertas/ })
+    await abrir(/^Alertas/)
     const card = screen
       .getByText(/Proyección 83767 km/)
       .closest('.alert-card') as HTMLElement
@@ -385,6 +467,18 @@ describe('AlertsPage (M5)', () => {
     // Nada ha cambiado todavía: la alerta sigue abierta hasta que se decida.
     expect(mocks.resolveAlert).not.toHaveBeenCalled()
     expect(await within(dialog).findByText(/Propuesta enviada/)).toBeInTheDocument()
+  })
+
+  it('la petición se cierra con el MISMO formulario que el tablero', async () => {
+    mocks.roles = ['driver', 'supervisor']
+    renderPage()
+    await screen.findByRole('button', { name: /^Incidencias/ })
+    await abrir(/^Incidencias/)
+    const fila = screen.getByText(/No arranca en frío/).closest('.doc-item') as HTMLElement
+    await userEvent.click(within(fila).getByRole('button', { name: 'Resolver' }))
+    // El despachador monta el formulario del TIPO, con la matrícula en el
+    // título: es la misma ventana que abre la ficha de campo.
+    expect(screen.getByRole('dialog', { name: /7890NPQ/ })).toBeInTheDocument()
   })
 
   // --- «Te queda poco» también aquí ---------------------------------------
@@ -434,15 +528,116 @@ describe('AlertsPage (M5)', () => {
           </MemoryRouter>
         </LanguageProvider>,
       )
-      expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
+      expect(await screen.findAllByText('7890NPQ')).not.toHaveLength(0)
       expect(screen.queryByText('Te queda poco')).not.toBeInTheDocument()
     })
   })
 
-  it('sin alertas abiertas, estado vacío amable', async () => {
+  it('el supervisor con HSE, en «Flota», lee solo su grupo y su coche, y nunca el seguro', async () => {
+    // A HSE el back le manda en LECTURA las alertas e incidencias de toda la
+    // empresa, seguro incluido (X1: en gestión sí se revisa). Sin recorte
+    // salían coches ajenos con un «Resolver» que el back rechaza (404).
+    mocks.roles = ['supervisor', 'hse']
+    // Su grupo: el 7. Toda la flota leída: 7, 8 y 9. Y el 9 lo conduce él.
+    mocks.listVehicles.mockResolvedValue({ count: 1, results: [{ id: 7, plate: '7890NPQ' }] })
+    mocks.listVehiclesCached.mockResolvedValue({
+      count: 3,
+      results: [
+        { id: 7, plate: '7890NPQ' },
+        { id: 8, plate: '1111AAA' },
+        { id: 9, plate: '2222BBB' },
+      ],
+    })
+    mocks.fetchVehicleSummariesCached.mockResolvedValue([
+      { vehicle: 9, plate: '2222BBB', km_reading_date: null, km_current: null, driver: { id: 1, name: 'Yo' } },
+    ])
+    const PROPIO = {
+      ...ITV_ALERT,
+      id: 5,
+      vehicle: 9,
+      vehicle_plate: '2222BBB',
+      message: 'ITV del coche propio.',
+    }
+    const SEGURO = {
+      ...KM_ALERT,
+      id: 6,
+      type: 'insurance_due',
+      type_display: 'Seguro próximo a vencer',
+      message: 'El seguro del 7890NPQ vence pronto.',
+    }
+    mocks.listAlerts.mockResolvedValue({
+      count: 4,
+      results: [KM_ALERT, OTHER_CAR_ALERT, PROPIO, SEGURO],
+    })
+    mocks.listIncidents.mockResolvedValue({
+      count: 2,
+      results: [AVERIA, { ...AVERIA, id: 14, vehicle: 8, description: 'Del coche ajeno' }],
+    })
+
+    render(
+      <LanguageProvider>
+        <MemoryRouter>
+          <Routes>
+            <Route
+              element={
+                <Outlet
+                  context={{ fleetMode: true, setFleetMode: () => {}, ownPair: null, dataVersion: 0 }}
+                />
+              }
+            >
+              <Route path="/" element={<AlertsPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    )
+
+    // Dos alertas: la de su grupo y la de su coche. Ni la del ajeno ni el seguro.
+    expect(await screen.findByRole('button', { name: /^Alertas/ })).toHaveTextContent(
+      /Alertas\s*2/,
+    )
+    expect(mocks.listVehicles).toHaveBeenCalledWith({ supervisor: 1 })
+    await abrir(/^Alertas/)
+    // El orden lo decide la tarjeta (nivel y fecha); aquí importa QUÉ sale, y
+    // en modo Flota cada fila dice de qué coche es.
+    expect([...alertas()].sort()).toEqual(
+      ['2222BBB ITV del coche propio.', '7890NPQ Falta la lectura de km de 2026-07.'].sort(),
+    )
+    expect(screen.queryByText('ITV vencida.')).not.toBeInTheDocument()
+    expect(screen.queryByText(/El seguro del/)).not.toBeInTheDocument()
+    // Y una sola incidencia: la de su grupo.
+    expect(screen.getByRole('button', { name: /^Incidencias/ })).toHaveTextContent(
+      /Incidencias\s*1/,
+    )
+    await abrir(/^Incidencias/)
+    expect(filas()).toHaveLength(1)
+    expect(filas()[0]).toContain('No arranca en frío')
+  })
+
+  it('sin nada abierto, estado vacío amable', async () => {
     mocks.listAlerts.mockResolvedValue({ count: 0, results: [] })
+    mocks.listIncidents.mockResolvedValue({ count: 0, results: [] })
     renderPage()
-    expect(await screen.findByText('Sin alertas abiertas. Todo al día.')).toBeInTheDocument()
+    // Cada familia lo dice en la suya; el recuento del título ya lo adelanta.
+    expect(await screen.findByRole('button', { name: /^Alertas/ })).toHaveTextContent(
+      /Alertas\s*0/,
+    )
+    await abrir(/^Alertas/)
+    expect(screen.getByText('Sin alertas abiertas. Todo al día.')).toBeVisible()
+    await abrir(/^Incidencias/)
+    expect(screen.getByText('Sin incidencias abiertas.')).toBeVisible()
+  })
+
+  it('si las incidencias no cargan, las alertas se leen igual', async () => {
+    // Lo que no es una alerta no puede tumbar la bandeja de alertas.
+    mocks.listIncidents.mockRejectedValue(new Error('sin red'))
+    renderPage()
+    expect(await screen.findByRole('button', { name: /^Alertas/ })).toHaveTextContent(
+      /Alertas\s*3/,
+    )
+    expect(screen.getByRole('button', { name: /^Incidencias/ })).toHaveTextContent(
+      /Incidencias\s*0/,
+    )
   })
 
   // --- La FRASE del aviso, en el idioma de la app -------------------------

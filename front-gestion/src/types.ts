@@ -1,6 +1,8 @@
 // Contrato v1 del backend (G0): multi-rol + esquema nuevo de vehículo.
 
-export type Role = 'admin' | 'supervisor' | 'driver'
+/** `hse` (prevención/seguridad) solo LEE la flota desde la web de gestión:
+ * vehículos, incidencias, accidentes y alertas. El back le corta el resto. */
+export type Role = 'admin' | 'supervisor' | 'driver' | 'hse'
 
 export interface FlotaUser {
   id: number
@@ -272,6 +274,10 @@ export interface AuditEntry {
   /** Representación del objeto modificado (p. ej. la matrícula, el nº de factura). */
   object_repr: string
   timestamp: string
+  /** Id de la entrada que ESTA deshizo (`POST /vehicles/{id}/revert-change/`). */
+  reverts?: number | null
+  /** Si esta entrada se puede revertir desde la ficha (ficha y contrato, solo modificaciones). */
+  revertible?: boolean
 }
 
 export interface AssignmentRow {
@@ -320,6 +326,10 @@ export interface ManagedUser {
   license_type: string
   fuel_card: boolean
   roles: Role[]
+  /** La cuenta de administración del sistema (solo lectura): no se edita ni se
+   * desactiva desde la gestión de usuarios. Lo manda el back para que la
+   * pantalla no tenga que adivinarlo por el nombre de usuario. */
+  is_superuser: boolean
 }
 
 // --- G7: documentación e incidencias --------------------------------------

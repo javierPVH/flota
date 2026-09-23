@@ -81,11 +81,17 @@ class ManagedUserSerializer(serializers.ModelSerializer):
             "license_type",
             "fuel_card",
             "is_active",
+            "is_superuser",
             "date_joined",
             "roles",
             "password",
         ]
-        read_only_fields = ["id", "date_joined"]
+        # `is_superuser` viaja de SOLO LECTURA: la gestión de usuarios necesita
+        # saber cuál es la cuenta de administración del sistema para no ofrecer
+        # editarla ni desactivarla (lo que ya rechaza `UserViewSet.destroy`),
+        # pero el privilegio no se concede desde esta pantalla — eso es el
+        # admin de Django.
+        read_only_fields = ["id", "date_joined", "is_superuser"]
 
     def get_name(self, obj) -> str:
         return obj.get_full_name() or obj.get_username()

@@ -108,12 +108,14 @@ renombras rompes la cadena. Contraseña de prueba de TODOS: **`flota-dev-2026`**
 
 | Usuario | Rol(es) | Situación sembrada |
 |---------|---------|--------------------|
-| `admin` | admin (superuser) | Administradora "Alicia" |
+| `admin` | admin + supervisor + driver + hse (superuser) | Administradora «Alicia», la cuenta con **los cuatro roles**: es la única que prueba la suma completa y la única de gestión que entra también en la **PWA** (sin roles de campo, `isManagementOnly` la manda al portón). Conduce y supervisa `8888TRX`, su **escaparate**: los **cinco** avisos que caben en un coche con conductor y las **cinco** peticiones que se pueden abrir. El sexto aviso, `no_driver`, se lo da un coche de volumen de su grupo (`ADMIN_NO_DRIVER_INDEX`) |
 | `sara`  | supervisor + driver | Su grupo: `1234KLM` y `5678BCD` (más el bloque de volumen); conduce `7890NPQ` (su tablero de campo trae alertas, documentos y mantenimiento con variantes). En **su ámbito** están los **seis** tipos de alerta y en **su coche**, cinco: **todos los que un conductor puede ver** (ITV, mantenimiento, exceso de km y lectura pendiente) más el **seguro**, que se siembra igual aunque X1 lo deje fuera de la app de campo — es lo que distingue la bandeja de gestión de la de campo. El sexto, `no_driver`, no cabe en un coche que ella conduce, así que se ve en los que supervisa |
 | `carlos`| driver | Conduce `1234KLM` (y tiene una **propuesta** pendiente) |
 | `lucia` | driver | Conduce `5678BCD` (en taller, cubierto por el Leaf) **y el propio Leaf `4567JKL`**: es el par sustituto↔principal de la app de campo |
 | `david` | driver | **SIN coche** → prueba el portón; solicitud `pending` con ticket **`FLT-123`** |
 | `nuevo` | *(sin rol)* | Simula el auto-alta por Google → prueba el portón desde cero |
+| `hse` | hse | **Solo lectura** de toda la flota en gestión (`HseReadOnly`): ve coches, incidencias, alertas, documentos de vehículo, histórico, informes; no escribe, no ve usuarios ni Ajustes ni bandejas, y no entra en la PWA |
+| `ana_hse` | admin + hse | Administradora con el rol HSE sumado: prueba que el rol no le quita nada a `admin` |
 
 **Vehículos**: `1234KLM` (activo, proyección de km **en exceso**, ITV a 10 días,
 **seguro a 20 días**, timeline con los 18 tipos de evento y póliza versionada),
@@ -141,7 +143,20 @@ ejemplo) del que cuelgan sus fotos de daños: es lo que llena la tarjeta
 coche que sirve de escaparate), `4567JKL` (sustitución y **km ilimitados**: sin
 proyección, sin alerta de exceso y, desde X2, tampoco recordatorio de lectura —
 es el que no tiene cupo que vigilar, en propiedad y sin contrato de renting),
-`0000ZZZ` (baja, con `km_end` y acta de devolución).
+`8888TRX` (el coche de `admin` y el **escaparate de la cuenta con todos los
+roles**: ITV a 5 días, **seguro a 8** —ficha y documento con la misma fecha—,
+**proyección de km por encima de lo contratado** (14.000 km en 260 días de un
+contrato de 45.000 → 126%, crítica), la **lectura del mes sin dar** (la última
+es de hace 40 días) y su **único plan de mantenimiento**, que toca por las dos
+vías —km ya superados y revisión anual a ~14 días— y por eso deja **un solo
+aviso**. Más las **cinco peticiones**: los cuatro tipos que abre el campo
+—avería, mantenimiento puntual, neumáticos (con su parte guiado y la
+descripción vacía, que ahí es opcional) y petición general, cada una con una
+**prioridad** distinta, que es lo que ordena las listas de campo— y un
+**accidente** con el parte entero, terceros **y lesionados** —el de `sara` va
+sin lesionados a propósito, así que entre los dos se lee de las dos maneras—,
+del que cuelgan sus fotos de daños), `0000ZZZ` (baja, con `km_end` y acta de
+devolución).
 
 ⚠️ El seguro de `1234KLM` se fija en DOS sitios que deben coincidir: la ficha
 (`seed_vehicles`) y su documento de seguro (`seed_operations`). La señal de N2

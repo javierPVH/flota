@@ -1,15 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { LineChart } from 'lucide-react'
-import { Badge, PageHeader } from '@flota/ui/ui'
+import { Badge, Button, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { fetchVehicleSummariesCached, listKmReadings, listVehicles, truncatedAt } from '../api.ts'
+import {
+  fetchVehicleSummariesCached,
+  listAlerts,
+  listKmReadings,
+  listVehicles,
+  truncatedAt,
+} from '../api.ts'
 import { useAuth } from '../auth.ts'
+import { AlertResolveDispatcher } from '../components/AlertResolveDispatcher.tsx'
 import { KmChart } from '../components/KmChart.tsx'
 import { fmtDate, fmtKm, kmLevelTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import type { KmReading, Vehicle, VehicleSummary } from '../types.ts'
+import type { Alert, KmReading, Vehicle, VehicleSummary } from '../types.ts'
 
 // Tres niveles de gestión de la proyección (HU-3.4); etiquetas en t.group.levels.
 const LEVEL_CLASS: Record<string, string> = {
@@ -58,6 +65,13 @@ export function GroupPage() {
   const isSupervisor = user?.roles.includes('supervisor') ?? false
 
   const [rows, setRows] = useState<GroupRow[]>([])
+  // La alerta de exceso ABIERTA de cada coche (`km_overage`, la que abre el
+  // motor cuando la proyección se pasa del margen): es lo que hace a un coche
+  // «problemático» y lo que se resuelve desde aquí, con el mismo modal que la
+  // bandeja (proponer otro conductor). Sin alerta no hay nada que cerrar.
+  const [overages, setOverages] = useState<Map<number, Alert>>(new Map())
+  const [resolving, setResolving] = useState<Alert | null>(null)
+  const [notice, setNotice] = useState('')
   // R3-31: grupo que no cabe en la página de 500 → se avisa del recorte.
   const [truncated, setTruncated] = useState<number | null>(null)
   const [tab, setTab] = useState<Level | ''>('')
@@ -81,13 +95,22 @@ export function GroupPage() {
     Promise.all([
       listVehicles({ supervisor: supervisorId }),
       fetchVehicleSummariesCached().catch(() => [] as VehicleSummary[]),
+      // Si las alertas fallan, la proyección se lee igual: solo falta el botón.
+      listAlerts('open').catch(() => null),
     ])
-      .then(([vehiclesPage, summaries]) => {
+      .then(([vehiclesPage, summaries, alertsPage]) => {
         setTruncated(truncatedAt(vehiclesPage))
         const byId = new Map(summaries.map((s) => [s.vehicle, s]))
         setRows(
           vehiclesPage.results.map(
             (v): GroupRow => ({ vehicle: v, summary: byId.get(v.id) ?? null }),
+          ),
+        )
+        setOverages(
+          new Map(
+            (alertsPage?.results ?? [])
+              .filter((a) => a.type === 'km_overage' && a.vehicle !== null)
+              .map((a) => [a.vehicle as number, a]),
           ),
         )
       })
@@ -165,6 +188,12 @@ export function GroupPage() {
         ]}
       />
 
+      {notice && (
+        <p role="status" className="form-ok">
+          {notice}
+        </p>
+      )}
+
       {truncated !== null && (
         <p role="status" className="empty-note">
           {t.common.truncated(rows.length, truncated)}
@@ -205,6 +234,7 @@ export function GroupPage() {
         const level = levelOf(summary)
         const pct = projection ? Math.round(projection.pct_of_limit) : 0
         const elapsed = projection ? elapsedPct(contract) : null
+        const overage = overages.get(vehicle.id) ?? null
         return (
           <section className={`card km-card km-level-${level}`} key={vehicle.id}>
             {/* Cabecera en dos líneas (matrícula+nivel / modelo+conductor) con
@@ -313,11 +343,38 @@ export function GroupPage() {
               </p>
             )}
 
+            {/* Con la alerta de exceso abierta, el coche se resuelve desde aquí:
+                el mismo modal de la bandeja, que propone otro conductor. */}
+            {overage && (
+              <div className="km-actions">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  aria-label={t.group.resolveLabel(vehicle.plate)}
+                  onClick={() => setResolving(overage)}
+                >
+                  {t.group.resolve}
+                </Button>
+              </div>
+            )}
+
             {chartOpen === vehicle.id && <KmChart readings={readings[vehicle.id] ?? []} />}
           </section>
         )
       })}
 
+      {resolving && (
+        <AlertResolveDispatcher
+          alert={resolving}
+          summary={rows.find((r) => r.vehicle.id === resolving.vehicle)?.summary ?? null}
+          onClose={() => setResolving(null)}
+          onResolved={() => {
+            setResolving(null)
+            setNotice(t.group.resolved)
+            load()
+          }}
+        />
+      )}
     </div>
   )
 }

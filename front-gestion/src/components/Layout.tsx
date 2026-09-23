@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Base, Modal } from '@flota/ui/ui'
 
+import { isHseOnly, useAuth } from '../auth.ts'
 import { useLang } from '../i18n.tsx'
 import { AppHeader } from './AppHeader.tsx'
 
@@ -24,6 +25,10 @@ export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { t } = useLang()
+  const { user } = useAuth()
+  // HSE puro: solo puede estar en `/hse`, así que los atajos de navegación
+  // («g v», «n»…) no le llevan a ningún sitio; no se arman.
+  const hseOnly = isHseOnly(user)
   const [sheetOpen, setSheetOpen] = useState(false)
 
   // Prefijo "g" pendiente: caduca solo para que una "g" suelta no deje el
@@ -34,6 +39,7 @@ export function Layout() {
   // Atajos de teclado (G12, ampliados): "/" busca, "n" alta de vehículo,
   // "g <letra>" navega, "?" abre la hoja de atajos. Nunca mientras se escribe.
   useEffect(() => {
+    if (hseOnly) return
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
       if (
@@ -82,7 +88,7 @@ export function Layout() {
       document.removeEventListener('keydown', onKey)
       window.clearTimeout(goTimer.current)
     }
-  }, [navigate])
+  }, [hseOnly, navigate])
 
   return (
     <>

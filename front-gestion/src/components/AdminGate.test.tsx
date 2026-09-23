@@ -40,4 +40,18 @@ describe('AdminGate (403 de gestión)', () => {
     )
     expect(screen.getByText('contenido privado')).toBeInTheDocument()
   })
+
+  // HSE entra por este portón (lo que puede pisar dentro lo acota `HseGate`).
+  it('un HSE sin admin también pasa', () => {
+    mockUseAuth.mockReturnValue({ user: makeUser(['hse']), logout: vi.fn() })
+    render(
+      <LanguageProvider>
+        <AdminGate>
+          <p>contenido privado</p>
+        </AdminGate>
+      </LanguageProvider>,
+    )
+    expect(screen.getByText('contenido privado')).toBeInTheDocument()
+    expect(screen.queryByText('Sin acceso')).not.toBeInTheDocument()
+  })
 })

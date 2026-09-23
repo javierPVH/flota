@@ -12,6 +12,7 @@ import {
   Car,
   FileText,
   Gauge,
+  HardHat,
   Home,
   KeyRound,
   LogOut,
@@ -30,18 +31,79 @@ import {
   listIncidents,
   listVehicleRequests,
 } from '../api.ts'
-import { useAuth } from '../auth.ts'
+import { isHse, isHseOnly, useAuth } from '../auth.ts'
 import { incidentStatusTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, Incident } from '../types.ts'
 import logoUrl from '../assets/img/gransolar-logo.png'
 import { useDomainLabels } from '../domainLabels.ts'
+import { HSE_PATH } from './HseGate.tsx'
 
 // Crítica primero, como en la bandeja de alertas.
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
 type BellTab = 'alerts' | 'incidents'
 
+/**
+ * Quién es decide qué cabecera ve: un HSE **puro** no tiene gestión que
+ * navegar —ni panel, ni campana, ni solicitudes—, así que su cabecera es la
+ * marca, el título «HSE», el idioma y salir. Todo lo demás (admin, y
+ * admin+hse con su atajo a `/hse`) es la cabecera de gestión de siempre.
+ */
 export function AppHeader() {
+  const { user } = useAuth()
+  return isHseOnly(user) ? <HseHeader /> : <ManagementHeader />
+}
+
+function HseHeader() {
+  const { user, logout } = useAuth()
+  const { language, setLanguage, t } = useLang()
+  const navigate = useNavigate()
+
+  const name =
+    [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username || ''
+  const initials = (
+    (user?.first_name?.[0] ?? user?.username?.[0] ?? '?') + (user?.last_name?.[0] ?? '')
+  ).toUpperCase()
+
+  function handleLogout() {
+    logout()
+    navigate('/login', { replace: true })
+  }
+
+  return (
+    <div className="shell-headerbar">
+      <div className="shell-brand">
+        <img className="shell-logo" src={logoUrl} alt="Gransolar" />
+        <span className="shell-brand-sep" aria-hidden="true" />
+        <span className="shell-brand-title">{t.shell.hse.brand}</span>
+      </div>
+
+      <div className="shell-tools">
+        <div className="shell-user">
+          <span className="shell-avatar" aria-hidden="true">{initials}</span>
+          <span className="shell-user-meta">
+            <span className="shell-user-name">{name}</span>
+            {user?.email && <span className="shell-user-email">{user.email}</span>}
+          </span>
+        </div>
+        <LanguageToggleButton
+          aria-label={t.shell.language}
+          activeLanguage={language}
+          onChange={setLanguage}
+        />
+        <button
+          type="button"
+          className="shell-iconbtn shell-iconbtn--text"
+          onClick={handleLogout}
+        >
+          <LogOut size={16} aria-hidden /> {t.shell.logout}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ManagementHeader() {
   const { user, logout } = useAuth()
   const { language, setLanguage, t } = useLang()
   const etiqueta = useDomainLabels()
@@ -270,6 +332,22 @@ export function AppHeader() {
             {user?.email && <span className="shell-user-email">{user.email}</span>}
           </span>
         </div>
+
+        {/* Admin+HSE: el atajo a la vista HSE, a la IZQUIERDA del aviso de
+            solicitudes y con su misma caja. Un admin sin el rol no lo ve (y
+            `/hse` le devolvería al panel). */}
+        {isHse(user) && (
+          <Link
+            to={HSE_PATH}
+            className={`shell-iconbtn shell-iconbtn--text${
+              location.pathname === HSE_PATH ? ' is-active' : ''
+            }`}
+            aria-label={t.shell.hse.buttonTitle}
+            title={t.shell.hse.buttonTitle}
+          >
+            <HardHat size={16} aria-hidden /> {t.shell.hse.button}
+          </Link>
+        )}
 
         {pendingTotal > 0 && (
           <Link

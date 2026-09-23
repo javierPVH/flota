@@ -62,6 +62,13 @@ const es = {
     language: 'Cambiar de idioma',
     footerBrand: 'Flota',
     footerContact: 'Gestión de flota Console',
+    /** Vista HSE (solo lectura). El botón lo ve quien es admin+hse; la marca
+     * la lee quien es HSE puro, que no tiene navegación de gestión. */
+    hse: {
+      brand: 'Flota · HSE',
+      button: 'HSE',
+      buttonTitle: 'Vista HSE de la flota (solo lectura)',
+    },
   },
   timeline: {
     groupAria: 'Línea temporal de cambios',
@@ -75,7 +82,7 @@ const es = {
   adminGate: {
     title: 'Sin acceso',
     onlyFor: 'Este front es solo para',
-    role: 'administración',
+    role: 'administración o HSE',
     noRole: (username: string) =>
       `. Tu usuario (${username}) no tiene ese rol; usa la app de campo (conductores / supervisores).`,
     logout: 'Cerrar sesión',
@@ -394,6 +401,11 @@ const en: typeof es = {
     language: 'Change language',
     footerBrand: 'Flota',
     footerContact: 'Fleet Management Console',
+    hse: {
+      brand: 'Fleet · HSE',
+      button: 'HSE',
+      buttonTitle: 'HSE view of the fleet (read-only)',
+    },
   },
   timeline: {
     groupAria: 'Timeline of changes',
@@ -407,7 +419,7 @@ const en: typeof es = {
   adminGate: {
     title: 'No access',
     onlyFor: 'This app is only for',
-    role: 'administration',
+    role: 'administration or HSE',
     noRole: (username: string) =>
       `. Your user (${username}) does not have that role; use the field app (drivers / supervisors).`,
     logout: 'Log out',

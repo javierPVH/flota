@@ -9,7 +9,9 @@ import { PersonalDocumentsPanel, usePersonalDocuments } from '../components/Pers
 import { useLang } from '../i18n.tsx'
 import type { Role } from '../types.ts'
 
-const ROLES: Role[] = ['driver', 'supervisor', 'admin']
+/** En el orden en que se leen las chapas; HSE va el último porque aquí no
+ * opera nada: es el rol de lectura de la web de gestión. */
+const ROLES: Role[] = ['driver', 'supervisor', 'admin', 'hse']
 
 /** Las dos tarjetas plegables del perfil, en el orden en que se leen. Las dos
  * arrancan **plegadas**, como las del vehículo: el recuento va en el título,

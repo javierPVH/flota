@@ -473,6 +473,33 @@ describe('MyVehiclesPage (M1)', () => {
     await waitFor(() => expect(mocks.listDocuments).toHaveBeenCalledWith(3))
   })
 
+  it('el conductor con HSE ve solo el coche que conduce, no toda la flota que lee', async () => {
+    // A HSE el back le manda TODA la flota en lectura. Antes el corte «lo que
+    // conduzco» solo se hacía con admin|supervisor, así que este usuario se
+    // quedaba sin tablero y con tres coches ajenos como propios.
+    mocks.roles = ['driver', 'hse']
+    mocks.listVehicles.mockResolvedValue({
+      count: 3,
+      results: [vehicle(1, '1234ASD'), vehicle(2, '3546LKR'), vehicle(3, '5960JSF')],
+    })
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      { ...summary(1, 1000, null), driver: { id: 8, name: 'Otro conductor' } },
+      { ...summary(2, 32000, null), driver: { id: 1, name: 'Carlos Conductor' } },
+      { ...summary(3, 3000, null), driver: null },
+    ])
+
+    renderPage()
+    // El tablero de SU coche, cargado directo y con sus km.
+    expect(await screen.findByText('3546LKR')).toBeInTheDocument()
+    expect(screen.getByText('32.000 km')).toBeInTheDocument()
+    expect(screen.queryByText('1234ASD')).not.toBeInTheDocument()
+    expect(screen.queryByText('5960JSF')).not.toBeInTheDocument()
+    expect(screen.queryByText('No conduces ningún vehículo ahora mismo.')).not.toBeInTheDocument()
+    await waitFor(() => expect(mocks.listDocuments).toHaveBeenCalledWith(2))
+    // HSE no es gestión: en la tarjeta de lo pendiente no hay «Resolver».
+    expect(screen.queryByRole('button', { name: 'Resolver' })).not.toBeInTheDocument()
+  })
+
   it('el supervisor sin coche propio: aviso y salto al modo flota', async () => {
     mocks.roles = ['driver', 'supervisor']
     mocks.listVehicles.mockResolvedValue({ count: 1, results: [vehicle(2, '5678BCD')] })
@@ -487,6 +514,19 @@ describe('MyVehiclesPage (M1)', () => {
     // El botón gira el switch del shell (la vista de flota es un MODO, no una ruta).
     await userEvent.click(screen.getByRole('button', { name: /Ver la flota a cargo/ }))
     expect(goFleet).toHaveBeenCalled()
+  })
+
+  it('el conductor sin coche propio: aviso y NADA de flota a cargo', async () => {
+    mocks.roles = ['driver']
+    mocks.listVehicles.mockResolvedValue({ count: 0, results: [] })
+    mocks.fetchVehicleSummaries.mockResolvedValue([])
+    const goFleet = vi.fn()
+    renderPage(goFleet)
+    expect(
+      await screen.findByText('No conduces ningún vehículo ahora mismo.'),
+    ).toBeInTheDocument()
+    // Quien solo conduce no tiene flota que ver, aunque el shell pase el callback.
+    expect(screen.queryByRole('button', { name: /Ver la flota a cargo/ })).not.toBeInTheDocument()
   })
 
   it('el conductor con varios coches sueltos vuelve a la lista, sin buscador', async () => {

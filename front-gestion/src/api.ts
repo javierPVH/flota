@@ -694,6 +694,15 @@ export const listSupervisorChanges = (vehicle: number, req: ReqOpts = {}) =>
 export const fetchVehicleHistory = (id: number, req: ReqOpts = {}) =>
   getJson<Paginated<AuditEntry>>(`${API}/vehicles/${id}/history/${listQs({})}`, req)
 
+/** Deshace un paquete de cambios del histórico: los valores anteriores se
+ * escriben como una modificación NUEVA (la que devuelve `entry`, con
+ * `reverts`); la entrada deshecha no se toca. */
+export const revertVehicleChange = (vehicleId: number, entryId: number) =>
+  postJson<{ entry: AuditEntry; vehicle: Vehicle }>(
+    `${API}/vehicles/${vehicleId}/revert-change/`,
+    { entry: entryId },
+  )
+
 /** Contrato de un vehículo (renting/propiedad). Los campos editables desde la
  * ficha del vehículo (G3): fechas, cuota, km e importes. */
 export interface VehicleContract {

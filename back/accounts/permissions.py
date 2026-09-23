@@ -90,6 +90,7 @@ class RoleReadWritePermission(BasePermission):
     Las subclases fijan `read_roles`/`write_roles` con nombres de propiedades de
     rol del usuario (`is_admin`, `is_supervisor`, `is_driver`, `is_management`).
     El *scoping* por grupo/propiedad se hace además en el queryset de cada vista.
+    `is_hse` no se usa aquí a propósito: HSE se compone con `HseReadOnly`.
     """
 
     read_roles: tuple = ()
@@ -136,6 +137,28 @@ class ManagementOrDriverReadWrite(RoleReadWritePermission):
     write_roles = ("is_management", "is_driver")
 
 
+class HseReadOnly(BasePermission):
+    """HSE: solo métodos seguros (GET/HEAD/OPTIONS) y solo donde se compone.
+
+    Se añade con `|` a los endpoints que HSE puede LEER (vehículos, incidencias,
+    alertas, documentos de vehículo, histórico, km, consumos, mantenimiento,
+    contratos, facturas, vínculos, asignaciones, informes…) y a ninguno más:
+    NO va dentro de `IsManagement` ni de las clases genéricas, porque eso
+    abriría `/auth/drivers/`, las bandejas de solicitudes y Ajustes. Cualquier
+    escritura —también las acciones POST como `resolve` o `notify`— queda fuera
+    por construcción. El ámbito (toda la flota, sin documentos personales) lo
+    pone `fleet/scoping.py`.
+    """
+
+    message = "El rol HSE es de solo lectura."
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        return bool(
+            user and user.is_authenticated and request.method in SAFE_METHODS and user.is_hse
+        )
+
+
 class IsSuperuser(BasePermission):
     """N7: solo el superusuario (el `admin` que aprovisiona `bootstrap_admin`
     desde el .env — único por diseño). Reservado al purge de erratas."""
@@ -157,5 +180,6 @@ __all__ = [
     "AdminWriteManagementOrDriverRead",
     "ManagementReadWrite",
     "ManagementOrDriverReadWrite",
+    "HseReadOnly",
     "IsSuperuser",
 ]

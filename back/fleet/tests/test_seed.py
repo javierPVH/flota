@@ -56,8 +56,8 @@ from fleet.services import seed
 # Usuarios/vehículos de la capa de VOLUMEN (constantes del seed): los tests se
 # derivan de ellas para no romperse al ajustar el volumen.
 BULK_USERS = 1 + len(seed.BULK_DRIVERS)  # marta + conductores
-REF_USERS = 6 + 1  # + expedro (inactivo, siembra del espacio de erratas)
-REF_VEHICLES = 5
+REF_USERS = 6 + 2 + 1  # + hse/ana_hse (rol HSE) + expedro (inactivo, erratas)
+REF_VEHICLES = 6  # + el coche de la administradora (8888TRX)
 BULK_BAJA = 2  # los 2 últimos vehículos de volumen se siembran en baja
 
 
@@ -68,10 +68,19 @@ class SeedChainTests(APITestCase):
         seed.run_all()
         # Usuarios de referencia (+ volumen) con sus roles.
         self.assertEqual(User.objects.count(), REF_USERS + BULK_USERS)
-        self.assertTrue(User.objects.get(username="admin").is_admin)
+        # La cuenta de administración lleva LOS CUATRO roles: es la única que
+        # prueba la suma completa, y los de campo son los que la dejan entrar
+        # en la PWA (sin ellos, `isManagementOnly` la manda al portón).
+        self.assertEqual(
+            User.objects.get(username="admin").role_values,
+            {"admin", "supervisor", "driver", "hse"},
+        )
         self.assertTrue(User.objects.get(username="sara").is_supervisor)
         self.assertTrue(User.objects.get(username="sara").is_driver)  # multi-rol
         self.assertEqual(User.objects.get(username="nuevo").role_values, set())
+        # HSE: el rol puro y sumado a una administradora.
+        self.assertEqual(User.objects.get(username="hse").role_values, {"hse"})
+        self.assertEqual(User.objects.get(username="ana_hse").role_values, {"admin", "hse"})
         # david existe pero SIN coche (portón) y con solicitud pendiente + ticket.
         david = User.objects.get(username="david")
         self.assertFalse(Assignment.objects.filter(driver=david, end_date__isnull=True).exists())
@@ -372,6 +381,83 @@ class SeedCoverageTests(APITestCase):
         self.assertEqual(mantenimiento.level, AlertLevel.CRITICAL)
         self.assertIn("superado el objetivo", mantenimiento.message)
         self.assertIn("y, por fecha, toca en", mantenimiento.message)
+
+    def test_admin_showcase_has_every_alert_and_request(self):
+        """El coche de Alicia (8888TRX) enseña TODO lo que le puede pasar."""
+        today = timezone.localdate()
+        alicia = User.objects.get(username="admin")
+        coche = Vehicle.objects.get(plate="8888TRX")
+        # Lo conduce y lo supervisa ella: sin las dos cosas, ni sale en la app
+        # de campo ni cuenta en «A tu cargo».
+        self.assertEqual(coche.supervisor_id, alicia.id)
+        self.assertTrue(
+            Assignment.objects.filter(
+                vehicle=coche,
+                driver=alicia,
+                end_date__isnull=True,
+                status=AssignmentStatus.ACCEPTED,
+            ).exists(),
+            "8888TRX sin asignación vigente de la administradora",
+        )
+        self.assertEqual(coche.next_itv_date, today + timedelta(days=5))
+        self.assertEqual(coche.insurance_expiry_date, today + timedelta(days=8))
+        # Los CINCO avisos que caben en un coche con conductor.
+        for alert_type in (
+            AlertType.ITV_DUE,
+            AlertType.INSURANCE_DUE,
+            AlertType.MAINTENANCE_DUE,
+            AlertType.KM_OVERAGE,
+            AlertType.KM_READING_PENDING,
+        ):
+            self.assertTrue(
+                Alert.objects.filter(
+                    vehicle=coche, type=alert_type, status=AlertStatus.OPEN
+                ).exists(),
+                f"8888TRX sin alerta abierta {alert_type}",
+            )
+        # Y el sexto, el único que su propio coche no puede darle, por un coche
+        # de su grupo (`ADMIN_NO_DRIVER_INDEX`): sin eso le faltaría un tipo.
+        self.assertTrue(
+            Alert.objects.filter(
+                vehicle__supervisor=alicia, type=AlertType.NO_DRIVER, status=AlertStatus.OPEN
+            ).exists(),
+            "la administradora no supervisa ningún coche sin conductor",
+        )
+        # Las CINCO peticiones: los cuatro tipos que abre el campo + accidente.
+        self.assertEqual(
+            set(
+                Incident.objects.filter(vehicle=coche, is_active=True)
+                .exclude(status=IncidentStatus.CLOSED)
+                .values_list("type", flat=True)
+            ),
+            {
+                IncidentType.BREAKDOWN,
+                IncidentType.MAINTENANCE,
+                IncidentType.TIRES,
+                IncidentType.GENERAL,
+                IncidentType.ACCIDENT,
+            },
+        )
+        # El accidente, con su parte materializado (terceros Y lesionados: el
+        # de sara va sin lesionados, así que entre los dos se lee de las dos
+        # maneras) y con sus fotos colgando de él.
+        accidente = Incident.objects.get(vehicle=coche, type=IncidentType.ACCIDENT)
+        self.assertTrue(accidente.accident_report.third_parties.exists())
+        self.assertTrue(accidente.accident_report.injured.exists())
+        self.assertEqual(
+            Document.objects.get(
+                vehicle=coche, type=DocumentType.DAMAGE_PHOTOS, is_active=True
+            ).incident_id,
+            accidente.id,
+        )
+        # Su mantenimiento es UN plan que toca por las dos vías (crítico por km).
+        self.assertEqual(MaintenancePlan.objects.filter(vehicle=coche, is_active=True).count(), 1)
+        self.assertEqual(
+            Alert.objects.get(
+                vehicle=coche, type=AlertType.MAINTENANCE_DUE, status=AlertStatus.OPEN
+            ).level,
+            AlertLevel.CRITICAL,
+        )
 
 
 class DevLoginTests(APITestCase):

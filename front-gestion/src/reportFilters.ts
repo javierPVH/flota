@@ -24,7 +24,7 @@ export const DOC_TYPES = [
 export const DOC_STATUSES = ['valid', 'expired', 'pending_archive'] as const
 export const ALERT_STATUSES = ['open', 'resolved'] as const
 export const ALERT_LEVELS = ['info', 'warning', 'critical'] as const
-export const ROLES = ['admin', 'supervisor', 'driver'] as const
+export const ROLES = ['admin', 'supervisor', 'driver', 'hse'] as const
 
 /** Estado del vehículo en el informe completo: en servicio o de baja. */
 export const VEHICLE_STATUSES = ['in_service', 'retired'] as const

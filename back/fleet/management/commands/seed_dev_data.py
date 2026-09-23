@@ -41,7 +41,7 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.SUCCESS(
                     "Datos de prueba sembrados. Usuarios: admin / sara / carlos / lucia / "
-                    f"david / nuevo — contraseña '{seed.DEV_PASSWORD}'."
+                    f"david / nuevo / hse / ana_hse — contraseña '{seed.DEV_PASSWORD}'."
                 )
             )
         except Exception as exc:  # el arranque no debe romperse por un seed

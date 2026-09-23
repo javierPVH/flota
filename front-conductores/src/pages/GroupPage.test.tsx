@@ -11,6 +11,10 @@ const mocks = vi.hoisted(() => ({
   listVehicles: vi.fn(),
   listKmReadings: vi.fn(),
   fetchVehicleSummaries: vi.fn(),
+  listAlerts: vi.fn(),
+  listDriverCandidates: vi.fn(),
+  proposeDriverChange: vi.fn(),
+  resolveAlert: vi.fn(),
   roles: ['driver', 'supervisor'] as Role[],
 }))
 
@@ -21,7 +25,35 @@ vi.mock('../api.ts', async (importOriginal) => ({
   fetchVehicleSummaries: mocks.fetchVehicleSummaries,
   // R3-28: la página lee la variante cacheada — mismo spy, sin TTL.
   fetchVehicleSummariesCached: mocks.fetchVehicleSummaries,
+  listAlerts: mocks.listAlerts,
+  listDriverCandidates: mocks.listDriverCandidates,
+  proposeDriverChange: mocks.proposeDriverChange,
+  resolveAlert: mocks.resolveAlert,
 }))
+
+/** La alerta de exceso ABIERTA del coche 2 (2222BBB): lo que hace al coche
+ * «problemático» y lo que se resuelve desde la proyección. */
+const OVERAGE_ALERT = {
+  id: 77,
+  type: 'km_overage',
+  type_display: 'Exceso de km proyectado',
+  level: 'warning',
+  level_display: 'Aviso',
+  status: 'open',
+  status_display: 'Abierta',
+  message: 'Proyección 78000 km supera los 60000 km contratados (130%).',
+  message_code: 'km_overage',
+  message_args: { projected: 78000, contracted: 60000, pct: 130 },
+  vehicle: 2,
+  vehicle_plate: '2222BBB',
+  user: null,
+  due_date: '2026-12-31',
+  created_at: '2026-09-01T08:00:00Z',
+  resolved_at: null,
+  resolved_by: null,
+  resolved_by_name: '',
+  note: '',
+}
 
 vi.mock('../auth.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../auth.ts')>()),
@@ -109,6 +141,31 @@ describe('GroupPage (proyección de km del grupo)', () => {
       summary(2, 'over', { overage_km: 18000, estimated_penalty: '2700.00' }),
     ])
     mocks.listKmReadings.mockResolvedValue({ count: 0, results: [] })
+    mocks.listAlerts.mockResolvedValue({ count: 1, results: [OVERAGE_ALERT] })
+    mocks.listDriverCandidates.mockResolvedValue([])
+    mocks.proposeDriverChange.mockResolvedValue({ id: 99 })
+    mocks.resolveAlert.mockResolvedValue({ ...OVERAGE_ALERT, status: 'resolved' })
+  })
+
+  it('el coche con la alerta de exceso abierta lleva «Resolver» y abre el modal de proponer', async () => {
+    renderPage()
+    await screen.findByText('2222BBB')
+    expect(mocks.listAlerts).toHaveBeenCalledWith('open')
+
+    // Solo el coche problemático: la alerta es lo que lo define, no el nivel.
+    const boton = screen.getByRole('button', { name: 'Resolver el exceso de km de 2222BBB' })
+    expect(screen.queryByRole('button', { name: /Resolver el exceso de km de 1111AAA/ })).toBeNull()
+
+    await userEvent.click(boton)
+    // El MISMO modal de la bandeja: el de km contratados propone otro conductor.
+    expect(await screen.findByText('¿Debería llevarlo otra persona?')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enviar propuesta' })).toBeDisabled()
+
+    // Resolverla recarga la proyección y lo dice.
+    await userEvent.click(screen.getByRole('button', { name: 'Resolver alerta' }))
+    expect(await screen.findByText('Alerta resuelta.')).toBeInTheDocument()
+    expect(mocks.resolveAlert).toHaveBeenCalledWith(77, undefined)
+    expect(mocks.listVehicles).toHaveBeenCalledTimes(2)
   })
 
   it('ordena por urgencia, con el % en grande y el exceso destacado', async () => {
