@@ -5891,6 +5891,30 @@ kbd {
 /* Formulario del plan elegido, separado de la lista y del selector. */
 /* Las dos acciones de lo citado: modificar y registrar lo realizado. */
 .schedule-cita-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+/* Fila de botones de un formulario: la misma que `.ops-actions` (acción
+   principal a la derecha, hueco uniforme) pero sin pegarse abajo. No tenía
+   regla, y los botones de «Programar ITV» caían sueltos a la izquierda. */
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+/* La salida alternativa («¿Ya se ha pasado? Registrar ITV») se queda a la
+   izquierda de la fila, con su porqué al lado; la principal, a la derecha. */
+.schedule-alt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: auto;
+  font-size: 0.82rem;
+}
+/* El pie del modal: separado del histórico y alineado con las filas de arriba. */
+.schedule-foot {
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--color-border);
+}
 /* Abajo del todo, lo ya realizado (las últimas cinco). */
 .schedule-history {
   display: flex;

@@ -426,15 +426,9 @@ function Cuerpo({
               }
             />
           ) : (
-            <>
-              <Panel tone="info">{t.itvNone}</Panel>
-              {/* Resolver no depende de tener cita: la ITV puede pasarse igual. */}
-              <div className="schedule-cita-actions">
-                <Button variant="secondary" size="sm" onClick={() => setResolviendo('itv')}>
-                  {t.resolveItv}
-                </Button>
-              </div>
-            </>
+            // Sin cita, el aviso dice los dos caminos y el formulario los
+            // ofrece en UNA fila de botones (abajo): programarla o registrarla.
+            <Panel tone="info">{t.itvNone}</Panel>
           )}
 
           {editandoItv && (
@@ -463,7 +457,7 @@ function Cuerpo({
                 </div>
               )}
               <div className="form-actions">
-                {cita && (
+                {cita ? (
                   <Button
                     type="button"
                     variant="secondary"
@@ -476,6 +470,21 @@ function Cuerpo({
                   >
                     {tv.cancel}
                   </Button>
+                ) : (
+                  /* Resolver no depende de tener cita: la ITV puede pasarse
+                     igual. Va en la misma fila que «Programar», a la
+                     izquierda y con su porqué, para que las dos salidas se
+                     lean juntas y la principal quede donde siempre. */
+                  <span className="schedule-alt">
+                    <span className="muted">{t.itvAlreadyDone}</span>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setResolviendo('itv')}
+                    >
+                      {t.resolveItv}
+                    </Button>
+                  </span>
                 )}
                 <Button type="submit" disabled={itvSaving}>
                   {cita ? t.itvSave : t.itvSchedule}
@@ -623,7 +632,7 @@ function Cuerpo({
                 </div>
               )}
               <div className="form-actions">
-                {plan && (
+                {plan ? (
                   <Button
                     type="button"
                     variant="secondary"
@@ -635,6 +644,14 @@ function Cuerpo({
                   >
                     {tv.cancel}
                   </Button>
+                ) : (
+                  /* La misma fila que en la ITV. Aquí la salida alternativa no
+                     es un botón: una revisión ya hecha se registra poniendo su
+                     fecha en «Se cuenta desde», y el ciclo arranca de ahí (sin
+                     plan no hay «Ya se pasó la revisión» que pulsar). */
+                  <span className="schedule-alt">
+                    <span className="muted">{t.maintenanceAlreadyDone}</span>
+                  </span>
                 )}
                 <Button type="submit" disabled={planSaving}>
                   {plan ? t.maintenanceSave : t.maintenanceSchedule}
@@ -656,7 +673,7 @@ function Cuerpo({
         </div>
       )}
 
-      <div className="form-actions">
+      <div className="form-actions schedule-foot">
         <Button variant="secondary" onClick={onClose}>
           {t.close}
         </Button>

@@ -10,7 +10,8 @@ const es = {
   // --- ITV -------------------------------------------------------------------
   itvIntro:
     'Cada vehículo tiene UNA cita de ITV: si ya la hay, aquí se corrige. El CP preferente es la ubicación desde la que un tercero busca la estación más cercana.',
-  itvNone: 'No hay ninguna ITV a la vista: prográmala.',
+  itvNone: 'No hay ninguna ITV a la vista. Prográmala aquí o, si ya se ha pasado, regístrala.',
+  itvAlreadyDone: '¿Ya se ha pasado?',
   itvScheduledLabel: 'ITV programada',
   itvOverdueLabel: 'ITV vencida',
   itvOrigin: 'Origen de la cita',
@@ -34,7 +35,9 @@ const es = {
   // --- Mantenimiento ---------------------------------------------------------
   maintenanceIntro:
     'El vehículo tiene UN mantenimiento programado, y su ciclo sale del catálogo común de programas. El CP preferente es la ubicación desde la que se busca el taller más cercano.',
-  maintenanceNone: 'No hay ningún mantenimiento programado: prográmalo.',
+  maintenanceNone:
+    'No hay ningún mantenimiento programado. Prográmalo aquí; si ya se ha hecho una revisión, pon su fecha en «Se cuenta desde» y el ciclo arranca de ahí.',
+  maintenanceAlreadyDone: '¿Ya se ha hecho una revisión? Pon su fecha en «Se cuenta desde».',
   maintenanceScheduledLabel: 'Mantenimiento programado',
   maintenanceOverdueLabel: 'Mantenimiento vencido',
   /** Un programa solo por km no tiene fecha que enseñar. */
@@ -106,7 +109,8 @@ const en: typeof es = {
 
   itvIntro:
     'Each vehicle has ONE MOT booking: if there already is one, this changes it. The preferred postcode is the location a third party uses to find the nearest station.',
-  itvNone: 'There is no MOT in sight: schedule it.',
+  itvNone: 'There is no MOT in sight. Schedule it here or, if it has already been done, register it.',
+  itvAlreadyDone: 'Already done?',
   itvScheduledLabel: 'MOT scheduled',
   itvOverdueLabel: 'MOT overdue',
   itvOrigin: 'Where the booking comes from',
@@ -127,7 +131,9 @@ const en: typeof es = {
 
   maintenanceIntro:
     'A vehicle has ONE scheduled maintenance, and its cycle comes from the shared programme catalogue. The preferred postcode is the location used to find the nearest workshop.',
-  maintenanceNone: 'There is no scheduled maintenance: schedule it.',
+  maintenanceNone:
+    'There is no scheduled maintenance. Schedule it here; if a service has already been done, enter its date in "Counted from" and the cycle starts there.',
+  maintenanceAlreadyDone: 'Service already done? Enter its date in "Counted from".',
   maintenanceScheduledLabel: 'Maintenance scheduled',
   maintenanceOverdueLabel: 'Maintenance overdue',
   maintenanceOnlyKm: 'By mileage',

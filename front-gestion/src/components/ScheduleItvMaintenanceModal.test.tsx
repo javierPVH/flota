@@ -138,6 +138,11 @@ describe('Programar ITV y mantenimiento', () => {
     )
     // Nada que enseñar → el formulario sale ya abierto.
     expect(screen.getByText(/No hay ninguna ITV a la vista/)).toBeInTheDocument()
+    // Las dos salidas van en la MISMA fila de botones: registrar (por si ya se
+    // pasó) a la izquierda con su porqué y programar, la principal, a la derecha.
+    const fila = screen.getByRole('button', { name: 'Programar ITV' }).closest('.form-actions')!
+    expect(within(fila as HTMLElement).getByText('¿Ya se ha pasado?')).toBeInTheDocument()
+    expect(within(fila as HTMLElement).getByRole('button', { name: 'Registrar ITV' })).toBeInTheDocument()
 
     await userEvent.type(screen.getByLabelText('Fecha de la ITV'), '2027-03-01')
     await userEvent.type(screen.getByLabelText('CP preferente para la ITV'), '28100')
@@ -195,6 +200,12 @@ describe('Programar ITV y mantenimiento', () => {
     expect(screen.queryByLabelText('Se cuenta desde (km)')).not.toBeInTheDocument()
 
     await userEvent.type(screen.getByLabelText('CP preferente'), '28001')
+    // La misma fila que en la ITV: la pista de la revisión ya hecha a la
+    // izquierda y «Programar», la principal, a la derecha.
+    const fila = screen
+      .getByRole('button', { name: 'Programar mantenimiento' })
+      .closest('.form-actions')!
+    expect(within(fila as HTMLElement).getByText(/Ya se ha hecho una revisión/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Programar mantenimiento' }))
     expect(mocks.createMaintenancePlan).toHaveBeenCalledWith({
       vehicle: 7,
