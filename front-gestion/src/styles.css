@@ -5901,19 +5901,33 @@ kbd {
   justify-content: flex-end;
   gap: 0.6rem;
 }
-/* La salida alternativa («¿Ya se ha pasado? Registrar ITV») se queda a la
-   izquierda de la fila, con su porqué al lado; la principal, a la derecha. */
+/* La salida alternativa («¿Ya se ha pasado? Registrar ITV») va con su porqué
+   al lado, delante de la acción principal. */
 .schedule-alt {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  margin-right: auto;
   font-size: 0.82rem;
 }
-/* El pie del modal: separado del histórico y alineado con las filas de arriba. */
+/* El pie del modal, común a las dos pestañas: «Cerrar» a la izquierda y las
+   acciones del formulario abierto a la derecha. Se queda pegado abajo mientras
+   el cuerpo hace scroll, como `.ops-actions`. */
 .schedule-foot {
-  padding-top: 0.7rem;
+  justify-content: space-between;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: 0.7rem 0;
+  background: var(--color-surface);
   border-top: 1px solid var(--color-border);
+}
+.schedule-foot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-left: auto;
 }
 /* Abajo del todo, lo ya realizado (las últimas cinco). */
 .schedule-history {

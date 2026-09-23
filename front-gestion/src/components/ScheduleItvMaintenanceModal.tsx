@@ -432,7 +432,7 @@ function Cuerpo({
           )}
 
           {editandoItv && (
-            <form className="ops-form" onSubmit={submitItv}>
+            <form id="schedule-itv-form" className="ops-form" onSubmit={submitItv}>
               <TextInputField
                 label={t.itvDate}
                 aria-label={t.itvDate}
@@ -456,40 +456,7 @@ function Cuerpo({
                   {itvError}
                 </div>
               )}
-              <div className="form-actions">
-                {cita ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => {
-                      setEditandoItv(false)
-                      setItvDate(cita.date)
-                      setItvCp(cita.cp)
-                      setItvError('')
-                    }}
-                  >
-                    {tv.cancel}
-                  </Button>
-                ) : (
-                  /* Resolver no depende de tener cita: la ITV puede pasarse
-                     igual. Va en la misma fila que «Programar», a la
-                     izquierda y con su porqué, para que las dos salidas se
-                     lean juntas y la principal quede donde siempre. */
-                  <span className="schedule-alt">
-                    <span className="muted">{t.itvAlreadyDone}</span>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => setResolviendo('itv')}
-                    >
-                      {t.resolveItv}
-                    </Button>
-                  </span>
-                )}
-                <Button type="submit" disabled={itvSaving}>
-                  {cita ? t.itvSave : t.itvSchedule}
-                </Button>
-              </div>
+              {/* Sus botones viven en el pie del modal (`form=`). */}
             </form>
           )}
           {itvInfo && (
@@ -544,7 +511,7 @@ function Cuerpo({
           )}
 
           {editandoPlan && (
-            <form className="ops-form" onSubmit={submitPlan}>
+            <form id="schedule-plan-form" className="ops-form" onSubmit={submitPlan}>
               {/* El «cada cuánto» sale del catálogo común, no se teclea aquí. */}
               <SelectField
                 label={t.maintenancePick}
@@ -631,32 +598,7 @@ function Cuerpo({
                   {planError}
                 </div>
               )}
-              <div className="form-actions">
-                {plan ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => {
-                      setEditandoPlan(false)
-                      rellenar(plan, desdeKm)
-                      setPlanError('')
-                    }}
-                  >
-                    {tv.cancel}
-                  </Button>
-                ) : (
-                  /* La misma fila que en la ITV. Aquí la salida alternativa no
-                     es un botón: una revisión ya hecha se registra poniendo su
-                     fecha en «Se cuenta desde», y el ciclo arranca de ahí (sin
-                     plan no hay «Ya se pasó la revisión» que pulsar). */
-                  <span className="schedule-alt">
-                    <span className="muted">{t.maintenanceAlreadyDone}</span>
-                  </span>
-                )}
-                <Button type="submit" disabled={planSaving}>
-                  {plan ? t.maintenanceSave : t.maintenanceSchedule}
-                </Button>
-              </div>
+              {/* Sus botones viven en el pie del modal (`form=`). */}
             </form>
           )}
           {planInfo && (
@@ -673,10 +615,72 @@ function Cuerpo({
         </div>
       )}
 
+      {/* UN pie para las dos pestañas: salir a la izquierda y, a la derecha,
+          lo que se hace con el formulario abierto —la salida alternativa con
+          su porqué, y la principal en el extremo—. Los botones de guardar
+          envían su formulario por `form=`, que queda arriba. */}
       <div className="form-actions schedule-foot">
         <Button variant="secondary" onClick={onClose}>
           {t.close}
         </Button>
+        {tab === 'itv' && editandoItv && (
+          <div className="schedule-foot-actions">
+            {cita ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setEditandoItv(false)
+                  setItvDate(cita.date)
+                  setItvCp(cita.cp)
+                  setItvError('')
+                }}
+              >
+                {tv.cancel}
+              </Button>
+            ) : (
+              /* Resolver no depende de tener cita: la ITV puede pasarse igual.
+                 Va junto a «Programar», con su porqué, para que las dos
+                 salidas se lean juntas. */
+              <span className="schedule-alt">
+                <span className="muted">{t.itvAlreadyDone}</span>
+                <Button type="button" variant="secondary" onClick={() => setResolviendo('itv')}>
+                  {t.resolveItv}
+                </Button>
+              </span>
+            )}
+            <Button type="submit" form="schedule-itv-form" disabled={itvSaving}>
+              {cita ? t.itvSave : t.itvSchedule}
+            </Button>
+          </div>
+        )}
+        {tab === 'maintenance' && editandoPlan && (
+          <div className="schedule-foot-actions">
+            {plan ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setEditandoPlan(false)
+                  rellenar(plan, desdeKm)
+                  setPlanError('')
+                }}
+              >
+                {tv.cancel}
+              </Button>
+            ) : (
+              /* Aquí la salida alternativa no es un botón: una revisión ya
+                 hecha se registra con su fecha en «Se cuenta desde» (sin plan
+                 no hay «Ya se pasó la revisión» que pulsar). */
+              <span className="schedule-alt">
+                <span className="muted">{t.maintenanceAlreadyDone}</span>
+              </span>
+            )}
+            <Button type="submit" form="schedule-plan-form" disabled={planSaving}>
+              {plan ? t.maintenanceSave : t.maintenanceSchedule}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Registrar lo realizado: los MISMOS formularios que resuelven la alerta
