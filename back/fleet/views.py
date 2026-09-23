@@ -137,6 +137,7 @@ from .serializers import (
     sanitize_email_html,
 )
 from .services import (
+    alerts,
     audit_revert,
     document_requests,
     driver_requests,
@@ -935,6 +936,8 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     )
                 if old_driver != driver:
                     events.emit_driver_change(vehicle, old_driver=old_driver, new_driver=driver)
+                if driver is not None:
+                    alerts.resolve_no_driver_alerts(vehicle, by=request.user)
 
         vehicle.refresh_from_db()
         return Response(self.get_serializer(vehicle).data)
@@ -1472,6 +1475,7 @@ class AssignmentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets
                 events.emit_driver_change(
                     assignment.vehicle, old_driver=None, new_driver=assignment.driver
                 )
+                alerts.resolve_no_driver_alerts(assignment.vehicle, by=self.request.user)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
     def accept(self, request, pk=None):
@@ -1518,6 +1522,7 @@ class AssignmentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets
             events.emit_driver_change(
                 assignment.vehicle, old_driver=old_driver, new_driver=assignment.driver
             )
+            alerts.resolve_no_driver_alerts(assignment.vehicle, by=request.user)
         return Response(self.get_serializer(assignment).data)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
@@ -2530,6 +2535,7 @@ class VehicleRequestViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
                 status=AssignmentStatus.ACCEPTED,
             )
             events.emit_driver_change(vehicle, old_driver=old_driver, new_driver=requester)
+            alerts.resolve_no_driver_alerts(vehicle, by=request.user)
             vehicle_request.vehicle = vehicle
             vehicle_request.status = VehicleRequestStatus.ASSIGNED
             vehicle_request.save(update_fields=["vehicle", "status", "updated_at"])

@@ -141,6 +141,36 @@ describe('MyVehiclesPage (M1)', () => {
     expect(document.querySelector('.own-panel')).not.toBeNull()
   })
 
+  // La fila de cifras son DOS: los km a la izquierda y, a su derecha, la
+  // última anotación del consumo medio —que hasta ahora no se leía en ninguna
+  // pantalla sin abrir su formulario—.
+  it('al lado de los km va la última anotación del consumo', async () => {
+    mocks.listVehicles.mockResolvedValue({ count: 1, results: [vehicle(1, '1234KLM')] })
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      {
+        ...summary(1, 31000, '2026-08-27'),
+        fuel_avg_consumption: '6.80',
+        fuel_avg_date: '2026-08-27',
+      },
+    ])
+
+    renderPage()
+    const fila = (await screen.findByText('31.000 km')).closest('.stat-row') as HTMLElement
+    expect(within(fila).getByText('Consumo medio')).toBeInTheDocument()
+    // Sin unidad, como en gestión: es l/100km o kWh/100km según el coche.
+    expect(within(fila).getByText('6,80')).toBeInTheDocument()
+    expect(within(fila).getByText('Anotado el 27/8/2026')).toBeInTheDocument()
+  })
+
+  it('sin ninguna anotación de consumo, el div lo dice', async () => {
+    mocks.listVehicles.mockResolvedValue({ count: 1, results: [vehicle(1, '1234KLM')] })
+    mocks.fetchVehicleSummaries.mockResolvedValue([summary(1, 31000, '2026-08-27')])
+
+    renderPage()
+    const fila = (await screen.findByText('31.000 km')).closest('.stat-row') as HTMLElement
+    expect(within(fila).getByText('Sin anotaciones de consumo todavía.')).toBeInTheDocument()
+  })
+
   it('los avisos de lo que vence se leen y se atienden DENTRO de «Alertas»', async () => {
     // Sin ninguna alerta del motor, la tarjeta marcaba 0 con la lectura de km
     // pendiente y el consumo sin anotar a la vista, dos dedos más arriba. Ahora

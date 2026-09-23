@@ -1031,6 +1031,8 @@ const es = {
     saving: 'Guardando…',
     saveError: 'No se pudo guardar el consumo.',
     lastNoted: 'Última anotación',
+    /** Bajo la cifra del div de consumo, como «Lectura del …» bajo los km. */
+    notedOn: (d: string) => `Anotado el ${d}`,
     noneYet: 'Sin anotaciones de consumo todavía.',
   },
   /**
@@ -2026,6 +2028,7 @@ const en: typeof es = {
     saving: 'Saving…',
     saveError: 'The consumption could not be saved.',
     lastNoted: 'Last entry',
+    notedOn: (d) => `Noted on ${d}`,
     noneYet: 'No consumption entries yet.',
   },
   domain: {

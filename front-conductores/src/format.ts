@@ -34,6 +34,16 @@ export function fmtLiters(value: string | number | null | undefined, lang: AppLa
   return text === null ? '—' : `${text} l`
 }
 
+/** GAP-2: consumo medio del ordenador de a bordo («6,80»). **Sin
+ * unidad**, como en gestión: es l/100km o kWh/100km según de qué reposte el
+ * coche, y el tipo de combustible no viaja en el resumen. */
+export function fmtConsumption(
+  value: string | number | null | undefined,
+  lang: AppLanguage = 'es',
+) {
+  return fmtDecimal(value, lang) ?? '—'
+}
+
 /** GAP-2: importe en euros («62,30 €»). */
 export function fmtEur(value: string | number | null | undefined, lang: AppLanguage = 'es') {
   const text = fmtDecimal(value, lang)

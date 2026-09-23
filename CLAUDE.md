@@ -189,6 +189,14 @@ Dos capas que van **siempre juntas**:
   un ciclo anterior lo cierra el propio chequeo
   (`_close_superseded_plan_alerts`, con su motivo): una alerta no se cierra
   sola, y si no se quedaría en la bandeja para siempre.
+- **Asignar un conductor cierra «Vehículo sin conductor» en el acto**
+  (`alerts.resolve_no_driver_alerts`, llamado desde las cuatro puertas por las
+  que entra un conductor: `set-driver`, aceptar una propuesta, conceder una
+  solicitud y el alta de una asignación aceptada), con quien asignó como
+  `resolved_by`. Solo cierra si el coche tiene conductor **vigente** ahora
+  (`current_assignment_q`, el mismo criterio que abre la alerta): un tramo
+  histórico con fechas pasadas o uno que empieza mañana no resuelven nada. La
+  reconciliación de `check_no_driver` sigue, para lo que entre por otro lado.
 - **Lo que se pide a un documento lo dice su tipo**, y lo dice el back
   (`fleet/models/enums/document.py`): solo **caducan** la póliza, el contrato,
   el informe de ITV y el permiso de conducir (`EXPIRING_DOCUMENT_TYPES`; una

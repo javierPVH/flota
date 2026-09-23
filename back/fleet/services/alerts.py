@@ -553,6 +553,35 @@ def check_km_readings(today: date | None = None) -> int:
     return created
 
 
+def _close_no_driver_alerts(vehicle_ids, *, by=None) -> int:
+    """Cierra los `no_driver` abiertos de esos coches. R5-08 (R3-24): fila a
+    fila, con auditlog y `updated_at`."""
+    closed = 0
+    for alert in Alert.objects.filter(
+        vehicle_id__in=list(vehicle_ids), type=AlertType.NO_DRIVER, status=AlertStatus.OPEN
+    ):
+        alert.close(status=AlertStatus.RESOLVED, by=by, note="Conductor asignado.")
+        closed += 1
+    return closed
+
+
+def resolve_no_driver_alerts(vehicle, *, by=None) -> int:
+    """Asignar un conductor cierra «Vehículo sin conductor» en el acto.
+
+    Lo llaman las puertas por las que entra un conductor (`set-driver`, la
+    aceptación de una propuesta, la concesión de una solicitud y el alta de una
+    asignación aceptada): sin esto el aviso seguía en la bandeja hasta la
+    siguiente pasada de `check_no_driver`, con el coche ya con conductor. Solo
+    cierra si el coche tiene conductor VIGENTE ahora (`current_assignment_q`,
+    el mismo criterio que abre la alerta): un tramo histórico que se registra
+    con fechas pasadas, o uno que empieza mañana, no resuelven nada todavía.
+    Devuelve cuántas cerró; `by` queda como quien resolvió.
+    """
+    if not Assignment.objects.filter(current_assignment_q(), vehicle=vehicle).exists():
+        return 0
+    return _close_no_driver_alerts([vehicle.pk], by=by)
+
+
 def check_no_driver(today: date | None = None) -> int:
     """Vehículo activo sin conductor durante más de N días (HU-1.7)."""
     today = _today(today)
@@ -580,13 +609,12 @@ def check_no_driver(today: date | None = None) -> int:
     )
     # Reconciliación: el coche que ya tiene conductor cierra su aviso abierto
     # (misma idea que `resolve_satisfied_km_reading_alerts`): asignar debe
-    # satisfacer la alerta, no depender de que alguien la resuelva a mano.
+    # satisfacer la alerta, no depender de que alguien la resuelva a mano. Las
+    # puertas por las que entra un conductor lo cierran ya en el momento
+    # (`resolve_no_driver_alerts`); esto recoge lo que quede (datos cargados a
+    # mano, una asignación con inicio futuro que hoy empieza…).
     if has_current:
-        # R5-08 (R3-24): fila a fila, con auditlog y `updated_at`.
-        for alert in Alert.objects.filter(
-            vehicle_id__in=has_current, type=AlertType.NO_DRIVER, status=AlertStatus.OPEN
-        ):
-            alert.close(status=AlertStatus.RESOLVED, note="Conductor asignado.")
+        _close_no_driver_alerts(has_current)
     created = 0
     sin_conductor = [
         v for v in vehicles if v.id not in has_current and v.id not in recently_assigned

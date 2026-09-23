@@ -296,6 +296,86 @@ class NoDriverAlertTests(TestCase):
         self.assertEqual(alerts.check_no_driver(self.today), 0)
 
 
+class NoDriverAlertClosesOnAssignTests(APITestCase):
+    """Asignar un conductor cierra «Vehículo sin conductor» EN EL ACTO, por
+    cualquiera de las puertas por las que entra un conductor; antes el aviso
+    se quedaba en la bandeja hasta la siguiente pasada de `check_no_driver`."""
+
+    def setUp(self):
+        self.today = timezone.localdate()
+        self.admin = make_user("nd-admin", Role.ADMIN)
+        self.driver = make_user("nd-driver", Role.DRIVER)
+        self.vehicle = Vehicle.objects.create(plate="ND7", brand="a", model="b")
+        self.assertEqual(alerts.check_no_driver(self.today), 1)
+        self.alert = Alert.objects.get(type=AlertType.NO_DRIVER, vehicle=self.vehicle)
+        self.client.force_login(self.admin)
+
+    def _assert_closed_by_admin(self):
+        self.alert.refresh_from_db()
+        self.assertEqual(self.alert.status, AlertStatus.RESOLVED)
+        self.assertEqual(self.alert.resolved_by, self.admin)
+        self.assertEqual(self.alert.resolution_note, "Conductor asignado.")
+
+    def test_set_driver_cierra_la_alerta(self):
+        resp = self.client.post(
+            reverse("vehicle-set-driver", args=[self.vehicle.pk]),
+            {"driver": self.driver.pk, "start_date": self.today.isoformat()},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self._assert_closed_by_admin()
+
+    def test_aceptar_una_propuesta_cierra_la_alerta(self):
+        proposal = Assignment.objects.create(
+            vehicle=self.vehicle, driver=self.driver, status=AssignmentStatus.PROPOSED
+        )
+        resp = self.client.post(reverse("assignment-accept", args=[proposal.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self._assert_closed_by_admin()
+
+    def test_un_alta_aceptada_vigente_cierra_la_alerta(self):
+        resp = self.client.post(
+            reverse("assignment-list"),
+            {
+                "vehicle": self.vehicle.pk,
+                "driver": self.driver.pk,
+                "start_date": self.today.isoformat(),
+                "status": AssignmentStatus.ACCEPTED,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self._assert_closed_by_admin()
+
+    def test_un_tramo_historico_no_la_cierra(self):
+        """Registrar un periodo ya terminado no le pone conductor al coche hoy."""
+        resp = self.client.post(
+            reverse("assignment-list"),
+            {
+                "vehicle": self.vehicle.pk,
+                "driver": self.driver.pk,
+                "start_date": (self.today - timedelta(days=90)).isoformat(),
+                "end_date": (self.today - timedelta(days=60)).isoformat(),
+                "status": AssignmentStatus.ACCEPTED,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.alert.refresh_from_db()
+        self.assertEqual(self.alert.status, AlertStatus.OPEN)
+
+    def test_quitar_el_conductor_no_toca_la_alerta(self):
+        """`driver: null` libera el coche: la alerta (si la hubiera) sigue."""
+        resp = self.client.post(
+            reverse("vehicle-set-driver", args=[self.vehicle.pk]),
+            {"driver": None},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.alert.refresh_from_db()
+        self.assertEqual(self.alert.status, AlertStatus.OPEN)
+
+
 class DeferredPushTests(TestCase):
     """R3-14: los push de una pasada se difieren y salen AL FINAL de los
     chequeos (como el correo M6), con una consulta de conductores por tanda."""

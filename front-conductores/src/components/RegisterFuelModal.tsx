@@ -4,7 +4,7 @@ import { Button, Panel } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { addFuelEntry } from '../api.ts'
-import { fmtDate, todayIso } from '../format.ts'
+import { fmtConsumption, fmtDate, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Vehicle, VehicleSummary } from '../types.ts'
@@ -166,12 +166,7 @@ export function FuelPane({
           {last !== null ? (
             <>
               {t.fuel.lastNoted}:{' '}
-              <strong>
-                {Number(last).toLocaleString(language, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </strong>
+              <strong>{fmtConsumption(last, language)}</strong>
               {lastDate ? ` · ${fmtDate(lastDate)}` : ''}
             </>
           ) : (
