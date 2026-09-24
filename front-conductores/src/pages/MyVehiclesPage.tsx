@@ -181,6 +181,7 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
       documents={documents[vehicle.id] ?? []}
       window={kmWindow}
       canManage={hasManagementScope}
+      version={dataVersion}
       onChanged={() => {
         refreshSummaries()
         loadPanelData()
@@ -307,6 +308,7 @@ function OwnVehiclePanel({
   canManage,
   onChanged,
   reelButton,
+  version,
 }: {
   vehicle: Vehicle
   summary: VehicleSummary | undefined
@@ -318,6 +320,9 @@ function OwnVehiclePanel({
   onChanged: () => void
   /** Flecha junto a la matrícula: desliza al otro coche de la pareja. */
   reelButton?: ReelButton
+  /** El contador del shell: subir un documento personal desde el nav no pasa
+   * por este tablero, y la pestaña del conductor tiene que enterarse. */
+  version: number
 }) {
   const { t } = useLang()
   const etiqueta = useDomainLabels()
@@ -389,7 +394,7 @@ function OwnVehiclePanel({
 
       {/* Documentación, en una tarjeta con dos pestañas: la del coche y la
           del conductor (el titular del documento es una cosa o la otra). */}
-      <DocumentsTabsCard documents={documents} onChanged={onChanged} />
+      <DocumentsTabsCard documents={documents} onChanged={onChanged} version={version} />
     </div>
   )
 }

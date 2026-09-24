@@ -24,8 +24,14 @@ export interface PersonalDocumentsState {
  * Documentos con titular PERSONA del usuario en sesión. Se carga aquí, fuera
  * del panel, porque quien lo enmarca (la pestaña «del conductor») necesita el
  * recuento antes de pintar el contenido: así se pide UNA vez.
+ *
+ * @param version  el contador del shell (`dataVersion` del `LayoutContext`).
+ *   Subir un documento personal se puede hacer desde **otro** componente —el
+ *   «Subir documento» del nav, que vive fuera del Outlet, o el paso 2 de
+ *   «Mis datos»—, y sin esto la lista solo se pedía al montarse: el recuento
+ *   del título se quedaba con el número viejo hasta recargar la pantalla.
  */
-export function usePersonalDocuments(): PersonalDocumentsState {
+export function usePersonalDocuments(version = 0): PersonalDocumentsState {
   const { user } = useAuth()
   const [documents, setDocuments] = useState<FlotaDocument[] | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -40,7 +46,8 @@ export function usePersonalDocuments(): PersonalDocumentsState {
       })
       .catch(() => setLoadFailed(true))
   }, [userId])
-  useEffect(reload, [reload])
+  // `version` no la usa el cuerpo: es la señal de «vuelve a pedirla».
+  useEffect(reload, [reload, version])
 
   return { userId, documents, loadFailed, reload }
 }
@@ -61,11 +68,16 @@ export function PersonalDocumentsPanel({
   loadFailed,
   reload,
   hideHint = false,
+  onChanged,
 }: PersonalDocumentsState & {
   /** Sin la línea de «qué son estos documentos»: la usa «Mis datos», donde el
    * bloque ya lleva la suya —lo que hay que saber ahí es que cada documento se
    * pide por su cuenta— y dos prosas seguidas no se leen. */
   hideHint?: boolean
+  /** Se ha subido uno. La lista de aquí ya se recarga sola; esto es para
+   * quien enmarque el panel con SU propio recuento (la pantalla que queda
+   * detrás de «Mis datos»). */
+  onChanged?: () => void
 }) {
   const { t } = useLang()
   const copy = t.myDocs
@@ -102,6 +114,7 @@ export function PersonalDocumentsPanel({
       setFile(null)
       setForm({ type: 'driving_license', expiry_date: '' })
       reload()
+      onChanged?.()
     } catch (caught) {
       if (
         isNetworkError(caught) &&

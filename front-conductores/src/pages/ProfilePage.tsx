@@ -51,11 +51,13 @@ export function ProfilePage() {
   const { user } = useAuth()
   const { t } = useLang()
   const copy = t.profile
-  const personal = usePersonalDocuments()
-  // Lo que se pide desde aquí sale por el nav («Mis datos»), que vive fuera del
-  // Outlet: `dataVersion` sube al mandar algo y es lo que recarga estas listas.
+  // Lo que se pide o se sube desde aquí sale por el nav («Mis datos», «Subir
+  // documento»), que vive fuera del Outlet: `dataVersion` sube al guardar algo
+  // y es lo que recarga estas listas —documentos incluidos, o el recuento del
+  // título se quedaba con el número de antes de subir—.
   const ctx = useOutletContext<LayoutContext | null>()
   const dataVersion = ctx?.dataVersion ?? 0
+  const personal = usePersonalDocuments(dataVersion)
   // Dos acordeones, los dos plegados de salida: lo que se lee sin abrirlos es
   // su recuento.
   const accordion = useAccordion(PROFILE_CARDS, PROFILE_CARDS)

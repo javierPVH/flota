@@ -1,7 +1,8 @@
 // IndexedDB no existe en jsdom: fake-indexeddb ANTES de importar la cola.
 import 'fake-indexeddb/auto'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { LanguageProvider } from '../i18n.tsx'
@@ -229,5 +230,54 @@ describe('ProfilePage (la pantalla del avatar)', () => {
       </LanguageProvider>,
     )
     expect(await screen.findByText('No tienes nada pendiente de decisión.')).toBeInTheDocument()
+  })
+  // --- El recuento del título, al día ------------------------------------
+  // «Subir documento» vive en el nav, FUERA del Outlet, así que lo único que
+  // llega a esta pantalla es el contador del shell: sin escucharlo, el título
+  // seguía diciendo el número de antes de subir hasta recargar la pantalla.
+  it('subir un documento desde el nav actualiza el recuento', async () => {
+    function Pantalla({ version }: { version: number }) {
+      return (
+        <LanguageProvider>
+          <MemoryRouter>
+            <Routes>
+              <Route
+                element={
+                  <Outlet
+                    context={{
+                      fleetMode: false,
+                      setFleetMode: () => {},
+                      ownPair: null,
+                      dataVersion: version,
+                    }}
+                  />
+                }
+              >
+                <Route path="/" element={<ProfilePage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LanguageProvider>
+      )
+    }
+
+    const { rerender } = render(<Pantalla version={0} />)
+    const titulo = () => screen.getByRole('button', { name: /Mis documentos/ })
+    await waitFor(() => expect(within(titulo()).getByText('1')).toBeInTheDocument())
+
+    // Sube uno desde el nav: el back ya trae dos y el shell avisa.
+    mocks.listPersonalDocuments.mockResolvedValue({
+      count: 2,
+      results: [
+        { id: 9, vehicle: null, type_display: 'Permiso de conducir', status: 'archived',
+          status_display: 'Archivado', created_at: '2026-02-02T00:00:00Z',
+          expiry_date: '2030-01-01', drive_url: '', file_url: '' },
+        { id: 10, vehicle: null, type_display: 'Otro', status: 'archived',
+          status_display: 'Archivado', created_at: '2026-09-24T00:00:00Z',
+          expiry_date: null, drive_url: '', file_url: '' },
+      ],
+    })
+    rerender(<Pantalla version={1} />)
+    await waitFor(() => expect(within(titulo()).getByText('2')).toBeInTheDocument())
   })
 })

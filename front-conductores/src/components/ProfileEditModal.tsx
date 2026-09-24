@@ -60,6 +60,7 @@ export function ProfileEditModal({
   documents,
   onClose,
   onSent,
+  onDocsChanged,
 }: {
   user: FlotaUser
   /** La lista de documentos personales, ya cargada por la pantalla: así el
@@ -68,6 +69,9 @@ export function ProfileEditModal({
   onClose: () => void
   /** Enviada la de la ficha: quien enmarca recarga lo que enseñe de ellas. */
   onSent: () => void
+  /** Subido un documento en el paso 2: la pantalla de atrás cuenta los suyos
+   * por su cuenta y tiene que enterarse. */
+  onDocsChanged?: () => void
 }) {
   const { t } = useLang()
   const copy = t.profile
@@ -361,7 +365,7 @@ export function ProfileEditModal({
                 {/* El panel viene con SU formulario (subir), así que este paso
                     no va dentro de ninguno: los documentos no se mandan con el
                     botón del pie, se piden uno a uno desde su fila. */}
-                <PersonalDocumentsPanel {...documents} hideHint />
+                <PersonalDocumentsPanel {...documents} hideHint onChanged={onDocsChanged} />
               </>
             )}
 
@@ -423,5 +427,15 @@ export function ProfileEditSheet({
   onSent: () => void
 }) {
   const documents = usePersonalDocuments()
-  return <ProfileEditModal user={user} documents={documents} onClose={onClose} onSent={onSent} />
+  // El mismo contador del shell para las dos cosas que se hacen aquí: pedir
+  // la corrección de la ficha y subir un documento.
+  return (
+    <ProfileEditModal
+      user={user}
+      documents={documents}
+      onClose={onClose}
+      onSent={onSent}
+      onDocsChanged={onSent}
+    />
+  )
 }

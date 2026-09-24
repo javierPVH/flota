@@ -24,15 +24,19 @@ const TABS: Tab[] = ['vehicle', 'driver']
 export function DocumentsTabsCard({
   documents,
   onChanged,
+  version = 0,
 }: {
   documents: FlotaDocument[]
   /** Recarga del tablero: pedir el borrado de un documento marca su fila. */
   onChanged?: () => void
+  /** El contador del shell: subir un documento personal desde el nav no pasa
+   * por aquí, y sin esto la pestaña del conductor seguía contando los de antes. */
+  version?: number
 }) {
   const { t } = useLang()
   const copy = t.docs
   const [tab, setTab] = useState<Tab>('vehicle')
-  const personal = usePersonalDocuments()
+  const personal = usePersonalDocuments(version)
 
   const counts: Record<Tab, number> = {
     vehicle: documents.length,
