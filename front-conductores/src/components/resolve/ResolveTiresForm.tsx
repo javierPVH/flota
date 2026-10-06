@@ -12,6 +12,7 @@ import { newClientRef } from '../../offline/queue.ts'
 import { useResolveCopy } from '../../translations/resolve.ts'
 import { ResolutionCommonFields } from './ResolutionCommonFields.tsx'
 import { ResolveActions, ResolveStepBar, useResolveSteps } from './ResolveSteps.tsx'
+import { ResolveSummary } from './ResolveSummary.tsx'
 import { sendResolution } from './sendResolution.ts'
 import { useResolutionCommon } from './useResolutionCommon.ts'
 import type { ResolveFormProps } from './types.ts'
@@ -24,8 +25,9 @@ import type { ResolveFormProps } from './types.ts'
  * teclear lo que ya se comunicó.
  *
  * Los neumáticos ocupan su propio paso (**cuándo → detalles → taller →
- * cierre**): en una sola columna, las cuatro ruedas quedaban debajo de la
- * factura y había que recorrer el formulario entero para verlas.
+ * notas → factura → cierre**): en una sola columna, las cuatro ruedas quedaban
+ * debajo de la factura y había que recorrer el formulario entero para verlas.
+ * El cierre no pregunta nada: es el repaso de todo lo anterior.
  *
  * Marcar ruedas fija la cantidad: el back la exige coherente y dos campos que
  * se contradicen acaban en un 400 que en el móvil no se entiende.
@@ -54,7 +56,7 @@ export function ResolveTiresForm({
   const [proofRef] = useState(newClientRef)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const pasos = useResolveSteps(['when', 'what', 'workshop', 'close'])
+  const pasos = useResolveSteps(['when', 'what', 'workshop', 'notes', 'proof', 'close'])
 
   function togglePosition(position: TirePosition, checked: boolean) {
     const next = checked
@@ -73,14 +75,15 @@ export function ResolveTiresForm({
     return Object.keys(block).length ? block : undefined
   }
 
-  async function submit(event: FormEvent) {
+  /** Intro **nunca** cierra la incidencia: como mucho pasa al paso siguiente.
+   * Cerrarla es pulsar su botón, después de leer el repaso. */
+  function avanzar(event: FormEvent) {
     event.preventDefault()
-    // Intro antes del último paso AVANZA: no cierra la incidencia a medias.
-    if (pasos.next !== undefined) {
-      pasos.goTo(pasos.next)
-      return
-    }
-    if (!common.values.date) return
+    if (pasos.next !== undefined) pasos.goTo(pasos.next)
+  }
+
+  async function guardar() {
+    if (!common.values.date || saving) return
     setSaving(true)
     setError('')
     try {
@@ -100,7 +103,7 @@ export function ResolveTiresForm({
   }
 
   return (
-    <form className="update-action-form" onSubmit={submit}>
+    <form className="update-action-form" onSubmit={avanzar}>
       <p className="update-hint">{c.intro}</p>
       <ResolveStepBar steps={pasos} />
       <div key={pasos.step} className={`step-pane${pasos.cameBack ? ' from-left' : ''}`}>
@@ -169,10 +172,39 @@ export function ResolveTiresForm({
           />
         )}
 
-        {pasos.step === 'close' && (
+        {pasos.step === 'notes' && (
           <ResolutionCommonFields
             common={common}
-            show={{ date: false, km: false, cost: false, postalCode: false }}
+            show={{ date: false, km: false, cost: false, postalCode: false, proof: false }}
+          />
+        )}
+
+        {pasos.step === 'proof' && (
+          <ResolutionCommonFields
+            common={common}
+            show={{
+              date: false,
+              km: false,
+              cost: false,
+              postalCode: false,
+              observations: false,
+            }}
+          />
+        )}
+
+        {pasos.step === 'close' && (
+          <ResolveSummary
+            common={common}
+            show={{ km: true, cost: true, postalCode: true, proof: true }}
+            extra={[
+              { label: c.size, value: size.trim() },
+              { label: c.brand, value: brand.trim() },
+              { label: c.quantity, value: quantity.trim() },
+              {
+                label: c.positions,
+                value: positions.map((position) => c[position]).join(', '),
+              },
+            ]}
           />
         )}
       </div>
@@ -181,6 +213,7 @@ export function ResolveTiresForm({
       <ResolveActions
         steps={pasos}
         onCancel={onClose}
+        onSave={() => void guardar()}
         canContinue={pasos.step !== 'when' || Boolean(common.values.date)}
         canSave={Boolean(common.values.date)}
         saving={saving}

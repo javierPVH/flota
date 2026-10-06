@@ -188,6 +188,7 @@ const es = {
     incidentResolved: 'Petición resuelta y cerrada.',
     incidentResolvedActive: 'Petición resuelta y cerrada. El vehículo vuelve a estar Activo.',
     retired: (plate: string) => `Vehículo ${plate} dado de baja.`,
+    itvScheduled: (plate: string) => `ITV de ${plate} citada: el aviso «ITV sin cita» queda cerrado.`,
   },
 }
 
@@ -353,6 +354,7 @@ const en: typeof es = {
     incidentResolved: 'Request resolved and closed.',
     incidentResolvedActive: 'Request resolved and closed. The vehicle is Active again.',
     retired: (plate) => `Vehicle ${plate} retired.`,
+    itvScheduled: (plate) => `MOT for ${plate} booked: the "MOT not booked" alert is closed.`,
   },
 }
 

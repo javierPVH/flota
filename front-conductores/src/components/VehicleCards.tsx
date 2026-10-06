@@ -1,6 +1,17 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Car, ChevronLeft, ChevronRight, ClipboardList, Gauge, Mail, Siren, Wrench } from 'lucide-react'
+import {
+  CalendarCheck,
+  CalendarCog,
+  Car,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Gauge,
+  Mail,
+  Siren,
+  Wrench,
+} from 'lucide-react'
 import { Badge } from '@flota/ui/ui'
 
 import {
@@ -16,10 +27,12 @@ import { useDomainLabels } from '../domainLabels.ts'
 import { useFleetMode } from '../fleetMode.ts'
 import { useLang } from '../i18n.tsx'
 import { pairedWith } from '../substitution.ts'
+import { useScheduleCopy } from '../translations/schedule.ts'
 import { AccidentModal } from './AccidentModal.tsx'
 import { BreakdownModal } from './BreakdownModal.tsx'
 import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
 import { ReminderModal } from './ReminderModal.tsx'
+import { ScheduleItvModal, ScheduleMaintenanceModal } from './ScheduleModal.tsx'
 import { ScheduledActionInfo } from './ScheduledActionInfo.tsx'
 import { VehicleUpdateModal } from './VehicleUpdateModal.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
@@ -67,6 +80,15 @@ export function VehicleCardList({
   // El parte de accidente completo de Gestión, disponible solo al supervisor.
   const [accidentFor, setAccidentFor] = useState<Vehicle | null>(null)
   const onAccident = isSupervisor ? setAccidentFor : undefined
+  // Citar la ITV y programar el mantenimiento: también del supervisor, que
+  // responde de estos coches (el back lo acota a su grupo).
+  const [scheduleFor, setScheduleFor] = useState<{
+    vehicle: Vehicle
+    kind: 'itv' | 'maintenance'
+  } | null>(null)
+  const onSchedule = isSupervisor
+    ? (vehicle: Vehicle, kind: 'itv' | 'maintenance') => setScheduleFor({ vehicle, kind })
+    : undefined
   // Principales cuyo sustituto está en ESTA lista: viven dentro del reel.
   const reelMainIds = new Set<number>()
   vehicles.forEach((v) => {
@@ -96,6 +118,7 @@ export function VehicleCardList({
                 onUpdate={onUpdate}
                 onBreakdown={setBreakdownFor}
                 onAccident={onAccident}
+                onSchedule={onSchedule}
               />
             )
           }
@@ -115,6 +138,7 @@ export function VehicleCardList({
                 onUpdate={onUpdate}
                 onBreakdown={setBreakdownFor}
                 onAccident={onAccident}
+                onSchedule={onSchedule}
               />
             </div>
           )
@@ -133,6 +157,7 @@ export function VehicleCardList({
                 onUpdate={onUpdate}
                 onBreakdown={setBreakdownFor}
                 onAccident={onAccident}
+                onSchedule={onSchedule}
               />
             </div>
           )
@@ -148,6 +173,7 @@ export function VehicleCardList({
             onUpdate={onUpdate}
             onBreakdown={setBreakdownFor}
             onAccident={onAccident}
+            onSchedule={onSchedule}
           />
         )
       })}
@@ -207,6 +233,21 @@ export function VehicleCardList({
           onSaved={onRefresh}
         />
       )}
+      {scheduleFor?.kind === 'itv' && (
+        <ScheduleItvModal
+          vehicle={scheduleFor.vehicle}
+          onClose={() => setScheduleFor(null)}
+          onSaved={onRefresh}
+        />
+      )}
+      {scheduleFor?.kind === 'maintenance' && (
+        <ScheduleMaintenanceModal
+          vehicle={scheduleFor.vehicle}
+          summary={summaries[scheduleFor.vehicle.id]}
+          onClose={() => setScheduleFor(null)}
+          onSaved={onRefresh}
+        />
+      )}
     </div>
   )
 }
@@ -231,6 +272,7 @@ function SubstitutionReel({
   onUpdate,
   onBreakdown,
   onAccident,
+  onSchedule,
 }: {
   substitute: Vehicle
   original: Vehicle
@@ -242,6 +284,7 @@ function SubstitutionReel({
   onUpdate?: (vehicle: Vehicle) => void
   onBreakdown?: (vehicle: Vehicle) => void
   onAccident?: (vehicle: Vehicle) => void
+  onSchedule?: (vehicle: Vehicle, kind: 'itv' | 'maintenance') => void
 }) {
   const { t } = useLang()
   const [showOriginal, setShowOriginal] = useState(false)
@@ -256,6 +299,7 @@ function SubstitutionReel({
               summary={summaries[original.id]}
               isSupervisor={isSupervisor}
               currentUserId={currentUserId}
+              onSchedule={onSchedule}
               reelButton={{
                 label: t.home.backToSubstitute(substitute.plate),
                 dir: 'right',
@@ -276,6 +320,7 @@ function SubstitutionReel({
               onUpdate={onUpdate}
               onBreakdown={onBreakdown}
               onAccident={onAccident}
+              onSchedule={onSchedule}
               reelButton={{
                 label: t.home.showOriginal(pair.plate),
                 dir: 'left',
@@ -308,6 +353,7 @@ function VehicleCard({
   onUpdate,
   onBreakdown,
   onAccident,
+  onSchedule,
 }: {
   vehicle: Vehicle
   summary: VehicleSummary | undefined
@@ -330,9 +376,12 @@ function VehicleCard({
   onBreakdown?: (vehicle: Vehicle) => void
   /** Abre el parte guiado de accidente — solo supervisor. */
   onAccident?: (vehicle: Vehicle) => void
+  /** Cita la ITV o programa el mantenimiento — solo supervisor. */
+  onSchedule?: (vehicle: Vehicle, kind: 'itv' | 'maintenance') => void
 }) {
   const { t, language } = useLang()
   const etiqueta = useDomainLabels()
+  const programar = useScheduleCopy()
   const navigate = useNavigate()
   const kmPending = summary ? pendingThisMonth(summary) : false
   const maintenanceAvailable = scheduledActionAvailable(summary?.next_maintenance_date)
@@ -500,8 +549,10 @@ function VehicleCard({
               (la tarjeta entera es un enlace) y hay que frenar el clic para no
               abrir la ficha. El principal bloqueado no las ofrece: avería e
               se registra sobre su sustituto (N9). */}
-          {!blocked && (
+          {(!blocked || onSchedule) && (
             <div className="card-report-actions">
+              {!blocked && (
+                <>
               <button
                 type="button"
                 className="report-btn"
@@ -558,7 +609,7 @@ function VehicleCard({
                 // Recordatorio al conductor (correo/alerta): icono a la derecha.
                 <button
                   type="button"
-                  className="report-btn report-btn-icon report-btn-follow"
+                  className="report-btn report-btn-icon"
                   aria-label={t.reminder.button}
                   title={`${t.reminder.button} · ${vehicle.plate}`}
                   onClick={(e) => {
@@ -569,6 +620,42 @@ function VehicleCard({
                 >
                   <Mail size={16} aria-hidden />
                 </button>
+              )}
+                </>
+              )}
+              {/* Programar es lo ÚNICO que se ofrece también en un principal
+                  bloqueado: lo demás se registra sobre su sustituto (N9), pero
+                  la ITV y el mantenimiento son de ESTE coche, que sigue
+                  venciendo mientras otro lo cubre. */}
+              {onSchedule && (
+                <>
+                  <button
+                    type="button"
+                    className="report-btn report-btn-icon"
+                    aria-label={programar.itv.button}
+                    title={`${programar.itv.button} · ${vehicle.plate}`}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      onSchedule(vehicle, 'itv')
+                    }}
+                  >
+                    <CalendarCheck size={16} aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    className="report-btn report-btn-icon"
+                    aria-label={programar.maintenance.button}
+                    title={`${programar.maintenance.button} · ${vehicle.plate}`}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      onSchedule(vehicle, 'maintenance')
+                    }}
+                  >
+                    <CalendarCog size={16} aria-hidden />
+                  </button>
+                </>
               )}
             </div>
           )}

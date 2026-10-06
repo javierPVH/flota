@@ -17,6 +17,8 @@ export type EmailKind = 'state_notice' | 'itv_due' | 'insurance_due' | 'km_readi
  * conductor) cae en el comunicado de estado. */
 export const ALERT_EMAIL_KIND: Record<AlertType, EmailKind> = {
   itv_due: 'itv_due',
+  // Sin cita también se habla de la ITV: es la plantilla que la nombra.
+  itv_unscheduled: 'itv_due',
   insurance_due: 'insurance_due',
   km_reading_pending: 'km_reading_pending',
   km_overage: 'state_notice',

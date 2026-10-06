@@ -19,13 +19,20 @@ from rest_framework.test import APITestCase
 from accounts.models import Role
 from fleet.models import (
     Alert,
+    Assignment,
     Event,
     EventItv,
     MaintenancePlan,
     MaintenanceProgram,
     Vehicle,
 )
-from fleet.models.enums import AlertStatus, AlertType, EventType, VehicleState
+from fleet.models.enums import (
+    AlertStatus,
+    AlertType,
+    AssignmentStatus,
+    EventType,
+    VehicleState,
+)
 from fleet.services import alerts
 
 from .helpers import make_user
@@ -124,6 +131,40 @@ class ScheduleItvTests(APITestCase):
     def test_solo_la_gestion_programa(self):
         self.client.force_authenticate(make_user("itvsched-driver", Role.DRIVER))
         resp = self._post(date=(self.today + timedelta(days=30)).isoformat())
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_quien_supervisa_cita_los_coches_de_su_grupo(self):
+        """La PWA le ofrece «Programar ITV» en la tarjeta y en la ficha: responde
+        de esos coches. Con el permiso solo-admin ese botón era un 403 seguro."""
+        jefa = make_user("itvsched-sup", Role.SUPERVISOR)
+        self.vehicle.supervisor = jefa
+        self.vehicle.save(update_fields=["supervisor"])
+        self.client.force_authenticate(jefa)
+
+        due = self.today + timedelta(days=45)
+        resp = self._post(date=due.isoformat(), postal_code="28100")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["next_itv_date"], due.isoformat())
+
+    def test_un_coche_de_otro_grupo_no_se_cita(self):
+        """El ámbito lo sigue poniendo el mixin: fuera de su grupo el coche ni
+        siquiera existe para quien supervisa."""
+        otra = make_user("itvsched-sup2", Role.SUPERVISOR)
+        self.client.force_authenticate(otra)
+        resp = self._post(date=(self.today + timedelta(days=30)).isoformat())
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_quitar_la_cita_sigue_siendo_de_admin(self):
+        """Citar de más se corrige volviendo a citar; dejar un coche SIN cita,
+        no: eso es lo que hace desaparecer el aviso."""
+        self._post(date=(self.today + timedelta(days=30)).isoformat())
+        jefa = make_user("itvsched-sup3", Role.SUPERVISOR)
+        self.vehicle.supervisor = jefa
+        self.vehicle.save(update_fields=["supervisor"])
+        self.client.force_authenticate(jefa)
+        resp = self.client.post(
+            reverse("vehicle-unschedule-itv", args=[self.vehicle.pk]), {}, format="json"
+        )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 
@@ -234,3 +275,42 @@ class MaintenancePlanScheduleTests(APITestCase):
         otro = Vehicle.objects.create(plate="SCH0003", brand="Seat", model="Ateca")
         resp = self.client.post(self.url, self._payload(vehicle=otro.pk), format="json")
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+    def test_quien_supervisa_programa_el_mantenimiento_de_su_grupo(self):
+        """Mismo motivo que la ITV: la PWA le ofrece programarlo en la tarjeta y
+        en la ficha, y con la escritura solo-admin ese botón era un 403 seguro."""
+        jefa = make_user("plansched-sup", Role.SUPERVISOR)
+        self.vehicle.supervisor = jefa
+        self.vehicle.save(update_fields=["supervisor"])
+        self.client.force_authenticate(jefa)
+
+        resp = self.client.post(self.url, self._payload(), format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["vehicle"], self.vehicle.pk)
+
+    def test_un_coche_de_otro_grupo_no_se_programa(self):
+        """El scope del mixin (SEC1) sigue mandando por encima del permiso."""
+        otra = make_user("plansched-sup2", Role.SUPERVISOR)
+        self.client.force_authenticate(otra)
+        resp = self.client.post(self.url, self._payload(), format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(MaintenancePlan.objects.filter(vehicle=self.vehicle).exists())
+
+    def test_quien_conduce_lee_el_plan_pero_no_lo_programa(self):
+        """Marcarlo hecho sí es suyo (`done/`); programarlo, no."""
+        self.client.post(self.url, self._payload(), format="json")
+        chofer = make_user("plansched-driver", Role.DRIVER)
+        Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=chofer,
+            status=AssignmentStatus.ACCEPTED,
+            start_date=self.today,
+        )
+        self.client.force_authenticate(chofer)
+
+        self.assertEqual(
+            self.client.get(self.url).status_code, status.HTTP_200_OK
+        )
+        otro = Vehicle.objects.create(plate="SCH0004", brand="Seat", model="Arona")
+        resp = self.client.post(self.url, self._payload(vehicle=otro.pk), format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

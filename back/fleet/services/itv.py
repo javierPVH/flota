@@ -22,7 +22,7 @@ from django.utils import timezone
 
 from fleet.models import Alert, Document, Event, Incident, Vehicle
 from fleet.models.enums import AlertStatus, AlertType, IncidentStatus, IncidentType, VehicleState
-from fleet.services import events, incidents
+from fleet.services import alerts, events, incidents
 
 
 def schedule_itv(vehicle: Vehicle, due: date, *, actor, postal_code: str = "") -> dict[str, object]:
@@ -60,6 +60,11 @@ def schedule_itv(vehicle: Vehicle, due: date, *, actor, postal_code: str = "") -
             ):
                 alert.close(status=AlertStatus.RESOLVED, by=actor, note=note)
                 result["alerts_resolved"] += 1
+        # Citar es justo lo que pedía «ITV sin cita»: se cierra en el acto, con
+        # quien citó, sin esperar a la reconciliación de la pasada siguiente.
+        result["alerts_resolved"] += alerts.resolve_itv_unscheduled_alerts(
+            vehicle, by=actor, note=f"ITV citada el {due.isoformat()}."
+        )
     return result
 
 
@@ -90,6 +95,12 @@ def unschedule_itv(vehicle: Vehicle, *, actor) -> dict[str, object]:
         ):
             alert.close(status=AlertStatus.RESOLVED, by=actor, note="Cita de ITV eliminada.")
             result["alerts_resolved"] += 1
+        # Dejar el coche sin cita A PROPÓSITO no es el descuido del que avisa
+        # «ITV sin cita»: se cierra con quien lo decidió (y el candado manual
+        # hace que `check_itv_unscheduled` no lo vuelva a abrir).
+        result["alerts_resolved"] += alerts.resolve_itv_unscheduled_alerts(
+            vehicle, by=actor, note="Cita de ITV eliminada por administración."
+        )
     return result
 
 

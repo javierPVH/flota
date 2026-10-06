@@ -306,7 +306,10 @@ Dos capas que van **siempre juntas**:
   modal de campo ofrece **proponer otro conductor**
   (`DriverChangeRequest` + `services/driver_requests.py`), y es la **única
   alerta que lo ofrece** — en una ITV o un seguro, cambiar de conductor no
-  resuelve nada. Se propone a alguien del **ámbito de quien propone**
+  resuelve nada. Y es la única que abre **sin el aviso de responsabilidad**
+  (`SupervisorModal`): ese aviso dice que lo registrado queda a nombre de
+  quien supervisa porque actúa EN LUGAR del conductor, y aquí no se suplanta
+  a nadie —al conductor ni se le enseña esta alerta—. Se propone a alguien del **ámbito de quien propone**
   (`GET /driver-change-requests/candidates/` → `users_for`, con la matrícula
   que lleva hoy cada uno, que es lo que permite elegir) o, si no hay a quien,
   **solo con una nota**: sin candidato el back la exige, porque una fila sin
@@ -336,12 +339,18 @@ Dos capas que van **siempre juntas**:
   (plantilla «Exceso de km (al conductor)») es lo único que sigue yendo al
   conductor, a propósito, porque es una plantilla de Ajustes que la
   administración decide. Y donde se MIRA la proyección se puede resolver:
-  la pantalla «Proyección de km» de campo (`GroupPage`) y la pestaña de
+  la pantalla «Proyección de km» de campo (`GroupPage`), **la tarjeta de
+  proyección de la ficha de campo** (`VehicleFieldPage`) y la pestaña de
   proyección de «Kilómetros» en gestión (`MileagePage`) piden las alertas
   `km_overage` abiertas y ponen **«Resolver»** solo en el coche que la tiene
   —la alerta es lo que hace «problemático» a un coche, no el nivel de la
   barra—, con el mismo modal de siempre (`AlertResolveDispatcher` en campo,
-  `ResolveDispatcher` en gestión).
+  `ResolveDispatcher` en gestión). Esa tarjeta de la ficha es además un
+  **acordeón** (una ficha más del acordeón de la página, **plegada de
+  salida**): dentro va la **evolución de las lecturas** (`KmChart`, la misma
+  del grupo y de gestión), que se pide **solo al desplegarla**; el resumen
+  —nivel, % y barra— y el botón de resolver se quedan **fuera**, porque es
+  lo que se viene a leer y lo que hay que hacer.
 - **En la app de campo un documento se VE sin pasar por Drive.** El botón del
   ojo abre `GET /documents/{id}/preview/`: el back trae el archivo —del staging
   local si aún está ahí y, si no, de Drive con la **cuenta de servicio**
@@ -499,10 +508,11 @@ Dos capas que van **siempre juntas**:
   app en inglés, la tarjeta del aviso salía en castellano. Ahora el back manda
   **las tres cosas**: el `message` de siempre y, al lado, `message_code` +
   `message_args`. Las frases se componen en **un solo sitio**
-  (`back/fleet/services/alert_messages.py`, `compose()`): allí están las nueve
-  plantillas del catálogo —los cuatro vencimientos de ITV y seguro, la lectura
-  de km, el coche sin conductor, el exceso proyectado, el mantenimiento y el
-  recordatorio manual— y de ahí salen a la vez la frase castellana y su par,
+  (`back/fleet/services/alert_messages.py`, `compose()`): allí están las diez
+  plantillas del catálogo —los cuatro vencimientos de ITV y seguro, la ITV
+  sin cita, la lectura de km, el coche sin conductor, el exceso proyectado, el
+  mantenimiento y el recordatorio manual— y de ahí salen a la vez la frase
+  castellana y su par,
   que por eso no pueden contar cosas distintas. `message` **no se retira**: lo
   leen el correo y el Excel de informes, y es la **reserva** de los dos fronts
   para una alerta anterior a esto o un código que esa versión no conozca —se
@@ -1078,6 +1088,26 @@ Dos capas que van **siempre juntas**:
   formulario ahí mismo; el «no hay nada» solo sale con las dos listas vacías,
   y con un tipo elegido en el filtro **no se pintan** —ese filtro es de tipos
   de ALERTA y dejarlos puestos contradiría lo elegido—.
+  Pero **cuando los dos orígenes dicen lo mismo, la fila es UNA**
+  (`DEADLINE_TWIN`): el aviso de km, el de ITV y el de mantenimiento **no se
+  pintan** si el motor ya tiene abierta su alerta hermana
+  (`km_reading_pending`, `itv_due`, `maintenance_due`) —salían las dos, una
+  encima de otra («Lectura de km pendiente» y «Kilómetros de 8888TRX»), y una
+  cosa pendiente es una fila—. Manda la del **motor**: lleva la fecha de
+  vencimiento y es la que se cierra al resolverla. El **combustible** no
+  tiene alerta del motor, así que su aviso se pinta siempre. Y el recuento
+  del título cuenta lo que la tarjeta enseña, no lo que llega.
+- **Hay dos alertas que la app de campo NO enseña**, y la regla vive en un
+  sitio (`format.hiddenFieldAlert`, que usan la tarjeta del coche y la
+  bandeja): el **seguro** (X1: es de administración) y, **solo en «Mi
+  vehículo»**, el **exceso de km proyectado**. El back ya las quita por rol
+  (`AlertViewSet.get_queryset`: el seguro a quien no sea admin, el exceso a
+  quien no sea gestión), pero al **admin** se las manda enteras porque su
+  front es el otro —y un admin que además conduce y supervisa se las
+  encontraba en la tarjeta de su propio coche—. El exceso se queda en
+  **«Flota»**: ahí es donde quien supervisa lo atiende, y su «Resolver» es el
+  que propone otro conductor; en «Mi vehículo» se mira el coche que uno
+  conduce y lo que arregla el exceso no está en su mano.
 - **En campo, «Solucionar» también es UN gesto con un formulario por TIPO**
   (`front-conductores/src/components/resolve/`), el mismo reparto que hace
   gestión con su `ResolveDispatcher`: `IncidentResolveModal` dejó de ser un
@@ -1101,17 +1131,41 @@ Dos capas que van **siempre juntas**:
   del mismo parte. Y esos cuatro formularios son **carruseles**
   (`resolve/ResolveSteps.tsx`: la misma tira de `flow-steps`, el mismo pane que
   entra deslizándose y el mismo pie de «Atrás / Continuar» que el parte guiado
-  y «Mis datos»), con cuatro pasos de los que cada flujo usa los suyos:
+  y «Mis datos»), con **seis pasos** de los que cada flujo usa los suyos:
   **cuándo** (la fecha, lo único obligatorio), **detalles** (lo propio del tipo:
-  las ruedas montadas, el expediente del siniestro), **taller** (km, coste y CP)
-  y **cierre** (observaciones y factura). Una avería no tiene «detalles» que
-  preguntar, y en la **petición general** el taller es un paso que **solo
-  existe** si se marca la casilla —y desmarcarla se lo lleva con lo escrito—.
+  las ruedas montadas, el expediente del siniestro), **taller** (km, coste y
+  CP), **notas**, **factura** y **cierre**. **Una cosa por pantalla**: las
+  notas y la factura tenían que caber debajo del repaso y acababan siendo la
+  cola de otro paso. Una avería no tiene «detalles» que preguntar, y en la
+  **petición general** el taller y su factura son dos pasos que **solo
+  existen** si se marca la casilla —que vive en el paso de las **notas**,
+  porque es lo que los añade, y desmarcarla se los lleva con lo escrito—.
   En una sola columna se rellenaban a ciegas: siete campos y la factura en una
   pantalla de móvil que había que recorrer entera, de pie en el taller, para
   saber si quedaba algo. **Guardar solo aparece en el último paso** (e Intro
-  antes avanza, no cierra la incidencia a medias), como en el asistente de
-  gestión: el botón que cierra no nace bajo el dedo donde estaba «Continuar».
+  avanza, nunca cierra), como en el asistente de gestión: el botón que cierra
+  no nace bajo el dedo donde estaba «Continuar». Y **cerrar es pulsar ESE
+  botón, no enviar el formulario**: los dos pies son `type="button"` y el
+  cierre va por el `onSave` de `ResolveActions`, como en el resto de
+  carruseles de la app. Con un `type="submit"` en la rama de guardar, pulsar
+  «Continuar» en el penúltimo paso **cerraba la incidencia sola**: React reusa
+  ese mismo botón para pintar el otro y le cambia el `type` a `submit` antes
+  de que el navegador ejecute la acción por defecto del clic, así que entrar en
+  el repaso lo guardaba todo sin que nadie lo aceptara.
+  Y ese último paso **repasa lo que se va a guardar** (`ResolveSummary`, **una
+  sola caja con una línea por dato** —rótulo a la izquierda y lo rellenado a la
+  derecha—: con una ficha por campo, como el repaso de «Mis datos», un cierre
+  de neumáticos ocupaba tres pantallas de móvil): la
+  fecha con los días parado, lo propio del tipo —el expediente y quién asume
+  el coste, la medida y las ruedas montadas— y lo del taller, con las mismas
+  etiquetas con las que se preguntó y **diciendo lo que se dejó en blanco**
+  («Sin indicar», que un hueco no se ve y el coste o el CP que faltan son
+  justo a lo que hay que volver). Al llegar al botón que cierra no quedaba ni
+  rastro de lo tecleado cuatro panes atrás. Se **lee y después se acepta**:
+  llegar al repaso no cierra nada. Y **ahí no se rellena nada** —ni las notas
+  ni la factura, que tienen su propio paso—: la última pantalla es de leer.
+  Repasa también lo escrito en esos dos, y la **petición general** sin taller
+  repasa solo la fecha y las notas, que es lo único que se le preguntó.
 - **Un botón que aún no toca EXPLICA por qué, no se muere.** La ITV y el
   mantenimiento solo se registran desde **30 días antes** de la cita
   (`scheduledActionAvailable`); hasta entonces sus botones iban `disabled` con
@@ -1126,6 +1180,86 @@ Dos capas que van **siempre juntas**:
   esos botones: el nav de Mi vehículo, las acciones de la ficha de campo y el
   icono de mantenimiento de la tarjeta de la lista —ahí lo decide la lista, que
   es quien monta los modales—.
+- **Un coche recién matriculado no pasa ITV, y el registro de campo lo dice.**
+  El div de la cita de `ItvPane` (el mismo en el nav, la ficha, la alerta y la
+  pestaña de «Actualizar») avisa en ámbar cuando el coche **aún no tiene la
+  edad de su PRIMERA ITV** y remite a **administración**, que es quien programa
+  las citas —el campo no las pone—. La edad **no es cuatro años para todos**
+  (`FIRST_ITV_YEARS` en `itvSchedule.ts`, al lado de la periodicidad que ya
+  vivía ahí): turismos y motos a los **4**, furgonetas a los **2**, camiones al
+  **año**; sin fecha de matriculación o con un tipo fuera de la tabla **no se
+  dice nada**, porque afirmar que no hace falta y equivocarse manda un coche a
+  rodar sin ITV. Es **informativo y no apaga nada**: la cita puede existir por
+  otro motivo (una revisión voluntaria, un vehículo importado), así que si hay
+  una ITV que registrar se registra igual.
+- **Sin ITV programada, a quien conduce no se le ofrece registrarla.** La cita
+  la pone la gestión y el campo atiende la que haya: sin ninguna, ese botón
+  solo podía acabar en «no hay ninguna programada». Desaparece del **nav de Mi
+  vehículo** (`VehicleActionButtons`) y de las **acciones de la ficha de
+  campo**, que es la misma regla que ya aplicaba «Actualizar» —sin ITV
+  programada no saca su pestaña—. A quien **gestiona** (admin o supervisor) se
+  le sigue ofreciendo: puede tener que registrar una que se pasó sin cita en
+  el sistema, y en la PWA no hay otro camino. Con cita vuelve, apagado hasta
+  30 días antes, que es otra cosa (`scheduledActionAvailable`).
+- **La próxima ITV no se pone desde campo, y el campo «Próxima ITV» ya no
+  existe ahí.** El registro de la PWA cuenta lo que ha pasado —cuándo fue la
+  inspección, cómo salió y su informe— y viaja **siempre** con
+  `next_due: null`; la cita siguiente la programa la gestión
+  (`ScheduleItvMaintenanceModal`), que es también lo que devuelve el botón de
+  ITV al nav de campo. Con el campo se fueron su «Calcular» y la **propuesta
+  de periodicidad** que lo alimentaba (`proposeNextItv` en `itvSchedule.ts`,
+  la tabla legal por tipo y edad): proponérsela desde el móvil solo servía
+  para que dos sitios dijeran cosas distintas. Se fue también el espejo de
+  **R3-32** (la próxima, posterior a la inspección): sin campo no hay fecha
+  que validar. De ese módulo queda lo de la PRIMERA (`itvNotDueYet`).
+  **Lo que eso deja sin fecha lo avisa el motor**: una favorable sin
+  `next_due` vacía `next_itv_date` (señal `on_itv_registered`), y sin fecha
+  no hay `itv_due` que abrir, el botón de ITV desaparece del nav del conductor
+  y el coche rodaría hasta vencer sin que gestión lo viera. Por eso existe la
+  alerta **`itv_unscheduled`** («ITV sin cita», `alerts.check_itv_unscheduled`,
+  en `run_all` tras `check_itv`): se abre para el coche activo cuya ÚLTIMA
+  favorable no trajo fecha y sigue sin cita, con la inspección en la clave
+  (una resuelta a mano no reabre hasta la siguiente ITV), **es de gestión**
+  (`AlertViewSet` se la oculta al conductor, como el exceso de km, y el push
+  va solo a quien supervisa) y **se resuelve citando**: `schedule_itv` la
+  cierra en el acto con actor, `unschedule_itv` también (quitar la cita a
+  propósito no es un descuido, y el candado manual impide que reabra) y la
+  reconciliación de la pasada recoge lo que entre con fecha por otro lado. En
+  gestión, «Resolver» sobre ella abre «Programar ITV y mantenimiento» por su
+  pestaña (`resolveFlow` → `schedule`); en la PWA, `AlertResolveDispatcher`
+  abre `ScheduleItvModal`. El acuse del registro de campo ya no dice que «la
+  próxima fecha queda actualizada»: dice que la programa la gestión.
+- **Quien supervisa PROGRAMA lo suyo: la ITV y el mantenimiento**
+  (`components/ScheduleModal.tsx`, `translations/schedule.ts`). Citar era solo
+  de gestión y el campo solo registraba lo ya hecho, así que a quien responde
+  de un coche le tocaba pedir por teléfono la fecha de su propia ITV. Ahora
+  los dos gestos salen en **la tarjeta de Flota** (dos iconos,
+  `CalendarCheck` y `CalendarCog`) y en **las acciones de la ficha de campo**,
+  y son **dos ventanas y no una con pestañas**: se entra a hacer UNA, y
+  preguntan cosas distintas —la ITV, una fecha y el CP preferente; el
+  mantenimiento, un **programa del catálogo común** y desde dónde cuenta su
+  ciclo—. El ciclo se **copia** del catálogo como en gestión, y cada ancla
+  se pregunta **solo si su ciclo existe** (la fecha si va por meses, el km si
+  va por km: el back exige la del ciclo activo y rechaza la otra); el km se
+  carga del coche de un toque. Con un plan ya activo **no se ofrece el
+  formulario**: se dice cuál es —hay uno por coche y el back rechaza el
+  segundo, y decirlo antes vale más que dejar guardar para enseñar un 400—.
+  Van en `Modal` y no en `SupervisorModal`: ese aviso dice que lo registrado
+  queda a nombre de quien supervisa **en lugar del conductor**, y programar no
+  se hace en lugar de nadie (un conductor no cita ITVs). Es lo **único** que
+  se ofrece también en un **principal bloqueado**: lo demás se registra sobre
+  su sustituto (N9), pero la ITV y el mantenimiento son de ESE coche, que
+  sigue venciendo mientras otro lo cubre; y tampoco esperan a la ventana de
+  los 30 días, que es para registrar lo ya citado.
+  **Hubo que abrir el back**: `schedule-itv` era `IsAdmin` y la escritura de
+  `maintenance-plans`, también (`AdminWriteManagementOrDriverRead`), así que
+  esos botones habrían acabado siempre en un 403. Ahora son de **gestión**
+  (`IsManagement` y la nueva `ManagementWriteDriverRead`, que dice lo que no
+  decía ninguna: lee gestión **o conductor**, escribe gestión), y el ámbito lo
+  sigue poniendo el mixin —`vehicles_for(write=True)`: el supervisor, su
+  grupo; fuera de él el coche ni existe—. **Quitar** la cita
+  (`unschedule-itv`) sigue siendo de **admin**: citar de más se corrige
+  volviendo a citar, y dejar un coche SIN cita no.
 - **«Actualizar» es UNA ventana con una pestaña por cosa**
   (`VehicleUpdateModal`): **km**, **combustible**, **ITV**, **mantenimiento** e
   **incidencias**. No hay pestaña de «alertas» a propósito — una alerta se

@@ -21,11 +21,12 @@ import { AlertResolveDispatcher } from '../components/AlertResolveDispatcher.tsx
 import { CollapsibleCard, useAccordion } from '../components/CollapsibleCard.tsx'
 import { IncidentResolveModal } from '../components/IncidentResolveModal.tsx'
 import { ListFilter, matches, typeOptions, type ListOrder } from '../components/ListFilter.tsx'
-import { hasWideReadScope, useAuth } from '../auth.ts'
+import { hasWideReadScope, isManagement, useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import {
   fmtDate,
   incidentStatusTone,
+  hiddenFieldAlert,
   isOpenFieldIncident,
   tireReportSummary,
 } from '../format.ts'
@@ -106,7 +107,7 @@ export function AlertsPage() {
   const isSupervisor = user?.roles.includes('supervisor') ?? false
   // Resolver una petición es de gestión, como en la ficha de campo: quien
   // conduce comunica, no cierra.
-  const canManage = user?.roles.some((role) => role === 'admin' || role === 'supervisor') ?? false
+  const canManage = isManagement(user)
   // Modo "Mi vehículo" del supervisor: la bandeja se acota a su pareja (coche
   // propio + sustitución). Conductor o modo Flota: sin recorte.
   const ctx = useOutletContext<LayoutContext | null>()
@@ -266,11 +267,11 @@ export function AlertsPage() {
         const recorte = ownIds ? new Set(ownIds) : fleetIds
         const dentro = (vehicle: number | null) =>
           recorte === null || (vehicle !== null && recorte.has(vehicle))
-        // X1: el seguro es de administración y la app de campo no lo enseña.
-        // El back ya lo excluye al conductor y al supervisor, pero a un lector
-        // HSE se lo manda (en gestión sí se revisa), y eso aquí no cambia.
+        // Lo que el campo no enseña (`hiddenFieldAlert`, la misma regla que la
+        // tarjeta del coche): el seguro nunca —X1, es de administración— y el
+        // exceso de km en «Mi vehículo», que ahí no está en su mano.
         const suyas = page.results.filter(
-          (a) => a.type !== 'insurance_due' && dentro(a.vehicle),
+          (a) => !hiddenFieldAlert(a.type, !miVehiculo) && dentro(a.vehicle),
         )
         setAlerts(suyas)
         // Lo que la app de campo deja abrir (y el accidente): el mantenimiento
@@ -305,7 +306,7 @@ export function AlertsPage() {
       })
       .catch((err) => setError(asErrorMessage(err, tRef.current.alerts.loadError)))
       .finally(() => setLoading(false))
-  }, [showClosed, isSupervisor, ownIds, fleetScopeOf])
+  }, [showClosed, isSupervisor, ownIds, fleetScopeOf, miVehiculo])
 
   // `dataVersion`: registrar desde el nav cierra alertas — hay que releerlas.
   useEffect(load, [load, dataVersion])

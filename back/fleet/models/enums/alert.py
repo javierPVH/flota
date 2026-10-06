@@ -12,6 +12,10 @@ class AlertType(models.TextChoices):
     # La ÚNICA «ITV» visible en los paneles: la cita programada (próxima o
     # vencida). Las incidencias no ofrecen ITV como categoría.
     ITV_DUE = "itv_due", "ITV programada"
+    # La ITV se pasó (favorable) y nadie ha citado la siguiente: sin fecha no
+    # hay `itv_due` que abrir, y el coche rodaría hasta vencer sin que la
+    # gestión lo viera. Se abre en `check_itv_unscheduled` y se cierra al citar.
+    ITV_UNSCHEDULED = "itv_unscheduled", "ITV sin cita"
     INSURANCE_DUE = "insurance_due", "Seguro próximo / vencido"
     KM_READING_PENDING = "km_reading_pending", "Lectura de km pendiente"
     KM_OVERAGE = "km_overage", "Exceso de km proyectado"

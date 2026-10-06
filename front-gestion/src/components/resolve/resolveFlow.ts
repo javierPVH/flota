@@ -16,6 +16,7 @@ export type ResolveTarget =
  * conductor): las variantes viven en `ResolveAlertModal`. */
 export type ResolveFlow =
   | 'itv'
+  | 'schedule'
   | 'insurance'
   | 'maintenance'
   | 'breakdown'
@@ -34,6 +35,10 @@ export function flowFor(target: ResolveTarget): ResolveFlow {
     switch (target.alert.type) {
       case 'itv_due':
         return 'itv'
+      // «ITV sin cita» se resuelve CITANDO, no registrando: abre «Programar
+      // ITV y mantenimiento» por su pestaña, y citar cierra el aviso en el back.
+      case 'itv_unscheduled':
+        return 'schedule'
       case 'insurance_due':
         return 'insurance'
       case 'maintenance_due':

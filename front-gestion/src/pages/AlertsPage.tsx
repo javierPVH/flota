@@ -152,6 +152,7 @@ export function AlertsPage() {
     () => [
       { value: '', label: t.typeOptions.all },
       { value: 'itv_due', label: t.typeOptions.itvDue },
+      { value: 'itv_unscheduled', label: t.typeOptions.itvUnscheduled },
       { value: 'km_reading_pending', label: t.typeOptions.kmReadingPending },
       { value: 'km_overage', label: t.typeOptions.kmOverage },
       { value: 'maintenance_due', label: t.typeOptions.maintenanceDue },

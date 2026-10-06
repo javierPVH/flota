@@ -6,6 +6,7 @@ import { newClientRef } from '../../offline/queue.ts'
 import { useResolveCopy } from '../../translations/resolve.ts'
 import { ResolutionCommonFields } from './ResolutionCommonFields.tsx'
 import { ResolveActions, ResolveStepBar, useResolveSteps } from './ResolveSteps.tsx'
+import { ResolveSummary } from './ResolveSummary.tsx'
 import { sendResolution } from './sendResolution.ts'
 import { useResolutionCommon } from './useResolutionCommon.ts'
 import type { ResolveFormProps } from './types.ts'
@@ -21,7 +22,9 @@ const LIABILITY_NONE = 'none'
  * coste** (y, con franquicia, su importe) — los mismos campos que en gestión,
  * porque es el mismo siniestro visto desde el móvil. El siniestro tiene su
  * propio paso (**cuándo → detalles → taller → cierre**): son datos que se
- * copian de un papel del seguro y no se mezclan con los del taller.
+ * copian de un papel del seguro y no se mezclan con los del taller. Las
+ * **notas** y la **factura** tienen también el suyo, y el cierre no pregunta
+ * nada: es el repaso de todo lo anterior.
  *
  * Lo que NO está aquí es el **siniestro total**: da de baja el coche, y eso no
  * se decide desde el arcén. Si el coche no vuelve, lo cierra administración.
@@ -46,7 +49,15 @@ export function ResolveAccidentForm({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const conFranquicia = liability === 'deductible'
-  const pasos = useResolveSteps(['when', 'what', 'workshop', 'close'])
+  // Quién paga se repasa con el mismo nombre con el que se eligió, no con
+  // su código: «sin determinar» es un dato y también se lee.
+  const liabilityLabels: Record<string, string> = {
+    [LIABILITY_NONE]: a.liabilityNone,
+    own: a.liabilityOwn,
+    third_party: a.liabilityThirdParty,
+    deductible: a.liabilityDeductible,
+  }
+  const pasos = useResolveSteps(['when', 'what', 'workshop', 'notes', 'proof', 'close'])
 
   function accidentPayload(): IncidentResolveInput['accident'] | undefined {
     const block: NonNullable<IncidentResolveInput['accident']> = {}
@@ -56,14 +67,15 @@ export function ResolveAccidentForm({
     return Object.keys(block).length ? block : undefined
   }
 
-  async function submit(event: FormEvent) {
+  /** Intro **nunca** cierra la incidencia: como mucho pasa al paso siguiente.
+   * Cerrarla es pulsar su botón, después de leer el repaso. */
+  function avanzar(event: FormEvent) {
     event.preventDefault()
-    // Intro antes del último paso AVANZA: no cierra la incidencia a medias.
-    if (pasos.next !== undefined) {
-      pasos.goTo(pasos.next)
-      return
-    }
-    if (!common.values.date) return
+    if (pasos.next !== undefined) pasos.goTo(pasos.next)
+  }
+
+  async function guardar() {
+    if (!common.values.date || saving) return
     setSaving(true)
     setError('')
     try {
@@ -83,7 +95,7 @@ export function ResolveAccidentForm({
   }
 
   return (
-    <form className="update-action-form" onSubmit={submit}>
+    <form className="update-action-form" onSubmit={avanzar}>
       <p className="update-hint">{a.intro}</p>
       <ResolveStepBar steps={pasos} />
       <div key={pasos.step} className={`step-pane${pasos.cameBack ? ' from-left' : ''}`}>
@@ -141,10 +153,37 @@ export function ResolveAccidentForm({
           />
         )}
 
-        {pasos.step === 'close' && (
+        {pasos.step === 'notes' && (
           <ResolutionCommonFields
             common={common}
-            show={{ date: false, km: false, cost: false, postalCode: false }}
+            show={{ date: false, km: false, cost: false, postalCode: false, proof: false }}
+          />
+        )}
+
+        {pasos.step === 'proof' && (
+          <ResolutionCommonFields
+            common={common}
+            show={{
+              date: false,
+              km: false,
+              cost: false,
+              postalCode: false,
+              observations: false,
+            }}
+          />
+        )}
+
+        {pasos.step === 'close' && (
+          <ResolveSummary
+            common={common}
+            show={{ km: true, cost: true, postalCode: true, proof: true }}
+            extra={[
+              { label: a.claimRef, value: claimRef.trim() },
+              { label: a.liability, value: liabilityLabels[liability] },
+              ...(conFranquicia
+                ? [{ label: a.deductibleAmount, value: deductible.trim() }]
+                : []),
+            ]}
           />
         )}
       </div>
@@ -153,6 +192,7 @@ export function ResolveAccidentForm({
       <ResolveActions
         steps={pasos}
         onCancel={onClose}
+        onSave={() => void guardar()}
         canContinue={pasos.step !== 'when' || Boolean(common.values.date)}
         canSave={Boolean(common.values.date)}
         saving={saving}

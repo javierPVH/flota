@@ -159,6 +159,9 @@ describe('GroupPage (proyección de km del grupo)', () => {
     await userEvent.click(boton)
     // El MISMO modal de la bandeja: el de km contratados propone otro conductor.
     expect(await screen.findByText('¿Debería llevarlo otra persona?')).toBeInTheDocument()
+    // Sin el aviso de responsabilidad: esta alerta no se le enseña al
+    // conductor, así que quien la resuelve no actúa en lugar de nadie.
+    expect(screen.queryByText(/responsabilidad de registrar los km/)).toBeNull()
     expect(screen.getByRole('button', { name: 'Enviar propuesta' })).toBeDisabled()
 
     // Resolverla recarga la proyección y lo dice.

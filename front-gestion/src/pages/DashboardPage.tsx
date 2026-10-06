@@ -69,6 +69,8 @@ const FILTERABLE_STATES = new Set(['active', 'maintenance', 'itv', 'broken'])
 // Las dos alertas de km comparten pestaña "Kilómetros".
 const ALERT_CATEGORY: Record<string, string> = {
   itv_due: 'itv',
+  // «ITV sin cita» es ITV también: la pestaña es la misma.
+  itv_unscheduled: 'itv',
   insurance_due: 'insurance',
   km_reading_pending: 'km',
   km_overage: 'km',

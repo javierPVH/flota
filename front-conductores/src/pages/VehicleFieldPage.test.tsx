@@ -1,6 +1,6 @@
 // IndexedDB no existe en jsdom: fake-indexeddb lo aporta ANTES de importar la cola.
 import 'fake-indexeddb/auto'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,6 +14,11 @@ const mocks = vi.hoisted(() => ({
   listDocuments: vi.fn(),
   listIncidents: vi.fn(),
   listAlerts: vi.fn(),
+  listKmReadings: vi.fn(),
+  listDriverCandidates: vi.fn(),
+  scheduleItv: vi.fn(),
+  listMaintenancePrograms: vi.fn(),
+  createMaintenancePlan: vi.fn(),
   listMaintenancePlans: vi.fn(),
   uploadDocument: vi.fn(),
   createKmReading: vi.fn(),
@@ -29,6 +34,11 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listDocuments: mocks.listDocuments,
   listIncidents: mocks.listIncidents,
   listAlerts: mocks.listAlerts,
+  listKmReadings: mocks.listKmReadings,
+  listDriverCandidates: mocks.listDriverCandidates,
+  scheduleItv: mocks.scheduleItv,
+  listMaintenancePrograms: mocks.listMaintenancePrograms,
+  createMaintenancePlan: mocks.createMaintenancePlan,
   listMaintenancePlans: mocks.listMaintenancePlans,
   uploadDocument: mocks.uploadDocument,
   createKmReading: mocks.createKmReading,
@@ -41,6 +51,7 @@ vi.mock('../auth.ts', async (importOriginal) => ({
 }))
 
 import { VehicleFieldPage } from './VehicleFieldPage.tsx'
+import { FleetModeContext } from '../fleetMode.ts'
 import { LanguageProvider } from '../i18n.tsx'
 
 const VEHICLE = {
@@ -92,6 +103,30 @@ const SUMMARY = {
   },
 }
 
+/** La alerta de exceso ABIERTA del coche: lo que pone «Resolver» en la
+ * tarjeta de proyección —no el nivel de la barra—. */
+const OVERAGE_ALERT = {
+  id: 91,
+  type: 'km_overage',
+  type_display: 'Exceso de km proyectado',
+  level: 'warning',
+  level_display: 'Aviso',
+  status: 'open',
+  status_display: 'Abierta',
+  message: 'Proyección 62000 km supera los 50000 km contratados (124%).',
+  message_code: 'km_overage',
+  message_args: { projected: 62000, contracted: 50000, pct: 124 },
+  vehicle: 1,
+  vehicle_plate: '1234KLM',
+  user: null,
+  due_date: '2026-12-31',
+  created_at: '2026-09-01T08:00:00Z',
+  resolved_at: null,
+  resolved_by: null,
+  resolved_by_name: '',
+  note: '',
+}
+
 function renderPage() {
   return render(
     <LanguageProvider>
@@ -104,20 +139,27 @@ function renderPage() {
   )
 }
 
-/** Como el shell real: la ficha cuelga de un Outlet con el modo y la pareja. */
+/** Como el shell real: la ficha cuelga de un Outlet con el modo y la pareja.
+ *
+ * El modo viaja por DOS sitios, igual que en el `Layout`: el contexto del
+ * Outlet (lo lee la página) y `FleetModeContext` (lo leen los componentes que
+ * sirven a las dos vistas y los modales del nav, que viven fuera del Outlet).
+ * Sin el segundo, aquí todo se pintaba siempre en modo «Flota». */
 function renderWithMode(ctx: {
   fleetMode: boolean
   ownPair: { ids: number[]; target: number | null }
 }) {
   return render(
     <LanguageProvider>
-      <MemoryRouter initialEntries={['/vehiculos/1']}>
-        <Routes>
-          <Route element={<Outlet context={{ ...ctx, setFleetMode: () => {} }} />}>
-            <Route path="/vehiculos/:id" element={<VehicleFieldPage />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
+      <FleetModeContext.Provider value={ctx.fleetMode}>
+        <MemoryRouter initialEntries={['/vehiculos/1']}>
+          <Routes>
+            <Route element={<Outlet context={{ ...ctx, setFleetMode: () => {} }} />}>
+              <Route path="/vehiculos/:id" element={<VehicleFieldPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </FleetModeContext.Provider>
     </LanguageProvider>,
   )
 }
@@ -141,9 +183,123 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     mocks.listDocuments.mockResolvedValue({ count: 0, results: [] })
     mocks.listIncidents.mockResolvedValue({ count: 0, results: [] })
     mocks.listAlerts.mockResolvedValue({ count: 0, results: [] })
+    mocks.listKmReadings.mockResolvedValue({ count: 0, results: [] })
+    mocks.listDriverCandidates.mockResolvedValue([])
+    mocks.scheduleItv.mockResolvedValue({ ...VEHICLE, next_itv_date: '2027-03-01' })
+    mocks.listMaintenancePrograms.mockResolvedValue({
+      count: 1,
+      results: [
+        {
+          id: 4,
+          name: 'Revisión anual',
+          every_km: 30000,
+          every_months: 12,
+          cycle_label: '30000 km / 12 meses',
+          notes: '',
+        },
+      ],
+    })
+    mocks.createMaintenancePlan.mockResolvedValue({ id: 8, vehicle: 1, name: 'Revisión anual' })
     mocks.listMaintenancePlans.mockResolvedValue({ count: 0, results: [] })
     mocks.uploadDocument.mockResolvedValue({ id: 7, status: 'archived' })
     mocks.createKmReading.mockResolvedValue({ id: 20, vehicle: 1, km_reading: 5000, reading_date: '2026-08-27' })
+  })
+
+  it('quien supervisa cita la ITV desde la ficha', async () => {
+    renderPage()
+    await screen.findByText('1234KLM')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Programar ITV' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Programar ITV · 1234KLM' })
+    // La cita que ya tiene se lee ahí: esto la CORRIGE, no añade otra.
+    expect(dialog).toHaveTextContent(/Ahora está citada el 30\/9\/2026/)
+
+    fireEvent.change(within(dialog).getByLabelText('Fecha de la ITV'), {
+      target: { value: '2027-03-01' },
+    })
+    await userEvent.type(within(dialog).getByLabelText('CP preferente'), '28100')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Programar' }))
+
+    await waitFor(() =>
+      expect(mocks.scheduleItv).toHaveBeenCalledWith(1, {
+        date: '2027-03-01',
+        postal_code: '28100',
+      }),
+    )
+  })
+
+  it('y programa el mantenimiento con un programa del catálogo', async () => {
+    renderPage()
+    await screen.findByText('1234KLM')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Programar mantenimiento' }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Programar mantenimiento · 1234KLM',
+    })
+    await userEvent.selectOptions(
+      await within(dialog).findByLabelText('Qué mantenimiento'),
+      '4',
+    )
+    // El ancla por km se carga del coche de un toque (4679, del resumen).
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: /Cargar los del coche/ }),
+    )
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Programar' }))
+
+    await waitFor(() =>
+      expect(mocks.createMaintenancePlan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          vehicle: 1,
+          program: 4,
+          name: 'Revisión anual',
+          // El ciclo se COPIA del catálogo, como en gestión.
+          every_km: 30000,
+          every_months: 12,
+          last_done_km: 4679,
+        }),
+      ),
+    )
+  })
+
+  it('la proyección se despliega para ver la gráfica, y con la alerta de exceso se resuelve ahí', async () => {
+    mocks.listAlerts.mockResolvedValue({ count: 1, results: [OVERAGE_ALERT] })
+    mocks.listKmReadings.mockResolvedValue({
+      count: 2,
+      results: [
+        { id: 1, vehicle: 1, reading_date: '2026-03-01', km_reading: 20000 },
+        { id: 2, vehicle: 1, reading_date: '2026-07-26', km_reading: 31000 },
+      ],
+    })
+
+    renderPage()
+    await screen.findByText('1234KLM')
+
+    // Plegada de salida, pero el resumen se lee igual: es a lo que se viene.
+    const toggle = screen.getByRole('button', { name: /Proyección/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByText('72%')).toHaveClass('km-pct')
+    expect(screen.getByText('31.000 km de 50.000 km contratados')).toBeInTheDocument()
+    // Y la gráfica no se pide hasta que hace falta.
+    expect(mocks.listKmReadings).not.toHaveBeenCalled()
+
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await waitFor(() => expect(mocks.listKmReadings).toHaveBeenCalledWith(1))
+    await waitFor(() => expect(document.querySelector('.km-chart svg')).not.toBeNull())
+
+    // Y se resuelve desde la propia tarjeta, con el modal de siempre: el de
+    // km contratados, que propone otro conductor.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Resolver el exceso de km de 1234KLM' }),
+    )
+    expect(await screen.findByText('¿Debería llevarlo otra persona?')).toBeInTheDocument()
+  })
+
+  it('sin alerta de exceso abierta, la proyección no ofrece «Resolver»', async () => {
+    renderPage()
+    await screen.findByText('1234KLM')
+    // El nivel de la barra no basta: lo que se cierra es la ALERTA.
+    expect(screen.queryByRole('button', { name: /Resolver el exceso de km/ })).toBeNull()
   })
 
   it('supervisor: mantenimiento, proyección y herramientas de gestión', async () => {
@@ -178,6 +334,9 @@ describe('VehicleFieldPage (ficha de campo)', () => {
       'Consumo medio',
       'Registrar ITV',
       'Actualizar mantenimiento',
+      // Programar no es registrar: son gestos de gestión sobre la cita.
+      'Programar ITV',
+      'Programar mantenimiento',
       'Incidencia',
       'Accidente',
       'Subir documento',
@@ -223,6 +382,15 @@ describe('VehicleFieldPage (ficha de campo)', () => {
       client_ref: expect.any(String),
     })
   })
+
+  /** Avanzar `veces` pasos del carrusel de cierre. Los flujos tienen seis
+   * (cuándo · detalles · taller · notas · factura · cierre) y cada uno usa los
+   * suyos, así que cada caso dice cuántos le quedan hasta el repaso. */
+  async function continuar(dialog: HTMLElement, veces: number) {
+    for (let i = 0; i < veces; i += 1) {
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
+    }
+  }
 
   /** Incidencia abierta de fixture (avería comunicada desde campo). */
   function openIncident(extra: Record<string, unknown> = {}) {
@@ -285,8 +453,10 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     expect(situationTitle.compareDocumentPosition(alertsTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.getByText('La ITV vence pronto.').closest('.doc-item')).toHaveClass('level-warning')
     // Cada familia en su tarjeta, y el recuento se lee sin abrir ninguna.
+    // Alertas: la `itv_due` del motor más los avisos de km, combustible y
+    // mantenimiento. El aviso de ITV no se suma —lo dice ya la alerta—.
     expect(await screen.findByText(/Testigo de motor encendido/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*5/)
+    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*4/)
     expect(screen.getByRole('button', { name: /^Incidencias/ })).toHaveTextContent(/Incidencias\s*2/)
     expect(screen.getByRole('button', { name: /^Accidentes/ })).toHaveTextContent(/Accidentes\s*0/)
 
@@ -359,7 +529,6 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     ['itv_due', 'ITV programada', 'Registrar ITV · 1234KLM'],
     ['km_reading_pending', 'Lectura de km pendiente', 'Registrar km · 1234KLM'],
     ['maintenance_due', 'Mantenimiento programado', 'Actualizar mantenimiento · 1234KLM'],
-    ['insurance_due', 'Seguro próximo / vencido', 'Resolver alerta · 1234KLM'],
   ])('Resolver una alerta %s abre el mismo modal que su botón', async (type, label, dialogName) => {
     mocks.listAlerts.mockResolvedValue({ count: 1, results: [openAlert(type, label)] })
     renderPage()
@@ -370,6 +539,36 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Alertas/ }))
     await userEvent.click(await screen.findByRole('button', { name: `Solucionar: ${label}` }))
     expect(await screen.findByRole('dialog', { name: dialogName })).toBeInTheDocument()
+  })
+
+  it('el seguro no se enseña en campo, y el exceso de km solo en «Flota»', async () => {
+    // El back ya se los quita a quien conduce y —el seguro— a quien supervisa,
+    // pero a un ADMIN que además conduce se los manda enteros: su front es el
+    // otro. Aquí se termina la regla. El exceso se queda en «Flota», que es
+    // donde quien supervisa lo atiende (proponiendo otro conductor).
+    mocks.listAlerts.mockResolvedValue({
+      count: 2,
+      results: [
+        openAlert('insurance_due', 'Seguro próximo / vencido'),
+        { ...openAlert('km_overage', 'Exceso de km proyectado'), id: 45 },
+      ],
+    })
+
+    // «Flota» (el modo por defecto del contexto): el exceso sí.
+    const { unmount } = renderPage()
+    await screen.findByText('1234KLM')
+    await userEvent.click(await screen.findByRole('button', { name: /^Alertas/ }))
+    expect(screen.queryByText('Seguro próximo / vencido')).toBeNull()
+    expect(screen.getByText('Exceso de km proyectado')).toBeInTheDocument()
+    unmount()
+
+    // «Mi vehículo»: ninguno de los dos —ahí se mira el coche que uno conduce
+    // y lo que arregla el exceso no está en su mano—.
+    renderWithMode({ fleetMode: false, ownPair: { ids: [1], target: 1 } })
+    await screen.findByText('1234KLM')
+    await userEvent.click(await screen.findByRole('button', { name: /^Alertas/ }))
+    expect(screen.queryByText('Seguro próximo / vencido')).toBeNull()
+    expect(screen.queryByText('Exceso de km proyectado')).toBeNull()
   })
 
   it('el supervisor SOLUCIONA una incidencia desde su tarjeta', async () => {
@@ -385,11 +584,10 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Solucionar' }))
     // El título dice QUÉ se cierra: cada tipo tiene su formulario.
     const dialog = screen.getByRole('dialog', { name: 'Solucionar avería · 1234KLM' })
-    // Se rellena POR PASOS (cuándo → taller → cierre): el botón de guardar
-    // no existe hasta el último, para no cerrarla a medias.
+    // Se rellena POR PASOS (cuándo → taller → notas → factura → cierre): el
+    // botón de guardar no existe hasta el último, para no cerrarla a medias.
     expect(within(dialog).queryByRole('button', { name: 'Cerrar incidencia' })).toBeNull()
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
+    await continuar(dialog, 4)
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cerrar incidencia' }))
 
     await waitFor(() =>
@@ -430,8 +628,9 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     expect(within(dialog).getByLabelText('Delantera izquierda')).toBeChecked()
     expect(within(dialog).getByLabelText('Trasera derecha')).not.toBeChecked()
 
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
+    // Taller → notas → factura → el repaso, y ahí se cierra.
+    await continuar(dialog, 4)
+    expect(within(dialog).getByText('Lo que vas a guardar')).toBeInTheDocument()
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cerrar incidencia' }))
     await waitFor(() =>
       expect(mocks.resolveIncident).toHaveBeenCalledWith(32, {
@@ -457,13 +656,43 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
     await userEvent.type(within(dialog).getByLabelText(/Expediente/), 'SIN-2026-14')
     await userEvent.selectOptions(within(dialog).getByLabelText(/Quién asume/), 'third_party')
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
+
+    // Las notas y la factura tienen su propio paso: el cierre ya no pregunta
+    // nada, solo repasa.
+    await continuar(dialog, 2)
+    await userEvent.type(
+      within(dialog).getByLabelText('Notas u observaciones'),
+      'Reparado en el concesionario.',
+    )
+    await continuar(dialog, 1)
+    expect(within(dialog).getByLabelText(/Factura del taller/)).toBeInTheDocument()
+    await continuar(dialog, 1)
+
+    // Llegar al repaso NO cierra la incidencia: se lee y DESPUÉS se acepta.
+    // Ni entrando en el paso ni enviando el formulario (Intro): cerrarla es
+    // pulsar su botón, que es lo único que guarda.
+    expect(mocks.resolveIncident).not.toHaveBeenCalled()
+    fireEvent.submit(dialog.querySelector('form') as HTMLFormElement)
+    expect(mocks.resolveIncident).not.toHaveBeenCalled()
+
+    // El último paso REPASA lo rellenado —al llegar al botón que cierra ya no
+    // se ve— y dice lo que se dejó en blanco, que es lo que hay que decidir si
+    // se vuelve a por ello. Y no pregunta nada: ni notas ni factura.
+    const repaso = within(dialog).getByText('Lo que vas a guardar')
+      .nextElementSibling as HTMLElement
+    expect(within(repaso).getByText('SIN-2026-14')).toBeInTheDocument()
+    expect(within(repaso).getByText('El tercero')).toBeInTheDocument()
+    expect(within(repaso).getByText('Reparado en el concesionario.')).toBeInTheDocument()
+    expect(within(repaso).getAllByText('Sin indicar').length).toBeGreaterThan(0)
+    expect(within(dialog).queryByLabelText('Notas u observaciones')).toBeNull()
+    expect(within(dialog).queryByLabelText(/Factura del taller/)).toBeNull()
+
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cerrar incidencia' }))
 
     await waitFor(() =>
       expect(mocks.resolveIncident).toHaveBeenCalledWith(33, {
         resolution_date: expect.any(String),
+        observations: 'Reparado en el concesionario.',
         accident: { claim_ref: 'SIN-2026-14', liability: 'third_party' },
       }),
     )
@@ -485,22 +714,28 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Incidencias/ }))
     await userEvent.click(await screen.findByRole('button', { name: 'Solucionar' }))
     const dialog = screen.getByRole('dialog', { name: 'Cerrar petición · 1234KLM' })
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
+    // La casilla del taller vive en el paso de las notas: es lo que añade los
+    // suyos, así que se pregunta ANTES.
+    await continuar(dialog, 1)
     expect(within(dialog).queryByLabelText('Kilometraje')).not.toBeInTheDocument()
     expect(within(dialog).queryByLabelText('Coste (€)')).not.toBeInTheDocument()
-    // Sin taller, el cierre es el ÚLTIMO paso: se guarda desde aquí.
-    expect(within(dialog).getByRole('button', { name: 'Cerrar incidencia' })).toBeInTheDocument()
 
-    // Marcarlo AÑADE el paso del taller; desmarcarlo se lo lleva, y lo que se
-    // hubiera escrito NO viaja.
+    // Marcarlo AÑADE el taller y su factura; desmarcarlo se los lleva, y lo
+    // que se hubiera escrito NO viaja.
     await userEvent.click(within(dialog).getByLabelText(/Requirió pasar por el taller/))
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
+    await continuar(dialog, 1)
     await userEvent.type(within(dialog).getByLabelText('Coste (€)'), '40')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Atrás' }))
     await userEvent.click(within(dialog).getByLabelText(/Requirió pasar por el taller/))
-    expect(within(dialog).queryByLabelText('Coste (€)')).not.toBeInTheDocument()
+    await userEvent.type(
+      within(dialog).getByLabelText('Notas u observaciones'),
+      'Tarjeta entregada',
+    )
 
-    await userEvent.type(within(dialog).getByLabelText('Observaciones'), 'Tarjeta entregada')
+    // Sin taller, del paso de las notas se pasa al repaso y ahí se cierra.
+    await continuar(dialog, 1)
+    expect(within(dialog).queryByText('Coste (€)')).toBeNull()
+    expect(within(dialog).getByText('Tarjeta entregada')).toBeInTheDocument()
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cerrar incidencia' }))
     await waitFor(() =>
       expect(mocks.resolveIncident).toHaveBeenCalledWith(34, {
@@ -524,7 +759,7 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     // La última lectura del resumen (4679 km), sin teclear cinco dígitos.
     expect(within(dialog).getByLabelText('Kilometraje')).toHaveValue('4679')
 
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
+    await continuar(dialog, 3)
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cerrar incidencia' }))
     await waitFor(() =>
       expect(mocks.resolveIncident).toHaveBeenCalledWith(31, {

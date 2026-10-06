@@ -130,6 +130,7 @@ export interface Vehicle {
 
 export type AlertType =
   | 'itv_due'
+  | 'itv_unscheduled'
   | 'insurance_due'
   | 'km_reading_pending'
   | 'km_overage'

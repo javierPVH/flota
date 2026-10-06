@@ -284,24 +284,20 @@ const es = {
     itvDate: 'Fecha de la ITV',
     itvDateRequired: 'Indica la fecha de la ITV.',
     itvToday: 'Hoy',
-    itvCalc: 'Calcular',
-    /** De dónde sale la fecha que ha puesto «Calcular». */
-    itvCalcNote: (periodo: string) =>
-      `Propuesta: ${periodo} desde la fecha de la ITV, por la edad del vehículo. Si el informe dice otra, corrígela.`,
     itvEveryYears: (n: number) => (n === 1 ? '1 año' : `${n} años`),
-    itvEveryMonths: (n: number) => `${n} meses`,
     itvResult: 'Resultado',
     itvResultDone: 'Favorable',
     itvResultNotDone: 'Desfavorable',
     /** Lo que está en juego al elegir, junto a cada opción. */
     itvResultDoneNote: 'Cierra los avisos de ITV del vehículo.',
     itvResultNotDoneNote: 'La cita sigue pendiente: los avisos no se cierran.',
-    itvNextDue: 'Próxima ITV',
-    itvNextDueHint: 'Opcional: la que indique el informe. En blanco, el coche queda sin próxima cita hasta que se registre.',
-    /** R3-32: espejo del back — la próxima ITV es posterior a la inspección. */
-    itvNextDueInvalid: 'La próxima ITV debe ser posterior a la fecha de la inspección.',
     itvAnyDate: 'Se puede registrar antes o después de esa fecha.',
     itvNoDate: 'Este vehículo no tiene próxima ITV registrada.',
+    /** El coche aún no tiene la edad de su primera ITV (`itvNotDueYet`). */
+    itvNotDueTitle: 'Todavía no le toca la ITV',
+    itvNotDueNote: (edad: string, fecha: string) =>
+      `Se matriculó hace menos de ${edad} y la primera ITV es a esa edad: le tocaría el ${fecha}. ` +
+      'Si aun así hay que pasarla o citarla, díselo a administración, que es quien programa las citas.',
     itvReport: 'Informe de la ITV',
     itvReportHint: 'Foto o PDF · opcional',
     itvReportChange: 'Toca para cambiarlo',
@@ -309,7 +305,7 @@ const es = {
     itvReportFailed: 'El informe no se pudo subir: súbelo desde Documentos del vehículo.',
     itvSubmit: 'Registrar ITV',
     itvSubmitting: 'Registrando…',
-    itvOk: 'ITV registrada. Los avisos asociados se cierran y la próxima fecha queda actualizada.',
+    itvOk: 'ITV registrada. Los avisos de ITV se cierran; la próxima cita la programa la gestión.',
     itvOffline: 'Estás sin conexión: la ITV se registrará sola en cuanto vuelva la red.',
     itvError: 'No se pudo registrar la ITV.',
     docType: 'Tipo de documento',
@@ -1059,6 +1055,7 @@ const es = {
     },
     alertType: {
       itv_due: 'ITV programada',
+      itv_unscheduled: 'ITV sin cita',
       insurance_due: 'Seguro próximo / vencido',
       km_reading_pending: 'Lectura de km pendiente',
       km_overage: 'Exceso de km proyectado',
@@ -1111,6 +1108,7 @@ const es = {
     alertMessage: {
       itv_overdue: 'ITV vencida hace {days} día(s) (venció el {due}).',
       itv_due: 'ITV en {days} día(s) (vence el {due}).',
+      itv_unscheduled: 'ITV favorable el {last} sin cita para la siguiente: hay que programarla.',
       insurance_overdue: 'Seguro vencido hace {days} día(s) (venció el {due}).',
       insurance_due: 'Seguro en {days} día(s) (vence el {due}).',
       km_pending: 'Falta la lectura de km de {period}.',
@@ -1374,21 +1372,18 @@ const en: typeof es = {
     itvDate: 'MOT date',
     itvDateRequired: 'Enter the MOT date.',
     itvToday: 'Today',
-    itvCalc: 'Work it out',
-    itvCalcNote: (periodo) =>
-      `Proposed: ${periodo} from the MOT date, based on the vehicle's age. If the report says otherwise, correct it.`,
     itvEveryYears: (n) => (n === 1 ? '1 year' : `${n} years`),
-    itvEveryMonths: (n) => `${n} months`,
     itvResult: 'Result',
     itvResultDone: 'Passed',
     itvResultNotDone: 'Failed',
     itvResultDoneNote: "Closes the vehicle's MOT alerts.",
     itvResultNotDoneNote: 'The appointment stays open: alerts are not closed.',
-    itvNextDue: 'Next MOT',
-    itvNextDueHint: 'Optional: the one on the report. Left blank, the vehicle has no next MOT until one is logged.',
-    itvNextDueInvalid: 'The next MOT must be after the inspection date.',
     itvAnyDate: 'It can be logged before or after that date.',
     itvNoDate: 'This vehicle has no next MOT on record.',
+    itvNotDueTitle: 'No MOT due yet',
+    itvNotDueNote: (edad, fecha) =>
+      `It was registered less than ${edad} ago and the first MOT is due at that age: ${fecha}. ` +
+      'If it still needs one, tell the back office — they book the appointments.',
     itvReport: 'MOT report',
     itvReportHint: 'Photo or PDF · optional',
     itvReportChange: 'Tap to replace it',
@@ -1396,7 +1391,7 @@ const en: typeof es = {
     itvReportFailed: "The report could not be uploaded: add it from the vehicle's Documents.",
     itvSubmit: 'Log MOT',
     itvSubmitting: 'Logging…',
-    itvOk: 'MOT logged. Related alerts are closed and the next date is updated.',
+    itvOk: 'MOT logged. MOT alerts are closed; the next booking is made by the back office.',
     itvOffline: 'You are offline: the MOT will be logged automatically once you reconnect.',
     itvError: 'Could not log the MOT.',
     docType: 'Document type',
@@ -2045,6 +2040,7 @@ const en: typeof es = {
     },
     alertType: {
       itv_due: 'Scheduled MOT',
+      itv_unscheduled: 'MOT not booked',
       insurance_due: 'Insurance due / expired',
       km_reading_pending: 'Km reading due',
       km_overage: 'Projected km overage',
@@ -2087,6 +2083,7 @@ const en: typeof es = {
     alertMessage: {
       itv_overdue: 'MOT overdue by {days} day(s) (it expired on {due}).',
       itv_due: 'MOT in {days} day(s) (expires on {due}).',
+      itv_unscheduled: 'MOT passed on {last} with no booking for the next one: it needs scheduling.',
       insurance_overdue: 'Insurance overdue by {days} day(s) (it expired on {due}).',
       insurance_due: 'Insurance in {days} day(s) (expires on {due}).',
       km_pending: 'The km reading for {period} is missing.',

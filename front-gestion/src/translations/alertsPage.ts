@@ -52,6 +52,7 @@ const es = {
   typeOptions: {
     all: 'Todos los tipos',
     itvDue: 'ITV programada',
+    itvUnscheduled: 'ITV sin cita',
     kmReadingPending: 'Lectura de km pendiente',
     kmOverage: 'Exceso de km proyectado',
     maintenanceDue: 'Mantenimiento programado',
@@ -208,6 +209,7 @@ const en: typeof es = {
   typeOptions: {
     all: 'All types',
     itvDue: 'Scheduled MOT',
+    itvUnscheduled: 'MOT not booked',
     kmReadingPending: 'Km reading pending',
     kmOverage: 'Projected km overage',
     maintenanceDue: 'Scheduled maintenance',

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Camera, ClipboardCheck, ClipboardList, Fuel, Gauge, Siren, Wrench } from 'lucide-react'
 
+import { isManagement, useAuth } from '../auth.ts'
 import { scheduledActionAvailable } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
@@ -30,6 +31,12 @@ export function VehicleActionButtons({
   onSaved?: () => void
 }) {
   const { t } = useLang()
+  const { user } = useAuth()
+  // La ITV la programa la GESTIÓN y quien conduce atiende la que haya: sin
+  // cita, a él no se le ofrece registrarla —ese botón solo podía acabar en
+  // «no hay ninguna programada»—. A quien gestiona sí: puede tener que
+  // registrar una que se pasó sin cita en el sistema.
+  const canManage = isManagement(user)
   const [open, setOpen] = useState<Action | null>(null)
   // Cita todavía lejos: el botón se pulsa igual y lo que abre es el porqué.
   const [info, setInfo] = useState<ScheduledKind | null>(null)
@@ -58,7 +65,8 @@ export function VehicleActionButtons({
           accident: t.accidentModal.button,
           document: t.vehicle.quickUpload,
         }
-  const actions: Array<{ key: Action; icon: typeof Gauge }> = [
+  const itvScheduled = Boolean(summary?.next_itv_date ?? vehicle?.next_itv_date)
+  const allActions: Array<{ key: Action; icon: typeof Gauge }> = [
     { key: 'km', icon: Gauge },
     // GAP-2: el gasto de combustible, junto a los km (los dos se apuntan a la
     // vuelta de la ruta y los dos son mensuales).
@@ -71,6 +79,9 @@ export function VehicleActionButtons({
     { key: 'accident', icon: Siren },
     { key: 'document', icon: Camera },
   ]
+  const actions = allActions.filter(
+    ({ key }) => key !== 'itv' || itvScheduled || canManage,
+  )
   const itvAvailable = scheduledActionAvailable(
     summary?.next_itv_date ?? vehicle?.next_itv_date,
   )

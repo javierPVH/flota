@@ -1,11 +1,28 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { AlertTriangle, Bell, CalendarClock, Gauge, ShieldAlert, UserX, Wrench } from 'lucide-react'
+import {
+  AlertTriangle,
+  Bell,
+  CalendarCheck,
+  CalendarClock,
+  Gauge,
+  ShieldAlert,
+  UserX,
+  Wrench,
+} from 'lucide-react'
 import { Badge, Button } from '@flota/ui/ui'
 
 import type { KmWindow } from '../api.ts'
 import { useDomainLabels } from '../domainLabels.ts'
+import { useFleetMode } from '../fleetMode.ts'
 import { useLang } from '../i18n.tsx'
-import { alertLevelTone, fmtDate, incidentStatusTone, tireReportSummary, todayIso } from '../format.ts'
+import {
+  alertLevelTone,
+  fmtDate,
+  hiddenFieldAlert,
+  incidentStatusTone,
+  tireReportSummary,
+  todayIso,
+} from '../format.ts'
 import type { Alert, Incident, Vehicle, VehicleSummary } from '../types.ts'
 import { DeadlineModal, useFieldDeadlines, type Deadline } from './FieldDeadlines.tsx'
 import { AlertResolveModal } from './AlertResolveModal.tsx'
@@ -58,6 +75,8 @@ function TypeFilter({
 /** El icono con el que la app nombra cada tipo de alerta (los mismos del nav). */
 const ALERT_ICONS: Record<string, ReactNode> = {
   itv_due: <CalendarClock size={18} aria-hidden className="doc-icon" />,
+  // El mismo icono con el que la app nombra «Programar ITV»: es lo que pide.
+  itv_unscheduled: <CalendarCheck size={18} aria-hidden className="doc-icon" />,
   km_reading_pending: <Gauge size={18} aria-hidden className="doc-icon" />,
   km_overage: <Gauge size={18} aria-hidden className="doc-icon" />,
   maintenance_due: <Wrench size={18} aria-hidden className="doc-icon" />,
@@ -70,6 +89,27 @@ const ALERT_ICONS: Record<string, ReactNode> = {
  * todos. Las demás se cierran con una observación, y eso es de quien
  * supervisa. */
 const FORM_ALERT_TYPES = new Set(['itv_due', 'km_reading_pending', 'maintenance_due'])
+
+/**
+ * De qué alerta del motor es hermano cada aviso de «Te queda poco».
+ *
+ * Son dos orígenes de la MISMA pregunta —qué tengo pendiente—: el motor abre
+ * las suyas cuando pasan sus trabajos programados y estas las calcula el
+ * móvil con el resumen del coche, así que entre pasada y pasada no tienen por
+ * qué coincidir. Cuando coinciden, la fila se escribía DOS veces («Lectura de
+ * km pendiente» y «Kilómetros de 8888TRX», una encima de otra). Manda la del
+ * motor: es la que lleva la fecha de vencimiento y la que se cierra al
+ * resolverla.
+ *
+ * El **combustible** no tiene alerta del motor (no hay plazo que contar: se
+ * anota en cada viaje), así que su aviso se pinta siempre.
+ */
+const DEADLINE_TWIN: Record<Deadline['kind'], string | null> = {
+  km: 'km_reading_pending',
+  itv: 'itv_due',
+  maintenance: 'maintenance_due',
+  fuel: null,
+}
 
 /** El tono de un aviso de vencimiento, dicho como nivel de alerta: así la
  * chapa y la franja de la fila cuentan lo mismo que en una alerta del motor. */
@@ -115,6 +155,7 @@ export function VehiclePendingCards({
 }) {
   const { t, language } = useLang()
   const etiqueta = useDomainLabels()
+  const fleetMode = useFleetMode()
   const [kmOpen, setKmOpen] = useState(false)
   const [itvOpen, setItvOpen] = useState(false)
   const [maintenanceOpen, setMaintenanceOpen] = useState(false)
@@ -142,15 +183,25 @@ export function VehiclePendingCards({
     () => (summary ? { [vehicle.id]: summary } : {}),
     [vehicle.id, summary],
   )
-  const deadlines = useFieldDeadlines(deadlineVehicles, deadlineSummaries, kmWindow)
+  const todas = useFieldDeadlines(deadlineVehicles, deadlineSummaries, kmWindow)
 
-  const alertTypes = typeOptions(alerts, etiqueta.alertType)
+  // Lo que esta tarjeta ENSEÑA, que no es todo lo que llega.
+  const visibles = alerts.filter((alert) => !hiddenFieldAlert(alert.type, fleetMode))
+  // Y de los avisos, los que no repiten una alerta del motor ya abierta.
+  const deadlines = todas.filter((notice) => {
+    const gemela = DEADLINE_TWIN[notice.kind]
+    return !gemela || !visibles.some((alert) => alert.type === gemela)
+  })
+
+  const alertTypes = typeOptions(visibles, etiqueta.alertType)
   const incidentTypes = typeOptions(others, etiqueta.incidentType)
   // Si al resolver algo desaparece el tipo elegido, se vuelve a «todos» en vez
   // de dejar la tarjeta en blanco filtrando por algo que ya no está.
   const alertPick = alertTypes.some(([type]) => type === alertType) ? alertType : ''
   const incidentPick = incidentTypes.some(([type]) => type === incidentType) ? incidentType : ''
-  const shownAlerts = alertPick ? alerts.filter((alert) => alert.type === alertPick) : alerts
+  const shownAlerts = alertPick
+    ? visibles.filter((alert) => alert.type === alertPick)
+    : visibles
   const shownIncidents = incidentPick
     ? others.filter((incident) => incident.type === incidentPick)
     : others
@@ -288,7 +339,7 @@ export function VehiclePendingCards({
         headingClassName="panel-title"
         className="vehicle-alerts-panel"
         accordion={accordion}
-        title={titleWith(t.vehicle.alertsTitle, alerts.length + deadlines.length)}
+        title={titleWith(t.vehicle.alertsTitle, visibles.length + deadlines.length)}
         actions={
           accordion.isOpen('alerts') && (
             <TypeFilter
@@ -301,7 +352,7 @@ export function VehiclePendingCards({
           )
         }
       >
-        {alerts.length === 0 && deadlines.length === 0 ? (
+        {visibles.length === 0 && deadlines.length === 0 ? (
           <div className="alerts-empty vehicle-alerts-empty">
             <p>{t.vehicle.alertsEmpty}</p>
           </div>

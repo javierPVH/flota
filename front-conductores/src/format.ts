@@ -76,6 +76,26 @@ export function pendingThisMonth(summary: VehicleSummary): boolean {
  * asoma, porque nace CERRADO.
  */
 const FIELD_INCIDENT_TYPES = ['breakdown', 'maintenance', 'general', 'tires', 'accident']
+/**
+ * Alertas que la app de CAMPO no enseña, aunque el back las mande.
+ *
+ * El back ya las quita por rol (`AlertViewSet.get_queryset`): el **seguro**
+ * a todo el que no sea admin —X1: es asunto de administración— y el **exceso
+ * de km proyectado** a quien no sea gestión. Pero al admin se las manda
+ * enteras, porque su front es el otro: a un admin que además conduce y
+ * supervisa se le colában las dos en la tarjeta de su propio coche. Esta
+ * función termina esa regla del lado de campo, y en un solo sitio.
+ *
+ * El **exceso** solo se cae en «Mi vehículo»: ahí se mira el coche que uno
+ * conduce y lo que lo arregla —que lo lleve otra persona— no está en su
+ * mano. En «Flota» se queda: es donde quien supervisa lo atiende, y su
+ * «Resolver» es el que propone otro conductor.
+ */
+export function hiddenFieldAlert(type: string, fleetMode: boolean): boolean {
+  if (type === 'insurance_due') return true
+  return type === 'km_overage' && !fleetMode
+}
+
 export function isOpenFieldIncident(incident: Incident): boolean {
   return incident.status !== 'closed' && FIELD_INCIDENT_TYPES.includes(incident.type)
 }

@@ -2018,10 +2018,16 @@ def seed_operations(stdout=None) -> None:
     drivers = [User.objects.get(username=username) for username, _, _ in BULK_DRIVERS]
 
     # ITV por vehículo: vencidas (i%7==0), a <30 días (i%7 in 1,2) o lejanas;
-    # + evento de alta para dar cuerpo al timeline de la ficha.
+    # + evento de alta para dar cuerpo al timeline de la ficha. El índice 3
+    # (activo) la pasó hace poco DESDE CAMPO: favorable y sin fecha para la
+    # siguiente (el registro de la PWA viaja sin `next_due`), así que queda sin
+    # cita y el motor levanta «ITV sin cita» (`check_itv_unscheduled`).
     for i in range(BULK_VEHICLES):
         vehicle = Vehicle.objects.get(plate=_bulk_plate(i))
-        if i % 7 == 0:
+        sin_cita = i == 3
+        if sin_cita:
+            next_due = None
+        elif i % 7 == 0:
             next_due = today - timedelta(days=3 + i % 20)
         elif i % 7 in (1, 2):
             next_due = today + timedelta(days=5 + i % 25)
@@ -2030,8 +2036,12 @@ def seed_operations(stdout=None) -> None:
         event = Event.objects.create(
             vehicle=vehicle,
             event_type=EventType.ITV,
-            event_date=today - timedelta(days=330 + i % 30),
-            notes="Inspección técnica superada sin defectos.",
+            event_date=today - timedelta(days=9 if sin_cita else 330 + i % 30),
+            notes=(
+                "Registrada desde la app de campo: favorable, sin cita para la siguiente."
+                if sin_cita
+                else "Inspección técnica superada sin defectos."
+            ),
         )
         EventItv.objects.create(
             event=event,
@@ -2584,7 +2594,8 @@ def seed_alerts(stdout=None) -> None:
 
     Así la bandeja refleja exactamente lo sembrado: ITV a 10 días + vencida,
     seguro a 20 días + vencido, exceso de km proyectado (v1) y, de la capa de
-    volumen, lecturas pendientes y vehículos sin conductor.
+    volumen, lecturas pendientes, vehículos sin conductor y una «ITV sin cita»
+    (el coche de volumen nº 3, que la pasó desde campo sin fecha siguiente).
 
     El coche de la supervisora (7890NPQ) lleva **todos los tipos que un
     conductor puede ver en campo**, que son los cinco del catálogo menos el

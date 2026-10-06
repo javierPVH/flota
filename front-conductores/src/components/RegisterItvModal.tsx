@@ -1,41 +1,30 @@
 import { useState, type FormEvent } from 'react'
-import { CalendarClock, Camera } from 'lucide-react'
+import { CalendarClock, CalendarOff, Camera } from 'lucide-react'
 import { Button, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { registerItv, uploadDocument } from '../api.ts'
 import { daysUntil, fmtDate, itvClass, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
-import { proposeNextItv } from '../itvSchedule.ts'
+import { itvNotDueYet } from '../itvSchedule.ts'
 import { compressImage } from '../offline/images.ts'
 import { enqueueItvWithReport, isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Vehicle } from '../types.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
-
-/** «cada 2 años» / «cada 18 meses»: la periodicidad, en lo que se lee mejor. */
-function periodLabel(months: number, t: ReturnType<typeof useLang>['t']): string {
-  return months % 12 === 0
-    ? t.vehicle.itvEveryYears(months / 12)
-    : t.vehicle.itvEveryMonths(months)
-}
-
-/** Día siguiente a una fecha ISO (YYYY-MM-DD), en local. */
-function nextDayIso(iso: string): string {
-  const day = new Date(`${iso}T00:00:00`)
-  day.setDate(day.getDate() + 1)
-  const month = String(day.getMonth() + 1).padStart(2, '0')
-  const dayOfMonth = String(day.getDate()).padStart(2, '0')
-  return `${day.getFullYear()}-${month}-${dayOfMonth}`
-}
 
 /** Registro de ITV compartido por la ficha y la resolución de alertas.
  *
  * `nextItvDate` es la cita que se está atendiendo: la del resumen si quien
  * abre el modal lo tiene (más fresco), y si no la del vehículo.
  *
- * El formulario cuenta la inspección en el orden en que se cuenta de palabra
- * —cuándo fue, cómo salió y, de ahí, qué deja detrás—, y de lo segundo cuelga
- * lo demás: la próxima cita solo existe si fue favorable. */
+ * El formulario cuenta la inspección en el orden en que se cuenta de palabra:
+ * cuándo fue, cómo salió y el informe que la acompaña.
+ *
+ * Lo que **no** pregunta es la fecha de la PRÓXIMA ITV: esa cita la programa
+ * la gestión, y el campo registra lo que ha pasado, no lo que vendrá. Por eso
+ * el registro viaja siempre con `next_due: null` y aquí ya no hace falta el
+ * espejo de R3-32 (la próxima, posterior a la inspección): sin campo no hay
+ * fecha que validar. */
 export function ItvPane({
   vehicle,
   nextItvDate,
@@ -53,9 +42,7 @@ export function ItvPane({
   // La fecha de la inspección nace VACÍA: es el dato del informe y hay que
   // mirarlo. Con «hoy» puesto de salida, registrar una ITV pasada el viernes
   // anterior se guardaba con la fecha de hoy sin que nadie lo notara.
-  const [form, setForm] = useState({ event_date: '', result: 'done', next_due: '' })
-  // De dónde sale la fecha propuesta, para decirlo bajo el campo.
-  const [proposedMonths, setProposedMonths] = useState<number | null>(null)
+  const [form, setForm] = useState({ event_date: '', result: 'done' })
   // El informe que entrega la estación (papel fotografiado o PDF). Opcional:
   // en campo no siempre se tiene a mano, y el registro no puede depender de él.
   const [report, setReport] = useState<File | null>(null)
@@ -68,8 +55,6 @@ export function ItvPane({
   // asi que el reintento manual tras un 502 podia crear DOS eventos de ITV.
   const [itvRef] = useState(newClientRef)
 
-  const favourable = form.result === 'done'
-
   async function submit(event: FormEvent) {
     event.preventDefault()
     // Espejo del `required` del campo: sin fecha no hay ITV que registrar y,
@@ -79,14 +64,6 @@ export function ItvPane({
       setError(t.vehicle.itvDateRequired)
       return
     }
-    // R3-32: el back exige próxima ITV ESTRICTAMENTE posterior a la inspección.
-    // Espejo en cliente (como el no-retroceso del km): online era un 400
-    // evitable, pero OFFLINE era pérdida — el registro se encolaba como fallo
-    // de red y el flush lo descartaba con el 400 del servidor.
-    if (favourable && form.next_due && form.next_due <= form.event_date) {
-      setError(t.vehicle.itvNextDueInvalid)
-      return
-    }
     setSaving(true)
     setError('')
     const payload = {
@@ -94,9 +71,8 @@ export function ItvPane({
       event_date: form.event_date,
       itv: {
         result: form.result,
-        // Opcional (2026-08-31): la fecha viene del informe y puede no estar a
-        // mano en campo; vacía se manda null (el back rechaza la cadena vacía).
-        next_due: favourable ? form.next_due || null : null,
+        // La próxima cita no se pone desde campo: la programa la gestión.
+        next_due: null,
       },
       // R3-34: misma referencia en el intento directo y en el reenvío offline.
       client_ref: itvRef,
@@ -145,6 +121,10 @@ export function ItvPane({
   // pasa la ITV antes o después y esta es la que la cumple (al guardarla
   // favorable, el back cierra sus avisos y la cita deja de estar pendiente).
   const nextItv = nextItvDate ?? vehicle.next_itv_date ?? null
+  // Un coche recién matriculado no pasa ITV: se dice antes de la cita y se
+  // remite a administración, que es quien las programa —aquí no se apaga
+  // nada: si hay que registrar una, se registra—.
+  const tooYoung = itvNotDueYet(vehicle, todayIso())
   const daysLeft = daysUntil(nextItv)
   const deadlines = t.home.deadlines
   // Qué cambia según el resultado, a la vista de los dos: es lo que está en
@@ -157,6 +137,20 @@ export function ItvPane({
 
   return (
     <>
+      {tooYoung && (
+        <div className="itv-notice itv-notice-early">
+          <CalendarOff size={18} aria-hidden />
+          <div>
+            <strong>{t.vehicle.itvNotDueTitle}</strong>
+            <span>
+              {t.vehicle.itvNotDueNote(
+                t.vehicle.itvEveryYears(tooYoung.years),
+                fmtDate(tooYoung.dueOn, language),
+              )}
+            </span>
+          </div>
+        </div>
+      )}
       <div className="itv-notice">
         <CalendarClock size={18} aria-hidden />
         <div>
@@ -191,7 +185,6 @@ export function ItvPane({
           <Button
             type="button"
             variant="secondary"
-            size="sm"
             onClick={() => setForm((current) => ({ ...current, event_date: todayIso() }))}
           >
             {t.vehicle.itvToday}
@@ -218,52 +211,6 @@ export function ItvPane({
             </label>
           ))}
         </fieldset>
-        {/* La próxima cita solo la deja una inspección favorable: con
-            «desfavorable» no se pregunta (antes salía en gris, que es una
-            pregunta que no se puede responder). */}
-        {favourable && (
-          <div className="itv-field">
-            <div className="field-action">
-              <TextInputField
-                label={t.vehicle.itvNextDue}
-                aria-label={t.vehicle.itvNextDue}
-                type="date"
-                // R3-32: estrictamente POSTERIOR a la inspección (el back rechaza
-                // «igual»); el submit lo revalida por si el navegador no aplica min.
-                min={form.event_date ? nextDayIso(form.event_date) : undefined}
-                value={form.next_due}
-                onChange={(event) => {
-                  setProposedMonths(null)
-                  setForm((current) => ({ ...current, next_due: event.target.value }))
-                }}
-              />
-              {/* Se calcula DESDE la inspección, así que sin ella no hay nada
-                  que calcular y el botón está apagado. */}
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={!form.event_date}
-                onClick={() => {
-                  const proposal = proposeNextItv(vehicle, form.event_date)
-                  if (!proposal) return
-                  setProposedMonths(proposal.months)
-                  setForm((current) => ({ ...current, next_due: proposal.date }))
-                }}
-              >
-                {t.vehicle.itvCalc}
-              </Button>
-            </div>
-            {/* Dejarla en blanco no es neutro: el back toma la última favorable
-                y el coche se queda SIN cita hasta que se registre. Y si la ha
-                puesto el botón, de dónde sale: la del informe manda. */}
-            <small className="field-hint">
-              {proposedMonths === null
-                ? t.vehicle.itvNextDueHint
-                : t.vehicle.itvCalcNote(periodLabel(proposedMonths, t))}
-            </small>
-          </div>
-        )}
         {/* El informe de la estación, con la misma caja de adjuntar que el
             resto de la app (cámara, galería o PDF). Queda colgado de esta ITV
             en Documentos del vehículo. */}

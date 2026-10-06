@@ -197,6 +197,7 @@ class CatalogoTests(TestCase):
             {
                 "itv_overdue",
                 "itv_due",
+                "itv_unscheduled",
                 "insurance_overdue",
                 "insurance_due",
                 "km_pending",

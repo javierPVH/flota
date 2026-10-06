@@ -123,6 +123,20 @@ class AdminWriteManagementOrDriverRead(RoleReadWritePermission):
     write_roles = ("is_admin",)
 
 
+class ManagementWriteDriverRead(RoleReadWritePermission):
+    """Lee gestión o conductor; escribe gestión (admin/supervisor).
+
+    El plan de mantenimiento: quien conduce lo LEE (la PWA lo abre para
+    marcarlo hecho) y quien supervisa lo PROGRAMA, acotado a su grupo por el
+    scope. Entre `AdminWriteManagementOrDriverRead` (escribía solo admin) y
+    `ManagementOrDriverReadWrite` (escribía también el conductor) no había
+    ninguna que dijera esto.
+    """
+
+    read_roles = ("is_management", "is_driver")
+    write_roles = ("is_management",)
+
+
 class ManagementReadWrite(RoleReadWritePermission):
     """Lee y escribe gestión (admin/supervisor). El scope acota al supervisor."""
 

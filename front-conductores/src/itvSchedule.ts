@@ -1,44 +1,30 @@
-/** Propuesta de próxima ITV: cada cuánto vuelve a tocar.
+/** La PRIMERA ITV: cuándo empieza a tocar.
  *
- * La periodicidad legal española depende de la EDAD del vehículo (desde su
- * matriculación) y de lo que sea. Es una PROPUESTA para no teclear la fecha a
- * mano: manda siempre la del informe de la estación, y por eso el campo queda
- * editable después de calcularla.
+ * En campo no se programa ninguna cita —eso es de gestión—, así que lo único
+ * que este módulo decide es si el coche es todavía demasiado nuevo para tener
+ * que pasar la ITV, que es lo que avisa el formulario de registro.
  *
- * Tabla aplicada (turismos y motos, furgonetas ≤3.500 kg, camiones):
- * - Turismo: hasta 10 años, cada 2 años; a partir de 10, anual.
- * - Motocicleta: cada 2 años.
- * - Furgoneta: hasta 6 años, cada 2 años; de 6 a 10, anual; a partir de 10,
- *   cada 6 meses.
- * - Camión: hasta 10 años, anual; a partir de 10, cada 6 meses.
- * - Sin fecha de matriculación o de un tipo que no está en la tabla: anual,
- *   que es el intervalo más corto de los habituales — propone antes de tiempo
- *   en vez de tarde.
+ * Aquí vivía también la PROPUESTA de la próxima (la periodicidad legal por
+ * tipo y edad, que alimentaba un botón «Calcular» junto al campo «Próxima
+ * ITV»). Se retiró con el campo: la fecha de la siguiente inspección la pone
+ * la gestión, y proponerla desde el móvil solo servía para que dos sitios
+ * dijeran cosas distintas.
  */
 
-/** Meses que se suman a la inspección, por tipo y edad del vehículo. */
-function periodMonths(type: string, ageYears: number | null): number {
-  if (type === 'motorcycle') return 24
-  if (ageYears === null) return 12
-  if (type === 'van') {
-    if (ageYears > 10) return 6
-    return ageYears >= 6 ? 12 : 24
-  }
-  if (type === 'truck') return ageYears > 10 ? 6 : 12
-  if (type === 'car') return ageYears > 10 ? 12 : 24
-  return 12
-}
-
-/** Años cumplidos entre dos fechas ISO (YYYY-MM-DD), en local. */
-function yearsBetween(fromIso: string, toIso: string): number {
-  const from = new Date(`${fromIso}T00:00:00`)
-  const to = new Date(`${toIso}T00:00:00`)
-  let years = to.getFullYear() - from.getFullYear()
-  const beforeAnniversary =
-    to.getMonth() < from.getMonth() ||
-    (to.getMonth() === from.getMonth() && to.getDate() < from.getDate())
-  if (beforeAnniversary) years -= 1
-  return years
+/**
+ * Edad a la que toca la PRIMERA ITV, en años y por tipo: un coche recién
+ * matriculado no pasa ninguna. Turismos y motos, a los 4; furgonetas, a los
+ * 2; camiones, al año —no son cuatro para todos, y decirle a quien supervisa
+ * que a su furgoneta de tres años no le toca sería mandarla sin ITV—.
+ *
+ * Un tipo que no esté en la tabla no dice nada: callar es mejor que afirmar
+ * que no hace falta.
+ */
+const FIRST_ITV_YEARS: Record<string, number> = {
+  car: 4,
+  motorcycle: 4,
+  van: 2,
+  truck: 1,
 }
 
 /** Suma meses a una fecha ISO sin salirse del mes: el 31 de enero + 1 mes es
@@ -52,22 +38,31 @@ function addMonths(iso: string, months: number): string {
   return `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`
 }
 
-export interface ItvProposal {
-  /** Fecha propuesta, en ISO. */
-  date: string
-  /** Periodicidad aplicada, en meses (para decir de dónde sale la fecha). */
-  months: number
+export interface ItvNotDueYet {
+  /** Edad a la que le toca la primera, en años. */
+  years: number
+  /** El día en que la cumple, en ISO. */
+  dueOn: string
 }
 
-/** Propone la próxima ITV a partir de la fecha de ESTA inspección. Devuelve
- * `null` si aún no hay fecha de inspección: sin ella no hay nada que calcular. */
-export function proposeNextItv(
+/**
+ * ¿Es el coche demasiado nuevo para tener que pasar la ITV? Devuelve a qué
+ * edad le toca la primera y cuándo la cumple, o `null` si ya le toca —o si no
+ * se puede afirmar: sin fecha de matriculación o con un tipo fuera de la
+ * tabla—.
+ *
+ * Es informativo y NO apaga nada: la cita la pone la gestión y puede tener
+ * sus motivos (una revisión voluntaria, un vehículo importado), así que lo
+ * que hace el campo es leerlo y preguntar.
+ */
+export function itvNotDueYet(
   vehicle: { type?: string; registration_date?: string | null },
-  inspectionIso: string,
-): ItvProposal | null {
-  if (!inspectionIso) return null
+  todayIsoDate: string,
+): ItvNotDueYet | null {
   const registration = vehicle.registration_date || null
-  const age = registration ? yearsBetween(registration, inspectionIso) : null
-  const months = periodMonths(vehicle.type ?? '', age)
-  return { date: addMonths(inspectionIso, months), months }
+  const years = FIRST_ITV_YEARS[vehicle.type ?? '']
+  if (!registration || years === undefined) return null
+  const dueOn = addMonths(registration, years * 12)
+  // Fechas ISO: comparar como texto ya las ordena.
+  return dueOn > todayIsoDate ? { years, dueOn } : null
 }

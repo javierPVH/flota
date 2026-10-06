@@ -43,6 +43,11 @@ def _itv_due(*, days: int, due: str) -> str:
     return f"ITV en {days} día(s) (vence el {due})."
 
 
+@_plantilla("itv_unscheduled")
+def _itv_unscheduled(*, last: str) -> str:
+    return f"ITV favorable el {last} sin cita para la siguiente: hay que programarla."
+
+
 @_plantilla("insurance_overdue")
 def _insurance_overdue(*, days: int, due: str) -> str:
     return f"Seguro vencido hace {days} día(s) (venció el {due})."

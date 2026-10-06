@@ -259,10 +259,12 @@ describe('MyVehiclesPage (M1)', () => {
     renderPage()
     await screen.findByText('1234KLM')
     // Plegados: el contenido no se ve hasta abrir cada acordeón, pero el
-    // recuento de cada familia sí — es lo que se lee sin abrir nada (y el
-    // de alertas suma la del motor más los dos avisos de vencimiento).
+    // recuento de cada familia sí — es lo que se lee sin abrir nada. En
+    // alertas son DOS: la del motor (lectura de km pendiente) y el aviso del
+    // combustible. El aviso de km NO se suma: dice lo mismo que la alerta del
+    // motor, y una cosa pendiente es una fila, no dos.
     expect(await screen.findByText(/No arranca en frío/)).not.toBeVisible()
-    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*3/)
+    expect(screen.getByRole('button', { name: /^Alertas/ })).toHaveTextContent(/Alertas\s*2/)
     expect(screen.getByRole('button', { name: /^Incidencias/ })).toHaveTextContent(
       /Incidencias\s*3/,
     )

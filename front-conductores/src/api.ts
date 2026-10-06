@@ -311,6 +311,49 @@ export interface MaintenancePlanRow {
 export const listMaintenancePlans = (vehicle: number) =>
   getJson<Paginated<MaintenancePlanRow>>(`${API}/maintenance-plans/?vehicle=${vehicle}&${PS}`)
 
+/** Catálogo COMÚN de programas de mantenimiento: el «cada cuánto» no se teclea
+ * por coche, sale de aquí y se COPIA al plan al programarlo (así, tocar el
+ * catálogo después no mueve por detrás el vencimiento de lo ya programado).
+ * El campo solo lo LEE; darlo de alta es de administración (Ajustes). */
+export interface MaintenanceProgramRow {
+  id: number
+  name: string
+  every_km: number | null
+  every_months: number | null
+  /** El ciclo en texto, tal cual lo arma el back: «30000 km / 12 meses». */
+  cycle_label: string
+  notes: string
+}
+
+export const listMaintenancePrograms = () =>
+  getJson<Paginated<MaintenanceProgramRow>>(`${API}/maintenance-programs/?${PS}`)
+
+/** Programa el mantenimiento de un coche (uno activo por vehículo: el back
+ * rechaza el segundo). Lo escribe la gestión —en campo, quien supervisa, y el
+ * back lo acota a su grupo—. Invalida la caché: la próxima cita viaja en el
+ * resumen del coche y las tarjetas la pintan. */
+export const createMaintenancePlan = (data: {
+  vehicle: number
+  program: number
+  name: string
+  every_km: number | null
+  every_months: number | null
+  last_done_date: string | null
+  last_done_km: number | null
+  workshop_postal_code?: string
+  notes?: string
+}) => invalidating(postJson<MaintenancePlanRow>(`${API}/maintenance-plans/`, data))
+
+/** Cita la próxima ITV. La cita es UNA por vehículo (`next_itv_date`): si ya
+ * había fecha esto la CORRIGE. Quitarla sigue siendo de administración. */
+export const scheduleItv = (id: number, data: { date: string; postal_code?: string }) =>
+  invalidating(
+    postJson<Vehicle & { previous_next_itv_date: string | null; changed: boolean }>(
+      `${API}/vehicles/${id}/schedule-itv/`,
+      data,
+    ),
+  )
+
 /** «Realizado»: reancla el ciclo del plan y resuelve sus alertas abiertas. */
 export const markMaintenanceDone = (id: number, data: { date?: string; km?: number } = {}) =>
   invalidating(

@@ -53,6 +53,7 @@ export const es = {
   } as Record<string, string>,
   alertType: {
     itv_due: 'ITV programada',
+    itv_unscheduled: 'ITV sin cita',
     insurance_due: 'Seguro próximo / vencido',
     km_reading_pending: 'Lectura de km pendiente',
     km_overage: 'Exceso de km proyectado',
@@ -74,6 +75,7 @@ export const es = {
   alertMessage: {
     itv_overdue: 'ITV vencida hace {days} día(s) (venció el {due}).',
     itv_due: 'ITV en {days} día(s) (vence el {due}).',
+    itv_unscheduled: 'ITV favorable el {last} sin cita para la siguiente: hay que programarla.',
     insurance_overdue: 'Seguro vencido hace {days} día(s) (venció el {due}).',
     insurance_due: 'Seguro en {days} día(s) (vence el {due}).',
     km_pending: 'Falta la lectura de km de {period}.',
@@ -204,6 +206,7 @@ export const en: typeof es = {
   },
   alertType: {
     itv_due: 'Scheduled MOT',
+    itv_unscheduled: 'MOT not booked',
     insurance_due: 'Insurance due / expired',
     km_reading_pending: 'Km reading pending',
     km_overage: 'Projected km overage',
@@ -215,6 +218,7 @@ export const en: typeof es = {
   alertMessage: {
     itv_overdue: 'MOT overdue by {days} day(s) (it expired on {due}).',
     itv_due: 'MOT in {days} day(s) (expires on {due}).',
+    itv_unscheduled: 'MOT passed on {last} with no booking for the next one: it needs scheduling.',
     insurance_overdue: 'Insurance overdue by {days} day(s) (it expired on {due}).',
     insurance_due: 'Insurance in {days} day(s) (expires on {due}).',
     km_pending: 'The km reading for {period} is missing.',

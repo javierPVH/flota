@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   listVehiclesCached: vi.fn(),
   fetchVehicleSummaries: vi.fn(),
   remindVehicle: vi.fn(),
+  scheduleItv: vi.fn(),
   createKmReading: vi.fn(),
   listMaintenancePlans: vi.fn(),
   markMaintenanceDone: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listVehiclesCached: mocks.listVehiclesCached,
   fetchVehicleSummariesCached: mocks.fetchVehicleSummaries,
   remindVehicle: mocks.remindVehicle,
+  scheduleItv: mocks.scheduleItv,
   createKmReading: mocks.createKmReading,
   listMaintenancePlans: mocks.listMaintenancePlans,
   markMaintenanceDone: mocks.markMaintenanceDone,
@@ -261,6 +263,30 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
       message: '',
     })
     expect(await screen.findByText(/Alerta creada en la app\. Correo enviado\./)).toBeInTheDocument()
+  })
+
+  it('cada tarjeta cita la ITV de su coche, y eso lo guarda el back', async () => {
+    // Citar era solo de gestión y a quien supervisa le tocaba pedirlo por
+    // teléfono: responde de estos coches, así que los cita desde su tarjeta.
+    mocks.scheduleItv.mockResolvedValue({})
+    renderPage()
+    await screen.findByText('1111AAA')
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Programar ITV' })[0])
+    const dialog = await screen.findByRole('dialog', { name: 'Programar ITV · 1111AAA' })
+    fireEvent.change(within(dialog).getByLabelText('Fecha de la ITV'), {
+      target: { value: '2027-05-10' },
+    })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Programar' }))
+
+    await waitFor(() =>
+      expect(mocks.scheduleItv).toHaveBeenCalledWith(1, {
+        date: '2027-05-10',
+        postal_code: '',
+      }),
+    )
+    // No se cierra sola: dice lo que quedó citado.
+    expect(await within(dialog).findByRole('status')).toHaveTextContent(/ITV citada el/)
   })
 
   it('el modal personalizado solo actualiza mantenimiento en nombre del conductor', async () => {

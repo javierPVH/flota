@@ -32,6 +32,7 @@ from accounts.permissions import (
     IsManagementOrDriverReadOnly,
     ManagementOrDriverReadWrite,
     ManagementReadWrite,
+    ManagementWriteDriverRead,
 )
 from core.throttling import PublicWriteThrottle
 
@@ -616,9 +617,20 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         data["alerts_resolved"] = result["alerts_resolved"]
         return Response(data)
 
-    @action(detail=True, methods=["post"], url_path="schedule-itv", permission_classes=[IsAdmin])
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="schedule-itv",
+        permission_classes=[IsManagement],
+    )
     def schedule_itv(self, request, pk=None):
         """POST /api/v1/vehicles/{id}/schedule-itv/ — programa la próxima ITV.
+
+        La programa la GESTIÓN: admin y **supervisor**, este acotado a su grupo
+        por el ámbito del mixin (`vehicles_for(write=True)`), porque es quien
+        responde de esos coches y la PWA le ofrece el gesto en la tarjeta y en
+        la ficha. Quitarla (`unschedule-itv`) sigue siendo de admin: citar de
+        más se corrige volviendo a citar, y dejar un coche SIN cita no.
 
         `{date*, postal_code?}`. La cita es UNA por vehículo (`next_itv_date`):
         si ya hay fecha esto la CORRIGE, no añade otra. Queda marcada como
@@ -2370,7 +2382,9 @@ class AlertViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
         # conduce. Al conductor no se le enseña (ni la alerta ni, en los
         # resúmenes, la proyección de la que sale).
         if not user.is_management and not hse_reading:
-            qs = qs.exclude(type=AlertType.KM_OVERAGE)
+            # Y «ITV sin cita» también: la cita la pone la gestión, y a quien
+            # conduce solo se le enseña lo que puede atender.
+            qs = qs.exclude(type__in=[AlertType.KM_OVERAGE, AlertType.ITV_UNSCHEDULED])
         return qs
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
@@ -2888,9 +2902,11 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
     # El CONDUCTOR lee el plan de su coche: la app de campo lo necesita para
     # «Mantenimiento» (nav de Mi vehiculo, «Te queda poco» y la alerta
     # `maintenance_due`), que abre el plan y lo marca hecho. Con solo gestion
-    # ese boton acababa en un 403 para quien conduce. El ambito lo acota el
-    # mixin (sus vehiculos); crear, editar y retirar el plan sigue siendo admin.
-    permission_classes = [AdminWriteManagementOrDriverRead | HseReadOnly]
+    # ese boton acababa en un 403 para quien conduce. Y lo PROGRAMA la
+    # gestion: tambien el supervisor, que responde de esos coches y lo hace
+    # desde la PWA; el ambito lo acota el mixin (su grupo), asi que un plan
+    # sobre un coche ajeno sigue siendo un 403 del scope.
+    permission_classes = [ManagementWriteDriverRead | HseReadOnly]
     queryset = MaintenancePlan.objects.select_related("vehicle", "program")
     filterset_fields = ["vehicle"]
     search_fields = ["name", "vehicle__plate"]

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -58,10 +58,13 @@ function inDays(days: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
-describe('RegisterItvModal: la próxima ITV es opcional', () => {
+describe('RegisterItvModal: registrar la ITV que se ha pasado', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     document.documentElement.lang = 'es'
+    // `clearAllMocks` no devuelve el rol: se fija aquí para que un caso no se
+    // lleve el del anterior.
+    mocks.roles = ['driver']
     mocks.registerItv.mockResolvedValue({ id: 1 })
     mocks.uploadDocument.mockResolvedValue({ id: 50 })
   })
@@ -85,11 +88,9 @@ describe('RegisterItvModal: la próxima ITV es opcional', () => {
     expect(favourable.closest('label')).toHaveTextContent('Cierra los avisos de ITV del vehículo.')
     expect(failed.closest('label')).toHaveTextContent('La cita sigue pendiente: los avisos no se cierran.')
 
-    // Una ITV desfavorable no deja próxima cita, así que no se pregunta por
-    // ella (antes salía en gris: una pregunta que no se puede responder).
-    expect(screen.getByLabelText('Próxima ITV')).toBeInTheDocument()
+    // Elegir es lo único que hace: el formulario no cambia de forma.
     await userEvent.click(failed)
-    expect(screen.queryByLabelText('Próxima ITV')).not.toBeInTheDocument()
+    expect(failed).toBeChecked()
   })
 
   it('la fecha nace VACÍA y «Hoy» es el atajo, no lo predeterminado', async () => {
@@ -103,27 +104,68 @@ describe('RegisterItvModal: la próxima ITV es opcional', () => {
     expect(date.value).toBe(todayIso())
   })
 
-  it('«Calcular» propone la próxima por la EDAD del coche, y solo con fecha de ITV', async () => {
-    // Turismo de 6 años: bienal. La propuesta se puede corregir — manda el
-    // informe —, y por eso el campo sigue siendo editable y dice de dónde sale.
+  it('un coche demasiado nuevo avisa de que aún no le toca la ITV', () => {
+    // Turismo matriculado hace un año: la primera ITV es a los 4.
     render(
       <LanguageProvider>
         <RegisterItvModal
-          vehicle={{ ...VEHICLE, type: 'car', registration_date: '2020-03-10' } as Vehicle}
+          vehicle={{ ...VEHICLE, type: 'car', registration_date: inDays(-365) } as Vehicle}
           onClose={vi.fn()}
         />
       </LanguageProvider>,
     )
 
-    const calcular = screen.getByRole('button', { name: 'Calcular' })
-    expect(calcular).toBeDisabled()
+    const aviso = document.querySelector('.itv-notice-early') as HTMLElement
+    expect(aviso).toHaveTextContent('Todavía no le toca la ITV')
+    expect(aviso).toHaveTextContent(/Se matriculó hace menos de 4 años/)
+    // Y a quién hay que decírselo si aun así hace falta: la cita la programa
+    // la gestión, no el campo.
+    expect(aviso).toHaveTextContent(/díselo a administración/)
 
-    fireEvent.change(screen.getByLabelText('Fecha de la ITV'), { target: { value: '2026-09-15' } })
-    expect(calcular).toBeEnabled()
-    await userEvent.click(calcular)
+    // Es informativo y no apaga nada: si hay una ITV que registrar, se registra.
+    expect(screen.getByLabelText('Fecha de la ITV')).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Registrar ITV' })).toBeEnabled()
+  })
 
-    expect(screen.getByLabelText('Próxima ITV')).toHaveValue('2028-09-15')
-    expect(screen.getByText(/Propuesta: 2 años desde la fecha de la ITV/)).toBeInTheDocument()
+  it('no son cuatro años para todos: a la furgoneta de tres ya le tocaba', () => {
+    // La primera de una furgoneta es a los 2: darle los 4 del turismo la
+    // mandaría a rodar un año sin ITV.
+    render(
+      <LanguageProvider>
+        <RegisterItvModal
+          vehicle={{ ...VEHICLE, type: 'van', registration_date: inDays(-365 * 3) } as Vehicle}
+          onClose={vi.fn()}
+        />
+      </LanguageProvider>,
+    )
+    expect(document.querySelector('.itv-notice-early')).toBeNull()
+  })
+
+  it('sin fecha de matriculación no se afirma nada', () => {
+    renderModal(inDays(12))
+    expect(document.querySelector('.itv-notice-early')).toBeNull()
+  })
+
+  it('la próxima ITV no se pone desde campo: la programa la gestión', async () => {
+    // Aquí se registra lo que ha pasado, no lo que vendrá —y con la cita
+    // cumplida el coche se queda sin ninguna hasta que la gestión ponga la
+    // siguiente, que es lo que devuelve el botón de ITV al nav de campo—.
+    renderModal(inDays(12))
+
+    expect(screen.queryByLabelText('Próxima ITV')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Calcular' })).toBeNull()
+
+    // Y el registro viaja SIEMPRE sin ella.
+    await userEvent.click(screen.getByRole('button', { name: 'Hoy' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Registrar ITV' }))
+    await waitFor(() =>
+      expect(mocks.registerItv).toHaveBeenCalledWith({
+        vehicle: 3,
+        event_date: todayIso(),
+        itv: { result: 'done', next_due: null },
+        client_ref: expect.any(String),
+      }),
+    )
   })
 
   it('con la cita vencida lo dice en pasado (y sin cita, lo dice y no la inventa)', () => {
@@ -157,25 +199,6 @@ describe('RegisterItvModal: la próxima ITV es opcional', () => {
       }),
     )
     expect(onSaved).toHaveBeenCalled()
-  })
-
-  it('con próxima fecha, se envía tal cual', async () => {
-    renderModal()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Hoy' }))
-    fireEvent.change(screen.getByLabelText('Próxima ITV'), {
-      target: { value: '2027-09-01' },
-    })
-    await userEvent.click(screen.getByRole('button', { name: 'Registrar ITV' }))
-
-    await waitFor(() =>
-      expect(mocks.registerItv).toHaveBeenCalledWith({
-        vehicle: 3,
-        event_date: todayIso(),
-        itv: { result: 'done', next_due: '2027-09-01' },
-        client_ref: expect.any(String),
-      }),
-    )
   })
 
   it('el informe se sube colgado del registro de ESA ITV', async () => {
@@ -219,26 +242,4 @@ describe('RegisterItvModal: la próxima ITV es opcional', () => {
     expect(onSaved.mock.calls[0][0]).toContain('El informe no se pudo subir')
   })
 
-  it('R3-32: la próxima ITV igual a la inspección se corta en cliente', async () => {
-    // El back exige próxima ESTRICTAMENTE posterior; sin el espejo, offline
-    // era pérdida (se encolaba y el flush lo descartaba con el 400).
-    const onSaved = renderModal()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Hoy' }))
-    // El input ya no ofrece la fecha de la inspección: `min` = día siguiente
-    // (el navegador corta el submit nativo por rangeUnderflow).
-    const nextDue = screen.getByLabelText('Próxima ITV') as HTMLInputElement
-    expect(nextDue.min > todayIso()).toBe(true)
-
-    fireEvent.change(nextDue, { target: { value: todayIso() } })
-    // `fireEvent.submit` esquiva la validación nativa: prueba el ESPEJO del
-    // handler (navegadores/flujos que no la apliquen).
-    fireEvent.submit(document.querySelector('form') as HTMLFormElement)
-
-    expect(
-      await screen.findByText('La próxima ITV debe ser posterior a la fecha de la inspección.'),
-    ).toBeInTheDocument()
-    expect(mocks.registerItv).not.toHaveBeenCalled()
-    expect(onSaved).not.toHaveBeenCalled()
-  })
 })

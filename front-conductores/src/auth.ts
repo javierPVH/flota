@@ -78,6 +78,21 @@ export const isManagementOnly = (user: FlotaUser | null): boolean =>
 /** Nombre histórico: hoy cubre también al HSE puro. */
 export const isAdminOnly = isManagementOnly
 
+/** Los roles que GESTIONAN (resolver, recordar, citar): el `is_management`
+ * del back. HSE no está: lee, no actúa. */
+const MANAGEMENT_ROLES: readonly Role[] = ['admin', 'supervisor']
+
+/**
+ * ¿Puede ACTUAR sobre lo que ve (resolver una petición, mandar un recordatorio,
+ * programar la ITV)? Es un criterio de PERMISO y por eso no es
+ * `hasWideReadScope`: a HSE el back le manda toda la flota, pero no le deja
+ * tocar nada. Vive aquí, con los otros predicados de rol, porque cada pantalla
+ * lo escribía a mano y cuatro copias del mismo `some` acaban diciendo cosas
+ * distintas.
+ */
+export const isManagement = (user: FlotaUser | null): boolean =>
+  !!user && user.roles.some((role) => MANAGEMENT_ROLES.includes(role))
+
 /**
  * ¿El back le manda MÁS coches que los que conduce? Al administrador toda la
  * flota, al supervisor su grupo y a HSE toda la flota en LECTURA. Es un

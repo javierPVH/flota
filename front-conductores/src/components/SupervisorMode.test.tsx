@@ -246,12 +246,33 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(screen.getByRole('button', { name: 'Mi perfil' })).toBeInTheDocument()
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
     await waitFor(() => expect(within(nav).getByRole('button', { name: 'Km' })).toBeEnabled())
+    // Sin ITV programada NO le sale la ITV: la cita la pone la gestión y quien
+    // conduce atiende la que haya —ese botón solo podía acabar en «no hay
+    // ninguna programada»—. Este coche no tiene (`OWN.next_itv_date: null`).
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Incidencia', 'Accidente', 'Subir documento',
+      'Km', 'Combustible', 'Mantenimiento', 'Incidencia', 'Accidente', 'Subir documento',
     ])
     await userEvent.click(within(nav).getByRole('button', { name: 'Km' }))
     expect(screen.getByRole('dialog', { name: 'Registrar km · 7890NPQ' })).toBeInTheDocument()
     expect(screen.queryByText(/responsabilidad de registrar los km/)).not.toBeInTheDocument()
+  })
+
+  it('con la ITV programada, el conductor sí la tiene en el nav', async () => {
+    mocks.roles = ['driver']
+    mocks.listVehicles.mockResolvedValue({
+      count: 1,
+      results: [{ ...OWN, next_itv_date: '2030-03-01' }],
+    })
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      { vehicle: 3, km_current: 1000, km_reading_date: null, driver: { id: 1, name: 'Sara S' } },
+    ])
+    renderShell()
+
+    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
+    await waitFor(() => expect(within(nav).getByRole('button', { name: 'Km' })).toBeEnabled())
+    // Hay cita, así que el botón vuelve —apagado hasta 30 días antes, que es
+    // otra cosa: el toque sigue explicando desde cuándo—.
+    expect(within(nav).getByRole('button', { name: 'ITV' })).toBeInTheDocument()
   })
 
   it('el administrador conductor habilita el nav sobre su coche, no sobre toda la flota', async () => {

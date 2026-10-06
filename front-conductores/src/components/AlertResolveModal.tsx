@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button } from '@flota/ui/ui'
+import { Button, Modal } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
@@ -44,6 +44,13 @@ export function AlertResolveModal({
   // Los km contratados NO se arreglan con una observación: el coche rueda más
   // de lo que se contrató, y lo que lo cambia es que lo lleve otra persona.
   const isOverage = alert.type === 'km_overage' && alert.vehicle !== null
+  // ...y por eso esta es la única que se abre SIN el aviso de
+  // responsabilidad: ese aviso dice que lo registrado queda a nombre de
+  // quien supervisa porque actúa EN LUGAR del conductor, y la proyección y
+  // su alerta son de gestión —al conductor no se le enseñan ni le llegan—.
+  // Aquí no se suplanta a nadie: se resuelve lo propio o se propone un
+  // relevo que decide administración.
+  const Marco = isOverage ? Modal : SupervisorModal
   const [km, setKm] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
@@ -116,7 +123,7 @@ export function AlertResolveModal({
   }
 
   return (
-    <SupervisorModal
+    <Marco
       open
       title={
         isKm
@@ -242,6 +249,6 @@ export function AlertResolveModal({
           </div>
         )}
       </div>
-    </SupervisorModal>
+    </Marco>
   )
 }

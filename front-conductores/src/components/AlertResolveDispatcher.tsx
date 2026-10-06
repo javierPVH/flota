@@ -2,6 +2,7 @@ import { AlertResolveModal } from './AlertResolveModal.tsx'
 import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
 import { RegisterItvModal } from './RegisterItvModal.tsx'
 import { RegisterKmModal } from './RegisterKmModal.tsx'
+import { ScheduleItvModal } from './ScheduleModal.tsx'
 import type { Alert, Vehicle, VehicleSummary } from '../types.ts'
 
 /**
@@ -59,6 +60,11 @@ export function AlertResolveDispatcher({
   }
   if (conCoche && alert.type === 'maintenance_due') {
     return <MaintenanceUpdateModal vehicle={vehicle} onClose={onClose} onSaved={onResolved} />
+  }
+  // «ITV sin cita» se resuelve CITANDO (el back cierra el aviso al guardar la
+  // cita). Solo la ve quien gestiona, que es quien puede programarla.
+  if (conCoche && alert.type === 'itv_unscheduled') {
+    return <ScheduleItvModal vehicle={vehicle} onClose={onClose} onSaved={onResolved} />
   }
   // Los tres de arriba sin coche (que el back no emite) caen aquí a propósito:
   // antes no abrían NADA y el botón de resolver no hacía nada.

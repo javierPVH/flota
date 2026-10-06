@@ -519,8 +519,12 @@ button.bottom-tab {
   opacity: 0.4;
   cursor: not-allowed;
 }
-/* Variante de solo icono (actualizar / recordatorio): el primero se pega a la
-   derecha de la fila y los siguientes se quedan a su lado. */
+/* Variante de solo icono (actualizar, recordatorio, programar…): van todos
+   JUNTOS y pegados a la derecha de la fila. Lo empuja el primero del grupo
+   —el que no viene detrás de otro icono— y los demás se le pegan: antes el
+   `auto` lo llevaban todos y una clase se lo quitaba al segundo, así que en
+   cuanto aparecieron un tercero y un cuarto cada uno se empujaba solo y la
+   fila quedaba desperdigada. */
 .report-btn-icon {
   width: 40px;
   padding: 0;
@@ -528,7 +532,7 @@ button.bottom-tab {
   margin-left: auto;
   color: var(--color-brand);
 }
-.report-btn-follow { margin-left: 0; }
+.report-btn-icon + .report-btn-icon { margin-left: 0; }
 
 /* --- Modal de actualización de campo (km / mantenimiento / partes) -------- */
 .update-notice {
@@ -595,6 +599,13 @@ button.bottom-tab {
   color: var(--color-text);
   font-size: 0.85rem;
 }
+/* «Todavía no le toca»: el mismo recuadro en ámbar —no es un error ni un
+   dato de la cita, es que el coche es demasiado nuevo para tener una—. */
+.itv-notice-early {
+  border-left-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.itv-notice-early svg { color: var(--color-warning); }
 .itv-notice svg { flex: none; color: var(--color-info); margin-top: 0.1rem; }
 .itv-notice strong { display: block; margin-bottom: 0.15rem; }
 .itv-notice span { color: var(--color-text-muted); }
@@ -607,7 +618,14 @@ button.bottom-tab {
 /* Campo con su atajo a la derecha («Hoy», «Calcular»): el botón se alinea con
    el input, no con la etiqueta, que va encima. */
 .field-action { display: grid; grid-template-columns: 1fr auto; gap: 0.5rem; align-items: end; }
-.field-action > button { white-space: nowrap; }
+/* Y a la MISMA altura que el input, no al tamaño de un botón pequeño: al
+   lado de un campo de 39px, uno de 28 se leía como otra cosa. El cálculo es
+   el del campo del DS —texto (0.88rem × 1.2) + 10px de aire arriba y abajo
+   + el borde—, escrito así para que se vea de dónde sale. */
+.field-action > button {
+  white-space: nowrap;
+  min-height: calc(0.88rem * 1.2 + 22px);
+}
 .field-hint { color: var(--color-text-muted); font-size: 0.8rem; }
 
 /* «Actualizar» reparte el alto del modal en vez de dejar que el cuerpo entero
@@ -899,6 +917,40 @@ button.bottom-tab {
   accent-color: var(--color-brand);
 }
 
+/* El repaso del último paso de un cierre: UNA caja con una línea por dato
+   —rótulo a la izquierda, lo rellenado a la derecha—. Con una ficha por
+   campo (como el repaso de «Mis datos», que son cuatro o cinco) un cierre de
+   neumáticos ocupaba tres pantallas de móvil, y lo que se viene a hacer aquí
+   es comprobar de un vistazo lo que ya se sabe. Lo que se dejó en blanco se
+   pinta apagado: se ve que falta, pero no grita más que lo que sí está. */
+.resolve-summary {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  overflow: hidden;
+}
+.resolve-summary li {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 40%) minmax(0, 1fr);
+  gap: 0 0.6rem;
+  align-items: baseline;
+  padding: 0.3rem 0.55rem;
+  border-top: 1px solid var(--color-border);
+}
+.resolve-summary li:first-child { border-top: 0; }
+.resolve-summary-label { font-size: 0.78rem; color: var(--color-text-muted); }
+.resolve-summary-value { font-size: 0.9rem; overflow-wrap: anywhere; }
+.resolve-summary-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+}
+.resolve-summary-empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
 /* Proponer otro conductor dentro de la resolución de la alerta de km
    contratados: es OTRA cosa que resolverla —abre una solicitud y no cierra el
    aviso—, así que va en su propio bloque, separado por un filete. */
@@ -1092,9 +1144,19 @@ button.bottom-tab {
 .photo-attach.has-file .attach-text strong { overflow-wrap: anywhere; }
 
 /* Pasos del ciclo de una incidencia (lanzar → gestión → solución). */
-.flow-steps { display: flex; gap: 0.35rem; margin: 0.6rem 0; }
+/* La tira se reparte en varias líneas cuando los pasos no caben: un cierre de
+   incidencia son seis y en 320px de pantalla saldrían aplastados o cortados
+   por la derecha, y ahí es donde se lee cuánto queda. En rejilla y no en flex
+   porque así el que abre la segunda línea ocupa UNA columna —estirado de lado
+   a lado parecía otra cosa—, y con `auto-fit` los carruseles de tres o cuatro
+   pasos se siguen repartiendo el ancho como siempre. */
+.flow-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
+  gap: 0.35rem;
+  margin: 0.6rem 0;
+}
 .flow-step {
-  flex: 1;
   text-align: center;
   padding: 0.3rem 0.2rem;
   border-radius: 0.5rem;
@@ -1652,6 +1714,12 @@ button.bottom-tab {
   gap: 0.6rem;
   flex-wrap: wrap;
 }
+/* En la ficha de campo esa cabecera ES el pulsador del acordeón (rótulo y
+   nivel dentro del botón, barra y «Resolver» fuera, que se leen plegada). */
+.km-card-toggle {
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
 /* Dentro de la cabecera el modelo respira solo con el gap de la rejilla:
    se neutraliza el margen negativo genérico de .field-page. */
 .km-card .vehicle-model { margin: 0; }
@@ -1728,6 +1796,13 @@ button.bottom-tab {
   display: flex;
   justify-content: flex-end;
   margin-top: 0.4rem;
+}
+/* El «aún no hay lecturas suficientes» de la gráfica del DS. */
+.km-chart + .muted,
+.km-card .muted {
+  margin: 0.7rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
 }
 .km-chart { margin-top: 0.7rem; }
 .km-chart svg { width: 100%; height: auto; }

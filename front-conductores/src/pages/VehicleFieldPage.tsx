@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
+  CalendarCheck,
+  CalendarCog,
   Camera,
+  ChevronDown,
   ClipboardCheck,
   ClipboardList,
   Fuel,
@@ -21,17 +24,20 @@ import {
   listAlerts,
   listDocuments,
   listIncidents,
+  listKmReadings,
   type KmWindow,
 } from '../api.ts'
-import { useAuth } from '../auth.ts'
+import { isManagement, useAuth } from '../auth.ts'
 import {
   AccordionTools,
   CollapsibleCard,
   useAccordion,
 } from '../components/CollapsibleCard.tsx'
 import { AccidentModal } from '../components/AccidentModal.tsx'
+import { AlertResolveDispatcher } from '../components/AlertResolveDispatcher.tsx'
 import { BreakdownModal } from '../components/BreakdownModal.tsx'
 import { DocumentList } from '../components/DocumentList.tsx'
+import { KmChart } from '../components/KmChart.tsx'
 import { MaintenanceUpdateModal } from '../components/MaintenanceUpdateModal.tsx'
 import { RegisterFuelModal } from '../components/RegisterFuelModal.tsx'
 import { KmStatCard } from '../components/KmStatCard.tsx'
@@ -46,10 +52,15 @@ import {
 import { VehicleUpdateModal } from '../components/VehicleUpdateModal.tsx'
 import { UploadDocumentModal } from '../components/UploadDocumentModal.tsx'
 import { RegisterItvModal } from '../components/RegisterItvModal.tsx'
+import {
+  ScheduleItvModal,
+  ScheduleMaintenanceModal,
+} from '../components/ScheduleModal.tsx'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import { PENDING_CARDS } from '../pendingCards.ts'
+import { useScheduleCopy } from '../translations/schedule.ts'
 import {
   fmtKm,
   isOpenFieldIncident,
@@ -58,7 +69,14 @@ import {
   scheduledActionAvailable,
   vehicleStateTone,
 } from '../format.ts'
-import type { Alert, FlotaDocument, Incident, Vehicle, VehicleSummary } from '../types.ts'
+import type {
+  Alert,
+  FlotaDocument,
+  Incident,
+  KmReading,
+  Vehicle,
+  VehicleSummary,
+} from '../types.ts'
 
 /**
  * M2 — Ficha de campo (HU-1.2 lectura, 4.1, 4.3): consulta rápida a pie de
@@ -70,11 +88,11 @@ export function VehicleFieldPage() {
   const [params] = useSearchParams()
   const vehicleId = Number(id)
   const { t, language } = useLang()
+  const programar = useScheduleCopy()
   const etiqueta = useDomainLabels()
   const { user } = useAuth()
   const isSupervisor = user?.roles.includes('supervisor') ?? false
-  const canManage =
-    user?.roles.some((role) => role === 'admin' || role === 'supervisor') ?? false
+  const canManage = isManagement(user)
   // En modo "Mi vehículo", el nav inferior ya lleva las cinco acciones SOBRE
   // el coche operativo: su ficha no las repite. El principal bloqueado (el nav
   // apunta al sustituto) y las fichas en modo Flota conservan las suyas.
@@ -85,7 +103,12 @@ export function VehicleFieldPage() {
   // ahorra mucho scroll.
   // Las tres tarjetas de lo pendiente arrancan PLEGADAS (su recuento se lee en
   // el título); las demás, desplegadas como siempre.
-  const accordion = useAccordion(['situation', ...PENDING_CARDS, 'documents'], PENDING_CARDS)
+  // La proyección entra como una ficha más del acordeón y arranca PLEGADA: su
+  // resumen (nivel, % y barra) se lee sin abrir nada, y dentro va la gráfica.
+  const accordion = useAccordion(
+    ['situation', 'projection', ...PENDING_CARDS, 'documents'],
+    ['projection', ...PENDING_CARDS],
+  )
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [summary, setSummary] = useState<VehicleSummary | null>(null)
@@ -98,6 +121,12 @@ export function VehicleFieldPage() {
   const [documents, setDocuments] = useState<FlotaDocument[]>([])
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [alerts, setAlerts] = useState<Alert[]>([])
+  // Las lecturas de la gráfica se piden SOLO al desplegar (`null` = aún no):
+  // es una petición más y la tarjeta nace plegada.
+  const [kmReadings, setKmReadings] = useState<KmReading[] | null>(null)
+  // La alerta de exceso, resolviéndose desde la propia tarjeta.
+  const [overageResolve, setOverageResolve] = useState<Alert | null>(null)
+  const [overageOk, setOverageOk] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -124,6 +153,10 @@ export function VehicleFieldPage() {
   // Parte guiado de accidente: la supervisora lo abre desde la ficha igual que
   // desde las tarjetas de la flota (el conductor lo tiene en el nav).
   const [accidentOpen, setAccidentOpen] = useState(false)
+  // Citar la ITV y programar el mantenimiento, los mismos dos gestos que
+  // ofrece la tarjeta de la lista. Los guarda el back acotado a su grupo.
+  const [scheduleOpen, setScheduleOpen] = useState<'itv' | 'maintenance' | null>(null)
+  const [scheduleOk, setScheduleOk] = useState('')
 
   // Tras guardar algo desde el modal de actualización: datos frescos.
   const reload = useCallback(() => {
@@ -175,6 +208,25 @@ export function VehicleFieldPage() {
       .catch(() => setAlerts([]))
   }, [vehicleId])
 
+  // Al desplegar la proyección. Va en un efecto y no en el propio botón para
+  // que «Desplegar todo» la traiga igual; si falla, la gráfica dice que no hay
+  // lecturas suficientes y la tarjeta se lee igual. Y SOLO si la tarjeta se
+  // pinta: el id del acordeón existe para todos, así que «Desplegar todo» lo
+  // abría también en la ficha de quien conduce —que no ve la proyección— y
+  // pedía las lecturas para una gráfica que no se monta.
+  const projectionOpen = accordion.isOpen('projection')
+  const projectionShown = isSupervisor && summary?.projection != null && summary?.contract != null
+  useEffect(() => {
+    if (!projectionShown || !projectionOpen || kmReadings !== null) return
+    let vivo = true
+    listKmReadings(vehicleId)
+      .then((page) => vivo && setKmReadings(page.results))
+      .catch(() => vivo && setKmReadings([]))
+    return () => {
+      vivo = false
+    }
+  }, [projectionShown, projectionOpen, kmReadings, vehicleId])
+
   // Los modales del bottom-nav viven FUERA de la página: sin esto, registrar
   // la ITV (o los km) desde el nav dejaba la ficha con la cita ya cumplida.
   const dataVersion = ctx?.dataVersion ?? 0
@@ -192,9 +244,18 @@ export function VehicleFieldPage() {
   const blocked = summary?.blocked_by_link ?? null
   const projection = summary?.projection ?? null
   const contract = summary?.contract ?? null
+  // Lo que hace «problemático» al coche es la ALERTA abierta, no el nivel de
+  // la barra: el motor es quien decide que la proyección se ha pasado del
+  // margen, y sin alerta no hay nada que cerrar.
+  const overageAlert = alerts.find((alert) => alert.type === 'km_overage') ?? null
   const itvAvailable = scheduledActionAvailable(
     summary?.next_itv_date ?? vehicle.next_itv_date,
   )
+  // Sin cita no hay ITV que registrar, y quien conduce no la programa: el
+  // botón no se le ofrece (a quien gestiona sí —puede haberse pasado una sin
+  // cita en el sistema—). Es la misma regla que ya aplica «Actualizar», que
+  // sin ITV programada no saca su pestaña.
+  const itvOffered = Boolean(summary?.next_itv_date ?? vehicle.next_itv_date) || canManage
   const maintenanceAvailable = scheduledActionAvailable(summary?.next_maintenance_date)
 
   return (
@@ -227,17 +288,32 @@ export function VehicleFieldPage() {
       <UpcomingDatesCard vehicle={vehicle} summary={summary} window={kmWindow} />
 
       {/* Proyección contra el contrato (solo supervisor): el mismo cuadro
-          compacto de la vista del grupo, aquí para UN coche. */}
+          compacto de la vista del grupo, aquí para UN coche —y, como allí, con
+          la evolución de las lecturas dentro y «Resolver» cuando hay alerta
+          de exceso abierta—. El resumen (nivel, % y barra) se queda FUERA del
+          acordeón: es lo que se viene a mirar, y plegarlo dejaría la tarjeta
+          sin decir nada. */}
       {isSupervisor && projection && contract && (
-        <section className={`card km-card km-level-${projection.level}`}>
+        <section
+          className={`card km-card km-level-${projection.level}${
+            projectionOpen ? '' : ' acc-closed'
+          }`}
+        >
           <div className="km-card-head">
             <div className="km-card-id">
-              <div className="km-card-plate">
+              <button
+                type="button"
+                className="acc-toggle km-card-toggle"
+                aria-expanded={projectionOpen}
+                aria-controls="projection-chart"
+                onClick={() => accordion.toggle('projection')}
+              >
+                <ChevronDown size={18} aria-hidden className="acc-chevron" />
                 <strong>{t.home.projection}</strong>
                 <Badge tone={kmLevelTone(projection.level)}>
                   {t.group.levels[projection.level] ?? projection.level}
                 </Badge>
-              </div>
+              </button>
             </div>
             <span className="km-pct">{Math.round(projection.pct_of_limit)}%</span>
           </div>
@@ -268,7 +344,41 @@ export function VehicleFieldPage() {
               )}
             </span>
           </div>
+          {/* Con la alerta abierta, el coche se resuelve desde aquí: el mismo
+              modal de la bandeja y de «Proyección de km», que propone otro
+              conductor —lo único que cambia de verdad unos km contratados—.
+              Va FUERA del acordeón: la acción no se esconde. */}
+          {overageAlert && (
+            <div className="km-actions">
+              <Button
+                type="button"
+                variant="secondary"
+                aria-label={t.group.resolveLabel(vehicle.plate)}
+                onClick={() => {
+                  // Como el resto de acuses de la ficha: el de la vez anterior
+                  // se va al volver a abrir, o se leería junto al modal nuevo.
+                  setOverageOk('')
+                  setOverageResolve(overageAlert)
+                }}
+              >
+                {t.group.resolve}
+              </Button>
+            </div>
+          )}
+          <div id="projection-chart" hidden={!projectionOpen}>
+            {kmReadings === null ? (
+              <p className="empty-note">{t.common.loading}</p>
+            ) : (
+              <KmChart readings={kmReadings} />
+            )}
+          </div>
         </section>
+      )}
+
+      {overageOk && (
+        <p role="status" className="form-ok">
+          {overageOk}
+        </p>
       )}
 
       {/* N9: al abrir la ficha hay que ver de inmediato en qué lado del vínculo
@@ -339,21 +449,23 @@ export function VehicleFieldPage() {
         {/* Con la cita lejos estos dos van apagados pero VIVOS: el toque abre
             el aviso que dice cuándo es y desde qué día se podrá registrar. Un
             botón muerto con un `title` no se explica en un móvil. */}
-        <button
-          type="button"
-          className={`quick-action${itvAvailable ? '' : ' is-waiting'}`}
-          title={!itvAvailable ? t.vehicle.scheduledActionUnavailable : undefined}
-          onClick={() => {
-            if (!itvAvailable) {
-              setScheduledInfo('itv')
-              return
-            }
-            setItvOk('')
-            setItvOpen(true)
-          }}
-        >
-          <ClipboardCheck size={20} aria-hidden /> {t.vehicle.quickItv}
-        </button>
+        {itvOffered && (
+          <button
+            type="button"
+            className={`quick-action${itvAvailable ? '' : ' is-waiting'}`}
+            title={!itvAvailable ? t.vehicle.scheduledActionUnavailable : undefined}
+            onClick={() => {
+              if (!itvAvailable) {
+                setScheduledInfo('itv')
+                return
+              }
+              setItvOk('')
+              setItvOpen(true)
+            }}
+          >
+            <ClipboardCheck size={20} aria-hidden /> {t.vehicle.quickItv}
+          </button>
+        )}
 
         {isSupervisor && (
           <button
@@ -366,6 +478,34 @@ export function VehicleFieldPage() {
           >
             <ClipboardList size={20} aria-hidden /> {t.carUpdate.maintenanceButton}
           </button>
+        )}
+
+        {/* PROGRAMAR no es registrar: no se apagan con el coche bloqueado
+            —la ITV de este coche vence aunque otro lo cubra— ni esperan a la
+            ventana de los 30 días, que es para lo ya citado. */}
+        {canManage && (
+          <>
+            <button
+              type="button"
+              className="quick-action"
+              onClick={() => {
+                setScheduleOk('')
+                setScheduleOpen('itv')
+              }}
+            >
+              <CalendarCheck size={20} aria-hidden /> {programar.itv.button}
+            </button>
+            <button
+              type="button"
+              className="quick-action"
+              onClick={() => {
+                setScheduleOk('')
+                setScheduleOpen('maintenance')
+              }}
+            >
+              <CalendarCog size={20} aria-hidden /> {programar.maintenance.button}
+            </button>
+          </>
         )}
 
         {blocked ? (
@@ -411,6 +551,7 @@ export function VehicleFieldPage() {
       )}
 
       {itvOk && <p role="status" className="form-ok">{itvOk}</p>}
+      {scheduleOk && <p role="status" className="form-ok">{scheduleOk}</p>}
 
       <AccordionTools accordion={accordion} />
 
@@ -545,6 +686,39 @@ export function VehicleFieldPage() {
           }
           plate={vehicle.plate}
           onClose={() => setScheduledInfo(null)}
+        />
+      )}
+      {scheduleOpen === 'itv' && (
+        <ScheduleItvModal
+          vehicle={vehicle}
+          onClose={() => setScheduleOpen(null)}
+          onSaved={(message) => {
+            setScheduleOk(message)
+            reload()
+          }}
+        />
+      )}
+      {scheduleOpen === 'maintenance' && (
+        <ScheduleMaintenanceModal
+          vehicle={vehicle}
+          summary={summary}
+          onClose={() => setScheduleOpen(null)}
+          onSaved={(message) => {
+            setScheduleOk(message)
+            reload()
+          }}
+        />
+      )}
+      {overageResolve && (
+        <AlertResolveDispatcher
+          alert={overageResolve}
+          summary={summary}
+          onClose={() => setOverageResolve(null)}
+          onResolved={() => {
+            setOverageResolve(null)
+            setOverageOk(t.group.resolved)
+            reload()
+          }}
         />
       )}
       {updateOpen &&

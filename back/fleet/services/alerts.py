@@ -304,9 +304,9 @@ def deferred_push():
 def _push_alert(alert: Alert, driver) -> None:
     """Envía el push de UNA alerta a sus afectados (driver ya resuelto)."""
     recipients = set()
-    # El exceso de km proyectado es de gestión: al conductor no se le enseña
-    # (ni en su bandeja ni por push); quien lo atiende es quien supervisa.
-    if alert.type != AlertType.KM_OVERAGE:
+    # El exceso de km proyectado y la ITV sin cita son de gestión: al conductor
+    # no se le enseñan (ni en su bandeja ni por push); los atiende quien supervisa.
+    if alert.type not in (AlertType.KM_OVERAGE, AlertType.ITV_UNSCHEDULED):
         if alert.user_id:
             recipients.add(alert.user)
         elif driver is not None:
@@ -454,6 +454,95 @@ def check_itv(today: date | None = None) -> int:
                 vehicle=vehicle,
                 due_date=vehicle.next_itv_date,
             )
+    return created
+
+
+def _close_itv_unscheduled_alerts(vehicle_ids, *, by=None, note: str, keep: str = "") -> int:
+    """Cierra los «ITV sin cita» abiertos de esos coches (salvo la clave `keep`)."""
+    closed = 0
+    qs = Alert.objects.filter(
+        vehicle_id__in=list(vehicle_ids),
+        type=AlertType.ITV_UNSCHEDULED,
+        status=AlertStatus.OPEN,
+    )
+    if keep:
+        qs = qs.exclude(dedup_key=keep)
+    for alert in qs:
+        alert.close(status=AlertStatus.RESOLVED, by=by, note=note)
+        closed += 1
+    return closed
+
+
+def resolve_itv_unscheduled_alerts(vehicle, *, by=None, note: str) -> int:
+    """Citar la ITV cierra «ITV sin cita» en el acto, con quien citó como actor.
+
+    Lo llama `services/itv.schedule_itv` (y `unschedule_itv`: quitar la cita a
+    mano es una decisión de administración, no un descuido, y el aviso hablaba
+    de un descuido). La reconciliación de `check_itv_unscheduled` sigue para lo
+    que entre por otro lado (una ITV registrada CON fecha desde gestión).
+    """
+    return _close_itv_unscheduled_alerts([vehicle.pk], by=by, note=note)
+
+
+def check_itv_unscheduled(today: date | None = None) -> int:
+    """La ITV se pasó y nadie ha citado la siguiente: avisa a la gestión.
+
+    El registro de campo (`RegisterItvModal` de la PWA) viaja siempre con
+    `next_due` nulo —la cita la programa la gestión—, y la señal
+    `on_itv_registered` deja entonces `next_itv_date` vacía. Sin fecha no hay
+    `itv_due` que abrir, el botón de ITV desaparece del nav del conductor y el
+    coche rueda hasta que la ITV legal vence, salvo que alguien se acuerde de
+    citar. Este aviso es esa memoria: se abre para cada coche activo cuya
+    ÚLTIMA inspección favorable no dejó cita y que sigue sin fecha, con la
+    inspección en la clave (`itv_unscheduled:{pk}:{fecha}`) para que una
+    resuelta a mano no reabra hasta la siguiente ITV. Se cierra solo cuando el
+    coche vuelve a tener cita, o cuando administración la ha quitado a
+    propósito (`next_itv_manual`, ver `unschedule_itv`). Es de gestión: al
+    conductor no se le enseña, que no está en su mano.
+    """
+    del today  # no depende del día: la misma firma que el resto de chequeos
+    vehicles = [v for v in _active_vehicles() if v.next_itv_date is None and not v.next_itv_manual]
+    # La última favorable de cada uno, en una consulta (el mismo patrón que
+    # `refresh_next_itv_dates`): solo cuenta si tampoco trajo fecha.
+    latest: dict[int, tuple[date, date | None]] = {
+        vid: (when, due)
+        for vid, when, due in EventItv.objects.exclude(result=ItvResult.NOT_DONE)
+        .filter(event__vehicle_id__in=[v.id for v in vehicles])
+        .annotate(
+            _pos=Window(
+                RowNumber(),
+                partition_by=[F("event__vehicle_id")],
+                order_by=[F("event__event_date").desc(), F("event_id").desc()],
+            )
+        )
+        .filter(_pos=1)
+        .values_list("event__vehicle_id", "event__event_date", "next_due")
+    }
+    created = 0
+    sin_cita: list[int] = []
+    with known_alerts(AlertType.ITV_UNSCHEDULED, (v.pk for v in vehicles)):
+        for vehicle in vehicles:
+            found = latest.get(vehicle.pk)
+            if found is None or found[1] is not None:
+                continue
+            when = found[0]
+            key = f"itv_unscheduled:{vehicle.pk}:{when.isoformat()}"
+            created += upsert_alert(
+                dedup_key=key,
+                type=AlertType.ITV_UNSCHEDULED,
+                level=AlertLevel.WARNING,
+                **compose("itv_unscheduled", last=when.isoformat()),
+                vehicle=vehicle,
+            )
+            sin_cita.append(vehicle.pk)
+            # Una inspección más reciente sustituye el aviso de la anterior.
+            _close_itv_unscheduled_alerts(
+                [vehicle.pk], note="Sustituida por una inspección más reciente.", keep=key
+            )
+    # Reconciliación: los coches que ya tienen cita (o a los que administración
+    # se la quitó a propósito) no pueden seguir con el aviso abierto.
+    resto = [v.pk for v in _active_vehicles() if v.pk not in set(sin_cita)]
+    _close_itv_unscheduled_alerts(resto, note="Ya tiene cita de ITV.")
     return created
 
 
@@ -952,6 +1041,7 @@ def run_all(today: date | None = None) -> dict[str, object]:
     checks: tuple[tuple[str, object], ...] = (
         ("next_itv_refreshed", refresh_next_itv_dates),
         ("itv", lambda: check_itv(today)),
+        ("itv_unscheduled", lambda: check_itv_unscheduled(today)),
         ("insurance", lambda: check_insurance(today)),
         ("km_readings", lambda: check_km_readings(today)),
         ("no_driver", lambda: check_no_driver(today)),

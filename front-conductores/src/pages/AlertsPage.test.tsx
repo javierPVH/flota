@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -144,6 +144,31 @@ function renderPage() {
     <LanguageProvider>
       <MemoryRouter>
         <AlertsPage />
+      </MemoryRouter>
+    </LanguageProvider>,
+  )
+}
+
+/** La bandeja en modo «Flota», con el contexto del shell.
+ *
+ * Sin él, `ctx` es nulo y la página se lee como «Mi vehículo» —que es lo que
+ * quiere `renderPage`—: ahí no se enseña el exceso de km proyectado, porque lo
+ * que lo arregla no está en manos de quien conduce. */
+function renderEnFlota() {
+  return render(
+    <LanguageProvider>
+      <MemoryRouter>
+        <Routes>
+          <Route
+            element={
+              <Outlet
+                context={{ fleetMode: true, setFleetMode: () => {}, ownPair: null, dataVersion: 0 }}
+              />
+            }
+          >
+            <Route path="/" element={<AlertsPage />} />
+          </Route>
+        </Routes>
       </MemoryRouter>
     </LanguageProvider>,
   )
@@ -365,14 +390,13 @@ describe('AlertsPage (M5)', () => {
     const itvDialog = screen.getByRole('dialog', { name: 'Registrar ITV · 7890NPQ' })
     // La fecha de la inspección ya no viene puesta: se pone con su atajo.
     await userEvent.click(within(itvDialog).getByRole('button', { name: 'Hoy' }))
-    fireEvent.change(within(itvDialog).getByLabelText('Próxima ITV'), {
-      target: { value: '2027-09-01' },
-    })
+    // La fecha de la SIGUIENTE no se pone desde campo: la programa la gestión.
+    expect(within(itvDialog).queryByLabelText('Próxima ITV')).toBeNull()
     await userEvent.click(within(itvDialog).getByRole('button', { name: 'Registrar ITV' }))
     expect(mocks.registerItv).toHaveBeenCalledWith({
       vehicle: 7,
       event_date: expect.any(String),
-      itv: { result: 'done', next_due: '2027-09-01' },
+      itv: { result: 'done', next_due: null },
       client_ref: expect.any(String),
     })
   })
@@ -435,7 +459,9 @@ describe('AlertsPage (M5)', () => {
     // lleva quien rueda menos, y eso lo decide administración.
     mocks.roles = ['driver', 'supervisor']
     mocks.listAlerts.mockResolvedValue({ count: 1, results: [OVERAGE_ALERT] })
-    renderPage()
+    // En «Flota»: es donde quien supervisa atiende el exceso (en «Mi vehículo»
+    // no se enseña —lo que lo arregla es que lo lleve otra persona—).
+    renderEnFlota()
     await screen.findByRole('button', { name: /^Alertas/ })
     await abrir(/^Alertas/)
     const card = screen

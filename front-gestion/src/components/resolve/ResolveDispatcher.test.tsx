@@ -4,12 +4,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ResolveDispatcher } from './ResolveDispatcher.tsx'
 import { alertTarget, incidentTarget } from './resolveFlow.ts'
+import { ConfirmProvider } from '../ConfirmDialog.tsx'
 import { LanguageProvider } from '../../i18n.tsx'
 import type { Alert, Incident, Vehicle } from '../../types.ts'
 
 const mocks = vi.hoisted(() => ({
   fetchDriverCandidates: vi.fn(),
   listMaintenancePlans: vi.fn(),
+  listMaintenancePrograms: vi.fn(),
+  listKmReadingsAll: vi.fn(),
+  listVehicleEvents: vi.fn(),
+  scheduleItv: vi.fn(),
   resolveIncident: vi.fn(),
   fetchVehicle: vi.fn(),
   updateVehicleFields: vi.fn(),
@@ -21,6 +26,10 @@ vi.mock('../../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api.ts')>()),
   fetchDriverCandidates: mocks.fetchDriverCandidates,
   listMaintenancePlans: mocks.listMaintenancePlans,
+  listMaintenancePrograms: mocks.listMaintenancePrograms,
+  listKmReadingsAll: mocks.listKmReadingsAll,
+  listVehicleEvents: mocks.listVehicleEvents,
+  scheduleItv: mocks.scheduleItv,
   resolveIncident: mocks.resolveIncident,
   fetchVehicle: mocks.fetchVehicle,
   updateVehicleFields: mocks.updateVehicleFields,
@@ -74,7 +83,9 @@ function renderWith(
   const onDone = vi.fn()
   render(
     <LanguageProvider>
-      <ResolveDispatcher target={target} vehicles={[vehicle]} onClose={vi.fn()} onDone={onDone} />
+      <ConfirmProvider>
+        <ResolveDispatcher target={target} vehicles={[vehicle]} onClose={vi.fn()} onDone={onDone} />
+      </ConfirmProvider>
     </LanguageProvider>,
   )
   return onDone
@@ -95,6 +106,15 @@ describe('ResolveDispatcher — un mismo gesto, el modal de cada tipo', () => {
     vi.clearAllMocks()
     document.documentElement.lang = 'es'
     mocks.listMaintenancePlans.mockResolvedValue(PLANS)
+    mocks.listMaintenancePrograms.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+    mocks.listKmReadingsAll.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+    mocks.listVehicleEvents.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+    mocks.scheduleItv.mockResolvedValue({
+      ...VEHICLE,
+      next_itv_date: '2026-11-20',
+      next_itv_manual: true,
+      itv_postal_code: '',
+    })
     mocks.resolveIncident.mockResolvedValue({ id: 4, status: 'closed', vehicle_reactivated: false })
     mocks.fetchVehicle.mockResolvedValue({ ...VEHICLE, updated_at: 'fresh' })
     mocks.updateVehicleFields.mockResolvedValue({ ...VEHICLE, state: 'retired' })
@@ -284,5 +304,37 @@ describe('ResolveDispatcher — un mismo gesto, el modal de cada tipo', () => {
     renderWith(alertTarget(alert('no_driver', 'Vehículo sin conductor')))
     await screen.findByRole('dialog', { name: 'Resolver alerta · 1234KLM' })
     expect(await screen.findByRole('combobox', { name: 'Asignar conductor' })).toBeInTheDocument()
+  })
+
+  it('«ITV sin cita» abre «Programar ITV», no un cierre con observaciones', async () => {
+    // El aviso dice que nadie citó la siguiente ITV: se resuelve citando, y
+    // es el back quien lo cierra al guardar la cita.
+    const sinCita = { ...VEHICLE, state: 'active', next_itv_date: null } as unknown as Vehicle
+    const onDone = renderWith(alertTarget(alert('itv_unscheduled', 'ITV sin cita')), sinCita)
+    await screen.findByRole('dialog', { name: 'Programar ITV y mantenimiento · 1234KLM' })
+    expect(screen.queryByRole('dialog', { name: /Resolver alerta/ })).toBeNull()
+
+    await userEvent.type(screen.getByLabelText('Fecha de la ITV'), '2027-03-01')
+    await userEvent.click(screen.getByRole('button', { name: 'Programar ITV' }))
+    await waitFor(() =>
+      expect(mocks.scheduleItv).toHaveBeenCalledWith(21, { date: '2027-03-01', postal_code: '' }),
+    )
+    expect(onDone).toHaveBeenCalledWith(expect.stringMatching(/ITV de 1234KLM citada/))
+  })
+
+  it('«ITV sin cita» sin la ficha del coche a mano cae en el cierre genérico', async () => {
+    render(
+      <LanguageProvider>
+        <ConfirmProvider>
+          <ResolveDispatcher
+            target={alertTarget(alert('itv_unscheduled', 'ITV sin cita'))}
+            vehicles={[]}
+            onClose={vi.fn()}
+            onDone={vi.fn()}
+          />
+        </ConfirmProvider>
+      </LanguageProvider>,
+    )
+    await screen.findByRole('dialog', { name: 'Resolver alerta · 1234KLM' })
   })
 })

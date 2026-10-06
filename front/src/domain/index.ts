@@ -114,8 +114,8 @@ export interface AlertMessageSource {
  * igual que en `tireReportSummary`). Cada una lleva sus marcadores `{dato}`.
  *
  * Las claves son el contrato con `back/fleet/services/alert_messages.py`:
- * `itv_overdue`, `itv_due`, `insurance_overdue`, `insurance_due`,
- * `km_pending`, `no_driver`, `km_overage`, el marco y los tramos del
+ * `itv_overdue`, `itv_due`, `itv_unscheduled`, `insurance_overdue`,
+ * `insurance_due`, `km_pending`, `no_driver`, `km_overage`, el marco y los tramos del
  * `maintenance` y los tres `reminder_*`.
  */
 export type AlertMessageCopy = Record<string, string>

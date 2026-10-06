@@ -104,6 +104,8 @@ class SeedChainTests(APITestCase):
         self.assertIn(AlertType.KM_OVERAGE, types)
         self.assertIn(AlertType.NO_DRIVER, types)
         self.assertIn(AlertType.INSURANCE_DUE, types)
+        # El coche de volumen que pasó la ITV desde campo quedó sin cita.
+        self.assertIn(AlertType.ITV_UNSCHEDULED, types)
         # N8b: hay lecturas estimadas (trazo diferenciado en la gráfica).
         self.assertTrue(KmReading.objects.filter(estimated=True).exists())
         # N7: el espacio de erratas tiene contenido de varios mecanismos.

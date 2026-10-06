@@ -13,7 +13,7 @@ import {
   listVehiclesCached,
   type KmWindow,
 } from '../api.ts'
-import { hasWideReadScope, useAuth } from '../auth.ts'
+import { hasWideReadScope, isManagement, useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { useAccordion } from '../components/CollapsibleCard.tsx'
 import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
@@ -81,9 +81,7 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
 
   const isSupervisor = user?.roles.includes('supervisor')
   // PERMISO: resolver y recordar son de gestión (admin|supervisor); HSE no lo da.
-  const hasManagementScope = Boolean(
-    user?.roles.some((role) => role === 'admin' || role === 'supervisor'),
-  )
+  const hasManagementScope = isManagement(user)
   // ÁMBITO: a quién le manda el back más coches que los que conduce.
   const hasWideScope = hasWideReadScope(user)
 

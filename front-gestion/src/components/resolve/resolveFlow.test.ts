@@ -19,6 +19,8 @@ const VEHICLES = [{ id: 21, plate: '1234KLM', state: 'broken' }] as unknown as V
 describe('flowFor — cada tipo abre su modal', () => {
   it('alertas', () => {
     expect(flowFor(alertTarget(alert('itv_due')))).toBe('itv')
+    // Sin cita no se registra nada: se CITA.
+    expect(flowFor(alertTarget(alert('itv_unscheduled')))).toBe('schedule')
     expect(flowFor(alertTarget(alert('insurance_due')))).toBe('insurance')
     expect(flowFor(alertTarget(alert('maintenance_due')))).toBe('maintenance')
     // Km pendiente, exceso y sin conductor van al genérico de alertas.

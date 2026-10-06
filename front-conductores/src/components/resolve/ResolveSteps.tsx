@@ -9,19 +9,23 @@
  * algo. Partido, cada paso cabe sin desplazar y el botón de guardar solo
  * aparece cuando no queda nada por preguntar.
  *
- * Los pasos son cuatro y cada flujo usa los suyos: **cuándo** (la fecha, lo
+ * Los pasos son seis y cada flujo usa los suyos: **cuándo** (la fecha, lo
  * único obligatorio), **detalles** (lo propio del tipo: las ruedas montadas, el
- * expediente del siniestro), **taller** (kilometraje, coste y CP) y **cierre**
- * (observaciones y factura). Una avería no tiene «detalles» que preguntar y una
- * petición general se salta el taller si no lo hubo: los pasos los arma cada
- * formulario, esto solo los recorre.
+ * expediente del siniestro), **taller** (kilometraje, coste y CP), **notas**,
+ * **factura** y **cierre**. Una avería no tiene «detalles» que preguntar y una
+ * petición general se salta el taller —y con él la factura— si no lo hubo: los
+ * pasos los arma cada formulario, esto solo los recorre.
+ *
+ * El **cierre** no pregunta nada: es el **repaso** de lo rellenado
+ * (`ResolveSummary`) y el botón que cierra. Cada cosa en su paso, y la
+ * última pantalla se lee de arriba abajo antes de aceptar.
  */
 import { useState } from 'react'
 import { Button } from '@flota/ui/ui'
 
 import { useResolveCopy } from '../../translations/resolve.ts'
 
-export type ResolveStep = 'when' | 'what' | 'workshop' | 'close'
+export type ResolveStep = 'when' | 'what' | 'workshop' | 'notes' | 'proof' | 'close'
 
 export interface ResolveStepsState {
   /** El paso que se está rellenando. */
@@ -83,16 +87,28 @@ export function ResolveStepBar({ steps }: { steps: ResolveStepsState }) {
  * —solo ahí— el botón que cierra la incidencia. El mismo reparto que el
  * asistente de gestión: el botón de guardar no aparece bajo el dedo a mitad
  * del formulario.
+ *
+ * **Ninguno de los dos envía el formulario**, y eso es a propósito: los dos
+ * son `type="button"` y cerrar la incidencia es el `onSave` de este pie, como
+ * en el resto de carruseles de la app («Mis datos», el parte de accidente,
+ * subir documento). Con un `type="submit"` en la rama de guardar, pulsar
+ * «Continuar» en el penúltimo paso cerraba la incidencia sola: React reusa
+ * ESE mismo botón para pintar el otro y le cambia el `type` a `submit` antes
+ * de que el navegador ejecute la acción por defecto del clic, así que entrar
+ * en el repaso lo guardaba todo sin que nadie lo aceptara.
  */
 export function ResolveActions({
   steps,
   onCancel,
+  onSave,
   canContinue = true,
   canSave,
   saving,
 }: {
   steps: ResolveStepsState
   onCancel: () => void
+  /** Cerrar la incidencia: se pulsa, no se envía. */
+  onSave: () => void
   /** ¿Se puede pasar del paso que se está rellenando? */
   canContinue?: boolean
   canSave: boolean
@@ -110,7 +126,7 @@ export function ResolveActions({
         </Button>
       )}
       {next === undefined ? (
-        <Button type="submit" disabled={saving || !canSave}>
+        <Button type="button" onClick={onSave} disabled={saving || !canSave}>
           {saving ? c.submitting : c.submit}
         </Button>
       ) : (

@@ -117,6 +117,12 @@ renombras rompes la cadena. Contraseña de prueba de TODOS: **`flota-dev-2026`**
 | `hse` | hse | **Solo lectura** de toda la flota en gestión (`HseReadOnly`): ve coches, incidencias, alertas, documentos de vehículo, histórico, informes; no escribe, no ve usuarios ni Ajustes ni bandejas, y no entra en la PWA |
 | `ana_hse` | admin + hse | Administradora con el rol HSE sumado: prueba que el rol no le quita nada a `admin` |
 
+El séptimo tipo de alerta, **«ITV sin cita»** (`itv_unscheduled`), lo da el
+coche de volumen **nº 3** (`_bulk_plate(3)`): su última ITV es favorable, de
+hace 9 días y **sin `next_due`** —como llega el registro de la PWA—, así que
+queda sin cita y `check_itv_unscheduled` lo avisa. Es de gestión: en campo
+solo lo ve quien supervisa ese coche, y se resuelve citando.
+
 **Vehículos**: `1234KLM` (activo, proyección de km **en exceso**, ITV a 10 días,
 **seguro a 20 días**, timeline con los 18 tipos de evento y póliza versionada),
 `5678BCD` (en taller, **ITV y seguro vencidos**, vínculo de sustitución activo),

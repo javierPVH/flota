@@ -6,6 +6,7 @@ import { useAlertsPageCopy } from '../../translations/alertsPage.ts'
 import { useResolveCopy } from '../../translations/resolve.ts'
 import type { Vehicle } from '../../types.ts'
 import { ResolveAlertModal } from '../ResolveAlertModal.tsx'
+import { ScheduleItvMaintenanceModal } from '../ScheduleItvMaintenanceModal.tsx'
 import { VehicleRetireModal } from '../VehicleRetireModal.tsx'
 import { MaintenanceResolveForm } from './MaintenanceResolveForm.tsx'
 import { RegisterItvForm } from './RegisterItvForm.tsx'
@@ -134,7 +135,13 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
   const isItv = flow === 'itv'
   const isMaintenance = flow === 'maintenance'
   const isInsurance = flow === 'insurance' && target?.kind === 'alert' && vehicleId != null
-  const isGenericAlert = target?.kind === 'alert' && !isItv && !isMaintenance && !isInsurance
+  // «ITV sin cita» se resuelve CITANDO: abre «Programar ITV y mantenimiento»
+  // por su pestaña, y es el back quien cierra el aviso al guardar la cita.
+  // Necesita la ficha del coche (el modal la pide entera); sin ella en el
+  // índice cae en el cierre genérico, que al menos deja escrito qué se hizo.
+  const isSchedule = flow === 'schedule' && target?.kind === 'alert' && vehicle !== undefined
+  const isGenericAlert =
+    target?.kind === 'alert' && !isItv && !isMaintenance && !isInsurance && !isSchedule
 
   let title = ''
   if (target && flow) {
@@ -148,7 +155,15 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
 
   return (
     <>
-      <Modal open={target !== null} title={title} onClose={handleClose}>
+      {isSchedule && vehicle && (
+        <ScheduleItvMaintenanceModal
+          vehicle={vehicle}
+          initialTab="itv"
+          onClose={handleClose}
+          onSaved={() => onDone(t.notices.itvScheduled(plate))}
+        />
+      )}
+      <Modal open={target !== null && !isSchedule} title={title} onClose={handleClose}>
         {target && stopped && (
           <div className="resolve-back">
             <p className="resolve-back-title">
