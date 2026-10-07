@@ -63,6 +63,9 @@ export type VehicleReportSection = (typeof VEHICLE_REPORT_SECTIONS)[number]
 export type ReportKindKey =
   | 'vehicles'
   | 'fleet'
+  // Lo que mira HSE: vehículos y lecturas, sin costes, personas ni ITV. Es el
+  // único que descarga ese rol (el back se lo impone).
+  | 'hse'
   | 'kmreadings'
   | 'fuel'
   | 'documents'
@@ -87,6 +90,7 @@ export type ReportFilterKey =
 export const REPORT_FILTERS: Record<ReportKindKey, readonly ReportFilterKey[]> = {
   vehicles: ['brand', 'model', 'status', 'category'],
   fleet: ['state', 'brand'],
+  hse: [],
   kmreadings: ['vehicle'],
   fuel: ['vehicle'],
   documents: ['vehicle', 'type', 'status'],

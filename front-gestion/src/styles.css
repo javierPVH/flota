@@ -6138,3 +6138,451 @@ kbd {
   background: var(--color-brand);
   color: #fff;
 }
+
+/* --- Informe de HSE: la portada y las descargas ------------------------- */
+
+/* La portada del informe NO es un listado: son cifras fijas. Por eso va en una
+   rejilla y no en una tabla con su paginador. Sin borde ni acento a propósito:
+   la cabecera de la pantalla ya tiene estas mismas cifras en tarjetas, y
+   repetir el dibujo las haría competir. */
+.hse-cover {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.9rem 1.4rem;
+  margin: 0 0 0.9rem;
+  padding: 0.9rem 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+.hse-cover-item dt {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.hse-cover-item dd {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin: 0.25rem 0 0;
+}
+.hse-cover-value {
+  font-size: 1.45rem;
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+.hse-cover-item dd .muted {
+  font-size: 0.76rem;
+}
+/* El contexto del documento (mes de referencia, generado el): un pie, no una
+   cifra más. */
+.hse-cover-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.2rem;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+/* Cada formato con lo que se lleva escrito AL LADO de su botón: el aviso de
+   que el CSV trae una sola hoja hay que leerlo antes de pulsarlo, no al final
+   de un párrafo que queda por encima. */
+.hse-downloads {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.9rem 0 1.1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-soft);
+}
+.hse-downloads-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.hse-download {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+.hse-download-id {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 15rem;
+  flex: 1 1 22rem;
+}
+.hse-download-id .muted {
+  font-size: 0.8rem;
+}
+
+/* Qué contiene la hoja que se está mirando, bajo sus chips. */
+.hse-sheet-desc {
+  margin: 0.5rem 0 0.8rem;
+  font-size: 0.82rem;
+}
+
+/* El histórico de anotaciones de un coche, dentro de su fila desplegada. Es
+   una tabla pequeña y de solo lectura: ni ordena, ni pagina, ni busca — para
+   eso está la tabla de arriba, que es la que manda. */
+.hse-history {
+  max-width: 46rem;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+/* Qué es esta tabla. Pegada debajo de dos gráficas y sin nada que la nombre,
+   parecía la continuación de la de arriba. */
+.hse-history-title {
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-soft);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+/* Solo las filas hacen scroll: el rótulo se queda fuera y la cabecera, pegada
+   arriba dentro de este hueco (`thead th` es `sticky`). */
+.hse-history-scroll {
+  max-height: 11rem;
+  overflow-y: auto;
+  /* Barra fina: la nativa de Windows se lleva 17px con sus flechas, que al
+     lado de una tabla de 46rem y seis filas pesa más que los datos.
+     `scrollbar-width` es el estándar (Firefox y Chrome moderno) y el bloque
+     `::-webkit-scrollbar` cubre los Chromium y Safari que aún no lo entienden;
+     donde no valga ninguno, se ve la de siempre y la tabla funciona igual. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+.hse-history-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+.hse-history-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.hse-history-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--color-border);
+}
+.hse-history-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+.hse-history table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+/* La cabecera se queda a la vista mientras se recorren los meses. */
+.hse-history thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.3rem 0.6rem;
+  background: var(--color-surface-soft);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  text-align: left;
+}
+.hse-history td {
+  padding: 0.22rem 0.6rem;
+  line-height: 1.35;
+  border-bottom: 1px solid var(--color-border-soft, var(--color-border));
+}
+.hse-history tbody tr:last-child td {
+  border-bottom: none;
+}
+/* Cifras a la derecha y con cifras de ancho fijo: así las columnas de km y de
+   consumo se leen en vertical. */
+.hse-history .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.hse-history td.num .badge {
+  margin-left: 0.4rem;
+}
+.hse-unit {
+  font-weight: 600;
+  text-transform: lowercase;
+  letter-spacing: 0;
+  opacity: 0.75;
+}
+/* Filas alternas: con tres columnas anchas y medio contenido vacío, el ojo
+   perdía la línea entre la fecha y su cifra. */
+.hse-history tbody tr:nth-child(even) td {
+  background: var(--color-surface-soft);
+}
+/* El hueco de lo que ese día no se anotó: presente, pero sin pesar como un
+   dato — la mitad de las celdas lo son. */
+.hse-history td .muted {
+  opacity: 0.5;
+}
+
+/* El panel que se despliega dentro de la fila de un coche: arriba la FORMA de
+   lo que ha pasado (dos gráficas) y debajo el dato exacto (la tabla). */
+.hse-history-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+/* Dos columnas —kilómetros y consumo—, que es lo que se compara. En pantalla
+   estrecha caen una debajo de otra: a menos de 30rem por gráfica, la curva no
+   se lee. */
+.hse-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+/* En una pantalla ancha, las tres piezas van EN UNA FILA: la tabla a la
+   izquierda con su ancho de siempre —tres datos cortos, no gana nada por
+   estirarse— y las dos gráficas repartiéndose todo lo demás. Apiladas dejaban
+   media pantalla en blanco a la derecha de la tabla y hacían el doble de alto,
+   que en una fila desplegada es lo que empuja al coche siguiente fuera de la
+   vista. Por debajo de este ancho se mantiene lo de antes: gráficas arriba y
+   tabla debajo. */
+@media (min-width: 1500px) {
+  .hse-history-panel {
+    display: grid;
+    grid-template-columns: 30rem minmax(0, 1fr);
+    align-items: start;
+  }
+  .hse-range {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .hse-history {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .hse-charts {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
+.trend-chart {
+  margin: 0;
+  padding: 0.6rem 0.75rem 0.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+/* Título a la izquierda y, a la derecha, cómo va AHORA: lo último anotado y
+   cuánto ha cambiado desde la primera anotación. Es la respuesta que se busca
+   antes de mirar la curva. */
+.trend-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.trend-title {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.trend-now {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-variant-numeric: tabular-nums;
+}
+.trend-now strong {
+  font-size: 1.05rem;
+  color: var(--color-text);
+}
+.trend-unit {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+/* La variación, en gris salvo donde moverse significa algo (el consumo). */
+.trend-delta {
+  margin-left: 0.15rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+.trend-delta.is-good {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.trend-delta.is-bad {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.trend-chart svg {
+  display: block;
+  width: 100%;
+  /* El alto del lienzo (la `H` de TrendChart.tsx: los dos tienen que decir lo
+     mismo). Fijo y no `auto` para que no dé un salto en el primer pintado,
+     antes de que se mida el hueco. */
+  height: 140px;
+  margin-top: 0.35rem;
+}
+/* La escala: sin ella, un eje que no arranca en cero engaña. */
+.trend-grid line {
+  stroke: var(--color-border);
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.trend-grid text {
+  fill: var(--color-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.trend-axis-x {
+  fill: var(--color-text-muted);
+  font-size: 11px;
+}
+.trend-line {
+  fill: none;
+  stroke: var(--color-brand);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.trend-area {
+  fill: color-mix(in srgb, var(--color-brand) 12%, transparent);
+  stroke: none;
+}
+.trend-dot {
+  fill: var(--color-brand);
+}
+/* Hueco: la lectura estimada no la dio nadie, la calculó el sistema. */
+.trend-dot.is-soft {
+  fill: var(--color-surface);
+  stroke: var(--color-brand);
+  stroke-width: 1.5;
+}
+/* El último es el que cuenta la cifra de arriba: se marca para que se vea de
+   cuál se está hablando. */
+.trend-dot.is-last {
+  stroke: var(--color-surface);
+  stroke-width: 2;
+}
+.trend-chart.is-empty p {
+  margin: 0.6rem 0 0.2rem;
+  font-size: 0.78rem;
+}
+
+/* El rango del histórico de ESTE coche. Se pinta siempre —también con la
+   tabla vacía—: si desapareciera al no encontrar nada, no habría forma de
+   deshacer el filtro que acaba de vaciarla. */
+.hse-range {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+.hse-range label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.hse-range input {
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.82rem;
+}
+.hse-range input:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.hse-range-clear {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.hse-range-clear:hover {
+  background: var(--color-surface-soft);
+}
+
+/* El punto señalado con el ratón: su guía vertical y su bocadillo. El SVG se
+   dibuja a la medida del hueco, así que estas medidas son píxeles. */
+.trend-hover line {
+  stroke: var(--color-text-muted);
+  stroke-dasharray: 2 3;
+  stroke-width: 1;
+}
+.trend-hover circle {
+  fill: var(--color-brand);
+  stroke: var(--color-surface);
+  stroke-width: 2;
+}
+.trend-tip rect {
+  fill: var(--color-text);
+  opacity: 0.92;
+}
+.trend-tip text {
+  fill: #ffffff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.trend-chart svg {
+  cursor: crosshair;
+}
+
+/* La anotación señalada, la misma en las tres piezas: pasar por una fila marca
+   su punto en las gráficas y pasar por una gráfica marca su fila. La fila se
+   destaca con el color de marca a la izquierda —no con un fondo fuerte, que
+   compite con las filas alternas— y en negrita. */
+.hse-history tbody tr.is-marked td {
+  background: color-mix(in srgb, var(--color-brand) 10%, var(--color-surface));
+  font-weight: 700;
+}
+.hse-history tbody tr.is-marked td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-brand);
+}
+.hse-history tbody tr {
+  cursor: default;
+}
+
+/* Las dos pestañas del modal de «sin anotar»: son lo primero del diálogo, así
+   que respiran por abajo antes de la explicación de la que esté elegida. */
+.hse-stat-tabs {
+  margin-bottom: 0.6rem;
+}

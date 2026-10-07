@@ -52,6 +52,7 @@ const CONTENIDOS: Array<'summary' | ReportKindKey> = [
   'summary',
   'vehicles',
   'fleet',
+  'hse',
   'kmreadings',
   'fuel',
   'documents',

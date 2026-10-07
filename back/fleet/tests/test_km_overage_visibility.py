@@ -63,10 +63,17 @@ class KmOverageVisibilityTests(APITestCase):
         resp = self.client.get(reverse("alert-detail", args=[self.overage.pk]))
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_management_and_hse_see_it(self):
-        for user in (self.supervisor, self.admin, self.hse):
+    def test_management_sees_it(self):
+        for user in (self.supervisor, self.admin):
             with self.subTest(user=user.username):
                 self.assertIn(AlertType.KM_OVERAGE, self._types(user))
+
+    def test_hse_does_not_read_alerts_at_all(self):
+        """Su vista es cómo se USA la flota: las alertas ya no son suyas."""
+        self.client.force_authenticate(self.hse)
+        self.assertEqual(
+            self.client.get(reverse("alert-list")).status_code, status.HTTP_403_FORBIDDEN
+        )
 
     def test_supervisor_plus_driver_still_sees_it(self):
         """Los roles se suman: quien supervisa y además conduce es gestión."""

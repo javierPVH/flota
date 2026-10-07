@@ -13,7 +13,7 @@ from django.db.models import F, Q, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
 
-from .models import Assignment, KmReading, VehicleLink
+from .models import Assignment, Contract, KmReading, VehicleLink
 from .models.enums import AssignmentStatus
 
 
@@ -91,6 +91,32 @@ def latest_reading_map(vehicle_ids: Iterable[int]) -> dict[int, KmReading]:
                 RowNumber(),
                 partition_by=[F("vehicle_id")],
                 order_by=[F("reading_date").desc(), F("id").desc()],
+            )
+        )
+        .filter(_pos=1)
+    }
+
+
+def current_contract_map(vehicle_ids: Iterable[int]) -> dict[int, Contract]:
+    """`{vehicle_id: contrato VIGENTE}` en una sola consulta.
+
+    «Vigente» es el mismo criterio que usa `alerts.check_km_overage`: sin fecha
+    de fin real y activo; si hubiera varios, manda el de `start_date` más
+    reciente (desempate por `id`). Lo pinta el listado de vehículos —las fechas
+    de inicio y fin prevista son el bloque de servicio que mira HSE— y el
+    informe, así que se resuelve como el conductor o la última lectura: una
+    fila por vehículo y no una query por fila.
+    """
+    return {
+        contract.vehicle_id: contract
+        for contract in Contract.objects.filter(
+            vehicle_id__in=list(vehicle_ids), end_date__isnull=True, is_active=True
+        )
+        .annotate(
+            _pos=Window(
+                RowNumber(),
+                partition_by=[F("vehicle_id")],
+                order_by=[F("start_date").desc(nulls_last=True), F("id").desc()],
             )
         )
         .filter(_pos=1)

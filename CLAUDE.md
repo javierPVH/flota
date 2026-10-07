@@ -96,12 +96,23 @@ permiso por rol y queryset acotado.
 Una persona = un `User` (`accounts.models`), con **roles multi-valor** en
 `UserRole` (`admin` / `supervisor` / `driver` / `hse`; helpers `is_admin`,
 `is_supervisor`, `is_driver`, `is_hse`, `is_management`). **`hse` es solo
-lectura y NO es gestión** (`is_management` sigue siendo admin|supervisor): lee
-toda la flota —vehículos, incidencias y accidentes, alertas, documentos del
-coche, histórico, contratos, facturas, informes salvo el de usuarios— por la
-clase `HseReadOnly` compuesta con `|` solo en esos endpoints; nada de usuarios,
-Ajustes, solicitudes ni escrituras. En gestión tiene su pantalla `/hse`
-(pestañas de tablas sin acciones); un HSE puro no sale de ahí, y un admin+hse
+lectura y NO es gestión** (`is_management` sigue siendo admin|supervisor), y lo
+que lee es **cómo se USA la flota**: vehículos, lecturas de km, consumo y **su**
+informe (`kind=hse`), por la clase `HseReadOnly` compuesta con `|` en esos
+**cuatro** endpoints y en ninguno más. Fuera queda todo lo que su pantalla no
+enseña, y el permiso dice lo mismo que la vista: **costes** (contratos,
+facturas, imputaciones, `/summary/`), **personas** (asignaciones, periodos de
+supervisor) y **lo que le pasa al coche** (incidencias, accidentes, alertas,
+eventos, mantenimiento, el `history` del vehículo y los **documentos** —tampoco
+su archivo: `readable_documents` ya no le añade ninguno—). De lo que sí lee, el
+`VehicleSerializer` le recorta además el conductor, el supervisor y la cita de
+ITV (`HSE_HIDDEN_VEHICLE_FIELDS`) y le añade las **fechas del contrato
+vigente** (`contract_start_date`/`contract_end_date`, por `current_contract_map`
+como el resto de mapas por respuesta), que son columna de su tabla — y así no
+necesita `/contracts/`, donde está la cuota. Nada de usuarios, Ajustes,
+solicitudes ni escrituras. Todo esto **solo afecta al HSE puro**: quien además
+es gestión o conductor pasa por el otro lado del `|` y conserva lo suyo. En
+gestión tiene su pantalla `/hse`; un HSE puro no sale de ahí, y un admin+hse
 llega desde el botón «HSE» de la cabecera, a la izquierda de «Solicitudes».
 **Leer no es actuar**: `vehicles_for` y `readable_documents` llevan
 `write=True` en todo lo que escribe, en las acciones POST y en las bandejas de
@@ -543,7 +554,18 @@ Dos capas que van **siempre juntas**:
   («agosto de 2026»), porque tres niveles plegados uno dentro de otro se leen
   peor que dos. Así lee la bandeja de **alertas**: por mes de vencimiento, por
   tipo de aviso o por los dos, y **fuera va el que se marcó primero**, que es
-  el criterio con el que se está leyendo la tabla. La fila
+  el criterio con el que se está leyendo la tabla. Puede llevar además una **segunda cabecera encima de la de
+  columnas** (`columnGroups`: `{ key, label, columnKeys }`), que dice de qué
+  familia es cada tramo —«Kilometraje», «Combustible»— cuando una tabla ancha
+  mezcla cosas que se leen igual. Los tramos se calculan sobre las columnas
+  que se están **viendo y en el orden en que se ven**: esconder una columna
+  encoge su grupo y moverla parte el grupo en dos tramos, cada uno con su
+  rótulo —un `colSpan` que saltara por encima de una columna ajena diría que
+  esa columna también es suya—. Lo que no tiene grupo deja el hueco (ocupa su
+  sitio, o los rótulos se desalinearían de sus columnas) y, sin ningún rótulo
+  que pintar, la fila no se monta: una tabla sin `columnGroups` es la de
+  siempre. La fila de columnas deja entonces de estar pegada arriba del todo
+  (`sticky`) y baja el alto **fijo** de la de grupos. La fila
   expandible (N4) es `renderExpandedRow`; si **no todas** las filas tienen algo
   debajo, va con `canExpandRow` (N4b): el hueco del expansor se mantiene —las
   celdas siguen alineadas— pero la fila sin nada no enseña flecha ni responde al
@@ -1002,6 +1024,162 @@ Dos capas que van **siempre juntas**:
   vencimiento antes de guardar. Un vehículo tiene **un** plan activo: el back
   rechaza el segundo, y retirarlo (N7) se hace desde este mismo modal: la ficha
   no tiene tarjeta de mantenimiento.
+- **La vista de HSE enseña CÓMO SE USA la flota, y nada más** (`HsePage`):
+  una fila de cuatro cifras (`StatCard`, la rejilla del panel) —coches activos,
+  cuántos tienen lectura de este mes, cuántos tienen consumo y cuántos llevan
+  **más de 30 días sin leerse** (el semáforo `kmStaleTone` de siempre), y
+  **cada una abre SU lista** en un modal con la misma tabla de «Vehículos»
+  (su orden, su CSV y su propia búsqueda, que no toca la de la pestaña de
+  debajo): un número que no cuadra lleva siempre a la misma pregunta,
+  «¿cuáles?». Pero **solo con las columnas que contestan SU pregunta**
+  (`STAT_COLUMNS`, que se queda con las suyas de la única definición de
+  columnas que hay): nunca el **estado** —todos son activos, que es el corte
+  de la pantalla: una columna con el mismo valor en todas las filas no informa
+  de nada— ni las **fechas del contrato**, que no dicen si un coche está
+  reportando; y si la pregunta es de **kilómetros** sobra el consumo, y al
+  revés. La general («Coches activos») sí lleva las dos, que es la lista de la
+  flota que se vigila. La de **«sin anotar hace más de 30 días»** son **dos
+  pestañas** —kilómetros y consumo, cada una con su recuento y su lista
+  (`kmStaleTone` sobre `km_reading_date` y sobre `fuel_avg_date`)—: es la
+  misma pregunta hecha a las dos anotaciones, y la cifra de la tarjeta es la
+  de km, que por eso va primera. Cambiar de pestaña empieza la búsqueda en
+  limpio, como en las pestañas de la pantalla. Las dos de «este mes» enseñan **lo que FALTA** —los
+  que no han dado lectura, los que no tienen consumo anotado— y no el
+  numerador: es lo que se viene a mirar aquí, y por eso el subtítulo de la
+  tarjeta («19 sin dar») es la cifra que cuenta su modal. Las listas se
+  calculan **como listas** y la cifra es su longitud, no al revés, para que
+  número y tabla no puedan contar cosas distintas; mientras cargan los
+  vehículos las tarjetas no se ofrecen, que no hay lista que abrir. Esto le
+  añadió al DS un `onClick` opcional a **`StatCard`**: con él la tarjeta se
+  pinta como `<button>` —llega por teclado, que el número de una tarjeta no
+  puede ser una puerta que solo abre el ratón— y sin él se queda como estaba,
+  así que el panel no cambia. Debajo, **dos pestañas**: **Vehículos** (matrícula, marca,
+  modelo, estado, las dos fechas del contrato, la última lectura con su fecha y
+  el último consumo con la suya, bajo una **cabecera de grupos**
+  —`columnGroups`: Vehículo · Contrato · Kilometraje · Combustible—, porque las
+  dos parejas de la derecha son una fecha y una cifra cada una y «Última
+  lectura» y «Último consumo» se leen igual de lejos) e **Informe** (`kind=hse`: una **portada «Resumen»** con las cuatro
+  cifras de la cabecera —calculadas sobre las filas de la hoja de vehículos,
+  no con otra consulta, para que portada y hoja no se contradigan— y esas dos
+  mismas tablas, la de vehículos con una columna más, «Días desde la última
+  lectura», que es lo que HSE vigila; con un chip por hoja — lo que se ve es
+  lo que se baja, y la vista previa pinta cada columna según lo que trae:
+  fechas a la española y cifras con miles. El CSV, que es un único fichero
+  plano, salta la portada y lleva la tabla de vehículos). **La portada se
+  pinta como portada y no como un listado**: son siete indicadores fijos, así
+  que la tabla del DS les ponía encima una ordenación por columnas y un «1–7
+  de 7 · Filas por página» que no sirven para nada. Las **cifras** van en una
+  rejilla (`.hse-cover`) y el **contexto** —mes de referencia, generado el— en
+  un pie; lo que separa una cosa de otra es el TIPO del valor (el back manda
+  las cifras como número y el contexto como cadena), así que una fila nueva
+  cae al pie en vez de romper nada. Sin `StatCard` a propósito: la cabecera de
+  la pantalla ya tiene esas mismas cifras dos palmos más arriba. Los **chips
+  llevan su rótulo de la copia del front, por posición** (0 portada, 1
+  vehículos, 2 lecturas) con el título del back de reserva — ese título es un
+  nombre de hoja, no una traducción, y con la app en inglés los tres se leían
+  en castellano—, el de la portada **sin recuento** (no son siete registros,
+  son siete indicadores) y debajo una línea de qué contiene la hoja activa. Y
+  **cada formato se explica junto a SU botón** (`.hse-downloads`): que el CSV
+  trae una sola hoja hay que saberlo antes de pulsarlo, no al final de un
+  párrafo que queda por encima. El Excel de **todos** los informes (`to_xlsx`) va **tipado**:
+  las fechas ISO de las tablas se convierten en fechas de Excel con formato
+  `DD/MM/YYYY`, los enteros llevan separador de miles y los decimales dos
+  cifras, el cabecero va en negrita sobre el verde de la app y con
+  **autofiltro**, y el nombre del fichero lleva el día (`informe_hse_<fecha>`);
+  las tablas no cambian (siguen entregando `str`/`int`/`Decimal`), así que el
+  CSV y la vista previa JSON son los de siempre. Las
+  cifras se calculan **en cliente** sobre lo ya cargado: `/summary/` lleva el
+  coste mensual y no es suyo. Tenía cuatro pestañas —vehículos, incidencias,
+  accidentes y alertas— y su tabla enseñaba conductor, supervisor, ITV y
+  seguro; se recortó porque HSE mira el uso, no la gestión, y el back se cerró
+  a la vez (ver «Roles y acotado»): aquí no hay nada que pudiera fallar por
+  permisos, y lo que no está no se puede pedir por API. Sin acciones y sin
+  enlaces a la ficha del coche, que es donde se opera. Las lecturas van de
+  **toda** la flota aunque los vehículos sean solo los activos: una lectura es
+  un hecho del pasado y esconderla porque el coche se haya parado contaría otra
+  cosa. **Las lecturas no son una pestaña: viven DENTRO de la fila de su
+  coche.** Eran una tabla aparte —un coche por fila, la lectura del mes que se
+  estuviera mirando y un navegador de meses—, así que para seguir un coche
+  había que saltar entre dos tablas que hablaban de lo mismo. Ahora cada fila
+  de «Vehículos» se despliega (`renderExpandedRow` con `expanderInFirstCell`,
+  la flecha pegada a la matrícula) y enseña **su histórico de anotaciones**:
+  una línea por FECHA con la lectura de km y el consumo de ese día —las dos
+  cosas juntas, que es lo que HSE mira de un coche, y en una sola línea cuando
+  caen el mismo día—, con la chapa «Estimada» en la que calculó el sistema
+  (N8b). Lo encabezan **dos gráficas**, los kilómetros y el
+  consumo (`components/TrendChart.tsx`, SVG propio sin dependencias): la tabla
+  dice cuánto marcó cada día y la gráfica, si eso **sube o se estanca**, que es
+  lo que no se lee en una columna de cifras. Son dos y no una porque son dos
+  magnitudes (km y l/100km) y dos series distintas —un día puede tener lectura
+  y no consumo—, y su eje Y **no arranca en cero**: lo que se mira es la
+  variación, y con el cero forzado un consumo que va de 6,1 a 6,6 saldría como
+  una raya. Por eso llevan **escala** —tres marcas con su rejilla y las fechas
+  de los extremos—: una curva sin números a los lados dibuja una forma pero no
+  dice de cuánto a cuánto va, y ese encuadre sin cero engañaría. Encima, el
+  **resumen**: lo último anotado y **cuánto ha cambiado** desde la primera
+  anotación, que es la pregunta que se trae quien despliega la fila. Esa
+  variación solo se **colorea donde moverse significa algo** (el consumo:
+  verde si baja, ámbar si sube); en los kilómetros va en gris, porque suben
+  siempre y pintarlos de rojo sería una alarma falsa en toda la flota. La
+  **unidad se dice una vez** —junto a la cifra de la gráfica, en la cabecera de
+  la columna— y no en cada celda ni en cada marca del eje: repetida, deja de
+  leerse y ensancha la columna. Las lecturas **estimadas** van con el punto
+  hueco (no las dio nadie) y el último punto va marcado, que es del que habla
+  la cifra de arriba; con una sola anotación no se dibuja nada: se dice que
+  hacen falta dos. El lienzo se dibuja a la **medida real del hueco**
+  (`ResizeObserver`, con el ancho de salida de reserva donde no lo haya): una
+  unidad del dibujo es un píxel, así que el alto se queda fijo por ancha que
+  sea la columna y los puntos no se deforman — con un `viewBox` fijo pasaba
+  una de dos, o la gráfica crecía de alto al estirarse (1.100px de ancho
+  pedían 345 de alto) o había que forzar `preserveAspectRatio="none"` y los
+  círculos salían ovalados. Y en una pantalla **ancha** (desde 1500px) las
+  tres piezas van **en una fila** —la tabla a la izquierda con su ancho de
+  siempre, que tres datos cortos no ganan nada por estirarse, y las dos
+  gráficas repartiéndose el resto—: apiladas dejaban media pantalla en blanco
+  a la derecha de la tabla y hacían el doble de alto, que en una fila
+  desplegada es lo que empuja al coche siguiente fuera de la vista. No es
+  `KmChart` del DS y no lo sustituye: aquella es la gráfica RICA del odómetro
+  —cupo del contrato, línea ideal, marcas de año— y mide 640×150; aquí caben
+  dos, una al lado de otra, dentro de la fila de una tabla. Se **leen con el
+  ratón**: al pasarlo por encima sale el **bocadillo** de la anotación —su
+  fecha y su valor— con una guía vertical, y el punto que se enseña es el
+  **más cercano en el eje X**, no aquel sobre el que se acierte a poner el
+  cursor: un círculo de 3px es un blanco imposible y lo que se pregunta es
+  «¿qué pasó por aquí?». Es bocadillo propio y no el `<title>` del navegador,
+  que tarda un segundo en salir y no se puede pintar; lo que eso deja fuera
+  del teclado lo da la **tabla de al lado**, que tiene los mismos datos. Y las
+  tres piezas señalan **la misma anotación**: pasar por una fila de la tabla
+  marca su punto en las dos gráficas y pasar por una gráfica marca su fila
+  —que se trae a la vista si el scroll la había dejado fuera, moviendo SOLO
+  ese contenedor y no la página—. Lo que comparten es la **fecha** y no un
+  índice: las dos series no se corresponden fila a fila (un día con lectura
+  puede no tener consumo), así que una fecha que no está en una serie no marca
+  nada en ella, que es lo honesto. La gráfica admite esa marca **de fuera**
+  (`highlight`/`onHighlight`) y, sin ella, se la guarda para sí: suelta sigue
+  funcionando igual. Y el
+  panel lleva su **rango de fechas** (desde / hasta, más «Todo el histórico»
+  para deshacerlo): es de ESA fila y dura lo que dure desplegada, porque cada
+  coche se mira en su propio periodo —uno se compró en marzo y otro lleva tres
+  años— y un rango común no diría lo mismo para todos. Acota **las dos series
+  a la vez** (`reading_date__gte/lte`, que el back ya filtraba en los dos
+  endpoints): media respuesta no es una respuesta. Las fechas se pintan
+  **siempre**, también mientras carga y —sobre todo— cuando el rango no deja
+  nada: si desaparecieran con la tabla vacía, no habría forma de deshacer el
+  filtro que acaba de vaciarla. El histórico se
+  pide **al desplegar** y una sola vez por coche y rango —la clave de lo
+  cargado es el propio rango, que es lo que distingue «ya lo tengo» de «me han
+  cambiado las fechas»—
+  (`Promise.allSettled` de km y consumo: que falle uno no puede dejar sin el
+  otro), no al cargar la pantalla — la tabla de antes se traía una ventana de
+  dos meses de TODA la flota para pintar una columna, y el histórico entero de
+  todos serían decenas de miles de filas para enseñar una. Solo despliegan las
+  filas que tienen algo (`canExpandRow` mirando `km_reading_date` /
+  `fuel_avg_date`, que ya viajan en el vehículo): una flecha que abre un hueco
+  vacío es una promesa que no se cumple. Y como la tabla enseña solo los
+  **activos** pero las anotaciones de un coche parado siguen existiendo, la
+  barra lleva **«Incluir los coches parados»** —apagada de salida—, que es el
+  único camino que queda para alcanzarlas; marcarla cambia la tabla pero **no
+  las cuatro cifras**, que hablan de la flota en servicio.
 - **Dos cuentas no se gestionan como las demás, y por eso van aparte**
   (`UsersPage`): entre los filtros y el listado hay una tabla con **las mismas
   columnas** y dos filas fijas —la **cuenta de administración del sistema** y la

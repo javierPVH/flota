@@ -324,7 +324,9 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     - Supervisor: lectura de **su grupo** (`supervisor=user`) — HU-2.8.
     - Conductor: lectura de sus vehículos asignados.
     - HSE: lectura de toda la flota (`HseReadOnly`; las acciones POST llevan
-      su propio permiso y le quedan cerradas).
+      su propio permiso y le quedan cerradas, incluida `history`). Al HSE puro
+      el serializer le recorta el conductor, el supervisor y la cita de ITV
+      (`HSE_HIDDEN_VEHICLE_FIELDS`): su vista es cómo se usa el coche.
 
     Escritura solo admin (no alta/baja para el supervisor). Los vehículos en
     `baja` no salen por defecto; se ven con `?state=retired` (el valor real
@@ -678,7 +680,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         data["alerts_resolved"] = result["alerts_resolved"]
         return Response(data)
 
-    @action(detail=True, methods=["get"], permission_classes=[IsManagement | HseReadOnly])
+    @action(detail=True, methods=["get"], permission_classes=[IsManagement])
     def history(self, request, pk=None):
         """GET /api/vehicles/{id}/history/ — auditoría EXHAUSTIVA del vehículo.
 
@@ -781,14 +783,16 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             }
         )
 
-    @action(detail=True, methods=["get"])
+    # Permiso propio: sin él heredaría el de la clase, que incluye a HSE, y
+    # este resumen lleva COSTE y CONDUCTOR — ninguno de los dos es de HSE.
+    @action(detail=True, methods=["get"], permission_classes=[IsManagementOrDriverReadOnly])
     def summary(self, request, pk=None):
         """GET /api/vehicles/{id}/summary/ — métricas de la ficha (HU-1.2/3.4).
 
         Coste, km, proyección lineal a fin de contrato con nivel
         `within`/`watch`/`over` y penalización estimada. Mismo scoping de
         lectura que la ficha (conductor: sus vehículos; supervisor: su grupo).
-        La proyección solo viaja a gestión y HSE (`metrics.projection_visible`).
+        La proyección solo viaja a gestión (`metrics.projection_visible`).
         """
         data = metrics.vehicle_summary(self.get_object())
         if not metrics.projection_visible(request.user):
@@ -1342,7 +1346,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
 class ContractViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
     serializer_class = ContractSerializer
-    permission_classes = [AdminWriteManagementRead | HseReadOnly]
+    permission_classes = [AdminWriteManagementRead]
     queryset = Contract.objects.select_related("vehicle", "renting")
     filterset_fields = ["vehicle", "renting"]
     ordering_fields = ["start_date", "planned_end_date"]
@@ -1471,7 +1475,7 @@ class AssignmentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets
     """
 
     serializer_class = AssignmentSerializer
-    permission_classes = [AdminWriteManagementOrDriverRead | HseReadOnly]
+    permission_classes = [AdminWriteManagementOrDriverRead]
     queryset = Assignment.objects.select_related("vehicle", "driver")
     filterset_fields = ["vehicle", "driver", "status"]
     ordering_fields = ["start_date", "created_at"]
@@ -1597,7 +1601,7 @@ class SupervisorPeriodViewSet(
     """
 
     serializer_class = SupervisorPeriodSerializer
-    permission_classes = [AdminWriteManagementRead | HseReadOnly]
+    permission_classes = [AdminWriteManagementRead]
     queryset = SupervisorPeriod.objects.select_related("vehicle", "supervisor")
     filterset_fields = ["vehicle", "supervisor"]
     ordering_fields = ["start_date", "created_at"]
@@ -1678,7 +1682,7 @@ class VehicleUsageViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewse
 
 class VehicleLinkViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
     serializer_class = VehicleLinkSerializer
-    permission_classes = [AdminWriteManagementRead | HseReadOnly]
+    permission_classes = [AdminWriteManagementRead]
     queryset = VehicleLink.objects.select_related("main_vehicle", "substitute_vehicle")
     vehicle_lookup = "main_vehicle"
     # `reason` NO se expone como filtro: choca con el `?reason=` del motivo de
@@ -1742,7 +1746,7 @@ class EventViewSet(
     """
 
     serializer_class = EventSerializer
-    permission_classes = [EventPermission | HseReadOnly]
+    permission_classes = [EventPermission]
     # PR1: los subtipos son one-to-one inversos que get_details toca fila a
     # fila — sin select_related eran hasta 5 queries por evento. R3-03: la
     # lista es EXACTAMENTE lo que lee el serializer (faltaban driver_change y
@@ -1781,7 +1785,7 @@ class EventViewSet(
 
 class InvoiceViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet):
     serializer_class = InvoiceSerializer
-    permission_classes = [AdminWriteManagementRead | HseReadOnly]
+    permission_classes = [AdminWriteManagementRead]
     queryset = Invoice.objects.select_related("vehicle")
     filterset_fields = ["vehicle"]
     ordering_fields = ["date", "amount"]
@@ -1831,7 +1835,7 @@ class InvoiceAllocationViewSet(
     DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet
 ):
     serializer_class = InvoiceAllocationSerializer
-    permission_classes = [AdminWriteManagementRead | HseReadOnly]
+    permission_classes = [AdminWriteManagementRead]
     queryset = InvoiceAllocation.objects.select_related("invoice", "project", "cost_center")
     vehicle_lookup = "invoice__vehicle"
     filterset_fields = ["invoice", "target_type"]
@@ -1871,7 +1875,7 @@ class IncidentViewSet(
     """
 
     serializer_class = IncidentSerializer
-    permission_classes = [IsManagementOrDriverCreate | HseReadOnly]
+    permission_classes = [IsManagementOrDriverCreate]
     # Front público (internet): el alta del conductor va acotada, como la de
     # documentos — es la misma superficie expuesta a la red abierta.
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
@@ -2025,7 +2029,7 @@ class DocumentViewSet(
     # HSE lee los del vehículo (y su binario por `preview`/`download`); los
     # personales los deja fuera `readable_documents`, y `verify`/`purge` van
     # con su propio permiso.
-    permission_classes = [DocumentPermission | HseReadOnly]
+    permission_classes = [DocumentPermission]
     # Front público (internet): acota la subida de documentos del conductor.
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
@@ -2345,7 +2349,7 @@ class AlertViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
     """
 
     serializer_class = AlertSerializer
-    permission_classes = [IsManagementOrDriverReadOnly | HseReadOnly]
+    permission_classes = [IsManagementOrDriverReadOnly]
     # BG11: `level` es texto — ordenar por él ponía warning antes que critical.
     # Se expone `level_rank` (0=critical) anotado para ordenar por gravedad real.
     queryset = Alert.objects.select_related(
@@ -2581,7 +2585,7 @@ class FleetSummaryView(APIView):
     los agregados de **su grupo**; HSE, los de toda la flota.
     """
 
-    permission_classes = [IsManagement | HseReadOnly]
+    permission_classes = [IsManagement]
 
     def get(self, request):
         return Response(metrics.fleet_summary(request.user))
@@ -2596,7 +2600,7 @@ class VehicleSummariesView(APIView):
     admin: toda la flota) y consultas acotadas en el servicio.
     """
 
-    permission_classes = [IsManagementOrDriverReadOnly | HseReadOnly]
+    permission_classes = [IsManagementOrDriverReadOnly]
 
     def get(self, request):
         # PR5/PF4: `?ids=1,2,3` acota la respuesta a esos vehículos (dentro del
@@ -2631,8 +2635,8 @@ class ReportsView(APIView):
     (resumen del súper registro + hoja de detalle) para la ayuda «?» del
     selector de campos.
 
-    HSE descarga los de la flota entera menos el de **usuarios**: ese es la
-    plantilla, y HSE lee coches, no personas.
+    HSE descarga **solo el suyo** (`kind=hse`): los demás llevan costes,
+    personas o lo que le pasa al coche, que es justo lo que su vista no enseña.
     """
 
     permission_classes = [IsManagement | HseReadOnly]
@@ -2646,8 +2650,14 @@ class ReportsView(APIView):
                 {"detail": f"Informe desconocido: {kind}. Válidos: {valid}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if kind == "users" and not request.user.is_management:
-            raise PermissionDenied("El informe de usuarios es de gestión.")
+        # Aquí solo llegan gestión y HSE (ver `permission_classes`), así que
+        # «no es gestión» es «es HSE puro»: de los informes, el suyo y nada
+        # más. El de usuarios, además, es la plantilla de personas.
+        if kind != "hse" and not request.user.is_management:
+            raise PermissionDenied(
+                "El rol HSE solo descarga el informe de HSE: el resto lleva costes, "
+                "personas o incidencias."
+            )
         if fmt not in ("json", "columns") and fmt not in reports.FORMATS:
             return Response(
                 {"detail": f"Formato no soportado: {fmt}. Válidos: {', '.join(reports.FORMATS)}."},
@@ -2891,7 +2901,7 @@ class MaintenanceProgramViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet)
     queryset = MaintenanceProgram.objects.all()
     serializer_class = MaintenanceProgramSerializer
     # HSE lo lee: es lo que da sentido al plan de cada coche («cada X km»).
-    permission_classes = [AdminWriteManagementRead | HseReadOnly]
+    permission_classes = [AdminWriteManagementRead]
     search_fields = ["name", "notes"]
 
 
@@ -2906,7 +2916,7 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
     # gestion: tambien el supervisor, que responde de esos coches y lo hace
     # desde la PWA; el ambito lo acota el mixin (su grupo), asi que un plan
     # sobre un coche ajeno sigue siendo un 403 del scope.
-    permission_classes = [ManagementWriteDriverRead | HseReadOnly]
+    permission_classes = [ManagementWriteDriverRead]
     queryset = MaintenancePlan.objects.select_related("vehicle", "program")
     filterset_fields = ["vehicle"]
     search_fields = ["name", "vehicle__plate"]

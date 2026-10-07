@@ -530,3 +530,66 @@ class IncidentsTableColumnsTests(APITestCase):
         for col in ("Taller", "Km solución", "Fecha solución", "Días parado", "Resuelta el"):
             self.assertEqual(row[col], "", col)
         self.assertEqual(row["Resuelta por"], "")
+
+
+class XlsxFormattingTests(APITestCase):
+    """El Excel va TIPADO y con cabecero: lo que lo distingue de un CSV.
+
+    Las tablas siguen entregando fechas ISO como texto y cifras como int/Decimal
+    (el CSV y la vista previa JSON no cambian); es `to_xlsx` quien convierte
+    las fechas en fechas de Excel y pone formato de miles y de decimales,
+    estiliza el cabecero y deja el autofiltro puesto. Y una celda que empiece
+    por `=` sigue siendo texto (INP-1).
+    """
+
+    def _sheet(self, table):
+        import io
+
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(reports.to_xlsx([table])))
+        return wb[table[0]]
+
+    def test_dates_numbers_and_decimals_are_typed_and_formatted(self):
+        ws = self._sheet(
+            (
+                "Hoja",
+                ["Fecha", "Km", "Consumo", "Texto", "Rara"],
+                [["2026-04-10", 31000, Decimal("7.10"), "=1+1", "2026-13-99"]],
+            )
+        )
+        fecha = ws["A2"]
+        self.assertEqual(
+            fecha.value.date() if hasattr(fecha.value, "date") else fecha.value, date(2026, 4, 10)
+        )
+        self.assertEqual(fecha.number_format, reports.XLSX_DATE_FORMAT)
+        self.assertEqual(ws["B2"].value, 31000)
+        self.assertEqual(ws["B2"].number_format, reports.XLSX_INT_FORMAT)
+        self.assertEqual(float(ws["C2"].value), 7.1)  # openpyxl lo lee como float
+        self.assertEqual(ws["C2"].number_format, reports.XLSX_DECIMAL_FORMAT)
+        # INP-1: texto, nunca fórmula.
+        self.assertEqual(ws["D2"].value, "=1+1")
+        self.assertEqual(ws["D2"].data_type, "s")
+        # Lo que parece fecha pero no lo es se queda como texto.
+        self.assertEqual(ws["E2"].value, "2026-13-99")
+
+    def test_header_is_styled_frozen_and_filterable(self):
+        ws = self._sheet(("Hoja", ["Matrícula", "Km"], [["AAA111", 1], ["BBB222", 2]]))
+        cabecera = ws["A1"]
+        self.assertTrue(cabecera.font.bold)
+        self.assertEqual(cabecera.font.color.rgb, "00FFFFFF")
+        self.assertEqual(cabecera.fill.fgColor.rgb, "000F766E")
+        self.assertEqual(ws.freeze_panes, "A2")
+        # Autofiltro sobre cabecero + filas.
+        self.assertEqual(ws.auto_filter.ref, "A1:B3")
+
+    def test_the_file_name_carries_the_day(self):
+        admin = make_user("admin", Role.ADMIN)
+        hoy = timezone.localdate().isoformat()
+        nombre, _, _ = reports.render("fleet", admin, "csv")
+        self.assertEqual(nombre, f"informe_fleet_{hoy}.csv")
+        nombre, _, _ = reports.render("vehicles", admin, "xlsx")
+        self.assertEqual(nombre, f"vehiculos_completo_{hoy}.xlsx")
+        # Un envío programado se llama como el envío: el día no se le impone.
+        nombre, _, _ = reports.render("fleet", admin, "csv", stem="Flota semanal")
+        self.assertEqual(nombre, "Flota semanal.csv")

@@ -85,6 +85,13 @@ export interface Vehicle {
    * el listado; la serie completa vive en `fuel-consumptions`. */
   fuel_avg_consumption: string | null
   fuel_avg_date: string | null
+  /** Fechas de servicio del contrato VIGENTE (inicio y fin PREVISTO), que el
+   * back resuelve en bloque como el conductor o la última lectura. Son columna
+   * de la vista de HSE —y de su informe—, y así esa pantalla no necesita leer
+   * `/contracts/`, donde está la cuota. `null` en un coche propio (sin
+   * contrato). El resto del contrato se sigue consultando en su endpoint. */
+  contract_start_date: string | null
+  contract_end_date: string | null
   /** Última lectura de km: cuántos y de cuándo (y si la estimó el sistema).
    * Como el gasto del mes, la resuelve el back en bloque para el listado: la
    * tabla del panel pinta el odómetro y cuánto lleva sin leerse. */

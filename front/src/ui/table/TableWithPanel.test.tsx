@@ -3,7 +3,11 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { TableWithPanel, type TableWithPanelColumn } from './TableWithPanel.tsx'
+import {
+  TableWithPanel,
+  type TableWithPanelColumn,
+  type TableWithPanelProps,
+} from './TableWithPanel.tsx'
 
 interface Row {
   id: number
@@ -52,6 +56,76 @@ describe('TableWithPanel', () => {
     headers.forEach((th) => expect(th).toHaveAttribute('scope', 'col'))
     expect(screen.getByText('1111AAA')).toBeInTheDocument()
     expect(screen.getByText('2222BBB')).toBeInTheDocument()
+  })
+
+  describe('cabecera de grupos', () => {
+    interface Wide {
+      id: number
+      plate: string
+      kmDate: string
+      km: number
+      fuelDate: string
+      fuel: string
+    }
+    const WIDE_ROWS: Wide[] = [
+      { id: 1, plate: '1111AAA', kmDate: '2026-10-01', km: 1000, fuelDate: '2026-10-02', fuel: '6,8' },
+    ]
+    const WIDE_COLUMNS: Array<TableWithPanelColumn<Wide>> = [
+      { key: 'plate', label: 'Matrícula', getValue: (r) => r.plate },
+      { key: 'kmDate', label: 'Última lectura', getValue: (r) => r.kmDate },
+      { key: 'km', label: 'Kilómetros', getValue: (r) => r.km },
+      { key: 'fuelDate', label: 'Último consumo', getValue: (r) => r.fuelDate },
+      { key: 'fuel', label: 'Consumo medio', getValue: (r) => r.fuel },
+    ]
+    const GRUPOS = [
+      { key: 'km', label: 'Kilometraje', columnKeys: ['kmDate', 'km'] },
+      { key: 'fuel', label: 'Combustible', columnKeys: ['fuelDate', 'fuel'] },
+    ]
+
+    const pintar = (props: Partial<TableWithPanelProps<Wide>> = {}) =>
+      render(
+        <TableWithPanel<Wide>
+          rows={WIDE_ROWS}
+          columns={WIDE_COLUMNS}
+          rowKey={(r) => String(r.id)}
+          columnGroups={GRUPOS}
+          {...props}
+        />,
+      )
+
+    it('va encima de las columnas y cada rótulo abarca las suyas', () => {
+      pintar()
+      const filas = screen.getAllByRole('row')
+      // La primera fila de la tabla es la de grupos; la de columnas, debajo.
+      const grupos = within(filas[0]).getAllByRole('columnheader')
+      expect(grupos.map((th) => th.textContent)).toEqual(['Kilometraje', 'Combustible'])
+      grupos.forEach((th) => expect(th).toHaveAttribute('colspan', '2'))
+      expect(within(filas[1]).getByText('Última lectura')).toBeInTheDocument()
+    })
+
+    it('al esconder una columna, su grupo encoge', () => {
+      pintar({ hiddenColumns: ['km'] })
+      const grupos = within(screen.getAllByRole('row')[0]).getAllByRole('columnheader')
+      expect(grupos[0]).toHaveAttribute('colspan', '1') // Kilometraje, ya solo la fecha
+      expect(grupos[1]).toHaveAttribute('colspan', '2')
+    })
+
+    it('un grupo partido por una columna ajena se rotula dos veces', () => {
+      // El rótulo abarca lo que tiene al lado: un `colSpan` que saltara por
+      // encima de «Matrícula» diría que esa columna también es de kilometraje.
+      pintar({ columnOrder: ['kmDate', 'plate', 'km', 'fuelDate', 'fuel'] })
+      const grupos = within(screen.getAllByRole('row')[0]).getAllByRole('columnheader')
+      expect(grupos.map((th) => th.textContent)).toEqual([
+        'Kilometraje',
+        'Kilometraje',
+        'Combustible',
+      ])
+    })
+
+    it('sin grupos no se pinta ninguna fila de más', () => {
+      pintar({ columnGroups: undefined })
+      expect(within(screen.getAllByRole('row')[0]).getByText('Matrícula')).toBeInTheDocument()
+    })
   })
 
   it('muestra el estado vacío', () => {

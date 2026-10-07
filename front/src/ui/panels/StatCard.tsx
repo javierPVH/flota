@@ -27,16 +27,38 @@ export interface StatCardProps {
   sub?: ReactNode
   accent?: StatAccent
   icon?: ReactNode
+  /**
+   * Con `onClick`, la tarjeta ES un botón: la cifra lleva a la lista que
+   * cuenta, que es lo que uno quiere al leer un número que no cuadra. Sin él
+   * se queda como estaba —un dato— y no cambia nada de lo que ya la usa.
+   *
+   * Se renderiza como `<button>` y no como un `<div onClick>` para que llegue
+   * también por teclado: el número de una tarjeta no puede ser una puerta que
+   * solo abre el ratón.
+   */
+  onClick?: () => void
 }
 
 
-export function StatCard({ label, value, sub, accent = 'primary', icon }: StatCardProps) {
-  return (
-    <div className={cx(styles.statCard, accentClass[accent])}>
+export function StatCard({ label, value, sub, accent = 'primary', icon, onClick }: StatCardProps) {
+  const body = (
+    <>
       {icon && <span className={styles.statIcon}>{icon}</span>}
       <span className={styles.statLabel}>{label}</span>
       <span className={styles.statValue}>{value}</span>
       {sub !== undefined && <span className={styles.statSub}>{sub}</span>}
-    </div>
+    </>
   )
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className={cx(styles.statCard, accentClass[accent], styles.statClickable)}
+        onClick={onClick}
+      >
+        {body}
+      </button>
+    )
+  }
+  return <div className={cx(styles.statCard, accentClass[accent])}>{body}</div>
 }

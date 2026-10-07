@@ -80,7 +80,7 @@ from .models.enums import (
     UseType,
     VehicleState,
 )
-from .selectors import current_driver_map, latest_reading_map
+from .selectors import current_contract_map, current_driver_map, latest_reading_map
 from .services import document_requests, profile_requests, vehicle_requests
 
 
@@ -179,6 +179,20 @@ class VehicleContractInputSerializer(serializers.ModelSerializer):
         return _validate_contract_dates(attrs)
 
 
+#: Lo que NO ve un HSE puro de un vehículo: las personas que lo llevan y la
+#: cita de ITV. Su vista es vehículos, lecturas y consumo — ni conductores ni
+#: ITV— y el permiso tiene que decir lo mismo que la pantalla.
+HSE_HIDDEN_VEHICLE_FIELDS = (
+    "driver_name",
+    "driver_id",
+    "supervisor",
+    "supervisor_name",
+    "next_itv_date",
+    "next_itv_manual",
+    "itv_postal_code",
+)
+
+
 class VehicleSerializer(serializers.ModelSerializer):
     """Serializer de vehículo (nuevo esquema).
 
@@ -202,6 +216,12 @@ class VehicleSerializer(serializers.ModelSerializer):
     km_current = serializers.SerializerMethodField()
     km_reading_date = serializers.SerializerMethodField()
     km_estimated = serializers.SerializerMethodField()
+    # Fechas de servicio del contrato VIGENTE (inicio y fin previsto), por el
+    # mismo camino: son columna de la vista de HSE y de su informe, y así esa
+    # pantalla no necesita leer `/contracts/` —donde está la cuota, que es un
+    # coste—. El resto del contrato se sigue consultando en su endpoint.
+    contract_start_date = serializers.SerializerMethodField()
+    contract_end_date = serializers.SerializerMethodField()
     # N5: marca/modelo por catálogo. Los CharField legados pasan a opcionales
     # (se rellenan desde las FKs); los fronts leen brand/model como siempre.
     brand = serializers.CharField(required=False, allow_blank=False, max_length=50)
@@ -271,6 +291,8 @@ class VehicleSerializer(serializers.ModelSerializer):
             "km_current",
             "km_reading_date",
             "km_estimated",
+            "contract_start_date",
+            "contract_end_date",
             "drive_folder_url",
             "drive_folder_id",
             "contract",
@@ -294,6 +316,8 @@ class VehicleSerializer(serializers.ModelSerializer):
             "km_current",
             "km_reading_date",
             "km_estimated",
+            "contract_start_date",
+            "contract_end_date",
             "drive_folder_url",
             "drive_folder_id",
             "created_at",
@@ -390,6 +414,49 @@ class VehicleSerializer(serializers.ModelSerializer):
     def get_km_estimated(self, obj: Vehicle) -> bool:
         reading = self._latest_reading(obj)
         return bool(reading.estimated) if reading else False
+
+    def _current_contract(self, obj: Vehicle):
+        """Contrato vigente del vehículo (un coche propio no tiene)."""
+        return self._response_map("_current_contracts", obj, current_contract_map).get(obj.id)
+
+    def get_contract_start_date(self, obj: Vehicle) -> str | None:
+        contract = self._current_contract(obj)
+        return contract.start_date.isoformat() if contract and contract.start_date else None
+
+    def get_contract_end_date(self, obj: Vehicle) -> str | None:
+        """El fin PREVISTO: el real cierra el contrato y deja de ser vigente."""
+        contract = self._current_contract(obj)
+        return (
+            contract.planned_end_date.isoformat()
+            if contract and contract.planned_end_date
+            else None
+        )
+
+    def get_fields(self):
+        """Al HSE puro se le recortan los campos que su vista excluye.
+
+        HSE lee la flota entera, pero mira **cómo se usa** y no quién la lleva
+        ni qué le pasa: fuera el conductor, el supervisor y la cita de ITV
+        (`HSE_HIDDEN_VEHICLE_FIELDS`). Es el mismo mecanismo que usa el
+        documento con `MANAGEMENT_ONLY_DOCUMENT_FIELDS`, y en silencio: no hay
+        nada que rechazar, simplemente no viajan.
+
+        «Puro» es ni gestión ni conductor: un **admin+hse** sigue viendo su
+        pantalla de siempre y un **driver+hse** necesita su ficha entera en la
+        app de campo, donde conduce.
+        """
+        fields = super().get_fields()
+        user = getattr(self.context.get("request"), "user", None)
+        if (
+            user
+            and getattr(user, "is_authenticated", False)
+            and user.is_hse
+            and not user.is_management
+            and not user.is_driver
+        ):
+            for name in HSE_HIDDEN_VEHICLE_FIELDS:
+                fields.pop(name, None)
+        return fields
 
     def validate(self, attrs):
         # HU-1.3: proyecto obligatorio cuando el uso empresarial es "proyecto".

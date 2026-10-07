@@ -389,6 +389,37 @@
   tbody tr:nth-child(even) td
     background: #fafbfc
 
+// Cabecera de grupos: la fila de ARRIBA, que dice de qué familia es cada tramo
+// de columnas. Con dos filas pegadas (`sticky`), la de columnas ya no puede
+// quedarse en `top: 0` o se montaría sobre la de grupos: baja exactamente el
+// alto de esta, que por eso es fijo y no depende de su contenido.
+.theadGrouped
+  --table-group-header-h: 1.65rem
+
+  tr:last-child th
+    // El +1px es el filete de la fila de grupos: `border-collapse` lo deja
+    // fuera del `height`, y sin contarlo la segunda fila la pisa por ese pelo.
+    top: calc(var(--table-group-header-h) + 1px)
+
+.groupHeaderRow th
+  height: var(--table-group-header-h)
+  padding: 0 .55rem
+  background: #dfe5ec
+  color: #2a4258
+  font-size: .72rem
+  letter-spacing: .06em
+  text-align: center
+  border-bottom: 1px solid #b0bfcf
+
+.groupHeaderCell
+  font-weight: 800
+
+// El tramo sin grupo ocupa su sitio —si no, los rótulos se desalinearían de sus
+// columnas— pero no se pinta como una cabecera: no nombra nada.
+.groupHeaderEmpty
+  background: #eef1f5
+  border-right-color: transparent
+
 .thContent
   display: flex
   align-items: center

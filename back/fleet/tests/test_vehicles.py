@@ -126,8 +126,11 @@ class VehicleAccessTests(APITestCase):
         ultima = KmReading.objects.create(
             vehicle=self.assigned, reading_date=date(2026, 3, 15), km_reading=4200
         )
+        # 7 y no una por fila: roles, count, página, conductores, consumo,
+        # última lectura y contrato vigente (las fechas de servicio, que lee la
+        # vista de HSE). Cada mapa, UNA consulta por respuesta.
         self.client.force_authenticate(self.admin)
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             resp = self.client.get(self.list_url)
         by_plate = {v["plate"]: v for v in resp.data["results"]}
         self.assertEqual(by_plate["1234ABC"]["km_current"], ultima.km_reading)

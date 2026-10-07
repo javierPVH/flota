@@ -48,6 +48,7 @@ class NotificationSchedule(TimeStampedModel):
         INVOICES = "invoices", "Facturas"
         COSTS = "costs", "Costes"
         USERS = "users", "Conductores"
+        HSE = "hse", "HSE (vehículos y lecturas)"
 
     class Frequency(models.TextChoices):
         DAILY = "daily", "Cada día"

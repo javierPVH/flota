@@ -9,7 +9,8 @@ Los roles son multi-valor y los ámbitos se SUMAN: una supervisora que además
 conduce ve su grupo Y su propio coche, aunque ese coche lo supervise otra
 persona (o nadie) — sin la unión no podía ni registrar los km de su coche.
 
-Lo que HSE aporta es distinto de lo demás: es un ámbito de LECTURA. Por eso
+Lo que HSE aporta es distinto de lo demás: es un ámbito de LECTURA, y solo
+sobre VEHÍCULOS (sus documentos no: su vista no los enseña). Por eso
 `vehicles_for` y `readable_documents` llevan `write`: con `write=True` devuelven
 el ámbito sobre el que el usuario ACTÚA —escrituras, acciones POST y bandejas
 de decisión—, que es el de siempre y deja fuera lo que añade HSE. Sin esa
@@ -95,12 +96,12 @@ def readable_documents(user, qs=None, *, write: bool = False):
     suyo, porque taparle a alguien su propia documentación choca con su derecho
     de acceso (RGPD).
 
-    HSE lee TODOS los documentos DE VEHÍCULO (`user` nulo), compartidos o no,
-    protegidos o no: son documentación de la flota y ese rol existe para
-    leerla entera. Los PERSONALES (permiso de conducir…) quedan fuera, ni en
-    listado: son datos personales de otro. Solo los suyos propios, por lo
-    mismo de siempre (RGPD). Con `write=True` (lo que se puede tocar o pedir)
-    HSE no añade nada.
+    **HSE no añade nada aquí**: su vista es cómo se usa la flota —vehículos,
+    lecturas y consumo— y los documentos no están en ella, así que un HSE puro
+    no los lista ni se baja su archivo. Leía todos los del coche; se le
+    cerraron con el resto (ver `HseReadOnly`). Lo que siga viendo lo verá por
+    sus OTROS roles, con las reglas de siempre: un driver+hse, los de su coche;
+    y cualquiera, los suyos propios (RGPD).
 
     Es la única fuente de verdad, y la usan las TRES puertas por las que sale
     un documento: el listado de la API, la descarga del binario
@@ -134,10 +135,6 @@ def readable_documents(user, qs=None, *, write: bool = False):
     # Lo propio manda sobre las dos reglas: un documento personal lo ve su
     # titular aunque no esté compartido y aunque esté protegido (RGPD).
     legible = Q(user=user) | (visible & Q(protected=False))
-    if user.is_hse and not write:
-        # Todo lo del coche y nada de las personas. `user` nulo basta: un
-        # documento tiene exactamente un titular (lo valida el serializer).
-        legible |= Q(user__isnull=True)
     return qs.filter(ambito & legible)
 
 

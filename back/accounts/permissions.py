@@ -154,14 +154,26 @@ class ManagementOrDriverReadWrite(RoleReadWritePermission):
 class HseReadOnly(BasePermission):
     """HSE: solo métodos seguros (GET/HEAD/OPTIONS) y solo donde se compone.
 
-    Se añade con `|` a los endpoints que HSE puede LEER (vehículos, incidencias,
-    alertas, documentos de vehículo, histórico, km, consumos, mantenimiento,
-    contratos, facturas, vínculos, asignaciones, informes…) y a ninguno más:
-    NO va dentro de `IsManagement` ni de las clases genéricas, porque eso
-    abriría `/auth/drivers/`, las bandejas de solicitudes y Ajustes. Cualquier
+    Se añade con `|` a los **cuatro** endpoints que HSE puede LEER —vehículos,
+    lecturas de km, consumo de combustible e informes— y a ninguno más: NO va
+    dentro de `IsManagement` ni de las clases genéricas, porque eso abriría
+    `/auth/drivers/`, las bandejas de solicitudes y Ajustes. Cualquier
     escritura —también las acciones POST como `resolve` o `notify`— queda fuera
-    por construcción. El ámbito (toda la flota, sin documentos personales) lo
-    pone `fleet/scoping.py`.
+    por construcción. El ámbito (toda la flota) lo pone `fleet/scoping.py`.
+
+    Esos cuatro son exactamente lo que enseña su pantalla: HSE mira **cómo se
+    usa** la flota (qué coches hay, cuánto ruedan y cuánto consumen), no cómo
+    se gestiona. Leía además incidencias, accidentes, alertas, documentos,
+    histórico, contratos, facturas, imputaciones, mantenimiento y el resumen de
+    flota; se le cerraron porque su vista no los enseña —y el permiso tiene que
+    decir lo mismo que la pantalla—: los costes (contratos, facturas,
+    imputaciones, resumen), las personas (asignaciones, periodos de supervisor)
+    y lo que le pasa al coche (incidencias, alertas, eventos, mantenimiento).
+    De lo que sí lee, el serializer del vehículo le recorta además el conductor,
+    el supervisor y la cita de ITV (`HSE_HIDDEN_VEHICLE_FIELDS`).
+
+    Todo esto afecta solo al HSE **puro**: quien además es gestión o conductor
+    pasa por el otro lado del `|` y conserva lo suyo.
     """
 
     message = "El rol HSE es de solo lectura."

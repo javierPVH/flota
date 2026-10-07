@@ -380,9 +380,19 @@ export interface FuelConsumptionInput extends Record<string, unknown> {
 }
 
 export const listFuelConsumptions = (
-  params: { vehicle?: number | string } = {},
+  params: { vehicle?: number | string; from?: string; to?: string } = {},
   req: ReqOpts = {},
-) => getJson<Paginated<FuelConsumption>>(`${API}/fuel-consumptions/${listQs(params)}`, req)
+) =>
+  getJson<Paginated<FuelConsumption>>(
+    // Las fechas, con los mismos nombres que en las lecturas de km
+    // (`filterset_fields` del back): las dos series se acotan igual.
+    `${API}/fuel-consumptions/${listQs({
+      vehicle: params.vehicle,
+      reading_date__gte: params.from,
+      reading_date__lte: params.to,
+    })}`,
+    req,
+  )
 
 export const createFuelConsumption = (data: FuelConsumptionInput) =>
   postJson<FuelConsumption>(`${API}/fuel-consumptions/`, data)

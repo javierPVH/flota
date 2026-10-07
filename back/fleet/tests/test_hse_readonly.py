@@ -1,15 +1,17 @@
-"""Rol **HSE**: lee TODA la flota en gestión y no escribe nada.
+"""Rol **HSE**: lee CÓMO SE USA toda la flota, y nada más.
 
-Tres cosas que tienen que cumplirse a la vez:
+Su vista son tres cosas —vehículos, lecturas de km y consumo de combustible— y
+el permiso dice lo mismo que la pantalla. Cuatro cosas que se cumplen a la vez:
 
-1. HSE **lee** vehículos, incidencias (con su parte de accidente), alertas
-   (seguro incluido), documentos DE VEHÍCULO —ni en listado los personales—,
-   histórico, km, consumos, mantenimiento, contratos, facturas, vínculos,
-   asignaciones, periodos de supervisor e informes (menos el de usuarios), y
-   el binario de un documento de vehículo por `preview`/`download`/`/media`.
-2. HSE **no escribe**: cualquier método no seguro y cualquier acción POST son
+1. HSE **lee** vehículos (sin conductor, sin supervisor y sin cita de ITV:
+   `HSE_HIDDEN_VEHICLE_FIELDS`), lecturas de km, consumos y **su** informe.
+2. HSE **no lee** lo que su vista no enseña: ni costes (contratos, facturas,
+   imputaciones, resumen de flota), ni personas (asignaciones, periodos de
+   supervisor), ni lo que le pasa al coche (incidencias, accidentes, alertas,
+   eventos, mantenimiento), ni documentos —tampoco su archivo—. Todo 403.
+3. HSE **no escribe**: cualquier método no seguro y cualquier acción POST son
    403; tampoco alcanza personas, Ajustes, erratas ni bandejas.
-3. Los roles **se suman sin que la lectura se cuele en la escritura**: admin+hse
+4. Los roles **se suman sin que la lectura se cuele en la escritura**: admin+hse
    conserva todo lo de admin; hse+driver opera SU coche y lee el resto;
    supervisor+hse lee la flota pero solo resuelve lo de su grupo.
 """
@@ -48,6 +50,7 @@ from fleet.models.enums import (
     AssignmentStatus,
     EventType,
     LinkReason,
+    VehicleState,
 )
 from fleet.scoping import readable_documents, users_for, vehicles_for
 
@@ -69,9 +72,15 @@ class HseFixtureMixin:
         self.driver_hse = make_user("driver-hse", Role.DRIVER, Role.HSE)
         self.sup_hse = make_user("sup-hse", Role.SUPERVISOR, Role.HSE)
 
+        # Los cuatro ACTIVOS: es el corte de la tabla de HSE (solo los que
+        # ruedan), y sin estado no saldría ninguno.
         # v1: grupo del supervisor, lo conduce `driver`.
         self.v1 = Vehicle.objects.create(
-            plate="HSE-0001", brand="a", model="b", supervisor=self.sup
+            plate="HSE-0001",
+            brand="a",
+            model="b",
+            supervisor=self.sup,
+            state=VehicleState.ACTIVE,
         )
         Assignment.objects.create(
             vehicle=self.v1,
@@ -80,10 +89,16 @@ class HseFixtureMixin:
             status=AssignmentStatus.ACCEPTED,
         )
         # v2: sin supervisor ni conductor — solo el admin (y HSE) lo alcanza.
-        self.v2 = Vehicle.objects.create(plate="HSE-0002", brand="a", model="b")
+        self.v2 = Vehicle.objects.create(
+            plate="HSE-0002", brand="a", model="b", state=VehicleState.ACTIVE
+        )
         # v3: grupo de `sup_hse`, lo conduce `driver_hse`.
         self.v3 = Vehicle.objects.create(
-            plate="HSE-0003", brand="a", model="b", supervisor=self.sup_hse
+            plate="HSE-0003",
+            brand="a",
+            model="b",
+            supervisor=self.sup_hse,
+            state=VehicleState.ACTIVE,
         )
         Assignment.objects.create(
             vehicle=self.v3,
@@ -92,7 +107,13 @@ class HseFixtureMixin:
             status=AssignmentStatus.ACCEPTED,
         )
         # v4: sustituto de v2 (vínculo activo).
-        self.v4 = Vehicle.objects.create(plate="HSE-0004", brand="a", model="b", is_substitute=True)
+        self.v4 = Vehicle.objects.create(
+            plate="HSE-0004",
+            brand="a",
+            model="b",
+            is_substitute=True,
+            state=VehicleState.ACTIVE,
+        )
         VehicleLink.objects.create(
             main_vehicle=self.v2,
             substitute_vehicle=self.v4,
@@ -135,11 +156,13 @@ class HseFixtureMixin:
             user=self.driver, type="driving_license", expiry_date=date(2030, 1, 1)
         )
 
-        KmReading.objects.create(vehicle=self.v2, reading_date=date(2026, 8, 1), km_reading=100)
+        self.reading = KmReading.objects.create(
+            vehicle=self.v2, reading_date=date(2026, 8, 1), km_reading=100
+        )
         FuelConsumption.objects.create(
             vehicle=self.v2, reading_date=date(2026, 8, 1), avg_consumption=Decimal("0.061")
         )
-        Contract.objects.create(
+        self.contract = Contract.objects.create(
             vehicle=self.v2,
             contract_number="CTR-HSE",
             start_date=date(2026, 1, 1),
@@ -199,11 +222,14 @@ class HseScopingTests(HseFixtureMixin, APITestCase):
     def test_users_for_hse_is_only_itself(self):
         self.assertEqual(list(users_for(self.hse).values_list("id", flat=True)), [self.hse.pk])
 
-    def test_readable_documents_vehicle_yes_personal_no(self):
-        legibles = set(readable_documents(self.hse).values_list("id", flat=True))
-        self.assertEqual(legibles, {self.doc_v2.pk, self.doc_v1_protegido.pk})
-        self.assertNotIn(self.doc_personal.pk, legibles)
-        # Para actuar (pedir borrado, etc.) HSE no añade nada.
+    def test_readable_documents_adds_nothing_for_hse(self):
+        """Los documentos no están en su vista: tampoco en su ámbito.
+
+        Leía todos los del coche; ahora no añade ninguno —ni para leer ni para
+        actuar—, y es lo que cierra también `/media` y `preview`/`download`,
+        que beben de esta misma función.
+        """
+        self.assertEqual(readable_documents(self.hse).count(), 0)
         self.assertEqual(readable_documents(self.hse, write=True).count(), 0)
 
 
@@ -216,96 +242,95 @@ class HseReadsTheFleetTests(HseFixtureMixin, APITestCase):
         resp = self.client.get(f"{API}/vehicles/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(self.ids(resp), {self.v1.pk, self.v2.pk, self.v3.pk, self.v4.pk})
-        for url in (
-            f"{API}/vehicles/{self.v2.pk}/",
-            f"{API}/vehicles/{self.v2.pk}/summary/",
-            f"{API}/vehicles/{self.v2.pk}/history/",
-            f"{API}/summary/",
-            f"{API}/summary/vehicles/",
+        self.assertEqual(
+            self.client.get(f"{API}/vehicles/{self.v2.pk}/").status_code, status.HTTP_200_OK
+        )
+
+    def test_the_vehicle_payload_hides_people_and_itv(self):
+        """Lo que su pantalla no enseña, tampoco viaja.
+
+        Fuera el conductor, el supervisor y la cita de ITV; dentro las fechas
+        de servicio del contrato vigente, que son columna de su tabla (y así no
+        tiene que leer `/contracts/`, donde está la cuota).
+        """
+        ficha = self.client.get(f"{API}/vehicles/{self.v2.pk}/").data
+        for campo in (
+            "driver_name",
+            "driver_id",
+            "supervisor",
+            "supervisor_name",
+            "next_itv_date",
+            "next_itv_manual",
+            "itv_postal_code",
         ):
-            with self.subTest(url=url):
-                self.assertEqual(self.client.get(url).status_code, status.HTTP_200_OK)
-        resumenes = self.client.get(f"{API}/summary/vehicles/").data
-        self.assertEqual(
-            {r["vehicle"] for r in resumenes}, {self.v1.pk, self.v2.pk, self.v3.pk, self.v4.pk}
-        )
+            with self.subTest(campo=campo):
+                self.assertNotIn(campo, ficha)
+        for campo in ("km_current", "km_reading_date", "fuel_avg_consumption", "fuel_avg_date"):
+            with self.subTest(campo=campo):
+                self.assertIn(campo, ficha)
+        self.assertEqual(ficha["contract_start_date"], self.contract.start_date.isoformat())
+        self.assertEqual(ficha["contract_end_date"], self.contract.planned_end_date.isoformat())
 
-    def test_reads_incidents_with_accident_report(self):
-        resp = self.client.get(f"{API}/incidents/")
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertIn(self.accident.pk, self.ids(resp))
-        detail = self.client.get(f"{API}/incidents/{self.accident.pk}/")
-        self.assertEqual(detail.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(detail.data["accident_report"])
-        self.assertEqual(len(detail.data["accident_report"]["third_parties"]), 1)
+    def test_reads_readings_and_fuel_of_the_whole_fleet(self):
+        """Lo único que sigue abierto además de los vehículos."""
+        for path in ("km-readings", "fuel-consumptions"):
+            with self.subTest(path=path):
+                resp = self.client.get(f"{API}/{path}/")
+                self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        # Y de coches que no son «suyos» (no tiene ninguno).
+        self.assertIn(self.reading.pk, self.ids(self.client.get(f"{API}/km-readings/")))
 
-    def test_reads_all_alerts_including_insurance(self):
-        resp = self.client.get(f"{API}/alerts/")
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            self.ids(resp), {self.alert_v1.pk, self.alert_v2_insurance.pk, self.alert_v3.pk}
-        )
-
-    def test_reads_vehicle_documents_but_never_personal_ones(self):
-        resp = self.client.get(f"{API}/documents/")
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(self.ids(resp), {self.doc_v2.pk, self.doc_v1_protegido.pk})
-        # Ni pidiéndolos por titular, ni por id.
-        por_usuario = self.client.get(f"{API}/documents/", {"user": self.driver.pk})
-        self.assertEqual(self.ids(por_usuario), set())
-        self.assertEqual(
-            self.client.get(f"{API}/documents/{self.doc_personal.pk}/").status_code,
-            status.HTTP_404_NOT_FOUND,
-        )
-
-    def test_reads_the_rest_of_the_vehicle_resources(self):
+    def test_everything_its_view_does_not_show_is_403(self):
+        """Costes, personas y lo que le pasa al coche: cerrado."""
         for path in (
+            "incidents",
+            "alerts",
+            "documents",
             "events",
-            "km-readings",
-            "fuel-consumptions",
-            "maintenance-plans",
-            "maintenance-programs",
             "contracts",
             "invoices",
             "invoice-allocations",
             "vehicle-links",
             "assignments",
             "supervisor-periods",
+            "maintenance-plans",
+            "maintenance-programs",
         ):
             with self.subTest(path=path):
                 resp = self.client.get(f"{API}/{path}/")
-                self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
-        # Y con contenido de coches que no son «suyos» (no tiene ninguno).
-        self.assertIn(self.plan.pk, self.ids(self.client.get(f"{API}/maintenance-plans/")))
-        self.assertIn(self.invoice.pk, self.ids(self.client.get(f"{API}/invoices/")))
-        self.assertEqual(self.client.get(f"{API}/assignments/").data["count"], 2)
+                self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.data)
+        # Y los resúmenes, que llevan el coste mensual y el conductor; y el
+        # histórico del vehículo, que arrastra contratos, facturas e incidencias.
+        for url in (
+            f"{API}/summary/",
+            f"{API}/summary/vehicles/",
+            f"{API}/vehicles/{self.v2.pk}/summary/",
+            f"{API}/vehicles/{self.v2.pk}/history/",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_reports_all_but_users(self):
+    def test_reports_only_its_own(self):
         url = reverse("reports")
-        resp = self.client.get(url, {"kind": "fleet", "fmt": "csv"})
+        resp = self.client.get(url, {"kind": "hse", "fmt": "csv"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         body = resp.content.decode("utf-8-sig")
         for plate in ("HSE-0001", "HSE-0002", "HSE-0003"):
             self.assertIn(plate, body)
-        self.assertEqual(
-            self.client.get(url, {"kind": "vehicles", "fmt": "columns"}).status_code,
-            status.HTTP_200_OK,
-        )
-        self.assertEqual(
-            self.client.get(url, {"kind": "vehicles", "fmt": "xlsx"}).status_code,
-            status.HTTP_200_OK,
-        )
-        # El informe de documentos respeta la misma regla: nada personal.
-        docs = self.client.get(url, {"kind": "documents", "fmt": "json"})
-        self.assertEqual(docs.status_code, status.HTTP_200_OK)
-        filas = docs.data["tables"][0]["rows"]
-        self.assertEqual(len(filas), 2)
-        self.assertNotIn("Permiso de conducir", str(filas))
-        # El de usuarios es la plantilla: 403.
-        self.assertEqual(
-            self.client.get(url, {"kind": "users", "fmt": "csv"}).status_code,
-            status.HTTP_403_FORBIDDEN,
-        )
+        # El CSV es la tabla principal (vehículos), no la portada.
+        self.assertTrue(body.startswith("Matrícula;"))
+        # Sus hojas —portada, vehículos y lecturas— y sin nada de lo excluido.
+        tablas = self.client.get(url, {"kind": "hse", "fmt": "json"}).data["tables"]
+        self.assertEqual([t["title"] for t in tablas], ["Resumen", "Vehículos", "Kilometraje"])
+        self.assertNotIn("Conductor", str(tablas[1]["headers"]))
+        self.assertIn("Fecha de fin prevista", tablas[1]["headers"])
+        # Los demás, 403: llevan costes, personas o incidencias.
+        for kind in ("fleet", "vehicles", "documents", "alerts", "invoices", "costs", "users"):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    self.client.get(url, {"kind": kind, "fmt": "csv"}).status_code,
+                    status.HTTP_403_FORBIDDEN,
+                )
 
 
 class HseCannotWriteTests(HseFixtureMixin, APITestCase):
@@ -468,14 +493,18 @@ class HseClosedDoorsTests(HseFixtureMixin, APITestCase):
                 )
 
     def test_inactive_rows_stay_hidden(self):
-        """`?include_inactive=1` es de gestión: HSE no ve lo que está en erratas."""
-        self.doc_v2.deactivate(by=self.admin, reason="errata")
-        resp = self.client.get(f"{API}/documents/", {"include_inactive": "1"})
-        self.assertNotIn(self.doc_v2.pk, self.ids(resp))
+        """`?include_inactive=1` es de gestión: HSE no ve lo que está en erratas.
+
+        Se comprueba sobre las LECTURAS, que es de lo poco que sigue leyendo.
+        """
+        self.reading.deactivate(by=self.admin, reason="errata")
+        resp = self.client.get(f"{API}/km-readings/", {"include_inactive": "1"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertNotIn(self.reading.pk, self.ids(resp))
 
 
 class HseBinaryTests(HseFixtureMixin, APITestCase):
-    """El archivo de un documento de vehículo sí; el de uno personal, no."""
+    """Ningún archivo: los documentos no están en la vista de HSE."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -499,31 +528,31 @@ class HseBinaryTests(HseFixtureMixin, APITestCase):
         )
         self.client.force_authenticate(self.hse)
 
-    def test_preview_and_download_of_a_vehicle_document(self):
-        resp = self.client.get(reverse("document-preview", args=[self.con_archivo.pk]))
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.content, b"coche")
-        resp = self.client.get(reverse("document-download", args=[self.con_archivo.pk]))
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertTrue(resp["Content-Disposition"].startswith("attachment"))
-
-    def test_preview_of_a_personal_document_is_404(self):
+    def test_no_document_binary_at_all(self):
+        """Ni el del coche: el endpoint es de `DocumentViewSet`, que ya no es suyo."""
         for name in ("document-preview", "document-download"):
-            with self.subTest(name=name):
-                resp = self.client.get(reverse(name, args=[self.personal_con_archivo.pk]))
-                self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+            for doc in (self.con_archivo, self.personal_con_archivo):
+                with self.subTest(name=name, doc=doc.pk):
+                    resp = self.client.get(reverse(name, args=[doc.pk]))
+                    self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     @override_settings(DEBUG=False)
     def test_media_follows_the_same_rule(self):
-        ok = self.client.get(f"/media/{self.con_archivo.file.name}")
-        self.assertEqual(ok.status_code, status.HTTP_200_OK)
-        self.assertIn("X-Accel-Redirect", ok)
-        ko = self.client.get(f"/media/{self.personal_con_archivo.file.name}")
-        self.assertEqual(ko.status_code, status.HTTP_404_NOT_FOUND)
+        """Con la URL en la mano tampoco: `/media` lee `readable_documents`."""
+        for doc in (self.con_archivo, self.personal_con_archivo):
+            with self.subTest(doc=doc.pk):
+                resp = self.client.get(f"/media/{doc.file.name}")
+                self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
 
+@override_settings(FLEET_KM_WINDOW_START=0)
 class HseCombinedRolesTests(HseFixtureMixin, APITestCase):
-    """Los roles se suman, y la lectura de HSE no se cuela en la escritura."""
+    """Los roles se suman, y la lectura de HSE no se cuela en la escritura.
+
+    Con la ventana N8a apagada: aquí se prueban PERMISOS, y con ella puesta el
+    alta de una lectura fallaba por el día del mes (del 1 al 19) y el test
+    pasaba o no según el día en que se ejecutara.
+    """
 
     def setUp(self):
         self.build_fleet()

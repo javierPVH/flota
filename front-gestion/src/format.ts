@@ -73,7 +73,14 @@ export function fmtConsumption(value: string | number | null, lang: AppLanguage 
 export function fmtKm(value: number, lang: AppLanguage = 'es'): string {
   // useGrouping: true → SIEMPRE separador de miles (por defecto "min2" deja los
   // 4 dígitos sin punto: 3628 vs 53.730). Humanizamos todas las cifras.
-  return `${value.toLocaleString(LOCALE[lang], { useGrouping: true })} km`
+  return `${fmtKmNumber(value, lang)} km`
+}
+
+/** La cifra de kilómetros SIN la unidad, para donde la unidad ya está dicha
+ *  (la cabecera de una columna, el eje de una gráfica): repetida en cada celda
+ *  o en cada marca, deja de leerse. */
+export function fmtKmNumber(value: number, lang: AppLanguage = 'es'): string {
+  return value.toLocaleString(LOCALE[lang], { useGrouping: true })
 }
 
 /** Días completos desde HOY (00:00 local) hasta una fecha; negativo si ya pasó,

@@ -1,5 +1,6 @@
 export { TableWithPanel } from './TableWithPanel'
 export type {
+  TableColumnGroup,
   TableMonthSortDirection,
   TableWithPanelColumn,
   TableWithPanelProps,

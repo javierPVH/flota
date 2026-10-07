@@ -50,6 +50,19 @@ export interface TableWithPanelColumn<RowType extends object> {
   getValue?: (row: RowType) => unknown
 }
 
+/**
+ * Un grupo de columnas: el rótulo que va en la fila de ARRIBA de la cabecera,
+ * abarcando las columnas que nombra. Sirve para decir de qué habla cada tramo
+ * («Kilometraje», «Combustible») cuando una tabla ancha mezcla familias de
+ * datos y las fechas de dos cosas distintas se leen igual.
+ */
+export interface TableColumnGroup {
+  key: string
+  label: string
+  /** Las columnas que abarca, por su `key`. */
+  columnKeys: string[]
+}
+
 type CellExpandState =
   | { type: 'balloon'; content: string; rect: DOMRect }
   | { type: 'panel'; items: string[]; label: string; loader?: ExpandItemLoader }
@@ -145,6 +158,17 @@ export interface TableWithPanelProps<RowType extends object> {
    * es lo que nombra esa primera celda (la matrícula, el nombre…). Las filas
    * que no se abren dejan el hueco: las celdas siguen alineadas. */
   expanderInFirstCell?: boolean
+  /**
+   * Una SEGUNDA cabecera, encima de la de columnas, que dice a qué familia
+   * pertenece cada tramo. Los tramos se calculan sobre las columnas que se
+   * están viendo y en el orden en que se ven: si el usuario esconde o mueve
+   * columnas, el rótulo abarca lo que le queda al lado y un grupo partido en
+   * dos trozos sale dos veces, que es lo honesto —un `colSpan` que saltara por
+   * encima de una columna ajena diría que esa columna también es suya—. Las
+   * columnas sin grupo dejan el hueco vacío, y si no queda ningún rótulo la
+   * fila no se pinta.
+   */
+  columnGroups?: TableColumnGroup[]
 }
 
 interface DateFilterState {
@@ -382,6 +406,7 @@ export function TableWithPanel<RowType extends object>({
   renderExpandedRow,
   canExpandRow,
   expanderInFirstCell = false,
+  columnGroups,
 }: TableWithPanelProps<RowType>) {
   const tableSortScope = useId()
   // N4: filas abiertas + filas ya montadas (el contenido no se desmonta al
@@ -526,6 +551,26 @@ export function TableWithPanel<RowType extends object>({
       .filter((column): column is TableWithPanelColumn<RowType> => Boolean(column))
       .filter((column) => !effectiveHiddenColumnKeys.has(column.key))
   }, [columnByKey, effectiveHiddenColumnKeys, effectiveOrderedColumnKeys])
+
+  /** Los tramos de la cabecera de grupos, calculados sobre las columnas que se
+   *  ven y en su orden: columnas contiguas del mismo grupo son un tramo, y lo
+   *  que no tiene grupo es un hueco. Si no queda ningún rótulo no hay nada que
+   *  pintar y la fila no se monta. */
+  const headerGroupSpans = useMemo(() => {
+    if (!columnGroups?.length) return []
+    const porColumna = new Map<string, TableColumnGroup>()
+    columnGroups.forEach((group) => {
+      group.columnKeys.forEach((key) => porColumna.set(key, group))
+    })
+    const spans: Array<{ group?: TableColumnGroup; span: number }> = []
+    visibleColumns.forEach((column) => {
+      const group = porColumna.get(column.key)
+      const last = spans[spans.length - 1]
+      if (last && last.group === group) last.span += 1
+      else spans.push({ group, span: 1 })
+    })
+    return spans.some((s) => s.group) ? spans : []
+  }, [columnGroups, visibleColumns])
 
   const searchableColumns = useMemo(() => {
     return columns.filter((column) => column.searchable !== false)
@@ -1588,7 +1633,29 @@ export function TableWithPanel<RowType extends object>({
         )}
       >
         <table className={styles.dataTable}>
-          <thead>
+          <thead className={headerGroupSpans.length > 0 ? styles.theadGrouped : undefined}>
+            {headerGroupSpans.length > 0 && (
+              <tr className={styles.groupHeaderRow}>
+                {expanderColumn && <th aria-hidden className={styles.groupHeaderEmpty} />}
+                {headerGroupSpans.map(({ group, span }, index) =>
+                  group ? (
+                    <th
+                      key={`${group.key}-${index}`}
+                      scope="colgroup"
+                      colSpan={span}
+                      className={styles.groupHeaderCell}
+                      title={group.label}
+                    >
+                      {group.label}
+                    </th>
+                  ) : (
+                    // Un tramo sin grupo: hueco, pero tiene que ocupar su sitio
+                    // o las columnas de debajo se desalinearían del rótulo.
+                    <th key={`sin-grupo-${index}`} aria-hidden colSpan={span} className={styles.groupHeaderEmpty} />
+                  ),
+                )}
+              </tr>
+            )}
             <tr>
               {expanderColumn && <th scope="col" className={styles.expanderCell} aria-label={copy.expandRow} />}
               {visibleColumns.map((column) => {

@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import date
+import re
+from datetime import date, datetime
+from decimal import Decimal
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -21,7 +23,7 @@ from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
-from openpyxl.styles import Font
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from fleet.models import (
@@ -47,7 +49,12 @@ from fleet.models.enums import (
     VehicleState,
 )
 from fleet.scoping import readable_documents, users_for, vehicles_for
-from fleet.selectors import active_link_q, current_driver_map, latest_reading_map
+from fleet.selectors import (
+    active_link_q,
+    current_contract_map,
+    current_driver_map,
+    latest_reading_map,
+)
 from fleet.services.alerts import add_months
 
 XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -58,6 +65,7 @@ XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml
 REPORT_KINDS = (
     "vehicles",
     "fleet",
+    "hse",
     "kmreadings",
     "fuel",
     "documents",
@@ -75,6 +83,8 @@ REPORT_KINDS = (
 REPORT_FILTERS: dict[str, tuple[str, ...]] = {
     "vehicles": ("brand", "model", "status", "category"),
     "fleet": ("state", "brand"),
+    # El de HSE no filtra: son las dos tablas de su pantalla tal cual.
+    "hse": (),
     "kmreadings": ("vehicle",),
     "fuel": ("vehicle",),
     "documents": ("vehicle", "type", "status"),
@@ -234,6 +244,130 @@ def _fuel_table(user, filters: dict | None = None, vehicle_ids=None) -> Table:
         for c in consumptions
     ]
     return ("Consumo de combustible", headers, rows)
+
+
+def _hse_vehicles_table(user, filters: dict | None = None) -> Table:
+    """Los vehículos como los mira HSE: cómo se usa el coche, nada más.
+
+    Es la MISMA tabla que enseña su pantalla (`HsePage`), con sus mismas
+    columnas y su mismo corte —solo los **activos**—, porque lo que se ve tiene
+    que ser lo que se baja. Sin coste, sin conductor y sin ITV: eso no es de
+    HSE (ver `HseReadOnly`). Las fechas de servicio salen del contrato vigente,
+    y un coche propio no tiene, así que van vacías.
+    """
+    vehicles = list(vehicles_for(user).filter(state=VehicleState.ACTIVE).order_by("plate"))
+    ids = [v.id for v in vehicles]
+    # Los tres mapas en bloque, como el listado: nada por fila.
+    from .metrics import fuel_latest_map
+
+    contracts = current_contract_map(ids)
+    readings = latest_reading_map(ids)
+    fuels = fuel_latest_map(ids)
+    hoy = timezone.localdate()
+    headers = [
+        "Matrícula",
+        "Marca",
+        "Modelo",
+        "Estado",
+        "Fecha de inicio",
+        "Fecha de fin prevista",
+        "Fecha de última lectura",
+        "Última lectura (km)",
+        "Fecha de último consumo",
+        "Último consumo (l/100km o kWh/100km)",
+        # Lo que HSE vigila es la ANTIGÜEDAD del dato (el semáforo de su
+        # pantalla): en el Excel va como número para poder filtrar «> 30».
+        "Días desde la última lectura",
+    ]
+    rows = []
+    for v in vehicles:
+        contract = contracts.get(v.id)
+        reading = readings.get(v.id)
+        fuel = fuels.get(v.id) or {}
+        rows.append(
+            [
+                v.plate,
+                v.brand,
+                v.model,
+                v.get_state_display(),
+                _d(contract.start_date) if contract else "",
+                _d(contract.planned_end_date) if contract else "",
+                _d(reading.reading_date) if reading else "",
+                reading.km_reading if reading and reading.km_reading is not None else "",
+                _d(fuel.get("reading_date")),
+                fuel.get("avg_consumption") if fuel.get("avg_consumption") is not None else "",
+                max(0, (hoy - reading.reading_date).days) if reading else "",
+            ]
+        )
+    return (HSE_VEHICLES_TITLE, headers, rows)
+
+
+#: Títulos de las hojas de HSE. `SUMMARY_TITLE` es la portada del Excel: el
+#: CSV (un único fichero plano) la salta y lleva la tabla principal.
+SUMMARY_TITLE = "Resumen"
+HSE_VEHICLES_TITLE = "Vehículos"
+#: Umbral del semáforo rojo de la pantalla (`kmStaleTone` del DS): más de 30
+#: días sin lectura, o ninguna lectura, es «sin leer».
+HSE_STALE_DAYS = 30
+
+
+def _hse_summary_table(vehiculos: Table, lecturas: Table) -> Table:
+    """La portada del informe de HSE: las cuatro cifras de su pantalla.
+
+    Se calculan sobre las FILAS de la hoja «Vehículos» (no con otra consulta),
+    igual que la pantalla las saca de lo que ya tiene cargado: así la portada
+    no puede decir una cosa y la hoja otra. Las de «este mes» cuentan quién ha
+    reportado y dicen cuántos FALTAN, que es lo que se viene a mirar.
+    """
+    hoy = timezone.localdate()
+    mes = hoy.strftime("%Y-%m")
+    _, _, filas = vehiculos
+    # Índices de la hoja de vehículos (ver `_hse_vehicles_table`).
+    col_lectura, col_consumo, col_dias = 6, 8, 10
+    total = len(filas)
+    con_lectura = sum(1 for f in filas if str(f[col_lectura]).startswith(mes))
+    con_consumo = sum(1 for f in filas if str(f[col_consumo]).startswith(mes))
+    sin_leer = sum(1 for f in filas if f[col_dias] == "" or f[col_dias] > HSE_STALE_DAYS)
+    headers = ["Indicador", "Valor", "Detalle"]
+    rows = [
+        [
+            "Coches activos",
+            total,
+            f"Los que ruedan hoy: el corte de la hoja «{HSE_VEHICLES_TITLE}».",
+        ],
+        [
+            "Con lectura de km este mes",
+            con_lectura,
+            "Ninguno pendiente" if con_lectura == total else f"{total - con_lectura} sin dar.",
+        ],
+        [
+            "Con consumo anotado este mes",
+            con_consumo,
+            "Ninguno pendiente" if con_consumo == total else f"{total - con_consumo} sin anotar.",
+        ],
+        [
+            f"Sin leer hace más de {HSE_STALE_DAYS} días",
+            sin_leer,
+            "Incluye los que no tienen ninguna lectura." if sin_leer else "Toda la flota al día.",
+        ],
+        ["Lecturas en el histórico", len(lecturas[2]), f"Hoja «{lecturas[0]}», toda la flota."],
+        ["Mes de referencia", mes, "El mes de las dos cifras de «este mes»."],
+        ["Generado el", _d(hoy), ""],
+    ]
+    return (SUMMARY_TITLE, headers, rows)
+
+
+def _hse_report(user, filters: dict | None = None) -> list[Table]:
+    """Las hojas de HSE: la portada con sus cifras, sus vehículos y el
+    histórico de lecturas.
+
+    Las lecturas van con el `_km_table` de siempre y sobre el ámbito entero (no
+    solo los coches activos): una lectura es un hecho del pasado y esconderla
+    porque el coche se haya parado esta semana sería contar otra cosa.
+    """
+    vehiculos = _hse_vehicles_table(user, filters)
+    lecturas = _km_table(user, filters)
+    return [_hse_summary_table(vehiculos, lecturas), vehiculos, lecturas]
 
 
 def _documents_table(user, filters: dict | None = None, vehicle_ids=None) -> Table:
@@ -1224,6 +1358,7 @@ def vehicle_report_columns(user) -> list[dict]:
 _BUILDERS = {
     "vehicles": _vehicles_report,
     "fleet": _fleet_table,
+    "hse": _hse_report,
     "kmreadings": _km_table,
     "fuel": _fuel_table,
     "documents": _documents_table,
@@ -1281,8 +1416,21 @@ def _autosize(ws, headers, rows) -> None:
         ws.column_dimensions[get_column_letter(col)].width = min(width + 2, 50)
 
 
-def _xlsx_cell(ws, value, font: Font | None = None):
-    """INP-1: una celda del XLSX que NUNCA se interpreta como fórmula.
+#: Formatos de celda del Excel: fecha a la española, enteros con separador de
+#: miles (kilómetros) y decimales a dos cifras (consumos, importes).
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+XLSX_DATE_FORMAT = "DD/MM/YYYY"
+XLSX_DATETIME_FORMAT = "DD/MM/YYYY HH:MM"
+XLSX_INT_FORMAT = "#,##0"
+XLSX_DECIMAL_FORMAT = "#,##0.00"
+#: Cabecero: negrita en blanco sobre el verde azulado de la app, y autofiltro.
+_HEADER_FONT = Font(bold=True, color="FFFFFF")
+_HEADER_FILL = PatternFill("solid", fgColor="0F766E")
+_HEADER_ALIGN = Alignment(vertical="center")
+
+
+def _xlsx_cell(ws, value, *, header: bool = False):
+    """INP-1: una celda del XLSX que NUNCA se interpreta como fórmula, y tipada.
 
     openpyxl guarda como fórmula (`data_type="f"`) cualquier cadena que empiece
     por `=`, así que una nota o una descripción tecleadas por un usuario
@@ -1290,13 +1438,37 @@ def _xlsx_cell(ws, value, font: Font | None = None):
     ya lo neutralizaba (`_csv_cell`) pero el Excel no. Aquí se fuerza el tipo
     cadena DESPUÉS de asignar el valor —que es cuando openpyxl decide el tipo—,
     de modo que el texto se conserva legible tal cual (sin el apóstrofo del
-    CSV). Los valores que no son texto (números, fechas, None) van como están.
+    CSV).
+
+    Lo demás va TIPADO, que es lo que distingue un Excel de un CSV abierto en
+    Excel: las fechas ISO de las tablas (`_d`) se convierten en fechas de
+    verdad —se ordenan y filtran por fecha, y se ven a la española—, los
+    enteros llevan separador de miles y los decimales dos cifras. Las tablas
+    siguen entregando `str`/`int`/`Decimal`: el CSV y la vista previa (JSON)
+    no cambian.
     """
+    if isinstance(value, str) and _ISO_DATE.match(value):
+        try:
+            value = date.fromisoformat(value)
+        except ValueError:
+            pass  # «2026-13-99» no es una fecha: se queda como texto.
     cell = WriteOnlyCell(ws, value=value)
     if isinstance(value, str):
         cell.data_type = "s"
-    if font is not None:
-        cell.font = font
+    elif isinstance(value, bool):
+        pass  # TRUE/FALSE de Excel; va antes que `int` porque `bool` lo hereda.
+    elif isinstance(value, datetime):
+        cell.number_format = XLSX_DATETIME_FORMAT
+    elif isinstance(value, date):
+        cell.number_format = XLSX_DATE_FORMAT
+    elif isinstance(value, int):
+        cell.number_format = XLSX_INT_FORMAT
+    elif isinstance(value, float | Decimal):
+        cell.number_format = XLSX_DECIMAL_FORMAT
+    if header:
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+        cell.alignment = _HEADER_ALIGN
     return cell
 
 
@@ -1304,19 +1476,23 @@ def to_xlsx(tables: list[Table]) -> bytes:
     # R5-17: `write_only` vuelca cada fila al fichero según llega, sin construir
     # un objeto celda por dato (con treinta columnas y miles de filas eran
     # cientos de MB). Anchos y paneles fijos van ANTES de escribir, que es lo
-    # que exige ese modo; la negrita del cabecero, por celda.
+    # que exige ese modo; el estilo del cabecero y el formato de cada dato,
+    # por celda (`_xlsx_cell`), y el autofiltro sobre el rango ya escrito.
     # INP-1: cada dato pasa por `_xlsx_cell`, que fija el tipo cadena; el
     # `WriteOnlyCell` se crea igualmente por fila y se descarta al volcarla,
     # así que no rompe el modo de bajo consumo.
     wb = Workbook(write_only=True)
-    negrita = Font(bold=True)
     for title, headers, rows in tables:
         ws = wb.create_sheet(title[:31])
         _autosize(ws, headers, rows)
         ws.freeze_panes = "A2"
-        ws.append([_xlsx_cell(ws, header, negrita) for header in headers])
+        ws.append([_xlsx_cell(ws, header, header=True) for header in headers])
         for row in rows:
             ws.append([_xlsx_cell(ws, value) for value in row])
+        if headers:
+            # Autofiltro en el cabecero: lo primero que hace quien abre un
+            # informe en Excel es filtrar por matrícula o por estado.
+            ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
@@ -1379,13 +1555,18 @@ def render(
     if fmt not in FORMATS:
         raise ValueError(f"Formato no soportado: {fmt}.")
     tables = build_report(kind, user, filters)
+    # Con la fecha del día en el nombre, como el export CSV del front: dos
+    # descargas de días distintos no se pisan en la carpeta de quien las baja.
+    hoy = timezone.localdate().isoformat()
     default_stems = {
-        "vehicles": "vehiculos_completo",
-        "users": "usuarios",
+        "vehicles": f"vehiculos_completo_{hoy}",
+        "users": f"usuarios_{hoy}",
     }
-    base = safe_stem(stem or "", default_stems.get(kind, f"informe_{kind}"))
+    base = safe_stem(stem or "", default_stems.get(kind, f"informe_{kind}_{hoy}"))
     if fmt == "xlsx":
         return f"{base}.xlsx", XLSX_CONTENT_TYPE, to_xlsx(tables)
-    # BOM (utf-8-sig) para que Excel abra bien los acentos.
-    payload = _table_to_csv(tables[0]).encode("utf-8-sig")
+    # BOM (utf-8-sig) para que Excel abra bien los acentos. La portada
+    # («Resumen», si la hay) es cosa del Excel: el CSV lleva la tabla principal.
+    principal = next((t for t in tables if t[0] != SUMMARY_TITLE), tables[0])
+    payload = _table_to_csv(principal).encode("utf-8-sig")
     return f"{base}.csv", "text/csv", payload

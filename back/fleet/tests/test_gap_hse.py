@@ -7,6 +7,7 @@ incidencia «neumáticos» (GAP-6), la devolución guiada (GAP-7) y las alertas 
 mantenimiento preventivo (GAP-8).
 """
 
+import io
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -984,3 +985,154 @@ class MaintenanceDoneAndIncidentReportTests(APITestCase):
         # Vacio -> 400.
         resp = self.client.post(reverse("incident-report", args=[incident.pk]), {})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class HseReportTests(APITestCase):
+    """El informe de HSE: cómo se usa la flota, en dos hojas.
+
+    Es lo que enseña su pantalla y nada más: sin coste, sin conductor y sin
+    ITV. Si alguien añade una columna de esas aquí, este test lo dice.
+    """
+
+    def setUp(self):
+        self.admin = make_user("hse-rep-admin", Role.ADMIN)
+        self.activo = Vehicle.objects.create(
+            plate="HSEREP-1", brand="Seat", model="León", state=VehicleState.ACTIVE
+        )
+        # Parado: no sale en la hoja de vehículos (solo los que ruedan)…
+        self.parado = Vehicle.objects.create(
+            plate="HSEREP-2", brand="Opel", model="Corsa", state=VehicleState.BROKEN
+        )
+        Contract.objects.create(
+            vehicle=self.activo,
+            contract_number="CTR-HSEREP",
+            start_date=date(2026, 1, 15),
+            planned_end_date=date(2029, 1, 14),
+            month_fee=Decimal("500.00"),
+        )
+        KmReading.objects.create(
+            vehicle=self.activo, reading_date=date(2026, 6, 30), km_reading=12345
+        )
+        # …pero su LECTURA sí sale en la otra hoja: es un hecho del pasado.
+        KmReading.objects.create(
+            vehicle=self.parado, reading_date=date(2026, 6, 10), km_reading=500
+        )
+        FuelConsumption.objects.create(
+            vehicle=self.activo, reading_date=date(2026, 6, 28), avg_consumption=Decimal("6.80")
+        )
+
+    def test_two_sheets_with_the_hse_fields(self):
+        from fleet.services import reports
+
+        _resumen, vehiculos, lecturas = reports.build_report("hse", self.admin)
+        titulo, headers, rows = vehiculos
+        self.assertEqual(titulo, "Vehículos")
+        self.assertEqual(
+            headers,
+            [
+                "Matrícula",
+                "Marca",
+                "Modelo",
+                "Estado",
+                "Fecha de inicio",
+                "Fecha de fin prevista",
+                "Fecha de última lectura",
+                "Última lectura (km)",
+                "Fecha de último consumo",
+                "Último consumo (l/100km o kWh/100km)",
+                "Días desde la última lectura",
+            ],
+        )
+        # Nada de lo excluido, ni como columna.
+        for fuera in ("Conductor", "Supervisor", "Cuota", "Coste", "ITV"):
+            with self.subTest(fuera=fuera):
+                self.assertNotIn(fuera, " ".join(headers))
+        self.assertEqual([r[0] for r in rows], ["HSEREP-1"])
+        self.assertEqual(
+            rows[0],
+            [
+                "HSEREP-1",
+                "Seat",
+                "León",
+                "Activo",
+                "2026-01-15",
+                "2029-01-14",
+                "2026-06-30",
+                12345,
+                "2026-06-28",
+                # Decimal, como el resto de informes con cifras (`_fuel_table`):
+                # el formato lo pone quien escribe el Excel o el CSV.
+                Decimal("6.80"),
+                # Antigüedad de la lectura, en días y como número (filtrable).
+                (timezone.localdate() - date(2026, 6, 30)).days,
+            ],
+        )
+        # La hoja de lecturas es la de siempre, y con TODA la flota.
+        self.assertEqual(lecturas[0], "Kilometraje")
+        self.assertEqual({r[0] for r in lecturas[2]}, {"HSEREP-1", "HSEREP-2"})
+
+    def test_a_vehicle_without_contract_leaves_its_dates_empty(self):
+        """Un coche propio no tiene contrato: las fechas de servicio van vacías."""
+        from fleet.services import reports
+
+        Vehicle.objects.create(
+            plate="HSEREP-3", brand="Nissan", model="Leaf", state=VehicleState.ACTIVE
+        )
+        _, (_, _, rows), _ = reports.build_report("hse", self.admin)
+        fila = next(r for r in rows if r[0] == "HSEREP-3")
+        self.assertEqual(fila[4:6], ["", ""])
+        self.assertEqual(fila[6:], ["", "", "", "", ""])
+
+    def test_the_summary_sheet_says_the_same_as_the_screen(self):
+        """La portada lleva las cuatro cifras de la pantalla, sacadas de la
+        hoja de vehículos: activos, con lectura y con consumo ESTE mes (y
+        cuántos faltan), y sin leer hace más de 30 días."""
+        from fleet.services import reports
+
+        hoy = timezone.localdate()
+        # Uno al día (lectura y consumo de este mes) y otro sin nada.
+        al_dia = Vehicle.objects.create(
+            plate="HSEREP-4", brand="Kia", model="Niro", state=VehicleState.ACTIVE
+        )
+        Vehicle.objects.create(
+            plate="HSEREP-5", brand="Fiat", model="500", state=VehicleState.ACTIVE
+        )
+        KmReading.objects.create(vehicle=al_dia, reading_date=hoy, km_reading=100)
+        FuelConsumption.objects.create(
+            vehicle=al_dia, reading_date=hoy, avg_consumption=Decimal("5.10")
+        )
+
+        resumen, vehiculos, lecturas = reports.build_report("hse", self.admin)
+        titulo, headers, rows = resumen
+        self.assertEqual(titulo, reports.SUMMARY_TITLE)
+        self.assertEqual(headers, ["Indicador", "Valor", "Detalle"])
+        cifras = {r[0]: r[1] for r in rows}
+        # Tres activos: HSEREP-1 (lectura de junio), 4 (al día) y 5 (sin nada).
+        self.assertEqual(cifras["Coches activos"], 3)
+        self.assertEqual(cifras["Con lectura de km este mes"], 1)
+        self.assertEqual(cifras["Con consumo anotado este mes"], 1)
+        # HSEREP-5 no tiene lectura y HSEREP-1 la tiene de junio de 2026.
+        self.assertEqual(cifras["Sin leer hace más de 30 días"], 2)
+        self.assertEqual(cifras["Lecturas en el histórico"], len(lecturas[2]))
+        self.assertEqual(cifras["Generado el"], hoy.isoformat())
+        detalle = {r[0]: r[2] for r in rows}
+        self.assertEqual(detalle["Con lectura de km este mes"], "2 sin dar.")
+        # Las cifras son las de la hoja de vehículos, no otra consulta.
+        self.assertEqual(cifras["Coches activos"], len(vehiculos[2]))
+
+    def test_csv_is_the_vehicles_table_and_xlsx_has_the_three_sheets(self):
+        """El CSV (un solo fichero plano) salta la portada; el Excel la lleva
+        de primera hoja, con el nombre del fichero fechado."""
+        from openpyxl import load_workbook
+
+        from fleet.services import reports
+
+        hoy = timezone.localdate().isoformat()
+        nombre, _tipo, csv_bytes = reports.render("hse", self.admin, "csv")
+        self.assertEqual(nombre, f"informe_hse_{hoy}.csv")
+        self.assertTrue(csv_bytes.decode("utf-8-sig").startswith("Matrícula;Marca;"))
+
+        nombre, _tipo, xlsx_bytes = reports.render("hse", self.admin, "xlsx")
+        self.assertEqual(nombre, f"informe_hse_{hoy}.xlsx")
+        wb = load_workbook(io.BytesIO(xlsx_bytes))
+        self.assertEqual(wb.sheetnames, ["Resumen", "Vehículos", "Kilometraje"])

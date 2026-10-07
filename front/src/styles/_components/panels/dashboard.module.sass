@@ -96,6 +96,29 @@
   right: .9rem
   opacity: .35
 
+// Tarjeta CON acción: es un <button>, así que hay que devolverle la pinta de
+// tarjeta (los navegadores le ponen su fondo, su borde y su texto centrado) y
+// que se note que se puede pulsar.
+.statClickable
+  width: 100%
+  text-align: left
+  font: inherit
+  cursor: pointer
+  transition: box-shadow .15s ease, transform .15s ease
+
+  &:hover
+    box-shadow: 0 4px 12px rgba(16, 35, 58, .13)
+    transform: translateY(-1px)
+
+  &:focus-visible
+    outline: 2px solid app.$primary-app
+    outline-offset: 2px
+
+  @media (prefers-reduced-motion: reduce)
+    transition: none
+    &:hover
+      transform: none
+
 // accent variants (left border + value tint)
 .accentPrimary
   border-left-color: app.$primary-app
