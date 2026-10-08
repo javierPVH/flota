@@ -3,6 +3,7 @@
 // [EN] Related to: src/components/buttons/TabButton.tsx
 // Summary: base and status tab styles (tones), with active, loading and badge support.
 @use '../../_colors/_colors-corp' as app
+@use '../../_theme/_brand' as *
 
 .tabButton
   display: inline-flex
@@ -62,15 +63,15 @@
     background: #d6e0ec
 
   &.isActive
-    background: app.$teal-corp
-    border-color: app.$teal-corp
+    background: app.$brand-app
+    border-color: app.$brand-app
     color: app.$white-app
-    box-shadow: 0 2px 8px rgba(app.$teal-corp, .22), inset 0 1px 0 rgba(#ffffff, .1)
+    box-shadow: 0 2px 8px app.mix-alpha(app.$brand-app, 22), inset 0 1px 0 rgba(#ffffff, .1)
 
     .counterBadge
-      background: rgba(app.$white-app, .22)
+      background: app.mix-alpha(app.$white-app, 22)
       color: app.$white-app
-      border-color: rgba(app.$white-app, .22)
+      border-color: app.mix-alpha(app.$white-app, 22)
 
     &:hover
       background: #007f7d
@@ -234,19 +235,230 @@
     background: #991b1b
 
 .isLoading
-  border: 1px solid app.$teal-corp
+  border: 1px solid app.$brand-app
   animation: tabLoadBorder 1s linear infinite, tabLoadText 1s ease-in-out infinite
 
 @keyframes tabLoadBorder
   0%
-    box-shadow: inset 0 0 0 0 app.$teal-corp
+    box-shadow: inset 0 0 0 0 app.$brand-app
   50%
-    box-shadow: inset 0 -2px 0 0 app.$teal-corp
+    box-shadow: inset 0 -2px 0 0 app.$brand-app
   100%
-    box-shadow: inset 0 0 0 0 app.$teal-corp
+    box-shadow: inset 0 0 0 0 app.$brand-app
 
 @keyframes tabLoadText
   0%, 100%
     color: app.$ink-app
   50%
-    color: app.$teal-corp
+    color: app.$brand-app
+
+// --- VAM-THEME-BLOCK: forma del tema data-brand=vam (docs/PLAN_ESTETICA_VAM.md, sec. 7) ---
+// Pestañas en píldora (VAM): sin la forma de pestaña 10px 10px 0 0.
+.tabButton
+  +vam
+    border-radius: var(--radius-control)
+    font-size: var(--font-size-xs)
+    font-weight: 700
+    text-transform: var(--text-transform-button)
+    letter-spacing: var(--tracking-button)
+
+    &:focus-visible
+      outline: none
+      box-shadow: var(--focus-ring)
+
+.counterBadge
+  +vam
+    border-radius: var(--radius-pill)
+    letter-spacing: 0
+
+.variantDefault
+  +vam
+    border: 1px solid transparent
+    background: transparent
+    color: app.$text-app
+    padding: .7rem 1.1rem
+    box-shadow: none
+
+    .counterBadge
+      background: app.$brand-soft-app
+      color: app.$brand-app
+      border-color: app.$brand-border-app
+
+    &:hover
+      background: app.$brand-soft-app
+      border-color: transparent
+      color: app.$brand-app
+
+    &:active
+      transform: scale(.98)
+      background: app.$brand-soft-app
+
+    &.isActive
+      background: app.$brand-app
+      border-color: app.$brand-app
+      color: app.$white-app
+      box-shadow: var(--shadow-brand)
+
+      .counterBadge
+        background: app.mix-alpha(app.$white-app, 20)
+        color: app.$white-app
+        border-color: transparent
+
+      &:hover
+        background: app.$brand-hover-app
+        color: app.$white-app
+
+// Estado: píldoras suaves por tono (fondo -soft, texto -700, borde -border).
+.variantStatus
+  +vam
+    min-height: 36px
+    padding: .5rem 1rem
+    border: 1px solid app.$border-app
+    background: app.$white-app
+    color: app.$text-app
+    box-shadow: none
+
+    &:hover
+      transform: none
+      box-shadow: var(--shadow-card)
+
+    &:active
+      transform: scale(.98)
+      box-shadow: none
+
+    .counterBadge
+      background: app.$surface-soft-app
+      color: app.$text-app
+      border-color: app.$border-app
+
+.variantStatus.toneNeutral
+  +vam
+    background: app.$white-app
+    color: app.$text-app
+    border-color: app.$border-app
+
+    &:hover
+      background: app.$surface-muted-app
+      border-color: app.$border-strong-app
+
+    &:active
+      background: app.$surface-soft-app
+
+    .counterBadge
+      background: app.$surface-soft-app
+      color: app.$text-app
+      border-color: app.$border-app
+
+.variantStatus.toneSuccess
+  +vam
+    background: app.$success-soft-app
+    color: app.$success-app
+    border-color: app.$success-border-app
+
+    &:hover
+      background: app.$success-soft-app
+      border-color: app.$success-app
+
+    &:active
+      background: app.$success-border-app
+
+    .counterBadge
+      background: app.$white-app
+      color: app.$success-app
+      border-color: app.$success-border-app
+
+.variantStatus.toneWarning
+  +vam
+    background: app.$warning-soft-app
+    color: app.$warning-app
+    border-color: app.$warning-border-app
+
+    &:hover
+      background: app.$warning-soft-app
+      border-color: app.$warning-app
+
+    &:active
+      background: app.$warning-border-app
+
+    .counterBadge
+      background: app.$white-app
+      color: app.$warning-app
+      border-color: app.$warning-border-app
+
+.variantStatus.toneDanger
+  +vam
+    background: app.$danger-bg-app
+    color: app.$danger-app
+    border-color: app.$danger-soft-app
+
+    &:hover
+      background: app.$danger-bg-app
+      border-color: app.$danger-app
+
+    &:active
+      background: app.$danger-soft-app
+
+    .counterBadge
+      background: app.$white-app
+      color: app.$danger-app
+      border-color: app.$danger-soft-app
+
+.variantStatus.isActive
+  +vam
+    color: app.$white-app
+    box-shadow: var(--shadow-card-hover)
+
+    .counterBadge
+      background: app.mix-alpha(app.$white-app, 22)
+      color: app.$white-app
+      border-color: transparent
+
+.variantStatus.toneNeutral.isActive
+  +vam
+    background: app.$brand-app
+    border-color: app.$brand-app
+    box-shadow: var(--shadow-brand)
+
+    &:hover,
+    &:active
+      background: app.$brand-hover-app
+      border-color: app.$brand-hover-app
+
+.variantStatus.toneSuccess.isActive
+  +vam
+    background: app.$success-fill-app
+    border-color: app.$success-fill-app
+
+    &:hover,
+    &:active
+      background: app.$success-app
+      border-color: app.$success-app
+
+.variantStatus.toneWarning.isActive
+  +vam
+    // Texto blanco: amber-700 (5:1).
+    background: app.$warning-app
+    border-color: app.$warning-app
+
+    &:hover,
+    &:active
+      background: app.mix-with(app.$warning-app, 88, black)
+      border-color: app.mix-with(app.$warning-app, 88, black)
+
+.variantStatus.toneDanger.isActive
+  +vam
+    background: app.$danger-fill-app
+    border-color: app.$danger-fill-app
+
+    &:hover,
+    &:active
+      background: app.$danger-app
+      border-color: app.$danger-app
+
++reduced-motion
+  .isLoading
+    animation: none
+
+.variantDefault.isActive:hover
+  +vam
+    background: app.$brand-hover-app

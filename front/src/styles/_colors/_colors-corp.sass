@@ -3,6 +3,12 @@
 //
 // ⚠️ CAPA DE MARCA — sustituible por app. Si otra marca consume @gs/base,
 // reemplaza estos valores manteniendo los mismos nombres de variable.
+//
+// Los literales `-corp` son la paleta de marca OFICIAL (Pantone) y solo se usan
+// como referencia/muestrario. Los alias `-app` que consumen los módulos apuntan a
+// los tokens CSS de `tokens.css`, así que cambian con el tema (`data-brand`) en
+// tiempo de ejecución. Consecuencia: NO se pueden pasar por funciones SASS de color
+// (rgba($x, a), darken(), color.adjust…) — usa `color-mix()` (ver `mix-alpha`).
 
 $black-corp: #575756
 // Pantone 202 C | CMYK 1-98-58-44 | RGB 134-38-51
@@ -18,39 +24,61 @@ $light-blue-corp: #6CAEC6
 // Pantone 7716 C | CMYK 82-5-39-9 | RGB 0-148-146
 $teal-corp: #009491
 
-// Shared semantic palette used by UI modules
-// These aliases keep compatibility with existing component styles
-// while centralizing color definitions in this file.
-$white-app: #ffffff
-$ink-app: #10233a
-$text-app: #223a55
-$muted-text-app: #5f748c
+// Shared semantic palette used by UI modules (tokens de tiempo de ejecución).
+$white-app: var(--color-surface)
+$ink-app: var(--color-ink)
+$text-app: var(--color-text)
+$muted-text-app: var(--color-text-muted)
+$subtle-text-app: var(--color-text-subtle)
 
-$surface-app: #eef3f8
-$surface-soft-app: #e4ecf4
-$border-app: #cfdae6
-$border-strong-app: #afc0d2
+$surface-app: var(--color-app-bg)
+$surface-soft-app: var(--color-surface-soft)
+$surface-muted-app: var(--color-surface-muted)
+$border-app: var(--color-border)
+$border-strong-app: var(--color-border-strong)
+$border-input-app: var(--color-border-input)
+$neutral-strong-app: var(--color-neutral-strong)
 
-$primary-app: #1f63b8
-$primary-hover-app: #184f94
-$primary-soft-app: #e9f2ff
+// Acción principal (antes: $teal-corp usado directamente en los módulos).
+$brand-app: var(--color-brand)
+$brand-hover-app: var(--color-brand-hover)
+$brand-active-app: var(--color-brand-active)
+$brand-soft-app: var(--color-brand-soft)
+$brand-border-app: var(--color-brand-border)
+$brand-focus-app: var(--color-brand-focus)
 
-$danger-app: #c63434
-$danger-soft-app: #f5c3c3
-$danger-bg-app: #fdf0f0
+$primary-app: var(--color-primary)
+$primary-hover-app: var(--color-primary-hover)
+$primary-soft-app: var(--color-primary-soft)
+
+$danger-app: var(--color-danger)
+$danger-fill-app: var(--color-danger-fill)
+$danger-soft-app: var(--color-danger-soft)
+$danger-bg-app: var(--color-danger-bg)
 
 // Additional semantic tones for broader UI usage
-$success-app: #1f9f67
-$success-soft-app: #e7f7ef
-$success-border-app: #bfe7d2
-$warning-app: #c17a11
-$warning-soft-app: #fff4df
-$warning-border-app: #f0d4a4
-$info-app: #1d5ea8
-$info-soft-app: #e9f2ff
-$info-border-app: #bfd4f1
+$success-app: var(--color-success)
+$success-fill-app: var(--color-success-fill)
+$success-soft-app: var(--color-success-soft)
+$success-border-app: var(--color-success-border)
+$warning-app: var(--color-warning)
+$warning-fill-app: var(--color-warning-fill)
+$warning-soft-app: var(--color-warning-soft)
+$warning-border-app: var(--color-warning-border)
+$info-app: var(--color-info)
+$info-soft-app: var(--color-info-soft)
+$info-border-app: var(--color-info-border)
 
-// Optional grouped map for loops/themes
+// Transparencia sobre un token de tiempo de ejecución: sustituye a rgba($c, $a).
+// Uso: mix-alpha($brand-app, 24) → color-mix(in srgb, var(--color-brand) 24%, transparent)
+@function mix-alpha($color, $percent)
+  @return color-mix(in srgb, #{$color} #{$percent * 1%}, transparent)
+
+// Mezcla con blanco/negro: sustituye a lighten()/darken() sobre tokens.
+@function mix-with($color, $percent, $with: white)
+  @return color-mix(in srgb, #{$color} #{$percent * 1%}, #{$with})
+
+// Optional grouped map for loops/themes (paleta OFICIAL, valores literales)
 $palette-corp: (
   black-corp: $black-corp,
   red-corp: $red-corp,
@@ -58,28 +86,5 @@ $palette-corp: (
   blue-corp: $blue-corp,
   navy-corp: $navy-corp,
   light-blue-corp: $light-blue-corp,
-  teal-corp: $teal-corp,
-  white-app: $white-app,
-  ink-app: $ink-app,
-  text-app: $text-app,
-  muted-text-app: $muted-text-app,
-  surface-app: $surface-app,
-  surface-soft-app: $surface-soft-app,
-  border-app: $border-app,
-  border-strong-app: $border-strong-app,
-  primary-app: $primary-app,
-  primary-hover-app: $primary-hover-app,
-  primary-soft-app: $primary-soft-app,
-  danger-app: $danger-app,
-  danger-soft-app: $danger-soft-app,
-  danger-bg-app: $danger-bg-app,
-  success-app: $success-app,
-  success-soft-app: $success-soft-app,
-  success-border-app: $success-border-app,
-  warning-app: $warning-app,
-  warning-soft-app: $warning-soft-app,
-  warning-border-app: $warning-border-app,
-  info-app: $info-app,
-  info-soft-app: $info-soft-app,
-  info-border-app: $info-border-app
+  teal-corp: $teal-corp
 )

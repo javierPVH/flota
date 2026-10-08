@@ -19,6 +19,8 @@ export type {
   LanguageToggleButtonProps,
   LanguageToggleValue,
 } from './LanguageToggleButton'
+export { SegmentedControl } from './SegmentedControl'
+export type { SegmentedControlProps, SegmentedOption } from './SegmentedControl'
 export { UserMenuPanel } from './UserMenuPanel'
 export type { UserMenuPanelProps } from './UserMenuPanel'
 export { StatusIconButtons } from './StatusIconButtons'

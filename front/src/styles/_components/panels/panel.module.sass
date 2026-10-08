@@ -1,4 +1,5 @@
 @use '../../_colors/_colors-corp' as app
+@use '../../_theme/_brand' as *
 
 // ── Panel base ──────────────────────────────────────────────
 .panel
@@ -36,7 +37,7 @@
 // ── Tones ───────────────────────────────────────────────────
 .toneDanger
   background: app.$danger-bg-app
-  border-color: rgba(app.$danger-app, .35)
+  border-color: app.mix-alpha(app.$danger-app, 35)
   color: app.$ink-app
 
   .panelHeader,
@@ -88,3 +89,47 @@
 
   .panelBody
     font-size: .88rem
+
+// --- VAM-THEME-BLOCK: forma del tema data-brand=vam (docs/PLAN_ESTETICA_VAM.md, sec. 7) ---
+// Callout al estilo de la caja de error de VAM: fondo suave, texto -700.
+.panel
+  +vam
+    border-radius: var(--radius-control)
+    padding: 1rem
+    gap: .5rem
+
+.panelHeader
+  +vam
+    font-size: var(--font-size-body)
+
+.panelBody
+  +vam
+    font-size: var(--font-size-body)
+
+.toneDanger
+  +vam
+    border-color: app.$danger-soft-app
+
+.toneWarning
+  +vam
+    background: app.$warning-soft-app
+
+    .panelHeader,
+    .panelIcon
+      color: app.$warning-app
+
+.toneInfo
+  +vam
+    background: app.$info-soft-app
+
+    .panelHeader,
+    .panelIcon
+      color: app.$info-app
+
+.toneSuccess
+  +vam
+    background: app.$success-soft-app
+
+    .panelHeader,
+    .panelIcon
+      color: app.$success-app

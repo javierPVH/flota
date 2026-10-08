@@ -3,6 +3,7 @@
 // [EN] Related to: src/components/buttons/IconButton.tsx
 // Summary: icon-only button styles (default/warning/danger variants and xs/sm/md sizes).
 @use '../../_colors/_colors-corp' as app
+@use '../../_theme/_brand' as *
 
 .iconButton
   display: inline-flex
@@ -63,19 +64,19 @@
   border-color: app.$danger-soft-app
   color: app.$danger-app
   background: app.$danger-bg-app
-  box-shadow: 0 4px 10px rgba(app.$danger-app, .12)
+  box-shadow: 0 4px 10px app.mix-alpha(app.$danger-app, 12)
 
   &:not(:disabled):hover
     background: #fee2e2
     border-color: #fca5a5
-    box-shadow: 0 6px 12px rgba(app.$danger-app, .16)
+    box-shadow: 0 6px 12px app.mix-alpha(app.$danger-app, 16)
 
   &:not(:disabled):active
     transform: translateY(1px)
     background: app.$danger-app
     border-color: app.$danger-app
     color: app.$white-app
-    box-shadow: inset 0 2px 8px rgba(app.$ink-app, .2)
+    box-shadow: inset 0 2px 8px app.mix-alpha(app.$ink-app, 20)
 
 .variantWarning
   border-color: #f5d07a
@@ -94,4 +95,80 @@
     background: #f59e0b
     border-color: #f59e0b
     color: app.$white-app
-    box-shadow: inset 0 2px 8px rgba(app.$ink-app, .2)
+    box-shadow: inset 0 2px 8px app.mix-alpha(app.$ink-app, 20)
+
+// --- VAM-THEME-BLOCK: forma del tema data-brand=vam (docs/PLAN_ESTETICA_VAM.md, sec. 7) ---
+// Icono transparente; hover en slate-100 + marca (acciones de fila de VAM).
+.iconButton
+  +vam
+    border-radius: var(--radius-control)
+
+    &:focus-visible
+      outline: none
+      box-shadow: var(--focus-ring)
+
+.sizeSm
+  +vam
+    width: 32px
+    height: 32px
+
+.sizeMd
+  +vam
+    width: 36px
+    height: 36px
+
+.variantDefault
+  +vam
+    border-color: transparent
+    background: transparent
+    color: app.$muted-text-app
+    box-shadow: none
+
+    &:not(:disabled):hover
+      background: app.$surface-soft-app
+      border-color: transparent
+      color: app.$brand-app
+      box-shadow: none
+      transform: none
+
+    &:not(:disabled):active
+      background: app.$border-app
+      box-shadow: none
+      transform: scale(.96)
+
+.variantDanger
+  +vam
+    border-color: transparent
+    background: transparent
+    color: app.$danger-app
+    box-shadow: none
+
+    &:not(:disabled):hover
+      background: app.$danger-bg-app
+      border-color: transparent
+      box-shadow: none
+
+    &:not(:disabled):active
+      background: app.$danger-soft-app
+      color: app.$danger-app
+      box-shadow: none
+      transform: scale(.96)
+
+.variantWarning
+  +vam
+    border-color: transparent
+    background: transparent
+    color: app.$warning-app
+    box-shadow: none
+
+    &:not(:disabled):hover
+      background: app.$warning-soft-app
+      border-color: transparent
+      color: app.$warning-app
+      box-shadow: none
+
+    &:not(:disabled):active
+      background: app.$warning-border-app
+      color: app.$warning-app
+      box-shadow: none
+      transform: scale(.96)

@@ -1,0 +1,22 @@
+// Tema de marca en tiempo de ejecución.
+//
+// Los COLORES se resuelven siempre por token (`var(--color-*)`), así que cambian
+// solos con `<html data-brand="…">`. Este mixin es solo para lo que un token no
+// expresa bien: forma, medidas o estados propios del tema VAM (docs/PLAN_ESTETICA_VAM.md).
+//
+// Uso dentro de un selector:
+//   .button
+//     +vam
+//       text-transform: var(--text-transform-button)
+//
+// Especificidad: añade `:root[attr]` (0,2,0). Si el bloque base tiene estados
+// (`:hover`, `:active`) que el tema cambia, repítelos DENTRO del +vam.
+
+=vam
+  :global(:root[data-brand="vam"]) &
+    @content
+
+// Movimiento reducido: sin desplazamientos ni escalados.
+=reduced-motion
+  @media (prefers-reduced-motion: reduce)
+    @content

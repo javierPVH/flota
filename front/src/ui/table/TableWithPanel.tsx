@@ -72,6 +72,11 @@ export interface TableWithPanelProps<RowType extends object> {
   columns: Array<TableWithPanelColumn<RowType>>
   rowKey: (row: RowType, index: number) => string
   className?: string
+  /**
+   * Espaciado de celdas con el tema VAM: `compact` (12×16 px, por defecto)
+   * o `comfortable` (24 px). Con el tema corporativo no cambia nada.
+   */
+  density?: 'compact' | 'comfortable'
   showControlPanel?: boolean
   defaultPanelOpen?: boolean
   showColumnsToggle?: boolean
@@ -369,6 +374,7 @@ export function TableWithPanel<RowType extends object>({
   columns,
   rowKey,
   className,
+  density = 'compact',
   showControlPanel = true,
   defaultPanelOpen = false,
   showColumnsToggle = true,
@@ -1365,6 +1371,7 @@ export function TableWithPanel<RowType extends object>({
     <div
       className={cx(
         styles.tableShell,
+        density === 'comfortable' && styles.densityComfortable,
         fillAvailableHeight && styles.tableShellFillAvailable,
         className,
       )}

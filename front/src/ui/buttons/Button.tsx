@@ -11,6 +11,8 @@ import { useUiCopy } from '../copy.ts'
 export type ButtonVariant =
   | 'primary'
   | 'secondary'
+  /** Blanco con borde fino: acciones secundarias sobre fondo claro (filtros, exportar). */
+  | 'outline'
   | 'navy'
   | 'warning'
   | 'danger'
@@ -38,6 +40,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 const variantClass: Record<ButtonVariant, string> = {
   primary: styles.buttonPrimary,
   secondary: styles.buttonSecondary,
+  outline: styles.buttonOutline,
   navy: styles.buttonNavy,
   warning: styles.buttonWarning,
   danger: styles.buttonDanger,

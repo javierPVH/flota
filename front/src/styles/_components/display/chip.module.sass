@@ -1,4 +1,5 @@
 @use '../../_colors/_colors-corp' as app
+@use '../../_theme/_brand' as *
 
 // Chip interactivo de filtro (toggle). Activo = teal corporativo.
 .chip
@@ -16,7 +17,7 @@
   transition: border-color .15s ease, background .15s ease, color .15s ease, box-shadow .15s ease
 
   &:hover
-    border-color: app.$teal-corp
+    border-color: app.$brand-app
 
   &:focus-visible
     outline: 2px solid app.$primary-app
@@ -27,12 +28,12 @@
     cursor: not-allowed
 
 .chipActive
-  background: app.$teal-corp
-  border-color: app.$teal-corp
+  background: app.$brand-app
+  border-color: app.$brand-app
   color: #fff
 
   &:hover
-    border-color: app.$teal-corp
+    border-color: app.$brand-app
 
 .icon
   display: inline-flex
@@ -42,3 +43,29 @@
 .count
   font-variant-numeric: tabular-nums
   opacity: .8
+
+// --- VAM-THEME-BLOCK: forma del tema data-brand=vam (docs/PLAN_ESTETICA_VAM.md, sec. 7) ---
+.chip
+  +vam
+    padding: .5rem 1rem
+    font-size: var(--font-size-xs)
+    font-weight: 700
+    color: app.$text-app
+    box-shadow: var(--shadow-card)
+
+    &:hover
+      border-color: app.$border-strong-app
+      background: app.$surface-muted-app
+
+    &:focus-visible
+      outline: none
+      box-shadow: var(--focus-ring)
+
+.chipActive
+  +vam
+    color: app.$white-app
+    box-shadow: var(--shadow-brand)
+
+    &:hover
+      border-color: app.$brand-hover-app
+      background: app.$brand-hover-app

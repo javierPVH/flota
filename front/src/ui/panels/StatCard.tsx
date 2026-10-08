@@ -37,10 +37,23 @@ export interface StatCardProps {
    * solo abre el ratón.
    */
   onClick?: () => void
+  /** Tarjeta más baja para filas de muchos KPI. */
+  compact?: boolean
 }
 
 
-export function StatCard({ label, value, sub, accent = 'primary', icon, onClick }: StatCardProps) {
+export function StatCard({
+  label,
+  value,
+  sub,
+  accent = 'primary',
+  icon,
+  onClick,
+  compact = false,
+}: StatCardProps) {
+  // Las dos variantes —pulsable y compacta— son independientes y se suman:
+  // una fila de muchos KPI también puede llevar a su lista.
+  const clase = cx(styles.statCard, accentClass[accent], compact && styles.statCardCompact)
   const body = (
     <>
       {icon && <span className={styles.statIcon}>{icon}</span>}
@@ -51,14 +64,10 @@ export function StatCard({ label, value, sub, accent = 'primary', icon, onClick 
   )
   if (onClick) {
     return (
-      <button
-        type="button"
-        className={cx(styles.statCard, accentClass[accent], styles.statClickable)}
-        onClick={onClick}
-      >
+      <button type="button" className={cx(clase, styles.statClickable)} onClick={onClick}>
         {body}
       </button>
     )
   }
-  return <div className={cx(styles.statCard, accentClass[accent])}>{body}</div>
+  return <div className={clase}>{body}</div>
 }

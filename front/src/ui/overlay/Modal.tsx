@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { X } from 'lucide-react'
 import styles from '../../styles/_components/overlay/modal.module.sass'
 import { useUiCopy } from '../copy.ts'
@@ -23,6 +23,8 @@ export interface ModalProps {
    * tamaño: acciones sobre el propio diálogo (volver a mostrar un aviso que se
    * cerró, por ejemplo), que no son contenido del cuerpo. */
   headerAction?: ReactNode
+  /** Final del título pintado con el color de marca («Nuevo **vehículo**»). */
+  titleAccent?: ReactNode
 }
 
 
@@ -41,11 +43,14 @@ const FOCUSABLE =
 const openModals: symbol[] = []
 const isTopModal = (id: symbol) => openModals[openModals.length - 1] === id
 
-export function Modal({ open, title, onClose, children, footer, wide = false, xl = false, maxWidth, height, headerAction }: ModalProps) {
+export function Modal({ open, title, onClose, children, footer, wide = false, xl = false, maxWidth, height, headerAction, titleAccent }: ModalProps) {
   const titleId = useId()
   const cardRef = useRef<HTMLDivElement | null>(null)
   const onCloseRef = useRef(onClose)
   const copy = useUiCopy().modal
+  // Movimiento reducido: solo fundido, sin escalado ni desplazamiento.
+  const reduceMotion = useReducedMotion()
+  const cardHidden = reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: 8 }
 
   // `onClose` suele declararse inline en los consumidores. Conservamos el
   // callback más reciente sin convertir cada cambio de identidad en un nuevo
@@ -136,9 +141,9 @@ export function Modal({ open, title, onClose, children, footer, wide = false, xl
                   }
                 : undefined
             }
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            initial={cardHidden}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 8 }}
+            exit={cardHidden}
             transition={{ duration: 0.18 }}
             role="dialog"
             aria-modal="true"
@@ -146,7 +151,15 @@ export function Modal({ open, title, onClose, children, footer, wide = false, xl
             tabIndex={-1}
           >
             <div className={styles.head}>
-              <h2 className={styles.title} id={titleId}>{title}</h2>
+              <h2 className={styles.title} id={titleId}>
+                {title}
+                {titleAccent != null && (
+                  <>
+                    {' '}
+                    <span className={styles.titleAccent}>{titleAccent}</span>
+                  </>
+                )}
+              </h2>
               {/* Lo que se le hace al propio diálogo va junto a su X, en la
                   misma fila y del mismo tamaño: no es contenido del cuerpo. */}
               <div className={styles.headActions}>

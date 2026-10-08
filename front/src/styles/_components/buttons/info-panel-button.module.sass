@@ -25,7 +25,7 @@
 
   &:not(:disabled):hover
     background: app.$white-app
-    border-color: app.$teal-corp
+    border-color: app.$brand-app
     box-shadow: 0 4px 12px rgba(#0f172a, .08)
 
   &:not(:disabled):active
@@ -68,7 +68,7 @@
   background: #111a34
 
 .toneTeal
-  background: app.$teal-corp
+  background: app.$brand-app
 
 .toneBlue
   background: #2563eb
@@ -96,9 +96,9 @@
   color: app.$info-app
 
 .toneNavUsers
-  background: color.mix(app.$primary-soft-app, app.$danger-bg-app, 70%)
-  border-color: color.mix(app.$info-border-app, app.$danger-soft-app, 62%)
-  color: color.mix(app.$primary-app, app.$danger-app, 50%)
+  background: app.mix-with(app.$primary-soft-app, 70, app.$danger-bg-app)
+  border-color: app.mix-with(app.$info-border-app, 62, app.$danger-soft-app)
+  color: app.mix-with(app.$primary-app, 50, app.$danger-app)
 
 .toneNavEmployees
   background: app.$primary-soft-app
@@ -121,9 +121,9 @@
   color: app.$warning-app
 
 .toneNavSystem
-  background: color.mix(app.$info-soft-app, app.$warning-soft-app, 35%)
-  border-color: color.mix(app.$info-border-app, app.$warning-border-app, 40%)
-  color: color.mix(app.$info-app, app.$warning-app, 40%)
+  background: app.mix-with(app.$info-soft-app, 35, app.$warning-soft-app)
+  border-color: app.mix-with(app.$info-border-app, 40, app.$warning-border-app)
+  color: app.mix-with(app.$info-app, 40, app.$warning-app)
 
 .image
   width: 1rem

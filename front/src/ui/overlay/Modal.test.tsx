@@ -23,6 +23,15 @@ describe('Modal (UX2)', () => {
     expect(document.getElementById(labelledBy!)).toHaveTextContent('Título del diálogo')
   })
 
+  it('titleAccent forma parte del nombre accesible del diálogo', () => {
+    render(
+      <Modal open title="Nuevo" titleAccent="vehículo" onClose={vi.fn()}>
+        <p>cuerpo</p>
+      </Modal>,
+    )
+    expect(screen.getByRole('dialog', { name: 'Nuevo vehículo' })).toBeInTheDocument()
+  })
+
   it('cierra con Escape y con el botón de cerrar', () => {
     const onClose = renderModal()
     fireEvent.keyDown(document, { key: 'Escape' })

@@ -1,0 +1,130 @@
+// [ES] Relacionado con: src/ui/nav/SidebarNav.tsx
+// Navegación lateral: ítem activo relleno de marca con sombra de marca;
+// inactivo en texto secundario con hover suave de marca (patrón VAM).
+@use '../../_colors/_colors-corp' as app
+@use '../../_theme/_brand' as *
+
+.sidebarNav
+  display: flex
+  flex-direction: column
+  gap: 2rem
+  min-height: 100%
+
+.brand
+  display: flex
+  align-items: center
+  gap: .75rem
+  min-width: 0
+
+.nav
+  display: flex
+  flex-direction: column
+  gap: 1.25rem
+  flex: 1 1 auto
+
+.group
+  display: flex
+  flex-direction: column
+  gap: .35rem
+
+.groupTitle
+  margin: 0 0 .15rem 1rem
+  color: app.$muted-text-app
+  font-size: var(--font-size-label)
+  font-weight: 700
+  text-transform: uppercase
+  letter-spacing: var(--tracking-label)
+
+.list
+  list-style: none
+  margin: 0
+  padding: 0
+  display: flex
+  flex-direction: column
+  gap: .25rem
+
+.item
+  display: flex
+  align-items: center
+  gap: .75rem
+  width: 100%
+  min-height: 44px
+  box-sizing: border-box
+  padding: .7rem 1rem
+  // Borde transparente: visible en alto contraste de Windows (estado activo).
+  border: 1px solid transparent
+  border-radius: var(--radius-nav)
+  background: transparent
+  color: app.$text-app
+  font: inherit
+  font-size: var(--font-size-body)
+  font-weight: 600
+  text-align: left
+  text-decoration: none
+  cursor: pointer
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease
+
+  &:hover
+    background: app.$brand-soft-app
+    color: app.$brand-app
+
+  &:focus-visible
+    outline: none
+    box-shadow: var(--focus-ring)
+
+.itemActive
+  background: app.$brand-app
+  color: app.$white-app
+  box-shadow: var(--shadow-brand)
+
+  &:hover
+    background: app.$brand-hover-app
+    color: app.$white-app
+
+  .count
+    background: app.mix-alpha(app.$white-app, 20)
+    color: app.$white-app
+
+  @media (forced-colors: active)
+    border-color: Highlight
+
+.itemDanger
+  color: app.$danger-app
+
+  &:hover
+    background: app.$danger-bg-app
+    color: app.$danger-app
+
+.icon
+  display: inline-flex
+  flex: 0 0 auto
+
+.label
+  flex: 1 1 auto
+  min-width: 0
+  overflow: hidden
+  text-overflow: ellipsis
+  white-space: nowrap
+
+.count
+  flex: 0 0 auto
+  min-width: 1.4rem
+  padding: .1rem .45rem
+  border-radius: var(--radius-pill)
+  background: app.$brand-soft-app
+  color: app.$brand-app
+  font-size: .7rem
+  font-weight: 800
+  text-align: center
+  font-variant-numeric: tabular-nums
+
+.footer
+  display: flex
+  flex-direction: column
+  gap: .75rem
+  padding-top: 1.25rem
+  border-top: 1px solid app.$surface-soft-app
+
++reduced-motion
+  .item
+    transition: none

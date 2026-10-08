@@ -1,4 +1,5 @@
 @use '../../_colors/_colors-app' as app
+@use '../../_theme/_brand' as *
 
 .overlay
   position: fixed
@@ -7,7 +8,7 @@
   display: grid
   place-items: center
   padding: 1.25rem
-  background: rgba(16, 35, 58, 0.45)
+  background: var(--color-overlay)
 
 .card
   width: 100%
@@ -16,8 +17,8 @@
   display: flex
   flex-direction: column
   background: app.$white-app
-  border-radius: 14px
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.3)
+  border-radius: var(--radius-modal)
+  box-shadow: var(--shadow-modal)
   overflow: hidden
 
 .cardWide
@@ -76,7 +77,7 @@
   gap: 0.5rem
   padding: 0.85rem 1.25rem
   border-top: 1px solid app.$border-app
-  background: app.$surface-app
+  background: var(--modal-footer-bg)
 
 // ── Teléfono estrecho ──
 // En una pantalla de 320px, el marco (1,25rem fuera + 1,25rem dentro, a los
@@ -209,3 +210,112 @@
 .fieldFilterItem input
   accent-color: #0e8a87
   cursor: pointer
+
+// --- VAM-THEME-BLOCK: forma del tema data-brand=vam (docs/PLAN_ESTETICA_VAM.md, sec. 7) ---
+// Modal VAM: overlay con blur, tarjeta 24 px, título grande con acento, pie con filete.
+.overlay
+  +vam
+    backdrop-filter: blur(var(--overlay-blur))
+    -webkit-backdrop-filter: blur(var(--overlay-blur))
+
+.card
+  +vam
+    border: 1px solid app.$surface-soft-app
+
+.head
+  +vam
+    padding: 1.75rem 2rem .5rem
+    border-bottom: 0
+    align-items: flex-start
+
+.title
+  +vam
+    font-size: 1.5rem
+    font-weight: var(--font-weight-heading)
+    letter-spacing: var(--tracking-title)
+    line-height: 1.2
+
+.titleAccent
+  color: app.$brand-app
+
+.close
+  +vam
+    width: 36px
+    height: 36px
+    border-radius: var(--radius-control)
+    background: transparent
+    color: app.$muted-text-app
+
+    &:hover
+      background: app.$surface-soft-app
+      color: app.$brand-app
+
+  &:focus-visible
+    outline: 2px solid app.$primary-app
+    outline-offset: 2px
+
+.body
+  +vam
+    padding: 1rem 2rem 1.5rem
+    gap: 1rem
+
+.footer
+  +vam
+    gap: .75rem
+    margin: 0 2rem
+    padding: 1.25rem 0 1.75rem
+    border-top-color: app.$surface-soft-app
+
+@media (max-width: 420px)
+  .head
+    +vam
+      padding: 1.1rem 1.1rem .4rem
+
+  .title
+    +vam
+      font-size: 1.25rem
+
+  .body
+    +vam
+      padding: .75rem 1.1rem 1rem
+
+  .footer
+    +vam
+      margin: 0 1.1rem
+      padding: 1rem 0 1.1rem
+
+// Modal sin blur si el navegador no lo soporta: overlay algo más opaco.
+@supports not (backdrop-filter: blur(1px))
+  .overlay
+    +vam
+      background: app.mix-alpha(app.$ink-app, 55)
+
+// Selectores de tipo y de campos en color de marca.
+.typeCard:hover,
+.fieldFilterSummary:hover
+  +vam
+    border-color: app.$brand-border-app
+    background: app.$brand-soft-app
+    color: app.$brand-app
+
+.typeCardActive,
+.typeCardActive:hover
+  +vam
+    border-color: app.$brand-app
+    background: app.$brand-soft-app
+    color: app.$brand-app
+
+.fieldFilterClear
+  +vam
+    color: app.$brand-app
+
+    &:hover
+      background: app.$brand-soft-app
+
+.fieldFilterItem:hover
+  +vam
+    background: app.$surface-muted-app
+
+.fieldFilterItem input
+  +vam
+    accent-color: app.$brand-app

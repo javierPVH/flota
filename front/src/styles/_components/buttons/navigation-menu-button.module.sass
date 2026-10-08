@@ -1,6 +1,7 @@
 // [ES] Boton icon-only para abrir/cerrar la navegacion superior.
 // [EN] Icon-only button for toggling top navigation.
 @use '../../_colors/_colors-corp' as app
+@use '../../_theme/_brand' as *
 
 .button
   display: inline-flex
@@ -20,7 +21,7 @@
   &:hover
     background: #dfecfb
     border-color: #9fb7d4
-    box-shadow: 0 4px 10px rgba(31, 99, 184, .2)
+    box-shadow: 0 4px 10px app.mix-alpha(app.$primary-app, 20)
     transform: translateY(-1px)
 
   &:active
@@ -43,3 +44,8 @@
   width: 15px
   height: 15px
   stroke-width: 2.3
+
+.button:hover
+  +vam
+    background: app.$brand-soft-app
+    border-color: app.$brand-border-app

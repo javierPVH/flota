@@ -4,10 +4,11 @@
 // Summary: base field styles (input, textarea, select and date range), container sizes and states.
 @use 'sass:color'
 @use '../../_colors/_colors-corp' as app
+@use '../../_theme/_brand' as *
 
-$field-border: #b6c3d2
+$field-border: app.$border-input-app
 $field-border-hover: #7f95ae
-$field-border-focus: app.$teal-corp
+$field-border-focus: app.$brand-app
 $field-bg: app.$white-app
 $field-bg-disabled: #eef2f6
 $field-text-disabled: #8ea0b3
@@ -80,7 +81,7 @@ $field-warning-soft: app.$danger-soft-app
   display: inline-flex
   align-items: center
   justify-content: center
-  border: 1px solid rgba(app.$warning-app, .32)
+  border: 1px solid app.mix-alpha(app.$warning-app, 32)
   border-radius: 999px
   padding: .08rem .42rem
   background: app.$warning-soft-app
@@ -108,7 +109,7 @@ $field-warning-soft: app.$danger-soft-app
   padding: .36rem .52rem
   font-size: .74rem
   line-height: 1.2
-  box-shadow: 0 3px 10px rgba($field-warning-border, .12)
+  box-shadow: 0 3px 10px app.mix-alpha($field-warning-border, 12)
 
   &::after
     content: ''
@@ -133,7 +134,7 @@ $field-warning-soft: app.$danger-soft-app
   justify-content: center
   width: 1rem
   height: 1rem
-  border: 1px solid rgba($field-warning-border, .35)
+  border: 1px solid app.mix-alpha($field-warning-border, 35)
   border-radius: 999px
   background: app.$white-app
   color: $field-warning-border
@@ -144,8 +145,8 @@ $field-warning-soft: app.$danger-soft-app
   transition: background-color .14s ease, border-color .14s ease, transform .08s ease
 
   &:hover
-    background: color.mix(app.$white-app, $field-warning-bg, 75%)
-    border-color: rgba($field-warning-border, .5)
+    background: app.mix-with(app.$white-app, 75, $field-warning-bg)
+    border-color: app.mix-alpha($field-warning-border, 50)
 
   &:active
     transform: translateY(1px)
@@ -195,7 +196,7 @@ $field-warning-soft: app.$danger-soft-app
   &:focus-visible
     outline: none
     border-color: $field-border-focus
-    box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+    box-shadow: inset 0 0 0 2px app.mix-alpha(app.$brand-app, 38)
 
   &:disabled
     cursor: not-allowed
@@ -232,7 +233,7 @@ $field-warning-soft: app.$danger-soft-app
   &:focus-visible
     outline: none
     border-color: $field-border-focus
-    box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+    box-shadow: inset 0 0 0 2px app.mix-alpha(app.$brand-app, 38)
 
   &:disabled
     cursor: not-allowed
@@ -282,17 +283,17 @@ $field-warning-soft: app.$danger-soft-app
 
   &:not(:disabled):active
     border-color: $field-border-focus
-    box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+    box-shadow: inset 0 0 0 2px app.mix-alpha(app.$brand-app, 38)
 
   &:focus
     outline: none
     border-color: $field-border-focus
-    box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+    box-shadow: inset 0 0 0 2px app.mix-alpha(app.$brand-app, 38)
 
   &:focus-visible
     outline: none
     border-color: $field-border-focus
-    box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+    box-shadow: inset 0 0 0 2px app.mix-alpha(app.$brand-app, 38)
 
   &:disabled
     cursor: not-allowed
@@ -350,37 +351,37 @@ input.fieldInput[type='date']
   .fieldSearchInput,
   .dateInput
     border-color: $field-warning-border
-    box-shadow: inset 0 0 0 1px rgba($field-warning-border, .2)
+    box-shadow: inset 0 0 0 1px app.mix-alpha($field-warning-border, 20)
 
     &:not(:disabled):not(:focus):not(:focus-visible):hover
       border-color: $field-warning-border
-      box-shadow: inset 0 0 0 2px rgba($field-warning-border, .24)
+      box-shadow: inset 0 0 0 2px app.mix-alpha($field-warning-border, 24)
 
     &:focus,
     &:focus-visible
       border-color: $field-warning-border
-      box-shadow: inset 0 0 0 2px rgba($field-warning-border, .3)
+      box-shadow: inset 0 0 0 2px app.mix-alpha($field-warning-border, 30)
 
 .isRequired:not(.hasWarning)
   .fieldInput,
   .fieldSearchInput,
   .fieldSelect
     border-color: app.$warning-border-app
-    background-color: color.mix(app.$white-app, app.$warning-soft-app, 88%)
-    box-shadow: inset 0 0 0 1px rgba(app.$warning-app, .16)
+    background-color: app.mix-with(app.$white-app, 88, app.$warning-soft-app)
+    box-shadow: inset 0 0 0 1px app.mix-alpha(app.$warning-app, 16)
 
     &:not(:disabled):not(:focus):not(:focus-visible):hover
       border-color: app.$warning-app
-      box-shadow: inset 0 0 0 2px rgba(app.$warning-app, .18)
+      box-shadow: inset 0 0 0 2px app.mix-alpha(app.$warning-app, 18)
 
     &:not(:disabled):active
       border-color: $field-border-focus
-      box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+      box-shadow: inset 0 0 0 2px app.mix-alpha(app.$brand-app, 38)
 
     &:focus,
     &:focus-visible
       border-color: $field-border-focus
-      box-shadow: inset 0 0 0 2px rgba(app.$teal-corp, .38)
+      box-shadow: inset 0 0 0 2px app.mix-alpha(app.$brand-app, 38)
 
 .dateRange
   display: inline-flex
@@ -469,7 +470,7 @@ input.fieldInput[type='date']
 
   &:focus-within
     border-color: $field-border-focus
-    box-shadow: 0 0 0 3px rgba(0, 148, 145, .18)
+    box-shadow: 0 0 0 3px app.mix-alpha(app.$brand-app, 18)
     outline: none
 
 .filePickDisabled
@@ -515,3 +516,147 @@ input.fieldInput[type='date']
   &:hover
     border-color: $field-warning-border
     color: $field-warning-border
+
+// --- VAM-THEME-BLOCK: forma del tema data-brand=vam (docs/PLAN_ESTETICA_VAM.md, sec. 7) ---
+// Campos VAM: etiqueta 12 px/700 en mayúsculas; control radio 12 px, borde a 3:1,
+// foco con borde de marca + anillo exterior (en vez del inset teal).
+.fieldShell
+  +vam
+    gap: .5rem
+
+.fieldLabel
+  +vam
+    padding-left: 2px
+    color: app.$muted-text-app
+    font-size: var(--font-size-xs)
+    font-weight: 700
+    text-transform: var(--text-transform-label)
+    letter-spacing: var(--tracking-label)
+
+.fieldRequiredBadge
+  +vam
+    padding: .12rem .5rem
+    border-color: app.$warning-border-app
+    font-size: .5625rem
+    font-weight: 900
+    text-transform: var(--text-transform-label)
+    letter-spacing: var(--tracking-button)
+
+.fieldInput,
+.fieldTextarea,
+.fieldSelect,
+.dateInput,
+.fieldSearchInput,
+.fieldSearchToggleButton
+  +vam
+    border-radius: var(--radius-control)
+    font-size: var(--font-size-body)
+
+    &::placeholder
+      color: app.$subtle-text-app
+
+    &:not(:disabled):not(:focus):not(:focus-visible):hover
+      border-color: app.$muted-text-app
+      box-shadow: none
+
+    &:not(:disabled):active,
+    &:focus,
+    &:focus-visible
+      border-color: app.$brand-focus-app
+      box-shadow: var(--focus-ring)
+
+    &:disabled
+      opacity: .6
+      background-color: app.$surface-muted-app
+      border-color: app.$border-app
+
+.fieldInput,
+.fieldSelect,
+.dateInput
+  +vam
+    --field-v-padding: 12px
+    padding-left: 12px
+
+.inputPad5
+  +vam
+    --field-v-padding: 8px
+
+.fieldTextarea
+  +vam
+    padding: .75rem
+
+.fieldSearchToggleButton
+  +vam
+    width: 44px
+    height: 44px
+
+.fieldSearchResultBubble
+  +vam
+    border-color: app.$brand-border-app
+    background: app.$brand-soft-app
+    color: app.$brand-app
+    font-weight: 900
+
+// Aviso: caja de error de VAM (red-50 / red-700, radio 12, negrita).
+.fieldWarningBubble
+  +vam
+    border-color: app.$danger-soft-app
+    border-radius: var(--radius-control)
+    padding: .5rem .75rem
+    font-size: var(--font-size-xs)
+    font-weight: 700
+    box-shadow: var(--shadow-card-hover)
+
+.hasWarning
+  .fieldInput,
+  .fieldTextarea,
+  .fieldSelect,
+  .fieldSearchInput,
+  .dateInput
+    +vam
+      &:focus,
+      &:focus-visible
+        box-shadow: 0 0 0 3px app.mix-alpha(app.$danger-app, 20)
+
+.isRequired:not(.hasWarning)
+  .fieldInput,
+  .fieldSearchInput,
+  .fieldSelect
+    +vam
+      &:focus,
+      &:focus-visible,
+      &:not(:disabled):active
+        border-color: app.$brand-focus-app
+        box-shadow: var(--focus-ring)
+
+.rangeArrow
+  +vam
+    color: app.$border-strong-app
+
+.filePick
+  +vam
+    padding: .7rem 1.1rem
+    border-color: app.$border-app
+    border-radius: var(--radius-control)
+    background: app.$surface-soft-app
+    font-size: var(--font-size-xs)
+    font-weight: 700
+    text-transform: var(--text-transform-button)
+    letter-spacing: var(--tracking-button)
+
+    &:hover
+      border-color: app.$border-strong-app
+      background: app.$border-app
+
+    &:focus-within
+      border-color: app.$brand-focus-app
+      box-shadow: var(--focus-ring)
+
+.fileClear
+  +vam
+    border-color: transparent
+    background: transparent
+
+    &:hover
+      border-color: transparent
+      background: app.$danger-bg-app

@@ -1,6 +1,8 @@
 @use 'sass:color'
 @use '../../_colors/_colors-corp' as app
+@use '../../_theme/_brand' as *
 @use '../../_typography/_type-scale' as type
+@use '../../_theme/_brand' as *
 
 .page
   position: relative
@@ -42,7 +44,7 @@
   border: 1px solid app.$border-app
   border-radius: 26px
   overflow: hidden
-  box-shadow: 0 14px 30px color.adjust(app.$ink-app, $alpha: -.88)
+  box-shadow: 0 14px 30px app.mix-alpha(app.$ink-app, 12)
 
 .header
   position: relative
@@ -396,9 +398,9 @@
   color: app.$info-app
 
 .navToneUsers
-  background: color.mix(app.$primary-soft-app, app.$danger-bg-app, 70%)
-  border-color: color.mix(app.$info-border-app, app.$danger-soft-app, 62%)
-  color: color.mix(app.$primary-app, app.$danger-app, 50%)
+  background: app.mix-with(app.$primary-soft-app, 70, app.$danger-bg-app)
+  border-color: app.mix-with(app.$info-border-app, 62, app.$danger-soft-app)
+  color: app.mix-with(app.$primary-app, 50, app.$danger-app)
 
 .navToneEmployees
   background: app.$primary-soft-app
@@ -421,9 +423,9 @@
   color: app.$warning-app
 
 .navToneSystem
-  background: color.mix(app.$info-soft-app, app.$warning-soft-app, 35%)
-  border-color: color.mix(app.$info-border-app, app.$warning-border-app, 40%)
-  color: color.mix(app.$info-app, app.$warning-app, 40%)
+  background: app.mix-with(app.$info-soft-app, 35, app.$warning-soft-app)
+  border-color: app.mix-with(app.$info-border-app, 40, app.$warning-border-app)
+  color: app.mix-with(app.$info-app, 40, app.$warning-app)
 
 .section
   flex: 1 1 auto
@@ -552,3 +554,134 @@
 
   .footer
     min-height: 40px
+
+// --- VAM-THEME-BLOCK: forma del tema data-brand=vam (docs/PLAN_ESTETICA_VAM.md, sec. 7) ---
+// Shell con barra lateral (prop `sidebar` de <Base>). Independiente del tema:
+// los colores salen de tokens, así que funciona con los dos.
+.pageWithSidebar
+  display: flex
+  align-items: stretch
+  justify-content: flex-start
+  padding: 0
+  overflow: visible
+  background: app.$surface-app
+
+  &::before,
+  &::after
+    display: none
+
+.sidebar
+  position: sticky
+  top: 0
+  flex: 0 0 16rem
+  width: 16rem
+  height: 100dvh
+  box-sizing: border-box
+  overflow-y: auto
+  display: flex
+  flex-direction: column
+  gap: 2rem
+  padding: 1.5rem
+  background: app.$white-app
+  border-right: 1px solid app.$border-app
+  z-index: var(--z-index-header)
+
+.shellMain
+  flex: 1 1 auto
+  min-width: 0
+  min-height: 100dvh
+  display: flex
+  flex-direction: column
+
+.shellContent
+  flex: 1 1 auto
+  display: flex
+  flex-direction: column
+  min-height: 0
+
+  .section
+    padding: 2.5rem
+    background: transparent
+    overflow: visible
+
+.pageWithSidebar
+  .footer
+    background: transparent
+
+.drawerBackdrop
+  display: none
+
+// ≤760px: la barra lateral pasa a panel deslizable.
+@media (max-width: 760px)
+  .sidebar
+    position: fixed
+    inset: 0 auto 0 0
+    width: min(18rem, 86vw)
+    transform: translateX(-100%)
+    visibility: hidden
+    transition: transform .2s ease, visibility 0s linear .2s
+    z-index: var(--z-index-modal)
+    box-shadow: var(--shadow-modal)
+
+  .sidebarOpen
+    transform: translateX(0)
+    visibility: visible
+    transition: transform .2s ease
+
+  .drawerBackdrop
+    display: block
+    position: fixed
+    inset: 0
+    z-index: calc(var(--z-index-modal) - 1)
+    background: var(--color-overlay)
+    backdrop-filter: blur(var(--overlay-blur))
+    -webkit-backdrop-filter: blur(var(--overlay-blur))
+
+  .shellContent
+    .section
+      padding: 1.25rem
+
++reduced-motion
+  .sidebar,
+  .sidebarOpen
+    transition: none
+
+// ── Tema VAM sobre el marco flotante (sin sidebar): sin wallpaper ──
+.page
+  +vam
+    background: app.$surface-app
+
+    &::before,
+    &::after
+      display: none
+
+.frame
+  +vam
+    border-radius: var(--radius-frame)
+    box-shadow: var(--shadow-frame)
+
+.brandLabel
+  +vam
+    color: app.$muted-text-app
+    font-weight: 700
+    letter-spacing: var(--tracking-label)
+
+.brandTitle
+  +vam
+    color: app.$ink-app
+    font-weight: var(--font-weight-heading)
+
+.sectionTitle
+  +vam
+    color: app.$ink-app
+    font-weight: var(--font-weight-heading)
+    letter-spacing: var(--tracking-title)
+
+.sectionSubtitle
+  +vam
+    color: app.$muted-text-app
+
+.footerContent
+  +vam
+    color: app.$muted-text-app
+    font-size: var(--font-size-xs)

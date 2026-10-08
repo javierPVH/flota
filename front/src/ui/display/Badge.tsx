@@ -20,6 +20,8 @@ export interface BadgeProps {
   size?: BadgeSize
   /** Icono opcional a la izquierda (p. ej. de lucide-react). */
   icon?: ReactNode
+  /** Tipografía monoespaciada para matrículas y códigos. */
+  mono?: boolean
   children: ReactNode
   className?: string
 }
@@ -50,11 +52,21 @@ export function Badge({
   variant = 'soft',
   size = 'md',
   icon,
+  mono = false,
   children,
   className,
 }: BadgeProps) {
   return (
-    <span className={cx(styles.badge, toneClass[tone], variantClass[variant], sizeClass[size], className)}>
+    <span
+      className={cx(
+        styles.badge,
+        toneClass[tone],
+        variantClass[variant],
+        sizeClass[size],
+        mono && styles.mono,
+        className,
+      )}
+    >
       {icon && (
         <span className={styles.icon} aria-hidden="true">
           {icon}

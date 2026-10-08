@@ -2,16 +2,19 @@
  * Tokens globales de @gs/base (variables CSS + reset mínimo).
  * Impórtalo UNA vez en el entry de la app consumidora: `import '@gs/base/styles/tokens.css'`.
  *
- * Estos tokens en runtime reflejan la paleta SASS (`_colors/_colors-corp.sass`) y la
- * escala tipográfica (`_typography/_type-scale.sass`). Úsalos desde el CSS de las apps
- * consumidoras (p. ej. front-gestion) para no hardcodear hex. Los `.module.sass` de la
- * librería siguen usando las variables SASS; ambas capas comparten los MISMOS valores.
+ * Dos temas de marca, ambos claros (no es dark mode):
+ *   - `:root`                     → corporativo GRS (teal). Valor por defecto.
+ *   - `:root[data-brand="vam"]`   → estética «Vehicle and Apartment Management» (vino).
+ * La app elige el tema con el atributo `data-brand` en <html>
+ * (ver docs/PLAN_ESTETICA_VAM.md).
+ *
+ * Los `.module.sass` de la librería leen estos tokens con `var(--x)` (a través de los
+ * alias de `_colors/_colors-corp.sass`), así que cambiar de tema no requiere recompilar.
  */
 :root {
-  /* UX4: anillo de foco accesible — sustituye a los outline:none sueltos. */
-  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-brand, #0d9488) 35%, transparent);
   /* ── Tipografía ─────────────────────────────────────────────── */
   --font-sans: Arial, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: Consolas, 'Courier New', monospace;
   font-family: var(--font-sans);
   line-height: 1.5;
   color-scheme: light;
@@ -20,10 +23,22 @@
   --font-size-body: 0.88rem;
   --font-size-sm: 0.82rem;
   --font-size-xs: 0.72rem;
+  --font-size-label: 0.72rem;
+  --font-weight-heading: 800;
+  --tracking-label: 0.085em;
+  --tracking-button: 0.01em;
+  --tracking-title: 0;
+  /* Mayúsculas SOLO por CSS: los textos de i18n nunca van en mayúsculas. */
+  --text-transform-label: none;
+  --text-transform-button: none;
 
   /* ── Color: marca / acción ──────────────────────────────────── */
   --color-brand: #009491;        /* teal corporativo — acción principal, foco */
   --color-brand-hover: #0b8f8d;
+  --color-brand-active: #087e7c;
+  --color-brand-soft: #e6f4f4;
+  --color-brand-border: rgba(0, 148, 145, 0.2);
+  --color-brand-focus: rgba(0, 148, 145, 0.6);
   --color-primary: #1f63b8;      /* azul — enlaces y acentos */
   --color-primary-hover: #184f94;
   --color-primary-soft: #e9f2ff;
@@ -32,25 +47,45 @@
   --color-ink: #10233a;
   --color-text: #223a55;
   --color-text-muted: #5f748c;
+  --color-text-subtle: #8a9bb0;  /* solo placeholders, ejes y decorativos */
   --color-surface: #ffffff;
   --color-app-bg: #eef3f8;
   --color-surface-soft: #e4ecf4;
+  --color-surface-muted: #f5f7fa;
   --color-border: #cfdae6;
   --color-border-strong: #afc0d2;
+  --color-border-input: #b6c3d2;
+  --color-neutral-strong: #1e293b; /* navy/slate oscuro: botón navy, tooltips */
 
-  /* ── Color: semánticos (base / soft / border-bg) ────────────── */
+  /* ── Color: semánticos (texto / relleno / soft / borde-bg) ──── */
   --color-danger: #c63434;
+  --color-danger-fill: #c63434;
   --color-danger-soft: #f5c3c3;
   --color-danger-bg: #fdf0f0;
   --color-success: #1f9f67;
+  --color-success-fill: #1f9f67;
   --color-success-soft: #e7f7ef;
   --color-success-border: #bfe7d2;
   --color-warning: #c17a11;
+  --color-warning-fill: #c17a11;
   --color-warning-soft: #fff4df;
   --color-warning-border: #f0d4a4;
   --color-info: #1d5ea8;
   --color-info-soft: #e9f2ff;
   --color-info-border: #bfd4f1;
+
+  /* ── Series de gráficas (validadas; ver plan §5) ────────────── */
+  --chart-1: #009491;
+  --chart-2: #1f63b8;
+  --chart-3: #7c3aed;
+  --chart-4: #c17a11;
+  --chart-5: #1f9f67;
+  --chart-6: #b0577f;
+
+  /* ── Overlay / selección ────────────────────────────────────── */
+  --color-overlay: rgba(16, 35, 58, 0.45);
+  --overlay-blur: 0px;
+  --color-selection: rgba(0, 148, 145, 0.15);
 
   /* ── Alias de compatibilidad (nombres cortos que ya usa front-gestion) ── */
   --border: var(--color-border);
@@ -77,6 +112,11 @@
   --radius-xl: 16px;
   --radius-frame: 26px;
   --radius-pill: 999px;
+  --radius-control: 8px;   /* botones, IconButton */
+  --radius-nav: 10px;      /* ítems de navegación, chips de icono */
+  --radius-modal: 14px;
+  --radius-card: 14px;     /* tarjetas, tablas, secciones */
+  --radius-card-sm: 12px;  /* móvil, KPI compactos */
 
   /* ── Sombras (suaves, tinta) ────────────────────────────────── */
   --shadow-card: 0 1px 2px rgba(16, 35, 58, 0.05);
@@ -84,6 +124,13 @@
   --shadow-pop: 0 12px 30px rgba(16, 35, 58, 0.18);
   --shadow-modal: 0 22px 60px rgba(0, 0, 0, 0.3);
   --shadow-frame: 0 14px 30px rgba(16, 35, 58, 0.22);
+  --shadow-brand: 0 8px 18px rgba(0, 148, 145, 0.24);
+  /* UX4: anillo de foco accesible — sustituye a los outline:none sueltos. */
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-brand) 35%, transparent);
+
+  /* ── Forma específica de componentes (cambia entre temas) ───── */
+  --statcard-accent-width: 4px;       /* borde izquierdo de acento del StatCard */
+  --modal-footer-bg: var(--color-app-bg);
 
   /* ── z-index (menús por encima del header; modales por encima de todo) ── */
   --z-index-sticky: 10;
@@ -95,6 +142,99 @@
   --z-index-modal-priority: 300;
 }
 
+/* ════════════════════════════════════════════════════════════════
+ * Tema VAM — se activa con <html data-brand="vam">.
+ * Contrastes medidos (plan §4.3): textos semánticos en tono -700,
+ * bordes de input a 3:1, blanco sobre vino 10:1.
+ * ════════════════════════════════════════════════════════════════ */
+:root[data-brand="vam"] {
+  --font-sans: system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+  --font-size-eyebrow: 0.875rem;
+  --font-size-body: 0.875rem;
+  --font-size-sm: 0.875rem;
+  --font-size-xs: 0.75rem;
+  --font-size-label: 0.625rem;
+  --font-weight-heading: 900;
+  --tracking-label: 0.1em;
+  --tracking-button: 0.05em;
+  --tracking-title: -0.025em;
+  --text-transform-label: uppercase;
+  --text-transform-button: uppercase;
+
+  --color-brand: #7c1c36;
+  --color-brand-hover: #621428;
+  --color-brand-active: #551122;
+  --color-brand-soft: #f2e8eb;
+  --color-brand-border: rgba(124, 28, 54, 0.2);
+  --color-brand-focus: rgba(124, 28, 54, 0.6);
+  --color-primary: #7c1c36;
+  --color-primary-hover: #621428;
+  --color-primary-soft: #f2e8eb;
+
+  --color-ink: #1e293b;
+  --color-text: #334155;
+  --color-text-muted: #64748b;
+  --color-text-subtle: #94a3b8;
+  --color-surface: #ffffff;
+  --color-app-bg: #f8fafc;
+  --color-surface-soft: #f1f5f9;
+  --color-surface-muted: #f8fafc;
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-border-input: #8391a7;
+  --color-neutral-strong: #1e293b;
+
+  --color-danger: #b91c1c;
+  --color-danger-fill: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-danger-bg: #fef2f2;
+  --color-success: #047857;
+  --color-success-fill: #047857;
+  --color-success-soft: #ecfdf5;
+  --color-success-border: #a7f3d0;
+  --color-warning: #b45309;
+  --color-warning-fill: #d97706;
+  --color-warning-soft: #fffbeb;
+  --color-warning-border: #fde68a;
+  --color-info: #4f46e5;
+  --color-info-soft: #eef2ff;
+  --color-info-border: #c7d2fe;
+
+  --chart-1: #a3294a;
+  --chart-2: #0f9488;
+  --chart-3: #4f46e5;
+  --chart-4: #a16207;
+  --chart-5: #0284c7;
+  --chart-6: #db2777;
+
+  --color-overlay: rgba(2, 6, 23, 0.4);
+  --overlay-blur: 4px;
+  --color-selection: rgba(124, 28, 54, 0.1);
+
+  --radius-field: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-frame: 32px;
+  --radius-control: 12px;
+  --radius-nav: 16px;
+  --radius-modal: 24px;
+  --radius-card: 32px;
+  --radius-card-sm: 24px;
+
+  --shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-card-hover: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-pop: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  --shadow-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  --shadow-frame: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-brand: 0 10px 15px -3px rgba(124, 28, 54, 0.2), 0 4px 6px -4px rgba(124, 28, 54, 0.2);
+  --focus-ring: 0 0 0 3px rgba(124, 28, 54, 0.2);
+
+  --statcard-accent-width: 0px;
+  --modal-footer-bg: var(--color-surface);
+}
+
 body {
   margin: 0;
 }
@@ -102,4 +242,17 @@ body {
 #root {
   min-height: 100dvh;
   padding: 0;
+}
+
+::selection {
+  background: var(--color-selection);
+}
+
+/* Alto contraste de Windows: los anillos de foco con box-shadow desaparecen;
+ * se garantiza un outline del sistema en todos los interactivos. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid CanvasText !important;
+    outline-offset: 2px;
+  }
 }

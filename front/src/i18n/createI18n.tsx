@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { LANG_CHANGE_EVENT } from './langStore.ts'
 import { applyLanguage, getStoredLanguage, type AppLanguage } from './language.ts'
 
 export interface LanguageContextValue<T> {
@@ -35,10 +36,27 @@ export function createI18n<T>(translations: Record<AppLanguage, T>) {
     // guardado arrancaba mezclado: el shell (este Context) en inglés y todo lo
     // que lee `useAppLang` —componentes del DS y los módulos de copy por
     // página— en castellano hasta el primer toggle.
+    //
+    // Sin guardarlo (`persist: false`): reflejar no es elegir. Si se guardara,
+    // el primer arranque contaría como elección y el idioma por defecto del
+    // despliegue (`applyDefaultLanguage`) ya no podría aplicarse nunca.
     useEffect(() => {
-      applyLanguage(language)
+      applyLanguage(language, { persist: false })
       // Solo al montar: después es `setLanguage` quien aplica cada cambio.
       // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    // Un idioma aplicado fuera del Provider (el por defecto del despliegue,
+    // que llega con la config tras montar) se sincroniza aquí.
+    useEffect(() => {
+      const sync = () => {
+        const lang: AppLanguage = document.documentElement.lang.toLowerCase().startsWith('en')
+          ? 'en'
+          : 'es'
+        setLanguageState((prev) => (prev === lang ? prev : lang))
+      }
+      window.addEventListener(LANG_CHANGE_EVENT, sync)
+      return () => window.removeEventListener(LANG_CHANGE_EVENT, sync)
     }, [])
 
     const setLanguage = useCallback((lang: AppLanguage) => {

@@ -1,5 +1,7 @@
 @use '../../_colors/_colors-corp' as app
+@use '../../_theme/_brand' as *
 @use '../../_typography/_type-scale' as type
+@use '../../_theme/_brand' as *
 
 // Cabecera de página: (breadcrumb) + título/subtítulo a la izquierda y
 // acciones a la derecha. Reemplaza los `.page-head`/`.section-head` a mano.
@@ -74,3 +76,54 @@
   align-items: center
   gap: .6rem
   flex-shrink: 0
+
+// --- VAM-THEME-BLOCK: forma del tema data-brand=vam (docs/PLAN_ESTETICA_VAM.md, sec. 7) ---
+.header
+  +vam
+    gap: .35rem
+    margin-bottom: 2rem
+
+.breadcrumb
+  +vam
+    font-size: var(--font-size-eyebrow)
+    font-weight: 700
+    text-transform: var(--text-transform-label)
+    letter-spacing: var(--tracking-label)
+
+.row
+  +vam
+    align-items: flex-end
+
+.title
+  +vam
+    font-size: clamp(1.5rem, 2vw, 1.875rem)
+    font-weight: var(--font-weight-heading)
+    letter-spacing: var(--tracking-title)
+    line-height: 1.15
+
+.subtitle
+  +vam
+    font-size: var(--font-size-body)
+
+.stats
+  +vam
+    gap: 2rem
+    padding-left: 0
+    border-left: 0
+
+.statValue
+  +vam
+    font-size: 1.5rem
+    font-weight: var(--font-weight-heading)
+    letter-spacing: var(--tracking-title)
+
+.statLabel
+  +vam
+    font-size: var(--font-size-label)
+    font-weight: 700
+    text-transform: var(--text-transform-label)
+    letter-spacing: var(--tracking-label)
+
+.actions
+  +vam
+    gap: .75rem

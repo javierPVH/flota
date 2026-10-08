@@ -21,7 +21,7 @@
       top: 20%
       bottom: 20%
       width: 1px
-      background: rgba(app.$border-strong-app, .7)
+      background: app.mix-alpha(app.$border-strong-app, 70)
 
 .lockWrap
   position: relative
@@ -45,7 +45,7 @@
   display: inline-flex
   align-items: center
   justify-content: center
-  box-shadow: 0 1px 4px rgba(app.$ink-app, .22)
+  box-shadow: 0 1px 4px app.mix-alpha(app.$ink-app, 22)
   pointer-events: none
 
 .toolButton

@@ -6,6 +6,7 @@ import { ComponentsDemo } from './components-demo.tsx'
 import { Phase5Demo } from './phase5-demo.tsx'
 import { TableDemo } from './table-demo.tsx'
 import { FormsDemo } from './forms-demo.tsx'
+import { BrandDemo, BrandToggle } from './brand-demo.tsx'
 import s from './tokens-demo.module.sass'
 
 const dateSamples = ['07/03/2025', '2025-03-07T14:30:00Z', '45000', '31/02/2025']
@@ -95,6 +96,9 @@ export default function App() {
       <header style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
         <Boxes size={32} />
         <h1 className={s.title}>@gs/base</h1>
+        <span style={{ marginLeft: 'auto' }}>
+          <BrandToggle />
+        </span>
       </header>
       <p className={s.subtitle}>
         Design-system / librería base compartida. Repo autónomo y levantable por sí solo.
@@ -132,6 +136,9 @@ export default function App() {
           </li>
         ))}
       </ol>
+
+      <div className={s.sectionLabel}>Tema de marca (data-brand)</div>
+      <BrandDemo />
 
       <div className={s.sectionLabel}>Componentes: botones y campos (Fase 4)</div>
       <ComponentsDemo />
