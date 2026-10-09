@@ -14,6 +14,7 @@ from rest_framework.settings import api_settings
 from rest_framework.throttling import AnonRateThrottle
 
 from accounts.middleware import LOGIN_AT_KEY
+from accounts.tests.admin_door import con_admin
 
 User = get_user_model()
 
@@ -75,6 +76,7 @@ class ThrottleIdentTests(TestCase):
             self.assertEqual(AnonRateThrottle().get_ident(req), "172.18.0.5")
 
 
+@con_admin
 @override_settings(
     LOGIN_RATE_LIMIT_ATTEMPTS=3,
     LOGIN_RATE_LIMIT_ACCOUNT_ATTEMPTS=5,
@@ -82,7 +84,11 @@ class ThrottleIdentTests(TestCase):
     LOGIN_RATE_LIMIT_BLOCK_SECONDS=300,
 )
 class AdminLoginRateLimitTests(TestCase):
-    """R6-04: la entrada al /admin/ comparte el anti fuerza bruta de la API."""
+    """R6-04: la entrada al /admin/ comparte el anti fuerza bruta de la API.
+
+    El panel va apagado por defecto, así que el test lo enciende (`con_admin`):
+    lo que se prueba es que, cuando se enciende, su puerta está protegida.
+    """
 
     def setUp(self):
         cache.clear()

@@ -336,8 +336,15 @@ la flota; `driver` solo lee sus vehículos asignados (permisos en
   `IsManagement`, `IsDriver`, `IsManagementOrDriverReadOnly`, `HseReadOnly`
   (solo métodos seguros, compuesto con `|` endpoint a endpoint). Se combinan
   con un `get_queryset` que acota lo que ve cada rol.
-- **Aprovisionamiento**: desde `/admin/` (roles inline en el usuario). El
-  self-registro público, si se habilita, crea siempre un `driver`.
+- **Aprovisionamiento**: desde **gestión** (Usuarios → `/api/v1/auth/users/`),
+  con sus roles multi-valor. El self-registro público, si se habilita, crea
+  siempre un `driver`.
+- **El `/admin/` de Django va APAGADO** (`DJANGO_ADMIN_ENABLED`, por defecto
+  `False`): ni la app se instala ni la ruta existe, así que `/admin/` es un
+  404 y no un formulario de login expuesto. Se enciende puntualmente para lo
+  único que no se hace desde gestión: **conceder el superusuario**. Con él se
+  encienden también el `UserAdmin` con sus roles inline, el listado de
+  «Sesiones abiertas» y el anti fuerza bruta de esa puerta (R6-04).
 - **Enrutado a fronts**: `admin`/`supervisor`/`hse` → gestión (VPN; HSE solo
   lee); `driver` → conductores (internet). El backend lo impone por permisos;
   los fronts, además, filtran en el login/bootstrap.
@@ -408,11 +415,13 @@ SAML y `/admin/`. Y una persona tiene **una sola sesión**: al iniciar sesión,
 `accounts/sessions.py` (señal `user_logged_in`, tabla `UserSession` usuario →
 clave de sesión) cierra las demás sesiones de ese usuario y deja solo la que
 entra; la vieja recibe el 403 `not_authenticated` en su siguiente petición.
-Las sesiones abiertas se ven en el admin («Sesiones abiertas»), sin la clave
-—que es la cookie: con ella se entra como esa persona— y **borrar una fila la
-cierra de verdad** (`sessions.close_session`). El anti fuerza
-bruta del login (`accounts/ratelimit.py`: por IP + cuenta y por cuenta, en
-Redis) protege también la entrada al `/admin/`.
+Las sesiones abiertas se ven en el admin («Sesiones abiertas») **si está
+encendido**, sin la clave —que es la cookie: con ella se entra como esa
+persona— y **borrar una fila la cierra de verdad** (`sessions.close_session`).
+El anti fuerza bruta del login (`accounts/ratelimit.py`: por IP + cuenta y por
+cuenta, en Redis) protege también la entrada al `/admin/` cuando se enciende,
+con contadores **por puerta** (AUTH-6): fallar contra una cuenta desde la web
+pública no cierra el admin.
 
 ## Añadir un recurso de dominio
 

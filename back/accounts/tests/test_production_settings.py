@@ -13,6 +13,8 @@ import sys
 from django.conf import settings
 from django.test import SimpleTestCase
 
+from accounts.tests.admin_door import con_admin
+
 _SNIPPET = (
     "import json, django; django.setup();"
     "from django.conf import settings as s;"
@@ -89,3 +91,32 @@ class GoogleAutoCreateGuardTests(SimpleTestCase):
     def test_autocreate_with_domains_is_allowed(self):
         data = _load_settings(**self.ENV, GOOGLE_ALLOWED_DOMAINS="gransolar.com")
         self.assertTrue(data["session_secure"])
+
+
+class AdminPanelDisabledTests(SimpleTestCase):
+    """El panel de administracion de Django va APAGADO salvo que se pida.
+
+    Es una puerta de login mas, y la operacion del dia a dia se hace desde
+    gestion. Apagado no basta con que no se vea: la app no se instala, asi que
+    no hay plantillas, ni estaticos que recoger, ni autodescubrimiento de los
+    `admin.py` — y la URL devuelve 404, no un formulario donde probar claves.
+    """
+
+    def test_la_app_no_esta_instalada_por_defecto(self):
+        self.assertFalse(settings.DJANGO_ADMIN_ENABLED)
+        self.assertNotIn("django.contrib.admin", settings.INSTALLED_APPS)
+
+    def test_la_ruta_no_existe_por_defecto(self):
+        # 404 y no 302 a un login: la puerta no esta ahi.
+        self.assertEqual(self.client.get("/admin/").status_code, 404)
+        self.assertEqual(self.client.get("/admin/login/").status_code, 404)
+
+
+@con_admin
+class AdminPanelEnabledTests(SimpleTestCase):
+    """Y encendido vuelve entero: es lo que hace falta para dar superusuario."""
+
+    def test_con_el_flag_la_puerta_existe_y_pide_credenciales(self):
+        self.assertIn("django.contrib.admin", settings.INSTALLED_APPS)
+        resp = self.client.get("/admin/login/")
+        self.assertEqual(resp.status_code, 200)

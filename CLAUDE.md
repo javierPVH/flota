@@ -45,7 +45,8 @@ npm test --workspace front-gestion -- -t "nombre del caso"               # un ca
 ```
 
 Los fronts hablan con Django por **cookies de sesión + CSRF**, que exigen mismo
-origen: en dev el proxy de Vite (`/api`, `/media`, `/admin`, `/static` →
+origen: en dev el proxy de Vite (`/api`, `/media`, `/admin` —apagado salvo
+`DJANGO_ADMIN_ENABLED`—, `/static` →
 `VITE_PROXY_TARGET`, default `127.0.0.1:8000`) lo resuelve y el cliente HTTP usa
 rutas relativas. No apuntes el front al back por URL absoluta en dev.
 
@@ -1199,7 +1200,10 @@ Dos capas que van **siempre juntas**:
   es no ofrecer un botón que solo podía acabar en error. Quién es esa cuenta lo
   dice el back: `is_superuser` viaja **de solo lectura** en
   `ManagedUserSerializer` para no tener que adivinarlo por el nombre de usuario,
-  y el privilegio se sigue concediendo en el admin de Django y no aquí. Va en
+  y el privilegio se sigue concediendo en el admin de Django y no aquí — que
+  va **apagado** por defecto (`DJANGO_ADMIN_ENABLED`, `config/settings.py`:
+  sin él la app ni se instala y `/admin/` es un 404), así que conceder un
+  superusuario es encenderlo, hacerlo y volver a apagarlo. Va en
   una ficha **plegable y cerrada de salida** (`CollapsibleCard` con su
   `useAccordion`, que guarda las cerradas) y con **alto fijo** para esas dos
   filas (`fixedHeight` de `TableWithPanel`): son registros que casi nunca se

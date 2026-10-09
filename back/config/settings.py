@@ -56,8 +56,17 @@ if not DEBUG and "*" in ALLOWED_HOSTS:
     raise ImproperlyConfigured("ALLOWED_HOSTS no puede ser '*' cuando DEBUG=False.")
 
 # --- Apps -----------------------------------------------------------------
+# El panel de administración de Django va APAGADO por defecto: es una puerta de
+# login más, con su propia superficie, y la operación del día a día se hace
+# desde gestión. Apagado no está ni instalado (nada de `/admin/`, ni sus
+# plantillas, ni el autodescubrimiento de los `admin.py`), así que un GET a
+# `/admin/` es un 404 y no un formulario que invite a probar contraseñas.
+# Encenderlo (`DJANGO_ADMIN_ENABLED=1`) sigue haciendo falta para **conceder el
+# privilegio de superusuario**, que es lo único que no se hace desde gestión.
+DJANGO_ADMIN_ENABLED = env_bool("DJANGO_ADMIN_ENABLED", False)
+
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    *(["django.contrib.admin"] if DJANGO_ADMIN_ENABLED else []),
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",

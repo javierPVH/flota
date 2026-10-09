@@ -1,3 +1,9 @@
+"""Admin de Django de `fleet`.
+
+Solo se carga con el panel encendido (`DJANGO_ADMIN_ENABLED`, apagado por
+defecto). La flota se opera desde gestión; esto es para soporte.
+"""
+
 from django.contrib import admin
 
 from .models import (

@@ -9,6 +9,7 @@ from django.urls import resolve, reverse
 
 from accounts import ratelimit
 from accounts.google_oauth import list_folder_files, validate_drive_id
+from accounts.tests.admin_door import con_admin
 
 User = get_user_model()
 
@@ -52,6 +53,7 @@ class Inp5DriveFolderIdTests(TestCase):
         self.assertEqual(list_folder_files(None, None, service=self._service()), [])
 
 
+@con_admin
 class Auth6LoginScopeTests(TestCase):
     """AUTH-6: la puerta se decide por la URL resuelta, no por el cliente."""
 
@@ -93,6 +95,7 @@ class Auth6LoginScopeTests(TestCase):
     LOGIN_RATE_LIMIT_BLOCK_SECONDS=300,
     TRUSTED_PROXY_COUNT=1,
 )
+@con_admin
 class Auth6AccountBlockPerDoorTests(TestCase):
     """AUTH-6: fallar contra una cuenta desde la web pública no cierra el admin."""
 

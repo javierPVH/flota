@@ -183,10 +183,21 @@ docker compose logs -f back
 # Contraseña del admin (CFG-14): bootstrap_admin corre en cada arranque, pero
 # con ADMIN_UPDATE_PASSWORD=False (el valor del ejemplo y el recomendado) la
 # contraseña del entorno SOLO se usa al crear el usuario; después se cambia
-# desde la aplicación o /admin y ningún arranque la pisa. Para forzarla desde
+# desde la aplicación —el /admin de Django va apagado (DJANGO_ADMIN_ENABLED)—
+# y ningún arranque la pisa. Para forzarla desde
 # el entorno: ADMIN_PASSWORD nueva + ADMIN_UPDATE_PASSWORD=True en back/.env.prod y
 docker compose up -d back        # la reaplica; luego vuelve a poner False
 #   (un `restart` no relee el env_file: hace falta el `up`)
+
+# Panel /admin de Django: va APAGADO (DJANGO_ADMIN_ENABLED=False en
+# back/.env.prod) porque la operación se hace desde gestión y en producción
+# solo sería una puerta de login más: /admin/ devuelve 404. Enciéndelo
+# PUNTUALMENTE para lo único que no se hace desde gestión, conceder el
+# superusuario: pon DJANGO_ADMIN_ENABLED=True y
+docker compose up -d back        # (el `up` relee el env_file; `restart` no)
+# El collectstatic del arranque recoge solo entonces los estáticos del panel,
+# así que se ve con sus estilos sin ningún paso extra. Concedido el privilegio,
+# vuelve a False y repite el `up`.
 
 # Jobs del back (ITV, seguro, km, alertas, Drive, Jira): los ejecuta el
 # servicio `jobs` del compose cada 15 min (idempotentes; OPS1). Para forzar uno:
@@ -223,7 +234,8 @@ configurar, salvo las variables del `.env` que se indican:
 | CFG-10/SRV-5 | `server_tokens off`; HSTS solo desde el nginx de conductores (`SECURE_HSTS_SECONDS=0`); sin cabeceras duplicadas en `/api` | `nginx.conf` × 2, `back/.env.prod` |
 | CFG-12 | El access-log de gunicorn no registra la query string (`?code=`, `?SAMLResponse=`) | `back/entrypoint.sh` |
 | CFG-13/AUTH-5 | `X-Forwarded-Proto` fijo a `https` en conductores; `CONDUCTORES_BIND=127.0.0.1` | `front-conductores/nginx.conf`, `.env` |
-| FE-4 | CSP en modo `Report-Only` en gestión (mirar la consola del navegador antes de hacerla bloqueante) | `front-gestion/nginx.conf` |
+| FE-4 | CSP en modo `Report-Only` en gestión (mirar la consola del navegador antes de hacerla bloqueante) | `front-gestion/nginx/gestion-server.conf` |
+| — | Gestión por **https** con la CA corporativa, opcional (`COMPOSE_FILE` + `GESTION_TLS_DIR`); HSTS solo por https vía `map $scheme $hsts` | `docker-compose.gestion-tls.yml`, `front-gestion/nginx.tls.conf`, §7 |
 
 ### 6.1 Backups cifrados (`age`)
 
@@ -270,8 +282,182 @@ age-keygen -o flota-backup.key
 - **CSP bloqueante en gestión**: pasar `Content-Security-Policy-Report-Only` a
   `Content-Security-Policy` cuando la consola del navegador no enseñe
   violaciones con el Picker de Drive y el login de Google en uso.
-- **Cookies `Secure`** (A15): siguen a `False` por el http interno de gestión;
-  pendiente de TLS interno.
+- **Cookies `Secure`** (A15): siguen a `False` por el http interno de gestión.
+  El TLS interno ya está preparado (§7); al activarlo, vuelven a `True`.
+
+## 7. Gestión por HTTPS (certificado de la CA corporativa)
+
+Gestión se sirve por defecto en **http** (`GESTION_BIND:GESTION_PORT`, VPN).
+Para servirla por **https con un nombre del DNS interno** y un certificado
+emitido por la CA de la empresa hay un override opcional que **no cambia nada
+hasta que se activa en el `.env`**:
+
+| Fichero | Qué es |
+|---|---|
+| `front-gestion/nginx/gestion-http.conf` | `upstream` al back y el `map $scheme $hsts` (HSTS solo en https). Lo incluyen las dos variantes. |
+| `front-gestion/nginx/gestion-server.conf` | TODO lo que se sirve (cabeceras, proxy `/api`, `/static`, `/media`, SPA). Lo incluyen las dos variantes, así http y https sirven lo mismo. |
+| `front-gestion/nginx.conf` | Variante **http** (la de la imagen): `listen 80` + snippets. |
+| `front-gestion/nginx.tls.conf` | Variante **https**: `:443` con TLS 1.2/1.3, HTTP/2 y caché de sesión; `:80` solo con la sonda `/healthz` y `301` a https. |
+| `docker-compose.gestion-tls.yml` | Override: monta `nginx.tls.conf` sobre la config de la imagen, monta `GESTION_TLS_DIR` en `/etc/nginx/certs` (solo lectura) y publica el 443 en `GESTION_BIND`. |
+
+Lo que llega al back no cambia de forma: nginx manda `X-Forwarded-Proto` con el
+esquema **real** (`$scheme`), nunca el del cliente, y Django lo acepta porque
+`SECURE_BEHIND_PROXY=True` activa `SECURE_PROXY_SSL_HEADER`. Django **no**
+redirige a https (`SECURE_SSL_REDIRECT=False`): lo hace el `:80` de nginx, y
+con dos redirecciones habría bucle. HSTS sale **solo** de nginx y **solo** por
+https (`SECURE_HSTS_SECONDS=0` en el back).
+
+En lo que sigue, `<nombre>` es el nombre del DNS interno (p. ej.
+`gestionflota.empresa.local`), que IT tiene que apuntar a la IP interna del
+servidor (`GESTION_BIND`).
+
+### 7.1 Clave y CSR, en el servidor
+
+La clave privada **se genera en el servidor y no sale de él**; a IT solo se le
+envía el `.csr`. Carpeta fuera del repo y del volumen de datos:
+
+```bash
+sudo mkdir -p /mnt/data/flota/tls && cd /mnt/data/flota/tls
+
+# Clave RSA 2048 (sin contraseña: la lee el master de nginx al arrancar).
+sudo openssl genrsa -out gestion.key 2048
+sudo chown root:root gestion.key && sudo chmod 600 gestion.key
+
+# CSR con CN y subjectAltName=DNS:<nombre> (sin SAN, los navegadores lo rechazan).
+sudo openssl req -new -key gestion.key -out gestion.csr \
+  -subj "/CN=<nombre>" \
+  -addext "subjectAltName=DNS:<nombre>"
+
+sudo openssl req -in gestion.csr -noout -text | grep -A1 "Subject Alternative Name"
+#   DNS:<nombre>
+```
+
+Envía `gestion.csr` a IT pidiendo un certificado de **servidor** para ese
+nombre, en PEM, **con la cadena de intermedias**.
+
+### 7.2 Montar `gestion.crt` con la cadena y fijar permisos
+
+`gestion.crt` = certificado del servidor y, debajo, las intermedias de la CA
+corporativa **en ese orden**, y **sin la raíz** (la raíz la tienen ya los
+clientes: incluirla solo engorda el handshake). Si IT manda un solo fichero
+ya encadenado, cópialo tal cual.
+
+```bash
+cd /mnt/data/flota/tls
+sudo sh -c 'cat servidor.pem intermedia.pem > gestion.crt'   # lo que mande IT
+
+# El certificado es de ESTA clave (los dos hashes tienen que coincidir):
+sudo openssl x509 -in gestion.crt -noout -modulus | openssl md5
+sudo openssl rsa  -in gestion.key -noout -modulus | openssl md5
+# La cadena se verifica contra la CA del sistema (la raíz corporativa debe
+# estar instalada en el servidor; si no, pásala con -CAfile raiz.pem):
+sudo openssl verify -untrusted gestion.crt gestion.crt
+
+# Permisos: con cap_drop ALL (CFG-8) el master de nginx corre como root pero
+# SIN DAC_OVERRIDE, así que la clave tiene que ser SUYA y legible solo por él.
+sudo chown root:root gestion.crt gestion.key
+sudo chmod 644 gestion.crt
+sudo chmod 600 gestion.key
+ls -l /mnt/data/flota/tls
+#   -rw-r--r-- root root gestion.crt
+#   -rw------- root root gestion.key
+```
+
+### 7.3 Activar el override en el `.env` de infra
+
+Antes, comprueba que el **443 está libre en esa IP** (el nginx del host no
+existe, pero otro proyecto o `cloudflared` podrían tenerlo):
+
+```bash
+ss -tln | grep -E "(0\.0\.0\.0|\*|$(grep ^GESTION_BIND .env | cut -d= -f2)):443 " \
+  && echo "443 OCUPADO: elige otro GESTION_HTTPS_PORT" || echo "443 libre"
+```
+
+En `.env` (el de la raíz del proyecto, **no** `back/.env.prod`):
+
+```bash
+COMPOSE_FILE=docker-compose.yml:docker-compose.gestion-tls.yml
+GESTION_TLS_DIR=/mnt/data/flota/tls
+GESTION_HTTPS_PORT=443          # opcional; es el valor por defecto
+# GESTION_BIND ya debe ser la IP interna del servidor (la de <nombre> en el DNS)
+```
+
+`GESTION_TLS_DIR` es **obligatoria** con el override: sin ella el compose se
+niega a arrancar (`${GESTION_TLS_DIR:?...}`), a propósito. Si
+`GESTION_HTTPS_PORT` no es 443, la redirección del `:80` (`https://<nombre>/`,
+sin puerto) no llega: la sonda y el 443 funcionan igual, pero habrá que entrar
+escribiendo el puerto.
+
+### 7.4 Levantar y validar
+
+```bash
+cd /mnt/data/proyectos/2026/flota
+docker compose config --services            # tiene que listar los 7 de siempre
+docker compose config | sed -n '/front-gestion:/,/^  [a-z]/p' | grep -E "nginx.tls|certs|443"
+#   .../front-gestion/nginx.tls.conf -> /etc/nginx/conf.d/default.conf (ro)
+#   /mnt/data/flota/tls              -> /etc/nginx/certs (ro)
+#   published 443 en GESTION_BIND
+
+docker compose up -d front-gestion          # recrea solo ese contenedor
+docker compose exec front-gestion nginx -t  # "syntax is ok" + "test is successful"
+docker compose ps front-gestion             # healthy (la sonda sigue en :80)
+
+curl -sI https://<nombre>/ | grep -iE "^HTTP|strict-transport"
+#   HTTP/2 200
+#   strict-transport-security: max-age=31536000
+curl -sI http://<nombre>:8093/ | grep -iE "^HTTP|^location"
+#   HTTP/1.1 301 Moved Permanently
+#   Location: https://<nombre>/
+curl -s  http://127.0.0.1:8093/healthz      # ok   (la sonda, sin redirigir)
+curl -sI http://<nombre>:8093/ | grep -i strict-transport || echo "sin HSTS en http: correcto"
+```
+
+Si `nginx -t` falla por la clave («permission denied»), repasa los permisos
+de §7.2. Si `curl` se queja del certificado, es que la raíz corporativa no
+está en el almacén del cliente desde el que pruebas (o la cadena de
+`gestion.crt` está incompleta: `openssl s_client -connect <nombre>:443
+-servername <nombre> </dev/null | grep -E "s:|i:"` enseña lo que sirve).
+
+### 7.5 El back, cuando https ya responde
+
+Con el `curl -I https://<nombre>/` en verde, y **solo entonces**, el back
+tiene que conocer el nombre nuevo y marcar las cookies como seguras. Los
+cuatro cambios están explicados en `back/.env.prod.example`, bloque «Gestión
+por HTTPS»: `<nombre>` en `ALLOWED_HOSTS`; `https://<nombre>` en
+`CSRF_TRUSTED_ORIGINS` y `CORS_ALLOWED_ORIGINS`; `FRONTEND_BASE_URL=https://<nombre>`;
+y `SESSION_COOKIE_SECURE=True` + `CSRF_COOKIE_SECURE=True` (cierra la deuda A15
+de §6.2). ⚠️ **Las cookies `Secure` antes de tener https rompen el login**: el
+navegador no guarda la cookie de sesión por http y se entra en bucle. Después:
+
+```bash
+docker compose up -d back                   # un `restart` no relee el env_file
+curl -s https://<nombre>/api/health/        # {"status":"ok"}
+```
+
+y entra en gestión desde la VPN por `https://<nombre>/`.
+
+### 7.6 Renovar el certificado
+
+```bash
+sudo openssl x509 -in /mnt/data/flota/tls/gestion.crt -enddate -noout
+#   notAfter=...
+```
+
+Con el nuevo certificado de IT (misma clave, así que la CSR de §7.1 sirve;
+si se genera clave nueva, repite §7.1 y §7.2): sustituye `gestion.crt`, deja
+los permisos como en §7.2 y reinicia **solo** el contenedor del front, que es
+quien lo tiene cargado en memoria:
+
+```bash
+docker compose restart front-gestion
+docker compose exec front-gestion nginx -t
+echo | openssl s_client -connect <nombre>:443 -servername <nombre> 2>/dev/null | openssl x509 -noout -enddate
+```
+
+Para **volver a http**: comenta las tres líneas de §7.3 en `.env`,
+`docker compose up -d front-gestion`, y deshaz §7.5 en `back/.env.prod`
+(sobre todo las cookies `Secure`, o el login deja de funcionar por http) +
+`docker compose up -d back`.
 
 ## Notas
 

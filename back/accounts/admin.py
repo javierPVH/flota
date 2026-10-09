@@ -1,3 +1,11 @@
+"""Admin de Django de `accounts`.
+
+Este módulo **solo se carga con el panel encendido** (`DJANGO_ADMIN_ENABLED`,
+apagado por defecto): sin la app instalada no hay autodescubrimiento, así que
+ni el `UserAdmin` ni el formulario de entrada de abajo llegan a existir. Es el
+único sitio donde se concede el superusuario, y por eso el panel se enciende.
+"""
+
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 

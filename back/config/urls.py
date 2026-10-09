@@ -1,15 +1,9 @@
 from django.conf import settings
-from django.contrib import admin
 from django.urls import include, path, re_path
 
 from core.media_views import ProtectedMediaView
 
-admin.site.site_header = "Administración — Flota"
-admin.site.site_title = "Flota Admin"
-admin.site.index_title = "Operación y soporte"
-
 urlpatterns = [
-    path("admin/", admin.site.urls),
     # Infra (sin versión): sondas de salud para orquestador/balanceador.
     path("api/", include("core.urls")),  # /api/health/, /api/ready/
     # API de negocio versionada: evolucionar sin romper clientes (futuro /api/v2/).
@@ -20,6 +14,21 @@ urlpatterns = [
     path("api/v1/push/", include("accounts.push_urls")),
     path("api/v1/", include("fleet.urls")),  # /api/v1/vehicles/, …
 ]
+
+# Panel de administración de Django: SOLO con `DJANGO_ADMIN_ENABLED`. Apagado
+# —lo normal— la app ni se instala, así que esto no se monta y `/admin/` es un
+# 404. Se importa aquí dentro a propósito: sin la app instalada, `admin.site`
+# no tiene plantillas ni registro que servir. Con él se encienden también el
+# `UserAdmin` de `accounts/admin.py` (roles, y el único sitio donde se concede
+# el superusuario) y su formulario de entrada con anti fuerza bruta (R6-04).
+if settings.DJANGO_ADMIN_ENABLED:
+    from django.contrib import admin
+
+    admin.site.site_header = "Administración — Flota"
+    admin.site.site_title = "Flota Admin"
+    admin.site.index_title = "Operación y soporte"
+
+    urlpatterns.insert(0, path("admin/", admin.site.urls))
 
 # SSO por SAML (Google Workspace) de la PWA de conductores: solo con
 # SAML_ENABLED (sin él, ni la app ni sus rutas existen).

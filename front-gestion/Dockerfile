@@ -27,6 +27,11 @@ RUN npm run build:ui \
 
 # --- 2) Servir estáticos --------------------------------------------------
 FROM nginx:1.27-alpine AS runtime
+# La config por defecto es la variante http. Lo que sirve (cabeceras, proxy,
+# locations) vive en los snippets, compartidos con la variante https
+# (nginx.tls.conf), que NO va en la imagen: la monta encima el override
+# docker-compose.gestion-tls.yml. Por eso los snippets sí tienen que estar.
+COPY front-gestion/nginx/ /etc/nginx/snippets/
 COPY front-gestion/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/front-gestion/dist /usr/share/nginx/html
 EXPOSE 80

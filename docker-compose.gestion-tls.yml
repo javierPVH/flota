@@ -1,0 +1,30 @@
+# Override OPCIONAL: gestión por HTTPS con el certificado de la CA corporativa
+# y un nombre del DNS interno (solo VPN). NO cambia nada por sí solo: hay que
+# activarlo en el `.env` de infra encadenándolo al compose principal:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.gestion-tls.yml
+#   GESTION_TLS_DIR=/ruta/en/el/host/con/gestion.crt/y/gestion.key   (obligatoria)
+#   GESTION_HTTPS_PORT=443                                            (opcional)
+#
+# Sin esas líneas, `docker compose up` sigue levantando gestión en http tal
+# cual estaba. Con ellas, sobre el servicio `front-gestion` de siempre:
+#   · monta front-gestion/nginx.tls.conf en lugar de la config http de la
+#     imagen (los snippets que sirven la app ya están en la imagen);
+#   · monta la carpeta del certificado en /etc/nginx/certs, solo lectura;
+#   · publica el 443 en la MISMA IP que el 80 (GESTION_BIND). El 80 sigue
+#     publicado en GESTION_PORT: ahí solo queda la sonda del contenedor y la
+#     redirección 301 a https (compose SUMA los `ports`, no los sustituye).
+# Todo lo demás (capabilities, límites, redes, volúmenes de media/static) se
+# hereda del compose principal. Pasos y comandos en deploy/README-DEPLOY.md,
+# «Gestión por HTTPS».
+
+services:
+  front-gestion:
+    volumes:
+      - ./front-gestion/nginx.tls.conf:/etc/nginx/conf.d/default.conf:ro
+      # gestion.key debe ser root:root y 600 en el host: con cap_drop ALL el
+      # master de nginx (root) la lee solo si es suya (sin DAC_OVERRIDE).
+      - ${GESTION_TLS_DIR:?Define GESTION_TLS_DIR en .env (carpeta del host con gestion.crt y gestion.key)}:/etc/nginx/certs:ro
+    ports:
+      # Comprueba antes que el puerto está libre en esa IP (README, §7).
+      - "${GESTION_BIND:-127.0.0.1}:${GESTION_HTTPS_PORT:-443}:443"
