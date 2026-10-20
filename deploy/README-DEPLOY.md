@@ -459,6 +459,74 @@ Para **volver a http**: comenta las tres líneas de §7.3 en `.env`,
 (sobre todo las cookies `Secure`, o el login deja de funcionar por http) +
 `docker compose up -d back`.
 
+## 8. Modo DEMO: los datos de prueba en el despliegue
+
+Con **`FLEET_DEMO=True`** en el `.env` de infra, el back y los jobs trabajan
+sobre **otra base de datos del mismo Postgres** (`FLEET_DEMO_DB_NAME`, por
+defecto `<DB_NAME>_demo`) con los datos de prueba de desarrollo
+(`back/SEED_DEV.md`: `admin`, `sara`, `carlos`…, las matrículas `1234KLM`,
+`8888TRX`…). Con **`False`** todo apunta a la de producción, que **no se toca
+en ningún momento**: no se copia, no se vacía, no se escribe en ella. Cambiar
+el flag solo cambia a qué BD se conecta la aplicación.
+
+Qué pasa en el arranque del back con el flag a `True` (`back/entrypoint.sh`):
+
+1. `ensure_demo_db` crea la BD demo si no existe (conecta a `postgres` con el
+   mismo usuario; la de producción no interviene).
+2. `migrate` y `collectstatic`, sobre la demo.
+3. `seed_dev_data --if-empty`: siembra **solo si la demo está vacía**. Lo que
+   se toque en la demo sobrevive al siguiente `up`; para empezar de cero,
+   `FLEET_DEMO_RESEED=True` resiembra (borra y recrea) en cada arranque. El
+   seed es **todo o nada** (una transacción): si un paso falla, la demo queda
+   vacía y el siguiente arranque lo reintenta, en vez de arrancar a medias.
+4. `bootstrap_admin` de siempre: si `ADMIN_USERNAME` coincide con un usuario
+   del seed (`admin`), lo deja como está (`ADMIN_UPDATE_PASSWORD=False`), así
+   que entra con la contraseña del seed.
+
+Candados (si fallan, el contenedor **no arranca** y lo dice en el log):
+
+- `FLEET_DEMO_DB_NAME` distinto de `DB_NAME` (settings lo rechaza).
+- `seed_dev_data` solo siembra si la BD activa **es** la demo.
+- **`FLEET_SEED_PASSWORD` es obligatoria**: la contraseña de desarrollo está en
+  el repositorio y la app de conductores es pública; en modo demo todos los
+  usuarios sembrados (también `admin`, superusuario) usan la del entorno.
+
+Lo que **no** cambia con el flag, y conviene tener en cuenta antes de encender
+una demo en el servidor: la **media** (`./data/media`), Redis, Drive, Gmail,
+Jira y el push son los mismos en los dos modos. La media compartida tiene dos
+consecuencias: lo que se suba en la demo se queda en la carpeta de producción
+(y entra en su backup; Django nunca pisa un fichero existente, le añade un
+sufijo), y por eso en modo demo **el admin no salta la comprobación de
+`/media`**: solo se sirve un binario si existe su `Document` en la BD activa,
+para que el admin de la demo —cuya contraseña conoce quien la prueba— no se
+baje por URL ficheros de producción. Una demo con Drive configurado
+**archiva de verdad** (un documento `pendiente_archivar` del seed crea su
+carpeta en el Drive real); los correos de alerta salen de verdad, a los buzones
+ficticios `@flota.dev` del seed; y con SAML desplegado los usuarios del seed no
+existen en el IdP (entran solo por contraseña, que en el dominio público está
+bloqueada por `AUTH_PASSWORD_BLOCKED_HOSTS`). El **backup** sigue volcando la de
+producción: la demo se regenera con un flag.
+
+```bash
+# Encender la demo (en .env de infra):
+#   FLEET_DEMO=True
+#   FLEET_SEED_PASSWORD=<una contraseña que no sea la del repositorio>
+docker compose up -d back jobs           # relee el .env; `restart` NO
+docker compose logs -f back              # "[entrypoint] MODO DEMO: ..." + "Datos de prueba sembrados"
+docker compose exec db psql -U flota -d postgres -c '\l'   # flota y flota_demo
+curl -s http://127.0.0.1:8093/api/health/
+
+# Resembrar la demo desde cero (una vez):
+#   FLEET_DEMO_RESEED=True  → docker compose up -d back → volver a False
+
+# Volver a producción:
+#   FLEET_DEMO=False
+docker compose up -d back jobs           # la BD de producción, tal y como estaba
+
+# Borrar la demo cuando ya no haga falta (opcional; solo la demo):
+docker compose exec db psql -U flota -d postgres -c 'DROP DATABASE flota_demo;'
+```
+
 ## Notas
 
 - **BD**: **PostgreSQL** (servicio `db`) en la carpeta del host `PGDATA_HOST_DIR`

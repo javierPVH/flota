@@ -77,6 +77,7 @@ from .models import (
     driver_clash_message,
 )
 from .models.enums import (
+    OUT_OF_FLEET,
     AlertLevel,
     AlertStatus,
     AlertType,
@@ -90,7 +91,6 @@ from .models.enums import (
     IncidentType,
     ProfileChangeStatus,
     VehicleRequestStatus,
-    VehicleState,
 )
 from .scoping import default_responsible, readable_documents, users_for, vehicles_for
 from .selectors import current_assignment_q
@@ -376,8 +376,9 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         if self.action == "list":
             params = self.request.query_params
             include_baja = params.get("include_baja") in ("1", "true", "True")
-            if params.get("state") != VehicleState.BAJA and not include_baja:
-                qs = qs.exclude(state=VehicleState.BAJA)
+            pedido = params.get("state")
+            if pedido not in OUT_OF_FLEET and not include_baja:
+                qs = qs.exclude(state__in=OUT_OF_FLEET)
         return qs
 
     def perform_create(self, serializer):
@@ -436,11 +437,12 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     reason=str(self.request.data.get("change_reason", "")),
                     when=when,
                 )
-                # Editar el estado a BAJA es una baja como cualquier otra: quita
-                # el conductor (con su histórico), y cierra sustituciones,
-                # alertas y contrato. Sin esto el coche salía del listado pero
-                # seguía «ocupando» al conductor y lo bloqueaba para otro coche.
-                if updated.state == VehicleState.BAJA:
+                # Editar el estado a una salida de la flota —devuelto o baja—
+                # arrastra lo mismo que el flujo guiado: quita el conductor (con
+                # su histórico), y cierra sustituciones, alertas y contrato. Sin
+                # esto el coche salía del listado pero seguía «ocupando» al
+                # conductor y lo bloqueaba para otro coche.
+                if updated.state in OUT_OF_FLEET:
                     returns.close_vehicle_relations(updated, when or timezone.localdate())
 
     def perform_destroy(self, instance):
@@ -452,8 +454,8 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         verdad. Borrar la fila se llevaría en cascada sus facturas, documentos,
         lecturas de km, contratos, incidencias y TODO su histórico de eventos.
         """
-        if instance.state == VehicleState.BAJA:
-            return  # Idempotente: ya estaba de baja, no hay nada que hacer.
+        if instance.state in OUT_OF_FLEET:
+            return  # Idempotente: ya había salido de la flota, nada que hacer.
         # El motivo llega por query (`?reason=`, los DELETE sin cuerpo del
         # front) o por cuerpo JSON, igual que en `DeactivateOnDestroyMixin`.
         reason = str(self.request.query_params.get("reason", "") or "")
@@ -592,8 +594,8 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         vehículo + `previous_expiry_date`, `changed`, `event`, `alerts_resolved`.
         """
         vehicle = self.get_object()
-        if vehicle.state == VehicleState.BAJA:
-            raise ValidationError({"vehicle": "El vehículo está de baja."})
+        if vehicle.state in OUT_OF_FLEET:
+            raise ValidationError({"vehicle": "El vehículo ya no está en la flota."})
         expiry = parse_date(str(request.data.get("expiry_date") or ""))
         if expiry is None:
             raise ValidationError({"expiry_date": "Indica la nueva fecha de vencimiento."})
@@ -645,8 +647,8 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         `alerts_resolved` (los avisos de la cita anterior se cierran con actor).
         """
         vehicle = self.get_object()
-        if vehicle.state == VehicleState.BAJA:
-            raise ValidationError({"vehicle": "El vehículo está de baja."})
+        if vehicle.state in OUT_OF_FLEET:
+            raise ValidationError({"vehicle": "El vehículo ya no está en la flota."})
         due = parse_date(str(request.data.get("date") or ""))
         if due is None:
             raise ValidationError({"date": "Indica la fecha de la ITV."})
@@ -850,8 +852,8 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
           de la nueva, evento `driver_change` con old→new, todo o nada.
         """
         vehicle = self.get_object()
-        if vehicle.state == VehicleState.BAJA:
-            raise ValidationError({"vehicle": "El vehículo está de baja."})
+        if vehicle.state in OUT_OF_FLEET:
+            raise ValidationError({"vehicle": "El vehículo ya no está en la flota."})
 
         # N9: un principal bloqueado por sustitución no admite asignaciones.
         from .selectors import active_link_blocking
@@ -2514,8 +2516,10 @@ class VehicleRequestViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
             vehicle = Vehicle.objects.get(pk=request.data.get("vehicle"))
         except (Vehicle.DoesNotExist, TypeError, ValueError) as exc:
             raise ValidationError({"vehicle": "Indica un vehículo válido."}) from exc
-        if vehicle.state == VehicleState.BAJA:
-            raise ValidationError({"vehicle": "No se puede conceder un vehículo en baja."})
+        if vehicle.state in OUT_OF_FLEET:
+            raise ValidationError(
+                {"vehicle": "No se puede conceder un vehículo que ya no está en la flota."}
+            )
         requester = vehicle_request.requester
         start = vehicle_request.start_date or timezone.localdate()
         with transaction.atomic():

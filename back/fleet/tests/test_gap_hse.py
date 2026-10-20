@@ -677,7 +677,10 @@ class ReturnVehicleTests(APITestCase):
         self.assertEqual(resp.data["assignments_finished"], 1)
 
         self.vehicle.refresh_from_db()
-        self.assertEqual(self.vehicle.state, VehicleState.BAJA)
+        # «Devuelto» y no «Baja»: devolver a la renting al acabar el contrato
+        # no es lo mismo que dar de baja por un siniestro o una venta, y desde
+        # que son dos estados el histórico lo distingue.
+        self.assertEqual(self.vehicle.state, VehicleState.RETURNED)
         self.assertEqual(self.vehicle.km_end, 53000)
         self.contract.refresh_from_db()
         self.assertEqual(self.contract.end_date, timezone.localdate())
@@ -754,6 +757,14 @@ class ReturnVehicleTests(APITestCase):
         # explícito en vez de un 404 que escondía el motivo.
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_a_vehicle_already_returned_is_rejected_too(self):
+        """Las DOS salidas cierran la puerta, no solo la baja: devolver dos
+        veces el mismo coche volvería a cerrar un contrato ya cerrado."""
+        self.vehicle.state = VehicleState.RETURNED
+        self.vehicle.save(update_fields=["state"])
+        resp = self.client.post(self.url, {})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_only_admin_can_return(self):
         supervisor = make_user("ret-sup", Role.SUPERVISOR)
         self.client.force_authenticate(supervisor)
@@ -765,7 +776,7 @@ class ReturnVehicleTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         self.assertIsNone(resp.data["overage_km"])  # sin km final no hay exceso
         self.vehicle.refresh_from_db()
-        self.assertEqual(self.vehicle.state, VehicleState.BAJA)
+        self.assertEqual(self.vehicle.state, VehicleState.RETURNED)
         self.assertEqual(
             KmReading.objects.filter(vehicle=self.vehicle).count(),
             1,  # solo la previa

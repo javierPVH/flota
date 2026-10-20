@@ -83,6 +83,17 @@ class ProtectedMediaTests(APITestCase):
         resp = self.client.get("/media/documents/2026/08/huerfano.jpg")
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
+    @override_settings(DEBUG=False, FLEET_DEMO=True)
+    def test_demo_admin_cannot_fetch_files_without_a_document(self):
+        """Modo DEMO: la media es la MISMA carpeta que producción, así que el
+        admin de la demo no salta la comprobación — sin `Document` en la BD
+        activa (la demo), 404; con él, lo de siempre."""
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get("/media/documents/2026/08/de-produccion.pdf")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+        resp = self.client.get(f"/media/{self.PATH}")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
     # --- R3-01: documentos PERSONALES (titular persona, sin vehículo) --------
 
     @override_settings(DEBUG=False)

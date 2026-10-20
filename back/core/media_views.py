@@ -52,7 +52,12 @@ def _authorize(user, path: str) -> None:
     from fleet.models import Document
     from fleet.scoping import readable_documents
 
-    if user.is_admin:
+    # En modo DEMO (FLEET_DEMO) el admin NO salta la comprobación: la carpeta
+    # de media es la MISMA que la de producción, y con la URL en la mano el
+    # admin de la demo —cuya contraseña conoce todo el que la prueba— se bajaría
+    # cualquier binario de producción. Ahí también tiene que existir el
+    # `Document` en la BD (la demo) que respalde el fichero.
+    if user.is_admin and not getattr(settings, "FLEET_DEMO", False):
         return
     documents = Document.objects.filter(file=path, is_active=True)
     if not readable_documents(user, documents).exists():

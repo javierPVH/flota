@@ -132,7 +132,7 @@ const es = {
     yes: 'Sí',
     no: 'No',
     /** Valores de los filtros nuevos (los comparte Notificaciones). */
-    statusVehicle: { in_service: 'Activos', retired: 'Desactivados / de baja' } as Record<string, string>,
+    statusVehicle: { in_service: 'En la flota', retired: 'Fuera de la flota (devueltos y bajas)' } as Record<string, string>,
     statusUser: { active: 'Activos', inactive: 'Desactivados' } as Record<string, string>,
     categoryLabels: { fleet: 'Flota', substitute: 'Sustitución' } as Record<string, string>,
     roleLabels: {
@@ -270,7 +270,7 @@ const en: typeof es = {
     },
     yes: 'Yes',
     no: 'No',
-    statusVehicle: { in_service: 'Active', retired: 'Retired' },
+    statusVehicle: { in_service: 'In the fleet', retired: 'Out of the fleet (returned and written off)' },
     statusUser: { active: 'Active', inactive: 'Deactivated' },
     categoryLabels: { fleet: 'Fleet', substitute: 'Substitute' },
     roleLabels: { admin: 'Administration', supervisor: 'Supervision', driver: 'Driver', hse: 'HSE' },

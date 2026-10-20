@@ -1,6 +1,8 @@
 import { useAppLang } from '@flota/ui/i18n'
 
-const es = {
+// Se exportan para poder fijar en un test el contrato de los estados
+// (que estén los nueve, y que las dos salidas de la flota no se elijan a mano).
+export const es = {
   // --- Cabecera y acciones ---------------------------------------------------
   backToOverview: '← Vista general',
   backToVehicles: '← Vehículos',
@@ -285,7 +287,10 @@ const es = {
   errContractDrive: 'No se pudo guardar el enlace del contrato.',
 
   // --- Etiquetas de dominio (antes constantes de módulo) ---------------------
-  // Los estados que se pueden poner a mano (la baja va por «Dar de baja»).
+  // Los estados que se pueden poner a mano. Las DOS salidas de la flota van
+  // por su flujo: «Devolver» deja el coche en «Devuelto» y «Dar de baja», en
+  // «Baja»; ninguna se elige de aquí. «Pendiente de devolución» sí, porque es
+  // una decisión y no la consecuencia de nada.
   stateOptions: [
     { value: 'active', label: 'Activo' },
     { value: 'maintenance', label: 'No activo - Mantenimiento' },
@@ -293,8 +298,10 @@ const es = {
     { value: 'broken', label: 'No activo - Averiado' },
     { value: 'accidente', label: 'No activo - Accidentado' },
     { value: 'non_active', label: 'No activo sin justificación' },
+    { value: 'pending_return', label: 'No activo - Pendiente de devolución' },
   ],
-  // Todos, incluida la baja: la auditoría enseña estados que ya no se eligen.
+  // Todos, incluidas las dos salidas: la auditoría enseña estados que ya no
+  // se eligen.
   stateLabel: {
     active: 'Activo',
     maintenance: 'No activo - Mantenimiento',
@@ -302,7 +309,9 @@ const es = {
     broken: 'No activo - Averiado',
     accidente: 'No activo - Accidentado',
     non_active: 'No activo sin justificación',
-    retired: 'Devuelto (baja)',
+    pending_return: 'No activo - Pendiente de devolución',
+    returned: 'Devuelto',
+    retired: 'Baja',
   } as Record<string, string>,
   linkReasonOptions: [
     { value: 'breakdown', label: 'Avería' },
@@ -310,6 +319,7 @@ const es = {
     { value: 'tires', label: 'Neumáticos' },
     { value: 'inspection', label: 'ITV' },
     { value: 'accident', label: 'Accidente' },
+    { value: 'return', label: 'Devolución' },
   ],
   useLabel: {
     on_project: 'Proyecto',
@@ -489,7 +499,7 @@ const es = {
   errReturn: 'No se pudo devolver el vehículo.',
 }
 
-const en: typeof es = {
+export const en: typeof es = {
   // --- Header and actions ----------------------------------------------------
   backToOverview: '← Overview',
   backToVehicles: '← Vehicles',
@@ -766,6 +776,7 @@ const en: typeof es = {
     { value: 'broken', label: 'Not active - Broken down' },
     { value: 'accidente', label: 'Not active - Crashed' },
     { value: 'non_active', label: 'Not active (no reason)' },
+    { value: 'pending_return', label: 'Not active - Pending return' },
   ],
   stateLabel: {
     active: 'Active',
@@ -774,7 +785,9 @@ const en: typeof es = {
     broken: 'Not active - Broken down',
     accidente: 'Not active - Crashed',
     non_active: 'Not active (no reason)',
-    retired: 'Returned (retired)',
+    pending_return: 'Not active - Pending return',
+    returned: 'Returned',
+    retired: 'Written off',
   } as Record<string, string>,
   linkReasonOptions: [
     { value: 'breakdown', label: 'Breakdown' },
@@ -782,6 +795,7 @@ const en: typeof es = {
     { value: 'tires', label: 'Tyres' },
     { value: 'inspection', label: 'MOT' },
     { value: 'accident', label: 'Accident' },
+    { value: 'return', label: 'Return' },
   ],
   useLabel: {
     on_project: 'Project',

@@ -279,7 +279,10 @@ propio coche aunque lo supervise otra persona. Escritura de vehículos y
 asignaciones = solo admin; reparto de uso = admin o supervisor de su grupo;
 lecturas de km = también el conductor de su vehículo. El listado de vehículos
 soporta búsqueda (`?search=`), filtros (`?state=&business_use=&assigned=`) y orden
-(`?ordering=`); los vehículos en `baja` se ocultan salvo `?include_baja=1`.
+(`?ordering=`); los vehículos **fuera de la flota** —`returned` (devueltos a
+la renting) y `retired` (bajas), el conjunto `OUT_OF_FLEET`— se ocultan salvo
+`?include_baja=1` o `?state=` con uno de los dos. El `pending_return` no: ese
+coche todavía es de la flota y sale como cualquier otro.
 
 **HSE (solo lectura).** El rol `hse` entra en el front de gestión a **leer**
 **cómo se usa** la flota, que es lo que enseña su pantalla: `HseReadOnly` (True

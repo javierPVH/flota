@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Badge, Button, Modal, SelectField, TabButton, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
+import { isOutOfFleet } from '@flota/ui/domain'
 import { Trash2 } from 'lucide-react'
 
 import { assignmentStatusTone, todayIso } from '../format.ts'
@@ -264,7 +265,7 @@ export function VehicleAssignmentsPanel({
       actions={
         accordion.isOpen('assignments') ? (
           <div className="section-tools">
-            <Button variant="primary" size="sm" onClick={openChange} disabled={vehicle.state === 'retired'}>
+            <Button variant="primary" size="sm" onClick={openChange} disabled={isOutOfFleet(vehicle.state)}>
               {current ? t.changeDriver : t.assignDriver}
             </Button>
             <Button variant="secondary" size="sm" onClick={openUsage}>

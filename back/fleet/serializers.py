@@ -67,6 +67,7 @@ from .models.enums import (
     EXPIRING_DOCUMENT_TYPES,
     INCIDENT_BOUND_DOCUMENT_TYPES,
     LINK_REQUIRED_DOCUMENT_TYPES,
+    OUT_OF_FLEET,
     TIRE_POSITIONS,
     AlertStatus,
     AllocationTarget,
@@ -829,9 +830,9 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
-        if vehicle is not None and vehicle.state == VehicleState.BAJA:
+        if vehicle is not None and vehicle.state in OUT_OF_FLEET:
             raise serializers.ValidationError(
-                "No se puede asignar un conductor a un vehículo en baja."
+                "No se puede asignar un conductor a un vehículo que ya no está en la flota."
             )
         # N9: un principal bloqueado por sustitución no admite asignaciones ni
         # propuestas — se opera sobre el sustituto mientras dure el vínculo.
@@ -1167,9 +1168,12 @@ class VehicleLinkSerializer(serializers.ModelSerializer):
                     }
                 )
         # N9: el vínculo solo se crea con el principal en estado NO activo
-        # (avería, taller, ITV…): si el coche funciona, no hay sustitución.
+        # (avería, taller, ITV…): si el coche funciona, no hay sustitución. Y
+        # tampoco si ya salió de la flota: no hay nada que cubrir. Un coche
+        # `pending_return` SÍ admite sustituto — todavía es nuestro y alguien
+        # tiene que seguir conduciendo mientras se entrega.
         if self.instance is None and main is not None and still_active:
-            if main.state in (VehicleState.ACTIVE, VehicleState.BAJA):
+            if main.state == VehicleState.ACTIVE or main.state in OUT_OF_FLEET:
                 raise serializers.ValidationError(
                     {
                         "main_vehicle": (

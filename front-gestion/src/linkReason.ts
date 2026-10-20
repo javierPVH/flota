@@ -12,6 +12,9 @@ export const STATE_LINK_REASON: Record<string, string> = {
   maintenance: 'maintenance',
   itv: 'inspection',
   accidente: 'accident',
+  // Un coche pendiente de entregar también se cubre, y sin esta línea caía en
+  // el defecto de abajo: el histórico contaría una avería que no existió.
+  pending_return: 'return',
 }
 
 /** El de ese estado o, si no tiene uno propio, avería. */

@@ -30,7 +30,9 @@ export const es = {
     broken: 'No activo - Averiado',
     accidente: 'No activo - Accidentado',
     non_active: 'No activo sin justificación',
-    retired: 'Devuelto (baja)',
+    pending_return: 'No activo - Pendiente de devolución',
+    returned: 'Devuelto',
+    retired: 'Baja',
   } as Record<string, string>,
   docType: {
     registration_certificate: 'Permiso de circulación',
@@ -183,7 +185,9 @@ export const en: typeof es = {
     broken: 'Not active - Broken down',
     accidente: 'Not active - Crashed',
     non_active: 'Not active (no reason)',
-    retired: 'Returned (retired)',
+    pending_return: 'Not active - Pending return',
+    returned: 'Returned',
+    retired: 'Written off',
   },
   docType: {
     registration_certificate: 'Registration certificate',

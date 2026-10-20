@@ -3,6 +3,8 @@
 from datetime import timedelta
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.db import connection
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -144,6 +146,57 @@ class SeedChainTests(APITestCase):
     def test_seed_command_blocked_in_production(self):
         call_command("seed_dev_data", "--force")
         self.assertEqual(User.objects.count(), 0)  # DEBUG=False: jamás siembra
+
+
+class DemoModeSeedTests(APITestCase):
+    """Modo DEMO del despliegue (FLEET_DEMO, sin DEBUG): siembra la BD demo y
+    solo la demo, con contraseña del entorno; y `--if-empty` no pisa nada."""
+
+    def _active_db(self):
+        return connection.settings_dict["NAME"]
+
+    @override_settings(DEBUG=False, FLEET_DEMO=True, FLEET_DEMO_DB_NAME="otra_bd")
+    def test_refuses_when_active_db_is_not_the_demo(self):
+        with self.assertRaises(CommandError):
+            call_command("seed_dev_data", "--force")
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_refuses_without_demo_password(self):
+        for password in ("", "flota-dev-2026"):
+            with (
+                self.subTest(password=password),
+                override_settings(
+                    DEBUG=False,
+                    FLEET_DEMO=True,
+                    FLEET_DEMO_DB_NAME=self._active_db(),
+                    FLEET_SEED_PASSWORD=password,
+                ),
+            ):
+                with self.assertRaises(CommandError):
+                    call_command("seed_dev_data", "--force")
+                self.assertEqual(User.objects.count(), 0)
+
+    def test_seeds_demo_db_and_if_empty_keeps_changes(self):
+        with override_settings(
+            DEBUG=False,
+            FLEET_DEMO=True,
+            FLEET_DEMO_DB_NAME=self._active_db(),
+            FLEET_SEED_PASSWORD="demo-de-prueba-2026",
+        ):
+            call_command("seed_dev_data", "--if-empty")
+            self.assertEqual(User.objects.count(), REF_USERS + BULK_USERS)
+            # Un cambio hecho en la demo sobrevive a un arranque con --if-empty…
+            User.objects.filter(username="sara").update(first_name="Cambiada")
+            call_command("seed_dev_data", "--if-empty")
+            self.assertEqual(User.objects.get(username="sara").first_name, "Cambiada")
+            # …y se pierde solo con --force (FLEET_DEMO_RESEED en el despliegue).
+            call_command("seed_dev_data", "--force")
+            self.assertEqual(User.objects.get(username="sara").first_name, "Sara")
+
+    @override_settings(FLEET_DEMO=False)
+    def test_ensure_demo_db_refuses_outside_demo_mode(self):
+        with self.assertRaises(CommandError):
+            call_command("ensure_demo_db")
 
 
 class SeedCoverageTests(APITestCase):

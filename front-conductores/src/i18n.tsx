@@ -1137,7 +1137,9 @@ const es = {
       broken: 'No activo - Averiado',
       accidente: 'No activo - Accidentado',
       non_active: 'No activo sin justificación',
-      retired: 'Devuelto (baja)',
+      pending_return: 'No activo - Pendiente de devolución',
+      returned: 'Devuelto',
+      retired: 'Baja',
     },
   },
 }
@@ -2108,7 +2110,9 @@ const en: typeof es = {
       broken: 'Off the road - Broken down',
       accidente: 'Off the road - Crashed',
       non_active: 'Off the road, no reason given',
-      retired: 'Returned (written off)',
+      pending_return: 'Off the road - Pending return',
+      returned: 'Returned',
+      retired: 'Written off',
     },
   },
 }

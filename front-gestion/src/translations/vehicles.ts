@@ -5,7 +5,9 @@ import { useAppLang } from '@flota/ui/i18n'
 // pinta cada tabla).
 import { en as domainEn, es as domainEs } from './domain.ts'
 
-const es = {
+// Se exportan para poder fijar en un test el contrato de los estados
+// (que estén los nueve, y que las dos salidas de la flota no se elijan a mano).
+export const es = {
   title: 'Vehículos',
   subtitle: 'Inventario de la flota.',
   exportCsv: 'Exportar CSV',
@@ -464,6 +466,7 @@ const es = {
     { value: 'broken', label: 'No activo - Averiado' },
     { value: 'accidente', label: 'No activo - Accidentado' },
     { value: 'non_active', label: 'No activo sin justificación' },
+    { value: 'pending_return', label: 'No activo - Pendiente de devolución' },
   ],
   // B4: el panel tenía estas dos tablas como constantes de módulo en castellano
   // (`USE_LABEL` / `STATE_LABEL`), así que en inglés se colaban tal cual.
@@ -510,7 +513,7 @@ const es = {
   },
 }
 
-const en: typeof es = {
+export const en: typeof es = {
   title: 'Vehicles',
   subtitle: 'Fleet inventory.',
   exportCsv: 'Export CSV',
@@ -913,6 +916,7 @@ const en: typeof es = {
     { value: 'broken', label: 'Not active - Broken down' },
     { value: 'accidente', label: 'Not active - Crashed' },
     { value: 'non_active', label: 'Not active (no reason)' },
+    { value: 'pending_return', label: 'Not active - Pending return' },
   ],
   useLabel: {
     on_project: 'Project',

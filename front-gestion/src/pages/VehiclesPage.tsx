@@ -11,6 +11,7 @@ import {
 } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
+import { isOutOfFleet } from '@flota/ui/domain'
 import { Download, Upload } from 'lucide-react'
 
 import {
@@ -44,8 +45,10 @@ import { useVehicleFormCopy } from '../translations/vehicleForm.ts'
 import type { Alert, Vehicle, VehicleLinkRow } from '../types.ts'
 import { useDomainLabels } from '../domainLabels.ts'
 
-// Estado que representa la baja del vehículo (VehicleState.BAJA = 'retired').
-const BAJA_STATE = 'retired'
+// Los dos estados en los que el coche ya no es de la flota —devuelto o de
+// baja— los decide `isOutOfFleet` del DS (`@flota/ui/domain`), que es el
+// espejo del `OUT_OF_FLEET` del back: antes esto era una constante por página
+// y con DOS salidas una copia se habría quedado mirando solo una.
 
 // Orden por defecto de las columnas y cuáles arrancan ocultas ("faltantes").
 const COLUMN_KEYS = [
@@ -114,7 +117,7 @@ function filterVehicles(list: Vehicle[], f: VehFilter): Vehicle[] {
   return list.filter((v) => {
     // Pestaña: flota (no sustitución) vs vehículos de sustitución.
     if (v.is_substitute !== wantSub) return false
-    const isBaja = v.state === BAJA_STATE
+    const isBaja = isOutOfFleet(v.state)
     // "Mostrar bajas": ON → solo bajas; OFF → solo no-baja.
     if (f.showBajas ? !isBaja : isBaja) return false
     // Estado: valor normal (state) o el especial «con coche de sustitución».
@@ -450,11 +453,11 @@ export function VehiclesPage() {
 
   // Recuentos por pestaña (excluye bajas, como la vista por defecto).
   const fleetCount = useMemo(
-    () => vehicles.filter((v) => !v.is_substitute && v.state !== BAJA_STATE).length,
+    () => vehicles.filter((v) => !v.is_substitute && !isOutOfFleet(v.state)).length,
     [vehicles],
   )
   const subCount = useMemo(
-    () => vehicles.filter((v) => v.is_substitute && v.state !== BAJA_STATE).length,
+    () => vehicles.filter((v) => v.is_substitute && !isOutOfFleet(v.state)).length,
     [vehicles],
   )
 
@@ -1080,7 +1083,7 @@ export function VehiclesPage() {
           hiddenColumns={[...hiddenCols]}
           onHiddenColumnsChange={(keys) => setHiddenCols(new Set(keys))}
           rowKey={(v) => String(v.id)}
-          rowClassName={(v) => (v.state === BAJA_STATE ? 'row-muted' : '')}
+          rowClassName={(v) => (isOutOfFleet(v.state) ? 'row-muted' : '')}
           // Un coche cubierto lleva SU sustituto debajo, plegado; la flecha
           // sale solo en esas filas (como en el panel).
           renderExpandedRow={renderSubstituteRow}

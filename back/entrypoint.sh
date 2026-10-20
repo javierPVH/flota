@@ -3,11 +3,38 @@
 #   1) migraciones   2) estáticos   3) admin único (desde el entorno)   4) gunicorn
 set -e
 
+# Modo DEMO (FLEET_DEMO=True en el .env de infra, ver deploy/README-DEPLOY.md):
+# settings apunta a OTRA base de datos del mismo Postgres (FLEET_DEMO_DB_NAME),
+# que aquí se crea si no existe y, tras migrarla, se siembra con los datos de
+# prueba. La de producción (DB_NAME) no se toca: con el flag a False, este
+# mismo arranque vuelve a ella tal y como estaba.
+DEMO=0
+case "$(printf '%s' "${FLEET_DEMO:-}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) DEMO=1 ;;
+esac
+if [ "$DEMO" = 1 ]; then
+  echo "[entrypoint] MODO DEMO: base de datos '${FLEET_DEMO_DB_NAME:-${DB_NAME}_demo}' (la de producción NO se toca)."
+  python manage.py ensure_demo_db
+fi
+
 echo "[entrypoint] Aplicando migraciones..."
 python manage.py migrate --noinput
 
 echo "[entrypoint] Recopilando estáticos..."
 python manage.py collectstatic --noinput
+
+if [ "$DEMO" = 1 ]; then
+  # Resiembra en cada arranque solo si se pide (FLEET_DEMO_RESEED); si no, solo
+  # cuando la BD demo está vacía (recién creada). Si falla, el arranque FALLA.
+  case "$(printf '%s' "${FLEET_DEMO_RESEED:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on)
+      echo "[entrypoint] MODO DEMO: resembrando (FLEET_DEMO_RESEED=True, borra y recrea)..."
+      python manage.py seed_dev_data --force ;;
+    *)
+      echo "[entrypoint] MODO DEMO: sembrando si la BD demo está vacía..."
+      python manage.py seed_dev_data --if-empty ;;
+  esac
+fi
 
 # Crea/actualiza el único administrador desde ADMIN_USERNAME/ADMIN_PASSWORD.
 # OPS3: si falla, el arranque FALLA — un `|| echo` escondía placeholders y

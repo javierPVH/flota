@@ -16,9 +16,9 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs):
         # SEC5: candado de producción — este comando BORRA tablas en cascada.
         # Y sin tragarse la excepción: un borrado a medias no puede ser "OK".
-        if not (settings.DEBUG or settings.FLEET_SEED_DATA):
+        if not (settings.DEBUG or settings.FLEET_SEED_DATA or settings.FLEET_DEMO):
             raise CommandError(
-                "Bloqueado: los reset_* solo corren con DEBUG o FLEET_SEED_DATA "
+                "Bloqueado: los reset_* solo corren con DEBUG, FLEET_SEED_DATA o FLEET_DEMO "
                 "(borran tablas enteras; esto parece producción)."
             )
         seed.seed_catalogs(self.stdout)

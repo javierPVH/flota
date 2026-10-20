@@ -126,11 +126,25 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 # --- Base de datos --------------------------------------------------------
+# Modo DEMO (despliegue): con FLEET_DEMO=True el back y los jobs trabajan sobre
+# OTRA base de datos del mismo Postgres (FLEET_DEMO_DB_NAME, por defecto
+# "<DB_NAME>_demo"), que el entrypoint crea, migra y siembra con los datos de
+# prueba. La de producción (DB_NAME) sigue existiendo intacta y vuelve a ser la
+# activa en cuanto el flag pasa a False: no se copia, no se vacía, no se toca.
+# Es independiente de FLEET_SEED_DATA (que es solo de desarrollo, con DEBUG).
+FLEET_DEMO = env_bool("FLEET_DEMO", False)
+_DB_NAME = env_str("DB_NAME", "gs_base")
+FLEET_DEMO_DB_NAME = env_str("FLEET_DEMO_DB_NAME", "") or f"{_DB_NAME}_demo"
+if FLEET_DEMO and FLEET_DEMO_DB_NAME == _DB_NAME:
+    raise ImproperlyConfigured(
+        "FLEET_DEMO=True exige que FLEET_DEMO_DB_NAME sea DISTINTO de DB_NAME: "
+        "el modo demo nunca debe sembrar la base de datos de producción."
+    )
 if env_str("DB_ENGINE", "sqlite").lower() == "postgres":
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": env_str("DB_NAME", "gs_base"),
+            "NAME": FLEET_DEMO_DB_NAME if FLEET_DEMO else _DB_NAME,
             "USER": env_str("DB_USER", "postgres"),
             "PASSWORD": env_str("DB_PASSWORD", "postgres"),
             "HOST": env_str("DB_HOST", "localhost"),
@@ -612,6 +626,16 @@ FLEET_REPORT_MAX_ROWS = max(0, env_int("FLEET_REPORT_MAX_ROWS", 20000))
 # login de desarrollo (selector de usuarios sin Google) en /auth/dev-login/.
 # Ver back/SEED_DEV.md.
 FLEET_SEED_DATA = DEBUG and env_bool("FLEET_SEED_DATA", False)
+# Contraseña de los usuarios sembrados. En desarrollo es la de siempre
+# (`flota-dev-2026`, ver SEED_DEV.md); en modo DEMO (FLEET_DEMO, arriba) es
+# OBLIGATORIO fijar otra: la app de conductores es pública y la de por defecto
+# está en el repositorio. Vacía = la de desarrollo.
+FLEET_SEED_PASSWORD = env_str("FLEET_SEED_PASSWORD", "")
+# Modo DEMO: True = el entrypoint vuelve a sembrar la BD demo en CADA arranque
+# (wipe & recreate, como `runserver` en dev). False = solo la siembra cuando
+# está vacía (recién creada), así lo que se toque en la demo sobrevive a un
+# redeploy hasta que alguien pida resiembra.
+FLEET_DEMO_RESEED = env_bool("FLEET_DEMO_RESEED", False)
 # Subida de documentos (HU-4.1): tamaño máximo del fichero en MB.
 FLEET_DOCUMENT_MAX_MB = max(1, env_int("FLEET_DOCUMENT_MAX_MB", 10))
 

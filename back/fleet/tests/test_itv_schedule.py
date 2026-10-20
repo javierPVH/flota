@@ -308,9 +308,7 @@ class MaintenancePlanScheduleTests(APITestCase):
         )
         self.client.force_authenticate(chofer)
 
-        self.assertEqual(
-            self.client.get(self.url).status_code, status.HTTP_200_OK
-        )
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_200_OK)
         otro = Vehicle.objects.create(plate="SCH0004", brand="Seat", model="Arona")
         resp = self.client.post(self.url, self._payload(vehicle=otro.pk), format="json")
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

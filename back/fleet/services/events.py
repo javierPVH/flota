@@ -35,6 +35,11 @@ _STATE_EVENT = {
     VehicleState.BROKEN: EventType.BREAKDOWN,
     VehicleState.BAJA: EventType.DEACTIVATION,
     VehicleState.NON_ACTIVE: EventType.DEACTIVATION,
+    # Las dos salidas y la antesala narran lo mismo: el coche deja de rodar.
+    # No hace falta un EventType propio — lo que las distingue es el estado,
+    # que el evento ya lleva en `to_state`.
+    VehicleState.PENDING_RETURN: EventType.DEACTIVATION,
+    VehicleState.RETURNED: EventType.DEACTIVATION,
     VehicleState.ACCIDENT: EventType.IMMOBILIZATION,
 }
 

@@ -31,6 +31,15 @@ python manage.py reset_users            # un paso concreto
 python manage.py reset_vehicles
 ```
 
+**Modo DEMO del despliegue** (`FLEET_DEMO=True` en el `.env` de infra, ver
+`deploy/README-DEPLOY.md` §8): la misma cadena siembra **otra** base de datos
+del Postgres de producción (`FLEET_DEMO_DB_NAME`), sin `DEBUG`. Ahí los
+candados son otros: `seed_dev_data` exige que la BD activa sea la demo y que
+`FLEET_SEED_PASSWORD` esté definida (la contraseña de todos los usuarios
+sembrados pasa a ser esa, no `flota-dev-2026`), y `--if-empty` siembra solo
+si no hay usuarios. El login de desarrollo (selector) **no** se enciende:
+sigue exigiendo `DEBUG`.
+
 ## 3. Anatomía de un seed (patrón a copiar)
 
 La lógica vive en [`fleet/services/seed.py`](./fleet/services/seed.py) (funciones

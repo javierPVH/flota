@@ -19,8 +19,9 @@ import { useFleetCopy } from '../translations/fleet.ts'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 
 // Orden canónico de los grupos por estado (los que existan en la flota).
-// El resto de estados —baja, no activo…— van detrás, en orden de aparición.
-const STATE_ORDER = ['active', 'maintenance', 'itv', 'broken', 'accidente']
+// El resto —sin justificación, y las dos salidas de la flota— van detrás, en
+// orden de aparición.
+const STATE_ORDER = ['active', 'maintenance', 'itv', 'broken', 'accidente', 'pending_return']
 
 // Los dos cortes del selector que NO son un estado. Llevan prefijo para no
 // poder chocar nunca con un valor de `VehicleState` que llegue del back.

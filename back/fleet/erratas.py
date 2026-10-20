@@ -54,7 +54,7 @@ from .models import (
     driver_assignment_clash,
     driver_clash_message,
 )
-from .models.enums import AssignmentStatus, VehicleState
+from .models.enums import OUT_OF_FLEET, AssignmentStatus, VehicleState
 
 
 @dataclass(frozen=True)
@@ -214,7 +214,12 @@ def _deactivated_item(obj) -> dict:
 
 
 def _retired_vehicles(search: str = ""):
-    rows = Vehicle.objects.filter(state=VehicleState.BAJA).order_by("-updated_at", "-pk")
+    """Los que salieron de la flota, por cualquiera de las dos puertas.
+
+    Devueltos y bajas se restauran igual, así que comparten espacio: lo que
+    los separa es el motivo, y eso ya lo cuenta su estado en la fila.
+    """
+    rows = Vehicle.objects.filter(state__in=OUT_OF_FLEET).order_by("-updated_at", "-pk")
     term = search.strip()
     if term:
         rows = rows.filter(_matching(term, ("plate", "brand", "model")))
@@ -264,7 +269,9 @@ class ErratasView(APIView):
         # Integrados sin duplicar mecanismo: vehículos en baja y usuarios inactivos.
         retired = _retired_vehicles().count()
         if retired:
-            groups.append({"type": "vehicles", "label": "Vehículos (baja)", "count": retired})
+            groups.append(
+                {"type": "vehicles", "label": "Vehículos fuera de la flota", "count": retired}
+            )
         inactive = _inactive_users().count()
         if inactive:
             groups.append({"type": "users", "label": "Usuarios (desactivados)", "count": inactive})
@@ -301,7 +308,7 @@ def _resolve(request):
         obj = model.objects.filter(pk=pk, is_active=False).first()
     elif kind == "vehicles":
         model = Vehicle
-        obj = Vehicle.objects.filter(pk=pk, state=VehicleState.BAJA).first()
+        obj = Vehicle.objects.filter(pk=pk, state__in=OUT_OF_FLEET).first()
     elif kind == "users":
         model = get_user_model()
         obj = model.objects.filter(pk=pk, is_active=False).first()
@@ -332,15 +339,20 @@ class ErratasRestoreView(APIView):
         try:
             with transaction.atomic():
                 if kind == "vehicles":
+                    # De DÓNDE vuelve se lee del propio coche y no se da por
+                    # supuesto: desde que devolver y dar de baja son estados
+                    # distintos, fijar aquí «Baja» haría que el histórico de
+                    # toda devolución restaurada contara una baja que no hubo.
+                    salida = obj.state
                     obj.state = VehicleState.ACTIVE
                     obj.save(update_fields=["state", "updated_at"])
-                    # R3-06: la baja emitió su evento de cambio de estado; la
+                    # R3-06: la salida emitió su evento de cambio de estado; la
                     # restauración también, o el histórico de negocio queda cojo.
                     from .services import events
 
                     events.emit_vehicle_state_change(
                         obj,
-                        VehicleState.BAJA,
+                        salida,
                         VehicleState.ACTIVE,
                         reason="Restaurado desde erratas.",
                     )

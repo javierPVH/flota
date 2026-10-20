@@ -77,6 +77,15 @@ dependencias con `get(username=...)` / `get(plate=...)`: **el orden de
 `SEED_CHAIN` y esos identificadores fijos no se pueden romper**. Detalle y
 checklist para añadir un seed en [back/SEED_DEV.md](back/SEED_DEV.md).
 
+**Modo DEMO del despliegue** (`FLEET_DEMO=True` en el `.env` de infra): esa
+misma cadena siembra **otra BD del mismo Postgres** (`FLEET_DEMO_DB_NAME`), que
+`back/entrypoint.sh` crea (`ensure_demo_db`), migra y siembra
+(`seed_dev_data --if-empty`; `FLEET_DEMO_RESEED` fuerza la resiembra). La de
+producción no se toca; con el flag a `False` vuelve a ser la activa. Sin
+`DEBUG`: el seed exige que la BD activa sea la demo y `FLEET_SEED_PASSWORD`
+(la contraseña de los usuarios sembrados), y el selector de dev-login sigue
+apagado. Ver `deploy/README-DEPLOY.md` §8.
+
 ## Arquitectura
 
 Monorepo: **un backend y dos SPAs**, más un design-system compartido.
@@ -945,18 +954,46 @@ Dos capas que van **siempre juntas**:
   100 exacto, todas las filas con persona y sin repetidos; el back manda
   igual.
 - **Los estados del vehículo** (`VehicleState`, `back/fleet/models/enums/vehicle.py`)
-  son **siete** y todos están vivos: o el coche rueda (`active`) o la etiqueta
-  dice **por qué** está parado — «No activo - Mantenimiento» (`maintenance`),
-  «- ITV» (`itv`), «- Averiado» (`broken`), «- Accidentado» (`accidente`)— o
+  son **nueve**, en tres familias. O el coche **rueda** (`active`), o está
+  **parado** y la etiqueta dice **por qué** — «No activo - Mantenimiento»
+  (`maintenance`), «- ITV» (`itv`), «- Averiado» (`broken`), «- Accidentado»
+  (`accidente`), **«- Pendiente de devolución»** (`pending_return`)— o
   **«No activo sin justificación»** (`non_active`) cuando no hay causa con
   estado propio — se llamaba «No activo» a secas y se renombró (migración
   `0066`, solo `choices`) porque en el filtro de campo **«No activos»** es el
-  corte que los agrupa a TODOS y los dos nombres eran el mismo.
-  `retired` es «Devuelto (baja)»: la salida de la flota, con flujo propio, y no
-  se elige de un desplegable. Las etiquetas son solo presentación (cambiarlas
+  corte que los agrupa a TODOS y los dos nombres eran el mismo—, o ya **no es
+  de la flota**.
+  **Salir de la flota son DOS puertas y no una**: `returned` («Devuelto») es
+  el final del renting —lo escribe `POST /vehicles/{id}/return/`
+  (`services/returns.py::return_vehicle`), que además cierra el contrato y
+  calcula el exceso de km— y `retired` («Baja») es cualquier otra salida
+  —siniestro total, venta, error de alta—, que la escribe el `DELETE`
+  (`retire_vehicle`). Antes eran **un solo valor**, «Devuelto (baja)», y el
+  histórico no podía distinguirlas; al partirlo, los coches que ya estaban en
+  `retired` se quedaron ahí y se leen «Baja» (migración `0075`, solo
+  `choices`). Ninguna de las dos se elige de un desplegable: tienen su flujo.
+  **Lo que las dos comparten es un CONJUNTO, no un valor**: `OUT_OF_FLEET`
+  (`enums/vehicle.py`, reexportado desde `enums/__init__.py`) es lo que
+  excluyen el `Vehicle.objects.active()`, el listado, las métricas y los
+  informes, y lo que rechazan las guardas de `set-driver`, `schedule-itv`,
+  `renew-insurance`, la concesión de un vehículo y la reversión del histórico.
+  Escribirlo a mano en cada sitio es justo lo que al partir la baja habría
+  dejado media aplicación mirando una sola puerta. En el front lo dice
+  **`isOutOfFleet` de `@flota/ui/domain`**, el espejo de esa constante (vive en
+  el DS por lo mismo que `kmStaleTone`: lo preguntan las dos apps y la regla no
+  puede decir dos cosas distintas; antes cada página llevaba su propia
+  `BAJA_STATE = 'retired'`).
+  **`pending_return` NO está en ese conjunto**, y es lo único que lo separa de
+  los otros dos: el coche ya no se usa pero **todavía es nuestro**, así que
+  cuenta en listados, métricas e informes, sigue venciendo su ITV, admite
+  conductor y admite sustituto (con `LinkReason.RETURN`, «Devolución», añadido
+  para que el histórico no cuente una avería que no hubo). Es además el único
+  de los tres que **se elige a mano**, porque es una decisión y no la
+  consecuencia de nada.
+  Las etiquetas son solo presentación (cambiarlas
   genera una migración de `choices`, no de datos) y el front las repite en
-  `translations/vehicles.ts` (`stateOptions`, las seis elegibles, y
-  `stateLabel`, las siete) porque el DS necesita i18n; los badges y las tablas
+  `translations/vehicles.ts` (`stateOptions`, las **siete** elegibles, y
+  `stateLabel`, las nueve) porque el DS necesita i18n; los badges y las tablas
   usan el `state_display` del back, así que **los dos lados tienen que decir lo
   mismo**. Los filtros de estado (panel, inventario, notificaciones) parten de
   esa lista completa, no de los estados que casualmente estén cargados. Quién

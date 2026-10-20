@@ -47,12 +47,20 @@ export interface DevUser {
   roles: Role[]
 }
 
-/** Estado técnico (lista cerrada del back; `retired` = baja). */
+/**
+ * Estado técnico (lista cerrada del back). O el coche rueda (`active`), o está
+ * parado —el resto de «no activo», incluido `pending_return`, que es el que
+ * espera la entrega a la renting—, o ya no es de la flota: `returned` si se
+ * devolvió al acabar el contrato y `retired` si se dio de baja. Para los dos
+ * últimos a la vez está `isOutOfFleet` de `@flota/ui/domain`.
+ */
 export type VehicleState =
   | 'active'
   | 'maintenance'
   | 'itv'
   | 'broken'
+  | 'pending_return'
+  | 'returned'
   | 'retired'
   | 'non_active'
   | 'accidente'

@@ -30,6 +30,7 @@ from .invoice import AllocationTarget
 from .operations import AssignmentStatus, LinkReason
 from .request import DriverChangeStatus, ProfileChangeStatus, VehicleRequestStatus
 from .vehicle import (
+    OUT_OF_FLEET,
     MarketSegment,
     PropertyType,
     UseType,
@@ -41,6 +42,7 @@ from .vehicle import (
 
 __all__ = [
     "VehicleState",
+    "OUT_OF_FLEET",
     "VehicleType",
     "VehicleSize",
     "MarketSegment",

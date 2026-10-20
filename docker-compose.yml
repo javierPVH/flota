@@ -155,6 +155,14 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en .env (sin el símbolo $)}
       DB_HOST: db
       DB_PORT: "5432"
+      # Modo DEMO (ver .env.example): con FLEET_DEMO=True el back trabaja sobre
+      # OTRA BD del mismo Postgres (FLEET_DEMO_DB_NAME, por defecto DB_NAME_demo)
+      # que el entrypoint crea y siembra con datos de prueba; la de producción
+      # no se toca y vuelve a ser la activa con el flag a False.
+      FLEET_DEMO: ${FLEET_DEMO:-False}
+      FLEET_DEMO_DB_NAME: ${FLEET_DEMO_DB_NAME:-}
+      FLEET_DEMO_RESEED: ${FLEET_DEMO_RESEED:-False}
+      FLEET_SEED_PASSWORD: ${FLEET_SEED_PASSWORD:-}
       # Media y estáticos siguen en el volumen ./data.
       DJANGO_MEDIA_ROOT: /app/data/media
       DJANGO_STATIC_ROOT: /app/data/staticfiles
@@ -189,6 +197,9 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en .env (sin el símbolo $)}
       DB_HOST: db
       DB_PORT: "5432"
+      # Modo DEMO: los jobs trabajan sobre la MISMA BD que el back (la demo).
+      FLEET_DEMO: ${FLEET_DEMO:-False}
+      FLEET_DEMO_DB_NAME: ${FLEET_DEMO_DB_NAME:-}
       DJANGO_MEDIA_ROOT: /app/data/media
       DJANGO_STATIC_ROOT: /app/data/staticfiles
       REDIS_URL: redis://:${REDIS_PASSWORD:?Define REDIS_PASSWORD en .env (openssl rand -hex 32)}@redis:6379/0
@@ -224,6 +235,8 @@ services:
       # pg_dump lee las PG* directamente: no hace falta pasarle flags.
       PGHOST: db
       PGPORT: "5432"
+      # Siempre la BD de PRODUCCIÓN, también en modo demo (FLEET_DEMO): la demo
+      # se regenera con un flag y no hay nada que conservar de ella.
       PGDATABASE: ${DB_NAME:-flota}
       PGUSER: ${DB_USER:-flota}
       PGPASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en .env (sin el símbolo $)}

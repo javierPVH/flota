@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button, Chip, Modal, SelectField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage, isAbortError } from '@flota/ui/http'
+import { isOutOfFleet } from '@flota/ui/domain'
 import { ArrowUpRight, Car, Download, Eye, SlidersHorizontal, Users, X } from 'lucide-react'
 
 import {
@@ -370,8 +371,8 @@ export function DownloadsTab() {
         (v) =>
           (!vBrand || norm(v.brand) === norm(vBrand)) &&
           (!vModel || norm(v.model) === norm(vModel)) &&
-          (vStatus !== 'in_service' || v.state !== 'retired') &&
-          (vStatus !== 'retired' || v.state === 'retired') &&
+          (vStatus !== 'in_service' || !isOutOfFleet(v.state)) &&
+          (vStatus !== 'retired' || isOutOfFleet(v.state)) &&
           (vCategory !== 'fleet' || !v.is_substitute) &&
           (vCategory !== 'substitute' || v.is_substitute),
       ),

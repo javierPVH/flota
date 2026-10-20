@@ -34,7 +34,7 @@ from fleet.models import (
     MaintenancePlan,
     Vehicle,
 )
-from fleet.models.enums import AlertStatus, IncidentStatus, VehicleState
+from fleet.models.enums import OUT_OF_FLEET, AlertStatus, IncidentStatus
 from fleet.scoping import vehicles_for
 from fleet.selectors import (
     active_link_blocking,
@@ -134,7 +134,7 @@ def monthly_pace_map(user, ids: list[int]) -> dict[int, dict]:
     """
     vehicles = list(
         vehicles_for(user)
-        .exclude(state=VehicleState.BAJA)
+        .exclude(state__in=OUT_OF_FLEET)
         .filter(id__in=ids)
         .only("id", "plate", "km_start", "unlimited_km")
     )
@@ -241,7 +241,7 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
     orden estable.
     """
     today = timezone.localdate()
-    scope = vehicles_for(user).exclude(state=VehicleState.BAJA)
+    scope = vehicles_for(user).exclude(state__in=OUT_OF_FLEET)
     if ids is not None:
         # PR5: recorte opcional (siempre DENTRO del ámbito del rol).
         scope = scope.filter(id__in=ids)
@@ -454,7 +454,7 @@ def fleet_summary(user, today: date | None = None) -> dict:
     """Agregados del dashboard (G1), acotados al ámbito del usuario (rol)."""
     today = today or timezone.localdate()
     scope = vehicles_for(user)
-    active = scope.exclude(state=VehicleState.BAJA)
+    active = scope.exclude(state__in=OUT_OF_FLEET)
     ids = list(active.values_list("id", flat=True))
 
     by_state = dict(

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Modal } from '@flota/ui/ui'
+import { isOutOfFleet } from '@flota/ui/domain'
 
 import { listVehicleLinks, releaseSubstitute } from '../../api.ts'
 import { useAlertsPageCopy } from '../../translations/alertsPage.ts'
@@ -71,7 +72,7 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
   // siete (avería, neumáticos, accidente, mantenimiento, ITV, seguro y alerta
   // genérica); si el coche ya rueda, no hay nada que preguntar.
   const stopped =
-    vehicleState !== undefined && vehicleState !== 'active' && vehicleState !== 'retired'
+    vehicleState !== undefined && vehicleState !== 'active' && !isOutOfFleet(vehicleState)
   // Qué coche le cubre. El listado de vehículos no lo trae (los vínculos son
   // su propio recurso), así que se pregunta al abrir y SOLO con el coche
   // parado: es una fila, y es lo que permite nombrar la matrícula en la

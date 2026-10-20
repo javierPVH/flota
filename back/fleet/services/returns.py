@@ -20,7 +20,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from fleet.models import Alert, Assignment, Contract, KmReading, Vehicle, VehicleLink
-from fleet.models.enums import AlertStatus, AssignmentStatus, VehicleState
+from fleet.models.enums import OUT_OF_FLEET, AlertStatus, AssignmentStatus, VehicleState
 from fleet.selectors import active_link_q, current_assignment_q
 from fleet.services import events
 
@@ -99,10 +99,12 @@ def retire_vehicle(vehicle: Vehicle, *, reason: str = "", when: date | None = No
     viva: el coche desaparecía del listado pero seguía «ocupando» al conductor y
     lo bloqueaba para otro coche. Aquí la baja quita el conductor (con su
     histórico), cierra sustituciones, alertas y contrato, y emite el evento de
-    cambio de estado. Debe correr dentro de una transacción. Idempotente: si ya
-    está de baja, no hace nada.
+    cambio de estado. Debe correr dentro de una transacción. Idempotente: si el
+    coche ya salió de la flota —por baja o por devolución— no hace nada: lo que
+    la baja arrastra ya está cerrado, y reescribir el estado convertiría una
+    devolución en una baja.
     """
-    if vehicle.state == VehicleState.BAJA:
+    if vehicle.state in OUT_OF_FLEET:
         return
     when = when or timezone.localdate()
     close_vehicle_relations(vehicle, when)
@@ -130,8 +132,8 @@ def return_vehicle(
     penalty_estimate}`.
     """
     end_date = end_date or timezone.localdate()
-    if vehicle.state == VehicleState.BAJA:
-        raise ValidationError({"detail": "El vehículo ya está de baja."})
+    if vehicle.state in OUT_OF_FLEET:
+        raise ValidationError({"detail": "El vehículo ya no está en la flota."})
     if end_date > timezone.localdate():
         raise ValidationError({"end_date": "La fecha de devolución no puede ser futura."})
 
@@ -179,14 +181,17 @@ def return_vehicle(
             # A céntimos: es un importe, no una tarifa por km.
             penalty = (overage * contract.penalty_per_km).quantize(Decimal("0.01"))
 
-    # Baja con su evento, con la MISMA traza que el resto de cambios de estado.
+    # Salida de la flota con su evento, con la MISMA traza que el resto de
+    # cambios de estado. Aquí es «Devuelto» y no «Baja»: el coche vuelve a la
+    # renting al acabar el contrato, que es otra cosa que un siniestro total o
+    # una venta (eso es `retire_vehicle`).
     old_state = vehicle.state
-    vehicle.state = VehicleState.BAJA
+    vehicle.state = VehicleState.RETURNED
     vehicle.save(update_fields=["state", "updated_at"])
     events.emit_vehicle_state_change(
         vehicle,
         old_state,
-        VehicleState.BAJA,
+        VehicleState.RETURNED,
         reason=reason or "Devolución del vehículo.",
         when=end_date,
     )

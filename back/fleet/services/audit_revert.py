@@ -26,7 +26,7 @@ from django.db.models import JSONField
 from rest_framework.exceptions import ValidationError
 
 from ..models import Contract, Vehicle
-from ..models.enums import VehicleState
+from ..models.enums import OUT_OF_FLEET
 
 # Campos que nunca se revierten desde aquí, aunque salgan en el diff:
 #  - los de la baja lógica (N7): eso es «restaurar» y vive en erratas;
@@ -149,17 +149,27 @@ def guard(entry: LogEntry, payload: dict, vehicle: Vehicle) -> None:
     """Lo que ni con el valor viejo delante se hace desde aquí."""
     if not payload:
         raise ValidationError({"entry": "Esta entrada no tiene ningún cambio que revertir."})
-    if _model_of(entry) is Vehicle and payload.get("state") == VehicleState.BAJA:
+    if _model_of(entry) is Vehicle and payload.get("state") in OUT_OF_FLEET:
         raise ValidationError(
-            {"state": "Dar de baja no se revierte desde el histórico: usa «Devolver»."}
+            {
+                "state": (
+                    "Sacar el coche de la flota no se revierte desde el histórico: "
+                    "usa «Devolver» o restaura desde erratas."
+                )
+            }
         )
-    # Un coche de baja no se toca desde el histórico: revertir su propia baja
-    # lo devolvería a la flota saltándose la restauración de erratas (que es
-    # quien reabre lo que la baja cerró) y cualquier otro campo se corrige
-    # después de restaurarlo. Mismo corte que `schedule-itv` o `set-driver`.
-    if vehicle.state == VehicleState.BAJA:
+    # Un coche fuera de la flota no se toca desde el histórico: revertir su
+    # propia salida lo devolvería a la flota saltándose la restauración de
+    # erratas (que es quien reabre lo que esa salida cerró) y cualquier otro
+    # campo se corrige después de restaurarlo. Mismo corte que `schedule-itv`
+    # o `set-driver`.
+    if vehicle.state in OUT_OF_FLEET:
         raise ValidationError(
-            {"vehicle": "El vehículo está de baja: se restaura desde erratas, no desde aquí."}
+            {
+                "vehicle": (
+                    "El vehículo ya no está en la flota: se restaura desde erratas, no desde aquí."
+                )
+            }
         )
 
 

@@ -20,7 +20,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from fleet.models import Incident, Vehicle, VehicleLink
-from fleet.models.enums import IncidentStatus, IncidentType, VehicleState
+from fleet.models.enums import OUT_OF_FLEET, IncidentStatus, IncidentType, VehicleState
 from fleet.selectors import active_link_q
 from fleet.services import events
 
@@ -98,10 +98,11 @@ def release_substitute(
 
     bloqueo = blocked_by(vehicle)
     reactivated = False
-    # R5-01: un coche en BAJA no vuelve al servicio por aquí (la baja tiene su
-    # flujo y su reactivación vive en erratas). El vínculo sí se suelta: el
-    # sustituto no tiene por qué seguir retenido por un coche devuelto.
-    retirado = vehicle.state == VehicleState.BAJA
+    # R5-01: un coche que ya salió de la flota —devuelto o de baja— no vuelve
+    # al servicio por aquí (esas salidas tienen su flujo y su reactivación vive
+    # en erratas). El vínculo sí se suelta: el sustituto no tiene por qué
+    # seguir retenido por un coche que ya no está.
+    retirado = vehicle.state in OUT_OF_FLEET
     if vehicle.state != VehicleState.ACTIVE and bloqueo is None and not retirado:
         old_state = vehicle.state
         vehicle.state = VehicleState.ACTIVE

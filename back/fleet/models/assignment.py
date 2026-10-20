@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from .base import DeactivatableModel, TimeStampedModel
-from .enums import AssignmentStatus, LinkReason, VehicleState
+from .enums import OUT_OF_FLEET, AssignmentStatus, LinkReason
 
 
 def driver_assignment_clash(
@@ -47,7 +47,7 @@ def driver_assignment_clash(
             is_active=True,
             vehicle__is_substitute=is_substitute,
         )
-        .exclude(vehicle__state=VehicleState.BAJA)
+        .exclude(vehicle__state__in=OUT_OF_FLEET)
         .select_related("vehicle")
     )
     if exclude_pk is not None:
@@ -165,9 +165,12 @@ class Assignment(DeactivatableModel, TimeStampedModel):
         return f"{self.vehicle.plate} → {self.driver} ({self.get_status_display()})"
 
     def clean(self):
-        # HU-2.1: no se puede asignar un conductor a un vehículo en baja.
-        if self.vehicle_id and self.vehicle.state == VehicleState.BAJA:
-            raise ValidationError("No se puede asignar un conductor a un vehículo en baja.")
+        # HU-2.1: no se puede asignar un conductor a un coche que ya no es de
+        # la flota (devuelto o de baja).
+        if self.vehicle_id and self.vehicle.state in OUT_OF_FLEET:
+            raise ValidationError(
+                "No se puede asignar un conductor a un vehículo que ya no está en la flota."
+            )
         # Un coche por conductor a la vez (+ el sustituto aparte). También en
         # el admin: DRF no llama a clean(), así que los serializers y las
         # acciones repiten esta misma comprobación vía driver_assignment_clash.

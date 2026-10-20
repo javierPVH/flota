@@ -230,10 +230,13 @@ export function NotificationsPage({ embedded = false }: { embedded?: boolean } =
     }
     if (key === 'state') {
       // La lista completa (antes: solo los estados de los coches cargados).
-      // Aquí sí entra la baja: un informe puede querer justo los devueltos.
+      // Aquí sí entran las DOS salidas de la flota, que no se eligen en el
+      // resto de la app: un informe puede querer justo los devueltos, o justo
+      // las bajas, y ahora son dos preguntas distintas.
       return [
         todos,
         ...vt.stateOptions,
+        { value: 'returned', label: vt.stateLabel.returned },
         { value: 'retired', label: vt.stateLabel.retired },
       ]
     }

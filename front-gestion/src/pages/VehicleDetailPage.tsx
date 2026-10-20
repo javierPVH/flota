@@ -13,6 +13,7 @@ import {
 } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import { useAppLang } from '@flota/ui/i18n'
+import { isOutOfFleet } from '@flota/ui/domain'
 import {
   ChevronDown,
   ChevronsDown,
@@ -848,7 +849,7 @@ export function VehicleDetailPage() {
   const contratoVencido = Boolean(
     contract?.planned_end_date &&
       contract.planned_end_date < today() &&
-      vehicle?.state !== 'retired',
+      !isOutOfFleet(vehicle?.state),
   )
 
   const kpiFacts = (kind: KpiKey) => {
@@ -1151,7 +1152,7 @@ export function VehicleDetailPage() {
   // Fecha con la que se cerraría el vínculo ahora mismo (gobierna el aviso).
   const closeEnd = closeMode === 'today' ? today() : closeDate
 
-  const driverless = !vehicle.driver_name && vehicle.state !== 'retired'
+  const driverless = !vehicle.driver_name && !isOutOfFleet(vehicle.state)
   const framed = vehicle.is_substitute || driverless || contratoVencido
 
   return (
@@ -1323,7 +1324,7 @@ export function VehicleDetailPage() {
         <Button variant="secondary" onClick={() => setEditOpen(true)}>
           {t.edit}
         </Button>
-        {vehicle.state !== 'retired' && (
+        {!isOutOfFleet(vehicle.state) && (
           <>
             <Button variant="secondary" onClick={() => openOps('state')}>
               {t.changeState}
@@ -2491,7 +2492,7 @@ export function VehicleDetailPage() {
             // Lo que se le HACE sin cerrar la edición (sus modales viven en
             // esta página).
             actions={
-              vehicle.state !== 'retired' ? (
+              !isOutOfFleet(vehicle.state) ? (
                 <>
                   <Button variant="secondary" size="sm" onClick={() => openOps('state')}>
                     {t.changeState}

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Chip, IconButton, MiniToolsButtons, Modal, PageHeader, SelectField, StatCard } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage, isAbortError } from '@flota/ui/http'
+import { isOutOfFleet } from '@flota/ui/domain'
 import { ChevronDown, Pencil, Plus } from 'lucide-react'
 
 import {
@@ -58,12 +59,14 @@ import { useDomainLabels } from '../domainLabels.ts'
 
 const LEVEL_RANK: Record<Alert['level'], number> = { critical: 0, warning: 1, info: 2 }
 
-// Estado que representa la baja del vehículo (VehicleState.BAJA = 'retired').
-const BAJA_STATE = 'retired'
+// Los dos estados en los que el coche ya no es de la flota —devuelto o de
+// baja— los decide `isOutOfFleet` del DS (`@flota/ui/domain`), que es el
+// espejo del `OUT_OF_FLEET` del back: antes esto era una constante por página
+// y con DOS salidas una copia se habría quedado mirando solo una.
 
 // Estados accionables desde el select de estado y los desgloses (el resto
 // —baja, no activo…— no se ofrece como filtro rápido).
-const FILTERABLE_STATES = new Set(['active', 'maintenance', 'itv', 'broken'])
+const FILTERABLE_STATES = new Set(['active', 'maintenance', 'itv', 'broken', 'pending_return'])
 
 // Categoría de alerta (agrupa los tipos del back) → pestaña del modal/tira.
 // Las dos alertas de km comparten pestaña "Kilómetros".
@@ -277,7 +280,7 @@ export function DashboardPage() {
   // abrir cada uno; y como derivan, se refrescan solos al recargar (antes se
   // cacheaban hasta el siguiente registro y se reabrían con datos viejos).
   const activeVehicles = useMemo(
-    () => allVehicles.filter((v) => v.state !== 'retired'),
+    () => allVehicles.filter((v) => !isOutOfFleet(v.state)),
     [allVehicles],
   )
   const itvList = useMemo<Vehicle[] | null>(() => {
@@ -431,7 +434,7 @@ export function DashboardPage() {
       const rows: Promise<Vehicle[]> = hasServerFilters
         ? listAll(listVehicles(filters, { signal }), { signal })
         : (coreRef.current ?? loadCore()).then((all) =>
-            showBaja ? all : all.filter((v) => v.state !== BAJA_STATE),
+            showBaja ? all : all.filter((v) => !isOutOfFleet(v.state)),
           )
       rows
         .then((result) => {
@@ -608,7 +611,7 @@ export function DashboardPage() {
       else map.set(key, [v])
     }
     for (const v of allVehicles) {
-      if (v.state === BAJA_STATE) continue
+      if (isOutOfFleet(v.state)) continue
       push(bySupervisor, v.supervisor, v)
       push(byDriver, v.driver_id, v)
     }
@@ -728,8 +731,8 @@ export function DashboardPage() {
   const driverRows = peopleOf('driver')
 
   // Contadores de pestaña (activos/vigentes, no filtrados).
-  const flotaCount = allVehicles.filter((v) => !v.is_substitute && v.state !== BAJA_STATE).length
-  const subCount = allVehicles.filter((v) => v.is_substitute && v.state !== BAJA_STATE).length
+  const flotaCount = allVehicles.filter((v) => !v.is_substitute && !isOutOfFleet(v.state)).length
+  const subCount = allVehicles.filter((v) => v.is_substitute && !isOutOfFleet(v.state)).length
   const supCount = users.filter((u) => u.roles.includes('supervisor') && u.is_active).length
   const drvCount = users.filter((u) => u.roles.includes('driver') && u.is_active).length
 

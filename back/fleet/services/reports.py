@@ -43,6 +43,7 @@ from fleet.models import (
     VehicleUsage,
 )
 from fleet.models.enums import (
+    OUT_OF_FLEET,
     AlertStatus,
     EventType,
     IncidentStatus,
@@ -160,7 +161,7 @@ def _fleet_table(user, filters: dict | None = None) -> Table:
     # con las de la pantalla desde la que se descarga.
     vehicles = (
         vehicles_for(user)
-        .exclude(state=VehicleState.BAJA)
+        .exclude(state__in=OUT_OF_FLEET)
         .select_related("supervisor")
         .order_by("plate")
     )
@@ -808,7 +809,7 @@ def _costs_table(user, filters: dict | None = None, vehicles_qs=None) -> Table:
         # incluir bajas a propósito), así que no se re-filtra aquí.
         vehicles = vehicles_qs
     else:
-        vehicles = vehicles_for(user).exclude(state=VehicleState.BAJA).order_by("plate")
+        vehicles = vehicles_for(user).exclude(state__in=OUT_OF_FLEET).order_by("plate")
         vehicle = _pick(filters, "vehicle")
         if vehicle:
             vehicles = vehicles.filter(id=vehicle)
@@ -932,16 +933,19 @@ def _maintenance_table(user, filters: dict | None = None, vehicle_ids=None) -> T
 def _vehicle_set(user, filters: dict | None):
     """Los vehículos del informe completo, con sus cuatro filtros aplicados.
 
-    `status` (`in_service`/`retired`) mira la baja, no el estado técnico fino;
+    `status` (`in_service`/`retired`) mira si el coche SIGUE EN LA FLOTA, no el
+    estado técnico fino: `retired` trae las dos salidas —devueltos y bajas—,
+    que es lo que el filtro quería decir desde siempre (el nombre se conserva
+    para no romper a quien ya lo llama así);
     `category` (`fleet`/`substitute`) separa flota propia de sustitución. Vacío
     = todos, incluidas las bajas: es el informe de «llevármelo todo».
     """
     vehicles = vehicles_for(user)
     estado = _pick(filters, "status")
     if estado == "in_service":
-        vehicles = vehicles.exclude(state=VehicleState.BAJA)
+        vehicles = vehicles.exclude(state__in=OUT_OF_FLEET)
     elif estado == "retired":
-        vehicles = vehicles.filter(state=VehicleState.BAJA)
+        vehicles = vehicles.filter(state__in=OUT_OF_FLEET)
     brand = _pick(filters, "brand")
     if brand:
         vehicles = vehicles.filter(brand__iexact=brand)

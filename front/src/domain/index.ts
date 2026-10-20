@@ -213,11 +213,33 @@ const STATE_TONE: Record<string, BadgeTone> = {
   itv: 'warning',
   broken: 'danger',
   accidente: 'danger',
+  pending_return: 'warning',
+  returned: 'neutral',
   retired: 'neutral',
   non_active: 'neutral',
 }
 /** Estado técnico del vehículo → tono de Badge. */
 export const vehicleStateTone = (state: string): BadgeTone => STATE_TONE[state] ?? 'neutral'
+
+/**
+ * Los dos estados en los que el coche ya NO es de la flota: se devolvió a la
+ * renting al acabar el contrato (`returned`) o se dio de baja por cualquier
+ * otra causa (`retired`).
+ *
+ * Es el espejo de `OUT_OF_FLEET` del back, y vive en el DS por lo mismo que
+ * `kmStaleTone`: lo preguntan las dos apps y la regla no puede decir dos cosas
+ * distintas. Antes cada front llevaba su propia constante `BAJA_STATE =
+ * 'retired'`, y con una sola salida colaba; con dos, media aplicación se
+ * habría quedado mirando solo una.
+ *
+ * Ojo con `pending_return`, que NO está aquí: ese coche todavía es nuestro
+ * —cuenta en listados, métricas e informes— y solo está esperando la entrega.
+ */
+export const OUT_OF_FLEET_STATES = ['returned', 'retired'] as const
+
+/** ¿Este coche ya salió de la flota (devuelto o de baja)? */
+export const isOutOfFleet = (state: string | null | undefined): boolean =>
+  state === 'returned' || state === 'retired'
 
 const ALERT_TONE: Record<string, BadgeTone> = {
   critical: 'danger',

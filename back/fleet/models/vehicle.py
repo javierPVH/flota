@@ -7,6 +7,7 @@ from django.db import models
 
 from .base import TimeStampedModel
 from .enums import (
+    OUT_OF_FLEET,
     MarketSegment,
     PropertyType,
     UseType,
@@ -21,8 +22,12 @@ class VehicleQuerySet(models.QuerySet):
     """QuerySet de vehículos con helper de *soft-delete*."""
 
     def active(self):
-        """Excluye los vehículos dados de baja (estado terminal)."""
-        return self.exclude(state=VehicleState.BAJA)
+        """Excluye los vehículos que ya no son de la flota (estado terminal).
+
+        Son DOS: el devuelto a la renting y el dado de baja (`OUT_OF_FLEET`).
+        Un coche `pending_return` sigue dentro: aún no se ha entregado.
+        """
+        return self.exclude(state__in=OUT_OF_FLEET)
 
 
 #: INP-7: la matrícula es un componente de RUTA en el archivador (la carpeta

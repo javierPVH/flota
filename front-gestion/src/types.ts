@@ -43,12 +43,20 @@ export interface Driver {
   name: string
 }
 
-/** Estado técnico (lista cerrada del back; `retired` = baja). */
+/**
+ * Estado técnico (lista cerrada del back). Tres familias: el coche rueda
+ * (`active`), está parado (el resto de «no activo», incluido
+ * `pending_return`) o ya no es de la flota — `returned` si se devolvió a la
+ * renting y `retired` si se dio de baja; para preguntar por esos dos a la vez
+ * está `isOutOfFleet` de `@flota/ui/domain`.
+ */
 export type VehicleState =
   | 'active'
   | 'maintenance'
   | 'itv'
   | 'broken'
+  | 'pending_return'
+  | 'returned'
   | 'retired'
   | 'non_active'
   | 'accidente'

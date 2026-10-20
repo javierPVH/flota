@@ -25,3 +25,7 @@ class LinkReason(models.TextChoices):
     TIRES = "tires", "Neumáticos"
     ITV = "inspection", "ITV"
     ACCIDENT = "accident", "Accidente"
+    # Un coche pendiente de entregar a la renting también se cubre, y sin este
+    # motivo el vínculo caía en «Avería» (el defecto de `linkReasonForState`):
+    # el histórico contaría una avería que no existió.
+    RETURN = "return", "Devolución"

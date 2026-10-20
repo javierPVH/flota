@@ -26,6 +26,7 @@ from __future__ import annotations
 from datetime import date, time, timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.db.models import F
 from django.utils import timezone
 
@@ -79,6 +80,7 @@ from fleet.models import (
     Workshop,
 )
 from fleet.models.enums import (
+    OUT_OF_FLEET,
     AlertStatus,
     AlertType,
     AllocationTarget,
@@ -102,8 +104,11 @@ from fleet.models.enums import (
 )
 from fleet.services import alerts
 
-# Contraseña de prueba compartida por todos los usuarios sembrados.
-DEV_PASSWORD = "flota-dev-2026"
+# Contraseña de prueba compartida por todos los usuarios sembrados. Se fija
+# al importar: en desarrollo es la de siempre; en modo DEMO (despliegue,
+# FLEET_DEMO) la pone FLEET_SEED_PASSWORD, porque esta cadena está en el
+# repositorio y la app de conductores es pública.
+DEV_PASSWORD = getattr(settings, "FLEET_SEED_PASSWORD", "") or "flota-dev-2026"
 
 # --- Volumen de pruebas (determinista, SIN random) --------------------------
 # Los datos "de referencia" (matrículas 1234KLM…, usuarios sara/carlos…) NO se
@@ -838,10 +843,15 @@ def seed_vehicles(stdout=None) -> None:
         ]
         use = uses[i % 3]
         project = projects[i % len(projects)] if use == UseType.ON_PROJECT else None
-        # Los 7 estados del enumerado. Los índices 4/6/7/9/28/29 son
-        # load-bearing (vínculos de sustitución y baja): no muevas sus ramas.
-        if i >= BULK_VEHICLES - 2:
-            state = VehicleState.BAJA  # 28, 29
+        # Los 9 estados del enumerado. Los índices 4/6/7/9/28/29 son
+        # load-bearing (vínculos de sustitución y salidas de la flota): no
+        # muevas sus ramas. Los dos últimos son las DOS salidas, una de cada,
+        # para que se vea que no son lo mismo: 28 se devolvió al acabar el
+        # renting y 29 se dio de baja.
+        if i == BULK_VEHICLES - 2:
+            state = VehicleState.RETURNED  # 28
+        elif i == BULK_VEHICLES - 1:
+            state = VehicleState.BAJA  # 29
         elif i % 9 == 4:
             state = VehicleState.MAINTENANCE  # 4, 13, 22
         elif i % 11 == 7:
@@ -852,6 +862,11 @@ def seed_vehicles(stdout=None) -> None:
             state = VehicleState.ACCIDENT  # 10, 27
         elif i % 19 == 15:
             state = VehicleState.NON_ACTIVE  # 15
+        elif i % 23 == 11:
+            # Pendiente de entregar: SIGUE en la flota (cuenta en listados,
+            # métricas e informes), que es lo que lo separa de los dos de
+            # arriba. Sin uno sembrado, esa diferencia no se ve en dev.
+            state = VehicleState.PENDING_RETURN  # 11
         else:
             state = VehicleState.ACTIVE
         year = 2018 + i % 8
@@ -1122,7 +1137,7 @@ def seed_contracts(stdout=None) -> None:
             )
         # Los vehículos en baja cierran su odómetro (`km_end`) en la última
         # lectura: es el kilometraje con el que se devolvieron.
-        if vehicle.state == VehicleState.BAJA:
+        if vehicle.state in OUT_OF_FLEET:
             vehicle.km_end = km
             vehicle.save(update_fields=["km_end", "updated_at"])
 
@@ -1238,7 +1253,7 @@ def seed_assignments(stdout=None) -> None:
     libres = iter(drivers)
     for i in range(BULK_VEHICLES):
         vehicle = Vehicle.objects.get(plate=_bulk_plate(i))
-        if vehicle.state == VehicleState.BAJA or vehicle.is_substitute:
+        if vehicle.state in OUT_OF_FLEET or vehicle.is_substitute:
             continue
         if i % 5 == 3:
             continue  # sin conductor a propósito → alerta no_driver
@@ -1320,7 +1335,7 @@ def seed_assignments(stdout=None) -> None:
     Assignment.objects.filter(vehicle=shared, status=AssignmentStatus.ACCEPTED).update(
         usage_percent=Decimal("70")
     )
-    # Vínculos de sustitución: uno por cada MOTIVO del enumerado (los 5). El estado del
+    # Vínculos de sustitución: uno por cada MOTIVO del enumerado (los 6). El estado del
     # principal casa con el motivo (averiado→avería, en ITV→ITV…) y cada
     # sustituto cubre a uno solo (la restricción es un activo por principal).
     for main_index, substitute_index, reason, started, ended in (
@@ -1329,6 +1344,10 @@ def seed_assignments(stdout=None) -> None:
         (10, 16, LinkReason.ACCIDENT, 12, None),  # accidentado
         (4, 2, LinkReason.MAINTENANCE, 60, 40),  # histórico ya cerrado
         (4, 9, LinkReason.TIRES, 95, 93),  # GAP-6: histórico, cambio de neumáticos
+        # Pendiente de entregar: el coche sigue siendo nuestro y alguien tiene
+        # que seguir conduciendo hasta la devolución, así que se cubre. Con el
+        # motivo propio y no «Avería», que es donde caía antes por defecto.
+        (11, 20, LinkReason.RETURN, 5, None),  # pendiente de devolución
     ):
         VehicleLink.objects.create(
             main_vehicle=Vehicle.objects.get(plate=_bulk_plate(main_index)),
@@ -2427,7 +2446,7 @@ def seed_operations(stdout=None) -> None:
                 status=DocumentStatus.VALID,
                 notes="Parte amistoso con el tercero implicado.",
             )
-        if vehicle.state == VehicleState.BAJA:
+        if vehicle.state in OUT_OF_FLEET:
             Document.objects.create(
                 vehicle=vehicle,
                 type=DocumentType.RETURN_ACT,
