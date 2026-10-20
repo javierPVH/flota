@@ -383,10 +383,17 @@ GESTION_HTTPS_PORT=443          # opcional; es el valor por defecto
 ```
 
 `GESTION_TLS_DIR` es **obligatoria** con el override: sin ella el compose se
-niega a arrancar (`${GESTION_TLS_DIR:?...}`), a propósito. Si
-`GESTION_HTTPS_PORT` no es 443, la redirección del `:80` (`https://<nombre>/`,
-sin puerto) no llega: la sonda y el 443 funcionan igual, pero habrá que entrar
-escribiendo el puerto.
+niega a arrancar (`${GESTION_TLS_DIR:?...}`), a propósito.
+
+**Dos instancias en la misma IP** (p. ej. `flota` y `flota-vam` en srvgcptd):
+solo una puede publicar el 443; la otra lleva `GESTION_HTTPS_PORT=8443` (u
+otro libre) y su URL se escribe con el puerto (`https://<nombre>:8443/`). La
+redirección del `:80` **lo lleva** —el override pasa el puerto a nginx y
+`nginx.tls.conf` lo añade cuando no es el 443—; sin eso, el `:80` de la
+segunda instancia mandaba a `https://<nombre>/`, que es el 443… de la
+primera. El puerto va también en los orígenes de §7.5
+(`https://<nombre>:8443`), porque para CSRF y CORS el origen es esquema +
+host + puerto exactos.
 
 ### 7.4 Levantar y validar
 

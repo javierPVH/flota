@@ -39,3 +39,6 @@ back/archive/
 
 # R5-60: artefactos incrementales de tsc, propios de cada maquina.
 *.tsbuildinfo
+
+# Secretos y datos locales del back (token de Gmail, cliente OAuth, media de dev): NUNCA al repo
+/back/data/
