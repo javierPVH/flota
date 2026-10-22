@@ -581,6 +581,17 @@ export const registerItv = (data: {
 export type ReportKind = ReportKindKey
 export type ReportFormat = 'xlsx' | 'csv'
 
+/** Rastro de un CSV compuesto en el navegador (hoy, Usuarios): el back no ve
+ * ese fichero, así que la pantalla anota qué exportó antes de generarlo.
+ * Quién y desde dónde lo pone el back. Solo admin. */
+export const logScreenExport = (data: {
+  kind: string
+  fmt: 'csv' | 'xlsx'
+  filters?: Record<string, string>
+  columns?: string[]
+  row_count?: number
+}) => postJson<{ id: number }>(`${API}/report-exports/`, data)
+
 /** URL de descarga de un informe (navegación con cookies, mismo origen).
  * `filters` admite las claves de `REPORT_FILTERS[kind]`; vacío = sin filtrar. */
 export const reportUrl = (

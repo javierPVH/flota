@@ -46,6 +46,7 @@ from .models import (
     ProfileChangeRequest,
     Project,
     Renting,
+    ReportExport,
     Site,
     SupervisorPeriod,
     Vehicle,
@@ -2640,6 +2641,12 @@ class NotificationScheduleSerializer(serializers.ModelSerializer):
             )
         }
         datos["extra_recipients"] = datos["extra_recipients"] or ""
+        # El informe de usuarios es la plantilla con DNI y teléfono: solo la
+        # administración lo descarga (ReportsView) y solo ella lo programa.
+        if datos["content"] == NotificationSchedule.Content.USERS and not self._is_admin_request():
+            raise serializers.ValidationError(
+                {"content": "El informe de usuarios solo lo programa la administración."}
+            )
         candidato = NotificationSchedule(**datos)
         try:
             candidato.clean()
@@ -2994,6 +3001,67 @@ class EmailLogSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+class ReportExportSerializer(serializers.ModelSerializer):
+    """Rastro de una exportación (solo admin).
+
+    Por la API solo se crea el origen `screen` —el CSV que compone el navegador
+    con una tabla de gestión—; los otros dos los escribe el propio back al
+    servir el informe. `user`, `ip`, `source` y `created_at` los pone la vista:
+    un rastro que el cliente pudiera firmar con otro nombre no sería rastro.
+    """
+
+    user_display = serializers.SerializerMethodField()
+    source_display = serializers.CharField(source="get_source_display", read_only=True)
+
+    class Meta:
+        model = ReportExport
+        fields = [
+            "id",
+            "created_at",
+            "user",
+            "user_display",
+            "source",
+            "source_display",
+            "kind",
+            "fmt",
+            "filters",
+            "columns",
+            "row_count",
+            "ip",
+            "schedule",
+        ]
+        read_only_fields = ["created_at", "user", "source", "ip", "schedule"]
+
+    def get_user_display(self, obj) -> str:
+        if not obj.user:
+            return ""
+        return obj.user.get_full_name() or obj.user.get_username()
+
+    def validate_kind(self, value):
+        if not re.fullmatch(r"[a-z][a-z0-9_-]{0,29}", value or ""):
+            raise serializers.ValidationError("Clave de informe no válida.")
+        return value
+
+    def validate_fmt(self, value):
+        if value not in ("csv", "xlsx"):
+            raise serializers.ValidationError("Formato no válido (csv o xlsx).")
+        return value
+
+    def validate_filters(self, value):
+        if value in (None, ""):
+            return {}
+        if not isinstance(value, dict) or any(isinstance(v, dict | list) for v in value.values()):
+            raise serializers.ValidationError("Los filtros deben ser un objeto plano.")
+        return {str(k): str(v) for k, v in value.items() if v not in (None, "")}
+
+    def validate_columns(self, value):
+        if value in (None, ""):
+            return []
+        if not isinstance(value, list) or not all(isinstance(c, str) for c in value):
+            raise serializers.ValidationError("Las columnas deben ser una lista de claves.")
+        return value[:100]
 
 
 class DriverChangeRequestSerializer(serializers.ModelSerializer):

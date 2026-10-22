@@ -234,7 +234,7 @@ configurar, salvo las variables del `.env` que se indican:
 | CFG-10/SRV-5 | `server_tokens off`; HSTS solo desde el nginx de conductores (`SECURE_HSTS_SECONDS=0`); sin cabeceras duplicadas en `/api` | `nginx.conf` × 2, `back/.env.prod` |
 | CFG-12 | El access-log de gunicorn no registra la query string (`?code=`, `?SAMLResponse=`) | `back/entrypoint.sh` |
 | CFG-13/AUTH-5 | `X-Forwarded-Proto` fijo a `https` en conductores; `CONDUCTORES_BIND=127.0.0.1` | `front-conductores/nginx.conf`, `.env` |
-| FE-4 | CSP en modo `Report-Only` en gestión (mirar la consola del navegador antes de hacerla bloqueante) | `front-gestion/nginx/gestion-server.conf` |
+| FE-4 | CSP **bloqueante** en gestión (`form-action 'self'` incluido); los orígenes de Google Picker/GIS siguen en la lista. `/api/ready/` no sale del contenedor (404 por nginx y por el back fuera de loopback); `collectstatic --clear` retira los estáticos del admin apagado | `front-gestion/nginx/gestion-server.conf`, `back/core/views.py`, `back/entrypoint.sh` |
 | — | Gestión por **https** con la CA corporativa, opcional (`COMPOSE_FILE` + `GESTION_TLS_DIR`); HSTS solo por https vía `map $scheme $hsts` | `docker-compose.gestion-tls.yml`, `front-gestion/nginx.tls.conf`, §7 |
 
 ### 6.1 Backups cifrados (`age`)
@@ -279,11 +279,10 @@ age-keygen -o flota-backup.key
   PGDATA y baja de root (`CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID`), y el
   `crond` de BusyBox necesita `setgroups` para lanzar cada job. Probarlo primero
   en local con un volumen de prueba.
-- **CSP bloqueante en gestión**: pasar `Content-Security-Policy-Report-Only` a
-  `Content-Security-Policy` cuando la consola del navegador no enseñe
-  violaciones con el Picker de Drive y el login de Google en uso.
-- **Cookies `Secure`** (A15): siguen a `False` por el http interno de gestión.
-  El TLS interno ya está preparado (§7); al activarlo, vuelven a `True`.
+- **CSP bloqueante en gestión**: hecho (FE-4). Si el Picker de Drive o el
+  login de Google se quedan en blanco, la consola del navegador dice qué
+  directiva los corta: se amplía en las tres `add_header` del snippet.
+- **Cookies `Secure`** (A15): cerrada. Con gestión por https, `SESSION_COOKIE_SECURE=True` y `CSRF_COOKIE_SECURE=True` en el `.env.prod` del servidor; el ejemplo las deja a `False` para un arranque por http.
 
 ## 7. Gestión por HTTPS (certificado de la CA corporativa)
 

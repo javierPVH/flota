@@ -19,6 +19,7 @@ import {
   deactivateUser,
   listAll,
   listUsers,
+  logScreenExport,
   updateUser,
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
@@ -446,6 +447,21 @@ export function UsersPage() {
 
   function runExport() {
     const cols = exportableColumns.filter((c) => expCols.has(c.key))
+    // Rastro de la exportación (DNI y teléfono de la plantilla): se anota
+    // ANTES de generar el fichero y no bloquea la descarga si falla.
+    void logScreenExport({
+      kind: 'users',
+      fmt: 'csv',
+      filters: {
+        status: expStatus,
+        role: expRole,
+        search: expSearch,
+        from: expFrom,
+        to: expTo,
+      },
+      columns: cols.map((c) => String(c.key)),
+      row_count: exportRows.length,
+    }).catch(() => undefined)
     exportCsv('usuarios', cols, exportRows)
     setExportOpen(false)
   }

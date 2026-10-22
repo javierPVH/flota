@@ -1,5 +1,5 @@
 from django.urls import path
-from rest_framework.routers import DefaultRouter
+from rest_framework.routers import SimpleRouter
 
 from .erratas import ErratasItemsView, ErratasPurgeView, ErratasRestoreView, ErratasView
 from .views import (
@@ -32,6 +32,7 @@ from .views import (
     ProfileChangeRequestViewSet,
     ProjectViewSet,
     RentingViewSet,
+    ReportExportViewSet,
     ReportsView,
     SiteViewSet,
     SupervisorPeriodViewSet,
@@ -44,7 +45,10 @@ from .views import (
     WorkshopViewSet,
 )
 
-router = DefaultRouter()
+# SimpleRouter, no DefaultRouter: el segundo publica en /api/v1/ un índice
+# con TODAS las rutas registradas (plantillas de correo, trazas…) a
+# cualquier sesión. Las rutas ya llevan su permiso; el listado sobra.
+router = SimpleRouter()
 router.register("vehicles", VehicleViewSet, basename="vehicle")
 router.register("contracts", ContractViewSet, basename="contract")
 router.register("km-readings", KmReadingViewSet, basename="kmreading")
@@ -102,6 +106,9 @@ router.register("workshops", WorkshopViewSet, basename="workshop")
 router.register("email-templates", EmailTemplateViewSet, basename="emailtemplate")
 router.register("email-signatures", EmailSignatureViewSet, basename="emailsignature")
 router.register("email-logs", EmailLogViewSet, basename="emaillog")
+# Rastro de exportaciones (quién se bajó qué): lo lee el admin, lo escribe
+# la pantalla de Usuarios con su CSV; descargas y envíos se anotan solos.
+router.register("report-exports", ReportExportViewSet, basename="reportexport")
 router.register(
     "notification-schedules", NotificationScheduleViewSet, basename="notificationschedule"
 )

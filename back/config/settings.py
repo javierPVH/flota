@@ -502,6 +502,13 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    # Solo JSON fuera de dev: sin esto DRF monta la «API navegable» (HTML con
+    # formularios y, en la raíz, el índice de rutas) para cualquier sesión que
+    # abra una URL de la API en el navegador. En dev sigue, que ahí ayuda.
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+        *(["rest_framework.renderers.BrowsableAPIRenderer"] if DEBUG else []),
+    ],
     "DEFAULT_PAGINATION_CLASS": "core.pagination.StandardResultsPagination",
     "PAGE_SIZE": 50,
     "DEFAULT_FILTER_BACKENDS": [

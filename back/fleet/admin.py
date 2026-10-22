@@ -43,6 +43,7 @@ from .models import (
     Pep,
     Project,
     Renting,
+    ReportExport,
     Site,
     SupervisorPeriod,
     Vehicle,
@@ -353,6 +354,22 @@ class EmailLogAdmin(admin.ModelAdmin):
     list_filter = ("status", "template_key")
     search_fields = ("recipient", "subject")
     readonly_fields = [f.name for f in EmailLog._meta.fields]
+
+
+@admin.register(ReportExport)
+class ReportExportAdmin(admin.ModelAdmin):
+    """Quién exportó qué: registro de acceso, de solo lectura."""
+
+    list_display = ("created_at", "user", "source", "kind", "fmt", "row_count", "ip")
+    list_filter = ("source", "kind", "fmt")
+    search_fields = ("user__username", "user__email", "ip")
+    readonly_fields = [f.name for f in ReportExport._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(EmailOutbox)

@@ -704,3 +704,49 @@ class NameWithDateAndTimeTests(APITestCase):
         for prohibido in ("/", '"', "*", "?"):
             self.assertNotIn(prohibido, nombre)
         self.assertTrue(nombre.endswith(".csv"))
+
+
+class UsersScheduleAdminOnlyTests(APITestCase):
+    """El informe de usuarios tampoco se PROGRAMA sin ser admin, y el envío
+    programado deja el mismo rastro que una descarga."""
+
+    def test_supervisor_cannot_schedule_the_users_report(self):
+        sup = _user("sch-sup", Role.SUPERVISOR, email="s@flota.dev")
+        self.client.force_authenticate(sup)
+        resp = self.client.post(
+            reverse("notificationschedule-list"),
+            {
+                "name": "plantilla",
+                "content": "users",
+                "frequency": "daily",
+                "send_at": "08:00",
+                # Sin destinatarios extra: a un supervisor se los valida antes
+                # que el contenido y taparían el error que se prueba aquí.
+                "send_email": True,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        self.assertIn("content", resp.data["errors"])
+
+    def test_scheduled_send_leaves_a_trace(self):
+        from fleet.models import ReportExport
+
+        admin = _user("sch-admin", Role.ADMIN, email="a@flota.dev")
+        Vehicle.objects.create(plate="TRAZA-1", brand="Seat", model="Leon")
+        schedule = NotificationSchedule.objects.create(
+            user=admin,
+            name="Flota",
+            content=NotificationSchedule.Content.FLEET,
+            frequency=NotificationSchedule.Frequency.DAILY,
+            send_at=time(8, 0),
+            extra_recipients="a@flota.dev",
+        )
+        notifications.run_schedule(schedule)
+        fila = ReportExport.objects.get()
+        self.assertEqual(fila.user, admin)
+        self.assertEqual(fila.source, ReportExport.Source.SCHEDULED)
+        self.assertEqual(fila.schedule, schedule)
+        self.assertEqual((fila.kind, fila.fmt), ("fleet", "csv"))
+        self.assertEqual(fila.row_count, 1)
+        self.assertEqual(fila.ip, "")

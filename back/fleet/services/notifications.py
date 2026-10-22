@@ -17,7 +17,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from fleet.models import EmailOutbox, NotificationSchedule
+from fleet.models import EmailOutbox, NotificationSchedule, ReportExport
 from fleet.services import archiver, mailer, metrics, reports
 
 logger = logging.getLogger("fleet.notifications")
@@ -216,12 +216,25 @@ def run_schedule(schedule: NotificationSchedule, now: datetime | None = None) ->
         if schedule.is_report:
             # El ámbito es el del DUEÑO del envío, no el de quien corre el job.
             # Los filtros son los de su tarjeta en la pantalla de Informes.
+            tables = reports.build_report(schedule.content, schedule.user, schedule.filters or {})
             filename, _content_type, payload = reports.render(
                 schedule.content,
                 schedule.user,
                 schedule.fmt,
                 filters=schedule.filters or {},
                 stem=nombre,
+                tables=tables,
+            )
+            # El adjunto es una exportación como otra cualquiera: deja rastro
+            # a nombre del dueño del envío (sin IP: no hay petición detrás).
+            ReportExport.record(
+                schedule.user,
+                ReportExport.Source.SCHEDULED,
+                schedule.content,
+                schedule.fmt,
+                filters=schedule.filters or {},
+                row_count=reports.row_count(tables),
+                schedule=schedule,
             )
             adjunto = (filename, payload)
             cuerpo = _report_body_html(schedule, filename)

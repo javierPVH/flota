@@ -18,6 +18,7 @@ from fleet.models import (
     Invoice,
     KmReading,
     MaintenancePlan,
+    ReportExport,
     Vehicle,
     Workshop,
 )
@@ -302,6 +303,99 @@ class UsersReportScopeTests(APITestCase):
         # `users_for` incluye al propio supervisor (sus documentos personales).
         self.assertIn("rep-sup", nombres)
         self.assertNotIn("driver_old", nombres)
+
+
+class UsersReportAdminOnlyTests(APITestCase):
+    """El informe de usuarios es la plantilla con DNI y teléfono: solo admin.
+
+    Un supervisor es gestión y descarga los informes de SU flota, pero el de
+    personas no: aunque el servicio lo acote a su gente, es un listado de
+    datos personales que no le hace falta para llevar los coches.
+    """
+
+    def test_supervisor_gets_403_on_users_report(self):
+        sup = make_user("rep-sup-403", Role.SUPERVISOR)
+        self.client.force_authenticate(sup)
+        resp = self.client.get(reverse("reports"), {"kind": "users", "fmt": "csv"})
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        # Y tampoco por la vista previa, que son los mismos datos.
+        resp = self.client.get(reverse("reports"), {"kind": "users", "fmt": "json"})
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_supervisor_still_downloads_the_fleet(self):
+        sup = make_user("rep-sup-ok", Role.SUPERVISOR)
+        self.client.force_authenticate(sup)
+        resp = self.client.get(reverse("reports"), {"kind": "fleet", "fmt": "csv"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+
+class ReportExportTraceTests(APITestCase):
+    """Toda exportación deja rastro: actor, informe, formato, filtros e IP."""
+
+    def setUp(self):
+        self.admin = make_user("rep-trace-admin", Role.ADMIN)
+        self.client.force_authenticate(self.admin)
+
+    def test_download_leaves_a_trace(self):
+        resp = self.client.get(
+            reverse("reports"), {"kind": "users", "fmt": "csv", "status": "active"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        fila = ReportExport.objects.get()
+        self.assertEqual(fila.user, self.admin)
+        self.assertEqual(fila.source, ReportExport.Source.DOWNLOAD)
+        self.assertEqual((fila.kind, fila.fmt), ("users", "csv"))
+        self.assertEqual(fila.filters, {"role": "", "status": "active"})
+        self.assertEqual(fila.row_count, 1)  # el propio admin
+        self.assertEqual(fila.ip, "127.0.0.1")
+
+    def test_preview_is_not_an_export(self):
+        self.client.get(reverse("reports"), {"kind": "fleet", "fmt": "json"})
+        self.assertFalse(ReportExport.objects.exists())
+
+    def test_screen_export_is_recorded_with_actor_and_ip(self):
+        resp = self.client.post(
+            reverse("reportexport-list"),
+            {
+                "kind": "users",
+                "fmt": "csv",
+                "filters": {"role": "driver", "status": ""},
+                "columns": ["username", "dni", "phone"],
+                "row_count": 12,
+                # Lo que el cliente diga del actor o del origen se ignora.
+                "source": "download",
+                "user": 999,
+                "ip": "8.8.8.8",
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        fila = ReportExport.objects.get()
+        self.assertEqual(fila.user, self.admin)
+        self.assertEqual(fila.source, ReportExport.Source.SCREEN)
+        self.assertEqual(fila.filters, {"role": "driver"})
+        self.assertEqual(fila.columns, ["username", "dni", "phone"])
+        self.assertEqual(fila.row_count, 12)
+        self.assertEqual(fila.ip, "127.0.0.1")
+
+    def test_trace_is_admin_only(self):
+        sup = make_user("rep-trace-sup", Role.SUPERVISOR)
+        self.client.force_authenticate(sup)
+        resp = self.client.get(reverse("reportexport-list"))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        resp = self.client.post(
+            reverse("reportexport-list"), {"kind": "users", "fmt": "csv"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_trace_cannot_be_deleted_or_edited(self):
+        fila = ReportExport.record(self.admin, "screen", "users", "csv")
+        url = reverse("reportexport-detail", args=[fila.pk])
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(
+            self.client.patch(url, {"kind": "x"}, format="json").status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
 
 
 class VehiclesSuperRecordTests(APITestCase):

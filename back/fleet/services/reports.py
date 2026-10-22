@@ -1538,12 +1538,23 @@ def safe_stem(value: str, fallback: str) -> str:
     return limpio[:120] or fallback
 
 
+def row_count(tables: list[Table]) -> int:
+    """Filas de la tabla principal (la que lleva el CSV): lo que cuenta el
+    rastro de la exportación. Las hojas de detalle del Excel no se suman:
+    una fila por coche es la medida que se entiende."""
+    if not tables:
+        return 0
+    principal = next((t for t in tables if t[0] != SUMMARY_TITLE), tables[0])
+    return len(principal[2])
+
+
 def render(
     kind: str,
     user,
     fmt: str,
     filters: dict | None = None,
     stem: str | None = None,
+    tables: list[Table] | None = None,
 ) -> tuple[str, str, bytes]:
     """Devuelve `(filename, content_type, payload)` del informe pedido.
 
@@ -1558,7 +1569,10 @@ def render(
     """
     if fmt not in FORMATS:
         raise ValueError(f"Formato no soportado: {fmt}.")
-    tables = build_report(kind, user, filters)
+    # `tables` permite pasar las tablas ya construidas (la vista las necesita
+    # para anotar cuántas filas salieron) sin volver a consultar la BD.
+    if tables is None:
+        tables = build_report(kind, user, filters)
     # Con la fecha del día en el nombre, como el export CSV del front: dos
     # descargas de días distintos no se pisan en la carpeta de quien las baja.
     hoy = timezone.localdate().isoformat()

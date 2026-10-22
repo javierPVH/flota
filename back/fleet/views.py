@@ -65,6 +65,7 @@ from .models import (
     ProfileChangeRequest,
     Project,
     Renting,
+    ReportExport,
     Site,
     SupervisorPeriod,
     Vehicle,
@@ -125,6 +126,7 @@ from .serializers import (
     ProfileChangeRequestSerializer,
     ProjectSerializer,
     RentingSerializer,
+    ReportExportSerializer,
     SiteSerializer,
     SupervisorPeriodSerializer,
     UsageSplitSerializer,
@@ -2662,6 +2664,11 @@ class ReportsView(APIView):
                 "El rol HSE solo descarga el informe de HSE: el resto lleva costes, "
                 "personas o incidencias."
             )
+        # El informe de usuarios es la plantilla entera con DNI y teléfono:
+        # solo la administración. Un supervisor lleva coches, no personas, y
+        # aunque el servicio lo acote a su gente no le hace falta para eso.
+        if kind == "users" and not request.user.is_admin:
+            raise PermissionDenied("El informe de usuarios solo lo descarga la administración.")
         if fmt not in ("json", "columns") and fmt not in reports.FORMATS:
             return Response(
                 {"detail": f"Formato no soportado: {fmt}. Válidos: {', '.join(reports.FORMATS)}."},
@@ -2694,7 +2701,21 @@ class ReportsView(APIView):
                     ]
                 }
             )
-        filename, content_type, payload = reports.render(kind, request.user, fmt, filters)
+        tables = reports.build_report(kind, request.user, filters)
+        filename, content_type, payload = reports.render(
+            kind, request.user, fmt, filters, tables=tables
+        )
+        # Rastro de la exportación: quién, qué, con qué filtros y desde dónde.
+        # La vista previa (`json`) no cuenta: se mira en pantalla, no sale.
+        ReportExport.record(
+            request.user,
+            ReportExport.Source.DOWNLOAD,
+            kind,
+            fmt,
+            filters=filters,
+            row_count=reports.row_count(tables),
+            request=request,
+        )
         response = HttpResponse(payload, content_type=content_type)
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
@@ -3247,6 +3268,31 @@ class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAdmin]
     filterset_fields = ["status", "template_key"]
     search_fields = ["recipient", "subject"]
+
+
+class ReportExportViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
+    """Rastro de exportaciones (quién se bajó qué). Solo admin.
+
+    `GET` lista el registro; `POST` lo escribe **una pantalla** cuyo CSV se
+    compone en el navegador (hoy, Usuarios): el back no ve ese fichero y es
+    lo único que puede dejar constancia de él. El actor, la IP y el origen los
+    pone esta vista, no el cliente. Las descargas de `/reports/` y los envíos
+    programados se anotan solos, en el back.
+    """
+
+    queryset = ReportExport.objects.select_related("user")
+    serializer_class = ReportExportSerializer
+    permission_classes = [IsAdmin]
+    filterset_fields = ["source", "kind", "user"]
+
+    def perform_create(self, serializer):
+        from accounts.ratelimit import client_ip
+
+        serializer.save(
+            user=self.request.user,
+            source=ReportExport.Source.SCREEN,
+            ip=client_ip(self.request),
+        )
 
 
 class DriverChangeRequestViewSet(
