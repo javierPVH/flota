@@ -19,6 +19,17 @@ class HealthProbeTests(TestCase):
         self.assertTrue(data["checks"]["database"])
         self.assertTrue(data["checks"]["cache"])
 
+    def test_readiness_only_from_loopback(self):
+        # Lo que llega por el proxy trae la IP del contenedor de nginx: 404,
+        # sin desvelar el estado de la BD ni de la caché.
+        resp = self.client.get(reverse("ready"), REMOTE_ADDR="172.18.0.5")
+        self.assertEqual(resp.status_code, 404)
+        self.assertNotIn(b"database", resp.content)
+
+    def test_liveness_still_public(self):
+        resp = self.client.get(reverse("health"), REMOTE_ADDR="172.18.0.5")
+        self.assertEqual(resp.status_code, 200)
+
 
 class RequestIdTests(TestCase):
     def test_response_carries_request_id(self):

@@ -209,7 +209,7 @@ logs la incluyen; con `LOG_JSON=True` los logs salen en JSON. Si se define
 | Método | Ruta                  | Auth | Descripción                                        |
 |--------|-----------------------|------|----------------------------------------------------|
 | GET    | `/api/health/`        | —    | Liveness (proceso vivo, sin dependencias)          |
-| GET    | `/api/ready/`         | —    | Readiness: chequeo de BD y cache (503 si degradado)|
+| GET    | `/api/ready/`         | —    | Readiness: BD y cache (503 si degradado). Solo desde loopback (el HEALTHCHECK); por nginx, 404 |
 | GET    | `/api/v1/auth/config/`   | —    | Métodos de login activos (para pintar la UI)       |
 | GET    | `/api/v1/auth/csrf/`     | —    | Fija la cookie `csrftoken`                          |
 | POST   | `/api/v1/auth/login/`    | —    | Login usuario/email + contraseña *(si password ON)*|

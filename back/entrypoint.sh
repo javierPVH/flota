@@ -20,8 +20,14 @@ fi
 echo "[entrypoint] Aplicando migraciones..."
 python manage.py migrate --noinput
 
+# --clear vacía STATIC_ROOT antes de recopilar: lo que ya no está instalado
+# (los estáticos del admin de Django, que solo existe con DJANGO_ADMIN_ENABLED)
+# no se queda en el volumen que nginx sirve en /static/. Sin eso, un
+# collectstatic de cuando el admin estuvo encendido seguía publicando
+# /static/admin/ para siempre. Solo `back` recopila (`jobs` no), así que no hay
+# dos procesos vaciando la misma carpeta.
 echo "[entrypoint] Recopilando estáticos..."
-python manage.py collectstatic --noinput
+python manage.py collectstatic --noinput --clear
 
 if [ "$DEMO" = 1 ]; then
   # Resiembra en cada arranque solo si se pide (FLEET_DEMO_RESEED); si no, solo
