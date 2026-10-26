@@ -16,7 +16,7 @@
  * verá quien lo reciba, no una aproximación del navegador.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Badge, Button, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Panel, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import { useAppLang } from '@flota/ui/i18n'
 
@@ -29,7 +29,7 @@ import {
   getEmailSettings,
   previewDefaultEmailTemplate,
   previewEmailTemplate,
-  previewEmailWithLayout,
+  previewEmailDraft,
   updateEmailSettings,
 } from '../api.ts'
 import { fmtDate } from '../format.ts'
@@ -48,6 +48,8 @@ import { useEmailSettingsCopy } from '../translations/emailSettings.ts'
 import { useEmailTemplatesCopy } from '../translations/emailTemplates.ts'
 
 type Section = 'reminder' | 'layout'
+/** Las dos vistas del recordatorio: cuándo se avisa y qué correo sale. */
+type ReminderView = 'schedule' | 'email'
 
 const KM_TEMPLATE_KEY = 'km_reading_pending'
 const MODES: KmRemindModeValue[] = ['count', 'daily', 'odd', 'even']
@@ -79,6 +81,8 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const [notice, setNotice] = useState('')
   const [saving, setSaving] = useState(false)
   // Lo editable, como texto (es un formulario).
+  const [reminderView, setReminderView] = useState<ReminderView>('schedule')
+  const [kmEnabled, setKmEnabled] = useState(true)
   const [fromDay, setFromDay] = useState('20')
   const [untilDay, setUntilDay] = useState('5')
   const [mode, setMode] = useState<KmRemindModeValue>('count')
@@ -132,6 +136,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   /** Vuelca una fila del back en el formulario. */
   const applyRow = useCallback((data: EmailSettingsRow) => {
     setRow(data)
+    setKmEnabled(data.km_remind_enabled)
     setFromDay(String(data.km_remind_from_day))
     setUntilDay(String(data.km_remind_until_day))
     setMode(data.km_remind_mode)
@@ -167,6 +172,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const layoutKey = `${enabled}|${brandName}|${brandColor}|${footer}|${logoFile?.name ?? ''}|${logoClear}`
   useEffect(() => {
     if (!previewRef || !row) return
+    if (section === 'reminder' && reminderView !== 'email') return
     let cancelled = false
     const custom = previewRef.kind === 'custom' ? templates.find((x) => x.id === previewRef.id) : null
     const wantsEn = lang === 'en' && (previewRef.kind === 'default' || Boolean(custom?.has_en))
@@ -183,7 +189,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
         form.set('footer_text', footer)
         if (logoFile) form.set('logo', logoFile)
         else if (logoClear) form.set('logo_clear', '1')
-        req = previewEmailWithLayout(
+        req = previewEmailDraft(
           previewRef.kind === 'custom' ? { id: previewRef.id } : { key: previewRef.key },
           form,
         )
@@ -211,7 +217,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
     // `layoutKey` resume lo tecleado en «Aspecto»; las piezas sueltas se leen
     // dentro, al pedirla.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewRef, previewId, templates, lang, row?.updated_at, section, layoutKey])
+  }, [previewRef, previewId, templates, lang, row?.updated_at, section, reminderView, layoutKey])
 
   // --- Calendario en vivo --------------------------------------------------
   const liveCfg = useMemo<KmRemindConfig>(
@@ -252,6 +258,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
     try {
       const form = new FormData()
       if (section === 'reminder') {
+        form.set('km_remind_enabled', kmEnabled ? 'true' : 'false')
         form.set('km_remind_from_day', fromDay)
         form.set('km_remind_until_day', untilDay)
         form.set('km_remind_mode', mode)
@@ -362,18 +369,45 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
 
       {section === 'reminder' ? (
         <>
-          <div className="email-settings-grid is-reminder">
-            <form
-              className="email-settings-form"
-              onSubmit={(e) => {
-                e.preventDefault()
-                void save()
-              }}
+          <div className="seg-switch es-views" role="tablist" aria-label={t.reminderTab}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={reminderView === 'schedule'}
+              className={reminderView === 'schedule' ? 'is-active' : ''}
+              onClick={() => setReminderView('schedule')}
             >
-              <h3>{t.reminder.title}</h3>
+              {t.reminder.title}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={reminderView === 'email'}
+              className={reminderView === 'email' ? 'is-active' : ''}
+              onClick={() => setReminderView('email')}
+            >
+              {t.reminder.templateTitle}
+            </button>
+          </div>
+          {reminderView === 'schedule' ? (
+          <form
+            className="es-reminder"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void save()
+            }}
+          >
+            <div className="es-reminder-intro">
               <p className="muted">{t.reminder.intro}</p>
+              <label className="baja-toggle es-toggle es-toggle-main">
+                <input type="checkbox" checked={kmEnabled} onChange={(e) => setKmEnabled(e.target.checked)} />
+                <span>
+                  <strong>{t.reminder.enabled}</strong>
+                  <span className="muted"> · {kmEnabled ? t.reminder.enabledOn : t.reminder.enabledOff}</span>
+                </span>
+              </label>
 
-              <fieldset className="es-fieldset">
+              <fieldset className="es-fieldset" disabled={!kmEnabled}>
                 <legend>{t.reminder.windowTitle}</legend>
                 <div className="es-window">
                   <span>{t.reminder.fromDay}</span>
@@ -402,9 +436,10 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
                   <span className="muted">{t.reminder.untilDayHint}</span>
                 </div>
               </fieldset>
+            </div>
 
-              <fieldset className="es-fieldset">
-                <legend>{t.reminder.cadenceTitle}</legend>
+            <fieldset className="es-fieldset es-reminder-cadence" disabled={!kmEnabled}>
+              <legend>{t.reminder.cadenceTitle}</legend>
                 <div className="es-modes" role="radiogroup" aria-label={t.reminder.cadenceTitle}>
                   {MODES.map((m) => (
                     <label key={m} className={`es-mode${mode === m ? ' is-active' : ''}`}>
@@ -439,17 +474,22 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
                     </label>
                   ))}
                 </div>
-              </fieldset>
+            </fieldset>
+            <div className="es-reminder-foot">
               <p className="muted">{t.reminder.stopHint}</p>
               <div className="form-actions">
                 <Button type="submit" variant="primary" disabled={saving || tooMany}>
                   {saving ? t.saving : t.save}
                 </Button>
               </div>
-            </form>
+            </div>
 
-            <aside className="email-settings-schedule" aria-live="polite">
+            <aside
+              className={`email-settings-schedule es-reminder-schedule${kmEnabled ? '' : ' is-off'}`}
+              aria-live="polite"
+            >
               <strong>{t.reminder.scheduleTitle}</strong>
+              {!kmEnabled && <Panel tone="warning">{t.reminder.scheduleOff}</Panel>}
               <p className="es-summary">
                 {t.reminder.scheduleSummary(
                   schedule.length,
@@ -480,11 +520,10 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
                 </ol>
               </details>
             </aside>
-          </div>
-
+          </form>
+          ) : (
           <div className="email-settings-template">
             <div className="es-template-head">
-              <h3>{t.reminder.templateTitle}</h3>
               <Badge tone={kmTemplate ? 'brand' : 'neutral'}>
                 {kmTemplate ? t.reminder.customBadge : t.reminder.genericBadge}
               </Badge>
@@ -496,6 +535,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
             <p className="muted field-hint">{t.reminder.variablesHint}</p>
             {previewFrame(t.reminder.templateTitle)}
           </div>
+          )}
         </>
       ) : (
         <div className="email-settings-grid is-layout">

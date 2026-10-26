@@ -431,11 +431,27 @@ Dos capas que van **siempre juntas**:
   La pestaña de cada tipo lo dice («· genérica» / «· personalizada»), el
   editor de un tipo sin personalizar arranca con su genérica y «Guardar como
   personalizada» crea la fila (o restaura la retirada, que `key` es única).
+  Esa pantalla lleva las pestañas en **dos niveles** bajo las de Ajustes:
+  tres grupos con subrayado —Trazas, Configuración, Plantillas por tipo de
+  correo— y, debajo, las pestañas del grupo activo como chips
+  (`SettingsSubtabs` con `variant="pills"`); un grupo de una sola pestaña no
+  pinta la fila, y volver a un grupo devuelve a la última pestaña visitada en
+  él. «Recordatorio de km» tiene a su vez **dos vistas** en un conmutador
+  (`seg-switch`): «Cuándo y cuántas veces se avisa al conductor» (plazo,
+  cadencia y calendario) y «Correo que recibirá el conductor» (qué versión
+  está en uso y su vista previa, que solo se pide al entrar en esa vista).
   En «Aspecto» la vista previa va **en vivo**: lo tecleado (nombre, color,
   pie, el logotipo recién elegido) viaja con la petición de vista previa
   (`LAYOUT_OVERRIDES` de `EmailTemplateViewSet`, sobre una fila sin guardar)
   con 400 ms de respiro, y la columna de la vista previa se queda a la vista
-  (`sticky`) mientras se baja por el formulario.
+  (`sticky`) mientras se baja por el formulario. El **editor de plantillas**
+  va igual, en dos columnas: a la derecha el correo entero de lo que se está
+  escribiendo (`previewEmailDraft`: `subject`, `body_html` y `signature` sin
+  guardar, el cuerpo pasado por el mismo nh3 que al guardar), así que ya no
+  hay botón ni modal de «Previsualizar». Y el recordatorio de km tiene su
+  **interruptor** (`EmailSettings.km_remind_enabled`): apagado,
+  `check_km_readings` no abre avisos ni encola correos, pero la
+  reconciliación sigue cerrando los abiertos cuando llega la lectura.
 - **Trabajos programados**: `management/commands/` (`refresh_next_itv`,
   `check_itv`, `check_insurance`, `check_no_driver`, `remind_km_readings`,
   `check_km_overage`, `check_maintenance`, `archive_pending_documents`,
@@ -694,14 +710,16 @@ Dos capas que van **siempre juntas**:
   para ver lo que hay que atender; exigirlos a la vez no dejaría casi nada) y el
   cálculo del próximo mantenimiento vive en `maintenanceDue.ts`, compartido por
   las dos pantallas para que no cuenten distinto.
-- **La barra de búsqueda y filtros se pliega, y es la MISMA en las tres
+- **La barra de búsqueda y filtros se pliega, y es la MISMA en las cuatro
   pantallas que la llevan** (`components/FiltersAccordion.tsx`: el panel,
-  el inventario y **personas** —`/conductores`—). Nació en el panel como
-  `.dash-tools` y se extrajo al pedirla las otras dos: tres copias del mismo
-  plegado acabarían comportándose distinto. Lo que cambia entre ellas es con
-  qué estado **nace**: en el panel, **plegada** (ahí se viene a leer el panel,
-  no a filtrar) y en el inventario y personas, **abierta** (ahí se filtra a
-  diario). Se pliega para darle a la tabla el alto de la pantalla.
+  el inventario, **personas** —`/conductores`— y **Kilómetros**, donde
+  envuelve la `TableInfoBar` de cada pestaña y deja fuera, en su fila, el
+  mes, la proyección y «Exportar CSV»). Nació en el panel como `.dash-tools`
+  y se extrajo al pedirla las otras: copias del mismo plegado acabarían
+  comportándose distinto. **Nace plegada en las cuatro**: lo que se viene a
+  leer es la tabla, y le deja el alto de la pantalla; el inventario y
+  personas nacían abiertas y se plegaron a petición. Un snapshot de «volver
+  a donde estábamos» del inventario la trae como se dejó.
   Dos cosas **no** se esconden al plegar, y son el motivo de que la cabecera
   sea una fila y no solo un botón: lo que se **hace** con la tabla que se está
   mirando («Exportar CSV» en el panel, por la prop `actions`; un botón dentro
@@ -717,7 +735,7 @@ Dos capas que van **siempre juntas**:
   plegarla es una decisión sobre la vista como el filtro o el scroll, así que
   va en el **mismo snapshot** de «volver a donde estábamos» (`toolsOpen` de
   `VehiclesView`, en `sessionStorage`); un snapshot anterior a esto no trae la
-  clave y la barra sale abierta.
+  clave y la barra sale como de salida, plegada.
 - **«Resolver» es un único gesto** en gestión: `components/resolve/ResolveDispatcher`
   recibe un `ResolveTarget` (alerta o incidencia) y monta el formulario
   específico del tipo (`resolveFlow.ts` decide: ITV → `RegisterItvForm`,

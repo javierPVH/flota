@@ -2778,25 +2778,27 @@ table.data tbody tr:hover {
   border-bottom-color: var(--color-brand);
 }
 .settings-subtab-suffix { color: var(--color-text-muted); font-weight: 500; }
-/* Pestañas agrupadas (Ajustes → Correo): un rótulo delante del primer item de
-   cada grupo y un filete entre grupos. El rótulo va en la misma línea base que
-   las pestañas, más tenue y en versalitas, para que se lea como cabecera de
-   tramo y no como una pestaña más. */
-.settings-subtabs.is-grouped { gap: 0; align-items: flex-end; }
-.settings-subtab-slot { display: inline-flex; align-items: flex-end; }
-.settings-subtab-slot.starts-group { margin-left: 1.1rem; padding-left: 1.1rem; border-left: 1px solid var(--color-border); }
-.settings-subtab-slot.starts-group:first-child { margin-left: 0; padding-left: 0; border-left: 0; }
-.settings-subtab-group {
-  align-self: center;
-  margin-right: 0.35rem;
-  padding-bottom: 0.1rem;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+/* Tercer nivel (Ajustes → Correo: las pestañas de un grupo): chips. El
+   activo va relleno en el color de marca para no confundirse con el
+   subrayado del grupo, justo encima. */
+.settings-pills { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: -0.35rem 0 1rem; }
+.settings-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
   color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
   white-space: nowrap;
 }
+.settings-pill:hover { color: var(--color-text); border-color: var(--color-text-muted); }
+.settings-pill.is-active { background: var(--color-brand); border-color: var(--color-brand); color: #fff; }
+.settings-pill.is-active .settings-subtab-suffix { color: rgba(255, 255, 255, 0.8); }
 .settings-subtab-badge {
   min-width: 1.35rem;
   padding: 0 0.35rem;
@@ -2815,6 +2817,10 @@ table.data tbody tr:hover {
 /* Acciones dentro de la franja de opciones (TableInfoBar): SIEMPRE al final
    (order alto) para que el buscador quede pegado a Registros y los botones a la
    derecha. `filters-bar--panel` ordena buscar/role en 2, así que aquí ≥3. */
+/* Acciones a la derecha del acordeón de filtros (Kilómetros: el mes, la
+   proyección y «Exportar CSV»), en la misma fila que el botón de plegar. */
+.filters-acc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-left: auto; }
+
 .table-info-bar-actions {
   order: 5;
   display: flex;
@@ -6652,11 +6658,30 @@ kbd {
   gap: 1.5rem 2rem;
   align-items: start;
 }
-/* El recordatorio: el formulario a la izquierda y, a su derecha, el
-   calendario del mes que resulta; los dos a lo ancho, que antes el
-   formulario se quedaba en una columna de 420px con media pantalla vacía. */
-.email-settings-grid.is-reminder { grid-template-columns: minmax(340px, 1.1fr) minmax(320px, 1fr); }
-@media (max-width: 1000px) { .email-settings-grid, .email-settings-grid.is-reminder { grid-template-columns: 1fr; } }
+@media (max-width: 1000px) { .email-settings-grid { grid-template-columns: 1fr; } }
+/* El recordatorio son DOS filas: arriba, título + intro + plazo a la
+   izquierda y el calendario del mes a la derecha; debajo, la cadencia a todo
+   el ancho (cuatro tarjetas, que en media columna se apilaban y el texto del
+   contador se partía en una palabra por línea). */
+.es-reminder {
+  display: grid;
+  grid-template-columns: minmax(340px, 1fr) minmax(340px, 1fr);
+  grid-template-areas:
+    'intro schedule'
+    'cadence cadence'
+    'foot foot';
+  gap: 1.25rem 2rem;
+  align-items: start;
+}
+@media (max-width: 1000px) {
+  .es-reminder { grid-template-columns: 1fr; grid-template-areas: 'intro' 'schedule' 'cadence' 'foot'; }
+}
+.es-reminder-intro { grid-area: intro; display: flex; flex-direction: column; gap: 0.75rem; }
+.es-reminder-intro h3 { margin: 0; font-size: 1rem; }
+.es-reminder-schedule { grid-area: schedule; }
+.es-reminder-cadence { grid-area: cadence; }
+.es-reminder-foot { grid-area: foot; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
+.es-reminder-foot p { margin: 0; }
 .email-settings-form { display: flex; flex-direction: column; gap: 0.75rem; }
 .email-settings-form h3, .email-settings-preview h3, .email-settings-template h3, .email-settings-preview-col h3 { margin: 0; font-size: 1rem; }
 .email-settings-form .field-hint, .email-settings-template .field-hint { margin: -0.4rem 0 0; font-size: 0.8rem; }
@@ -6670,14 +6695,14 @@ kbd {
 .es-window > span:last-child { font-size: 0.8rem; }
 .es-window input { text-align: center; }
 /* La cadencia son tarjetas de radio: se lee de un vistazo cuál está puesta. */
-.es-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.5rem; }
+.es-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.6rem; align-items: stretch; }
 .es-mode { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.55rem 0.65rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; background: var(--color-surface); }
 .es-mode:hover { border-color: var(--color-text-muted); }
 .es-mode.is-active { border-color: var(--color-brand); background: var(--color-brand-soft, var(--color-surface-soft)); box-shadow: inset 0 0 0 1px var(--color-brand); }
 .es-mode input[type='radio'] { margin-top: 0.2rem; accent-color: var(--color-brand); }
 .es-mode-body { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.86rem; min-width: 0; }
 .es-mode-body > .muted { font-size: 0.78rem; }
-.es-count { display: grid; grid-template-columns: 5rem minmax(0, 1fr); align-items: center; gap: 0.5rem; margin-top: 0.35rem; font-size: 0.78rem; }
+.es-count { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); align-items: center; gap: 0.6rem; margin-top: 0.5rem; font-size: 0.78rem; line-height: 1.3; }
 .es-count input { text-align: center; }
 .es-count .form-error { margin: 0; padding: 0.15rem 0.4rem; font-size: 0.76rem; }
 
@@ -6712,9 +6737,23 @@ kbd {
 .es-dates ol { margin: 0.4rem 0 0; padding-left: 1.25rem; columns: 2; font-size: 0.84rem; }
 
 /* El correo que recibirá el conductor: a lo ancho, bajo plazo y calendario. */
-.email-settings-template { display: flex; flex-direction: column; gap: 0.6rem; padding-top: 1.25rem; border-top: 1px solid var(--color-border); }
+.email-settings-template { display: flex; flex-direction: column; gap: 0.6rem; }
+/* Las dos vistas del recordatorio (cuándo se avisa / qué correo sale). */
+.es-views { align-self: flex-start; }
 .es-template-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
 .es-template-head > .muted { flex: 1 1 240px; font-size: 0.86rem; }
+
+/* El editor de plantillas en dos columnas: a la izquierda el editor y a la
+   derecha la vista previa en vivo, que se queda a la vista (sticky) mientras
+   se baja por el editor. */
+.tpl-editor-grid { display: grid; grid-template-columns: minmax(380px, 1.1fr) minmax(360px, 1fr); gap: 1.25rem; align-items: start; }
+@media (max-width: 1100px) { .tpl-editor-grid { grid-template-columns: 1fr; } }
+.tpl-preview { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.tpl-preview h3 { margin: 0; font-size: 1rem; }
+.tpl-preview .email-settings-frame { min-height: 620px; }
+@media (max-width: 1100px) { .tpl-preview { position: static; } }
+.es-toggle-main { padding: 0.55rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-soft); }
+.email-settings-schedule.is-off .es-calendars, .email-settings-schedule.is-off .es-summary, .email-settings-schedule.is-off .es-legend { opacity: 0.45; }
 
 /* Chapa de versión en el editor de plantillas (personalizada / genérica). */
 .tpl-version { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); background: var(--color-surface-soft); font-size: 0.86rem; margin-bottom: 0.9rem; }

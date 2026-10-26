@@ -206,7 +206,7 @@ describe('DashboardPage (vista general)', () => {
     expect(await screen.findByText('destino:/vehiculos:true')).toBeInTheDocument()
   })
 
-  it('«Añadir conductor» lleva a Conductores con la misma advertencia', async () => {
+  it('«Añadir conductor» lleva a Usuarios con la misma advertencia', async () => {
     function Destino() {
       const { pathname, state } = useLocation()
       return <p>{`destino:${pathname}:${(state as { crear?: boolean } | null)?.crear ?? false}`}</p>
@@ -226,7 +226,7 @@ describe('DashboardPage (vista general)', () => {
     await screen.findByText('Vista general')
 
     await userEvent.click(screen.getByRole('button', { name: /Añadir conductor/ }))
-    expect(await screen.findByText(/pantalla de Conductores/)).toBeInTheDocument()
+    expect(await screen.findByText(/pantalla de Usuarios/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Ir y crear' }))
     expect(await screen.findByText('destino:/conductores:true')).toBeInTheDocument()
   })

@@ -3276,13 +3276,32 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     def _preview_of(self, request, template: EmailTemplate) -> dict:
         """El render con datos de ejemplo de una plantilla, guardada o genérica,
         en la versión que se esté editando (`lang`) y con los ajustes de
-        aspecto que traiga la petición puestos encima."""
+        aspecto que traiga la petición puestos encima.
+
+        Admite también el **texto sin guardar** del editor (`subject`,
+        `body_html`, `signature`): la columna de vista previa del editor
+        enseña lo que se está escribiendo, y el cuerpo pasa por el mismo
+        saneado (nh3) que al guardar, así que lo que se ve es lo que saldría.
+        """
         from .services import email_layout, mailer
 
         raw_subject, raw_body = template.parts(self._edited_lang(request))
+        datos = request.data
+        if "subject" in datos:
+            raw_subject = str(datos["subject"])[:200]
+        if "body_html" in datos:
+            raw_body = sanitize_email_html(str(datos["body_html"]))
+        signature = template.signature
+        if "signature" in datos:
+            sig_id = str(datos["signature"] or "")
+            signature = (
+                EmailSignature.objects.filter(pk=sig_id, is_active=True).first()
+                if sig_id.isdigit()
+                else None
+            )
         body = mailer.render(raw_body, self.SAMPLE_CONTEXT)
-        if template.signature is not None and template.signature.is_active:
-            body += template.signature.body_html
+        if signature is not None and signature.is_active:
+            body += signature.body_html
         subject = mailer.render(raw_subject, self.SAMPLE_CONTEXT)
         cfg, logo = self._layout_override(request)
         # `document_html`: el correo ENTERO tal y como saldrá, con la caja

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   listEmailSignatures: vi.fn(),
   listEmailLogs: vi.fn(),
   listEmailTemplateDefaults: vi.fn(),
+  previewEmailDraft: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -18,6 +19,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listEmailSignatures: mocks.listEmailSignatures,
   listEmailLogs: mocks.listEmailLogs,
   listEmailTemplateDefaults: mocks.listEmailTemplateDefaults,
+  previewEmailDraft: mocks.previewEmailDraft,
 }))
 
 const page = (rows: unknown[]) => ({ count: rows.length, next: null, previous: null, results: rows })
@@ -69,6 +71,12 @@ describe('EmailTemplatesPage (plantillas de correo)', () => {
     mocks.listEmailTemplates.mockResolvedValue(page([PLANTILLA]))
     mocks.listEmailSignatures.mockResolvedValue(page([]))
     mocks.listEmailLogs.mockResolvedValue(page([ENVIO_VARIOS, ENVIO_ITV]))
+    mocks.previewEmailDraft.mockReset()
+    mocks.previewEmailDraft.mockResolvedValue({
+      subject: 'Asunto de prueba',
+      body_html: '<p>Hola</p>',
+      document_html: '<html><body><p>Hola</p></body></html>',
+    })
     mocks.listEmailTemplateDefaults.mockResolvedValue([
       {
         key: 'itv_due',
@@ -81,18 +89,24 @@ describe('EmailTemplatesPage (plantillas de correo)', () => {
     ])
   })
 
-  it('agrupa las pestañas y dice qué versión está en uso en cada tipo', async () => {
+  it('pestañas en dos niveles: el grupo arriba y, debajo, sus pestañas con la versión en uso', async () => {
     renderPage()
+    // De salida, el grupo «Trazas» con su única pestaña: no hay fila de chips.
+    expect(await screen.findByRole('tab', { name: /Trazas/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('tab', { name: /Seguro/ })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: /Plantillas por tipo de correo/ }))
     const seguro = await screen.findByRole('tab', { name: /Seguro/ })
     expect(seguro).toHaveTextContent('personalizada')
     expect(screen.getByRole('tab', { name: /ITV/ })).toHaveTextContent('genérica')
-    // Los tres rótulos de grupo, delante de su primer item.
-    expect(screen.getByText('Configuración')).toBeInTheDocument()
-    expect(screen.getByText('Plantillas por tipo de correo')).toBeInTheDocument()
+    // Configuración tiene dos: recordatorio y aspecto.
+    await userEvent.click(screen.getByRole('tab', { name: /Configuración/ }))
+    expect(await screen.findByRole('tab', { name: /Recordatorio de km/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Aspecto del correo/ })).toBeInTheDocument()
   })
 
   it('un tipo sin personalizar abre el editor con su genérica y guarda como personalizada', async () => {
     renderPage()
+    await userEvent.click(await screen.findByRole('tab', { name: /Plantillas por tipo de correo/ }))
     await userEvent.click(await screen.findByRole('tab', { name: /ITV/ }))
     expect(await screen.findByDisplayValue('ITV próxima · {{matricula}}')).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: /Cuerpo/ })).toHaveTextContent('La ITV vence')
@@ -165,6 +179,7 @@ describe('EmailTemplatesPage (plantillas de correo)', () => {
 
   it('enseña qué variables hay y las pega en el asunto donde está el cursor', async () => {
     renderPage()
+    await userEvent.click(await screen.findByRole('tab', { name: /Plantillas por tipo de correo/ }))
     await userEvent.click(await screen.findByRole('tab', { name: /Seguro/ }))
 
     // Cada variable dice qué es, además de cómo se escribe.
@@ -179,6 +194,25 @@ describe('EmailTemplatesPage (plantillas de correo)', () => {
     await userEvent.click(chip)
     await waitFor(() =>
       expect(screen.getByDisplayValue(/Renovación de seguro · \{\{matricula\}\}/)).toBeInTheDocument(),
+    )
+  })
+
+  it('el editor lleva al lado la vista previa de lo que se escribe, sin guardar', async () => {
+    renderPage()
+    await userEvent.click(await screen.findByRole('tab', { name: /Plantillas por tipo de correo/ }))
+    await userEvent.click(await screen.findByRole('tab', { name: /Seguro/ }))
+    // La primera, con lo que hay; tras teclear en el asunto, con el borrador.
+    await waitFor(() => expect(mocks.previewEmailDraft).toHaveBeenCalled())
+    expect(mocks.previewEmailDraft.mock.calls[0][0]).toEqual({ id: 7 })
+    const asunto = screen.getByDisplayValue(/Renovación de seguro/)
+    await userEvent.type(asunto, 'X')
+    await waitFor(() => {
+      const ultima = mocks.previewEmailDraft.mock.calls.at(-1)?.[1] as FormData
+      expect(ultima.get('subject')).toMatch(/X$/)
+    })
+    expect(await screen.findByTitle('Previsualización')).toHaveAttribute(
+      'srcdoc',
+      expect.stringContaining('<p>Hola</p>'),
     )
   })
 })

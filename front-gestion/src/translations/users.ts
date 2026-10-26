@@ -1,7 +1,7 @@
 import { useAppLang } from '@flota/ui/i18n'
 
 const es = {
-  title: 'Conductores y usuarios',
+  title: 'Usuarios',
   subtitle: 'Altas, roles y estado de las personas de la flota.',
   exportCsv: 'Exportar CSV',
   importBtn: 'Importar',
@@ -114,7 +114,7 @@ const es = {
 }
 
 const en: typeof es = {
-  title: 'Drivers and users',
+  title: 'Users',
   subtitle: 'Onboarding, roles and status of fleet staff.',
   exportCsv: 'Export CSV',
   importBtn: 'Import',

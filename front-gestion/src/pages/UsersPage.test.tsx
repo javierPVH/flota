@@ -70,8 +70,16 @@ async function desplegar() {
   return cabecera
 }
 
+/** Despliega la barra de filtros, que nace plegada. */
+function abrirBarra() {
+  const cabecera = screen.getByRole('button', { name: /Buscar y filtrar/ })
+  if (cabecera.getAttribute('aria-expanded') !== 'true') fireEvent.click(cabecera)
+  return cabecera
+}
+
 /** Teclea en la barra de filtros de la página (no en la del modal de exportar). */
 function buscar(container: HTMLElement, texto: string) {
+  abrirBarra()
   const input = container.querySelector('#users-search') as HTMLInputElement
   fireEvent.change(input, { target: { value: texto } })
 }
@@ -98,6 +106,7 @@ describe('UsersPage — la cuenta del sistema y la propia van aparte', () => {
     const todas = screen.getAllByText('Carlos Ruiz')
     expect(todas).toHaveLength(1)
     expect(screen.getAllByText('Alicia')).toHaveLength(1)
+    abrirBarra()
     expect(container.querySelector('.filter-count')?.textContent).toBe('1')
   })
 
@@ -170,6 +179,7 @@ describe('UsersPage — la cuenta del sistema y la propia van aparte', () => {
   it('el filtro por rol separa en dos grupos y combina también con HSE', async () => {
     const { container } = renderPage()
     await screen.findByText('Carlos Ruiz')
+    abrirBarra()
 
     const select = container.querySelector('.role-filter select') as HTMLSelectElement
     const grupos = [...select.querySelectorAll('optgroup')].map((g) => g.label)
@@ -220,18 +230,14 @@ describe('UsersPage — la cuenta del sistema y la propia van aparte', () => {
     expect(ownTable().queryByText('Alicia')).not.toBeInTheDocument()
   })
 
-  it('la barra de filtros nace ABIERTA y se puede plegar', async () => {
+  it('la barra de filtros nace PLEGADA y se puede desplegar', async () => {
     const { container } = renderPage()
     await screen.findByText('Carlos Ruiz')
 
-    // Al revés que la del panel: aquí se filtra a diario.
+    // Como la del panel: lo que se viene a leer es la tabla.
     const cabecera = screen.getByRole('button', { name: /Buscar y filtrar/ })
-    expect(cabecera).toHaveAttribute('aria-expanded', 'true')
-    expect(container.querySelector('#users-search')).toBeInTheDocument()
-
-    fireEvent.click(cabecera)
     expect(cabecera).toHaveAttribute('aria-expanded', 'false')
-    // El cuerpo se desmonta: el buscador deja de estar en el árbol.
+    // El cuerpo no está montado: el buscador no está en el árbol.
     expect(container.querySelector('#users-search')).toBeNull()
     // Pero el recuento sigue leyéndose en la cabecera, que es lo que la barra
     // dejaría de contar al cerrarse.
@@ -248,7 +254,7 @@ describe('UsersPage — la cuenta del sistema y la propia van aparte', () => {
     // Sin filtros no hay nada que avisar.
     expect(within(cabecera).queryByText('filtros activos')).not.toBeInTheDocument()
 
-    buscar(container, 'carlos')
+    buscar(container, 'carlos') // despliega y teclea
     // Desplegada tampoco: los filtros puestos se ven.
     expect(within(cabecera).queryByText('filtros activos')).not.toBeInTheDocument()
 

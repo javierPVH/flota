@@ -14,7 +14,7 @@ const es = {
     nav: {
       panel: 'Panel',
       vehicles: 'Vehículos',
-      drivers: 'Conductores',
+      drivers: 'Usuarios',
       mileage: 'Kilometraje',
       alerts: 'Alertas',
       requests: 'Solicitudes',
@@ -146,7 +146,7 @@ const es = {
     addVehicleConfirm:
       'El alta se hace en la pantalla de Vehículos. Te llevamos allí y abrimos el formulario de «Nuevo vehículo».',
     addDriverConfirm:
-      'El alta se hace en la pantalla de Conductores. Te llevamos allí y abrimos el formulario de «Nuevo usuario».',
+      'El alta se hace en la pantalla de Usuarios. Te llevamos allí y abrimos el formulario de «Nuevo usuario».',
     addConfirmGo: 'Ir y crear',
     kpiVehicles: 'Vehículos',
     kpiVehiclesSub: (active: number, shop: number) => `${active} activos · ${shop} en taller`,
@@ -358,7 +358,7 @@ const en: typeof es = {
     nav: {
       panel: 'Overview',
       vehicles: 'Vehicles',
-      drivers: 'Drivers',
+      drivers: 'Users',
       mileage: 'Mileage',
       alerts: 'Alerts',
       requests: 'Requests',
@@ -480,7 +480,7 @@ const en: typeof es = {
     addVehicleConfirm:
       'Vehicles are created on the Vehicles screen. We will take you there and open the «New vehicle» form.',
     addDriverConfirm:
-      'Drivers are created on the Drivers screen. We will take you there and open the «New user» form.',
+      'Drivers are created on the Users screen. We will take you there and open the «New user» form.',
     addConfirmGo: 'Go and create',
     kpiVehicles: 'Vehicles',
     kpiVehiclesSub: (active, shop) => `${active} active · ${shop} in shop`,

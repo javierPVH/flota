@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Badge, Button, Modal, PageHeader, Panel, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Modal, PageHeader, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import {
@@ -25,8 +25,7 @@ import {
   listEmailSignatures,
   listEmailTemplateDefaults,
   listEmailTemplates,
-  previewDefaultEmailTemplate,
-  previewEmailTemplate,
+  previewEmailDraft,
   sendTestDefaultEmail,
   sendTestEmail,
   updateEmailSignature,
@@ -55,6 +54,14 @@ const LOGS_TAB = 'logs'
 const REMINDER_TAB = 'recordatorio'
 const LAYOUT_TAB = 'aspecto'
 const SETTINGS_TABS = new Set([REMINDER_TAB, LAYOUT_TAB])
+
+// Dos niveles: tres GRUPOS (trazas, configuración, plantillas por tipo) y,
+// dentro de cada uno, sus pestañas. Con las diez seguidas no se distinguía qué
+// era un ajuste, qué una plantilla y qué la traza de envíos.
+type TabGroup = 'log' | 'settings' | 'templates'
+const GROUPS: TabGroup[] = ['log', 'settings', 'templates']
+const groupOf = (tab: string): TabGroup =>
+  tab === LOGS_TAB ? 'log' : SETTINGS_TABS.has(tab) ? 'settings' : 'templates'
 
 // Tipos de plantilla (lista cerrada del back). Cada uno tiene su versión
 // GENÉRICA (`/email-templates/defaults/`), que es la que sale mientras no se
@@ -131,7 +138,15 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
    * plantilla, y salir con cambios pendientes pide confirmación.
    */
   const [dirty, setDirty] = useState(false)
-  const [preview, setPreview] = useState<EmailPreview | null>(null)
+  // La vista previa de lo que se está escribiendo, en la columna de la
+  // derecha: se pide al back (que es quien sanea y maqueta) con un respiro de
+  // 500 ms entre teclas, y se guarda con la pestaña que la pidió para no
+  // enseñar la de otra plantilla mientras llega la suya.
+  const [preview, setPreview] = useState<{ tab: string; data: EmailPreview | null; error: string }>({
+    tab: '',
+    data: null,
+    error: '',
+  })
 
   // Firmas
   const [signatureModal, setSignatureModal] = useState(false)
@@ -323,6 +338,31 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     setActiveTab(next)
   }
 
+  // La última pestaña visitada de cada grupo: volver a un grupo devuelve a
+  // donde se estaba, no siempre a la primera.
+  const lastInGroup = useRef<Record<TabGroup, string>>({
+    log: LOGS_TAB,
+    settings: REMINDER_TAB,
+    templates: TEMPLATE_KEYS[0],
+  })
+  const activeGroup = groupOf(activeTab)
+  useEffect(() => {
+    lastInGroup.current[activeGroup] = activeTab
+  }, [activeGroup, activeTab])
+  const groupItems: Record<TabGroup, Array<{ key: string; label: string; suffix?: string }>> = {
+    log: [{ key: LOGS_TAB, label: t.logsTitle }],
+    settings: [
+      { key: REMINDER_TAB, label: ts.reminderTab },
+      { key: LAYOUT_TAB, label: ts.layoutTab },
+    ],
+    templates: TEMPLATE_KEYS.map((key) => ({
+      key,
+      label: t.templateKeys[key] ?? key,
+      // Qué versión está en uso: la personalizada o la genérica.
+      suffix: templates.some((tpl) => tpl.key === key) ? `· ${ts.tabCustom}` : `· ${ts.tabGeneric}`,
+    })),
+  }
+
   /** Cambia de idioma guardando lo escrito antes de cargar la otra versión. */
   function switchLang(next: 'es' | 'en') {
     if (next === editLang) return
@@ -430,14 +470,38 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     }
   }
 
-  async function handlePreview() {
-    try {
-      if (active) setPreview(await previewEmailTemplate(active.id, editLang))
-      else if (activeDefault) setPreview(await previewDefaultEmailTemplate(activeDefault.key, editLang))
-    } catch (err) {
-      setError(asErrorMessage(err, t.previewError))
+  // Vista previa en vivo del editor (A9: lo escrito vive en estado, así que
+  // se puede pedir sin leer el DOM).
+  const draftKey = `${subject}\u0000${subjectEn}\u0000${bodyEs}\u0000${bodyEn}\u0000${signatureId}\u0000${editLang}`
+  useEffect(() => {
+    if (isLogs || isSettings || (!active && !activeDefault)) return
+    const target = active ? { id: active.id } : { key: activeTab }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      const form = new FormData()
+      form.set('lang', editLang)
+      if (!active) form.set('key', activeTab)
+      form.set('subject', editLang === 'es' ? subject : subjectEn || subject)
+      form.set('body_html', editLang === 'es' ? bodyEs : bodyEn || bodyEs)
+      form.set('signature', signatureId)
+      previewEmailDraft(target, form)
+        .then((data) => {
+          if (!cancelled) setPreview({ tab: activeTab, data, error: '' })
+        })
+        .catch((err) => {
+          if (!cancelled)
+            setPreview({ tab: activeTab, data: null, error: asErrorMessage(err, tRef.current.previewError) })
+        })
+    }, 500)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
     }
-  }
+    // `draftKey` resume el texto del editor; las piezas se leen dentro.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLogs, isSettings, active, activeDefault, activeTab, draftKey])
+  const livePreview = preview.tab === activeTab ? preview.data : null
+  const livePreviewError = preview.tab === activeTab ? preview.error : ''
 
   /** Retira la personalizada (N7): el tipo vuelve a su versión genérica. */
   async function handleRestoreDefault() {
@@ -509,23 +573,27 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
       {error && <div role="alert" className="form-error">{error}</div>}
       {notice && <p role="status" className="muted">{notice}</p>}
 
+      {/* Nivel 1: el grupo. Nivel 2: sus pestañas, como chips; con una sola
+          (Trazas) la fila sobra, que no hay nada que elegir. */}
       <SettingsSubtabs
         ariaLabel={t.title}
-        active={activeTab}
-        onChange={switchTab}
-        items={[
-          { key: LOGS_TAB, label: t.logsTitle, group: ts.groups.log },
-          { key: REMINDER_TAB, label: ts.reminderTab, group: ts.groups.settings },
-          { key: LAYOUT_TAB, label: ts.layoutTab, group: ts.groups.settings },
-          ...TEMPLATE_KEYS.map((key) => ({
-            key,
-            label: t.templateKeys[key] ?? key,
-            group: ts.groups.templates,
-            // Qué versión está en uso: la personalizada o la genérica.
-            suffix: templates.some((tpl) => tpl.key === key) ? `· ${ts.tabCustom}` : `· ${ts.tabGeneric}`,
-          })),
-        ]}
+        active={activeGroup}
+        onChange={(group) => switchTab(lastInGroup.current[group as TabGroup])}
+        items={GROUPS.map((group) => ({
+          key: group,
+          label: ts.groups[group],
+          badge: group === 'templates' ? templates.length : undefined,
+        }))}
       />
+      {groupItems[activeGroup].length > 1 && (
+        <SettingsSubtabs
+          variant="pills"
+          ariaLabel={ts.groups[activeGroup]}
+          active={activeTab}
+          onChange={switchTab}
+          items={groupItems[activeGroup]}
+        />
+      )}
 
       {isSettings ? (
         <EmailSettingsPanel
@@ -600,6 +668,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
           />
         </section>
       ) : (
+      <div className="tpl-editor-grid">
       <section className="card">
         {/* Qué versión está en uso para este tipo: la personalizada (y cómo
             volver a la genérica) o la genérica (y que guardar la personaliza). */}
@@ -738,9 +807,6 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
                 {t.editSignature}
               </Button>
             )}
-            <Button variant="secondary" disabled={!active && !activeDefault} onClick={handlePreview}>
-              {t.preview}
-            </Button>
             <Button variant="secondary" disabled={!active && !activeDefault} onClick={handleTest}>
               {t.sendTest}
             </Button>
@@ -752,6 +818,34 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         </div>
         <p className="muted">{t.sanitizeHint}</p>
       </section>
+
+      {/* La vista previa de lo que se está escribiendo: el correo ENTERO
+          (caja corporativa y logotipo) en un iframe aislado. Se queda a la
+          vista mientras se baja por el editor. */}
+      <aside className="card tpl-preview">
+        <div className="es-template-head">
+          <h3>{t.previewTitle}</h3>
+          <span className="muted">{t.previewLive}</span>
+          {dirty && <span className="tpl-dirty">{t.unsavedBadge}</span>}
+        </div>
+        {livePreviewError && <div role="alert" className="form-error">{livePreviewError}</div>}
+        {livePreview ? (
+          <>
+            <p className="muted">
+              {t.previewSubject} <strong>{livePreview.subject}</strong>
+            </p>
+            <iframe
+              className="email-settings-frame"
+              title={t.previewTitle}
+              sandbox=""
+              srcDoc={livePreview.document_html}
+            />
+          </>
+        ) : (
+          !livePreviewError && <p className="muted">{t.previewLoading}</p>
+        )}
+      </aside>
+      </div>
       )}
 
       {/* Todos los destinatarios de un envío (la celda solo enseña el primero) */}
@@ -773,25 +867,6 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
                 </li>
               ))}
             </ul>
-          </div>
-        )}
-      </Modal>
-
-      {/* Previsualización con datos de ejemplo (HTML ya saneado en servidor) */}
-      <Modal open={preview !== null} title={t.previewTitle} onClose={() => setPreview(null)} wide>
-        {preview && (
-          <div className="email-preview">
-            <p className="muted">{t.previewSubject} <strong>{preview.subject}</strong></p>
-            {/* El correo ENTERO (caja corporativa y logotipo), en un iframe: es lo
-                que verá quien lo reciba, no el cuerpo suelto. */}
-            <iframe
-              className="email-settings-frame"
-              title={t.previewTitle}
-              sandbox=""
-              srcDoc={preview.document_html}
-            />
-            <Panel>
-            </Panel>
           </div>
         )}
       </Modal>

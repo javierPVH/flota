@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   updateEmailSettings: vi.fn(),
   previewEmailTemplate: vi.fn(),
   previewDefaultEmailTemplate: vi.fn(),
-  previewEmailWithLayout: vi.fn(),
+  previewEmailDraft: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -18,10 +18,11 @@ vi.mock('../api.ts', async (importOriginal) => ({
   updateEmailSettings: mocks.updateEmailSettings,
   previewEmailTemplate: mocks.previewEmailTemplate,
   previewDefaultEmailTemplate: mocks.previewDefaultEmailTemplate,
-  previewEmailWithLayout: mocks.previewEmailWithLayout,
+  previewEmailDraft: mocks.previewEmailDraft,
 }))
 
 const AJUSTES = {
+  km_remind_enabled: true,
   km_remind_from_day: 20,
   km_remind_until_day: 5,
   km_remind_mode: 'count' as const,
@@ -74,9 +75,9 @@ describe('EmailSettingsPanel — recordatorio de km', () => {
     mocks.updateEmailSettings.mockReset()
     mocks.previewEmailTemplate.mockReset()
     mocks.previewDefaultEmailTemplate.mockReset()
-    mocks.previewEmailWithLayout.mockReset()
+    mocks.previewEmailDraft.mockReset()
     mocks.previewEmailTemplate.mockResolvedValue(PREVIEW)
-    mocks.previewEmailWithLayout.mockResolvedValue(PREVIEW)
+    mocks.previewEmailDraft.mockResolvedValue(PREVIEW)
     mocks.previewDefaultEmailTemplate.mockResolvedValue(PREVIEW)
   })
 
@@ -100,8 +101,13 @@ describe('EmailSettingsPanel — recordatorio de km', () => {
     expect(within(calendarios[0]).getByText('20')).toHaveClass('is-email')
     expect(within(calendarios[0]).getByText('25')).toHaveClass('is-window')
     expect(within(calendarios[1]).getByText('5')).toHaveClass('is-email')
+    // La vista previa vive en su propia vista y no se pide hasta entrar en ella.
+    expect(mocks.previewEmailTemplate).not.toHaveBeenCalled()
+    await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(
+      screen.getByRole('tab', { name: 'Correo que recibirá el conductor' }),
+    )
     // La plantilla en uso es la personalizada y se previsualiza ella.
-    expect(screen.getByText('Personalizada')).toBeInTheDocument()
+    expect(await screen.findByText('Personalizada')).toBeInTheDocument()
     await waitFor(() => expect(mocks.previewEmailTemplate).toHaveBeenCalledWith(7, 'es'))
     expect(mocks.previewDefaultEmailTemplate).not.toHaveBeenCalled()
     const frame = await screen.findByTitle('Correo que recibirá el conductor')
@@ -174,6 +180,7 @@ describe('EmailSettingsPanel — recordatorio de km', () => {
     const onEdit = vi.fn()
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<EmailSettingsPanel section="reminder" templates={[]} defaults={[GENERICA_KM]} onEditTemplate={onEdit} />)
+    await user.click(await screen.findByRole('tab', { name: 'Correo que recibirá el conductor' }))
     expect(await screen.findByText('Genérica')).toBeInTheDocument()
     await waitFor(() => expect(mocks.previewDefaultEmailTemplate).toHaveBeenCalledWith('km_reading_pending', 'es'))
     expect(mocks.previewEmailTemplate).not.toHaveBeenCalled()
@@ -189,18 +196,36 @@ describe('EmailSettingsPanel — recordatorio de km', () => {
     )
     const nombre = await screen.findByLabelText('Nombre que encabeza y firma el correo')
     // La primera vista previa, con lo guardado, tras el respiro de 400 ms.
-    await waitFor(() => expect(mocks.previewEmailWithLayout).toHaveBeenCalled())
-    const primera = mocks.previewEmailWithLayout.mock.calls[0]
+    await waitFor(() => expect(mocks.previewEmailDraft).toHaveBeenCalled())
+    const primera = mocks.previewEmailDraft.mock.calls[0]
     expect(primera[0]).toEqual({ key: 'km_reading_pending' })
     expect((primera[1] as FormData).get('brand_name')).toBe('Gestión de flota')
     // Teclear el nombre vuelve a pedirla con el nombre nuevo y sin guardar nada.
     await user.clear(nombre)
     await user.type(nombre, 'Flota GS')
     await waitFor(() => {
-      const ultima = mocks.previewEmailWithLayout.mock.calls.at(-1)?.[1] as FormData
+      const ultima = mocks.previewEmailDraft.mock.calls.at(-1)?.[1] as FormData
       expect(ultima.get('brand_name')).toBe('Flota GS')
     })
     expect(mocks.updateEmailSettings).not.toHaveBeenCalled()
     expect(await screen.findByTitle('Vista previa')).toHaveAttribute('srcdoc', expect.stringContaining('<p>Hola</p>'))
+  })
+
+  it('el interruptor apaga el recordatorio y viaja al guardar', async () => {
+    mocks.getEmailSettings.mockResolvedValue(AJUSTES)
+    mocks.updateEmailSettings.mockResolvedValue({ ...AJUSTES, km_remind_enabled: false })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(
+      <EmailSettingsPanel section="reminder" templates={[]} defaults={[GENERICA_KM]} onEditTemplate={() => undefined} />,
+    )
+    const check = await screen.findByRole('checkbox', { name: /Recordatorio activo/ })
+    expect(check).toBeChecked()
+    await user.click(check)
+    expect(screen.getByText(/El recordatorio está apagado/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Desde el día')).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(mocks.updateEmailSettings).toHaveBeenCalled())
+    const form = mocks.updateEmailSettings.mock.calls[0][0] as FormData
+    expect(form.get('km_remind_enabled')).toBe('false')
   })
 })

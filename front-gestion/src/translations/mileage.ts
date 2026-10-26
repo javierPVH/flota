@@ -10,6 +10,9 @@ const es = {
   days: (n: number) => `${n} días`,
   perMonth: '/mes',
   records: 'Registros',
+  toolsToggle: 'Buscar y filtrar',
+  toolsSummary: (n: number) => `${n} registros`,
+  toolsFiltered: 'filtros activos',
   searchLabel: 'Buscar',
   searchPlaceholder: 'Matrícula, marca o supervisor…',
   tabs: {
@@ -158,6 +161,9 @@ const en: typeof es = {
   days: (n) => `${n} days`,
   perMonth: '/month',
   records: 'Records',
+  toolsToggle: 'Search & filter',
+  toolsSummary: (n: number) => `${n} records`,
+  toolsFiltered: 'filters applied',
   searchLabel: 'Search',
   searchPlaceholder: 'Plate, make or supervisor…',
   tabs: {

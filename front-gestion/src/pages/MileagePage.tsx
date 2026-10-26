@@ -27,6 +27,7 @@ import { kmLevelTone } from '../format.ts'
 import { ReadingsHistory } from '../components/ReadingsHistory.tsx'
 import { ResolveDispatcher } from '../components/resolve/ResolveDispatcher.tsx'
 import type { ResolveTarget } from '../components/resolve/resolveFlow.ts'
+import { FiltersAccordion } from '../components/FiltersAccordion.tsx'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { useMileageCopy } from '../translations/mileage.ts'
 import type { Alert, KmReading, Vehicle, VehicleSummary } from '../types.ts'
@@ -106,6 +107,11 @@ export function MileagePage() {
   const [tab, setTab] = useState<MileageTab>('readings')
   const [search, setSearch] = useState('')
   const [supervisorFilter, setSupervisorFilter] = useState('')
+  // La barra se puede plegar para dejarle el alto a la tabla y nace PLEGADA,
+  // como la del panel: lo que se viene a leer es la tabla, y lo que la barra
+  // dejaría de contar (el recuento y, sobre todo, que hay filtros puestos) se
+  // sigue leyendo en su cabecera.
+  const [toolsOpen, setToolsOpen] = useState(false)
   const [projMode, setProjMode] = useState<ProjMode>('contract')
 
   // Mes que se está reflejando (las lecturas son mensuales). Por defecto, el mes
@@ -894,16 +900,16 @@ export function MileagePage() {
     extraActions?: ReactNode,
   ) => (
     <>
-      <TableInfoBar
-        inline
-        count={data.length}
-        recordsLabel={t.records}
-        searchLabel={t.searchLabel}
-        searchPlaceholder={t.searchPlaceholder}
-        search={search}
-        onSearchChange={setSearch}
+      {/* Lo que se HACE con la tabla (exportar, el mes, la proyección) queda
+          fuera del acordeón, a la vista con la barra plegada. */}
+      <FiltersAccordion
+        open={toolsOpen}
+        onToggle={() => setToolsOpen((o) => !o)}
+        label={t.toolsToggle}
+        summary={t.toolsSummary(data.length)}
+        flag={search.trim() || supervisorFilter ? t.toolsFiltered : null}
         actions={
-          <>
+          <div className="filters-acc-actions">
             {extraActions}
             <Button
               variant="secondary"
@@ -912,12 +918,22 @@ export function MileagePage() {
             >
               <Download size={16} aria-hidden /> {t.exportCsv}
             </Button>
-          </>
+          </div>
         }
       >
-        {supervisorField}
-        {extraFilter}
-      </TableInfoBar>
+        <TableInfoBar
+          inline
+          count={data.length}
+          recordsLabel={t.records}
+          searchLabel={t.searchLabel}
+          searchPlaceholder={t.searchPlaceholder}
+          search={search}
+          onSearchChange={setSearch}
+        >
+          {supervisorField}
+          {extraFilter}
+        </TableInfoBar>
+      </FiltersAccordion>
       <TableWithPanel<Row>
         rows={data}
         columns={columns}

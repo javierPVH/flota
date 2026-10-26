@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -68,25 +67,15 @@ describe('DownloadsTab (documentos consolidados)', () => {
     )
   })
 
-  it('permite elegir un único dominio y cambia sus filtros', async () => {
-    const user = userEvent.setup()
+  it('solo ofrece el documento de vehículos: el de usuarios no sale ni se pide', async () => {
     renderTab()
 
-    expect(screen.getByRole('tab', { name: /Vehículos/ })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
     expect(await screen.findByText('Marca')).toBeInTheDocument()
+    // Sin segundo dominio no hay selector, ni filtros de personas, ni carga
+    // del listado de usuarios.
+    expect(screen.queryByRole('tab', { name: /Usuarios/ })).not.toBeInTheDocument()
     expect(screen.queryByText('Rol')).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('tab', { name: /Usuarios/ }))
-
-    expect(screen.getByRole('tab', { name: /Usuarios/ })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
-    expect(screen.getByText('Rol')).toBeInTheDocument()
-    expect(screen.queryByText('Marca')).not.toBeInTheDocument()
+    expect(mocks.listUsers).not.toHaveBeenCalled()
   })
 
   it('explica que vehículos se descarga como un único Excel multihoja', async () => {

@@ -30,6 +30,15 @@ import type { Vehicle } from '../types.ts'
 
 type DownloadKind = 'vehicles' | 'users'
 
+/**
+ * El informe de usuarios NO se ofrece en Informes → Descargas: es un listado
+ * de datos personales (teléfono, permiso, tarjeta) y la auditoría pidió que
+ * salga de la pantalla de descargas corriente. El back lo sigue sirviendo
+ * (`kind=users`, solo admin y con rastro en `ReportExport`), y el código de
+ * la tarjeta se queda detrás de este interruptor por si vuelve a hacer falta.
+ */
+const SHOW_USERS_REPORT = false
+
 /** Una fila de la vista previa: los valores crudos de la hoja del servidor. */
 type PreviewRow = Array<string | number | null>
 
@@ -221,6 +230,7 @@ export function DownloadsTab() {
 
   const [users, setUsers] = useState<ManagedUserFull[]>([])
   useEffect(() => {
+    if (!SHOW_USERS_REPORT) return
     listAll(listUsers())
       .then(setUsers)
       .catch(() => setUsers([]))
@@ -427,28 +437,31 @@ export function DownloadsTab() {
     <>
       <p className="downloads-lead">{d.lead}</p>
 
-      <div className="download-kind" role="tablist" aria-label={d.kindLabel}>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={kind === 'vehicles'}
-          className={`download-kind-option${kind === 'vehicles' ? ' is-active' : ''}`}
-          onClick={() => setKind('vehicles')}
-        >
-          <Car size={18} aria-hidden />
-          <span><strong>{d.cards.vehicles.title}</strong><small>{d.kindVehiclesHint}</small></span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={kind === 'users'}
-          className={`download-kind-option${kind === 'users' ? ' is-active' : ''}`}
-          onClick={() => setKind('users')}
-        >
-          <Users size={18} aria-hidden />
-          <span><strong>{d.cards.users.title}</strong><small>{d.kindUsersHint}</small></span>
-        </button>
-      </div>
+      {/* El selector solo tiene sentido con más de un dominio que elegir. */}
+      {SHOW_USERS_REPORT && (
+        <div className="download-kind" role="tablist" aria-label={d.kindLabel}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={kind === 'vehicles'}
+            className={`download-kind-option${kind === 'vehicles' ? ' is-active' : ''}`}
+            onClick={() => setKind('vehicles')}
+          >
+            <Car size={18} aria-hidden />
+            <span><strong>{d.cards.vehicles.title}</strong><small>{d.kindVehiclesHint}</small></span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={kind === 'users'}
+            className={`download-kind-option${kind === 'users' ? ' is-active' : ''}`}
+            onClick={() => setKind('users')}
+          >
+            <Users size={18} aria-hidden />
+            <span><strong>{d.cards.users.title}</strong><small>{d.kindUsersHint}</small></span>
+          </button>
+        </div>
+      )}
 
       <div className="export-grid export-grid--single">
         {/* Vehículos: UN documento con todo (una hoja por bloque). */}
@@ -578,7 +591,7 @@ export function DownloadsTab() {
         />}
 
         {/* Personas: el listado de usuarios. */}
-        {kind === 'users' && <DescargaCard
+        {SHOW_USERS_REPORT && kind === 'users' && <DescargaCard
           icon={<Users size={18} />}
           title={d.cards.users.title}
           description={d.cards.users.description}

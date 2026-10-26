@@ -51,6 +51,14 @@ class EmailSettings(TimeStampedModel):
     SINGLETON_PK = 1
 
     # --- Recordatorio de la lectura de km ---------------------------------
+    km_remind_enabled = models.BooleanField(
+        "Recordatorio de km activo",
+        default=True,
+        help_text=(
+            "Apagado, no se abren avisos de lectura pendiente ni salen sus correos; "
+            "los abiertos se siguen cerrando cuando llega la lectura."
+        ),
+    )
     km_remind_from_day = models.PositiveSmallIntegerField(
         "Día en que empieza a reclamarse",
         default=20,

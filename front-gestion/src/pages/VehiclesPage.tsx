@@ -276,10 +276,12 @@ export function VehiclesPage() {
   const [dateTo, setDateTo] = useState(initialView?.appliedTo ?? '')
   const [appliedFrom, setAppliedFrom] = useState(initialView?.appliedFrom ?? '')
   const [appliedTo, setAppliedTo] = useState(initialView?.appliedTo ?? '')
-  // La barra se puede plegar para dejarle el alto a la tabla, pero nace ABIERTA
-  // (al revés que la del panel): aquí se filtra a diario, y un filtro que no se
-  // ve recorta la tabla sin decir por qué. Plegada, la cabecera lo avisa.
-  const [toolsOpen, setToolsOpen] = useState(initialView?.toolsOpen ?? true)
+  // La barra se puede plegar para dejarle el alto a la tabla y nace PLEGADA,
+  // como la del panel: lo que se viene a leer es la tabla, y lo que la barra
+  // dejaría de contar (el recuento y, sobre todo, que hay filtros puestos) se
+  // sigue leyendo en su cabecera. Un snapshot de «volver a donde
+  // estábamos» trae cómo la dejó quien se fue.
+  const [toolsOpen, setToolsOpen] = useState(initialView?.toolsOpen ?? false)
 
   // Columnas: orden + ocultas + menú desplegable.
   const [colOrder, setColOrder] = useState<string[]>(() => [...COLUMN_KEYS])

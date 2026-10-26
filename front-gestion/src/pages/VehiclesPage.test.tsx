@@ -77,6 +77,13 @@ function seedView(search: string, extra: Record<string, unknown> = {}) {
   )
 }
 
+/** Despliega la barra de filtros, que nace plegada. */
+async function abrirBarra() {
+  const cabecera = await screen.findByRole('button', { name: /Buscar y filtrar/ })
+  if (cabecera.getAttribute('aria-expanded') !== 'true') await userEvent.click(cabecera)
+  return cabecera
+}
+
 function renderList() {
   return render(
     <MemoryRouter initialEntries={['/vehiculos']}>
@@ -116,6 +123,7 @@ describe('VehiclesPage — volver a donde estábamos', () => {
     expect(screen.queryByText('1111AAA')).not.toBeInTheDocument()
     // …con su buscador cargado (id propio: hay otro buscador igual en el modal
     // de exportación).
+    await abrirBarra()
     const search = container.querySelector<HTMLInputElement>('#veh-search')
     expect(search?.value).toBe('2222')
   })
@@ -125,7 +133,8 @@ describe('VehiclesPage — volver a donde estábamos', () => {
 
     await waitFor(() => expect(screen.getByText('1111AAA')).toBeInTheDocument())
     expect(screen.getByText('2222BBB')).toBeInTheDocument()
-    // La barra está a la vista y su buscador, vacío.
+    // Su buscador, vacío.
+    await abrirBarra()
     const search = container.querySelector<HTMLInputElement>('#veh-search')
     expect(search?.value).toBe('')
   })
@@ -238,27 +247,27 @@ describe('VehiclesPage — volver a donde estábamos', () => {
     expect(screen.getByText(/No hay ninguna ITV a la vista/)).toBeInTheDocument()
   })
 
-  it('la barra de filtros nace ABIERTA y se pliega, dejando el recuento a la vista', async () => {
+  it('la barra de filtros nace PLEGADA con el recuento a la vista, y se despliega', async () => {
     const { container } = renderList()
     await waitFor(() => expect(screen.getByText('1111AAA')).toBeInTheDocument())
 
-    // Al revés que la del panel: aquí se filtra a diario.
+    // Como la del panel: lo que se viene a leer es la tabla.
     const cabecera = screen.getByRole('button', { name: /Buscar y filtrar/ })
-    expect(cabecera).toHaveAttribute('aria-expanded', 'true')
-    expect(container.querySelector('#veh-search')).toBeInTheDocument()
-
-    await userEvent.click(cabecera)
     expect(cabecera).toHaveAttribute('aria-expanded', 'false')
-    // El cuerpo se desmonta (los desplegables de gente no se quedan pintados).
+    // El cuerpo no está montado (los desplegables de gente no se pintan).
     expect(container.querySelector('#veh-search')).toBeNull()
     // Lo que la barra dejaría de contar se lee en la cabecera.
     expect(within(cabecera).getByText('2 registros')).toBeInTheDocument()
-    // Y la tabla sigue donde estaba: plegar no filtra.
+    // Y la tabla está entera: plegada no filtra.
     expect(screen.getByText('1111AAA')).toBeInTheDocument()
     expect(screen.getByText('2222BBB')).toBeInTheDocument()
 
     await userEvent.click(cabecera)
+    expect(cabecera).toHaveAttribute('aria-expanded', 'true')
     expect(container.querySelector('#veh-search')).toBeInTheDocument()
+
+    await userEvent.click(cabecera)
+    expect(container.querySelector('#veh-search')).toBeNull()
   })
 
   it('plegada avisa de que la tabla está filtrada', async () => {
@@ -274,20 +283,20 @@ describe('VehiclesPage — volver a donde estábamos', () => {
     expect(within(cabecera).getByText('1 registros')).toBeInTheDocument()
   })
 
-  it('al VOLVER (POP) la barra sigue plegada, y un snapshot viejo la abre', async () => {
-    // Plegarla es una decisión sobre la vista, como el filtro o el scroll: va
-    // en el mismo snapshot y vuelve con él.
-    seedView('', { toolsOpen: false })
+  it('al VOLVER (POP) la barra vuelve como se dejó, y un snapshot viejo la trae plegada', async () => {
+    // Plegarla o abrirla es una decisión sobre la vista, como el filtro o el
+    // scroll: va en el mismo snapshot y vuelve con él.
+    seedView('', { toolsOpen: true })
     const { container, unmount } = renderList()
     await waitFor(() => expect(screen.getByText('1111AAA')).toBeInTheDocument())
-    expect(container.querySelector('#veh-search')).toBeNull()
+    expect(container.querySelector('#veh-search')).toBeInTheDocument()
     unmount()
 
     // Un snapshot guardado antes de que esto existiera no trae la clave: la
-    // barra tiene que salir ABIERTA y no desaparecer.
+    // barra sale como de salida, plegada.
     seedView('')
     const segundo = renderList()
     await waitFor(() => expect(screen.getByText('1111AAA')).toBeInTheDocument())
-    expect(segundo.container.querySelector('#veh-search')).toBeInTheDocument()
+    expect(segundo.container.querySelector('#veh-search')).toBeNull()
   })
 })

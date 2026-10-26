@@ -1502,6 +1502,8 @@ export interface EmailPreview {
 export type KmRemindModeValue = 'count' | 'daily' | 'odd' | 'even'
 
 export interface EmailSettingsRow {
+  /** Apagado, no se abren avisos de lectura pendiente ni salen sus correos. */
+  km_remind_enabled: boolean
   km_remind_from_day: number
   km_remind_until_day: number
   km_remind_mode: KmRemindModeValue
@@ -1590,12 +1592,13 @@ export const previewDefaultEmailTemplate = (key: string, lang: 'es' | 'en' = 'es
   postJson<EmailPreview>(`${API}/email-templates/preview-default/`, { key, lang })
 
 /**
- * Vista previa con los ajustes de aspecto SIN guardar (Ajustes → Correo →
- * «Aspecto»): `form` lleva `lang` y lo tecleado (`brand_name`, `brand_color`,
- * `footer_text`, `layout_enabled`, el `logo` recién elegido o `logo_clear`).
- * De una personalizada (`{ id }`) o de la genérica de un tipo (`{ key }`).
+ * Vista previa de lo que hay SIN guardar: `form` lleva `lang` y, según quien
+ * la pida, el texto del editor (`subject`, `body_html`, `signature`) o los
+ * ajustes de aspecto (`brand_name`, `brand_color`, `footer_text`,
+ * `layout_enabled`, el `logo` recién elegido o `logo_clear`). De una
+ * personalizada (`{ id }`) o de la genérica de un tipo (`{ key }`).
  */
-export const previewEmailWithLayout = (target: { id: number } | { key: string }, form: FormData) =>
+export const previewEmailDraft = (target: { id: number } | { key: string }, form: FormData) =>
   postForm<EmailPreview>(
     'id' in target
       ? `${API}/email-templates/${target.id}/preview/`

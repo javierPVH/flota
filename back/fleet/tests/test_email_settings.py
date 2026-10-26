@@ -302,6 +302,38 @@ class EmailSettingsApiTests(APITestCase):
         )
         self.assertNotIn("<table", resp.data["document_html"])
 
+    def test_preview_takes_the_unsaved_editor_text(self):
+        from fleet.models import EmailSignature
+
+        firma = EmailSignature.objects.create(name="F", body_html="<p>— Firma</p>")
+        resp = self.client.post(
+            reverse("emailtemplate-preview-default"),
+            {
+                "key": "generic",
+                "subject": "Borrador · {{matricula}}",
+                "body_html": "<p>Nuevo <script>alert(1)</script>texto</p>",
+                "signature": firma.pk,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["subject"], "Borrador · 1234KLM")
+        self.assertIn("Nuevo", resp.data["body_html"])
+        self.assertNotIn("<script", resp.data["body_html"])
+        self.assertIn("— Firma", resp.data["body_html"])
+
+    def test_reminder_can_be_switched_off(self):
+        resp = self.client.post(
+            reverse("email-settings"), {"km_remind_enabled": False}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertFalse(resp.data["km_remind_enabled"])
+        Vehicle.objects.create(plate="OFF1", brand="a", model="b")
+        self.assertEqual(alerts.check_km_readings(date(2026, 10, 25)), 0)
+        self.assertEqual(Alert.objects.filter(type=AlertType.KM_READING_PENDING).count(), 0)
+        self.client.post(reverse("email-settings"), {"km_remind_enabled": True}, format="json")
+        self.assertEqual(alerts.check_km_readings(date(2026, 10, 25)), 1)
+
     def test_template_preview_returns_the_full_document(self):
         tpl = EmailTemplate.objects.create(
             key=EmailTemplateKey.KM_READING_PENDING,

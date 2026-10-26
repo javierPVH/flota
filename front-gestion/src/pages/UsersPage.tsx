@@ -128,10 +128,11 @@ export function UsersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  // La barra se puede plegar para dejarle el alto a la tabla, pero nace ABIERTA
-  // (al revés que la del panel): aquí se filtra a diario, y un filtro que no se
-  // ve recorta el listado sin decir por qué. Plegada, la cabecera lo avisa.
-  const [toolsOpen, setToolsOpen] = useState(true)
+  // La barra se puede plegar para dejarle el alto a la tabla y nace PLEGADA,
+  // como la del panel: lo que se viene a leer es la tabla, y lo que la barra
+  // dejaría de contar (el recuento y, sobre todo, que hay filtros puestos) se
+  // sigue leyendo en su cabecera.
+  const [toolsOpen, setToolsOpen] = useState(false)
   const [showInactive, setShowInactive] = useState(false)
   const [roleFilter, setRoleFilter] = useState('') // '' = todos; 'none' = sin rol
   // Fecha de creación: borrador (inputs) vs aplicado (lo que filtra, al pulsar 🔍).

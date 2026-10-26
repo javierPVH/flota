@@ -3060,6 +3060,7 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = EmailSettings
         fields = [
+            "km_remind_enabled",
             "km_remind_from_day",
             "km_remind_until_day",
             "km_remind_mode",

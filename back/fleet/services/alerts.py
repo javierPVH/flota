@@ -608,12 +608,13 @@ def check_km_readings(today: date | None = None) -> int:
 
     today = _today(today)
     cfg = EmailSettings.get_solo()
-    period_month = email_layout.km_remind_period(today, cfg)
+    period_month = email_layout.km_remind_period(today, cfg) if cfg.km_remind_enabled else None
     vehicles = [v for v in _active_vehicles() if not v.unlimited_km]
     ids = [v.id for v in vehicles]
     if period_month is None:
-        # Fuera de la ventana no se reclama, pero la reconciliación sigue: un
-        # aviso abierto cuya lectura ya llegó se cierra en cualquier pasada.
+        # Fuera de la ventana —o con el recordatorio apagado en Ajustes— no se
+        # reclama, pero la reconciliación sigue: un aviso abierto cuya lectura
+        # ya llegó se cierra en cualquier pasada.
         _reconcile_km_alerts(ids, today)
         return 0
     period = f"{period_month.year:04d}-{period_month.month:02d}"

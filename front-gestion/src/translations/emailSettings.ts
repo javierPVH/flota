@@ -11,7 +11,7 @@ const es = {
   layoutTab: 'Aspecto del correo',
   /** Grupos de la fila de pestañas de Ajustes → Correo. */
   groups: {
-    log: 'Traza',
+    log: 'Trazas',
     settings: 'Configuración',
     templates: 'Plantillas por tipo de correo',
   },
@@ -28,6 +28,10 @@ const es = {
     title: 'Cuándo y cuántas veces se avisa al conductor',
     intro:
       'Cada mes, el conductor cuyo coche no tenga lectura de km recibe la alerta en la app y un correo. Aquí se decide en qué días del mes se reclama y con qué cadencia se le escribe mientras siga sin registrarla. El aviso dice siempre cuántos días lleva el coche sin lectura.',
+    enabled: 'Recordatorio activo',
+    enabledOn: 'se abren los avisos y salen los correos en las fechas de abajo.',
+    enabledOff: 'no se abrirán avisos ni saldrán correos; los abiertos se cierran solos cuando llega la lectura.',
+    scheduleOff: 'El recordatorio está apagado: este calendario no se aplicará hasta que lo actives y guardes.',
     windowTitle: 'Plazo de reclamación',
     fromDay: 'Desde el día',
     fromDayHint: 'del mes en curso (1-28). Ese día se abre el aviso y sale el primer correo.',
@@ -116,6 +120,10 @@ const en: typeof es = {
     title: 'When and how often the driver is reminded',
     intro:
       'Every month, the driver of a vehicle with no mileage reading gets the alert in the app and an email. Here you decide on which days of the month it is claimed and how often they are written to while the reading is still missing. The notice always says how many days the vehicle has gone without a reading.',
+    enabled: 'Reminder on',
+    enabledOn: 'alerts open and emails go out on the dates below.',
+    enabledOff: 'no alerts will open and no emails will go out; open ones close by themselves when the reading arrives.',
+    scheduleOff: 'The reminder is off: this calendar will not apply until you turn it on and save.',
     windowTitle: 'Claim period',
     fromDay: 'From day',
     fromDayHint: 'of the current month (1-28). The alert opens and the first email goes out that day.',

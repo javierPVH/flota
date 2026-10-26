@@ -1,7 +1,7 @@
 import { useAppLang } from '@flota/ui/i18n'
 
 const es = {
-  breadcrumb: '← Conductores y usuarios',
+  breadcrumb: '← Usuarios',
   loading: 'Cargando…',
   loadError: 'No se pudo cargar el usuario.',
   licenseSuffix: (type: string) => ` · Permiso ${type}`,
@@ -27,7 +27,7 @@ const es = {
 }
 
 const en: typeof es = {
-  breadcrumb: '← Drivers and users',
+  breadcrumb: '← Users',
   loading: 'Loading…',
   loadError: 'Could not load the user.',
   licenseSuffix: (type) => ` · License ${type}`,
