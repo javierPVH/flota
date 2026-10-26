@@ -1,6 +1,7 @@
 """Ajustes del correo (Ajustes → Correo): calendario del recordatorio de km,
 maquetación corporativa y su API."""
 
+import base64
 from datetime import date
 
 from django.core import mail
@@ -10,9 +11,16 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Alert, EmailSettings, EmailTemplate, EmailTemplateKey, Vehicle
+from fleet.models import (
+    Alert,
+    EmailSettings,
+    EmailTemplate,
+    EmailTemplateKey,
+    KmRemindMode,
+    Vehicle,
+)
 from fleet.models.enums import AlertType
-from fleet.services import alerts, email_layout, mailer
+from fleet.services import alerts, email_defaults, email_layout, mailer
 
 from .helpers import make_user
 
@@ -62,6 +70,33 @@ class KmRemindScheduleTests(TestCase):
         c = self.cfg(km_remind_from_day=28, km_remind_until_day=0, km_remind_emails=6)
         fechas = email_layout.km_remind_schedule(date(2026, 2, 1), c)
         self.assertEqual(fechas, [date(2026, 2, 28)])
+
+    def test_daily_mode_sends_every_day_of_the_window(self):
+        c = self.cfg(km_remind_mode=KmRemindMode.DAILY, km_remind_until_day=2)
+        fechas = email_layout.km_remind_schedule(date(2026, 10, 1), c)
+        self.assertEqual(len(fechas), 14)  # 20..31 de octubre + 1 y 2 de noviembre
+        self.assertEqual((fechas[0], fechas[-1]), (date(2026, 10, 20), date(2026, 11, 2)))
+
+    def test_odd_and_even_modes_follow_the_calendar_day(self):
+        impares = self.cfg(km_remind_mode=KmRemindMode.ODD, km_remind_until_day=2)
+        self.assertEqual(
+            [d.day for d in email_layout.km_remind_schedule(date(2026, 10, 1), impares)],
+            [21, 23, 25, 27, 29, 31, 1],
+        )
+        pares = self.cfg(km_remind_mode=KmRemindMode.EVEN, km_remind_until_day=5)
+        self.assertEqual(
+            [d.day for d in email_layout.km_remind_schedule(date(2026, 10, 1), pares)],
+            [20, 22, 24, 26, 28, 30, 2, 4],
+        )
+
+    def test_count_mode_never_exceeds_the_days_of_the_window(self):
+        # El tope es el plazo en el mes más corto: del 20 al 28 (9 días) + 5.
+        self.assertEqual(email_layout.km_remind_max_emails(20, 5), 14)
+        self.assertEqual(email_layout.km_remind_max_emails(28, 0), 1)
+        c = self.cfg(km_remind_emails=14)
+        fechas = email_layout.km_remind_schedule(date(2026, 2, 1), c)
+        self.assertEqual(len(fechas), 14)
+        self.assertEqual(len(set(fechas)), 14)
 
     def test_period_follows_the_configured_window(self):
         c = self.cfg(km_remind_from_day=15, km_remind_until_day=10)
@@ -176,12 +211,33 @@ class EmailSettingsApiTests(APITestCase):
     def test_validation(self):
         resp = self.client.post(
             reverse("email-settings"),
-            {"km_remind_emails": 9, "brand_color": "verde"},
+            {"km_remind_emails": 0, "brand_color": "verde"},
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("km_remind_emails", resp.data["errors"])
         self.assertIn("brand_color", resp.data["errors"])
+
+    def test_emails_cannot_exceed_the_days_of_the_window(self):
+        # Con el plazo por defecto (20 → 5) caben 14 como mucho.
+        resp = self.client.post(reverse("email-settings"), {"km_remind_emails": 15}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("14", str(resp.data["errors"]["km_remind_emails"]))
+        # Y la validación mira la ventana que QUEDA tras el cambio.
+        resp = self.client.post(
+            reverse("email-settings"),
+            {"km_remind_from_day": 10, "km_remind_emails": 15},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["km_remind_max_emails"], 24)
+
+    def test_mode_changes_the_calendar(self):
+        resp = self.client.post(
+            reverse("email-settings"), {"km_remind_mode": "daily"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertGreater(len(resp.data["km_remind_dates"]), 10)
 
     def test_logo_upload_and_clear(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -214,6 +270,38 @@ class EmailSettingsApiTests(APITestCase):
         self.client.force_authenticate(sup)
         self.assertEqual(self.client.get(reverse("email-settings")).status_code, 403)
 
+    def test_preview_shows_unsaved_layout_settings(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        resp = self.client.post(
+            reverse("emailtemplate-preview-default"),
+            {
+                "key": "generic",
+                "brand_name": "Flota de prueba",
+                "brand_color": "#123456",
+                "footer_text": "Pie provisional",
+                "logo": SimpleUploadedFile("l.png", PNG_1PX, "image/png"),
+            },
+            format="multipart",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        html = resp.data["document_html"]
+        self.assertIn("Flota de prueba", html)
+        self.assertIn("#123456", html)
+        self.assertIn("Pie provisional", html)
+        self.assertIn(base64.b64encode(PNG_1PX).decode("ascii"), html)
+        # Nada de eso se ha guardado.
+        cfg = EmailSettings.get_solo()
+        self.assertEqual((cfg.brand_name, cfg.brand_color), ("Gestión de flota", "#009491"))
+        self.assertFalse(cfg.logo)
+        # Con la maquetación apagada en la petición, sale el cuerpo a secas.
+        resp = self.client.post(
+            reverse("emailtemplate-preview-default"),
+            {"key": "generic", "layout_enabled": "false"},
+            format="json",
+        )
+        self.assertNotIn("<table", resp.data["document_html"])
+
     def test_template_preview_returns_the_full_document(self):
         tpl = EmailTemplate.objects.create(
             key=EmailTemplateKey.KM_READING_PENDING,
@@ -225,3 +313,73 @@ class EmailSettingsApiTests(APITestCase):
         self.assertIn("37 días sin lectura", resp.data["body_html"])
         self.assertIn("data:image/png;base64,", resp.data["document_html"])
         self.assertIn("37 días sin lectura", resp.data["document_html"])
+
+
+class EmailDefaultsTests(APITestCase):
+    """Cada tipo de correo tiene su versión genérica; la personalizada manda."""
+
+    def setUp(self):
+        self.admin = make_user("def-admin", Role.ADMIN)
+        self.client.force_authenticate(self.admin)
+
+    def test_every_key_has_a_default_in_both_languages(self):
+        for key in EmailTemplateKey.values:
+            tpl = email_defaults.template_for(key)
+            self.assertTrue(tpl.subject and tpl.body_html, key)
+            self.assertTrue(tpl.has_en, key)
+
+    def test_alert_mail_uses_the_default_of_its_type_when_nothing_is_customised(self):
+        tpl = mailer._template_for(EmailTemplateKey.KM_READING_PENDING)
+        self.assertIsNone(tpl.pk)
+        self.assertIn("{{dias_sin_lectura}}", tpl.body_html)
+        # Un tipo de alerta sin plantilla propia va por la genérica de todo.
+        self.assertEqual(mailer._template_for("no_driver").key, EmailTemplateKey.GENERIC)
+
+    def test_custom_template_wins_over_the_default(self):
+        EmailTemplate.objects.create(
+            key=EmailTemplateKey.KM_READING_PENDING, subject="Mía", body_html="<p>mía</p>"
+        )
+        self.assertEqual(mailer._template_for(EmailTemplateKey.KM_READING_PENDING).subject, "Mía")
+
+    def test_vehicle_notice_without_custom_template_uses_the_default(self):
+        vehicle = Vehicle.objects.create(plate="DEF1", brand="a", model="b")
+        notice = mailer.render_vehicle_notice(vehicle, EmailTemplateKey.STATE_NOTICE, "hola", "en")
+        self.assertEqual(notice.used_key, "")
+        self.assertIn("Notice about vehicle DEF1", notice.subject)
+        self.assertIn("hola", notice.body_html)
+
+    def test_defaults_endpoint_and_its_preview(self):
+        resp = self.client.get(reverse("emailtemplate-defaults"))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual({r["key"] for r in resp.data}, set(EmailTemplateKey.values))
+        resp = self.client.post(
+            reverse("emailtemplate-preview-default"),
+            {"key": "km_reading_pending", "lang": "en"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn("37 days", resp.data["body_html"])
+        self.assertIn("data:image/png;base64,", resp.data["document_html"])
+        resp = self.client.post(
+            reverse("emailtemplate-preview-default"), {"key": "otra"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_retiring_a_custom_template_goes_back_to_the_default_and_can_be_customised_again(
+        self,
+    ):
+        tpl = EmailTemplate.objects.create(
+            key=EmailTemplateKey.ITV_DUE, subject="Mía", body_html="<p>mía</p>"
+        )
+        resp = self.client.delete(reverse("emailtemplate-detail", args=[tpl.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertIsNone(mailer._template_for(EmailTemplateKey.ITV_DUE).pk)
+        # Volver a personalizarla restaura la fila (key es única) en vez de chocar.
+        resp = self.client.post(
+            reverse("emailtemplate-list"),
+            {"key": "itv_due", "subject": "Otra", "body_html": "<p>otra</p>"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["id"], tpl.pk)
+        self.assertEqual(mailer._template_for(EmailTemplateKey.ITV_DUE).subject, "Otra")

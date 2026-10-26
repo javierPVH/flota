@@ -3055,13 +3055,16 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
     logo_data_url = serializers.SerializerMethodField()
     has_custom_logo = serializers.SerializerMethodField()
     km_remind_dates = serializers.SerializerMethodField()
+    km_remind_max_emails = serializers.SerializerMethodField()
 
     class Meta:
         model = EmailSettings
         fields = [
             "km_remind_from_day",
             "km_remind_until_day",
+            "km_remind_mode",
             "km_remind_emails",
+            "km_remind_max_emails",
             "km_remind_dates",
             "layout_enabled",
             "brand_name",
@@ -3084,9 +3087,25 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
         return value
 
     def validate_km_remind_emails(self, value):
-        if not 1 <= value <= 6:
-            raise serializers.ValidationError("Entre 1 y 6 correos.")
+        if value < 1:
+            raise serializers.ValidationError("Al menos un correo.")
         return value
+
+    def validate(self, attrs):
+        """El número de correos no puede pasar de los días del plazo (en el
+        mes más corto): se valida con la ventana que QUEDA tras el cambio."""
+        from .services import email_layout
+
+        actual = self.instance
+        desde = attrs.get("km_remind_from_day", actual.km_remind_from_day if actual else 20)
+        hasta = attrs.get("km_remind_until_day", actual.km_remind_until_day if actual else 5)
+        correos = attrs.get("km_remind_emails", actual.km_remind_emails if actual else 2)
+        tope = email_layout.km_remind_max_emails(desde, hasta)
+        if correos > tope:
+            raise serializers.ValidationError(
+                {"km_remind_emails": f"Como mucho {tope} correos: los días que tiene el plazo."}
+            )
+        return attrs
 
     def validate_brand_color(self, value):
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", value or ""):
@@ -3106,6 +3125,11 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
 
     def get_has_custom_logo(self, obj) -> bool:
         return bool(obj.logo)
+
+    def get_km_remind_max_emails(self, obj) -> int:
+        from .services import email_layout
+
+        return email_layout.km_remind_max_emails(obj.km_remind_from_day, obj.km_remind_until_day)
 
     def get_km_remind_dates(self, obj) -> list[str]:
         """Las fechas de los correos del mes en curso (o del que se reclama

@@ -236,7 +236,8 @@ _LANG_SEPARATOR = '<hr style="margin:24px 0;border:0;border-top:1px solid #ddd">
 class RenderedNotice(NamedTuple):
     subject: str
     body_html: str
-    #: Clave de la plantilla usada; vacía si se cayó al texto por defecto.
+    #: Clave de la plantilla PERSONALIZADA usada; vacía si salió la versión
+    #: genérica del tipo (`email_defaults`), que es lo que la UI avisa.
     used_key: str
     #: Si la plantilla tiene versión inglesa propia (para avisar en la UI).
     has_en: bool
@@ -246,8 +247,9 @@ def render_vehicle_notice(
     vehicle, template_key: str, message: str = "", lang: str = "es", body: str = ""
 ) -> RenderedNotice:
     """Asunto y cuerpo de un aviso de vehículo con la plantilla `template_key`
-    en el idioma pedido; si no hay plantilla, un texto por defecto con el
-    `mensaje` libre. Nunca lanza por falta de plantilla ni de traducción.
+    en el idioma pedido; sin plantilla personalizada sale la **versión
+    genérica** de ese tipo (`email_defaults`), con las mismas variables.
+    Nunca lanza por falta de plantilla ni de traducción.
 
     `body` es el cuerpo **editado a mano** en el modal de correo: sustituye al
     de la plantilla y se procesa igual que ella —mismas variables, misma
@@ -264,22 +266,13 @@ def render_vehicle_notice(
         .select_related("signature")
         .first()
     )
+    personalizada = template is not None
     if template is None:
-        # Sin plantilla definida: texto neutro con el mensaje libre (no rompe el
-        # envío). No se traduce: es un texto de emergencia, no una plantilla.
-        plate = html.escape(vehicle.plate)
-        safe = html.escape(message).replace("\n", "<br>")
-        cuerpo = (
-            render(body, context)
-            if body
-            else f"<p>Aviso sobre el vehículo <strong>{plate}</strong>:</p><p>{safe}</p>"
-        )
-        return RenderedNotice(
-            subject=f"[Flota] {vehicle.plate} · Aviso",
-            body_html=cuerpo,
-            used_key="",
-            has_en=False,
-        )
+        # Sin plantilla personalizada: la genérica del tipo, que es una
+        # plantilla como otra cualquiera (dos idiomas, mismas variables).
+        from fleet.services import email_defaults
+
+        template = email_defaults.template_for(template_key)
 
     langs = ("es", "en") if lang == "both" else (lang,)
     subjects, bodies = [], []
@@ -300,17 +293,28 @@ def render_vehicle_notice(
     if template.signature is not None and template.signature.is_active:
         body += template.signature.body_html
     return RenderedNotice(
-        subject=subject, body_html=body, used_key=template.key, has_en=template.has_en
+        subject=subject,
+        body_html=body,
+        used_key=template.key if personalizada else "",
+        has_en=template.has_en,
     )
 
 
-def _template_for(alert_type: str) -> EmailTemplate | None:
+def _template_for(alert_type: str) -> EmailTemplate:
+    """La plantilla con la que sale el correo de una alerta: la personalizada
+    de su tipo si la hay; si no, la **genérica de ese tipo**
+    (`email_defaults`). Un tipo de alerta sin plantilla propia (no todos la
+    tienen) va por la «Genérica» —la personalizada si existe y, si no, la del
+    sistema—. Nunca devuelve None: siempre hay algo que mandar."""
+    from fleet.services import email_defaults
+
     template = EmailTemplate.objects.filter(key=alert_type, is_active=True).first()
-    if template is None:
-        template = EmailTemplate.objects.filter(
-            key=EmailTemplateKey.GENERIC, is_active=True
-        ).first()
-    return template
+    if template is not None:
+        return template
+    if alert_type in email_defaults.DEFAULT_TEMPLATES:
+        return email_defaults.template_for(alert_type)
+    template = EmailTemplate.objects.filter(key=EmailTemplateKey.GENERIC, is_active=True).first()
+    return template or email_defaults.template_for(EmailTemplateKey.GENERIC)
 
 
 def _context_for(alert: Alert) -> dict[str, object]:
@@ -384,23 +388,10 @@ def _recipient_for(alert: Alert) -> str:
     return ""
 
 
-def _default_subject_body(alert: Alert) -> tuple[str, str]:
-    plate = alert.vehicle.plate if alert.vehicle_id else "Flota"
-    subject = f"[Flota] {plate} · {alert.get_type_display()}"
-    body = (
-        f"<p>Aviso de la flota para <strong>{html.escape(plate)}</strong>:</p>"
-        f"<p>{html.escape(alert.message)}</p>"
-    )
-    return subject, body
-
-
 def _rendered_for(alert: Alert) -> tuple[str, str, str]:
     """(asunto, cuerpo, clave de plantilla) del aviso de una alerta."""
     template = _template_for(alert.type)
     context = _context_for(alert)
-    if template is None:
-        subject, body = _default_subject_body(alert)
-        return subject, body, ""
     subject = render(template.subject, context)
     body = render(template.body_html, context)
     if template.signature is not None and template.signature.is_active:

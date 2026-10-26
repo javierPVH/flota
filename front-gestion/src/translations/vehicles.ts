@@ -288,7 +288,7 @@ export const es = {
     subjectLabel: 'Asunto',
     templateHint: 'El asunto y el cuerpo salen de la plantilla de correo. Edítalos en Plantillas.',
     noTemplateHint:
-      'No hay plantilla definida para este tipo: se usará un texto por defecto. Puedes definirla en Plantillas.',
+      'Este tipo no tiene plantilla personalizada: sale su versión genérica. Puedes personalizarla en Ajustes → Correo.',
     noRecipients: 'Elige al menos un destinatario.',
     invalidEmail: 'El email indicado no es válido.',
     send: 'Enviar correo',
@@ -769,7 +769,7 @@ export const en: typeof es = {
     subjectLabel: 'Subject',
     templateHint: 'Subject and body come from the email template. Edit them in Templates.',
     noTemplateHint:
-      'No template defined for this type: a default text will be used. You can define it in Templates.',
+      'This type has no custom template: its generic version is sent. You can customise it in Settings → Email.',
     noRecipients: 'Choose at least one recipient.',
     invalidEmail: 'The email provided is not valid.',
     send: 'Send email',

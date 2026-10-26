@@ -35,7 +35,7 @@ from .consumption import FuelConsumption
 from .contract import Contract, KmReading
 from .document import Document, DocumentDeletionRequest
 from .email import EmailLog, EmailOutbox, EmailSignature, EmailTemplate, EmailTemplateKey
-from .email_settings import EmailSettings
+from .email_settings import EmailSettings, KmRemindMode
 from .event import (
     Event,
     EventDriverChange,
@@ -65,6 +65,7 @@ __all__ = [
     "EmailTemplate",
     "EmailTemplateKey",
     "EmailSettings",
+    "KmRemindMode",
     "Brand",
     "FuelType",
     "Site",

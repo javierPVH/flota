@@ -3,7 +3,7 @@ import { useAppLang } from '@flota/ui/i18n'
 const es = {
   title: 'Plantillas de correo',
   subtitle:
-    'Respuestas genéricas de los avisos: seguro → empresa de renting, km → conductor. Texto enriquecido, firmas, imágenes y documentos.',
+    'Los correos que envía la aplicación: seguro → empresa de renting, km → conductor. Cada tipo tiene su versión genérica y se puede personalizar con texto enriquecido, firmas, imágenes y documentos.',
   templateKeys: {
     insurance_due: 'Seguro (a la empresa de renting)',
     itv_due: 'ITV próxima (aviso de ITV)',
@@ -12,7 +12,17 @@ const es = {
     km_reading_pending: 'Lectura pendiente (al conductor)',
     generic: 'Genérica',
   } as Record<string, string>,
-  undefinedSuffix: '·  sin definir',
+  // Qué versión está en uso en cada tipo (chapa del editor).
+  versionCustom: 'Personalizada',
+  versionGeneric: 'Genérica',
+  versionCustomHint: 'Este tipo sale con tu texto. Retirarlo devuelve la versión genérica del sistema.',
+  versionGenericHint:
+    'Este tipo sale con la versión genérica del sistema, que es lo que ves abajo. Retócala y guarda para personalizarla.',
+  restoreDefault: 'Volver a la genérica',
+  restoreDefaultConfirm:
+    '¿Retirar la plantilla personalizada? Este tipo volverá a enviarse con la versión genérica. La personalizada se guarda en Erratas y se puede restaurar.',
+  restoredDefault: 'Plantilla retirada: este tipo vuelve a la versión genérica.',
+  customiseTemplate: 'Guardar como personalizada',
   /** Aviso informativo de cabecera (misma posición que el de Borrado definitivo). */
   alertTitle: 'Qué son las plantillas de correo',
   alertBody:
@@ -143,7 +153,16 @@ const en: typeof es = {
     km_reading_pending: 'Pending reading (to the driver)',
     generic: 'Generic',
   },
-  undefinedSuffix: '·  not defined',
+  versionCustom: 'Custom',
+  versionGeneric: 'Generic',
+  versionCustomHint: 'This type goes out with your text. Removing it brings back the system generic version.',
+  versionGenericHint:
+    'This type goes out with the system generic version, shown below. Tweak it and save to customise it.',
+  restoreDefault: 'Back to generic',
+  restoreDefaultConfirm:
+    'Remove the custom template? This type will be sent with the generic version again. The custom one is kept in Errata and can be restored.',
+  restoredDefault: 'Template removed: this type is back to the generic version.',
+  customiseTemplate: 'Save as custom',
   alertTitle: 'What email templates are',
   alertBody:
     'This is where the emails the application sends are written (insurance, MOT and mileage notices…): subject and body in Spanish and English, with variables such as {{matricula}} filled in automatically on every send, plus reusable signatures. The “Latest sends” tab is the trace of what has gone out. Saving a template affects future emails, never the ones already sent.',

@@ -3223,36 +3223,127 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
         lang = (request.data.get("lang") or "es").strip()
         return "en" if lang == "en" else "es"
 
-    @action(detail=True, methods=["post"])
-    def preview(self, request, pk=None):
-        """POST /email-templates/{id}/preview/ — render con datos de ejemplo, en
-        la versión que se esté editando (`lang`)."""
-        from .services import mailer
+    def create(self, request, *args, **kwargs):
+        """Personalizar un tipo que YA tuvo plantilla y se retiró (N7: la fila
+        sigue, desactivada, y `key` es única) la restaura y la reescribe en
+        vez de chocar con la restricción: para quien edita, es la misma
+        acción que crearla."""
+        key = str(request.data.get("key") or "")
+        retirada = EmailTemplate.objects.filter(key=key, is_active=False).first() if key else None
+        if retirada is None:
+            return super().create(request, *args, **kwargs)
+        serializer = self.get_serializer(retirada, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        retirada.restore()
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-        template = self.get_object()
-        raw_subject, raw_body = template.parts(self._edited_lang(request))
+    #: Ajustes de aspecto que la vista previa admite SIN guardar (Ajustes →
+    #: Correo → «Aspecto»: lo que se teclea se ve antes de guardarlo).
+    LAYOUT_OVERRIDES = ("layout_enabled", "brand_name", "brand_color", "footer_text")
+
+    def _layout_override(self, request):
+        """(cfg, logo) para la vista previa: la fila de ajustes con lo que
+        venga en la petición puesto encima, sin guardar nada. `logo` es el
+        archivo recién elegido (validado como en el alta) y `logo_clear`
+        enseña el de fábrica."""
         from .services import email_layout
 
+        datos = request.data
+        if (
+            not any(k in datos for k in (*self.LAYOUT_OVERRIDES, "logo_clear"))
+            and not request.FILES
+        ):
+            return None, None
+        cfg = EmailSettings.get_solo()
+        if "layout_enabled" in datos:
+            cfg.layout_enabled = str(datos["layout_enabled"]).lower() in ("1", "true", "on")
+        for campo in ("brand_name", "brand_color", "footer_text"):
+            if campo in datos:
+                setattr(cfg, campo, str(datos[campo])[:1000])
+        logo = None
+        archivo = request.FILES.get("logo")
+        if archivo is not None:
+            contenido = archivo.read()
+            try:
+                logo = (contenido, email_layout.validate_logo(contenido))
+            except ValueError as exc:
+                raise ValidationError({"logo": str(exc)}) from exc
+        elif str(datos.get("logo_clear", "")).lower() in ("1", "true", "on"):
+            cfg.logo = ""
+        return cfg, logo
+
+    def _preview_of(self, request, template: EmailTemplate) -> dict:
+        """El render con datos de ejemplo de una plantilla, guardada o genérica,
+        en la versión que se esté editando (`lang`) y con los ajustes de
+        aspecto que traiga la petición puestos encima."""
+        from .services import email_layout, mailer
+
+        raw_subject, raw_body = template.parts(self._edited_lang(request))
         body = mailer.render(raw_body, self.SAMPLE_CONTEXT)
         if template.signature is not None and template.signature.is_active:
             body += template.signature.body_html
         subject = mailer.render(raw_subject, self.SAMPLE_CONTEXT)
+        cfg, logo = self._layout_override(request)
         # `document_html`: el correo ENTERO tal y como saldrá, con la caja
         # corporativa y el logotipo (como data: URI, que el navegador sí pinta).
-        document, _ = email_layout.wrap(body, preview=True, title=subject)
-        return Response(
-            {
-                "subject": subject,
-                "body_html": body,
-                "document_html": document,
-                "sample_context": self.SAMPLE_CONTEXT,
-            }
-        )
+        document, _ = email_layout.wrap(body, cfg=cfg, preview=True, title=subject, logo=logo)
+        return {
+            "subject": subject,
+            "body_html": body,
+            "document_html": document,
+            "sample_context": self.SAMPLE_CONTEXT,
+        }
+
+    @action(detail=True, methods=["post"], parser_classes=[JSONParser, MultiPartParser, FormParser])
+    def preview(self, request, pk=None):
+        """POST /email-templates/{id}/preview/ — render con datos de ejemplo, en
+        la versión que se esté editando (`lang`). Admite los ajustes de
+        aspecto sin guardar (`LAYOUT_OVERRIDES`, `logo`, `logo_clear`)."""
+        return Response(self._preview_of(request, self.get_object()))
+
+    @action(detail=False, methods=["get"])
+    def defaults(self, request):
+        """GET /email-templates/defaults/ — la versión genérica de cada tipo
+        (`email_defaults`): lo que sale mientras no haya personalizada."""
+        from .services import email_defaults
+
+        return Response(email_defaults.as_rows())
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="preview-default",
+        parser_classes=[JSONParser, MultiPartParser, FormParser],
+    )
+    def preview_default(self, request):
+        """POST /email-templates/preview-default/ {key, lang} — la vista previa
+        de la versión genérica de un tipo, con los mismos datos de ejemplo y
+        los mismos ajustes de aspecto sin guardar que `preview`."""
+        from .services import email_defaults
+
+        key = str(request.data.get("key") or "")
+        if key not in email_defaults.DEFAULT_TEMPLATES:
+            raise ValidationError({"key": "Tipo de correo desconocido."})
+        return Response(self._preview_of(request, email_defaults.template_for(key)))
 
     @action(detail=True, methods=["post"])
     def test(self, request, pk=None):
         """POST /email-templates/{id}/test/ — envía la prueba a MI correo."""
+        return self._send_test(request, self.get_object())
 
+    @action(detail=False, methods=["post"], url_path="test-default")
+    def test_default(self, request):
+        """POST /email-templates/test-default/ {key, lang} — la prueba de la
+        versión genérica de un tipo, que es lo que sale sin personalizada."""
+        from .services import email_defaults
+
+        key = str(request.data.get("key") or "")
+        if key not in email_defaults.DEFAULT_TEMPLATES:
+            raise ValidationError({"key": "Tipo de correo desconocido."})
+        return self._send_test(request, email_defaults.template_for(key))
+
+    def _send_test(self, request, template: EmailTemplate):
         from .services import mailer
 
         if not request.user.email:
@@ -3261,7 +3352,6 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
             raise ValidationError(
                 {"detail": "El correo saliente no está configurado (EMAIL_HOST)."}
             )
-        template = self.get_object()
         raw_subject, raw_body = template.parts(self._edited_lang(request))
         subject = mailer.render(raw_subject, self.SAMPLE_CONTEXT)
         body = mailer.render(raw_body, self.SAMPLE_CONTEXT)

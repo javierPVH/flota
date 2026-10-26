@@ -5,9 +5,13 @@ la administración tiene que poder tocar sin desplegar:
 
 - **El recordatorio de la lectura de km**: la ventana en la que se reclama
   (del día `km_remind_from_day` al `km_remind_until_day` del mes siguiente) y
-  **cuántos correos** salen en ella (`km_remind_emails`), repartidos a partes
-  iguales: el primero al abrirse la ventana y el último el último día de
-  plazo. Las fechas concretas las calcula `email_layout.km_remind_schedule`.
+  **con qué cadencia** salen los correos en ella (`km_remind_mode`): todos los
+  días, los pares, los impares o un número de veces (`km_remind_emails`)
+  repartido a partes iguales —el primero al abrirse la ventana y el último el
+  último día de plazo—. Ese número nunca pasa de los días que tiene el plazo
+  en el mes más corto (`email_layout.km_remind_max_emails`), que es lo que
+  valida el serializer. Las fechas concretas las calcula
+  `email_layout.km_remind_schedule`.
 - **El aspecto corporativo** de todos los correos: logotipo, color de marca,
   nombre y pie, que `email_layout.wrap` pone alrededor del cuerpo de
   cualquier plantilla al entregarlo (alertas, comunicados, envíos
@@ -32,6 +36,15 @@ DEFAULT_FOOTER = (
 )
 
 
+class KmRemindMode(models.TextChoices):
+    """Cadencia de los correos del recordatorio de km dentro de su ventana."""
+
+    COUNT = "count", "Un número de correos, repartidos por el plazo"
+    DAILY = "daily", "Todos los días"
+    ODD = "odd", "Los días impares"
+    EVEN = "even", "Los días pares"
+
+
 class EmailSettings(TimeStampedModel):
     """Fila única con los ajustes del correo (recordatorio de km y aspecto)."""
 
@@ -48,10 +61,20 @@ class EmailSettings(TimeStampedModel):
         default=5,
         help_text="0 = la ventana acaba a fin de mes; 1-28 = sigue reclamándose hasta ese día.",
     )
+    km_remind_mode = models.CharField(
+        "Cadencia de los correos",
+        max_length=10,
+        choices=KmRemindMode.choices,
+        default=KmRemindMode.COUNT,
+        help_text="Todos los días, pares, impares o un número de correos repartidos.",
+    )
     km_remind_emails = models.PositiveSmallIntegerField(
         "Correos por ventana",
         default=2,
-        help_text="Cuántos correos recibe el conductor mientras siga sin lectura (1-6).",
+        help_text=(
+            "Con la cadencia «un número de correos»: cuántos recibe el conductor "
+            "mientras siga sin lectura. Como mucho, los días del plazo."
+        ),
     )
 
     # --- Aspecto corporativo --------------------------------------------------

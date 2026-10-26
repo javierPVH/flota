@@ -20,16 +20,21 @@ import {
 import {
   createEmailSignature,
   createEmailTemplate,
+  deleteEmailTemplate,
   listEmailLogs,
   listEmailSignatures,
+  listEmailTemplateDefaults,
   listEmailTemplates,
+  previewDefaultEmailTemplate,
   previewEmailTemplate,
+  sendTestDefaultEmail,
   sendTestEmail,
   updateEmailSignature,
   updateEmailTemplate,
   type EmailLogRow,
   type EmailPreview,
   type EmailSignatureRow,
+  type EmailTemplateDefault,
   type EmailTemplateRow,
 } from '../api.ts'
 import { useAppLang } from '@flota/ui/i18n'
@@ -51,7 +56,9 @@ const REMINDER_TAB = 'recordatorio'
 const LAYOUT_TAB = 'aspecto'
 const SETTINGS_TABS = new Set([REMINDER_TAB, LAYOUT_TAB])
 
-// Tipos de plantilla (lista cerrada del back). Se crean bajo demanda.
+// Tipos de plantilla (lista cerrada del back). Cada uno tiene su versión
+// GENÉRICA (`/email-templates/defaults/`), que es la que sale mientras no se
+// personalice; la personalizada se crea bajo demanda al guardar.
 const TEMPLATE_KEYS = [
   'insurance_due',
   'itv_due',
@@ -76,6 +83,9 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   const etiqueta = useDomainLabels()
   const lang = useAppLang()
   const [templates, setTemplates] = useState<EmailTemplateRow[]>([])
+  // La versión genérica de cada tipo: prellena el editor de un tipo sin
+  // personalizar y es lo que se previsualiza ahí.
+  const [defaults, setDefaults] = useState<EmailTemplateDefault[]>([])
   const [signatures, setSignatures] = useState<EmailSignatureRow[]>([])
   const [logs, setLogs] = useState<EmailLogRow[]>([])
   // La pestaña activa: 'logs' (Últimos envíos, primera) o una clave de plantilla.
@@ -140,6 +150,9 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     listEmailTemplates()
       .then((page) => setTemplates(page.results))
       .catch((err) => setError(asErrorMessage(err, tRef.current.loadTemplatesError)))
+    listEmailTemplateDefaults()
+      .then(setDefaults)
+      .catch(() => setDefaults([]))
     listEmailSignatures()
       .then((page) => setSignatures(page.results))
       .catch(() => setSignatures([]))
@@ -154,6 +167,9 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   const isSettings = SETTINGS_TABS.has(activeTab)
   const active =
     isLogs || isSettings ? null : (templates.find((tpl) => tpl.key === activeTab) ?? null)
+  // La genérica del tipo activo: lo que se edita cuando no hay personalizada.
+  const activeDefault =
+    isLogs || isSettings ? null : (defaults.find((d) => d.key === activeTab) ?? null)
 
   /** Lo buscado, en trozos: se separan por comas para poder pedir VARIOS
    * destinatarios de una vez. Cada trozo se busca en todo (destinatarios, tipo,
@@ -272,21 +288,24 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
 
   // Vuelca la plantilla activa al editor al cambiar DE PLANTILLA (no en cada
   // recarga: A9). Se vuelve siempre al castellano: es la versión de referencia.
+  // Sin personalizada, el editor arranca con la GENÉRICA del tipo: lo que se
+  // ve es lo que sale hoy, y personalizar es retocarlo, no escribir de cero.
   const hydrated = useRef<string>('')
   useEffect(() => {
-    const stamp = `${activeTab}:${active?.id ?? 'nueva'}`
+    const base = active ?? activeDefault
+    const stamp = `${activeTab}:${active?.id ?? (activeDefault ? 'generica' : 'nueva')}`
     if (hydrated.current === stamp) return
     hydrated.current = stamp
-    setSubject(active?.subject ?? '')
-    setSubjectEn(active?.subject_en ?? '')
-    setBodyEs(active?.body_html ?? '')
-    setBodyEn(active?.body_html_en ?? '')
+    setSubject(base?.subject ?? '')
+    setSubjectEn(base?.subject_en ?? '')
+    setBodyEs(base?.body_html ?? '')
+    setBodyEn(base?.body_html_en ?? '')
     setEditLang('es')
     setSignatureId(active?.signature != null ? String(active.signature) : '')
-    if (bodyRef.current) bodyRef.current.innerHTML = active?.body_html ?? ''
+    if (bodyRef.current) bodyRef.current.innerHTML = base?.body_html ?? ''
     setDirty(false)
     setNotice('')
-  }, [active, activeTab])
+  }, [active, activeDefault, activeTab])
 
   // A9: aviso del navegador al recargar/cerrar con cambios sin guardar.
   useEffect(() => {
@@ -412,19 +431,37 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   }
 
   async function handlePreview() {
-    if (!active) return
     try {
-      setPreview(await previewEmailTemplate(active.id, editLang))
+      if (active) setPreview(await previewEmailTemplate(active.id, editLang))
+      else if (activeDefault) setPreview(await previewDefaultEmailTemplate(activeDefault.key, editLang))
     } catch (err) {
       setError(asErrorMessage(err, t.previewError))
     }
   }
 
-  async function handleTest() {
-    if (!active) return
+  /** Retira la personalizada (N7): el tipo vuelve a su versión genérica. */
+  async function handleRestoreDefault() {
+    if (!active || !window.confirm(t.restoreDefaultConfirm)) return
+    setError('')
     try {
-      const result = await sendTestEmail(active.id, editLang)
-      setNotice(t.testSent(result.sent_to))
+      await deleteEmailTemplate(active.id)
+      setNotice(t.restoredDefault)
+      setDirty(false)
+      hydrated.current = ''
+      load()
+    } catch (err) {
+      setError(asErrorMessage(err, t.saveTemplateError))
+    }
+  }
+
+  async function handleTest() {
+    try {
+      const result = active
+        ? await sendTestEmail(active.id, editLang)
+        : activeDefault
+          ? await sendTestDefaultEmail(activeDefault.key, editLang)
+          : null
+      if (result) setNotice(t.testSent(result.sent_to))
     } catch (err) {
       setError(asErrorMessage(err, t.testError))
     }
@@ -477,13 +514,15 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         active={activeTab}
         onChange={switchTab}
         items={[
-          { key: LOGS_TAB, label: t.logsTitle },
-          { key: REMINDER_TAB, label: ts.reminderTab },
-          { key: LAYOUT_TAB, label: ts.layoutTab },
+          { key: LOGS_TAB, label: t.logsTitle, group: ts.groups.log },
+          { key: REMINDER_TAB, label: ts.reminderTab, group: ts.groups.settings },
+          { key: LAYOUT_TAB, label: ts.layoutTab, group: ts.groups.settings },
           ...TEMPLATE_KEYS.map((key) => ({
             key,
             label: t.templateKeys[key] ?? key,
-            suffix: templates.some((tpl) => tpl.key === key) ? undefined : t.undefinedSuffix,
+            group: ts.groups.templates,
+            // Qué versión está en uso: la personalizada o la genérica.
+            suffix: templates.some((tpl) => tpl.key === key) ? `· ${ts.tabCustom}` : `· ${ts.tabGeneric}`,
           })),
         ]}
       />
@@ -492,6 +531,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         <EmailSettingsPanel
           section={activeTab === REMINDER_TAB ? 'reminder' : 'layout'}
           templates={templates}
+          defaults={defaults}
           onEditTemplate={switchTab}
         />
       ) : isLogs ? (
@@ -561,6 +601,20 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         </section>
       ) : (
       <section className="card">
+        {/* Qué versión está en uso para este tipo: la personalizada (y cómo
+            volver a la genérica) o la genérica (y que guardar la personaliza). */}
+        <div className={`tpl-version${active ? ' is-custom' : ''}`} role="note">
+          <Badge tone={active ? 'brand' : 'neutral'}>
+            {active ? t.versionCustom : t.versionGeneric}
+          </Badge>
+          <span>{active ? t.versionCustomHint : t.versionGenericHint}</span>
+          {active && (
+            <Button variant="secondary" onClick={handleRestoreDefault}>
+              {t.restoreDefault}
+            </Button>
+          )}
+        </div>
+
         {/* Qué versión se está editando. El castellano es la de referencia y
             siempre se usa; la inglesa, si está vacía, cae a ella al enviar. */}
         <div className="tpl-lang">
@@ -684,15 +738,15 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
                 {t.editSignature}
               </Button>
             )}
-            <Button variant="secondary" disabled={!active} onClick={handlePreview}>
+            <Button variant="secondary" disabled={!active && !activeDefault} onClick={handlePreview}>
               {t.preview}
             </Button>
-            <Button variant="secondary" disabled={!active} onClick={handleTest}>
+            <Button variant="secondary" disabled={!active && !activeDefault} onClick={handleTest}>
               {t.sendTest}
             </Button>
             {dirty && <span className="tpl-dirty">{t.unsavedBadge}</span>}
             <Button variant="primary" disabled={saving || !subject.trim()} onClick={handleSave}>
-              {saving ? t.saving : t.saveTemplate}
+              {saving ? t.saving : active ? t.saveTemplate : t.customiseTemplate}
             </Button>
           </div>
         </div>

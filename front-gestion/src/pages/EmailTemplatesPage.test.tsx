@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   listEmailTemplates: vi.fn(),
   listEmailSignatures: vi.fn(),
   listEmailLogs: vi.fn(),
+  listEmailTemplateDefaults: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -16,6 +17,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listEmailTemplates: mocks.listEmailTemplates,
   listEmailSignatures: mocks.listEmailSignatures,
   listEmailLogs: mocks.listEmailLogs,
+  listEmailTemplateDefaults: mocks.listEmailTemplateDefaults,
 }))
 
 const page = (rows: unknown[]) => ({ count: rows.length, next: null, previous: null, results: rows })
@@ -67,6 +69,38 @@ describe('EmailTemplatesPage (plantillas de correo)', () => {
     mocks.listEmailTemplates.mockResolvedValue(page([PLANTILLA]))
     mocks.listEmailSignatures.mockResolvedValue(page([]))
     mocks.listEmailLogs.mockResolvedValue(page([ENVIO_VARIOS, ENVIO_ITV]))
+    mocks.listEmailTemplateDefaults.mockResolvedValue([
+      {
+        key: 'itv_due',
+        key_display: 'ITV',
+        subject: 'ITV próxima · {{matricula}}',
+        body_html: '<p>La ITV vence</p>',
+        subject_en: 'Upcoming test',
+        body_html_en: '<p>Test due</p>',
+      },
+    ])
+  })
+
+  it('agrupa las pestañas y dice qué versión está en uso en cada tipo', async () => {
+    renderPage()
+    const seguro = await screen.findByRole('tab', { name: /Seguro/ })
+    expect(seguro).toHaveTextContent('personalizada')
+    expect(screen.getByRole('tab', { name: /ITV/ })).toHaveTextContent('genérica')
+    // Los tres rótulos de grupo, delante de su primer item.
+    expect(screen.getByText('Configuración')).toBeInTheDocument()
+    expect(screen.getByText('Plantillas por tipo de correo')).toBeInTheDocument()
+  })
+
+  it('un tipo sin personalizar abre el editor con su genérica y guarda como personalizada', async () => {
+    renderPage()
+    await userEvent.click(await screen.findByRole('tab', { name: /ITV/ }))
+    expect(await screen.findByDisplayValue('ITV próxima · {{matricula}}')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /Cuerpo/ })).toHaveTextContent('La ITV vence')
+    expect(screen.getByRole('button', { name: 'Guardar como personalizada' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Volver a la genérica' })).not.toBeInTheDocument()
+    // La personalizada, en cambio, ofrece volver a la genérica.
+    await userEvent.click(screen.getByRole('tab', { name: /Seguro/ }))
+    expect(await screen.findByRole('button', { name: 'Volver a la genérica' })).toBeInTheDocument()
   })
 
   it('un envío a varios: la celda enseña uno y el modal, todos', async () => {

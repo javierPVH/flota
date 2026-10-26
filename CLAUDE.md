@@ -413,13 +413,29 @@ Dos capas que van **siempre juntas**:
   de la plantilla y un pie fijo), que pone `mailer.build_message` —la ÚNICA
   puerta por la que se construye un mensaje— y que se ve tal cual en la vista
   previa (`document_html`, con el logotipo como `data:` URI). Logotipo, color,
-  nombre y pie, y la **ventana y el número de correos del recordatorio de km**
-  (`km_remind_schedule`: repartidos a partes iguales, el primero al abrirse y
-  el último el último día; los tramos ya enviados los guarda la propia alerta
-  en `message_args["reminded"]`), viven en `EmailSettings` (fila única,
-  Ajustes → Correo → «Recordatorio de km» y «Aspecto del correo»,
-  `EmailSettingsPanel`), con los `FLEET_KM_REMIND_*` del entorno solo como
-  valor inicial.
+  nombre y pie, y el **plazo y la cadencia del recordatorio de km**
+  (`km_remind_schedule`, según `km_remind_mode`: todos los días del plazo,
+  los pares, los impares o un número de correos repartidos a partes iguales
+  —el primero al abrirse y el último el último día—, que nunca pasa de los
+  días del plazo en el mes más corto, `km_remind_max_emails`; los tramos ya
+  enviados los guarda la propia alerta en `message_args["reminded"]`), viven
+  en `EmailSettings` (fila única, Ajustes → Correo → «Recordatorio de km» y
+  «Aspecto del correo», `EmailSettingsPanel`), con los `FLEET_KM_REMIND_*`
+  del entorno solo como valor inicial. El panel pinta el **calendario del mes
+  en vivo** mientras se teclea (`kmRemindSchedule.ts`, espejo del cálculo del
+  back con los mismos casos de test: si no coinciden, el bug está en el
+  front). Y **cada tipo de correo tiene su versión genérica**
+  (`services/email_defaults.py`, dos idiomas, mismas variables): es lo que
+  sale sin plantilla personalizada —antes era un texto de emergencia del
+  código— y lo que vuelve a salir al retirarla («Volver a la genérica», N7).
+  La pestaña de cada tipo lo dice («· genérica» / «· personalizada»), el
+  editor de un tipo sin personalizar arranca con su genérica y «Guardar como
+  personalizada» crea la fila (o restaura la retirada, que `key` es única).
+  En «Aspecto» la vista previa va **en vivo**: lo tecleado (nombre, color,
+  pie, el logotipo recién elegido) viaja con la petición de vista previa
+  (`LAYOUT_OVERRIDES` de `EmailTemplateViewSet`, sobre una fila sin guardar)
+  con 400 ms de respiro, y la columna de la vista previa se queda a la vista
+  (`sticky`) mientras se baja por el formulario.
 - **Trabajos programados**: `management/commands/` (`refresh_next_itv`,
   `check_itv`, `check_insurance`, `check_no_driver`, `remind_km_readings`,
   `check_km_overage`, `check_maintenance`, `archive_pending_documents`,

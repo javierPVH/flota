@@ -1498,10 +1498,16 @@ export interface EmailPreview {
  * aspecto corporativo. `km_remind_dates` son las fechas en que saldrá cada
  * correo del mes que se reclama; `logo_data_url` trae el logotipo en uso
  * (el subido o el de fábrica) para enseñarlo sin pasar por /media. */
+/** Cadencia de los correos del recordatorio de km (`KmRemindMode` del back). */
+export type KmRemindModeValue = 'count' | 'daily' | 'odd' | 'even'
+
 export interface EmailSettingsRow {
   km_remind_from_day: number
   km_remind_until_day: number
+  km_remind_mode: KmRemindModeValue
   km_remind_emails: number
+  /** Tope de `km_remind_emails`: los días del plazo en el mes más corto. */
+  km_remind_max_emails: number
   km_remind_dates: string[]
   layout_enabled: boolean
   brand_name: string
@@ -1566,8 +1572,48 @@ export const previewEmailTemplate = (id: number, lang: 'es' | 'en' = 'es') =>
     lang,
   })
 
+/** La versión genérica de un tipo de correo: lo que sale mientras no se
+ * personalice (y lo que vuelve a salir si se retira la personalizada). */
+export interface EmailTemplateDefault {
+  key: string
+  key_display: string
+  subject: string
+  body_html: string
+  subject_en: string
+  body_html_en: string
+}
+
+export const listEmailTemplateDefaults = () =>
+  getJson<EmailTemplateDefault[]>(`${API}/email-templates/defaults/`)
+
+export const previewDefaultEmailTemplate = (key: string, lang: 'es' | 'en' = 'es') =>
+  postJson<EmailPreview>(`${API}/email-templates/preview-default/`, { key, lang })
+
+/**
+ * Vista previa con los ajustes de aspecto SIN guardar (Ajustes → Correo →
+ * «Aspecto»): `form` lleva `lang` y lo tecleado (`brand_name`, `brand_color`,
+ * `footer_text`, `layout_enabled`, el `logo` recién elegido o `logo_clear`).
+ * De una personalizada (`{ id }`) o de la genérica de un tipo (`{ key }`).
+ */
+export const previewEmailWithLayout = (target: { id: number } | { key: string }, form: FormData) =>
+  postForm<EmailPreview>(
+    'id' in target
+      ? `${API}/email-templates/${target.id}/preview/`
+      : `${API}/email-templates/preview-default/`,
+    form,
+    {},
+    'No se pudo generar la vista previa.',
+  )
+
+/** Retira la personalizada (N7: se desactiva) y el tipo vuelve a su genérica. */
+export const deleteEmailTemplate = (id: number) => deleteJson(`${API}/email-templates/${id}/`)
+
 export const sendTestEmail = (id: number, lang: 'es' | 'en' = 'es') =>
   postJson<{ sent_to: string }>(`${API}/email-templates/${id}/test/`, { lang })
+
+/** La prueba de la versión genérica de un tipo (sin plantilla guardada). */
+export const sendTestDefaultEmail = (key: string, lang: 'es' | 'en' = 'es') =>
+  postJson<{ sent_to: string }>(`${API}/email-templates/test-default/`, { key, lang })
 
 export const listEmailSignatures = () =>
   getJson<Paginated<EmailSignatureRow>>(`${API}/email-signatures/${listQs({})}`)

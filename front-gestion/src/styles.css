@@ -2778,6 +2778,25 @@ table.data tbody tr:hover {
   border-bottom-color: var(--color-brand);
 }
 .settings-subtab-suffix { color: var(--color-text-muted); font-weight: 500; }
+/* Pestañas agrupadas (Ajustes → Correo): un rótulo delante del primer item de
+   cada grupo y un filete entre grupos. El rótulo va en la misma línea base que
+   las pestañas, más tenue y en versalitas, para que se lea como cabecera de
+   tramo y no como una pestaña más. */
+.settings-subtabs.is-grouped { gap: 0; align-items: flex-end; }
+.settings-subtab-slot { display: inline-flex; align-items: flex-end; }
+.settings-subtab-slot.starts-group { margin-left: 1.1rem; padding-left: 1.1rem; border-left: 1px solid var(--color-border); }
+.settings-subtab-slot.starts-group:first-child { margin-left: 0; padding-left: 0; border-left: 0; }
+.settings-subtab-group {
+  align-self: center;
+  margin-right: 0.35rem;
+  padding-bottom: 0.1rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
 .settings-subtab-badge {
   min-width: 1.35rem;
   padding: 0 0.35rem;
@@ -6626,28 +6645,105 @@ kbd {
 }
 
 /* --- Ajustes → Correo: recordatorio de km y aspecto (EmailSettingsPanel) --- */
+.email-settings { display: flex; flex-direction: column; gap: 1.5rem; }
 .email-settings-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
-  gap: 1.5rem;
+  grid-template-columns: minmax(320px, 1fr) minmax(0, 1.2fr);
+  gap: 1.5rem 2rem;
   align-items: start;
 }
-@media (max-width: 1000px) { .email-settings-grid { grid-template-columns: 1fr; } }
+/* El recordatorio: el formulario a la izquierda y, a su derecha, el
+   calendario del mes que resulta; los dos a lo ancho, que antes el
+   formulario se quedaba en una columna de 420px con media pantalla vacía. */
+.email-settings-grid.is-reminder { grid-template-columns: minmax(340px, 1.1fr) minmax(320px, 1fr); }
+@media (max-width: 1000px) { .email-settings-grid, .email-settings-grid.is-reminder { grid-template-columns: 1fr; } }
 .email-settings-form { display: flex; flex-direction: column; gap: 0.75rem; }
-.email-settings-form h3, .email-settings-preview h3 { margin: 0; font-size: 1rem; }
-.email-settings-form .field-hint { margin: -0.4rem 0 0; font-size: 0.8rem; }
+.email-settings-form h3, .email-settings-preview h3, .email-settings-template h3, .email-settings-preview-col h3 { margin: 0; font-size: 1rem; }
+.email-settings-form .field-hint, .email-settings-template .field-hint { margin: -0.4rem 0 0; font-size: 0.8rem; }
+.email-settings-preview-col { display: flex; flex-direction: column; gap: 0.6rem; }
+
+/* Plazo y cadencia, cada uno en su caja. */
+.es-fieldset { margin: 0; padding: 0.7rem 0.9rem 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 0.55rem; }
+.es-fieldset legend { padding: 0 0.35rem; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); }
+/* «Desde el día [20] del mes en curso»: una frase con el número dentro. */
+.es-window { display: grid; grid-template-columns: auto 5.2rem minmax(0, 1fr); align-items: center; gap: 0.5rem 0.6rem; font-size: 0.9rem; }
+.es-window > span:last-child { font-size: 0.8rem; }
+.es-window input { text-align: center; }
+/* La cadencia son tarjetas de radio: se lee de un vistazo cuál está puesta. */
+.es-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.5rem; }
+.es-mode { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.55rem 0.65rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; background: var(--color-surface); }
+.es-mode:hover { border-color: var(--color-text-muted); }
+.es-mode.is-active { border-color: var(--color-brand); background: var(--color-brand-soft, var(--color-surface-soft)); box-shadow: inset 0 0 0 1px var(--color-brand); }
+.es-mode input[type='radio'] { margin-top: 0.2rem; accent-color: var(--color-brand); }
+.es-mode-body { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.86rem; min-width: 0; }
+.es-mode-body > .muted { font-size: 0.78rem; }
+.es-count { display: grid; grid-template-columns: 5rem minmax(0, 1fr); align-items: center; gap: 0.5rem; margin-top: 0.35rem; font-size: 0.78rem; }
+.es-count input { text-align: center; }
+.es-count .form-error { margin: 0; padding: 0.15rem 0.4rem; font-size: 0.76rem; }
+
+/* El panel del calendario: se actualiza con cada tecla (cálculo en cliente). */
 .email-settings-schedule {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface-soft);
-  padding: 0.75rem 1rem;
+  padding: 0.85rem 1rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
 }
-.email-settings-schedule ol { margin: 0.4rem 0 0; padding-left: 1.25rem; }
-.email-settings-color { display: grid; grid-template-columns: 1fr auto; gap: 0.5rem; align-items: end; }
-.email-settings-color input[type='color'] { width: 44px; height: 38px; padding: 2px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; }
-.email-settings-logo { display: flex; flex-direction: column; gap: 0.4rem; }
-.email-settings-logo img { max-width: 220px; max-height: 90px; object-fit: contain; background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.5rem; }
-.email-settings-logo img.is-cleared { opacity: 0.35; }
+.email-settings-schedule > strong { font-size: 0.95rem; }
+.es-summary { margin: 0; font-size: 0.9rem; }
+.es-calendars { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.75rem; }
+.es-cal { width: 100%; border-collapse: separate; border-spacing: 2px; font-size: 0.8rem; table-layout: fixed; }
+.es-cal caption { caption-side: top; text-align: left; padding: 0 0 0.3rem 0.2rem; font-weight: 700; text-transform: capitalize; font-size: 0.84rem; }
+.es-cal th { font-weight: 600; color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; padding: 0.1rem 0; }
+.es-cal td { text-align: center; padding: 0.22rem 0; border-radius: 6px; color: var(--color-text-muted); background: var(--color-surface); }
+.es-cal td.is-out { background: transparent; }
+.es-cal td.is-window { color: var(--color-text); background: var(--color-brand-soft, #e6f4f4); }
+.es-cal td.is-email { color: #fff; background: var(--color-brand); font-weight: 700; }
+.es-cal td.is-today { box-shadow: inset 0 0 0 2px var(--color-text); }
+.es-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; margin: 0; padding: 0; list-style: none; font-size: 0.78rem; color: var(--color-text-muted); }
+.es-legend li { display: inline-flex; align-items: center; gap: 0.35rem; }
+.es-legend i { width: 14px; height: 14px; border-radius: 4px; background: var(--color-surface); border: 1px solid var(--color-border); }
+.es-legend i.is-window { background: var(--color-brand-soft, #e6f4f4); border-color: transparent; }
+.es-legend i.is-email { background: var(--color-brand); border-color: transparent; }
+.es-legend i.is-today { box-shadow: inset 0 0 0 2px var(--color-text); }
+.es-dates summary { cursor: pointer; font-size: 0.82rem; color: var(--color-text-muted); }
+.es-dates ol { margin: 0.4rem 0 0; padding-left: 1.25rem; columns: 2; font-size: 0.84rem; }
+
+/* El correo que recibirá el conductor: a lo ancho, bajo plazo y calendario. */
+.email-settings-template { display: flex; flex-direction: column; gap: 0.6rem; padding-top: 1.25rem; border-top: 1px solid var(--color-border); }
+.es-template-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
+.es-template-head > .muted { flex: 1 1 240px; font-size: 0.86rem; }
+
+/* Chapa de versión en el editor de plantillas (personalizada / genérica). */
+.tpl-version { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); background: var(--color-surface-soft); font-size: 0.86rem; margin-bottom: 0.9rem; }
+.tpl-version.is-custom { background: var(--color-brand-soft, var(--color-surface-soft)); }
+.tpl-version > span { flex: 1 1 260px; }
+/* «Aspecto»: el formulario a la izquierda y la vista previa a la derecha,
+   que se queda a la vista (sticky) mientras se baja por el formulario: se
+   cambia un color y se mira el correo sin desplazarse. */
+.email-settings-grid.is-layout { grid-template-columns: minmax(340px, 1fr) minmax(360px, 1.25fr); }
+.email-settings-grid.is-layout .email-settings-preview-col { position: sticky; top: 1rem; }
+@media (max-width: 1000px) { .email-settings-grid.is-layout .email-settings-preview-col { position: static; } }
+.es-toggle { align-items: flex-start; font-size: 0.9rem; }
+.es-toggle .muted { font-size: 0.8rem; }
+.es-fieldset:disabled { opacity: 0.55; }
+.es-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(190px, 1fr); gap: 0.75rem; align-items: start; }
+@media (max-width: 560px) { .es-row { grid-template-columns: 1fr; } }
+.es-color { display: flex; flex-direction: column; gap: 0.25rem; }
+.es-color-label { font-size: 0.8rem; font-weight: 600; }
+.es-color-input { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0.4rem; align-items: center; }
+.es-color-input input[type='color'] { width: 44px; height: 38px; padding: 2px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; cursor: pointer; }
+.es-logo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.9rem; align-items: center; }
+@media (max-width: 560px) { .es-logo { grid-template-columns: 1fr; } }
+.es-logo img { width: 200px; max-width: 100%; height: 84px; object-fit: contain; background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.5rem; }
+.es-logo img.is-cleared { opacity: 0.35; }
+.es-logo-ctl { display: flex; flex-direction: column; gap: 0.4rem; align-items: flex-start; }
+.es-logo-ctl .form-actions { margin: 0; }
+/* El <input type=file> nativo se queda para el teclado y los tests; lo que se
+   ve es el botón del DS que lo abre. */
+.es-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
 .email-settings-preview { display: flex; flex-direction: column; gap: 0.5rem; }
 /* El correo entero se pinta en un iframe aislado (sandbox): nada de lo que
    traiga el HTML corre en la app. Alto fijo con scroll propio. */

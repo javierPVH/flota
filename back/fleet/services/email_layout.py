@@ -87,17 +87,21 @@ def wrap(
     cfg: EmailSettings | None = None,
     preview: bool = False,
     title: str = "",
+    logo: tuple[bytes, str] | None = None,
 ) -> tuple[str, list[InlineImage]]:
     """Mete el cuerpo en la caja corporativa.
 
     Devuelve el documento HTML y las imágenes que hay que adjuntar embebidas
     (vacío en `preview`, donde el logotipo va como `data:` URI dentro del
     propio HTML). Con la maquetación apagada devuelve el cuerpo tal cual.
+    `cfg` puede ser una fila SIN guardar (la vista previa de Ajustes enseña lo
+    tecleado antes de guardarlo) y `logo` un (bytes, mime) que sustituye al
+    de esa fila (el archivo recién elegido, que todavía no está en disco).
     """
     cfg = cfg or EmailSettings.get_solo()
     if not cfg.layout_enabled:
         return body_html, []
-    data, mime = logo_bytes(cfg)
+    data, mime = logo or logo_bytes(cfg)
     if preview:
         logo_src = f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
         images: list[InlineImage] = []
@@ -141,17 +145,44 @@ def km_remind_window(period_month: date, cfg: EmailSettings) -> tuple[date, date
     return start, max(start, end)
 
 
-def km_remind_schedule(period_month: date, cfg: EmailSettings) -> list[date]:
-    """Los días en que sale cada correo del recordatorio de ese mes.
+def km_remind_max_emails(from_day: int, until_day: int) -> int:
+    """Tope de `km_remind_emails`: los días que tiene el plazo en el mes más
+    corto (febrero, 28), para que el número no pase de los días en NINGÚN
+    mes. Del día de apertura a fin de mes, más la cola del mes siguiente."""
+    return max(1, (28 - min(max(1, from_day), 28) + 1) + max(0, min(until_day, 28)))
 
-    `km_remind_emails` fechas repartidas a partes iguales por la ventana: la
-    primera al abrirse y la última el último día de plazo. Con uno solo, el
-    primero. Dos fechas nunca coinciden: si la ventana es más corta que el
-    número de correos, salen menos.
+
+def km_remind_schedule(period_month: date, cfg: EmailSettings) -> list[date]:
+    """Los días en que sale cada correo del recordatorio de ese mes, según la
+    cadencia (`km_remind_mode`):
+
+    - `daily`: todos los días del plazo.
+    - `odd` / `even`: los días impares / pares del calendario dentro del plazo
+      (si el plazo no tiene ninguno, el primer día, que algo tiene que salir).
+    - `count`: `km_remind_emails` fechas repartidas a partes iguales por la
+      ventana —la primera al abrirse y la última el último día de plazo—; con
+      una sola, la primera. Dos fechas nunca coinciden: si la ventana es más
+      corta que el número de correos, salen menos.
     """
+    from fleet.models import KmRemindMode
+
     start, end = km_remind_window(period_month, cfg)
-    n = max(1, min(6, cfg.km_remind_emails))
     span = (end - start).days
+    dias = [start + timedelta(days=i) for i in range(span + 1)]
+    modo = cfg.km_remind_mode
+    if modo == KmRemindMode.DAILY:
+        return dias
+    if modo in (KmRemindMode.ODD, KmRemindMode.EVEN):
+        resto = 1 if modo == KmRemindMode.ODD else 0
+        elegidos = [d for d in dias if d.day % 2 == resto]
+        return elegidos or [start]
+    n = max(
+        1,
+        min(
+            km_remind_max_emails(cfg.km_remind_from_day, cfg.km_remind_until_day),
+            cfg.km_remind_emails,
+        ),
+    )
     if n == 1 or span == 0:
         return [start]
     fechas = [start + timedelta(days=round(i * span / (n - 1))) for i in range(n)]
