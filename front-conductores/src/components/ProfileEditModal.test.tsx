@@ -36,7 +36,6 @@ const USER = {
   last_name: 'Ruiz',
   roles: ['driver'],
   fuel_card: false,
-  dni: '11111111H',
   phone: '600 000 000',
   license_type: 'B',
   is_staff: false,
@@ -116,8 +115,8 @@ describe('«Mis datos y mis documentos» (lo que se pide desde el perfil)', () =
   it('la ficha viaja entera, pero solo con lo que CAMBIA', async () => {
     pintar()
     const user = userEvent.setup()
-    // La ficha completa, el correo y el DNI incluidos: son los dos de
-    // identidad, así que el back comprueba que no sean de otra cuenta.
+    // La ficha completa, el correo incluido: es el de identidad, así que
+    // el back comprueba que no sea ya de otra cuenta.
     await user.clear(screen.getByLabelText('Teléfono'))
     await user.type(screen.getByLabelText('Teléfono'), '600 111 222')
     await user.click(screen.getByLabelText('Tarjeta de combustible'))

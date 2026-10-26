@@ -72,6 +72,18 @@ const es = {
       label: 'Km de exceso',
       help: 'Los kilómetros de más sobre lo contratado. Solo lo trae el aviso de exceso de km.',
     },
+    dias_sin_lectura: {
+      label: 'Días sin lectura',
+      help: 'Cuántos días lleva el coche sin lectura de km. Solo lo trae el recordatorio de km.',
+    },
+    ultima_lectura: {
+      label: 'Última lectura',
+      help: 'La fecha de la última lectura de km registrada. Solo lo trae el recordatorio de km.',
+    },
+    periodo: {
+      label: 'Mes reclamado',
+      help: 'El mes (AAAA-MM) cuya lectura falta. Solo lo trae el recordatorio de km.',
+    },
     mensaje: {
       label: 'Mensaje',
       help: 'El texto que se escribe al mandar el aviso desde la ficha o el panel.',
@@ -185,6 +197,18 @@ const en: typeof es = {
     km_exceso: {
       label: 'Mileage over',
       help: 'Kilometres over the contracted allowance. Only the mileage-overage notice provides it.',
+    },
+    dias_sin_lectura: {
+      label: 'Days without reading',
+      help: 'How many days the vehicle has gone without a km reading. Only the km reminder provides it.',
+    },
+    ultima_lectura: {
+      label: 'Last reading',
+      help: 'Date of the last recorded km reading. Only the km reminder provides it.',
+    },
+    periodo: {
+      label: 'Month claimed',
+      help: 'The month (YYYY-MM) whose reading is missing. Only the km reminder provides it.',
     },
     mensaje: {
       label: 'Message',

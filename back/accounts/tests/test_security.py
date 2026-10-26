@@ -63,16 +63,21 @@ class RateLimitTests(TestCase):
 
 
 class AuditMaskingTests(TestCase):
-    def test_dni_is_masked_in_audit_log(self):
+    def test_phone_is_masked_in_audit_log(self):
+        """El PII de contacto no queda en claro en el histórico de auditoría.
+
+        Cubría el DNI hasta que se retiró del sistema (`accounts/0008`), y
+        sigue haciendo falta: el enmascarado es lo único que separa el
+        histórico de una copia de la ficha.
+        """
         from auditlog.models import LogEntry
 
         user = User.objects.create_user(username="carol", password="x")
-        user.dni = "12345678Z"
+        user.phone = "600123456"
         user.save()
         entries = LogEntry.objects.get_for_object(user)
         changes = " ".join(str(e.changes) for e in entries)
-        # El DNI en claro NO debe aparecer en la auditoría (queda enmascarado).
-        self.assertNotIn("12345678Z", changes)
+        self.assertNotIn("600123456", changes)
 
 
 class ThrottleConfigTests(TestCase):

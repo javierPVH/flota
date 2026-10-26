@@ -24,6 +24,7 @@ import {
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { CollapsibleCard, useAccordion } from '../components/CollapsibleCard.tsx'
+import { FiltersAccordion } from '../components/FiltersAccordion.tsx'
 import { ColumnsPicker } from '../components/ColumnsPicker.tsx'
 import { exportCsv } from '../csv.ts'
 import { BulkImportModal } from '../components/bulk-import/BulkImportModal.tsx'
@@ -42,7 +43,7 @@ const OWN_CARD_IDS = [OWN_CARD]
 const OWN_TABLE_HEIGHT = 168
 
 // Orden por defecto de las columnas y cuáles arrancan ocultas (ninguna).
-const COLUMN_KEYS = ['name', 'dni', 'contact', 'license_type', 'fuel_card', 'roles', 'is_active']
+const COLUMN_KEYS = ['name', 'contact', 'license_type', 'fuel_card', 'roles', 'is_active']
 const DEFAULT_HIDDEN: string[] = []
 
 // Clave canónica del conjunto de roles (orden alfabético) para el filtro por rol.
@@ -104,7 +105,7 @@ function filterUsers(list: ManagedUserFull[], f: UserFilter): ManagedUserFull[] 
     if (f.status === 'inactive' && u.is_active) return false
     if (!matchesRoleFilter(u.roles, f.role)) return false
     if (term) {
-      const hay = `${u.name} ${u.username} ${u.email} ${u.dni ?? ''} ${u.phone}`.toLowerCase()
+      const hay = `${u.name} ${u.username} ${u.email} ${u.phone}`.toLowerCase()
       if (!hay.includes(term)) return false
     }
     if (f.from || f.to) {
@@ -127,6 +128,10 @@ export function UsersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
+  // La barra se puede plegar para dejarle el alto a la tabla, pero nace ABIERTA
+  // (al revés que la del panel): aquí se filtra a diario, y un filtro que no se
+  // ve recorta el listado sin decir por qué. Plegada, la cabecera lo avisa.
+  const [toolsOpen, setToolsOpen] = useState(true)
   const [showInactive, setShowInactive] = useState(false)
   const [roleFilter, setRoleFilter] = useState('') // '' = todos; 'none' = sin rol
   // Fecha de creación: borrador (inputs) vs aplicado (lo que filtra, al pulsar 🔍).
@@ -284,6 +289,12 @@ export function UsersPage() {
     [users, showInactive, roleFilter, search, appliedFrom, appliedTo, me?.id],
   )
 
+  /** ¿Hay algo puesto que recorte el listado? Lo avisa la barra plegada.
+   *
+   * «Mostrar desactivados» cuenta como filtro aunque no recorte: cambia a QUIÉN
+   * enseña la tabla, y plegada no habría forma de saber que está puesto. */
+  const anyFilter = Boolean(search || roleFilter || appliedFrom || appliedTo || showInactive)
+
   // Vista previa de lo que exportará el modal (filtros independientes de la barra).
   const exportRows = useMemo(
     () =>
@@ -310,12 +321,6 @@ export function UsersPage() {
           <div className="muted">{u.username}</div>
         </>
       ),
-    },
-    {
-      key: 'dni',
-      label: t.columns.dni,
-      getValue: (u) => u.dni ?? '',
-      render: (u) => u.dni ?? '—',
     },
     {
       key: 'contact',
@@ -356,7 +361,7 @@ export function UsersPage() {
         </Badge>
       ),
     },
-  ], [t.active, t.columns.contact, t.columns.dni, t.columns.fuelCard, t.columns.license, t.columns.name, t.columns.roles, t.columns.status, t.inactive, t.no, t.roles, t.yes])
+  ], [t.active, t.columns.contact, t.columns.fuelCard, t.columns.license, t.columns.name, t.columns.roles, t.columns.status, t.inactive, t.no, t.roles, t.yes])
 
   // Qué se le puede hacer a un registro. Vive aquí —y no dentro de la celda—
   // porque lo consultan las DOS tablas: la de arriba, que enseña estos dos
@@ -447,7 +452,7 @@ export function UsersPage() {
 
   function runExport() {
     const cols = exportableColumns.filter((c) => expCols.has(c.key))
-    // Rastro de la exportación (DNI y teléfono de la plantilla): se anota
+    // Rastro de la exportación (correo y teléfono de la plantilla): se anota
     // ANTES de generar el fichero y no bloquea la descarga si falla.
     void logScreenExport({
       kind: 'users',
@@ -490,108 +495,118 @@ export function UsersPage() {
         }
       />
 
-      <div className="filters-bar filters-bar--panel">
-        {/* 1 · Nº de registros (ancho fijo: cabe hasta 5 dígitos). */}
-        <div className="filter-field filter-field--count">
-          <label>{t.lblRecords}</label>
-          <div className="filter-count">{rows.length}</div>
-        </div>
+      {/* Barra de filtros, plegable: nace abierta —aquí se filtra a diario— y
+          se pliega para dejarle al listado el alto de la pantalla. */}
+      <FiltersAccordion
+        open={toolsOpen}
+        onToggle={() => setToolsOpen((o) => !o)}
+        label={t.toolsToggle}
+        summary={t.toolsSummary(rows.length)}
+        flag={anyFilter ? t.toolsFiltered : null}
+      >
+        <div className="filters-bar filters-bar--panel">
+          {/* 1 · Nº de registros (ancho fijo: cabe hasta 5 dígitos). */}
+          <div className="filter-field filter-field--count">
+            <label>{t.lblRecords}</label>
+            <div className="filter-count">{rows.length}</div>
+          </div>
 
-        {/* 2 · Búsqueda (papelera para limpiar); campo estrecho, pegado a la izquierda. */}
-        <div className="filter-field filter-field--search">
-          <label htmlFor="users-search">{t.lblSearch}</label>
-          <div className="filter-search">
-            <input
-              id="users-search"
-              type="search"
-              aria-label={t.lblSearch}
-              placeholder={t.searchPlaceholder}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <MiniToolsButtons
-              size="xs"
-              showLock={false}
-              showSearch={false}
-              showSort={false}
-              showDelete
-              onDelete={() => setSearch('')}
+          {/* 2 · Búsqueda (papelera para limpiar); campo estrecho, pegado a la izquierda. */}
+          <div className="filter-field filter-field--search">
+            <label htmlFor="users-search">{t.lblSearch}</label>
+            <div className="filter-search">
+              <input
+                id="users-search"
+                type="search"
+                aria-label={t.lblSearch}
+                placeholder={t.searchPlaceholder}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <MiniToolsButtons
+                size="xs"
+                showLock={false}
+                showSearch={false}
+                showSort={false}
+                showDelete
+                onDelete={() => setSearch('')}
+              />
+            </div>
+          </div>
+
+          {/* 3 · Filtro por rol (campo estrecho). */}
+          <div className="filter-field filter-field--role">
+            <label>{t.lblRole}</label>
+            <SelectField
+              aria-label={t.roleFilterLabel}
+              containerClassName="role-filter"
+              required
+              options={roleFilterOptions}
+              value={roleFilter}
+              onValueChange={setRoleFilter}
             />
           </div>
-        </div>
 
-        {/* 3 · Filtro por rol (campo estrecho). */}
-        <div className="filter-field filter-field--role">
-          <label>{t.lblRole}</label>
-          <SelectField
-            aria-label={t.roleFilterLabel}
-            containerClassName="role-filter"
-            required
-            options={roleFilterOptions}
-            value={roleFilter}
-            onValueChange={setRoleFilter}
-          />
-        </div>
-
-        {/* 4 · Fecha de creación (misma lógica/UI que el panel: Desde/Hasta + 🔍 + 🗑 + Últimos 30 días). */}
-        <div className="filter-field filter-field--date">
-          <label>{t.lblCreated}</label>
-          <DateMiniFilter
-            fromLabel={t.dateFrom}
-            toLabel={t.dateTo}
-            startDate={dateFrom}
-            endDate={dateTo}
-            onStartDateChange={setDateFrom}
-            onEndDateChange={setDateTo}
-            onApply={() => {
-              setAppliedFrom(dateFrom)
-              setAppliedTo(dateTo)
-            }}
-            onClear={() => {
-              setDateFrom('')
-              setDateTo('')
-              setAppliedFrom('')
-              setAppliedTo('')
-            }}
-            onApplyLast30Days={() => {
-              const from = isoDaysAgo(30)
-              const to = isoDaysAgo(0)
-              setDateFrom(from)
-              setDateTo(to)
-              setAppliedFrom(from)
-              setAppliedTo(to)
-            }}
-          />
-        </div>
-
-        {/* 5 · Columnas (mostrar/ocultar + ordenar) — M18: componente compartido. */}
-        <ColumnsPicker
-          order={colOrder}
-          hidden={hiddenCols}
-          labelOf={(key) => colByKey.get(key)?.label}
-          copy={{
-            label: t.lblColumns,
-            button: t.columnsBtn,
-            moveUp: t.colMoveUp,
-            moveDown: t.colMoveDown,
-            showAll: t.columnsAll,
-          }}
-          onOrderChange={setColOrder}
-          onHiddenChange={setHiddenCols}
-        />
-
-        {/* 6 · Interruptores: mostrar desactivados. */}
-        <div className="filter-toggles">
-          <label className="baja-toggle">
-            <input
-              type="checkbox"
-              checked={showInactive}
-              onChange={(e) => setShowInactive(e.target.checked)}
+          {/* 4 · Fecha de creación (misma lógica/UI que el panel: Desde/Hasta + 🔍 + 🗑 + Últimos 30 días). */}
+          <div className="filter-field filter-field--date">
+            <label>{t.lblCreated}</label>
+            <DateMiniFilter
+              fromLabel={t.dateFrom}
+              toLabel={t.dateTo}
+              startDate={dateFrom}
+              endDate={dateTo}
+              onStartDateChange={setDateFrom}
+              onEndDateChange={setDateTo}
+              onApply={() => {
+                setAppliedFrom(dateFrom)
+                setAppliedTo(dateTo)
+              }}
+              onClear={() => {
+                setDateFrom('')
+                setDateTo('')
+                setAppliedFrom('')
+                setAppliedTo('')
+              }}
+              onApplyLast30Days={() => {
+                const from = isoDaysAgo(30)
+                const to = isoDaysAgo(0)
+                setDateFrom(from)
+                setDateTo(to)
+                setAppliedFrom(from)
+                setAppliedTo(to)
+              }}
             />
-            {t.showInactive}
-          </label>
+          </div>
+
+          {/* 5 · Columnas (mostrar/ocultar + ordenar) — M18: componente compartido. */}
+          <ColumnsPicker
+            order={colOrder}
+            hidden={hiddenCols}
+            labelOf={(key) => colByKey.get(key)?.label}
+            copy={{
+              label: t.lblColumns,
+              button: t.columnsBtn,
+              moveUp: t.colMoveUp,
+              moveDown: t.colMoveDown,
+              showAll: t.columnsAll,
+            }}
+            onOrderChange={setColOrder}
+            onHiddenChange={setHiddenCols}
+          />
+
+          {/* 6 · Interruptores: mostrar desactivados. */}
+          <div className="filter-toggles">
+            <label className="baja-toggle">
+              <input
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+              />
+              {t.showInactive}
+            </label>
+          </div>
         </div>
-      </div>
+      </FiltersAccordion>
 
       {error && <div role="alert" className="form-error">{error}</div>}
 

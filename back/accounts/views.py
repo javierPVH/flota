@@ -330,7 +330,7 @@ class GoogleLoginView(APIView):
 class UserViewSet(viewsets.ModelViewSet):
     """CRUD de usuarios/conductores para la gestión (solo admin).
 
-    - Alta/edición con roles multi-valor y datos de conductor (DNI, permiso,
+    - Alta/edición con roles multi-valor y datos de conductor (permiso,
       tarjeta) — HU-2.6.
     - `DELETE` NO borra: **desactiva** (`is_active=False`). El histórico de
       asignaciones y eventos se conserva; un desactivado no sale en los
@@ -343,7 +343,7 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdmin]
     queryset = User.objects.prefetch_related("roles").order_by("first_name", "username")
     filterset_fields = ["is_active", "roles__role"]
-    search_fields = ["username", "first_name", "last_name", "email", "dni"]
+    search_fields = ["username", "first_name", "last_name", "email"]
     ordering_fields = ["username", "first_name", "date_joined"]
 
     def destroy(self, request, *args, **kwargs):

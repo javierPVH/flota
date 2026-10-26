@@ -410,7 +410,7 @@ class VehicleRowNormalizer:
         }
         self._users_by_key: dict[str, int] = {}
         for u in User.objects.filter(is_active=True):
-            for key in (u.email, u.username, u.dni):
+            for key in (u.email, u.username):
                 if key:
                     self._users_by_key[normalize_header(key)] = u.id
         self._choices = {
@@ -525,7 +525,6 @@ USER_ALIASES: dict[str, tuple[str, ...]] = {
     "first_name": ("nombre", "first name"),
     "last_name": ("apellidos", "apellido", "last name"),
     "username": ("usuario", "username", "login"),
-    "dni": ("dni", "nif", "documento"),
     "phone": ("telefono", "teléfono", "movil", "phone"),
     "license_type": ("carne", "carnet", "permiso", "tipo de permiso", "licencia"),
     "fuel_card": ("tarjeta combustible", "tarjeta de combustible", "fuel card"),
@@ -561,11 +560,6 @@ class UserRowNormalizer:
         self._existing_usernames = {
             normalize_header(u) for u in User.objects.values_list("username", flat=True)
         }
-        self._existing_dnis = {
-            normalize_header(d)
-            for d in User.objects.exclude(dni=None).values_list("dni", flat=True)
-            if d
-        }
         # A5: el email también es identidad (login por email, Google, Jira). Se
         # deduplicaba solo por username, así que la misma persona en dos filas
         # con usuarios distintos creaba dos cuentas con el mismo email.
@@ -598,7 +592,6 @@ class UserRowNormalizer:
         put("first_name", coerce_text)
         put("last_name", coerce_text)
         put("username", coerce_text)
-        put("dni", lambda v: (coerce_text(v) or "").upper() or None)
         put("phone", coerce_text)
         put("fuel_card", coerce_bool)
         put("license_type", lambda v: coerce_choice(v, self._license, "tipo de permiso"))
@@ -629,8 +622,6 @@ class UserRowNormalizer:
         # Sin username → email (misma regla que el alta manual del front).
         if data.get("email") and not data.get("username"):
             data["username"] = data["email"]
-        if data.get("dni") and normalize_header(data["dni"]) in self._existing_dnis:
-            errors.append("dni: ya existe")
         if data.get("email") and str(data["email"]).strip().lower() in self._existing_emails:
             errors.append("email: ya está asignado a otro usuario")
         return data, errors

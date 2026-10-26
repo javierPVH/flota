@@ -42,7 +42,6 @@ const ME: FlotaUser = {
   last_name: 'Pérez',
   roles: ['driver'],
   fuel_card: true,
-  dni: '00000000T',
   phone: '600000000',
   license_type: 'B',
   is_staff: false,
@@ -71,7 +70,7 @@ describe('auth: caché del último /me (FE-1) y cierre de sesión (FE-2)', () =>
       is_staff: false,
       is_superuser: false,
     })
-    for (const campo of ['dni', 'phone', 'email', 'first_name', 'last_name']) {
+    for (const campo of ['phone', 'email', 'first_name', 'last_name']) {
       expect(cached).not.toHaveProperty(campo)
     }
     // FE-2: la cola sabe de quién es lo que se encole.
@@ -87,7 +86,6 @@ describe('auth: caché del último /me (FE-1) y cierre de sesión (FE-2)', () =>
 
     const me = await bootstrap()
     expect(me).toMatchObject({ id: 7, username: 'ana', roles: ['driver'] })
-    expect(me?.dni).toBeNull()
     expect(me?.phone).toBe('')
     expect(me?.email).toBe('')
     expect(mocks.setQueueOwner).toHaveBeenCalledWith(7)

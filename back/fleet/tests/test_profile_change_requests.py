@@ -2,9 +2,9 @@
 
 En la app de campo «Mi perfil» es de lectura. Lo que se prueba aquí es lo que
 hace fiable esa puerta: que solo se pueda pedir sobre la PROPIA ficha, que solo
-viajen los campos que se dejan pedir —ni el DNI ni el correo—, que no se
-dupliquen, que sin nada que corregir la nota sea obligatoria y que aplicarla
-escriba de verdad la ficha (y rechazarla no la toque).
+viajen los campos que se dejan pedir, que no se dupliquen, que sin nada que
+corregir la nota sea obligatoria y que aplicarla escriba de verdad la ficha (y
+rechazarla no la toque).
 """
 
 from django.urls import reverse
@@ -25,7 +25,6 @@ class ProfileChangeRequestTests(APITestCase):
         self.driver.first_name = "Carlos"
         self.driver.phone = "600 000 000"
         self.driver.license_type = LicenseType.B
-        self.driver.dni = "11111111H"
         self.driver.save()
         self.other = make_user("lucia", Role.DRIVER)
         self.url = reverse("profilechangerequest-list")
@@ -80,7 +79,7 @@ class ProfileChangeRequestTests(APITestCase):
         self.assertEqual(ProfileChangeRequest.objects.count(), 0)
 
     def test_the_whole_record_can_be_asked_for(self):
-        """Los siete campos de la ficha, incluidos el correo, el DNI y la tarjeta."""
+        """Los seis campos de la ficha, incluidos el correo y la tarjeta."""
         self.client.force_authenticate(self.driver)
         resp = self.client.post(
             self.url,
@@ -89,7 +88,6 @@ class ProfileChangeRequestTests(APITestCase):
                     "first_name": "Carlos",  # igual que la ficha: no es un cambio
                     "last_name": "Ruiz",
                     "email": "carlos.nuevo@flota.dev",
-                    "dni": "99999999R",
                     "phone": "600 111 222",
                     "license_type": "C",
                     "fuel_card": True,
@@ -103,24 +101,46 @@ class ProfileChangeRequestTests(APITestCase):
             {
                 "last_name": "Ruiz",
                 "email": "carlos.nuevo@flota.dev",
-                "dni": "99999999R",
                 "phone": "600 111 222",
                 "license_type": "C",
                 "fuel_card": True,
             },
         )
 
-    def test_an_email_or_a_dni_of_another_account_is_refused_when_asking(self):
-        """Identidad: se dice en el momento, no al intentar aplicarla."""
+    def test_an_email_of_another_account_is_refused_when_asking(self):
+        """Identidad: se dice en el momento, no al intentar aplicarla.
+
+        El correo es el único campo que se comprueba contra el resto de
+        cuentas: era el segundo hasta que el DNI se retiró del sistema.
+        """
         self.other.email = "lucia@flota.dev"
-        self.other.dni = "22222222J"
         self.other.save()
         self.client.force_authenticate(self.driver)
-        for campo, valor in (("email", "LUCIA@flota.dev"), ("dni", "22222222J")):
-            with self.subTest(campo=campo):
-                resp = self.client.post(self.url, {"changes": {campo: valor}}, format="json")
-                self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-                self.assertIn(campo, resp.data.get("errors", resp.data))
+        resp = self.client.post(self.url, {"changes": {"email": "LUCIA@flota.dev"}}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", resp.data.get("errors", resp.data))
+        self.assertEqual(ProfileChangeRequest.objects.count(), 0)
+
+    def test_a_field_that_no_longer_exists_is_refused_by_name(self):
+        """Un campo retirado de la ficha (el DNI) se rechaza diciendo cuál es.
+
+        Lo que descarta en silencio lo que no está en la lista blanca es
+        `clean_changes`, pero eso es la capa de servicio: antes pasa el
+        serializer, que **rechaza** lo desconocido con un 400 que lo nombra. Y
+        está bien así: el modal de campo manda **solo lo que cambia**, así que
+        esto solo salta si alguien edita a propósito una casilla que su copia
+        cacheada aún pinta, y el 400 le dice exactamente eso. Tampoco hay cola
+        offline detrás —la petición se manda a pelo—, que es lo que haría
+        peligroso un 400 permanente.
+        """
+        self.client.force_authenticate(self.driver)
+        resp = self.client.post(
+            self.url,
+            {"changes": {"dni": "99999999R", "phone": "600 111 222"}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("dni", str(resp.data))
         self.assertEqual(ProfileChangeRequest.objects.count(), 0)
 
     def test_an_identity_taken_in_the_meantime_blocks_applying_it(self):

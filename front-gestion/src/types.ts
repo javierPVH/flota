@@ -13,7 +13,6 @@ export interface FlotaUser {
   /** Multi-rol: una persona puede acumular varios (p. ej. supervisor+driver). */
   roles: Role[]
   fuel_card: boolean
-  dni: string | null
   phone: string
   license_type: string
   is_staff: boolean
@@ -122,6 +121,14 @@ export interface Vehicle {
   company_display: string
   /** N3: sin proyección de km ni alertas de exceso. */
   unlimited_km: boolean
+  /**
+   * Coche de pool: lo usa un número indeterminado de personas, así que NO
+   * tiene conductor asociado y de él responde su supervisor, que es quien
+   * registra sus km y su combustible (con la administración). El histórico
+   * admite tantos conductores como haga falta, solapados, pero ninguno de
+   * ellos ve el coche.
+   */
+  is_multiuser: boolean
   /** N2: vencimiento del seguro (editable; lo sincroniza también la póliza). */
   insurance_expiry_date: string | null
   /** Denormalizado del último EventItv; lo mantiene el back. */
@@ -204,6 +211,7 @@ export interface VehicleSummary {
   next_maintenance_date: string | null
   insurance_expiry_date: string | null
   unlimited_km: boolean
+  is_multiuser: boolean
   is_substitute: boolean
   /** N9: principal bloqueado mientras el sustituto opera por él. */
   blocked_by_link: {

@@ -1373,23 +1373,25 @@ table.data tbody tr:hover {
   margin-bottom: 0;
 }
 
-/* Acordeón de búsqueda/filtros/exportación (colapsado por defecto). */
-.dash-tools {
-  margin-bottom: 0.8rem;
+/* Barra de búsqueda y filtros plegable (`FiltersAccordion`). La usan el panel
+   —donde nace colapsada, que ahí se viene a leer— y el inventario y personas,
+   donde nace abierta porque ahí se filtra a diario. */
+.filters-acc {
+  margin-bottom: 0.85rem;
 }
-/* Cabecera de la barra: el acordeón ocupa lo que queda y «Exportar» se queda
-   siempre a la vista, a su derecha (lo que se hace con la tabla no se esconde
-   detrás de un despliegue). */
-.dash-tools-head {
+/* Cabecera: el botón de plegar ocupa lo que queda y lo que no se esconde
+   —«Exportar»— se queda a su derecha (lo que se hace con la tabla que se está
+   viendo no desaparece detrás de un despliegue). */
+.filters-acc-head {
   display: flex;
   align-items: center;
   gap: 0.6rem;
 }
-.dash-tools-head .dash-tools-toggle {
+.filters-acc-head .filters-acc-toggle {
   flex: 1 1 auto;
   width: auto;
 }
-.dash-tools-toggle {
+.filters-acc-toggle {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1404,24 +1406,40 @@ table.data tbody tr:hover {
   cursor: pointer;
   transition: border-color 0.15s ease;
 }
-.dash-tools-toggle:hover {
+.filters-acc-toggle:hover {
   border-color: var(--color-border-strong);
 }
-.dash-tools-caret {
+.filters-acc-caret {
   flex: 0 0 auto;
   transition: transform 0.15s ease;
 }
-.dash-tools-toggle.is-open .dash-tools-caret {
+.filters-acc-toggle.is-open .filters-acc-caret {
   transform: rotate(180deg);
 }
-.dash-tools-summary {
+.filters-acc-summary {
   margin-left: auto;
   color: var(--color-text-muted);
   font-weight: 500;
   font-size: var(--font-size-sm);
 }
-.dash-tools .filters-bar {
+/* «filtros activos», solo con la barra plegada: una tabla recortada con los
+   filtros escondidos se lee como una tabla vacía. Va en el ámbar de los avisos
+   porque eso es lo que es. */
+.filters-acc-flag {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--color-warning-border);
+  border-radius: 999px;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-weight: 600;
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+/* El margen de abajo lo pone `.filters-acc`: sumados, la tabla se iba medio
+   dedo hacia abajo. */
+.filters-acc .filters-bar {
   margin-top: 0.6rem;
+  margin-bottom: 0;
 }
 
 /* Cortes de la tabla (ITV, seguro, mantenimiento, km y bajas): casillas que se
@@ -3467,6 +3485,26 @@ table.data tbody tr:hover {
 .alert-note.tone-info svg { color: var(--color-brand); }
 
 /* Km ilimitados (sin proyección): bloque propio y destacado dentro de Propiedad. */
+/* Marca de coche de pool, pegada al supervisor del que depende. Mismo aspecto
+   que la de km ilimitados: son las dos marcas del coche que viven en el
+   formulario y se leen igual. */
+.multiuser-toggle {
+  margin-bottom: 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface-soft);
+}
+.multiuser-toggle.is-on {
+  border-color: var(--color-brand);
+  background: var(--color-brand-soft, var(--color-surface-soft));
+}
+/* Apagada no se atenúa el texto, solo el control: lo que hay que leer es el
+   porqué, que es justo lo que explica el FieldInfo de debajo. */
+.multiuser-toggle input:disabled {
+  cursor: not-allowed;
+}
+
 .km-unlimited {
   margin-bottom: 1rem;
   border: 1px solid var(--color-border);
@@ -6586,3 +6624,38 @@ kbd {
 .hse-stat-tabs {
   margin-bottom: 0.6rem;
 }
+
+/* --- Ajustes → Correo: recordatorio de km y aspecto (EmailSettingsPanel) --- */
+.email-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+@media (max-width: 1000px) { .email-settings-grid { grid-template-columns: 1fr; } }
+.email-settings-form { display: flex; flex-direction: column; gap: 0.75rem; }
+.email-settings-form h3, .email-settings-preview h3 { margin: 0; font-size: 1rem; }
+.email-settings-form .field-hint { margin: -0.4rem 0 0; font-size: 0.8rem; }
+.email-settings-schedule {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
+  padding: 0.75rem 1rem;
+}
+.email-settings-schedule ol { margin: 0.4rem 0 0; padding-left: 1.25rem; }
+.email-settings-color { display: grid; grid-template-columns: 1fr auto; gap: 0.5rem; align-items: end; }
+.email-settings-color input[type='color'] { width: 44px; height: 38px; padding: 2px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; }
+.email-settings-logo { display: flex; flex-direction: column; gap: 0.4rem; }
+.email-settings-logo img { max-width: 220px; max-height: 90px; object-fit: contain; background: #fff; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.5rem; }
+.email-settings-logo img.is-cleared { opacity: 0.35; }
+.email-settings-preview { display: flex; flex-direction: column; gap: 0.5rem; }
+/* El correo entero se pinta en un iframe aislado (sandbox): nada de lo que
+   traiga el HTML corre en la app. Alto fijo con scroll propio. */
+.email-settings-frame {
+  width: 100%;
+  min-height: 560px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #f3f5f7;
+}
+.email-preview .email-settings-frame { min-height: 520px; }

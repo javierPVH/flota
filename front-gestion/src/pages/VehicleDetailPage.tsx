@@ -1195,6 +1195,8 @@ export function VehicleDetailPage() {
                 <Badge tone={vehicleStateTone(vehicle.state)}>{etiqueta.vehicleState(vehicle) || '—'}</Badge>
                 {vehicle.is_substitute && <Badge tone="info">{t.substituteBadge}</Badge>}
                 {vehicle.unlimited_km && <Badge tone="info">{t.unlimitedKmBadge}</Badge>}
+                {/* Antes que la del conductor: explica por qué no hay ninguno. */}
+                {vehicle.is_multiuser && <Badge tone="info">{t.multiuserBadge}</Badge>}
                 {vehicle.driver_name ? (
                   <Badge tone="success">{t.driverBadge(vehicle.driver_name)}</Badge>
                 ) : (

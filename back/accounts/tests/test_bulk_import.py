@@ -72,15 +72,32 @@ class UserBulkImportTests(APITestCase):
         self.assertEqual(sorted(created.role_values), ["driver", "supervisor"])
         self.assertFalse(created.has_usable_password())  # sin contraseña → Google/admin
 
-    def test_preview_flags_existing_username_and_dni(self):
-        existing = make_user("ana@example.com", Role.DRIVER)
-        existing.dni = "12345678Z"
-        existing.save(update_fields=["dni"])
+    def test_preview_flags_existing_username(self):
+        make_user("ana@example.com", Role.DRIVER)
         text = (
-            "Email;Nombre;Apellidos;DNI\n"
-            "ana@example.com;Ana;García;\n"  # username (email) ya existe
-            "otra@example.com;Otra;Pérez;12345678z\n"  # dni ya existe (insensible)
+            "Email;Nombre;Apellidos\n"
+            "ana@example.com;Ana;García\n"  # username (email) ya existe
         )
+        resp = self.client.post(
+            reverse("user-preview-import"),
+            {
+                "file": csv_file(text),
+                "mapping": json.dumps({"email": 0, "first_name": 1, "last_name": 2}),
+            },
+            format="multipart",
+        )
+        self.assertEqual(resp.data["ready_count"], 0)
+        fields = {e["field"] for e in resp.data["warnings"]["data_errors"]}
+        self.assertIn("usuario", fields)
+
+    def test_an_unknown_column_is_ignored_instead_of_breaking_the_import(self):
+        """Una plantilla con la columna DNI de siempre sigue importando.
+
+        El mapeo descarta en silencio los campos que no conoce, así que al
+        retirar el DNI las hojas que ya existen no se quedan sin importar: solo
+        se ignora esa columna.
+        """
+        text = "Email;Nombre;Apellidos;DNI\nana@example.com;Ana;García;12345678Z\n"
         resp = self.client.post(
             reverse("user-preview-import"),
             {
@@ -89,10 +106,7 @@ class UserBulkImportTests(APITestCase):
             },
             format="multipart",
         )
-        self.assertEqual(resp.data["ready_count"], 0)
-        fields = {e["field"] for e in resp.data["warnings"]["data_errors"]}
-        self.assertIn("usuario", fields)
-        self.assertIn("dni", fields)
+        self.assertEqual(resp.data["ready_count"], 1)
 
     def test_bulk_import_requires_admin(self):
         driver = make_user("driver1", Role.DRIVER)

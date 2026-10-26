@@ -431,6 +431,9 @@ function VehicleCard({
               </span>
             )}
             {tag}
+            {/* De qué coche se está registrando: en un multiusuario los km y
+                el combustible los anota quien supervisa, no quien conduce. */}
+            {vehicle.is_multiuser && <Badge tone="info">{t.home.multiuserTag}</Badge>}
             {blocked && <Badge tone="warning">🔒 {t.home.blocked}</Badge>}
             {/* Marca visible de averías abiertas: icono vectorial con contraste,
                 en lugar del emoji pequeño que variaba según el dispositivo. */}

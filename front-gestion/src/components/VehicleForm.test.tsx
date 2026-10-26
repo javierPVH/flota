@@ -316,4 +316,35 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
       expect(mocks.updateContract).toHaveBeenCalledWith(7, { planned_end_date: '2027-06-30' }),
     )
   })
+
+  it('la marca de multiusuario no se ofrece sin supervisor, y dice por qué', async () => {
+    // El back la rechaza sin supervisor, así que aquí ni se deja marcar: un
+    // 400 que se podía evitar es un error de la pantalla, no del usuario.
+    renderEdit()
+    await screen.findByDisplayValue('2026-01-01')  // el formulario ya cargó
+    await irA('Uso y asignación')
+
+    const casilla = screen.getByRole('checkbox', { name: /Multiusuario/ })
+    expect(casilla).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: '¿Qué es un coche multiusuario?' }))
+    expect(screen.getByText(/Elige antes un supervisor/)).toBeInTheDocument()
+  })
+
+  it('con supervisor se puede marcar, y marcarla deja el conductor en blanco', async () => {
+    mocks.listSupervisors.mockResolvedValue([{ id: 8, name: 'Sara Supervisora' }])
+    mocks.listDrivers.mockResolvedValue([{ id: 3, name: 'Carlos Ruiz' }])
+    mocks.fetchVehicle.mockResolvedValue({ ...VEHICLE, supervisor: 8 })
+    renderEdit()
+    await screen.findByDisplayValue('2026-01-01')
+    await irA('Uso y asignación')
+
+    const casilla = await screen.findByRole('checkbox', { name: /Multiusuario/ })
+    await waitFor(() => expect(casilla).toBeEnabled())
+    await userEvent.click(casilla)
+    expect(casilla).toBeChecked()
+    // Un multiusuario no tiene conductor asociado: es lo que significa.
+    expect((screen.getByRole('combobox', { name: 'Conductor' }) as HTMLSelectElement).value).toBe(
+      '',
+    )
+  })
 })

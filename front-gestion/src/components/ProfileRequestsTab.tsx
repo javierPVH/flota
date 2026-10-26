@@ -39,7 +39,7 @@ const DECISIONS: ProfileChangeDecision[] = ['done', 'reject']
  * pantalla de al lado solo abre la puerta a aplicarlos a medias. Por eso la
  * fila y el modal enseñan el **antes y el después** de cada campo: es lo único
  * que hace falta para decidir. El enlace a la ficha sigue ahí para lo que
- * venga en la nota (un DNI, un correo), que no se pide por esta vía.
+ * venga escrito en la nota y no sea uno de esos campos.
  */
 export function ProfileRequestsTab({ onCountsChange }: { onCountsChange?: () => void }) {
   const t = useRequestsCopy()
@@ -316,7 +316,7 @@ export function ProfileRequestsTab({ onCountsChange }: { onCountsChange?: () => 
                 <strong>{copy.noteLabel}:</strong>{' '}
                 {managing.note || <span className="muted">{copy.noNote}</span>}
               </p>
-              {/* Lo que no se pide por esta vía (DNI, correo) se corrige ahí. */}
+              {/* Lo que solo venga contado en la nota se corrige ahí. */}
               <p style={{ margin: 0 }}>
                 <Link to={`/conductores/${managing.user}`} className="cell-link">
                   {copy.goToUser}

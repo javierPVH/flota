@@ -14,7 +14,7 @@ from django_filters.widgets import BooleanWidget
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -49,6 +49,7 @@ from .models import (
     DocumentDeletionRequest,
     DriverChangeRequest,
     EmailLog,
+    EmailSettings,
     EmailSignature,
     EmailTemplate,
     Event,
@@ -107,6 +108,7 @@ from .serializers import (
     DocumentSerializer,
     DriverChangeRequestSerializer,
     EmailLogSerializer,
+    EmailSettingsSerializer,
     EmailSignatureSerializer,
     EmailTemplateSerializer,
     EventSerializer,
@@ -880,6 +882,31 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         if "driver" not in request.data and "supervisor" not in request.data:
             raise ValidationError({"detail": "Indica `driver` y/o `supervisor`."})
         driver_id = request.data.get("driver")
+        # Un MULTIUSUARIO no tiene conductor —es lo que significa— y no se
+        # queda sin supervisor, que es quien responde de él y el único que
+        # registra sus km. Las dos cosas se comprueban aquí porque esta acción
+        # es la OTRA puerta por la que se tocan (la primera es el PATCH de la
+        # ficha, que lo valida en el serializer).
+        if vehicle.is_multiuser:
+            if driver_id not in (None, "", "null"):
+                raise ValidationError(
+                    {
+                        "driver": (
+                            "Un vehículo multiusuario no tiene conductor asociado: lo "
+                            "usa un número indeterminado de personas y de él responde "
+                            "su supervisor. Los conductores van en el histórico."
+                        )
+                    }
+                )
+            if "supervisor" in request.data and not (request.data.get("supervisor") or None):
+                raise ValidationError(
+                    {
+                        "supervisor": (
+                            "Un vehículo multiusuario necesita supervisor: quítale antes "
+                            "la marca de multiusuario."
+                        )
+                    }
+                )
         if driver_id not in (None, "", "null"):
             from django.contrib.auth import get_user_model
 
@@ -2664,8 +2691,9 @@ class ReportsView(APIView):
                 "El rol HSE solo descarga el informe de HSE: el resto lleva costes, "
                 "personas o incidencias."
             )
-        # El informe de usuarios es la plantilla entera con DNI y teléfono:
-        # solo la administración. Un supervisor lleva coches, no personas, y
+        # El informe de usuarios es la plantilla entera, con el correo y el
+        # teléfono de cada persona: solo la administración. Un supervisor
+        # lleva coches, no personas, y
         # aunque el servicio lo acote a su gente no le hace falta para eso.
         if kind == "users" and not request.user.is_admin:
             raise PermissionDenied("El informe de usuarios solo lo descarga la administración.")
@@ -3183,6 +3211,9 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
         "empresa": "ALD Automotive",
         "fecha_vencimiento": "2026-08-15",
         "km_exceso": "11.525",
+        "dias_sin_lectura": "37",
+        "ultima_lectura": "2026-07-09",
+        "periodo": "2026-08",
         "mensaje": "Seguro en 15 día(s) (vence el 2026-08-15).",
     }
 
@@ -3200,13 +3231,20 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
 
         template = self.get_object()
         raw_subject, raw_body = template.parts(self._edited_lang(request))
+        from .services import email_layout
+
         body = mailer.render(raw_body, self.SAMPLE_CONTEXT)
         if template.signature is not None and template.signature.is_active:
             body += template.signature.body_html
+        subject = mailer.render(raw_subject, self.SAMPLE_CONTEXT)
+        # `document_html`: el correo ENTERO tal y como saldrá, con la caja
+        # corporativa y el logotipo (como data: URI, que el navegador sí pinta).
+        document, _ = email_layout.wrap(body, preview=True, title=subject)
         return Response(
             {
-                "subject": mailer.render(raw_subject, self.SAMPLE_CONTEXT),
+                "subject": subject,
                 "body_html": body,
+                "document_html": document,
                 "sample_context": self.SAMPLE_CONTEXT,
             }
         )
@@ -3214,8 +3252,6 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def test(self, request, pk=None):
         """POST /email-templates/{id}/test/ — envía la prueba a MI correo."""
-        from django.core.mail import EmailMultiAlternatives
-        from django.utils.html import strip_tags
 
         from .services import mailer
 
@@ -3231,13 +3267,7 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
         body = mailer.render(raw_body, self.SAMPLE_CONTEXT)
         if template.signature is not None and template.signature.is_active:
             body += template.signature.body_html
-        message = EmailMultiAlternatives(
-            subject=f"[PRUEBA] {subject}",
-            body=strip_tags(body),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[request.user.email],
-        )
-        message.attach_alternative(body, "text/html")
+        message = mailer.build_message(f"[PRUEBA] {subject}", body, [request.user.email])
         # M8: el resto del correo es best-effort y traza en `EmailLog`; este
         # envío lanzaba y devolvía un 500 opaco, sin registro del intento.
         try:
@@ -3258,6 +3288,49 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
             status=EmailLog.Status.SENT,
         )
         return Response({"sent_to": request.user.email})
+
+
+class EmailSettingsView(APIView):
+    """GET/POST /api/v1/email-settings/ — ajustes del correo (fila única, admin).
+
+    `POST` admite JSON o multipart: con multipart puede venir `logo` (PNG/JPG,
+    hasta 300 KB) y `logo_clear=1` para volver al logotipo por defecto. Lo
+    demás son los campos del serializer. El recordatorio de km lee esta fila
+    en cada pasada del job, así que el cambio vale desde la siguiente.
+    """
+
+    permission_classes = [IsAdmin]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get(self, request):
+        return Response(EmailSettingsSerializer(EmailSettings.get_solo()).data)
+
+    def post(self, request):
+        from .services import email_layout
+
+        cfg = EmailSettings.get_solo()
+        datos = {k: v for k, v in request.data.items() if k not in ("logo", "logo_clear")}
+        serializer = EmailSettingsSerializer(cfg, data=datos, partial=True)
+        serializer.is_valid(raise_exception=True)
+        logo = request.FILES.get("logo")
+        if logo is not None:
+            contenido = logo.read()
+            try:
+                mime = email_layout.validate_logo(contenido)
+            except ValueError as exc:
+                raise ValidationError({"logo": str(exc)}) from exc
+            ext = "png" if mime == "image/png" else "jpg"
+            if cfg.logo:
+                cfg.logo.delete(save=False)
+            from django.core.files.base import ContentFile
+
+            cfg.logo.save(f"logo.{ext}", ContentFile(contenido), save=False)
+        elif str(request.data.get("logo_clear", "")).lower() in ("1", "true", "on"):
+            if cfg.logo:
+                cfg.logo.delete(save=False)
+            cfg.logo = ""
+        serializer.save()
+        return Response(EmailSettingsSerializer(EmailSettings.get_solo()).data)
 
 
 class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
@@ -3450,8 +3523,8 @@ class ProfileChangeRequestViewSet(
         serializer.is_valid(raise_exception=True)
         datos = serializer.validated_data
         cambios = datos.get("changes") or {}
-        # El correo y el DNI identifican a la persona en otras tablas: si el
-        # nuevo ya es de otra cuenta se dice AQUÍ, y no cuando alguien intente
+        # El correo identifica a la persona en otras tablas: si el nuevo ya
+        # es de otra cuenta se dice AQUÍ, y no cuando alguien intente
         # aplicar una petición que nunca pudo aplicarse.
         choque = profile_requests.conflicts(cambios, user=request.user)
         if choque:
@@ -3485,7 +3558,7 @@ class ProfileChangeRequestViewSet(
         try:
             profile_requests.resolve(peticion, decision=decision, actor=request.user, note=note)
         except profile_requests.ConflictingProfileChange as choque:
-            # Otra cuenta se ha quedado ese correo o ese DNI: la petición sigue
+            # Otra cuenta se ha quedado ese correo: la petición sigue
             # pendiente y se dice qué campo estorba, que es lo accionable.
             raise ValidationError(choque.errors) from choque
         peticion.refresh_from_db()

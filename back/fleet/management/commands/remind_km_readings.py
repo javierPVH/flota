@@ -1,6 +1,7 @@
-"""Recordatorio mensual de lectura de km — HU-3.2.
+"""Recordatorio de la lectura de km — HU-3.2.
 
-Ejecución mensual (p. ej. el día 1). Uso:
+Solo actúa dentro de la ventana (`FLEET_KM_REMIND_FROM_DAY`..`_UNTIL_DAY`, del
+20 al 5 por defecto); `run_fleet_jobs` lo lanza en cada pasada. Uso:
 
     python manage.py remind_km_readings
 """

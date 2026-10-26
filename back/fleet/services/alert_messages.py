@@ -63,6 +63,19 @@ def _km_pending(*, period: str) -> str:
     return f"Falta la lectura de km de {period}."
 
 
+# Las dos variantes con los días: el aviso dice cuánto lleva el coche sin
+# lectura, que es lo que mueve a registrarla. `km_pending` a secas se queda
+# para las alertas anteriores a esto y para el recordatorio manual.
+@_plantilla("km_pending_days")
+def _km_pending_days(*, period: str, days: int, last: str) -> str:
+    return f"Falta la lectura de km de {period}: {days} día(s) sin lectura (última el {last})."
+
+
+@_plantilla("km_pending_never")
+def _km_pending_never(*, period: str) -> str:
+    return f"Falta la lectura de km de {period}: el vehículo no tiene ninguna lectura."
+
+
 @_plantilla("no_driver")
 def _no_driver(*, days: int) -> str:
     return f"Sin conductor asignado desde hace más de {days} día(s)."

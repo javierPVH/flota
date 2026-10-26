@@ -30,6 +30,11 @@ export const es = {
   lblRecords: 'Registros',
   lblSearch: 'Buscar',
   searchPlaceholder: 'Buscar matrícula, marca, modelo…',
+  // Cabecera del acordeón de la barra: con la barra plegada es lo único que
+  // queda contando cuántas filas hay y si la tabla está recortada.
+  toolsToggle: 'Buscar y filtrar',
+  toolsSummary: (n: number) => `${n} registros`,
+  toolsFiltered: 'filtros activos',
   lblState: 'Estado',
   stateAll: 'Todos los estados',
   stateHasSubstitute: 'Con coche de sustitución',
@@ -305,6 +310,10 @@ export const es = {
     title: (plate: string) => `Conductor y supervisor · ${plate}`,
     currentDriver: 'Conductor actual',
     newDriver: 'Nuevo conductor',
+    multiuserNoDriver:
+      'Este coche es multiusuario: lo usa un número indeterminado de personas, '
+      + 'así que no tiene conductor asociado. Los conductores se anotan en el '
+      + 'histórico, desde «Conductor y reparto». Aquí solo se cambia el supervisor.',
     noChange: '— Sin cambios —',
     currentTag: '(actual)',
     startDate: 'Fecha de inicio',
@@ -534,6 +543,9 @@ export const en: typeof es = {
   cancel: 'Cancel',
   lblRecords: 'Records',
   lblSearch: 'Search',
+  toolsToggle: 'Search & filter',
+  toolsSummary: (n) => `${n} records`,
+  toolsFiltered: 'filters applied',
   searchPlaceholder: 'Search plate, brand, model…',
   lblState: 'Status',
   stateAll: 'All statuses',
@@ -778,6 +790,10 @@ export const en: typeof es = {
     title: (plate) => `Driver and supervisor · ${plate}`,
     currentDriver: 'Current driver',
     newDriver: 'New driver',
+    multiuserNoDriver:
+      'This is a pool car: an undetermined number of people use it, so it has no '
+      + 'assigned driver. Drivers are logged in the history, under «Driver and '
+      + 'usage». Only the supervisor is changed here.',
     noChange: '— No change —',
     currentTag: '(current)',
     startDate: 'Start date',

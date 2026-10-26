@@ -33,7 +33,6 @@ const user = (over: Record<string, unknown>) => ({
   first_name: 'Carlos',
   last_name: 'Ruiz',
   email: 'carlos@flota.dev',
-  dni: '11111111H',
   phone: '613 211 313',
   license_type: 'B',
   fuel_card: false,
@@ -219,5 +218,48 @@ describe('UsersPage — la cuenta del sistema y la propia van aparte', () => {
     await desplegar()
     await waitFor(() => expect(ownTable().getByText('Sara Supervisora')).toBeInTheDocument())
     expect(ownTable().queryByText('Alicia')).not.toBeInTheDocument()
+  })
+
+  it('la barra de filtros nace ABIERTA y se puede plegar', async () => {
+    const { container } = renderPage()
+    await screen.findByText('Carlos Ruiz')
+
+    // Al revés que la del panel: aquí se filtra a diario.
+    const cabecera = screen.getByRole('button', { name: /Buscar y filtrar/ })
+    expect(cabecera).toHaveAttribute('aria-expanded', 'true')
+    expect(container.querySelector('#users-search')).toBeInTheDocument()
+
+    fireEvent.click(cabecera)
+    expect(cabecera).toHaveAttribute('aria-expanded', 'false')
+    // El cuerpo se desmonta: el buscador deja de estar en el árbol.
+    expect(container.querySelector('#users-search')).toBeNull()
+    // Pero el recuento sigue leyéndose en la cabecera, que es lo que la barra
+    // dejaría de contar al cerrarse.
+    expect(within(cabecera).getByText('1 registros')).toBeInTheDocument()
+
+    fireEvent.click(cabecera)
+    expect(container.querySelector('#users-search')).toBeInTheDocument()
+  })
+
+  it('plegada avisa de que el listado está filtrado, y lo tecleado no se pierde', async () => {
+    const { container } = renderPage()
+    await screen.findByText('Carlos Ruiz')
+    const cabecera = screen.getByRole('button', { name: /Buscar y filtrar/ })
+    // Sin filtros no hay nada que avisar.
+    expect(within(cabecera).queryByText('filtros activos')).not.toBeInTheDocument()
+
+    buscar(container, 'carlos')
+    // Desplegada tampoco: los filtros puestos se ven.
+    expect(within(cabecera).queryByText('filtros activos')).not.toBeInTheDocument()
+
+    fireEvent.click(cabecera)
+    // Una tabla recortada con los filtros escondidos se lee como una tabla
+    // vacía; la chapa es lo único que lo dice.
+    expect(within(cabecera).getByText('filtros activos')).toBeInTheDocument()
+
+    // Lo tecleado vive en la página, así que al volver a abrirla sigue ahí
+    // (el cuerpo se desmonta, pero el filtro no).
+    fireEvent.click(cabecera)
+    expect((container.querySelector('#users-search') as HTMLInputElement).value).toBe('carlos')
   })
 })

@@ -18,7 +18,6 @@ interface FormState {
   first_name: string
   last_name: string
   email: string
-  dni: string
   phone: string
   license_type: string
   fuel_card: boolean
@@ -31,7 +30,6 @@ const EMPTY: FormState = {
   first_name: '',
   last_name: '',
   email: '',
-  dni: '',
   phone: '',
   license_type: '',
   fuel_card: false,
@@ -81,7 +79,6 @@ export function UserFormModal({
         first_name: editing.first_name,
         last_name: editing.last_name,
         email: editing.email,
-        dni: editing.dni ?? '',
         phone: editing.phone,
         license_type: editing.license_type,
         fuel_card: editing.fuel_card,
@@ -114,7 +111,6 @@ export function UserFormModal({
       first_name: form.first_name,
       last_name: form.last_name,
       email: form.email,
-      dni: form.dni || null,
       phone: form.phone,
       license_type: form.license_type,
       fuel_card: form.fuel_card,
@@ -169,11 +165,6 @@ export function UserFormModal({
             value={form.last_name}
             onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))}
             required
-          />
-          <TextInputField
-            label={t.fDni}
-            value={form.dni}
-            onChange={(e) => setForm((f) => ({ ...f, dni: e.target.value }))}
           />
           <TextInputField
             label={t.fPhone}

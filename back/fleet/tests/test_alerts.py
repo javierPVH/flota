@@ -14,6 +14,8 @@ from fleet.models import (
     Alert,
     Assignment,
     Contract,
+    EmailLog,
+    EmailOutbox,
     Event,
     EventItv,
     KmReading,
@@ -120,7 +122,10 @@ class RefreshNextItvTests(TestCase):
 
 class KmReadingAlertTests(TestCase):
     def setUp(self):
-        self.today = timezone.localdate()
+        # Fecha fija DENTRO de la ventana del recordatorio (del 20 al 5): el
+        # resto del mes el chequeo no reclama nada, y con la fecha del día
+        # estos tests fallarían según el calendario.
+        self.today = date(2026, 10, 25)
 
     def test_pending_when_no_reading_this_month(self):
         Vehicle.objects.create(plate="KM1", brand="a", model="b")
@@ -219,6 +224,89 @@ class KmReadingAlertTests(TestCase):
         previous.refresh_from_db()
         self.assertEqual(previous.status, AlertStatus.RESOLVED)
         self.assertIsNotNone(previous.resolved_at)
+
+    def test_outside_the_window_nothing_is_claimed(self):
+        Vehicle.objects.create(plate="KMW1", brand="a", model="b")
+        self.assertEqual(alerts.check_km_readings(date(2026, 10, 12)), 0)
+        self.assertFalse(Alert.objects.filter(type=AlertType.KM_READING_PENDING).exists())
+
+    def test_window_start_opens_the_alert_with_days_without_reading(self):
+        vehicle = Vehicle.objects.create(plate="KMW2", brand="a", model="b")
+        KmReading.objects.create(vehicle=vehicle, reading_date=date(2026, 9, 10), km_reading=10)
+        self.assertEqual(alerts.check_km_readings(date(2026, 10, 20)), 1)
+        alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
+        self.assertEqual(alert.dedup_key, f"km_pending:{vehicle.pk}:2026-10")
+        self.assertEqual(alert.message_code, "km_pending_days")
+        self.assertEqual(alert.message_args["days"], 40)
+        self.assertEqual(alert.message_args["last"], "2026-09-10")
+        self.assertIn("40 día(s) sin lectura", alert.message)
+        # Cada pasada refresca la cuenta sin abrir otra alerta.
+        self.assertEqual(alerts.check_km_readings(date(2026, 10, 28)), 0)
+        alert.refresh_from_db()
+        self.assertEqual(alert.message_args["days"], 48)
+        self.assertEqual(Alert.objects.filter(type=AlertType.KM_READING_PENDING).count(), 1)
+
+    def test_tail_of_the_window_claims_the_previous_month(self):
+        vehicle = Vehicle.objects.create(plate="KMW3", brand="a", model="b")
+        # Del 1 al 5 se sigue reclamando el mes anterior, con su misma clave.
+        self.assertEqual(alerts.check_km_readings(date(2026, 11, 3)), 1)
+        alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
+        self.assertEqual(alert.dedup_key, f"km_pending:{vehicle.pk}:2026-10")
+        # Y el día 6 ya no se reclama nada nuevo.
+        Vehicle.objects.create(plate="KMW4", brand="a", model="b")
+        self.assertEqual(alerts.check_km_readings(date(2026, 11, 6)), 0)
+
+    def test_reading_in_the_claimed_month_satisfies_the_tail(self):
+        vehicle = Vehicle.objects.create(plate="KMW5", brand="a", model="b")
+        KmReading.objects.create(vehicle=vehicle, reading_date=date(2026, 10, 28), km_reading=10)
+        self.assertEqual(alerts.check_km_readings(date(2026, 11, 3)), 0)
+
+    @override_settings(FLEET_EMAIL_ENABLED=True)
+    def test_second_email_when_the_month_turns_and_only_once(self):
+        driver = make_user("km-driver", Role.DRIVER)
+        driver.email = "km-driver@flota.dev"
+        driver.save(update_fields=["email"])
+        vehicle = Vehicle.objects.create(plate="KMW6", brand="a", model="b")
+        Assignment.objects.create(
+            vehicle=vehicle, driver=driver, start_date=date(2026, 1, 1), status="accepted"
+        )
+        # Día 20: la alerta nace y lleva su correo.
+        alerts.check_km_readings(date(2026, 10, 20))
+        alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
+        self.assertEqual(EmailOutbox.objects.filter(alert=alert).count(), 1)
+        # El resto del mes no se repite.
+        alerts.check_km_readings(date(2026, 10, 30))
+        self.assertEqual(EmailOutbox.objects.filter(alert=alert).count(), 1)
+        # Con dos correos por ventana, el segundo cae el ÚLTIMO día de plazo (el
+        # 5): hasta entonces nada, y ese día solo uno aunque el job pase cada
+        # 15 minutos.
+        alerts.check_km_readings(date(2026, 11, 1))
+        alerts.check_km_readings(date(2026, 11, 4))
+        self.assertEqual(EmailOutbox.objects.filter(alert=alert).count(), 1)
+        alerts.check_km_readings(date(2026, 11, 5))
+        alerts.check_km_readings(date(2026, 11, 5))
+        self.assertEqual(EmailOutbox.objects.filter(alert=alert).count(), 2)
+        self.assertEqual(Alert.objects.filter(type=AlertType.KM_READING_PENDING).count(), 1)
+
+    @override_settings(FLEET_EMAIL_ENABLED=True)
+    def test_alert_born_in_the_tail_gets_one_email_only(self):
+        driver = make_user("km-driver2", Role.DRIVER)
+        driver.email = "km-driver2@flota.dev"
+        driver.save(update_fields=["email"])
+        vehicle = Vehicle.objects.create(plate="KMW7", brand="a", model="b")
+        Assignment.objects.create(
+            vehicle=vehicle, driver=driver, start_date=date(2026, 1, 1), status="accepted"
+        )
+        alerts.check_km_readings(date(2026, 11, 2))
+        alerts.check_km_readings(date(2026, 11, 2))
+        alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
+        self.assertEqual(EmailOutbox.objects.filter(alert=alert).count(), 1)
+        self.assertEqual(EmailLog.objects.filter(alert=alert).count(), 0)
+
+    @override_settings(FLEET_KM_REMIND_FROM_DAY=0)
+    def test_without_window_the_alert_opens_on_day_one(self):
+        Vehicle.objects.create(plate="KMW8", brand="a", model="b")
+        self.assertEqual(alerts.check_km_readings(date(2026, 10, 1)), 1)
 
     def test_unlimited_km_vehicle_gets_no_reading_alert(self):
         # X2: sin cupo que vigilar no hay lectura que reclamar.

@@ -21,6 +21,7 @@ from .models import (
     DocumentDeletionRequest,
     EmailLog,
     EmailOutbox,
+    EmailSettings,
     EmailSignature,
     EmailTemplate,
     Event,
@@ -346,6 +347,17 @@ class EmailTemplateAdmin(admin.ModelAdmin):
 @admin.register(EmailSignature)
 class EmailSignatureAdmin(admin.ModelAdmin):
     list_display = ("name", "is_active")
+
+
+@admin.register(EmailSettings)
+class EmailSettingsAdmin(admin.ModelAdmin):
+    """Fila única; se edita en Ajustes → Correo. Aquí, para soporte."""
+
+    def has_add_permission(self, request):
+        return not EmailSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(EmailLog)

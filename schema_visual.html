@@ -297,7 +297,7 @@ const GROUP_ORDER = ['vehiculo','eventos','catalogos','personas','facturacion','
 const TABLES = {
   drivers: { g:'personas', ts:false, note:'Toda persona del sistema (admin, supervisor o conductor). Mapea el Django User (AbstractUser).', cols:[
     ['id','bigint','pk'],['username','varchar','uk'],['email','varchar',''],['first_name','varchar',''],['last_name','varchar',''],
-    ['is_active','bool',''],['fuel_card','bool',''],['dni','varchar','uk'],['phone','varchar',''],['license_type','license_type_enum','']
+    ['is_active','bool',''],['fuel_card','bool',''],['phone','varchar',''],['license_type','license_type_enum','']
   ]},
   driver_roles: { g:'personas', ts:false, note:'Rol asignado a una persona. Multi-rol: un supervisor puede además conducir. Único (user, role).', cols:[
     ['id','bigint','pk'],['user_id','bigint','fk'],['role','role_enum','']
@@ -321,7 +321,7 @@ const TABLES = {
 
   vehicles: { g:'vehiculo', ts:true, note:'Entidad central. El conductor NO es un campo: va por assignments. supervisor_id es el responsable opcional. next_itv_date está denormalizado del último event_itvs.', cols:[
     ['id','bigint','pk'],['plate','varchar','uk'],['business_unit_id','bigint','fk'],['state','state_enum',''],['supervisor_id','bigint','fk'],
-    ['is_substitute','bool',''],['brand','varchar',''],['model','varchar',''],['year','int',''],['vin','varchar',''],['registration_date','date',''],
+    ['is_substitute','bool',''],['is_multiuser','bool',''],['brand','varchar',''],['model','varchar',''],['year','int',''],['vin','varchar',''],['registration_date','date',''],
     ['country_id','bigint','fk'],['fuel','fuel_enum',''],['type','type_enum',''],['size','size_enum',''],['market_segment','market_segment_enum',''],
     ['veh_use','veh_use_enum',''],['version','varchar',''],['consumption','int',''],['km_start','int',''],['km_end','int',''],
     ['property','property_type_enum',''],['business_use','use_type_enum',''],['project_id','bigint','fk'],['cost_center_id','bigint','fk'],

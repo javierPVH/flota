@@ -35,7 +35,6 @@ export const USER_IMPORT_FIELDS: ImportField[] = [
   { key: 'first_name', required: true },
   { key: 'last_name', required: true },
   { key: 'username' },
-  { key: 'dni' },
   { key: 'phone' },
   { key: 'license_type' },
   { key: 'fuel_card' },

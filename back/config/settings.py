@@ -605,6 +605,14 @@ FLEET_KM_WINDOW_START = max(0, env_int("FLEET_KM_WINDOW_START", 0))
 # faltantes del mes anterior. **0 = siempre disponible (por defecto)**; para
 # activar la ventana, `FLEET_KM_ESTIMATE_WINDOW_END=10`.
 FLEET_KM_ESTIMATE_WINDOW_END = max(0, env_int("FLEET_KM_ESTIMATE_WINDOW_END", 0))
+# Recordatorio automático de la lectura de km (alerta + correo al conductor):
+# solo se abre y se manda entre el día FROM del mes y el día UNTIL del mes
+# siguiente (por defecto del 20 al 5), y cuenta los días que el coche lleva
+# sin lectura. Dentro de esa ventana salen DOS correos como mucho: uno al
+# entrar (día 20) y otro al pasar de mes (día 1) a quien siga sin registrar.
+# FROM=0 = sin ventana: el aviso del mes sale el día 1, una sola vez.
+FLEET_KM_REMIND_FROM_DAY = min(28, max(0, env_int("FLEET_KM_REMIND_FROM_DAY", 20)))
+FLEET_KM_REMIND_UNTIL_DAY = min(28, max(0, env_int("FLEET_KM_REMIND_UNTIL_DAY", 5)))
 
 # Días antes del vencimiento del seguro en los que se avisa (N2, escalonado).
 FLEET_INSURANCE_ALERT_DAYS = sorted(
@@ -741,7 +749,7 @@ if SENTRY_DSN:
             dsn=SENTRY_DSN,
             integrations=[DjangoIntegration()],
             traces_sample_rate=float(env_str("SENTRY_TRACES_SAMPLE_RATE", "0.0")),
-            send_default_pii=False,  # no enviar PII (DNI, emails…) a Sentry
+            send_default_pii=False,  # no enviar PII (correos, teléfonos…) a Sentry
             environment=env_str("SENTRY_ENVIRONMENT", "production"),
         )
     except ImportError:

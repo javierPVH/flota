@@ -255,15 +255,14 @@ export const proposeDriverChange = (input: {
 
 // --- Corrección de la ficha personal ---------------------------------------
 
-/** Lo que se puede pedir corregir de la propia ficha: los siete campos, el
- * correo y el DNI incluidos —son los dos de identidad, así que el back
- * comprueba que no sean ya de otra cuenta y la gestión los verifica contra el
- * documento antes de aplicarlos—. Cualquier otro campo lo rechaza el back. */
+/** Lo que se puede pedir corregir de la propia ficha: los seis campos, el
+ * correo incluido —es el de identidad, así que el back comprueba que no sea ya
+ * de otra cuenta antes de aceptar la petición y otra vez antes de aplicarla—.
+ * Cualquier otro campo lo rechaza el back con un 400 que lo nombra. */
 export type ProfileField =
   | 'first_name'
   | 'last_name'
   | 'email'
-  | 'dni'
   | 'phone'
   | 'license_type'
   | 'fuel_card'

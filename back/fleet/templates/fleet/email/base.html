@@ -1,0 +1,56 @@
+{% autoescape off %}<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f5f7;font-family:Arial,Helvetica,sans-serif;color:#1f2933;">
+<!-- Maquetación en tablas y estilos en línea: es lo que los clientes de correo pintan igual. -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f5f7;">
+  <tr>
+    <td align="center" style="padding:24px 12px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e3e8ee;">
+        <tr>
+          <td style="background:#ffffff;padding:20px 28px 16px 28px;border-bottom:4px solid {{ brand_color }};">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td align="left" valign="middle" style="width:200px;">
+                  <img src="{{ logo_src }}" alt="{{ brand_name }}" width="180" style="display:block;width:180px;max-width:180px;height:auto;border:0;">
+                </td>
+                <td align="right" valign="middle" style="font-size:13px;color:#52606d;letter-spacing:.3px;text-transform:uppercase;">
+                  {{ brand_name }}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px 28px 8px 28px;font-size:15px;line-height:1.55;color:#1f2933;">
+            {{ body_html }}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:16px 28px 24px 28px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="border-top:1px solid #e3e8ee;padding-top:14px;font-size:12px;line-height:1.5;color:#7b8794;">
+                  {{ footer_text }}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;">
+        <tr>
+          <td align="center" style="padding:14px 8px 0 8px;font-size:11px;color:#9aa5b1;">
+            {{ brand_name }}
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>{% endautoescape %}

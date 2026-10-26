@@ -17,7 +17,6 @@ export interface FlotaUser {
   /** Multi-rol: una persona puede acumular varios (p. ej. supervisor+driver). */
   roles: Role[]
   fuel_card: boolean
-  dni: string | null
   phone: string
   license_type: string
   is_staff: boolean
@@ -76,6 +75,8 @@ export interface Vehicle {
   state: VehicleState
   state_display: string
   is_substitute: boolean
+  /** Coche de pool: sin conductor asociado; responde (y anota) su supervisor. */
+  is_multiuser: boolean
   supervisor: number | null
   supervisor_name: string
   fuel: string
@@ -137,6 +138,7 @@ export interface VehicleSummary {
   // impide que vuelva a colarse en una pantalla.
   /** N3: sin proyección — pintar "Km ilimitados" en vez de "sin contrato". */
   unlimited_km: boolean
+  is_multiuser: boolean
   is_substitute: boolean
   /** N9: principal bloqueado mientras el sustituto opera por él. */
   blocked_by_link: {

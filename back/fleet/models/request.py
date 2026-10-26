@@ -206,13 +206,16 @@ class ProfileChangeRequest(TimeStampedModel):
 
     `changes` es un diccionario `{campo: valor propuesto}` con **solo lo que
     cambia** y solo de los campos que se dejan pedir
-    (`services.profile_requests.EDITABLE_FIELDS`): nombre, apellidos, teléfono
-    y tipo de permiso. **El DNI y el correo no viajan aquí** — el correo es la
-    clave de identidad (login, Google y resolución del solicitante de Jira) y
-    el DNI es un documento de identidad, que ni se teclea en una web pública ni
-    se copia a una tabla nueva por si acaso (dato mínimo, RGPD). Para eso está
-    la `note`: se escribe qué hay que corregir y la gestión lo verifica contra
-    el documento, que es como se verifica un DNI.
+    (`services.profile_requests.EDITABLE_FIELDS`): nombre, apellidos, correo,
+    teléfono, tipo de permiso y tarjeta de combustible. El **correo** es la
+    clave de identidad (login, Google y resolución del solicitante de Jira), y
+    por eso es el único que se comprueba contra el resto de cuentas al pedirlo
+    y otra vez al aplicarlo.
+
+    Lo que **no** aparece aquí es el DNI, porque ya no existe en la ficha
+    (migración `accounts/0008`): se quitó del sistema por minimización, y de
+    paso dejó de copiarse a este JSON, donde se guardaba en claro y no se
+    limpiaba al resolver la petición.
 
     Al aplicarla, el servicio **escribe esos campos en el usuario** y el
     `auditlog` de `accounts` guarda el diff campo a campo, así que el rastro de

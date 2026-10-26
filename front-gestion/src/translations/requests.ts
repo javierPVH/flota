@@ -191,7 +191,7 @@ const es = {
   profiles: {
     help: 'Las abre cada persona desde «Mi perfil» de la app de campo, que es de lectura. Aplicarla ',
     helpStrong: 'escribe esos campos en su ficha',
-    helpRest: '; el DNI y el correo no se piden por aquí: van en la nota y se verifican aparte.',
+    helpRest: '. El correo se comprueba contra el resto de cuentas antes de aplicarlo.',
     statusPending: 'Pendientes',
     statusDone: 'Aplicadas',
     statusRejected: 'Rechazadas',
@@ -406,7 +406,7 @@ const en: typeof es = {
   profiles: {
     help: 'Opened by each person from «My profile» in the field app, which is read-only. Applying it ',
     helpStrong: 'writes those fields on their record',
-    helpRest: '; the ID number and the email are not asked here: they go in the note and are checked separately.',
+    helpRest: '. The email is checked against the other accounts before applying it.',
     statusPending: 'Pending',
     statusDone: 'Applied',
     statusRejected: 'Rejected',

@@ -108,6 +108,18 @@ const es = {
   property: 'Propiedad',
   company: 'Sociedad',
   insuranceExpiry: 'Vencimiento del seguro',
+  multiuser: 'Multiusuario (coche de pool)',
+  multiuserWhat: '¿Qué es un coche multiusuario?',
+  multiuserInfo:
+    'Lo usa un número indeterminado de personas, así que no tiene conductor '
+    + 'asociado: de él responde su supervisor, que es quien registra sus '
+    + 'kilómetros y su combustible. En el histórico puedes anotar tantos '
+    + 'conductores como haga falta —incluso a la vez—, pero el coche no les '
+    + 'aparecerá a ellos.',
+  multiuserNeedsSupervisor:
+    'Elige antes un supervisor: es quien responde del coche y el único que '
+    + 'puede registrar sus kilómetros y su combustible, así que sin él un '
+    + 'multiusuario sería un coche al que no entra nadie.',
   unlimitedKm: 'Km ilimitados (sin proyección)',
   unlimitedKmTitle: 'Sin proyección de km ni alertas de exceso',
   rentingCompany: 'Compañía de renting',
@@ -342,6 +354,17 @@ const en: typeof es = {
   property: 'Ownership',
   company: 'Company',
   insuranceExpiry: 'Insurance expiry',
+  multiuser: 'Multi-user (pool car)',
+  multiuserWhat: 'What is a pool car?',
+  multiuserInfo:
+    'An undetermined number of people use it, so it has no assigned driver: '
+    + 'its supervisor is responsible for it and the one who records its '
+    + 'mileage and fuel. You can log as many drivers in the history as you '
+    + 'need —even at the same time— but the car will not show up for them.',
+  multiuserNeedsSupervisor:
+    'Pick a supervisor first: they are responsible for the car and the only '
+    + 'one who can record its mileage and fuel, so without one a pool car '
+    + 'would be a car nobody can reach.',
   unlimitedKm: 'Unlimited km (no projection)',
   unlimitedKmTitle: 'No km projection or overage alerts',
   rentingCompany: 'Leasing company',

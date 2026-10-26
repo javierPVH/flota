@@ -26,10 +26,14 @@ reales — RGPD).
 
 ## Columnas por nombre que deben EXISTIR en la BD
 `Sociedad`, `Proyecto`, `CECO`, `Supervisor` (email/usuario) y `Conductor`
-(email/DNI) se resuelven **por nombre contra la base de datos**: si el valor no
+(email/usuario) se resuelven **por nombre contra la base de datos**: si el valor no
 existe, esa fila sale en el informe de errores. En los ejemplos van vacías para
 que importen limpio en cualquier entorno; rellénalas con valores reales de tu BD
 si quieres probar la resolución.
 
-Si un fichero se reimporta, las filas ya existentes (matrícula / email-usuario /
-DNI) se marcan como «ya existe» y no se duplican.
+Si un fichero se reimporta, las filas ya existentes (matrícula / email-usuario)
+se marcan como «ya existe» y no se duplican.
+
+> El **DNI ya no se guarda** (se retiró por minimización). Una hoja que aún
+> traiga esa columna importa igual —se ignora—, pero una que identifique al
+> **conductor por su DNI** ya no lo resolverá: usa su correo o su usuario.

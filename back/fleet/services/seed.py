@@ -44,6 +44,7 @@ from fleet.models import (
     DriverChangeRequest,
     EmailLog,
     EmailOutbox,
+    EmailSettings,
     EmailSignature,
     EmailTemplate,
     EmailTemplateKey,
@@ -70,6 +71,7 @@ from fleet.models import (
     ProfileChangeRequest,
     Project,
     Renting,
+    ReportExport,
     Site,
     SupervisorPeriod,
     Vehicle,
@@ -126,7 +128,6 @@ DEV_PASSWORD = getattr(settings, "FLEET_SEED_PASSWORD", "") or "flota-dev-2026"
 
 BULK_VEHICLES = 30
 _PLATE_LETTERS = "BCDFGHJKLMNPRSTVWXYZ"
-_DNI_LETTERS = "TRWAGMYFPDXBNJZSQVHL"
 # Letras válidas de un VIN (la norma ISO 3779 excluye I, O y Q).
 _VIN_LETTERS = "ABCDEFGHJKLMNPRSTUVWXYZ"
 
@@ -397,7 +398,6 @@ def seed_users(stdout=None) -> None:
         password=DEV_PASSWORD,
         first_name="Alicia",
         phone=_phone(1),
-        dni="55555555K",
         license_type=LicenseType.B,
         fuel_card=True,
     )
@@ -417,11 +417,11 @@ def seed_users(stdout=None) -> None:
     # Multi-rol: la supervisora además conduce (caso real de flota.md).
     UserRole.objects.create(user=sara, role=Role.DRIVER)
 
-    for i, (username, first, last, dni, license_type, fuel_card) in enumerate(
+    for i, (username, first, last, license_type, fuel_card) in enumerate(
         (
-            ("carlos", "Carlos", "Ruiz", "11111111H", LicenseType.B, True),
-            ("lucia", "Lucía", "Mora", "22222222J", LicenseType.B, False),
-            ("david", "David", "León", "33333333P", LicenseType.C, False),  # SIN coche → portón
+            ("carlos", "Carlos", "Ruiz", LicenseType.B, True),
+            ("lucia", "Lucía", "Mora", LicenseType.B, False),
+            ("david", "David", "León", LicenseType.C, False),  # SIN coche → portón
         )
     ):
         user = User.objects.create_user(
@@ -430,7 +430,6 @@ def seed_users(stdout=None) -> None:
             password=DEV_PASSWORD,
             first_name=first,
             last_name=last,
-            dni=dni,
             license_type=license_type,
             fuel_card=fuel_card,
             phone=_phone(3 + i),
@@ -482,7 +481,6 @@ def seed_users(stdout=None) -> None:
             password=DEV_PASSWORD,
             first_name=first,
             last_name=last,
-            dni=f"44{i:06d}{_DNI_LETTERS[i % 20]}",
             # Recorre los 6 tipos de permiso (20 conductores = 3+ vueltas).
             license_type=BULK_LICENSES[i % len(BULK_LICENSES)],
             fuel_card=i % 3 == 0,
@@ -599,8 +597,9 @@ def seed_catalogs(stdout=None) -> None:
         subject="Falta tu lectura de km · {{matricula}}",
         body_html=(
             "<p>Hola {{conductor}}:</p>"
-            "<p>Falta la lectura de km de este mes de <strong>{{matricula}}</strong>. "
-            "Regístrala desde la app de campo (del día 20 a fin de mes).</p>"
+            "<p>Falta la lectura de km de {{periodo}} de <strong>{{matricula}}</strong>: "
+            "lleva <strong>{{dias_sin_lectura}}</strong> día(s) sin lectura "
+            "(la última, el {{ultima_lectura}}). Regístrala desde la app de campo.</p>"
         ),
         signature=firma,
     )
@@ -2888,7 +2887,8 @@ def seed_erratas(stdout=None) -> None:
 
 
 def seed_comms(stdout=None) -> None:
-    """Traza de correos enviados por los jobs, cola de salida y una push.
+    """Traza de correos enviados por los jobs, cola de salida, una push y el
+    rastro de exportaciones.
 
     `EmailLog` es SET_NULL respecto a `Alert`: sin wipe propio se acumularía
     entre resembrados. La suscripción push usa un endpoint ficticio — sin
@@ -2901,7 +2901,33 @@ def seed_comms(stdout=None) -> None:
     wipe(EmailLog, stdout)
     wipe(EmailOutbox, stdout)
     wipe(PushSubscription, stdout)
+    wipe(ReportExport, stdout)
+    # Ajustes del correo: la fila única con sus valores por defecto.
+    EmailSettings.objects.all().delete()
+    EmailSettings.get_solo()
     today = _today()
+    # Rastro de exportaciones: una descarga del admin, el CSV de la pantalla
+    # de Usuarios y el adjunto de un envío programado, que es lo que se lee
+    # en /api/v1/report-exports/ (solo admin).
+    admin = User.objects.get(username="admin")
+    ReportExport.record(
+        admin,
+        ReportExport.Source.DOWNLOAD,
+        "users",
+        "xlsx",
+        filters={"status": "active"},
+        row_count=8,
+    )
+    ReportExport.record(
+        admin,
+        ReportExport.Source.SCREEN,
+        "users",
+        "csv",
+        filters={"role": "driver"},
+        columns=["username", "email", "phone"],
+        row_count=4,
+    )
+    ReportExport.record(admin, ReportExport.Source.SCHEDULED, "fleet", "csv", row_count=12)
 
     insurance_alert = Alert.objects.filter(type=AlertType.INSURANCE_DUE).first()
     km_alert = Alert.objects.filter(type=AlertType.KM_READING_PENDING).first()

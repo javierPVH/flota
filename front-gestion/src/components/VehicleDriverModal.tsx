@@ -218,26 +218,35 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
         </button>
       </div>
 
-      <section className="ops-section">
-        <div className="ops-grid">
-          <SelectField
-            label={t.newDriver}
-            aria-label={t.newDriver}
-            required
-            options={driverOptions}
-            value={driverValue}
-            onValueChange={setDriverValue}
-          />
-          <TextInputField
-            label={t.startDate}
-            aria-label={t.startDate}
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            disabled={!driverChanged}
-          />
-        </div>
-      </section>
+      {/* En un multiusuario no hay conductor que cambiar —lo usa un número
+          indeterminado de personas— y el back rechaza ponerle uno, así que no
+          se ofrece: queda solo el supervisor, que es de quien sí responde. Se
+          dice por qué, que un campo que desaparece sin más se lee como un
+          fallo. */}
+      {vehicle.is_multiuser ? (
+        <p className="ops-note">{t.multiuserNoDriver}</p>
+      ) : (
+        <section className="ops-section">
+          <div className="ops-grid">
+            <SelectField
+              label={t.newDriver}
+              aria-label={t.newDriver}
+              required
+              options={driverOptions}
+              value={driverValue}
+              onValueChange={setDriverValue}
+            />
+            <TextInputField
+              label={t.startDate}
+              aria-label={t.startDate}
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              disabled={!driverChanged}
+            />
+          </div>
+        </section>
+      )}
 
       <section className="ops-section">
         <SelectField

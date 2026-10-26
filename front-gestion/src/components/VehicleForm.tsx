@@ -82,6 +82,7 @@ interface FormState {
   company: string
   // N3/N2: sin proyección de km · vencimiento del seguro
   unlimited_km: boolean
+  is_multiuser: boolean
   insurance_expiry_date: string
   // Contrato (solo alta, con propiedad = renting)
   renting: string
@@ -124,6 +125,7 @@ const EMPTY: FormState = {
   model_ref: '',
   company: '',
   unlimited_km: false,
+  is_multiuser: false,
   insurance_expiry_date: '',
   renting: '',
   contract_number: '',
@@ -166,6 +168,7 @@ function fromVehicle(v: Vehicle): FormState {
     model_ref: v.model_ref != null ? String(v.model_ref) : '',
     company: v.company != null ? String(v.company) : '',
     unlimited_km: v.unlimited_km ?? false,
+    is_multiuser: v.is_multiuser ?? false,
     insurance_expiry_date: v.insurance_expiry_date ?? '',
   }
 }
@@ -212,6 +215,7 @@ function vehiclePayload(form: FormState): Record<string, unknown> {
     supervisor: form.supervisor ? Number(form.supervisor) : null,
     is_substitute: form.is_substitute,
     unlimited_km: form.unlimited_km,
+    is_multiuser: form.is_multiuser,
     insurance_expiry_date: form.insurance_expiry_date || null,
   }
 }
@@ -996,6 +1000,31 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
               value={form.supervisor}
               onValueChange={set('supervisor')}
             />
+            {/* Va pegada al supervisor porque depende de él: sin supervisor el
+                back la rechaza, así que aquí ni se ofrece (y se dice por qué,
+                que una casilla apagada sin explicación se lee como un fallo).
+                Marcarla deja el conductor en blanco: en un multiusuario no hay
+                conductor asociado, y es lo que la casilla significa. */}
+            <div className={`multiuser-toggle${form.is_multiuser ? ' is-on' : ''}`}>
+              <label className="baja-toggle">
+                <input
+                  type="checkbox"
+                  checked={form.is_multiuser}
+                  disabled={!form.supervisor}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      is_multiuser: e.target.checked,
+                      driver: e.target.checked ? '' : f.driver,
+                    }))
+                  }
+                />
+                {t.multiuser}
+              </label>
+              <FieldInfo label={t.multiuserWhat}>
+                {form.supervisor ? t.multiuserInfo : t.multiuserNeedsSupervisor}
+              </FieldInfo>
+            </div>
             <SelectField
               label={t.businessUnit}
               options={catalogOptions(units)}

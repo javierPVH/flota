@@ -95,7 +95,8 @@ class InsuranceRoutingTests(APITestCase):
             subject="Falta tu lectura · {{matricula}}",
             body_html="<p>Hola {{conductor}}</p>",
         )
-        created = alerts.check_km_readings(today=TODAY)
+        # El recordatorio solo sale dentro de su ventana (del 20 al 5).
+        created = alerts.check_km_readings(today=TODAY.replace(day=20))
         self.assertEqual(created, 1)
         mailer.send_outbox()
         self.assertEqual(mail.outbox[0].to, ["carlos@flota.dev"])

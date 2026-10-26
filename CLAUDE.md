@@ -408,6 +408,18 @@ Dos capas que van **siempre juntas**:
   Google** (`GoogleLoginPage`), **sin activar** tras el interruptor
   `SOLO_GOOGLE` de `App.tsx`. Cómo se crea todo lo de Google, en
   `docs/GOOGLE_SETUP.md`.
+- **Todo correo sale dentro de la misma caja corporativa** (`services/email_layout.py`:
+  cabecera con el logotipo embebido como `cid:` y el color de marca, el cuerpo
+  de la plantilla y un pie fijo), que pone `mailer.build_message` —la ÚNICA
+  puerta por la que se construye un mensaje— y que se ve tal cual en la vista
+  previa (`document_html`, con el logotipo como `data:` URI). Logotipo, color,
+  nombre y pie, y la **ventana y el número de correos del recordatorio de km**
+  (`km_remind_schedule`: repartidos a partes iguales, el primero al abrirse y
+  el último el último día; los tramos ya enviados los guarda la propia alerta
+  en `message_args["reminded"]`), viven en `EmailSettings` (fila única,
+  Ajustes → Correo → «Recordatorio de km» y «Aspecto del correo»,
+  `EmailSettingsPanel`), con los `FLEET_KM_REMIND_*` del entorno solo como
+  valor inicial.
 - **Trabajos programados**: `management/commands/` (`refresh_next_itv`,
   `check_itv`, `check_insurance`, `check_no_driver`, `remind_km_readings`,
   `check_km_overage`, `check_maintenance`, `archive_pending_documents`,
@@ -654,7 +666,7 @@ Dos capas que van **siempre juntas**:
   ITV próximas, seguros próximos, mantenimientos próximos, **km sobrepasados**
   (los que tienen abierta la alerta `km_overage`, que es quien hace ese cálculo)
   y mostrar bajas. **El inventario (`VehiclesPage`) enseña lo mismo con la barra
-  que ya tenía**: a la vista (no plegable, que ahí se filtra a diario), repartida
+  que ya tenía**: repartida
   en las líneas que hagan falta y con los **cortes como casillas** en una fila
   al final —los mismos cinco, más «Limpiar filtros»—; «Exportar CSV» sigue en la
   cabecera de la página y abre su modal de exportación, que es el que elige
@@ -666,6 +678,30 @@ Dos capas que van **siempre juntas**:
   para ver lo que hay que atender; exigirlos a la vez no dejaría casi nada) y el
   cálculo del próximo mantenimiento vive en `maintenanceDue.ts`, compartido por
   las dos pantallas para que no cuenten distinto.
+- **La barra de búsqueda y filtros se pliega, y es la MISMA en las tres
+  pantallas que la llevan** (`components/FiltersAccordion.tsx`: el panel,
+  el inventario y **personas** —`/conductores`—). Nació en el panel como
+  `.dash-tools` y se extrajo al pedirla las otras dos: tres copias del mismo
+  plegado acabarían comportándose distinto. Lo que cambia entre ellas es con
+  qué estado **nace**: en el panel, **plegada** (ahí se viene a leer el panel,
+  no a filtrar) y en el inventario y personas, **abierta** (ahí se filtra a
+  diario). Se pliega para darle a la tabla el alto de la pantalla.
+  Dos cosas **no** se esconden al plegar, y son el motivo de que la cabecera
+  sea una fila y no solo un botón: lo que se **hace** con la tabla que se está
+  mirando («Exportar CSV» en el panel, por la prop `actions`; un botón dentro
+  de otro botón no es HTML válido) y lo que la barra **deja de contar** —el
+  número de registros y, sobre todo, la chapa **«filtros activos»**, que solo
+  se pinta plegada: una tabla recortada con los filtros escondidos se lee como
+  una tabla vacía, y ahí «Limpiar filtros» tampoco se ve—. El cuerpo se
+  **desmonta** al plegar (al revés que el `CollapsibleCard` del DS, que lo
+  esconde con `hidden`): no se pierde nada —lo tecleado vive en el estado de la
+  página— y los desplegables de conductor y supervisor llevan una opción por
+  persona, que escondidas seguirían pintándose y duplicando en el árbol de
+  accesibilidad los mismos nombres que están en la tabla. En el inventario,
+  plegarla es una decisión sobre la vista como el filtro o el scroll, así que
+  va en el **mismo snapshot** de «volver a donde estábamos» (`toolsOpen` de
+  `VehiclesView`, en `sessionStorage`); un snapshot anterior a esto no trae la
+  clave y la barra sale abierta.
 - **«Resolver» es un único gesto** en gestión: `components/resolve/ResolveDispatcher`
   recibe un `ResolveTarget` (alerta o incidencia) y monta el formulario
   específico del tipo (`resolveFlow.ts` decide: ITV → `RegisterItvForm`,
@@ -869,8 +905,43 @@ Dos capas que van **siempre juntas**:
   demás se consulta, no se lee en cada visita. **Consumo y mantenimiento no
   tienen tarjeta aquí** (R5-42 retiró las apagadas): se leen en su indicador y
   se gestionan donde se gestionan en el resto de pantallas.
+- **Un coche puede ser MULTIUSUARIO**, y entonces no tiene conductor:
+  `Vehicle.is_multiuser` es el coche de pool —lo usa un número indeterminado de
+  personas—, así que de él responde su **supervisor**, que por eso es
+  **obligatorio** (sin él sería un coche al que no entra nadie) y es quien
+  **registra sus km y su combustible**, con la administración.
+  Lo resuelve **una sola línea**, y por eso no hay ni una clase de permiso
+  nueva ni un candado por endpoint: `selectors.current_assignment_q` —el
+  criterio único de «asignación en curso» (R3-02)— deja de considerar vigente
+  **cualquier** asignación de un multiusuario. De ahí cuelgan `vehicles_for`
+  (y con ella el ámbito de escritura de las dos puertas de km y combustible),
+  `current_driver_map`, `users_for`, `readable_documents` y `check_no_driver`,
+  así que el conductor **ni lo ve ni escribe en él** sin tocar nada más; el
+  supervisor entra por su otra rama (`Q(supervisor=user)`), que no depende de
+  asignación alguna. Escribirlo consulta a consulta habría dejado a la mitad
+  dando acceso — la misma lección que `OUT_OF_FLEET`.
+  El **histórico sí admite tantos conductores como haga falta y solapados**
+  (`vehicle_assignment_overlap` los descarta en su propia consulta), porque es
+  el registro de quién lo usó y no un reparto; a cambio, sus asignaciones
+  **exigen fecha de fin**: ese coche no tiene conductor vigente, y además la
+  garantía de «una vigente por coche» es una **constraint de la BD** cuya
+  condición no puede mirar al vehículo a través de la FK y solo muerde con fin
+  NULL, así que pidiendo periodo cerrado se queda intacta para todos los demás
+  coches en vez de haber que desmontarla. Usar un coche de pool **no ocupa** al
+  conductor (`driver_assignment_clash` lo excluye): no puede impedirle tener el
+  suyo. Y **no se le abre el aviso de «vehículo sin conductor»**, igual que al
+  de sustitución: no tenerlo es su definición, y la `dedup_key` es mensual.
+  El correo del recordatorio de km cae en el **supervisor** cuando no hay
+  conductor (`mailer._recipient_for`), que es donde el push ya iba.
+  Se marca en el formulario del vehículo, **pegado al supervisor** y apagado
+  mientras no lo haya; «Cambiar conductor» en estos coches solo ofrece el
+  supervisor, y las dos puertas del back —el `PATCH` de la ficha y
+  `set-driver`— rechazan ponerle conductor, quitarle el supervisor o marcarlo
+  mientras lleve uno (ahí dice que se retire primero, porque retirar a quien
+  lleva un coche es una decisión y ya tiene su gesto).
 - **Quién lleva y quién responde del coche son periodos con fechas**, y la
-  regla es la misma para los dos: **uno a la vez**, también hacia atrás. El
+  regla es la misma para los dos: **uno a la vez**, también hacia atrás (salvo
+  en un multiusuario, arriba). El
   conductor son las `Assignment` (las `accepted`/`finished` son tramos; una
   `proposed` o `rejected` no lo es) y el supervisor, `SupervisorPeriod`. Ojo
   con el supervisor: vive **en dos sitios a propósito** — `Vehicle.supervisor`
@@ -1706,14 +1777,15 @@ Dos capas que van **siempre juntas**:
   sobre el total ofrecería chips con números que al pulsarlos dan tabla
   vacía—. Se pide la
   **ficha entera** (`services.profile_requests.EDITABLE_FIELDS`: nombre,
-  apellidos, correo, DNI, teléfono, tipo de permiso y tarjeta de combustible) y
-  viaja **solo lo que cambia**; cualquier otro campo lo rechaza el back. El
-  **correo** y el **DNI** son **identidad** y por eso se comprueban contra el
-  resto de cuentas al pedirlo —y otra vez al aplicarlo, porque entre una cosa y
-  otra ese dato ha podido ser de otra persona—: así se dice qué campo estorba
-  en vez de reventar la restricción de la base de datos. Lo que sigue sin
-  cambiar es quién verifica un DNI: se mira **contra el documento**, y eso lo
-  hace la gestión antes de aplicar. La **nota** explica el porqué y es
+  apellidos, correo, teléfono, tipo de permiso y tarjeta de combustible) y
+  viaja **solo lo que cambia**; cualquier otro campo lo rechaza el back con un
+  400 que lo nombra (también uno RETIRADO, como el DNI: el modal manda solo
+  lo que cambia, así que eso solo salta si se edita a propósito una casilla
+  que una copia cacheada aún pinta). El **correo** es
+  **identidad** y por eso se comprueba contra el resto de cuentas al pedirlo —y
+  otra vez al aplicarlo, porque entre una cosa y otra ese dato ha podido ser de
+  otra persona—: así se dice qué campo estorba en vez de reventar la
+  restricción de la base de datos. La **nota** explica el porqué y es
   obligatoria cuando no cambia ningún campo. Es idempotente por persona, como
   las otras dos peticiones de campo. Al contrario que la propuesta de
   conductor, **decidirla sí escribe**: `done` copia esos campos a la ficha (con

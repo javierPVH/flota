@@ -587,23 +587,42 @@ def check_insurance(today: date | None = None) -> int:
 
 
 def check_km_readings(today: date | None = None) -> int:
-    """Recordatorio mensual de km (HU-3.2): vehículo activo sin lectura este mes.
+    """Recordatorio de la lectura de km (HU-3.2): vehículo activo sin lectura.
+
+    Solo dentro de la ventana de recordatorio, que fija la administración en
+    Ajustes → Correo (`EmailSettings`: del 20 al 5 por defecto). La alerta es
+    una por coche y mes reclamado, se crea al entrar en la ventana —con su
+    correo— y cada pasada le refresca **cuántos días lleva el coche sin
+    lectura**, que es lo que dice el aviso. Los correos siguientes salen en
+    las fechas de `email_layout.km_remind_schedule` (tantos como diga el
+    ajuste, repartidos por la ventana) a quien siga sin registrar, cada uno
+    una sola vez (`_queue_km_reminder_rounds`).
 
     X2: los vehículos con `unlimited_km` quedan FUERA — sin cupo que vigilar no
     hay nada que recordar, y el aviso solo generaba ruido (a su conductor le
     llegaba alerta y correo por una lectura que no sirve para nada). Mismo
     criterio que `check_km_overage`, que ya los excluía.
     """
+    from fleet.models import EmailSettings
+    from fleet.services import email_layout
+
     today = _today(today)
-    period = f"{today.year:04d}-{today.month:02d}"
+    cfg = EmailSettings.get_solo()
+    period_month = email_layout.km_remind_period(today, cfg)
     vehicles = [v for v in _active_vehicles() if not v.unlimited_km]
     ids = [v.id for v in vehicles]
-    # Bulk (evita N+1): vehículos con lectura este mes y conductores en curso.
+    if period_month is None:
+        # Fuera de la ventana no se reclama, pero la reconciliación sigue: un
+        # aviso abierto cuya lectura ya llegó se cierra en cualquier pasada.
+        _reconcile_km_alerts(ids, today)
+        return 0
+    period = f"{period_month.year:04d}-{period_month.month:02d}"
+    # Bulk (evita N+1): vehículos con lectura en el mes reclamado y conductores en curso.
     with_reading = set(
         KmReading.objects.filter(
             vehicle_id__in=ids,
-            reading_date__year=today.year,
-            reading_date__month=today.month,
+            reading_date__year=period_month.year,
+            reading_date__month=period_month.month,
             is_active=True,
         ).values_list("vehicle_id", flat=True)
     )
@@ -629,17 +648,106 @@ def check_km_readings(today: date | None = None) -> int:
     missing = [v for v in vehicles if v.id not in with_reading]
     drivers = current_driver_map([v.id for v in missing])
     created = 0
+    keys: list[str] = []
+    # Tramos del calendario que ya tocan hoy. La alerta recién creada manda
+    # su correo de creación, que cubre todos los tramos vencidos hasta hoy.
+    schedule = email_layout.km_remind_schedule(period_month, cfg)
+    due_rounds = [k for k, d in enumerate(schedule) if d <= today]
     with known_alerts(AlertType.KM_READING_PENDING, (v.pk for v in missing)):
+        cache = _alert_cache.get() or {}
         for vehicle in missing:
+            key = f"km_pending:{vehicle.pk}:{period}"
+            keys.append(key)
+            last = latest_readings.get(vehicle.id)
+            if last is None:
+                texto = compose("km_pending_never", period=period)
+            else:
+                texto = compose(
+                    "km_pending_days",
+                    period=period,
+                    days=(today - last).days,
+                    last=last.isoformat(),
+                )
+            # `reminded` lleva los tramos ya enviados: el refresco de cada
+            # pasada reescribe `message_args` entero y la marca tiene que
+            # sobrevivir. Los fronts la ignoran: no es un dato de la frase.
+            cached = cache.get(key)
+            if cached is not None:
+                texto["message_args"]["reminded"] = _reminded_rounds(cached)
+            else:
+                texto["message_args"]["reminded"] = due_rounds
             created += upsert_alert(
-                dedup_key=f"km_pending:{vehicle.pk}:{period}",
+                dedup_key=key,
                 type=AlertType.KM_READING_PENDING,
                 level=AlertLevel.WARNING,
-                **compose("km_pending", period=period),
+                **texto,
                 vehicle=vehicle,
                 user=drivers.get(vehicle.id),
             )
+    _queue_km_reminder_rounds(keys, due_rounds)
     return created
+
+
+def _reminded_rounds(alert: Alert) -> list[int]:
+    """Tramos del recordatorio ya enviados para esa alerta (lista de índices)."""
+    marca = (alert.message_args or {}).get("reminded")
+    if isinstance(marca, list):
+        return [int(k) for k in marca]
+    # Marca anterior a los tramos (una cadena «AAAA-MM»): ya llevó su segundo
+    # correo, que con el calendario de antes era el último.
+    return [0, 1] if marca else [0]
+
+
+def _reconcile_km_alerts(vehicle_ids: list[int], today: date) -> None:
+    """Cierra los avisos de km que una lectura posterior ya satisface."""
+    latest_readings = dict(
+        KmReading.objects.filter(
+            vehicle_id__in=vehicle_ids,
+            reading_date__isnull=False,
+            reading_date__lte=today,
+            is_active=True,
+        )
+        .values("vehicle_id")
+        .annotate(latest_date=Max("reading_date"))
+        .values_list("vehicle_id", "latest_date")
+    )
+    resolve_satisfied_km_reading_alerts(
+        {
+            vehicle_id: f"{reading_date.year:04d}-{reading_date.month:02d}"
+            for vehicle_id, reading_date in latest_readings.items()
+        }
+    )
+
+
+def _queue_km_reminder_rounds(dedup_keys: list[str], due_rounds: list[int]) -> int:
+    """Los correos siguientes del recordatorio de km, cada tramo una sola vez.
+
+    El primero sale con la alerta; los demás, en las fechas del calendario, a
+    quien siga sin lectura. Qué tramos lleva ya cada alerta lo guarda ella
+    misma (`message_args["reminded"]`): si hoy toca un tramo que no está, se
+    encola UN correo (aunque hayan vencido varios de golpe) y se anotan todos
+    los vencidos. La alerta que nace hoy llega ya con los suyos anotados.
+    """
+    from fleet.services import mailer
+
+    if not dedup_keys or not due_rounds:
+        return 0
+    queued = 0
+    pendientes = Alert.objects.filter(
+        type=AlertType.KM_READING_PENDING,
+        status=AlertStatus.OPEN,
+        dedup_key__in=dedup_keys,
+    ).select_related("vehicle", "user")
+    for alert in pendientes:
+        enviados = set(_reminded_rounds(alert))
+        if set(due_rounds) <= enviados:
+            continue
+        mailer.queue_for_alert(alert)
+        queued += 1
+        Alert.objects.filter(pk=alert.pk).update(
+            message_args={**alert.message_args, "reminded": sorted(enviados | set(due_rounds))}
+        )
+    return queued
 
 
 def _close_no_driver_alerts(vehicle_ids, *, by=None) -> int:
@@ -676,7 +784,11 @@ def check_no_driver(today: date | None = None) -> int:
     today = _today(today)
     grace_days = settings.FLEET_NO_DRIVER_ALERT_DAYS
     cutoff = today - timedelta(days=grace_days)
-    vehicles = [v for v in _active_vehicles() if not v.is_substitute]
+    # El de sustitución no tiene conductor propio (lo cubre al principal), y
+    # el MULTIUSUARIO tampoco por definición: avisar de que no lo tiene
+    # sería abrir un aviso al mes —la `dedup_key` es mensual— por su propia
+    # naturaleza. De los dos responde su supervisor.
+    vehicles = [v for v in _active_vehicles() if not v.is_substitute and not v.is_multiuser]
     ids = [v.id for v in vehicles]
     # Bulk (evita N+1): con conductor vigente y con asignación reciente (gracia).
     # R3-02: una asignación con fin PROGRAMADO cuenta como conductor vigente.

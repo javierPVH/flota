@@ -43,10 +43,10 @@ class FlotaUserAdmin(UserAdmin):
         "fuel_card",
     )
     fieldsets = UserAdmin.fieldsets + (
-        ("Flota", {"fields": ("dni", "phone", "license_type", "fuel_card")}),
+        ("Flota", {"fields": ("phone", "license_type", "fuel_card")}),
     )
     add_fieldsets = UserAdmin.add_fieldsets + (
-        ("Flota", {"fields": ("dni", "phone", "license_type", "fuel_card")}),
+        ("Flota", {"fields": ("phone", "license_type", "fuel_card")}),
     )
 
     @admin.display(description="Roles")

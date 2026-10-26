@@ -18,7 +18,7 @@ import {
 const LICENSE_TYPES = ['B', 'C1', 'C', 'C+E', 'D1', 'D'] as const
 
 /** Los campos de texto de la ficha, en el orden en que se leen. */
-const TEXT_FIELDS = ['first_name', 'last_name', 'email', 'dni', 'phone', 'license_type'] as const
+const TEXT_FIELDS = ['first_name', 'last_name', 'email', 'phone', 'license_type'] as const
 
 /**
  * Los tres pasos, en el orden de las preguntas: **tus datos**, **tus
@@ -81,7 +81,6 @@ export function ProfileEditModal({
     first_name: user.first_name ?? '',
     last_name: user.last_name ?? '',
     email: user.email ?? '',
-    dni: user.dni ?? '',
     phone: user.phone ?? '',
     license_type: user.license_type ?? '',
     fuel_card: user.fuel_card,
@@ -112,7 +111,6 @@ export function ProfileEditModal({
     first_name: edit.firstName,
     last_name: edit.lastName,
     email: copy.email,
-    dni: copy.dni,
     phone: copy.phone,
     license_type: copy.licenseType,
     fuel_card: copy.fuelCard,
@@ -300,18 +298,6 @@ export function ProfileEditModal({
                       />
                     </label>
                     <p className="update-hint">{edit.emailHint}</p>
-                  </div>
-                  <div className="profile-field">
-                    <label className="reminder-check">
-                      {copy.dni}
-                      <input
-                        type="text"
-                        className="update-input"
-                        value={values.dni}
-                        onChange={(event) => set({ dni: event.target.value })}
-                      />
-                    </label>
-                    <p className="update-hint">{edit.dniHint}</p>
                   </div>
                   <div className="profile-field">
                     <label className="reminder-check">

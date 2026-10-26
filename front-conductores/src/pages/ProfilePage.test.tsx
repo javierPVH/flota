@@ -36,7 +36,6 @@ vi.mock('../auth.ts', async (importOriginal) => ({
       last_name: 'Ruiz',
       roles: ['driver'],
       fuel_card: true,
-      dni: '12345678Z',
       phone: '',
       license_type: 'B',
       is_staff: false,
@@ -106,16 +105,16 @@ describe('ProfilePage (la pantalla del avatar)', () => {
     expect(screen.queryByText('A tu cargo')).not.toBeInTheDocument()
   })
 
-  it('no pinta el DNI entero: solo los últimos cuatro', async () => {
+  it('no enseña ningún documento de identidad', async () => {
+    // El DNI se retiró del sistema (`accounts/0008`), así que esta pantalla no
+    // tiene ya nada que enmascarar: lo que se fija es que no vuelva a asomar.
     render(
       <LanguageProvider>
         <ProfilePage />
       </LanguageProvider>,
     )
     await screen.findByText('Permiso de conducir')
-    // Dato mínimo: la pantalla se mira de pie en una obra (RGPD).
-    expect(screen.queryByText('12345678Z')).not.toBeInTheDocument()
-    expect(screen.getByText('••••678Z')).toBeInTheDocument()
+    expect(screen.queryByText('DNI')).not.toBeInTheDocument()
   })
 
   it('debajo de los documentos, lo que uno tiene pedido: pendiente y resuelto', async () => {

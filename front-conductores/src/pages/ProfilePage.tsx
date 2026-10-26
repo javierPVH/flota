@@ -20,13 +20,6 @@ const ROLES: Role[] = ['driver', 'supervisor', 'admin', 'hse']
 const PROFILE_CARDS = ['documents', 'requests'] as const
 
 /**
- * DNI enmascarado: es su propio dato, pero esta pantalla se mira de pie en una
- * obra y con gente al lado. Con los últimos cuatro se reconoce la ficha sin
- * pintar el documento entero (dato mínimo, RGPD).
- */
-const maskDni = (dni: string | null): string => (dni ? `••••${dni.slice(-4)}` : '')
-
-/**
  * «Mi perfil» — la pantalla del avatar del header: los datos con los que la
  * gestión te tiene fichado y TU documentación personal (el permiso de
  * conducir…), la misma que la pestaña «del conductor» de la home.
@@ -72,7 +65,6 @@ export function ProfilePage() {
   const rows: Array<{ label: string; value: string }> = [
     { label: copy.email, value: user.email },
     { label: copy.phone, value: user.phone },
-    { label: copy.dni, value: maskDni(user.dni) },
     { label: copy.licenseType, value: user.license_type },
     { label: copy.fuelCard, value: user.fuel_card ? t.common.yes : t.common.no },
   ]

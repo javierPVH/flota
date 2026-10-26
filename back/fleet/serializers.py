@@ -27,6 +27,7 @@ from .models import (
     DocumentDeletionRequest,
     DriverChangeRequest,
     EmailLog,
+    EmailSettings,
     EmailSignature,
     EmailTemplate,
     Event,
@@ -282,6 +283,7 @@ class VehicleSerializer(serializers.ModelSerializer):
             "km_start",
             "km_end",
             "unlimited_km",
+            "is_multiuser",
             "insurance_expiry_date",
             "next_itv_date",
             "next_itv_manual",
@@ -506,6 +508,47 @@ class VehicleSerializer(serializers.ModelSerializer):
         unlimited = attrs.get("unlimited_km", getattr(self.instance, "unlimited_km", False))
         if unlimited and attrs.get("contract"):
             attrs["contract"]["contract_km"] = None
+        # Un coche MULTIUSUARIO lo sostiene su supervisor: es quien responde de
+        # él y el único que registra sus km y su combustible (con la
+        # administración). Sin supervisor sería un coche al que no entra nadie,
+        # así que la marca y el supervisor se validan juntos y en los dos
+        # sentidos: ni marcarlo sin uno, ni dejar sin uno a uno ya marcado.
+        multiusuario = attrs.get("is_multiuser", getattr(self.instance, "is_multiuser", False))
+        if multiusuario:
+            supervisor = attrs.get(
+                "supervisor", getattr(self.instance, "supervisor", None) if self.instance else None
+            )
+            if supervisor is None:
+                raise serializers.ValidationError(
+                    {
+                        "is_multiuser": (
+                            "Un vehículo multiusuario necesita supervisor: es quien "
+                            "responde de él y el único que registra sus kilómetros y "
+                            "su combustible."
+                        )
+                    }
+                )
+            # Y no puede tener conductor: es lo que significa «multiusuario».
+            # Se rechaza en vez de cerrar la asignación por nuestra cuenta —
+            # retirar a quien lleva un coche es una decisión, y tiene su gesto.
+            if self.instance is not None and not self.instance.is_multiuser:
+                from .selectors import current_assignment_q
+
+                vigente = (
+                    Assignment.objects.filter(current_assignment_q(), vehicle=self.instance)
+                    .select_related("driver")
+                    .first()
+                )
+                if vigente is not None:
+                    raise serializers.ValidationError(
+                        {
+                            "is_multiuser": (
+                                f"El vehículo lo lleva {vigente.driver}: retíralo primero "
+                                "con «Cambiar conductor». Un multiusuario no tiene "
+                                "conductor asociado."
+                            )
+                        }
+                    )
         # N5: coherencia marca↔modelo y denormalización del texto legado.
         brand_ref = attrs.get("brand_ref", getattr(self.instance, "brand_ref", None))
         model_ref = attrs.get("model_ref", getattr(self.instance, "model_ref", None))
@@ -915,6 +958,23 @@ class AssignmentSerializer(serializers.ModelSerializer):
             if solapada is not None:
                 raise serializers.ValidationError(
                     {"start_date": assignment_overlap_message(solapada)}
+                )
+            # En un MULTIUSUARIO el histórico son periodos CERRADOS. Dos
+            # motivos, y el segundo es el que manda: (1) ese coche no tiene
+            # conductor asociado, así que una asignación suya solo puede ser el
+            # registro de un tramo ya acotado; y (2) la garantía de «una
+            # vigente por coche» es una constraint de la BD cuya condición no
+            # puede mirar al vehículo a través de la FK, y solo muerde con fin
+            # NULL — pidiendo fin aquí, esa garantía se queda intacta para
+            # todos los demás coches en vez de haber que desmontarla.
+            if vehicle.is_multiuser and end_final is None:
+                raise serializers.ValidationError(
+                    {
+                        "end_date": (
+                            "En un vehículo multiusuario el histórico se registra por "
+                            "periodos cerrados: indica la fecha de fin."
+                        )
+                    }
                 )
         # SEC2: la máquina de estados no se salta por PATCH. La única transición
         # directa permitida es cerrar (→ finished, como hace la gestión); aceptar
@@ -2578,8 +2638,9 @@ class NotificationScheduleSerializer(serializers.ModelSerializer):
     def validate_extra_recipients(self, value: str) -> str:
         """Direcciones separadas por comas, validadas una a una.
 
-        AUTH-2: el informe de usuarios lleva correo, teléfono y DNI. Quien no
-        es administrador solo puede mandarlo a dominios corporativos
+        AUTH-2: el informe de usuarios lleva el correo y el teléfono de la
+        plantilla. Quien no es administrador solo puede mandarlo a dominios
+        corporativos
         (`FLEET_EMAIL_ALLOWED_DOMAINS`): un destinatario libre desde el correo
         corporativo es una exfiltración programada.
         """
@@ -2641,8 +2702,9 @@ class NotificationScheduleSerializer(serializers.ModelSerializer):
             )
         }
         datos["extra_recipients"] = datos["extra_recipients"] or ""
-        # El informe de usuarios es la plantilla con DNI y teléfono: solo la
-        # administración lo descarga (ReportsView) y solo ella lo programa.
+        # El informe de usuarios es la plantilla con el correo y el teléfono de
+        # cada persona: solo la administración lo descarga (ReportsView) y solo
+        # ella lo programa.
         if datos["content"] == NotificationSchedule.Content.USERS and not self._is_admin_request():
             raise serializers.ValidationError(
                 {"content": "El informe de usuarios solo lo programa la administración."}
@@ -2980,6 +3042,81 @@ class EmailTemplateSerializer(serializers.ModelSerializer):
     def validate_body_html_en(self, value):
         # La versión inglesa pasa por el mismo saneado: viene del mismo editor.
         return sanitize_email_html(value)
+
+
+class EmailSettingsSerializer(serializers.ModelSerializer):
+    """Ajustes del correo (fila única): recordatorio de km y aspecto.
+
+    El logotipo no entra por aquí (va en multipart y lo valida la vista);
+    sale como `logo_data_url` para que la pantalla lo enseñe sin pasar por
+    `/media`, que es privado.
+    """
+
+    logo_data_url = serializers.SerializerMethodField()
+    has_custom_logo = serializers.SerializerMethodField()
+    km_remind_dates = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EmailSettings
+        fields = [
+            "km_remind_from_day",
+            "km_remind_until_day",
+            "km_remind_emails",
+            "km_remind_dates",
+            "layout_enabled",
+            "brand_name",
+            "brand_color",
+            "footer_text",
+            "logo_data_url",
+            "has_custom_logo",
+            "updated_at",
+        ]
+        read_only_fields = ["updated_at"]
+
+    def validate_km_remind_from_day(self, value):
+        if not 1 <= value <= 28:
+            raise serializers.ValidationError("Entre 1 y 28.")
+        return value
+
+    def validate_km_remind_until_day(self, value):
+        if not 0 <= value <= 28:
+            raise serializers.ValidationError("Entre 0 (fin de mes) y 28.")
+        return value
+
+    def validate_km_remind_emails(self, value):
+        if not 1 <= value <= 6:
+            raise serializers.ValidationError("Entre 1 y 6 correos.")
+        return value
+
+    def validate_brand_color(self, value):
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", value or ""):
+            raise serializers.ValidationError("Color en formato #RRGGBB.")
+        return value.lower()
+
+    def validate_footer_text(self, value):
+        return (value or "").strip()[:1000]
+
+    def get_logo_data_url(self, obj) -> str:
+        import base64
+
+        from .services import email_layout
+
+        data, mime = email_layout.logo_bytes(obj)
+        return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+
+    def get_has_custom_logo(self, obj) -> bool:
+        return bool(obj.logo)
+
+    def get_km_remind_dates(self, obj) -> list[str]:
+        """Las fechas de los correos del mes en curso (o del que se reclama
+        hoy), para que la pantalla enseñe el calendario que resulta."""
+        from django.utils import timezone as tz
+
+        from .services import email_layout
+
+        hoy = tz.localdate()
+        mes = email_layout.km_remind_period(hoy, obj) or hoy.replace(day=1)
+        return [d.isoformat() for d in email_layout.km_remind_schedule(mes, obj)]
 
 
 class EmailLogSerializer(serializers.ModelSerializer):

@@ -27,7 +27,6 @@ class UsersApiTests(APITestCase):
             {
                 "username": "carlos",
                 "first_name": "Carlos",
-                "dni": "12345678Z",
                 "license_type": "B",
                 "fuel_card": True,
                 "roles": [Role.DRIVER],

@@ -58,7 +58,7 @@ function vehicle(id: number, plate: string, brand: string, model: string) {
 // El snapshot que dejaría la lista al salir a una ficha (lo que guarda al
 // desmontar). La clave debe coincidir con VIEW_KEY del componente.
 const VIEW_KEY = 'gestion.vehiclesView'
-function seedView(search: string) {
+function seedView(search: string, extra: Record<string, unknown> = {}) {
   sessionStorage.setItem(
     VIEW_KEY,
     JSON.stringify({
@@ -72,6 +72,7 @@ function seedView(search: string) {
       appliedFrom: '',
       appliedTo: '',
       scrollTop: 0,
+      ...extra,
     }),
   )
 }
@@ -235,5 +236,58 @@ describe('VehiclesPage — volver a donde estábamos', () => {
     ).toBeInTheDocument()
     // Sin fecha de ITV, el bloque ofrece programarla (no hay nada que enseñar).
     expect(screen.getByText(/No hay ninguna ITV a la vista/)).toBeInTheDocument()
+  })
+
+  it('la barra de filtros nace ABIERTA y se pliega, dejando el recuento a la vista', async () => {
+    const { container } = renderList()
+    await waitFor(() => expect(screen.getByText('1111AAA')).toBeInTheDocument())
+
+    // Al revés que la del panel: aquí se filtra a diario.
+    const cabecera = screen.getByRole('button', { name: /Buscar y filtrar/ })
+    expect(cabecera).toHaveAttribute('aria-expanded', 'true')
+    expect(container.querySelector('#veh-search')).toBeInTheDocument()
+
+    await userEvent.click(cabecera)
+    expect(cabecera).toHaveAttribute('aria-expanded', 'false')
+    // El cuerpo se desmonta (los desplegables de gente no se quedan pintados).
+    expect(container.querySelector('#veh-search')).toBeNull()
+    // Lo que la barra dejaría de contar se lee en la cabecera.
+    expect(within(cabecera).getByText('2 registros')).toBeInTheDocument()
+    // Y la tabla sigue donde estaba: plegar no filtra.
+    expect(screen.getByText('1111AAA')).toBeInTheDocument()
+    expect(screen.getByText('2222BBB')).toBeInTheDocument()
+
+    await userEvent.click(cabecera)
+    expect(container.querySelector('#veh-search')).toBeInTheDocument()
+  })
+
+  it('plegada avisa de que la tabla está filtrada', async () => {
+    // Con el filtro puesto, la tabla trae una fila de dos: sin la chapa, una
+    // barra escondida la haría parecer la lista entera.
+    seedView('2222', { toolsOpen: false })
+    renderList()
+    await waitFor(() => expect(screen.getByText('2222BBB')).toBeInTheDocument())
+
+    const cabecera = screen.getByRole('button', { name: /Buscar y filtrar/ })
+    expect(cabecera).toHaveAttribute('aria-expanded', 'false')
+    expect(within(cabecera).getByText('filtros activos')).toBeInTheDocument()
+    expect(within(cabecera).getByText('1 registros')).toBeInTheDocument()
+  })
+
+  it('al VOLVER (POP) la barra sigue plegada, y un snapshot viejo la abre', async () => {
+    // Plegarla es una decisión sobre la vista, como el filtro o el scroll: va
+    // en el mismo snapshot y vuelve con él.
+    seedView('', { toolsOpen: false })
+    const { container, unmount } = renderList()
+    await waitFor(() => expect(screen.getByText('1111AAA')).toBeInTheDocument())
+    expect(container.querySelector('#veh-search')).toBeNull()
+    unmount()
+
+    // Un snapshot guardado antes de que esto existiera no trae la clave: la
+    // barra tiene que salir ABIERTA y no desaparecer.
+    seedView('')
+    const segundo = renderList()
+    await waitFor(() => expect(screen.getByText('1111AAA')).toBeInTheDocument())
+    expect(segundo.container.querySelector('#veh-search')).toBeInTheDocument()
   })
 })

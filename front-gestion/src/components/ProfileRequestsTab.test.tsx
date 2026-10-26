@@ -29,7 +29,7 @@ const PETICION: ProfileChangeRequestRow = {
   changes_display: [
     { field: 'phone', label: 'Teléfono', current: '600 000 000', proposed: '600 111 222' },
   ],
-  note: 'El DNI también está mal.',
+  note: 'El apellido también está mal.',
   status: 'pending',
   status_display: 'Pendiente',
   resolved_by_name: '',

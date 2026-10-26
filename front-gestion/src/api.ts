@@ -929,7 +929,6 @@ export const setUsageSplit = (data: {
 export interface ManagedUserFull extends ManagedUser {
   email: string
   name: string
-  dni: string | null
   phone: string
   is_active: boolean
   /** Fecha de alta (ISO, solo lectura). Para el filtro por fecha de creación. */
@@ -941,7 +940,6 @@ export interface ManagedUserInput {
   first_name?: string
   last_name?: string
   email?: string
-  dni?: string | null
   phone?: string
   license_type?: string
   fuel_card?: boolean
@@ -1487,6 +1485,41 @@ export interface EmailSignatureRow {
   body_html: string
 }
 
+/** Una plantilla renderizada con datos de ejemplo: el cuerpo y, en
+ * `document_html`, el correo ENTERO tal y como saldrá (caja corporativa y
+ * logotipo incluidos), para pintarlo en un iframe. */
+export interface EmailPreview {
+  subject: string
+  body_html: string
+  document_html: string
+}
+
+/** Ajustes del correo (fila única, Ajustes → Correo): recordatorio de km y
+ * aspecto corporativo. `km_remind_dates` son las fechas en que saldrá cada
+ * correo del mes que se reclama; `logo_data_url` trae el logotipo en uso
+ * (el subido o el de fábrica) para enseñarlo sin pasar por /media. */
+export interface EmailSettingsRow {
+  km_remind_from_day: number
+  km_remind_until_day: number
+  km_remind_emails: number
+  km_remind_dates: string[]
+  layout_enabled: boolean
+  brand_name: string
+  brand_color: string
+  footer_text: string
+  logo_data_url: string
+  has_custom_logo: boolean
+  updated_at: string
+}
+
+export const getEmailSettings = (req: ReqOpts = {}) =>
+  getJson<EmailSettingsRow>(`${API}/email-settings/`, req)
+
+/** Guarda los ajustes. Va en multipart porque puede llevar el logotipo
+ * (`logo`) o la orden de quitarlo (`logo_clear`). */
+export const updateEmailSettings = (form: FormData) =>
+  postForm<EmailSettingsRow>(`${API}/email-settings/`, form, {}, 'No se pudieron guardar los ajustes del correo.')
+
 export interface EmailTemplateRow {
   id: number
   key: string
@@ -1529,7 +1562,7 @@ export const updateEmailTemplate = (id: number, data: Partial<EmailTemplateRow>)
 
 /** `lang`: versión que se está editando (es/en), para no previsualizar la otra. */
 export const previewEmailTemplate = (id: number, lang: 'es' | 'en' = 'es') =>
-  postJson<{ subject: string; body_html: string }>(`${API}/email-templates/${id}/preview/`, {
+  postJson<EmailPreview>(`${API}/email-templates/${id}/preview/`, {
     lang,
   })
 

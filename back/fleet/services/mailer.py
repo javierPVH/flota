@@ -31,10 +31,11 @@ import html
 import logging
 import re
 from datetime import timedelta
+from email.mime.image import MIMEImage
 from typing import NamedTuple
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.mail import EmailMultiAlternatives, SafeMIMEMultipart, get_connection
 from django.utils import timezone
 from django.utils.html import strip_tags
 
@@ -56,10 +57,70 @@ ALLOWED_VARIABLES = (
     "empresa",
     "fecha_vencimiento",
     "km_exceso",
+    # Recordatorio de km: cuántos días lleva el coche sin lectura, la fecha
+    # de la última y el mes que se reclama. Vacías en las demás alertas.
+    "dias_sin_lectura",
+    "ultima_lectura",
+    "periodo",
     "mensaje",
 )
 
 _VAR_RE = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}")
+
+
+class CorporateMessage(EmailMultiAlternatives):
+    """Correo con imágenes embebidas bien anidadas.
+
+    Django mete todo lo que se adjunta en UN contenedor, y cambiar su subtipo a
+    `related` arrastraba también los ficheros (el CSV de un informe programado)
+    dentro del `related`, que algunos clientes no enseñan como adjunto. Aquí
+    el logotipo va en su sitio: `mixed[ related[ alternative(texto, html), logo ], fichero ]`.
+    """
+
+    def __init__(self, *args, inline_images: list | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.inline_images = list(inline_images or [])
+
+    def _create_message(self, msg):
+        msg = self._create_alternatives(msg)
+        if self.inline_images:
+            related = SafeMIMEMultipart(
+                _subtype="related", encoding=self.encoding or settings.DEFAULT_CHARSET
+            )
+            related.attach(msg)
+            for part in self.inline_images:
+                related.attach(part)
+            msg = related
+        return self._create_attachments(msg)
+
+
+def build_message(
+    subject: str, body_html: str, to: list[str], *, connection=None
+) -> EmailMultiAlternatives:
+    """El mensaje listo para enviar: cuerpo maquetado con la caja corporativa
+    (`email_layout.wrap`) y el logotipo embebido como imagen inline. Es la
+    ÚNICA puerta por la que se construye un correo, así que alertas,
+    comunicados, envíos programados y pruebas salen todos iguales.
+    """
+    from fleet.services import email_layout
+
+    html, images = email_layout.wrap(body_html, title=subject)
+    partes = []
+    for image in images:
+        part = MIMEImage(image.content, _subtype=image.mime.split("/")[-1])
+        part.add_header("Content-ID", f"<{image.cid}>")
+        part.add_header("Content-Disposition", "inline", filename="logo")
+        partes.append(part)
+    message = CorporateMessage(
+        subject=subject,
+        body=strip_tags(body_html),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=to,
+        connection=connection,
+        inline_images=partes,
+    )
+    message.attach_alternative(html, "text/html")
+    return message
 
 
 def email_enabled() -> bool:
@@ -101,14 +162,7 @@ def send_notice_now(
         )
         return False, "correo_deshabilitado"
     try:
-        msg = EmailMultiAlternatives(
-            subject=subject,
-            body=strip_tags(body_html),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=destinos,
-        )
-        msg.attach_alternative(body_html, "text/html")
-        msg.send(fail_silently=False)
+        build_message(subject, body_html, destinos).send(fail_silently=False)
     except Exception as exc:  # noqa: BLE001 — best-effort por diseño
         EmailLog.objects.create(
             template_key=template_key,
@@ -286,12 +340,16 @@ def _context_for(alert: Alert) -> dict[str, object]:
         else:  # alertas anteriores al mensaje estructurado: solo queda la frase
             match = re.search(r"\d[\d.]*(?=\s*km)", alert.message or "")
             overage = match.group(0) if match else ""
+    datos = alert.message_args or {}
     return {
         "matricula": vehicle.plate if vehicle else "",
         "conductor": (driver.get_full_name() or driver.get_username()) if driver else "",
         "empresa": renting.name if renting else "",
         "fecha_vencimiento": alert.due_date.isoformat() if alert.due_date else "",
         "km_exceso": overage,
+        "dias_sin_lectura": str(datos["days"]) if datos.get("days") is not None else "",
+        "ultima_lectura": str(datos.get("last") or ""),
+        "periodo": str(datos.get("period") or ""),
         "mensaje": alert.message,
     }
 
@@ -315,6 +373,14 @@ def _recipient_for(alert: Alert) -> str:
             driver = current_driver_map([alert.vehicle_id]).get(alert.vehicle_id)
             if driver is not None:
                 return driver.email or ""
+            # Sin conductor, el aviso de la lectura pendiente es del
+            # SUPERVISOR: en un coche multiusuario es el único que puede
+            # registrarla, y el push ya se le manda a él (`_push_alert`). Sin
+            # esta reserva el correo moría en `EmailLog` como «sin
+            # destinatario» justo en los coches que más lo necesitan.
+            supervisor = alert.vehicle.supervisor
+            if supervisor is not None:
+                return supervisor.email or ""
     return ""
 
 
@@ -393,14 +459,7 @@ def _deliver(entry: EmailOutbox, connection=None) -> None:
     # Varios destinatarios en una fila: `recipient` admite lista separada por
     # comas (los envíos programados permiten añadir direcciones).
     to = [addr.strip() for addr in entry.recipient.split(",") if addr.strip()]
-    message = EmailMultiAlternatives(
-        subject=entry.subject,
-        body=strip_tags(entry.body_html),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=to,
-        connection=connection,
-    )
-    message.attach_alternative(entry.body_html, "text/html")
+    message = build_message(entry.subject, entry.body_html, to, connection=connection)
     if entry.attachment:
         # El nombre visible se guarda aparte: en disco el fichero lleva sufijo
         # para no colisionar, pero el correo debe mostrar «informe_flota.xlsx».

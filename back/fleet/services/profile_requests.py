@@ -9,21 +9,15 @@ administración decide—. Lo que faltaba era el camino de vuelta: hasta ahora l
 pantalla solo decía «avisa a gestión», y ese aviso salía de la herramienta.
 
 **Qué se puede pedir** (`EDITABLE_FIELDS`): la ficha entera —nombre, apellidos,
-correo, DNI, teléfono, tipo de permiso y tarjeta de combustible—, porque
-cualquiera de esos datos puede estar mal y el camino para corregirlos tiene que
-ser uno solo. Lo que no cambia es quién decide: nada de esto se escribe al
-pedirlo.
+correo, teléfono, tipo de permiso y tarjeta de combustible—, porque cualquiera
+de esos datos puede estar mal y el camino para corregirlos tiene que ser uno
+solo. Lo que no cambia es quién decide: nada de esto se escribe al pedirlo.
 
-Dos de ellos son **identidad**, y por eso se comprueban aquí antes de nada:
-
-- El **correo** es la clave con la que se entra (login por email, login con
-  Google y resolución del solicitante de Jira, los tres con `email__iexact`) y
-  es único sin distinguir mayúsculas: si el nuevo ya es de otra cuenta, la
-  petición lo dice en vez de reventar la restricción al aplicarla.
-- El **DNI** también es único. Y sigue siendo un documento de identidad: lo que
-  la ficha diga se verifica **contra el documento**, no por venir escrito en una
-  petición — de ahí que aplicarla sea una decisión de administración y no un
-  guardado más.
+Uno de ellos es **identidad**, y por eso se comprueba aquí antes de nada: el
+**correo** es la clave con la que se entra (login por email, login con Google y
+resolución del solicitante de Jira, los tres con `email__iexact`) y es único sin
+distinguir mayúsculas, así que si el nuevo ya es de otra cuenta la petición lo
+dice en vez de reventar la restricción al aplicarla.
 
 La **nota** explica el porqué, y es obligatoria cuando no se cambia ningún campo.
 """
@@ -43,25 +37,25 @@ DECISION_REJECT = "reject"
 DECISIONS = (DECISION_DONE, DECISION_REJECT)
 
 #: Los campos de la ficha que se pueden pedir, con su clase: `text` (con su
-#: largo máximo), `choice` (del catálogo de permisos), `bool` o `unique` (los
-#: dos de identidad, que además se comprueban contra el resto de cuentas).
+#: largo máximo), `choice` (del catálogo de permisos), `bool` o `unique` (el de
+#: identidad, que además se comprueba contra el resto de cuentas).
 EDITABLE_FIELDS: dict[str, tuple[str, int]] = {
     "first_name": ("text", 150),
     "last_name": ("text", 150),
     "email": ("unique", 254),
-    "dni": ("unique", 20),
     "phone": ("text", 30),
     "license_type": ("choice", 5),
     "fuel_card": ("bool", 0),
 }
 
-#: Los dos que identifican a la persona en otras tablas: se comprueban antes de
-#: aceptar la petición y otra vez antes de aplicarla.
-UNIQUE_FIELDS = ("email", "dni")
+#: El que identifica a la persona en otras tablas: se comprueba antes de
+#: aceptar la petición y otra vez antes de aplicarla. Es una tupla y no un valor
+#: suelto porque el bucle de `conflicts` no cambia si mañana vuelve a haber dos.
+UNIQUE_FIELDS = ("email",)
 
 
 class ConflictingProfileChange(Exception):
-    """Lo pedido choca con otra cuenta (correo o DNI). La vista lo traduce a 400.
+    """Lo pedido choca con otra cuenta (el correo). La vista lo traduce a 400.
 
     No es un error de programa: es que ese dato se lo ha quedado otra persona
     entre pedirlo y decidirlo, y quien decide tiene que enterarse por su nombre
@@ -114,7 +108,7 @@ def clean_changes(raw: dict, *, user) -> dict:
 def conflicts(changes: dict, *, user) -> dict[str, str]:
     """Qué de lo pedido no se puede aplicar, por campo y con su porqué.
 
-    Hoy son los dos de identidad: un correo o un DNI que ya son de otra cuenta.
+    Hoy es el de identidad: un correo que ya es de otra cuenta.
     Se consulta **al pedirlo** —para que quien lo escribe lo sepa en el momento,
     y no cuando ya está en la bandeja— y otra vez **al aplicarlo**, porque entre
     una cosa y otra esa cuenta ha podido nacer.
@@ -170,8 +164,8 @@ def resolve(
 
     Se vuelven a limpiar los cambios contra la ficha de AHORA: entre que se
     pidió y se decide, la gestión ha podido corregirla por su cuenta. Y se
-    vuelve a mirar el correo y el DNI: si se los ha quedado otra cuenta, esto
-    levanta `ConflictingProfileChange` y no se aplica nada.
+    vuelve a mirar el correo: si se lo ha quedado otra cuenta, esto levanta
+    `ConflictingProfileChange` y no se aplica nada.
     """
     if decision not in DECISIONS:
         raise ValueError(f"Decisión desconocida: {decision!r}")

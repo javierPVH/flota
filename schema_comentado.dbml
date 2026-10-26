@@ -236,7 +236,6 @@ Table drivers {
   last_name varchar(150)
   is_active boolean [not null, default: true, note: 'desactivar = deshabilitar acceso']
   fuel_card boolean [not null, default: false, note: '¿tiene tarjeta de combustible?']
-  dni varchar(20) [unique, note: 'nullable; único si existe']
   phone varchar(30)
   license_type license_type_enum [note: 'permiso de conducir (HU-2.6)']
 
@@ -316,6 +315,7 @@ Table vehicles {
   state state_enum
   supervisor_id bigint [ref: > drivers.id, note: 'SET_NULL; responsable opcional']
   is_substitute boolean [not null, default: false, note: '¿es vehículo de sustitución?']
+  is_multiuser boolean [not null, default: false, note: 'coche de pool: sin conductor asociado; exige supervisor, que es quien anota km y combustible']
   brand varchar(50) [not null]
   model varchar(50) [not null]
   year int

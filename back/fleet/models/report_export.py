@@ -1,7 +1,7 @@
 """Rastro de las exportaciones de datos: quién se bajó qué, cuándo y desde dónde.
 
 Los informes (Excel/CSV de la pantalla de Informes y los envíos programados)
-y el CSV de la pantalla de Usuarios sacan datos personales —DNI, teléfono,
+y el CSV de la pantalla de Usuarios sacan datos personales —teléfono y
 correo— de muchas personas de una vez. Exportar es legítimo; lo que no puede
 ser es que no quede constancia. Cada exportación deja aquí una fila con el
 actor, el informe, el formato, los filtros, cuántas filas salieron y la IP.

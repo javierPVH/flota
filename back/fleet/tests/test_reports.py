@@ -306,7 +306,7 @@ class UsersReportScopeTests(APITestCase):
 
 
 class UsersReportAdminOnlyTests(APITestCase):
-    """El informe de usuarios es la plantilla con DNI y teléfono: solo admin.
+    """El informe de usuarios es la plantilla con correo y teléfono: solo admin.
 
     Un supervisor es gestión y descarga los informes de SU flota, pero el de
     personas no: aunque el servicio lo acote a su gente, es un listado de
@@ -360,7 +360,7 @@ class ReportExportTraceTests(APITestCase):
                 "kind": "users",
                 "fmt": "csv",
                 "filters": {"role": "driver", "status": ""},
-                "columns": ["username", "dni", "phone"],
+                "columns": ["username", "email", "phone"],
                 "row_count": 12,
                 # Lo que el cliente diga del actor o del origen se ignora.
                 "source": "download",
@@ -374,7 +374,7 @@ class ReportExportTraceTests(APITestCase):
         self.assertEqual(fila.user, self.admin)
         self.assertEqual(fila.source, ReportExport.Source.SCREEN)
         self.assertEqual(fila.filters, {"role": "driver"})
-        self.assertEqual(fila.columns, ["username", "dni", "phone"])
+        self.assertEqual(fila.columns, ["username", "email", "phone"])
         self.assertEqual(fila.row_count, 12)
         self.assertEqual(fila.ip, "127.0.0.1")
 

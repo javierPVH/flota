@@ -217,7 +217,6 @@ Table drivers {
   last_name varchar
   is_active boolean [not null, default: true]
   fuel_card boolean [not null, default: false]
-  dni varchar [unique, note: 'nullable']
   phone varchar
   license_type license_type_enum
 
@@ -352,6 +351,7 @@ Table vehicles {
   registration_date date
   state state_enum
   is_substitute boolean [not null, default: false]
+  is_multiuser boolean [not null, default: false, note: 'coche de pool: sin conductor; exige supervisor']
   supervisor_id int [ref: > drivers.id, note: 'responsable opcional']
   business_unit_id int [ref: > business_unit.id]
   country_id int [ref: > country.id]

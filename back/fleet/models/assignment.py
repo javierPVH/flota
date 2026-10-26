@@ -34,6 +34,9 @@ def driver_assignment_clash(
     vigente al aceptar la nueva). El mismo vehículo se excluye: el relevo
     dentro de un coche ya lo gobiernan `accept`/`set_driver` y la constraint
     `unique_active_assignment_per_vehicle`.
+
+    Los **multiusuario** no cuentan: usar un coche de pool una semana no puede
+    impedirle a nadie tener el suyo, que es justo lo que esta regla protege.
     """
     # Un coche que ya salió de la flota (BAJA) no «ocupa» al conductor: si una
     # asignación quedó colgada de una baja mal cerrada, no debe bloquear la
@@ -48,6 +51,7 @@ def driver_assignment_clash(
             vehicle__is_substitute=is_substitute,
         )
         .exclude(vehicle__state__in=OUT_OF_FLEET)
+        .exclude(vehicle__is_multiuser=True)
         .select_related("vehicle")
     )
     if exclude_pk is not None:
@@ -84,14 +88,25 @@ def vehicle_assignment_overlap(
     periodos aceptados del mismo vehículo no pueden solaparse. Fin NULL = en
     curso (llega hasta el infinito) e inicio NULL = viene de siempre; fin ==
     inicio del siguiente es un relevo válido, no un solape.
+
+    **Salvo en un multiusuario**, donde no hay nada que proteger: lo usa un
+    número indeterminado de personas y su histórico es el registro de quién lo
+    usó, así que dos periodos a la vez son lo esperable y no un error.
     """
     # Cuentan los tramos REALES: la vigente (aceptada) y las ya cerradas
-    # (finalizadas). Una propuesta o un rechazo no ocupan al coche.
-    qs = Assignment.objects.filter(
-        vehicle_id=vehicle_id,
-        status__in=(AssignmentStatus.ACCEPTED, AssignmentStatus.FINISHED),
-        is_active=True,
-    ).select_related("driver")
+    # (finalizadas). Una propuesta o un rechazo no ocupan al coche. El
+    # multiusuario se descarta en la MISMA consulta (y no con un `exists()`
+    # aparte): si el coche es de pool, se excluyen todas sus filas y la función
+    # devuelve `None`, que es «no hay solape que impida nada».
+    qs = (
+        Assignment.objects.filter(
+            vehicle_id=vehicle_id,
+            status__in=(AssignmentStatus.ACCEPTED, AssignmentStatus.FINISHED),
+            is_active=True,
+        )
+        .exclude(vehicle__is_multiuser=True)
+        .select_related("driver")
+    )
     if exclude_pk is not None:
         qs = qs.exclude(pk=exclude_pk)
     if start_date is not None:

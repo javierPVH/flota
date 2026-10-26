@@ -186,6 +186,17 @@ class Vehicle(TimeStampedModel):
             "no llevar km contratados."
         ),
     )
+    is_multiuser = models.BooleanField(
+        "¿Multiusuario?",
+        default=False,
+        help_text=(
+            "Coche de pool: lo usa un número indeterminado de personas, así que "
+            "NO tiene conductor asociado y responde de él su supervisor (por eso "
+            "exige uno). En el histórico caben tantos conductores como haga "
+            "falta, incluso solapados, pero ninguno de ellos ve el coche ni "
+            "registra sus km o su combustible: eso es del supervisor."
+        ),
+    )
     insurance_expiry_date = models.DateField(
         "Vencimiento del seguro",
         null=True,
@@ -256,3 +267,9 @@ class Vehicle(TimeStampedModel):
             raise ValidationError(
                 {"project": "El proyecto es obligatorio cuando el uso es 'Proyecto'."}
             )
+        # Un multiusuario lo sostiene su supervisor: sin él sería un coche al
+        # que no puede entrar nadie (no tiene conductor por definición, así que
+        # tampoco nadie que registre sus km). El serializer lo repite —DRF no
+        # llama a `clean()`—; esto cubre el admin y la importación masiva.
+        if self.is_multiuser and self.supervisor_id is None:
+            raise ValidationError({"supervisor": "Un vehículo multiusuario necesita supervisor."})

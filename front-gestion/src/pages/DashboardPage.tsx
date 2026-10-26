@@ -35,6 +35,7 @@ import { maintenanceDueDates, maintenanceDueMap } from '../maintenanceDue.ts'
 import { daysSince, kmStaleTone } from '../vehicleTimeline.ts'
 import { exportCsv } from '../csv.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { FiltersAccordion } from '../components/FiltersAccordion.tsx'
 import { useVehicleActions } from '../components/useVehicleActions.tsx'
 import { UserFormModal } from '../components/UserFormModal.tsx'
 import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
@@ -723,7 +724,7 @@ export function DashboardPage() {
       .filter(
         (u) =>
           !term ||
-          `${u.name} ${u.username} ${u.email} ${u.phone} ${u.dni ?? ''}`
+          `${u.name} ${u.username} ${u.email} ${u.phone}`
             .toLowerCase()
             .includes(term),
       )
@@ -1452,232 +1453,218 @@ export function DashboardPage() {
           ))}
         </div>
 
-        {/* Acordeón: búsqueda + filtros + exportación (colapsado por defecto).
-            Los filtros de vehículos solo aparecen en las pestañas de vehículos. */}
-        <div className="dash-tools">
-          {/* Exportar NO vive dentro del acordeón: es lo que se hace con la
-              tabla que se está viendo, y esconderlo tras un despliegue lo
-              volvía invisible. (Un botón no puede ir dentro de otro botón, de
-              ahí que la cabecera sea una fila con los dos.) */}
-          <div className="dash-tools-head">
-            <button
-              type="button"
-              className={`dash-tools-toggle${toolsOpen ? ' is-open' : ''}`}
-              aria-expanded={toolsOpen}
-              onClick={() => setToolsOpen((o) => !o)}
-            >
-              <ChevronDown size={16} aria-hidden className="dash-tools-caret" />
-              <span>{t.home.toolsToggle}</span>
-              <span className="dash-tools-summary">{t.home.toolsSummary(activeCount)}</span>
-            </button>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={activeCount === 0}
-              onClick={runExport}
-            >
+        {/* Acordeón: búsqueda + filtros + exportación (colapsado por defecto,
+            al revés que en el inventario y en personas: aquí se viene a leer el
+            panel, no a filtrar). Los filtros de vehículos solo aparecen en las
+            pestañas de vehículos, y «Exportar» va en `actions` —fuera del
+            plegado— porque es lo que se hace con la tabla que se está viendo. */}
+        <FiltersAccordion
+          open={toolsOpen}
+          onToggle={() => setToolsOpen((o) => !o)}
+          label={t.home.toolsToggle}
+          summary={t.home.toolsSummary(activeCount)}
+          actions={
+            <Button variant="secondary" size="sm" disabled={activeCount === 0} onClick={runExport}>
               {t.home.exportCsv}
             </Button>
-          </div>
+          }
+        >
+          <div className="filters-bar filters-bar--panel table-info-bar filters-bar--inline">
+            {/* 1 · Nº de registros (tras los filtros). */}
+            <div className="filter-field filter-field--count">
+              <label>{t.home.lblRecords}</label>
+              <div className="filter-count">{activeCount}</div>
+            </div>
 
-          {toolsOpen && (
-            <div className="filters-bar filters-bar--panel table-info-bar filters-bar--inline">
-              {/* 1 · Nº de registros (tras los filtros). */}
-              <div className="filter-field filter-field--count">
-                <label>{t.home.lblRecords}</label>
-                <div className="filter-count">{activeCount}</div>
-              </div>
-
-              {/* 2 · Búsqueda. M16: una por grupo de pestañas — la de vehículos
-                  va al servidor (con debounce) y la de personas filtra en
-                  cliente, así que teclear en una no dispara peticiones de la
-                  otra ni se pierde al cambiar de pestaña dentro del grupo. */}
-              <div className="filter-field filter-field--search">
-                <label htmlFor="dash-search">
-                  {isVehicleTab ? t.home.searchLabel : t.home.searchPeopleLabel}
-                </label>
-                <div className="filter-search">
-                  <input
-                    id="dash-search"
-                    type="search"
-                    aria-label={isVehicleTab ? t.home.searchLabel : t.home.searchPeopleLabel}
-                    placeholder={isVehicleTab ? t.home.searchPlaceholder : t.home.searchPeoplePlaceholder}
-                    value={isVehicleTab ? vehicleSearch : peopleSearch}
-                    onChange={(e) =>
-                      (isVehicleTab ? setVehicleSearch : setPeopleSearch)(e.target.value)
-                    }
-                  />
-                  <MiniToolsButtons
-                    size="xs"
-                    showLock={false}
-                    showSearch={false}
-                    showSort={false}
-                    showDelete
-                    onDelete={() => (isVehicleTab ? setVehicleSearch('') : setPeopleSearch(''))}
-                  />
-                </div>
-              </div>
-
-              {isVehicleTab && (
-                <>
-                  {/* 3 · Uso. */}
-                  <div className="filter-field filter-field--role">
-                    <label>{f.use}</label>
-                    <SelectField
-                      aria-label={f.use}
-                      containerClassName="role-filter"
-                      required
-                      options={[
-                        { value: '', label: f.useAll },
-                        { value: 'personal', label: f.usePersonal },
-                        { value: 'works', label: f.useWorks },
-                        { value: 'on_project', label: f.useProject },
-                      ]}
-                      value={useFilter}
-                      onValueChange={setUseFilter}
-                    />
-                  </div>
-
-                  {/* 4 · Asignación. */}
-                  <div className="filter-field filter-field--role">
-                    <label>{f.assign}</label>
-                    <SelectField
-                      aria-label={f.assign}
-                      containerClassName="role-filter"
-                      required
-                      options={[
-                        { value: '', label: f.assignAll },
-                        { value: 'assigned', label: f.assigned },
-                        { value: 'unassigned', label: f.unassigned },
-                      ]}
-                      value={assignFilter}
-                      onValueChange={setAssignFilter}
-                    />
-                  </div>
-
-                  {/* 5 · Estado. */}
-                  <div className="filter-field filter-field--role">
-                    <label>{f.state}</label>
-                    <SelectField
-                      aria-label={f.state}
-                      containerClassName="role-filter"
-                      required
-                      // La lista COMPLETA de estados (antes eran cuatro a
-                      // mano: un coche accidentado o «No activo» no se podía
-                      // filtrar). La baja va con «Mostrar bajas».
-                      options={[{ value: '', label: f.stateAll }, ...vt.stateOptions]}
-                      value={stateFilter}
-                      onValueChange={setStateFilter}
-                    />
-                  </div>
-
-                  {/* 6 · Conductor. */}
-                  <div className="filter-field filter-field--role">
-                    <label>{f.driver}</label>
-                    <SelectField
-                      aria-label={f.driver}
-                      containerClassName="role-filter"
-                      required
-                      options={[
-                        { value: '', label: f.driverAll },
-                        { value: NADIE, label: f.driverNone },
-                        ...personOptions.drivers,
-                      ]}
-                      value={driverFilter}
-                      onValueChange={setDriverFilter}
-                    />
-                  </div>
-
-                  {/* 7 · Supervisor. */}
-                  <div className="filter-field filter-field--role">
-                    <label>{f.supervisor}</label>
-                    <SelectField
-                      aria-label={f.supervisor}
-                      containerClassName="role-filter"
-                      required
-                      options={[
-                        { value: '', label: f.supervisorAll },
-                        { value: NADIE, label: f.supervisorNone },
-                        ...personOptions.supervisors,
-                      ]}
-                      value={supervisorFilter}
-                      onValueChange={setSupervisorFilter}
-                    />
-                  </div>
-
-                  {/* 8 · Cortes: cinco casillas que se combinan, en un
-                      desplegable — sueltas ocupaban toda la fila y crecían con
-                      cada corte nuevo. El resumen dice cuántos hay puestos sin
-                      tener que abrirlo. */}
-                  <div className="filter-field filter-field--role">
-                    <label>{f.cuts}</label>
-                    <details className="cuts-drop">
-                      <summary className="cuts-drop-summary">
-                        <span>{cutsOn === 0 ? f.cutsNone : f.cutsSome(cutsOn)}</span>
-                        <ChevronDown size={14} aria-hidden />
-                      </summary>
-                      <div className="cuts-drop-panel">
-                        {(
-                          [
-                            [t.home.chips.itv, itvOnly, setItvOnly],
-                            [t.home.chips.insurance, insuranceOnly, setInsuranceOnly],
-                            [t.home.chips.maintenance, maintOnly, setMaintOnly],
-                            [t.home.chips.kmOver, kmOverOnly, setKmOverOnly],
-                            [t.home.showRetired, showBaja, setShowBaja],
-                          ] as const
-                        ).map(([label, value, set]) => (
-                          <label key={label} className="cuts-drop-item">
-                            <input
-                              type="checkbox"
-                              checked={value}
-                              onChange={(e) => set(e.target.checked)}
-                            />
-                            {label}
-                          </label>
-                        ))}
-                      </div>
-                    </details>
-                  </div>
-                </>
-              )}
-
-              {!isVehicleTab && (
-                <div className="filter-toggles">
-                  <label className="baja-toggle">
-                    <input
-                      type="checkbox"
-                      checked={showInactive}
-                      onChange={(e) => setShowInactive(e.target.checked)}
-                    />
-                    {t.home.showInactive}
-                  </label>
-                </div>
-              )}
-
-              {/* 7 · Acciones. */}
-              <div className="table-info-bar-actions">
-                {isVehicleTab && alertFilter && (
-                  <span className="filter-tag">
-                    {t.home.alertFilterTag(t.home.alertTabs[alertFilter] ?? alertFilter)}
-                    <button
-                      type="button"
-                      className="filter-tag-x"
-                      onClick={() => setAlertFilter(null)}
-                      aria-label={t.home.alertFilterClear}
-                    >
-                      ✕
-                    </button>
-                  </span>
-                )}
-                {isVehicleTab && anyFilter && (
-                  <button type="button" className="linklike" onClick={resetFilters}>
-                    {t.home.clearFilters}
-                  </button>
-                )}
+            {/* 2 · Búsqueda. M16: una por grupo de pestañas — la de vehículos
+                va al servidor (con debounce) y la de personas filtra en
+                cliente, así que teclear en una no dispara peticiones de la
+                otra ni se pierde al cambiar de pestaña dentro del grupo. */}
+            <div className="filter-field filter-field--search">
+              <label htmlFor="dash-search">
+                {isVehicleTab ? t.home.searchLabel : t.home.searchPeopleLabel}
+              </label>
+              <div className="filter-search">
+                <input
+                  id="dash-search"
+                  type="search"
+                  aria-label={isVehicleTab ? t.home.searchLabel : t.home.searchPeopleLabel}
+                  placeholder={isVehicleTab ? t.home.searchPlaceholder : t.home.searchPeoplePlaceholder}
+                  value={isVehicleTab ? vehicleSearch : peopleSearch}
+                  onChange={(e) =>
+                    (isVehicleTab ? setVehicleSearch : setPeopleSearch)(e.target.value)
+                  }
+                />
+                <MiniToolsButtons
+                  size="xs"
+                  showLock={false}
+                  showSearch={false}
+                  showSort={false}
+                  showDelete
+                  onDelete={() => (isVehicleTab ? setVehicleSearch('') : setPeopleSearch(''))}
+                />
               </div>
             </div>
-          )}
-        </div>
+
+            {isVehicleTab && (
+              <>
+                {/* 3 · Uso. */}
+                <div className="filter-field filter-field--role">
+                  <label>{f.use}</label>
+                  <SelectField
+                    aria-label={f.use}
+                    containerClassName="role-filter"
+                    required
+                    options={[
+                      { value: '', label: f.useAll },
+                      { value: 'personal', label: f.usePersonal },
+                      { value: 'works', label: f.useWorks },
+                      { value: 'on_project', label: f.useProject },
+                    ]}
+                    value={useFilter}
+                    onValueChange={setUseFilter}
+                  />
+                </div>
+
+                {/* 4 · Asignación. */}
+                <div className="filter-field filter-field--role">
+                  <label>{f.assign}</label>
+                  <SelectField
+                    aria-label={f.assign}
+                    containerClassName="role-filter"
+                    required
+                    options={[
+                      { value: '', label: f.assignAll },
+                      { value: 'assigned', label: f.assigned },
+                      { value: 'unassigned', label: f.unassigned },
+                    ]}
+                    value={assignFilter}
+                    onValueChange={setAssignFilter}
+                  />
+                </div>
+
+                {/* 5 · Estado. */}
+                <div className="filter-field filter-field--role">
+                  <label>{f.state}</label>
+                  <SelectField
+                    aria-label={f.state}
+                    containerClassName="role-filter"
+                    required
+                    // La lista COMPLETA de estados (antes eran cuatro a
+                    // mano: un coche accidentado o «No activo» no se podía
+                    // filtrar). La baja va con «Mostrar bajas».
+                    options={[{ value: '', label: f.stateAll }, ...vt.stateOptions]}
+                    value={stateFilter}
+                    onValueChange={setStateFilter}
+                  />
+                </div>
+
+                {/* 6 · Conductor. */}
+                <div className="filter-field filter-field--role">
+                  <label>{f.driver}</label>
+                  <SelectField
+                    aria-label={f.driver}
+                    containerClassName="role-filter"
+                    required
+                    options={[
+                      { value: '', label: f.driverAll },
+                      { value: NADIE, label: f.driverNone },
+                      ...personOptions.drivers,
+                    ]}
+                    value={driverFilter}
+                    onValueChange={setDriverFilter}
+                  />
+                </div>
+
+                {/* 7 · Supervisor. */}
+                <div className="filter-field filter-field--role">
+                  <label>{f.supervisor}</label>
+                  <SelectField
+                    aria-label={f.supervisor}
+                    containerClassName="role-filter"
+                    required
+                    options={[
+                      { value: '', label: f.supervisorAll },
+                      { value: NADIE, label: f.supervisorNone },
+                      ...personOptions.supervisors,
+                    ]}
+                    value={supervisorFilter}
+                    onValueChange={setSupervisorFilter}
+                  />
+                </div>
+
+                {/* 8 · Cortes: cinco casillas que se combinan, en un
+                    desplegable — sueltas ocupaban toda la fila y crecían con
+                    cada corte nuevo. El resumen dice cuántos hay puestos sin
+                    tener que abrirlo. */}
+                <div className="filter-field filter-field--role">
+                  <label>{f.cuts}</label>
+                  <details className="cuts-drop">
+                    <summary className="cuts-drop-summary">
+                      <span>{cutsOn === 0 ? f.cutsNone : f.cutsSome(cutsOn)}</span>
+                      <ChevronDown size={14} aria-hidden />
+                    </summary>
+                    <div className="cuts-drop-panel">
+                      {(
+                        [
+                          [t.home.chips.itv, itvOnly, setItvOnly],
+                          [t.home.chips.insurance, insuranceOnly, setInsuranceOnly],
+                          [t.home.chips.maintenance, maintOnly, setMaintOnly],
+                          [t.home.chips.kmOver, kmOverOnly, setKmOverOnly],
+                          [t.home.showRetired, showBaja, setShowBaja],
+                        ] as const
+                      ).map(([label, value, set]) => (
+                        <label key={label} className="cuts-drop-item">
+                          <input
+                            type="checkbox"
+                            checked={value}
+                            onChange={(e) => set(e.target.checked)}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+              </>
+            )}
+
+            {!isVehicleTab && (
+              <div className="filter-toggles">
+                <label className="baja-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showInactive}
+                    onChange={(e) => setShowInactive(e.target.checked)}
+                  />
+                  {t.home.showInactive}
+                </label>
+              </div>
+            )}
+
+            {/* 7 · Acciones. */}
+            <div className="table-info-bar-actions">
+              {isVehicleTab && alertFilter && (
+                <span className="filter-tag">
+                  {t.home.alertFilterTag(t.home.alertTabs[alertFilter] ?? alertFilter)}
+                  <button
+                    type="button"
+                    className="filter-tag-x"
+                    onClick={() => setAlertFilter(null)}
+                    aria-label={t.home.alertFilterClear}
+                  >
+                    ✕
+                  </button>
+                </span>
+              )}
+              {isVehicleTab && anyFilter && (
+                <button type="button" className="linklike" onClick={resetFilters}>
+                  {t.home.clearFilters}
+                </button>
+              )}
+            </div>
+          </div>
+        </FiltersAccordion>
 
         {activeLoading ? (
           <p className="loading-state" role="status">{t.common.loading}</p>

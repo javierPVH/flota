@@ -416,13 +416,12 @@ export function DownloadsTab() {
     { key: 'name', label: d.columns.name, getValue: (u) => u.name || u.username },
     { key: 'email', label: d.columns.email, getValue: (u) => u.email || '', render: (u) => u.email || '—' },
     { key: 'phone', label: d.columns.phone, getValue: (u) => u.phone || '', render: (u) => u.phone || '—' },
-    { key: 'dni', label: d.columns.dni, getValue: (u) => u.dni ?? '', render: (u) => u.dni || '—' },
     { key: 'roles', label: d.columns.roles, getValue: (u) => u.roles.map((r) => d.roleLabels[r] ?? r).join(', ') },
     { key: 'license', label: d.columns.license, getValue: (u) => u.license_type || '', render: (u) => u.license_type || '—' },
     { key: 'fuelCard', label: d.columns.fuelCard, getValue: (u) => (u.fuel_card ? d.yes : d.no) },
     { key: 'dateJoined', label: d.columns.dateJoined, isDate: true, getValue: (u) => u.date_joined || '' },
     { key: 'active', label: d.columns.active, getValue: (u) => (u.is_active ? d.yes : d.no) },
-  ], [d.columns.active, d.columns.dateJoined, d.columns.dni, d.columns.email, d.columns.fuelCard, d.columns.license, d.columns.name, d.columns.phone, d.columns.roles, d.columns.username, d.no, d.roleLabels, d.yes])
+  ], [d.columns.active, d.columns.dateJoined, d.columns.email, d.columns.fuelCard, d.columns.license, d.columns.name, d.columns.phone, d.columns.roles, d.columns.username, d.no, d.roleLabels, d.yes])
 
   return (
     <>

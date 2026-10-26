@@ -46,6 +46,14 @@ class ComposeTests(TestCase):
             "Falta la lectura de km de 2026-09.",
         )
         self.assertEqual(
+            compose("km_pending_days", period="2026-09", days=37, last="2026-08-15")["message"],
+            "Falta la lectura de km de 2026-09: 37 día(s) sin lectura (última el 2026-08-15).",
+        )
+        self.assertEqual(
+            compose("km_pending_never", period="2026-09")["message"],
+            "Falta la lectura de km de 2026-09: el vehículo no tiene ninguna lectura.",
+        )
+        self.assertEqual(
             compose("no_driver", days=7)["message"],
             "Sin conductor asignado desde hace más de 7 día(s).",
         )
@@ -141,11 +149,13 @@ class AlertasLlevanSuCodigoTests(TestCase):
         self.assertEqual(alert.message_args["days"], 2)
 
     def test_lectura_de_km_pendiente(self):
+        # Dentro de la ventana (día 20): un coche sin ninguna lectura.
+        hoy = self.today.replace(day=22)
         self._vehiculo()
-        alerts.check_km_readings(self.today)
+        alerts.check_km_readings(hoy)
         alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
-        self.assertEqual(alert.message_code, "km_pending")
-        self.assertEqual(alert.message_args["period"], f"{self.today:%Y-%m}")
+        self.assertEqual(alert.message_code, "km_pending_never")
+        self.assertEqual(alert.message_args["period"], f"{hoy:%Y-%m}")
 
     def test_sin_conductor(self):
         self._vehiculo()
@@ -201,6 +211,8 @@ class CatalogoTests(TestCase):
                 "insurance_overdue",
                 "insurance_due",
                 "km_pending",
+                "km_pending_days",
+                "km_pending_never",
                 "no_driver",
                 "km_overage",
                 "maintenance",

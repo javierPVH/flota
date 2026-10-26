@@ -40,6 +40,17 @@ def current_assignment_q(today: date | None = None, prefix: str = "") -> Q:
 
     `prefix` permite aplicarlo a través de una relación
     (`current_assignment_q(prefix="assignments__")` en `vehicles_for`).
+
+    **En un coche MULTIUSUARIO ninguna asignación es vigente**, por definición:
+    lo usa un número indeterminado de personas, así que no hay «quién lo
+    lleva». Su histórico admite tantos conductores como haga falta —y
+    solapados—, pero son un registro de quién lo usó y no una puerta: eso es
+    justo lo que esta línea impide. Va AQUÍ y no en cada consulta porque este
+    es el criterio único (R3-02): de aquí cuelgan `vehicles_for` (y con ella el
+    ámbito de escritura de km y combustible), `current_driver_map`, `users_for`
+    y `readable_documents`, y escribirlo en cada una habría dejado a la mitad
+    dando acceso. Quien responde del coche es su supervisor, que entra por otra
+    rama (`Q(supervisor=user)`) y no por una asignación.
     """
     reference = today or timezone.localdate()
     return (
@@ -49,6 +60,7 @@ def current_assignment_q(today: date | None = None, prefix: str = "") -> Q:
             f"{prefix}status": AssignmentStatus.ACCEPTED,
             # N7: una asignación desactivada no da conductor vigente.
             f"{prefix}is_active": True,
+            f"{prefix}vehicle__is_multiuser": False,
         }
     )
 

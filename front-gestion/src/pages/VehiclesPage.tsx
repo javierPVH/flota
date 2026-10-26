@@ -34,6 +34,7 @@ import { ScheduleItvMaintenanceModal } from '../components/ScheduleItvMaintenanc
 import { VehiclePendingModal } from '../components/VehiclePendingCard.tsx'
 import { useVehicleActions } from '../components/useVehicleActions.tsx'
 import { ColumnsPicker } from '../components/ColumnsPicker.tsx'
+import { FiltersAccordion } from '../components/FiltersAccordion.tsx'
 import { exportCsv } from '../csv.ts'
 import { dueClass, fmtConsumption, fmtDate, fmtKm, itvClass, vehicleStateTone } from '../format.ts'
 import { maintenanceDueDates } from '../maintenanceDue.ts'
@@ -184,6 +185,8 @@ interface VehiclesView {
   showBajas: boolean
   appliedFrom: string
   appliedTo: string
+  /** Si la barra quedó plegada: volver de una ficha no vuelve a abrirla. */
+  toolsOpen: boolean
   scrollTop: number
 }
 
@@ -273,6 +276,10 @@ export function VehiclesPage() {
   const [dateTo, setDateTo] = useState(initialView?.appliedTo ?? '')
   const [appliedFrom, setAppliedFrom] = useState(initialView?.appliedFrom ?? '')
   const [appliedTo, setAppliedTo] = useState(initialView?.appliedTo ?? '')
+  // La barra se puede plegar para dejarle el alto a la tabla, pero nace ABIERTA
+  // (al revés que la del panel): aquí se filtra a diario, y un filtro que no se
+  // ve recorta la tabla sin decir por qué. Plegada, la cabecera lo avisa.
+  const [toolsOpen, setToolsOpen] = useState(initialView?.toolsOpen ?? true)
 
   // Columnas: orden + ocultas + menú desplegable.
   const [colOrder, setColOrder] = useState<string[]>(() => [...COLUMN_KEYS])
@@ -338,6 +345,7 @@ export function VehiclesPage() {
     showBajas,
     appliedFrom,
     appliedTo,
+    toolsOpen,
   })
   useEffect(() => {
     viewRef.current = {
@@ -353,6 +361,7 @@ export function VehiclesPage() {
       showBajas,
       appliedFrom,
       appliedTo,
+      toolsOpen,
     }
   })
   // Scroll del contenedor real, en vivo (no se puede leer el ref en el cleanup
@@ -926,149 +935,158 @@ export function VehiclesPage() {
         </button>
       </div>
 
-      {/* Barra de filtros: siempre a la vista y en las líneas que hagan falta
-          (los cortes, al final, como casillas). */}
-      <div className="filters-bar filters-bar--panel">
-        {/* 1 · Nº de registros. */}
-        <div className="filter-field filter-field--count">
-          <label>{t.lblRecords}</label>
-          <div className="filter-count">{rows.length}</div>
-        </div>
+      {/* Barra de filtros, plegable: repartida en las líneas que hagan falta
+          (los cortes, al final, como casillas). Nace abierta —aquí se filtra a
+          diario— y se pliega para dejarle a la tabla el alto de la pantalla. */}
+      <FiltersAccordion
+        open={toolsOpen}
+        onToggle={() => setToolsOpen((o) => !o)}
+        label={t.toolsToggle}
+        summary={t.toolsSummary(rows.length)}
+        flag={anyFilter ? t.toolsFiltered : null}
+      >
+        <div className="filters-bar filters-bar--panel">
+          {/* 1 · Nº de registros. */}
+          <div className="filter-field filter-field--count">
+            <label>{t.lblRecords}</label>
+            <div className="filter-count">{rows.length}</div>
+          </div>
 
-        {/* 2 · Búsqueda. */}
-        <div className="filter-field filter-field--search">
-          <label htmlFor="veh-search">{t.lblSearch}</label>
-          <div className="filter-search">
-            <input
-              id="veh-search"
-              type="search"
-              aria-label={t.lblSearch}
-              placeholder={t.searchPlaceholder}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <MiniToolsButtons
-              size="xs"
-              showLock={false}
-              showSearch={false}
-              showSort={false}
-              showDelete
-              onDelete={() => setSearch('')}
+          {/* 2 · Búsqueda. */}
+          <div className="filter-field filter-field--search">
+            <label htmlFor="veh-search">{t.lblSearch}</label>
+            <div className="filter-search">
+              <input
+                id="veh-search"
+                type="search"
+                aria-label={t.lblSearch}
+                placeholder={t.searchPlaceholder}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <MiniToolsButtons
+                size="xs"
+                showLock={false}
+                showSearch={false}
+                showSort={false}
+                showDelete
+                onDelete={() => setSearch('')}
+              />
+            </div>
+          </div>
+
+          {/* 3 · Estado del vehículo. */}
+          <div className="filter-field filter-field--role">
+            <label>{t.lblState}</label>
+            <SelectField
+              aria-label={t.lblState}
+              containerClassName="role-filter"
+              required
+              options={stateOptions}
+              value={stateFilter}
+              onValueChange={setStateFilter}
             />
           </div>
-        </div>
 
-        {/* 3 · Estado del vehículo. */}
-        <div className="filter-field filter-field--role">
-          <label>{t.lblState}</label>
-          <SelectField
-            aria-label={t.lblState}
-            containerClassName="role-filter"
-            required
-            options={stateOptions}
-            value={stateFilter}
-            onValueChange={setStateFilter}
-          />
-        </div>
+          {/* 4 · Supervisor. */}
+          <div className="filter-field filter-field--role">
+            <label>{t.lblSupervisor}</label>
+            <SelectField
+              aria-label={t.lblSupervisor}
+              containerClassName="role-filter"
+              required
+              options={supervisorOptions}
+              value={supervisorFilter}
+              onValueChange={setSupervisorFilter}
+            />
+          </div>
 
-        {/* 4 · Supervisor. */}
-        <div className="filter-field filter-field--role">
-          <label>{t.lblSupervisor}</label>
-          <SelectField
-            aria-label={t.lblSupervisor}
-            containerClassName="role-filter"
-            required
-            options={supervisorOptions}
-            value={supervisorFilter}
-            onValueChange={setSupervisorFilter}
-          />
-        </div>
+          {/* 5 · Conductor. */}
+          <div className="filter-field filter-field--role">
+            <label>{t.lblDriver}</label>
+            <SelectField
+              aria-label={t.lblDriver}
+              containerClassName="role-filter"
+              required
+              options={driverOptions}
+              value={driverFilter}
+              onValueChange={setDriverFilter}
+            />
+          </div>
 
-        {/* 5 · Conductor. */}
-        <div className="filter-field filter-field--role">
-          <label>{t.lblDriver}</label>
-          <SelectField
-            aria-label={t.lblDriver}
-            containerClassName="role-filter"
-            required
-            options={driverOptions}
-            value={driverFilter}
-            onValueChange={setDriverFilter}
-          />
-        </div>
+          {/* 6 · Fecha de alta. */}
+          <div className="filter-field filter-field--date">
+            <label>{t.lblCreated}</label>
+            <DateMiniFilter
+              fromLabel={t.dateFrom}
+              toLabel={t.dateTo}
+              startDate={dateFrom}
+              endDate={dateTo}
+              onStartDateChange={setDateFrom}
+              onEndDateChange={setDateTo}
+              onApply={() => {
+                setAppliedFrom(dateFrom)
+                setAppliedTo(dateTo)
+              }}
+              onClear={() => {
+                setDateFrom('')
+                setDateTo('')
+                setAppliedFrom('')
+                setAppliedTo('')
+              }}
+              onApplyLast30Days={() => {
+                const from = isoDaysAgo(30)
+                const to = isoDaysAgo(0)
+                setDateFrom(from)
+                setDateTo(to)
+                setAppliedFrom(from)
+                setAppliedTo(to)
+              }}
+            />
+          </div>
 
-        {/* 6 · Fecha de alta. */}
-        <div className="filter-field filter-field--date">
-          <label>{t.lblCreated}</label>
-          <DateMiniFilter
-            fromLabel={t.dateFrom}
-            toLabel={t.dateTo}
-            startDate={dateFrom}
-            endDate={dateTo}
-            onStartDateChange={setDateFrom}
-            onEndDateChange={setDateTo}
-            onApply={() => {
-              setAppliedFrom(dateFrom)
-              setAppliedTo(dateTo)
+          {/* 6 · Columnas (mostrar/ocultar + ordenar) — M18: componente compartido. */}
+          <ColumnsPicker
+            order={colOrder}
+            hidden={hiddenCols}
+            labelOf={(key) => colByKey.get(key)?.label}
+            copy={{
+              label: t.lblColumns,
+              button: t.columnsBtn,
+              moveUp: t.colMoveUp,
+              moveDown: t.colMoveDown,
+              showAll: t.columnsAll,
             }}
-            onClear={() => {
-              setDateFrom('')
-              setDateTo('')
-              setAppliedFrom('')
-              setAppliedTo('')
-            }}
-            onApplyLast30Days={() => {
-              const from = isoDaysAgo(30)
-              const to = isoDaysAgo(0)
-              setDateFrom(from)
-              setDateTo(to)
-              setAppliedFrom(from)
-              setAppliedTo(to)
-            }}
+            onOrderChange={setColOrder}
+            onHiddenChange={setHiddenCols}
           />
-        </div>
 
-        {/* 6 · Columnas (mostrar/ocultar + ordenar) — M18: componente compartido. */}
-        <ColumnsPicker
-          order={colOrder}
-          hidden={hiddenCols}
-          labelOf={(key) => colByKey.get(key)?.label}
-          copy={{
-            label: t.lblColumns,
-            button: t.columnsBtn,
-            moveUp: t.colMoveUp,
-            moveDown: t.colMoveDown,
-            showAll: t.columnsAll,
-          }}
-          onOrderChange={setColOrder}
-          onHiddenChange={setHiddenCols}
-        />
-
-        {/* 7 · Cortes: casillas en fila, al final de la barra. Los cuatro de
-            vencimiento son una UNIÓN (ver `filterVehicles`). */}
-        <div className="filter-toggles">
-          {(
-            [
-              [t.dueItv, dueItv, setDueItv],
-              [t.dueInsurance, dueInsurance, setDueInsurance],
-              [t.dueMaint, dueMaint, setDueMaint],
-              [t.kmOver, kmOver, setKmOver],
-              [t.showBajas, showBajas, setShowBajas],
-            ] as const
-          ).map(([label, value, set]) => (
-            <label key={label} className="baja-toggle">
-              <input type="checkbox" checked={value} onChange={(e) => set(e.target.checked)} />
-              {label}
-            </label>
-          ))}
-          {/* Quitar de una vez todo lo que recorta la lista. */}
-          {anyFilter && (
-            <button type="button" className="linklike" onClick={resetFilters}>
-              {t.clearFilters}
-            </button>
-          )}
+          {/* 7 · Cortes: casillas en fila, al final de la barra. Los cuatro de
+              vencimiento son una UNIÓN (ver `filterVehicles`). */}
+          <div className="filter-toggles">
+            {(
+              [
+                [t.dueItv, dueItv, setDueItv],
+                [t.dueInsurance, dueInsurance, setDueInsurance],
+                [t.dueMaint, dueMaint, setDueMaint],
+                [t.kmOver, kmOver, setKmOver],
+                [t.showBajas, showBajas, setShowBajas],
+              ] as const
+            ).map(([label, value, set]) => (
+              <label key={label} className="baja-toggle">
+                <input type="checkbox" checked={value} onChange={(e) => set(e.target.checked)} />
+                {label}
+              </label>
+            ))}
+            {/* Quitar de una vez todo lo que recorta la lista. */}
+            {anyFilter && (
+              <button type="button" className="linklike" onClick={resetFilters}>
+                {t.clearFilters}
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      </FiltersAccordion>
 
       {error && <div role="alert" className="form-error">{error}</div>}
 

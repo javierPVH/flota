@@ -28,20 +28,28 @@ import {
   updateEmailSignature,
   updateEmailTemplate,
   type EmailLogRow,
+  type EmailPreview,
   type EmailSignatureRow,
   type EmailTemplateRow,
 } from '../api.ts'
 import { useAppLang } from '@flota/ui/i18n'
 
 import { fmtDate } from '../format.ts'
+import { EmailSettingsPanel } from '../components/EmailSettingsPanel.tsx'
 import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { TemplateVars } from '../components/TemplateVars.tsx'
+import { useEmailSettingsCopy } from '../translations/emailSettings.ts'
 import { useEmailTemplatesCopy } from '../translations/emailTemplates.ts'
 import { useDomainLabels } from '../domainLabels.ts'
 
 // Pestaña especial (primera): traza de últimos envíos (EmailLog).
 const LOGS_TAB = 'logs'
+// Ajustes que no son plantillas (EmailSettingsPanel): el recordatorio de km
+// y la caja corporativa de todos los correos.
+const REMINDER_TAB = 'recordatorio'
+const LAYOUT_TAB = 'aspecto'
+const SETTINGS_TABS = new Set([REMINDER_TAB, LAYOUT_TAB])
 
 // Tipos de plantilla (lista cerrada del back). Se crean bajo demanda.
 const TEMPLATE_KEYS = [
@@ -64,6 +72,7 @@ const TEMPLATE_KEYS = [
  */
 export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } = {}) {
   const t = useEmailTemplatesCopy()
+  const ts = useEmailSettingsCopy()
   const etiqueta = useDomainLabels()
   const lang = useAppLang()
   const [templates, setTemplates] = useState<EmailTemplateRow[]>([])
@@ -112,7 +121,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
    * plantilla, y salir con cambios pendientes pide confirmación.
    */
   const [dirty, setDirty] = useState(false)
-  const [preview, setPreview] = useState<{ subject: string; body_html: string } | null>(null)
+  const [preview, setPreview] = useState<EmailPreview | null>(null)
 
   // Firmas
   const [signatureModal, setSignatureModal] = useState(false)
@@ -142,7 +151,9 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   useEffect(load, [load])
 
   const isLogs = activeTab === LOGS_TAB
-  const active = isLogs ? null : (templates.find((tpl) => tpl.key === activeTab) ?? null)
+  const isSettings = SETTINGS_TABS.has(activeTab)
+  const active =
+    isLogs || isSettings ? null : (templates.find((tpl) => tpl.key === activeTab) ?? null)
 
   /** Lo buscado, en trozos: se separan por comas para poder pedir VARIOS
    * destinatarios de una vez. Cada trozo se busca en todo (destinatarios, tipo,
@@ -467,6 +478,8 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         onChange={switchTab}
         items={[
           { key: LOGS_TAB, label: t.logsTitle },
+          { key: REMINDER_TAB, label: ts.reminderTab },
+          { key: LAYOUT_TAB, label: ts.layoutTab },
           ...TEMPLATE_KEYS.map((key) => ({
             key,
             label: t.templateKeys[key] ?? key,
@@ -475,7 +488,13 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         ]}
       />
 
-      {isLogs ? (
+      {isSettings ? (
+        <EmailSettingsPanel
+          section={activeTab === REMINDER_TAB ? 'reminder' : 'layout'}
+          templates={templates}
+          onEditTemplate={switchTab}
+        />
+      ) : isLogs ? (
         <section>
           <TableInfoBar
             count={visibleLogs.length}
@@ -709,8 +728,15 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         {preview && (
           <div className="email-preview">
             <p className="muted">{t.previewSubject} <strong>{preview.subject}</strong></p>
+            {/* El correo ENTERO (caja corporativa y logotipo), en un iframe: es lo
+                que verá quien lo reciba, no el cuerpo suelto. */}
+            <iframe
+              className="email-settings-frame"
+              title={t.previewTitle}
+              sandbox=""
+              srcDoc={preview.document_html}
+            />
             <Panel>
-              <div dangerouslySetInnerHTML={{ __html: preview.body_html }} />
             </Panel>
           </div>
         )}

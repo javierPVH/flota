@@ -46,7 +46,6 @@ class User(AbstractUser):
         default=False,
         help_text="¿La persona dispone de tarjeta de combustible?",
     )
-    dni = models.CharField("DNI", max_length=20, null=True, blank=True, unique=True)
     phone = models.CharField("Teléfono", max_length=30, blank=True)
     license_type = models.CharField(
         "Tipo de permiso", max_length=5, choices=LicenseType.choices, blank=True

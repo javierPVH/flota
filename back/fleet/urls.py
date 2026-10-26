@@ -15,6 +15,7 @@ from .views import (
     DocumentViewSet,
     DriverChangeRequestViewSet,
     EmailLogViewSet,
+    EmailSettingsView,
     EmailSignatureViewSet,
     EmailTemplateViewSet,
     EventViewSet,
@@ -127,5 +128,7 @@ urlpatterns = [
     path("summary/vehicles/", VehicleSummariesView.as_view(), name="vehicle-summaries"),
     # Los catálogos del alta de vehículo juntos: 7 peticiones → 1.
     path("catalogs/", CatalogsBundleView.as_view(), name="catalogs-bundle"),
+    # Ajustes del correo (fila única): recordatorio de km y aspecto corporativo.
+    path("email-settings/", EmailSettingsView.as_view(), name="email-settings"),
     *router.urls,
 ]

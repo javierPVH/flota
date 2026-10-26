@@ -23,7 +23,6 @@ const SIN_DATOS_PERSONALES: Omit<FlotaUser, keyof CachedMe> = {
   first_name: '',
   last_name: '',
   fuel_card: false,
-  dni: null,
   phone: '',
   license_type: '',
 }

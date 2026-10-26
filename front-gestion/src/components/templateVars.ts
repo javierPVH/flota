@@ -5,6 +5,9 @@ export const TEMPLATE_VARIABLES = [
   'empresa',
   'fecha_vencimiento',
   'km_exceso',
+  'dias_sin_lectura',
+  'ultima_lectura',
+  'periodo',
   'mensaje',
 ] as const
 
