@@ -315,6 +315,23 @@ class NoticeLanguageTests(APITestCase):
         self.assertIn("Texto suelto", mail.outbox[0].alternatives[0][0])
         self.assertNotIn("Hola", mail.outbox[0].alternatives[0][0])
 
+    @EMAIL_ON
+    def test_notify_sends_inside_the_corporate_layout(self):
+        """Lo que sale por el modal del vehículo lleva la misma caja que la
+        vista previa: era el único envío que montaba el mensaje a mano y el
+        correo llegaba con el cuerpo pelado (sin logotipo ni pie)."""
+        resp = self.client.post(
+            reverse("vehicle-notify", args=[self.vehicle.pk]),
+            {"template_key": "", "message": "Texto suelto", "to_admin": True},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        html = mail.outbox[0].alternatives[0][0]
+        self.assertIn("cid:logo@flota", html)
+        self.assertIn("border-bottom:4px solid", html)
+        self.assertTrue(
+            any(p.get("Content-ID") == "<logo@flota>" for p in mail.outbox[0].message().walk())
+        )
+
     def test_notify_without_template_needs_a_message(self):
         resp = self.client.post(
             reverse("vehicle-notify", args=[self.vehicle.pk]),

@@ -546,13 +546,13 @@ class EmailLinkTests(APITestCase):
             email_defaults.DEFAULT_TEMPLATES["km_reading_pending"]["body_html"],
             {"enlace_app": "https://campo.flota.example"},
         )
-        self.assertIn('<a href="https://campo.flota.example">Abrir la app</a>', html)
+        self.assertIn('<a href="https://campo.flota.example">Abrir la app de campo</a>', html)
         self.assertIn("seguirás recibiendo este correo", html)
         self.assertIn("<details><summary>Cómo registrar la lectura</summary>", html)
 
     def test_without_url_only_the_text_stays(self):
-        html = mailer.render('<p><a href="{{enlace_app}}">Abrir la app</a></p>', {})
-        self.assertEqual(html, "<p>Abrir la app</p>")
+        html = mailer.render('<p><a href="{{enlace_app}}">Abrir la app de campo</a></p>', {})
+        self.assertEqual(html, "<p>Abrir la app de campo</p>")
 
     @override_settings(FLEET_DRIVERS_APP_URL="https://campo.flota.example")
     def test_the_alert_and_the_notice_carry_the_url(self):

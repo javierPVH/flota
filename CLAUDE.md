@@ -929,7 +929,10 @@ Dos capas que van **siempre juntas**:
   dice cuál de las dos hay («Versión personalizada» / «Versión genérica»). Solo viaja al back (`body`) **si se toca** —sin tocar manda la
   plantilla, con sus dos idiomas—, se rinde con las mismas variables y se sanea
   con el mismo nh3, y **no modifica la plantilla**: eso es Ajustes → Plantillas
-  de correo, que cambia el correo de todos. El «Mensaje adicional» sigue
+  de correo, que cambia el correo de todos. El envío sale por
+  `mailer.build_message` como todos (era el único que montaba el
+  `EmailMultiAlternatives` a mano, y llegaba sin la caja corporativa que
+  enseñaba su vista previa). El «Mensaje adicional» sigue
   debajo: es lo que rellena `{{mensaje}}` y donde cae el texto de la incidencia
   elegida. El paso **Vista previa** enseña el correo **entero** —con la caja
   corporativa de Ajustes → Correo, en un iframe: `notice-preview` devuelve

@@ -999,8 +999,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         omitió (sin email / correo deshabilitado / fallo)."""
         import html
 
-        from django.core.mail import EmailMultiAlternatives, get_connection
-        from django.utils.html import strip_tags
+        from django.core.mail import get_connection
 
         from .selectors import current_driver_map
         from .services import mailer
@@ -1160,15 +1159,13 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     )
                     continue
                 try:
-                    msg = EmailMultiAlternatives(
-                        subject=subject,
-                        body=strip_tags(body_html),
-                        from_email=settings.DEFAULT_FROM_EMAIL,
-                        to=[email],
-                        connection=connection,
+                    # Por la misma puerta que el resto (`build_message`): con la
+                    # caja corporativa que ensena la vista previa del modal. Este
+                    # era el unico envio que montaba el mensaje a mano, y salia
+                    # el cuerpo pelado.
+                    mailer.build_message(subject, body_html, [email], connection=connection).send(
+                        fail_silently=False
                     )
-                    msg.attach_alternative(body_html, "text/html")
-                    msg.send(fail_silently=False)
                     sent.append({"role": role, "email": email})
                     EmailLog.objects.create(**traza, recipient=email, status=EmailLog.Status.SENT)
                 except Exception as exc:  # noqa: BLE001 — best-effort por diseño
