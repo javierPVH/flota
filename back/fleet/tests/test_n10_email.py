@@ -198,6 +198,30 @@ class NoticeLanguageTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         return resp.data
 
+    def test_preview_brings_the_whole_document_in_the_corporate_box(self):
+        data = self.preview()
+        self.assertIn("<p>Hola</p>", data["body_html"])
+        self.assertIn("<p>Hola</p>", data["document_html"])
+        self.assertIn("<html", data["document_html"])
+        self.assertIn("data:image/png;base64,", data["document_html"])
+
+    def test_km_variables_come_from_the_vehicle_when_there_is_no_alert(self):
+        from fleet.models import EmailSettings, KmReading
+        from fleet.services import email_layout
+
+        hoy = timezone.localdate()
+        ultima = hoy - timedelta(days=12)
+        KmReading.objects.create(vehicle=self.vehicle, reading_date=ultima, km_reading=1000)
+        data = self.preview(
+            template_key=EmailTemplateKey.KM_READING_PENDING,
+            body="<p>{{dias_sin_lectura}} | {{ultima_lectura}} | {{periodo}}</p>",
+        )
+        mes = email_layout.km_remind_period(hoy, EmailSettings.get_solo()) or hoy.replace(day=1)
+        self.assertIn(
+            f"<p>12 | {ultima.isoformat()} | {mes.year:04d}-{mes.month:02d}</p>",
+            data["body_html"],
+        )
+
     def test_cuerpo_retocado_sustituye_al_de_la_plantilla(self):
         # Lo que se retoca en el modal es el correo de ESTE envío: se rinde con
         # las mismas variables que la plantilla, que no se toca.
@@ -265,6 +289,21 @@ class NoticeLanguageTests(APITestCase):
         self.template.save(update_fields=["signature"])
         data = self.preview(lang="both")
         self.assertEqual(data["body_html"].count("-- Flota"), 1)
+
+    @EMAIL_ON
+    def test_notify_logs_the_role_and_the_batch_of_each_recipient(self):
+        resp = self.client.post(
+            reverse("vehicle-notify", args=[self.vehicle.pk]),
+            {"message": "Hola", "to_driver": True, "to_admin": True, "email": "x@flota.dev"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        filas = EmailLog.objects.filter(template_key="comunicado")
+        self.assertEqual(len({f.batch for f in filas}), 1)
+        self.assertTrue(filas.first().batch)
+        papeles = set(filas.values_list("recipient_role", flat=True))
+        self.assertIn("driver", papeles)
+        self.assertIn("other", papeles)
 
     @EMAIL_ON
     def test_notify_without_template_sends_only_the_message(self):

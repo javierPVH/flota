@@ -827,7 +827,14 @@ export const noticePreviewVehicle = (
   id: number,
   data: { template_key: string; message?: string; lang?: NoticeLang; body?: string },
 ) =>
-  postJson<{ subject: string; body_html: string; has_template: boolean; has_en: boolean }>(
+  postJson<{
+    subject: string
+    body_html: string
+    /** El correo entero, dentro de la caja corporativa (para un iframe). */
+    document_html: string
+    has_template: boolean
+    has_en: boolean
+  }>(
     `${API}/vehicles/${id}/notice-preview/`,
     data,
   )
@@ -1520,6 +1527,13 @@ export interface EmailSettingsRow {
   /** Día en que se abre el registro de km de campo (0 = sin ventana): antes
    * de él, el conductor no puede dar la lectura que se le reclama. */
   km_window_start: number
+  /** A quién va el recordatorio: conductor (sin él, el supervisor), supervisor
+   * y/o los administradores elegidos (por id). */
+  km_remind_to_driver: boolean
+  km_remind_to_supervisor: boolean
+  km_remind_admin_ids: number[]
+  /** Entre quiénes se puede elegir: administradores activos con correo. */
+  admin_options: Array<{ id: number; name: string; email: string }>
   layout_enabled: boolean
   brand_name: string
   brand_color: string
@@ -1571,6 +1585,12 @@ export interface EmailLogRow {
   resent_from: number | null
   /** Se puede reenviar tal cual: hay cuerpo guardado, destinatario y sin adjunto. */
   can_resend: boolean
+  /** Por qué papel le llegó: driver, supervisor, admin, renting, other,
+   * scheduled, test (vacío en las filas anteriores a la 0084). */
+  recipient_role: string
+  recipient_role_display: string
+  /** La tanda: las filas de un mismo envío a varias personas la comparten. */
+  batch: string
   created_at: string
 }
 

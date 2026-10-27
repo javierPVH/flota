@@ -6669,17 +6669,30 @@ kbd {
   grid-template-areas:
     'intro schedule'
     'cadence cadence'
+    'recipients recipients'
     'foot foot';
   gap: 1.25rem 2rem;
   align-items: start;
 }
 @media (max-width: 1000px) {
-  .es-reminder { grid-template-columns: 1fr; grid-template-areas: 'intro' 'schedule' 'cadence' 'foot'; }
+  .es-reminder { grid-template-columns: 1fr; grid-template-areas: 'intro' 'schedule' 'cadence' 'recipients' 'foot'; }
 }
 .es-reminder-intro { grid-area: intro; display: flex; flex-direction: column; gap: 0.75rem; }
 .es-reminder-intro h3 { margin: 0; font-size: 1rem; }
 .es-reminder-schedule { grid-area: schedule; }
 .es-reminder-cadence { grid-area: cadence; }
+/* A quién se avisa: los dos interruptores y la lista de administradores. */
+.es-reminder-recipients { grid-area: recipients; }
+.es-recipients { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.5rem 1.5rem; }
+.es-admins-head { font-size: 0.86rem; margin-top: 0.2rem; }
+.es-admins-head .muted { font-size: 0.8rem; }
+.es-admins { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.45rem; }
+.es-admin { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.45rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; background: var(--color-surface); font-size: 0.86rem; }
+.es-admin:hover { border-color: var(--color-text-muted); }
+.es-admin.is-active { border-color: var(--color-brand); background: var(--color-brand-soft, var(--color-surface-soft)); }
+.es-admin input { margin-top: 0.2rem; accent-color: var(--color-brand); }
+.es-admin > span { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.es-admin .muted { font-size: 0.78rem; overflow-wrap: anywhere; }
 .es-reminder-foot { grid-area: foot; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
 .es-reminder-foot p { margin: 0; }
 .email-settings-form { display: flex; flex-direction: column; gap: 0.75rem; }
@@ -6759,6 +6772,15 @@ kbd {
 @media (max-width: 1100px) { .tpl-preview { position: static; } }
 .es-toggle-main { padding: 0.55rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-soft); }
 .email-settings-schedule.is-off .es-calendars, .email-settings-schedule.is-off .es-summary, .email-settings-schedule.is-off .es-legend { opacity: 0.45; }
+
+/* «Enviar correo»: la vista previa entera en su iframe y el acuse con la
+   lista de destinatarios. */
+.email-preview.has-frame { max-height: none; padding: 0.5rem 0.7rem 0.7rem; }
+.email-preview.has-frame .email-settings-frame { min-height: 480px; background: #fff; }
+.email-result { display: flex; flex-direction: column; gap: 0.3rem; }
+.email-result-list { margin: 0; padding-left: 1.2rem; font-size: 0.9rem; }
+.email-result-list li { margin: 0.15rem 0; }
+.email-result.is-skipped .ops-field-label { color: #b42318; }
 
 /* «Enviar correo»: la chapa de qué versión trae la caja. */
 .email-body-version { font-size: 0.8rem; margin-right: auto; }

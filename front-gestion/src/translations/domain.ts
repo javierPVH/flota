@@ -176,6 +176,16 @@ export const es = {
     failed: 'Fallido',
     skipped: 'Omitido (sin destinatario / deshabilitado)',
   } as Record<string, string>,
+  /** A quién fue un correo, por su papel (`RecipientRole` del back). */
+  emailRecipientRole: {
+    driver: 'Conductor',
+    supervisor: 'Supervisor',
+    admin: 'Administrador',
+    renting: 'Renting',
+    other: 'Otro correo',
+    scheduled: 'Envío programado',
+    test: 'Prueba',
+  } as Record<string, string>,
 }
 
 export const en: typeof es = {
@@ -317,6 +327,15 @@ export const en: typeof es = {
     sent: 'Sent',
     failed: 'Failed',
     skipped: 'Skipped (no recipient / disabled)',
+  },
+  emailRecipientRole: {
+    driver: 'Driver',
+    supervisor: 'Supervisor',
+    admin: 'Administrator',
+    renting: 'Leasing company',
+    other: 'Other email',
+    scheduled: 'Scheduled send',
+    test: 'Test',
   },
 }
 

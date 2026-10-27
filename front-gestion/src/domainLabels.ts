@@ -103,5 +103,10 @@ function etiquetas(d: ReturnType<typeof useDomainCopy>) {
       pick(d.seat, { code: person.seat, fallback: person.seat_display }),
     emailStatus: (log: { status?: string | null; status_display?: string | null }): string =>
       pick(d.emailStatus, { code: log.status, fallback: log.status_display }),
+    emailRecipientRole: (log: {
+      recipient_role?: string | null
+      recipient_role_display?: string | null
+    }): string =>
+      pick(d.emailRecipientRole, { code: log.recipient_role, fallback: log.recipient_role_display }),
   }
 }

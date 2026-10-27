@@ -37,6 +37,9 @@ const ENVIO_VARIOS = {
   attachment_name: '',
   resent_from: null,
   can_resend: true,
+  recipient_role: 'scheduled',
+  recipient_role_display: 'Envío programado',
+  batch: 'tanda-a',
   created_at: '2026-09-01T10:00:00Z',
 }
 
@@ -51,6 +54,9 @@ const ENVIO_ITV = {
   attachment_name: 'informe.xlsx',
   resent_from: null,
   can_resend: false,
+  recipient_role: 'driver',
+  recipient_role_display: 'Conductor',
+  batch: 'tanda-b',
   created_at: '2026-08-02T10:00:00Z',
 }
 
@@ -258,5 +264,20 @@ describe('EmailTemplatesPage (plantillas de correo)', () => {
     expect(within(modal).getByText('informe.xlsx')).toBeInTheDocument()
     // Con adjunto no se ofrece reenviar desde el detalle.
     expect(within(modal).queryByRole('button', { name: /Reenviar/ })).not.toBeInTheDocument()
+  })
+
+  it('la traza dice a quién fue cada correo y se lee agrupada por envío', async () => {
+    renderPage()
+    expect(await screen.findByText('Conductor')).toBeInTheDocument()
+    expect(screen.getByText('Envío programado')).toBeInTheDocument()
+    // Un grupo por tanda, rotulado con su momento y su asunto, el más
+    // reciente primero.
+    const grupos = screen.getAllByText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} · /)
+    expect(grupos).toHaveLength(2)
+    expect(grupos[0]).toHaveTextContent('Informe mensual de flota')
+    expect(grupos[1]).toHaveTextContent('ITV próxima — 1234KLM')
+    // Quitar el agrupado deja la tabla plana.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Agrupar por envío' }))
+    expect(screen.queryByText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} · /)).not.toBeInTheDocument()
   })
 })

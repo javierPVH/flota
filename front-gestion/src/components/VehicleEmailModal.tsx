@@ -12,6 +12,7 @@ import {
   noticePreviewVehicle,
   type EmailTemplateDefault,
   type EmailTemplateRow,
+  type NotifyResult,
 } from '../api.ts'
 import type { EmailKind } from '../emailKinds.ts'
 import { getNoticeLang, setNoticeLang, type NoticeLang } from '../emailPrefs.ts'
@@ -148,6 +149,7 @@ export function VehicleEmailModal({
   const [preview, setPreview] = useState<{
     subject: string
     body_html: string
+    document_html?: string
     has_template: boolean
     has_en: boolean
   } | null>(null)
@@ -156,7 +158,8 @@ export function VehicleEmailModal({
   const [previewFailed, setPreviewFailed] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [info, setInfo] = useState('')
+  // El acuse del envío: a quién llegó y a quién no (y por qué).
+  const [result, setResult] = useState<NotifyResult | null>(null)
   // Para buscar los campos del paso activo cuando toca validarlo.
   const formRef = useRef<HTMLFormElement>(null)
 
@@ -494,11 +497,7 @@ export function VehicleEmailModal({
         ...(email ? { email } : {}),
       })
       onDone()
-      let txt = t.sentOk(res.sent.length)
-      if (res.skipped.length) {
-        txt += ` ${t.skippedInfo(res.skipped.map((s) => roleLabel(s.role)).join(', '))}`
-      }
-      setInfo(txt)
+      setResult(res)
     } catch (err) {
       setError(asErrorMessage(err, t.errGeneric))
     } finally {
@@ -506,11 +505,37 @@ export function VehicleEmailModal({
     }
   }
 
-  // Vista de resultado tras enviar.
-  if (info) {
+  // Vista de resultado tras enviar: la lista de a quién se ha mandado y, si
+  // alguien se quedó sin correo, quién y por qué (lo dice el back).
+  if (result) {
     return (
       <div className="ops-modal">
-        <div className="ops-success" role="status">{info}</div>
+        <div className="ops-success" role="status">{t.sentOk(result.sent.length)}</div>
+        {result.sent.length > 0 && (
+          <div className="email-result">
+            <span className="ops-field-label">{t.sentTitle}</span>
+            <ul className="email-result-list">
+              {result.sent.map((r) => (
+                <li key={`${r.role}:${r.email}`}>
+                  <strong>{roleLabel(r.role)}</strong> · {r.email}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {result.skipped.length > 0 && (
+          <div className="email-result is-skipped">
+            <span className="ops-field-label">{t.skippedTitle}</span>
+            <ul className="email-result-list">
+              {result.skipped.map((r, i) => (
+                <li key={`${r.role}:${r.email ?? i}`}>
+                  <strong>{roleLabel(r.role)}</strong>
+                  {r.email ? ` · ${r.email}` : ''} — <span className="muted">{r.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {/* Mismo pie que el formulario: el botón cae donde estaba. */}
         <div className="ops-actions">
           <div className="ops-actions-end">
@@ -705,15 +730,21 @@ export function VehicleEmailModal({
         <p className="muted ops-note">{preview && !preview.has_template ? t.noTemplateHint : t.templateHint}</p>
         {previewFailed && <p className="ops-note tone-warn">{t.previewUnavailable}</p>}
         {preview && (
-          <div className="email-preview">
+          <div className={`email-preview${preview.document_html ? ' has-frame' : ''}`}>
             <div className="email-preview-subject">
               <span className="ops-field-label">{t.subjectLabel}:</span> {preview.subject}
             </div>
-            <div
-              className="email-preview-body"
-              // Cuerpo saneado en servidor (nh3) + variables escapadas (mailer.render).
-              dangerouslySetInnerHTML={{ __html: preview.body_html }}
-            />
+            {preview.document_html ? (
+              // El correo ENTERO, con la caja corporativa de Ajustes → Correo,
+              // en un iframe: es lo que verá quien lo reciba.
+              <iframe className="email-settings-frame" title={t.preview} sandbox="" srcDoc={preview.document_html} />
+            ) : (
+              <div
+                className="email-preview-body"
+                // Cuerpo saneado en servidor (nh3) + variables escapadas (mailer.render).
+                dangerouslySetInnerHTML={{ __html: preview.body_html }}
+              />
+            )}
           </div>
         )}
       </OpsSection>

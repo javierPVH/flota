@@ -3059,6 +3059,13 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
     #: Día en que se abre el registro de km de campo (N8a, `FLEET_KM_WINDOW_START`;
     #: 0 = sin ventana): el panel avisa si se recuerda antes de que se pueda dar.
     km_window_start = serializers.SerializerMethodField()
+    #: Los administradores que reciben el recordatorio, por id; se escriben
+    #: con `km_remind_admins` («3,7», vacío = ninguno), que vale igual en JSON
+    #: y en multipart, que es como guarda el panel.
+    km_remind_admin_ids = serializers.SerializerMethodField()
+    km_remind_admins = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    #: Entre quiénes se puede elegir: administradores activos con correo.
+    admin_options = serializers.SerializerMethodField()
 
     class Meta:
         model = EmailSettings
@@ -3073,6 +3080,11 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
             "km_remind_max_emails",
             "km_remind_dates",
             "km_window_start",
+            "km_remind_to_driver",
+            "km_remind_to_supervisor",
+            "km_remind_admin_ids",
+            "km_remind_admins",
+            "admin_options",
             "layout_enabled",
             "brand_name",
             "brand_color",
@@ -3119,19 +3131,53 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(str(exc)) from exc
             return self.instance.km_remind_days if self.instance else ""
 
+    def validate_km_remind_admins(self, value):
+        """«3,7» → [3, 7], solo administradores activos (o superusuarios)."""
+        from django.contrib.auth import get_user_model
+        from django.db.models import Q
+
+        from accounts.models import Role
+
+        piezas = [p.strip() for p in (value or "").split(",") if p.strip()]
+        if not all(p.isdigit() for p in piezas):
+            raise serializers.ValidationError("Ids de administrador separados por comas.")
+        ids = sorted({int(p) for p in piezas})
+        if not ids:
+            return []
+        validos = set(
+            get_user_model()
+            .objects.filter(pk__in=ids, is_active=True)
+            .filter(Q(roles__role=Role.ADMIN) | Q(is_superuser=True))
+            .values_list("pk", flat=True)
+        )
+        if set(ids) - validos:
+            raise serializers.ValidationError("Solo administradores activos.")
+        return ids
+
     def validate(self, attrs):
         """Por plazo, el número de correos no puede pasar de los días del
         plazo (en el mes más corto): se valida con la ventana que QUEDA tras el
         cambio. Por días concretos, tiene que haber al menos uno y la cadencia
-        no se mira."""
+        no se mira. Y alguien tiene que recibirlo: conductor, supervisor o
+        algún administrador."""
         from .models import KmRemindBy
         from .services import email_layout
 
         actual = self.instance
+        if "km_remind_admins" in attrs:
+            attrs["km_remind_admin_ids"] = attrs.pop("km_remind_admins")
 
         def queda(campo, defecto):
             return attrs.get(campo, getattr(actual, campo) if actual else defecto)
 
+        if not (
+            queda("km_remind_to_driver", True)
+            or queda("km_remind_to_supervisor", False)
+            or queda("km_remind_admin_ids", [])
+        ):
+            raise serializers.ValidationError(
+                {"km_remind_to_driver": "Elige al menos un destinatario del recordatorio."}
+            )
         if queda("km_remind_by", KmRemindBy.WINDOW) == KmRemindBy.DAYS:
             if not queda("km_remind_days", ""):
                 raise serializers.ValidationError(
@@ -3176,6 +3222,28 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
 
         return settings.FLEET_KM_WINDOW_START
 
+    def get_km_remind_admin_ids(self, obj) -> list[int]:
+        return [int(i) for i in (obj.km_remind_admin_ids or [])]
+
+    def get_admin_options(self, obj) -> list[dict]:
+        from django.contrib.auth import get_user_model
+        from django.db.models import Q
+
+        from accounts.models import Role
+
+        gente = (
+            get_user_model()
+            .objects.filter(is_active=True)
+            .filter(Q(roles__role=Role.ADMIN) | Q(is_superuser=True))
+            .exclude(email="")
+            .distinct()
+        )
+        filas = [
+            {"id": u.pk, "name": u.get_full_name() or u.get_username(), "email": u.email}
+            for u in gente
+        ]
+        return sorted(filas, key=lambda f: f["name"].lower())
+
     def get_km_remind_dates(self, obj) -> list[str]:
         """Las fechas de los correos del mes en curso (o del que se reclama
         hoy), para que la pantalla enseñe el calendario que resulta."""
@@ -3190,6 +3258,9 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
 
 class EmailLogSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
+    recipient_role_display = serializers.CharField(
+        source="get_recipient_role_display", read_only=True
+    )
     alert_message = serializers.CharField(source="alert.message", read_only=True, default="")
     #: Si se puede reenviar tal cual (hay cuerpo guardado, destinatario y sin
     #: adjunto). El cuerpo no viaja en el listado: es grande y no se lee ahí.
@@ -3203,6 +3274,9 @@ class EmailLogSerializer(serializers.ModelSerializer):
             "alert_message",
             "template_key",
             "recipient",
+            "recipient_role",
+            "recipient_role_display",
+            "batch",
             "subject",
             "status",
             "status_display",

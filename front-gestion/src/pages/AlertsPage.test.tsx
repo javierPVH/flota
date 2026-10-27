@@ -488,6 +488,7 @@ describe('AlertsPage (bandeja de alertas)', () => {
     vi.spyOn(api, 'noticePreviewVehicle').mockResolvedValue({
       subject: 'Aviso de seguro',
       body_html: '<p>vence</p>',
+      document_html: '',
       has_template: true,
       has_en: true,
     })

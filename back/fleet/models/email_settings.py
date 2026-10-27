@@ -15,6 +15,10 @@ la administración tiene que poder tocar sin desplegar:
   28», de menor a mayor), y entonces sale un correo cada uno de esos días
   de CADA mes —el día que un mes no tiene (el 31 en abril) no manda nada
   ese mes— y la cadencia no se mira.
+  Y **a quién** va cada correo (`km_remind_to_driver`,
+  `km_remind_to_supervisor`, `km_remind_admin_ids`): al conductor del coche
+  (sin conductor, a su supervisor), al supervisor y/o a los administradores
+  que se elijan uno a uno; `mailer._recipients_for` lo resuelve.
   Las fechas concretas las calcula `email_layout.km_remind_schedule`.
 - **El aspecto corporativo** de todos los correos: logotipo, color de marca,
   nombre y pie, que `email_layout.wrap` pone alrededor del cuerpo de
@@ -113,6 +117,23 @@ class EmailSettings(TimeStampedModel):
             "Con la cadencia «un número de correos»: cuántos recibe el conductor "
             "mientras siga sin lectura. Como mucho, los días del plazo."
         ),
+    )
+    # --- A quién se manda el recordatorio ------------------------------------
+    km_remind_to_driver = models.BooleanField(
+        "Al conductor",
+        default=True,
+        help_text="Al conductor vigente del coche; sin conductor, a su supervisor.",
+    )
+    km_remind_to_supervisor = models.BooleanField(
+        "Al supervisor",
+        default=False,
+        help_text="Al supervisor del coche, además del conductor.",
+    )
+    km_remind_admin_ids = models.JSONField(
+        "Administradores avisados",
+        default=list,
+        blank=True,
+        help_text="Ids de los administradores que reciben también cada recordatorio.",
     )
 
     # --- Aspecto corporativo --------------------------------------------------

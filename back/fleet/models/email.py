@@ -90,6 +90,19 @@ class EmailTemplate(DeactivatableModel, TimeStampedModel):
         return self.subject, self.body_html
 
 
+class RecipientRole(models.TextChoices):
+    """A quién se mandó un correo, por su papel: es lo que se lee en la traza
+    («al conductor», «a un administrador»…), no la dirección."""
+
+    DRIVER = "driver", "Conductor"
+    SUPERVISOR = "supervisor", "Supervisor"
+    ADMIN = "admin", "Administrador"
+    RENTING = "renting", "Renting"
+    OTHER = "other", "Otro correo"
+    SCHEDULED = "scheduled", "Envío programado"
+    TEST = "test", "Prueba"
+
+
 class EmailLog(TimeStampedModel):
     class Status(models.TextChoices):
         SENT = "sent", "Enviado"
@@ -106,6 +119,16 @@ class EmailLog(TimeStampedModel):
     )
     template_key = models.CharField("Plantilla", max_length=30, blank=True)
     recipient = models.CharField("Destinatario", max_length=254, blank=True)
+    #: Por qué papel le llegó (conductor, supervisor, administrador…). Vacío
+    #: en las filas anteriores a esto.
+    recipient_role = models.CharField(
+        "Enviado a", max_length=12, choices=RecipientRole.choices, blank=True, default=""
+    )
+    #: La TANDA: un mismo envío a varias personas (el comunicado de un coche,
+    #: el recordatorio de una alerta a conductor y administradores, un envío
+    #: programado) comparte este identificador, y la traza se lee agrupada por
+    #: él. Vacío en las filas anteriores a esto.
+    batch = models.CharField("Tanda", max_length=40, blank=True, default="", db_index=True)
     subject = models.CharField("Asunto", max_length=200, blank=True)
     status = models.CharField("Estado", max_length=10, choices=Status.choices)
     error = models.TextField("Error", blank=True)
@@ -177,6 +200,11 @@ class EmailOutbox(TimeStampedModel):
     )
     template_key = models.CharField("Plantilla", max_length=30, blank=True)
     recipient = models.CharField("Destinatario", max_length=254)
+    #: Papel y tanda del envío: viajan a la traza (`EmailLog`) al entregarlo.
+    recipient_role = models.CharField(
+        "Enviado a", max_length=12, choices=RecipientRole.choices, blank=True, default=""
+    )
+    batch = models.CharField("Tanda", max_length=40, blank=True, default="")
     subject = models.CharField("Asunto", max_length=200)
     body_html = models.TextField("Cuerpo (HTML)")
     status = models.CharField(

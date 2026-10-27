@@ -13,6 +13,7 @@ from rest_framework.test import APITestCase
 from accounts.models import Role
 from fleet.models import (
     Alert,
+    EmailLog,
     EmailSettings,
     EmailTemplate,
     EmailTemplateKey,
@@ -314,6 +315,69 @@ class EmailSettingsApiTests(APITestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         self.assertEqual(resp.data["km_remind_max_emails"], 24)
+
+    @override_settings(FLEET_EMAIL_ENABLED=True)
+    def test_the_reminder_goes_to_the_chosen_people_in_one_batch(self):
+        from fleet.models import Assignment, EmailOutbox
+
+        driver = make_user("km-driver", Role.DRIVER)
+        driver.email = "driver@flota.dev"
+        driver.save(update_fields=["email"])
+        sup = make_user("km-sup", Role.SUPERVISOR)
+        sup.email = "sup@flota.dev"
+        sup.save(update_fields=["email"])
+        jefe = make_user("km-jefe", Role.ADMIN)
+        jefe.email = "jefe@flota.dev"
+        jefe.save(update_fields=["email"])
+        vehicle = Vehicle.objects.create(plate="KMR3", brand="a", model="b", supervisor=sup)
+        Assignment.objects.create(
+            vehicle=vehicle, driver=driver, start_date=date(2026, 1, 1), status="accepted"
+        )
+        # Las opciones son los administradores activos con correo.
+        resp = self.client.get(reverse("email-settings"))
+        self.assertIn(
+            {"id": jefe.pk, "name": "km-jefe", "email": "jefe@flota.dev"},
+            resp.data["admin_options"],
+        )
+        # Un conductor no vale como administrador; alguien tiene que recibirlo.
+        resp = self.client.post(
+            reverse("email-settings"), {"km_remind_admins": str(driver.pk)}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        resp = self.client.post(
+            reverse("email-settings"),
+            {"km_remind_to_driver": False, "km_remind_admins": ""},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        # Conductor, supervisor y un administrador.
+        resp = self.client.post(
+            reverse("email-settings"),
+            {"km_remind_to_supervisor": True, "km_remind_admins": f"{jefe.pk}"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["km_remind_admin_ids"], [jefe.pk])
+        alerts.check_km_readings(date(2026, 10, 20))
+        filas = list(EmailOutbox.objects.filter(alert__vehicle=vehicle).order_by("pk"))
+        self.assertEqual(
+            [(f.recipient_role, f.recipient) for f in filas],
+            [
+                ("driver", "driver@flota.dev"),
+                ("supervisor", "sup@flota.dev"),
+                ("admin", "jefe@flota.dev"),
+            ],
+        )
+        # La misma tanda, que es por lo que la traza las agrupa.
+        self.assertEqual(len({f.batch for f in filas}), 1)
+        self.assertTrue(filas[0].batch)
+        mailer.send_outbox()
+        trazas = EmailLog.objects.filter(alert__vehicle=vehicle, status=EmailLog.Status.SENT)
+        self.assertEqual(set(trazas.values_list("batch", flat=True)), {filas[0].batch})
+        self.assertEqual(
+            set(trazas.values_list("recipient_role", flat=True)),
+            {"driver", "supervisor", "admin"},
+        )
 
     def test_concrete_days_replace_the_window_and_the_cadence(self):
         # Sin días no se puede ir por días concretos.

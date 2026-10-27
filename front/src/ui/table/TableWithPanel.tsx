@@ -115,6 +115,12 @@ export interface TableWithPanelProps<RowType extends object> {
    * fecha es el de fuera y el valor parte cada mes.
    */
   groupValueFirst?: boolean
+  /**
+   * En qué orden van los grupos por valor: alfabético ascendente (defecto) o
+   * descendente. Sirve cuando el valor es una marca de tiempo (la tanda de un
+   * envío) y la tabla se lee de lo más reciente a lo más antiguo.
+   */
+  groupValueOrder?: 'asc' | 'desc'
   summaryLeadingSlot?: ReactNode
   panelTrailingSlot?: ReactNode
   enableColumnSort?: boolean
@@ -389,6 +395,7 @@ export function TableWithPanel<RowType extends object>({
   groupRowsByYearMonth = false,
   groupRowsByColumnKey,
   groupValueFirst = false,
+  groupValueOrder = 'asc',
   summaryLeadingSlot,
   panelTrailingSlot,
   enableColumnSort = true,
@@ -829,9 +836,13 @@ export function TableWithPanel<RowType extends object>({
     })
 
     return [...grouped.entries()]
-      .sort((left, right) => left[0].localeCompare(right[0], language))
+      .sort((left, right) =>
+        groupValueOrder === 'desc'
+          ? right[0].localeCompare(left[0], language)
+          : left[0].localeCompare(right[0], language),
+      )
       .map(([title, rows]) => ({ key: `valor-${title}`, title, rows }))
-  }, [columnByKey, groupRowsByColumnKey, language, paginatedRows])
+  }, [columnByKey, groupRowsByColumnKey, groupValueOrder, language, paginatedRows])
 
   /** Los DOS agrupados a la vez: el de fuera parte las filas y el de dentro
    * parte cada uno de esos bloques. Vacío si no están los dos activos. */
@@ -849,7 +860,11 @@ export function TableWithPanel<RowType extends object>({
         else grupos.set(title, [row])
       })
       return [...grupos.entries()]
-        .sort((left, right) => left[0].localeCompare(right[0], language))
+        .sort((left, right) =>
+          groupValueOrder === 'desc'
+            ? right[0].localeCompare(left[0], language)
+            : left[0].localeCompare(right[0], language),
+        )
         .map(([title, rows]) => ({ key: `valor-${title}`, title, rows }))
     }
 
@@ -896,6 +911,7 @@ export function TableWithPanel<RowType extends object>({
     groupRowsByMonth,
     groupRowsByYearMonth,
     groupValueFirst,
+    groupValueOrder,
     language,
     monthSortColumn,
     monthSortDirection,

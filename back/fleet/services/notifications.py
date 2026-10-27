@@ -17,7 +17,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from fleet.models import EmailOutbox, NotificationSchedule, ReportExport
+from fleet.models import EmailOutbox, NotificationSchedule, RecipientRole, ReportExport
 from fleet.services import archiver, mailer, metrics, reports
 
 logger = logging.getLogger("fleet.notifications")
@@ -255,6 +255,8 @@ def run_schedule(schedule: NotificationSchedule, now: datetime | None = None) ->
                 raise ValueError("El envío no tiene ninguna dirección de correo.")
             entrada = EmailOutbox(
                 recipient=", ".join(destinos),
+                recipient_role=RecipientRole.SCHEDULED,
+                batch=mailer.new_batch(),
                 subject=asunto[:200],
                 body_html=cuerpo,
                 status=EmailOutbox.Status.PENDING,

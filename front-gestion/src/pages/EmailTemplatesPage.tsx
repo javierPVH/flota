@@ -106,7 +106,11 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   const [logsSortAsc, setLogsSortAsc] = useState(false)
   const [logsGroupDate, setLogsGroupDate] = useState(false)
   const [logsGroupStatus, setLogsGroupStatus] = useState(false)
-  const [logsGroupFirst, setLogsGroupFirst] = useState<'date' | 'status' | null>(null)
+  // Por envío (la tanda) de salida: un comunicado a cinco personas son cinco
+  // filas que se leen juntas, y un recordatorio a conductor y administradores
+  // igual.
+  const [logsGroupBatch, setLogsGroupBatch] = useState(true)
+  const [logsGroupFirst, setLogsGroupFirst] = useState<'date' | 'status' | 'batch' | null>('batch')
   // Un envío puede llevar VARIOS destinatarios (los informes programados van a
   // una lista): la celda enseña el primero y este modal, todos.
   const [logRecipients, setLogRecipients] = useState<EmailLogRow | null>(null)
@@ -236,10 +240,26 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     if (logTerms.length === 0) return logs
     return logs.filter((log) => {
       const heno =
-        `${log.recipient} ${log.subject} ${etiqueta.emailStatus(log)} ${t.templateKeys[log.template_key] ?? log.template_key}`.toLowerCase()
+        `${log.recipient} ${log.subject} ${etiqueta.emailStatus(log)} ${etiqueta.emailRecipientRole(log)} ${t.templateKeys[log.template_key] ?? log.template_key}`.toLowerCase()
       return logTerms.some((term) => heno.includes(term))
     })
   }, [logs, logTerms, t, etiqueta])
+
+  // El rótulo de cada tanda: su momento (al minuto) y su asunto, con el
+  // momento delante para que los grupos se ordenen por fecha. Una fila
+  // anterior a la tanda se agrupa con las de su mismo minuto y asunto, que es
+  // lo que era un envío entonces.
+  const batchLabels = useMemo(() => {
+    const primera = new Map<string, EmailLogRow>()
+    for (const log of logs) {
+      const clave = batchKeyOf(log)
+      const previa = primera.get(clave)
+      if (!previa || log.created_at < previa.created_at) primera.set(clave, log)
+    }
+    const out = new Map<string, string>()
+    for (const [clave, log] of primera) out.set(clave, `${stampOf(log.created_at)} · ${log.subject || '—'}`)
+    return out
+  }, [logs])
 
   /** Reenvía ese mismo correo y recarga la traza, que gana una fila. */
   const resend = useCallback(async (log: EmailLogRow) => {
@@ -275,6 +295,15 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
       isDate: true,
       getValue: (log) => log.created_at.slice(0, 10),
       render: (log) => fmtDate(log.created_at, lang),
+    },
+    {
+      // La hora del envío; su VALOR es el rótulo de la tanda, que es por lo
+      // que agrupa «Agrupar por envío».
+      key: 'batch',
+      label: t.logColumns.time,
+      width: 80,
+      getValue: (log) => batchLabels.get(batchKeyOf(log)) ?? '',
+      render: (log) => timeOf(log.created_at, lang),
     },
     {
       key: 'template_key',
@@ -323,6 +352,15 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
           </div>
         )
       },
+    },
+    {
+      // A quién fue, por su papel: conductor, supervisor, administrador…
+      key: 'recipient_role',
+      label: t.logColumns.sentTo,
+      width: 150,
+      getValue: (log) => etiqueta.emailRecipientRole(log),
+      render: (log) =>
+        log.recipient_role ? <Badge tone="neutral">{etiqueta.emailRecipientRole(log)}</Badge> : '—',
     },
     {
       key: 'subject',
@@ -379,7 +417,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         )
       },
     },
-  ], [isHit, lang, sortedRecipients, t, etiqueta, resend, resendBlocker, resending])
+  ], [isHit, lang, sortedRecipients, t, etiqueta, resend, resendBlocker, resending, batchLabels])
 
   // Vuelca la plantilla activa al editor al cambiar DE PLANTILLA (no en cada
   // recarga: A9). Se vuelve siempre al castellano: es la versión de referencia.
@@ -466,16 +504,25 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   }
 
   /** Marca o desmarca un agrupado de la tabla de envíos recordando en qué
-   * orden se pidieron: el primero va fuera y el otro parte cada bloque. */
-  function cambiarGrupoLogs(cual: 'date' | 'status', activo: boolean) {
-    const otroActivo = cual === 'date' ? logsGroupStatus : logsGroupDate
-    const otro = cual === 'date' ? 'status' : 'date'
-    if (cual === 'date') setLogsGroupDate(activo)
-    else setLogsGroupStatus(activo)
+   * orden se pidieron: el primero va fuera y el otro parte cada bloque.
+   * «Estado» y «envío» agrupan los dos por valor, así que uno quita al otro. */
+  function cambiarGrupoLogs(cual: 'date' | 'status' | 'batch', activo: boolean) {
+    const porValor = logsGroupStatus ? 'status' : logsGroupBatch ? 'batch' : null
+    if (cual === 'date') {
+      setLogsGroupDate(activo)
+      if (activo) {
+        if (!porValor) setLogsGroupFirst('date')
+      } else {
+        setLogsGroupFirst(porValor)
+      }
+      return
+    }
+    setLogsGroupStatus(cual === 'status' && activo)
+    setLogsGroupBatch(cual === 'batch' && activo)
     if (activo) {
-      if (!otroActivo) setLogsGroupFirst(cual)
+      setLogsGroupFirst(logsGroupDate && logsGroupFirst === 'date' ? 'date' : cual)
     } else {
-      setLogsGroupFirst(otroActivo ? otro : null)
+      setLogsGroupFirst(logsGroupDate ? 'date' : null)
     }
   }
 
@@ -723,6 +770,14 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
                 />
                 {t.logsGroupStatus}
               </label>
+              <label className="baja-toggle">
+                <input
+                  type="checkbox"
+                  checked={logsGroupBatch}
+                  onChange={(e) => cambiarGrupoLogs('batch', e.target.checked)}
+                />
+                {t.logsGroupBatch}
+              </label>
             </div>
           </TableInfoBar>
           <TableWithPanel<EmailLogRow>
@@ -740,8 +795,11 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
             monthSortDateColumnKey="created_at"
             monthSortDirectionDefault={logsSortAsc ? 'asc' : 'desc'}
             groupRowsByYearMonth={logsGroupDate}
-            groupRowsByColumnKey={logsGroupStatus ? 'status' : undefined}
-            groupValueFirst={logsGroupFirst === 'status'}
+            groupRowsByColumnKey={logsGroupStatus ? 'status' : logsGroupBatch ? 'batch' : undefined}
+            groupValueFirst={logsGroupFirst === 'status' || logsGroupFirst === 'batch'}
+            // Las tandas se leen en el mismo sentido que la tabla; los estados,
+            // por su nombre.
+            groupValueOrder={logsGroupBatch && !logsSortAsc ? 'desc' : 'asc'}
             // El sentido del orden es estado interno de la tabla: se siembra al
             // montar, así que cambiarlo obliga a remontarla.
             key={`${logsSortAsc ? 'asc' : 'desc'}-${logsGroupFirst ?? ''}`}
@@ -947,6 +1005,12 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
               <dd>{(t.templateKeys[logDetail.template_key] ?? logDetail.template_key) || '—'}</dd>
               <dt>{t.logColumns.recipient}</dt>
               <dd>{logDetail.recipient || '—'}</dd>
+              {logDetail.recipient_role && (
+                <>
+                  <dt>{t.logColumns.sentTo}</dt>
+                  <dd>{etiqueta.emailRecipientRole(logDetail)}</dd>
+                </>
+              )}
               <dt>{t.logColumns.subject}</dt>
               <dd>{logDetail.subject || '—'}</dd>
               {logDetail.attachment_name && (
@@ -1044,4 +1108,24 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
       </Modal>
     </div>
   )
+}
+
+/** Clave de la tanda de una fila: la suya o, en las filas anteriores a la
+ * tanda, su minuto y su asunto (lo que entonces era un envío). */
+function batchKeyOf(log: EmailLogRow): string {
+  return log.batch || `${log.created_at.slice(0, 16)}|${log.subject}`
+}
+
+/** «2026-10-27 10:32», en hora local: ordena como fecha y se lee como tal. */
+function stampOf(iso: string): string {
+  const d = new Date(iso)
+  const dos = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())} ${dos(d.getHours())}:${dos(d.getMinutes())}`
+}
+
+function timeOf(iso: string, lang: string): string {
+  return new Date(iso).toLocaleTimeString(lang === 'en' ? 'en-GB' : 'es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }

@@ -1122,19 +1122,27 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
         enabled = mailer.email_enabled()
         sent, skipped, seen = [], [], set()
+        # Una TANDA por comunicado: en la traza, sus filas se leen juntas.
+        tanda = mailer.new_batch()
+        papel_de = {"otro": "other"}
         # R3-13: una conexión SMTP para todo el comunicado (un envío a 5
         # destinatarios abría y cerraba 5 conexiones: handshake + TLS + auth
         # por correo). El error por destinatario se sigue tratando por fila.
         connection = get_connection()
         try:
             for role, email in targets:
+                traza = {
+                    "template_key": log_key,
+                    "recipient_role": papel_de.get(role, role),
+                    "batch": tanda,
+                    "subject": subject,
+                    "body_html": body_html,
+                }
                 if not email:
                     skipped.append({"role": role, "reason": "sin_email"})
                     EmailLog.objects.create(
-                        template_key=log_key,
+                        **traza,
                         recipient="",
-                        subject=subject,
-                        body_html=body_html,
                         status=EmailLog.Status.SKIPPED,
                         error=f"{role} sin email",
                     )
@@ -1145,10 +1153,8 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 if not enabled:
                     skipped.append({"role": role, "email": email, "reason": "correo_deshabilitado"})
                     EmailLog.objects.create(
-                        template_key=log_key,
+                        **traza,
                         recipient=email,
-                        subject=subject,
-                        body_html=body_html,
                         status=EmailLog.Status.SKIPPED,
                         error="Correo saliente no configurado (EMAIL_HOST).",
                     )
@@ -1164,20 +1170,12 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     msg.attach_alternative(body_html, "text/html")
                     msg.send(fail_silently=False)
                     sent.append({"role": role, "email": email})
-                    EmailLog.objects.create(
-                        template_key=log_key,
-                        recipient=email,
-                        subject=subject,
-                        body_html=body_html,
-                        status=EmailLog.Status.SENT,
-                    )
+                    EmailLog.objects.create(**traza, recipient=email, status=EmailLog.Status.SENT)
                 except Exception as exc:  # noqa: BLE001 — best-effort por diseño
                     skipped.append({"role": role, "email": email, "reason": "fallo_envio"})
                     EmailLog.objects.create(
-                        template_key=log_key,
+                        **traza,
                         recipient=email,
-                        subject=subject,
-                        body_html=body_html,
                         status=EmailLog.Status.FAILED,
                         error=mailer.describe_error(exc),
                     )
@@ -1257,6 +1255,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 subject=notice.subject,
                 body_html=notice.body_html,
                 template_key=notice.used_key or kind,
+                role="driver",
             )
 
         return Response(
@@ -1276,8 +1275,10 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     def notice_preview(self, request, pk=None):
         """POST /api/v1/vehicles/{id}/notice-preview/ — asunto y cuerpo (HTML)
         que se enviarían con la plantilla indicada, para la vista previa del
-        modal de correo. No envía nada."""
-        from .services import mailer
+        modal de correo, y `document_html`: el correo ENTERO dentro de la
+        caja corporativa (`email_layout.wrap`, como lo verá quien lo reciba).
+        No envía nada."""
+        from .services import email_layout, mailer
 
         vehicle = self.get_object()
         template_key = (request.data.get("template_key") or "").strip()
@@ -1287,10 +1288,12 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         if body_override:
             body_override = sanitize_email_html(body_override)
         notice = mailer.render_vehicle_notice(vehicle, template_key, message, lang, body_override)
+        document_html, _ = email_layout.wrap(notice.body_html, preview=True, title=notice.subject)
         return Response(
             {
                 "subject": notice.subject,
                 "body_html": notice.body_html,
+                "document_html": document_html,
                 "has_template": bool(notice.used_key),
                 # Para avisar en la UI de que la versión inglesa no existe y se
                 # está enseñando la castellana.
@@ -3383,25 +3386,22 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
         message = mailer.build_message(f"[PRUEBA] {subject}", body, [request.user.email])
         # M8: el resto del correo es best-effort y traza en `EmailLog`; este
         # envío lanzaba y devolvía un 500 opaco, sin registro del intento.
+        traza = {
+            "template_key": template.key,
+            "recipient": request.user.email,
+            "recipient_role": "test",
+            "batch": mailer.new_batch(),
+            "subject": subject[:200],
+            "body_html": body,
+        }
         try:
             message.send(fail_silently=False)
         except Exception as exc:  # noqa: BLE001 — se traza y se informa
             EmailLog.objects.create(
-                template_key=template.key,
-                recipient=request.user.email,
-                subject=subject[:200],
-                body_html=body,
-                status=EmailLog.Status.FAILED,
-                error=mailer.describe_error(exc),
+                **traza, status=EmailLog.Status.FAILED, error=mailer.describe_error(exc)
             )
             raise ValidationError({"detail": f"No se pudo enviar la prueba: {exc}"}) from exc
-        EmailLog.objects.create(
-            template_key=template.key,
-            recipient=request.user.email,
-            subject=subject[:200],
-            body_html=body,
-            status=EmailLog.Status.SENT,
-        )
+        EmailLog.objects.create(**traza, status=EmailLog.Status.SENT)
         return Response({"sent_to": request.user.email})
 
 

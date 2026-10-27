@@ -474,6 +474,26 @@ Dos capas que van **siempre juntas**:
   **interruptor** (`EmailSettings.km_remind_enabled`): apagado,
   `check_km_readings` no abre avisos ni encola correos, pero la
   reconciliación sigue cerrando los abiertos cuando llega la lectura.
+  **A quién va el recordatorio lo dice Ajustes** («A quién se avisa»,
+  `km_remind_to_driver` / `km_remind_to_supervisor` / `km_remind_admin_ids`,
+  con los administradores elegidos **uno a uno** entre los activos con
+  correo, `admin_options`; se escriben como `km_remind_admins` = «3,7», que
+  vale igual en JSON y en multipart): `mailer._recipients_for` lo resuelve
+  —el conductor del coche o, sin él, su supervisor; el supervisor; los
+  administradores— y `queue_for_alert` encola **una fila por persona**, todas
+  con la misma **tanda** (`batch`) y cada una con su **papel**
+  (`recipient_role`: driver, supervisor, admin, renting, other, scheduled,
+  test). Esas dos columnas viven en `EmailOutbox` y en `EmailLog` y las
+  escribe TODO lo que manda correo (la cola, el comunicado del coche, el
+  recordatorio manual, los envíos programados, la prueba y el reenvío, que
+  conserva el papel y estrena tanda). «Trazas» las lee así: una columna
+  **«Enviado a»** con el papel, y la tabla **agrupada por envío** de salida
+  (`groupRowsByColumnKey='batch'`: el valor de esa columna es el rótulo de la
+  tanda —su minuto y su asunto—, calculado en la página; una fila anterior a
+  la tanda se agrupa con las de su mismo minuto y asunto), en el mismo
+  sentido que la tabla (`groupValueOrder` del `TableWithPanel`, que es lo
+  que se le añadió al DS para esto); «estado» y «envío» se excluyen porque
+  los dos agrupan por valor.
   **La traza guarda el cuerpo** (`EmailLog.body_html`, antes de la caja
   corporativa, en TODOS los sitios que escriben una fila: `send_notice_now`,
   la cola, el comunicado del vehículo y la prueba) y por eso «Trazas» tiene
@@ -898,7 +918,15 @@ Dos capas que van **siempre juntas**:
   con el mismo nh3, y **no modifica la plantilla**: eso es Ajustes → Plantillas
   de correo, que cambia el correo de todos. El «Mensaje adicional» sigue
   debajo: es lo que rellena `{{mensaje}}` y donde cae el texto de la incidencia
-  elegida. El modal mide **lo mismo en los cuatro pasos** y es ancho
+  elegida. El paso **Vista previa** enseña el correo **entero** —con la caja
+  corporativa de Ajustes → Correo, en un iframe: `notice-preview` devuelve
+  también `document_html` por `email_layout.wrap`— y las variables del
+  recordatorio de km (`dias_sin_lectura`, `ultima_lectura`, `periodo`) salen
+  ahí de la última lectura del coche y del mes que hoy se reclama
+  (`vehicle_notice_context`), que sin alerta de la que leerlas salían vacías.
+  El acuse del envío **lista a quién llegó** (rol y correo) y, aparte, a
+  quién no y por qué (lo dice el back). El modal mide **lo mismo en los
+  cuatro pasos** y es ancho
   (`EMAIL_MODAL_SIZE`, que ponen los seis sitios que lo abren): si encogiera al
   avanzar, el pie bailaría bajo el cursor. La acción **«Accidente»** del menú ⋮ es un modal de
   tamaño fijo con dos pestañas: **«Comunicar accidente»**

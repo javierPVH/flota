@@ -34,7 +34,14 @@ from .catalogs import (
 from .consumption import FuelConsumption
 from .contract import Contract, KmReading
 from .document import Document, DocumentDeletionRequest
-from .email import EmailLog, EmailOutbox, EmailSignature, EmailTemplate, EmailTemplateKey
+from .email import (
+    EmailLog,
+    EmailOutbox,
+    EmailSignature,
+    EmailTemplate,
+    EmailTemplateKey,
+    RecipientRole,
+)
 from .email_settings import EmailSettings, KmRemindBy, KmRemindMode
 from .event import (
     Event,
@@ -66,6 +73,7 @@ __all__ = [
     "EmailTemplateKey",
     "EmailSettings",
     "KmRemindBy",
+    "RecipientRole",
     "KmRemindMode",
     "Brand",
     "FuelType",

@@ -30,6 +30,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+import uuid
 from datetime import timedelta
 from email.mime.image import MIMEImage
 from typing import NamedTuple
@@ -39,9 +40,16 @@ from django.core.mail import EmailMultiAlternatives, SafeMIMEMultipart, get_conn
 from django.utils import timezone
 from django.utils.html import strip_tags
 
-from fleet.models import Alert, EmailLog, EmailOutbox, EmailTemplate, EmailTemplateKey
+from fleet.models import (
+    Alert,
+    EmailLog,
+    EmailOutbox,
+    EmailTemplate,
+    EmailTemplateKey,
+    RecipientRole,
+)
 from fleet.models.enums import AlertType
-from fleet.selectors import current_driver_map
+from fleet.selectors import current_driver_map, latest_reading_map
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +145,13 @@ def describe_error(exc: BaseException) -> str:
 
 
 def send_notice_now(
-    *, to: str, subject: str, body_html: str, template_key: str
+    *,
+    to: str,
+    subject: str,
+    body_html: str,
+    template_key: str,
+    role: str = "",
+    batch: str = "",
 ) -> tuple[bool, str]:
     """Envía UN correo ya compuesto, ahora mismo y best-effort, con su traza en
     `EmailLog`. Devuelve `(enviado, motivo_de_omisión)`. Nunca lanza: sin
@@ -152,22 +166,22 @@ def send_notice_now(
     subject = subject[:200]
     destinos = [addr.strip() for addr in (to or "").split(",") if addr.strip()]
     to = ", ".join(destinos)
+    traza = {
+        "template_key": template_key,
+        "recipient_role": role,
+        "batch": batch or new_batch(),
+        "subject": subject,
+        "body_html": body_html,
+    }
     if not to:
         EmailLog.objects.create(
-            template_key=template_key,
-            recipient="",
-            subject=subject,
-            body_html=body_html,
-            status=EmailLog.Status.SKIPPED,
-            error="destinatario sin email",
+            **traza, recipient="", status=EmailLog.Status.SKIPPED, error="destinatario sin email"
         )
         return False, "sin_email"
     if not email_enabled():
         EmailLog.objects.create(
-            template_key=template_key,
+            **traza,
             recipient=to,
-            subject=subject,
-            body_html=body_html,
             status=EmailLog.Status.SKIPPED,
             error="Correo saliente no configurado (EMAIL_HOST o GMAIL_OAUTH_ENABLED).",
         )
@@ -176,21 +190,10 @@ def send_notice_now(
         build_message(subject, body_html, destinos).send(fail_silently=False)
     except Exception as exc:  # noqa: BLE001 — best-effort por diseño
         EmailLog.objects.create(
-            template_key=template_key,
-            recipient=to,
-            subject=subject,
-            body_html=body_html,
-            status=EmailLog.Status.FAILED,
-            error=describe_error(exc),
+            **traza, recipient=to, status=EmailLog.Status.FAILED, error=describe_error(exc)
         )
         return False, "fallo_envio"
-    EmailLog.objects.create(
-        template_key=template_key,
-        recipient=to,
-        subject=subject,
-        body_html=body_html,
-        status=EmailLog.Status.SENT,
-    )
+    EmailLog.objects.create(**traza, recipient=to, status=EmailLog.Status.SENT)
     return True, ""
 
 
@@ -213,8 +216,19 @@ def render(text: str, context: dict[str, object]) -> str:
 
 def vehicle_notice_context(vehicle, message: str = "", template_key: str = "") -> dict[str, object]:
     """Contexto de variables `{{...}}` para un aviso de vehículo (ITV / seguro /
-    comunicado). `fecha_vencimiento` se elige según el tipo de plantilla."""
+    comunicado). `fecha_vencimiento` se elige según el tipo de plantilla, y
+    las del recordatorio de km (`dias_sin_lectura`, `ultima_lectura`,
+    `periodo`) salen de la ÚLTIMA lectura del coche y del mes que hoy se
+    reclama: aquí no hay alerta de la que leerlas, y sin ellas el correo del
+    recordatorio enviado a mano salía con huecos («Lleva  días sin lectura»).
+    """
+    from fleet.models import EmailSettings
+    from fleet.services import email_layout
+
     driver = current_driver_map([vehicle.id]).get(vehicle.id)
+    reading = latest_reading_map([vehicle.id]).get(vehicle.id)
+    today = timezone.localdate()
+    periodo = email_layout.km_remind_period(today, EmailSettings.get_solo()) or today.replace(day=1)
     contract = (
         vehicle.contracts.filter(end_date__isnull=True, is_active=True)
         .select_related("renting")
@@ -234,6 +248,9 @@ def vehicle_notice_context(vehicle, message: str = "", template_key: str = "") -
         "empresa": renting.name if renting else "",
         "fecha_vencimiento": due.isoformat() if due else "",
         "km_exceso": "",
+        "dias_sin_lectura": str((today - reading.reading_date).days) if reading else "",
+        "ultima_lectura": reading.reading_date.isoformat() if reading else "",
+        "periodo": f"{periodo.year:04d}-{periodo.month:02d}",
         "mensaje": message,
     }
 
@@ -371,34 +388,90 @@ def _context_for(alert: Alert) -> dict[str, object]:
     }
 
 
-def _recipient_for(alert: Alert) -> str:
+def new_batch() -> str:
+    """Identificador de una TANDA de envío: lo comparten las filas de la cola
+    y de la traza que salen del mismo gesto (una alerta a varias personas, un
+    comunicado, un envío programado), y por él se agrupa la traza."""
+    return uuid.uuid4().hex[:12]
+
+
+def _driver_and_supervisor(alert: Alert):
+    """(conductor, supervisor) del coche de la alerta; el conductor es el de
+    la alerta si lo lleva y, si no, el vigente del coche."""
+    driver = alert.user if alert.user_id else None
+    if driver is None and alert.vehicle_id:
+        driver = current_driver_map([alert.vehicle_id]).get(alert.vehicle_id)
+    supervisor = alert.vehicle.supervisor if alert.vehicle_id else None
+    return driver, supervisor
+
+
+def _recipients_for(alert: Alert) -> list[tuple[str, str]]:
+    """A quién va el correo de una alerta: `[(papel, email)]`, sin repetir
+    direcciones y solo con las que existen.
+
+    - Seguro: la renting del contrato vigente.
+    - Exceso de km: el conductor (sin conductor, el supervisor).
+    - Lectura pendiente: lo que diga Ajustes → Correo → «A quién se avisa»:
+      el conductor (sin conductor, el supervisor: en un coche multiusuario es
+      el único que puede registrarla, y el push ya se le manda a él), el
+      supervisor y/o los administradores elegidos uno a uno.
+    """
+    from django.contrib.auth import get_user_model
+
+    from fleet.models import EmailSettings
+
+    destinos: list[tuple[str, str]] = []
     if alert.type == AlertType.INSURANCE_DUE:
         vehicle = alert.vehicle
         if vehicle is None:
-            return ""
+            return []
         contract = (
             vehicle.contracts.filter(end_date__isnull=True, is_active=True)
             .select_related("renting")
             .order_by("-start_date")
             .first()
         )
-        return contract.renting.email if contract and contract.renting else ""
-    if alert.type in (AlertType.KM_OVERAGE, AlertType.KM_READING_PENDING):
-        if alert.user_id and alert.user.email:
-            return alert.user.email
-        if alert.vehicle_id:
-            driver = current_driver_map([alert.vehicle_id]).get(alert.vehicle_id)
-            if driver is not None:
-                return driver.email or ""
-            # Sin conductor, el aviso de la lectura pendiente es del
-            # SUPERVISOR: en un coche multiusuario es el único que puede
-            # registrarla, y el push ya se le manda a él (`_push_alert`). Sin
-            # esta reserva el correo moría en `EmailLog` como «sin
-            # destinatario» justo en los coches que más lo necesitan.
-            supervisor = alert.vehicle.supervisor
-            if supervisor is not None:
-                return supervisor.email or ""
-    return ""
+        if contract and contract.renting and contract.renting.email:
+            destinos.append((RecipientRole.RENTING, contract.renting.email))
+    elif alert.type == AlertType.KM_OVERAGE:
+        driver, supervisor = _driver_and_supervisor(alert)
+        if driver is not None and driver.email:
+            destinos.append((RecipientRole.DRIVER, driver.email))
+        elif supervisor is not None and supervisor.email:
+            destinos.append((RecipientRole.SUPERVISOR, supervisor.email))
+    elif alert.type == AlertType.KM_READING_PENDING:
+        cfg = EmailSettings.get_solo()
+        driver, supervisor = _driver_and_supervisor(alert)
+        if cfg.km_remind_to_driver:
+            if driver is not None and driver.email:
+                destinos.append((RecipientRole.DRIVER, driver.email))
+            elif supervisor is not None and supervisor.email:
+                destinos.append((RecipientRole.SUPERVISOR, supervisor.email))
+        if cfg.km_remind_to_supervisor and supervisor is not None and supervisor.email:
+            destinos.append((RecipientRole.SUPERVISOR, supervisor.email))
+        if cfg.km_remind_admin_ids:
+            admins = (
+                get_user_model()
+                .objects.filter(pk__in=cfg.km_remind_admin_ids, is_active=True)
+                .exclude(email="")
+                .order_by("pk")
+            )
+            destinos.extend((RecipientRole.ADMIN, a.email) for a in admins)
+    vistos: set[str] = set()
+    unicos: list[tuple[str, str]] = []
+    for papel, email in destinos:
+        clave = email.strip().lower()
+        if clave and clave not in vistos:
+            vistos.add(clave)
+            unicos.append((papel, email.strip()))
+    return unicos
+
+
+def _recipient_for(alert: Alert) -> str:
+    """El primer destinatario de la alerta (compatibilidad: quien solo
+    necesita UNA dirección, como los tests antiguos)."""
+    destinos = _recipients_for(alert)
+    return destinos[0][1] if destinos else ""
 
 
 def _rendered_for(alert: Alert) -> tuple[str, str, str]:
@@ -417,7 +490,9 @@ def queue_for_alert(alert: Alert) -> bool:
 
     Devuelve True si quedó algo en la cola. Sin destinatario o con el correo
     deshabilitado no se encola nada y queda la traza `SKIPPED` en `EmailLog`,
-    igual que antes.
+    igual que antes. Una alerta puede ir a VARIAS personas (el recordatorio de
+    km, según Ajustes): una fila de la cola por cada una, todas con la misma
+    tanda y cada una con su papel, que es como se lee luego en la traza.
     """
     try:
         if alert.type not in (
@@ -426,28 +501,47 @@ def queue_for_alert(alert: Alert) -> bool:
             AlertType.KM_READING_PENDING,
         ):
             return False
-        recipient = _recipient_for(alert)
+        destinos = _recipients_for(alert)
         subject, body, template_key = _rendered_for(alert)
+        tanda = new_batch()
 
-        if not email_enabled() or not recipient:
+        if not destinos:
             EmailLog.objects.create(
                 alert=alert,
                 template_key=template_key,
-                recipient=recipient,
+                recipient="",
+                batch=tanda,
                 subject=subject[:200],
                 body_html=body,
                 status=EmailLog.Status.SKIPPED,
-                error="" if recipient else "Sin destinatario con email.",
+                error="Sin destinatario con email.",
             )
             return False
+        if not email_enabled():
+            for papel, email in destinos:
+                EmailLog.objects.create(
+                    alert=alert,
+                    template_key=template_key,
+                    recipient=email,
+                    recipient_role=papel,
+                    batch=tanda,
+                    subject=subject[:200],
+                    body_html=body,
+                    status=EmailLog.Status.SKIPPED,
+                    error="Correo saliente no configurado (EMAIL_HOST o GMAIL_OAUTH_ENABLED).",
+                )
+            return False
 
-        EmailOutbox.objects.create(
-            alert=alert,
-            template_key=template_key,
-            recipient=recipient,
-            subject=subject[:200],
-            body_html=body,
-        )
+        for papel, email in destinos:
+            EmailOutbox.objects.create(
+                alert=alert,
+                template_key=template_key,
+                recipient=email,
+                recipient_role=papel,
+                batch=tanda,
+                subject=subject[:200],
+                body_html=body,
+            )
         return True
     except Exception as exc:  # noqa: BLE001 — best-effort por diseño
         logger.warning("Fallo encolando el email de la alerta %s: %s", alert.pk, exc)
@@ -555,6 +649,8 @@ def _send_one(entry: EmailOutbox, connection, max_attempts: int, result: dict[st
                 alert_id=entry.alert_id,
                 template_key=entry.template_key,
                 recipient=entry.recipient,
+                recipient_role=entry.recipient_role,
+                batch=entry.batch,
                 subject=entry.subject,
                 body_html=entry.body_html,
                 attachment_name=entry.attachment_name or "",
@@ -579,6 +675,8 @@ def _send_one(entry: EmailOutbox, connection, max_attempts: int, result: dict[st
         alert_id=entry.alert_id,
         template_key=entry.template_key,
         recipient=entry.recipient,
+        recipient_role=entry.recipient_role,
+        batch=entry.batch,
         subject=entry.subject,
         body_html=entry.body_html,
         attachment_name=entry.attachment_name or "",
@@ -609,6 +707,8 @@ def resend_log(log: EmailLog) -> EmailLog:
         alert_id=log.alert_id,
         template_key=log.template_key,
         recipient=", ".join(destinos),
+        recipient_role=log.recipient_role,
+        batch=new_batch(),
         subject=log.subject,
         body_html=log.body_html,
         resent_from=log,

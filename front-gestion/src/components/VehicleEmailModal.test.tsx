@@ -91,10 +91,11 @@ describe('VehicleEmailModal (contenido editable)', () => {
     mocks.noticePreviewVehicle.mockResolvedValue({
       subject: 'Estado de 2026JHF',
       body_html: '<p>vista previa</p>',
+      document_html: '<html><body><div class="caja"><p>vista previa</p></div></body></html>',
       has_template: true,
       has_en: false,
     })
-    mocks.notifyVehicle.mockResolvedValue({ sent: ['a@flota.dev'], skipped: [] })
+    mocks.notifyVehicle.mockResolvedValue({ sent: [{ role: 'driver', email: 'a@flota.dev' }], skipped: [] })
   })
 
   it('con plantilla, la caja trae su texto y lo retocado es lo que se envía', async () => {
@@ -158,5 +159,25 @@ describe('VehicleEmailModal (contenido editable)', () => {
     await userEvent.click(screen.getByRole('switch', { name: /Usar la plantilla/i }))
     expect(screen.queryByLabelText('Contenido del correo')).toBeNull()
     expect(screen.getByLabelText(/Mensaje adicional/)).toBeInTheDocument()
+  })
+
+  it('la vista previa es el correo entero con la caja corporativa, y el acuse lista a quién llegó', async () => {
+    mocks.notifyVehicle.mockResolvedValue({
+      sent: [{ role: 'driver', email: 'a@flota.dev' }],
+      skipped: [{ role: 'supervisor', reason: 'sin email' }],
+    })
+    abrir()
+    await irAContenido()
+    await screen.findByLabelText('Contenido del correo')
+    await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: /conductor/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    const frame = await screen.findByTitle('Vista previa')
+    expect(frame).toHaveAttribute('srcdoc', expect.stringContaining('class="caja"'))
+    await userEvent.click(screen.getByRole('button', { name: 'Enviar correo' }))
+    expect(await screen.findByText('Correo enviado a 1 destinatario(s).')).toBeInTheDocument()
+    expect(screen.getByText('a@flota.dev', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('Sin enviar')).toBeInTheDocument()
+    expect(screen.getByText('sin email')).toBeInTheDocument()
   })
 })

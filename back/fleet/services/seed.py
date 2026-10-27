@@ -2938,6 +2938,8 @@ def seed_comms(stdout=None) -> None:
         alert=insurance_alert,
         template_key=EmailTemplateKey.INSURANCE_DUE,
         recipient="flota@ald.example",
+        recipient_role="renting",
+        batch="seed-seguro",
         subject=f"Seguro próximo a vencer — {plate}",
         body_html=f"<p>El seguro de <strong>{plate}</strong> vence en 15 días.</p>",
         status=EmailLog.Status.SENT,
@@ -2946,6 +2948,8 @@ def seed_comms(stdout=None) -> None:
         alert=km_alert,
         template_key=EmailTemplateKey.KM_READING_PENDING,
         recipient="carlos@flota.dev",
+        recipient_role="driver",
+        batch="seed-km",
         subject=f"Lectura de km pendiente ({today:%m/%Y})",
         status=EmailLog.Status.SENT,
     )

@@ -32,6 +32,13 @@ const AJUSTES = {
   km_remind_max_emails: 14,
   km_remind_dates: ['2026-10-20', '2026-11-05'],
   km_window_start: 0,
+  km_remind_to_driver: true,
+  km_remind_to_supervisor: false,
+  km_remind_admin_ids: [],
+  admin_options: [
+    { id: 1, name: 'Ana Admin', email: 'ana@flota.dev' },
+    { id: 2, name: 'Berta Jefa', email: 'berta@flota.dev' },
+  ],
   layout_enabled: true,
   brand_name: 'Gestión de flota',
   brand_color: '#009491',
@@ -319,5 +326,29 @@ describe('EmailSettingsPanel — recordatorio de km', () => {
     // Por plazo también: «desde el día 20» es antes del 23.
     await user.click(screen.getByRole('radio', { name: 'Plazo de reclamación' }))
     expect(screen.getByText(/se abre el día 23 de cada mes/)).toBeInTheDocument()
+  })
+
+  it('se elige a quién va el recordatorio y viaja al guardar', async () => {
+    mocks.getEmailSettings.mockResolvedValue(AJUSTES)
+    mocks.updateEmailSettings.mockResolvedValue({ ...AJUSTES, km_remind_admin_ids: [2] })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(
+      <EmailSettingsPanel section="reminder" templates={[]} defaults={[GENERICA_KM]} onEditTemplate={() => undefined} />,
+    )
+    const conductor = await screen.findByRole('checkbox', { name: /Al conductor del coche/ })
+    expect(conductor).toBeChecked()
+    // Sin nadie no se puede guardar, y se dice.
+    await user.click(conductor)
+    expect(screen.getByText(/Elige al menos un destinatario/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled()
+    await user.click(screen.getByRole('checkbox', { name: /Al supervisor del coche/ }))
+    await user.click(screen.getByRole('checkbox', { name: /Berta Jefa/ }))
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(mocks.updateEmailSettings).toHaveBeenCalled())
+    const form = mocks.updateEmailSettings.mock.calls[0][0] as FormData
+    expect(form.get('km_remind_to_driver')).toBe('false')
+    expect(form.get('km_remind_to_supervisor')).toBe('true')
+    expect(form.get('km_remind_admins')).toBe('2')
   })
 })

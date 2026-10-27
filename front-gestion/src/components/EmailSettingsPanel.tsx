@@ -107,6 +107,10 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const [untilDay, setUntilDay] = useState('5')
   const [mode, setMode] = useState<KmRemindModeValue>('count')
   const [emails, setEmails] = useState('2')
+  // A quién va el recordatorio.
+  const [toDriver, setToDriver] = useState(true)
+  const [toSupervisor, setToSupervisor] = useState(false)
+  const [adminIds, setAdminIds] = useState<number[]>([])
   const [enabled, setEnabled] = useState(true)
   const [brandName, setBrandName] = useState('')
   const [brandColor, setBrandColor] = useState('#009491')
@@ -164,6 +168,9 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
     setUntilDay(String(data.km_remind_until_day))
     setMode(data.km_remind_mode)
     setEmails(String(data.km_remind_emails))
+    setToDriver(data.km_remind_to_driver)
+    setToSupervisor(data.km_remind_to_supervisor)
+    setAdminIds(data.km_remind_admin_ids)
     setEnabled(data.layout_enabled)
     setBrandName(data.brand_name)
     setBrandColor(data.brand_color)
@@ -262,7 +269,8 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   )
   const tope = maxEmails(liveCfg.fromDay, liveCfg.untilDay)
   const tooMany = by === 'window' && mode === 'count' && liveCfg.emails > tope
-  const cannotSave = tooMany || Boolean(daysError)
+  const nobody = !toDriver && !toSupervisor && adminIds.length === 0
+  const cannotSave = tooMany || Boolean(daysError) || nobody
   const today = useMemo(() => todayDay(), [])
   // El mes que se enseña: el que se está reclamando hoy, o el actual.
   const [calYear, calMonth] = remindPeriod(today, liveCfg) ?? [today.year, today.month]
@@ -315,6 +323,9 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
         form.set('km_remind_until_day', untilDay)
         form.set('km_remind_mode', mode)
         form.set('km_remind_emails', emails)
+        form.set('km_remind_to_driver', toDriver ? 'true' : 'false')
+        form.set('km_remind_to_supervisor', toSupervisor ? 'true' : 'false')
+        form.set('km_remind_admins', adminIds.join(','))
       } else {
         form.set('layout_enabled', enabled ? 'true' : 'false')
         form.set('brand_name', brandName)
@@ -573,6 +584,59 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
                     </label>
                   ))}
                 </div>
+            </fieldset>
+            {/* A quién va cada correo: conductor, supervisor y/o administradores
+                concretos, elegidos uno a uno. */}
+            <fieldset className="es-fieldset es-reminder-recipients" disabled={!kmEnabled}>
+              <legend>{t.reminder.recipientsTitle}</legend>
+              <div className="es-recipients">
+                <label className="baja-toggle es-toggle">
+                  <input type="checkbox" checked={toDriver} onChange={(e) => setToDriver(e.target.checked)} />
+                  <span>
+                    <strong>{t.reminder.toDriver}</strong>
+                    <span className="muted"> · {t.reminder.toDriverHint}</span>
+                  </span>
+                </label>
+                <label className="baja-toggle es-toggle">
+                  <input
+                    type="checkbox"
+                    checked={toSupervisor}
+                    onChange={(e) => setToSupervisor(e.target.checked)}
+                  />
+                  <span>
+                    <strong>{t.reminder.toSupervisor}</strong>
+                    <span className="muted"> · {t.reminder.toSupervisorHint}</span>
+                  </span>
+                </label>
+              </div>
+              <div className="es-admins-head">
+                <strong>{t.reminder.adminsTitle}</strong>
+                <span className="muted"> · {t.reminder.adminsHint}</span>
+              </div>
+              {row.admin_options.length === 0 ? (
+                <p className="muted">{t.reminder.adminsEmpty}</p>
+              ) : (
+                <div className="es-admins" role="group" aria-label={t.reminder.adminsTitle}>
+                  {row.admin_options.map((a) => (
+                    <label key={a.id} className={`es-admin${adminIds.includes(a.id) ? ' is-active' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={adminIds.includes(a.id)}
+                        onChange={(e) =>
+                          setAdminIds((ids) =>
+                            e.target.checked ? [...ids, a.id].sort((x, y) => x - y) : ids.filter((id) => id !== a.id),
+                          )
+                        }
+                      />
+                      <span>
+                        <strong>{a.name}</strong>
+                        <span className="muted">{a.email}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {nobody && <p className="form-error">{t.reminder.nobody}</p>}
             </fieldset>
             <div className="es-reminder-foot">
               <p className="muted">{t.reminder.stopHint}</p>
