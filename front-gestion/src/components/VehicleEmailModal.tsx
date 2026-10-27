@@ -21,6 +21,7 @@ import { fmtDate, fmtKm, vehicleStateTone } from '../format.ts'
 import { en as domainEn, es as domainEs } from '../translations/domain.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import { EmailOptions } from './EmailOptions.tsx'
+import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor.tsx'
 import { TemplateVars } from './TemplateVars.tsx'
 import { type TemplateVariable } from './templateVars.ts'
 import { OpsSection, OpsSteps } from './OpsSteps.tsx'
@@ -143,7 +144,7 @@ export function VehicleEmailModal({
   // Las genéricas de cada tipo: lo que sale cuando no hay personalizada, y lo
   // que por tanto tiene que verse (y poder retocarse) en la caja.
   const [genericas, setGenericas] = useState<EmailTemplateDefault[]>([])
-  const bodyRef = useRef<HTMLTextAreaElement | null>(null)
+  const bodyRef = useRef<RichTextEditorHandle>(null)
   const [noticeLang, setNoticeLangState] = useState<NoticeLang>(getNoticeLang)
 
   const [preview, setPreview] = useState<{
@@ -383,18 +384,10 @@ export function VehicleEmailModal({
   // cambiar de tipo reenseña su plantilla sin pisar lo que nadie ha tocado.
   const bodyValue = bodyTouched ? body : plantillaBody
 
-  /** Pega un marcador donde estuviera el cursor del cuerpo. */
+  /** Pega un marcador donde estuviera el cursor del cuerpo (el editor avisa
+   * del cambio por su `onChange`, que es lo que marca el cuerpo como tocado). */
   function insertarVariable(name: TemplateVariable) {
-    const area = bodyRef.current
-    const desde = area?.selectionStart ?? bodyValue.length
-    const hasta = area?.selectionEnd ?? bodyValue.length
-    const trozo = `{{${name}}}`
-    setBody(`${bodyValue.slice(0, desde)}${trozo}${bodyValue.slice(hasta)}`)
-    setBodyTouched(true)
-    requestAnimationFrame(() => {
-      area?.focus()
-      area?.setSelectionRange(desde + trozo.length, desde + trozo.length)
-    })
+    bodyRef.current?.insertText(`{{${name}}}`)
   }
 
   // Vista previa: se refresca al cambiar tipo, idioma o mensaje (debounce ligero).
@@ -641,15 +634,16 @@ export function VehicleEmailModal({
                 </button>
               )}
             </div>
-            <textarea
-              id="email-body"
+            {/* El texto maquetado y con barra de formato, no el HTML en crudo:
+                lo que se ve es lo que sale. */}
+            <RichTextEditor
               ref={bodyRef}
-              className="ops-textarea email-body"
-              rows={10}
+              id="email-body"
+              aria-label={t.bodyLabel}
               placeholder={plantillas === null ? t.bodyLoading : t.bodyMissing}
               value={bodyValue}
-              onChange={(e) => {
-                setBody(e.target.value)
+              onChange={(html) => {
+                setBody(html)
                 setBodyTouched(true)
               }}
             />

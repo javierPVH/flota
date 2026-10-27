@@ -102,7 +102,12 @@ describe('VehicleEmailModal (contenido editable)', () => {
     abrir()
     await irAContenido()
     const caja = await screen.findByLabelText('Contenido del correo')
-    await waitFor(() => expect(caja).toHaveValue(PLANTILLA.body_html))
+    // Maquetado, no el HTML en crudo: la caja es un editor con su barra.
+    await waitFor(() => expect(caja.innerHTML).toBe(PLANTILLA.body_html))
+    expect(caja).toHaveTextContent('Hola {{conductor}}: el coche {{matricula}} cambia de estado.')
+    expect(screen.getByRole('toolbar', { name: 'Formato del texto' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Negrita' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Subrayado' })).toBeInTheDocument()
     expect(screen.getByText('Versión personalizada')).toBeInTheDocument()
 
     // Se retoca aquí mismo: no hay que ir a Ajustes a tocar la plantilla.
@@ -110,7 +115,7 @@ describe('VehicleEmailModal (contenido editable)', () => {
     await userEvent.type(caja, 'Buenos días, ')
     // Y el marcador se pega donde está el cursor.
     await userEvent.click(screen.getByRole('button', { name: /Matrícula/ }))
-    expect(caja).toHaveValue('Buenos días, {{matricula}}')
+    expect(caja).toHaveTextContent('Buenos días, {{matricula}}')
 
     // La vista previa se pide ya con el cuerpo retocado.
     await waitFor(() =>
@@ -146,11 +151,11 @@ describe('VehicleEmailModal (contenido editable)', () => {
     abrir()
     await irAContenido()
     const caja = await screen.findByLabelText('Contenido del correo')
-    await waitFor(() => expect(caja).toHaveValue(GENERICA.body_html))
+    await waitFor(() => expect(caja.innerHTML).toBe(GENERICA.body_html))
     expect(screen.getByText(/Versión genérica/)).toBeInTheDocument()
     // En inglés, su versión inglesa.
     await userEvent.click(screen.getByRole('button', { name: 'English' }))
-    expect(caja).toHaveValue(GENERICA.body_html_en)
+    expect(caja.innerHTML).toBe(GENERICA.body_html_en)
   })
 
   it('sin plantilla, la caja es el mensaje libre de siempre', async () => {

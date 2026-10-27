@@ -917,9 +917,14 @@ Dos capas que van **siempre juntas**:
   (`VehicleEmailModal`: tipo → contenido → destinatarios → vista previa) y el
   **parte de accidente**. En «Enviar correo», el paso **Contenido** enseña el
   **texto de la plantilla en la propia caja y se puede retocar**: lo que se lee
-  ahí es lo que sale, con los **marcadores** (`TemplateVars`, la misma tira que
-  el gestor de Ajustes) para pegar `{{matricula}}` y compañía donde esté el
-  cursor. Sin plantilla personalizada la caja trae la **genérica** del tipo
+  ahí es lo que sale, **maquetado y con barra de formato** (negrita, cursiva,
+  subrayado, listas y enlace: `components/RichTextEditor.tsx`, un
+  `contentEditable` propio sin librerías, la versión corta del editor de
+  Ajustes → Plantillas; antes era un `<textarea>` que enseñaba el HTML en
+  crudo), con los **marcadores** (`TemplateVars`, la misma tira que el gestor
+  de Ajustes) para pegar `{{matricula}}` y compañía **donde esté el cursor**
+  —el editor recuerda dónde lo dejó quien escribe, porque `focus()` a secas
+  lo pondría al principio; sin haber tocado la caja, al final—. Sin plantilla personalizada la caja trae la **genérica** del tipo
   (`listEmailTemplateDefaults`), que es lo que el back mandaría, y una chapa
   dice cuál de las dos hay («Versión personalizada» / «Versión genérica»). Solo viaja al back (`body`) **si se toca** —sin tocar manda la
   plantilla, con sus dos idiomas—, se rinde con las mismas variables y se sanea

@@ -26,7 +26,7 @@ _SIGN = "<p>Fleet management</p>"
 
 #: El enlace a la app de campo: `{{enlace_app}}` es `FLEET_DRIVERS_APP_URL`
 #: y, sin configurar, `mailer.render` deja solo el texto.
-_ENLACE = '<p><a href="{{enlace_app}}">Abrir la app de campo</a></p>'
+_ENLACE = '<p><a href="{{enlace_app}}">Abrir la app</a></p>'
 _LINK = '<p><a href="{{enlace_app}}">Open the field app</a></p>'
 
 

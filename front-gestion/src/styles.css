@@ -6773,6 +6773,15 @@ kbd {
 .es-toggle-main { padding: 0.55rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-soft); }
 .email-settings-schedule.is-off .es-calendars, .email-settings-schedule.is-off .es-summary, .email-settings-schedule.is-off .es-legend { opacity: 0.45; }
 
+/* Editor corto del modal de correo: barra pegada a la caja y aviso de vacío. */
+.rich-editor { display: flex; flex-direction: column; }
+.rich-editor-toolbar { margin: 0 0 0.35rem; }
+.rich-editor-body { min-height: 12rem; max-height: 28rem; overflow-y: auto; }
+.rich-editor-body:empty::before { content: attr(data-placeholder); color: var(--color-text-muted); pointer-events: none; }
+.rich-editor-body :where(p, ul, ol) { margin: 0 0 0.6rem; }
+.rich-editor-body details { margin: 0 0 0.6rem; padding: 0.4rem 0.6rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); }
+.rich-editor-body summary { cursor: pointer; font-weight: 600; }
+
 /* «Enviar correo»: la vista previa entera en su iframe y el acuse con la
    lista de destinatarios. */
 .email-preview.has-frame { max-height: none; padding: 0.5rem 0.7rem 0.7rem; }
