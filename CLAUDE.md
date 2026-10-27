@@ -891,7 +891,9 @@ Dos capas que van **siempre juntas**:
   **texto de la plantilla en la propia caja y se puede retocar**: lo que se lee
   ahí es lo que sale, con los **marcadores** (`TemplateVars`, la misma tira que
   el gestor de Ajustes) para pegar `{{matricula}}` y compañía donde esté el
-  cursor. Solo viaja al back (`body`) **si se toca** —sin tocar manda la
+  cursor. Sin plantilla personalizada la caja trae la **genérica** del tipo
+  (`listEmailTemplateDefaults`), que es lo que el back mandaría, y una chapa
+  dice cuál de las dos hay («Versión personalizada» / «Versión genérica»). Solo viaja al back (`body`) **si se toca** —sin tocar manda la
   plantilla, con sus dos idiomas—, se rinde con las mismas variables y se sanea
   con el mismo nh3, y **no modifica la plantilla**: eso es Ajustes → Plantillas
   de correo, que cambia el correo de todos. El «Mensaje adicional» sigue

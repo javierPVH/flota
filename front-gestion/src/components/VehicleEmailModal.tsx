@@ -4,11 +4,13 @@ import { asErrorMessage } from '@flota/ui/http'
 import { useAppLang, type AppLanguage } from '@flota/ui/i18n'
 
 import {
+  listEmailTemplateDefaults,
   listEmailTemplates,
   listIncidents,
   listKmReadingsAll,
   notifyVehicle,
   noticePreviewVehicle,
+  type EmailTemplateDefault,
   type EmailTemplateRow,
 } from '../api.ts'
 import type { EmailKind } from '../emailKinds.ts'
@@ -137,6 +139,9 @@ export function VehicleEmailModal({
   const [body, setBody] = useState('')
   const [bodyTouched, setBodyTouched] = useState(false)
   const [plantillas, setPlantillas] = useState<EmailTemplateRow[] | null>(null)
+  // Las genéricas de cada tipo: lo que sale cuando no hay personalizada, y lo
+  // que por tanto tiene que verse (y poder retocarse) en la caja.
+  const [genericas, setGenericas] = useState<EmailTemplateDefault[]>([])
   const bodyRef = useRef<HTMLTextAreaElement | null>(null)
   const [noticeLang, setNoticeLangState] = useState<NoticeLang>(getNoticeLang)
 
@@ -347,6 +352,9 @@ export function VehicleEmailModal({
     listEmailTemplates()
       .then((page) => vivo && setPlantillas(page.results))
       .catch(() => vivo && setPlantillas([]))
+    listEmailTemplateDefaults()
+      .then((rows) => vivo && setGenericas(rows))
+      .catch(() => undefined)
     return () => {
       vivo = false
     }
@@ -356,13 +364,16 @@ export function VehicleEmailModal({
     () => plantillas?.find((row) => row.key === kind && row.is_active) ?? null,
     [plantillas, kind],
   )
+  // Sin personalizada, la genérica del tipo: es lo que el back manda.
+  const generica = useMemo(() => genericas.find((row) => row.key === kind) ?? null, [genericas, kind])
+  const version = plantilla ?? generica
   // El texto que toca según tipo e idioma; con «Ambos» se enseña el castellano
   // (es el que se lee) y, si se retoca, sustituye a las dos versiones.
   const plantillaBody = useMemo(() => {
-    if (!plantilla) return ''
-    const en = plantilla.body_html_en.trim()
-    return noticeLang === 'en' && en ? en : plantilla.body_html
-  }, [plantilla, noticeLang])
+    if (!version) return ''
+    const en = version.body_html_en.trim()
+    return noticeLang === 'en' && en ? en : version.body_html
+  }, [version, noticeLang])
 
   // Lo que se ve en la caja: la plantilla del tipo y el idioma de ahora o,
   // en cuanto se toca, lo escrito. Derivado y no copiado con un efecto: así
@@ -586,6 +597,12 @@ export function VehicleEmailModal({
                 había que irse a Ajustes a tocar la plantilla de TODOS. */}
             <div className="email-body-head">
               <label className="ops-field-label" htmlFor="email-body">{t.bodyLabel}</label>
+              {/* Qué versión hay en la caja: la personalizada o la genérica del tipo. */}
+              {version && (
+                <span className="muted email-body-version">
+                  {plantilla ? t.bodyCustom : t.bodyGeneric}
+                </span>
+              )}
               {bodyTouched && (
                 <button
                   type="button"

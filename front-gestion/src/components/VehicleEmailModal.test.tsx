@@ -7,6 +7,7 @@ import { LanguageProvider } from '../i18n.tsx'
 import type { Vehicle } from '../types.ts'
 
 const mocks = vi.hoisted(() => ({
+  listEmailTemplateDefaults: vi.fn(),
   listEmailTemplates: vi.fn(),
   listIncidents: vi.fn(),
   listKmReadingsAll: vi.fn(),
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
+  listEmailTemplateDefaults: mocks.listEmailTemplateDefaults,
   listEmailTemplates: mocks.listEmailTemplates,
   listIncidents: mocks.listIncidents,
   listKmReadingsAll: mocks.listKmReadingsAll,
@@ -51,6 +53,15 @@ const PLANTILLA = {
   updated_at: '2026-09-01T10:00:00Z',
 }
 
+const GENERICA = {
+  key: 'state_notice',
+  key_display: 'Comunicado de estado',
+  subject: 'Comunicado · {{matricula}}',
+  body_html: '<p>Genérica: {{matricula}} cambia de estado.</p>',
+  subject_en: 'Notice · {{matricula}}',
+  body_html_en: '<p>Generic: {{matricula}} changes state.</p>',
+}
+
 function abrir() {
   render(
     <LanguageProvider>
@@ -74,6 +85,7 @@ describe('VehicleEmailModal (contenido editable)', () => {
       previous: null,
       results: [PLANTILLA],
     })
+    mocks.listEmailTemplateDefaults.mockResolvedValue([GENERICA])
     mocks.listIncidents.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
     mocks.listKmReadingsAll.mockResolvedValue([])
     mocks.noticePreviewVehicle.mockResolvedValue({
@@ -90,6 +102,7 @@ describe('VehicleEmailModal (contenido editable)', () => {
     await irAContenido()
     const caja = await screen.findByLabelText('Contenido del correo')
     await waitFor(() => expect(caja).toHaveValue(PLANTILLA.body_html))
+    expect(screen.getByText('Versión personalizada')).toBeInTheDocument()
 
     // Se retoca aquí mismo: no hay que ir a Ajustes a tocar la plantilla.
     await userEvent.clear(caja)
@@ -125,6 +138,18 @@ describe('VehicleEmailModal (contenido editable)', () => {
     await waitFor(() => expect(mocks.noticePreviewVehicle).toHaveBeenCalled())
     const ultima = mocks.noticePreviewVehicle.mock.calls.at(-1)?.[1]
     expect(ultima).not.toHaveProperty('body')
+  })
+
+  it('sin personalizada, la caja trae la genérica del tipo y lo dice', async () => {
+    mocks.listEmailTemplates.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+    abrir()
+    await irAContenido()
+    const caja = await screen.findByLabelText('Contenido del correo')
+    await waitFor(() => expect(caja).toHaveValue(GENERICA.body_html))
+    expect(screen.getByText(/Versión genérica/)).toBeInTheDocument()
+    // En inglés, su versión inglesa.
+    await userEvent.click(screen.getByRole('button', { name: 'English' }))
+    expect(caja).toHaveValue(GENERICA.body_html_en)
   })
 
   it('sin plantilla, la caja es el mensaje libre de siempre', async () => {

@@ -271,6 +271,8 @@ export const es = {
     bodyBothHint: 'Con «Ambos», lo que escribas aquí se envía como única versión.',
     bodyLoading: 'Cargando la plantilla…',
     bodyMissing: 'Este tipo no tiene plantilla: escribe el texto del correo.',
+    bodyCustom: 'Versión personalizada',
+    bodyGeneric: 'Versión genérica (se personaliza en Ajustes → Correo)',
     bodyReset: 'Volver al texto de la plantilla',
     extraPlaceholder: 'Texto que se añade a la plantilla (variable {{mensaje}})…',
     // Cómo se compone el correo: plantilla sí/no e idioma.
@@ -753,6 +755,8 @@ export const en: typeof es = {
     bodyBothHint: 'With “Both”, what you write here is sent as the only version.',
     bodyLoading: 'Loading the template…',
     bodyMissing: 'This type has no template: write the email text.',
+    bodyCustom: 'Custom version',
+    bodyGeneric: 'Generic version (customise it in Settings → Email)',
     bodyReset: 'Back to the template text',
     extraPlaceholder: 'Text appended to the template ({{mensaje}} variable)…',
     useTemplate: 'Use the template',
