@@ -3221,6 +3221,7 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
         "dias_sin_lectura": "37",
         "ultima_lectura": "2026-07-09",
         "periodo": "2026-08",
+        "enlace_app": "https://app-de-campo.example",
         "mensaje": "Seguro en 15 día(s) (vence el 2026-08-15).",
     }
 

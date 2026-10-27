@@ -8,6 +8,7 @@ export const TEMPLATE_VARIABLES = [
   'dias_sin_lectura',
   'ultima_lectura',
   'periodo',
+  'enlace_app',
   'mensaje',
 ] as const
 

@@ -24,6 +24,20 @@ from fleet.models import EmailTemplate, EmailTemplateKey
 _FIRMA = "<p>Gestión de flota</p>"
 _SIGN = "<p>Fleet management</p>"
 
+#: El enlace a la app de campo: `{{enlace_app}}` es `FLEET_DRIVERS_APP_URL`
+#: y, sin configurar, `mailer.render` deja solo el texto.
+_ENLACE = '<p><a href="{{enlace_app}}">Abrir la app de campo</a></p>'
+_LINK = '<p><a href="{{enlace_app}}">Open the field app</a></p>'
+
+
+def _acordeon(titulo: str, pasos: list[str], nota: str = "") -> str:
+    """Instrucciones plegadas (`<details>`): quien ya sabe no las lee, y el
+    cliente de correo que no entiende el acordeón las enseña desplegadas."""
+    lista = "".join(f"<li>{p}</li>" for p in pasos)
+    cola = f"<p>{nota}</p>" if nota else ""
+    return f"<details><summary>{titulo}</summary><ol>{lista}</ol>{cola}</details>"
+
+
 DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
     EmailTemplateKey.INSURANCE_DUE: {
         "subject": "Renovación del seguro · {{matricula}}",
@@ -51,7 +65,17 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             "<p>La ITV del vehículo <strong>{{matricula}}</strong> vence el "
             "<strong>{{fecha_vencimiento}}</strong>. {{mensaje}}</p>"
             "<p>Acude a la cita programada y registra el resultado desde la app "
-            "de campo; si no tienes cita, avisa a la gestión de flota.</p>" + _FIRMA
+            "de campo; si no tienes cita, avisa a la gestión de flota.</p>"
+            + _ENLACE
+            + _acordeon(
+                "Cómo registrar la ITV",
+                [
+                    "Entra en la app de campo con tu usuario.",
+                    "En «Mi vehículo», pulsa «ITV» (se activa desde 30 días antes de la cita).",
+                    "Indica la fecha y el resultado, adjunta el informe y guarda.",
+                ],
+            )
+            + _FIRMA
         ),
         "subject_en": "Upcoming roadworthiness test · {{matricula}}",
         "body_html_en": (
@@ -59,7 +83,17 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             "<p>The roadworthiness test (ITV) of vehicle <strong>{{matricula}}</strong> "
             "is due on <strong>{{fecha_vencimiento}}</strong>. {{mensaje}}</p>"
             "<p>Attend the scheduled appointment and record the result in the field "
-            "app; if there is no appointment, contact fleet management.</p>" + _SIGN
+            "app; if there is no appointment, contact fleet management.</p>"
+            + _LINK
+            + _acordeon(
+                "How to record the test",
+                [
+                    "Sign in to the field app with your user.",
+                    'In "My vehicle", tap "ITV" (available from 30 days before the appointment).',
+                    "Enter the date and the result, attach the report and save.",
+                ],
+            )
+            + _SIGN
         ),
     },
     EmailTemplateKey.STATE_NOTICE: {
@@ -106,9 +140,21 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             "del vehículo <strong>{{matricula}}</strong>. Lleva "
             "<strong>{{dias_sin_lectura}} días</strong> sin lectura; la última que "
             "consta es del {{ultima_lectura}}.</p>"
-            "<p>Regístrala desde la app de campo en cuanto puedas: solo tienes que "
-            "anotar lo que marca el cuentakilómetros. Mientras falte, seguirás "
-            "recibiendo este recordatorio.</p>" + _FIRMA
+            "<p><strong>Mientras no la registres, seguirás recibiendo este "
+            "correo.</strong> Solo tienes que anotar lo que marca el "
+            "cuentakilómetros: te lleva un minuto.</p>"
+            + _ENLACE
+            + _acordeon(
+                "Cómo registrar la lectura",
+                [
+                    "Entra en la app de campo con tu usuario.",
+                    "En «Mi vehículo», pulsa «Kilómetros».",
+                    "Escribe lo que marca el cuentakilómetros y guarda.",
+                ],
+                "Si el coche ya no es el tuyo o no puedes registrarla, avisa a la "
+                "gestión de flota.",
+            )
+            + _FIRMA
         ),
         "subject_en": "Your {{periodo}} mileage reading is missing · {{matricula}}",
         "body_html_en": (
@@ -117,9 +163,20 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             "vehicle <strong>{{matricula}}</strong>. It has gone "
             "<strong>{{dias_sin_lectura}} days</strong> without a reading; the last one "
             "on record is from {{ultima_lectura}}.</p>"
-            "<p>Record it in the field app as soon as you can: just note what the "
-            "odometer shows. You will keep receiving this reminder until it is "
-            "recorded.</p>" + _SIGN
+            "<p><strong>You will keep receiving this email until you record "
+            "it.</strong> Just note what the odometer shows: it takes a minute.</p>"
+            + _LINK
+            + _acordeon(
+                "How to record the reading",
+                [
+                    "Sign in to the field app with your user.",
+                    'In "My vehicle", tap "Mileage".',
+                    "Type what the odometer shows and save.",
+                ],
+                "If the vehicle is no longer yours or you cannot record it, contact "
+                "fleet management.",
+            )
+            + _SIGN
         ),
     },
     EmailTemplateKey.GENERIC: {

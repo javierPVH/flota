@@ -453,6 +453,14 @@ Dos capas que van **siempre juntas**:
   La pestaña de cada tipo lo dice («· genérica» / «· personalizada»), el
   editor de un tipo sin personalizar arranca con su genérica y «Guardar como
   personalizada» crea la fila (o restaura la retirada, que `key` es única).
+  Las genéricas que piden algo al conductor (la lectura de km, la ITV) le
+  dicen que **seguirá recibiendo el correo mientras no lo registre** (la de
+  km), llevan el enlace **«Abrir la app de campo»** (`{{enlace_app}}` =
+  `FLEET_DRIVERS_APP_URL`; sin configurar, `mailer.render` deja un
+  `<a href="">` en su texto, que un enlace al propio correo confunde) y un
+  **acordeón** con los pasos (`<details>`/`<summary>`, que el saneador deja
+  pasar; el cliente de correo que no lo entiende —Gmail, Outlook— lo pinta
+  desplegado, que es el degradado honesto).
   Esa pantalla lleva las pestañas en **dos niveles** bajo las de Ajustes:
   tres grupos con subrayado —Trazas, Configuración, Plantillas por tipo de
   correo— y, debajo, las pestañas del grupo activo como chips

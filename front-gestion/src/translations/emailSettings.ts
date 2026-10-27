@@ -102,7 +102,7 @@ const es = {
     editTemplate: 'Editar la plantilla',
     customise: 'Personalizar el correo',
     variablesHint:
-      'En la plantilla puedes usar {{dias_sin_lectura}}, {{ultima_lectura}} y {{periodo}} además de {{matricula}} y {{conductor}}.',
+      'En la plantilla puedes usar {{dias_sin_lectura}}, {{ultima_lectura}}, {{periodo}} y {{enlace_app}} además de {{matricula}} y {{conductor}}.',
   },
   layout: {
     title: 'La caja corporativa de todos los correos',
@@ -221,7 +221,7 @@ const en: typeof es = {
     editTemplate: 'Edit the template',
     customise: 'Customise the email',
     variablesHint:
-      'In the template you can use {{dias_sin_lectura}}, {{ultima_lectura}} and {{periodo}} besides {{matricula}} and {{conductor}}.',
+      'In the template you can use {{dias_sin_lectura}}, {{ultima_lectura}}, {{periodo}} and {{enlace_app}} besides {{matricula}} and {{conductor}}.',
   },
   layout: {
     title: 'The corporate frame of every email',

@@ -70,8 +70,16 @@ ALLOWED_VARIABLES = (
     "dias_sin_lectura",
     "ultima_lectura",
     "periodo",
+    # URL pública de la app de campo (`FLEET_DRIVERS_APP_URL`): el enlace
+    # «Abrir la app de campo» de los correos al conductor.
+    "enlace_app",
     "mensaje",
 )
+
+#: Un enlace cuya URL quedó vacía (la app de campo sin configurar) se queda en
+#: su texto: un `<a href="">` lleva al propio correo, que confunde más que no
+#: llevar a ningún sitio.
+_EMPTY_LINK_RE = re.compile(r'<a\s+href=""[^>]*>(.*?)</a>', re.S)
 
 _VAR_RE = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}")
 
@@ -211,7 +219,7 @@ def render(text: str, context: dict[str, object]) -> str:
         value = context.get(key)
         return html.escape(str(value)) if value not in (None, "") else ""
 
-    return _VAR_RE.sub(_sub, text)
+    return _EMPTY_LINK_RE.sub(r"\1", _VAR_RE.sub(_sub, text))
 
 
 def vehicle_notice_context(vehicle, message: str = "", template_key: str = "") -> dict[str, object]:
@@ -251,6 +259,7 @@ def vehicle_notice_context(vehicle, message: str = "", template_key: str = "") -
         "dias_sin_lectura": str((today - reading.reading_date).days) if reading else "",
         "ultima_lectura": reading.reading_date.isoformat() if reading else "",
         "periodo": f"{periodo.year:04d}-{periodo.month:02d}",
+        "enlace_app": settings.FLEET_DRIVERS_APP_URL,
         "mensaje": message,
     }
 
@@ -384,6 +393,7 @@ def _context_for(alert: Alert) -> dict[str, object]:
         "dias_sin_lectura": str(datos["days"]) if datos.get("days") is not None else "",
         "ultima_lectura": str(datos.get("last") or ""),
         "periodo": str(datos.get("period") or ""),
+        "enlace_app": settings.FLEET_DRIVERS_APP_URL,
         "mensaje": alert.message,
     }
 

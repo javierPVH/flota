@@ -2924,6 +2924,10 @@ class CompanySerializer(CatalogUniqueMixin, serializers.ModelSerializer):
 # Etiquetas y atributos permitidos en el cuerpo de los correos (editor 10c).
 _EMAIL_HTML_TAGS = {
     "a",
+    # El acordeón de instrucciones de las genéricas («Cómo registrar la
+    # lectura»): los clientes que no lo entienden lo pintan desplegado.
+    "details",
+    "summary",
     "b",
     "strong",
     "i",

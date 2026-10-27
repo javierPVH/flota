@@ -422,6 +422,9 @@ GOOGLE_SA_KEYFILE = env_str("GOOGLE_SA_KEYFILE", "")
 GOOGLE_DRIVE_ROOT_FOLDER_ID = env_str("GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
 # A dónde vuelve el navegador tras el callback del OAuth (el front de gestión).
 FRONTEND_BASE_URL = env_str("FRONTEND_BASE_URL", "http://localhost:5173")
+# URL pública de la app de campo (conductores): es el enlace «Abrir la app de
+# campo» de los correos al conductor ({{enlace_app}}). Vacía, el enlace no sale.
+FLEET_DRIVERS_APP_URL = env_str("FLEET_DRIVERS_APP_URL", "").rstrip("/")
 # Claves Fernet para cifrar los tokens OAuth en BD (accounts.fields). La PRIMERA
 # cifra y todas descifran (rotación). Vacío = clave derivada del SECRET_KEY.
 FIELD_ENCRYPTION_KEYS = env_list("FIELD_ENCRYPTION_KEYS")

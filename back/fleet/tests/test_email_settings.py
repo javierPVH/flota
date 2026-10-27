@@ -536,6 +536,46 @@ class EmailSettingsApiTests(APITestCase):
         self.assertIn("37 días sin lectura", resp.data["document_html"])
 
 
+class EmailLinkTests(APITestCase):
+    """El enlace a la app de campo de las genéricas: con URL va como enlace y,
+    sin ella, se queda en su texto."""
+
+    @override_settings(FLEET_DRIVERS_APP_URL="https://campo.flota.example")
+    def test_the_link_points_to_the_field_app(self):
+        html = mailer.render(
+            email_defaults.DEFAULT_TEMPLATES["km_reading_pending"]["body_html"],
+            {"enlace_app": "https://campo.flota.example"},
+        )
+        self.assertIn('<a href="https://campo.flota.example">Abrir la app de campo</a>', html)
+        self.assertIn("seguirás recibiendo este correo", html)
+        self.assertIn("<details><summary>Cómo registrar la lectura</summary>", html)
+
+    def test_without_url_only_the_text_stays(self):
+        html = mailer.render('<p><a href="{{enlace_app}}">Abrir la app</a></p>', {})
+        self.assertEqual(html, "<p>Abrir la app</p>")
+
+    @override_settings(FLEET_DRIVERS_APP_URL="https://campo.flota.example")
+    def test_the_alert_and_the_notice_carry_the_url(self):
+        vehicle = Vehicle.objects.create(plate="LNK1", brand="a", model="b")
+        self.assertEqual(
+            mailer.vehicle_notice_context(vehicle)["enlace_app"], "https://campo.flota.example"
+        )
+        alert = Alert.objects.create(
+            dedup_key="lnk", type=AlertType.KM_READING_PENDING, vehicle=vehicle, message="x"
+        )
+        self.assertEqual(mailer._context_for(alert)["enlace_app"], "https://campo.flota.example")
+
+    def test_the_accordion_survives_the_sanitizer(self):
+        from fleet.serializers import sanitize_email_html
+
+        limpio = sanitize_email_html(
+            '<p><a href="{{enlace_app}}">Abrir</a></p>'
+            "<details><summary>Cómo</summary><ol><li>Uno</li></ol></details>"
+        )
+        self.assertIn("<details><summary>Cómo</summary>", limpio)
+        self.assertIn('href="{{enlace_app}}"', limpio)
+
+
 class EmailDefaultsTests(APITestCase):
     """Cada tipo de correo tiene su versión genérica; la personalizada manda."""
 

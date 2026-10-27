@@ -94,6 +94,10 @@ const es = {
       label: 'Mes reclamado',
       help: 'El mes (AAAA-MM) cuya lectura falta. Solo lo trae el recordatorio de km.',
     },
+    enlace_app: {
+      label: 'Enlace a la app',
+      help: 'La URL pública de la app de campo (FLEET_DRIVERS_APP_URL). Úsala como destino de un enlace; sin configurar, el enlace se queda en su texto.',
+    },
     mensaje: {
       label: 'Mensaje',
       help: 'El texto que se escribe al mandar el aviso desde la ficha o el panel.',
@@ -251,6 +255,10 @@ const en: typeof es = {
     periodo: {
       label: 'Month claimed',
       help: 'The month (YYYY-MM) whose reading is missing. Only the km reminder provides it.',
+    },
+    enlace_app: {
+      label: 'App link',
+      help: 'The public URL of the field app (FLEET_DRIVERS_APP_URL). Use it as a link target; unset, the link is left as plain text.',
     },
     mensaje: {
       label: 'Message',
