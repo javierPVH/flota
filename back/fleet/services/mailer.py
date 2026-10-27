@@ -127,6 +127,15 @@ def email_enabled() -> bool:
     return bool(settings.FLEET_EMAIL_ENABLED)
 
 
+def describe_error(exc: BaseException) -> str:
+    """El fallo de un envío, como se guarda en la traza (`EmailLog.error`):
+    el TIPO de excepción y su mensaje. Solo el mensaje («connection refused»)
+    no dice si fue el SMTP, el token de Gmail o el destinatario; con el tipo
+    delante («SMTPRecipientsRefused: …») soporte sabe por dónde empezar."""
+    mensaje = str(exc).strip() or "(sin mensaje)"
+    return f"{type(exc).__name__}: {mensaje}"[:2000]
+
+
 def send_notice_now(
     *, to: str, subject: str, body_html: str, template_key: str
 ) -> tuple[bool, str]:
@@ -148,6 +157,7 @@ def send_notice_now(
             template_key=template_key,
             recipient="",
             subject=subject,
+            body_html=body_html,
             status=EmailLog.Status.SKIPPED,
             error="destinatario sin email",
         )
@@ -157,6 +167,7 @@ def send_notice_now(
             template_key=template_key,
             recipient=to,
             subject=subject,
+            body_html=body_html,
             status=EmailLog.Status.SKIPPED,
             error="Correo saliente no configurado (EMAIL_HOST o GMAIL_OAUTH_ENABLED).",
         )
@@ -168,14 +179,16 @@ def send_notice_now(
             template_key=template_key,
             recipient=to,
             subject=subject,
+            body_html=body_html,
             status=EmailLog.Status.FAILED,
-            error=str(exc)[:1000],
+            error=describe_error(exc),
         )
         return False, "fallo_envio"
     EmailLog.objects.create(
         template_key=template_key,
         recipient=to,
         subject=subject,
+        body_html=body_html,
         status=EmailLog.Status.SENT,
     )
     return True, ""
@@ -422,6 +435,7 @@ def queue_for_alert(alert: Alert) -> bool:
                 template_key=template_key,
                 recipient=recipient,
                 subject=subject[:200],
+                body_html=body,
                 status=EmailLog.Status.SKIPPED,
                 error="" if recipient else "Sin destinatario con email.",
             )
@@ -526,7 +540,7 @@ def _send_one(entry: EmailOutbox, connection, max_attempts: int, result: dict[st
     except Exception as exc:  # noqa: BLE001 — best-effort por diseño
         exhausted = entry.attempts >= max_attempts
         entry.status = EmailOutbox.Status.FAILED if exhausted else EmailOutbox.Status.PENDING
-        entry.last_error = str(exc)[:1000]
+        entry.last_error = describe_error(exc)
         entry.save(update_fields=["attempts", "status", "last_error", "updated_at"])
         logger.warning(
             "Fallo enviando el correo en cola %s (intento %s/%s): %s",
@@ -542,6 +556,8 @@ def _send_one(entry: EmailOutbox, connection, max_attempts: int, result: dict[st
                 template_key=entry.template_key,
                 recipient=entry.recipient,
                 subject=entry.subject,
+                body_html=entry.body_html,
+                attachment_name=entry.attachment_name or "",
                 status=EmailLog.Status.FAILED,
                 error=entry.last_error,
             )
@@ -564,6 +580,46 @@ def _send_one(entry: EmailOutbox, connection, max_attempts: int, result: dict[st
         template_key=entry.template_key,
         recipient=entry.recipient,
         subject=entry.subject,
+        body_html=entry.body_html,
+        attachment_name=entry.attachment_name or "",
         status=EmailLog.Status.SENT,
     )
     result["sent"] += 1
+
+
+def resend_log(log: EmailLog) -> EmailLog:
+    """Reenvía tal cual un correo de la traza (Ajustes → Correo → Trazas).
+
+    Mismo asunto, mismo cuerpo y mismo destinatario; la caja corporativa se
+    pone al construir el mensaje, así que sale con el aspecto de AHORA. Deja
+    una fila nueva en `EmailLog` que apunta a la original (`resent_from`), con
+    su resultado. Solo si `log.can_resend` (hay cuerpo y destinatario, y no
+    llevaba adjunto); si no, `ValueError` con el porqué.
+    """
+    if not log.body_html:
+        raise ValueError("Este envío es anterior a la traza del cuerpo: no se puede reenviar.")
+    if log.attachment_name:
+        raise ValueError("Llevaba un adjunto que no se conserva: vuelve a generar el informe.")
+    destinos = [addr.strip() for addr in (log.recipient or "").split(",") if addr.strip()]
+    if not destinos:
+        raise ValueError("El envío no tenía destinatario.")
+    if not email_enabled():
+        raise ValueError("El correo saliente no está configurado.")
+    nuevo = EmailLog(
+        alert_id=log.alert_id,
+        template_key=log.template_key,
+        recipient=", ".join(destinos),
+        subject=log.subject,
+        body_html=log.body_html,
+        resent_from=log,
+    )
+    try:
+        build_message(log.subject, log.body_html, destinos).send(fail_silently=False)
+    except Exception as exc:  # noqa: BLE001 — se traza y se informa
+        nuevo.status = EmailLog.Status.FAILED
+        nuevo.error = describe_error(exc)
+        nuevo.save()
+        raise ValueError(f"No se pudo reenviar: {exc}") from exc
+    nuevo.status = EmailLog.Status.SENT
+    nuevo.save()
+    return nuevo

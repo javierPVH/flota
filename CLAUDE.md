@@ -417,14 +417,36 @@ Dos capas que van **siempre juntas**:
   (`km_remind_schedule`, según `km_remind_mode`: todos los días del plazo,
   los pares, los impares o un número de correos repartidos a partes iguales
   —el primero al abrirse y el último el último día—, que nunca pasa de los
-  días del plazo en el mes más corto, `km_remind_max_emails`; los tramos ya
-  enviados los guarda la propia alerta en `message_args["reminded"]`), viven
+  días del plazo en el mes más corto, `km_remind_max_emails`; las fechas ya
+  enviadas las guarda la propia alerta en `message_args["reminded"]` —por
+  **fecha** y no por posición: si la cadencia o la lista cambian a mitad de
+  mes, una fecha ya mandada no se repite y una que aparece ya pasada solo se
+  anota—), viven
   en `EmailSettings` (fila única, Ajustes → Correo → «Recordatorio de km» y
   «Aspecto del correo», `EmailSettingsPanel`), con los `FLEET_KM_REMIND_*`
-  del entorno solo como valor inicial. El panel pinta el **calendario del mes
-  en vivo** mientras se teclea (`kmRemindSchedule.ts`, espejo del cálculo del
-  back con los mismos casos de test: si no coinciden, el bug está en el
-  front). Y **cada tipo de correo tiene su versión genérica**
+  del entorno solo como valor inicial. El plazo con su cadencia es UNA de
+  las dos maneras de fijar los días (`km_remind_by`): la otra son **días
+  concretos** (`km_remind_days`, «5, 20, 28»), un conmutador en el panel
+  que sustituye el plazo por una caja de días separados por comas (solo
+  cifras y comas: un punto tecleado se vuelve coma) y **apaga la cadencia**
+  (sale un correo cada día de la lista, sin tope que validar). Son los
+  días de UN mes, **de menor a mayor** —ninguno puede ser menor que el
+  anterior, y el 400 dice cuál— y se repiten **cada mes**; el día que un
+  mes no tiene (el 31 en abril) **no manda nada ese mes**, y un mes sin
+  ninguno de la lista no reclama nada (`email_layout.parse_km_remind_days`
+  normaliza lo guardado; `_concrete_dates` deja fuera los que el mes no
+  tiene y `km_remind_period` no abre el mes que se queda sin ninguno). El
+  calendario del panel lo dice en ámbar («Noviembre no tiene el día 31») y,
+  sin ninguno, en el resumen. La lista solo viaja al guardar yendo por días
+  (y el back, por plazo, no deja que una lista a medias bloquee ni se
+  guarde): la cadencia y la lista vuelven tal cual al cambiar de lado. El
+  panel avisa también, en los dos modos, cuando el primer día de recordar
+  es **anterior a la ventana de registro de campo** (N8a,
+  `km_window_start` en la respuesta de ajustes): se estaría reclamando una
+  lectura que el conductor aún no puede dar. El panel pinta el
+  **calendario del mes en vivo** mientras se teclea (`kmRemindSchedule.ts`,
+  espejo del cálculo del back con los mismos casos de test, también
+  `parseRemindDays`: si no coinciden, el bug está en el front). Y **cada tipo de correo tiene su versión genérica**
   (`services/email_defaults.py`, dos idiomas, mismas variables): es lo que
   sale sin plantilla personalizada —antes era un texto de emergencia del
   código— y lo que vuelve a salir al retirarla («Volver a la genérica», N7).
@@ -452,6 +474,14 @@ Dos capas que van **siempre juntas**:
   **interruptor** (`EmailSettings.km_remind_enabled`): apagado,
   `check_km_readings` no abre avisos ni encola correos, pero la
   reconciliación sigue cerrando los abiertos cuando llega la lectura.
+  **La traza guarda el cuerpo** (`EmailLog.body_html`, antes de la caja
+  corporativa, en TODOS los sitios que escriben una fila: `send_notice_now`,
+  la cola, el comunicado del vehículo y la prueba) y por eso «Trazas» tiene
+  **«Reenviar»** (`mailer.resend_log`, `POST /email-logs/{id}/resend/`): el
+  mismo asunto, cuerpo y destinatario, con el aspecto de ahora, y una fila
+  nueva que apunta a la original (`resent_from`, chapa «reenvío»). El botón
+  va apagado con su porqué en una fila sin cuerpo (anterior a la 0082), sin
+  destinatario o con adjunto (`attachment_name`: el fichero no se conserva).
 - **Trabajos programados**: `management/commands/` (`refresh_next_itv`,
   `check_itv`, `check_insurance`, `check_no_driver`, `remind_km_readings`,
   `check_km_overage`, `check_maintenance`, `archive_pending_documents`,

@@ -1500,10 +1500,16 @@ export interface EmailPreview {
  * (el subido o el de fábrica) para enseñarlo sin pasar por /media. */
 /** Cadencia de los correos del recordatorio de km (`KmRemindMode` del back). */
 export type KmRemindModeValue = 'count' | 'daily' | 'odd' | 'even'
+/** Cómo se fijan los días del recordatorio (`KmRemindBy` del back): un plazo
+ * con cadencia o una lista de días concretos. */
+export type KmRemindByValue = 'window' | 'days'
 
 export interface EmailSettingsRow {
   /** Apagado, no se abren avisos de lectura pendiente ni salen sus correos. */
   km_remind_enabled: boolean
+  km_remind_by: KmRemindByValue
+  /** Los días concretos, como se guardan: «25, 28, 3» (vacío si se va por plazo). */
+  km_remind_days: string
   km_remind_from_day: number
   km_remind_until_day: number
   km_remind_mode: KmRemindModeValue
@@ -1511,6 +1517,9 @@ export interface EmailSettingsRow {
   /** Tope de `km_remind_emails`: los días del plazo en el mes más corto. */
   km_remind_max_emails: number
   km_remind_dates: string[]
+  /** Día en que se abre el registro de km de campo (0 = sin ventana): antes
+   * de él, el conductor no puede dar la lectura que se le reclama. */
+  km_window_start: number
   layout_enabled: boolean
   brand_name: string
   brand_color: string
@@ -1556,6 +1565,12 @@ export interface EmailLogRow {
   status: 'sent' | 'failed' | 'skipped'
   status_display: string
   error: string
+  /** Nombre del adjunto que llevaba (los informes programados); vacío si no. */
+  attachment_name: string
+  /** El envío del que es reenvío, si lo es. */
+  resent_from: number | null
+  /** Se puede reenviar tal cual: hay cuerpo guardado, destinatario y sin adjunto. */
+  can_resend: boolean
   created_at: string
 }
 
@@ -1629,6 +1644,10 @@ export const updateEmailSignature = (id: number, data: Partial<EmailSignatureRow
 
 export const listEmailLogs = () =>
   getJson<Paginated<EmailLogRow>>(`${API}/email-logs/${listQs({})}`)
+
+/** Vuelve a mandar ese mismo correo; devuelve la fila nueva de la traza. */
+export const resendEmailLog = (id: number) =>
+  postJson<EmailLogRow>(`${API}/email-logs/${id}/resend/`, {})
 
 // --- Importación masiva (IMPORTACION_MASIVA.md) -----------------------------
 // Ruta plana portada de sap_budget: detect-columns → preview-import →

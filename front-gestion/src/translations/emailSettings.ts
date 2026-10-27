@@ -33,6 +33,30 @@ const es = {
     enabledOff: 'no se abrirán avisos ni saldrán correos; los abiertos se cierran solos cuando llega la lectura.',
     scheduleOff: 'El recordatorio está apagado: este calendario no se aplicará hasta que lo actives y guardes.',
     windowTitle: 'Plazo de reclamación',
+    /** El conmutador: por plazo (con su cadencia) o por días concretos. */
+    byTitle: 'Cómo se fijan los días',
+    byWindow: 'Plazo de reclamación',
+    byDays: 'Días concretos',
+    days: 'Días en que sale el correo',
+    daysHint:
+      'Días del mes separados por comas (solo cifras y comas), de menor a mayor. Cada mes sale un correo esos días; el día que un mes no tiene (el 31 en abril) no manda correo ese mes.',
+    daysErrors: {
+      empty: 'Escribe al menos un día (por ejemplo «5, 20, 28»).',
+      range: 'Solo días del mes, del 1 al 31, separados por comas.',
+      order: (day: number, prev: number) =>
+        `El ${day} no puede ir después del ${prev}: escribe los días de menor a mayor.`,
+    },
+    /** El calendario: los días de la lista que ese mes no tiene. */
+    scheduleMissing: (days: string, month: string) =>
+      `${month} no tiene el día ${days}: ese día no sale correo.`,
+    scheduleNone: (month: string) =>
+      `${month} no tiene ninguno de esos días: ese mes no sale ningún correo.`,
+    scheduleNoList: 'Escribe al menos un día para ver el calendario.',
+    scheduleWindowDays: 'del primer al último día de la lista',
+    /** Se recuerda antes de que el conductor pueda registrar (ventana N8a). */
+    beforeWindow: (start: number) =>
+      `El registro de km de campo se abre el día ${start} de cada mes: los correos anteriores reclaman una lectura que el conductor todavía no puede dar.`,
+    cadenceOff: 'Con días concretos no hay cadencia: sale un correo cada día de la lista.',
     fromDay: 'Desde el día',
     fromDayHint: 'del mes en curso (1-28). Ese día se abre el aviso y sale el primer correo.',
     untilDay: 'hasta el día',
@@ -125,6 +149,26 @@ const en: typeof es = {
     enabledOff: 'no alerts will open and no emails will go out; open ones close by themselves when the reading arrives.',
     scheduleOff: 'The reminder is off: this calendar will not apply until you turn it on and save.',
     windowTitle: 'Claim period',
+    byTitle: 'How the days are set',
+    byWindow: 'Claim period',
+    byDays: 'Specific days',
+    days: 'Days the email goes out',
+    daysHint:
+      'Days of the month separated by commas (digits and commas only), in ascending order. Every month an email goes out on those days; a day the month does not have (the 31st in April) sends nothing that month.',
+    daysErrors: {
+      empty: 'Write at least one day (for example "5, 20, 28").',
+      range: 'Only days of the month, 1 to 31, separated by commas.',
+      order: (day: number, prev: number) =>
+        `${day} cannot come after ${prev}: write the days in ascending order.`,
+    },
+    scheduleMissing: (days: string, month: string) =>
+      `${month} has no day ${days}: no email goes out that day.`,
+    scheduleNone: (month: string) => `${month} has none of those days: no email goes out that month.`,
+    scheduleNoList: 'Write at least one day to see the calendar.',
+    scheduleWindowDays: 'from the first to the last day of the list',
+    beforeWindow: (start: number) =>
+      `Field mileage entry opens on day ${start} of each month: emails before that claim a reading the driver cannot give yet.`,
+    cadenceOff: 'With specific days there is no cadence: one email goes out on each listed day.',
     fromDay: 'From day',
     fromDayHint: 'of the current month (1-28). The alert opens and the first email goes out that day.',
     untilDay: 'until day',

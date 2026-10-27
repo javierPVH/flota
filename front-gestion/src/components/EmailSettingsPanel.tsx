@@ -1,12 +1,18 @@
 /**
  * Ajustes → Correo: las dos pestañas de configuración que no son plantillas.
  *
- * - **Recordatorio de km** (`section="reminder"`): el plazo del mes en que se
- *   reclama la lectura y la **cadencia** con la que se escribe al conductor
- *   (todos los días, pares, impares o un número de correos repartidos), con
- *   el **calendario que resulta** —calculado en cliente mientras se teclea,
- *   `kmRemindSchedule.ts`, espejo del back— y, debajo, el correo que saldrá:
- *   la plantilla **personalizada** si la hay o la **genérica** del tipo.
+ * - **Recordatorio de km** (`section="reminder"`): cómo se fijan los días en
+ *   que se reclama la lectura —un conmutador entre el **plazo** del mes (del
+ *   día X al Y) con la **cadencia** con la que se escribe al conductor
+ *   (todos los días, pares, impares o un número de correos repartidos) y una
+ *   lista de **días concretos** («5, 20, 28», los mismos cada mes; el día
+ *   que un mes no tiene no manda nada ese mes, y el calendario lo dice), con
+ *   la que la cadencia se apaga porque sale un correo cada día de la lista—,
+ *   con el **calendario
+ *   que resulta** —calculado en cliente mientras se teclea,
+ *   `kmRemindSchedule.ts`, espejo del back— y, en la otra vista, el correo
+ *   que saldrá: la plantilla **personalizada** si la hay o la **genérica**
+ *   del tipo.
  * - **Aspecto del correo** (`section="layout"`): la caja corporativa que
  *   envuelve TODOS los correos —logotipo, color, nombre y pie— con la vista
  *   previa de cualquier plantilla dentro de ella, personalizada o genérica.
@@ -25,6 +31,7 @@ import {
   type EmailSettingsRow,
   type EmailTemplateDefault,
   type EmailTemplateRow,
+  type KmRemindByValue,
   type KmRemindModeValue,
   getEmailSettings,
   previewDefaultEmailTemplate,
@@ -36,11 +43,14 @@ import { fmtDate } from '../format.ts'
 import {
   daysInMonth,
   maxEmails,
+  missingRemindDays,
+  parseRemindDays,
   remindPeriod,
   remindSchedule,
   same,
   toIso,
   todayDay,
+  windowDays as windowDaysOf,
   type Day,
   type KmRemindConfig,
 } from '../kmRemindSchedule.ts'
@@ -52,6 +62,11 @@ type Section = 'reminder' | 'layout'
 type ReminderView = 'schedule' | 'email'
 
 const KM_TEMPLATE_KEY = 'km_reading_pending'
+
+/** Lo que admite la caja de días concretos: cifras, comas y espacios. Un
+ * punto o un punto y coma —el separador que se teclea por costumbre— se
+ * vuelve coma, y cualquier otro carácter no entra (tampoco pegado). */
+const cleanDaysText = (text: string) => text.replace(/[.;]/g, ',').replace(/[^\d,\s]/g, '')
 const MODES: KmRemindModeValue[] = ['count', 'daily', 'odd', 'even']
 
 interface Props {
@@ -83,6 +98,11 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   // Lo editable, como texto (es un formulario).
   const [reminderView, setReminderView] = useState<ReminderView>('schedule')
   const [kmEnabled, setKmEnabled] = useState(true)
+  const [by, setBy] = useState<KmRemindByValue>('window')
+  const [daysText, setDaysText] = useState('')
+  // La última lista de días que valía: mientras lo tecleado no vale, el
+  // calendario la sigue enseñando en vez de caer al plazo.
+  const [validDays, setValidDays] = useState<number[]>([])
   const [fromDay, setFromDay] = useState('20')
   const [untilDay, setUntilDay] = useState('5')
   const [mode, setMode] = useState<KmRemindModeValue>('count')
@@ -137,6 +157,9 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const applyRow = useCallback((data: EmailSettingsRow) => {
     setRow(data)
     setKmEnabled(data.km_remind_enabled)
+    setBy(data.km_remind_by)
+    setDaysText(data.km_remind_days)
+    setValidDays(parseRemindDays(data.km_remind_days).days)
     setFromDay(String(data.km_remind_from_day))
     setUntilDay(String(data.km_remind_until_day))
     setMode(data.km_remind_mode)
@@ -220,27 +243,52 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   }, [previewRef, previewId, templates, lang, row?.updated_at, section, reminderView, layoutKey])
 
   // --- Calendario en vivo --------------------------------------------------
+  // Los días concretos se leen a cada tecla; mientras no valgan, el
+  // calendario sigue enseñando los últimos válidos (`validDays`).
+  const parsedDays = useMemo(() => parseRemindDays(daysText), [daysText])
+  const daysError = by === 'days' ? parsedDays.error : ''
+  // Por días sin ninguna lista válida todavía no hay calendario que enseñar.
+  const noList = by === 'days' && validDays.length === 0
   const liveCfg = useMemo<KmRemindConfig>(
     () => ({
+      by: by === 'days' && validDays.length > 0 ? 'days' : 'window',
+      days: validDays,
       fromDay: Number(fromDay) || 1,
       untilDay: Number(untilDay) || 0,
       mode,
       emails: Number(emails) || 1,
     }),
-    [fromDay, untilDay, mode, emails],
+    [by, validDays, fromDay, untilDay, mode, emails],
   )
   const tope = maxEmails(liveCfg.fromDay, liveCfg.untilDay)
-  const tooMany = mode === 'count' && liveCfg.emails > tope
+  const tooMany = by === 'window' && mode === 'count' && liveCfg.emails > tope
+  const cannotSave = tooMany || Boolean(daysError)
   const today = useMemo(() => todayDay(), [])
   // El mes que se enseña: el que se está reclamando hoy, o el actual.
   const [calYear, calMonth] = remindPeriod(today, liveCfg) ?? [today.year, today.month]
-  const schedule = useMemo(() => remindSchedule(calYear, calMonth, liveCfg), [calYear, calMonth, liveCfg])
+  const schedule = useMemo(
+    () => (noList ? [] : remindSchedule(calYear, calMonth, liveCfg)),
+    [noList, calYear, calMonth, liveCfg],
+  )
   // El plazo entero (todos sus días), para sombrearlo en el calendario.
   const windowDays = useMemo(
-    () => new Set(remindSchedule(calYear, calMonth, { ...liveCfg, mode: 'daily' }).map(toIso)),
-    [calYear, calMonth, liveCfg],
+    () => new Set(noList ? [] : windowDaysOf(calYear, calMonth, liveCfg).map(toIso)),
+    [noList, calYear, calMonth, liveCfg],
   )
+  // El primer día en que se recuerda, para avisar si es antes de que el
+  // conductor pueda registrar (la ventana de campo, N8a).
+  const firstRemindDay = liveCfg.by === 'days' ? liveCfg.days[0] : liveCfg.fromDay
+  const beforeWindow =
+    kmEnabled && !noList && (row?.km_window_start ?? 0) > 0 && firstRemindDay < (row?.km_window_start ?? 0)
   const emailDays = useMemo(() => new Set(schedule.map(toIso)), [schedule])
+  // Por días concretos, los de la lista que el mes enseñado no tiene: ahí no
+  // sale nada, y hay que decirlo (si no tiene ninguno, ese mes no sale nada).
+  const missingDays = missingRemindDays(calYear, calMonth, liveCfg)
+  const monthName = new Date(calYear, calMonth - 1, 1).toLocaleDateString(
+    lang === 'en' ? 'en-GB' : 'es-ES',
+    { month: 'long' },
+  )
+  const monthLabel = monthName.charAt(0).toUpperCase() + monthName.slice(1)
   // Los meses que cubre el plazo: el del periodo y, con cola, el siguiente.
   const months = useMemo<Array<[number, number]>>(() => {
     const out: Array<[number, number]> = [[calYear, calMonth]]
@@ -259,6 +307,10 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
       const form = new FormData()
       if (section === 'reminder') {
         form.set('km_remind_enabled', kmEnabled ? 'true' : 'false')
+        form.set('km_remind_by', by)
+        // La lista solo viaja yendo por días: por plazo no se usa, y lo que
+        // hubiera a medias no tiene por qué bloquear el guardado.
+        if (by === 'days') form.set('km_remind_days', daysText)
         form.set('km_remind_from_day', fromDay)
         form.set('km_remind_until_day', untilDay)
         form.set('km_remind_mode', mode)
@@ -408,38 +460,85 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
               </label>
 
               <fieldset className="es-fieldset" disabled={!kmEnabled}>
-                <legend>{t.reminder.windowTitle}</legend>
-                <div className="es-window">
-                  <span>{t.reminder.fromDay}</span>
-                  <TextInputField
-                    aria-label={t.reminder.fromDay}
-                    type="number"
-                    min={1}
-                    max={28}
-                    required
-                    value={fromDay}
-                    onChange={(e) => setFromDay(e.target.value)}
-                  />
-                  <span className="muted">{t.reminder.fromDayHint}</span>
+                <legend>{t.reminder.byTitle}</legend>
+                {/* Por plazo o por días concretos: un conmutador, no dos
+                    casillas, porque es una cosa u otra. */}
+                <div className="seg-switch es-by" role="radiogroup" aria-label={t.reminder.byTitle}>
+                  {(['window', 'days'] as const).map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      role="radio"
+                      aria-checked={by === opt}
+                      className={by === opt ? 'is-active' : ''}
+                      onClick={() => setBy(opt)}
+                    >
+                      {opt === 'window' ? t.reminder.byWindow : t.reminder.byDays}
+                    </button>
+                  ))}
                 </div>
-                <div className="es-window">
-                  <span>{t.reminder.untilDay}</span>
-                  <TextInputField
-                    aria-label={t.reminder.untilDay}
-                    type="number"
-                    min={0}
-                    max={28}
-                    required
-                    value={untilDay}
-                    onChange={(e) => setUntilDay(e.target.value)}
-                  />
-                  <span className="muted">{t.reminder.untilDayHint}</span>
-                </div>
+                {by === 'days' ? (
+                  <div className="es-days">
+                    <TextInputField
+                      label={t.reminder.days}
+                      value={daysText}
+                      placeholder="5, 20, 28"
+                      inputMode="numeric"
+                      required
+                      aria-invalid={Boolean(daysError) || undefined}
+                      onChange={(e) => {
+                        const limpio = cleanDaysText(e.target.value)
+                        setDaysText(limpio)
+                        const p = parseRemindDays(limpio)
+                        if (!p.error) setValidDays(p.days)
+                      }}
+                    />
+                    <span className={daysError ? 'form-error' : 'muted'}>
+                      {daysError === 'order'
+                        ? t.reminder.daysErrors.order(parsedDays.day ?? 0, parsedDays.prev ?? 0)
+                        : daysError
+                          ? t.reminder.daysErrors[daysError]
+                          : t.reminder.daysHint}
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="es-window">
+                      <span>{t.reminder.fromDay}</span>
+                      <TextInputField
+                        aria-label={t.reminder.fromDay}
+                        type="number"
+                        min={1}
+                        max={28}
+                        required
+                        value={fromDay}
+                        onChange={(e) => setFromDay(e.target.value)}
+                      />
+                      <span className="muted">{t.reminder.fromDayHint}</span>
+                    </div>
+                    <div className="es-window">
+                      <span>{t.reminder.untilDay}</span>
+                      <TextInputField
+                        aria-label={t.reminder.untilDay}
+                        type="number"
+                        min={0}
+                        max={28}
+                        required
+                        value={untilDay}
+                        onChange={(e) => setUntilDay(e.target.value)}
+                      />
+                      <span className="muted">{t.reminder.untilDayHint}</span>
+                    </div>
+                  </>
+                )}
               </fieldset>
             </div>
 
-            <fieldset className="es-fieldset es-reminder-cadence" disabled={!kmEnabled}>
+            {/* Con días concretos la cadencia no aplica: la caja entera se
+                apaga (sus radios con ella) y dice por qué. */}
+            <fieldset className="es-fieldset es-reminder-cadence" disabled={!kmEnabled || by === 'days'}>
               <legend>{t.reminder.cadenceTitle}</legend>
+                {by === 'days' && <p className="muted es-cadence-off">{t.reminder.cadenceOff}</p>}
                 <div className="es-modes" role="radiogroup" aria-label={t.reminder.cadenceTitle}>
                   {MODES.map((m) => (
                     <label key={m} className={`es-mode${mode === m ? ' is-active' : ''}`}>
@@ -478,7 +577,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
             <div className="es-reminder-foot">
               <p className="muted">{t.reminder.stopHint}</p>
               <div className="form-actions">
-                <Button type="submit" variant="primary" disabled={saving || tooMany}>
+                <Button type="submit" variant="primary" disabled={saving || cannotSave}>
                   {saving ? t.saving : t.save}
                 </Button>
               </div>
@@ -491,16 +590,27 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
               <strong>{t.reminder.scheduleTitle}</strong>
               {!kmEnabled && <Panel tone="warning">{t.reminder.scheduleOff}</Panel>}
               <p className="es-summary">
-                {t.reminder.scheduleSummary(
-                  schedule.length,
-                  fmtDate(toIso(schedule[0]), lang),
-                  fmtDate(toIso(schedule[schedule.length - 1]), lang),
-                )}
+                {noList
+                  ? t.reminder.scheduleNoList
+                  : schedule.length === 0
+                  ? t.reminder.scheduleNone(monthLabel)
+                  : t.reminder.scheduleSummary(
+                      schedule.length,
+                      fmtDate(toIso(schedule[0]), lang),
+                      fmtDate(toIso(schedule[schedule.length - 1]), lang),
+                    )}
               </p>
+              {schedule.length > 0 && missingDays.length > 0 && (
+                <Panel tone="warning">
+                  {t.reminder.scheduleMissing(missingDays.join(', '), monthLabel)}
+                </Panel>
+              )}
+              {beforeWindow && <Panel tone="warning">{t.reminder.beforeWindow(row.km_window_start)}</Panel>}
               <div className="es-calendars">{months.map(([y, m]) => calendar(y, m))}</div>
               <ul className="es-legend">
                 <li>
-                  <i className="is-window" /> {t.reminder.scheduleWindow}
+                  <i className="is-window" />{' '}
+                  {liveCfg.by === 'days' ? t.reminder.scheduleWindowDays : t.reminder.scheduleWindow}
                 </li>
                 <li>
                   <i className="is-email" /> {t.reminder.scheduleEmail}

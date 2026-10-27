@@ -13,6 +13,8 @@ import {
   Link2,
   List,
   ListOrdered,
+  RotateCcw,
+  SearchCheck,
   Underline,
   Users,
 } from 'lucide-react'
@@ -26,6 +28,7 @@ import {
   listEmailTemplateDefaults,
   listEmailTemplates,
   previewEmailDraft,
+  resendEmailLog,
   sendTestDefaultEmail,
   sendTestEmail,
   updateEmailSignature,
@@ -107,6 +110,10 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
   // Un envío puede llevar VARIOS destinatarios (los informes programados van a
   // una lista): la celda enseña el primero y este modal, todos.
   const [logRecipients, setLogRecipients] = useState<EmailLogRow | null>(null)
+  // El envío que se está reenviando (su botón se apaga mientras tanto).
+  const [resending, setResending] = useState<number | null>(null)
+  // El envío cuyo detalle (y motivo del fallo) se está leyendo.
+  const [logDetail, setLogDetail] = useState<EmailLogRow | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -234,6 +241,32 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     })
   }, [logs, logTerms, t, etiqueta])
 
+  /** Reenvía ese mismo correo y recarga la traza, que gana una fila. */
+  const resend = useCallback(async (log: EmailLogRow) => {
+    if (!window.confirm(tRef.current.resendConfirm(log.recipient))) return
+    setResending(log.id)
+    setError('')
+    try {
+      const nuevo = await resendEmailLog(log.id)
+      setNotice(tRef.current.resendDone(nuevo.recipient))
+      listEmailLogs()
+        .then((page) => setLogs(page.results))
+        .catch(() => undefined)
+    } catch (err) {
+      setError(asErrorMessage(err, tRef.current.resendError))
+    } finally {
+      setResending(null)
+    }
+  }, [])
+
+  /** Por qué no se puede reenviar una fila (o vacío si se puede). */
+  const resendBlocker = useCallback((log: EmailLogRow) => {
+    if (log.can_resend) return ''
+    if (log.attachment_name) return tRef.current.resendAttachment
+    if (!log.recipient) return tRef.current.resendNoRecipient
+    return tRef.current.resendNoBody
+  }, [])
+
   // Columnas de la tabla de últimos envíos (mismo estilo que las de vehículos).
   const logColumns = useMemo<Array<TableWithPanelColumn<EmailLogRow>>>(() => [
     {
@@ -247,7 +280,17 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
       key: 'template_key',
       label: t.logColumns.template,
       getValue: (log) => t.templateKeys[log.template_key] ?? log.template_key,
-      render: (log) => (t.templateKeys[log.template_key] ?? log.template_key) || '—',
+      render: (log) => (
+        <>
+          {(t.templateKeys[log.template_key] ?? log.template_key) || '—'}
+          {log.resent_from != null && (
+            <>
+              {' '}
+              <Badge tone="info">{t.resentBadge}</Badge>
+            </>
+          )}
+        </>
+      ),
     },
     {
       // Como la descripción de una incidencia: ancho fijo, lo que no cabe se
@@ -299,7 +342,44 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
         </Badge>
       ),
     },
-  ], [isHit, lang, sortedRecipients, t, etiqueta])
+    {
+      // «Reenviar»: el mismo correo otra vez. Apagado, el porqué va en el
+      // title (sin cuerpo guardado, con adjunto, sin destinatario).
+      key: 'actions',
+      label: t.logColumns.actions,
+      width: 220,
+      getValue: () => '',
+      render: (log) => {
+        const porque = resendBlocker(log)
+        return (
+          <div className="log-actions">
+            {/* «Ver motivo» solo donde hay algo que leer: un fallo o una
+                omisión traen su porqué; un envío correcto, nada. */}
+            {log.status !== 'sent' && (
+              <Button
+                variant="secondary"
+                size="sm"
+                aria-label={`${t.reason}: ${log.subject}`}
+                onClick={() => setLogDetail(log)}
+              >
+                <SearchCheck size={14} aria-hidden /> {t.reason}
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={Boolean(porque) || resending === log.id}
+              title={porque || t.resendTitle}
+              aria-label={`${t.resend}: ${log.subject}`}
+              onClick={() => void resend(log)}
+            >
+              <RotateCcw size={14} aria-hidden /> {t.resend}
+            </Button>
+          </div>
+        )
+      },
+    },
+  ], [isHit, lang, sortedRecipients, t, etiqueta, resend, resendBlocker, resending])
 
   // Vuelca la plantilla activa al editor al cambiar DE PLANTILLA (no en cada
   // recarga: A9). Se vuelve siempre al castellano: es la versión de referencia.
@@ -847,6 +927,65 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
       </aside>
       </div>
       )}
+
+      {/* Detalle de un envío fallido u omitido: qué era y por qué no salió. El
+          error va tal cual lo guardó la traza (tipo de excepción y mensaje),
+          en una caja monoespaciada con scroll: es texto de soporte. */}
+      <Modal open={logDetail !== null} title={t.reasonTitle} onClose={() => setLogDetail(null)}>
+        {logDetail && (
+          <div className="log-detail">
+            <dl>
+              <dt>{t.logColumns.date}</dt>
+              <dd>{fmtDate(logDetail.created_at, lang)}</dd>
+              <dt>{t.logColumns.status}</dt>
+              <dd>
+                <Badge tone={logDetail.status === 'failed' ? 'danger' : 'neutral'}>
+                  {etiqueta.emailStatus(logDetail)}
+                </Badge>
+              </dd>
+              <dt>{t.logColumns.template}</dt>
+              <dd>{(t.templateKeys[logDetail.template_key] ?? logDetail.template_key) || '—'}</dd>
+              <dt>{t.logColumns.recipient}</dt>
+              <dd>{logDetail.recipient || '—'}</dd>
+              <dt>{t.logColumns.subject}</dt>
+              <dd>{logDetail.subject || '—'}</dd>
+              {logDetail.attachment_name && (
+                <>
+                  <dt>{t.reasonAttachment}</dt>
+                  <dd>{logDetail.attachment_name}</dd>
+                </>
+              )}
+            </dl>
+            {logDetail.resent_from != null && (
+              <p className="muted">{t.reasonResentOf(logDetail.resent_from)}</p>
+            )}
+            <strong>{t.reasonError}</strong>
+            {logDetail.error ? (
+              <pre className="log-detail-error">{logDetail.error}</pre>
+            ) : (
+              <p className="muted">{t.reasonNone}</p>
+            )}
+            <div className="form-actions">
+              {logDetail.can_resend && (
+                <Button
+                  variant="secondary"
+                  disabled={resending === logDetail.id}
+                  onClick={() => {
+                    const fila = logDetail
+                    setLogDetail(null)
+                    void resend(fila)
+                  }}
+                >
+                  <RotateCcw size={14} aria-hidden /> {t.resend}
+                </Button>
+              )}
+              <Button variant="primary" onClick={() => setLogDetail(null)}>
+                {t.reasonClose}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Todos los destinatarios de un envío (la celda solo enseña el primero) */}
       <Modal

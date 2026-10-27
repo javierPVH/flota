@@ -6690,6 +6690,11 @@ kbd {
 /* Plazo y cadencia, cada uno en su caja. */
 .es-fieldset { margin: 0; padding: 0.7rem 0.9rem 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 0.55rem; }
 .es-fieldset legend { padding: 0 0.35rem; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); }
+/* El conmutador plazo / días concretos y la caja de los días. */
+.es-by { align-self: flex-start; }
+.es-days { display: flex; flex-direction: column; gap: 0.3rem; }
+.es-days > span { font-size: 0.8rem; }
+.es-cadence-off { margin: 0; font-size: 0.86rem; }
 /* «Desde el día [20] del mes en curso»: una frase con el número dentro. */
 .es-window { display: grid; grid-template-columns: auto 5.2rem minmax(0, 1fr); align-items: center; gap: 0.5rem 0.6rem; font-size: 0.9rem; }
 .es-window > span:last-child { font-size: 0.8rem; }
@@ -6754,6 +6759,14 @@ kbd {
 @media (max-width: 1100px) { .tpl-preview { position: static; } }
 .es-toggle-main { padding: 0.55rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-soft); }
 .email-settings-schedule.is-off .es-calendars, .email-settings-schedule.is-off .es-summary, .email-settings-schedule.is-off .es-legend { opacity: 0.45; }
+
+/* Trazas: los botones de la fila y el detalle de un envío fallido. */
+.log-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.log-detail { display: flex; flex-direction: column; gap: 0.6rem; }
+.log-detail dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.3rem 0.9rem; margin: 0; font-size: 0.9rem; }
+.log-detail dt { color: var(--color-text-muted); font-weight: 600; }
+.log-detail dd { margin: 0; overflow-wrap: anywhere; }
+.log-detail-error { margin: 0; padding: 0.6rem 0.8rem; max-height: 14rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-soft); color: #b42318; }
 
 /* Chapa de versión en el editor de plantillas (personalizada / genérica). */
 .tpl-version { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); background: var(--color-surface-soft); font-size: 0.86rem; margin-bottom: 0.9rem; }

@@ -650,10 +650,10 @@ def check_km_readings(today: date | None = None) -> int:
     drivers = current_driver_map([v.id for v in missing])
     created = 0
     keys: list[str] = []
-    # Tramos del calendario que ya tocan hoy. La alerta recién creada manda
-    # su correo de creación, que cubre todos los tramos vencidos hasta hoy.
+    # Fechas del calendario que ya tocan hoy. La alerta recién creada manda
+    # su correo de creación, que cubre todas las vencidas hasta hoy.
     schedule = email_layout.km_remind_schedule(period_month, cfg)
-    due_rounds = [k for k, d in enumerate(schedule) if d <= today]
+    due_dates = [d.isoformat() for d in schedule if d <= today]
     with known_alerts(AlertType.KM_READING_PENDING, (v.pk for v in missing)):
         cache = _alert_cache.get() or {}
         for vehicle in missing:
@@ -669,14 +669,14 @@ def check_km_readings(today: date | None = None) -> int:
                     days=(today - last).days,
                     last=last.isoformat(),
                 )
-            # `reminded` lleva los tramos ya enviados: el refresco de cada
+            # `reminded` lleva las fechas ya enviadas: el refresco de cada
             # pasada reescribe `message_args` entero y la marca tiene que
             # sobrevivir. Los fronts la ignoran: no es un dato de la frase.
             cached = cache.get(key)
             if cached is not None:
-                texto["message_args"]["reminded"] = _reminded_rounds(cached)
+                texto["message_args"]["reminded"] = _reminded_dates(cached, schedule)
             else:
-                texto["message_args"]["reminded"] = due_rounds
+                texto["message_args"]["reminded"] = due_dates
             created += upsert_alert(
                 dedup_key=key,
                 type=AlertType.KM_READING_PENDING,
@@ -685,18 +685,26 @@ def check_km_readings(today: date | None = None) -> int:
                 vehicle=vehicle,
                 user=drivers.get(vehicle.id),
             )
-    _queue_km_reminder_rounds(keys, due_rounds)
+    _queue_km_reminder_rounds(keys, due_dates, schedule)
     return created
 
 
-def _reminded_rounds(alert: Alert) -> list[int]:
-    """Tramos del recordatorio ya enviados para esa alerta (lista de índices)."""
+def _reminded_dates(alert: Alert, schedule: list[date]) -> list[str]:
+    """Fechas (ISO) en que esa alerta ya mandó correo.
+
+    Se guardan por fecha y no por posición en el calendario: si la
+    administración cambia la cadencia o la lista de días a mitad de mes, la
+    posición 2 pasa a ser otro día y se repetiría un correo ya enviado. Las
+    marcas antiguas se traducen con el calendario de hoy: una lista de
+    índices (los tramos de antes) y la cadena «AAAA-MM» de más atrás, que
+    quería decir «ya llevó su segundo correo».
+    """
     marca = (alert.message_args or {}).get("reminded")
     if isinstance(marca, list):
-        return [int(k) for k in marca]
-    # Marca anterior a los tramos (una cadena «AAAA-MM»): ya llevó su segundo
-    # correo, que con el calendario de antes era el último.
-    return [0, 1] if marca else [0]
+        if all(isinstance(k, str) for k in marca):
+            return list(marca)
+        return [schedule[int(k)].isoformat() for k in marca if int(k) < len(schedule)]
+    return [d.isoformat() for d in schedule[: 2 if marca else 1]]
 
 
 def _reconcile_km_alerts(vehicle_ids: list[int], today: date) -> None:
@@ -720,18 +728,23 @@ def _reconcile_km_alerts(vehicle_ids: list[int], today: date) -> None:
     )
 
 
-def _queue_km_reminder_rounds(dedup_keys: list[str], due_rounds: list[int]) -> int:
-    """Los correos siguientes del recordatorio de km, cada tramo una sola vez.
+def _queue_km_reminder_rounds(
+    dedup_keys: list[str], due_dates: list[str], schedule: list[date]
+) -> int:
+    """Los correos siguientes del recordatorio de km, cada fecha una sola vez.
 
     El primero sale con la alerta; los demás, en las fechas del calendario, a
-    quien siga sin lectura. Qué tramos lleva ya cada alerta lo guarda ella
-    misma (`message_args["reminded"]`): si hoy toca un tramo que no está, se
-    encola UN correo (aunque hayan vencido varios de golpe) y se anotan todos
-    los vencidos. La alerta que nace hoy llega ya con los suyos anotados.
+    quien siga sin lectura. Qué fechas lleva ya cada alerta lo guarda ella
+    misma (`message_args["reminded"]`): si hoy toca una que no está Y es
+    posterior a la última enviada, se encola UN correo (aunque hayan vencido
+    varias de golpe) y se anotan todas las vencidas. Una fecha que aparece
+    ya pasada —la lista cambió a mitad de mes— solo se anota: no se vuelve
+    atrás a mandar lo que no tocaba. La alerta que nace hoy llega ya con las
+    suyas anotadas.
     """
     from fleet.services import mailer
 
-    if not dedup_keys or not due_rounds:
+    if not dedup_keys or not due_dates:
         return 0
     queued = 0
     pendientes = Alert.objects.filter(
@@ -740,13 +753,15 @@ def _queue_km_reminder_rounds(dedup_keys: list[str], due_rounds: list[int]) -> i
         dedup_key__in=dedup_keys,
     ).select_related("vehicle", "user")
     for alert in pendientes:
-        enviados = set(_reminded_rounds(alert))
-        if set(due_rounds) <= enviados:
+        enviados = set(_reminded_dates(alert, schedule))
+        if set(due_dates) <= enviados:
             continue
-        mailer.queue_for_alert(alert)
-        queued += 1
+        ultima = max(enviados) if enviados else ""
+        if any(d > ultima for d in due_dates if d not in enviados):
+            mailer.queue_for_alert(alert)
+            queued += 1
         Alert.objects.filter(pk=alert.pk).update(
-            message_args={**alert.message_args, "reminded": sorted(enviados | set(due_rounds))}
+            message_args={**alert.message_args, "reminded": sorted(enviados | set(due_dates))}
         )
     return queued
 

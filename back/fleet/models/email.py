@@ -109,6 +109,29 @@ class EmailLog(TimeStampedModel):
     subject = models.CharField("Asunto", max_length=200, blank=True)
     status = models.CharField("Estado", max_length=10, choices=Status.choices)
     error = models.TextField("Error", blank=True)
+    #: El cuerpo tal y como se compuso (ANTES de la caja corporativa, que se
+    #: pone al construir el mensaje): es lo que permite **reenviar** el mismo
+    #: correo desde la traza. Las filas anteriores a esto van vacías y no se
+    #: pueden reenviar.
+    body_html = models.TextField("Cuerpo (HTML)", blank=True, default="")
+    #: Nombre del adjunto que llevaba (los informes programados). El fichero
+    #: no se conserva, así que un correo con adjunto no se reenvía desde aquí.
+    attachment_name = models.CharField("Adjunto", max_length=200, blank=True, default="")
+    #: El envío del que es reenvío, si lo es.
+    resent_from = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="resends",
+        verbose_name="Reenvío de",
+    )
+
+    @property
+    def can_resend(self) -> bool:
+        """Se puede reenviar tal cual: hay cuerpo y destinatario, y no llevaba
+        adjunto (que no se conserva)."""
+        return bool(self.body_html and self.recipient and not self.attachment_name)
 
     class Meta:
         verbose_name = "envío de correo"

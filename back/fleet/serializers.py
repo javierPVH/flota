@@ -3056,17 +3056,23 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
     has_custom_logo = serializers.SerializerMethodField()
     km_remind_dates = serializers.SerializerMethodField()
     km_remind_max_emails = serializers.SerializerMethodField()
+    #: Día en que se abre el registro de km de campo (N8a, `FLEET_KM_WINDOW_START`;
+    #: 0 = sin ventana): el panel avisa si se recuerda antes de que se pueda dar.
+    km_window_start = serializers.SerializerMethodField()
 
     class Meta:
         model = EmailSettings
         fields = [
             "km_remind_enabled",
+            "km_remind_by",
+            "km_remind_days",
             "km_remind_from_day",
             "km_remind_until_day",
             "km_remind_mode",
             "km_remind_emails",
             "km_remind_max_emails",
             "km_remind_dates",
+            "km_window_start",
             "layout_enabled",
             "brand_name",
             "brand_color",
@@ -3092,17 +3098,50 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Al menos un correo.")
         return value
 
+    def validate_km_remind_days(self, value):
+        """Se guarda normalizada («5, 20, 28»); vacía vale (solo cuenta con
+        «días concretos», y eso lo exige `validate`). Una lista que no vale
+        solo es un error yendo por días: por plazo no se usa, así que lo
+        tecleado a medias ni bloquea el guardado ni se guarda (se queda la
+        anterior)."""
+        from .models import KmRemindBy
+        from .services import email_layout
+
+        if not (value or "").strip():
+            return ""
+        try:
+            return email_layout.format_km_remind_days(email_layout.parse_km_remind_days(value))
+        except ValueError as exc:
+            por = self.initial_data.get(
+                "km_remind_by", self.instance.km_remind_by if self.instance else KmRemindBy.WINDOW
+            )
+            if por == KmRemindBy.DAYS:
+                raise serializers.ValidationError(str(exc)) from exc
+            return self.instance.km_remind_days if self.instance else ""
+
     def validate(self, attrs):
-        """El número de correos no puede pasar de los días del plazo (en el
-        mes más corto): se valida con la ventana que QUEDA tras el cambio."""
+        """Por plazo, el número de correos no puede pasar de los días del
+        plazo (en el mes más corto): se valida con la ventana que QUEDA tras el
+        cambio. Por días concretos, tiene que haber al menos uno y la cadencia
+        no se mira."""
+        from .models import KmRemindBy
         from .services import email_layout
 
         actual = self.instance
-        desde = attrs.get("km_remind_from_day", actual.km_remind_from_day if actual else 20)
-        hasta = attrs.get("km_remind_until_day", actual.km_remind_until_day if actual else 5)
-        correos = attrs.get("km_remind_emails", actual.km_remind_emails if actual else 2)
-        tope = email_layout.km_remind_max_emails(desde, hasta)
-        if correos > tope:
+
+        def queda(campo, defecto):
+            return attrs.get(campo, getattr(actual, campo) if actual else defecto)
+
+        if queda("km_remind_by", KmRemindBy.WINDOW) == KmRemindBy.DAYS:
+            if not queda("km_remind_days", ""):
+                raise serializers.ValidationError(
+                    {"km_remind_days": "Con «días concretos» hay que escribir al menos un día."}
+                )
+            return attrs
+        tope = email_layout.km_remind_max_emails(
+            queda("km_remind_from_day", 20), queda("km_remind_until_day", 5)
+        )
+        if queda("km_remind_emails", 2) > tope:
             raise serializers.ValidationError(
                 {"km_remind_emails": f"Como mucho {tope} correos: los días que tiene el plazo."}
             )
@@ -3132,6 +3171,11 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
 
         return email_layout.km_remind_max_emails(obj.km_remind_from_day, obj.km_remind_until_day)
 
+    def get_km_window_start(self, obj) -> int:
+        from django.conf import settings
+
+        return settings.FLEET_KM_WINDOW_START
+
     def get_km_remind_dates(self, obj) -> list[str]:
         """Las fechas de los correos del mes en curso (o del que se reclama
         hoy), para que la pantalla enseñe el calendario que resulta."""
@@ -3147,6 +3191,9 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
 class EmailLogSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     alert_message = serializers.CharField(source="alert.message", read_only=True, default="")
+    #: Si se puede reenviar tal cual (hay cuerpo guardado, destinatario y sin
+    #: adjunto). El cuerpo no viaja en el listado: es grande y no se lee ahí.
+    can_resend = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = EmailLog
@@ -3160,6 +3207,9 @@ class EmailLogSerializer(serializers.ModelSerializer):
             "status",
             "status_display",
             "error",
+            "attachment_name",
+            "resent_from",
+            "can_resend",
             "created_at",
         ]
         read_only_fields = fields

@@ -3,15 +3,19 @@
 Dos cosas que hasta ahora vivían en variables de entorno o en el código y que
 la administración tiene que poder tocar sin desplegar:
 
-- **El recordatorio de la lectura de km**: la ventana en la que se reclama
-  (del día `km_remind_from_day` al `km_remind_until_day` del mes siguiente) y
-  **con qué cadencia** salen los correos en ella (`km_remind_mode`): todos los
+- **El recordatorio de la lectura de km**, que se fija de una de DOS maneras
+  (`km_remind_by`): por **plazo** —la ventana en la que se reclama (del día
+  `km_remind_from_day` al `km_remind_until_day` del mes siguiente) y **con
+  qué cadencia** salen los correos en ella (`km_remind_mode`): todos los
   días, los pares, los impares o un número de veces (`km_remind_emails`)
   repartido a partes iguales —el primero al abrirse la ventana y el último el
-  último día de plazo—. Ese número nunca pasa de los días que tiene el plazo
+  último día de plazo—; ese número nunca pasa de los días que tiene el plazo
   en el mes más corto (`email_layout.km_remind_max_emails`), que es lo que
-  valida el serializer. Las fechas concretas las calcula
-  `email_layout.km_remind_schedule`.
+  valida el serializer— o por **días concretos** (`km_remind_days`: «5, 20,
+  28», de menor a mayor), y entonces sale un correo cada uno de esos días
+  de CADA mes —el día que un mes no tiene (el 31 en abril) no manda nada
+  ese mes— y la cadencia no se mira.
+  Las fechas concretas las calcula `email_layout.km_remind_schedule`.
 - **El aspecto corporativo** de todos los correos: logotipo, color de marca,
   nombre y pie, que `email_layout.wrap` pone alrededor del cuerpo de
   cualquier plantilla al entregarlo (alertas, comunicados, envíos
@@ -45,6 +49,14 @@ class KmRemindMode(models.TextChoices):
     EVEN = "even", "Los días pares"
 
 
+class KmRemindBy(models.TextChoices):
+    """Cómo se fijan los días del recordatorio: un plazo con cadencia o una
+    lista de días concretos."""
+
+    WINDOW = "window", "Plazo de reclamación"
+    DAYS = "days", "Días concretos"
+
+
 class EmailSettings(TimeStampedModel):
     """Fila única con los ajustes del correo (recordatorio de km y aspecto)."""
 
@@ -57,6 +69,24 @@ class EmailSettings(TimeStampedModel):
         help_text=(
             "Apagado, no se abren avisos de lectura pendiente ni salen sus correos; "
             "los abiertos se siguen cerrando cuando llega la lectura."
+        ),
+    )
+    km_remind_by = models.CharField(
+        "Cómo se fijan los días",
+        max_length=10,
+        choices=KmRemindBy.choices,
+        default=KmRemindBy.WINDOW,
+        help_text="Por plazo (del día X al Y, con su cadencia) o por días concretos.",
+    )
+    km_remind_days = models.CharField(
+        "Días concretos",
+        max_length=120,
+        blank=True,
+        default="",
+        help_text=(
+            "Días del mes separados por comas (1-31), de menor a mayor: cada mes sale "
+            "un correo esos días; el día que un mes no tiene no manda nada ese mes. "
+            "Solo con «días concretos»."
         ),
     )
     km_remind_from_day = models.PositiveSmallIntegerField(

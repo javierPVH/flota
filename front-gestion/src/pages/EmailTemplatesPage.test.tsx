@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   listEmailLogs: vi.fn(),
   listEmailTemplateDefaults: vi.fn(),
   previewEmailDraft: vi.fn(),
+  resendEmailLog: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -20,6 +21,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listEmailLogs: mocks.listEmailLogs,
   listEmailTemplateDefaults: mocks.listEmailTemplateDefaults,
   previewEmailDraft: mocks.previewEmailDraft,
+  resendEmailLog: mocks.resendEmailLog,
 }))
 
 const page = (rows: unknown[]) => ({ count: rows.length, next: null, previous: null, results: rows })
@@ -32,6 +34,9 @@ const ENVIO_VARIOS = {
   status: 'sent',
   status_display: 'Enviado',
   error: '',
+  attachment_name: '',
+  resent_from: null,
+  can_resend: true,
   created_at: '2026-09-01T10:00:00Z',
 }
 
@@ -43,6 +48,9 @@ const ENVIO_ITV = {
   status: 'failed',
   status_display: 'Fallido',
   error: 'SMTPRecipientsRefused',
+  attachment_name: 'informe.xlsx',
+  resent_from: null,
+  can_resend: false,
   created_at: '2026-08-02T10:00:00Z',
 }
 
@@ -214,5 +222,41 @@ describe('EmailTemplatesPage (plantillas de correo)', () => {
       'srcdoc',
       expect.stringContaining('<p>Hola</p>'),
     )
+  })
+
+  it('«Reenviar» manda el mismo correo otra vez y la traza gana una fila', async () => {
+    const reenvio = { ...ENVIO_VARIOS, id: 9, resent_from: 1, created_at: '2026-09-02T10:00:00Z' }
+    mocks.resendEmailLog.mockResolvedValue(reenvio)
+    mocks.listEmailLogs
+      .mockResolvedValueOnce(page([ENVIO_VARIOS, ENVIO_ITV]))
+      .mockResolvedValueOnce(page([reenvio, ENVIO_VARIOS, ENVIO_ITV]))
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderPage()
+    const boton = await screen.findByRole('button', { name: 'Reenviar: Informe mensual de flota' })
+    // El que llevaba adjunto no se puede reenviar, y dice por qué.
+    const apagado = screen.getByRole('button', { name: 'Reenviar: ITV próxima — 1234KLM' })
+    expect(apagado).toBeDisabled()
+    expect(apagado).toHaveAttribute('title', expect.stringContaining('adjunto'))
+
+    await userEvent.click(boton)
+    await waitFor(() => expect(mocks.resendEmailLog).toHaveBeenCalledWith(1))
+    expect(await screen.findByText(/Correo reenviado a/)).toBeInTheDocument()
+    // La fila nueva sale marcada como reenvío.
+    expect(await screen.findByText('reenvío')).toBeInTheDocument()
+  })
+
+  it('«Ver motivo» abre el detalle del envío fallido con su error', async () => {
+    renderPage()
+    // Solo los que no salieron tienen motivo que leer.
+    expect(await screen.findByRole('button', { name: 'Ver motivo: ITV próxima — 1234KLM' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ver motivo: Informe mensual de flota' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Ver motivo: ITV próxima — 1234KLM' }))
+    const modal = await screen.findByRole('dialog')
+    expect(within(modal).getByText('SMTPRecipientsRefused')).toBeInTheDocument()
+    expect(within(modal).getByText('carlos@flota.dev')).toBeInTheDocument()
+    expect(within(modal).getByText('informe.xlsx')).toBeInTheDocument()
+    // Con adjunto no se ofrece reenviar desde el detalle.
+    expect(within(modal).queryByRole('button', { name: /Reenviar/ })).not.toBeInTheDocument()
   })
 })

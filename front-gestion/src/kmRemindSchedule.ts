@@ -14,12 +14,49 @@
  */
 
 export type KmRemindMode = 'count' | 'daily' | 'odd' | 'even'
+export type KmRemindBy = 'window' | 'days'
 
 export interface KmRemindConfig {
+  /** Por plazo (`fromDay`/`untilDay` + cadencia) o por `days` concretos:
+   * días del mes (1-31), de menor a mayor, que se repiten cada mes. */
+  by: KmRemindBy
+  days: number[]
   fromDay: number
   untilDay: number
   mode: KmRemindMode
   emails: number
+}
+
+/** Por qué no vale lo tecleado en «días concretos» (la copia la pone el
+ * panel); con `order`, qué día va después de cuál. */
+export type RemindDaysError = 'empty' | 'range' | 'order'
+export interface ParsedRemindDays {
+  days: number[]
+  error: RemindDaysError | ''
+  /** Con `order`: el día que no sube y el anterior. */
+  day?: number
+  prev?: number
+}
+
+/**
+ * Los días concretos escritos a mano («5, 20, 28»), espejo de
+ * `email_layout.parse_km_remind_days`: días de 1 a 31, de menor a mayor
+ * (ninguno puede ser menor o igual que el anterior: son los días de UN mes).
+ */
+export function parseRemindDays(text: string): ParsedRemindDays {
+  const piezas = text.split(/[,;\s]+/).filter(Boolean)
+  if (piezas.length === 0) return { days: [], error: 'empty' }
+  const days: number[] = []
+  for (const pieza of piezas) {
+    if (!/^\d+$/.test(pieza)) return { days: [], error: 'range' }
+    const day = Number(pieza)
+    if (day < 1 || day > 31) return { days: [], error: 'range' }
+    if (days.length > 0 && day <= days[days.length - 1]) {
+      return { days: [], error: 'order', day, prev: days[days.length - 1] }
+    }
+    days.push(day)
+  }
+  return { days, error: '' }
 }
 
 /** Fecha de calendario sin huso. `month` va de 1 a 12. */
@@ -43,8 +80,41 @@ export function maxEmails(fromDay: number, untilDay: number): number {
   return Math.max(1, 28 - clamp(fromDay, 1, 28) + 1 + clamp(untilDay, 0, 28))
 }
 
-/** (primer día, último día) de la ventana que reclama la lectura de ese mes. */
+/** Los días concretos como fechas de ese mes. El día que ese mes NO tiene (el
+ * 31 en abril) se queda fuera: ese mes no sale, como en el back. */
+function concreteDates(year: number, month: number, days: number[]): Day[] {
+  const total = daysInMonth(year, month)
+  return days.filter((d) => d <= total).map((day) => ({ year, month, day }))
+}
+
+const concreteOf = (cfg: KmRemindConfig) => (cfg.by === 'days' && cfg.days.length > 0 ? cfg.days : null)
+
+/** Los días de la lista que ese mes no tiene (y en los que no saldrá nada). */
+export function missingRemindDays(year: number, month: number, cfg: KmRemindConfig): number[] {
+  const total = daysInMonth(year, month)
+  return (concreteOf(cfg) ?? []).filter((d) => d > total)
+}
+
+/** Si ese mes tiene algún día de correo: por plazo siempre; por días
+ * concretos, solo si el mes tiene alguno de la lista. */
+function reclaims(year: number, month: number, cfg: KmRemindConfig): boolean {
+  const concretos = concreteOf(cfg)
+  return concretos === null || concreteDates(year, month, concretos).length > 0
+}
+
+/** (primer día, último día) de la ventana que reclama la lectura de ese mes.
+ * Por días concretos, del primero al último que ese mes tenga; si no tiene
+ * ninguno, su último día (vacía a efectos prácticos: `remindPeriod` lo sabe). */
 export function remindWindow(year: number, month: number, cfg: KmRemindConfig): [Day, Day] {
+  const concretos = concreteOf(cfg)
+  if (concretos) {
+    const fechas = concreteDates(year, month, concretos)
+    if (fechas.length === 0) {
+      const ultimo: Day = { year, month, day: daysInMonth(year, month) }
+      return [ultimo, ultimo]
+    }
+    return [fechas[0], fechas[fechas.length - 1]]
+  }
   const start: Day = { year, month, day: clamp(cfg.fromDay, 1, daysInMonth(year, month)) }
   const [ny, nm] = addMonths(year, month, 1)
   const end: Day =
@@ -71,8 +141,18 @@ function span(start: Day, end: Day): Day[] {
   return out
 }
 
-/** Los días en que sale cada correo del recordatorio de ese mes. */
+/** Todos los días del plazo de ese mes (lo que se sombrea en el calendario). */
+export function windowDays(year: number, month: number, cfg: KmRemindConfig): Day[] {
+  if (!reclaims(year, month, cfg)) return []
+  const [start, end] = remindWindow(year, month, cfg)
+  return span(start, end)
+}
+
+/** Los días en que sale cada correo del recordatorio de ese mes. Con días
+ * concretos la cadencia no se mira: un correo cada día de la lista. */
 export function remindSchedule(year: number, month: number, cfg: KmRemindConfig): Day[] {
+  const concretos = concreteOf(cfg)
+  if (concretos) return concreteDates(year, month, concretos)
   const [start, end] = remindWindow(year, month, cfg)
   const dias = span(start, end)
   if (cfg.mode === 'daily') return dias
@@ -100,10 +180,10 @@ export function remindSchedule(year: number, month: number, cfg: KmRemindConfig)
 /** Mes cuya lectura reclama hoy el recordatorio, o null fuera de la ventana. */
 export function remindPeriod(today: Day, cfg: KmRemindConfig): [number, number] | null {
   const [start] = remindWindow(today.year, today.month, cfg)
-  if (today.day >= start.day) return [today.year, today.month]
+  if (reclaims(today.year, today.month, cfg) && today.day >= start.day) return [today.year, today.month]
   const [py, pm] = addMonths(today.year, today.month, -1)
   const [, end] = remindWindow(py, pm, cfg)
-  if (before(today, end) || same(today, end)) return [py, pm]
+  if (reclaims(py, pm, cfg) && (before(today, end) || same(today, end))) return [py, pm]
   return null
 }
 

@@ -23,12 +23,15 @@ vi.mock('../api.ts', async (importOriginal) => ({
 
 const AJUSTES = {
   km_remind_enabled: true,
+  km_remind_by: 'window' as const,
+  km_remind_days: '',
   km_remind_from_day: 20,
   km_remind_until_day: 5,
   km_remind_mode: 'count' as const,
   km_remind_emails: 2,
   km_remind_max_emails: 14,
   km_remind_dates: ['2026-10-20', '2026-11-05'],
+  km_window_start: 0,
   layout_enabled: true,
   brand_name: 'Gestión de flota',
   brand_color: '#009491',
@@ -66,7 +69,7 @@ const PREVIEW = { subject: 'x', body_html: '', document_html: '<html><body><p>Ho
 
 /** Las fechas del desplegable «Fechas» del panel gris. */
 const fechas = () =>
-  within(document.querySelector('.es-dates') as HTMLElement).getAllByRole('listitem').map((li) => li.textContent)
+  within(document.querySelector('.es-dates') as HTMLElement).queryAllByRole('listitem').map((li) => li.textContent)
 
 describe('EmailSettingsPanel — recordatorio de km', () => {
   beforeEach(() => {
@@ -173,6 +176,9 @@ describe('EmailSettingsPanel — recordatorio de km', () => {
     expect(form.get('km_remind_mode')).toBe('odd')
     expect(form.get('km_remind_from_day')).toBe('20')
     expect(form.get('km_remind_emails')).toBe('2')
+    // Por plazo la lista de días no viaja.
+    expect(form.get('km_remind_by')).toBe('window')
+    expect(form.get('km_remind_days')).toBeNull()
   })
 
   it('sin plantilla personalizada enseña la genérica en uso y ofrece personalizarla', async () => {
@@ -227,5 +233,91 @@ describe('EmailSettingsPanel — recordatorio de km', () => {
     await waitFor(() => expect(mocks.updateEmailSettings).toHaveBeenCalled())
     const form = mocks.updateEmailSettings.mock.calls[0][0] as FormData
     expect(form.get('km_remind_enabled')).toBe('false')
+  })
+
+  it('con días concretos, un correo cada día de la lista y la cadencia apagada', async () => {
+    mocks.getEmailSettings.mockResolvedValue(AJUSTES)
+    mocks.updateEmailSettings.mockResolvedValue({ ...AJUSTES, km_remind_by: 'days', km_remind_days: '5, 20, 28' })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(
+      <EmailSettingsPanel section="reminder" templates={[]} defaults={[GENERICA_KM]} onEditTemplate={() => undefined} />,
+    )
+    await screen.findByLabelText('Desde el día')
+    await user.click(screen.getByRole('radio', { name: 'Días concretos' }))
+    // El plazo se va, llega la caja de días y la cadencia queda apagada.
+    expect(screen.queryByLabelText('Desde el día')).not.toBeInTheDocument()
+    const dias = screen.getByLabelText('Días en que sale el correo')
+    expect(screen.getByRole('radio', { name: /Todos los días/ })).toBeDisabled()
+    expect(screen.getByText(/no hay cadencia/)).toBeInTheDocument()
+    // Vacía no se puede guardar, y dice por qué; y sin lista no hay calendario.
+    expect(screen.getByText(/Escribe al menos un día \(/)).toBeInTheDocument()
+    expect(screen.getByText('Escribe al menos un día para ver el calendario.')).toBeInTheDocument()
+    expect(fechas()).toHaveLength(0)
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled()
+    // Un punto como separador se vuelve coma; una letra no entra.
+    await user.type(dias, '5.20;28x')
+    expect(dias).toHaveValue('5,20,28')
+    await user.clear(dias)
+    await user.type(dias, '5, 20, 28')
+    // El calendario sigue la lista: tres correos del mismo mes, y un solo mes.
+    expect(fechas()).toHaveLength(3)
+    expect(screen.getByText(/3 correos entre el 5 .* y el 28 /)).toBeInTheDocument()
+    const calendarios = screen.getAllByRole('table')
+    expect(calendarios).toHaveLength(1)
+    expect(within(calendarios[0]).getByText('20')).toHaveClass('is-email')
+    expect(within(calendarios[0]).getByText('21')).toHaveClass('is-window')
+    // Un día menor que el anterior no vale, y dice cuál.
+    await user.type(dias, ', 3')
+    expect(screen.getByText('El 3 no puede ir después del 28: escribe los días de menor a mayor.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled()
+    // Mientras tanto el calendario sigue con la última lista que valía.
+    expect(fechas()).toHaveLength(3)
+    expect(screen.getByText(/3 correos entre el 5 /)).toBeInTheDocument()
+    await user.type(dias, '{backspace}{backspace}{backspace}')
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(mocks.updateEmailSettings).toHaveBeenCalled())
+    const form = mocks.updateEmailSettings.mock.calls[0][0] as FormData
+    expect(form.get('km_remind_by')).toBe('days')
+    expect(form.get('km_remind_days')).toBe('5, 20, 28')
+  })
+
+  it('el calendario dice qué día de la lista no tiene el mes, y si no sale ninguno', async () => {
+    // Noviembre: 30 días.
+    vi.setSystemTime(new Date(2026, 10, 26, 12))
+    mocks.getEmailSettings.mockResolvedValue({ ...AJUSTES, km_remind_by: 'days', km_remind_days: '15, 31' })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(
+      <EmailSettingsPanel section="reminder" templates={[]} defaults={[GENERICA_KM]} onEditTemplate={() => undefined} />,
+    )
+    const dias = await screen.findByLabelText('Días en que sale el correo')
+    expect(fechas()).toHaveLength(1)
+    expect(screen.getByText('Noviembre no tiene el día 31: ese día no sale correo.')).toBeInTheDocument()
+    // Solo el 31: en noviembre no sale nada, y se dice.
+    await user.clear(dias)
+    await user.type(dias, '31')
+    expect(screen.getByText(/Noviembre no tiene ninguno de esos días/)).toBeInTheDocument()
+    expect(screen.queryByText(/no sale correo\./)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeEnabled()
+  })
+
+  it('avisa si se recuerda antes de que el conductor pueda registrar', async () => {
+    mocks.getEmailSettings.mockResolvedValue({
+      ...AJUSTES,
+      km_window_start: 23,
+      km_remind_by: 'days',
+      km_remind_days: '5, 20, 28',
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(
+      <EmailSettingsPanel section="reminder" templates={[]} defaults={[GENERICA_KM]} onEditTemplate={() => undefined} />,
+    )
+    const dias = await screen.findByLabelText('Días en que sale el correo')
+    expect(screen.getByText(/se abre el día 23 de cada mes/)).toBeInTheDocument()
+    await user.clear(dias)
+    await user.type(dias, '25, 28')
+    expect(screen.queryByText(/se abre el día 23/)).not.toBeInTheDocument()
+    // Por plazo también: «desde el día 20» es antes del 23.
+    await user.click(screen.getByRole('radio', { name: 'Plazo de reclamación' }))
+    expect(screen.getByText(/se abre el día 23 de cada mes/)).toBeInTheDocument()
   })
 })

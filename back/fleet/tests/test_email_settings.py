@@ -16,6 +16,7 @@ from fleet.models import (
     EmailSettings,
     EmailTemplate,
     EmailTemplateKey,
+    KmRemindBy,
     KmRemindMode,
     Vehicle,
 )
@@ -98,6 +99,53 @@ class KmRemindScheduleTests(TestCase):
         self.assertEqual(len(fechas), 14)
         self.assertEqual(len(set(fechas)), 14)
 
+    def test_concrete_days_send_one_email_each_every_month(self):
+        c = self.cfg(km_remind_by=KmRemindBy.DAYS, km_remind_days="5, 20, 28")
+        self.assertEqual(
+            email_layout.km_remind_schedule(date(2026, 10, 1), c),
+            [date(2026, 10, 5), date(2026, 10, 20), date(2026, 10, 28)],
+        )
+        # La ventana va del primero al último, y el periodo la sigue: el 4 no
+        # se reclama nada (septiembre acabó) y el 5 se abre octubre.
+        self.assertEqual(
+            email_layout.km_remind_window(date(2026, 10, 1), c),
+            (date(2026, 10, 5), date(2026, 10, 28)),
+        )
+        self.assertIsNone(email_layout.km_remind_period(date(2026, 10, 4), c))
+        self.assertEqual(email_layout.km_remind_period(date(2026, 10, 5), c), date(2026, 10, 1))
+        self.assertEqual(email_layout.km_remind_period(date(2026, 10, 28), c), date(2026, 10, 1))
+        # Tras el último de la lista se sigue reclamando hasta fin de mes (el
+        # aviso queda abierto, sin más correos); sin cola, noviembre ya no.
+        self.assertEqual(email_layout.km_remind_period(date(2026, 10, 29), c), date(2026, 10, 1))
+        self.assertIsNone(email_layout.km_remind_period(date(2026, 11, 1), c))
+        # La cadencia no se mira: con «todos los días» siguen siendo tres.
+        c = self.cfg(km_remind_mode=KmRemindMode.DAILY)
+        self.assertEqual(len(email_layout.km_remind_schedule(date(2026, 10, 1), c)), 3)
+
+    def test_a_day_the_month_does_not_have_sends_nothing_that_month(self):
+        c = self.cfg(km_remind_by=KmRemindBy.DAYS, km_remind_days="15, 31")
+        self.assertEqual(
+            email_layout.km_remind_schedule(date(2026, 3, 1), c),
+            [date(2026, 3, 15), date(2026, 3, 31)],
+        )
+        self.assertEqual(email_layout.km_remind_schedule(date(2026, 4, 1), c), [date(2026, 4, 15)])
+        # Solo el 31: febrero no lo tiene, así que febrero no reclama nada.
+        c = self.cfg(km_remind_days="31")
+        self.assertEqual(email_layout.km_remind_schedule(date(2026, 2, 1), c), [])
+        self.assertIsNone(email_layout.km_remind_period(date(2026, 2, 28), c))
+        self.assertEqual(email_layout.km_remind_period(date(2026, 1, 31), c), date(2026, 1, 1))
+
+    def test_parse_concrete_days(self):
+        parse = email_layout.parse_km_remind_days
+        self.assertEqual(parse("5, 20, 28"), [5, 20, 28])
+        self.assertEqual(parse(" 5;10 15 "), [5, 10, 15])
+        self.assertEqual(email_layout.format_km_remind_days(parse("5,20,28")), "5, 20, 28")
+        for malo in ("", "0", "32", "x", "25, 26, 27, 3, 17", "5, 5"):
+            with self.assertRaises(ValueError, msg=malo):
+                parse(malo)
+        with self.assertRaisesMessage(ValueError, "El 3 no puede ir después del 27"):
+            parse("25, 26, 27, 3, 17")
+
     def test_period_follows_the_configured_window(self):
         c = self.cfg(km_remind_from_day=15, km_remind_until_day=10)
         self.assertEqual(email_layout.km_remind_period(date(2026, 10, 15), c), date(2026, 10, 1))
@@ -120,12 +168,46 @@ class KmRemindScheduleTests(TestCase):
             alerts.check_km_readings(date(2026, 10, d))
         alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
         self.assertEqual(EmailOutbox.objects.filter(alert=alert).count(), 2)
-        self.assertEqual(alert.message_args["reminded"], [0, 1])
+        self.assertEqual(alert.message_args["reminded"], ["2026-10-20", "2026-10-28"])
         for d in (1, 5, 5):
             alerts.check_km_readings(date(2026, 11, d))
         self.assertEqual(EmailOutbox.objects.filter(alert=alert).count(), 3)
         alert.refresh_from_db()
-        self.assertEqual(alert.message_args["reminded"], [0, 1, 2])
+        self.assertEqual(alert.message_args["reminded"], ["2026-10-20", "2026-10-28", "2026-11-05"])
+
+    @override_settings(FLEET_EMAIL_ENABLED=True)
+    def test_changing_the_days_mid_month_does_not_repeat_a_sent_email(self):
+        from fleet.models import Assignment, EmailOutbox
+
+        self.cfg(km_remind_by=KmRemindBy.DAYS, km_remind_days="5, 20, 28")
+        driver = make_user("km-cambio", Role.DRIVER)
+        driver.email = "km-cambio@flota.dev"
+        driver.save(update_fields=["email"])
+        vehicle = Vehicle.objects.create(plate="KMR2", brand="a", model="b")
+        Assignment.objects.create(
+            vehicle=vehicle, driver=driver, start_date=date(2026, 1, 1), status="accepted"
+        )
+        for d in (5, 20):
+            alerts.check_km_readings(date(2026, 10, d))
+        alert = Alert.objects.get(type=AlertType.KM_READING_PENDING)
+        self.assertEqual(EmailOutbox.objects.filter(alert=alert).count(), 2)
+        # Se añade el 10 cuando ya pasó: con índices, el «tercer tramo» (el 20)
+        # se habría vuelto a mandar. Por fecha, el 20 ya está y el 10 solo se
+        # anota: no se vuelve atrás.
+        self.cfg(km_remind_days="5, 10, 20, 28")
+        alerts.check_km_readings(date(2026, 10, 21))
+        self.assertEqual(EmailOutbox.objects.filter(alert=alert).count(), 2)
+        alert.refresh_from_db()
+        self.assertEqual(alert.message_args["reminded"], ["2026-10-05", "2026-10-10", "2026-10-20"])
+        # El 28 sigue saliendo.
+        alerts.check_km_readings(date(2026, 10, 28))
+        self.assertEqual(EmailOutbox.objects.filter(alert=alert).count(), 3)
+        # Y una marca antigua por índices se entiende con el calendario de hoy.
+        Alert.objects.filter(pk=alert.pk).update(
+            message_args={**alert.message_args, "reminded": [0, 1, 2, 3]}
+        )
+        alerts.check_km_readings(date(2026, 10, 29))
+        self.assertEqual(EmailOutbox.objects.filter(alert=alert).count(), 3)
 
 
 class EmailLayoutTests(TestCase):
@@ -192,6 +274,7 @@ class EmailSettingsApiTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["km_remind_emails"], 2)
         self.assertEqual(len(resp.data["km_remind_dates"]), 2)
+        self.assertIn("km_window_start", resp.data)
         self.assertTrue(resp.data["logo_data_url"].startswith("data:image/png;base64,"))
         self.assertFalse(resp.data["has_custom_logo"])
 
@@ -231,6 +314,48 @@ class EmailSettingsApiTests(APITestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         self.assertEqual(resp.data["km_remind_max_emails"], 24)
+
+    def test_concrete_days_replace_the_window_and_the_cadence(self):
+        # Sin días no se puede ir por días concretos.
+        resp = self.client.post(reverse("email-settings"), {"km_remind_by": "days"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("km_remind_days", resp.data["errors"])
+        # Una lista que no vale dice por qué.
+        resp = self.client.post(
+            reverse("email-settings"),
+            {"km_remind_by": "days", "km_remind_days": "25, 40"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("40", str(resp.data["errors"]["km_remind_days"]))
+        # Con días, el número de correos deja de tener tope: no se mira.
+        resp = self.client.post(
+            reverse("email-settings"),
+            {"km_remind_by": "days", "km_remind_days": "25,28,30", "km_remind_emails": 50},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["km_remind_days"], "25, 28, 30")
+        self.assertEqual(resp.data["km_remind_by"], "days")
+        self.assertEqual(len(resp.data["km_remind_dates"]), 3)
+        # Y el job abre el aviso el primer día de la lista, no el 20.
+        Vehicle.objects.create(plate="CFG2", brand="a", model="b")
+        self.assertEqual(alerts.check_km_readings(date(2026, 10, 20)), 0)
+        self.assertEqual(alerts.check_km_readings(date(2026, 10, 25)), 1)
+        # Volver al plazo recupera el tope.
+        resp = self.client.post(
+            reverse("email-settings"), {"km_remind_by": "window"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("km_remind_emails", resp.data["errors"])
+        # Y por plazo una lista a medias no estorba: ni bloquea ni se guarda.
+        resp = self.client.post(
+            reverse("email-settings"),
+            {"km_remind_by": "window", "km_remind_emails": 2, "km_remind_days": "x"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["km_remind_days"], "25, 28, 30")
 
     def test_mode_changes_the_calendar(self):
         resp = self.client.post(
@@ -415,3 +540,61 @@ class EmailDefaultsTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
         self.assertEqual(resp.data["id"], tpl.pk)
         self.assertEqual(mailer._template_for(EmailTemplateKey.ITV_DUE).subject, "Otra")
+
+
+class EmailLogResendTests(APITestCase):
+    """Trazas → «Reenviar»: el mismo correo otra vez, con su propia fila."""
+
+    def setUp(self):
+        from fleet.models import EmailLog
+
+        self.admin = make_user("log-admin", Role.ADMIN)
+        self.client.force_authenticate(self.admin)
+        self.log = EmailLog.objects.create(
+            template_key="generic",
+            recipient="a@flota.dev, b@flota.dev",
+            subject="Aviso",
+            body_html="<p>Cuerpo original</p>",
+            status=EmailLog.Status.SENT,
+        )
+
+    @override_settings(
+        FLEET_EMAIL_ENABLED=True, EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend"
+    )
+    def test_resend_sends_the_same_mail_and_logs_it(self):
+        from fleet.models import EmailLog
+
+        resp = self.client.post(reverse("emaillog-resend", args=[self.log.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["resent_from"], self.log.pk)
+        self.assertEqual(resp.data["status"], "sent")
+        self.assertTrue(resp.data["can_resend"])
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["a@flota.dev", "b@flota.dev"])
+        self.assertIn("Cuerpo original", mail.outbox[0].alternatives[0][0])
+        self.assertEqual(EmailLog.objects.filter(resent_from=self.log).count(), 1)
+
+    @override_settings(FLEET_EMAIL_ENABLED=True)
+    def test_rows_without_body_or_with_attachment_cannot_be_resent(self):
+        from fleet.models import EmailLog
+
+        viejo = EmailLog.objects.create(
+            template_key="generic", recipient="a@flota.dev", subject="Viejo", status="sent"
+        )
+        resp = self.client.get(reverse("emaillog-list"))
+        por_id = {r["id"]: r for r in resp.data["results"]}
+        self.assertTrue(por_id[self.log.pk]["can_resend"])
+        self.assertFalse(por_id[viejo.pk]["can_resend"])
+        resp = self.client.post(reverse("emaillog-resend", args=[viejo.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.log.attachment_name = "informe.xlsx"
+        self.log.save()
+        resp = self.client.post(reverse("emaillog-resend", args=[self.log.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("adjunto", str(resp.data))
+
+    def test_resend_is_admin_only(self):
+        sup = make_user("log-sup", Role.SUPERVISOR)
+        self.client.force_authenticate(sup)
+        resp = self.client.post(reverse("emaillog-resend", args=[self.log.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

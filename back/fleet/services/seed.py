@@ -2932,11 +2932,14 @@ def seed_comms(stdout=None) -> None:
     insurance_alert = Alert.objects.filter(type=AlertType.INSURANCE_DUE).first()
     km_alert = Alert.objects.filter(type=AlertType.KM_READING_PENDING).first()
     plate = insurance_alert.vehicle.plate if insurance_alert else "1234KLM"
+    # Con cuerpo (reenviable desde Trazas) y sin él (anterior a la traza del
+    # cuerpo: el botón sale apagado), para ver las dos cosas en dev.
     EmailLog.objects.create(
         alert=insurance_alert,
         template_key=EmailTemplateKey.INSURANCE_DUE,
         recipient="flota@ald.example",
         subject=f"Seguro próximo a vencer — {plate}",
+        body_html=f"<p>El seguro de <strong>{plate}</strong> vence en 15 días.</p>",
         status=EmailLog.Status.SENT,
     )
     EmailLog.objects.create(

@@ -1134,6 +1134,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                         template_key=log_key,
                         recipient="",
                         subject=subject,
+                        body_html=body_html,
                         status=EmailLog.Status.SKIPPED,
                         error=f"{role} sin email",
                     )
@@ -1147,6 +1148,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                         template_key=log_key,
                         recipient=email,
                         subject=subject,
+                        body_html=body_html,
                         status=EmailLog.Status.SKIPPED,
                         error="Correo saliente no configurado (EMAIL_HOST).",
                     )
@@ -1166,6 +1168,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                         template_key=log_key,
                         recipient=email,
                         subject=subject,
+                        body_html=body_html,
                         status=EmailLog.Status.SENT,
                     )
                 except Exception as exc:  # noqa: BLE001 — best-effort por diseño
@@ -1174,8 +1177,9 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                         template_key=log_key,
                         recipient=email,
                         subject=subject,
+                        body_html=body_html,
                         status=EmailLog.Status.FAILED,
-                        error=str(exc)[:1000],
+                        error=mailer.describe_error(exc),
                     )
         finally:
             try:
@@ -3386,14 +3390,16 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
                 template_key=template.key,
                 recipient=request.user.email,
                 subject=subject[:200],
+                body_html=body,
                 status=EmailLog.Status.FAILED,
-                error=str(exc)[:1000],
+                error=mailer.describe_error(exc),
             )
             raise ValidationError({"detail": f"No se pudo enviar la prueba: {exc}"}) from exc
         EmailLog.objects.create(
             template_key=template.key,
             recipient=request.user.email,
             subject=subject[:200],
+            body_html=body,
             status=EmailLog.Status.SENT,
         )
         return Response({"sent_to": request.user.email})
@@ -3443,13 +3449,25 @@ class EmailSettingsView(APIView):
 
 
 class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
-    """Traza de envíos (soporte). Solo lectura, solo admin."""
+    """Traza de envíos (soporte). Solo lectura, solo admin — salvo `resend`."""
 
     queryset = EmailLog.objects.select_related("alert")
     serializer_class = EmailLogSerializer
     permission_classes = [IsAdmin]
     filterset_fields = ["status", "template_key"]
     search_fields = ["recipient", "subject"]
+
+    @action(detail=True, methods=["post"])
+    def resend(self, request, pk=None):
+        """POST /email-logs/{id}/resend/ — vuelve a mandar ese mismo correo
+        (asunto, cuerpo y destinatario) y devuelve la fila nueva de la traza."""
+        from .services import mailer
+
+        try:
+            nuevo = mailer.resend_log(self.get_object())
+        except ValueError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        return Response(EmailLogSerializer(nuevo).data, status=status.HTTP_201_CREATED)
 
 
 class ReportExportViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):

@@ -132,8 +132,68 @@ def _clamp_day(month_first: date, day: int) -> date:
     return month_first.replace(day=min(max(1, day), last))
 
 
+def parse_km_remind_days(text: str) -> list[int]:
+    """Los días concretos escritos a mano («5, 20, 28»): días del mes de 1 a
+    31, **de menor a mayor** (ninguno puede ser menor que el anterior: son
+    los días de UN mes, y se repiten cada mes). Lanza `ValueError` con el
+    porqué, en castellano, para que lo enseñe el serializer."""
+    piezas = [p.strip() for p in re.split(r"[,;\s]+", text or "") if p.strip()]
+    if not piezas:
+        raise ValueError("Escribe al menos un día (por ejemplo «5, 20, 28»).")
+    dias: list[int] = []
+    for pieza in piezas:
+        if not pieza.isdigit() or not 1 <= int(pieza) <= 31:
+            raise ValueError(f"«{pieza}» no es un día del mes (1-31).")
+        dia = int(pieza)
+        if dias and dia <= dias[-1]:
+            raise ValueError(
+                f"El {dia} no puede ir después del {dias[-1]}: escribe los días de menor a mayor."
+            )
+        dias.append(dia)
+    return dias
+
+
+def format_km_remind_days(dias: list[int]) -> str:
+    """La lista normalizada, como se guarda: «5, 20, 28»."""
+    return ", ".join(str(d) for d in dias)
+
+
+def _concrete_days(cfg: EmailSettings) -> list[int] | None:
+    """Los días concretos en uso, o None si se va por plazo (o la lista no
+    vale, que no debería pasar con lo que deja guardar el serializer)."""
+    from fleet.models import KmRemindBy
+
+    if cfg.km_remind_by != KmRemindBy.DAYS:
+        return None
+    try:
+        return parse_km_remind_days(cfg.km_remind_days)
+    except ValueError:
+        return None
+
+
+def _concrete_dates(period_month: date, dias: list[int]) -> list[date]:
+    """Los días concretos como fechas de ese mes. El día que ese mes NO tiene
+    (el 31 en abril, el 29 en febrero) se queda fuera: ese mes no sale."""
+    first = period_month.replace(day=1)
+    ultimo = _clamp_day(first, 31).day
+    return [first.replace(day=d) for d in dias if d <= ultimo]
+
+
 def km_remind_window(period_month: date, cfg: EmailSettings) -> tuple[date, date]:
-    """(primer día, último día) de la ventana que reclama la lectura de ese mes."""
+    """(primer día, último día) de la ventana que reclama la lectura de ese mes.
+
+    Por días concretos, del primero al último que ese mes tenga: entre medias
+    es cuando se reclama, aunque solo salga correo en los días escritos. Si
+    no tiene ninguno, ese mes no se reclama (`km_remind_period` lo sabe) y
+    la ventana es su último día, vacía a efectos prácticos.
+    """
+    dias = _concrete_days(cfg)
+    if dias:
+        fechas = _concrete_dates(period_month, dias)
+        if not fechas:
+            ultimo = _clamp_day(period_month.replace(day=1), 31)
+            return ultimo, ultimo
+        return fechas[0], fechas[-1]
     first = period_month.replace(day=1)
     start = _clamp_day(first, cfg.km_remind_from_day)
     nxt = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
@@ -163,9 +223,15 @@ def km_remind_schedule(period_month: date, cfg: EmailSettings) -> list[date]:
       ventana —la primera al abrirse y la última el último día de plazo—; con
       una sola, la primera. Dos fechas nunca coinciden: si la ventana es más
       corta que el número de correos, salen menos.
+
+    Con **días concretos** (`km_remind_by = days`) la cadencia no se mira:
+    sale un correo cada día de la lista.
     """
     from fleet.models import KmRemindMode
 
+    dias = _concrete_days(cfg)
+    if dias:
+        return _concrete_dates(period_month, dias)
     start, end = km_remind_window(period_month, cfg)
     span = (end - start).days
     dias = [start + timedelta(days=i) for i in range(span + 1)]
@@ -201,9 +267,16 @@ def km_remind_period(today: date, cfg: EmailSettings) -> date | None:
     se reclama nada.
     """
     this_month = today.replace(day=1)
-    if today >= km_remind_window(this_month, cfg)[0]:
+    if _reclaims(this_month, cfg) and today >= km_remind_window(this_month, cfg)[0]:
         return this_month
     previous = (this_month - timedelta(days=1)).replace(day=1)
-    if today <= km_remind_window(previous, cfg)[1]:
+    if _reclaims(previous, cfg) and today <= km_remind_window(previous, cfg)[1]:
         return previous
     return None
+
+
+def _reclaims(period_month: date, cfg: EmailSettings) -> bool:
+    """Si ese mes tiene algún día de correo: por plazo siempre; por días
+    concretos, solo si el mes tiene alguno de la lista."""
+    dias = _concrete_days(cfg)
+    return dias is None or bool(_concrete_dates(period_month, dias))
