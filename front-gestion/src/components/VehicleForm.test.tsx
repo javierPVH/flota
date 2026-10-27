@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   listAll: vi.fn(),
   previewVehicle: vi.fn(),
   updateVehicleFields: vi.fn(),
+  setVehicleDriver: vi.fn(),
   updateContract: vi.fn(),
   createContract: vi.fn(),
 }))
@@ -32,6 +33,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listAll: mocks.listAll,
   previewVehicle: mocks.previewVehicle,
   updateVehicleFields: mocks.updateVehicleFields,
+  setVehicleDriver: mocks.setVehicleDriver,
   updateContract: mocks.updateContract,
   createContract: mocks.createContract,
 }))
@@ -108,6 +110,7 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
     mocks.listAll.mockResolvedValue([{ id: 9, name: 'Clío' }])
     mocks.previewVehicle.mockResolvedValue({ changes: {} })
     mocks.updateVehicleFields.mockResolvedValue(VEHICLE)
+    mocks.setVehicleDriver.mockResolvedValue(VEHICLE)
     mocks.updateContract.mockResolvedValue(CONTRACT)
     mocks.createContract.mockResolvedValue(CONTRACT)
   })
@@ -134,10 +137,86 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
     // El odómetro inicial sigue bloqueado aquí.
     expect(screen.getByDisplayValue('12000')).toBeDisabled()
 
+    // El conductor ya no está bloqueado: su nota dice qué pasa al cambiarlo.
     await irA('Uso y asignación')
-    expect(
-      screen.getByRole('button', { name: '¿Por qué no se puede editar?' }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '¿Qué pasa al cambiarlo?' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Conductor' })).toBeEnabled()
+  })
+
+  it('el conductor se enseña con el vigente y cambiarlo pide confirmación', async () => {
+    mocks.listDrivers.mockResolvedValue([
+      { id: 3, name: 'Carlos Ruiz' },
+      { id: 4, name: 'Lucía Pérez' },
+    ])
+    mocks.fetchVehicle.mockResolvedValue({ ...VEHICLE, driver_id: 3, driver_name: 'Carlos Ruiz' })
+    renderEdit()
+    await screen.findByDisplayValue('2026-01-01')
+    await irA('Uso y asignación')
+
+    const conductor = screen.getByRole('combobox', { name: 'Conductor' }) as HTMLSelectElement
+    await waitFor(() => expect(conductor.value).toBe('3'))
+
+    // Decir que no deja el desplegable como estaba.
+    await userEvent.selectOptions(conductor, '4')
+    expect(await screen.findByText(/Vas a cambiar el conductor de 3546LKR/)).toBeInTheDocument()
+    const aviso = screen.getByRole('dialog', { name: 'Cambiar el conductor' })
+    await userEvent.click(within(aviso).getByRole('button', { name: 'Cancelar' }))
+    await waitFor(() => expect(conductor.value).toBe('3'))
+
+    // Aceptar lo cambia; el preview lo enseña como histórico y guardar va
+    // por `set-driver` DESPUÉS de la ficha, con su marca de `updated_at`.
+    await userEvent.selectOptions(conductor, '4')
+    await screen.findByText(/Vas a cambiar el conductor de 3546LKR/)
+    await userEvent.click(screen.getByRole('button', { name: 'Entendido, cambiarlo' }))
+    await waitFor(() => expect(conductor.value).toBe('4'))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Revisar cambios…' }))
+    const preview = await screen.findByRole('dialog', { name: 'Confirmar cambios' })
+    const fila = within(preview).getByText('Conductor').closest('tr') as HTMLElement
+    expect(fila).toHaveTextContent('Carlos Ruiz')
+    expect(fila).toHaveTextContent('Lucía Pérez')
+    await userEvent.click(within(preview).getByRole('button', { name: 'Guardar cambios' }))
+    await waitFor(() =>
+      expect(mocks.setVehicleDriver).toHaveBeenCalledWith(42, {
+        driver: 4,
+        expected_updated_at: VEHICLE.updated_at,
+      }),
+    )
+    expect(mocks.updateVehicleFields.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.setVehicleDriver.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('dejar el coche sin conductor avisa y se hace ANTES de guardar la ficha', async () => {
+    mocks.listDrivers.mockResolvedValue([{ id: 3, name: 'Carlos Ruiz' }])
+    mocks.fetchVehicle.mockResolvedValue({ ...VEHICLE, driver_id: 3, driver_name: 'Carlos Ruiz' })
+    mocks.setVehicleDriver.mockResolvedValue({ ...VEHICLE, updated_at: '2026-09-02T10:00:00Z' })
+    renderEdit()
+    await screen.findByDisplayValue('2026-01-01')
+    await irA('Uso y asignación')
+    const conductor = screen.getByRole('combobox', { name: 'Conductor' }) as HTMLSelectElement
+    await waitFor(() => expect(conductor.value).toBe('3'))
+
+    await userEvent.selectOptions(conductor, '')
+    expect(await screen.findByText(/Vas a dejar 3546LKR sin conductor/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Entendido, cambiarlo' }))
+    await waitFor(() => expect(conductor.value).toBe(''))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Revisar cambios…' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Guardar cambios' }))
+    await waitFor(() =>
+      expect(mocks.setVehicleDriver).toHaveBeenCalledWith(42, {
+        driver: null,
+        expected_updated_at: VEHICLE.updated_at,
+      }),
+    )
+    // La ficha se guarda después, con la marca que devolvió `set-driver`.
+    await waitFor(() =>
+      expect(mocks.updateVehicleFields).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ expected_updated_at: '2026-09-02T10:00:00Z' }),
+      ),
+    )
   })
 
   /** La matrícula, el bastidor y la matriculación no son una pestaña: son la
@@ -317,17 +396,39 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
     )
   })
 
-  it('la marca de multiusuario no se ofrece sin supervisor, y dice por qué', async () => {
-    // El back la rechaza sin supervisor, así que aquí ni se deja marcar: un
-    // 400 que se podía evitar es un error de la pantalla, no del usuario.
+  it('marcar multiusuario sin supervisor vuelve obligatorio el supervisor', async () => {
+    // El back la rechaza sin supervisor: en vez de apagar la casilla, el
+    // supervisor pasa a obligatorio y el envío no sale hasta elegir uno.
+    mocks.listSupervisors.mockResolvedValue([{ id: 8, name: 'Sara Supervisora' }])
+    mocks.previewVehicle.mockClear()
     renderEdit()
-    await screen.findByDisplayValue('2026-01-01')  // el formulario ya cargó
+    await screen.findByDisplayValue('2026-01-01') // el formulario ya cargó
     await irA('Uso y asignación')
 
     const casilla = screen.getByRole('checkbox', { name: /Multiusuario/ })
-    expect(casilla).toBeDisabled()
-    await userEvent.click(screen.getByRole('button', { name: '¿Qué es un coche multiusuario?' }))
-    expect(screen.getByText(/Elige antes un supervisor/)).toBeInTheDocument()
+    expect(casilla).toBeEnabled()
+    const supervisor = screen.getByRole('combobox', { name: /Supervisor/ }) as HTMLSelectElement
+    expect(supervisor).not.toBeRequired()
+    await userEvent.click(casilla)
+    expect(casilla).toBeChecked()
+    expect(supervisor).toBeRequired()
+    expect(screen.getByText('Un multiusuario necesita supervisor: elige uno antes de guardar.')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Conductor' })).toBeDisabled()
+
+    // Sin supervisor el formulario no se envía (validación nativa).
+    await userEvent.click(screen.getByRole('button', { name: 'Revisar cambios…' }))
+    expect(mocks.previewVehicle).not.toHaveBeenCalled()
+
+    // Con uno elegido, el aviso se va y el envío sale.
+    await userEvent.selectOptions(supervisor, '8')
+    expect(screen.queryByText(/elige uno antes de guardar/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Revisar cambios…' }))
+    await waitFor(() =>
+      expect(mocks.previewVehicle).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ is_multiuser: true, supervisor: 8 }),
+      ),
+    )
   })
 
   it('con supervisor se puede marcar, y marcarla deja el conductor en blanco', async () => {

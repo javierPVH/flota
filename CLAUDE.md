@@ -1208,7 +1208,24 @@ Dos capas que van **siempre juntas**:
   conductor, el proyecto y el CECO salen del coche al que cubre—: ni la
   pestaña ni su sección se montan, y si se marca «Sustitución» estando en
   ella, la pestaña activa se **deriva** (manda la primera), sin un efecto que
-  lo corrija después.
+  lo corrija después. El **conductor** de esa pestaña va **siempre
+  editable** y con el vigente puesto (`driver_id`), también en edición
+  —iba bloqueado con «se cambia desde la ficha», y un coche sin conductor
+  no se podía asignar desde donde se estaba editando—: cambiarlo pide
+  **confirmación en el acto** (`cambiarConductor`: cierra la asignación de
+  hoy, abre otra y queda en el histórico, lo mismo que «Cambiar conductor»;
+  decir que no deja el desplegable como estaba), sale en el preview con la
+  chapa de histórico y **no viaja en el PATCH**: al guardar va por
+  `set-driver`, encadenando la marca de `updated_at` que devuelve cada
+  paso para que el bloqueo optimista siga valiendo. Quitar al conductor va
+  ANTES de la ficha (marcar multiusuario con conductor lo rechaza el back)
+  y ponerlo DESPUÉS (un multiusuario que deja de serlo no admite conductor
+  hasta que la ficha lo diga). Con la marca de multiusuario puesta el
+  desplegable se apaga y dice por qué. La **casilla de multiusuario** se
+  ofrece siempre: marcada, el **supervisor pasa a obligatorio** (chapa,
+  aviso bajo el desplegable y `required`, que el envío salta a esa pestaña
+  si está vacío) — antes era la casilla la que se apagaba sin supervisor, y
+  un coche sin él no se podía marcar sin dar un rodeo.
   El **pie es fijo** (`.form-footer`: `sticky`, con su filete y su aire
   abajo; el que hace scroll es el cuerpo del modal). El formulario **ocupa el
   alto del modal** (`.vehicle-form` y su `form`, columnas flex que crecen), así

@@ -93,10 +93,20 @@ const es = {
   businessUse: 'Tipo de uso',
   project: 'Proyecto',
   driver: 'Conductor',
-  driverLockedTitle: 'El conductor se cambia desde la ficha (Cambiar conductor)',
-  // Campo sensible: el conductor tiene su propio flujo con reglas de negocio.
+  // Campo sensible: cambiarlo es un relevo, con aviso y rastro en el histórico.
+  driverChangeWhat: '¿Qué pasa al cambiarlo?',
   driverEditInfo:
-    'El conductor se cambia desde la ficha con «Cambiar conductor»: ese flujo aplica la regla de un coche por conductor, cierra la asignación anterior y deja el cambio en el histórico.',
+    'Es el conductor vigente. Si lo cambias, al guardar se cierra su asignación, se abre una nueva con fecha de hoy y el relevo queda en el histórico: lo mismo que hace «Cambiar conductor» en la ficha, que además deja elegir la fecha. Un conductor solo puede llevar un coche a la vez.',
+  driverMultiuserInfo:
+    'Un vehículo multiusuario no tiene conductor asociado: lo usa un número indeterminado de personas y de él responde su supervisor. Quita la marca de multiusuario para asignarle uno.',
+  driverChangeTitle: 'Cambiar el conductor',
+  driverChangeWarn: (plate: string, from: string, to: string) =>
+    `Vas a cambiar el conductor de ${plate}: de ${from} a ${to}. Al guardar se cierra la asignación vigente, se abre una nueva con fecha de hoy y el relevo queda en el histórico. Si ${to} lleva otro coche, el cambio se rechazará al guardar.`,
+  driverReleaseWarn: (plate: string, from: string) =>
+    `Vas a dejar ${plate} sin conductor: al guardar se cierra la asignación de ${from} con fecha de hoy y queda en el histórico. El coche saldrá en «Vehículos sin conductor».`,
+  driverChangeConfirm: 'Entendido, cambiarlo',
+  driverSaveError: (detail: string) =>
+    `La ficha se guardó, pero el cambio de conductor no: ${detail} Vuelve a intentarlo desde «Cambiar conductor».`,
   // Por qué el Proyecto está deshabilitado (acordeón bajo el desplegable).
   projectDisabledLabel: '¿Por qué no puedo elegir proyecto?',
   projectDisabledInfo:
@@ -117,9 +127,12 @@ const es = {
     + 'conductores como haga falta —incluso a la vez—, pero el coche no les '
     + 'aparecerá a ellos.',
   multiuserNeedsSupervisor:
-    'Elige antes un supervisor: es quien responde del coche y el único que '
-    + 'puede registrar sus kilómetros y su combustible, así que sin él un '
-    + 'multiusuario sería un coche al que no entra nadie.',
+    'Necesita supervisor: es quien responde del coche y el único que puede '
+    + 'registrar sus kilómetros y su combustible, así que sin él un '
+    + 'multiusuario sería un coche al que no entra nadie. Al marcarla, el '
+    + 'supervisor pasa a ser obligatorio.',
+  multiuserSupervisorRequired:
+    'Un multiusuario necesita supervisor: elige uno antes de guardar.',
   unlimitedKm: 'Km ilimitados (sin proyección)',
   unlimitedKmTitle: 'Sin proyección de km ni alertas de exceso',
   rentingCompany: 'Compañía de renting',
@@ -243,6 +256,7 @@ const es = {
     fuel_card: 'Tarjeta de combustible',
     property: 'Propiedad',
     supervisor: 'Supervisor',
+    driver: 'Conductor',
     registration_date: 'Matriculación',
     // Contrato (diff del preview cuando se edita en la misma pantalla).
     contract_number: 'Nº de contrato',
@@ -341,9 +355,19 @@ const en: typeof es = {
   businessUse: 'Business use',
   project: 'Project',
   driver: 'Driver',
-  driverLockedTitle: 'The driver is changed from the detail page (Change driver)',
+  driverChangeWhat: 'What happens if I change it?',
   driverEditInfo:
-    'The driver is changed from the detail page via “Change driver”: that flow enforces one car per driver, closes the previous assignment and records the change in the history.',
+    'This is the current driver. If you change it, saving closes their assignment, opens a new one dated today and records the handover in the history: the same as “Change driver” on the detail page, which also lets you pick the date. A driver can only have one car at a time.',
+  driverMultiuserInfo:
+    'A pool car has no assigned driver: an undetermined number of people use it and its supervisor is responsible for it. Untick “Multi-user” to assign one.',
+  driverChangeTitle: 'Change the driver',
+  driverChangeWarn: (plate: string, from: string, to: string) =>
+    `You are about to change the driver of ${plate}: from ${from} to ${to}. On save, the current assignment is closed, a new one dated today is opened and the handover is recorded in the history. If ${to} already has another car, the change will be rejected on save.`,
+  driverReleaseWarn: (plate: string, from: string) =>
+    `You are about to leave ${plate} without a driver: on save, ${from}’s assignment is closed as of today and recorded in the history. The car will show up under “Vehicles without a driver”.`,
+  driverChangeConfirm: 'Got it, change it',
+  driverSaveError: (detail: string) =>
+    `The vehicle was saved, but the driver change was not: ${detail} Try again from “Change driver”.`,
   projectDisabledLabel: 'Why can’t I pick a project?',
   projectDisabledInfo:
     'The project is only assigned when “Business use” is “Project”. Set the business use to “Project” (above) to choose one.',
@@ -362,9 +386,11 @@ const en: typeof es = {
     + 'mileage and fuel. You can log as many drivers in the history as you '
     + 'need —even at the same time— but the car will not show up for them.',
   multiuserNeedsSupervisor:
-    'Pick a supervisor first: they are responsible for the car and the only '
+    'It needs a supervisor: they are responsible for the car and the only '
     + 'one who can record its mileage and fuel, so without one a pool car '
-    + 'would be a car nobody can reach.',
+    + 'would be a car nobody can reach. Ticking it makes the supervisor '
+    + 'required.',
+  multiuserSupervisorRequired: 'A pool car needs a supervisor: pick one before saving.',
   unlimitedKm: 'Unlimited km (no projection)',
   unlimitedKmTitle: 'No km projection or overage alerts',
   rentingCompany: 'Leasing company',
@@ -478,6 +504,7 @@ const en: typeof es = {
     fuel_card: 'Fuel card',
     property: 'Ownership',
     supervisor: 'Supervisor',
+    driver: 'Driver',
     registration_date: 'Registration date',
     contract_number: 'Contract no.',
     contract_time: 'Term (months)',

@@ -16,6 +16,7 @@ import {
   fetchCatalogs,
   listAll,
   listDrivers,
+  setVehicleDriver,
   listVehicleModels,
   previewVehicle,
   updateContract,
@@ -45,7 +46,7 @@ function closedListOptions(t: VehicleFormCopy) {
 }
 
 // Campos del vehículo que emiten evento al cambiar (HU-1.4): badge `histórico`.
-const HISTORIC_FIELDS = new Set(['business_use', 'project', 'cost_center'])
+const HISTORIC_FIELDS = new Set(['business_use', 'project', 'cost_center', 'driver'])
 
 interface FormState {
   plate: string
@@ -163,6 +164,9 @@ function fromVehicle(v: Vehicle): FormState {
     site: v.site != null ? String(v.site) : '',
     property: v.property || 'renting',
     supervisor: v.supervisor != null ? String(v.supervisor) : '',
+    // El conductor vigente: se enseña y se puede cambiar desde aquí (con
+    // aviso), pero no viaja en el PATCH: va por `set-driver`.
+    driver: v.driver_id != null ? String(v.driver_id) : '',
     is_substitute: v.is_substitute,
     brand_ref: v.brand_ref != null ? String(v.brand_ref) : '',
     model_ref: v.model_ref != null ? String(v.model_ref) : '',
@@ -441,6 +445,41 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
 
   const set = (key: keyof FormState) => (value: string) =>
     setForm((f) => ({ ...f, [key]: value }))
+
+  /** Nombre con el que se enseña un conductor en los avisos y el preview. */
+  const nombreConductor = (id: string): string => {
+    if (!id) return t.unassigned
+    if (id === initial.driver && vehicle?.driver_name) return vehicle.driver_name
+    return drivers.find((d) => String(d.id) === id)?.name ?? id
+  }
+
+  /**
+   * En edición, cambiar el conductor PIDE confirmación antes de tocar nada:
+   * al guardar se cierra la asignación vigente, se abre otra con fecha de
+   * hoy y queda en el histórico (lo mismo que hace «Cambiar conductor» en la
+   * ficha). Si se dice que no, el desplegable se queda como estaba.
+   */
+  async function cambiarConductor(value: string) {
+    if (!editing || value === form.driver) {
+      set('driver')(value)
+      return
+    }
+    const ok = await confirm({
+      title: t.driverChangeTitle,
+      message: value
+        ? t.driverChangeWarn(form.plate, nombreConductor(form.driver), nombreConductor(value))
+        : t.driverReleaseWarn(form.plate, nombreConductor(form.driver)),
+      confirmLabel: t.driverChangeConfirm,
+      tone: 'warning',
+    })
+    if (ok) set('driver')(value)
+  }
+
+  /** El cambio de conductor en el preview (no sale del diff del servidor). */
+  function driverChangedPreview(): Record<string, [unknown, unknown]> {
+    if (form.driver === initial.driver) return {}
+    return { driver: [nombreConductor(initial.driver), nombreConductor(form.driver)] }
+  }
   const setInput = (key: keyof FormState) => (e: { target: { value: string } }) =>
     set(key)(e.target.value)
 
@@ -519,7 +558,7 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
       // la misma pantalla pero es otro recurso).
       try {
         const result = await previewVehicle(vehicleId, changedPayload())
-        setPreview({ ...result.changes, ...contractChangedPreview() })
+        setPreview({ ...result.changes, ...contractChangedPreview(), ...driverChangedPreview() })
       } catch (err) {
         setError(asErrorMessage(err, t.previewError))
       }
@@ -556,12 +595,31 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
     if (!vehicleId || !vehicle) return
     setSaving(true)
     setError('')
+    // El conductor no va en el PATCH: tiene su gesto atómico (`set-driver`,
+    // el mismo de «Cambiar conductor»). Cada paso encadena la marca de
+    // `updated_at` que devuelve el anterior para que el bloqueo optimista
+    // siga valiendo. QUITARLO va antes de la ficha (marcar multiusuario con
+    // conductor lo rechaza el back) y PONERLO después (un multiusuario que
+    // deja de serlo no admite conductor hasta que la ficha lo diga).
+    const conductorCambia = form.driver !== initial.driver
+    const nuevoConductor = form.driver ? Number(form.driver) : null
+    let fichaGuardada = false
     try {
-      await updateVehicleFields(vehicleId, {
+      let marca = vehicle.updated_at
+      if (conductorCambia && nuevoConductor === null) {
+        const v = await setVehicleDriver(vehicleId, { driver: null, expected_updated_at: marca })
+        marca = v.updated_at
+      }
+      const actualizado = await updateVehicleFields(vehicleId, {
         ...changedPayload(),
         // Bloqueo optimista: si la ficha cambió entre medias, el back devuelve 409.
-        expected_updated_at: vehicle.updated_at,
+        expected_updated_at: marca,
       })
+      fichaGuardada = true
+      marca = actualizado?.updated_at ?? marca
+      if (conductorCambia && nuevoConductor !== null) {
+        await setVehicleDriver(vehicleId, { driver: nuevoConductor, expected_updated_at: marca })
+      }
       // El contrato es otro recurso: se guarda tras el vehículo (su validación
       // de fechas puede rechazar y el error se muestra en el mismo formulario).
       await saveContractChanges()
@@ -571,6 +629,8 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
       // BG9: el 409 (bloqueo optimista) se decide por status, no por el texto
       // del detail — el sniffing de mensaje se rompe al traducir.
       if (err instanceof ApiError && err.status === 409) setConflict(true)
+      else if (fichaGuardada && conductorCambia && nuevoConductor !== null)
+        setError(t.driverSaveError(asErrorMessage(err, t.saveError)))
       else setError(asErrorMessage(err, t.saveError))
     } finally {
       setSaving(false)
@@ -975,7 +1035,10 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
               )}
             </div>
             <div className="field-cell">
-              <Labeled badge={editing ? 'locked' : undefined}>
+              {/* Siempre editable, con el vigente puesto: cambiarlo en edición
+                  pide confirmación (`cambiarConductor`) y va al histórico, como
+                  «Cambiar conductor». Solo un multiusuario no lo admite. */}
+              <Labeled badge={editing ? 'historic' : undefined}>
                 <SelectField
                   label={t.driver}
                   options={[
@@ -983,14 +1046,21 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                     ...drivers.map((d) => ({ value: String(d.id), label: d.name })),
                   ]}
                   value={form.driver}
-                  onValueChange={set('driver')}
-                  disabled={editing}
-                  title={editing ? t.driverLockedTitle : undefined}
+                  onValueChange={cambiarConductor}
+                  disabled={form.is_multiuser}
                 />
               </Labeled>
-              {/* Campo sensible: el conductor tiene su propio flujo (histórico). */}
-              {editing && <FieldInfo label={t.whyLocked}>{t.driverEditInfo}</FieldInfo>}
+              {form.is_multiuser ? (
+                <FieldInfo label={t.whyLocked}>{t.driverMultiuserInfo}</FieldInfo>
+              ) : (
+                editing && <FieldInfo label={t.driverChangeWhat}>{t.driverEditInfo}</FieldInfo>
+              )}
             </div>
+            {/* Un multiusuario no puede quedarse sin supervisor (el back lo
+                rechaza): con la casilla marcada, el supervisor pasa a
+                OBLIGATORIO —con su chapa y su aviso— y el envío salta aquí si
+                está vacío. Antes era la casilla la que se apagaba sin él, y
+                un coche sin supervisor no se podía marcar sin dar un rodeo. */}
             <SelectField
               label={t.supervisor}
               options={[
@@ -999,18 +1069,20 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
               ]}
               value={form.supervisor}
               onValueChange={set('supervisor')}
+              requiredVisual={form.is_multiuser}
+              required={form.is_multiuser}
+              warningMessage={
+                form.is_multiuser && !form.supervisor ? t.multiuserSupervisorRequired : undefined
+              }
             />
-            {/* Va pegada al supervisor porque depende de él: sin supervisor el
-                back la rechaza, así que aquí ni se ofrece (y se dice por qué,
-                que una casilla apagada sin explicación se lee como un fallo).
-                Marcarla deja el conductor en blanco: en un multiusuario no hay
-                conductor asociado, y es lo que la casilla significa. */}
+            {/* Va pegada al supervisor porque depende de él. Marcarla deja el
+                conductor en blanco: en un multiusuario no hay conductor
+                asociado, y es lo que la casilla significa. */}
             <div className={`multiuser-toggle${form.is_multiuser ? ' is-on' : ''}`}>
               <label className="baja-toggle">
                 <input
                   type="checkbox"
                   checked={form.is_multiuser}
-                  disabled={!form.supervisor}
                   onChange={(e) =>
                     setForm((f) => ({
                       ...f,
