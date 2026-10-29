@@ -35,6 +35,32 @@ const AJUSTES = {
   km_remind_to_driver: true,
   km_remind_to_supervisor: false,
   km_remind_admin_ids: [],
+  // El de combustible, con los mismos mandos y apagado de salida.
+  fuel_remind_enabled: false,
+  fuel_remind_by: 'window' as const,
+  fuel_remind_days: '',
+  fuel_remind_from_day: 20,
+  fuel_remind_until_day: 5,
+  fuel_remind_mode: 'count' as const,
+  fuel_remind_emails: 2,
+  fuel_remind_max_emails: 14,
+  fuel_remind_dates: ['2026-10-20', '2026-11-05'],
+  fuel_remind_to_driver: true,
+  fuel_remind_to_supervisor: false,
+  fuel_remind_admin_ids: [],
+  // Los de vencimiento.
+  itv_remind_enabled: false,
+  itv_remind_days_before: '30, 15, 7, 1',
+  itv_remind_days_after: '1, 7, 15',
+  itv_remind_to_driver: true,
+  itv_remind_to_supervisor: false,
+  itv_remind_admin_ids: [],
+  maintenance_remind_enabled: false,
+  maintenance_remind_days_before: '30, 15, 7, 1',
+  maintenance_remind_days_after: '1, 7, 15',
+  maintenance_remind_to_driver: true,
+  maintenance_remind_to_supervisor: false,
+  maintenance_remind_admin_ids: [],
   admin_options: [
     { id: 1, name: 'Ana Admin', email: 'ana@flota.dev' },
     { id: 2, name: 'Berta Jefa', email: 'berta@flota.dev' },
@@ -350,5 +376,119 @@ describe('EmailSettingsPanel — recordatorio de km', () => {
     expect(form.get('km_remind_to_driver')).toBe('false')
     expect(form.get('km_remind_to_supervisor')).toBe('true')
     expect(form.get('km_remind_admins')).toBe('2')
+  })
+})
+
+describe('EmailSettingsPanel — combustible, ITV y mantenimiento', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 9, 26, 12) })
+    mocks.getEmailSettings.mockReset()
+    mocks.updateEmailSettings.mockReset()
+    mocks.previewEmailTemplate.mockReset()
+    mocks.previewDefaultEmailTemplate.mockReset()
+    mocks.previewEmailDraft.mockReset()
+    mocks.previewEmailTemplate.mockResolvedValue(PREVIEW)
+    mocks.previewEmailDraft.mockResolvedValue(PREVIEW)
+    mocks.previewDefaultEmailTemplate.mockResolvedValue(PREVIEW)
+  })
+
+  it('el de combustible lleva los mismos mandos que el de km y guarda con su prefijo', async () => {
+    mocks.getEmailSettings.mockResolvedValue({ ...AJUSTES, fuel_remind_mode: 'odd', fuel_remind_from_day: 10 })
+    mocks.updateEmailSettings.mockResolvedValue({ ...AJUSTES, fuel_remind_enabled: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(
+      <EmailSettingsPanel section="fuel" templates={[]} defaults={[GENERICA_KM]} onEditTemplate={() => undefined} />,
+    )
+    // Sus propios valores, no los del de km, y su propio texto.
+    const activo = await screen.findByRole('checkbox', { name: /Recordatorio activo/ })
+    expect(activo).not.toBeChecked()
+    expect(screen.getByText(/anotación de consumo/)).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Los días impares/ })).toBeChecked()
+    expect(screen.getByLabelText('Desde el día')).toHaveValue(10)
+    await user.click(activo)
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(mocks.updateEmailSettings).toHaveBeenCalled())
+    const form = mocks.updateEmailSettings.mock.calls[0][0] as FormData
+    expect(form.get('fuel_remind_enabled')).toBe('true')
+    expect(form.get('fuel_remind_mode')).toBe('odd')
+    expect(form.get('fuel_remind_from_day')).toBe('10')
+    expect(form.get('km_remind_enabled')).toBeNull()
+  })
+
+  it('el de ITV pide los días antes y después del vencimiento y los resume', async () => {
+    mocks.getEmailSettings.mockResolvedValue(AJUSTES)
+    mocks.updateEmailSettings.mockResolvedValue({ ...AJUSTES, itv_remind_enabled: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(
+      <EmailSettingsPanel section="itv" templates={[]} defaults={[GENERICA_KM]} onEditTemplate={() => undefined} />,
+    )
+    const antes = await screen.findByLabelText('Días antes del vencimiento')
+    expect(antes).toHaveValue('30, 15, 7, 1')
+    // Apagado de salida (sus cajas también): se enciende para editarlo.
+    expect(antes).toBeDisabled()
+    await user.click(screen.getByRole('checkbox', { name: /Recordatorio activo/ }))
+    expect(antes).toBeEnabled()
+    expect(screen.getByLabelText('Días después del vencimiento')).toHaveValue('1, 7, 15')
+    // Ni calendario ni cadencia: esto va por fecha límite.
+    expect(screen.queryByText('Cadencia de los correos')).not.toBeInTheDocument()
+    expect(screen.getByText(/Antes del vencimiento, 4 correos: 30 días antes, 15 días antes, 7 días antes, 1 día antes/)).toBeInTheDocument()
+    expect(screen.getByText(/Pasada la fecha sin registrarlo, 3 correos/)).toBeInTheDocument()
+
+    // Una lista que no vale bloquea el guardado y lo dice; un punto se vuelve coma.
+    await user.clear(antes)
+    await user.type(antes, '400')
+    expect(screen.getByText(/dentro del rango/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled()
+    await user.clear(antes)
+    await user.type(antes, '7.0')
+    expect(antes).toHaveValue('7,0')
+    expect(screen.getByText(/Antes del vencimiento, 2 correos: 7 días antes, el mismo día/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(mocks.updateEmailSettings).toHaveBeenCalled())
+    const form = mocks.updateEmailSettings.mock.calls[0][0] as FormData
+    expect(form.get('itv_remind_enabled')).toBe('true')
+    expect(form.get('itv_remind_days_before')).toBe('7,0')
+    expect(form.get('itv_remind_days_after')).toBe('1, 7, 15')
+    expect(form.get('itv_remind_to_driver')).toBe('true')
+    expect(form.get('itv_remind_admins')).toBe('')
+  })
+
+  it('encendido sin ningún día no se puede guardar, y el de mantenimiento es el mismo panel', async () => {
+    mocks.getEmailSettings.mockResolvedValue({
+      ...AJUSTES,
+      maintenance_remind_enabled: true,
+      maintenance_remind_days_before: '',
+      maintenance_remind_days_after: '',
+    })
+    render(
+      <EmailSettingsPanel section="maintenance" templates={[]} defaults={[GENERICA_KM]} onEditTemplate={() => undefined} />,
+    )
+    expect(await screen.findByText(/Un plan solo por kilómetros no tiene fecha límite/)).toBeInTheDocument()
+    expect(screen.getByText(/Escribe algún día antes o después/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled()
+  })
+
+  it('tras guardar en otra pestaña, el formulario sigue enseñando ESE recordatorio', async () => {
+    mocks.getEmailSettings.mockResolvedValue(AJUSTES)
+    mocks.updateEmailSettings.mockResolvedValue({
+      ...AJUSTES,
+      fuel_remind_from_day: 12,
+      updated_at: '2026-10-26T12:01:00Z',
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const props = { templates: [], defaults: [GENERICA_KM], onEditTemplate: () => undefined }
+    // Se entra por «Recordatorio de km» y se cambia a «Combustible», como en
+    // la pantalla (el panel es el mismo y no se vuelve a montar).
+    const { rerender } = render(<EmailSettingsPanel section="reminder" {...props} />)
+    expect(await screen.findByLabelText('Desde el día')).toHaveValue(AJUSTES.km_remind_from_day)
+    rerender(<EmailSettingsPanel section="fuel" {...props} />)
+    expect(screen.getByLabelText('Desde el día')).toHaveValue(AJUSTES.fuel_remind_from_day)
+    await user.click(screen.getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(mocks.updateEmailSettings).toHaveBeenCalled())
+    const form = mocks.updateEmailSettings.mock.calls[0][0] as FormData
+    expect(form.get('fuel_remind_from_day')).toBe(String(AJUSTES.fuel_remind_from_day))
+    // Lo guardado vuelve al formulario de combustible, no al de km.
+    await waitFor(() => expect(screen.getByLabelText('Desde el día')).toHaveValue(12))
   })
 })

@@ -68,7 +68,9 @@ Google).
 Usuarios sembrados (contraseña `flota-dev-2026`): `admin` (superuser con
 **los cuatro roles** —admin, supervisor, conductor y HSE—, que conduce y
 supervisa `8888TRX`: el escaparate con todos los avisos y todas las peticiones
-que puede tener un coche), `sara`
+que puede tener un coche; supervisa además los dos **multiusuario**
+`3141PLM`/`3142PLM` y está en **tres repartos** —su coche con carlos, el de sara
+por días y uno de volumen con la franja solapada—), `sara`
 (supervisor+driver), `marta` (segunda supervisora, con plantilla de conductores
 en bloque), `carlos`/`lucia` (driver), `david` (driver sin coche → prueba el
 portón de acceso), `nuevo` (sin rol) y `expedro` (usuario desactivado). Muchos
@@ -145,6 +147,17 @@ Dos capas que van **siempre juntas**:
    aplicado vía `ScopedByVehicleMixin` en `fleet/views.py`. El mixin
    valida también `perform_create`/`perform_update` para que un `PATCH
    {"vehicle": <ajeno>}` no saque un recurso del ámbito (SEC1).
+   Y hay una **tercera puerta que no es un rol**: el **reparto de uso**
+   vigente (`VehicleUsage`, criterio único `selectors.current_usage_q`) suma
+   ese coche a quien lo tenga repartido, **lea o escriba** —lo conduce de
+   verdad unos días o unas horas, así que registra sus km, su combustible,
+   sus incidencias y sus documentos—. No mira el rol (un supervisor puede
+   tener repartido un coche que no supervisa) y **caduca con el reparto**.
+   Lo que no da es ser el conductor del coche: `current_driver_map` sigue
+   mirando solo las asignaciones, el titular es quien es y su aviso de
+   «vehículo sin conductor» se abre igual. En un **multiusuario** el reparto
+   no da nada, como tampoco su histórico de asignaciones: de un coche de pool
+   responde su supervisor.
 
 ### Patrones transversales del backend
 
@@ -260,6 +273,114 @@ Dos capas que van **siempre juntas**:
   la misma lista que la PWA), no pide incidencia ni la pinta como columna, y
   no enlaza carpeta de Drive (la de `Usuarios/<correo>` la crea el archivador
   y no viaja en la ficha).
+  **Y todos los documentos juntos tienen su pantalla**: `/documentos`
+  (`DocumentsPage`, entrada «Documentos» del grupo Administración del menú,
+  al lado de Informes, y atajo
+  «g d»), el listado entero de la flota y de las personas con el tipo como
+  sub-pestaña —«Todos» y uno por cada valor de `ALL_DOCUMENT_TYPES`
+  (`documentRules.ts`), con su recuento, sobre UNA carga; el tipo elegido va
+  en la URL (`?tipo=insurance`)— y la tabla de siempre (`DocumentsReport`,
+  con su alta y su CSV; copia en `translations/documents.ts`). Era una
+  pestaña de **Informes**, y no es un informe: allí se descarga, aquí se
+  consulta y se da de alta. Informes se queda con Descargas y Facturas y
+  **redirige** los enlaces antiguos (`?tab=documentos` y `?tab=<tipo>`) a
+  la pantalla nueva. Esa pantalla tiene **dos pestañas, Ajustes primero**:
+  **Ajustes** (la de salida, `DocumentAccessSettings`) es **quién lee cada
+  TIPO de documento** (`DocumentTypeAccess`, una fila por tipo, `GET/PATCH
+  /document-type-access/`, solo admin): la **administración** siempre y
+  fija; la **supervisión** sí o no (casilla); y del **conductor**, cuánto
+  (`DriverDocumentRead`: `none`, no lista ese tipo en absoluto —tampoco lo
+  que subió él; solo sus papeles personales, RGPD—, como el «no» de la
+  supervisión; `own`, solo lo que subió él; o `all`, también lo de los
+  demás), en un **conmutador** de tres posiciones (`seg-switch`), no un
+  desplegable; con «No listar», lectura, descarga y borrado no aplican y
+  sus mandos van apagados con su porqué (en la tabla y en el modal de la
+  fila, donde cuenta lo que vale para ESE documento). El seed lo pone en
+  el acta de devolución, y deja a carlos una copia del contrato subida por
+  él (el contrato se lista `own` y se ve y se baja con solicitud) para
+  probar en campo pedir la lectura y la descarga y en gestión concederlas. La tabla lleva el grupo **«Conductores»** con cuatro columnas:
+  **listar** (ese conmutador), **lectura** y **descarga** —cada una
+  «Permitir», «Enviar solicitud» o «No permitir» (`DriverActionMode`:
+  `driver_view` / `driver_download`; con `deny` el documento se **lista**
+  pero su archivo no sale por el campo ni pidiéndolo: `preview`/`download`
+  403 sin más, `/media` 404, abrir la petición 400, y una concesión anterior
+  deja de valer — `scoping.view_denied` / `download_denied`, que el
+  serializer traduce en `view_request`/`download_request = 'denied'` y la
+  PWA pinta como botón apagado pero vivo —el toque abre el porqué, como el
+  de la ITV que aún no toca— sin llave; cada fila de la lista de campo
+  **dice cómo va su acceso** bajo el nombre: lectura o descarga «con
+  solicitud», «pedida», «concedida» o «no permitida», y borrado «no
+  permitido»)— y **borrado**, un
+  mando de DOS posiciones, «Enviar solicitud» o «No permitir»
+  (`driver_delete`, `DRIVER_DELETE_MODES`: nunca es directo, la papelera
+  del campo pide; cerrado, abrir la petición es 400, `delete_denied`, y el
+  serializer manda `can_request_delete` para que la PWA apague la papelera
+  con su porqué). Cada posición de esos conmutadores lleva **icono y
+  color** (`components/AccessSwitch.tsx` + `accessOptions.tsx`: verde
+  permitir, ámbar pedir, rojo no permitir; `.seg-graphic`): en la tabla van
+  **solo los iconos** (`iconsOnly`: el rótulo queda como nombre accesible y
+  `title`) con una **leyenda** encima (`AccessLegend`, `.doc-access-legend`),
+  y el modal «Acceso» de la fila va igual: la leyenda arriba y una fila por
+  mando (rótulo | conmutador de iconos), donde «según el tipo» lleva el
+  icono de lo que el tipo dice hoy, sus dos palabras y el valor entero en
+  el `title`. En el listado, el acceso son **dos columnas** —«Acceso ·
+  Supervisión» (lee / no lee) y «Acceso · Conductor» (los suyos / todos y
+  lo que va con solicitud o no permitido)—, con «Ajustado» en la del mando
+  que se pisó; la administración no ocupa columna, y «Abrir» es un icono
+  (`.doc-open-icon`) como el del escudo. Lo que no se configura:
+  la **supervisión** ve lo que lista pero se baja un documento y pide su
+  borrado **siempre previa solicitud** (`scoping.download_needs_grant`:
+  admin nunca; conductor según el mando; quien no conduce, siempre, y a ella
+  nunca se le cierra del todo); verlo no lo pide nadie salvo el conductor
+  con `driver_view=request` (`view_needs_grant`). **La solicitud es una
+  `DocumentDeletionRequest` más**, con `kind` `view` / `download`
+  (`ACCESS_REQUEST_KINDS`) y salida `granted` / `rejected`
+  (`decisions_for(kind)`, decisión `grant`): la fila concedida ES el permiso
+  de esa persona sobre ese documento (`has_access_grant`), que exigen
+  `preview`, `download` (403) y `/media` (404). De estas hay **una viva por
+  documento Y persona** (dos conductores pueden pedir lo mismo; segunda
+  restricción de unicidad) y **no marcan** el documento «pendiente» en el
+  campo —eso es de las que hablan del documento, `ONE_PER_DOCUMENT_KINDS`
+  (borrado, corrección), que siguen siendo una por documento—; `open_request`
+  busca «la que ya hay» por persona y clase en las de acceso, y abrir una de
+  acceso que no hace falta es 400. El `DocumentSerializer` manda `can_view`,
+  `can_download` y en qué va la petición (`view_request` /
+  `download_request`: '', `pending`, `granted`; las vivas del que pide se
+  cargan una vez por respuesta), y la PWA **cambia el botón** de ver o bajar
+  por el de **pedirlo** (llave; reloj de arena y apagado mientras está
+  pedido) hasta que se concede y vuelve el de siempre (`DocumentList`, el
+  mismo modal de motivo que la papelera, `requestDocumentAccess`); sin la
+  marca (una copia cacheada vieja) se tratan como directos. En gestión, la
+  bandeja de documentos de `/solicitudes` las decide con **Conceder** /
+  Rechazar (`DECISIONS` por clase, estado «Concedida») y la columna «Acceso»
+  del listado añade «Lectura con solicitud» / «Descarga con solicitud» solo
+  cuando van así. **Y cada documento puede pisar lo de su tipo**: los cuatro
+  `*_override` de `Document` (`ACCESS_OVERRIDE_FIELDS`: supervisión, listar,
+  lectura, descarga, borrado; nulo = lo del tipo; de gestión, para el resto de solo
+  lectura en silencio como `shared_read`), que escribe el botón «Acceso»
+  (escudo) de la fila en gestión (`DocumentAccessModal`: un conmutador de
+  TRES posiciones por mando, «según el tipo (lo que dice hoy)» y las dos
+  propias, y se guarda entero con nulos donde sigue el tipo).
+  `Document.effective_access(rule)` es lo que vale para él —lo miran
+  `preview`, `download`, `/media` y la apertura de una petición de acceso—,
+  viaja en el serializer como `effective_access` + `access_adjusted` (la
+  chapa «Ajustado» en la columna), y `readable_documents` lo aplica fila a
+  fila en `_solo_tipos`: `(tipo no vetado Y ajuste ≠ cierra) O ajuste =
+  abre`. El listado va en `?tab=documentos`, y
+  un `?tipo=<tipo>` en la URL ya es el listado (así llegan los enlaces de
+  Informes). Es una **capa por tipo sobre `readable_documents`**, no otra
+  regla: cada rol de campo lee con la suya (`general` = compartido o
+  responsable; la supervisión además su `Exists` del conductor vigente)
+  recortada por `_solo_tipos` con los tipos vetados a ese rol, los roles se
+  **suman** (un supervisor+conductor lee como supervisor lo abierto a la
+  supervisión Y como conductor lo abierto al conductor) y **lo propio no se
+  tapa nunca**: lo que uno subió (`autor`) y los papeles personales propios
+  (RGPD). Sin fila vale la de fábrica (supervisión sí, conductor `all`), que
+  es la regla de siempre; el seed cierra al conductor el contrato, la póliza
+  y la factura, y el contrato también a la supervisión. El listado la enseña
+  en la columna **«Acceso»** (un chip por rol que lee ese tipo; también en
+  el valor, así que se busca y sale en el CSV), con la misma carga que edita
+  Ajustes, que se repite al guardar.
 - **Alcanzar el coche ya no es poder leerlo todo.** Hasta ahora el documento
   solo tenía titular, así que cualquier conductor con asignación vigente veía
   **todos** los documentos de ese coche y el supervisor los de su grupo entero.
@@ -359,7 +480,14 @@ Dos capas que van **siempre juntas**:
   exceso va solo a quien supervisa— y el correo automático del exceso
   (plantilla «Exceso de km (al conductor)») es lo único que sigue yendo al
   conductor, a propósito, porque es una plantilla de Ajustes que la
-  administración decide. Y donde se MIRA la proyección se puede resolver:
+  administración decide. El **recordatorio de campo** (`ReminderModal`,
+  `POST /vehicles/{id}/remind/`) manda su correo de dos maneras
+  (`body_mode`): con la **plantilla de gestión** del motivo —la
+  personalizada o, sin ella, la genérica, con el mensaje adicional dentro;
+  el modal enseña lo que saldrá por `notice-preview` (asunto, cuerpo como
+  texto y de qué versión es)— o con un **texto propio**, que es el correo
+  entero escrito por quien supervisa (escapado, dentro de la caja
+  corporativa; obligatorio en ese modo). Y donde se MIRA la proyección se puede resolver:
   la pantalla «Proyección de km» de campo (`GroupPage`), **la tarjeta de
   proyección de la ficha de campo** (`VehicleFieldPage`) y la pestaña de
   proyección de «Kilómetros» en gestión (`MileagePage`) piden las alertas
@@ -424,7 +552,44 @@ Dos capas que van **siempre juntas**:
   anota—), viven
   en `EmailSettings` (fila única, Ajustes → Correo → «Recordatorio de km» y
   «Aspecto del correo», `EmailSettingsPanel`), con los `FLEET_KM_REMIND_*`
-  del entorno solo como valor inicial. El plazo con su cadencia es UNA de
+  del entorno solo como valor inicial.
+  Son **cuatro recordatorios** en Ajustes → Correo, de dos formas:
+  los **mensuales** —km y **combustible** (`fuel_remind_*`: el consumo se
+  anota cada mes como la lectura, así que lleva exactamente los mismos
+  mandos; `EmailSettings.monthly_reminder(kind)` devuelve un
+  `MonthlyReminder` y es lo que leen `email_layout` y el motor, de modo que
+  el cálculo es uno y el prefijo es lo único que cambia; abre la alerta
+  `fuel_reading_pending` desde `check_fuel_readings`, que es
+  `_check_monthly_readings` con `FuelConsumption`, la cierra la señal de la
+  anotación, y su correo es la genérica `fuel_reading_pending`)— y los
+  **por vencimiento** —**ITV** y **mantenimiento** (`itv_remind_*` /
+  `maintenance_remind_*`, `DeadlineReminder`): una lista de **días antes**
+  de la fecha límite («30, 15, 7, 1»; 0 = el mismo día) y otra de **días
+  después** («1, 7, 15»), en cualquier orden y sin repetidos (el serializer
+  las normaliza: antes en cuenta atrás, después ascendente), y cada uno de
+  esos días `alerts.remind_deadlines` manda UN correo por cada aviso ABIERTO
+  con fecha límite, a quien diga el ajuste, por `queue_for_alert(...,
+  scheduled=True)` —la ITV y el mantenimiento NO mandan correo al abrirse
+  la alerta (`_MAILED_ON_CREATE`), solo en sus días—. Un vencimiento puede
+  tener varias alertas (la ITV abre una por umbral), así que se trabaja
+  por (coche, fecha): las marcas de `message_args["reminded"]` se leen de
+  todas y se escriben en todas, y `_refresh_open_alert` conserva esa marca
+  cuando la frase se refresca sin ella (si no, cada pasada de `check_itv`
+  la borraba). Un plan solo por km no tiene fecha límite y no manda nada.
+  Los tres nuevos **nacen apagados**: la administración los enciende (el
+  seed de dev enciende el de combustible con el plazo del de km,
+  `seed._dev_email_settings`, para que el motor abra su alerta y el seed
+  cubra el tipo). En el
+  panel (`EmailSettingsPanel`, `section` = `reminder` / `fuel` / `itv` /
+  `maintenance` / `layout`) los mensuales son el MISMO formulario leyendo y
+  guardando por prefijo (`monthlyReminderOf` / `deadlineReminderOf` de
+  `api.ts`), y los de vencimiento su formulario corto —dos cajas de días,
+  a quién, y un resumen con un ejemplo a 30 días—; los mandos siguen a la
+  fila (la carga y cada guardado) y a la pestaña, y se vuelcan **durante el
+  render** (estado que depende de una prop), no en un efecto ni en un
+  callback que capture la sección vieja. Los de ITV y mantenimiento usan
+  las plantillas `itv_due` y la nueva `maintenance_due`.
+  El plazo con su cadencia es UNA de
   las dos maneras de fijar los días (`km_remind_by`): la otra son **días
   concretos** (`km_remind_days`, «5, 20, 28»), un conmutador en el panel
   que sustituye el plazo por una caja de días separados por comas (solo
@@ -915,7 +1080,42 @@ Dos capas que van **siempre juntas**:
   salto al campo inválido) y `components/OpsSteps.tsx` (`OpsSteps` y
   `OpsSection`). Lo usan «Nuevo estado», **«Enviar correo»**
   (`VehicleEmailModal`: tipo → contenido → destinatarios → vista previa) y el
-  **parte de accidente**. En «Enviar correo», el paso **Contenido** enseña el
+  **parte de accidente**. En «Enviar correo», el paso **Tipo** ofrece las
+  **ocho plantillas** del back (`emailKinds.ts`: `EMAIL_KINDS`, en el orden
+  del desplegable, con su nombre en `vehicles.email.typeLabels`):
+  comunicado, ITV, seguro, mantenimiento, lectura de km, consumo, exceso de
+  km y la genérica; las que hablan al conductor (`DRIVER_EMAIL_KINDS`) lo
+  premarcan como destinatario, y cada alerta abre en la suya
+  (`ALERT_EMAIL_KIND`: solo «sin conductor» cae en el comunicado). Sin
+  plantilla personalizada sale la genérica del tipo, y el exceso de km
+  enviado a mano saca su cifra de la proyección del coche
+  (`mailer.vehicle_notice_context`), que no tiene alerta de la que leerla.
+  Ese primer paso **evalúa el coche al abrirse** (`GET
+  /vehicles/{id}/email-activity/`): los **avisos abiertos** a los que se
+  les puede mandar un correo —con su plantilla, cuándo se les mandó el
+  último y si tienen algo **en cola**—, las automatizaciones pendientes de
+  salir (`EmailOutbox`) y los últimos correos del coche con su origen
+  («Automático» / «A mano», `EmailLog.manual`). `EmailLog` y `EmailOutbox`
+  llevan `vehicle` desde la 0091 (lo escribe quien crea la fila: la alerta
+  trae el suyo, el comunicado el de la ficha, el reenvío lo copia). Y hay
+  **botón rápido** (`quickSend`): el del tipo elegido y uno por aviso,
+  que mandan la plantilla a sus destinatarios habituales sin recorrer los
+  pasos —el seguro, a la renting; lo demás, también lo reclamado al
+  conductor, a quien responde del coche: el conductor y, sin él (un
+  multiusuario), el supervisor, como la automatización— y el del aviso viaja con `alert`
+  para que la traza quede ligada a él. Si la evaluación falla, el modal
+  sigue sirviendo sin ese bloque. Desde la ficha el desplegable arranca en
+  **«Elige un tipo de correo»** (`initialKind` vacío; desde una alerta
+  trae el suyo): el botón rápido va en **su misma fila** y apagado sin
+  tipo, y «Siguiente» lo exige (`reglaDelPaso('kind')`). Los avisos se
+  listan **por urgencia** —nivel y, a igual nivel, vencimiento
+  (`alertsByUrgency`)— con la chapa del nivel y el filete en su color
+  (`alertLevelTone`, como la bandeja), y con más de uno hay **«Enviar
+  todos (n)»** (`sendAllAlerts`: uno detrás de otro, un solo acuse; si
+  falla a medias, el acuse de lo que salió con el aviso de lo que faltó).
+  A la supervisión esa evaluación no le enseña nada del seguro (X1): ni su
+  aviso ni sus correos a la renting.
+  El paso **Contenido** enseña el
   **texto de la plantilla en la propia caja y se puede retocar**: lo que se lee
   ahí es lo que sale, **maquetado y con barra de formato** (negrita, cursiva,
   subrayado, listas y enlace: `components/RichTextEditor.tsx`, un
@@ -970,17 +1170,23 @@ Dos capas que van **siempre juntas**:
   filete, **«Desplegar todo» / «Plegar todo»** (los dos botones de
   `AccordionTools`, aquí sueltos: el subtítulo es un `<p>` y ahí solo cabe
   contenido en línea, de ahí que esa fila sean `span` y `button`); el aviso
-  de estado cuando no rueda; después, en **barra propia**
-  (`.detail-actionbar`), lo que se le HACE, en este orden: **enviar correo ·
-  cambiar conductor/supervisor · gestionar facturas · editar · cambiar
-  estado · devolver** —los tres primeros son los mismos modales que abre el
-  ⋮ del inventario—. Lo que NO está ahí sigue a un clic: los **km** se
-  registran desde su propio indicador (que heredó el candado de «bloqueado
-  por sustitución»), y **sustitución**, **dar de baja** y, si el coche es de
-  sustitución, **convertirlo en flota** viven en la barra de «Editar» (la
-  del formulario: las tres primeras se las pasa esta ficha, la última la
-  pone `VehicleForm`, con triple aviso). Por eso la ficha ya no tiene su
-  propio modal de conversión; y bajo la barra, **una sola línea**
+  la **fila del estado** (`.detail-top`, siempre, también con el coche
+  activo): a la izquierda dos **recuadros que son el botón**
+  (`.detail-resource`, icono grande y rótulo, el mismo aspecto que la caja
+  del estado y la misma altura) —**enviar correo** y **editar ficha**, lo
+  que se abre sin salir de la ficha— y a su derecha el estado con quién lo
+  lleva y el vínculo de sustitución si lo hay, con el ancho que sobra.
+  **No hay barra de acciones** debajo (la hubo, `.detail-actionbar`, con
+  cambiar conductor · facturas · cambiar estado · devolver, y se retiró):
+  lo que se le HACE al coche va en la barra de «Editar ficha» (la del
+  formulario, que es esta misma ficha quien se la pasa: **cambiar estado**,
+  **devolver**, **sustitución**, **dar de baja**, y `VehicleForm` pone
+  **cambiar conductor / supervisor** y, si es de sustitución, **convertirlo
+  en flota** con triple aviso), los **km** se registran desde su propio
+  indicador (que heredó el candado de «bloqueado por sustitución») y las
+  **facturas** se leen en su tarjeta (gestionarlas es el ⋮ del inventario).
+  Por eso la ficha no tiene su propio modal de conversión, ni el de
+  conductor, ni el de facturas; y bajo la fila del estado, **una sola línea**
   de indicadores (`.detail-kpis`) en dos mitades separadas por un filete
   (`.kpi-sep`): los **vencimientos** —seguro, ITV, mantenimiento— y **cómo
   va** —lo que tiene abierto, kilometraje y combustible—. Todos son
@@ -1043,6 +1249,15 @@ Dos capas que van **siempre juntas**:
   de sustitución: no tenerlo es su definición, y la `dedup_key` es mensual.
   El correo del recordatorio de km cae en el **supervisor** cuando no hay
   conductor (`mailer._recipient_for`), que es donde el push ya iba.
+  En la **«Flota» de campo** (`FleetPage`) forman **su propio grupo**: si
+  entre lo que supervisa hay alguno, la lista se parte en **dos acordeones
+  plegados de salida** —«Flota general» y «Coches multiusuario»—, cada uno
+  con el recuento de lo que deja pasar el filtro en el título; la búsqueda y
+  el selector de estado cortan los dos a la vez. Se atienden distinto (en
+  esos registra él) y mezclados no se distinguían de un vistazo. Sin ningún
+  multiusuario la lista sale suelta, como siempre, y que haya grupos se
+  decide sobre la flota entera y no sobre lo filtrado, para que los
+  acordeones no aparezcan y desaparezcan al teclear.
   Se marca en el formulario del vehículo, **pegado al supervisor** y apagado
   mientras no lo haya; «Cambiar conductor» en estos coches solo ofrece el
   supervisor, y las dos puertas del back —el `PATCH` de la ficha y
@@ -1133,7 +1348,22 @@ Dos capas que van **siempre juntas**:
   que **falta o sobra** (no la suma a secas). Un conductor solo puede estar
   **una vez**: las demás filas dejan de ofrecerlo. Se guarda únicamente con
   100 exacto, todas las filas con persona y sin repetidos; el back manda
-  igual.
+  igual. Cada persona dice además **CUÁNDO** usa el coche, en una segunda
+  línea de su fila: los **días de la semana** como chips que se marcan y la
+  **franja horaria** con dos horas (`VehicleUsage.weekdays`, ISO «1,2,5» en
+  la columna y lista por la API, y `time_from` / `time_to`, migración
+  `0093`). Los dos son opcionales y van **sueltos del porcentaje** —son para
+  saber cuándo le toca a cada uno, no para refacturar—: sin días es
+  cualquier día, sin franja es a cualquier hora, y pueden **solaparse**
+  entre personas. La franja va **entera o no va** y no puede ser de cero
+  minutos (`time_range_error`, la misma regla en el `clean()`, en los dos
+  serializadores y en el editor; una «al revés», 22:00 → 06:00, es un turno
+  de noche y vale). Abrir el editor **trae lo que ya decía** el reparto
+  vigente: guardar sin tocarlo no borra los días ni la franja de nadie. La
+  tarjeta «Reparto de uso vigente» lo enseña bajo cada barra («L–V ·
+  08:00–15:00»), con `weekdaysLabel` / `timeRangeLabel` de
+  `@flota/ui/domain`: los pintan las dos apps y es contrato del back, así
+  que hay una sola copia (los rótulos de los días los pone cada una).
 - **Los estados del vehículo** (`VehicleState`, `back/fleet/models/enums/vehicle.py`)
   son **nueve**, en tres familias. O el coche **rueda** (`active`), o está
   **parado** y la etiqueta dice **por qué** — «No activo - Mantenimiento»
@@ -1191,7 +1421,11 @@ Dos capas que van **siempre juntas**:
   tres van **bajo candado** (cerrado de salida, `fijosBloqueados`): abrirlo pide
   confirmación —identifican al coche en contratos, seguros y multas, y cambiarlos
   es corregir un error de alta, no reasignar nada— y volver a cerrarlo no
-  pregunta. Junto al título va el **estado actual** del coche (prop
+  pregunta. **Identificación** (marca, modelo y su «+ Nuevo», versión y
+  año) va bajo el MISMO candado, con su botón en la cabecera de la pestaña
+  (`candado`, uno en cada caja, un solo estado `fijosAbiertos`), y el
+  aviso de abrirlo dice que son datos sensibles y que el cambio queda
+  auditado con usuario, fecha y valor anterior. Junto al título va el **estado actual** del coche (prop
   `stateBadge`, solo editando): lo pone quien abre el formulario con SU
   vehículo, no el que el formulario se trajo, porque cambiarlo desde esta
   misma barra recarga los datos de quien lo abrió y la chapa tiene que
@@ -1208,24 +1442,27 @@ Dos capas que van **siempre juntas**:
   conductor, el proyecto y el CECO salen del coche al que cubre—: ni la
   pestaña ni su sección se montan, y si se marca «Sustitución» estando en
   ella, la pestaña activa se **deriva** (manda la primera), sin un efecto que
-  lo corrija después. El **conductor** de esa pestaña va **siempre
-  editable** y con el vigente puesto (`driver_id`), también en edición
-  —iba bloqueado con «se cambia desde la ficha», y un coche sin conductor
-  no se podía asignar desde donde se estaba editando—: cambiarlo pide
-  **confirmación en el acto** (`cambiarConductor`: cierra la asignación de
-  hoy, abre otra y queda en el histórico, lo mismo que «Cambiar conductor»;
-  decir que no deja el desplegable como estaba), sale en el preview con la
-  chapa de histórico y **no viaja en el PATCH**: al guardar va por
-  `set-driver`, encadenando la marca de `updated_at` que devuelve cada
-  paso para que el bloqueo optimista siga valiendo. Quitar al conductor va
-  ANTES de la ficha (marcar multiusuario con conductor lo rechaza el back)
-  y ponerlo DESPUÉS (un multiusuario que deja de serlo no admite conductor
-  hasta que la ficha lo diga). Con la marca de multiusuario puesta el
-  desplegable se apaga y dice por qué. La **casilla de multiusuario** se
-  ofrece siempre: marcada, el **supervisor pasa a obligatorio** (chapa,
-  aviso bajo el desplegable y `required`, que el envío salta a esa pestaña
-  si está vacío) — antes era la casilla la que se apagaba sin supervisor, y
-  un coche sin él no se podía marcar sin dar un rodeo.
+  lo corrija después. **Editando, el conductor, el
+  supervisor y la casilla de multiusuario NO están en esa pestaña**: se
+  cambian desde **«Cambiar conductor / supervisor»**, en la barra de
+  acciones del tipo (al lado de «Cambiar estado»), que abre el MISMO
+  `VehicleDriverModal` de la ficha y del inventario — el propio formulario
+  lo monta y, al guardar, vuelve a leer la ficha (`recargarPersonas`), que
+  es donde está la marca de `updated_at` del bloqueo optimista; el PATCH de
+  la ficha ya no toca a nadie. Ese modal lleva ahora la **casilla de
+  multiusuario**: marcada, no hay conductor que elegir, el supervisor pasa
+  a obligatorio (chapa y aviso) y, si el coche llevaba a alguien, se avisa
+  de que ese conductor **pasa al histórico** al guardar (`driver: null` en
+  el mismo cuerpo) y la barra de «Conductor actual» lo enseña **tachado**
+  con ese porqué y marca en ámbar el supervisor mientras no se elija; el
+  párrafo de «este coche es multiusuario» solo sale cuando ya lo es; al
+  desmarcarla vuelve el desplegable del conductor y se guardan juntos.
+  `set-driver` admite `is_multiuser` para eso (lo valida como el PATCH:
+  sin supervisor no, con conductor sin retirar no, y dice quién). En el
+  **alta** esos tres siguen en la pestaña: el conductor con el desplegable
+  y la casilla, que marcada deja el conductor en blanco y vuelve el
+  supervisor obligatorio (`required`, que el envío salta a esa pestaña si
+  está vacío).
   El **pie es fijo** (`.form-footer`: `sticky`, con su filete y su aire
   abajo; el que hace scroll es el cuerpo del modal). El formulario **ocupa el
   alto del modal** (`.vehicle-form` y su `form`, columnas flex que crecen), así
@@ -1447,7 +1684,13 @@ Dos capas que van **siempre juntas**:
   tablas: la barra manda sobre todo lo que la pantalla enseña, y una búsqueda
   que no llegara a estas dos filas se leería como que no funciona—, pero la
   ficha se sigue pintando aunque el filtro las deje fuera (si apareciera y
-  desapareciera al teclear, el listado bailaría bajo el cursor). El **CSV sigue
+  desapareciera al teclear, el listado bailaría bajo el cursor). Bajo esa ficha
+  y sobre el listado van **pestañas por rol** (`SettingsSubtabs`,
+  `roleTab`): «Todos» primero y después los cuatro de `ROLE_ORDER`, cada
+  una con **cuántos hay** en lo que la barra deja pasar al listado —se suman
+  a la barra y cortan por «quien TENGA ese rol», como un rol suelto del
+  desplegable—; son del listado, así que las dos cuentas de arriba no las
+  miran. El **CSV sigue
   exportando a todo el mundo**: es un informe, no la tabla. El **filtro por rol**
   de esa barra va en **dos `<optgroup>`**, que es la línea que los separa,
   porque son dos maneras distintas de buscar: un rol **suelto** lista a quien lo
@@ -1493,6 +1736,9 @@ Dos capas que van **siempre juntas**:
   resolvía— en ningún sitio de campo. Fuera siguen el mantenimiento
   **programado** y la **ITV**, que son ALERTAS y tienen su tarjeta, y el
   registro de un mantenimiento hecho, que nace cerrado.
+  La alerta de **consumo pendiente** (`fuel_reading_pending`, la abre el
+  recordatorio de combustible de Ajustes → Correo) se resuelve con el mismo
+  `RegisterFuelModal` que el nav, en la tarjeta y en `AlertResolveDispatcher`.
   **La de «Alertas» cuenta DOS cosas**: las que abre el motor del back y los
   avisos de **«Te queda poco»** de ese coche (`useFieldDeadlines`), que
   calcula el móvil con su resumen. Son orígenes distintos pero la misma
@@ -1511,9 +1757,10 @@ Dos capas que van **siempre juntas**:
   (`km_reading_pending`, `itv_due`, `maintenance_due`) —salían las dos, una
   encima de otra («Lectura de km pendiente» y «Kilómetros de 8888TRX»), y una
   cosa pendiente es una fila—. Manda la del **motor**: lleva la fecha de
-  vencimiento y es la que se cierra al resolverla. El **combustible** no
-  tiene alerta del motor, así que su aviso se pinta siempre. Y el recuento
-  del título cuenta lo que la tarjeta enseña, no lo que llega.
+  vencimiento y es la que se cierra al resolverla. El **combustible** tiene
+  gemela desde que existe su recordatorio (`fuel_reading_pending`); con él
+  apagado no hay alerta y su aviso se pinta siempre. Y el recuento del
+  título cuenta lo que la tarjeta enseña, no lo que llega.
 - **Hay dos alertas que la app de campo NO enseña**, y la regla vive en un
   sitio (`format.hiddenFieldAlert`, que usan la tarjeta del coche y la
   bandeja): el **seguro** (X1: es de administración) y, **solo en «Mi
@@ -1858,12 +2105,35 @@ Dos capas que van **siempre juntas**:
   conductor vigente, el mismo criterio que la home). No añade una vuelta al
   back —vehículos y resúmenes salen de la caché del arranque (R3-28)— y si esa
   carga falla, la bandeja se pinta igual: el bloque simplemente no sale.
-- **El conmutador de arriba tiene TRES caras, y solo dos son un modo**: «Mi
+- **El conmutador de arriba tiene CUATRO caras, y solo dos son un modo**: «Mi
   vehículo» y «Flota» siguen siendo `fleetMode` (recordado por dispositivo, y
-  cambia a la vez la home y los iconos del nav), mientras que **«Mi perfil» es
-  una ruta** (`/perfil`). Por eso el tab activo lo decide `pathname === '/perfil'`
-  antes que el modo, y elegir un modo **estando** en el perfil navega a la home:
-  si no, cambiaría el tab sin cambiar la pantalla. Al volver del perfil se vuelve
+  cambia a la vez la home y los iconos del nav), mientras que **«Reparto»**
+  (`/reparto`, solo a quien conduce) y **«Mi perfil»** (`/perfil`) son
+  **rutas**. Van en ese orden —Mi vehículo, Reparto, Flota, Mi perfil—: lo
+  que uno conduce, junto, antes de lo que supervisa. Como son rutas, el tab activo lo decide la ruta antes que el modo, y
+  elegir un modo **estando** en una de ellas navega a la home: si no,
+  cambiaría el tab sin cambiar la pantalla. **«Reparto»** (`SharesPage`,
+  `GET /vehicle-usages/mine/`, abierto a conductor y gestión) son los
+  **coches que uno tiene en reparto de uso y con quién**: un conductor lleva
+  UN coche (su asignación), pero puede tener varios repartidos —por
+  horarios, por días de la semana, solapados— y hasta ahora eso solo se leía
+  en gestión. **El tab solo sale si hay algo que enseñar** (el `Layout`
+  pregunta `mine/` a quien conduce, y otra vez con cada guardado del nav):
+  una pestaña que siempre abre «no tienes ningún coche en reparto» es un
+  sitio al que no hay que ir; con la ruta abierta se queda aunque la lista
+  se vacíe, para no dejar la pantalla sin tab. Cada reparto vigente sale con
+  **la misma tarjeta que la flota** (`.card` > `.vehicle-card`: matrícula,
+  estado, la chapa «Tu coche» si además lo conduce, modelo y la lista de
+  datos) y en ella **qué días y en qué franja** le toca, la parte propia,
+  el periodo y **con quién lo reparte**, cada persona con su parte, sus días
+  y su franja —es lo que dice cuándo está libre el coche—; lo vacío se dice
+  («Todos los días», «A cualquier hora»). **Cada tarjeta ABRE la ficha del
+  coche**, igual que en «Flota», porque un reparto vigente es la **tercera
+  puerta del ámbito** (ver «Roles y acotado»): desde ahí se lee el coche y se
+  registra sobre él. Lo que el reparto no da es ser su conductor, y por eso lo
+  repartido **no** sale en «Mi vehículo» ni en sus avisos —el coche tiene su
+  titular, y es a él a quien se le reclama la lectura del mes—; el nav
+  inferior sigue siendo el del coche propio. Al volver del perfil se vuelve
   a la vista que se estaba usando, porque el modo no se ha tocado. El **avatar
   del header sigue llevando ahí**: es la puerta de siempre. En el perfil, el
   **nav inferior se queda en dos** —**«Mis datos»** y **«Subir documento»**—:

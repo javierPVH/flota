@@ -24,6 +24,8 @@ class EmailTemplateKey(models.TextChoices):
     STATE_NOTICE = "state_notice", "Comunicado de estado del vehículo"
     KM_OVERAGE = "km_overage", "Exceso de km proyectado (al conductor)"
     KM_READING_PENDING = "km_reading_pending", "Lectura de km pendiente (al conductor)"
+    FUEL_READING_PENDING = "fuel_reading_pending", "Consumo de combustible pendiente (al conductor)"
+    MAINTENANCE_DUE = "maintenance_due", "Mantenimiento próximo / vencido (recordatorio)"
     GENERIC = "generic", "Genérica (resto de avisos)"
 
 
@@ -117,6 +119,22 @@ class EmailLog(TimeStampedModel):
         related_name="emails",
         verbose_name="Alerta",
     )
+    #: De qué coche habla el correo, para leer su actividad desde la ficha
+    #: (`/vehicles/{id}/email-activity/`). Lo pone quien escribe la fila —la
+    #: alerta trae el suyo; el comunicado, el de la ficha—; las filas
+    #: anteriores a esto se alcanzan por `alert__vehicle`.
+    vehicle = models.ForeignKey(
+        "fleet.Vehicle",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="email_logs",
+        verbose_name="Vehículo",
+    )
+    #: Si lo mandó una persona desde la ficha (comunicado, recordatorio,
+    #: reenvío) y no el motor de alertas ni un envío programado: la ficha
+    #: distingue las automatizaciones de lo que ya se mandó a mano.
+    manual = models.BooleanField("Enviado a mano", default=False)
     template_key = models.CharField("Plantilla", max_length=30, blank=True)
     recipient = models.CharField("Destinatario", max_length=254, blank=True)
     #: Por qué papel le llegó (conductor, supervisor, administrador…). Vacío
@@ -197,6 +215,15 @@ class EmailOutbox(TimeStampedModel):
         on_delete=models.SET_NULL,
         related_name="queued_emails",
         verbose_name="Alerta",
+    )
+    #: De qué coche habla (la alerta trae el suyo), como en `EmailLog`.
+    vehicle = models.ForeignKey(
+        "fleet.Vehicle",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="email_outbox",
+        verbose_name="Vehículo",
     )
     template_key = models.CharField("Plantilla", max_length=30, blank=True)
     recipient = models.CharField("Destinatario", max_length=254)

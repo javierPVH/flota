@@ -10,7 +10,7 @@ una lectura de km se cierra el aviso mensual de lectura pendiente de ese periodo
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from .models import Document, EventItv, Incident, KmReading, Vehicle
+from .models import Document, EventItv, FuelConsumption, Incident, KmReading, Vehicle
 from .models.enums import DocumentType, ItvResult
 from .services import accidents, alerts, insurance
 
@@ -122,3 +122,13 @@ def on_km_reading_registered(sender, instance: KmReading, **kwargs):
         return
     period = f"{instance.reading_date.year:04d}-{instance.reading_date.month:02d}"
     alerts.resolve_satisfied_km_reading_alerts({instance.vehicle_id: period})
+
+
+@receiver(post_save, sender=FuelConsumption, dispatch_uid="fleet_fuel_reading_registered")
+def on_fuel_reading_registered(sender, instance: FuelConsumption, **kwargs):
+    """Una anotación de consumo cierra los avisos de consumo pendiente hasta
+    su mes, igual que la lectura de km con los suyos."""
+    if instance.reading_date is None or not instance.is_active:
+        return
+    period = f"{instance.reading_date.year:04d}-{instance.reading_date.month:02d}"
+    alerts.resolve_satisfied_fuel_alerts({instance.vehicle_id: period})

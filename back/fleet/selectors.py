@@ -65,6 +65,34 @@ def current_assignment_q(today: date | None = None, prefix: str = "") -> Q:
     )
 
 
+def current_usage_q(today: date | None = None, prefix: str = "") -> Q:
+    """Reparto de uso VIGENTE — el criterio único, como el de la asignación.
+
+    Un reparto empieza (`start_date`, que puede no tenerla: entonces es «desde
+    siempre») y termina (`end_date`, con la misma vigencia que todo lo demás:
+    un fin de hoy o anterior ya no cuenta). Vivía escrito a mano dentro de
+    `VehicleUsageViewSet.mine`, y al pasar a dar ÁMBITO tiene que ser uno solo:
+    dos definiciones de «vigente» acaban diciendo que un coche se ve en una
+    pantalla y no en la otra.
+
+    `prefix` lo aplica a través de la relación (`current_usage_q(
+    prefix="usages__")` en `vehicles_for`), igual que su hermana.
+
+    **En un coche MULTIUSUARIO ningún reparto es vigente**, por la misma razón
+    que ninguna asignación lo es: de un coche de pool responde su supervisor,
+    que es quien registra sus km y su combustible, y su histórico de
+    conductores no es una puerta. Si el reparto lo fuera, sería la puerta de
+    atrás que deshace esa regla.
+    """
+    reference = today or timezone.localdate()
+    return (
+        (Q(**{f"{prefix}start_date__isnull": True}) | Q(**{f"{prefix}start_date__lte": reference}))
+        & (Q(**{f"{prefix}end_date__isnull": True}) | Q(**{f"{prefix}end_date__gt": reference}))
+        # N7: un reparto desactivado no reparte nada.
+        & Q(**{f"{prefix}is_active": True, f"{prefix}vehicle__is_multiuser": False})
+    )
+
+
 def current_driver_map(vehicle_ids: Iterable[int]) -> dict[int, object]:
     """`{vehicle_id: driver}` del conductor con asignación aceptada vigente.
 

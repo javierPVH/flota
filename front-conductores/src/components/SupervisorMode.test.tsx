@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   listAlerts: vi.fn(),
   listIncidents: vi.fn(),
   listDocuments: vi.fn(),
+  listMyShares: vi.fn(),
   roles: ['driver', 'supervisor'] as Role[],
 }))
 
@@ -27,6 +28,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listAlerts: mocks.listAlerts,
   listIncidents: mocks.listIncidents,
   listDocuments: mocks.listDocuments,
+  listMyShares: mocks.listMyShares,
 }))
 
 vi.mock('../auth.ts', async (importOriginal) => ({
@@ -66,6 +68,7 @@ function renderShell() {
                   aquí se prueba es el shell: qué tab manda y qué nav sale. La
                   pantalla tiene su propio test. */}
               <Route path="perfil" element={<p>pantalla de perfil</p>} />
+              <Route path="reparto" element={<p>pantalla de reparto</p>} />
             </Route>
           </Routes>
         </Suspense>
@@ -83,6 +86,8 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     mocks.listAlerts.mockResolvedValue({ count: 0, results: [] })
     mocks.listIncidents.mockResolvedValue({ count: 0, results: [] })
     mocks.listDocuments.mockResolvedValue({ count: 0, results: [] })
+    // Sin repartos de salida: el tab «Reparto» no se ofrece.
+    mocks.listMyShares.mockResolvedValue([])
     mocks.listVehicles.mockResolvedValue({ count: 2, results: [OWN, TEAM] })
     mocks.fetchVehicleSummaries.mockResolvedValue([
       { vehicle: 3, km_current: 1000, km_reading_date: null, driver: { id: 1, name: 'Sara S' } },
@@ -217,6 +222,41 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     expect(
       await screen.findByRole('dialog', { name: 'Subir documento · 7890NPQ' }),
     ).toBeInTheDocument()
+  })
+
+  it('sin coches de reparto, el tab «Reparto» no sale', async () => {
+    renderShell()
+    await screen.findByText('7890NPQ')
+    await waitFor(() => expect(mocks.listMyShares).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: 'Reparto' })).not.toBeInTheDocument()
+  })
+
+  it('«Reparto» es una ruta más: se marca sola, deja el nav del coche propio y un modo la deja', async () => {
+    // Con un reparto vigente, el tab se ofrece.
+    mocks.listMyShares.mockResolvedValue([{ id: 9 }])
+    renderShell()
+    await screen.findByText('7890NPQ')
+    await userEvent.click(await screen.findByRole('button', { name: 'Reparto' }))
+    expect(await screen.findByText('pantalla de reparto')).toBeInTheDocument()
+    // El orden del conmutador: lo que uno conduce primero, después la flota.
+    const tabs = screen.getByRole('group', { name: /./ })
+    expect(within(tabs).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual([
+      'Mi vehículo',
+      'Reparto',
+      'Flota',
+      'Mi perfil',
+    ])
+    expect(screen.getByRole('button', { name: 'Reparto' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Mi vehículo' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Mi perfil' })).toHaveAttribute('aria-pressed', 'false')
+    // Las acciones del nav son las del coche PROPIO: lo repartido no se conduce desde aquí.
+    const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
+    expect(within(nav).getByRole('button', { name: 'Km' })).toBeInTheDocument()
+    // Elegir un modo sale de la ruta.
+    await userEvent.click(screen.getByRole('button', { name: 'Mi vehículo' }))
+    expect(await screen.findByText('7890NPQ')).toBeInTheDocument()
+    expect(screen.queryByText('pantalla de reparto')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mi vehículo' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('elegir un modo desde el perfil SALE del perfil', async () => {

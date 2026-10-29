@@ -2,6 +2,7 @@ import { ApiError, deleteJson, getJson, postForm, postJson, toUrl } from '@flota
 
 import type {
   Alert,
+  MyShare,
   AuthConfig,
   DevUser,
   Driver,
@@ -88,6 +89,9 @@ export const listVehicles = (params: { supervisor?: number } = {}) =>
   )
 
 export const fetchVehicle = (id: number) => getJson<Vehicle>(`${API}/vehicles/${id}/`)
+
+/** Los coches que uno tiene en REPARTO de uso y con quién (la cara «Reparto»). */
+export const listMyShares = () => getJson<MyShare[]>(`${API}/vehicle-usages/mine/`)
 
 export const fetchVehicleSummary = (id: number) =>
   getJson<VehicleSummary>(`${API}/vehicles/${id}/summary/`)
@@ -405,10 +409,26 @@ export const remindVehicle = (
     send_email: boolean
     create_alert: boolean
     message?: string
+    /** Con qué sale el correo: la plantilla de gestión del motivo
+     * (personalizada o genérica, con el mensaje dentro) o el mensaje tal
+     * cual como correo entero. */
+    body_mode?: 'template' | 'plain'
   },
 ) =>
   postJson<{ alert_created: boolean; email_sent: boolean; email_skipped: string }>(
     `${API}/vehicles/${id}/remind/`,
+    data,
+  )
+
+/** Lo que saldría con la plantilla de gestión de un motivo —asunto y cuerpo,
+ * y si es la personalizada o la genérica— para enseñarlo antes de mandar el
+ * recordatorio. No envía nada. */
+export const previewVehicleNotice = (
+  id: number,
+  data: { template_key: string; message?: string; lang?: 'es' | 'en' },
+) =>
+  postJson<{ subject: string; body_html: string; has_template: boolean }>(
+    `${API}/vehicles/${id}/notice-preview/`,
     data,
   )
 
@@ -565,12 +585,13 @@ export async function fetchDocumentFile(
 export interface DocumentDeletionRequestRow {
   id: number
   document: number
-  /** Qué se pide: borrarlo o corregirlo. */
-  kind: 'delete' | 'change'
+  /** Qué se pide: borrarlo, corregirlo, o el ACCESO (verlo, bajárselo)
+   * cuando el tipo o el documento lo ponen «con solicitud». */
+  kind: 'delete' | 'change' | 'view' | 'download'
   kind_display: string
   changes: Record<string, string>
   changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
-  status: 'pending' | 'deleted' | 'hidden' | 'applied' | 'rejected'
+  status: 'pending' | 'deleted' | 'hidden' | 'applied' | 'granted' | 'rejected'
   status_display: string
   reason: string
   created_at: string
@@ -581,6 +602,20 @@ export const requestDocumentDeletion = (document: number, reason: string) =>
     `${API}/document-deletion-requests/`,
     { document, reason },
   )
+
+/** Pide el ACCESO a un documento —verlo o bajárselo— cuando su tipo (o el
+ * documento) lo pone «con solicitud». La fila concedida es el permiso: al
+ * recargar, `can_view` / `can_download` vienen ya a verdadero. */
+export const requestDocumentAccess = (
+  document: number,
+  kind: 'view' | 'download',
+  reason = '',
+) =>
+  postJson<DocumentDeletionRequestRow>(`${API}/document-deletion-requests/`, {
+    document,
+    kind,
+    reason,
+  })
 
 /** Pide CORREGIR un documento (tipo, caducidad o nota). Tampoco lo cambia: lo
  * decide la gestión, igual que el borrado. */

@@ -26,14 +26,18 @@ const TONE: Record<DocumentDeletionRequestRow['status'], BadgeTone> = {
   deleted: 'danger',
   hidden: 'info',
   applied: 'success',
+  granted: 'success',
   rejected: 'neutral',
 }
 
 /** Cada clase de petición tiene SUS salidas: un cambio no se manda a erratas,
- * y un borrado no se «aplica». El desplegable ofrece las de la fila abierta. */
+ * un borrado no se «aplica» y una lectura o una descarga se conceden o no.
+ * El desplegable ofrece las de la fila abierta. */
 const DECISIONS: Record<DocumentDeletionRequestRow['kind'], DeletionDecision[]> = {
   delete: ['delete', 'hide', 'reject'],
   change: ['apply', 'reject'],
+  view: ['grant', 'reject'],
+  download: ['grant', 'reject'],
 }
 
 /**
@@ -93,6 +97,7 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
       { value: 'deleted', label: copy.statusDeleted },
       { value: 'hidden', label: copy.statusHidden },
       { value: 'applied', label: copy.statusApplied },
+      { value: 'granted', label: copy.statusGranted },
       { value: 'rejected', label: copy.statusRejected },
     ],
     [copy, t.statusAll],
@@ -132,7 +137,9 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
             ? copy.okHide(what)
             : decision === 'apply'
               ? copy.okApply(what)
-              : copy.okReject(what),
+              : decision === 'grant'
+                ? copy.okGrant(what)
+                : copy.okReject(what),
       )
       setManaging(null)
       load()
@@ -262,6 +269,7 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
       delete: copy.optDeleteHint,
       hide: copy.optHideHint,
       apply: copy.optApplyHint,
+      grant: copy.optGrantHint,
       reject: copy.optRejectHint,
     }),
     [copy],
@@ -271,6 +279,7 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
       delete: copy.optDelete,
       hide: copy.optHide,
       apply: copy.optApply,
+      grant: copy.optGrant,
       reject: copy.optReject,
     }),
     [copy],

@@ -25,7 +25,7 @@ from pathlib import Path
 from django.template.loader import render_to_string
 from django.utils.html import escape
 
-from fleet.models import EmailSettings
+from fleet.models import EmailSettings, MonthlyReminder
 
 DEFAULT_LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "gransolar-logo.png"
 #: Content-ID con el que el cuerpo referencia el logotipo embebido.
@@ -122,7 +122,65 @@ def wrap(
     return html, images
 
 
-# --- Calendario del recordatorio de km -----------------------------------
+# --- Calendario de los recordatorios mensuales (km y combustible) ----------
+#
+# Las funciones reciben los mandos de UN recordatorio (`MonthlyReminder`:
+# por plazo o por días, cadencia…). Por compatibilidad admiten también la
+# fila `EmailSettings` entera, que es el recordatorio de km de siempre.
+
+
+def _monthly(cfg) -> MonthlyReminder:
+    if isinstance(cfg, MonthlyReminder):
+        return cfg
+    return cfg.monthly_reminder("km")
+
+
+# --- Días antes y después de un vencimiento (ITV, mantenimiento) ----------
+
+#: Tope de días alrededor del vencimiento que admite la lista.
+OFFSET_MAX_DAYS = 365
+
+
+def parse_offset_days(text: str, *, allow_zero: bool = False) -> list[int]:
+    """La lista de días («30, 15, 7, 1») de un recordatorio por vencimiento:
+    enteros de 1 a 365 (de 0 con `allow_zero`: el mismo día), en cualquier
+    orden y sin repetidos. Vacía vale (no se avisa por ese lado). Lanza
+    `ValueError` con el porqué, en castellano."""
+    piezas = [p.strip() for p in re.split(r"[,;\s]+", text or "") if p.strip()]
+    dias: set[int] = set()
+    for pieza in piezas:
+        if not pieza.isdigit():
+            raise ValueError(f"«{pieza}» no es un número de días.")
+        dia = int(pieza)
+        if dia > OFFSET_MAX_DAYS or (dia == 0 and not allow_zero):
+            tope = f"{0 if allow_zero else 1}-{OFFSET_MAX_DAYS}"
+            raise ValueError(f"«{pieza}» está fuera de rango ({tope} días).")
+        dias.add(dia)
+    return sorted(dias)
+
+
+def format_offset_days(dias: list[int], *, descending: bool = False) -> str:
+    """La lista normalizada, como se guarda: «30, 15, 7, 1» (antes, en cuenta
+    atrás) o «1, 7, 15» (después)."""
+    return ", ".join(str(d) for d in sorted(dias, reverse=descending))
+
+
+def deadline_remind_dates(due: date, cfg) -> list[date]:
+    """Las fechas en que sale correo alrededor de ese vencimiento, según los
+    días antes y después del recordatorio (`DeadlineReminder`), ordenadas.
+    Una lista guardada que no vale (no debería pasar: la valida el
+    serializer) se lee como vacía."""
+
+    def _lee(texto: str, allow_zero: bool) -> list[int]:
+        try:
+            return parse_offset_days(texto, allow_zero=allow_zero)
+        except ValueError:
+            return []
+
+    antes = _lee(cfg.days_before, True)
+    despues = _lee(cfg.days_after, False)
+    fechas = {due - timedelta(days=d) for d in antes} | {due + timedelta(days=d) for d in despues}
+    return sorted(fechas)
 
 
 def _clamp_day(month_first: date, day: int) -> date:
@@ -158,15 +216,16 @@ def format_km_remind_days(dias: list[int]) -> str:
     return ", ".join(str(d) for d in dias)
 
 
-def _concrete_days(cfg: EmailSettings) -> list[int] | None:
+def _concrete_days(cfg) -> list[int] | None:
     """Los días concretos en uso, o None si se va por plazo (o la lista no
     vale, que no debería pasar con lo que deja guardar el serializer)."""
     from fleet.models import KmRemindBy
 
-    if cfg.km_remind_by != KmRemindBy.DAYS:
+    cfg = _monthly(cfg)
+    if cfg.by != KmRemindBy.DAYS:
         return None
     try:
-        return parse_km_remind_days(cfg.km_remind_days)
+        return parse_km_remind_days(cfg.days)
     except ValueError:
         return None
 
@@ -179,7 +238,7 @@ def _concrete_dates(period_month: date, dias: list[int]) -> list[date]:
     return [first.replace(day=d) for d in dias if d <= ultimo]
 
 
-def km_remind_window(period_month: date, cfg: EmailSettings) -> tuple[date, date]:
+def km_remind_window(period_month: date, cfg) -> tuple[date, date]:
     """(primer día, último día) de la ventana que reclama la lectura de ese mes.
 
     Por días concretos, del primero al último que ese mes tenga: entre medias
@@ -187,6 +246,7 @@ def km_remind_window(period_month: date, cfg: EmailSettings) -> tuple[date, date
     no tiene ninguno, ese mes no se reclama (`km_remind_period` lo sabe) y
     la ventana es su último día, vacía a efectos prácticos.
     """
+    cfg = _monthly(cfg)
     dias = _concrete_days(cfg)
     if dias:
         fechas = _concrete_dates(period_month, dias)
@@ -195,13 +255,9 @@ def km_remind_window(period_month: date, cfg: EmailSettings) -> tuple[date, date
             return ultimo, ultimo
         return fechas[0], fechas[-1]
     first = period_month.replace(day=1)
-    start = _clamp_day(first, cfg.km_remind_from_day)
+    start = _clamp_day(first, cfg.from_day)
     nxt = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
-    end = (
-        _clamp_day(nxt, cfg.km_remind_until_day)
-        if cfg.km_remind_until_day
-        else nxt - timedelta(days=1)
-    )
+    end = _clamp_day(nxt, cfg.until_day) if cfg.until_day else nxt - timedelta(days=1)
     return start, max(start, end)
 
 
@@ -212,7 +268,7 @@ def km_remind_max_emails(from_day: int, until_day: int) -> int:
     return max(1, (28 - min(max(1, from_day), 28) + 1) + max(0, min(until_day, 28)))
 
 
-def km_remind_schedule(period_month: date, cfg: EmailSettings) -> list[date]:
+def km_remind_schedule(period_month: date, cfg) -> list[date]:
     """Los días en que sale cada correo del recordatorio de ese mes, según la
     cadencia (`km_remind_mode`):
 
@@ -229,26 +285,21 @@ def km_remind_schedule(period_month: date, cfg: EmailSettings) -> list[date]:
     """
     from fleet.models import KmRemindMode
 
+    cfg = _monthly(cfg)
     dias = _concrete_days(cfg)
     if dias:
         return _concrete_dates(period_month, dias)
     start, end = km_remind_window(period_month, cfg)
     span = (end - start).days
     dias = [start + timedelta(days=i) for i in range(span + 1)]
-    modo = cfg.km_remind_mode
+    modo = cfg.mode
     if modo == KmRemindMode.DAILY:
         return dias
     if modo in (KmRemindMode.ODD, KmRemindMode.EVEN):
         resto = 1 if modo == KmRemindMode.ODD else 0
         elegidos = [d for d in dias if d.day % 2 == resto]
         return elegidos or [start]
-    n = max(
-        1,
-        min(
-            km_remind_max_emails(cfg.km_remind_from_day, cfg.km_remind_until_day),
-            cfg.km_remind_emails,
-        ),
-    )
+    n = max(1, min(km_remind_max_emails(cfg.from_day, cfg.until_day), cfg.emails))
     if n == 1 or span == 0:
         return [start]
     fechas = [start + timedelta(days=round(i * span / (n - 1))) for i in range(n)]
@@ -259,7 +310,7 @@ def km_remind_schedule(period_month: date, cfg: EmailSettings) -> list[date]:
     return unicas
 
 
-def km_remind_period(today: date, cfg: EmailSettings) -> date | None:
+def km_remind_period(today: date, cfg) -> date | None:
     """Mes cuya lectura reclama hoy el recordatorio, o None fuera de la ventana.
 
     Del día de apertura a fin de mes se reclama ESTE mes; del 1 al día de
@@ -275,7 +326,7 @@ def km_remind_period(today: date, cfg: EmailSettings) -> date | None:
     return None
 
 
-def _reclaims(period_month: date, cfg: EmailSettings) -> bool:
+def _reclaims(period_month: date, cfg) -> bool:
     """Si ese mes tiene algún día de correo: por plazo siempre; por días
     concretos, solo si el mes tiene alguno de la lista."""
     dias = _concrete_days(cfg)

@@ -222,6 +222,131 @@ class NoticeLanguageTests(APITestCase):
             data["body_html"],
         )
 
+    def test_any_template_key_renders_from_its_generic(self):
+        # El modal ofrece las ocho plantillas: las que no tienen versión
+        # personalizada salen de su genérica, con sus variables resueltas (el
+        # exceso de km, sin contrato ni lecturas, queda vacío y no rompe).
+        for key in EmailTemplateKey.values:
+            data = self.preview(template_key=key, body="<p>{{matricula}}|{{km_exceso}}</p>")
+            self.assertIn("<p>1234KLM|</p>", data["body_html"], key)
+
+    def test_email_activity_says_what_went_out_and_what_can_still_go(self):
+        """La ficha evalúa al abrir el correo: lo mandado (a mano o por el
+        motor), lo que está en cola y los avisos abiertos que admiten correo."""
+        from fleet.models import Alert, EmailLog, EmailOutbox
+        from fleet.models.enums import AlertLevel, AlertStatus, AlertType
+
+        itv = Alert.objects.create(
+            vehicle=self.vehicle,
+            type=AlertType.ITV_DUE,
+            level=AlertLevel.WARNING,
+            status=AlertStatus.OPEN,
+            message="ITV en 10 días",
+            dedup_key="itv:test",
+        )
+        km = Alert.objects.create(
+            vehicle=self.vehicle,
+            type=AlertType.KM_READING_PENDING,
+            level=AlertLevel.INFO,
+            status=AlertStatus.OPEN,
+            message="Lectura pendiente",
+            dedup_key="km:test",
+        )
+        # Una automatización del motor, ya enviada (fila antigua: solo con alerta).
+        EmailLog.objects.create(
+            alert=itv,
+            template_key=EmailTemplateKey.ITV_DUE,
+            recipient="c@flota.dev",
+            recipient_role="driver",
+            subject="ITV",
+            status=EmailLog.Status.SENT,
+        )
+        # Y otra en cola por salir.
+        EmailOutbox.objects.create(
+            alert=km,
+            vehicle=self.vehicle,
+            template_key=EmailTemplateKey.KM_READING_PENDING,
+            recipient="c@flota.dev",
+            recipient_role="driver",
+            subject="Lectura",
+            body_html="<p>x</p>",
+        )
+        resp = self.client.get(reverse("vehicle-email-activity", args=[self.vehicle.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        por_tipo = {a["type"]: a for a in resp.data["alerts"]}
+        self.assertEqual(set(por_tipo), {"itv_due", "km_reading_pending"})
+        self.assertIsNotNone(por_tipo["itv_due"]["last_sent_at"])
+        self.assertEqual(por_tipo["itv_due"]["sent_count"], 1)
+        self.assertFalse(por_tipo["itv_due"]["pending"])
+        self.assertIsNone(por_tipo["km_reading_pending"]["last_sent_at"])
+        self.assertTrue(por_tipo["km_reading_pending"]["pending"])
+        self.assertEqual([f["alert"] for f in resp.data["pending"]], [km.pk])
+        self.assertEqual(len(resp.data["sent"]), 1)
+        self.assertFalse(resp.data["sent"][0]["manual"])
+
+        # X1: el seguro es de administración. Un supervisor del coche ve lo
+        # suyo, pero ni el aviso de seguro ni sus correos a la renting.
+        seguro = Alert.objects.create(
+            vehicle=self.vehicle,
+            type=AlertType.INSURANCE_DUE,
+            level=AlertLevel.WARNING,
+            status=AlertStatus.OPEN,
+            dedup_key="ins:test",
+        )
+        EmailLog.objects.create(
+            alert=seguro,
+            vehicle=self.vehicle,
+            template_key=EmailTemplateKey.INSURANCE_DUE,
+            recipient="flota@ald.example",
+            recipient_role="renting",
+            subject="Seguro",
+            status=EmailLog.Status.SENT,
+        )
+        supervisor = make_user("sup-act", Role.SUPERVISOR)
+        self.vehicle.supervisor = supervisor
+        self.vehicle.save(update_fields=["supervisor"])
+        self.client.force_authenticate(supervisor)
+        resp = self.client.get(reverse("vehicle-email-activity", args=[self.vehicle.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(
+            {a["type"] for a in resp.data["alerts"]}, {"itv_due", "km_reading_pending"}
+        )
+        self.assertEqual({f["template_key"] for f in resp.data["sent"]}, {"itv_due"})
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse("vehicle-email-activity", args=[self.vehicle.pk]))
+        self.assertIn("insurance_due", {f["template_key"] for f in resp.data["sent"]})
+        seguro.delete()
+
+        # El botón rápido: un comunicado ligado al aviso, que queda a mano y del coche.
+        resp = self.client.post(
+            reverse("vehicle-notify", args=[self.vehicle.pk]),
+            {"template_key": EmailTemplateKey.ITV_DUE, "to_admin": True, "alert": itv.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        fila = EmailLog.objects.filter(manual=True).latest("created_at")
+        self.assertEqual((fila.vehicle_id, fila.alert_id), (self.vehicle.pk, itv.pk))
+        # (En tests no hay SMTP: la fila queda omitida, y lo que se cuenta
+        # como enviado al aviso sigue siendo la automatización.)
+        resp = self.client.get(reverse("vehicle-email-activity", args=[self.vehicle.pk]))
+        self.assertEqual({a["type"]: a["sent_count"] for a in resp.data["alerts"]}["itv_due"], 1)
+        self.assertTrue(resp.data["sent"][0]["manual"])
+        self.assertEqual(resp.data["sent"][0]["alert"], itv.pk)
+        self.assertEqual(resp.data["sent"][0]["status"], "skipped")
+        # Un aviso de otro coche o cerrado no vale.
+        otro = Vehicle.objects.create(plate="9999ZZZ", brand="a", model="b")
+        ajena = Alert.objects.create(
+            vehicle=otro,
+            type=AlertType.ITV_DUE,
+            level=AlertLevel.WARNING,
+            status=AlertStatus.OPEN,
+            dedup_key="itv:otro",
+        )
+        resp = self.client.post(
+            reverse("vehicle-notify", args=[self.vehicle.pk]),
+            {"template_key": EmailTemplateKey.ITV_DUE, "to_admin": True, "alert": ajena.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_cuerpo_retocado_sustituye_al_de_la_plantilla(self):
         # Lo que se retoca en el modal es el correo de ESTE envío: se rinde con
         # las mismas variables que la plantilla, que no se toca.

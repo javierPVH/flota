@@ -25,7 +25,9 @@ from django.utils import timezone
 
 from fleet.models import Document, DocumentDeletionRequest
 from fleet.models.enums import (
+    ACCESS_REQUEST_KINDS,
     EXPIRING_DOCUMENT_TYPES,
+    ONE_PER_DOCUMENT_KINDS,
     PERSONAL_DOCUMENT_TYPES,
     DocumentDeletionStatus,
     DocumentRequestKind,
@@ -33,13 +35,25 @@ from fleet.models.enums import (
 )
 
 #: Lo que puede decidir la gestión sobre una petición pendiente. Las tres
-#: primeras son del borrado; `apply` es la de la corrección, y `reject` vale
-#: para las dos.
+#: primeras son del borrado; `apply` es la de la corrección; `grant` la de
+#: las de acceso (lectura y descarga), y `reject` vale para todas.
 DECISION_DELETE = "delete"
 DECISION_HIDE = "hide"
 DECISION_APPLY = "apply"
+DECISION_GRANT = "grant"
 DECISION_REJECT = "reject"
-DECISIONS = (DECISION_DELETE, DECISION_HIDE, DECISION_APPLY, DECISION_REJECT)
+DECISIONS = (DECISION_DELETE, DECISION_HIDE, DECISION_APPLY, DECISION_GRANT, DECISION_REJECT)
+
+
+def decisions_for(kind: str) -> tuple[str, ...]:
+    """Las salidas de cada clase: un cambio no se manda a erratas y una
+    lectura no se «aplica»."""
+    if kind == DocumentRequestKind.CHANGE:
+        return (DECISION_APPLY, DECISION_REJECT)
+    if kind in ACCESS_REQUEST_KINDS:
+        return (DECISION_GRANT, DECISION_REJECT)
+    return (DECISION_DELETE, DECISION_HIDE, DECISION_REJECT)
+
 
 #: Lo que el campo puede pedir que se corrija de un documento. Ni el titular ni
 #: el archivo ni la visibilidad: cambiar de coche un documento, o quitarle el
@@ -48,8 +62,12 @@ EDITABLE_DOCUMENT_FIELDS = ("type", "expiry_date", "notes")
 
 
 def pending_for(document: Document) -> DocumentDeletionRequest | None:
-    """La petición viva de ese documento, si la hay."""
-    return document.deletion_requests.filter(status=DocumentDeletionStatus.PENDING).first()
+    """La petición viva SOBRE ese documento (borrarlo o corregirlo), si la
+    hay. Las de acceso no cuentan: no hablan del documento sino de quién lo
+    pide, y hay una por persona."""
+    return document.deletion_requests.filter(
+        status=DocumentDeletionStatus.PENDING, kind__in=ONE_PER_DOCUMENT_KINDS
+    ).first()
 
 
 def _iso_or_blank(valor) -> str:
@@ -122,11 +140,16 @@ def open_request(
     """
     es_cambio = kind == DocumentRequestKind.CHANGE
     with transaction.atomic():
-        existing = (
-            DocumentDeletionRequest.objects.select_for_update()
-            .filter(document=document, status=DocumentDeletionStatus.PENDING)
-            .first()
+        vivas = DocumentDeletionRequest.objects.select_for_update().filter(
+            document=document, status=DocumentDeletionStatus.PENDING
         )
+        # Las de acceso son de quien las pide: la de otro conductor, o la
+        # papelera pendiente, no son «la que ya hay».
+        if kind in ACCESS_REQUEST_KINDS:
+            vivas = vivas.filter(kind=kind, requested_by=actor)
+        else:
+            vivas = vivas.filter(kind__in=ONE_PER_DOCUMENT_KINDS)
+        existing = vivas.first()
         if existing is not None:
             return existing
         return DocumentDeletionRequest.objects.create(
@@ -174,6 +197,9 @@ def resolve(
     - `apply` (solo en una **corrección**): escribe en el documento los campos
       de `changes`, vueltos a limpiar contra el documento de AHORA — entre que
       se pidió y se decide, la gestión ha podido corregirlo por su cuenta.
+    - `grant` (solo en una de **acceso**): la fila pasa a concedida, y desde
+      ese momento es el permiso de quien la pidió para ver o bajarse ESE
+      documento (`scoping.has_access_grant`).
     - `reject`: no se toca el documento; solo deja de estar pendiente.
 
     Todo en una transacción: la fila y el efecto sobre el documento van juntos.
@@ -210,6 +236,8 @@ def resolve(
                     update_fields=[*(campo for campo in aplicar), "updated_at"],
                 )
             _close(request, status=DocumentDeletionStatus.APPLIED, actor=actor, note=note)
+        elif decision == DECISION_GRANT:
+            _close(request, status=DocumentDeletionStatus.GRANTED, actor=actor, note=note)
         else:
             _close(request, status=DocumentDeletionStatus.REJECTED, actor=actor, note=note)
     return request

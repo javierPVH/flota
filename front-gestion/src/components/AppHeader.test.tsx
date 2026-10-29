@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -87,6 +88,29 @@ describe('AppHeader: las solicitudes sin decidir', () => {
 
     await waitFor(() => expect(mocks.listVehicleRequests).toHaveBeenCalled())
     expect(screen.queryByRole('link', { name: /solicitudes sin decidir/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('AppHeader: el menú de navegación', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    conRoles(['admin'])
+    mocks.listAlerts.mockResolvedValue({ count: 0, results: [] })
+    mocks.listIncidents.mockResolvedValue({ count: 0, results: [] })
+    mocks.listVehicleRequests.mockResolvedValue({ count: 0, results: [] })
+    mocks.listDocumentDeletionRequests.mockResolvedValue({ count: 0, results: [] })
+  })
+
+  it('lleva a Documentos, en Administración y después de Informes', async () => {
+    pintar()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Menú' }))
+
+    const documentos = await screen.findByRole('link', { name: 'Documentos' })
+    expect(documentos).toHaveAttribute('href', '/documentos')
+    // El orden del grupo: Ajustes · Informes · Documentos (de donde salió).
+    const enlaces = screen.getAllByRole('link').map((a) => a.getAttribute('href'))
+    expect(enlaces.indexOf('/documentos')).toBe(enlaces.indexOf('/informes') + 1)
   })
 })
 

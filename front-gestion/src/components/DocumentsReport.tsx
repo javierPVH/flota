@@ -1,15 +1,16 @@
 import { useCallback, useMemo, useState, type FormEvent } from 'react'
-import { Badge, Button, FileField, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, FileField, IconButton, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, ShieldCheck } from 'lucide-react'
 
-import { createDocument, uploadDocument } from '../api.ts'
+import { createDocument, uploadDocument, type DocumentTypeAccess } from '../api.ts'
 import { documentExpires, incidentTypeRequiredBy } from '../documentRules.ts'
 import { documentStatusTone } from '../format.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
-import { useReportsCopy } from '../translations/reports.ts'
+import { useDocumentsCopy } from '../translations/documents.ts'
 import { exportCsv } from '../csv.ts'
+import { DocumentAccessModal } from './DocumentAccessModal.tsx'
 import { TableInfoBar } from './TableInfoBar.tsx'
 import { VehicleSelect } from './VehicleSelect.tsx'
 import type { FlotaDocument, Vehicle } from '../types.ts'
@@ -54,7 +55,7 @@ interface GroupRow {
 }
 
 /**
- * Informe de documentos de la flota (pestaña de Informes): tabla estilo
+ * Listado de documentos de la flota (pantalla de Documentos): tabla estilo
  * vehículos con franja de opciones (registros + buscar + filtros de vehículo y
  * estado + export).
  *
@@ -72,6 +73,7 @@ export function DocumentsReport({
   plateById,
   vehicles,
   users,
+  accessByType,
   onCreated,
 }: {
   /** Tipo de documento; '' = todos. */
@@ -84,12 +86,14 @@ export function DocumentsReport({
   vehicles: Vehicle[]
   /** Usuarios para el filtro por titular y para el alta de documento personal. */
   users: UserOption[]
+  /** Quién lee cada tipo (Documentos → Ajustes), para la columna «Acceso». */
+  accessByType: Map<string, DocumentTypeAccess>
   /** Recarga el listado tras un alta (los documentos los tiene la página). */
   onCreated: () => void
 }) {
   const t = usePanelsCopy().documents
   const etiqueta = useDomainLabels()
-  const docsCopy = useReportsCopy().docs
+  const docsCopy = useDocumentsCopy()
   const [search, setSearch] = useState('')
   const [vehicleFilter, setVehicleFilter] = useState('')
   // Dos búsquedas por persona DISTINTAS: de quién es el documento (titular
@@ -234,6 +238,69 @@ export function DocumentsReport({
     })
   }, [typed, search, vehicleFilter, userFilter, uploaderFilter, statusFilter, plateById, driverByVehicle, etiqueta])
 
+  // El ajuste de UN documento (el modal de la fila), que pisa lo de su tipo.
+  const [accessDoc, setAccessDoc] = useState<FlotaDocument | null>(null)
+
+  /** Los roles que leen el documento y lo que no se puede hacer con él, en
+   * el orden en que se enseñan: lo que vale para ÉL (`effective_access`: su
+   * ajuste o, sin él, su tipo) o, en un documento anterior a eso, la regla
+   * del tipo cargada; sin ninguna de las dos, la de fábrica. */
+  const accessParts = useCallback(
+    (doc: FlotaDocument) => {
+      const rule = accessByType.get(doc.type)
+      const eff = doc.effective_access ?? {
+        supervisor_read: rule?.supervisor_read ?? true,
+        driver_read: rule?.driver_read ?? 'all',
+        driver_view: rule?.driver_view ?? 'allow',
+        driver_download: rule?.driver_download ?? 'allow',
+        driver_delete: rule?.driver_delete ?? 'request',
+      }
+      // Dos columnas, una por rol de campo (la administración lo lee todo y
+      // no ocupa sitio). «Ajustado» va en la columna del mando que se pisó.
+      const supervisor = [eff.supervisor_read ? docsCopy.access.supervisorReads : docsCopy.access.supervisorNo]
+      if (doc.supervisor_read_override != null) supervisor.push(docsCopy.access.adjusted)
+      const driver = [
+        eff.driver_read === 'none'
+          ? docsCopy.access.driverNone
+          : eff.driver_read === 'own'
+            ? docsCopy.access.driverOwn
+            : docsCopy.access.driverAll,
+      ]
+      // Y lo que el conductor tiene que PEDIR o no puede hacer, solo cuando
+      // no es lo de siempre (permitir) — y solo si lo lista: de lo que no
+      // lista no hay nada más que decir.
+      if (eff.driver_read !== 'none') {
+        if (eff.driver_view === 'request') driver.push(docsCopy.access.viewByRequest)
+        if (eff.driver_view === 'deny') driver.push(docsCopy.access.viewDenied)
+        if (eff.driver_download === 'request') driver.push(docsCopy.access.downloadByRequest)
+        if (eff.driver_download === 'deny') driver.push(docsCopy.access.downloadDenied)
+        if (eff.driver_delete === 'deny') driver.push(docsCopy.access.deleteDenied)
+      }
+      if (
+        doc.driver_read_override != null ||
+        doc.driver_view_override != null ||
+        doc.driver_download_override != null ||
+        doc.driver_delete_override != null
+      ) {
+        driver.push(docsCopy.access.adjusted)
+      }
+      return { supervisor, driver }
+    },
+    [accessByType, docsCopy.access],
+  )
+  const accessCell = useCallback(
+    (parts: string[]) => (
+      <span className="doc-access-cell" title={docsCopy.access.title}>
+        {parts.map((part) => (
+          <Badge key={part} tone={part === docsCopy.access.adjusted ? 'brand' : 'neutral'} size="sm">
+            {part}
+          </Badge>
+        ))}
+      </span>
+    ),
+    [docsCopy.access],
+  )
+
   const columns = useMemo<Array<TableWithPanelColumn<FlotaDocument>>>(() => [
     {
       // Titular: la matrícula del coche o el nombre del usuario (personal).
@@ -287,6 +354,22 @@ export function DocumentsReport({
       render: (doc) => <Badge tone={documentStatusTone(doc.status)}>{etiqueta.docStatus(doc)}</Badge>,
     },
     {
+      // Quién lee ese TIPO de documento, por rol (lo que dice Ajustes). La
+      // administración siempre; la supervisión si no se le cerró; y del
+      // conductor, cuánto lee. Va también en el valor: se busca y sale en
+      // el CSV.
+      key: 'access_supervisor',
+      label: docsCopy.access.supervisorColumn,
+      getValue: (doc) => accessParts(doc).supervisor.join(' · '),
+      render: (doc) => accessCell(accessParts(doc).supervisor),
+    },
+    {
+      key: 'access_driver',
+      label: docsCopy.access.driverColumn,
+      getValue: (doc) => accessParts(doc).driver.join(' · '),
+      render: (doc) => accessCell(accessParts(doc).driver),
+    },
+    {
       key: 'actions',
       label: t.columns.actions,
       align: 'right',
@@ -294,16 +377,31 @@ export function DocumentsReport({
       sortable: false,
       render: (doc) => {
         const href = safeHref(doc.drive_url) || safeHref(doc.file_url)
-        return href ? (
-          <a className="doc-open" href={href} target="_blank" rel="noreferrer">
-            <ExternalLink size={14} aria-hidden /> {t.open}
-          </a>
-        ) : (
-          '—'
+        const accessLabel = docsCopy.access.edit(etiqueta.docType(doc))
+        return (
+          <span className="row-actions">
+            {/* Abrir en Drive: un icono con la forma de los IconButton de al lado. */}
+            {href && (
+              <a
+                className="doc-open-icon"
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={t.open}
+                title={t.open}
+              >
+                <ExternalLink size={15} aria-hidden />
+              </a>
+            )}
+            {/* El acceso de ESTE documento, que pisa lo de su tipo. */}
+            <IconButton aria-label={accessLabel} title={accessLabel} onClick={() => setAccessDoc(doc)}>
+              <ShieldCheck size={15} />
+            </IconButton>
+          </span>
         )
       },
     },
-  ], [docsCopy.driverColumn, docsCopy.ownerColumn, docsCopy.typeColumn, driverNameByVehicle, owner, t.columns.actions, t.columns.by, t.columns.expiry, t.columns.status, t.columns.uploaded, t.open, type, etiqueta])
+  ], [docsCopy.driverColumn, docsCopy.ownerColumn, docsCopy.typeColumn, docsCopy.access, driverNameByVehicle, owner, accessParts, accessCell, t.columns.actions, t.columns.by, t.columns.expiry, t.columns.status, t.columns.uploaded, t.open, type, etiqueta])
 
   const csvColumns = columns.filter((c) => c.key !== 'actions')
   // Dentro del acordeón el titular y el conductor ya están en la fila del
@@ -626,6 +724,20 @@ export function DocumentsReport({
           </div>
         </form>
       </Modal>
+
+      {accessDoc && (
+        <DocumentAccessModal
+          doc={accessDoc}
+          rule={accessByType.get(accessDoc.type)}
+          onClose={() => setAccessDoc(null)}
+          onSaved={() => {
+            setAccessDoc(null)
+            // La página vuelve a pedir los documentos: la columna «Acceso»
+            // lee lo que vale ahora.
+            onCreated()
+          }}
+        />
+      )}
     </>
   )
 }

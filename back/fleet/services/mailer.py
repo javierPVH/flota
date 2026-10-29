@@ -160,6 +160,8 @@ def send_notice_now(
     template_key: str,
     role: str = "",
     batch: str = "",
+    vehicle=None,
+    manual: bool = False,
 ) -> tuple[bool, str]:
     """Envía UN correo ya compuesto, ahora mismo y best-effort, con su traza en
     `EmailLog`. Devuelve `(enviado, motivo_de_omisión)`. Nunca lanza: sin
@@ -180,6 +182,8 @@ def send_notice_now(
         "batch": batch or new_batch(),
         "subject": subject,
         "body_html": body_html,
+        "vehicle": vehicle,
+        "manual": manual,
     }
     if not to:
         EmailLog.objects.create(
@@ -234,9 +238,23 @@ def vehicle_notice_context(vehicle, message: str = "", template_key: str = "") -
     from fleet.services import email_layout
 
     driver = current_driver_map([vehicle.id]).get(vehicle.id)
-    reading = latest_reading_map([vehicle.id]).get(vehicle.id)
     today = timezone.localdate()
-    periodo = email_layout.km_remind_period(today, EmailSettings.get_solo()) or today.replace(day=1)
+    ajustes = EmailSettings.get_solo()
+    if template_key == EmailTemplateKey.FUEL_READING_PENDING:
+        # Las variables de la «lectura» son aquí las del consumo: su última
+        # anotación y el mes que reclama SU recordatorio.
+        from fleet.models import FuelConsumption
+
+        reading = (
+            FuelConsumption.objects.filter(vehicle_id=vehicle.id, is_active=True)
+            .order_by("-reading_date", "-pk")
+            .first()
+        )
+        mandos = ajustes.monthly_reminder("fuel")
+    else:
+        reading = latest_reading_map([vehicle.id]).get(vehicle.id)
+        mandos = ajustes.monthly_reminder("km")
+    periodo = email_layout.km_remind_period(today, mandos) or today.replace(day=1)
     contract = (
         vehicle.contracts.filter(end_date__isnull=True, is_active=True)
         .select_related("renting")
@@ -246,16 +264,31 @@ def vehicle_notice_context(vehicle, message: str = "", template_key: str = "") -
     renting = contract.renting if contract is not None else None
     if template_key == EmailTemplateKey.ITV_DUE:
         due = vehicle.next_itv_date
+    elif template_key == EmailTemplateKey.MAINTENANCE_DUE:
+        from fleet.services.alerts import plan_due_date
+
+        plan = vehicle.maintenance_plans.filter(is_active=True).first()
+        due = plan_due_date(plan) if plan is not None else None
     elif template_key == EmailTemplateKey.INSURANCE_DUE:
         due = vehicle.insurance_expiry_date
     else:
         due = None
+    # El exceso de km enviado a mano no tiene alerta de la que leer la cifra:
+    # sale de la proyección del coche (la misma que pinta la ficha), como la
+    # alerta la saca de la suya; sin contrato ni lecturas queda vacía.
+    overage = ""
+    if template_key == EmailTemplateKey.KM_OVERAGE:
+        from fleet.services.metrics import vehicle_summary
+
+        proyeccion = vehicle_summary(vehicle).get("projection")
+        if proyeccion and proyeccion.get("projected_end") is not None:
+            overage = str(proyeccion["projected_end"])
     return {
         "matricula": vehicle.plate,
         "conductor": (driver.get_full_name() or driver.get_username()) if driver else "",
         "empresa": renting.name if renting else "",
         "fecha_vencimiento": due.isoformat() if due else "",
-        "km_exceso": "",
+        "km_exceso": overage,
         "dias_sin_lectura": str((today - reading.reading_date).days) if reading else "",
         "ultima_lectura": reading.reading_date.isoformat() if reading else "",
         "periodo": f"{periodo.year:04d}-{periodo.month:02d}",
@@ -405,6 +438,26 @@ def new_batch() -> str:
     return uuid.uuid4().hex[:12]
 
 
+#: Qué recordatorio de Ajustes decide los destinatarios de cada tipo de
+#: alerta: (clase del recordatorio, ¿mensual?). Los mensuales (km y
+#: combustible) mandan además el correo al nacer la alerta; los de
+#: vencimiento (ITV y mantenimiento) solo en sus días (`remind_deadlines`).
+_REMINDER_OF: dict[str, tuple[str, bool]] = {
+    AlertType.KM_READING_PENDING: ("km", True),
+    AlertType.FUEL_READING_PENDING: ("fuel", True),
+    AlertType.ITV_DUE: ("itv", False),
+    AlertType.MAINTENANCE_DUE: ("maintenance", False),
+}
+
+#: Las alertas que mandan correo al CREARSE (`upsert_alert`).
+_MAILED_ON_CREATE = (
+    AlertType.INSURANCE_DUE,
+    AlertType.KM_OVERAGE,
+    AlertType.KM_READING_PENDING,
+    AlertType.FUEL_READING_PENDING,
+)
+
+
 def _driver_and_supervisor(alert: Alert):
     """(conductor, supervisor) del coche de la alerta; el conductor es el de
     la alerta si lo lleva y, si no, el vigente del coche."""
@@ -421,17 +474,39 @@ def _recipients_for(alert: Alert) -> list[tuple[str, str]]:
 
     - Seguro: la renting del contrato vigente.
     - Exceso de km: el conductor (sin conductor, el supervisor).
-    - Lectura pendiente: lo que diga Ajustes → Correo → «A quién se avisa»:
-      el conductor (sin conductor, el supervisor: en un coche multiusuario es
-      el único que puede registrarla, y el push ya se le manda a él), el
-      supervisor y/o los administradores elegidos uno a uno.
+    - Lectura de km o consumo pendiente, ITV y mantenimiento: lo que diga
+      su recordatorio en Ajustes → Correo → «A quién se avisa»: el conductor
+      (sin conductor, el supervisor: en un coche multiusuario es el único que
+      puede registrarla, y el push ya se le manda a él), el supervisor y/o
+      los administradores elegidos uno a uno.
     """
     from django.contrib.auth import get_user_model
 
     from fleet.models import EmailSettings
 
     destinos: list[tuple[str, str]] = []
-    if alert.type == AlertType.INSURANCE_DUE:
+    ajuste = _REMINDER_OF.get(alert.type)
+    if ajuste is not None:
+        cfg = EmailSettings.get_solo()
+        kind, mensual = ajuste
+        mandos = cfg.monthly_reminder(kind) if mensual else cfg.deadline_reminder(kind)
+        driver, supervisor = _driver_and_supervisor(alert)
+        if mandos.to_driver:
+            if driver is not None and driver.email:
+                destinos.append((RecipientRole.DRIVER, driver.email))
+            elif supervisor is not None and supervisor.email:
+                destinos.append((RecipientRole.SUPERVISOR, supervisor.email))
+        if mandos.to_supervisor and supervisor is not None and supervisor.email:
+            destinos.append((RecipientRole.SUPERVISOR, supervisor.email))
+        if mandos.admin_ids:
+            admins = (
+                get_user_model()
+                .objects.filter(pk__in=mandos.admin_ids, is_active=True)
+                .exclude(email="")
+                .order_by("pk")
+            )
+            destinos.extend((RecipientRole.ADMIN, a.email) for a in admins)
+    elif alert.type == AlertType.INSURANCE_DUE:
         vehicle = alert.vehicle
         if vehicle is None:
             return []
@@ -449,24 +524,6 @@ def _recipients_for(alert: Alert) -> list[tuple[str, str]]:
             destinos.append((RecipientRole.DRIVER, driver.email))
         elif supervisor is not None and supervisor.email:
             destinos.append((RecipientRole.SUPERVISOR, supervisor.email))
-    elif alert.type == AlertType.KM_READING_PENDING:
-        cfg = EmailSettings.get_solo()
-        driver, supervisor = _driver_and_supervisor(alert)
-        if cfg.km_remind_to_driver:
-            if driver is not None and driver.email:
-                destinos.append((RecipientRole.DRIVER, driver.email))
-            elif supervisor is not None and supervisor.email:
-                destinos.append((RecipientRole.SUPERVISOR, supervisor.email))
-        if cfg.km_remind_to_supervisor and supervisor is not None and supervisor.email:
-            destinos.append((RecipientRole.SUPERVISOR, supervisor.email))
-        if cfg.km_remind_admin_ids:
-            admins = (
-                get_user_model()
-                .objects.filter(pk__in=cfg.km_remind_admin_ids, is_active=True)
-                .exclude(email="")
-                .order_by("pk")
-            )
-            destinos.extend((RecipientRole.ADMIN, a.email) for a in admins)
     vistos: set[str] = set()
     unicos: list[tuple[str, str]] = []
     for papel, email in destinos:
@@ -495,21 +552,20 @@ def _rendered_for(alert: Alert) -> tuple[str, str, str]:
     return subject, body, template.key
 
 
-def queue_for_alert(alert: Alert) -> bool:
+def queue_for_alert(alert: Alert, *, scheduled: bool = False) -> bool:
     """Encola (si procede) el correo de una alerta NUEVA. Nunca lanza.
 
     Devuelve True si quedó algo en la cola. Sin destinatario o con el correo
     deshabilitado no se encola nada y queda la traza `SKIPPED` en `EmailLog`,
-    igual que antes. Una alerta puede ir a VARIAS personas (el recordatorio de
-    km, según Ajustes): una fila de la cola por cada una, todas con la misma
-    tanda y cada una con su papel, que es como se lee luego en la traza.
+    igual que antes. Una alerta puede ir a VARIAS personas (los
+    recordatorios, según Ajustes): una fila de la cola por cada una, todas
+    con la misma tanda y cada una con su papel, que es como se lee luego en
+    la traza. Solo los tipos de `_MAILED_ON_CREATE` mandan correo al nacer;
+    `scheduled=True` es la puerta de los recordatorios por vencimiento (ITV,
+    mantenimiento), que escriben en sus días y no al abrirse la alerta.
     """
     try:
-        if alert.type not in (
-            AlertType.INSURANCE_DUE,
-            AlertType.KM_OVERAGE,
-            AlertType.KM_READING_PENDING,
-        ):
+        if not scheduled and alert.type not in _MAILED_ON_CREATE:
             return False
         destinos = _recipients_for(alert)
         subject, body, template_key = _rendered_for(alert)
@@ -518,6 +574,7 @@ def queue_for_alert(alert: Alert) -> bool:
         if not destinos:
             EmailLog.objects.create(
                 alert=alert,
+                vehicle_id=alert.vehicle_id,
                 template_key=template_key,
                 recipient="",
                 batch=tanda,
@@ -531,6 +588,7 @@ def queue_for_alert(alert: Alert) -> bool:
             for papel, email in destinos:
                 EmailLog.objects.create(
                     alert=alert,
+                    vehicle_id=alert.vehicle_id,
                     template_key=template_key,
                     recipient=email,
                     recipient_role=papel,
@@ -545,6 +603,7 @@ def queue_for_alert(alert: Alert) -> bool:
         for papel, email in destinos:
             EmailOutbox.objects.create(
                 alert=alert,
+                vehicle_id=alert.vehicle_id,
                 template_key=template_key,
                 recipient=email,
                 recipient_role=papel,
@@ -657,6 +716,7 @@ def _send_one(entry: EmailOutbox, connection, max_attempts: int, result: dict[st
             result["failed"] += 1
             EmailLog.objects.create(
                 alert_id=entry.alert_id,
+                vehicle_id=entry.vehicle_id,
                 template_key=entry.template_key,
                 recipient=entry.recipient,
                 recipient_role=entry.recipient_role,
@@ -683,6 +743,7 @@ def _send_one(entry: EmailOutbox, connection, max_attempts: int, result: dict[st
     entry.save(update_fields=campos)
     EmailLog.objects.create(
         alert_id=entry.alert_id,
+        vehicle_id=entry.vehicle_id,
         template_key=entry.template_key,
         recipient=entry.recipient,
         recipient_role=entry.recipient_role,
@@ -715,6 +776,8 @@ def resend_log(log: EmailLog) -> EmailLog:
         raise ValueError("El correo saliente no está configurado.")
     nuevo = EmailLog(
         alert_id=log.alert_id,
+        vehicle_id=log.vehicle_id,
+        manual=True,
         template_key=log.template_key,
         recipient=", ".join(destinos),
         recipient_role=log.recipient_role,

@@ -18,6 +18,9 @@ class AlertType(models.TextChoices):
     ITV_UNSCHEDULED = "itv_unscheduled", "ITV sin cita"
     INSURANCE_DUE = "insurance_due", "Seguro próximo / vencido"
     KM_READING_PENDING = "km_reading_pending", "Lectura de km pendiente"
+    # El consumo de combustible se anota cada mes como la lectura de km, y
+    # se reclama igual (`check_fuel_readings`, con sus ajustes en Correo).
+    FUEL_READING_PENDING = "fuel_reading_pending", "Consumo de combustible pendiente"
     KM_OVERAGE = "km_overage", "Exceso de km proyectado"
     NO_DRIVER = "no_driver", "Vehículo sin conductor"
     # GAP-8: mantenimiento preventivo (por km o por meses) próximo o vencido.

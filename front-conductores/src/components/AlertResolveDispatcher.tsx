@@ -1,5 +1,6 @@
 import { AlertResolveModal } from './AlertResolveModal.tsx'
 import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
+import { RegisterFuelModal } from './RegisterFuelModal.tsx'
 import { RegisterItvModal } from './RegisterItvModal.tsx'
 import { RegisterKmModal } from './RegisterKmModal.tsx'
 import { ScheduleItvModal } from './ScheduleModal.tsx'
@@ -40,6 +41,16 @@ export function AlertResolveDispatcher({
   if (conCoche && alert.type === 'km_reading_pending') {
     return (
       <RegisterKmModal
+        vehicle={vehicle}
+        summary={summary ?? null}
+        onClose={onClose}
+        onSaved={onResolved}
+      />
+    )
+  }
+  if (conCoche && alert.type === 'fuel_reading_pending') {
+    return (
+      <RegisterFuelModal
         vehicle={vehicle}
         summary={summary ?? null}
         onClose={onClose}

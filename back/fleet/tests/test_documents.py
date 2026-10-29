@@ -2,14 +2,31 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
+from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Alert, Assignment, Document, Event, Incident, Vehicle
-from fleet.models.enums import AlertStatus, AlertType, AssignmentStatus
+from fleet.models import (
+    Alert,
+    Assignment,
+    Document,
+    DocumentDeletionRequest,
+    DocumentTypeAccess,
+    Event,
+    Incident,
+    Vehicle,
+)
+from fleet.models.enums import (
+    AlertStatus,
+    AlertType,
+    AssignmentStatus,
+    DocumentDeletionStatus,
+    DriverActionMode,
+    DriverDocumentRead,
+)
 
 from .helpers import make_user
 
@@ -636,6 +653,452 @@ class DocumentVisibilityTests(APITestCase):
             },
         )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class DocumentTypeAccessTests(APITestCase):
+    """Quién lee cada TIPO de documento y cómo (Documentos → Ajustes).
+
+    Es una capa sobre `readable_documents`, no otra regla: lo que un rol ya
+    leía de un tipo deja de leerlo si el tipo se le cierra, y lo que subió
+    uno mismo —y los papeles personales propios— no se tocan nunca. Ver el
+    archivo y bajárselo pueden ir **con solicitud**: se pide, la gestión lo
+    concede, y la fila concedida es el permiso.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.admin = make_user("admin", Role.ADMIN)
+        self.supervisor = make_user("sup", Role.SUPERVISOR)
+        self.driver = make_user("driver", Role.DRIVER)
+        self.mate = make_user("mate", Role.DRIVER)
+        self.car = Vehicle.objects.create(
+            plate="1234ABC", brand="a", model="b", supervisor=self.supervisor
+        )
+        for driver in (self.driver, self.mate):
+            Assignment.objects.create(
+                vehicle=self.car,
+                driver=driver,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 12, 31) if driver is self.mate else None,
+                status=AssignmentStatus.ACCEPTED,
+            )
+        # Lo que suele haber en un coche: la póliza compartida (la subió la
+        # gestión), el contrato que le corresponde al conductor vigente y unas
+        # fotos que subió él mismo.
+        self.poliza = Document.objects.create(
+            vehicle=self.car, type="insurance", shared_read=True, uploaded_by=self.admin
+        )
+        self.contrato = Document.objects.create(
+            vehicle=self.car, type="contract", responsible=self.driver, uploaded_by=self.admin
+        )
+        self.fotos = Document.objects.create(
+            vehicle=self.car, type="damage_photos", uploaded_by=self.driver
+        )
+        self.list_url = reverse("document-list")
+        self.access_url = reverse("documenttypeaccess-list")
+        self.requests_url = reverse("documentdeletionrequest-list")
+
+    def _ids(self, user):
+        self.client.force_authenticate(user)
+        return {row["id"] for row in self.client.get(self.list_url).data["results"]}
+
+    def _rows(self, user):
+        self.client.force_authenticate(user)
+        return {row["id"]: row for row in self.client.get(self.list_url).data["results"]}
+
+    def _patch(self, tipo, **data):
+        return self.client.patch(
+            reverse("documenttypeaccess-detail", args=[tipo]), data, format="json"
+        )
+
+    def _ask(self, user, document, kind, reason="x"):
+        self.client.force_authenticate(user)
+        return self.client.post(
+            self.requests_url,
+            {"document": document.pk, "kind": kind, "reason": reason},
+            format="json",
+        )
+
+    def _decide(self, peticion_id, decision):
+        self.client.force_authenticate(self.admin)
+        return self.client.post(
+            reverse("documentdeletionrequest-resolve", args=[peticion_id]),
+            {"decision": decision},
+            format="json",
+        )
+
+    # --- quién LISTA qué --------------------------------------------------
+
+    def test_without_rules_everything_reads_as_always(self):
+        self.assertEqual(self._ids(self.driver), {self.poliza.pk, self.contrato.pk, self.fotos.pk})
+        self.assertEqual(self._ids(self.supervisor), {self.poliza.pk, self.contrato.pk})
+
+    def test_own_only_leaves_the_driver_with_what_he_uploaded(self):
+        DocumentTypeAccess.objects.create(type="insurance", driver_read=DriverDocumentRead.OWN)
+        DocumentTypeAccess.objects.create(type="contract", driver_read=DriverDocumentRead.OWN)
+        # Ni la póliza compartida ni el contrato del que es responsable; sus
+        # fotos (otro tipo) y lo que suba él de esos tipos, sí.
+        propia = Document.objects.create(
+            vehicle=self.car, type="insurance", uploaded_by=self.driver
+        )
+        self.assertEqual(self._ids(self.driver), {self.fotos.pk, propia.pk})
+        # A la supervisión no le cambia nada: es la política del conductor.
+        self.assertEqual(self._ids(self.supervisor), {self.poliza.pk, self.contrato.pk})
+
+    def test_none_hides_the_type_from_the_driver_even_what_he_uploaded(self):
+        """«Ninguno» es el cierre del todo, como el «no» de la supervisión:
+        ni lo compartido, ni lo suyo como responsable, ni lo que subió él.
+        Solo sus papeles personales (RGPD). Y el ajuste por documento vale en
+        los dos sentidos."""
+        DocumentTypeAccess.objects.create(type="insurance", driver_read=DriverDocumentRead.NONE)
+        propia = Document.objects.create(
+            vehicle=self.car, type="insurance", uploaded_by=self.driver
+        )
+        self.assertEqual(self._ids(self.driver), {self.contrato.pk, self.fotos.pk})
+        # A la supervisión no le cambia nada.
+        self.assertEqual(self._ids(self.supervisor), {self.poliza.pk, self.contrato.pk})
+        # Abierta por documento, vuelve; y cerrada por documento, se va.
+        propia.driver_read_override = DriverDocumentRead.ALL
+        propia.save()
+        self.fotos.driver_read_override = DriverDocumentRead.NONE
+        self.fotos.save()
+        self.assertEqual(self._ids(self.driver), {self.contrato.pk, propia.pk})
+        # Un papel personal de ese tipo se sigue leyendo.
+        DocumentTypeAccess.objects.create(
+            type="driving_license", driver_read=DriverDocumentRead.NONE
+        )
+        permiso = Document.objects.create(
+            user=self.driver, type="driving_license", uploaded_by=self.admin
+        )
+        self.assertIn(permiso.pk, self._ids(self.driver))
+
+    def test_a_closed_type_takes_everything_from_the_supervisor(self):
+        DocumentTypeAccess.objects.create(type="insurance", supervisor_read=False)
+        # También lo compartido: cerrado es cerrado. Lo que subió él, no.
+        suya = Document.objects.create(
+            vehicle=self.car, type="insurance", uploaded_by=self.supervisor
+        )
+        self.assertEqual(self._ids(self.supervisor), {self.contrato.pk, suya.pk})
+        self.assertEqual(self._ids(self.driver), {self.poliza.pk, self.contrato.pk, self.fotos.pk})
+
+    def test_roles_add_up(self):
+        # Supervisor+conductor del mismo coche: la póliza se le cierra como
+        # supervisor, pero como conductor la sigue leyendo (compartida).
+        DocumentTypeAccess.objects.create(type="insurance", supervisor_read=False)
+        ambos = make_user("ambos", Role.SUPERVISOR, Role.DRIVER)
+        self.car.supervisor = ambos
+        self.car.save(update_fields=["supervisor"])
+        self.assertIn(self.poliza.pk, self._ids(ambos))
+
+    def test_own_personal_papers_are_never_hidden(self):
+        DocumentTypeAccess.objects.create(
+            type="driving_license", driver_read=DriverDocumentRead.OWN
+        )
+        permiso = Document.objects.create(
+            user=self.driver, type="driving_license", uploaded_by=self.admin
+        )
+        self.assertIn(permiso.pk, self._ids(self.driver))
+
+    def test_the_binary_follows_the_same_rule(self):
+        DocumentTypeAccess.objects.create(type="insurance", driver_read=DriverDocumentRead.OWN)
+        self.client.force_authenticate(self.driver)
+        resp = self.client.get(reverse("document-detail", args=[self.poliza.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_a_document_can_override_its_type(self):
+        """El ajuste por documento manda sobre el tipo, en los dos sentidos."""
+        DocumentTypeAccess.objects.create(
+            type="insurance", supervisor_read=False, driver_read=DriverDocumentRead.OWN
+        )
+        otra = Document.objects.create(
+            vehicle=self.car, type="insurance", shared_read=True, uploaded_by=self.admin
+        )
+        self.poliza.supervisor_read_override = True
+        self.poliza.driver_read_override = DriverDocumentRead.ALL
+        self.poliza.save()
+        self.assertEqual(self._ids(self.driver), {self.poliza.pk, self.contrato.pk, self.fotos.pk})
+        self.assertEqual(self._ids(self.supervisor), {self.poliza.pk, self.contrato.pk})
+        self.assertNotIn(otra.pk, self._ids(self.driver))
+
+        ajenas = Document.objects.create(
+            vehicle=self.car,
+            type="damage_photos",
+            shared_read=True,
+            uploaded_by=self.admin,
+            supervisor_read_override=False,
+            driver_read_override=DriverDocumentRead.OWN,
+        )
+        self.assertNotIn(ajenas.pk, self._ids(self.driver))
+        self.assertNotIn(ajenas.pk, self._ids(self.supervisor))
+        self.assertIn(ajenas.pk, self._ids(self.admin))
+
+    # --- ver y bajar: directamente o previa solicitud ---------------------
+
+    def test_by_default_the_driver_views_and_downloads_and_the_supervisor_asks_to_download(self):
+        filas = self._rows(self.driver)
+        self.assertEqual(
+            (filas[self.poliza.pk]["can_view"], filas[self.poliza.pk]["can_download"]), (True, True)
+        )
+        self.assertEqual(filas[self.poliza.pk]["view_request"], "")
+        # La supervisión ve, pero se lo baja previa solicitud, siempre.
+        filas = self._rows(self.supervisor)
+        self.assertEqual(
+            (filas[self.poliza.pk]["can_view"], filas[self.poliza.pk]["can_download"]),
+            (True, False),
+        )
+        self.client.force_authenticate(self.supervisor)
+        resp = self.client.get(reverse("document-download", args=[self.poliza.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        # La administración, todo.
+        filas = self._rows(self.admin)
+        self.assertTrue(all(row["can_view"] and row["can_download"] for row in filas.values()))
+
+    def test_view_by_request_is_asked_granted_and_then_seen(self):
+        DocumentTypeAccess.objects.create(type="insurance", driver_view=DriverActionMode.REQUEST)
+        filas = self._rows(self.driver)
+        self.assertFalse(filas[self.poliza.pk]["can_view"])
+        self.assertTrue(filas[self.fotos.pk]["can_view"])
+        self.client.force_authenticate(self.driver)
+        resp = self.client.get(reverse("document-preview", args=[self.poliza.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Se pide: la fila queda pendiente y el documento NO se marca
+        # «pendiente de borrado» (no habla del documento, habla de quién pide).
+        resp = self._ask(self.driver, self.poliza, "view", reason="Necesito el número de póliza")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        peticion = resp.data["id"]
+        filas = self._rows(self.driver)
+        self.assertEqual(filas[self.poliza.pk]["view_request"], "pending")
+        self.assertFalse(filas[self.poliza.pk]["deletion_pending"])
+        # Otro conductor puede pedir lo mismo: una viva por documento y persona.
+        self.assertEqual(
+            self._ask(self.mate, self.poliza, "view").status_code, status.HTTP_201_CREATED
+        )
+        # Y la misma persona dos veces devuelve la que ya hay.
+        self.assertEqual(self._ask(self.driver, self.poliza, "view").data["id"], peticion)
+
+        # Concedida, es el permiso.
+        resp = self._decide(peticion, "grant")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["status"], "granted")
+        filas = self._rows(self.driver)
+        self.assertTrue(filas[self.poliza.pk]["can_view"])
+        self.assertEqual(filas[self.poliza.pk]["view_request"], "granted")
+        self.client.force_authenticate(self.driver)
+        resp = self.client.get(reverse("document-preview", args=[self.poliza.pk]))
+        self.assertNotEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        # Y al compañero, rechazada: sigue sin verla.
+        otra = DocumentDeletionRequest.objects.get(requested_by=self.mate)
+        self.assertEqual(self._decide(otra.pk, "reject").data["status"], "rejected")
+        self.assertFalse(self._rows(self.mate)[self.poliza.pk]["can_view"])
+
+    def test_deny_is_neither_seen_nor_asked(self):
+        """«No permitir»: el documento se lista, pero su archivo no sale por el
+        campo ni pidiéndolo — ni ver, ni bajar, ni abrir una petición."""
+        DocumentTypeAccess.objects.create(type="insurance", driver_view=DriverActionMode.DENY)
+        self.fotos.driver_download_override = DriverActionMode.DENY
+        self.fotos.save()
+        filas = self._rows(self.driver)
+        self.assertIn(self.poliza.pk, filas)
+        self.assertFalse(filas[self.poliza.pk]["can_view"])
+        self.assertEqual(filas[self.poliza.pk]["view_request"], "denied")
+        self.assertTrue(filas[self.poliza.pk]["can_download"])
+        self.assertFalse(filas[self.fotos.pk]["can_download"])
+        self.assertEqual(filas[self.fotos.pk]["download_request"], "denied")
+        self.assertTrue(filas[self.fotos.pk]["can_view"])
+        self.client.force_authenticate(self.driver)
+        resp = self.client.get(reverse("document-preview", args=[self.poliza.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        resp = self.client.get(reverse("document-download", args=[self.fotos.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        # No hay nada que pedir: ni se abre la petición.
+        self.assertEqual(
+            self._ask(self.driver, self.poliza, "view").status_code, status.HTTP_400_BAD_REQUEST
+        )
+        self.assertEqual(
+            self._ask(self.driver, self.fotos, "download").status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        # Una concesión anterior tampoco vale ya: manda el ajuste de hoy.
+        DocumentDeletionRequest.objects.create(
+            document=self.poliza,
+            requested_by=self.driver,
+            kind="view",
+            status=DocumentDeletionStatus.GRANTED,
+        )
+        self.assertFalse(self._rows(self.driver)[self.poliza.pk]["can_view"])
+        # La supervisión lo ve igual (no se le configura) y lo baja previa
+        # solicitud, como siempre; la administración, todo.
+        filas = self._rows(self.supervisor)
+        self.assertTrue(filas[self.poliza.pk]["can_view"])
+        self.assertEqual(filas[self.poliza.pk]["download_request"], "")
+        self.assertFalse(filas[self.poliza.pk]["can_download"])
+        self.assertTrue(all(row["can_view"] for row in self._rows(self.admin).values()))
+
+    def test_deletion_can_be_closed_to_the_driver(self):
+        """El borrado del conductor es con solicitud o nada: cerrado en el tipo
+        o en el documento, la papelera del campo no abre petición (400)."""
+        DocumentTypeAccess.objects.create(type="insurance", driver_delete=DriverActionMode.DENY)
+        self.fotos.driver_delete_override = DriverActionMode.DENY
+        self.fotos.save()
+        filas = self._rows(self.driver)
+        self.assertFalse(filas[self.poliza.pk]["can_request_delete"])
+        self.assertFalse(filas[self.fotos.pk]["can_request_delete"])
+        self.assertTrue(filas[self.contrato.pk]["can_request_delete"])
+        self.assertEqual(filas[self.fotos.pk]["effective_access"]["driver_delete"], "deny")
+        resp = self._ask(self.driver, self.poliza, "delete")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._ask(self.driver, self.fotos, "delete").status_code, 400)
+        self.assertEqual(self._ask(self.driver, self.contrato, "delete").status_code, 201)
+        # La supervisión lo pide siempre: no se le configura.
+        self.assertTrue(self._rows(self.supervisor)[self.poliza.pk]["can_request_delete"])
+        self.assertEqual(self._ask(self.supervisor, self.poliza, "delete").status_code, 201)
+        # Y «permitir» no existe para el borrado, ni en el tipo ni en el documento.
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(
+            reverse("documenttypeaccess-detail", args=["insurance"]),
+            {"driver_delete": "allow"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        resp = self.client.patch(
+            reverse("document-detail", args=[self.fotos.pk]),
+            {"driver_delete_override": "allow"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        resp = self.client.patch(
+            reverse("documenttypeaccess-detail", args=["insurance"]),
+            {"driver_delete": "request"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["driver_delete_display"], "Con solicitud")
+
+    def test_download_by_request_per_type_and_per_document(self):
+        DocumentTypeAccess.objects.create(
+            type="insurance", driver_download=DriverActionMode.REQUEST
+        )
+        # Y ESTAS fotos, por ajuste propio, aunque su tipo se baje directamente.
+        self.fotos.driver_download_override = DriverActionMode.REQUEST
+        self.fotos.save()
+        filas = self._rows(self.driver)
+        self.assertFalse(filas[self.poliza.pk]["can_download"])
+        self.assertFalse(filas[self.fotos.pk]["can_download"])
+        self.assertTrue(filas[self.fotos.pk]["access_adjusted"])
+        self.assertTrue(filas[self.contrato.pk]["can_download"])
+        self.assertEqual(
+            filas[self.fotos.pk]["effective_access"],
+            {
+                "supervisor_read": True,
+                "driver_read": "all",
+                "driver_view": "allow",
+                "driver_download": "request",
+                "driver_delete": "request",
+            },
+        )
+        self.client.force_authenticate(self.driver)
+        resp = self.client.get(reverse("document-download", args=[self.poliza.pk]))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        # Pedir lo que ya se puede hacer no abre nada.
+        resp = self._ask(self.driver, self.contrato, "download")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        # Pedida y concedida, se baja.
+        peticion = self._ask(self.driver, self.poliza, "download").data["id"]
+        self._decide(peticion, "grant")
+        self.assertTrue(self._rows(self.driver)[self.poliza.pk]["can_download"])
+        self.client.force_authenticate(self.driver)
+        resp = self.client.get(reverse("document-download", args=[self.poliza.pk]))
+        self.assertNotEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        # Una de acceso no se «borra» ni se «aplica»: solo se concede o no.
+        otra = self._ask(self.driver, self.fotos, "download").data["id"]
+        self.assertEqual(self._decide(otra, "delete").status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_deletion_is_always_by_request(self):
+        cache.clear()
+        for user, document in ((self.driver, self.fotos), (self.supervisor, self.contrato)):
+            resp = self._ask(user, document, "delete")
+            self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+    # --- el endpoint de Ajustes --------------------------------------------
+
+    def test_admin_lists_all_types_and_edits_one(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(self.access_url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        tipos = [row["type"] for row in resp.data]
+        self.assertEqual(len(tipos), 12)
+        seguro = next(row for row in resp.data if row["type"] == "insurance")
+        self.assertTrue(seguro["supervisor_read"])
+        self.assertEqual(seguro["driver_read"], "all")
+        self.assertEqual((seguro["driver_view"], seguro["driver_download"]), ("allow", "allow"))
+
+        resp = self._patch(
+            "insurance", supervisor_read=False, driver_read="own", driver_download="request"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["driver_read_display"], "Solo los que subió")
+        self.assertEqual(resp.data["driver_download_display"], "Con solicitud")
+        fila = DocumentTypeAccess.objects.get(type="insurance")
+        self.assertEqual((fila.driver_read, fila.driver_download), ("own", "request"))
+        # Y vale en la siguiente petición.
+        self.assertEqual(self._ids(self.supervisor), {self.contrato.pk})
+
+    def test_only_management_writes_the_override(self):
+        # El conductor no se lo abre a sí mismo: editar un documento no es
+        # suyo (403), y si colara el campo en un alta se ignoraría en
+        # silencio como el resto de la confidencialidad.
+        self.client.force_authenticate(self.driver)
+        resp = self.client.patch(
+            reverse("document-detail", args=[self.fotos.pk]),
+            {"driver_download_override": "allow"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        resp = self.client.post(
+            self.list_url,
+            {
+                "vehicle": self.car.pk,
+                "type": "other",
+                "drive_url": "https://drive/x",
+                "driver_download_override": "allow",
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertIsNone(resp.data["driver_download_override"])
+        # La gestión sí, y lo deja en blanco para volver al tipo.
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(
+            reverse("document-detail", args=[self.fotos.pk]),
+            {"driver_view_override": "request", "driver_read_override": "own"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertTrue(resp.data["access_adjusted"])
+        resp = self.client.patch(
+            reverse("document-detail", args=[self.fotos.pk]),
+            {"driver_view_override": None, "driver_read_override": None},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertFalse(resp.data["access_adjusted"])
+
+    def test_only_the_admin_touches_it_and_only_real_types(self):
+        self.client.force_authenticate(self.supervisor)
+        self.assertEqual(self.client.get(self.access_url).status_code, status.HTTP_403_FORBIDDEN)
+        self.client.force_authenticate(self.driver)
+        self.assertEqual(
+            self._patch("insurance", driver_read="own").status_code, status.HTTP_403_FORBIDDEN
+        )
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(
+            self._patch("nomina", driver_read="own").status_code, status.HTTP_404_NOT_FOUND
+        )
+        self.assertEqual(
+            self._patch("insurance", driver_read="todos").status_code, status.HTTP_400_BAD_REQUEST
+        )
 
 
 class IncidentTests(APITestCase):

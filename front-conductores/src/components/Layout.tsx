@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import {
-  Bell,
-  Camera,
-  Car,
-  CloudOff,
-  Home,
-  LineChart,
-  LogOut,
-  User,
-  UserCog,
-  Users,
-} from 'lucide-react'
+import { Bell, Camera, Car, CloudOff, Home, LineChart, LogOut, Split, User, UserCog, Users } from 'lucide-react'
 import { LanguageToggleButton } from '@flota/ui/ui'
 
-import { fetchVehicleSummariesCached, listVehiclesCached } from '../api.ts'
-import { closeServerSession, hasWideReadScope, useAuth } from '../auth.ts'
+import { fetchVehicleSummariesCached, listMyShares, listVehiclesCached } from '../api.ts'
+import { closeServerSession, useAuth } from '../auth.ts'
 import { FleetModeContext } from '../fleetMode.ts'
+import { vehiclesDrivenBy } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Vehicle, VehicleSummary } from '../types.ts'
 import { ProfileEditSheet } from './ProfileEditModal.tsx'
@@ -68,19 +58,19 @@ export function Layout() {
   const { user, logout } = useAuth()
   const { t, language, setLanguage } = useLang()
   const navigate = useNavigate()
-  // «Mi perfil» es una RUTA y no un modo: el switch de arriba enseña las tres
-  // caras juntas, pero por debajo `fleetMode` sigue siendo cosa de dos. Así,
-  // al volver del perfil se vuelve a la vista que se estaba usando.
-  const enPerfil = useLocation().pathname === '/perfil'
+  // «Mi perfil» y «Reparto» son RUTAS y no un modo: el switch de arriba
+  // enseña las caras juntas, pero por debajo `fleetMode` sigue siendo cosa
+  // de dos. Así, al volver de una de ellas se vuelve a la vista que se
+  // estaba usando.
+  const ruta = useLocation().pathname
+  const enPerfil = ruta === '/perfil'
+  const enReparto = ruta === '/reparto'
+  const enRuta = enPerfil || enReparto
   const [queueNotice, setQueueNotice] = useState('')
 
   const isSupervisor = user?.roles.includes('supervisor') ?? false
-  // ÁMBITO, no permiso: a admin, supervisor y HSE el back les manda más coches
-  // que los que conducen, y la pareja «mía» se saca de lo que conduce. Con
-  // `admin|supervisor` a secas, un conductor con HSE se quedaba con toda la
-  // flota como propia: sin tablero y con el nav apagado (target nulo).
-  const hasWideScope = hasWideReadScope(user)
-
+  // «Reparto» es de quien conduce: es su coche el que puede estar repartido.
+  const isDriver = user?.roles.includes('driver') ?? false
   // Switch del supervisor: "Mi vehículo" ↔ "Flota". Recordado por dispositivo;
   // en jsdom o con el almacenamiento vetado simplemente arranca en vehículo.
   const [fleetMode, setFleetModeState] = useState(() => {
@@ -126,9 +116,11 @@ export function Layout() {
       .then(([page, summaries]) => {
         if (!alive) return
         const byId = new Map(summaries.map((s) => [s.vehicle, s]))
-        const own = hasWideScope
-          ? page.results.filter((v) => byId.get(v.id)?.driver?.id === user.id)
-          : page.results
+        // Lo «mío» es lo que CONDUZCO, se tenga el ámbito ancho o no: desde
+        // que un reparto de uso da ámbito, al conductor puro también le
+        // llegan coches que no lleva, y contándolos como suyos el nav se
+        // quedaba sin `target` (dos coches ⇒ ninguno) y perdía sus botones.
+        const own = vehiclesDrivenBy(page.results, byId, user.id)
         const ids = new Set<number>()
         own.forEach((v) => {
           ids.add(v.id)
@@ -158,7 +150,24 @@ export function Layout() {
     return () => {
       alive = false
     }
-  }, [hasWideScope, user, dataVersion])
+  }, [user, dataVersion])
+
+  // «Reparto» solo sale si hay algo que enseñar: una pestaña que siempre
+  // abre «no tienes ningún coche en reparto» es un sitio al que no hay que
+  // ir. Se pregunta al back una vez por persona (y otra cada vez que se
+  // guarda algo, como el resto del shell); si falla, no se ofrece.
+  const [hasShares, setHasShares] = useState(false)
+  useEffect(() => {
+    // Sin rol de conductor no se pregunta: el tab ya lo esconde `isDriver`.
+    if (!user || !isDriver) return
+    let alive = true
+    listMyShares()
+      .then((rows) => alive && setHasShares(rows.length > 0))
+      .catch(() => alive && setHasShares(false))
+    return () => {
+      alive = false
+    }
+  }, [user, isDriver, dataVersion])
 
   // FE-2: la cola offline es del dispositivo y la sesión, de la persona: se le
   // dice a la cola de quién es lo que se encola desde aquí (y contra quién
@@ -305,31 +314,44 @@ export function Layout() {
           {queueNotice}
         </button>
       )}
-      {/* Switch del shell: o estás en TU coche, o en la flota, o en tu perfil.
-          Los dos primeros son un MODO (cambian a la vez la home y los iconos
-          del nav); el tercero es una ruta, así que al elegir modo estando en el
-          perfil hay que salir de él — si no, el tab cambiaría sin que cambiase
-          la pantalla. */}
+      {/* Switch del shell: o estás en TU coche, o en la flota, o en tus
+          coches de reparto, o en tu perfil. Los dos primeros son un MODO
+          (cambian a la vez la home y los iconos del nav); los otros dos son
+          rutas, así que al elegir modo estando en una hay que salir de ella —
+          si no, el tab cambiaría sin que cambiase la pantalla. */}
       <div className="mode-switch" role="group" aria-label={t.shell.mode.label}>
         <button
           type="button"
-          aria-pressed={!enPerfil && !fleetMode}
-          className={`mode-switch-btn${!enPerfil && !fleetMode ? ' is-active' : ''}`}
+          aria-pressed={!enRuta && !fleetMode}
+          className={`mode-switch-btn${!enRuta && !fleetMode ? ' is-active' : ''}`}
           onClick={() => {
             setFleetMode(false)
-            if (enPerfil) navigate('/')
+            if (enRuta) navigate('/')
           }}
         >
           <Car size={16} aria-hidden /> {t.shell.mode.vehicle}
         </button>
+        {/* Con la ruta abierta se queda aunque la lista se vacíe al
+            recargar: quitar el tab activo dejaría la pantalla sin dueño. Va
+            pegado a «Mi vehículo»: son los otros coches que uno conduce. */}
+        {isDriver && (hasShares || enReparto) && (
+          <button
+            type="button"
+            aria-pressed={enReparto}
+            className={`mode-switch-btn${enReparto ? ' is-active' : ''}`}
+            onClick={() => navigate('/reparto')}
+          >
+            <Split size={16} aria-hidden /> {t.shell.mode.shares}
+          </button>
+        )}
         {isSupervisor && (
           <button
             type="button"
-            aria-pressed={!enPerfil && fleetMode}
-            className={`mode-switch-btn${!enPerfil && fleetMode ? ' is-active' : ''}`}
+            aria-pressed={!enRuta && fleetMode}
+            className={`mode-switch-btn${!enRuta && fleetMode ? ' is-active' : ''}`}
             onClick={() => {
               setFleetMode(true)
-              if (enPerfil) navigate('/')
+              if (enRuta) navigate('/')
             }}
           >
             <Users size={16} aria-hidden /> {t.shell.mode.fleet}
@@ -387,12 +409,13 @@ export function Layout() {
           </>
         ) : (
           <>
-        {!fleetMode && (
+        {(!fleetMode || enReparto) && (
           /* Sin «Inicio», igual que el perfil: el conmutador de arriba ya
              devuelve a la tarjeta del coche al elegir «Mi vehículo», y el
              hueco vale más para las acciones, que es lo único que solo se
              hace desde aquí. En «Flota» sí sigue: ahí el nav lleva a tres
-             pantallas distintas y hace falta la de vuelta. */
+             pantallas distintas y hace falta la de vuelta. En «Reparto» van
+             las del coche PROPIO: lo repartido no se conduce desde aquí. */
           <VehicleActionButtons
             vehicle={noCar ? null : actionVehicle}
             summary={actionSummary}
@@ -401,7 +424,7 @@ export function Layout() {
             onSaved={() => setDataVersion((version) => version + 1)}
           />
         )}
-        {isSupervisor && fleetMode && (
+        {isSupervisor && fleetMode && !enReparto && (
           <>
             <NavLink to="/" end className="bottom-tab">
               <Home size={22} strokeWidth={2.4} aria-hidden />

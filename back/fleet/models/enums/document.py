@@ -82,6 +82,40 @@ LINK_REQUIRED_DOCUMENT_TYPES = frozenset(
 PERSONAL_DOCUMENT_TYPES = frozenset({DocumentType.DRIVING_LICENSE, DocumentType.OTHER})
 
 
+class DriverDocumentRead(models.TextChoices):
+    """Qué lee un CONDUCTOR de un tipo de documento (`DocumentTypeAccess`).
+
+    Lo normal es lo que subió él mismo —quien sube un documento no lo pierde de
+    vista, es la doctrina de `readable_documents`—; lo otro es la regla de
+    siempre (lo compartido y lo que le corresponde como responsable), que es
+    por donde le llegan los documentos que subieron los demás. Y «ninguno» es
+    el cierre del todo, como el «no» de la supervisión: el tipo no aparece en
+    su lista, tampoco lo que subió él; solo sus papeles personales (RGPD).
+    """
+
+    NONE = "none", "Ninguno"
+    OWN = "own", "Solo los que subió"
+    ALL = "all", "Los que subió y los de los demás"
+
+
+class DriverActionMode(models.TextChoices):
+    """Cómo hace el CONDUCTOR una acción sobre un tipo de documento —ver el
+    archivo, bajárselo— (`DocumentTypeAccess.driver_view` /
+    `driver_download`): directamente, **previa solicitud** que la gestión
+    concede (`DocumentDeletionRequest` con `kind` lectura o descarga), o
+    **nunca** (`DENY`: ni pidiéndolo; el documento se lista, pero su archivo
+    no sale por el campo)."""
+
+    ALLOW = "allow", "Permitir"
+    REQUEST = "request", "Con solicitud"
+    DENY = "deny", "No permitir"
+
+
+#: Lo que admite el BORRADO del conductor (`driver_delete`): la papelera del
+#: campo nunca borra, pide — así que «permitir» no existe ahí.
+DRIVER_DELETE_MODES = (DriverActionMode.REQUEST, DriverActionMode.DENY)
+
+
 class DocumentStatus(models.TextChoices):
     """Estado del documento."""
 
@@ -102,6 +136,19 @@ class DocumentRequestKind(models.TextChoices):
 
     DELETE = "delete", "Borrado"
     CHANGE = "change", "Corrección"
+    # Las de ACCESO: ver el archivo y bajárselo, cuando el tipo (o el
+    # documento) lo pone «con solicitud». Concedida, la propia fila es el
+    # permiso de esa persona sobre ese documento.
+    VIEW = "view", "Lectura"
+    DOWNLOAD = "download", "Descarga"
+
+
+#: Las clases que hablan del DOCUMENTO (borrarlo, corregirlo): una viva por
+#: documento, y son las que lo marcan «pendiente» en el campo.
+ONE_PER_DOCUMENT_KINDS = frozenset({DocumentRequestKind.DELETE, DocumentRequestKind.CHANGE})
+#: Las clases de ACCESO (lectura, descarga): una viva por documento Y persona,
+#: porque dos conductores pueden pedir lo mismo.
+ACCESS_REQUEST_KINDS = frozenset({DocumentRequestKind.VIEW, DocumentRequestKind.DOWNLOAD})
 
 
 class DocumentDeletionStatus(models.TextChoices):
@@ -118,4 +165,6 @@ class DocumentDeletionStatus(models.TextChoices):
     DELETED = "deleted", "Borrado (en erratas)"
     HIDDEN = "hidden", "Oculto para el conductor"
     APPLIED = "applied", "Corrección aplicada"
+    # La salida buena de una de ACCESO: la fila concedida es el permiso.
+    GRANTED = "granted", "Concedida"
     REJECTED = "rejected", "Rechazada"

@@ -56,9 +56,9 @@ const es = {
   lockOpen: 'Editable',
   lockHintClosed: 'Identifican al vehículo: pulsa para poder editarlos',
   lockHintOpen: 'Pulsa para volver a bloquearlos',
-  unlockTitle: 'Editar los datos del vehículo',
+  unlockTitle: 'Vas a modificar datos sensibles del vehículo',
   unlockWarn:
-    'La matrícula, el bastidor y la fecha de matriculación identifican al vehículo en contratos, seguros y multas. Cámbialos solo para corregir un error de alta: el resto de registros seguirán apuntando a este mismo coche.',
+    'La matrícula, el bastidor, la fecha de matriculación, la marca, el modelo, la versión y el año identifican al vehículo en contratos, seguros y multas. Cámbialos solo para corregir un error de alta: el resto de registros seguirán apuntando a este mismo coche. Todo cambio quedará auditado con tu usuario, la fecha y el valor anterior, y se verá en el histórico de la ficha.',
   unlockConfirm: 'Entiendo, quiero editarlos',
 
   // Secciones
@@ -118,6 +118,9 @@ const es = {
   property: 'Propiedad',
   company: 'Sociedad',
   insuranceExpiry: 'Vencimiento del seguro',
+  /** Editando: conductor, supervisor y multiusuario van en el modal de la barra. */
+  peopleElsewhere:
+    'El conductor, el supervisor y la marca de multiusuario se cambian desde «Cambiar conductor / supervisor», en la barra de arriba: cada cambio es un gesto propio que queda en el histórico.',
   multiuser: 'Multiusuario (coche de pool)',
   multiuserWhat: '¿Qué es un coche multiusuario?',
   multiuserInfo:
@@ -323,9 +326,9 @@ const en: typeof es = {
   lockOpen: 'Editable',
   lockHintClosed: 'They identify the vehicle: click to be able to edit them',
   lockHintOpen: 'Click to lock them again',
-  unlockTitle: 'Edit the vehicle data',
+  unlockTitle: 'You are about to change sensitive vehicle data',
   unlockWarn:
-    'The plate, VIN and registration date identify the vehicle in contracts, insurance and fines. Change them only to fix a data-entry mistake: every other record will keep pointing at this same car.',
+    'The plate, VIN, registration date, brand, model, version and year identify the vehicle in contracts, insurance and fines. Change them only to fix a data-entry mistake: every other record will keep pointing at this same car. Every change is audited with your user, the date and the previous value, and shows in the vehicle history.',
   unlockConfirm: 'I understand, let me edit them',
 
   sectionsAria: 'Vehicle sections',
@@ -378,6 +381,8 @@ const en: typeof es = {
   property: 'Ownership',
   company: 'Company',
   insuranceExpiry: 'Insurance expiry',
+  peopleElsewhere:
+    'The driver, the supervisor and the pool-car flag are changed from “Change driver / supervisor” in the bar above: each change is its own action and stays in the history.',
   multiuser: 'Multi-user (pool car)',
   multiuserWhat: 'What is a pool car?',
   multiuserInfo:

@@ -12,6 +12,7 @@ from .views import (
     ContractViewSet,
     CountryViewSet,
     DocumentDeletionRequestViewSet,
+    DocumentTypeAccessViewSet,
     DocumentViewSet,
     DriverChangeRequestViewSet,
     EmailLogViewSet,
@@ -72,6 +73,8 @@ router.register(
     DocumentDeletionRequestViewSet,
     basename="documentdeletionrequest",
 )
+# Quién lee cada tipo de documento (Documentos → Ajustes): admin.
+router.register("document-type-access", DocumentTypeAccessViewSet, basename="documenttypeaccess")
 router.register("alerts", AlertViewSet, basename="alert")
 router.register("vehicle-requests", VehicleRequestViewSet, basename="vehiclerequest")
 # El campo propone quién debería llevar el coche; la gestión lo decide en la

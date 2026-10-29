@@ -58,6 +58,7 @@ export const es = {
     itv_unscheduled: 'ITV sin cita',
     insurance_due: 'Seguro próximo / vencido',
     km_reading_pending: 'Lectura de km pendiente',
+    fuel_reading_pending: 'Consumo de combustible pendiente',
     km_overage: 'Exceso de km proyectado',
     no_driver: 'Vehículo sin conductor',
     maintenance_due: 'Mantenimiento programado',
@@ -83,6 +84,9 @@ export const es = {
     km_pending: 'Falta la lectura de km de {period}.',
     km_pending_days: 'Falta la lectura de km de {period}: {days} día(s) sin lectura (última el {last}).',
     km_pending_never: 'Falta la lectura de km de {period}: el vehículo no tiene ninguna lectura.',
+    fuel_pending_days:
+      'Falta la anotación de consumo de {period}: {days} día(s) sin anotación (última el {last}).',
+    fuel_pending_never: 'Falta la anotación de consumo de {period}: el vehículo no tiene ninguna.',
     no_driver: 'Sin conductor asignado desde hace más de {days} día(s).',
     km_overage: 'Proyección {projected} km supera los {contracted} km contratados ({pct}%).',
     maintenance: '{plan}: {parts}.',
@@ -146,6 +150,7 @@ export const es = {
       deleted: 'Borrado (en erratas)',
       hidden: 'Oculto para el conductor',
       applied: 'Corrección aplicada',
+      granted: 'Concedida',
       rejected: 'Rechazada',
     },
     vehicle: {
@@ -157,7 +162,12 @@ export const es = {
     },
     driver: { pending: 'Pendiente', done: 'Atendida', rejected: 'Rechazada' },
   } as Record<string, Record<string, string>>,
-  docRequestKind: { delete: 'Borrado', change: 'Corrección' } as Record<string, string>,
+  docRequestKind: {
+    delete: 'Borrado',
+    change: 'Corrección',
+    view: 'Lectura',
+    download: 'Descarga',
+  } as Record<string, string>,
   /** Los campos que se piden corregir, como los nombra su formulario. */
   fieldNames: {
     first_name: 'Nombre',
@@ -224,6 +234,7 @@ export const en: typeof es = {
     itv_unscheduled: 'MOT not booked',
     insurance_due: 'Insurance due / expired',
     km_reading_pending: 'Km reading pending',
+    fuel_reading_pending: 'Fuel consumption entry pending',
     km_overage: 'Projected km overage',
     no_driver: 'Vehicle without a driver',
     maintenance_due: 'Scheduled maintenance',
@@ -239,6 +250,9 @@ export const en: typeof es = {
     km_pending: 'The km reading for {period} is missing.',
     km_pending_days: 'The km reading for {period} is missing: {days} day(s) without a reading (last on {last}).',
     km_pending_never: 'The km reading for {period} is missing: the vehicle has no reading at all.',
+    fuel_pending_days:
+      'The fuel entry for {period} is missing: {days} day(s) without an entry (last on {last}).',
+    fuel_pending_never: 'The fuel entry for {period} is missing: the vehicle has no entry at all.',
     no_driver: 'No driver assigned for more than {days} day(s).',
     km_overage: 'Projected {projected} km exceeds the {contracted} km contracted ({pct}%).',
     maintenance: '{plan}: {parts}.',
@@ -299,6 +313,7 @@ export const en: typeof es = {
       deleted: 'Deleted (in corrections)',
       hidden: 'Hidden from the driver',
       applied: 'Correction applied',
+      granted: 'Granted',
       rejected: 'Rejected',
     },
     vehicle: {
@@ -310,7 +325,7 @@ export const en: typeof es = {
     },
     driver: { pending: 'Pending', done: 'Handled', rejected: 'Rejected' },
   },
-  docRequestKind: { delete: 'Deletion', change: 'Correction' },
+  docRequestKind: { delete: 'Deletion', change: 'Correction', view: 'View', download: 'Download' },
   fieldNames: {
     first_name: 'First name',
     last_name: 'Surname',

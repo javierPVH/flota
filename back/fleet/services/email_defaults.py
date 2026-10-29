@@ -179,6 +179,95 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             + _SIGN
         ),
     },
+    EmailTemplateKey.FUEL_READING_PENDING: {
+        "subject": "Consumo de combustible pendiente · {{matricula}}",
+        "body_html": (
+            "<p>Hola {{conductor}}:</p>"
+            "<p>Todavía no tenemos la anotación de consumo de <strong>{{periodo}}</strong> "
+            "del vehículo <strong>{{matricula}}</strong>. Lleva "
+            "<strong>{{dias_sin_lectura}} días</strong> sin anotación; la última que "
+            "consta es del {{ultima_lectura}}.</p>"
+            "<p><strong>Mientras no la registres, seguirás recibiendo este correo.</strong> "
+            "Solo tienes que anotar el consumo medio que marca el ordenador de a bordo "
+            "en el último trayecto: te lleva un minuto.</p>"
+            + _ENLACE
+            + _acordeon(
+                "Cómo anotar el consumo",
+                [
+                    "Entra en la app de campo con tu usuario.",
+                    "En «Mi vehículo», pulsa «Combustible».",
+                    "Escribe el consumo medio del último trayecto (l/100 km o kWh/100 km) "
+                    "y guarda.",
+                ],
+                "Si el coche ya no es el tuyo o no puedes anotarlo, avisa a la gestión de flota.",
+            )
+            + _FIRMA
+        ),
+        "subject_en": "Fuel consumption pending · {{matricula}}",
+        "body_html_en": (
+            "<p>Hi {{conductor}},</p>"
+            "<p>We still don't have the fuel consumption entry for <strong>{{periodo}}</strong> "
+            "for vehicle <strong>{{matricula}}</strong>. It has gone "
+            "<strong>{{dias_sin_lectura}} days</strong> without an entry; the last one on "
+            "record is from {{ultima_lectura}}.</p>"
+            "<p><strong>Until you log it, you will keep receiving this email.</strong> "
+            "Just note the average consumption shown by the on-board computer for the "
+            "last trip: it takes a minute.</p>"
+            + _LINK
+            + _acordeon(
+                "How to log the consumption",
+                [
+                    "Open the field app with your user.",
+                    "In “My vehicle”, tap “Fuel”.",
+                    "Enter the average consumption of the last trip (l/100 km or kWh/100 km) "
+                    "and save.",
+                ],
+                "If the car is no longer yours or you cannot log it, let fleet management know.",
+            )
+            + _SIGN
+        ),
+    },
+    EmailTemplateKey.MAINTENANCE_DUE: {
+        "subject": "Mantenimiento programado · {{matricula}}",
+        "body_html": (
+            "<p>Hola {{conductor}}:</p>"
+            "<p>El vehículo <strong>{{matricula}}</strong> tiene un mantenimiento programado "
+            "con fecha límite el <strong>{{fecha_vencimiento}}</strong>. {{mensaje}}</p>"
+            "<p>Concierta la cita en el taller y, cuando esté hecho, regístralo en la app "
+            "para que deje de avisarse.</p>"
+            + _ENLACE
+            + _acordeon(
+                "Cómo registrar el mantenimiento",
+                [
+                    "Entra en la app de campo con tu usuario.",
+                    "En «Mi vehículo», pulsa «Mantenimiento».",
+                    "Indica la fecha, el kilometraje y adjunta la factura si la tienes.",
+                ],
+                "Si el coche ya no es el tuyo o no puedes ocuparte, avisa a la gestión de flota.",
+            )
+            + _FIRMA
+        ),
+        "subject_en": "Scheduled maintenance · {{matricula}}",
+        "body_html_en": (
+            "<p>Hi {{conductor}},</p>"
+            "<p>Vehicle <strong>{{matricula}}</strong> has scheduled maintenance due by "
+            "<strong>{{fecha_vencimiento}}</strong>. {{mensaje}}</p>"
+            "<p>Book the workshop appointment and, once done, log it in the app so the "
+            "reminders stop.</p>"
+            + _LINK
+            + _acordeon(
+                "How to log the maintenance",
+                [
+                    "Open the field app with your user.",
+                    "In “My vehicle”, tap “Maintenance”.",
+                    "Enter the date, the mileage and attach the invoice if you have it.",
+                ],
+                "If the car is no longer yours or you cannot take care of it, let fleet "
+                "management know.",
+            )
+            + _SIGN
+        ),
+    },
     EmailTemplateKey.GENERIC: {
         "subject": "Aviso de la flota · {{matricula}}",
         "body_html": (

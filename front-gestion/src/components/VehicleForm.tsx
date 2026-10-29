@@ -4,6 +4,8 @@ import { Button, Modal, Panel, SelectField, TextInputField } from '@flota/ui/ui'
 import { ApiError, asErrorMessage } from '@flota/ui/http'
 
 import { useVehicleFormCopy, type VehicleFormCopy } from '../translations/vehicleForm.ts'
+import { useVehiclesCopy } from '../translations/vehicles.ts'
+import { isOutOfFleet } from '@flota/ui/domain'
 
 import {
   convertToFleet,
@@ -16,7 +18,6 @@ import {
   fetchCatalogs,
   listAll,
   listDrivers,
-  setVehicleDriver,
   listVehicleModels,
   previewVehicle,
   updateContract,
@@ -27,6 +28,7 @@ import {
 } from '../api.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
 import { FieldInfo } from './FieldInfo.tsx'
+import { VehicleDriverModal } from './VehicleDriverModal.tsx'
 import type { Driver, Vehicle } from '../types.ts'
 
 // Listas cerradas del back (etiquetas i18n del diccionario; el serializer valida).
@@ -327,11 +329,19 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
   const editing = mode === 'edit'
   const t = useVehicleFormCopy()
   const [pestanaElegida, setPestana] = useState<Pestana>('ident')
+  const vt = useVehiclesCopy()
   const confirm = useConfirm()
   const opts = useMemo(() => closedListOptions(t), [t])
+  // «Cambiar conductor / supervisor» (con la marca de multiusuario): el
+  // mismo modal que la ficha y el inventario, abierto desde la barra del
+  // tipo. En edición, esas tres cosas ya no se tocan desde la pestaña.
+  const [driverOpen, setDriverOpen] = useState(false)
   const [converting, setConverting] = useState(false)
-  // Los datos que identifican al coche (matrícula, bastidor, matriculación) se
-  // editan bajo candado: están a la vista siempre, pero no se tocan sin querer.
+  // Los datos que identifican al coche —matrícula, bastidor y matriculación,
+  // y también marca, modelo, versión y año (Identificación)— se editan bajo
+  // UN candado: están a la vista siempre, pero no se tocan sin querer, y
+  // abrirlo avisa de que son datos sensibles y de que el cambio queda
+  // auditado. Las dos cajas enseñan el mismo candado.
   const [fijosAbiertos, setFijosAbiertos] = useState(false)
   const fijosBloqueados = editing && !fijosAbiertos
 
@@ -447,38 +457,29 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
     setForm((f) => ({ ...f, [key]: value }))
 
   /** Nombre con el que se enseña un conductor en los avisos y el preview. */
-  const nombreConductor = (id: string): string => {
-    if (!id) return t.unassigned
-    if (id === initial.driver && vehicle?.driver_name) return vehicle.driver_name
-    return drivers.find((d) => String(d.id) === id)?.name ?? id
-  }
 
   /**
-   * En edición, cambiar el conductor PIDE confirmación antes de tocar nada:
-   * al guardar se cierra la asignación vigente, se abre otra con fecha de
-   * hoy y queda en el histórico (lo mismo que hace «Cambiar conductor» en la
-   * ficha). Si se dice que no, el desplegable se queda como estaba.
+   * Tras cambiar conductor, supervisor o la marca de multiusuario desde el
+   * modal: se vuelve a leer la ficha (la marca de `updated_at` cambió y el
+   * bloqueo optimista del guardado la necesita) y se refrescan esos campos
+   * en el formulario sin tocar lo que se esté editando.
    */
-  async function cambiarConductor(value: string) {
-    if (!editing || value === form.driver) {
-      set('driver')(value)
-      return
+  async function recargarPersonas() {
+    if (!vehicleId) return
+    try {
+      const v = await fetchVehicle(vehicleId)
+      setVehicle(v)
+      const gente = {
+        supervisor: v.supervisor != null ? String(v.supervisor) : '',
+        driver: v.driver_id != null ? String(v.driver_id) : '',
+        is_multiuser: v.is_multiuser ?? false,
+      }
+      setForm((f) => ({ ...f, ...gente }))
+      setInitial((f) => ({ ...f, ...gente }))
+      onLoaded?.(v)
+    } catch (err) {
+      setError(asErrorMessage(err, t.loadError))
     }
-    const ok = await confirm({
-      title: t.driverChangeTitle,
-      message: value
-        ? t.driverChangeWarn(form.plate, nombreConductor(form.driver), nombreConductor(value))
-        : t.driverReleaseWarn(form.plate, nombreConductor(form.driver)),
-      confirmLabel: t.driverChangeConfirm,
-      tone: 'warning',
-    })
-    if (ok) set('driver')(value)
-  }
-
-  /** El cambio de conductor en el preview (no sale del diff del servidor). */
-  function driverChangedPreview(): Record<string, [unknown, unknown]> {
-    if (form.driver === initial.driver) return {}
-    return { driver: [nombreConductor(initial.driver), nombreConductor(form.driver)] }
   }
   const setInput = (key: keyof FormState) => (e: { target: { value: string } }) =>
     set(key)(e.target.value)
@@ -558,7 +559,7 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
       // la misma pantalla pero es otro recurso).
       try {
         const result = await previewVehicle(vehicleId, changedPayload())
-        setPreview({ ...result.changes, ...contractChangedPreview(), ...driverChangedPreview() })
+        setPreview({ ...result.changes, ...contractChangedPreview() })
       } catch (err) {
         setError(asErrorMessage(err, t.previewError))
       }
@@ -595,31 +596,16 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
     if (!vehicleId || !vehicle) return
     setSaving(true)
     setError('')
-    // El conductor no va en el PATCH: tiene su gesto atómico (`set-driver`,
-    // el mismo de «Cambiar conductor»). Cada paso encadena la marca de
-    // `updated_at` que devuelve el anterior para que el bloqueo optimista
-    // siga valiendo. QUITARLO va antes de la ficha (marcar multiusuario con
-    // conductor lo rechaza el back) y PONERLO después (un multiusuario que
-    // deja de serlo no admite conductor hasta que la ficha lo diga).
-    const conductorCambia = form.driver !== initial.driver
-    const nuevoConductor = form.driver ? Number(form.driver) : null
-    let fichaGuardada = false
+    // El conductor, el supervisor y la marca de multiusuario no van en este
+    // PATCH: tienen su gesto atómico (`set-driver`, el modal de «Cambiar
+    // conductor / supervisor» de la barra), que al terminar recarga la ficha
+    // y con ella la marca de `updated_at` del bloqueo optimista.
     try {
-      let marca = vehicle.updated_at
-      if (conductorCambia && nuevoConductor === null) {
-        const v = await setVehicleDriver(vehicleId, { driver: null, expected_updated_at: marca })
-        marca = v.updated_at
-      }
-      const actualizado = await updateVehicleFields(vehicleId, {
+      await updateVehicleFields(vehicleId, {
         ...changedPayload(),
         // Bloqueo optimista: si la ficha cambió entre medias, el back devuelve 409.
-        expected_updated_at: marca,
+        expected_updated_at: vehicle.updated_at,
       })
-      fichaGuardada = true
-      marca = actualizado?.updated_at ?? marca
-      if (conductorCambia && nuevoConductor !== null) {
-        await setVehicleDriver(vehicleId, { driver: nuevoConductor, expected_updated_at: marca })
-      }
       // El contrato es otro recurso: se guarda tras el vehículo (su validación
       // de fechas puede rechazar y el error se muestra en el mismo formulario).
       await saveContractChanges()
@@ -629,8 +615,6 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
       // BG9: el 409 (bloqueo optimista) se decide por status, no por el texto
       // del detail — el sniffing de mensaje se rompe al traducir.
       if (err instanceof ApiError && err.status === 409) setConflict(true)
-      else if (fichaGuardada && conductorCambia && nuevoConductor !== null)
-        setError(t.driverSaveError(asErrorMessage(err, t.saveError)))
       else setError(asErrorMessage(err, t.saveError))
     } finally {
       setSaving(false)
@@ -638,9 +622,10 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
   }
 
   /**
-   * Candado de los datos del vehículo: cerrado de salida y con aviso al
-   * abrirlo (esos tres campos identifican al coche fuera de la aplicación).
-   * Volver a cerrarlo no pregunta nada.
+   * Candado de los datos del vehículo (la caja del tipo y la pestaña de
+   * Identificación): cerrado de salida y con aviso al abrirlo —son datos
+   * sensibles que identifican al coche fuera de la aplicación, y el cambio
+   * queda auditado—. Volver a cerrarlo no pregunta nada.
    */
   async function alternarCandado() {
     if (fijosAbiertos) {
@@ -658,6 +643,20 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
       setFijosAbiertos(true)
     }
   }
+
+  // El mismo botón de candado en las dos cajas que protege.
+  const candado = (
+    <button
+      type="button"
+      className={`vf-lock${fijosAbiertos ? ' is-open' : ''}`}
+      onClick={alternarCandado}
+      aria-pressed={fijosAbiertos}
+      title={fijosAbiertos ? t.lockHintOpen : t.lockHintClosed}
+    >
+      {fijosAbiertos ? <LockOpen size={13} aria-hidden /> : <Lock size={13} aria-hidden />}
+      {fijosAbiertos ? t.lockOpen : t.lockClosed}
+    </button>
+  )
 
   // Convertir sustituto → flota: acción seria e irreversible → TRIPLE aviso.
   async function handleConvertToFleet() {
@@ -797,8 +796,15 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
             {/* Lo que se le HACE al coche (convertirlo en flota, cambiar estado,
                 sustitución, devolver, dar de baja): en la misma caja, a la
                 derecha del tipo y aparte de lo que se le edita. */}
-            {editing && (form.is_substitute || actions) && (
+            {editing && (form.is_substitute || actions || vehicle) && (
               <div className="vf-actions">
+                {/* Quién lo lleva y quién responde de él (y si es de pool):
+                    el mismo modal que la ficha y el inventario. */}
+                {vehicle && !isOutOfFleet(vehicle.state) && (
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setDriverOpen(true)}>
+                    {vt.driverModal.btn}
+                  </Button>
+                )}
                 {form.is_substitute && (
                   <Button
                     type="button"
@@ -827,18 +833,7 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
           <div className="vf-fixed">
             <div className="vf-fixed-head">
               <span className="vf-fixed-title">{t.fixedTitle}</span>
-              {editing && (
-                <button
-                  type="button"
-                  className={`vf-lock${fijosAbiertos ? ' is-open' : ''}`}
-                  onClick={alternarCandado}
-                  aria-pressed={fijosAbiertos}
-                  title={fijosAbiertos ? t.lockHintOpen : t.lockHintClosed}
-                >
-                  {fijosAbiertos ? <LockOpen size={13} aria-hidden /> : <Lock size={13} aria-hidden />}
-                  {fijosAbiertos ? t.lockOpen : t.lockClosed}
-                </button>
-              )}
+              {editing && candado}
             </div>
             <div className="form-grid">
               <TextInputField
@@ -882,7 +877,12 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
           ))}
         </div>
         <section className="card vf-panel" data-section="ident" hidden={pestana !== 'ident'}>
-          <h3>{t.identificationTitle}{form.is_substitute && <span className="substitute-badge">{t.substituteBadge}</span>}</h3>
+          {/* Marca, modelo, versión y año identifican al coche igual que la
+              matrícula: el mismo candado que la caja del tipo. */}
+          <div className="vf-panel-head">
+            <h3>{t.identificationTitle}{form.is_substitute && <span className="substitute-badge">{t.substituteBadge}</span>}</h3>
+            {editing && candado}
+          </div>
           <div className="form-grid">
             <SelectField
               label={t.brand}
@@ -894,6 +894,7 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                 // Cambiar de marca invalida el modelo elegido (dependiente).
                 setForm((f) => ({ ...f, brand_ref: value, model_ref: '' }))
               }
+              disabled={fijosBloqueados}
             />
             <div className="field-with-badge">
               <SelectField
@@ -906,13 +907,13 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                 )}
                 value={form.model_ref}
                 onValueChange={set('model_ref')}
-                disabled={!form.brand_ref}
+                disabled={!form.brand_ref || fijosBloqueados}
               />
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
-                disabled={!form.brand_ref}
+                disabled={!form.brand_ref || fijosBloqueados}
                 title={t.newModelButtonTitle}
                 onClick={() => {
                   setNewModelName('')
@@ -923,8 +924,19 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                 {t.newModelButton}
               </Button>
             </div>
-            <TextInputField label={t.version} value={form.version} onChange={setInput('version')} />
-            <TextInputField label={t.year} type="number" value={form.year} onChange={setInput('year')} />
+            <TextInputField
+              label={t.version}
+              value={form.version}
+              onChange={setInput('version')}
+              disabled={fijosBloqueados}
+            />
+            <TextInputField
+              label={t.year}
+              type="number"
+              value={form.year}
+              onChange={setInput('year')}
+              disabled={fijosBloqueados}
+            />
           </div>
         </section>
 
@@ -1034,33 +1046,33 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                 </FieldInfo>
               )}
             </div>
+            {/* Editando, el conductor, el supervisor y la marca de multiusuario
+                se cambian desde «Cambiar conductor / supervisor» (la barra del
+                tipo): aquí solo se dice. En el alta se eligen aquí. */}
+            {editing && <p className="muted ops-note vf-people-note">{t.peopleElsewhere}</p>}
+            {!editing && (
             <div className="field-cell">
-              {/* Siempre editable, con el vigente puesto: cambiarlo en edición
-                  pide confirmación (`cambiarConductor`) y va al histórico, como
-                  «Cambiar conductor». Solo un multiusuario no lo admite. */}
-              <Labeled badge={editing ? 'historic' : undefined}>
-                <SelectField
-                  label={t.driver}
-                  options={[
-                    { value: '', label: t.unassigned },
-                    ...drivers.map((d) => ({ value: String(d.id), label: d.name })),
-                  ]}
-                  value={form.driver}
-                  onValueChange={cambiarConductor}
-                  disabled={form.is_multiuser}
-                />
-              </Labeled>
-              {form.is_multiuser ? (
+              <SelectField
+                label={t.driver}
+                options={[
+                  { value: '', label: t.unassigned },
+                  ...drivers.map((d) => ({ value: String(d.id), label: d.name })),
+                ]}
+                value={form.driver}
+                onValueChange={set('driver')}
+                disabled={form.is_multiuser}
+              />
+              {form.is_multiuser && (
                 <FieldInfo label={t.whyLocked}>{t.driverMultiuserInfo}</FieldInfo>
-              ) : (
-                editing && <FieldInfo label={t.driverChangeWhat}>{t.driverEditInfo}</FieldInfo>
               )}
             </div>
+            )}
             {/* Un multiusuario no puede quedarse sin supervisor (el back lo
                 rechaza): con la casilla marcada, el supervisor pasa a
                 OBLIGATORIO —con su chapa y su aviso— y el envío salta aquí si
                 está vacío. Antes era la casilla la que se apagaba sin él, y
                 un coche sin supervisor no se podía marcar sin dar un rodeo. */}
+            {!editing && (
             <SelectField
               label={t.supervisor}
               options={[
@@ -1075,9 +1087,11 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                 form.is_multiuser && !form.supervisor ? t.multiuserSupervisorRequired : undefined
               }
             />
+            )}
             {/* Va pegada al supervisor porque depende de él. Marcarla deja el
                 conductor en blanco: en un multiusuario no hay conductor
                 asociado, y es lo que la casilla significa. */}
+            {!editing && (
             <div className={`multiuser-toggle${form.is_multiuser ? ' is-on' : ''}`}>
               <label className="baja-toggle">
                 <input
@@ -1097,6 +1111,7 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                 {form.supervisor ? t.multiuserInfo : t.multiuserNeedsSupervisor}
               </FieldInfo>
             </div>
+            )}
             <SelectField
               label={t.businessUnit}
               options={catalogOptions(units)}
@@ -1374,6 +1389,24 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
           </div>
         </form>
       </Modal>
+
+      {/* Conductor, supervisor y multiusuario: el mismo modal que la ficha. */}
+      {vehicle && (
+        <Modal
+          open={driverOpen}
+          title={vt.driverModal.title(vehicle.plate)}
+          onClose={() => setDriverOpen(false)}
+          wide
+        >
+          {driverOpen && (
+            <VehicleDriverModal
+              vehicle={vehicle}
+              onClose={() => setDriverOpen(false)}
+              onDone={() => void recargarPersonas()}
+            />
+          )}
+        </Modal>
+      )}
     </div>
   )
 }

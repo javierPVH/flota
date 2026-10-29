@@ -4,6 +4,7 @@ import {
   Bell,
   CalendarCheck,
   CalendarClock,
+  Fuel,
   Gauge,
   ShieldAlert,
   UserX,
@@ -31,6 +32,7 @@ import { IncidentResolveModal } from './IncidentResolveModal.tsx'
 import { typeOptions } from './ListFilter.tsx'
 import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
 import { RegisterItvModal } from './RegisterItvModal.tsx'
+import { RegisterFuelModal } from './RegisterFuelModal.tsx'
 import { RegisterKmModal } from './RegisterKmModal.tsx'
 
 /**
@@ -78,6 +80,7 @@ const ALERT_ICONS: Record<string, ReactNode> = {
   // El mismo icono con el que la app nombra «Programar ITV»: es lo que pide.
   itv_unscheduled: <CalendarCheck size={18} aria-hidden className="doc-icon" />,
   km_reading_pending: <Gauge size={18} aria-hidden className="doc-icon" />,
+  fuel_reading_pending: <Fuel size={18} aria-hidden className="doc-icon" />,
   km_overage: <Gauge size={18} aria-hidden className="doc-icon" />,
   maintenance_due: <Wrench size={18} aria-hidden className="doc-icon" />,
   insurance_due: <ShieldAlert size={18} aria-hidden className="doc-icon" />,
@@ -88,7 +91,7 @@ const ALERT_ICONS: Record<string, ReactNode> = {
  * también rellena quien conduce (km, ITV, revisión): su botón sale para
  * todos. Las demás se cierran con una observación, y eso es de quien
  * supervisa. */
-const FORM_ALERT_TYPES = new Set(['itv_due', 'km_reading_pending', 'maintenance_due'])
+const FORM_ALERT_TYPES = new Set(['itv_due', 'km_reading_pending', 'fuel_reading_pending', 'maintenance_due'])
 
 /**
  * De qué alerta del motor es hermano cada aviso de «Te queda poco».
@@ -108,7 +111,9 @@ const DEADLINE_TWIN: Record<Deadline['kind'], string | null> = {
   km: 'km_reading_pending',
   itv: 'itv_due',
   maintenance: 'maintenance_due',
-  fuel: null,
+  // El motor abre también la de consumo (Ajustes → Correo → «Recordatorio
+  // de combustible»): con ella abierta, el aviso local no se repite.
+  fuel: 'fuel_reading_pending',
 }
 
 /** El tono de un aviso de vencimiento, dicho como nivel de alerta: así la
@@ -157,6 +162,7 @@ export function VehiclePendingCards({
   const etiqueta = useDomainLabels()
   const fleetMode = useFleetMode()
   const [kmOpen, setKmOpen] = useState(false)
+  const [fuelOpen, setFuelOpen] = useState(false)
   const [itvOpen, setItvOpen] = useState(false)
   const [maintenanceOpen, setMaintenanceOpen] = useState(false)
   const [resolveAlert, setResolveAlert] = useState<Alert | null>(null)
@@ -209,6 +215,7 @@ export function VehiclePendingCards({
   function resolveAlertByType(alert: Alert) {
     if (alert.type === 'itv_due') setItvOpen(true)
     else if (alert.type === 'km_reading_pending') setKmOpen(true)
+    else if (alert.type === 'fuel_reading_pending') setFuelOpen(true)
     else if (alert.type === 'maintenance_due') setMaintenanceOpen(true)
     else setResolveAlert(alert)
   }
@@ -409,6 +416,14 @@ export function VehiclePendingCards({
           vehicle={vehicle}
           summary={summary ?? null}
           onClose={() => setKmOpen(false)}
+          onSaved={onChanged}
+        />
+      )}
+      {fuelOpen && (
+        <RegisterFuelModal
+          vehicle={vehicle}
+          summary={summary ?? null}
+          onClose={() => setFuelOpen(false)}
           onSaved={onChanged}
         />
       )}

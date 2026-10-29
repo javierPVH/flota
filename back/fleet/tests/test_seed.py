@@ -17,6 +17,7 @@ from fleet.models import (
     Assignment,
     Contract,
     Document,
+    DocumentTypeAccess,
     EmailLog,
     EmailSignature,
     EmailTemplate,
@@ -30,6 +31,7 @@ from fleet.models import (
     Vehicle,
     VehicleLink,
     VehicleRequest,
+    VehicleUsage,
 )
 from fleet.models.enums import (
     AlertLevel,
@@ -39,6 +41,7 @@ from fleet.models.enums import (
     AssignmentStatus,
     DocumentStatus,
     DocumentType,
+    DriverDocumentRead,
     EventType,
     IncidentPriority,
     IncidentStatus,
@@ -59,7 +62,8 @@ from fleet.services import seed
 # derivan de ellas para no romperse al ajustar el volumen.
 BULK_USERS = 1 + len(seed.BULK_DRIVERS)  # marta + conductores
 REF_USERS = 6 + 2 + 1  # + hse/ana_hse (rol HSE) + expedro (inactivo, erratas)
-REF_VEHICLES = 6  # + el coche de la administradora (8888TRX)
+# + el coche de la administradora (8888TRX) y sus dos multiusuario.
+REF_VEHICLES = 6 + len(seed.MULTIUSER_PLATES)
 BULK_BAJA = 2  # los 2 últimos vehículos de volumen se siembran en baja
 
 
@@ -234,6 +238,7 @@ class SeedCoverageTests(APITestCase):
             (Event, "event_type", EventType),
             (Document, "type", DocumentType),
             (Document, "status", DocumentStatus),
+            (DocumentTypeAccess, "driver_read", DriverDocumentRead),
             (Incident, "type", IncidentType),
             (Incident, "priority", IncidentPriority),
             (Incident, "status", IncidentStatus),
@@ -520,6 +525,54 @@ class SeedCoverageTests(APITestCase):
             ).level,
             AlertLevel.CRITICAL,
         )
+
+
+class AdminSharesAndPoolTests(APITestCase):
+    """Alicia (admin) tiene coches de REPARTO y coches MULTIUSUARIO: son los
+    que enseñan en dev la cara «Reparto» y el segundo acordeón de «Flota»."""
+
+    @classmethod
+    def setUpTestData(cls):
+        seed.run_all()
+
+    def test_admin_is_in_three_shares_by_days_and_by_hours(self):
+        alicia = User.objects.get(username="admin")
+        suyos = VehicleUsage.objects.filter(
+            driver=alicia, end_date__isnull=True, is_active=True
+        ).select_related("vehicle")
+        placas = {u.vehicle.plate for u in suyos}
+        self.assertEqual(placas, {"8888TRX", "7890NPQ", seed._bulk_plate(seed.ADMIN_SHARED_INDEX)})
+        # Cada reparto suma 100, y cada uno dice cuándo le toca a cada quien.
+        for plate in placas:
+            filas = VehicleUsage.objects.filter(
+                vehicle__plate=plate, end_date__isnull=True, is_active=True
+            )
+            self.assertEqual(sum(f.usage_percent for f in filas), 100, plate)
+            self.assertTrue(all(f.weekdays for f in filas), plate)
+        # En el de volumen la franja se SOLAPA con la de su conductor.
+        compartido = VehicleUsage.objects.filter(
+            vehicle__plate=seed._bulk_plate(seed.ADMIN_SHARED_INDEX),
+            end_date__isnull=True,
+        )
+        franjas = sorted((u.time_from, u.time_to) for u in compartido)
+        self.assertLess(franjas[1][0], franjas[0][1])
+
+    def test_admin_supervises_two_multiuser_cars_without_current_driver(self):
+        alicia = User.objects.get(username="admin")
+        pool = Vehicle.objects.filter(supervisor=alicia, is_multiuser=True)
+        self.assertEqual(set(pool.values_list("plate", flat=True)), set(seed.MULTIUSER_PLATES))
+        for coche in pool:
+            # Sin conductor vigente, pero con histórico de quién lo usó.
+            self.assertFalse(
+                Assignment.objects.filter(vehicle=coche, end_date__isnull=True).exists()
+            )
+            self.assertGreaterEqual(Assignment.objects.filter(vehicle=coche).count(), 2)
+            # Y sin aviso de «sin conductor»: no tenerlo es su definición.
+            self.assertFalse(
+                Alert.objects.filter(
+                    vehicle=coche, type=AlertType.NO_DRIVER, status=AlertStatus.OPEN
+                ).exists()
+            )
 
 
 class DevLoginTests(APITestCase):

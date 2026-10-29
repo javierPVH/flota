@@ -1,7 +1,10 @@
 /**
- * Ajustes → Correo: las dos pestañas de configuración que no son plantillas.
+ * Ajustes → Correo: las pestañas de configuración que no son plantillas.
  *
- * - **Recordatorio de km** (`section="reminder"`): cómo se fijan los días en
+ * - **Recordatorio de km** (`section="reminder"`) y **de combustible**
+ *   (`section="fuel"`), los dos MENSUALES con los mismos mandos —el panel
+ *   es uno y lee y guarda los campos por su prefijo (`km_remind_` /
+ *   `fuel_remind_`)—: cómo se fijan los días en
  *   que se reclama la lectura —un conmutador entre el **plazo** del mes (del
  *   día X al Y) con la **cadencia** con la que se escribe al conductor
  *   (todos los días, pares, impares o un número de correos repartidos) y una
@@ -13,6 +16,10 @@
  *   `kmRemindSchedule.ts`, espejo del back— y, en la otra vista, el correo
  *   que saldrá: la plantilla **personalizada** si la hay o la **genérica**
  *   del tipo.
+ * - **Recordatorio de ITV** (`section="itv"`) y **de mantenimiento**
+ *   (`section="maintenance"`), los dos POR VENCIMIENTO: los días antes y
+ *   después de la fecha límite en que sale correo mientras el aviso siga
+ *   abierto, a quién va y, en la otra vista, el correo que saldrá.
  * - **Aspecto del correo** (`section="layout"`): la caja corporativa que
  *   envuelve TODOS los correos —logotipo, color, nombre y pie— con la vista
  *   previa de cualquier plantilla dentro de ella, personalizada o genérica.
@@ -33,7 +40,9 @@ import {
   type EmailTemplateRow,
   type KmRemindByValue,
   type KmRemindModeValue,
+  deadlineReminderOf,
   getEmailSettings,
+  monthlyReminderOf,
   previewDefaultEmailTemplate,
   previewEmailTemplate,
   previewEmailDraft,
@@ -57,11 +66,36 @@ import {
 import { useEmailSettingsCopy } from '../translations/emailSettings.ts'
 import { useEmailTemplatesCopy } from '../translations/emailTemplates.ts'
 
-type Section = 'reminder' | 'layout'
-/** Las dos vistas del recordatorio: cuándo se avisa y qué correo sale. */
+export type SettingsSection = 'reminder' | 'fuel' | 'itv' | 'maintenance' | 'layout'
+type Section = SettingsSection
+/** Las dos vistas de un recordatorio: cuándo se avisa y qué correo sale. */
 type ReminderView = 'schedule' | 'email'
 
-const KM_TEMPLATE_KEY = 'km_reading_pending'
+/** Qué recordatorio enseña cada sección: el prefijo de sus campos en la fila
+ * de ajustes, si es mensual o por vencimiento, y la plantilla de su correo. */
+const REMINDERS = {
+  reminder: { kind: 'km', monthly: true, templateKey: 'km_reading_pending' },
+  fuel: { kind: 'fuel', monthly: true, templateKey: 'fuel_reading_pending' },
+  itv: { kind: 'itv', monthly: false, templateKey: 'itv_due' },
+  maintenance: { kind: 'maintenance', monthly: false, templateKey: 'maintenance_due' },
+} as const
+type ReminderSection = keyof typeof REMINDERS
+
+/** Lo que admite la caja de días antes/después: cifras, comas y espacios. */
+const OFFSET_MAX = 365
+/** Lee «30, 15, 7, 1»: números de días sin repetir, dentro del rango; con
+ * `allowZero`, el 0 vale (el mismo día). `null` si algo no vale. */
+function parseOffsetDays(text: string, allowZero: boolean): number[] | null {
+  const piezas = text.split(/[,;\s]+/).filter(Boolean)
+  const out = new Set<number>()
+  for (const p of piezas) {
+    if (!/^\d+$/.test(p)) return null
+    const n = Number(p)
+    if (n > OFFSET_MAX || (n === 0 && !allowZero)) return null
+    out.add(n)
+  }
+  return [...out]
+}
 
 /** Lo que admite la caja de días concretos: cifras, comas y espacios. Un
  * punto o un punto y coma —el separador que se teclea por costumbre— se
@@ -84,6 +118,12 @@ type PreviewRef = { kind: 'custom'; id: number; key: string } | { kind: 'default
 
 export function EmailSettingsPanel({ section, templates, defaults, onEditTemplate }: Props) {
   const t = useEmailSettingsCopy()
+  // El recordatorio de la sección (ninguno en «Aspecto»).
+  const reminder = section === 'layout' ? null : REMINDERS[section as ReminderSection]
+  const isMonthly = reminder?.monthly ?? false
+  const isDeadline = reminder !== null && !reminder.monthly
+  const kind = reminder?.kind ?? 'km'
+  const templateKey = reminder?.templateKey ?? 'km_reading_pending'
   const tt = useEmailTemplatesCopy()
   // La copia, por ref: los efectos no dependen del idioma.
   const tRef = useRef(t)
@@ -97,7 +137,8 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const [saving, setSaving] = useState(false)
   // Lo editable, como texto (es un formulario).
   const [reminderView, setReminderView] = useState<ReminderView>('schedule')
-  const [kmEnabled, setKmEnabled] = useState(true)
+  // Interruptor del recordatorio de la sección (mensual o por vencimiento).
+  const [remEnabled, setRemEnabled] = useState(true)
   const [by, setBy] = useState<KmRemindByValue>('window')
   const [daysText, setDaysText] = useState('')
   // La última lista de días que valía: mientras lo tecleado no vale, el
@@ -111,6 +152,9 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const [toDriver, setToDriver] = useState(true)
   const [toSupervisor, setToSupervisor] = useState(false)
   const [adminIds, setAdminIds] = useState<number[]>([])
+  // Por vencimiento: los días antes y después, como texto.
+  const [beforeText, setBeforeText] = useState('')
+  const [afterText, setAfterText] = useState('')
   const [enabled, setEnabled] = useState(true)
   const [brandName, setBrandName] = useState('')
   const [brandColor, setBrandColor] = useState('#009491')
@@ -124,7 +168,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
     (key: string) => templates.find((tpl) => tpl.key === key) ?? null,
     [templates],
   )
-  const kmTemplate = customOf(KM_TEMPLATE_KEY)
+  const kmTemplate = customOf(templateKey)
   // Los tipos que se pueden previsualizar en «Aspecto»: todos los que tienen
   // genérica (los seis) y, por si la lista de genéricas no llegó, los
   // personalizados.
@@ -135,17 +179,17 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   }, [defaults, templates])
   const [chosenKey, setChosenKey] = useState<string>('')
   const previewRef = useMemo<PreviewRef>(() => {
-    let key = KM_TEMPLATE_KEY
+    let key: string = templateKey
     if (section === 'layout') {
       if (chosenKey && previewKeys.includes(chosenKey)) key = chosenKey
-      else if (!previewKeys.includes(KM_TEMPLATE_KEY)) key = previewKeys[0] ?? ''
+      else if (!previewKeys.includes(templateKey)) key = previewKeys[0] ?? ''
     }
     if (!key) return null
     const custom = customOf(key)
     if (custom) return { kind: 'custom', id: custom.id, key }
     if (defaults.some((d) => d.key === key)) return { kind: 'default', key }
     return null
-  }, [section, chosenKey, previewKeys, customOf, defaults])
+  }, [section, templateKey, chosenKey, previewKeys, customOf, defaults])
   const previewId = previewRef ? `${previewRef.kind}:${previewRef.key}` : ''
   // La vista previa se guarda con la clave que la pidió: si la clave cambia,
   // la anterior no se enseña mientras llega la nueva.
@@ -157,20 +201,41 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const preview = previewFor.id === previewId ? previewFor.data : null
   const previewError = previewFor.id === previewId ? previewFor.error : ''
 
-  /** Vuelca una fila del back en el formulario. */
+  /** Vuelca en el formulario el recordatorio de la sección: los mandos del
+   * mensual (km o combustible) o los del de vencimiento (ITV o
+   * mantenimiento), leídos de la fila por su prefijo. */
+  const applyReminder = useCallback((data: EmailSettingsRow, sec: Section) => {
+    const rem = sec === 'layout' ? null : REMINDERS[sec as ReminderSection]
+    if (!rem) return
+    if (rem.monthly) {
+      const m = monthlyReminderOf(data, rem.kind)
+      setRemEnabled(m.enabled)
+      setBy(m.by)
+      setDaysText(m.days)
+      setValidDays(parseRemindDays(m.days).days)
+      setFromDay(String(m.from_day))
+      setUntilDay(String(m.until_day))
+      setMode(m.mode)
+      setEmails(String(m.emails))
+      setToDriver(m.to_driver)
+      setToSupervisor(m.to_supervisor)
+      setAdminIds(m.admin_ids)
+    } else {
+      const d = deadlineReminderOf(data, rem.kind)
+      setRemEnabled(d.enabled)
+      setBeforeText(d.days_before)
+      setAfterText(d.days_after)
+      setToDriver(d.to_driver)
+      setToSupervisor(d.to_supervisor)
+      setAdminIds(d.admin_ids)
+    }
+  }, [])
+
+  /** Vuelca una fila del back en el formulario: la fila y lo de «Aspecto».
+   * El recordatorio de la sección lo vuelca el ajuste de abajo, que sigue a
+   * la fila Y a la sección (así no se captura aquí una sección vieja). */
   const applyRow = useCallback((data: EmailSettingsRow) => {
     setRow(data)
-    setKmEnabled(data.km_remind_enabled)
-    setBy(data.km_remind_by)
-    setDaysText(data.km_remind_days)
-    setValidDays(parseRemindDays(data.km_remind_days).days)
-    setFromDay(String(data.km_remind_from_day))
-    setUntilDay(String(data.km_remind_until_day))
-    setMode(data.km_remind_mode)
-    setEmails(String(data.km_remind_emails))
-    setToDriver(data.km_remind_to_driver)
-    setToSupervisor(data.km_remind_to_supervisor)
-    setAdminIds(data.km_remind_admin_ids)
     setEnabled(data.layout_enabled)
     setBrandName(data.brand_name)
     setBrandColor(data.brand_color)
@@ -179,6 +244,23 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
     setLogoClear(false)
     if (fileRef.current) fileRef.current.value = ''
   }, [])
+
+  // Los mandos del recordatorio siguen a la FILA (la carga y cada guardado)
+  // y a la SECCIÓN (son los mismos campos del formulario para los cuatro):
+  // con una fila nueva se vuelca el recordatorio de la pestaña activa y, al
+  // cambiar de pestaña, el de la nueva, volviendo a «cuándo». Se ajusta
+  // durante el render (el patrón de React para «estado que depende de una
+  // prop»), no en un efecto: así no hay un pintado con los mandos de la
+  // pestaña anterior.
+  const [applied, setApplied] = useState<{ row: EmailSettingsRow | null; section: Section }>({
+    row: null,
+    section,
+  })
+  if (applied.row !== row || applied.section !== section) {
+    setApplied({ row, section })
+    if (row) applyReminder(row, section)
+    if (applied.section !== section) setReminderView('schedule')
+  }
 
   useEffect(() => {
     let alive = true
@@ -202,7 +284,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const layoutKey = `${enabled}|${brandName}|${brandColor}|${footer}|${logoFile?.name ?? ''}|${logoClear}`
   useEffect(() => {
     if (!previewRef || !row) return
-    if (section === 'reminder' && reminderView !== 'email') return
+    if (reminder && reminderView !== 'email') return
     let cancelled = false
     const custom = previewRef.kind === 'custom' ? templates.find((x) => x.id === previewRef.id) : null
     const wantsEn = lang === 'en' && (previewRef.kind === 'default' || Boolean(custom?.has_en))
@@ -247,7 +329,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
     // `layoutKey` resume lo tecleado en «Aspecto»; las piezas sueltas se leen
     // dentro, al pedirla.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewRef, previewId, templates, lang, row?.updated_at, section, reminderView, layoutKey])
+  }, [previewRef, previewId, templates, lang, row?.updated_at, section, reminder, reminderView, layoutKey])
 
   // --- Calendario en vivo --------------------------------------------------
   // Los días concretos se leen a cada tecla; mientras no valgan, el
@@ -270,8 +352,21 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const tope = maxEmails(liveCfg.fromDay, liveCfg.untilDay)
   const tooMany = by === 'window' && mode === 'count' && liveCfg.emails > tope
   const nobody = !toDriver && !toSupervisor && adminIds.length === 0
-  const cannotSave = tooMany || Boolean(daysError) || nobody
+  // Por vencimiento: las dos listas leídas a cada tecla.
+  const beforeDays = useMemo(() => parseOffsetDays(beforeText, true), [beforeText])
+  const afterDays = useMemo(() => parseOffsetDays(afterText, false), [afterText])
+  const offsetsError = beforeDays === null || afterDays === null
+  const offsetsNone =
+    !offsetsError && remEnabled && (beforeDays?.length ?? 0) === 0 && (afterDays?.length ?? 0) === 0
+  const cannotSave = isDeadline
+    ? offsetsError || offsetsNone || nobody
+    : tooMany || Boolean(daysError) || nobody
   const today = useMemo(() => todayDay(), [])
+  // Para el ejemplo del recordatorio por vencimiento: una fecha límite a 30 días.
+  const exampleDue = useMemo<Day>(() => {
+    const d = new Date(today.year, today.month - 1, today.day + 30)
+    return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() }
+  }, [today])
   // El mes que se enseña: el que se está reclamando hoy, o el actual.
   const [calYear, calMonth] = remindPeriod(today, liveCfg) ?? [today.year, today.month]
   const schedule = useMemo(
@@ -286,8 +381,13 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   // El primer día en que se recuerda, para avisar si es antes de que el
   // conductor pueda registrar (la ventana de campo, N8a).
   const firstRemindDay = liveCfg.by === 'days' ? liveCfg.days[0] : liveCfg.fromDay
+  // Solo el de km: la ventana de campo es la del registro de km.
   const beforeWindow =
-    kmEnabled && !noList && (row?.km_window_start ?? 0) > 0 && firstRemindDay < (row?.km_window_start ?? 0)
+    kind === 'km' &&
+    remEnabled &&
+    !noList &&
+    (row?.km_window_start ?? 0) > 0 &&
+    firstRemindDay < (row?.km_window_start ?? 0)
   const emailDays = useMemo(() => new Set(schedule.map(toIso)), [schedule])
   // Por días concretos, los de la lista que el mes enseñado no tiene: ahí no
   // sale nada, y hay que decirlo (si no tiene ninguno, ese mes no sale nada).
@@ -313,19 +413,27 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
     setNotice('')
     try {
       const form = new FormData()
-      if (section === 'reminder') {
-        form.set('km_remind_enabled', kmEnabled ? 'true' : 'false')
-        form.set('km_remind_by', by)
+      const p = `${kind}_remind_`
+      if (isMonthly) {
+        form.set(`${p}enabled`, remEnabled ? 'true' : 'false')
+        form.set(`${p}by`, by)
         // La lista solo viaja yendo por días: por plazo no se usa, y lo que
         // hubiera a medias no tiene por qué bloquear el guardado.
-        if (by === 'days') form.set('km_remind_days', daysText)
-        form.set('km_remind_from_day', fromDay)
-        form.set('km_remind_until_day', untilDay)
-        form.set('km_remind_mode', mode)
-        form.set('km_remind_emails', emails)
-        form.set('km_remind_to_driver', toDriver ? 'true' : 'false')
-        form.set('km_remind_to_supervisor', toSupervisor ? 'true' : 'false')
-        form.set('km_remind_admins', adminIds.join(','))
+        if (by === 'days') form.set(`${p}days`, daysText)
+        form.set(`${p}from_day`, fromDay)
+        form.set(`${p}until_day`, untilDay)
+        form.set(`${p}mode`, mode)
+        form.set(`${p}emails`, emails)
+        form.set(`${p}to_driver`, toDriver ? 'true' : 'false')
+        form.set(`${p}to_supervisor`, toSupervisor ? 'true' : 'false')
+        form.set(`${p}admins`, adminIds.join(','))
+      } else if (isDeadline) {
+        form.set(`${p}enabled`, remEnabled ? 'true' : 'false')
+        form.set(`${p}days_before`, beforeText)
+        form.set(`${p}days_after`, afterText)
+        form.set(`${p}to_driver`, toDriver ? 'true' : 'false')
+        form.set(`${p}to_supervisor`, toSupervisor ? 'true' : 'false')
+        form.set(`${p}admins`, adminIds.join(','))
       } else {
         form.set('layout_enabled', enabled ? 'true' : 'false')
         form.set('brand_name', brandName)
@@ -353,6 +461,169 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
 
   const templateLabel = (key: string) =>
     tt.templateKeys[key] ?? defaults.find((d) => d.key === key)?.key_display ?? key
+
+  // La copia del recordatorio de la sección: el de combustible y los de
+  // vencimiento dicen lo suyo donde el de km habla de la lectura.
+  const copy = kind === 'fuel' ? t.fuel : isDeadline ? t.deadline : t.reminder
+  const words = {
+    intro: isDeadline ? t.deadline.intro[kind] : kind === 'fuel' ? t.fuel.intro : t.reminder.intro,
+    enabledOn: copy.enabledOn,
+    enabledOff: copy.enabledOff,
+    stopHint: copy.stopHint,
+    variablesHint: copy.variablesHint,
+    scheduleTitle: isDeadline ? t.deadline.title : t.reminder.title,
+    templateTitle: isDeadline ? t.deadline.templateTitle : t.reminder.templateTitle,
+  }
+
+  /** A quién va cada correo: conductor, supervisor y/o administradores
+   * concretos, elegidos uno a uno. El mismo bloque en los cuatro. */
+  const recipientsFieldset = (
+    <fieldset className="es-fieldset es-reminder-recipients" disabled={!remEnabled}>
+      <legend>{t.reminder.recipientsTitle}</legend>
+      <div className="es-recipients">
+        <label className="baja-toggle es-toggle">
+          <input type="checkbox" checked={toDriver} onChange={(e) => setToDriver(e.target.checked)} />
+          <span>
+            <strong>{t.reminder.toDriver}</strong>
+            <span className="muted"> · {t.reminder.toDriverHint}</span>
+          </span>
+        </label>
+        <label className="baja-toggle es-toggle">
+          <input type="checkbox" checked={toSupervisor} onChange={(e) => setToSupervisor(e.target.checked)} />
+          <span>
+            <strong>{t.reminder.toSupervisor}</strong>
+            <span className="muted"> · {t.reminder.toSupervisorHint}</span>
+          </span>
+        </label>
+      </div>
+      <div className="es-admins-head">
+        <strong>{t.reminder.adminsTitle}</strong>
+        <span className="muted"> · {t.reminder.adminsHint}</span>
+      </div>
+      {row.admin_options.length === 0 ? (
+        <p className="muted">{t.reminder.adminsEmpty}</p>
+      ) : (
+        <div className="es-admins" role="group" aria-label={t.reminder.adminsTitle}>
+          {row.admin_options.map((a) => (
+            <label key={a.id} className={`es-admin${adminIds.includes(a.id) ? ' is-active' : ''}`}>
+              <input
+                type="checkbox"
+                checked={adminIds.includes(a.id)}
+                onChange={(e) =>
+                  setAdminIds((ids) =>
+                    e.target.checked ? [...ids, a.id].sort((x, y) => x - y) : ids.filter((id) => id !== a.id),
+                  )
+                }
+              />
+              <span>
+                <strong>{a.name}</strong>
+                <span className="muted">{a.email}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+      {nobody && <p className="form-error">{t.reminder.nobody}</p>}
+    </fieldset>
+  )
+
+  /** El formulario de un recordatorio por vencimiento: los días antes y
+   * después, a quién, y el resumen de lo que resulta. */
+  const deadlineForm = (
+    <form
+      className="es-reminder es-deadline"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void save()
+      }}
+    >
+      <div className="es-reminder-intro">
+        <p className="muted">{words.intro}</p>
+        <label className="baja-toggle es-toggle es-toggle-main">
+          <input type="checkbox" checked={remEnabled} onChange={(e) => setRemEnabled(e.target.checked)} />
+          <span>
+            <strong>{t.deadline.enabled}</strong>
+            <span className="muted"> · {remEnabled ? words.enabledOn : words.enabledOff}</span>
+          </span>
+        </label>
+        <fieldset className="es-fieldset" disabled={!remEnabled}>
+          <legend>{t.deadline.title}</legend>
+          <div className="es-days">
+            <TextInputField
+              label={t.deadline.daysBefore}
+              value={beforeText}
+              placeholder="30, 15, 7, 1"
+              inputMode="numeric"
+              aria-invalid={beforeDays === null || undefined}
+              onChange={(e) => setBeforeText(cleanDaysText(e.target.value))}
+            />
+            <span className={beforeDays === null ? 'form-error' : 'muted'}>
+              {beforeDays === null ? t.deadline.daysError : t.deadline.daysBeforeHint}
+            </span>
+          </div>
+          <div className="es-days">
+            <TextInputField
+              label={t.deadline.daysAfter}
+              value={afterText}
+              placeholder="1, 7, 15"
+              inputMode="numeric"
+              aria-invalid={afterDays === null || undefined}
+              onChange={(e) => setAfterText(cleanDaysText(e.target.value))}
+            />
+            <span className={afterDays === null ? 'form-error' : 'muted'}>
+              {afterDays === null ? t.deadline.daysError : t.deadline.daysAfterHint}
+            </span>
+          </div>
+          {offsetsNone && <p className="form-error">{t.deadline.daysNone}</p>}
+        </fieldset>
+      </div>
+      {recipientsFieldset}
+      <div className="es-reminder-foot">
+        <p className="muted">{words.stopHint}</p>
+        <div className="form-actions">
+          <Button type="submit" variant="primary" disabled={saving || cannotSave}>
+            {saving ? t.saving : t.save}
+          </Button>
+        </div>
+      </div>
+      <aside className={`email-settings-schedule es-reminder-schedule${remEnabled ? '' : ' is-off'}`} aria-live="polite">
+        <strong>{t.deadline.summaryTitle}</strong>
+        {!remEnabled && <Panel tone="warning">{t.deadline.summaryOff}</Panel>}
+        {!offsetsError && (
+          <>
+            <p className="es-summary">
+              {t.deadline.summaryBefore(
+                beforeDays.length,
+                [...beforeDays].sort((a, b) => b - a).map(t.deadline.dayBefore).join(', '),
+              )}
+            </p>
+            <p className="es-summary">
+              {t.deadline.summaryAfter(
+                afterDays.length,
+                [...afterDays].sort((a, b) => a - b).map(t.deadline.dayAfter).join(', '),
+              )}
+            </p>
+            {beforeDays.length + afterDays.length > 0 && (
+              <details className="es-dates" open>
+                <summary>{t.deadline.exampleTitle(fmtDate(toIso(exampleDue), lang))}</summary>
+                <ol>
+                  {[...beforeDays.map((d) => -d), ...afterDays].sort((a, b) => a - b).map((offset) => {
+                    const d = new Date(exampleDue.year, exampleDue.month - 1, exampleDue.day + offset)
+                    return (
+                      <li key={offset}>
+                        {fmtDate(toIso({ year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() }), lang)}
+                        <span className="muted"> · {offset <= 0 ? t.deadline.dayBefore(-offset) : t.deadline.dayAfter(offset)}</span>
+                      </li>
+                    )
+                  })}
+                </ol>
+              </details>
+            )}
+          </>
+        )}
+      </aside>
+    </form>
+  )
 
   const previewFrame = (title: string) => (
     <div className="email-settings-preview">
@@ -430,9 +701,9 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
       {error && <div role="alert" className="form-error">{error}</div>}
       {notice && <p role="status" className="muted">{notice}</p>}
 
-      {section === 'reminder' ? (
+      {reminder ? (
         <>
-          <div className="seg-switch es-views" role="tablist" aria-label={t.reminderTab}>
+          <div className="seg-switch es-views" role="tablist" aria-label={words.scheduleTitle}>
             <button
               type="button"
               role="tab"
@@ -440,7 +711,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
               className={reminderView === 'schedule' ? 'is-active' : ''}
               onClick={() => setReminderView('schedule')}
             >
-              {t.reminder.title}
+              {words.scheduleTitle}
             </button>
             <button
               type="button"
@@ -449,10 +720,12 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
               className={reminderView === 'email' ? 'is-active' : ''}
               onClick={() => setReminderView('email')}
             >
-              {t.reminder.templateTitle}
+              {words.templateTitle}
             </button>
           </div>
-          {reminderView === 'schedule' ? (
+          {reminderView === 'schedule' && isDeadline ? (
+            deadlineForm
+          ) : reminderView === 'schedule' ? (
           <form
             className="es-reminder"
             onSubmit={(e) => {
@@ -461,16 +734,16 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
             }}
           >
             <div className="es-reminder-intro">
-              <p className="muted">{t.reminder.intro}</p>
+              <p className="muted">{words.intro}</p>
               <label className="baja-toggle es-toggle es-toggle-main">
-                <input type="checkbox" checked={kmEnabled} onChange={(e) => setKmEnabled(e.target.checked)} />
+                <input type="checkbox" checked={remEnabled} onChange={(e) => setRemEnabled(e.target.checked)} />
                 <span>
                   <strong>{t.reminder.enabled}</strong>
-                  <span className="muted"> · {kmEnabled ? t.reminder.enabledOn : t.reminder.enabledOff}</span>
+                  <span className="muted"> · {remEnabled ? words.enabledOn : words.enabledOff}</span>
                 </span>
               </label>
 
-              <fieldset className="es-fieldset" disabled={!kmEnabled}>
+              <fieldset className="es-fieldset" disabled={!remEnabled}>
                 <legend>{t.reminder.byTitle}</legend>
                 {/* Por plazo o por días concretos: un conmutador, no dos
                     casillas, porque es una cosa u otra. */}
@@ -547,7 +820,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
 
             {/* Con días concretos la cadencia no aplica: la caja entera se
                 apaga (sus radios con ella) y dice por qué. */}
-            <fieldset className="es-fieldset es-reminder-cadence" disabled={!kmEnabled || by === 'days'}>
+            <fieldset className="es-fieldset es-reminder-cadence" disabled={!remEnabled || by === 'days'}>
               <legend>{t.reminder.cadenceTitle}</legend>
                 {by === 'days' && <p className="muted es-cadence-off">{t.reminder.cadenceOff}</p>}
                 <div className="es-modes" role="radiogroup" aria-label={t.reminder.cadenceTitle}>
@@ -555,7 +828,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
                     <label key={m} className={`es-mode${mode === m ? ' is-active' : ''}`}>
                       <input
                         type="radio"
-                        name="km_remind_mode"
+                        name={`${kind}_remind_mode`}
                         value={m}
                         checked={mode === m}
                         onChange={() => setMode(m)}
@@ -585,61 +858,9 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
                   ))}
                 </div>
             </fieldset>
-            {/* A quién va cada correo: conductor, supervisor y/o administradores
-                concretos, elegidos uno a uno. */}
-            <fieldset className="es-fieldset es-reminder-recipients" disabled={!kmEnabled}>
-              <legend>{t.reminder.recipientsTitle}</legend>
-              <div className="es-recipients">
-                <label className="baja-toggle es-toggle">
-                  <input type="checkbox" checked={toDriver} onChange={(e) => setToDriver(e.target.checked)} />
-                  <span>
-                    <strong>{t.reminder.toDriver}</strong>
-                    <span className="muted"> · {t.reminder.toDriverHint}</span>
-                  </span>
-                </label>
-                <label className="baja-toggle es-toggle">
-                  <input
-                    type="checkbox"
-                    checked={toSupervisor}
-                    onChange={(e) => setToSupervisor(e.target.checked)}
-                  />
-                  <span>
-                    <strong>{t.reminder.toSupervisor}</strong>
-                    <span className="muted"> · {t.reminder.toSupervisorHint}</span>
-                  </span>
-                </label>
-              </div>
-              <div className="es-admins-head">
-                <strong>{t.reminder.adminsTitle}</strong>
-                <span className="muted"> · {t.reminder.adminsHint}</span>
-              </div>
-              {row.admin_options.length === 0 ? (
-                <p className="muted">{t.reminder.adminsEmpty}</p>
-              ) : (
-                <div className="es-admins" role="group" aria-label={t.reminder.adminsTitle}>
-                  {row.admin_options.map((a) => (
-                    <label key={a.id} className={`es-admin${adminIds.includes(a.id) ? ' is-active' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={adminIds.includes(a.id)}
-                        onChange={(e) =>
-                          setAdminIds((ids) =>
-                            e.target.checked ? [...ids, a.id].sort((x, y) => x - y) : ids.filter((id) => id !== a.id),
-                          )
-                        }
-                      />
-                      <span>
-                        <strong>{a.name}</strong>
-                        <span className="muted">{a.email}</span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-              {nobody && <p className="form-error">{t.reminder.nobody}</p>}
-            </fieldset>
+            {recipientsFieldset}
             <div className="es-reminder-foot">
-              <p className="muted">{t.reminder.stopHint}</p>
+              <p className="muted">{words.stopHint}</p>
               <div className="form-actions">
                 <Button type="submit" variant="primary" disabled={saving || cannotSave}>
                   {saving ? t.saving : t.save}
@@ -648,11 +869,11 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
             </div>
 
             <aside
-              className={`email-settings-schedule es-reminder-schedule${kmEnabled ? '' : ' is-off'}`}
+              className={`email-settings-schedule es-reminder-schedule${remEnabled ? '' : ' is-off'}`}
               aria-live="polite"
             >
               <strong>{t.reminder.scheduleTitle}</strong>
-              {!kmEnabled && <Panel tone="warning">{t.reminder.scheduleOff}</Panel>}
+              {!remEnabled && <Panel tone="warning">{t.reminder.scheduleOff}</Panel>}
               <p className="es-summary">
                 {noList
                   ? t.reminder.scheduleNoList
@@ -702,12 +923,12 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
                 {kmTemplate ? t.reminder.customBadge : t.reminder.genericBadge}
               </Badge>
               <span className="muted">{kmTemplate ? t.reminder.usingCustom : t.reminder.usingGeneric}</span>
-              <Button type="button" variant="secondary" onClick={() => onEditTemplate(KM_TEMPLATE_KEY)}>
+              <Button type="button" variant="secondary" onClick={() => onEditTemplate(templateKey)}>
                 {kmTemplate ? t.reminder.editTemplate : t.reminder.customise}
               </Button>
             </div>
-            <p className="muted field-hint">{t.reminder.variablesHint}</p>
-            {previewFrame(t.reminder.templateTitle)}
+            <p className="muted field-hint">{words.variablesHint}</p>
+            {previewFrame(words.templateTitle)}
           </div>
           )}
         </>

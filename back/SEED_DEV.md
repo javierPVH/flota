@@ -171,7 +171,19 @@ descripción vacía, que ahí es opcional) y petición general, cada una con una
 **accidente** con el parte entero, terceros **y lesionados** —el de `sara` va
 sin lesionados a propósito, así que entre los dos se lee de las dos maneras—,
 del que cuelgan sus fotos de daños), `0000ZZZ` (baja, con `km_end` y acta de
-devolución).
+devolución), y los dos **multiusuario** de `admin`, `3141PLM` (Dacia Duster) y
+`3142PLM` (Ford Transit Custom) (`MULTIUSER_PLATES`): coches de pool que
+supervisa ella, **sin conductor vigente** —ni aviso de «sin conductor», que no
+tenerlo es su definición— y con un histórico de tramos **cerrados y solapados**
+de quién los usó. Son los que hacen salir en su «Flota» de campo el acordeón
+«Coches multiusuario».
+
+`admin` está además en **tres repartos de uso** (la cara «Reparto» de la app de
+campo), cada uno de una manera: su propio `8888TRX` —80 % de lunes a viernes,
+y `carlos` el 20 % los fines de semana—; el `7890NPQ` de `sara`, a medias por
+**días** alternos (sara L, X, V de 07:00 a 15:00; ella M, J de 09:00 a 18:00); y
+el vehículo de volumen `ADMIN_SHARED_INDEX` con su conductor, por **horas** y con
+la franja **solapada** (él de 08:00 a 16:00 y ella de 14:00 a 20:00).
 
 ⚠️ El seguro de `1234KLM` se fija en DOS sitios que deben coincidir: la ficha
 (`seed_vehicles`) y su documento de seguro (`seed_operations`). La señal de N2

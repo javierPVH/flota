@@ -702,3 +702,200 @@ class EmailLogResendTests(APITestCase):
         self.client.force_authenticate(sup)
         resp = self.client.post(reverse("emaillog-resend", args=[self.log.pk]))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class FuelReminderTests(APITestCase):
+    """El recordatorio del consumo de combustible: los mismos mandos que el de
+    km, sobre `FuelConsumption`, con su propio interruptor (apagado de
+    salida) y su propia plantilla."""
+
+    def setUp(self):
+        self.admin = make_user("fuel-admin", Role.ADMIN)
+        self.client.force_authenticate(self.admin)
+
+    def test_off_by_default_and_opens_alerts_when_on(self):
+        from fleet.models import FuelConsumption
+
+        vehicle = Vehicle.objects.create(plate="FUE1", brand="a", model="b")
+        con = Vehicle.objects.create(plate="FUE2", brand="a", model="b")
+        FuelConsumption.objects.create(
+            vehicle=con, reading_date=date(2026, 10, 3), avg_consumption="6.5"
+        )
+        # Apagado de salida: no reclama nada.
+        self.assertEqual(alerts.check_fuel_readings(date(2026, 10, 20)), 0)
+        resp = self.client.post(
+            reverse("email-settings"), {"fuel_remind_enabled": True}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(len(resp.data["fuel_remind_dates"]), 2)
+        # Encendido: un aviso al coche sin anotación del mes, ninguno al que la tiene.
+        self.assertEqual(alerts.check_fuel_readings(date(2026, 10, 20)), 1)
+        alerta = Alert.objects.get(type=AlertType.FUEL_READING_PENDING)
+        self.assertEqual(alerta.vehicle_id, vehicle.pk)
+        self.assertEqual(alerta.message_code, "fuel_pending_never")
+        self.assertEqual(alerta.dedup_key, f"fuel_pending:{vehicle.pk}:2026-10")
+        # El de km no se ve afectado por los mandos del combustible.
+        self.assertEqual(
+            Alert.objects.filter(type=AlertType.KM_READING_PENDING, vehicle=vehicle).count(), 0
+        )
+        # La anotación del mes cierra el aviso (señal), como la lectura de km.
+        FuelConsumption.objects.create(
+            vehicle=vehicle, reading_date=date(2026, 10, 21), avg_consumption="7.1"
+        )
+        alerta.refresh_from_db()
+        self.assertEqual(alerta.status, "resolved")
+
+    @override_settings(FLEET_EMAIL_ENABLED=True)
+    def test_the_email_uses_its_own_template_and_recipients(self):
+        from fleet.models import Assignment, EmailOutbox
+
+        driver = make_user("fuel-driver", Role.DRIVER)
+        driver.email = "fuel@flota.dev"
+        driver.save(update_fields=["email"])
+        sup = make_user("fuel-sup", Role.SUPERVISOR)
+        sup.email = "fuelsup@flota.dev"
+        sup.save(update_fields=["email"])
+        vehicle = Vehicle.objects.create(plate="FUE3", brand="a", model="b", supervisor=sup)
+        Assignment.objects.create(
+            vehicle=vehicle, driver=driver, start_date=date(2026, 1, 1), status="accepted"
+        )
+        resp = self.client.post(
+            reverse("email-settings"),
+            {
+                "fuel_remind_enabled": True,
+                "fuel_remind_to_driver": False,
+                "fuel_remind_to_supervisor": True,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        alerts.check_fuel_readings(date(2026, 10, 20))
+        filas = list(EmailOutbox.objects.filter(alert__vehicle=vehicle))
+        self.assertEqual(
+            [(f.recipient_role, f.recipient) for f in filas], [("supervisor", "fuelsup@flota.dev")]
+        )
+        self.assertEqual(filas[0].template_key, EmailTemplateKey.FUEL_READING_PENDING)
+        self.assertIn("consumo", filas[0].subject.lower())
+        self.assertIn("2026-10", filas[0].body_html)
+
+
+class DeadlineReminderTests(APITestCase):
+    """Los recordatorios de ITV y mantenimiento: correo los días ANTES y
+    DESPUÉS del vencimiento, a quien diga Ajustes, mientras el aviso siga
+    abierto; cada fecha una sola vez."""
+
+    def setUp(self):
+        self.admin = make_user("dl-admin", Role.ADMIN)
+        self.client.force_authenticate(self.admin)
+        self.driver = make_user("dl-driver", Role.DRIVER)
+        self.driver.email = "dl@flota.dev"
+        self.driver.save(update_fields=["email"])
+
+    def _coche(self, plate, **extra):
+        from fleet.models import Assignment
+
+        vehicle = Vehicle.objects.create(plate=plate, brand="a", model="b", **extra)
+        Assignment.objects.create(
+            vehicle=vehicle, driver=self.driver, start_date=date(2026, 1, 1), status="accepted"
+        )
+        return vehicle
+
+    def test_offset_lists_are_validated_and_normalised(self):
+        resp = self.client.post(
+            reverse("email-settings"),
+            {"itv_remind_days_before": "7, 30, 1, 7", "itv_remind_days_after": "15,1"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["itv_remind_days_before"], "30, 7, 1")
+        self.assertEqual(resp.data["itv_remind_days_after"], "1, 15")
+        resp = self.client.post(
+            reverse("email-settings"), {"itv_remind_days_after": "0"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        resp = self.client.post(
+            reverse("email-settings"), {"maintenance_remind_days_before": "400"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        # Encendido sin ningún día, no hay nada que mandar: se rechaza.
+        resp = self.client.post(
+            reverse("email-settings"),
+            {
+                "itv_remind_enabled": True,
+                "itv_remind_days_before": "",
+                "itv_remind_days_after": "",
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("itv_remind_days_before", resp.data["errors"])
+
+    @override_settings(FLEET_EMAIL_ENABLED=True, FLEET_ITV_ALERT_DAYS=[30, 15, 7])
+    def test_itv_mails_on_the_days_before_and_after_once_each(self):
+        from fleet.models import EmailOutbox
+
+        vehicle = self._coche("ITV1", next_itv_date=date(2026, 11, 20))
+        cfg = EmailSettings.get_solo()
+        cfg.itv_remind_enabled = True
+        cfg.itv_remind_days_before = "15, 7, 0"
+        cfg.itv_remind_days_after = "3"
+        cfg.save()
+
+        def pasada(dia):
+            alerts.check_itv(dia)
+            return alerts.remind_deadlines("itv", dia)
+
+        correos = lambda: EmailOutbox.objects.filter(alert__vehicle=vehicle).count()  # noqa: E731
+        # La alerta nace a 30 días y NO manda correo por nacer: el ajuste dice 15.
+        self.assertEqual(pasada(date(2026, 10, 21)), 0)
+        self.assertEqual(correos(), 0)
+        # El día 15 antes toca; el siguiente día no se repite.
+        self.assertEqual(pasada(date(2026, 11, 5)), 1)
+        self.assertEqual(pasada(date(2026, 11, 6)), 0)
+        self.assertEqual(correos(), 1)
+        # Varias fechas vencidas de golpe (la pasada no corrió): UN correo.
+        self.assertEqual(pasada(date(2026, 11, 21)), 1)
+        self.assertEqual(correos(), 2)
+        # La marca sobrevive al refresco de la frase de cada pasada y vive en
+        # TODAS las alertas de ese vencimiento (una por umbral).
+        marcas = {
+            tuple(a.message_args.get("reminded", []))
+            for a in Alert.objects.filter(type=AlertType.ITV_DUE, vehicle=vehicle)
+        }
+        self.assertEqual(marcas, {("2026-11-05", "2026-11-13", "2026-11-20")})
+        # Tres días después, el último; y después de eso, nada más.
+        self.assertEqual(pasada(date(2026, 11, 23)), 1)
+        self.assertEqual(pasada(date(2026, 12, 1)), 0)
+        fila = EmailOutbox.objects.filter(alert__vehicle=vehicle).first()
+        self.assertEqual(fila.template_key, EmailTemplateKey.ITV_DUE)
+        self.assertEqual((fila.recipient_role, fila.recipient), ("driver", "dl@flota.dev"))
+        # Apagado, no sale nada aunque toque.
+        cfg.itv_remind_enabled = False
+        cfg.save()
+        vehicle2 = self._coche("ITV2", next_itv_date=date(2026, 11, 20))
+        alerts.check_itv(date(2026, 11, 13))
+        self.assertEqual(alerts.remind_deadlines("itv", date(2026, 11, 13)), 0)
+        self.assertEqual(EmailOutbox.objects.filter(alert__vehicle=vehicle2).count(), 0)
+
+    @override_settings(FLEET_EMAIL_ENABLED=True)
+    def test_maintenance_uses_its_template_and_the_plan_due_date(self):
+        from fleet.models import EmailOutbox, MaintenancePlan
+
+        vehicle = self._coche("MNT1")
+        MaintenancePlan.objects.create(
+            vehicle=vehicle,
+            name="Revisión general",
+            every_months=12,
+            last_done_date=date(2025, 11, 20),
+        )
+        cfg = EmailSettings.get_solo()
+        cfg.maintenance_remind_enabled = True
+        cfg.maintenance_remind_days_before = "7"
+        cfg.maintenance_remind_days_after = ""
+        cfg.save()
+        alerts.check_maintenance(date(2026, 11, 13))
+        self.assertEqual(alerts.remind_deadlines("maintenance", date(2026, 11, 13)), 1)
+        fila = EmailOutbox.objects.get(alert__vehicle=vehicle)
+        self.assertEqual(fila.template_key, EmailTemplateKey.MAINTENANCE_DUE)
+        self.assertIn("2026-11-20", fila.body_html)
+        self.assertIn("Revisión general", fila.body_html)

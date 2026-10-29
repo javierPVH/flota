@@ -15,6 +15,7 @@ from .models import (
     Assignment,
     Contract,
     Document,
+    DocumentTypeAccess,
     Incident,
     Invoice,
     InvoiceAllocation,
@@ -41,6 +42,9 @@ AUDITED_MODELS = (
     InvoiceAllocation,
     Incident,
     Document,
+    # Quién lee cada tipo de documento: cambiarlo abre o cierra lectura a
+    # roles enteros, así que queda quién y cuándo.
+    DocumentTypeAccess,
     VehicleRequest,
 )
 

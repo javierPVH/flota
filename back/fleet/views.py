@@ -47,11 +47,14 @@ from .models import (
     Country,
     Document,
     DocumentDeletionRequest,
+    DocumentTypeAccess,
     DriverChangeRequest,
     EmailLog,
+    EmailOutbox,
     EmailSettings,
     EmailSignature,
     EmailTemplate,
+    EmailTemplateKey,
     Event,
     FuelConsumption,
     FuelType,
@@ -65,6 +68,7 @@ from .models import (
     Pep,
     ProfileChangeRequest,
     Project,
+    RecipientRole,
     Renting,
     ReportExport,
     Site,
@@ -79,6 +83,8 @@ from .models import (
     driver_clash_message,
 )
 from .models.enums import (
+    ACCESS_REQUEST_KINDS,
+    ONE_PER_DOCUMENT_KINDS,
     OUT_OF_FLEET,
     AlertLevel,
     AlertStatus,
@@ -87,6 +93,7 @@ from .models.enums import (
     DocumentDeletionStatus,
     DocumentRequestKind,
     DocumentStatus,
+    DocumentType,
     DriverChangeStatus,
     EventType,
     IncidentStatus,
@@ -94,7 +101,18 @@ from .models.enums import (
     ProfileChangeStatus,
     VehicleRequestStatus,
 )
-from .scoping import default_responsible, readable_documents, users_for, vehicles_for
+from .scoping import (
+    default_responsible,
+    delete_denied,
+    download_denied,
+    download_needs_grant,
+    has_access_grant,
+    readable_documents,
+    users_for,
+    vehicles_for,
+    view_denied,
+    view_needs_grant,
+)
 from .selectors import current_assignment_q
 from .serializers import (
     AlertSerializer,
@@ -106,6 +124,7 @@ from .serializers import (
     CountrySerializer,
     DocumentDeletionRequestSerializer,
     DocumentSerializer,
+    DocumentTypeAccessSerializer,
     DriverChangeRequestSerializer,
     EmailLogSerializer,
     EmailSettingsSerializer,
@@ -849,9 +868,15 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         asignación desde la ficha, cuando el borrado definitivo vive solo en
         Ajustes (R0).
 
-        Cuerpo: `{driver, start_date?, supervisor?, expected_updated_at?}`.
+        Cuerpo: `{driver, start_date?, supervisor?, is_multiuser?,
+        expected_updated_at?}`.
         - `driver: null` LIBERA el vehículo (cierra la asignación vigente).
         - `supervisor` solo se toca si viene en el cuerpo (`null` = ninguno).
+        - `is_multiuser` cambia la marca de coche de pool desde aquí (es lo
+          que decide si hay conductor): marcarlo exige que el coche quede SIN
+          conductor —con `driver: null` en el mismo cuerpo se retira en el
+          acto, a la vista— y CON supervisor; quitarle la marca admite
+          ponerle conductor en la misma llamada.
         - Mismo cierre que `assignments/{id}/accept/`: fin de la vigente = inicio
           de la nueva, evento `driver_change` con old→new, todo o nada.
         """
@@ -879,15 +904,22 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         expected_parsed = parse_datetime(str(expected)) if expected else None
 
         driver = None
-        if "driver" not in request.data and "supervisor" not in request.data:
-            raise ValidationError({"detail": "Indica `driver` y/o `supervisor`."})
+        if not {"driver", "supervisor", "is_multiuser"} & set(request.data.keys()):
+            raise ValidationError({"detail": "Indica `driver`, `supervisor` y/o `is_multiuser`."})
         driver_id = request.data.get("driver")
+        # La marca de multiusuario, si viene: lo que el coche VA a ser.
+        marca = None
+        if "is_multiuser" in request.data:
+            valor = request.data.get("is_multiuser")
+            marca = valor if isinstance(valor, bool) else str(valor).lower() in ("1", "true", "on")
+        sera_multiusuario = vehicle.is_multiuser if marca is None else marca
         # Un MULTIUSUARIO no tiene conductor —es lo que significa— y no se
         # queda sin supervisor, que es quien responde de él y el único que
         # registra sus km. Las dos cosas se comprueban aquí porque esta acción
         # es la OTRA puerta por la que se tocan (la primera es el PATCH de la
-        # ficha, que lo valida en el serializer).
-        if vehicle.is_multiuser:
+        # ficha, que lo valida en el serializer), sobre lo que el coche va a
+        # ser tras la llamada.
+        if sera_multiusuario:
             if driver_id not in (None, "", "null"):
                 raise ValidationError(
                     {
@@ -898,12 +930,18 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                         )
                     }
                 )
-            if "supervisor" in request.data and not (request.data.get("supervisor") or None):
+            supervisor_final = (
+                (request.data.get("supervisor") or None)
+                if "supervisor" in request.data
+                else vehicle.supervisor_id
+            )
+            if not supervisor_final:
                 raise ValidationError(
                     {
                         "supervisor": (
-                            "Un vehículo multiusuario necesita supervisor: quítale antes "
-                            "la marca de multiusuario."
+                            "Un vehículo multiusuario necesita supervisor: es quien "
+                            "responde de él y el único que registra sus kilómetros y su "
+                            "combustible."
                         )
                     }
                 )
@@ -917,6 +955,11 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 raise ValidationError({"driver": "El usuario asignado no tiene rol de conductor."})
 
         start = parse_date(str(request.data.get("start_date") or "")) or timezone.localdate()
+        if marca is True and driver is None:
+            # Pasar a multiusuario retira al conductor HOY: un `start_date`
+            # futuro dejaría la asignación vigente (fin programado) y el
+            # mismo cuerpo que la cierra la encontraría abierta.
+            start = timezone.localdate()
 
         with transaction.atomic():
             # Sin `select_related("supervisor")` a propósito: `supervisor` es
@@ -948,6 +991,12 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     events.emit_supervisor_change(vehicle, old_supervisor, vehicle.supervisor)
                     # …y mueve los periodos con fechas.
                     supervisors.apply_supervisor_change(vehicle, vehicle.supervisor)
+
+            # Dejar de ser multiusuario va ANTES del conductor: así se le puede
+            # poner uno en la misma llamada.
+            if marca is False and vehicle.is_multiuser:
+                vehicle.is_multiuser = False
+                vehicle.save(update_fields=["is_multiuser", "updated_at"])
 
             # R3-02: la vigente a cerrar puede tener fin PROGRAMADO (grant con
             # fechas); el criterio es el mismo que da el ámbito.
@@ -986,6 +1035,27 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 if driver is not None:
                     alerts.resolve_no_driver_alerts(vehicle, by=request.user)
 
+            # Pasar a multiusuario va DESPUÉS: con `driver: null` en el cuerpo
+            # la asignación vigente ya se ha cerrado arriba; si no venía y el
+            # coche sigue llevando a alguien, se dice quién, como el PATCH.
+            if marca is True and not vehicle.is_multiuser:
+                vigente = (
+                    Assignment.objects.filter(current_assignment_q(), vehicle=vehicle)
+                    .select_related("driver")
+                    .first()
+                )
+                if vigente is not None:
+                    raise ValidationError(
+                        {
+                            "is_multiuser": (
+                                f"El vehículo lo lleva {vigente.driver}: retíralo primero. "
+                                "Un multiusuario no tiene conductor asociado."
+                            )
+                        }
+                    )
+                vehicle.is_multiuser = True
+                vehicle.save(update_fields=["is_multiuser", "updated_at"])
+
         vehicle.refresh_from_db()
         return Response(self.get_serializer(vehicle).data)
 
@@ -1022,6 +1092,19 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         lang = (request.data.get("lang") or "es").strip()
         if lang not in mailer.NOTICE_LANGS:
             raise ValidationError({"lang": "Idioma no válido."})
+        # `alert`: el aviso abierto de ESTE coche del que habla el correo (el
+        # botón rápido de la ficha). La traza queda ligada a él, y así la
+        # actividad de correo del coche dice que ese aviso ya se mandó.
+        alerta = None
+        if request.data.get("alert"):
+            try:
+                alerta = Alert.objects.get(
+                    pk=int(request.data["alert"]), vehicle=vehicle, status=AlertStatus.OPEN
+                )
+            except (Alert.DoesNotExist, TypeError, ValueError) as exc:
+                raise ValidationError(
+                    {"alert": "Ese aviso no está abierto en este vehículo."}
+                ) from exc
         to_driver = bool(request.data.get("to_driver"))
         to_supervisor = bool(request.data.get("to_supervisor"))
         to_admin = bool(request.data.get("to_admin"))
@@ -1136,6 +1219,9 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     "batch": tanda,
                     "subject": subject,
                     "body_html": body_html,
+                    "vehicle": vehicle,
+                    "alert": alerta,
+                    "manual": True,
                 }
                 if not email:
                     skipped.append({"role": role, "reason": "sin_email"})
@@ -1183,6 +1269,99 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 pass
         return Response({"sent": sent, "skipped": skipped})
 
+    @action(
+        detail=True,
+        methods=["get"],
+        permission_classes=[IsManagement],
+        url_path="email-activity",
+    )
+    def email_activity(self, request, pk=None):
+        """GET /api/v1/vehicles/{id}/email-activity/ — lo que el modal de
+        correo evalúa al abrirse: qué se ha mandado ya de este coche (`sent`,
+        las últimas filas de la traza, con `manual` para distinguir la
+        automatización de lo enviado a mano), qué está en cola por salir
+        (`pending`) y qué **avisos abiertos** admiten un correo (`alerts`,
+        cada uno con cuándo se le mandó el último y si tiene algo en cola).
+        Se alcanza por el coche de la fila o por el de su alerta, que es lo
+        que tienen las filas anteriores a la columna.
+        """
+        vehicle = self.get_object()
+        del_coche = models.Q(vehicle=vehicle) | models.Q(alert__vehicle=vehicle)
+        if not request.user.is_admin:
+            # X1: el seguro es de administración, como en la bandeja: ni sus
+            # avisos ni sus correos (a la renting) se enseñan a la supervisión.
+            del_coche &= ~models.Q(template_key=EmailTemplateKey.INSURANCE_DUE)
+        etiqueta = dict(EmailTemplateKey.choices)
+        papeles = dict(RecipientRole.choices)
+
+        def fila(log, *, pendiente: bool) -> dict:
+            return {
+                "id": log.pk,
+                "created_at": log.created_at,
+                "template_key": log.template_key,
+                "template_display": etiqueta.get(log.template_key, ""),
+                "recipient": log.recipient,
+                "recipient_role": log.recipient_role,
+                "recipient_role_display": papeles.get(log.recipient_role, ""),
+                "subject": log.subject,
+                "alert": log.alert_id,
+                "alert_type": log.alert.type if log.alert_id else "",
+                "status": log.status,
+                "status_display": log.get_status_display(),
+                "manual": False if pendiente else log.manual,
+                "attempts": log.attempts if pendiente else None,
+            }
+
+        enviados = (
+            EmailLog.objects.filter(del_coche).select_related("alert").order_by("-created_at")[:20]
+        )
+        en_cola = (
+            EmailOutbox.objects.filter(
+                del_coche, status__in=(EmailOutbox.Status.PENDING, EmailOutbox.Status.SENDING)
+            )
+            .select_related("alert")
+            .order_by("created_at")
+        )
+        abiertas = Alert.objects.filter(vehicle=vehicle, status=AlertStatus.OPEN).order_by(
+            "due_date", "-created_at"
+        )
+        if not request.user.is_admin:
+            abiertas = abiertas.exclude(type=AlertType.INSURANCE_DUE)
+        # Cuándo se mandó el último de cada aviso y cuántos: una consulta.
+        enviados_por_aviso = {
+            r["alert_id"]: r
+            for r in EmailLog.objects.filter(alert__in=abiertas, status=EmailLog.Status.SENT)
+            .values("alert_id")
+            .annotate(last=models.Max("created_at"), n=models.Count("id"))
+        }
+        con_cola = set(
+            EmailOutbox.objects.filter(
+                alert__in=abiertas,
+                status__in=(EmailOutbox.Status.PENDING, EmailOutbox.Status.SENDING),
+            ).values_list("alert_id", flat=True)
+        )
+        return Response(
+            {
+                "sent": [fila(log, pendiente=False) for log in enviados],
+                "pending": [fila(entry, pendiente=True) for entry in en_cola],
+                "alerts": [
+                    {
+                        "id": alerta.pk,
+                        "type": alerta.type,
+                        "type_display": alerta.get_type_display(),
+                        "level": alerta.level,
+                        "level_display": alerta.get_level_display(),
+                        "message": alerta.message,
+                        "due_date": alerta.due_date,
+                        "last_sent_at": enviados_por_aviso.get(alerta.pk, {}).get("last"),
+                        "sent_count": enviados_por_aviso.get(alerta.pk, {}).get("n", 0),
+                        "pending": alerta.pk in con_cola,
+                    }
+                    for alerta in abiertas
+                ],
+            }
+        )
+
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
     def remind(self, request, pk=None):
         """POST /api/v1/vehicles/{id}/remind/ — recordatorio al conductor por
@@ -1193,7 +1372,15 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         en la app con su push, idempotente por día vía `dedup_key`). El correo
         automático del motor de alertas NO se encola aquí (`queue_email=False`):
         el email es la casilla del modal, encolar además lo duplicaría.
+
+        `body_mode` dice con qué sale el correo: `template` (la plantilla de
+        gestión de ese tipo —la personalizada o, sin ella, la genérica— con el
+        mensaje dentro, lo de siempre) o `plain` (el mensaje ES el correo,
+        escrito por quien supervisa, dentro de la caja corporativa como todos;
+        ahí el mensaje es obligatorio). La alerta lleva el mensaje igual.
         """
+        import html
+
         from .selectors import current_driver_map
         from .services import alert_messages, mailer
         from .services import alerts as alerts_service
@@ -1208,6 +1395,11 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         if not send_email and not create_alert:
             raise ValidationError({"detail": "Elige al menos un canal (correo o alerta)."})
         message = (request.data.get("message") or "").strip()
+        body_mode = (request.data.get("body_mode") or "template").strip()
+        if body_mode not in ("template", "plain"):
+            raise ValidationError({"body_mode": "Modo de correo no válido."})
+        if send_email and body_mode == "plain" and not message:
+            raise ValidationError({"message": "Escribe el texto del correo."})
 
         today = timezone.localdate()
         due = None
@@ -1244,15 +1436,27 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
         email_sent, email_skipped = False, ""
         if send_email:
-            # Asunto/cuerpo de la plantilla del tipo si existe (10b); si no, el
-            # texto neutro del mailer con el mensaje compuesto. Va al conductor.
-            notice = mailer.render_vehicle_notice(vehicle, kind, text, "es")
+            if body_mode == "plain":
+                # El texto de quien supervisa, tal cual (escapado, con sus
+                # saltos de línea), dentro de la caja corporativa que pone
+                # `build_message` como a todos.
+                subject = f"[Flota] {vehicle.plate} · {AlertType(kind).label}"
+                body_html = "<p>" + html.escape(message).replace("\n", "<br>") + "</p>"
+                template_key = kind
+            else:
+                # Asunto/cuerpo de la plantilla del tipo si existe (10b); si
+                # no, la genérica con el mensaje compuesto. Va al conductor.
+                notice = mailer.render_vehicle_notice(vehicle, kind, text, "es")
+                subject, body_html = notice.subject, notice.body_html
+                template_key = notice.used_key or kind
             email_sent, email_skipped = mailer.send_notice_now(
                 to=driver.email if driver else "",
-                subject=notice.subject,
-                body_html=notice.body_html,
-                template_key=notice.used_key or kind,
+                subject=subject,
+                body_html=body_html,
+                template_key=template_key,
                 role="driver",
+                vehicle=vehicle,
+                manual=True,
             )
 
         return Response(
@@ -1667,6 +1871,88 @@ class VehicleUsageViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewse
     queryset = VehicleUsage.objects.select_related("vehicle", "driver")
     filterset_fields = ["vehicle", "driver"]
 
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="mine",
+        url_name="mine",
+        permission_classes=[IsDriver | IsManagement],
+    )
+    def mine(self, request):
+        """GET /vehicle-usages/mine/ — los coches de REPARTO de quien pregunta
+        (la cara «Reparto» de la app de campo): cada reparto vigente en el que
+        está, con el coche, su parte, el periodo, si además es su conductor
+        vigente y **con quién lo reparte** (las demás personas del reparto
+        vigente de ese coche, con su parte). Un conductor lleva un coche, pero
+        puede tener varios repartidos —por horarios, por días, solapados—, y
+        cada uno de ellos ENTRA EN SU ÁMBITO mientras el reparto esté vigente
+        (`scoping.vehicles_for`): desde esta pantalla se abre su ficha y se
+        registra sobre él, igual que en «Flota». Lo que el reparto no da es ser
+        su conductor: el coche tiene su titular, y a él se le reclama la
+        lectura del mes.
+        """
+        from .selectors import current_driver_map, current_usage_q
+
+        # El criterio de «vigente» vivía aquí escrito a mano. Ahora que un
+        # reparto vigente DA ÁMBITO (`scoping.vehicles_for`) tiene que ser uno
+        # solo: si esta pantalla y el ámbito contaran distinto, habría tarjetas
+        # que enlazan a un coche que el back no sirve.
+        vigente = current_usage_q()
+        mios = list(
+            VehicleUsage.objects.filter(vigente, driver=request.user)
+            .select_related("vehicle")
+            .order_by("vehicle__plate", "-start_date")
+        )
+        ids = [u.vehicle_id for u in mios]
+
+        def hora(valor):
+            return valor.strftime("%H:%M") if valor is not None else None
+
+        companeros: dict[int, list[dict]] = {}
+        for otro in (
+            VehicleUsage.objects.filter(vigente, vehicle_id__in=ids)
+            .exclude(driver=request.user)
+            .select_related("driver")
+            .order_by("-usage_percent", "driver__first_name", "driver__last_name")
+        ):
+            companeros.setdefault(otro.vehicle_id, []).append(
+                {
+                    "id": otro.driver_id,
+                    "name": otro.driver.get_full_name() or otro.driver.get_username(),
+                    "usage_percent": float(otro.usage_percent or 0),
+                    # Cuándo lo usa cada uno: es lo que permite saber cuándo
+                    # está libre el coche.
+                    "weekdays": otro.weekday_list,
+                    "time_from": hora(otro.time_from),
+                    "time_to": hora(otro.time_to),
+                }
+            )
+        conduce = current_driver_map(ids)
+        return Response(
+            [
+                {
+                    "id": u.pk,
+                    "vehicle": {
+                        "id": u.vehicle_id,
+                        "plate": u.vehicle.plate,
+                        "brand": u.vehicle.brand,
+                        "model": u.vehicle.model,
+                        "state": u.vehicle.state,
+                        "state_display": u.vehicle.get_state_display(),
+                    },
+                    "usage_percent": float(u.usage_percent or 0),
+                    "start_date": u.start_date,
+                    "end_date": u.end_date,
+                    "weekdays": u.weekday_list,
+                    "time_from": hora(u.time_from),
+                    "time_to": hora(u.time_to),
+                    "is_driver": getattr(conduce.get(u.vehicle_id), "pk", None) == request.user.pk,
+                    "shared_with": companeros.get(u.vehicle_id, []),
+                }
+                for u in mios
+            ]
+        )
+
     @action(detail=False, methods=["post"], url_path="set", url_name="set")
     def set_split(self, request):
         """POST /vehicle-usages/set/ — aplica el reparto completo de un vehículo.
@@ -1707,6 +1993,9 @@ class VehicleUsageViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewse
                     usage_percent=item["usage_percent"],
                     start_date=data["start_date"],
                     end_date=data.get("end_date"),
+                    weekdays=item.get("weekdays", ""),
+                    time_from=item.get("time_from"),
+                    time_to=item.get("time_to"),
                 )
                 for item in data["items"]
             )
@@ -2075,7 +2364,9 @@ class DocumentViewSet(
         # no resuelto por fila: la lista de la ficha son decenas de documentos.
         deletion_pending=models.Exists(
             DocumentDeletionRequest.objects.filter(
-                document=models.OuterRef("pk"), status=DocumentDeletionStatus.PENDING
+                document=models.OuterRef("pk"),
+                status=DocumentDeletionStatus.PENDING,
+                kind__in=ONE_PER_DOCUMENT_KINDS,
             )
         )
     )
@@ -2186,8 +2477,24 @@ class DocumentViewSet(
         Quien conduce **no tiene cuenta en Drive**: el enlace a la carpeta no
         le abre nada, así que el archivo lo trae el back. Lo que llega al móvil
         vive en un blob que la ventana suelta al cerrarse.
+
+        Y cuando la lectura del tipo (o del documento) va «con solicitud»
+        (`DriverActionMode.REQUEST`), al conductor le hace falta tenerla
+        concedida (`scoping.view_needs_grant` / `has_access_grant`): si no,
+        403 — el documento existe para él, lo que no tiene es el permiso. Y
+        con «no permitir» (`DENY`), 403 sin más: no hay nada que pedir.
         """
-        return self._serve_file(self.get_object(), as_attachment=False)
+        document = self.get_object()
+        acceso = document.effective_access()
+        if view_denied(request.user, acceso):
+            raise PermissionDenied("Este documento no se puede ver desde la app de campo.")
+        if view_needs_grant(request.user, acceso) and not has_access_grant(
+            request.user, document.pk, DocumentRequestKind.VIEW
+        ):
+            raise PermissionDenied(
+                "Para ver este documento hay que pedirlo y que la gestión lo conceda."
+            )
+        return self._serve_file(document, as_attachment=False)
 
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
@@ -2197,8 +2504,25 @@ class DocumentViewSet(
         tampoco puede ir por Drive (`uc?export=download`), que a un conductor
         sin cuenta en esa carpeta le contesta «no tienes acceso». Aquí baja por
         la misma puerta que ya autoriza la lectura.
+
+        Y puede ir **previa solicitud** (`scoping.download_needs_grant`: al
+        conductor cuando el tipo o el documento lo dicen, a la supervisión
+        siempre): sin una petición de descarga concedida, 403 — el documento
+        existe para quien pide; lo que no tiene es el permiso. La
+        administración se lo baja siempre. Y con «no permitir» (`DENY`),
+        403 sin más: no hay nada que pedir.
         """
-        return self._serve_file(self.get_object(), as_attachment=True)
+        document = self.get_object()
+        acceso = document.effective_access()
+        if download_denied(request.user, acceso):
+            raise PermissionDenied("Este documento no se puede descargar desde la app de campo.")
+        if download_needs_grant(request.user, acceso) and not has_access_grant(
+            request.user, document.pk, DocumentRequestKind.DOWNLOAD
+        ):
+            raise PermissionDenied(
+                "Para descargar este documento hay que pedirlo y que la gestión lo conceda."
+            )
+        return self._serve_file(document, as_attachment=True)
 
     @action(detail=False, methods=["post"], permission_classes=[IsAdmin])
     def verify(self, request):
@@ -2319,6 +2643,30 @@ class DocumentDeletionRequestViewSet(
             raise ValidationError({"document": "Ese documento ya está dado de baja."})
         kind = datos.get("kind") or DocumentRequestKind.DELETE
         cambios = datos.get("changes") or {}
+        # Lo que vale para ese documento (su ajuste o su tipo), una sola vez.
+        acceso = document.effective_access()
+        # El borrado puede estar cerrado al conductor en su tipo o en ese
+        # documento (`driver_delete=deny`): ni se abre la petición.
+        if kind == DocumentRequestKind.DELETE and delete_denied(request.user, acceso):
+            raise ValidationError({"kind": "No se puede pedir el borrado: no está permitido."})
+        # Una de ACCESO solo tiene sentido si hace falta: a quien ya puede ver
+        # o bajarse el documento no se le abre una fila que decidir, y a quien
+        # NO se le permite («no permitir») tampoco: no hay nada que conceder.
+        if kind in ACCESS_REQUEST_KINDS:
+            cerrado = (
+                view_denied(request.user, acceso)
+                if kind == DocumentRequestKind.VIEW
+                else download_denied(request.user, acceso)
+            )
+            if cerrado:
+                raise ValidationError({"kind": "No se puede pedir: no está permitido."})
+            hace_falta = (
+                view_needs_grant(request.user, acceso)
+                if kind == DocumentRequestKind.VIEW
+                else download_needs_grant(request.user, acceso)
+            )
+            if not hace_falta:
+                raise ValidationError({"kind": "No hace falta pedirlo: ya puedes hacerlo."})
         if kind == DocumentRequestKind.CHANGE and not document_requests.clean_document_changes(
             cambios, document=document
         ):
@@ -2350,16 +2698,9 @@ class DocumentDeletionRequestViewSet(
             raise ValidationError({"status": "Esa petición ya está resuelta."})
         decision = str(request.data.get("decision", "") or "")
         # Cada clase tiene SUS salidas: aplicar un borrado o dar de baja un
-        # documento porque su fecha estaba mal son cosas distintas.
-        posibles = (
-            (document_requests.DECISION_APPLY, document_requests.DECISION_REJECT)
-            if peticion.kind == DocumentRequestKind.CHANGE
-            else (
-                document_requests.DECISION_DELETE,
-                document_requests.DECISION_HIDE,
-                document_requests.DECISION_REJECT,
-            )
-        )
+        # documento porque su fecha estaba mal son cosas distintas, y una
+        # lectura se concede o no.
+        posibles = document_requests.decisions_for(peticion.kind)
         if decision not in posibles:
             raise ValidationError({"decision": f"Indica una decisión: {', '.join(posibles)}."})
         note = str(request.data.get("note", "") or "").strip()[:255]
@@ -3401,6 +3742,32 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
             raise ValidationError({"detail": f"No se pudo enviar la prueba: {exc}"}) from exc
         EmailLog.objects.create(**traza, status=EmailLog.Status.SENT)
         return Response({"sent_to": request.user.email})
+
+
+class DocumentTypeAccessViewSet(viewsets.ViewSet):
+    """GET /api/v1/document-type-access/ y PATCH /{type}/ — quién lee cada
+    tipo de documento (Documentos → Ajustes, admin).
+
+    El listado trae SIEMPRE los doce tipos, con la fila guardada o la de
+    fábrica; el `PATCH` crea la fila si no existía. Lo que cambia aquí lo
+    aplica `scoping.readable_documents` en la siguiente petición, en las tres
+    puertas (listado, binario e informe).
+    """
+
+    permission_classes = [IsAdmin]
+
+    def list(self, request):
+        rows = DocumentTypeAccess.rules().values()
+        return Response(DocumentTypeAccessSerializer(rows, many=True).data)
+
+    def partial_update(self, request, pk=None):
+        if pk not in DocumentType.values:
+            raise Http404
+        row, _ = DocumentTypeAccess.objects.get_or_create(type=pk)
+        serializer = DocumentTypeAccessSerializer(row, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class EmailSettingsView(APIView):

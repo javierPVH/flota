@@ -225,9 +225,11 @@ describe('VehicleDetailPage (la ficha del vehículo)', () => {
 
     // Subtítulo: qué es y cómo está; conductor y supervisor salen siempre.
     expect(screen.getByText(/Seat Leon FR/)).toBeInTheDocument()
-    expect(screen.getByText('Activo')).toBeInTheDocument()
-    expect(screen.getByText('Conductor: Carlos Ruiz')).toBeInTheDocument()
-    expect(screen.getByText('Supervisor: Sara Jefa')).toBeInTheDocument()
+    // Estado, conductor y supervisor se leen dos veces: en las marcas del
+    // subtítulo y en la fila del estado, que ahora sale siempre.
+    expect(screen.getAllByText('Activo')).toHaveLength(2)
+    expect(screen.getAllByText('Conductor: Carlos Ruiz')).toHaveLength(2)
+    expect(screen.getAllByText('Supervisor: Sara Jefa')).toHaveLength(2)
     expect(screen.getByRole('button', { name: /Desplegar todo/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Plegar todo/ })).toBeInTheDocument()
 
@@ -236,16 +238,18 @@ describe('VehicleDetailPage (la ficha del vehículo)', () => {
     expect(kpi('Fin de contrato')).toHaveTextContent('2028-12-31')
     expect(kpi('Fin de contrato')).toHaveTextContent('48 meses')
 
-    // La barra de lo que se le HACE, en su orden.
-    const barra = screen.getByRole('heading', { name: '1234KLM' }).closest('.vehicle-detail')!
-      .querySelector('.detail-actionbar')!
-    expect(within(barra as HTMLElement).getAllByRole('button').map((b) => b.textContent)).toEqual([
+    // Ya no hay barra de acciones: lo que se le hace al coche va en la fila
+    // del estado (correo, edición) y en la barra del formulario de edición.
+    expect(document.querySelector('.detail-actionbar')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cambiar conductor / supervisor' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Gestionar facturas' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cambiar estado' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Devolver' })).toBeNull()
+    // En la fila del estado, a la izquierda, dos recuadros que son el botón.
+    const fila = document.querySelector('.detail-top') as HTMLElement
+    expect(within(fila).getAllByRole('button').map((b) => b.textContent)).toEqual([
       'Enviar correo',
-      'Cambiar conductor / supervisor',
-      'Gestionar facturas',
-      'Editar',
-      'Cambiar estado',
-      'Devolver',
+      'Editar ficha',
     ])
     // Un coche con conductor, en flota y con contrato en vigor no lleva marco.
     expect(document.querySelector('.vehicle-detail')).not.toHaveClass('has-marks')
@@ -356,7 +360,7 @@ describe('VehicleDetailPage (la ficha del vehículo)', () => {
     expect(document.querySelector('.vehicle-detail')).not.toHaveClass('has-marks')
     expect(screen.queryByRole('button', { name: 'Cambiar estado' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Devolver' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Editar ficha' })).toBeInTheDocument()
   })
 
   it('si el vehículo no carga, la ficha es el error; si falla un bloque secundario, avisa y reintenta', async () => {

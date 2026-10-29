@@ -16,6 +16,7 @@ const GO_KEYS = [
   { key: 'k', path: '/kilometraje', nav: 'mileage' },
   { key: 'f', path: '/informes?tab=facturas', nav: 'invoices' },
   { key: 'c', path: '/conductores', nav: 'drivers' },
+  { key: 'd', path: '/documentos', nav: 'documents' },
   { key: 'm', path: '/informes', nav: 'reports' },
   { key: 'j', path: '/ajustes', nav: 'settings' },
   { key: 't', path: '/ajustes/catalogos', nav: 'catalogs' },

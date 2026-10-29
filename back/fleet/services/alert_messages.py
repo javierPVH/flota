@@ -76,6 +76,19 @@ def _km_pending_never(*, period: str) -> str:
     return f"Falta la lectura de km de {period}: el vehículo no tiene ninguna lectura."
 
 
+@_plantilla("fuel_pending_days")
+def _fuel_pending_days(*, period: str, days: int, last: str) -> str:
+    return (
+        f"Falta la anotación de consumo de {period}: {days} día(s) sin anotación "
+        f"(última el {last})."
+    )
+
+
+@_plantilla("fuel_pending_never")
+def _fuel_pending_never(*, period: str) -> str:
+    return f"Falta la anotación de consumo de {period}: el vehículo no tiene ninguna."
+
+
 @_plantilla("no_driver")
 def _no_driver(*, days: int) -> str:
     return f"Sin conductor asignado desde hace más de {days} día(s)."

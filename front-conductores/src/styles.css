@@ -1113,6 +1113,22 @@ button.bottom-tab {
   font: inherit;
 }
 .reminder-done { margin: 0; font-weight: 600; color: var(--color-success); }
+/* Con qué sale el correo del recordatorio, y lo que saldría con la
+   plantilla: asunto, cuerpo como texto y de cuál de las dos versiones es. */
+.reminder-body { margin-bottom: 0.8rem; }
+.reminder-preview {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+  padding: 0.6rem 0.75rem;
+  border-left: 3px solid var(--color-border);
+  border-radius: 0.6rem;
+  background: var(--color-surface-soft);
+  font-size: 0.88rem;
+}
+.reminder-preview p { margin: 0; white-space: pre-line; color: var(--color-text-muted); }
+.reminder-preview-kind { font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); }
+.reminder-preview-kind.is-custom { color: var(--color-brand); }
 
 /* Adjuntar foto/documento: caja punteada, como el diseño de referencia. */
 .photo-attach {
@@ -1447,6 +1463,14 @@ button.bottom-tab {
   align-items: center;
   gap: 0.9rem;
 }
+
+/* --- «Reparto»: los coches repartidos, cuándo y con quién -------------- */
+/* La tarjeta es la de la flota (`.card` > `.vehicle-card` y su
+   `.vehicle-meta`); aquí solo lo que es de una lista y no de un <div>, y la
+   lista de con quién se reparte, una persona por línea con su parte y
+   cuándo usa el coche. */
+.shares-list { list-style: none; margin: 0; padding: 0; }
+.share-people { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; }
 .profile-avatar {
   display: inline-flex;
   align-items: center;
@@ -2604,9 +2628,14 @@ button.bottom-tab {
    muerto sin explicación. */
 .bottom-tab.is-waiting,
 .quick-action.is-waiting,
-.report-btn.is-waiting {
+.report-btn.is-waiting,
+.doc-actions > .doc-open.is-waiting,
+.doc-actions > .doc-remove.is-waiting {
   opacity: 0.55;
 }
+/* Cómo va el acceso a un documento (lectura, descarga, borrado), bajo su
+   nombre: solo cuando no es lo de siempre. */
+.doc-access { color: var(--color-text-muted); }
 .scheduled-info {
   display: flex;
   align-items: flex-start;

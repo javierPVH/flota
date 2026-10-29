@@ -8,12 +8,14 @@ import { DocumentList } from './DocumentList.tsx'
 
 const mocks = vi.hoisted(() => ({
   requestDocumentDeletion: vi.fn(),
+  requestDocumentAccess: vi.fn(),
   fetchDocumentFile: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   requestDocumentDeletion: mocks.requestDocumentDeletion,
+  requestDocumentAccess: mocks.requestDocumentAccess,
   fetchDocumentFile: mocks.fetchDocumentFile,
 }))
 
@@ -75,6 +77,70 @@ describe('DocumentList: descargar y pedir el borrado', () => {
     expect(screen.getByRole('button', { name: 'Ver Seguro' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Descargar Seguro' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Abrir|Descargar/ })).not.toBeInTheDocument()
+  })
+
+  it('lo que va con solicitud se PIDE: ver y descargar', async () => {
+    mocks.requestDocumentAccess.mockResolvedValue({ id: 9, kind: 'view', status: 'pending' })
+    const { user, onChanged } = pintar([
+      doc({ can_view: false, can_download: false, view_request: '', download_request: 'pending' }),
+    ])
+    // Ni ver ni bajar directamente; corregir y la papelera, siempre.
+    expect(screen.queryByRole('button', { name: 'Ver Seguro' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Descargar Seguro' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pedir que se corrija Seguro' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pedir el borrado de Seguro' })).toBeInTheDocument()
+    // La fila dice cómo va cada cosa.
+    expect(screen.getByText('Lectura: con solicitud · Descarga: pedida, pendiente de la gestión')).toBeInTheDocument()
+    // La descarga ya está pedida: el botón va apagado pero vivo, y el toque
+    // explica qué pasará cuando se conceda.
+    const bajar = screen.getByRole('button', { name: 'Pedir la descarga de Seguro' })
+    expect(bajar).toHaveClass('is-waiting')
+    expect(bajar).toBeEnabled()
+    await user.click(bajar)
+    expect(await screen.findByText('Has pedido la descarga de Seguro: la gestión tiene que concederla.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Entendido' }))
+    expect(mocks.requestDocumentAccess).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Pedir la lectura de Seguro' }))
+    expect(screen.getByText(/previa solicitud/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Enviar petición' }))
+    await waitFor(() => expect(mocks.requestDocumentAccess).toHaveBeenCalledWith(7, 'view', ''))
+    expect(onChanged).toHaveBeenCalled()
+    // Pedida: el botón se apaga (vivo) hasta que la gestión la conceda, y la
+    // fila lo dice.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Pedir la lectura de Seguro' })).toHaveClass('is-waiting'),
+    )
+    expect(screen.getByText(/Lectura: pedida, pendiente de la gestión/)).toBeInTheDocument()
+  })
+
+  it('concedida, vuelve el botón de siempre y la fila lo dice', () => {
+    pintar([doc({ can_view: true, can_download: true, view_request: 'granted', download_request: '' })])
+    expect(screen.getByRole('button', { name: 'Ver Seguro' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Descargar Seguro' })).toBeEnabled()
+    expect(screen.getByText('Lectura: concedida')).toBeInTheDocument()
+  })
+
+  it('lo que NO se permite se dice, apagado pero vivo: el toque explica por qué', async () => {
+    const { user } = pintar([doc({ can_view: true, can_download: false, view_request: '', download_request: 'denied' })])
+    expect(screen.getByRole('button', { name: 'Ver Seguro' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Descargar Seguro' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Pedir la descarga de Seguro' })).not.toBeInTheDocument()
+    expect(screen.getByText('Descarga: no permitida')).toBeInTheDocument()
+    const bajar = screen.getByRole('button', { name: 'No se permite descargar Seguro' })
+    expect(bajar).toHaveClass('is-waiting')
+    await user.click(bajar)
+    expect(await screen.findByText('No se permite la descarga de Seguro desde la app de campo.')).toBeInTheDocument()
+    expect(screen.getByText(/no se puede pedir desde aquí/)).toBeInTheDocument()
+    expect(mocks.requestDocumentAccess).not.toHaveBeenCalled()
+  })
+
+  it('la papelera puede estar cerrada del todo: apagada pero viva, y lo dice', async () => {
+    const { user } = pintar([doc({ can_request_delete: false })])
+    expect(screen.queryByRole('button', { name: 'Pedir el borrado de Seguro' })).not.toBeInTheDocument()
+    expect(screen.getByText('Borrado: no permitido')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'No se permite pedir el borrado de Seguro' }))
+    expect(await screen.findByText('No se permite el borrado de Seguro desde la app de campo.')).toBeInTheDocument()
   })
 
   it('descargar pide el archivo al back y lo guarda con su nombre', async () => {

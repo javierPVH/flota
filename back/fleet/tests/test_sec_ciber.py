@@ -2,7 +2,7 @@
 
 import io
 import tempfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from django.core.exceptions import ValidationError
@@ -37,10 +37,15 @@ class Inp1XlsxFormulaTests(TestCase):
         # el apóstrofo que añade el CSV.
         self.assertEqual(celda.data_type, "s")
         self.assertEqual(celda.value, self.FORMULA)
-        # Lo que no es texto sigue viajando tipado.
+        # Lo que no es texto sigue viajando tipado: la cifra como número y la
+        # fecha ISO como fecha de Excel a la española (`_xlsx_cell`), no como
+        # la cadena que entrega la tabla.
         self.assertEqual(ws["B2"].value, 123)
         self.assertEqual(ws["B2"].data_type, "n")
-        self.assertEqual(ws["C2"].value, "2026-09-22")
+        fecha = ws["C2"]
+        self.assertEqual(fecha.data_type, "d")
+        self.assertEqual(fecha.value, datetime(2026, 9, 22))
+        self.assertEqual(fecha.number_format, reports.XLSX_DATE_FORMAT)
 
     def test_inp1_otros_prefijos_peligrosos_y_cabeceras(self):
         peligrosas = ["+cmd", "-2+3", "@SUM(A1)", "\tX", "=1+1"]

@@ -214,6 +214,29 @@ describe('UsersPage — la cuenta del sistema y la propia van aparte', () => {
     expect(cuatro?.textContent).toBe('Admin · Supervisor · Conductor · HSE')
   })
 
+  it('el listado lleva pestañas por rol, «Todos» primero, que no tocan las de arriba', async () => {
+    const LUCIA = user({ id: 3, username: 'lucia', name: 'Lucía Pérez', roles: ['supervisor', 'hse'] })
+    mocks.listAll.mockResolvedValue([ADMIN, YO, OTRO, LUCIA])
+    renderPage()
+    await screen.findByText('Carlos Ruiz')
+
+    const tabs = within(screen.getByRole('tablist', { name: 'Usuarios por rol' }))
+    const nombres = tabs.getAllByRole('tab').map((b) => b.textContent)
+    // Cada una con cuántos hay en el listado (las dos cuentas de arriba no cuentan).
+    expect(nombres).toEqual(['Todos2', 'Admin0', 'Supervisor1', 'Conductor1', 'HSE1'])
+    expect(tabs.getByRole('tab', { name: /Todos/ })).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.click(tabs.getByRole('tab', { name: /Supervisor/ }))
+    expect(screen.getByText('Lucía Pérez')).toBeInTheDocument()
+    expect(screen.queryByText('Carlos Ruiz')).not.toBeInTheDocument()
+    // La ficha de arriba sigue con sus dos cuentas, que no son del listado.
+    await desplegar()
+    expect(ownTable().getByText('Alicia')).toBeInTheDocument()
+
+    fireEvent.click(tabs.getByRole('tab', { name: /Todos/ }))
+    expect(screen.getByText('Carlos Ruiz')).toBeInTheDocument()
+  })
+
   it('el resto de la gente conserva sus dos acciones', async () => {
     renderPage()
     const nombre = await screen.findByText('Carlos Ruiz')

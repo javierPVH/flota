@@ -10,8 +10,8 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Alert, Assignment, Document, Vehicle
-from fleet.models.enums import AssignmentStatus
+from fleet.models import Alert, Assignment, Document, DocumentDeletionRequest, Vehicle
+from fleet.models.enums import AssignmentStatus, DocumentDeletionStatus
 
 from .helpers import make_user
 
@@ -106,9 +106,21 @@ class ProtectedMediaTests(APITestCase):
         self.assertEqual(resp["X-Accel-Redirect"], f"/_protected_media/{self.PERSONAL_PATH}")
 
     @override_settings(DEBUG=False)
-    def test_supervisor_can_fetch_their_drivers_personal_document(self):
-        """El mismo alcance que el listado (`users_for`): sus conductores en curso."""
+    def test_supervisor_fetches_their_drivers_personal_document_only_when_granted(self):
+        """El mismo alcance que el listado (`users_for`): sus conductores en
+        curso. Pero la supervisión baja un archivo **siempre previa solicitud**
+        (`scoping.download_needs_grant`): sin una descarga concedida, el binario
+        no sale tampoco por `/media` —404, como fuera de ámbito—; con ella, sí."""
         self.client.force_authenticate(self.supervisor)
+        resp = self.client.get(f"/media/{self.PERSONAL_PATH}")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+        DocumentDeletionRequest.objects.create(
+            document=Document.objects.get(file=self.PERSONAL_PATH),
+            requested_by=self.supervisor,
+            kind="download",
+            status=DocumentDeletionStatus.GRANTED,
+        )
         resp = self.client.get(f"/media/{self.PERSONAL_PATH}")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 

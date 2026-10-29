@@ -179,6 +179,52 @@ class MultiuserInvariantTests(APITestCase):
         coche.refresh_from_db()
         self.assertFalse(coche.is_multiuser)
 
+    def test_set_driver_marca_y_desmarca_el_multiusuario(self):
+        """El modal de «Cambiar conductor / supervisor» lleva la marca: marcar
+        con `driver: null` retira al conductor en el mismo gesto y exige
+        supervisor; sin retirarlo se rechaza y dice quién; desmarcar admite
+        ponerle conductor en la misma llamada."""
+        coche = _coche("MUL0007", supervisor=self.supervisor)
+        chofer = make_user("mui-drv3", Role.DRIVER)
+        Assignment.objects.create(vehicle=coche, driver=chofer, status=AssignmentStatus.ACCEPTED)
+        url = reverse("vehicle-set-driver", args=[coche.pk])
+        # Con conductor y sin retirarlo: no.
+        resp = self.client.post(url, {"is_multiuser": True}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("is_multiuser", resp.data["errors"])
+        # Retirándolo en el mismo cuerpo: sí, y la asignación queda cerrada
+        # HOY aunque venga una fecha futura (un fin programado la dejaría
+        # vigente y la marca no entraría).
+        resp = self.client.post(
+            url,
+            {
+                "is_multiuser": True,
+                "driver": None,
+                "start_date": (timezone.localdate() + timedelta(days=10)).isoformat(),
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        coche.refresh_from_db()
+        self.assertTrue(coche.is_multiuser)
+        self.assertEqual(
+            Assignment.objects.filter(vehicle=coche, status=AssignmentStatus.FINISHED).count(), 1
+        )
+        self.assertIsNone(resp.data["driver_id"])
+        # Sin supervisor no se marca (ni quitándoselo en la misma llamada).
+        otro = _coche("MUL0008")
+        resp = self.client.post(
+            reverse("vehicle-set-driver", args=[otro.pk]), {"is_multiuser": True}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("supervisor", resp.data["errors"])
+        # Desmarcar y poner conductor, de una vez.
+        resp = self.client.post(url, {"is_multiuser": False, "driver": chofer.pk}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        coche.refresh_from_db()
+        self.assertFalse(coche.is_multiuser)
+        self.assertEqual(resp.data["driver_id"], chofer.pk)
+
     def test_no_se_le_puede_poner_conductor(self):
         coche = _coche("MUL0006", supervisor=self.supervisor, is_multiuser=True)
         chofer = make_user("mui-drv2", Role.DRIVER)

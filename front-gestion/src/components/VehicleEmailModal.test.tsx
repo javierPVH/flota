@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -7,6 +7,7 @@ import { LanguageProvider } from '../i18n.tsx'
 import type { Vehicle } from '../types.ts'
 
 const mocks = vi.hoisted(() => ({
+  fetchVehicleEmailActivity: vi.fn(),
   listEmailTemplateDefaults: vi.fn(),
   listEmailTemplates: vi.fn(),
   listIncidents: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
+  fetchVehicleEmailActivity: mocks.fetchVehicleEmailActivity,
   listEmailTemplateDefaults: mocks.listEmailTemplateDefaults,
   listEmailTemplates: mocks.listEmailTemplates,
   listIncidents: mocks.listIncidents,
@@ -62,10 +64,12 @@ const GENERICA = {
   body_html_en: '<p>Generic: {{matricula}} changes state.</p>',
 }
 
-function abrir() {
+/** Abre el modal con un tipo ya elegido (como desde una alerta); sin
+ * `initialKind`, como desde la ficha, el desplegable arranca sin tipo. */
+function abrir(initialKind: 'state_notice' | '' = 'state_notice') {
   render(
     <LanguageProvider>
-      <VehicleEmailModal vehicle={VEHICLE} onClose={vi.fn()} onDone={vi.fn()} />
+      <VehicleEmailModal vehicle={VEHICLE} initialKind={initialKind} onClose={vi.fn()} onDone={vi.fn()} />
     </LanguageProvider>,
   )
 }
@@ -88,6 +92,7 @@ describe('VehicleEmailModal (contenido editable)', () => {
     mocks.listEmailTemplateDefaults.mockResolvedValue([GENERICA])
     mocks.listIncidents.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
     mocks.listKmReadingsAll.mockResolvedValue([])
+    mocks.fetchVehicleEmailActivity.mockResolvedValue({ sent: [], pending: [], alerts: [] })
     mocks.noticePreviewVehicle.mockResolvedValue({
       subject: 'Estado de 2026JHF',
       body_html: '<p>vista previa</p>',
@@ -96,6 +101,137 @@ describe('VehicleEmailModal (contenido editable)', () => {
       has_en: false,
     })
     mocks.notifyVehicle.mockResolvedValue({ sent: [{ role: 'driver', email: 'a@flota.dev' }], skipped: [] })
+  })
+
+  it('al abrir evalúa los avisos con correo, lo enviado y lo que está en cola, y manda de un toque', async () => {
+    mocks.fetchVehicleEmailActivity.mockResolvedValue({
+      sent: [
+        {
+          id: 1, created_at: '2026-10-20T09:00:00Z', template_key: 'itv_due', template_display: 'ITV próxima / vencida (aviso de ITV)',
+          recipient: 'a@flota.dev', recipient_role: 'driver', recipient_role_display: 'Conductor', subject: 'ITV',
+          alert: 5, alert_type: 'itv_due', status: 'sent', status_display: 'Enviado', manual: false, attempts: null,
+        },
+      ],
+      pending: [
+        {
+          id: 2, created_at: '2026-10-27T09:00:00Z', template_key: 'km_reading_pending', template_display: 'Lectura de km pendiente (al conductor)',
+          recipient: 'a@flota.dev', recipient_role: 'driver', recipient_role_display: 'Conductor', subject: 'Lectura',
+          alert: 6, alert_type: 'km_reading_pending', status: 'pending', status_display: 'Pendiente', manual: false, attempts: 0,
+        },
+      ],
+      alerts: [
+        { id: 5, type: 'itv_due', type_display: 'ITV próxima', level: 'warning', level_display: 'Aviso', message: 'ITV en 10 días', due_date: '2026-11-07', last_sent_at: '2026-10-20T09:00:00Z', sent_count: 1, pending: false },
+        { id: 6, type: 'km_reading_pending', type_display: 'Lectura de km pendiente', level: 'info', level_display: 'Informativa', message: 'Lectura pendiente', due_date: null, last_sent_at: null, sent_count: 0, pending: true },
+      ],
+    })
+    abrir()
+    // Los avisos abiertos, con su plantilla y en qué va su correo.
+    const itv = (await screen.findByText(/ITV en 10 días/)).closest('li') as HTMLElement
+    expect(itv).toHaveTextContent('Aviso de ITV')
+    expect(itv).toHaveTextContent(/Correo enviado el/)
+    const km = screen.getByText(/Lectura pendiente/).closest('li') as HTMLElement
+    expect(km).toHaveTextContent('En cola por enviar')
+    // Lo que está en cola y lo ya mandado, dicho con su origen.
+    expect(screen.getByText('Automatizaciones pendientes de enviar')).toBeInTheDocument()
+    expect(screen.getByText('Automático')).toBeInTheDocument()
+    // El botón rápido del aviso: su plantilla, al conductor, ligado al aviso.
+    await userEvent.click(within(itv).getByRole('button', { name: 'Enviar correo' }))
+    await waitFor(() =>
+      expect(mocks.notifyVehicle).toHaveBeenCalledWith(21, {
+        template_key: 'itv_due',
+        lang: 'es',
+        to_driver: true,
+        alert: 5,
+      }),
+    )
+    expect(await screen.findByText(/a@flota.dev/)).toBeInTheDocument()
+  })
+
+  it('desde la ficha arranca sin tipo: el botón rápido va apagado y «Siguiente» lo pide', async () => {
+    abrir('')
+    const tipo = await screen.findByRole('combobox', { name: 'Tipo de correo' })
+    expect(tipo).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Enviar ahora este correo' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }))
+    expect(mocks.notifyVehicle).not.toHaveBeenCalled()
+    // Sigue en el primer paso: el desplegable se sigue viendo.
+    expect(screen.getByRole('combobox', { name: 'Tipo de correo' })).toBeVisible()
+    await userEvent.selectOptions(tipo, 'itv_due')
+    expect(screen.getByRole('button', { name: 'Enviar ahora este correo' })).toBeEnabled()
+  })
+
+  it('los avisos van por urgencia, con su nivel, y «Enviar todos» manda uno por aviso', async () => {
+    mocks.fetchVehicleEmailActivity.mockResolvedValue({
+      sent: [],
+      pending: [],
+      alerts: [
+        { id: 6, type: 'km_reading_pending', type_display: 'Lectura', level: 'info', level_display: 'Informativa', message: 'Lectura pendiente', due_date: null, last_sent_at: null, sent_count: 0, pending: false },
+        { id: 5, type: 'itv_due', type_display: 'ITV', level: 'critical', level_display: 'Crítica', message: 'ITV vencida', due_date: '2026-10-01', last_sent_at: null, sent_count: 0, pending: false },
+      ],
+    })
+    abrir()
+    const filas = await screen.findAllByRole('listitem')
+    // La crítica primero, con su color.
+    expect(filas[0]).toHaveTextContent('ITV vencida')
+    expect(filas[0]).toHaveClass('tone-danger')
+    expect(filas[0]).toHaveTextContent('Crítica')
+    expect(filas[1]).toHaveClass('tone-info')
+    await userEvent.click(screen.getByRole('button', { name: 'Enviar todos (2)' }))
+    await waitFor(() => expect(mocks.notifyVehicle).toHaveBeenCalledTimes(2))
+    expect(mocks.notifyVehicle).toHaveBeenNthCalledWith(1, 21, { template_key: 'itv_due', lang: 'es', to_driver: true, alert: 5 })
+    expect(mocks.notifyVehicle).toHaveBeenNthCalledWith(2, 21, { template_key: 'km_reading_pending', lang: 'es', to_driver: true, alert: 6 })
+  })
+
+  it('sin conductor (multiusuario), el botón rápido de lo reclamado va al supervisor', async () => {
+    render(
+      <LanguageProvider>
+        <VehicleEmailModal
+          vehicle={{ ...VEHICLE, driver_name: '', supervisor_name: 'Sara' } as Vehicle}
+          initialKind="km_reading_pending"
+          onClose={vi.fn()}
+          onDone={vi.fn()}
+        />
+      </LanguageProvider>,
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Enviar ahora este correo' }))
+    await waitFor(() =>
+      expect(mocks.notifyVehicle).toHaveBeenCalledWith(21, {
+        template_key: 'km_reading_pending',
+        lang: 'es',
+        to_supervisor: true,
+      }),
+    )
+  })
+
+  it('«Enviar todos» que falla a medias enseña el acuse de lo que salió y lo que faltó', async () => {
+    mocks.fetchVehicleEmailActivity.mockResolvedValue({
+      sent: [],
+      pending: [],
+      alerts: [
+        { id: 5, type: 'itv_due', type_display: 'ITV', level: 'critical', level_display: 'Crítica', message: 'ITV vencida', due_date: '2026-10-01', last_sent_at: null, sent_count: 0, pending: false },
+        { id: 6, type: 'km_reading_pending', type_display: 'Lectura', level: 'info', level_display: 'Informativa', message: 'Lectura pendiente', due_date: null, last_sent_at: null, sent_count: 0, pending: false },
+      ],
+    })
+    mocks.notifyVehicle
+      .mockResolvedValueOnce({ sent: [{ role: 'driver', email: 'v@flota.dev' }], skipped: [] })
+      .mockRejectedValueOnce(new Error('SMTP caído'))
+    abrir()
+    await userEvent.click(await screen.findByRole('button', { name: 'Enviar todos (2)' }))
+    // El acuse del primero, y debajo lo que faltó.
+    expect(await screen.findByRole('status')).toHaveTextContent('1 destinatario')
+    expect(screen.getByRole('alert')).toHaveTextContent('Se enviaron 1 de 2')
+  })
+
+  it('el botón rápido del tipo elegido manda con sus destinatarios habituales', async () => {
+    abrir()
+    await userEvent.click(await screen.findByRole('button', { name: 'Enviar ahora este correo' }))
+    await waitFor(() =>
+      expect(mocks.notifyVehicle).toHaveBeenCalledWith(21, {
+        template_key: 'state_notice',
+        lang: 'es',
+        to_driver: true,
+      }),
+    )
   })
 
   it('con plantilla, la caja trae su texto y lo retocado es lo que se envía', async () => {

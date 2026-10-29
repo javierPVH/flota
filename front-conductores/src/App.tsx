@@ -24,6 +24,9 @@ const VehicleFieldPage = lazy(() =>
 const ProfilePage = lazy(() =>
   import('./pages/ProfilePage.tsx').then((m) => ({ default: m.ProfilePage })),
 )
+const SharesPage = lazy(() =>
+  import('./pages/SharesPage.tsx').then((m) => ({ default: m.SharesPage })),
+)
 const RequestAccessPage = lazy(() =>
   import('./pages/RequestAccessPage.tsx').then((m) => ({ default: m.RequestAccessPage })),
 )
@@ -84,6 +87,8 @@ export default function App() {
           <Route path="/grupo" element={<GroupPage />} />
           {/* Pantalla del avatar del header: mis datos y mis documentos. */}
           <Route path="/perfil" element={<ProfilePage />} />
+          {/* La cara «Reparto»: los coches repartidos y con quién. */}
+          <Route path="/reparto" element={<SharesPage />} />
           {/* Ruta histórica del supervisor: la pantalla es la misma. */}
           <Route
             path="/grupo/incidencias/nueva"

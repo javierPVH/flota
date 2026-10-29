@@ -13,6 +13,8 @@ from rest_framework import serializers
 
 from .exceptions import InactiveConflict
 from .models import (
+    ACCESS_OVERRIDE_FIELDS,
+    WEEKDAYS,
     AccidentInjured,
     AccidentReport,
     AccidentThirdParty,
@@ -25,6 +27,7 @@ from .models import (
     Country,
     Document,
     DocumentDeletionRequest,
+    DocumentTypeAccess,
     DriverChangeRequest,
     EmailLog,
     EmailSettings,
@@ -59,12 +62,17 @@ from .models import (
     assignment_overlap_message,
     driver_assignment_clash,
     driver_clash_message,
+    pack_weekdays,
     supervisor_overlap_message,
     supervisor_period_overlap,
+    time_range_error,
+    unpack_weekdays,
     vehicle_assignment_overlap,
 )
 from .models.enums import (
+    ACCESS_REQUEST_KINDS,
     ALERT_LINKABLE_DOCUMENT_TYPES,
+    DRIVER_DELETE_MODES,
     EVENT_LINKABLE_DOCUMENT_TYPES,
     EXPIRING_DOCUMENT_TYPES,
     INCIDENT_BOUND_DOCUMENT_TYPES,
@@ -74,6 +82,8 @@ from .models.enums import (
     AlertStatus,
     AllocationTarget,
     AssignmentStatus,
+    DocumentDeletionStatus,
+    DocumentRequestKind,
     DocumentType,
     EventType,
     IncidentLiability,
@@ -82,6 +92,13 @@ from .models.enums import (
     ItvResult,
     UseType,
     VehicleState,
+)
+from .scoping import (
+    delete_denied,
+    download_denied,
+    download_needs_grant,
+    view_denied,
+    view_needs_grant,
 )
 from .selectors import current_contract_map, current_driver_map, latest_reading_map
 from .services import document_requests, profile_requests, vehicle_requests
@@ -1041,6 +1058,41 @@ class SupervisorPeriodSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class WeekdaysField(serializers.Field):
+    """Los días de la semana de un reparto: por la API, una lista de días ISO
+    (`[1, 2, 5]`, 1 = lunes … 7 = domingo); en la columna, «1,2,5». Lista
+    vacía = todos los días."""
+
+    default_error_messages = {
+        "not_a_list": "Lista de días de la semana (1 = lunes … 7 = domingo).",
+        "out_of_range": "Cada día va de 1 (lunes) a 7 (domingo).",
+    }
+
+    def to_representation(self, value):
+        return unpack_weekdays(value)
+
+    def to_internal_value(self, data):
+        if not isinstance(data, list | tuple):
+            self.fail("not_a_list")
+        try:
+            dias = {int(d) for d in data}
+        except (TypeError, ValueError):
+            self.fail("not_a_list")
+        if any(d not in WEEKDAYS for d in dias):
+            self.fail("out_of_range")
+        return pack_weekdays(dias)
+
+
+def _validar_franja(attrs, instance=None):
+    """La franja horaria del reparto, entera o nada (regla del modelo)."""
+    error = time_range_error(
+        attrs.get("time_from", getattr(instance, "time_from", None)),
+        attrs.get("time_to", getattr(instance, "time_to", None)),
+    )
+    if error:
+        raise serializers.ValidationError(error)
+
+
 class VehicleUsageSerializer(serializers.ModelSerializer):
     """A11: el reparto individual también respeta el invariante de HU-2.5.
 
@@ -1050,6 +1102,8 @@ class VehicleUsageSerializer(serializers.ModelSerializer):
     así que un `POST` suelto admitía un 500 % o un porcentaje negativo y rompía
     el invariante fila a fila.
     """
+
+    weekdays = WeekdaysField(required=False)
 
     def validate_usage_percent(self, value):
         if value is not None and not (Decimal("0") <= value <= Decimal("100")):
@@ -1065,6 +1119,7 @@ class VehicleUsageSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"end_date": "La fecha de fin no puede ser anterior a la de inicio."}
             )
+        _validar_franja(attrs, self.instance)
         # La suma de los repartos vigentes del vehículo no puede pasar de 100.
         if vehicle is not None and percent is not None and end_date is None:
             current = VehicleUsage.objects.filter(
@@ -1109,11 +1164,20 @@ class UsageSplitItemSerializer(serializers.Serializer):
     usage_percent = serializers.DecimalField(
         max_digits=5, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("100")
     )
+    # Cuándo lo usa: los días de la semana y la franja. Opcionales, y la
+    # franja entera o nada (`time_range_error`).
+    weekdays = WeekdaysField(required=False, default="")
+    time_from = serializers.TimeField(required=False, allow_null=True, default=None)
+    time_to = serializers.TimeField(required=False, allow_null=True, default=None)
 
     def validate_driver(self, value):
         if not value.is_driver:
             raise serializers.ValidationError("El usuario asignado no tiene rol de conductor.")
         return value
+
+    def validate(self, attrs):
+        _validar_franja(attrs)
+        return attrs
 
 
 class UsageSplitSerializer(serializers.Serializer):
@@ -2051,7 +2115,13 @@ _LINK_REQUIRED_ERRORS = {
 #: Confidencialidad del documento: solo la GESTIÓN decide de quién es, si lo
 #: leen todos los conductores del coche y si queda protegido. Para el resto son
 #: de solo lectura (ver `DocumentSerializer.get_fields`).
-MANAGEMENT_ONLY_DOCUMENT_FIELDS = ("responsible", "shared_read", "protected")
+MANAGEMENT_ONLY_DOCUMENT_FIELDS = (
+    "responsible",
+    "shared_read",
+    "protected",
+    # El ajuste por documento de la regla de su tipo (nulo = lo del tipo).
+    *ACCESS_OVERRIDE_FIELDS,
+)
 
 #: AUTH-1: el estado del documento lo mueven el archivador y la gestión; un
 #: conductor no lo marca «vigente» ni lo saca de «pendiente de archivar».
@@ -2069,6 +2139,21 @@ class DocumentSerializer(serializers.ModelSerializer):
     alert_display = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
     deletion_pending = serializers.SerializerMethodField()
+    # Lo que QUIEN PIDE puede hacer ya con el archivo —verlo y bajárselo— y,
+    # cuando no puede, en qué va su petición (`view_request` /
+    # `download_request`: '', 'pending' o 'granted'). La app de campo pinta
+    # el botón que toca; el back lo exige igual en su endpoint.
+    can_view = serializers.SerializerMethodField()
+    can_download = serializers.SerializerMethodField()
+    view_request = serializers.SerializerMethodField()
+    download_request = serializers.SerializerMethodField()
+    # Y si puede PEDIR su borrado (la papelera del campo): el tipo o el
+    # documento pueden cerrárselo al conductor (`driver_delete=deny`).
+    can_request_delete = serializers.SerializerMethodField()
+    # Lo que vale para ESTE documento (su ajuste o, sin él, su tipo) y si
+    # tiene algún ajuste puesto: es lo que pinta la columna «Acceso».
+    effective_access = serializers.SerializerMethodField()
+    access_adjusted = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Document
@@ -2109,6 +2194,94 @@ class DocumentSerializer(serializers.ModelSerializer):
             for name in MANAGEMENT_ONLY_DOCUMENT_FIELDS + MANAGEMENT_ONLY_DOCUMENT_STATE_FIELDS:
                 fields[name].read_only = True
         return fields
+
+    def _access_rule(self, obj) -> DocumentTypeAccess:
+        """La regla del tipo del documento, cargada UNA vez por respuesta (el
+        listado reutiliza este serializer para todas las filas)."""
+        rules = getattr(self, "_access_rules", None)
+        if rules is None:
+            rules = self._access_rules = DocumentTypeAccess.rules()
+        return rules.get(obj.type) or DocumentTypeAccess(type=obj.type)
+
+    def _requester_is_admin(self) -> bool:
+        user = getattr(self.context.get("request"), "user", None)
+        return bool(getattr(user, "is_admin", False))
+
+    def get_effective_access(self, obj) -> dict:
+        return obj.effective_access(self._access_rule(obj))
+
+    def _request_state(self, obj, kind: str) -> str:
+        """'' | 'pending' | 'granted': la petición de esa clase de quien pide
+        sobre ese documento. Sus peticiones vivas se cargan UNA vez por
+        respuesta (son pocas) y no una consulta por fila. Y 'denied' cuando
+        no hay nada que pedir («no permitir»): el front no ofrece ni el
+        botón de pedirlo."""
+        user = getattr(self.context.get("request"), "user", None)
+        if not getattr(user, "is_authenticated", False):
+            return ""
+        estados = getattr(self, "_access_requests", None)
+        if estados is None:
+            estados = self._access_requests = {}
+            filas = DocumentDeletionRequest.objects.filter(
+                requested_by=user,
+                kind__in=ACCESS_REQUEST_KINDS,
+                status__in=(DocumentDeletionStatus.PENDING, DocumentDeletionStatus.GRANTED),
+            ).order_by("created_at")
+            for doc_id, clase, estado in filas.values_list("document_id", "kind", "status"):
+                estados[(doc_id, clase)] = estado
+        return estados.get((obj.pk, kind), "")
+
+    def _is_denied(self, obj, kind: str) -> bool:
+        if self._requester_is_admin():
+            return False
+        user = self.context["request"].user
+        acceso = self.get_effective_access(obj)
+        if kind == DocumentRequestKind.VIEW:
+            return view_denied(user, acceso)
+        return download_denied(user, acceso)
+
+    def get_view_request(self, obj) -> str:
+        if self._is_denied(obj, DocumentRequestKind.VIEW):
+            return "denied"
+        return self._request_state(obj, DocumentRequestKind.VIEW)
+
+    def get_download_request(self, obj) -> str:
+        if self._is_denied(obj, DocumentRequestKind.DOWNLOAD):
+            return "denied"
+        return self._request_state(obj, DocumentRequestKind.DOWNLOAD)
+
+    def get_can_view(self, obj) -> bool:
+        if self._requester_is_admin():
+            return True
+        if self._is_denied(obj, DocumentRequestKind.VIEW):
+            return False
+        user = self.context["request"].user
+        if not view_needs_grant(user, self.get_effective_access(obj)):
+            return True
+        return self.get_view_request(obj) == DocumentDeletionStatus.GRANTED
+
+    def get_can_request_delete(self, obj) -> bool:
+        if self._requester_is_admin():
+            return True
+        user = self.context["request"].user
+        return not delete_denied(user, self.get_effective_access(obj))
+
+    def validate_driver_delete_override(self, value):
+        if value is not None and value not in DRIVER_DELETE_MODES:
+            raise serializers.ValidationError(
+                "El borrado nunca es directo: con solicitud o no permitido."
+            )
+        return value
+
+    def get_can_download(self, obj) -> bool:
+        if self._requester_is_admin():
+            return True
+        if self._is_denied(obj, DocumentRequestKind.DOWNLOAD):
+            return False
+        user = self.context["request"].user
+        if not download_needs_grant(user, self.get_effective_access(obj)):
+            return True
+        return self.get_download_request(obj) == DocumentDeletionStatus.GRANTED
 
     @staticmethod
     def _person_name(person) -> str:
@@ -3048,8 +3221,81 @@ class EmailTemplateSerializer(serializers.ModelSerializer):
         return sanitize_email_html(value)
 
 
+#: Los mandos de un recordatorio mensual y de uno por vencimiento, que el
+#: serializer de ajustes repite por prefijo (km/fuel, itv/maintenance).
+_MONTHLY_REMIND_FIELDS = (
+    "enabled",
+    "by",
+    "days",
+    "from_day",
+    "until_day",
+    "mode",
+    "emails",
+    "max_emails",
+    "dates",
+    "to_driver",
+    "to_supervisor",
+    "admin_ids",
+    "admins",
+)
+_DEADLINE_REMIND_FIELDS = (
+    "enabled",
+    "days_before",
+    "days_after",
+    "to_driver",
+    "to_supervisor",
+    "admin_ids",
+    "admins",
+)
+
+
+class DocumentTypeAccessSerializer(serializers.ModelSerializer):
+    """Quién lee un tipo de documento (Documentos → Ajustes). El tipo es la
+    clave de la fila y no se cambia; lo que se edita es la supervisión y lo
+    del conductor. La administración lo lee todo y no viaja como campo."""
+
+    type_display = serializers.CharField(source="get_type_display", read_only=True)
+    driver_read_display = serializers.CharField(source="get_driver_read_display", read_only=True)
+    driver_view_display = serializers.CharField(source="get_driver_view_display", read_only=True)
+    driver_download_display = serializers.CharField(
+        source="get_driver_download_display", read_only=True
+    )
+    # El borrado nunca es directo: solo con solicitud o no permitido.
+    driver_delete = serializers.ChoiceField(
+        choices=[(m.value, m.label) for m in DRIVER_DELETE_MODES], required=False
+    )
+    driver_delete_display = serializers.CharField(
+        source="get_driver_delete_display", read_only=True
+    )
+
+    class Meta:
+        model = DocumentTypeAccess
+        fields = (
+            "type",
+            "type_display",
+            "supervisor_read",
+            "driver_read",
+            "driver_read_display",
+            "driver_view",
+            "driver_view_display",
+            "driver_download",
+            "driver_download_display",
+            "driver_delete",
+            "driver_delete_display",
+            "updated_at",
+        )
+        read_only_fields = ("type", "updated_at")
+
+
 class EmailSettingsSerializer(serializers.ModelSerializer):
-    """Ajustes del correo (fila única): recordatorio de km y aspecto.
+    """Ajustes del correo (fila única): los recordatorios y el aspecto.
+
+    Los recordatorios son CUATRO con dos formas: los mensuales (km y
+    combustible, prefijos `km_remind_` / `fuel_remind_`: plazo o días
+    concretos, cadencia, a quién) y los de vencimiento (ITV y mantenimiento,
+    `itv_remind_` / `maintenance_remind_`: días antes y después, a quién).
+    Los campos y su validación se generan por prefijo —son los mismos mandos
+    cuatro veces— y se validan con lo que QUEDA tras el cambio.
 
     El logotipo no entra por aquí (va en multipart y lo valida la vista);
     sale como `logo_data_url` para que la pantalla lo enseñe sin pasar por
@@ -3060,61 +3306,69 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
     has_custom_logo = serializers.SerializerMethodField()
     km_remind_dates = serializers.SerializerMethodField()
     km_remind_max_emails = serializers.SerializerMethodField()
+    fuel_remind_dates = serializers.SerializerMethodField()
+    fuel_remind_max_emails = serializers.SerializerMethodField()
     #: Día en que se abre el registro de km de campo (N8a, `FLEET_KM_WINDOW_START`;
     #: 0 = sin ventana): el panel avisa si se recuerda antes de que se pueda dar.
     km_window_start = serializers.SerializerMethodField()
-    #: Los administradores que reciben el recordatorio, por id; se escriben
-    #: con `km_remind_admins` («3,7», vacío = ninguno), que vale igual en JSON
-    #: y en multipart, que es como guarda el panel.
+    #: Los administradores que reciben cada recordatorio, por id; se escriben
+    #: con `<kind>_remind_admins` («3,7», vacío = ninguno), que vale igual en
+    #: JSON y en multipart, que es como guarda el panel.
     km_remind_admin_ids = serializers.SerializerMethodField()
     km_remind_admins = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    fuel_remind_admin_ids = serializers.SerializerMethodField()
+    fuel_remind_admins = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    itv_remind_admin_ids = serializers.SerializerMethodField()
+    itv_remind_admins = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    maintenance_remind_admin_ids = serializers.SerializerMethodField()
+    maintenance_remind_admins = serializers.CharField(
+        required=False, allow_blank=True, write_only=True
+    )
     #: Entre quiénes se puede elegir: administradores activos con correo.
     admin_options = serializers.SerializerMethodField()
 
     class Meta:
         model = EmailSettings
-        fields = [
-            "km_remind_enabled",
-            "km_remind_by",
-            "km_remind_days",
-            "km_remind_from_day",
-            "km_remind_until_day",
-            "km_remind_mode",
-            "km_remind_emails",
-            "km_remind_max_emails",
-            "km_remind_dates",
-            "km_window_start",
-            "km_remind_to_driver",
-            "km_remind_to_supervisor",
-            "km_remind_admin_ids",
-            "km_remind_admins",
-            "admin_options",
-            "layout_enabled",
-            "brand_name",
-            "brand_color",
-            "footer_text",
-            "logo_data_url",
-            "has_custom_logo",
-            "updated_at",
-        ]
+        fields = (
+            [f"km_remind_{f}" for f in _MONTHLY_REMIND_FIELDS]
+            + ["km_window_start"]
+            + [f"fuel_remind_{f}" for f in _MONTHLY_REMIND_FIELDS]
+            + [f"itv_remind_{f}" for f in _DEADLINE_REMIND_FIELDS]
+            + [f"maintenance_remind_{f}" for f in _DEADLINE_REMIND_FIELDS]
+            + [
+                "admin_options",
+                "layout_enabled",
+                "brand_name",
+                "brand_color",
+                "footer_text",
+                "logo_data_url",
+                "has_custom_logo",
+                "updated_at",
+            ]
+        )
         read_only_fields = ["updated_at"]
 
-    def validate_km_remind_from_day(self, value):
+    # --- Validación por campo, la misma para cada prefijo ------------------
+
+    @staticmethod
+    def _from_day(value):
         if not 1 <= value <= 28:
             raise serializers.ValidationError("Entre 1 y 28.")
         return value
 
-    def validate_km_remind_until_day(self, value):
+    @staticmethod
+    def _until_day(value):
         if not 0 <= value <= 28:
             raise serializers.ValidationError("Entre 0 (fin de mes) y 28.")
         return value
 
-    def validate_km_remind_emails(self, value):
+    @staticmethod
+    def _emails(value):
         if value < 1:
             raise serializers.ValidationError("Al menos un correo.")
         return value
 
-    def validate_km_remind_days(self, value):
+    def _days(self, kind, value):
         """Se guarda normalizada («5, 20, 28»); vacía vale (solo cuenta con
         «días concretos», y eso lo exige `validate`). Una lista que no vale
         solo es un error yendo por días: por plazo no se usa, así que lo
@@ -3128,14 +3382,28 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
         try:
             return email_layout.format_km_remind_days(email_layout.parse_km_remind_days(value))
         except ValueError as exc:
+            campo = f"{kind}_remind_by"
             por = self.initial_data.get(
-                "km_remind_by", self.instance.km_remind_by if self.instance else KmRemindBy.WINDOW
+                campo, getattr(self.instance, campo) if self.instance else KmRemindBy.WINDOW
             )
             if por == KmRemindBy.DAYS:
                 raise serializers.ValidationError(str(exc)) from exc
-            return self.instance.km_remind_days if self.instance else ""
+            return getattr(self.instance, f"{kind}_remind_days") if self.instance else ""
 
-    def validate_km_remind_admins(self, value):
+    @staticmethod
+    def _offset_days(value, *, allow_zero: bool, descending: bool):
+        """Los días antes/después de un vencimiento, normalizados («30, 15,
+        7, 1» / «1, 7, 15»); vacía vale (no se avisa por ese lado)."""
+        from .services import email_layout
+
+        try:
+            dias = email_layout.parse_offset_days(value, allow_zero=allow_zero)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        return email_layout.format_offset_days(dias, descending=descending)
+
+    @staticmethod
+    def _admins(value):
         """«3,7» → [3, 7], solo administradores activos (o superusuarios)."""
         from django.contrib.auth import get_user_model
         from django.db.models import Q
@@ -3158,43 +3426,107 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Solo administradores activos.")
         return ids
 
+    def validate_km_remind_from_day(self, value):
+        return self._from_day(value)
+
+    def validate_fuel_remind_from_day(self, value):
+        return self._from_day(value)
+
+    def validate_km_remind_until_day(self, value):
+        return self._until_day(value)
+
+    def validate_fuel_remind_until_day(self, value):
+        return self._until_day(value)
+
+    def validate_km_remind_emails(self, value):
+        return self._emails(value)
+
+    def validate_fuel_remind_emails(self, value):
+        return self._emails(value)
+
+    def validate_km_remind_days(self, value):
+        return self._days("km", value)
+
+    def validate_fuel_remind_days(self, value):
+        return self._days("fuel", value)
+
+    def validate_itv_remind_days_before(self, value):
+        return self._offset_days(value, allow_zero=True, descending=True)
+
+    def validate_maintenance_remind_days_before(self, value):
+        return self._offset_days(value, allow_zero=True, descending=True)
+
+    def validate_itv_remind_days_after(self, value):
+        return self._offset_days(value, allow_zero=False, descending=False)
+
+    def validate_maintenance_remind_days_after(self, value):
+        return self._offset_days(value, allow_zero=False, descending=False)
+
+    def validate_km_remind_admins(self, value):
+        return self._admins(value)
+
+    def validate_fuel_remind_admins(self, value):
+        return self._admins(value)
+
+    def validate_itv_remind_admins(self, value):
+        return self._admins(value)
+
+    def validate_maintenance_remind_admins(self, value):
+        return self._admins(value)
+
     def validate(self, attrs):
-        """Por plazo, el número de correos no puede pasar de los días del
-        plazo (en el mes más corto): se valida con la ventana que QUEDA tras el
-        cambio. Por días concretos, tiene que haber al menos uno y la cadencia
-        no se mira. Y alguien tiene que recibirlo: conductor, supervisor o
-        algún administrador."""
-        from .models import KmRemindBy
+        """Por prefijo, con lo que QUEDA tras el cambio. Mensuales: por
+        plazo, el número de correos no puede pasar de los días del plazo (en
+        el mes más corto); por días concretos, tiene que haber al menos uno
+        y la cadencia no se mira. Por vencimiento: alguna fecha, antes o
+        después. Y en todos, alguien tiene que recibirlo: conductor,
+        supervisor o algún administrador."""
+        from .models import DEADLINE_REMINDERS, MONTHLY_REMINDERS, KmRemindBy
         from .services import email_layout
 
         actual = self.instance
-        if "km_remind_admins" in attrs:
-            attrs["km_remind_admin_ids"] = attrs.pop("km_remind_admins")
+        for kind in MONTHLY_REMINDERS + DEADLINE_REMINDERS:
+            if f"{kind}_remind_admins" in attrs:
+                attrs[f"{kind}_remind_admin_ids"] = attrs.pop(f"{kind}_remind_admins")
 
         def queda(campo, defecto):
             return attrs.get(campo, getattr(actual, campo) if actual else defecto)
 
-        if not (
-            queda("km_remind_to_driver", True)
-            or queda("km_remind_to_supervisor", False)
-            or queda("km_remind_admin_ids", [])
-        ):
-            raise serializers.ValidationError(
-                {"km_remind_to_driver": "Elige al menos un destinatario del recordatorio."}
-            )
-        if queda("km_remind_by", KmRemindBy.WINDOW) == KmRemindBy.DAYS:
-            if not queda("km_remind_days", ""):
+        for kind in MONTHLY_REMINDERS + DEADLINE_REMINDERS:
+            p = f"{kind}_remind_"
+            if not (
+                queda(p + "to_driver", True)
+                or queda(p + "to_supervisor", False)
+                or queda(p + "admin_ids", [])
+            ):
                 raise serializers.ValidationError(
-                    {"km_remind_days": "Con «días concretos» hay que escribir al menos un día."}
+                    {p + "to_driver": "Elige al menos un destinatario del recordatorio."}
                 )
-            return attrs
-        tope = email_layout.km_remind_max_emails(
-            queda("km_remind_from_day", 20), queda("km_remind_until_day", 5)
-        )
-        if queda("km_remind_emails", 2) > tope:
-            raise serializers.ValidationError(
-                {"km_remind_emails": f"Como mucho {tope} correos: los días que tiene el plazo."}
+        for kind in MONTHLY_REMINDERS:
+            p = f"{kind}_remind_"
+            if queda(p + "by", KmRemindBy.WINDOW) == KmRemindBy.DAYS:
+                if not queda(p + "days", ""):
+                    raise serializers.ValidationError(
+                        {p + "days": "Con «días concretos» hay que escribir al menos un día."}
+                    )
+                continue
+            tope = email_layout.km_remind_max_emails(
+                queda(p + "from_day", 20), queda(p + "until_day", 5)
             )
+            if queda(p + "emails", 2) > tope:
+                raise serializers.ValidationError(
+                    {p + "emails": f"Como mucho {tope} correos: los días que tiene el plazo."}
+                )
+        for kind in DEADLINE_REMINDERS:
+            p = f"{kind}_remind_"
+            if (
+                queda(p + "enabled", False)
+                and not queda(p + "days_before", "")
+                and not queda(p + "days_after", "")
+            ):
+                raise serializers.ValidationError(
+                    {p + "days_before": "Escribe algún día antes o después del vencimiento."}
+                )
         return attrs
 
     def validate_brand_color(self, value):
@@ -3217,9 +3549,17 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
         return bool(obj.logo)
 
     def get_km_remind_max_emails(self, obj) -> int:
+        return self._max_emails(obj, "km")
+
+    def get_fuel_remind_max_emails(self, obj) -> int:
+        return self._max_emails(obj, "fuel")
+
+    @staticmethod
+    def _max_emails(obj, kind) -> int:
         from .services import email_layout
 
-        return email_layout.km_remind_max_emails(obj.km_remind_from_day, obj.km_remind_until_day)
+        mandos = obj.monthly_reminder(kind)
+        return email_layout.km_remind_max_emails(mandos.from_day, mandos.until_day)
 
     def get_km_window_start(self, obj) -> int:
         from django.conf import settings
@@ -3228,6 +3568,15 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
 
     def get_km_remind_admin_ids(self, obj) -> list[int]:
         return [int(i) for i in (obj.km_remind_admin_ids or [])]
+
+    def get_fuel_remind_admin_ids(self, obj) -> list[int]:
+        return [int(i) for i in (obj.fuel_remind_admin_ids or [])]
+
+    def get_itv_remind_admin_ids(self, obj) -> list[int]:
+        return [int(i) for i in (obj.itv_remind_admin_ids or [])]
+
+    def get_maintenance_remind_admin_ids(self, obj) -> list[int]:
+        return [int(i) for i in (obj.maintenance_remind_admin_ids or [])]
 
     def get_admin_options(self, obj) -> list[dict]:
         from django.contrib.auth import get_user_model
@@ -3251,13 +3600,21 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
     def get_km_remind_dates(self, obj) -> list[str]:
         """Las fechas de los correos del mes en curso (o del que se reclama
         hoy), para que la pantalla enseñe el calendario que resulta."""
+        return self._dates(obj, "km")
+
+    def get_fuel_remind_dates(self, obj) -> list[str]:
+        return self._dates(obj, "fuel")
+
+    @staticmethod
+    def _dates(obj, kind) -> list[str]:
         from django.utils import timezone as tz
 
         from .services import email_layout
 
+        mandos = obj.monthly_reminder(kind)
         hoy = tz.localdate()
-        mes = email_layout.km_remind_period(hoy, obj) or hoy.replace(day=1)
-        return [d.isoformat() for d in email_layout.km_remind_schedule(mes, obj)]
+        mes = email_layout.km_remind_period(hoy, mandos) or hoy.replace(day=1)
+        return [d.isoformat() for d in email_layout.km_remind_schedule(mes, mandos)]
 
 
 class EmailLogSerializer(serializers.ModelSerializer):

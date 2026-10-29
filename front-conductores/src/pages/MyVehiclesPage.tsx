@@ -13,7 +13,7 @@ import {
   listVehiclesCached,
   type KmWindow,
 } from '../api.ts'
-import { hasWideReadScope, isManagement, useAuth } from '../auth.ts'
+import { isManagement, useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { useAccordion } from '../components/CollapsibleCard.tsx'
 import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
@@ -22,7 +22,12 @@ import { KmStatCard } from '../components/KmStatCard.tsx'
 import { UpcomingDatesCard } from '../components/UpcomingDatesCard.tsx'
 import { VehiclePendingCards } from '../components/VehiclePendingCards.tsx'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
-import { isOpenFieldIncident, pendingThisMonth, vehicleStateTone } from '../format.ts'
+import {
+  isOpenFieldIncident,
+  pendingThisMonth,
+  vehicleStateTone,
+  vehiclesDrivenBy,
+} from '../format.ts'
 import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import { PENDING_CARDS } from '../pendingCards.ts'
@@ -82,19 +87,15 @@ export function MyVehiclesPage({ onGoFleet }: { onGoFleet?: () => void }) {
   const isSupervisor = user?.roles.includes('supervisor')
   // PERMISO: resolver y recordar son de gestión (admin|supervisor); HSE no lo da.
   const hasManagementScope = isManagement(user)
-  // ÁMBITO: a quién le manda el back más coches que los que conduce.
-  const hasWideScope = hasWideReadScope(user)
-
-  // El ámbito ancho trae más que los coches propios: toda la flota para admin
-  // y para HSE (en lectura), todo su grupo para supervisor. Aquí solo
-  // interesan los que conduce el usuario (asignación vigente =
-  // `summary.driver`). Al conductor puro el back ya le devuelve exactamente
-  // los suyos. Son dos preguntas distintas y por eso dos variables: un
-  // conductor con HSE tiene el ámbito ancho y NINGÚN permiso de gestión.
-  const ownVehicles = useMemo(() => {
-    if (!hasWideScope) return vehicles
-    return vehicles.filter((v) => summaries[v.id]?.driver?.id === user?.id)
-  }, [hasWideScope, vehicles, summaries, user?.id])
+  // El ámbito trae más que los coches propios: toda la flota para admin y
+  // para HSE (en lectura), todo su grupo para supervisor y —desde que un
+  // reparto de uso da ámbito— también los coches repartidos de cualquiera.
+  // Aquí solo interesan los que CONDUCE (asignación vigente =
+  // `summary.driver`); los repartidos se leen en su pestaña, «Reparto».
+  const ownVehicles = useMemo(
+    () => vehiclesDrivenBy(vehicles, summaries, user?.id),
+    [vehicles, summaries, user?.id],
+  )
 
   // El tablero cubre el caso normal (regla "un coche por conductor"): un solo
   // coche, o el sustituto que conduce + su principal. Con varios coches

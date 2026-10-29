@@ -15,6 +15,9 @@ const es = {
   /** Los dos cortes que no son un estado (van arriba, con «Activo»). */
   tabStopped: 'No activos',
   tabSubstituted: 'Con coche de sustitución',
+  // Con coches multiusuario, la lista se parte en dos grupos plegables.
+  groupGeneral: 'Flota general',
+  groupMultiuser: 'Coches multiusuario',
   /** Las cifras de quien supervisa: una tarjeta plegable con dos bloques —lo
    * que tiene a su cargo y lo que hay que atender—. */
   overview: {
@@ -47,6 +50,8 @@ const en: typeof es = {
   tabAll: 'All',
   tabStopped: 'Not active',
   tabSubstituted: 'With a replacement vehicle',
+  groupGeneral: 'General fleet',
+  groupMultiuser: 'Multi-user cars',
   overview: {
     title: 'In your charge',
     pendingTitle: 'Alerts and incidents',

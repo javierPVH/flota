@@ -244,7 +244,7 @@ describe('avatar del header', () => {
   })
 })
 
-describe('la pareja «mía» del nav con el ámbito ancho de HSE', () => {
+describe('la pareja «mía» del nav: de todo el ámbito, lo que se CONDUCE', () => {
   beforeEach(drain)
   afterEach(() => {
     STABLE_AUTH.user.roles = ['driver']
@@ -278,5 +278,31 @@ describe('la pareja «mía» del nav con el ámbito ancho de HSE', () => {
     // Y abre el formulario sobre SU coche, no sobre otro de la flota leída.
     await userEvent.click(km)
     expect(await screen.findByRole('dialog')).toHaveTextContent('3546LKR')
+  })
+
+  it('a un conductor con un coche REPARTIDO el nav le sigue apuntando al suyo', async () => {
+    // Un reparto de uso vigente mete ese coche en el ámbito, así que al
+    // conductor puro ya no le llega solo el suyo. Contando los dos como
+    // propios no habría un único destino y el nav se apagaría entero: se
+    // perdían los botones del coche que de verdad lleva.
+    mocks.listVehiclesCached.mockResolvedValue({
+      count: 2,
+      results: [
+        { id: 1, plate: '1234ASD', state: 'active', next_itv_date: null },
+        { id: 2, plate: '8888TRX', state: 'active', next_itv_date: null },
+      ],
+    })
+    mocks.fetchVehicleSummariesCached.mockResolvedValue([
+      { vehicle: 1, plate: '1234ASD', driver: { id: 1, name: 'Ana Pérez' } },
+      // El repartido: lo usa, pero su conductor es otro.
+      { vehicle: 2, plate: '8888TRX', driver: { id: 8, name: 'Otro' } },
+    ])
+
+    renderShell()
+
+    const km = await screen.findByRole('button', { name: 'Km' })
+    expect(km).not.toHaveAttribute('aria-disabled')
+    await userEvent.click(km)
+    expect(await screen.findByRole('dialog')).toHaveTextContent('1234ASD')
   })
 })

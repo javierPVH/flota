@@ -27,6 +27,9 @@ const es = {
   /** Los dos grupos del desplegable de rol (la línea divisoria del listado). */
   roleGroupSingle: 'Con este rol',
   roleGroupCombo: 'Exactamente estos roles',
+  /** Pestañas por rol del listado. */
+  roleTabsLabel: 'Usuarios por rol',
+  roleTabAll: 'Todos',
   lblRecords: 'Registros',
   lblSearch: 'Buscar',
   // Cabecera del acordeón de la barra: con la barra plegada es lo único que
@@ -139,6 +142,8 @@ const en: typeof es = {
   roleFilterNone: 'No role',
   roleGroupSingle: 'With this role',
   roleGroupCombo: 'Exactly these roles',
+  roleTabsLabel: 'Users by role',
+  roleTabAll: 'All',
   lblRecords: 'Records',
   lblSearch: 'Search',
   toolsToggle: 'Search & filter',

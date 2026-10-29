@@ -60,8 +60,25 @@ def _authorize(user, path: str) -> None:
     if user.is_admin and not getattr(settings, "FLEET_DEMO", False):
         return
     documents = Document.objects.filter(file=path, is_active=True)
-    if not readable_documents(user, documents).exists():
+    legibles = readable_documents(user, documents)
+    if not legibles.exists():
         raise Http404
+    # El fichero del staging es la misma descarga por otra URL: a quien le
+    # hace falta una petición de descarga concedida (`download_needs_grant`)
+    # y no la tiene, o a quien no se le permite (`download_denied`), tampoco
+    # sale por aquí.
+    if not user.is_admin:
+        from fleet.models.enums import DocumentRequestKind
+        from fleet.scoping import download_denied, download_needs_grant, has_access_grant
+
+        for documento in legibles:
+            acceso = documento.effective_access()
+            if download_denied(user, acceso):
+                raise Http404
+            if download_needs_grant(user, acceso) and not has_access_grant(
+                user, documento.pk, DocumentRequestKind.DOWNLOAD
+            ):
+                raise Http404
 
 
 class ProtectedMediaView(APIView):

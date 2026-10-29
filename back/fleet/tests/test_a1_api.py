@@ -301,6 +301,41 @@ class UsageSplitTests(APITestCase):
             VehicleUsage.objects.filter(vehicle=self.vehicle, end_date__isnull=True).count(), 2
         )
 
+    def test_split_keeps_when_each_person_uses_the_car(self):
+        """Cada línea puede decir CUÁNDO: días de la semana (ISO, sin orden
+        ni repetidos) y franja horaria, que va entera o no va."""
+        cuerpo = {
+            "vehicle": self.vehicle.pk,
+            "start_date": "2026-08-01",
+            "items": [
+                {
+                    "driver": self.d1.pk,
+                    "usage_percent": "60",
+                    "weekdays": [5, 1, 3, 1],
+                    "time_from": "08:00",
+                    "time_to": "15:00",
+                },
+                {"driver": self.d2.pk, "usage_percent": "40"},
+            ],
+        }
+        resp = self.client.post(self.url, cuerpo, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        por_persona = {fila["driver"]: fila for fila in resp.data}
+        self.assertEqual(por_persona[self.d1.pk]["weekdays"], [1, 3, 5])
+        self.assertEqual(por_persona[self.d1.pk]["time_from"], "08:00:00")
+        self.assertEqual(por_persona[self.d2.pk]["weekdays"], [])
+        self.assertIsNone(por_persona[self.d2.pk]["time_from"])
+        # Media franja no vale, ni un día fuera de la semana.
+        cuerpo["items"][0].pop("time_to")
+        resp = self.client.post(self.url, cuerpo, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("time_to", str(resp.data))
+        cuerpo["items"][0]["time_to"] = "15:00"
+        cuerpo["items"][0]["weekdays"] = [8]
+        resp = self.client.post(self.url, cuerpo, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("weekdays", str(resp.data))
+
 
 class InvoiceAllocateTests(APITestCase):
     """Épica 7 — refacturación por líneas con cuadre al 100%."""

@@ -4,6 +4,7 @@ import { asErrorMessage } from '@flota/ui/http'
 import { useAppLang, type AppLanguage } from '@flota/ui/i18n'
 
 import {
+  fetchVehicleEmailActivity,
   listEmailTemplateDefaults,
   listEmailTemplates,
   listIncidents,
@@ -13,11 +14,13 @@ import {
   type EmailTemplateDefault,
   type EmailTemplateRow,
   type NotifyResult,
+  type VehicleEmailActivity,
+  type VehicleEmailAlert,
 } from '../api.ts'
-import type { EmailKind } from '../emailKinds.ts'
+import { ALERT_EMAIL_KIND, DRIVER_EMAIL_KINDS, EMAIL_KINDS, type EmailKind } from '../emailKinds.ts'
 import { getNoticeLang, setNoticeLang, type NoticeLang } from '../emailPrefs.ts'
 import { useDomainLabels } from '../domainLabels.ts'
-import { fmtDate, fmtKm, vehicleStateTone } from '../format.ts'
+import { alertLevelTone, fmtDate, fmtDateTime, fmtKm, vehicleStateTone } from '../format.ts'
 import { en as domainEn, es as domainEs } from '../translations/domain.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
 import { EmailOptions } from './EmailOptions.tsx'
@@ -71,7 +74,9 @@ export { EMAIL_MODAL_SIZE } from './emailModalSize.ts'
 interface Props {
   vehicle: Vehicle
   /** Tipo inicial (según el botón que abre el modal). */
-  initialKind?: EmailKind
+  /** Con qué tipo se abre (desde una alerta, con el suyo); sin él, el
+   * desplegable arranca en «Elige un tipo de correo». */
+  initialKind?: EmailKind | ''
   /** Se abre desde una incidencia concreta: viene ya elegida en el selector. */
   initialIncidentId?: number
   /**
@@ -89,7 +94,7 @@ interface Props {
  * los destinatarios y un mensaje adicional opcional, con vista previa. */
 export function VehicleEmailModal({
   vehicle,
-  initialKind = 'state_notice',
+  initialKind = '',
   initialIncidentId,
   notifyResponsible = false,
   onClose,
@@ -100,15 +105,17 @@ export function VehicleEmailModal({
   const t = copy.email
   const lang = useAppLang()
 
-  const [kind, setKind] = useState<EmailKind>(initialKind)
+  const [kind, setKind] = useState<'' | EmailKind>(initialKind)
   const [toAdmin, setToAdmin] = useState(false)
   // Quién responde de lo que se avisa: el conductor vigente y, si no hay, el
   // supervisor. El aviso de seguro es la excepción —su destinatario es la
   // renting, que ya se premarca por el tipo—, así que ahí no se toca.
   const responsible = notifyResponsible && initialKind !== 'insurance_due'
-  // La reclamación de lectura va al conductor: se premarca al abrir con ese tipo.
+  // Lo que se reclama al conductor (lectura, consumo, exceso de km) va al
+  // conductor: se premarca al abrir con uno de esos tipos.
   const [toDriver, setToDriver] = useState(
-    initialKind === 'km_reading_pending' || (responsible && Boolean(vehicle.driver_name)),
+    (initialKind !== '' && DRIVER_EMAIL_KINDS.includes(initialKind)) ||
+      (responsible && Boolean(vehicle.driver_name)),
   )
   const [toSupervisor, setToSupervisor] = useState(
     responsible && !vehicle.driver_name && Boolean(vehicle.supervisor_name),
@@ -161,6 +168,21 @@ export function VehicleEmailModal({
   const [error, setError] = useState('')
   // El acuse del envío: a quién llegó y a quién no (y por qué).
   const [result, setResult] = useState<NotifyResult | null>(null)
+  // Lo que se evalúa al abrir: qué se ha mandado ya de este coche (motor o
+  // a mano), qué está en cola y qué avisos abiertos admiten un correo. Si no
+  // carga, el modal sigue sirviendo: el bloque simplemente no sale.
+  const [activity, setActivity] = useState<VehicleEmailActivity | null>(null)
+  const [activityFailed, setActivityFailed] = useState(false)
+  const [quickSending, setQuickSending] = useState<string | null>(null)
+  const loadActivity = () => {
+    fetchVehicleEmailActivity(vehicle.id)
+      .then((data) => {
+        setActivity(data)
+        setActivityFailed(false)
+      })
+      .catch(() => setActivityFailed(true))
+  }
+  useEffect(loadActivity, [vehicle.id])
   // Para buscar los campos del paso activo cuando toca validarlo.
   const formRef = useRef<HTMLFormElement>(null)
 
@@ -171,6 +193,8 @@ export function VehicleEmailModal({
    * que objetar; un paso sin reglas deja pasar sin más.
    */
   function reglaDelPaso(paso: PasoCorreo): string {
+    // Lo primero es decir de qué avisa el correo.
+    if (paso === 'kind' && !kind) return t.typeRequired
     // Sin plantilla no hay cuerpo que enviar más que el texto escrito.
     if (paso === 'text' && !useTemplate && !message.trim()) return t.messageRequired
     if (paso === 'to' && !toAdmin && !toDriver && !toSupervisor && !toRenting && !otherEmail.trim())
@@ -329,18 +353,40 @@ export function VehicleEmailModal({
       ]
     }
 
+    if (kind === 'fuel_reading_pending') {
+      // El consumo se anota en cada viaje: lo que se reclama es su antigüedad.
+      if (!vehicle.fuel_avg_date) {
+        return [{ key: 'fuel', label: t.factLastFuel, value: t.factNoReadings, tone: 'danger' }]
+      }
+      const gap = dayGap(vehicle.fuel_avg_date)
+      return [
+        {
+          key: 'fuel',
+          label: t.factLastFuel,
+          value: fmtDate(vehicle.fuel_avg_date, lang),
+          when: when(vehicle.fuel_avg_date),
+          tone: gap > 30 ? 'danger' : gap >= 15 ? 'warn' : 'ok',
+        },
+      ]
+    }
+
     // El comunicado de estado no tiene vencimiento: su dato es el estado, que ya
     // está en la cabecera.
     return []
-  }, [kind, kmLoaded, lastKm, lang, t, vehicle.insurance_expiry_date, vehicle.next_itv_date])
+  }, [
+    kind,
+    kmLoaded,
+    lastKm,
+    lang,
+    t,
+    vehicle.fuel_avg_date,
+    vehicle.insurance_expiry_date,
+    vehicle.next_itv_date,
+  ])
 
+  // Las ocho plantillas del back, con su nombre de aquí.
   const typeOptions = useMemo(
-    () => [
-      { value: 'state_notice', label: t.typeComunicado },
-      { value: 'itv_due', label: t.typeItv },
-      { value: 'insurance_due', label: t.typeInsurance },
-      { value: 'km_reading_pending', label: t.typeKmReading },
-    ],
+    () => EMAIL_KINDS.map((value) => ({ value, label: t.typeLabels[value] })),
     [t],
   )
 
@@ -430,10 +476,12 @@ export function VehicleEmailModal({
     preview.has_template &&
     !preview.has_en
 
-  // Al cambiar a un tipo sin renting, se desmarca ese destinatario.
+  // Al cambiar a un tipo sin renting, se desmarca ese destinatario; y al
+  // pasar a uno que habla al conductor, se le marca.
   function onChangeKind(next: string) {
-    setKind(next as EmailKind)
+    setKind(next as '' | EmailKind)
     if (next !== 'insurance_due') setToRenting(false)
+    if (DRIVER_EMAIL_KINDS.includes(next as EmailKind) && vehicle.driver_name) setToDriver(true)
     // Solo el comunicado de estado habla de lo que el coche tiene abierto: al
     // salir de él, la incidencia elegida se retira (y su texto con ella, si no
     // lo ha tocado nadie).
@@ -443,6 +491,9 @@ export function VehicleEmailModal({
       setAutoMessage('')
     }
   }
+
+  const recipientsLabel = (to: { to_driver?: boolean; to_supervisor?: boolean; to_renting?: boolean }) =>
+    to.to_renting ? t.roleRenting : to.to_driver ? t.roleDriver : to.to_supervisor ? t.roleSupervisor : t.roleNobody
 
   const roleLabel = (role: string) =>
     role === 'driver'
@@ -456,6 +507,90 @@ export function VehicleEmailModal({
             : role === 'otro'
               ? t.roleOther
               : role
+
+  /** Los destinatarios habituales de un tipo: el seguro, a la renting; lo
+   * demás —también lo que se reclama al conductor— a quien responde del
+   * coche: el conductor y, sin él (un multiusuario), el supervisor, que es
+   * lo mismo que hace la automatización (`mailer._recipient_for`). */
+  function defaultRecipients(forKind: EmailKind) {
+    if (forKind === 'insurance_due') return { to_renting: true }
+    if (vehicle.driver_name) return { to_driver: true }
+    return { to_supervisor: Boolean(vehicle.supervisor_name) }
+  }
+
+  /** El botón rápido: la plantilla del tipo (o del aviso) a sus
+   * destinatarios habituales, sin recorrer los pasos. Ligado al aviso si
+   * viene de uno, para que la actividad lo cuente. */
+  async function quickSend(forKind: EmailKind, alert?: VehicleEmailAlert) {
+    const key = alert ? `alert:${alert.id}` : `kind:${forKind}`
+    setError('')
+    setQuickSending(key)
+    try {
+      const res = await notifyVehicle(vehicle.id, {
+        template_key: forKind,
+        lang: noticeLang,
+        ...defaultRecipients(forKind),
+        ...(alert ? { alert: alert.id } : {}),
+      })
+      onDone()
+      setResult(res)
+    } catch (err) {
+      setError(asErrorMessage(err, t.errGeneric))
+    } finally {
+      setQuickSending(null)
+    }
+  }
+
+  /** Los avisos abiertos, por urgencia: el nivel manda (crítica, aviso,
+   * informativa) y, a igual nivel, el que vence antes. */
+  const alertsByUrgency = useMemo(() => {
+    const rank: Record<string, number> = { critical: 0, warning: 1, info: 2 }
+    return [...(activity?.alerts ?? [])].sort(
+      (a, b) =>
+        (rank[a.level] ?? 3) - (rank[b.level] ?? 3) ||
+        (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'),
+    )
+  }, [activity])
+
+  /** «Enviar todos»: el correo de cada aviso abierto, uno detrás de otro,
+   * y un solo acuse con todo lo que llegó y lo que no. */
+  async function sendAllAlerts() {
+    if (alertsByUrgency.length === 0) return
+    setError('')
+    setQuickSending('all')
+    const total: NotifyResult = { sent: [], skipped: [] }
+    let hechos = 0
+    try {
+      for (const alerta of alertsByUrgency) {
+        const alertKind = ALERT_EMAIL_KIND[alerta.type] ?? 'state_notice'
+        const res = await notifyVehicle(vehicle.id, {
+          template_key: alertKind,
+          lang: noticeLang,
+          ...defaultRecipients(alertKind),
+          alert: alerta.id,
+        })
+        total.sent.push(...res.sent)
+        total.skipped.push(...res.skipped)
+        hechos += 1
+      }
+      onDone()
+      setResult(total)
+    } catch (err) {
+      // Si falla a medias, lo que ya salió salió: se enseña el acuse de esos
+      // con el aviso de cuántos faltaron, no solo el error.
+      setError(
+        hechos > 0
+          ? t.sendAllPartial(hechos, alertsByUrgency.length, asErrorMessage(err, t.errGeneric))
+          : asErrorMessage(err, t.errGeneric),
+      )
+      if (hechos > 0) {
+        onDone()
+        setResult(total)
+      }
+    } finally {
+      setQuickSending(null)
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -529,6 +664,8 @@ export function VehicleEmailModal({
             </ul>
           </div>
         )}
+        {/* «Enviar todos» que se quedó a medias: lo que faltó, bajo el acuse. */}
+        {error && <div role="alert" className="form-error">{error}</div>}
         {/* Mismo pie que el formulario: el botón cae donde estaba. */}
         <div className="ops-actions">
           <div className="ops-actions-end">
@@ -555,14 +692,31 @@ export function VehicleEmailModal({
 
       {/* 1 · De qué avisa el correo. */}
       <OpsSection tone="kind" hidden={paso !== 'kind'}>
-        <SelectField
-          label={t.typeLabel}
-          aria-label={t.typeLabel}
-          required
-          options={typeOptions}
-          value={kind}
-          onValueChange={onChangeKind}
-        />
+        {/* El tipo y, en su misma fila, enviarlo ya a sus destinatarios
+            habituales: apagado mientras no se elija ninguno. */}
+        <div className="email-kind-row">
+          <SelectField
+            label={t.typeLabel}
+            aria-label={t.typeLabel}
+            required
+            includeSelectFlag
+            selectFlagLabel={t.typePlaceholder}
+            options={typeOptions}
+            value={kind}
+            onValueChange={onChangeKind}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!kind || quickSending !== null}
+            onClick={() => kind && void quickSend(kind)}
+          >
+            {kind && quickSending === `kind:${kind}` ? t.quickSending : t.quickSend}
+          </Button>
+        </div>
+        <p className="muted ops-note">
+          {kind ? t.quickHint(recipientsLabel(defaultRecipients(kind))) : t.quickHintChoose}
+        </p>
 
         {/* Y el dato concreto del que avisa ese tipo. */}
         {facts.length > 0 && (
@@ -576,6 +730,103 @@ export function VehicleEmailModal({
             ))}
           </div>
         )}
+
+        {/* Lo evaluado al abrir: avisos abiertos con correo, lo mandado y lo
+            que está en cola. */}
+        {activity && (
+          <div className="email-activity">
+            <div className="email-activity-head">
+              <h4>{t.activityAlerts}</h4>
+              {alertsByUrgency.length > 1 && (
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  disabled={quickSending !== null}
+                  onClick={() => void sendAllAlerts()}
+                >
+                  {quickSending === 'all' ? t.quickSending : t.sendAll(alertsByUrgency.length)}
+                </Button>
+              )}
+            </div>
+            {alertsByUrgency.length === 0 ? (
+              <p className="muted">{t.activityNoAlerts}</p>
+            ) : (
+              <ul className="email-activity-list">
+                {/* Por urgencia y con el color del nivel, como la bandeja. */}
+                {alertsByUrgency.map((alerta) => {
+                  const alertKind = ALERT_EMAIL_KIND[alerta.type] ?? 'state_notice'
+                  const tone = alertLevelTone(alerta.level)
+                  return (
+                    <li key={alerta.id} className={`tone-${tone}`}>
+                      <div className="email-activity-main">
+                        <Badge tone={tone} size="sm">{etiqueta.alertLevel(alerta)}</Badge>{' '}
+                        <strong>{etiqueta.alertType(alerta)}</strong>
+                        <span className="muted"> · {alerta.message}</span>
+                        <div className="email-activity-sub">
+                          <Badge tone="neutral" size="sm">{t.typeLabels[alertKind]}</Badge>{' '}
+                          {alerta.pending ? (
+                            <Badge tone="warning" size="sm">{t.activityQueued}</Badge>
+                          ) : alerta.last_sent_at ? (
+                            <span className="muted">
+                              {t.activitySentOn(fmtDateTime(alerta.last_sent_at, lang), alerta.sent_count)}
+                            </span>
+                          ) : (
+                            <span className="muted">{t.activityNeverSent}</span>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={quickSending !== null}
+                        onClick={() => void quickSend(alertKind, alerta)}
+                      >
+                        {quickSending === `alert:${alerta.id}` ? t.quickSending : t.quickSendAlert}
+                      </Button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            {activity.pending.length > 0 && (
+              <>
+                <h4>{t.activityPending}</h4>
+                <ul className="email-activity-list email-activity-rows">
+                  {activity.pending.map((row) => (
+                    <li key={row.id}>
+                      <span>{fmtDateTime(row.created_at, lang)}</span>
+                      <span>{row.template_display || row.subject}</span>
+                      <span className="muted">{row.recipient_role_display || row.recipient}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <h4>{t.activitySent}</h4>
+            {activity.sent.length === 0 ? (
+              <p className="muted">{t.activityNoneSent}</p>
+            ) : (
+              <ul className="email-activity-list email-activity-rows">
+                {activity.sent.slice(0, 6).map((row) => (
+                  <li key={row.id}>
+                    <span>{fmtDateTime(row.created_at, lang)}</span>
+                    <span>{row.template_display || row.subject}</span>
+                    <span className="muted">{row.recipient_role_display || row.recipient}</span>
+                    <Badge tone={row.status === 'sent' ? 'success' : row.status === 'failed' ? 'danger' : 'neutral'} size="sm">
+                      {row.status_display}
+                    </Badge>
+                    <Badge tone={row.manual ? 'brand' : 'neutral'} size="sm">
+                      {row.manual ? t.activityManual : t.activityAuto}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        {activityFailed && <p className="muted ops-note">{t.activityError}</p>}
 
         {/* Coche fuera de servicio con parte abierto: se puede decir de cuál
             habla el correo sin tener que escribirlo a mano. */}

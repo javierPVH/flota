@@ -155,6 +155,7 @@ export type AlertType =
   | 'itv_unscheduled'
   | 'insurance_due'
   | 'km_reading_pending'
+  | 'fuel_reading_pending'
   | 'km_overage'
   | 'maintenance_due'
   | 'no_driver'
@@ -375,6 +376,25 @@ export type DocumentType =
 
 export type DocumentStatus = 'valid' | 'expired' | 'pending_archive'
 
+/** Quién lee un documento y qué puede hacer con él, ya resuelto. */
+export interface DocumentEffectiveAccess {
+  supervisor_read: boolean
+  driver_read: 'none' | 'own' | 'all'
+  driver_view: 'allow' | 'request' | 'deny'
+  driver_download: 'allow' | 'request' | 'deny'
+  driver_delete: 'request' | 'deny'
+}
+
+/** Los cinco ajustes por documento (nulo = según el tipo). */
+export type DocumentAccessOverrides = Pick<
+  FlotaDocument,
+  | 'supervisor_read_override'
+  | 'driver_read_override'
+  | 'driver_view_override'
+  | 'driver_download_override'
+  | 'driver_delete_override'
+>
+
 export interface FlotaDocument {
   id: number
   /** Titular: un vehículo O un usuario (exactamente uno; el otro llega null). */
@@ -415,6 +435,20 @@ export interface FlotaDocument {
   responsible_name: string
   shared_read: boolean
   protected: boolean
+  /** Ajuste POR DOCUMENTO de la regla de su tipo (Documentos → Ajustes):
+   * nulo = lo del tipo; con valor, manda solo aquí. Solo lo escribe gestión. */
+  supervisor_read_override: boolean | null
+  driver_read_override: 'none' | 'own' | 'all' | null
+  driver_view_override: 'allow' | 'request' | 'deny' | null
+  driver_download_override: 'allow' | 'request' | 'deny' | null
+  driver_delete_override: 'request' | 'deny' | null
+  /** Lo que vale para ESTE documento (su ajuste o, sin él, su tipo). */
+  effective_access: DocumentEffectiveAccess
+  /** Si tiene algún ajuste puesto (la chapa «Ajustado» del listado). */
+  access_adjusted: boolean
+  /** Lo que QUIEN PIDE puede hacer ya con el archivo (en gestión, siempre). */
+  can_view: boolean
+  can_download: boolean
   /** Desde cuándo la comprobación de existencia (`verifyDocuments`) no
    * encuentra el archivo en Drive/disco; null si existe o no se ha podido
    * comprobar. Con marca, la fila ofrece el borrado definitivo. */

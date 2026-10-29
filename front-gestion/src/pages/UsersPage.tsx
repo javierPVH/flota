@@ -25,6 +25,7 @@ import {
 import { useAuth } from '../auth.ts'
 import { CollapsibleCard, useAccordion } from '../components/CollapsibleCard.tsx'
 import { FiltersAccordion } from '../components/FiltersAccordion.tsx'
+import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
 import { ColumnsPicker } from '../components/ColumnsPicker.tsx'
 import { exportCsv } from '../csv.ts'
 import { BulkImportModal } from '../components/bulk-import/BulkImportModal.tsx'
@@ -135,6 +136,10 @@ export function UsersPage() {
   const [toolsOpen, setToolsOpen] = useState(false)
   const [showInactive, setShowInactive] = useState(false)
   const [roleFilter, setRoleFilter] = useState('') // '' = todos; 'none' = sin rol
+  // Las pestañas por rol del listado ('' = «Todos»): quien TENGA ese rol, el
+  // mismo corte que un rol suelto del desplegable, y se suman a lo que la
+  // barra deje pasar. Son del listado: las dos cuentas de arriba no las miran.
+  const [roleTab, setRoleTab] = useState<'' | Role>('')
   // Fecha de creación: borrador (inputs) vs aplicado (lo que filtra, al pulsar 🔍).
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -274,7 +279,10 @@ export function UsersPage() {
     [users, me?.id],
   )
 
-  const rows = useMemo(
+  // Lo que la barra deja pasar al listado, ANTES de la pestaña por rol: es
+  // sobre lo que cuentan las pestañas, para que cada cifra sea lo que se
+  // verá al pulsarla.
+  const barRows = useMemo(
     () =>
       filterUsers(users, {
         // "Mostrar desactivados": ON → solo desactivados; OFF → solo activos.
@@ -288,6 +296,24 @@ export function UsersPage() {
         // tablas de la misma pantalla se acaba tocando en la que no toca.
         .filter((u) => !u.is_superuser && u.id !== me?.id),
     [users, showInactive, roleFilter, search, appliedFrom, appliedTo, me?.id],
+  )
+
+  const rows = useMemo(
+    () => (roleTab ? barRows.filter((u) => u.roles.includes(roleTab)) : barRows),
+    [barRows, roleTab],
+  )
+
+  // «Todos» y una pestaña por rol, cada una con cuántos hay.
+  const roleTabs = useMemo(
+    () => [
+      { key: '', label: t.roleTabAll, badge: barRows.length },
+      ...ROLE_ORDER.map((role) => ({
+        key: role,
+        label: t.roles[role],
+        badge: barRows.filter((u) => u.roles.includes(role)).length,
+      })),
+    ],
+    [barRows, t],
   )
 
   /** ¿Hay algo puesto que recorte el listado? Lo avisa la barra plegada.
@@ -649,22 +675,32 @@ export function UsersPage() {
       {loading ? (
         <p className="loading-state" role="status">{t.loading}</p>
       ) : (
-        <TableWithPanel<ManagedUserFull>
-          rows={rows}
-          columns={tableColumns}
-          columnOrder={[...colOrder, actionsColumn.key]}
-          onColumnOrderChange={(keys) => setColOrder(keys.filter((k) => k !== actionsColumn.key))}
-          hiddenColumns={[...hiddenCols]}
-          onHiddenColumnsChange={(keys) => setHiddenCols(new Set(keys))}
-          rowKey={(u) => String(u.id)}
-          rowClassName={(u) => (u.is_active ? '' : 'row-muted')}
-          enableColumnSort
-          showControlPanel={false}
-          enablePagination
-          defaultPageSize={25}
-          pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel={t.empty}
-        />
+        <>
+          {/* Pestañas por rol del listado, bajo la ficha de las dos cuentas:
+              «Todos» primero y después los cuatro roles, con su recuento. */}
+          <SettingsSubtabs
+            items={roleTabs}
+            active={roleTab}
+            onChange={(key) => setRoleTab(key as '' | Role)}
+            ariaLabel={t.roleTabsLabel}
+          />
+          <TableWithPanel<ManagedUserFull>
+            rows={rows}
+            columns={tableColumns}
+            columnOrder={[...colOrder, actionsColumn.key]}
+            onColumnOrderChange={(keys) => setColOrder(keys.filter((k) => k !== actionsColumn.key))}
+            hiddenColumns={[...hiddenCols]}
+            onHiddenColumnsChange={(keys) => setHiddenCols(new Set(keys))}
+            rowKey={(u) => String(u.id)}
+            rowClassName={(u) => (u.is_active ? '' : 'row-muted')}
+            enableColumnSort
+            showControlPanel={false}
+            enablePagination
+            defaultPageSize={25}
+            pageSizeOptions={[25, 50, 100]}
+            emptyStateLabel={t.empty}
+          />
+        </>
       )}
 
       <UserFormModal

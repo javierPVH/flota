@@ -6,6 +6,7 @@ descubra y para poder importar `from fleet.models import Vehicle, ...`.
 
 from .alert import Alert
 from .assignment import (
+    WEEKDAYS,
     Assignment,
     SupervisorPeriod,
     VehicleLink,
@@ -13,9 +14,12 @@ from .assignment import (
     assignment_overlap_message,
     driver_assignment_clash,
     driver_clash_message,
+    pack_weekdays,
     periodo_texto,
     supervisor_overlap_message,
     supervisor_period_overlap,
+    time_range_error,
+    unpack_weekdays,
     vehicle_assignment_overlap,
 )
 from .catalogs import (
@@ -33,7 +37,12 @@ from .catalogs import (
 )
 from .consumption import FuelConsumption
 from .contract import Contract, KmReading
-from .document import Document, DocumentDeletionRequest
+from .document import (
+    ACCESS_OVERRIDE_FIELDS,
+    Document,
+    DocumentDeletionRequest,
+    DocumentTypeAccess,
+)
 from .email import (
     EmailLog,
     EmailOutbox,
@@ -42,7 +51,15 @@ from .email import (
     EmailTemplateKey,
     RecipientRole,
 )
-from .email_settings import EmailSettings, KmRemindBy, KmRemindMode
+from .email_settings import (
+    DEADLINE_REMINDERS,
+    MONTHLY_REMINDERS,
+    DeadlineReminder,
+    EmailSettings,
+    KmRemindBy,
+    KmRemindMode,
+    MonthlyReminder,
+)
 from .event import (
     Event,
     EventDriverChange,
@@ -73,6 +90,10 @@ __all__ = [
     "EmailTemplateKey",
     "EmailSettings",
     "KmRemindBy",
+    "DEADLINE_REMINDERS",
+    "MONTHLY_REMINDERS",
+    "DeadlineReminder",
+    "MonthlyReminder",
     "RecipientRole",
     "KmRemindMode",
     "Brand",
@@ -92,6 +113,7 @@ __all__ = [
     "Vehicle",
     "Contract",
     "KmReading",
+    "WEEKDAYS",
     "Assignment",
     "SupervisorPeriod",
     "VehicleLink",
@@ -99,9 +121,12 @@ __all__ = [
     "assignment_overlap_message",
     "driver_assignment_clash",
     "driver_clash_message",
+    "pack_weekdays",
     "periodo_texto",
     "supervisor_overlap_message",
     "supervisor_period_overlap",
+    "time_range_error",
+    "unpack_weekdays",
     "vehicle_assignment_overlap",
     "Event",
     "EventPenalty",
@@ -122,6 +147,8 @@ __all__ = [
     "AccidentInjured",
     "Document",
     "DocumentDeletionRequest",
+    "DocumentTypeAccess",
+    "ACCESS_OVERRIDE_FIELDS",
     "Alert",
     "VehicleRequest",
     "DriverChangeRequest",

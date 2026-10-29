@@ -289,6 +289,21 @@ const es = {
     validFrom: 'Vigente desde',
     splitNote: 'Al guardar se cierra el reparto vigente y entra este (histórico conservado).',
     saveSplit: 'Guardar reparto',
+    // CUÁNDO usa el coche cada persona: días de la semana y franja. Los
+    // rótulos cortos son los que pinta `weekdaysLabel` del DS.
+    weekdayShort: ['L', 'M', 'X', 'J', 'V', 'S', 'D'],
+    weekdayLong: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'],
+    daysOf: (n: number) => `Días de la persona ${n}`,
+    timeFrom: 'De',
+    timeTo: 'a',
+    fromOf: (n: number) => `Desde qué hora usa el coche la persona ${n}`,
+    toOf: (n: number) => `Hasta qué hora usa el coche la persona ${n}`,
+    everyDay: 'Todos los días',
+    allDay: 'a cualquier hora',
+    whenNote:
+      'Los días y la franja son opcionales: sin días, cualquier día; sin franja, a cualquier hora. Pueden solaparse.',
+    halfRange: 'Una franja horaria lleva hora de inicio y de fin.',
+    sameTime: 'La franja no puede empezar y acabar a la misma hora.',
   },
   readings: {
     loadError: 'No se pudo cargar el histórico.',
@@ -583,6 +598,19 @@ const en: typeof es = {
     validFrom: 'Valid from',
     splitNote: 'Saving closes the active split and applies this one (history kept).',
     saveSplit: 'Save split',
+    weekdayShort: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    weekdayLong: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+    daysOf: (n) => `Days for person ${n}`,
+    timeFrom: 'From',
+    timeTo: 'to',
+    fromOf: (n) => `From what time person ${n} uses the car`,
+    toOf: (n) => `Until what time person ${n} uses the car`,
+    everyDay: 'Every day',
+    allDay: 'any time',
+    whenNote:
+      'Days and time slot are optional: no days means any day; no slot means any time. They may overlap.',
+    halfRange: 'A time slot needs a start and an end time.',
+    sameTime: 'The time slot cannot start and end at the same time.',
   },
   readings: {
     loadError: 'Could not load the history.',

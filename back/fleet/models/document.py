@@ -11,10 +11,14 @@ from django.db import models
 
 from .base import DeactivatableModel, TimeStampedModel
 from .enums import (
+    ACCESS_REQUEST_KINDS,
+    ONE_PER_DOCUMENT_KINDS,
     DocumentDeletionStatus,
     DocumentRequestKind,
     DocumentStatus,
     DocumentType,
+    DriverActionMode,
+    DriverDocumentRead,
 )
 
 
@@ -140,6 +144,49 @@ class Document(DeactivatableModel, TimeStampedModel):
         help_text="No lo ve ningún conductor ni supervisor, solo la gestión. Única excepción: "
         "el titular de un documento personal sigue viendo el suyo (derecho de acceso, RGPD).",
     )
+    # --- Ajuste POR DOCUMENTO de la regla de su tipo (`DocumentTypeAccess`) --
+    # Vacío = lo que diga el tipo; con valor, pisa al tipo SOLO en este
+    # documento. Los escribe la gestión desde el listado de Documentos (el
+    # modal de «Acceso» de la fila); `effective_access` es lo que resulta y
+    # `scoping.readable_documents` lo mira fila a fila.
+    supervisor_read_override = models.BooleanField(
+        "La supervisión lo lee (ajuste)",
+        null=True,
+        blank=True,
+        help_text="Vacío: lo que diga su tipo. Con valor, manda sobre el tipo en este documento.",
+    )
+    driver_read_override = models.CharField(
+        "Lo que lee el conductor (ajuste)",
+        max_length=8,
+        choices=DriverDocumentRead.choices,
+        null=True,
+        blank=True,
+        help_text="Vacío: lo que diga su tipo.",
+    )
+    driver_view_override = models.CharField(
+        "Cómo lo ve el conductor (ajuste)",
+        max_length=8,
+        choices=DriverActionMode.choices,
+        null=True,
+        blank=True,
+        help_text="Vacío: lo que diga su tipo.",
+    )
+    driver_download_override = models.CharField(
+        "Cómo se lo baja el conductor (ajuste)",
+        max_length=8,
+        choices=DriverActionMode.choices,
+        null=True,
+        blank=True,
+        help_text="Vacío: lo que diga su tipo.",
+    )
+    driver_delete_override = models.CharField(
+        "Cómo pide el conductor su borrado (ajuste)",
+        max_length=8,
+        choices=DriverActionMode.choices,
+        null=True,
+        blank=True,
+        help_text="Vacío: lo que diga su tipo. Con solicitud o no permitido: nunca directo.",
+    )
     drive_missing_at = models.DateTimeField(
         "Archivo no encontrado desde",
         null=True,
@@ -177,6 +224,38 @@ class Document(DeactivatableModel, TimeStampedModel):
             owner = self.user.get_username() if self.user_id else "?"
         return f"{owner} · {self.get_type_display()}"
 
+    def effective_access(self, rule: "DocumentTypeAccess | None" = None) -> dict:
+        """Lo que vale para ESTE documento: su ajuste donde lo tiene y, donde no,
+        la regla de su tipo (`rule`, o se carga; el listado la pasa cargada una
+        vez por respuesta)."""
+        rule = rule or DocumentTypeAccess.rule_for(self.type)
+        return {
+            "supervisor_read": (
+                rule.supervisor_read
+                if self.supervisor_read_override is None
+                else self.supervisor_read_override
+            ),
+            "driver_read": self.driver_read_override or rule.driver_read,
+            "driver_view": self.driver_view_override or rule.driver_view,
+            "driver_download": self.driver_download_override or rule.driver_download,
+            "driver_delete": self.driver_delete_override or rule.driver_delete,
+        }
+
+    @property
+    def access_adjusted(self) -> bool:
+        """Si algún ajuste por documento está puesto."""
+        return any(getattr(self, campo) is not None for campo in ACCESS_OVERRIDE_FIELDS)
+
+
+#: Los cinco ajustes por documento, en el orden del modal de gestión.
+ACCESS_OVERRIDE_FIELDS = (
+    "supervisor_read_override",
+    "driver_read_override",
+    "driver_view_override",
+    "driver_download_override",
+    "driver_delete_override",
+)
+
 
 class DocumentDeletionRequest(TimeStampedModel):
     """Petición SOBRE un documento: quien lo lee la abre, la gestión decide.
@@ -209,6 +288,15 @@ class DocumentDeletionRequest(TimeStampedModel):
     Y de la **corrección**, dos: **aplicarla** —se escriben en el documento los
     campos de `changes`, que son los tres que el campo puede pedir— o
     rechazarla.
+
+    Y dos clases más, de **acceso** (`kind` lectura o descarga): cuando el tipo
+    del documento —o el documento— pone esa acción «con solicitud»
+    (`DriverActionMode.REQUEST`; la descarga de la supervisión va siempre
+    así), quien lo lee la pide y la gestión la **concede** o la rechaza. La
+    fila concedida ES el permiso: `scoping.has_access_grant` la busca al
+    servir el archivo. De estas hay una viva por documento Y persona (dos
+    conductores pueden pedir lo mismo), y no marcan el documento «pendiente»
+    en el campo: eso es de las que hablan del documento (`ONE_PER_DOCUMENT_KINDS`).
 
     En todos los casos deja de estar pendiente, que es lo que quita la marca de
     la lista del conductor. No es `DeactivatableModel` a propósito: es el
@@ -268,14 +356,131 @@ class DocumentDeletionRequest(TimeStampedModel):
         verbose_name_plural = "peticiones de borrado de documento"
         ordering = ["-created_at", "-pk"]  # R3-23/R5-19: desempate estable
         constraints = [
-            # Una sola petición viva por documento: dos papeleras seguidas (o el
+            # Una sola petición viva por documento de las que HABLAN del
+            # documento (borrarlo, corregirlo): dos papeleras seguidas (o el
             # reenvío de la cola offline) no abren dos filas en la bandeja.
             models.UniqueConstraint(
                 fields=["document"],
-                condition=models.Q(status=DocumentDeletionStatus.PENDING),
+                condition=models.Q(
+                    status=DocumentDeletionStatus.PENDING, kind__in=ONE_PER_DOCUMENT_KINDS
+                ),
                 name="unique_pending_document_deletion",
-            )
+            ),
+            # Y una viva por documento Y persona de las de ACCESO: lo que pide
+            # un conductor no cierra la puerta a otro, ni a una de borrado.
+            models.UniqueConstraint(
+                fields=["document", "requested_by", "kind"],
+                condition=models.Q(
+                    status=DocumentDeletionStatus.PENDING, kind__in=ACCESS_REQUEST_KINDS
+                ),
+                name="uniq_pending_access_request_per_person",
+            ),
         ]
 
     def __str__(self) -> str:
         return f"{self.document} · {self.get_status_display()}"
+
+
+class DocumentTypeAccess(TimeStampedModel):
+    """Quién lee cada TIPO de documento (Documentos → Ajustes, admin).
+
+    Es una capa POR TIPO sobre la regla por documento de
+    `scoping.readable_documents`: aquella dice de cada fila si se lee
+    (compartido, responsable, quien lo subió…); esta dice, para un tipo entero,
+    si la **supervisión** entra en esa regla y **cuánto** lee de ella el
+    **conductor** (`DriverDocumentRead`: solo lo que subió él, o también lo de
+    los demás). La administración lo lee todo siempre y no se configura.
+
+    Y dos mandos más sobre lo que el CONDUCTOR hace con lo que lista: cómo
+    **ve** el archivo (`driver_view`) y cómo se lo **baja** (`driver_download`),
+    cada uno directamente, **con solicitud** (`DriverActionMode`: pide, y la
+    gestión concede) o **nunca** (`DENY`: se lista, pero el archivo no sale
+    por el campo ni pidiéndolo). Y el **borrado** (`driver_delete`), que
+    nunca es directo —la papelera del campo abre una petición—: con
+    solicitud o no permitido (`DRIVER_DELETE_MODES`). Lo que no se configura
+    porque es fijo: la **supervisión** se baja un documento y pide su borrado
+    siempre previa solicitud; verlo, sí lo ve.
+
+    Una fila por tipo, creada cuando se toca: sin fila valen los defectos
+    (todo abierto), que son la regla de siempre. `rules()` las carga en una
+    consulta y es lo que leen el ámbito y el serializer; `rule_for` es la de
+    UN tipo, para las dos acciones.
+    """
+
+    type = models.CharField("Tipo", max_length=30, choices=DocumentType.choices, unique=True)
+    supervisor_read = models.BooleanField(
+        "La supervisión lo lee",
+        default=True,
+        help_text="Sin marcar, quien supervisa no lee este tipo (salvo lo que subió él mismo).",
+    )
+    driver_read = models.CharField(
+        "Lo que lee el conductor",
+        max_length=8,
+        choices=DriverDocumentRead.choices,
+        default=DriverDocumentRead.ALL,
+    )
+    driver_view = models.CharField(
+        "Cómo lo ve el conductor",
+        max_length=8,
+        choices=DriverActionMode.choices,
+        default=DriverActionMode.ALLOW,
+        help_text="Directamente, pidiéndolo y esperando a que la gestión lo conceda, o nunca.",
+    )
+    driver_download = models.CharField(
+        "Cómo se lo baja el conductor",
+        max_length=8,
+        choices=DriverActionMode.choices,
+        default=DriverActionMode.ALLOW,
+        help_text="Directamente, pidiéndolo y esperando a que la gestión lo conceda, o nunca. "
+        "La supervisión lo pide siempre.",
+    )
+    driver_delete = models.CharField(
+        "Cómo pide el conductor su borrado",
+        max_length=8,
+        choices=DriverActionMode.choices,
+        default=DriverActionMode.REQUEST,
+        help_text="Con solicitud (la papelera del campo pide) o no permitido; nunca directo. "
+        "La supervisión lo pide siempre.",
+    )
+
+    class Meta:
+        verbose_name = "Acceso por tipo de documento"
+        verbose_name_plural = "Accesos por tipo de documento"
+        ordering = ["type"]
+
+    def __str__(self) -> str:
+        return f"{self.get_type_display()} · {self.get_driver_read_display()}"
+
+    @classmethod
+    def rules(cls) -> dict[str, "DocumentTypeAccess"]:
+        """Una fila por tipo, las guardadas y, para el resto, la de fábrica (sin
+        guardar). Una sola consulta."""
+        saved = {row.type: row for row in cls.objects.all()}
+        return {value: saved.get(value) or cls(type=value) for value in DocumentType.values}
+
+    @classmethod
+    def rule_for(cls, document_type: str) -> "DocumentTypeAccess":
+        """La fila de UN tipo (la guardada o la de fábrica)."""
+        return cls.objects.filter(type=document_type).first() or cls(type=document_type)
+
+    @classmethod
+    def closed_to_supervisors(cls) -> set[str]:
+        """Tipos que la supervisión NO lee."""
+        return set(cls.objects.filter(supervisor_read=False).values_list("type", flat=True))
+
+    @classmethod
+    def restricted_for_drivers(cls) -> set[str]:
+        """Tipos de los que el conductor NO lee lo de los demás: solo lo que
+        subió él (`own`) o nada (`none`)."""
+        return set(
+            cls.objects.filter(
+                driver_read__in=(DriverDocumentRead.OWN, DriverDocumentRead.NONE)
+            ).values_list("type", flat=True)
+        )
+
+    @classmethod
+    def hidden_from_drivers(cls) -> set[str]:
+        """Tipos que el conductor no lista en absoluto (`none`)."""
+        return set(
+            cls.objects.filter(driver_read=DriverDocumentRead.NONE).values_list("type", flat=True)
+        )

@@ -161,9 +161,55 @@ describe('VehicleAssignmentsPanel (conductor y reparto)', () => {
       expect(mocks.setUsageSplit).toHaveBeenCalledWith(
         expect.objectContaining({
           vehicle: 21,
+          // Sin días ni franja: cualquier día y a cualquier hora.
           items: [
-            { driver: 7, usage_percent: '50' },
-            { driver: 8, usage_percent: '50' },
+            { driver: 7, usage_percent: '50', weekdays: [], time_from: null, time_to: null },
+            { driver: 8, usage_percent: '50', weekdays: [], time_from: null, time_to: null },
+          ],
+        }),
+      ),
+    )
+  })
+
+  /** Y dice CUÁNDO usa el coche cada uno: los días se marcan y la franja va
+   * entera o no va —la misma regla que el back—. */
+  it('cada persona del reparto lleva sus días y su franja horaria', async () => {
+    renderPanel()
+    await screen.findAllByText('Víctor Cabrera')
+    await userEvent.click(screen.getByRole('button', { name: 'Reparto de uso' }))
+    await screen.findByRole('combobox', { name: 'Persona 1' })
+
+    const dias = screen.getByRole('group', { name: 'Días de la persona 1' })
+    for (const dia of ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes']) {
+      await userEvent.click(within(dias).getByRole('button', { name: dia }))
+    }
+    expect(within(dias).getByRole('button', { name: 'Lunes' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(dias).getByRole('button', { name: 'Sábado' })).toHaveAttribute('aria-pressed', 'false')
+
+    // Media franja no se guarda.
+    await userEvent.type(
+      screen.getByLabelText('Desde qué hora usa el coche la persona 1'),
+      '08:00',
+    )
+    expect(screen.getByText('Una franja horaria lleva hora de inicio y de fin.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Guardar reparto' })).toBeDisabled()
+
+    await userEvent.type(
+      screen.getByLabelText('Hasta qué hora usa el coche la persona 1'),
+      '15:00',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar reparto' }))
+    await waitFor(() =>
+      expect(mocks.setUsageSplit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          items: [
+            {
+              driver: 7,
+              usage_percent: '100',
+              weekdays: [1, 2, 3, 4, 5],
+              time_from: '08:00',
+              time_to: '15:00',
+            },
           ],
         }),
       ),

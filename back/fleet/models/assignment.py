@@ -203,11 +203,33 @@ class Assignment(DeactivatableModel, TimeStampedModel):
                     raise ValidationError({"driver": driver_clash_message(clash)})
 
 
+#: Los días de la semana de un reparto, en ISO: 1 = lunes … 7 = domingo.
+WEEKDAYS = range(1, 8)
+
+
+def pack_weekdays(days) -> str:
+    """Lista de días ISO → lo que guarda la columna («1,2,5»), sin repetidos y
+    en orden. Vacía = todos los días."""
+    return ",".join(str(d) for d in sorted({int(d) for d in days}))
+
+
+def unpack_weekdays(packed: str) -> list[int]:
+    """La columna («1,2,5») → lista de días ISO. Vacía = todos los días."""
+    return [int(d) for d in (packed or "").split(",") if d.strip()]
+
+
 class VehicleUsage(DeactivatableModel, TimeStampedModel):
     """DBML `vehicle_usage` — reparto de uso por porcentaje.
 
     La suma por vehículo y periodo debería ser 100 (se valida en el endpoint de
     edición del reparto, no fila a fila). Lo fija admin o supervisor.
+
+    Además del porcentaje, cada fila puede decir **cuándo** usa el coche esa
+    persona: los días de la semana (`weekdays`, ISO «1,2,3,4,5») y la franja
+    horaria (`time_from` / `time_to`). Los dos van sueltos del porcentaje y
+    de la suma —son para que quien reparte un coche sepa cuándo le toca, no
+    para refacturar— y vacíos quieren decir «cualquier día» / «a cualquier
+    hora». La franja va entera o no va: una hora sola no dice nada.
     """
 
     vehicle = models.ForeignKey("fleet.Vehicle", on_delete=models.CASCADE, related_name="usages")
@@ -219,6 +241,15 @@ class VehicleUsage(DeactivatableModel, TimeStampedModel):
     )
     start_date = models.DateField("Inicio", null=True, blank=True)
     end_date = models.DateField("Fin", null=True, blank=True)
+    weekdays = models.CharField(
+        "Días de la semana",
+        max_length=13,
+        blank=True,
+        default="",
+        help_text="Días ISO (1 = lunes … 7 = domingo) separados por comas; vacío = todos.",
+    )
+    time_from = models.TimeField("Desde las", null=True, blank=True)
+    time_to = models.TimeField("Hasta las", null=True, blank=True)
 
     class Meta:
         verbose_name = "reparto de uso"
@@ -228,12 +259,35 @@ class VehicleUsage(DeactivatableModel, TimeStampedModel):
     def __str__(self) -> str:
         return f"{self.vehicle.plate} · {self.driver}: {self.usage_percent}%"
 
+    @property
+    def weekday_list(self) -> list[int]:
+        """Los días ISO del reparto; vacía = todos los días."""
+        return unpack_weekdays(self.weekdays)
+
     def clean(self):
         # HU-2.5: cada porcentaje individual está entre 0 y 100.
         if self.usage_percent is not None and not (
             Decimal("0") <= self.usage_percent <= Decimal("100")
         ):
             raise ValidationError({"usage_percent": "El porcentaje debe estar entre 0 y 100."})
+        error = time_range_error(self.time_from, self.time_to)
+        if error:
+            raise ValidationError(error)
+
+
+def time_range_error(time_from, time_to) -> dict | None:
+    """Lo que está mal en la franja horaria de un reparto, o ``None``.
+
+    La franja va entera o no va, y no puede ser de cero minutos. Una franja
+    «al revés» (22:00 → 06:00) es un turno de noche y vale. Lo comparten el
+    `clean()` del modelo y los dos serializadores, para que la regla sea una.
+    """
+    if (time_from is None) != (time_to is None):
+        falta = "time_to" if time_from is not None else "time_from"
+        return {falta: "La franja horaria lleva hora de inicio y de fin."}
+    if time_from is not None and time_from == time_to:
+        return {"time_to": "La franja horaria no puede empezar y acabar a la misma hora."}
+    return None
 
 
 class VehicleLink(DeactivatableModel, TimeStampedModel):

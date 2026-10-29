@@ -3,6 +3,41 @@ import type { TireReportCopy } from '@flota/ui/domain'
 import type { AppLanguage } from '@flota/ui/i18n'
 import type { Incident, VehicleSummary } from './types'
 
+/**
+ * De los coches que el back manda, los que esta persona **CONDUCE** (su
+ * asignación vigente, `summary.driver`).
+ *
+ * Vivía copiado en tres sitios —el shell, «Mi vehículo» y la bandeja de
+ * alertas— y en los tres con la misma salvedad: «al conductor puro el back ya
+ * le devuelve exactamente los suyos», así que se saltaba el filtro. **Eso dejó
+ * de ser verdad** cuando el REPARTO DE USO pasó a dar ámbito: ahora a quien
+ * conduce un coche y tiene otro repartido le llegan dos, y sin filtrar se
+ * colaban en «Mi vehículo», en sus avisos y —lo peor— en la cuenta del shell,
+ * que con dos coches ya no sabía cuál es «el suyo» y dejaba el nav inferior
+ * sin ninguno.
+ *
+ * Por eso filtra SIEMPRE, con ámbito ancho o sin él: la pregunta «¿cuáles
+ * conduzco?» se responde igual para todos, y es distinta de «¿a cuáles
+ * llego?». Los repartidos se leen en su pestaña, «Reparto».
+ */
+export function vehiclesDrivenBy<T extends { id: number }>(
+  vehicles: T[],
+  summaries: Record<number, VehicleSummary> | Map<number, VehicleSummary>,
+  userId: number | null | undefined,
+): T[] {
+  // Quién conduce cada coche lo dice su RESUMEN, así que sin ninguno cargado
+  // no hay con qué responder. Antes de dar por hecho que no conduce ninguno
+  // —y dejar el nav inferior sin coche en el taller, con el back a medias— se
+  // devuelven tal cual, que es como se comportaba esto cuando el ámbito del
+  // conductor eran solo los suyos.
+  const vacio = summaries instanceof Map ? summaries.size === 0 : Object.keys(summaries).length === 0
+  if (vacio) return vehicles
+  if (userId == null) return []
+  const resumen = (id: number) =>
+    summaries instanceof Map ? summaries.get(id) : summaries[id]
+  return vehicles.filter((v) => resumen(v.id)?.driver?.id === userId)
+}
+
 const LOCALE: Record<AppLanguage, string> = { es: 'es-ES', en: 'en-GB' }
 
 /** Fecha ISO → local legible según idioma (M9). */

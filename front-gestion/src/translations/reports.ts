@@ -3,44 +3,10 @@ import { useAppLang } from '@flota/ui/i18n'
 const es = {
   title: 'Informes',
   subtitle:
-    'Descarga el documento completo de vehículos o el listado de usuarios, y consulta los documentos y las facturas de la flota.',
+    'Descarga el documento completo de vehículos o el listado de usuarios, y consulta las facturas de la flota.',
   tabs: {
     downloads: 'Descargas',
     invoices: 'Facturas',
-    documents: 'Documentos',
-  },
-  vehicleColumn: 'Vehículo',
-
-  /** Pestaña «Documentos»: un tipo cada vez (o todos), con recuentos. */
-  docs: {
-    allTypes: 'Todos',
-    typeColumn: 'Tipo',
-    hint: 'Elige un tipo para ver quién subió cada documento, cuándo caduca y en qué estado está. El titular puede ser un coche o un usuario (el permiso de conducir es de una persona).',
-    loadError: 'No se pudieron cargar los documentos.',
-    filterByStatus: (label: string) => `Ver solo: ${label}`,
-    clearStatusFilter: 'Quitar el filtro de estado',
-    statusSummary: 'De un vistazo',
-    /** Titular del documento: coche o usuario (exactamente uno). */
-    ownerColumn: 'Titular',
-    /** Dos búsquedas por persona DISTINTAS: de quién es el documento (titular
-     * personal o conductor actual del coche) y quién lo subió (columna «Por»). */
-    userFilterLabel: 'Titular o conductor',
-    uploaderFilterLabel: 'Subido por',
-    allUsers: 'Todos',
-    driverColumn: 'Conductor',
-    groupByPlate: 'Agrupar por matrícula',
-    /** Título del grupo de documentos personales (sin coche). */
-    groupPersonal: (name: string) => `${name} · personal`,
-    groupDocsColumn: 'Documentos',
-    groupExpiredColumn: 'Caducados',
-    userSearchPlaceholder: 'Nombre o usuario…',
-    newDocument: 'Nuevo documento',
-    ownerHint:
-      'El titular es un coche o un usuario (solo uno): el permiso de conducir es de una persona; la ficha técnica, del coche.',
-    ownerVehicleLabel: 'Coche (titular)',
-    ownerUserLabel: 'Usuario (titular)',
-    ownerNone: '— Ninguno —',
-    ownerRequired: 'Elige el titular: un coche o un usuario.',
   },
 
   /** Pestaña «Descargas»: dos documentos, vehículos (completo) y personas. */
@@ -65,6 +31,7 @@ const es = {
     all: 'Todos',
     /** Etiquetas de filtro; también las usa Ajustes → Notificaciones. */
     filterType: 'Tipo',
+    filterVehicle: 'Vehículo',
     filterStatus: 'Estado',
     filterRole: 'Rol',
     filterBrand: 'Marca',
@@ -148,40 +115,10 @@ const es = {
 
 const en: typeof es = {
   title: 'Reports',
-  subtitle:
-    'Download the full vehicle document or the user listing, and browse fleet documents and invoices.',
+  subtitle: 'Download the full vehicle document or the user listing, and browse fleet invoices.',
   tabs: {
     downloads: 'Downloads',
     invoices: 'Invoices',
-    documents: 'Documents',
-  },
-  vehicleColumn: 'Vehicle',
-
-  docs: {
-    allTypes: 'All',
-    typeColumn: 'Type',
-    hint: 'Pick a type to see who uploaded each document, when it expires and its status. The owner can be a car or a user (the driving licence belongs to a person).',
-    loadError: 'Could not load documents.',
-    filterByStatus: (label) => `Show only: ${label}`,
-    clearStatusFilter: 'Clear the status filter',
-    statusSummary: 'At a glance',
-    ownerColumn: 'Owner',
-    userFilterLabel: 'Owner or driver',
-    uploaderFilterLabel: 'Uploaded by',
-    allUsers: 'All',
-    driverColumn: 'Driver',
-    groupByPlate: 'Group by plate',
-    groupPersonal: (name) => `${name} · personal`,
-    groupDocsColumn: 'Documents',
-    groupExpiredColumn: 'Expired',
-    userSearchPlaceholder: 'Name or username…',
-    newDocument: 'New document',
-    ownerHint:
-      'The owner is a car or a user (just one): the driving licence belongs to a person; the datasheet, to the car.',
-    ownerVehicleLabel: 'Car (owner)',
-    ownerUserLabel: 'User (owner)',
-    ownerNone: '— None —',
-    ownerRequired: 'Pick the owner: a car or a user.',
   },
 
   downloads: {
@@ -204,6 +141,7 @@ const en: typeof es = {
     rowsHint: 'Records included in the document with the current filters',
     all: 'All',
     filterType: 'Type',
+    filterVehicle: 'Vehicle',
     filterStatus: 'Status',
     filterRole: 'Role',
     filterBrand: 'Make',

@@ -119,14 +119,6 @@ const NONE = 'none'
 // tomaría el vacío por «sin rellenar», bloqueando un guardado que solo toque
 // la disponibilidad de un coche parado.
 const SIN_CAMBIOS = 'sin_cambios'
-// Etiqueta de recambio cuando la plantilla propuesta no está definida en
-// Ajustes: el campo debe seguir enseñando de qué correo habla.
-const FALLBACK_LABEL: Record<string, 'typeItv' | 'typeInsurance' | 'typeKmReading'> = {
-  itv_due: 'typeItv',
-  insurance_due: 'typeInsurance',
-  km_reading_pending: 'typeKmReading',
-}
-
 // Pasos del formulario: cada uno es una sub-pestaña con su color de borde.
 type SectionKey = 'state' | 'avail' | 'tires' | 'manage' | 'docs' | 'com'
 
@@ -377,7 +369,12 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
     // El correo que propone el estado debe estar siempre en la lista, aunque su
     // plantilla no exista: si no, el campo se quedaría en blanco.
     if (!rows.some((row) => row.value === templateKey)) {
-      rows.unshift({ value: templateKey, label: t.email[FALLBACK_LABEL[templateKey] ?? 'typeComunicado'] })
+      // Su nombre de aquí (`typeLabels`, uno por plantilla del back) y, para
+      // una clave que esta versión no conozca, el comunicado.
+      rows.unshift({
+        value: templateKey,
+        label: t.email.typeLabels[templateKey] ?? t.email.typeLabels.state_notice,
+      })
     }
     return rows
   }, [templates, templateKey, t])

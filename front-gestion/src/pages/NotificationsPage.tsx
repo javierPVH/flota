@@ -273,7 +273,7 @@ export function NotificationsPage({ embedded = false }: { embedded?: boolean } =
 
   function filterLabel(key: ReportFilterKey): string {
     const d = r.downloads
-    if (key === 'vehicle') return r.vehicleColumn
+    if (key === 'vehicle') return d.filterVehicle
     if (key === 'brand') return d.filterBrand
     if (key === 'model') return d.filterModel
     if (key === 'category') return d.filterCategory

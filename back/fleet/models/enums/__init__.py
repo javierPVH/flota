@@ -7,16 +7,21 @@ aquí, dentro de `models/`, y se reexportan para poder importar cualquiera con
 
 from .alert import AlertLevel, AlertStatus, AlertType
 from .document import (
+    ACCESS_REQUEST_KINDS,
     ALERT_LINKABLE_DOCUMENT_TYPES,
+    DRIVER_DELETE_MODES,
     EVENT_LINKABLE_DOCUMENT_TYPES,
     EXPIRING_DOCUMENT_TYPES,
     INCIDENT_BOUND_DOCUMENT_TYPES,
     LINK_REQUIRED_DOCUMENT_TYPES,
+    ONE_PER_DOCUMENT_KINDS,
     PERSONAL_DOCUMENT_TYPES,
     DocumentDeletionStatus,
     DocumentRequestKind,
     DocumentStatus,
     DocumentType,
+    DriverActionMode,
+    DriverDocumentRead,
 )
 from .event import EventType, ItvResult
 from .incident import (
@@ -56,6 +61,11 @@ __all__ = [
     "AllocationTarget",
     "DocumentType",
     "DocumentStatus",
+    "DriverDocumentRead",
+    "DRIVER_DELETE_MODES",
+    "DriverActionMode",
+    "ACCESS_REQUEST_KINDS",
+    "ONE_PER_DOCUMENT_KINDS",
     "DocumentDeletionStatus",
     "DocumentRequestKind",
     "PERSONAL_DOCUMENT_TYPES",

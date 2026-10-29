@@ -308,6 +308,45 @@ export type KmStaleTone = 'ok' | 'warn' | 'danger'
 export const kmStaleTone = (days: number | null): KmStaleTone =>
   days === null || days > 30 ? 'danger' : days >= 15 ? 'warn' : 'ok'
 
+// --- Cuándo usa el coche cada persona de un reparto (HU-2.5) --------------
+
+/**
+ * Los días de la semana de un reparto (ISO, 1 = lunes … 7 = domingo) como
+ * texto corto: los tramos de tres o más seguidos se contraen («L–V») y el
+ * resto se lista («L, X, V»). `names` son los siete rótulos, de lunes a
+ * domingo, en el idioma de la app. Sin días, cadena vacía: lo que eso
+ * significa («todos los días») lo dice la copia de cada app.
+ *
+ * Vive en el DS porque lo pintan las DOS apps —el editor del reparto en
+ * gestión y la cara «Reparto» del móvil— y es contrato del back
+ * (`VehicleUsage.weekdays`): dos copias acabarían leyendo distinto los mismos
+ * días.
+ */
+export function weekdaysLabel(days: readonly number[], names: readonly string[]): string {
+  const dias = [...new Set(days.filter((d) => d >= 1 && d <= 7))].sort((a, b) => a - b)
+  const tramos: string[] = []
+  let i = 0
+  while (i < dias.length) {
+    let j = i
+    while (j + 1 < dias.length && dias[j + 1] === dias[j] + 1) j += 1
+    if (j - i >= 2) tramos.push(`${names[dias[i] - 1]}–${names[dias[j] - 1]}`)
+    else for (let k = i; k <= j; k += 1) tramos.push(names[dias[k] - 1])
+    i = j + 1
+  }
+  return tramos.join(', ')
+}
+
+/** La franja horaria de un reparto («08:00–15:00»); vacía sin franja. El back
+ * la manda como `HH:MM` (en `mine/`) o `HH:MM:SS` (en el CRUD): se queda con
+ * horas y minutos. */
+export function timeRangeLabel(
+  from: string | null | undefined,
+  to: string | null | undefined,
+): string {
+  if (!from || !to) return ''
+  return `${from.slice(0, 5)}–${to.slice(0, 5)}`
+}
+
 // --- Neumáticos: posiciones y prellenado del parte (GAP-6) ----------------
 
 /** Mismos valores que el parte guiado (`TIRE_POSITIONS` del back). */

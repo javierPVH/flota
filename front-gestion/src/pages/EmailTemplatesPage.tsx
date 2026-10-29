@@ -42,7 +42,7 @@ import {
 import { useAppLang } from '@flota/ui/i18n'
 
 import { fmtDate } from '../format.ts'
-import { EmailSettingsPanel } from '../components/EmailSettingsPanel.tsx'
+import { EmailSettingsPanel, type SettingsSection } from '../components/EmailSettingsPanel.tsx'
 import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
 import { TemplateVars } from '../components/TemplateVars.tsx'
@@ -52,11 +52,22 @@ import { useDomainLabels } from '../domainLabels.ts'
 
 // Pestaña especial (primera): traza de últimos envíos (EmailLog).
 const LOGS_TAB = 'logs'
-// Ajustes que no son plantillas (EmailSettingsPanel): el recordatorio de km
-// y la caja corporativa de todos los correos.
+// Ajustes que no son plantillas (EmailSettingsPanel): los cuatro
+// recordatorios —km y combustible (mensuales), ITV y mantenimiento (por
+// vencimiento)— y la caja corporativa de todos los correos.
 const REMINDER_TAB = 'recordatorio'
+const FUEL_TAB = 'combustible'
+const ITV_TAB = 'itv'
+const MAINTENANCE_TAB = 'mantenimiento'
 const LAYOUT_TAB = 'aspecto'
-const SETTINGS_TABS = new Set([REMINDER_TAB, LAYOUT_TAB])
+const SETTINGS_TABS = new Set([REMINDER_TAB, FUEL_TAB, ITV_TAB, MAINTENANCE_TAB, LAYOUT_TAB])
+const SECTION_OF: Record<string, SettingsSection> = {
+  [REMINDER_TAB]: 'reminder',
+  [FUEL_TAB]: 'fuel',
+  [ITV_TAB]: 'itv',
+  [MAINTENANCE_TAB]: 'maintenance',
+  [LAYOUT_TAB]: 'layout',
+}
 
 // Dos niveles: tres GRUPOS (trazas, configuración, plantillas por tipo) y,
 // dentro de cada uno, sus pestañas. Con las diez seguidas no se distinguía qué
@@ -75,6 +86,8 @@ const TEMPLATE_KEYS = [
   'state_notice',
   'km_overage',
   'km_reading_pending',
+  'fuel_reading_pending',
+  'maintenance_due',
   'generic',
 ]
 
@@ -471,6 +484,9 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
     log: [{ key: LOGS_TAB, label: t.logsTitle }],
     settings: [
       { key: REMINDER_TAB, label: ts.reminderTab },
+      { key: FUEL_TAB, label: ts.fuelTab },
+      { key: ITV_TAB, label: ts.itvTab },
+      { key: MAINTENANCE_TAB, label: ts.maintenanceTab },
       { key: LAYOUT_TAB, label: ts.layoutTab },
     ],
     templates: TEMPLATE_KEYS.map((key) => ({
@@ -724,7 +740,7 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
 
       {isSettings ? (
         <EmailSettingsPanel
-          section={activeTab === REMINDER_TAB ? 'reminder' : 'layout'}
+          section={SECTION_OF[activeTab] ?? 'layout'}
           templates={templates}
           defaults={defaults}
           onEditTemplate={switchTab}

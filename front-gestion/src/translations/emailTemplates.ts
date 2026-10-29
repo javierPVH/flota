@@ -10,6 +10,8 @@ const es = {
     state_notice: 'Comunicado de estado',
     km_overage: 'Exceso de km (al conductor)',
     km_reading_pending: 'Lectura pendiente (al conductor)',
+    fuel_reading_pending: 'Consumo pendiente (al conductor)',
+    maintenance_due: 'Mantenimiento programado (recordatorio)',
     generic: 'Genérica',
   } as Record<string, string>,
   // Qué versión está en uso en cada tipo (chapa del editor).
@@ -178,6 +180,8 @@ const en: typeof es = {
     state_notice: 'Status notice',
     km_overage: 'Km overage (to the driver)',
     km_reading_pending: 'Pending reading (to the driver)',
+    fuel_reading_pending: 'Pending fuel entry (to the driver)',
+    maintenance_due: 'Scheduled maintenance (reminder)',
     generic: 'Generic',
   },
   versionCustom: 'Custom',

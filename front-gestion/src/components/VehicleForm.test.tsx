@@ -94,6 +94,16 @@ function renderEdit() {
   )
 }
 
+function renderCreate() {
+  return render(
+    <LanguageProvider>
+      <ConfirmProvider>
+        <VehicleForm mode="create" onSuccess={vi.fn()} onCancel={vi.fn()} />
+      </ConfirmProvider>
+    </LanguageProvider>,
+  )
+}
+
 /** Las secciones son pestañas: hay que abrir la que se quiere mirar. */
 const irA = (nombre: string) => userEvent.click(screen.getByRole('tab', { name: nombre }))
 
@@ -137,86 +147,33 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
     // El odómetro inicial sigue bloqueado aquí.
     expect(screen.getByDisplayValue('12000')).toBeDisabled()
 
-    // El conductor ya no está bloqueado: su nota dice qué pasa al cambiarlo.
+    // El conductor no está en la pestaña: se cambia desde el modal de la barra.
     await irA('Uso y asignación')
-    expect(screen.getByRole('button', { name: '¿Qué pasa al cambiarlo?' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Conductor' })).toBeEnabled()
+    expect(screen.queryByRole('combobox', { name: 'Conductor' })).not.toBeInTheDocument()
+    // Y la nota de la pestaña remite al botón de la barra.
+    expect(screen.getByText(/se cambian desde «Cambiar conductor/)).toBeInTheDocument()
   })
 
-  it('el conductor se enseña con el vigente y cambiarlo pide confirmación', async () => {
-    mocks.listDrivers.mockResolvedValue([
-      { id: 3, name: 'Carlos Ruiz' },
-      { id: 4, name: 'Lucía Pérez' },
-    ])
-    mocks.fetchVehicle.mockResolvedValue({ ...VEHICLE, driver_id: 3, driver_name: 'Carlos Ruiz' })
-    renderEdit()
-    await screen.findByDisplayValue('2026-01-01')
-    await irA('Uso y asignación')
-
-    const conductor = screen.getByRole('combobox', { name: 'Conductor' }) as HTMLSelectElement
-    await waitFor(() => expect(conductor.value).toBe('3'))
-
-    // Decir que no deja el desplegable como estaba.
-    await userEvent.selectOptions(conductor, '4')
-    expect(await screen.findByText(/Vas a cambiar el conductor de 3546LKR/)).toBeInTheDocument()
-    const aviso = screen.getByRole('dialog', { name: 'Cambiar el conductor' })
-    await userEvent.click(within(aviso).getByRole('button', { name: 'Cancelar' }))
-    await waitFor(() => expect(conductor.value).toBe('3'))
-
-    // Aceptar lo cambia; el preview lo enseña como histórico y guardar va
-    // por `set-driver` DESPUÉS de la ficha, con su marca de `updated_at`.
-    await userEvent.selectOptions(conductor, '4')
-    await screen.findByText(/Vas a cambiar el conductor de 3546LKR/)
-    await userEvent.click(screen.getByRole('button', { name: 'Entendido, cambiarlo' }))
-    await waitFor(() => expect(conductor.value).toBe('4'))
-
-    await userEvent.click(screen.getByRole('button', { name: 'Revisar cambios…' }))
-    const preview = await screen.findByRole('dialog', { name: 'Confirmar cambios' })
-    const fila = within(preview).getByText('Conductor').closest('tr') as HTMLElement
-    expect(fila).toHaveTextContent('Carlos Ruiz')
-    expect(fila).toHaveTextContent('Lucía Pérez')
-    await userEvent.click(within(preview).getByRole('button', { name: 'Guardar cambios' }))
-    await waitFor(() =>
-      expect(mocks.setVehicleDriver).toHaveBeenCalledWith(42, {
-        driver: 4,
-        expected_updated_at: VEHICLE.updated_at,
-      }),
-    )
-    expect(mocks.updateVehicleFields.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.setVehicleDriver.mock.invocationCallOrder[0],
-    )
-  })
-
-  it('dejar el coche sin conductor avisa y se hace ANTES de guardar la ficha', async () => {
+  it('editando, conductor y supervisor no están en la pestaña: van en el modal de la barra', async () => {
     mocks.listDrivers.mockResolvedValue([{ id: 3, name: 'Carlos Ruiz' }])
     mocks.fetchVehicle.mockResolvedValue({ ...VEHICLE, driver_id: 3, driver_name: 'Carlos Ruiz' })
-    mocks.setVehicleDriver.mockResolvedValue({ ...VEHICLE, updated_at: '2026-09-02T10:00:00Z' })
     renderEdit()
     await screen.findByDisplayValue('2026-01-01')
     await irA('Uso y asignación')
-    const conductor = screen.getByRole('combobox', { name: 'Conductor' }) as HTMLSelectElement
-    await waitFor(() => expect(conductor.value).toBe('3'))
 
-    await userEvent.selectOptions(conductor, '')
-    expect(await screen.findByText(/Vas a dejar 3546LKR sin conductor/)).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Entendido, cambiarlo' }))
-    await waitFor(() => expect(conductor.value).toBe(''))
+    expect(screen.queryByRole('combobox', { name: 'Conductor' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /Supervisor/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: /Multiusuario/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/se cambian desde «Cambiar conductor \/ supervisor»/)).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Revisar cambios…' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Guardar cambios' }))
-    await waitFor(() =>
-      expect(mocks.setVehicleDriver).toHaveBeenCalledWith(42, {
-        driver: null,
-        expected_updated_at: VEHICLE.updated_at,
-      }),
-    )
-    // La ficha se guarda después, con la marca que devolvió `set-driver`.
-    await waitFor(() =>
-      expect(mocks.updateVehicleFields).toHaveBeenCalledWith(
-        42,
-        expect.objectContaining({ expected_updated_at: '2026-09-02T10:00:00Z' }),
-      ),
-    )
+    // El botón está en la barra del tipo, al lado de las otras acciones, y
+    // abre el MISMO modal que la ficha (con su casilla de multiusuario).
+    await userEvent.click(screen.getByRole('button', { name: 'Cambiar conductor / supervisor' }))
+    const modal = await screen.findByRole('dialog', { name: 'Conductor y supervisor · 3546LKR' })
+    expect(within(modal).getByRole('combobox', { name: 'Nuevo conductor' })).toBeInTheDocument()
+    expect(within(modal).getByRole('checkbox', { name: /Multiusuario/ })).toBeInTheDocument()
+    // Guardar la ficha no toca al conductor: solo el PATCH de lo editado.
+    expect(mocks.setVehicleDriver).not.toHaveBeenCalled()
   })
 
   /** La matrícula, el bastidor y la matriculación no son una pestaña: son la
@@ -246,16 +203,27 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
 
     const matricula = screen.getByDisplayValue('3546LKR')
     expect(matricula).toBeDisabled()
+    // Identificación va bajo el MISMO candado: marca, modelo, versión y año.
+    const marca = screen.getByRole('combobox', { name: 'Marca' })
+    expect(marca).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: 'Modelo' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '+ Nuevo' })).toBeDisabled()
+    const candados = screen.getAllByRole('button', { name: /Bloqueado/ })
+    expect(candados).toHaveLength(2)
 
-    // El candado sale CERRADO; al pulsarlo, un aviso, no la edición directa.
-    await userEvent.click(screen.getByRole('button', { name: /Bloqueado/ }))
-    expect(await screen.findByText(/identifican al vehículo en contratos/)).toBeInTheDocument()
+    // El candado sale CERRADO; al pulsarlo, un aviso de datos sensibles y
+    // auditoría, no la edición directa.
+    await userEvent.click(candados[1])
+    expect(await screen.findByText(/datos sensibles/)).toBeInTheDocument()
+    expect(screen.getByText(/identifican al vehículo en contratos/)).toBeInTheDocument()
+    expect(screen.getByText(/quedará auditado/)).toBeInTheDocument()
     expect(matricula).toBeDisabled()
 
-    // Al aceptarlo, los tres campos se pueden modificar.
+    // Al aceptarlo, se pueden modificar las dos cajas, y los dos candados lo dicen.
     await userEvent.click(screen.getByRole('button', { name: 'Entiendo, quiero editarlos' }))
     await waitFor(() => expect(matricula).toBeEnabled())
-    expect(screen.getByRole('button', { name: /Editable/ })).toBeInTheDocument()
+    expect(marca).toBeEnabled()
+    expect(screen.getAllByRole('button', { name: /Editable/ })).toHaveLength(2)
     const fijos = document.querySelector('.vf-fixed') as HTMLElement
     expect([...fijos.querySelectorAll('input')].every((i) => !i.disabled)).toBe(true)
   })
@@ -289,7 +257,7 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
         </ConfirmProvider>
       </LanguageProvider>,
     )
-    expect(screen.queryByRole('button', { name: /Bloqueado/ })).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('button', { name: /Bloqueado/ })).toHaveLength(0)
     expect(document.querySelector('.vf-actions')).toBeNull()
   })
 
@@ -396,13 +364,12 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
     )
   })
 
-  it('marcar multiusuario sin supervisor vuelve obligatorio el supervisor', async () => {
+  it('en el alta, marcar multiusuario sin supervisor vuelve obligatorio el supervisor', async () => {
     // El back la rechaza sin supervisor: en vez de apagar la casilla, el
     // supervisor pasa a obligatorio y el envío no sale hasta elegir uno.
     mocks.listSupervisors.mockResolvedValue([{ id: 8, name: 'Sara Supervisora' }])
-    mocks.previewVehicle.mockClear()
-    renderEdit()
-    await screen.findByDisplayValue('2026-01-01') // el formulario ya cargó
+    renderCreate()
+    await screen.findByRole('combobox', { name: 'Marca' })
     await irA('Uso y asignación')
 
     const casilla = screen.getByRole('checkbox', { name: /Multiusuario/ })
@@ -415,29 +382,21 @@ describe('VehicleForm (edición): contrato editable y campos sensibles', () => {
     expect(screen.getByText('Un multiusuario necesita supervisor: elige uno antes de guardar.')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Conductor' })).toBeDisabled()
 
-    // Sin supervisor el formulario no se envía (validación nativa).
-    await userEvent.click(screen.getByRole('button', { name: 'Revisar cambios…' }))
-    expect(mocks.previewVehicle).not.toHaveBeenCalled()
-
-    // Con uno elegido, el aviso se va y el envío sale.
+    // Con uno elegido, el aviso se va.
     await userEvent.selectOptions(supervisor, '8')
     expect(screen.queryByText(/elige uno antes de guardar/)).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Revisar cambios…' }))
-    await waitFor(() =>
-      expect(mocks.previewVehicle).toHaveBeenCalledWith(
-        42,
-        expect.objectContaining({ is_multiuser: true, supervisor: 8 }),
-      ),
-    )
+    expect(supervisor.value).toBe('8')
   })
 
-  it('con supervisor se puede marcar, y marcarla deja el conductor en blanco', async () => {
+  it('en el alta, marcarla deja el conductor en blanco', async () => {
     mocks.listSupervisors.mockResolvedValue([{ id: 8, name: 'Sara Supervisora' }])
     mocks.listDrivers.mockResolvedValue([{ id: 3, name: 'Carlos Ruiz' }])
-    mocks.fetchVehicle.mockResolvedValue({ ...VEHICLE, supervisor: 8 })
-    renderEdit()
-    await screen.findByDisplayValue('2026-01-01')
+    renderCreate()
+    await screen.findByRole('combobox', { name: 'Marca' })
     await irA('Uso y asignación')
+    const conductor = screen.getByRole('combobox', { name: 'Conductor' })
+    await waitFor(() => expect(within(conductor).getByRole('option', { name: 'Carlos Ruiz' })).toBeInTheDocument())
+    await userEvent.selectOptions(conductor, '3')
 
     const casilla = await screen.findByRole('checkbox', { name: /Multiusuario/ })
     await waitFor(() => expect(casilla).toBeEnabled())

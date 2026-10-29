@@ -27,6 +27,8 @@ const IncidentsPage = page(() => import('./pages/IncidentsPage.tsx'), 'Incidents
 const MileagePage = page(() => import('./pages/MileagePage.tsx'), 'MileagePage')
 const AlertsPage = page(() => import('./pages/AlertsPage.tsx'), 'AlertsPage')
 const ReportsPage = page(() => import('./pages/ReportsPage.tsx'), 'ReportsPage')
+// Documentos de la flota y de las personas, por tipo (era una pestaña de Informes).
+const DocumentsPage = page(() => import('./pages/DocumentsPage.tsx'), 'DocumentsPage')
 const UsersPage = page(() => import('./pages/UsersPage.tsx'), 'UsersPage')
 // Bandeja de solicitudes de vehículo (G9): Jira, self-service y las
 // peticiones de coche de sustitución que llegan de la app de campo.
@@ -90,6 +92,7 @@ export default function App() {
           <Route path="/alertas" element={<AlertsPage />} />
           <Route path="/solicitudes" element={<RequestsPage />} />
           <Route path="/informes" element={<ReportsPage />} />
+          <Route path="/documentos" element={<DocumentsPage />} />
           {/* Ajustes (2 iconos de administración): pestañas en la URL. */}
           <Route path="/ajustes" element={<Navigate to="/ajustes/catalogos" replace />} />
           {/* Facturas ya no está en Ajustes: vive en Informes. */}

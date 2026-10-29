@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -58,6 +58,56 @@ describe('VehicleDriverModal (conductor y supervisor)', () => {
     mocks.listAssignments.mockResolvedValue(page([]))
     mocks.setVehicleDriver.mockReset()
     mocks.setVehicleDriver.mockResolvedValue({})
+  })
+
+  it('marcar multiusuario retira al conductor con aviso, exige supervisor y manda la marca', async () => {
+    renderModal()
+    const casilla = await screen.findByRole('checkbox', { name: /Multiusuario/ })
+    await userEvent.click(casilla)
+    // Sin conductor que cambiar, y se dice que el actual pasa al histórico al
+    // guardar; el párrafo de «este coche es multiusuario» no, que aún no lo es.
+    expect(screen.queryByRole('combobox', { name: 'Nuevo conductor' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Víctor Cabrera pasará al histórico/)).toBeInTheDocument()
+    expect(screen.queryByText(/Este coche es multiusuario/)).not.toBeInTheDocument()
+    // Y en la barra de arriba: el conductor tachado con su porqué.
+    expect(screen.getByText('Víctor Cabrera').tagName).toBe('S')
+    expect(screen.getByText(/pasa al histórico al guardar/)).toBeInTheDocument()
+    // Sin supervisor no se guarda, y la barra marca el hueco.
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Supervisor' }), '__none__')
+    expect(screen.getByText(/obligatorio en un multiusuario/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    // Lo dice el campo (su aviso) y lo dice el formulario al intentar guardar.
+    const avisos = await screen.findAllByRole('alert')
+    expect(avisos.some((a) => /necesita supervisor/.test(a.textContent ?? ''))).toBe(true)
+    expect(mocks.setVehicleDriver).not.toHaveBeenCalled()
+    // Con él: la marca del hueco se va, y una sola llamada con la marca y la
+    // retirada del conductor.
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Supervisor' }), '5')
+    expect(screen.queryByText(/obligatorio en un multiusuario/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await waitFor(() =>
+      expect(mocks.setVehicleDriver).toHaveBeenCalledWith(21, {
+        driver: null,
+        is_multiuser: true,
+        expected_updated_at: VEHICLE.updated_at,
+      }),
+    )
+  })
+
+  it('en un multiusuario, desmarcar vuelve a ofrecer el conductor y se guardan juntos', async () => {
+    renderModal({ ...VEHICLE, is_multiuser: true, driver_id: null, driver_name: '' } as Vehicle)
+    expect(screen.queryByRole('combobox', { name: 'Nuevo conductor' })).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('checkbox', { name: /Multiusuario/ }))
+    const conductor = await screen.findByRole('combobox', { name: 'Nuevo conductor' })
+    await waitFor(() => expect(within(conductor).getByRole('option', { name: /Lucía/ })).toBeInTheDocument())
+    await userEvent.selectOptions(conductor, '8')
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    await waitFor(() =>
+      expect(mocks.setVehicleDriver).toHaveBeenCalledWith(
+        21,
+        expect.objectContaining({ driver: 8, is_multiuser: false }),
+      ),
+    )
   })
 
   /** El selector solo PONE a alguien: vaciar el puesto es la papelera. */

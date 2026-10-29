@@ -11,6 +11,7 @@ import {
   Bell,
   Car,
   FileText,
+  Files,
   Gauge,
   HardHat,
   Home,
@@ -310,6 +311,8 @@ function ManagementHeader() {
       items: [
         { to: '/ajustes', label: nav.settings, icon: <Settings size={16} /> },
         { to: '/informes', label: nav.reports, icon: <FileText size={16} /> },
+        // Documentos sale de Informes y se queda a su lado: es administración.
+        { to: '/documentos', label: nav.documents, icon: <Files size={16} /> },
       ],
     },
   ]

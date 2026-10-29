@@ -59,8 +59,18 @@ function vehicle(id: number, plate: string, brand = 'Mercedes', model = 'Sprinte
   }
 }
 
+/** El resumen de un coche que conduce QUIEN MIRA (el usuario de prueba, id 1).
+ *
+ * El conductor es lo que separa «mi vehículo» de un coche que solo se tiene
+ * REPARTIDO, que desde que el reparto da ámbito también llega aquí: los casos
+ * que quieren un coche ajeno sobrescriben `driver` (otro id, o `null`). */
 function summary(id: number, km: number, readingDate: string | null) {
-  return { vehicle: id, km_current: km, km_reading_date: readingDate, driver: null }
+  return {
+    vehicle: id,
+    km_current: km,
+    km_reading_date: readingDate,
+    driver: { id: 1, name: 'Carlos Ruiz' },
+  }
 }
 
 function renderPage(onGoFleet?: () => void) {
@@ -416,6 +426,28 @@ describe('MyVehiclesPage (M1)', () => {
     expect(screen.queryByRole('button', { name: 'Registrar km' })).not.toBeInTheDocument()
     // El parte modal de accidente es una herramienta del supervisor.
     expect(screen.queryByRole('button', { name: 'Accidente' })).not.toBeInTheDocument()
+  })
+
+  it('un coche REPARTIDO no es «mi vehículo»: se queda en su pestaña', async () => {
+    // Desde que un reparto de uso vigente da ámbito, al conductor PURO el
+    // back también le manda coches que no conduce. Aquí solo va lo suyo —el
+    // repartido se lee en «Reparto»—, y sobre todo el tablero tiene que
+    // seguir cargando directo: con dos coches contados como propios volvería
+    // a la lista de tarjetas y el shell se quedaría sin «su» coche.
+    mocks.roles = ['driver']
+    mocks.listVehicles.mockResolvedValue({
+      count: 2,
+      results: [vehicle(1, '1234KLM'), vehicle(2, '8888TRX', 'Ford', 'Transit')],
+    })
+    mocks.fetchVehicleSummaries.mockResolvedValue([
+      summary(1, 31000, null), // el que conduce (driver.id = 1)
+      { ...summary(2, 2000, null), driver: { id: 9, name: 'Otra persona' } },
+    ])
+
+    renderPage()
+    expect(await screen.findByText('1234KLM')).toBeInTheDocument()
+    expect(screen.queryByText('8888TRX')).not.toBeInTheDocument()
+    expect(screen.getByText('31.000 km')).toBeInTheDocument()
   })
 
   it('el supervisor ve aqui SOLO su coche, cargado directo y sin buscador', async () => {

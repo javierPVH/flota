@@ -1061,18 +1061,6 @@ table.data tbody tr:hover {
   .detail-head-kpis > .kpi-btn { flex: 1 1 100%; }
 }
 
-.detail-actionbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-  padding: 0.55rem 0.7rem;
-  margin: 0 0 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-soft);
-}
-
 .detail-kpis {
   display: flex;
   flex-wrap: wrap;
@@ -1097,13 +1085,43 @@ table.data tbody tr:hover {
 
 /* Solo el aviso de estado (las marcas viven en la cabecera). */
 .detail-top {
-  display: flex;
-  flex-direction: column;
+  /* Dos recuadros-botón a la izquierda (correo, editar) y el estado a su
+     derecha con el ancho que sobra, todos a la misma altura. En estrecho,
+     los dos recuadros comparten fila y el estado baja. */
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
   align-items: stretch;
   gap: 0.7rem;
   margin: 0 0 1rem;
 }
+@media (max-width: 900px) {
+  .detail-top { grid-template-columns: 1fr 1fr; }
+  .detail-top .status-callout { grid-column: 1 / -1; }
+}
 .detail-top:empty { display: none; }
+/* El recuadro que ES el botón: la misma caja que el estado, ancho, con el
+   icono grande y el rótulo, y que se nota que se pulsa. */
+.detail-resource {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 15rem;
+  padding: 0.7rem 1.2rem;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-brand);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+  box-shadow: var(--shadow-pop);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.detail-resource svg { color: var(--color-brand); flex: 0 0 auto; }
+.detail-resource:hover { background: var(--color-surface); border-color: var(--color-brand); }
+.detail-resource:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
 .detail-top-main { min-width: 0; }
 .detail-top .detail-badges { margin: 0; }
 
@@ -1996,6 +2014,11 @@ table.data tbody tr:hover {
   background: var(--color-danger-soft, var(--color-surface-soft));
 }
 .ops-info-remove:disabled { opacity: 0.45; cursor: not-allowed; }
+/* Lo que va a pasar al guardar, dicho en la propia barra: el conductor que
+   pasa al histórico, tachado, y el supervisor que falta, en ámbar. */
+.ops-info-struck { font-weight: 600; opacity: 0.6; }
+.ops-info-hint { font-size: 0.8rem; font-weight: 600; color: var(--color-warning); }
+.ops-info-missing strong { color: var(--color-warning); }
 .ops-section {
   display: flex;
   flex-direction: column;
@@ -2105,6 +2128,16 @@ table.data tbody tr:hover {
   cursor: pointer;
 }
 .vf-lock:hover { border-color: var(--color-border-strong); color: var(--color-text); }
+/* La cabecera de Identificación lleva el mismo candado a la derecha. */
+.vf-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.vf-panel-head h3 { margin: 0 0 0.6rem; }
+/* La nota de «Uso y asignación» en edición ocupa la fila entera de la rejilla. */
+.vf-people-note { grid-column: 1 / -1; margin: 0; }
 .vf-lock.is-open { border-color: var(--color-warning); color: var(--color-warning); }
 /* El panel de la pestaña que no toca: el `display` de `.card` pisaría a
    `[hidden]` del navegador. */
@@ -2477,6 +2510,62 @@ table.data tbody tr:hover {
 .email-fact.tone-ok { --fact-accent: var(--color-success); }
 .email-fact.tone-warn { --fact-accent: var(--color-warning); }
 .email-fact.tone-danger { --fact-accent: var(--color-danger); }
+/* El tipo de correo y su botón rápido en la misma fila. */
+.email-kind-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: end;
+}
+.email-activity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+.email-activity-head h4 { margin: 0; }
+.email-activity {
+  margin: 0.4rem 0 0.8rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-brand);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+}
+.email-activity h4 {
+  margin: 0.5rem 0 0.35rem;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+.email-activity h4:first-child { margin-top: 0; }
+.email-activity p { margin: 0 0 0.3rem; font-size: 0.86rem; }
+.email-activity-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+}
+.email-activity-list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: 0.86rem;
+}
+.email-activity-main { min-width: 0; }
+/* El color del nivel del aviso, en el filete de la fila (como la bandeja). */
+.email-activity-list > li.tone-danger { border-left: 4px solid var(--color-danger); }
+.email-activity-list > li.tone-warning { border-left: 4px solid var(--color-warning); }
+.email-activity-list > li.tone-info { border-left: 4px solid var(--color-brand); }
+.email-activity-sub { margin-top: 0.2rem; font-size: 0.8rem; }
+.email-activity-rows > li { justify-content: flex-start; flex-wrap: wrap; }
 
 /* Vista previa del comunicado dentro del modal de estado: plegada, para no
    competir con las otras secciones. */
@@ -3284,13 +3373,146 @@ table.data tbody tr:hover {
 .export-cols-item input:disabled { cursor: not-allowed; }
 .export-cols-item span { flex: 1 1 auto; min-width: 0; }
 
-/* --- Informes · Documentos ------------------------------------------------
+/* --- Documentos (`/documentos`, antes pestaña de Informes) ----------------
    Línea de ayuda sobre las sub-pestañas y resumen por estado, que además
    funciona como filtro de un clic. */
 .reports-hint {
   margin: 0 0 0.7rem;
   color: var(--color-text-muted);
   font-size: 0.88rem;
+}
+/* Columna «Acceso» del listado: un chip por rol que lee ese tipo. */
+.doc-access-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+/* Documentos → Ajustes: quién lee cada tipo (una fila por tipo). */
+.doc-access-title {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+.doc-access-table td,
+.doc-access-table th {
+  vertical-align: middle;
+  white-space: normal;
+}
+.doc-access-table tr.is-dirty th {
+  color: var(--color-brand, #0f766e);
+}
+/* La cabecera del grupo «Conductores», encima de sus cuatro columnas. */
+.doc-access-table th.doc-access-group {
+  text-align: center;
+  border-bottom: 2px solid var(--color-brand, #0f766e);
+  color: var(--color-text);
+}
+.doc-access-table .seg-switch button {
+  white-space: nowrap;
+}
+/* Conmutador gráfico: icono delante del rótulo y, elegida, el color de lo
+   que significa —verde permitir, ámbar pedir, rojo no permitir—; sin color
+   propio queda el de marca. */
+.seg-graphic button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.seg-graphic button.is-active.tone-ok { background: var(--color-success); }
+.seg-graphic button.is-active.tone-ask { background: var(--color-warning); }
+.seg-graphic button.is-active.tone-no { background: var(--color-danger); }
+.seg-icons button {
+  padding: 0.32rem 0.6rem;
+}
+.seg-icons button svg {
+  width: 16px;
+  height: 16px;
+}
+/* La leyenda de esos iconos, encima de la tabla de Ajustes: una caja
+   destacada con el filete de marca, para que se lea antes que la tabla. */
+.doc-access-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.2rem;
+  margin: 0.4rem 0 0.9rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-brand);
+  border-radius: 8px;
+  background: var(--color-surface-soft);
+  font-size: 0.84rem;
+}
+.doc-access-legend-title {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+.doc-access-legend ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.doc-access-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.doc-access-legend li svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-brand);
+}
+.doc-access-legend li.tone-ok svg { color: var(--color-success); }
+.doc-access-legend li.tone-ask svg { color: var(--color-warning); }
+.doc-access-legend li.tone-no svg { color: var(--color-danger); }
+/* Modal «Acceso» de un documento: una fila por mando, rótulo a la izquierda
+   y conmutador de iconos a la derecha, como una tabla de dos columnas. */
+.doc-access-rows {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0.2rem 0 1rem;
+}
+.doc-access-row {
+  display: grid;
+  /* Rótulos en una columna fija y conmutadores en otra, alineados a la
+     izquierda de la suya: con `auto` cada fila colocaba lo suyo donde le
+     cabía y nada quedaba en línea. */
+  grid-template-columns: 15rem 1fr;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+@media (max-width: 560px) {
+  .doc-access-row { grid-template-columns: 1fr; }
+}
+.doc-access-row:last-child { border-bottom: 0; }
+.doc-access-label {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.doc-access-row .seg-switch {
+  flex-wrap: wrap;
+  justify-self: start;
+}
+/* «Según el tipo» ocupa lo mismo en todas las filas: así los iconos propios
+   de cada mando caen unos debajo de otros. */
+.doc-access-row .seg-switch button:first-child {
+  min-width: 9.5rem;
+  justify-content: center;
+}
+.doc-access-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.8rem;
+  margin-top: 0.9rem;
 }
 .doc-status-strip {
   display: flex;
@@ -4809,6 +5031,55 @@ table.data tbody tr:hover {
   );
 }
 .usage-rows { display: flex; flex-direction: column; gap: 0.4rem; }
+/* Cada persona son dos líneas: quién y cuánto arriba, y debajo CUÁNDO (los
+   días como chips y la franja), sangrado bajo el desplegable para que se
+   lea como suyo. Entre personas, un filete. */
+.usage-line {
+  display: grid;
+  gap: 0.35rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px dashed var(--color-border);
+}
+.usage-line:last-child { border-bottom: 0; }
+.usage-when {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding-left: calc(10px + 0.6rem);
+}
+.usage-days { display: inline-flex; gap: 0.25rem; }
+.usage-day {
+  min-width: 2.1rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  cursor: pointer;
+}
+.usage-day.is-on {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: #fff;
+}
+.usage-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.usage-time input {
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.4rem;
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
 .usage-row {
   display: grid;
   grid-template-columns: 10px 1fr 110px auto;
@@ -6772,6 +7043,11 @@ kbd {
 @media (max-width: 1100px) { .tpl-preview { position: static; } }
 .es-toggle-main { padding: 0.55rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-soft); }
 .email-settings-schedule.is-off .es-calendars, .email-settings-schedule.is-off .es-summary, .email-settings-schedule.is-off .es-legend { opacity: 0.45; }
+
+/* Recordatorio por vencimiento (ITV, mantenimiento): las dos cajas de días
+   una debajo de otra y el ejemplo con sus fechas. */
+.es-deadline .es-days + .es-days { margin-top: 0.75rem; }
+.es-deadline .es-dates ol { margin: 0.4rem 0 0; padding-left: 1.2rem; }
 
 /* Editor corto del modal de correo: barra pegada a la caja y aviso de vacío. */
 .rich-editor { display: flex; flex-direction: column; }

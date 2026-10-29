@@ -34,6 +34,7 @@ from fleet.models import (
     MaintenancePlan,
     Vehicle,
     VehicleRequest,
+    VehicleUsage,
 )
 from fleet.models.enums import (
     AlertType,
@@ -43,7 +44,7 @@ from fleet.models.enums import (
     ItvResult,
     VehicleRequestStatus,
 )
-from fleet.selectors import current_assignment_q, latest_reading_map
+from fleet.selectors import current_assignment_q, current_usage_q, latest_reading_map
 from fleet.services import seed
 
 API = "/api/v1"
@@ -79,11 +80,17 @@ class DriverJourneyTests(APITestCase):
         return resp
 
     def _my_plates(self):
-        return set(
-            Assignment.objects.filter(current_assignment_q(), driver=self.carlos).values_list(
-                "vehicle__plate", flat=True
-            )
+        """Su ámbito, que son DOS puertas y no una: el coche que conduce
+        (asignación vigente, `1234KLM`) y los que tiene REPARTIDOS —el seed le
+        da parte de `8888TRX` los fines de semana—. Un reparto vigente da el
+        mismo acceso que una asignación: ese coche lo conduce de verdad."""
+        conduce = Assignment.objects.filter(current_assignment_q(), driver=self.carlos).values_list(
+            "vehicle__plate", flat=True
         )
+        reparte = VehicleUsage.objects.filter(current_usage_q(), driver=self.carlos).values_list(
+            "vehicle__plate", flat=True
+        )
+        return set(conduce) | set(reparte)
 
     def _open_incident(self, **extra):
         body = {
@@ -127,6 +134,9 @@ class DriverJourneyTests(APITestCase):
         plates = {v["plate"] for v in self._get(f"{API}/vehicles/?page_size=500").data["results"]}
         self.assertEqual(plates, self._my_plates())
         self.assertIn("1234KLM", plates)
+        # Y el que tiene REPARTIDO sin conducirlo: desde «Reparto» se abre su
+        # ficha igual que en «Flota», así que el back tiene que servirlo.
+        self.assertIn("8888TRX", plates)
         ficha = self._get(f"{API}/vehicles/{self.mine.pk}/").data
         self.assertEqual(ficha["plate"], "1234KLM")
         # El coche de otra persona no existe para él (404, no 403).
@@ -158,6 +168,38 @@ class DriverJourneyTests(APITestCase):
         # Resolver una alerta con observaciones es de gestión.
         self._post(f"{API}/alerts/{abiertas[0]['id']}/resolve/", {}, status.HTTP_403_FORBIDDEN)
 
+    def test_mis_coches_de_reparto(self):
+        """La cara «Reparto»: los repartos vigentes de quien pregunta, con el
+        coche, su parte y con quién. carlos lleva 1234KLM al 60 % con lucia
+        (40 %), que a su vez conduce otro coche: a ella 1234KLM le sale como
+        reparto y no como suyo. Además usa los fines de semana el 8888TRX de
+        la administradora, que es suyo y no de carlos. El reparto cerrado no
+        cuenta."""
+        filas = self._get(f"{API}/vehicle-usages/mine/").data
+        self.assertEqual([f["vehicle"]["plate"] for f in filas], ["1234KLM", "8888TRX"])
+        ajeno = filas[1]
+        self.assertFalse(ajeno["is_driver"])
+        self.assertEqual((ajeno["usage_percent"], ajeno["weekdays"]), (20.0, [6, 7]))
+        mio = filas[0]
+        self.assertEqual(mio["usage_percent"], 60.0)
+        self.assertTrue(mio["is_driver"])
+        # Cuándo le toca: de lunes a viernes por la mañana; y a lucia, la tarde.
+        self.assertEqual(mio["weekdays"], [1, 2, 3, 4, 5])
+        self.assertEqual((mio["time_from"], mio["time_to"]), ("08:00", "15:00"))
+        self.assertEqual(
+            [(p["name"], p["usage_percent"], p["time_from"]) for p in mio["shared_with"]],
+            [(self.lucia.get_full_name(), 40.0, "15:00")],
+        )
+        self.client.force_authenticate(self.lucia)
+        filas = self._get(f"{API}/vehicle-usages/mine/").data
+        suyo = next(f for f in filas if f["vehicle"]["plate"] == "1234KLM")
+        self.assertFalse(suyo["is_driver"])
+        self.assertEqual(suyo["usage_percent"], 40.0)
+        self.assertEqual([p["name"] for p in suyo["shared_with"]], [self.carlos.get_full_name()])
+        # Sin ningún reparto, la lista vacía (no un 403: la cara existe para todos).
+        self.client.force_authenticate(self.david)
+        self.assertEqual(self._get(f"{API}/vehicle-usages/mine/").data, [])
+
     def test_incidencias_y_documentos_del_coche_en_lectura(self):
         incidencias = self._get(f"{API}/incidents/?page_size=500").data["results"]
         self.assertTrue(all(i["vehicle"] in {self.mine.pk} | self._ids() for i in incidencias))
@@ -176,11 +218,14 @@ class DriverJourneyTests(APITestCase):
         self._get(f"{API}/workshops/?page_size=500")
 
     def _ids(self):
-        return set(
-            Assignment.objects.filter(current_assignment_q(), driver=self.carlos).values_list(
-                "vehicle_id", flat=True
-            )
+        """Los ids de lo mismo que `_my_plates`: lo que conduce y lo repartido."""
+        conduce = Assignment.objects.filter(current_assignment_q(), driver=self.carlos).values_list(
+            "vehicle_id", flat=True
         )
+        reparte = VehicleUsage.objects.filter(current_usage_q(), driver=self.carlos).values_list(
+            "vehicle_id", flat=True
+        )
+        return set(conduce) | set(reparte)
 
     # --- lo que el conductor REGISTRA ----------------------------------------
 
@@ -470,9 +515,11 @@ class DriverJourneyTests(APITestCase):
             {"document": doc2["id"], "kind": "change", "changes": {"notes": "Presupuesto taller"}},
         ).data
         self.assertEqual(cambio["kind"], "change")
-        # Solo ve las suyas y las de lo que puede leer.
+        # Solo ve las suyas y las de lo que puede leer: las dos de ahora y
+        # las que el seed le deja (su petición de descarga ya concedida).
         mias = self._get(f"{API}/document-deletion-requests/?page_size=500").data["results"]
-        self.assertEqual({r["id"] for r in mias}, {pedida["id"], cambio["id"]})
+        self.assertLessEqual({pedida["id"], cambio["id"]}, {r["id"] for r in mias})
+        self.assertTrue(all(r["requested_by"] == self.carlos.pk for r in mias))
         # Sobre un documento ajeno no se pide nada.
         ajeno = Document.objects.filter(vehicle=self.ajeno).first()
         resp = self.client.post(

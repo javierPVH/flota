@@ -93,13 +93,14 @@ const es = {
    * app de campo, y aquí se deciden. La papelera de allí no borra. */
   docs: {
     help:
-      'Las abre quien lee el documento en la app de conductores —para borrarlo o para corregirlo—. Hasta que se deciden, el ',
+      'Las abre quien lee el documento en la app de conductores —para borrarlo, para corregirlo o para que se le conceda verlo o descargarlo cuando su tipo va con solicitud—. Hasta que se deciden, el ',
     helpStrong: 'documento sigue como estaba',
     helpRest: ', marcado en su lista.',
     statusPending: 'Pendientes',
     statusDeleted: 'Borradas',
     statusHidden: 'Ocultas',
     statusApplied: 'Aplicadas',
+    statusGranted: 'Concedidas',
     statusRejected: 'Rechazadas',
     empty: 'Sin peticiones sobre documentos con estos filtros.',
     loadError: 'No se pudieron cargar las peticiones.',
@@ -133,6 +134,9 @@ const es = {
     optApplyHint:
       'Se escriben esos campos en el documento. El archivo y su rastro se quedan donde están: ' +
       'por eso corregir es mejor que borrar y volver a subirlo.',
+    optGrant: 'Conceder el acceso',
+    optGrantHint:
+      'Quien lo pidió podrá hacer eso —ver el documento o descargarlo— desde su app. La concesión es solo suya y solo para este documento.',
     optReject: 'Rechazar la petición',
     optRejectHint: 'No se toca el documento: vuelve a verse como hasta ahora.',
     note: 'Observaciones (opcional)',
@@ -141,6 +145,7 @@ const es = {
     okDelete: (what: string) => `${what} dado de baja: está en el espacio de erratas.`,
     okHide: (what: string) => `${what} oculto para el campo: protegido y a tu nombre.`,
     okApply: (what: string) => `${what} corregido con lo que se pedía.`,
+    okGrant: (what: string) => `Acceso concedido a ${what} para quien lo pidió.`,
     okReject: (what: string) => `Petición rechazada: ${what} se sigue viendo como hasta ahora.`,
     error: 'No se pudo resolver la petición.',
   },
@@ -310,13 +315,14 @@ const en: typeof es = {
   grantSubmit: 'Grant',
   grantSubmitting: 'Granting…',
   docs: {
-    help: 'Opened by whoever reads the document in the drivers app —to delete it or to fix it—. Until they are decided, the ',
+    help: 'Opened by whoever reads the document in the drivers app —to delete it, to fix it, or to be granted viewing or downloading it when its type is on request—. Until they are decided, the ',
     helpStrong: 'document stays as it was',
     helpRest: ', marked in their list.',
     statusPending: 'Pending',
     statusDeleted: 'Deleted',
     statusHidden: 'Hidden',
     statusApplied: 'Applied',
+    statusGranted: 'Granted',
     statusRejected: 'Rejected',
     empty: 'No document requests match these filters.',
     loadError: 'Could not load the requests.',
@@ -350,6 +356,9 @@ const en: typeof es = {
     optApplyHint:
       'Those fields are written on the document. The file and its trail stay where they are: ' +
       'that is why fixing beats deleting and uploading again.',
+    optGrant: 'Grant access',
+    optGrantHint:
+      'Whoever asked will be able to do that —view the document or download it— from their app. The grant is theirs only and for this document only.',
     optReject: 'Reject the request',
     optRejectHint: 'The document is not touched: it is visible just as before.',
     note: 'Notes (optional)',
@@ -358,6 +367,7 @@ const en: typeof es = {
     okDelete: (what: string) => `${what} deactivated: it is in the errata space.`,
     okHide: (what: string) => `${what} hidden from the field: protected and under your name.`,
     okApply: (what: string) => `${what} fixed as requested.`,
+    okGrant: (what: string) => `Access to ${what} granted to whoever asked.`,
     okReject: (what: string) => `Request rejected: ${what} is still visible as before.`,
     error: 'Could not resolve the request.',
   },

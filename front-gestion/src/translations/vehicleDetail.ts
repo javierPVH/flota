@@ -9,6 +9,8 @@ export const es = {
   back: '← Volver',
   loading: 'Cargando…',
   edit: 'Editar',
+  /** El recuadro-botón de la fila del estado, junto a «Enviar correo». */
+  editSheet: 'Editar ficha',
   changeState: 'Cambiar estado',
   substitution: 'Sustitución',
   /** Contrato pasado de fecha: el coche sigue en la flota sin contrato. */
@@ -507,6 +509,7 @@ export const en: typeof es = {
   back: '← Back',
   loading: 'Loading…',
   edit: 'Edit',
+  editSheet: 'Edit sheet',
   changeState: 'Change status',
   substitution: 'Substitution',
   contractEndedFrame: 'Contract ended',

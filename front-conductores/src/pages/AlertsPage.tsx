@@ -21,7 +21,7 @@ import { AlertResolveDispatcher } from '../components/AlertResolveDispatcher.tsx
 import { CollapsibleCard, useAccordion } from '../components/CollapsibleCard.tsx'
 import { IncidentResolveModal } from '../components/IncidentResolveModal.tsx'
 import { ListFilter, matches, typeOptions, type ListOrder } from '../components/ListFilter.tsx'
-import { hasWideReadScope, isManagement, useAuth } from '../auth.ts'
+import { isManagement, useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
 import {
   fmtDate,
@@ -29,6 +29,7 @@ import {
   hiddenFieldAlert,
   isOpenFieldIncident,
   tireReportSummary,
+  vehiclesDrivenBy,
 } from '../format.ts'
 import { priorityOf, priorityRank, priorityTone } from '../incidentPriority.ts'
 import { PENDING_CARDS } from '../pendingCards.ts'
@@ -181,13 +182,13 @@ export function AlertsPage() {
   // Los coches que CONDUCE quien mira: al ámbito de gestión el back le manda
   // más (su grupo entero) y estos avisos son de lo suyo. Mismo criterio que
   // la home, de donde viene el bloque.
-  // El ámbito ANCHO es el de admin, supervisor y HSE (`hasWideReadScope`), no
-  // el permiso de gestión: un conductor con HSE recibe toda la flota y sus
-  // avisos son solo de lo que conduce.
-  const ownVehicles = useMemo(() => {
-    if (!hasWideReadScope(user)) return fleet
-    return fleet.filter((v) => summaries[v.id]?.driver?.id === user?.id)
-  }, [fleet, summaries, user])
+  // Vale para todos y no solo para el ámbito ancho (admin, supervisor, HSE):
+  // un reparto de uso vigente también trae coches que no se conducen, y la
+  // lectura de ESE coche se le reclama a su titular, no a quien lo comparte.
+  const ownVehicles = useMemo(
+    () => vehiclesDrivenBy(fleet, summaries, user?.id),
+    [fleet, summaries, user?.id],
+  )
 
   const plates = useMemo(() => new Map(fleet.map((v) => [v.id, v.plate])), [fleet])
 

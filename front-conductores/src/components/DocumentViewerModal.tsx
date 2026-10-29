@@ -77,8 +77,10 @@ export function DocumentViewerModal({
             </a>
           )}
           {/* Guardarlo usa la copia que ya está aquí: no se vuelve a pedir el
-              archivo al back solo por cambiar de idea mirándolo. */}
-          {url && (
+              archivo al back solo por cambiar de idea mirándolo. Salvo que el
+              tipo no se pueda descargar (Documentos → Ajustes de gestión):
+              entonces se mira y nada más. */}
+          {url && doc.can_download !== false && (
             <a href={url} download={nombre} className="link-btn">
               <Download size={16} aria-hidden /> {copy.download}
             </a>

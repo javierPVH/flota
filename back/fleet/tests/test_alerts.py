@@ -819,6 +819,35 @@ class VehicleRemindTests(APITestCase):
         self.assertEqual(alert.due_date, date(2026, 9, 1))
         self.assertIn("2026-09-01", alert.message)
 
+    def test_plain_text_email_is_the_supervisors_own_words(self):
+        """`body_mode=plain`: el mensaje ES el correo (escapado y con sus
+        saltos), no la plantilla; y sin mensaje no hay nada que mandar."""
+        resp = self.client.post(
+            self.url,
+            {
+                "kind": "itv_due",
+                "send_email": True,
+                "body_mode": "plain",
+                "message": "Hola <b>Juan</b>,\npasa la ITV esta semana.",
+            },
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertTrue(resp.data["email_sent"])
+        correo = mail.outbox[-1]
+        self.assertIn("REM-1", correo.subject)
+        cuerpo = correo.alternatives[0][0]
+        self.assertIn("Hola &lt;b&gt;Juan&lt;/b&gt;,<br>pasa la ITV esta semana.", cuerpo)
+        resp = self.client.post(
+            self.url, {"kind": "itv_due", "send_email": True, "body_mode": "plain"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("message", resp.data["errors"])
+        # Un modo que no existe tampoco.
+        resp = self.client.post(
+            self.url, {"kind": "itv_due", "send_email": True, "body_mode": "html"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_requires_valid_kind_and_a_channel(self):
         # El seguro es asunto de administracion: no es un recordatorio de campo.
         resp = self.client.post(self.url, {"kind": "insurance_due", "create_alert": True})

@@ -10,19 +10,48 @@
 
 import type { AlertType } from './types.ts'
 
-export type EmailKind = 'state_notice' | 'itv_due' | 'insurance_due' | 'km_reading_pending'
+/** Las ocho plantillas del back (`EmailTemplateKey`), en el orden en que
+ * las ofrece el modal: el comunicado, los tres vencimientos, las dos
+ * reclamaciones al conductor, el exceso de km y la genérica para lo demás. */
+export type EmailKind =
+  | 'state_notice'
+  | 'itv_due'
+  | 'insurance_due'
+  | 'maintenance_due'
+  | 'km_reading_pending'
+  | 'fuel_reading_pending'
+  | 'km_overage'
+  | 'generic'
 
-/** Tipo de alerta → tipo de correo. Los tres avisos que ya tienen plantilla
- * propia abren directos en ella; el resto (exceso de km, mantenimiento, sin
- * conductor) cae en el comunicado de estado. */
+export const EMAIL_KINDS: readonly EmailKind[] = [
+  'state_notice',
+  'itv_due',
+  'insurance_due',
+  'maintenance_due',
+  'km_reading_pending',
+  'fuel_reading_pending',
+  'km_overage',
+  'generic',
+]
+
+/** Los correos que hablan AL CONDUCTOR: se le premarca como destinatario. */
+export const DRIVER_EMAIL_KINDS: readonly EmailKind[] = [
+  'km_reading_pending',
+  'fuel_reading_pending',
+  'km_overage',
+]
+
+/** Tipo de alerta → tipo de correo. Cada aviso con plantilla propia abre
+ * directo en ella; el coche sin conductor cae en el comunicado de estado. */
 export const ALERT_EMAIL_KIND: Record<AlertType, EmailKind> = {
   itv_due: 'itv_due',
   // Sin cita también se habla de la ITV: es la plantilla que la nombra.
   itv_unscheduled: 'itv_due',
   insurance_due: 'insurance_due',
   km_reading_pending: 'km_reading_pending',
-  km_overage: 'state_notice',
-  maintenance_due: 'state_notice',
+  fuel_reading_pending: 'fuel_reading_pending',
+  km_overage: 'km_overage',
+  maintenance_due: 'maintenance_due',
   no_driver: 'state_notice',
 }
 

@@ -10,6 +10,7 @@ import {
 
 import type {
   Alert,
+  AlertType,
   AssignmentRow,
   AuditEntry,
   AuthConfig,
@@ -17,6 +18,7 @@ import type {
   DriveFile,
   Driver,
   FleetSummary,
+  DocumentAccessOverrides,
   FlotaDocument,
   FlotaEvent,
   FlotaUser,
@@ -819,8 +821,57 @@ export const notifyVehicle = (
     template_key?: string
     /** Idioma de la plantilla; `both` manda las dos versiones en un correo. */
     lang?: NoticeLang
+    /** El aviso abierto del coche del que habla (el botón rápido): la traza
+     * queda ligada a él. */
+    alert?: number
   },
 ) => postJson<NotifyResult>(`${API}/vehicles/${id}/notify/`, data)
+
+/** Una fila de la traza (`sent`) o de la cola (`pending`) de un coche. */
+export interface VehicleEmailRow {
+  id: number
+  created_at: string
+  template_key: string
+  template_display: string
+  recipient: string
+  recipient_role: string
+  recipient_role_display: string
+  subject: string
+  alert: number | null
+  alert_type: string
+  status: string
+  status_display: string
+  /** Enviado a mano desde la ficha (comunicado, recordatorio, reenvío) y no
+   * por el motor ni un envío programado. */
+  manual: boolean
+  attempts: number | null
+}
+
+/** Un aviso abierto del coche al que se le puede mandar un correo. */
+export interface VehicleEmailAlert {
+  id: number
+  type: AlertType
+  type_display: string
+  level: string
+  level_display: string
+  message: string
+  due_date: string | null
+  /** Cuándo se le mandó el último correo (automático o a mano); null = nunca. */
+  last_sent_at: string | null
+  sent_count: number
+  /** Si hay un correo suyo en cola por salir. */
+  pending: boolean
+}
+
+/** Lo que el modal de correo evalúa al abrirse. */
+export interface VehicleEmailActivity {
+  sent: VehicleEmailRow[]
+  pending: VehicleEmailRow[]
+  alerts: VehicleEmailAlert[]
+}
+
+export const fetchVehicleEmailActivity = (id: number) =>
+  getJson<VehicleEmailActivity>(`${API}/vehicles/${id}/email-activity/`)
 
 /** Vista previa (asunto + cuerpo HTML) de un aviso con una plantilla, sin enviar. */
 export const noticePreviewVehicle = (
@@ -903,6 +954,10 @@ export const setVehicleDriver = (
     driver?: number | null
     start_date?: string
     supervisor?: number | null
+    /** La marca de coche de pool, desde el mismo modal: marcarlo exige
+     * quedar sin conductor (`driver: null` en el mismo cuerpo lo retira) y
+     * con supervisor; desmarcarlo admite conductor en la misma llamada. */
+    is_multiuser?: boolean
     expected_updated_at?: string
   },
 ) => postJson<Vehicle>(`${API}/vehicles/${id}/set-driver/`, data)
@@ -919,6 +974,11 @@ export interface VehicleUsageRow {
   usage_percent: string
   start_date: string | null
   end_date: string | null
+  /** Días ISO (1 = lunes … 7 = domingo); vacía = todos los días. */
+  weekdays: number[]
+  /** Franja horaria (`HH:MM:SS`), entera o ninguna: nulas = a cualquier hora. */
+  time_from: string | null
+  time_to: string | null
 }
 
 export const listVehicleUsages = (vehicle: number) =>
@@ -929,7 +989,13 @@ export const setUsageSplit = (data: {
   vehicle: number
   start_date: string
   end_date?: string | null
-  items: Array<{ driver: number; usage_percent: string }>
+  items: Array<{
+    driver: number
+    usage_percent: string
+    weekdays?: number[]
+    time_from?: string | null
+    time_to?: string | null
+  }>
 }) => postJson<VehicleUsageRow[]>(`${API}/vehicle-usages/set/`, data)
 
 // Gestión de usuarios/conductores (HU-2.6, solo admin).
@@ -1045,13 +1111,15 @@ export interface DocumentDeletionRequestRow {
   requested_by_name: string
   reason: string
   /** Qué se pide: borrarlo (la papelera del campo) o corregirlo. */
-  kind: 'delete' | 'change'
+  /** Qué se pide: borrarlo, corregirlo, o el ACCESO (verlo, bajárselo)
+   * cuando el tipo o el documento lo ponen «con solicitud». */
+  kind: 'delete' | 'change' | 'view' | 'download'
   kind_display: string
   /** Solo en una corrección: {campo: valor propuesto}. */
   changes: Record<string, string>
   /** Lo mismo ya legible: etiqueta, lo que hay hoy y lo que se propone. */
   changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
-  status: 'pending' | 'deleted' | 'hidden' | 'applied' | 'rejected'
+  status: 'pending' | 'deleted' | 'hidden' | 'applied' | 'granted' | 'rejected'
   status_display: string
   resolved_by_name: string
   resolved_at: string | null
@@ -1062,7 +1130,7 @@ export interface DocumentDeletionRequestRow {
 /** Las salidas del modal de gestión (las mismas del back): las tres primeras
  * son de un BORRADO y `apply` es la de una corrección; `reject` vale para las
  * dos. */
-export type DeletionDecision = 'delete' | 'hide' | 'apply' | 'reject'
+export type DeletionDecision = 'delete' | 'hide' | 'apply' | 'grant' | 'reject'
 
 export const listDocumentDeletionRequests = (filters: { status?: string } = {}) =>
   getJson<Paginated<DocumentDeletionRequestRow>>(
@@ -1244,6 +1312,56 @@ export interface DocumentFilters {
 export const listDocuments = (filters: DocumentFilters = {}) =>
   getJson<Paginated<FlotaDocument>>(`${API}/documents/${listQs({ ...filters })}`)
 
+/** Lo que lee el CONDUCTOR de un tipo de documento: solo lo que subió él
+ * (`own`) o también lo de los demás (`all`, la regla de siempre). */
+export type DriverDocumentRead = 'none' | 'own' | 'all'
+
+/** Quién lee cada TIPO de documento (Documentos → Ajustes, admin): una fila
+ * por tipo —el back manda siempre los doce, con la guardada o la de
+ * fábrica—. La administración lo lee todo y no viaja como campo. */
+export interface DocumentTypeAccess {
+  type: FlotaDocument['type']
+  type_display: string
+  supervisor_read: boolean
+  driver_read: DriverDocumentRead
+  driver_read_display: string
+  /** Cómo VE el archivo y cómo SE LO BAJA el conductor: directamente,
+   * pidiéndolo (una petición que la gestión concede) o nunca. La supervisión
+   * se baja y pide borrar siempre previa solicitud: eso no se configura. */
+  driver_view: DriverActionMode
+  driver_view_display: string
+  driver_download: DriverActionMode
+  driver_download_display: string
+  /** Y cómo pide su BORRADO: con solicitud o no permitido (nunca directo:
+   * la papelera del campo pide). */
+  driver_delete: DriverDeleteMode
+  driver_delete_display: string
+  updated_at: string | null
+}
+
+/** Una acción del conductor sobre un documento: directa, previa solicitud
+ * o no permitida. */
+export type DriverActionMode = 'allow' | 'request' | 'deny'
+/** El borrado nunca es directo: con solicitud o no permitido. */
+export type DriverDeleteMode = 'request' | 'deny'
+
+/** Lo que se edita de una fila (el tipo es la clave). */
+export type DocumentTypeAccessInput = Pick<
+  DocumentTypeAccess,
+  'supervisor_read' | 'driver_read' | 'driver_view' | 'driver_download' | 'driver_delete'
+>
+
+export const listDocumentTypeAccess = () =>
+  getJson<DocumentTypeAccess[]>(`${API}/document-type-access/`)
+
+export const updateDocumentTypeAccess = (type: string, data: DocumentTypeAccessInput) =>
+  patchJson<DocumentTypeAccess>(
+    `${API}/document-type-access/${type}/`,
+    data,
+    {},
+    'No se pudo guardar quién lee ese tipo de documento.',
+  )
+
 /** Alta con referencia de Drive (Picker) o URL manual — sin binario. */
 export interface DocumentInput {
   /** Titular: un vehículo O un usuario (exactamente uno). */
@@ -1282,7 +1400,10 @@ export function uploadDocument(data: DocumentInput, file: File): Promise<FlotaDo
   return postForm<FlotaDocument>(`${API}/documents/`, form, {}, 'No se pudo subir el documento.')
 }
 
-export const updateDocument = (id: number, data: Partial<DocumentInput> & { status?: string }) =>
+export const updateDocument = (
+  id: number,
+  data: Partial<DocumentInput> & { status?: string } & Partial<DocumentAccessOverrides>,
+) =>
   patchJson<FlotaDocument>(`${API}/documents/${id}/`, data)
 
 export const deleteDocument = (id: number, reason = '') =>
@@ -1501,37 +1622,66 @@ export interface EmailPreview {
   document_html: string
 }
 
-/** Ajustes del correo (fila única, Ajustes → Correo): recordatorio de km y
- * aspecto corporativo. `km_remind_dates` son las fechas en que saldrá cada
- * correo del mes que se reclama; `logo_data_url` trae el logotipo en uso
- * (el subido o el de fábrica) para enseñarlo sin pasar por /media. */
-/** Cadencia de los correos del recordatorio de km (`KmRemindMode` del back). */
+/** Ajustes del correo (fila única, Ajustes → Correo): los cuatro
+ * recordatorios y el aspecto corporativo. `logo_data_url` trae el logotipo
+ * en uso (el subido o el de fábrica) para enseñarlo sin pasar por /media. */
+/** Cadencia de los correos de un recordatorio mensual (`KmRemindMode` del back). */
 export type KmRemindModeValue = 'count' | 'daily' | 'odd' | 'even'
 /** Cómo se fijan los días del recordatorio (`KmRemindBy` del back): un plazo
  * con cadencia o una lista de días concretos. */
 export type KmRemindByValue = 'window' | 'days'
 
-export interface EmailSettingsRow {
-  /** Apagado, no se abren avisos de lectura pendiente ni salen sus correos. */
-  km_remind_enabled: boolean
-  km_remind_by: KmRemindByValue
-  /** Los días concretos, como se guardan: «25, 28, 3» (vacío si se va por plazo). */
-  km_remind_days: string
-  km_remind_from_day: number
-  km_remind_until_day: number
-  km_remind_mode: KmRemindModeValue
-  km_remind_emails: number
-  /** Tope de `km_remind_emails`: los días del plazo en el mes más corto. */
-  km_remind_max_emails: number
-  km_remind_dates: string[]
+/** Los recordatorios MENSUALES (una anotación al mes que reclamar) y los de
+ * VENCIMIENTO (una fecha límite alrededor de la que avisar). Sus campos van
+ * en la fila con el prefijo `<kind>_remind_` (`monthlyReminderOf`,
+ * `deadlineReminderOf` los leen). */
+export type MonthlyReminderKind = 'km' | 'fuel'
+export type DeadlineReminderKind = 'itv' | 'maintenance'
+
+/** Los mandos de un recordatorio mensual (km o combustible). */
+export interface MonthlyReminderFields {
+  /** Apagado, no se abren avisos de anotación pendiente ni salen sus correos. */
+  enabled: boolean
+  by: KmRemindByValue
+  /** Los días concretos, como se guardan: «5, 20, 28» (vacío si se va por plazo). */
+  days: string
+  from_day: number
+  until_day: number
+  mode: KmRemindModeValue
+  emails: number
+  /** Tope de `emails`: los días del plazo en el mes más corto. */
+  max_emails: number
+  /** Las fechas en que saldrá cada correo del mes que se reclama. */
+  dates: string[]
+  /** A quién va: conductor (sin él, el supervisor), supervisor y/o los
+   * administradores elegidos (por id). */
+  to_driver: boolean
+  to_supervisor: boolean
+  admin_ids: number[]
+}
+
+/** Los mandos de un recordatorio por vencimiento (ITV o mantenimiento):
+ * los días antes y después de la fecha límite en que sale correo, como se
+ * guardan («30, 15, 7, 1» / «1, 7, 15»; en «antes», 0 = el mismo día). */
+export interface DeadlineReminderFields {
+  enabled: boolean
+  days_before: string
+  days_after: string
+  to_driver: boolean
+  to_supervisor: boolean
+  admin_ids: number[]
+}
+
+type Prefixed<P extends string, T> = { [K in keyof T as `${P}_remind_${string & K}`]: T[K] }
+
+export interface EmailSettingsRow
+  extends Prefixed<'km', MonthlyReminderFields>,
+    Prefixed<'fuel', MonthlyReminderFields>,
+    Prefixed<'itv', DeadlineReminderFields>,
+    Prefixed<'maintenance', DeadlineReminderFields> {
   /** Día en que se abre el registro de km de campo (0 = sin ventana): antes
    * de él, el conductor no puede dar la lectura que se le reclama. */
   km_window_start: number
-  /** A quién va el recordatorio: conductor (sin él, el supervisor), supervisor
-   * y/o los administradores elegidos (por id). */
-  km_remind_to_driver: boolean
-  km_remind_to_supervisor: boolean
-  km_remind_admin_ids: number[]
   /** Entre quiénes se puede elegir: administradores activos con correo. */
   admin_options: Array<{ id: number; name: string; email: string }>
   layout_enabled: boolean
@@ -1541,6 +1691,40 @@ export interface EmailSettingsRow {
   logo_data_url: string
   has_custom_logo: boolean
   updated_at: string
+}
+
+/** Los mandos de un recordatorio mensual, leídos de la fila por su prefijo. */
+export function monthlyReminderOf(row: EmailSettingsRow, kind: MonthlyReminderKind): MonthlyReminderFields {
+  const r = row as unknown as Record<string, unknown>
+  const g = <T,>(f: string) => r[`${kind}_remind_${f}`] as T
+  return {
+    enabled: g('enabled'),
+    by: g('by'),
+    days: g('days'),
+    from_day: g('from_day'),
+    until_day: g('until_day'),
+    mode: g('mode'),
+    emails: g('emails'),
+    max_emails: g('max_emails'),
+    dates: g('dates'),
+    to_driver: g('to_driver'),
+    to_supervisor: g('to_supervisor'),
+    admin_ids: g('admin_ids'),
+  }
+}
+
+/** Los mandos de un recordatorio por vencimiento, leídos de la fila por su prefijo. */
+export function deadlineReminderOf(row: EmailSettingsRow, kind: DeadlineReminderKind): DeadlineReminderFields {
+  const r = row as unknown as Record<string, unknown>
+  const g = <T,>(f: string) => r[`${kind}_remind_${f}`] as T
+  return {
+    enabled: g('enabled'),
+    days_before: g('days_before'),
+    days_after: g('days_after'),
+    to_driver: g('to_driver'),
+    to_supervisor: g('to_supervisor'),
+    admin_ids: g('admin_ids'),
+  }
 }
 
 export const getEmailSettings = (req: ReqOpts = {}) =>

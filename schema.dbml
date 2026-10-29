@@ -489,6 +489,9 @@ Table vehicle_usage {
   usage_percent decimal [note: 'la suma por vehículo y periodo = 100 (HU-2.5)']
   start_date date
   end_date date
+  weekdays varchar [note: 'días ISO (1 = lunes … 7 = domingo) separados por comas; vacío = todos']
+  time_from time [note: 'franja horaria, entera o nada']
+  time_to time
 }
 
 Table vehicle_links {

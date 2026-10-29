@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   listVehiclesCached: vi.fn(),
   fetchVehicleSummaries: vi.fn(),
   remindVehicle: vi.fn(),
+  previewVehicleNotice: vi.fn(),
   scheduleItv: vi.fn(),
   createKmReading: vi.fn(),
   listMaintenancePlans: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listVehiclesCached: mocks.listVehiclesCached,
   fetchVehicleSummariesCached: mocks.fetchVehicleSummaries,
   remindVehicle: mocks.remindVehicle,
+  previewVehicleNotice: mocks.previewVehicleNotice,
   scheduleItv: mocks.scheduleItv,
   createKmReading: mocks.createKmReading,
   listMaintenancePlans: mocks.listMaintenancePlans,
@@ -245,6 +247,11 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
       email_sent: true,
       email_skipped: '',
     })
+    mocks.previewVehicleNotice.mockResolvedValue({
+      subject: 'ITV de 1111AAA',
+      body_html: '<p>Hola: la <b>ITV</b> vence pronto.</p>',
+      has_template: false,
+    })
     renderPage()
     await screen.findByText('1111AAA')
 
@@ -253,16 +260,53 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     expect(screen.getByText('Recordatorio · 1111AAA')).toBeInTheDocument()
     expect(screen.getByText('Conductor: Conductor 1')).toBeInTheDocument()
 
-    // Se elige el motivo (ITV) y se envía por los dos canales (por defecto).
+    // Se elige el motivo (ITV); el correo va con la plantilla de gestión, y
+    // se enseña lo que saldrá: de qué versión es, el asunto y el cuerpo.
     await userEvent.click(screen.getByRole('radio', { name: /ITV/ }))
+    expect(screen.getByRole('radio', { name: /Plantilla de gestión/ })).toBeChecked()
+    expect(await screen.findByText('Texto genérico de la app')).toBeInTheDocument()
+    expect(screen.getByText('ITV de 1111AAA')).toBeInTheDocument()
+    expect(screen.getByText('Hola: la ITV vence pronto.')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(mocks.previewVehicleNotice).toHaveBeenLastCalledWith(1, {
+        template_key: 'itv_due',
+        message: '',
+        lang: 'es',
+      }),
+    )
+    // Y se envía por los dos canales (por defecto).
     await userEvent.click(screen.getByRole('button', { name: 'Enviar' }))
     expect(mocks.remindVehicle).toHaveBeenCalledWith(1, {
       kind: 'itv_due',
       send_email: true,
       create_alert: true,
       message: '',
+      body_mode: 'template',
     })
     expect(await screen.findByText(/Alerta creada en la app\. Correo enviado\./)).toBeInTheDocument()
+  })
+
+  it('con «Texto propio», el mensaje es el correo entero y sin él no se envía', async () => {
+    mocks.remindVehicle.mockResolvedValue({ alert_created: false, email_sent: true, email_skipped: '' })
+    mocks.previewVehicleNotice.mockResolvedValue({ subject: 'x', body_html: '<p>x</p>', has_template: true })
+    renderPage()
+    await screen.findByText('1111AAA')
+    await userEvent.click(screen.getAllByRole('button', { name: 'Enviar recordatorio' })[0])
+    // Con plantilla personalizada en gestión, se dice.
+    expect(await screen.findByText('Plantilla personalizada de gestión')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /Texto propio/ }))
+    // Ya no hay vista previa de plantilla; el texto pasa a ser obligatorio.
+    expect(screen.queryByText('Plantilla personalizada de gestión')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled()
+    await userEvent.type(screen.getByLabelText('Texto del correo'), 'Pasa la ITV esta semana.')
+    await userEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+    expect(mocks.remindVehicle).toHaveBeenCalledWith(1, {
+      kind: 'km_reading_pending',
+      send_email: true,
+      create_alert: true,
+      message: 'Pasa la ITV esta semana.',
+      body_mode: 'plain',
+    })
   })
 
   it('cada tarjeta cita la ITV de su coche, y eso lo guarda el back', async () => {
@@ -766,6 +810,43 @@ describe('FleetPage (flota a cargo del supervisor)', () => {
     ])
     expect(screen.getByText('2222BBB')).toBeInTheDocument()
     expect(screen.queryByText('1111AAA')).not.toBeInTheDocument()
+  })
+
+  it('con coches multiusuario, la lista va en dos grupos plegados con su recuento', async () => {
+    const group = [
+      vehicle(1, '1111AAA'),
+      vehicle(2, '2222BBB', 'maintenance', 'En taller'),
+      { ...vehicle(3, '3333CCC'), is_multiuser: true },
+    ]
+    mocks.listVehicles.mockResolvedValue({ count: 3, results: group })
+    mocks.listVehiclesCached.mockResolvedValue({ count: 3, results: group })
+    renderPage()
+
+    const general = await screen.findByRole('button', { name: /^Flota general/ })
+    const multi = screen.getByRole('button', { name: /^Coches multiusuario/ })
+    // Plegados de salida: se lee cuántos hay sin abrir nada.
+    expect(general).toHaveAttribute('aria-expanded', 'false')
+    expect(multi).toHaveAttribute('aria-expanded', 'false')
+    expect(general).toHaveTextContent(/Flota general\s*2/)
+    expect(multi).toHaveTextContent(/Coches multiusuario\s*1/)
+    expect(screen.getByText('3333CCC')).not.toBeVisible()
+
+    // Cada coche en el suyo.
+    await userEvent.click(multi)
+    expect(screen.getByText('3333CCC')).toBeVisible()
+    expect(screen.getByText('1111AAA')).not.toBeVisible()
+
+    // La búsqueda corta los dos, y los recuentos con ella.
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Buscar vehículo' }), '1111')
+    expect(general).toHaveTextContent(/Flota general\s*1/)
+    expect(multi).toHaveTextContent(/Coches multiusuario\s*0/)
+  })
+
+  it('sin ningún multiusuario, la lista sale suelta, sin grupos', async () => {
+    renderPage()
+    await screen.findByText('1111AAA')
+    expect(screen.queryByRole('button', { name: /^Flota general/ })).toBeNull()
+    expect(screen.getByText('1111AAA')).toBeVisible()
   })
 
   it('marca «Tu coche» el vehículo de la flota que conduce el propio supervisor', async () => {

@@ -10,6 +10,7 @@ import {
   truncatedAt,
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
+import { CollapsibleCard, useAccordion } from '../components/CollapsibleCard.tsx'
 import { SupervisorOverview } from '../components/SupervisorOverview.tsx'
 import { VehicleCardList } from '../components/VehicleCards.tsx'
 import { pendingThisMonth } from '../format.ts'
@@ -28,6 +29,9 @@ const STATE_ORDER = ['active', 'maintenance', 'itv', 'broken', 'accidente', 'pen
 const CUT_STOPPED = 'corte:parados'
 const CUT_SUBSTITUTED = 'corte:con-sustituto'
 
+/** Los dos grupos de la lista cuando hay coches multiusuario. */
+const FLEET_GROUPS = ['general', 'multiuser']
+
 /**
  * Flota a cargo (HU-2.8): la lista del grupo del supervisor, separada por
  * grupos de ESTADO seleccionables (Todos · Activos · Taller…).
@@ -35,7 +39,27 @@ const CUT_SUBSTITUTED = 'corte:con-sustituto'
  * para que lo tenga a mano aquí y no solo en "Mi vehículo" (`/`). La proyección
  * de km y las incidencias del grupo siguen en `/grupo`, que ya tiene su icono
  * en el bottom-nav — aquí no se duplica el acceso.
+ *
+ * Si entre lo que supervisa hay coches **multiusuario** (de pool: sin
+ * conductor, responde el supervisor y es él quien anota sus km y su
+ * combustible), la lista se parte en **dos acordeones plegados** —«Flota
+ * general» y «Coches multiusuario»—, cada uno con su recuento en el título:
+ * se atienden distinto (en los suyos registra él), y mezclados no se
+ * distinguía de un vistazo cuáles eran. La búsqueda y el selector de estado
+ * cortan los dos a la vez. Sin ningún multiusuario, la lista sale como
+ * siempre, suelta: un grupo único no agrupa nada.
  */
+/** Título de un grupo con su recuento (el mismo `acc-count` de las tarjetas
+ * de lo pendiente). */
+function titleWith(text: string, count: number) {
+  return (
+    <>
+      {text}
+      <span className={`acc-count${count === 0 ? ' is-zero' : ''}`}>{count}</span>
+    </>
+  )
+}
+
 export function FleetPage() {
   const { user } = useAuth()
   const { t } = useLang()
@@ -54,6 +78,8 @@ export function FleetPage() {
   // R3-30: error crudo, traducido al pintar (con `t` en las deps de `load`, el
   // botón es/en re-disparaba la carga del grupo entero).
   const [error, setError] = useState<unknown>(null)
+  // Los dos grupos nacen PLEGADOS: el título ya dice cuántos hay en cada uno.
+  const accordion = useAccordion(FLEET_GROUPS, FLEET_GROUPS)
 
   // El grupo que SUPERVISA (los roles se suman: sin el filtro `supervisor=<yo>`
   // un supervisor que además es admin vería aquí toda la flota). A ese grupo se
@@ -150,6 +176,12 @@ export function FleetPage() {
     return activeTab ? searched.filter((v) => v.state === activeTab) : searched
   }, [searched, activeTab, stopped, substituted])
 
+  // Se decide sobre el grupo ENTERO, no sobre lo filtrado: que los dos
+  // acordeones aparezcan y desaparezcan al teclear haría bailar la lista.
+  const hasMultiuser = vehicles.some((v) => v.is_multiuser)
+  const visibleGeneral = visible.filter((v) => !v.is_multiuser)
+  const visibleMultiuser = visible.filter((v) => v.is_multiuser)
+
   if (!isSupervisor) return <Navigate to="/" replace />
   if (loading) return <p role="status" className="gate-checking">{t.common.loading}</p>
   if (error) {
@@ -231,14 +263,51 @@ export function FleetPage() {
 
       {/* El `lookup` es el grupo entero: la pareja de sustitución se resuelve
           aunque el filtro o la búsqueda dejen fuera a uno de los dos. */}
-      <VehicleCardList
-        vehicles={visible}
-        lookup={vehicles}
-        summaries={summaries}
-        isSupervisor
-        currentUserId={supervisorId}
-        onRefresh={load}
-      />
+      {hasMultiuser ? (
+        <>
+          {/* El recuento del título es lo que deja pasar el filtro: es la
+              lista que hay dentro, y plegada es lo único que se lee. */}
+          <CollapsibleCard
+            id="general"
+            accordion={accordion}
+            headingClassName="panel-title"
+            title={titleWith(tf.groupGeneral, visibleGeneral.length)}
+          >
+            <VehicleCardList
+              vehicles={visibleGeneral}
+              lookup={vehicles}
+              summaries={summaries}
+              isSupervisor
+              currentUserId={supervisorId}
+              onRefresh={load}
+            />
+          </CollapsibleCard>
+          <CollapsibleCard
+            id="multiuser"
+            accordion={accordion}
+            headingClassName="panel-title"
+            title={titleWith(tf.groupMultiuser, visibleMultiuser.length)}
+          >
+            <VehicleCardList
+              vehicles={visibleMultiuser}
+              lookup={vehicles}
+              summaries={summaries}
+              isSupervisor
+              currentUserId={supervisorId}
+              onRefresh={load}
+            />
+          </CollapsibleCard>
+        </>
+      ) : (
+        <VehicleCardList
+          vehicles={visible}
+          lookup={vehicles}
+          summaries={summaries}
+          isSupervisor
+          currentUserId={supervisorId}
+          onRefresh={load}
+        />
+      )}
     </div>
   )
 }

@@ -4,6 +4,25 @@
 // qué incidencias se ofrecen; quien manda sigue siendo el back.
 import type { Alert, DocumentType, FlotaEvent, Incident, IncidentType } from './types.ts'
 
+/** TODOS los tipos de documento, en el orden del enumerado del back
+ * (`DocumentType` de `fleet/models/enums/document.py`): es lo que recorre la
+ * pantalla de Documentos para sus pestañas, incluidos los que no se ofrecen
+ * al subir (el acta de entrega) y los personales. */
+export const ALL_DOCUMENT_TYPES: readonly DocumentType[] = [
+  'registration_certificate',
+  'technical_datasheet',
+  'insurance',
+  'contract',
+  'delivery_report',
+  'return_report',
+  'accident_report',
+  'damage_photos',
+  'itv_report',
+  'workshop_invoice',
+  'driving_license',
+  'other',
+]
+
 /** Tipos que se pueden dar de alta en un VEHÍCULO (lista cerrada del back,
  * Épica 4, menos el permiso de conducir, que es de una persona, y el acta de
  * entrega, que no se ofrece: la que haya se sigue viendo, pero no se sube). */

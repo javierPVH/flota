@@ -41,6 +41,7 @@ from fleet.models import (
     Country,
     Document,
     DocumentDeletionRequest,
+    DocumentTypeAccess,
     DriverChangeRequest,
     EmailLog,
     EmailOutbox,
@@ -87,9 +88,12 @@ from fleet.models.enums import (
     AlertType,
     AllocationTarget,
     AssignmentStatus,
+    DocumentDeletionStatus,
     DocumentRequestKind,
     DocumentStatus,
     DocumentType,
+    DriverActionMode,
+    DriverDocumentRead,
     EventType,
     IncidentPriority,
     IncidentStatus,
@@ -352,6 +356,14 @@ BULK_LOCATIONS = [
 ADMIN_NO_DRIVER_INDEX = 8
 
 
+#: Los dos coches MULTIUSUARIO de la administradora (`seed_vehicles`).
+MULTIUSER_PLATES = ("3141PLM", "3142PLM")
+
+#: El vehículo de volumen que Alicia comparte con su conductor con la franja
+#: SOLAPADA (`seed_assignments`): activo, de flota y con conductor vigente.
+ADMIN_SHARED_INDEX = 1
+
+
 def _bulk_plate(i: int) -> str:
     """Matrícula determinista del vehículo i de volumen (2000BBB, 2001CKR…)."""
     letters = _PLATE_LETTERS
@@ -557,7 +569,7 @@ def seed_catalogs(stdout=None) -> None:
     )
 
     # -- N10b: plantillas de correo por defecto + firmas de ejemplo.
-    # Se siembran las SEIS claves de `EmailTemplateKey` (la clave es única, así
+    # Se siembran las OCHO claves de `EmailTemplateKey` (la clave es única, así
     # que hay exactamente una fila por tipo). `seed_erratas` desactiva luego la
     # genérica para poblar el espacio de erratas sin dejar ningún aviso mudo:
     # los tres tipos que envían correo tienen su propia plantilla activa.
@@ -600,6 +612,29 @@ def seed_catalogs(stdout=None) -> None:
             "<p>Falta la lectura de km de {{periodo}} de <strong>{{matricula}}</strong>: "
             "lleva <strong>{{dias_sin_lectura}}</strong> día(s) sin lectura "
             "(la última, el {{ultima_lectura}}). Regístrala desde la app de campo.</p>"
+        ),
+        signature=firma,
+    )
+    EmailTemplate.objects.create(
+        key=EmailTemplateKey.FUEL_READING_PENDING,
+        subject="Falta tu anotación de consumo · {{matricula}}",
+        body_html=(
+            "<p>Hola {{conductor}}:</p>"
+            "<p>Falta la anotación de consumo de {{periodo}} de "
+            "<strong>{{matricula}}</strong>: lleva <strong>{{dias_sin_lectura}}</strong> "
+            "día(s) sin anotarse (la última, el {{ultima_lectura}}). Anótala desde la "
+            "app de campo.</p>"
+        ),
+        signature=firma,
+    )
+    EmailTemplate.objects.create(
+        key=EmailTemplateKey.MAINTENANCE_DUE,
+        subject="Mantenimiento próximo · {{matricula}}",
+        body_html=(
+            "<p>Hola {{conductor}}:</p>"
+            "<p>El mantenimiento de <strong>{{matricula}}</strong> toca el "
+            "<strong>{{fecha_vencimiento}}</strong>. {{mensaje}}</p>"
+            "<p>Pide cita en el taller y regístralo desde la app de campo.</p>"
         ),
         signature=firma,
     )
@@ -827,6 +862,61 @@ def seed_vehicles(stdout=None) -> None:
         insurance_expiry_date=timezone.localdate() + timedelta(days=8),
         **common,
     )
+
+    # Dos coches MULTIUSUARIO (de pool) en el grupo de la administradora: sin
+    # conductor —los usa quien los necesite y de ellos responde ella, que es
+    # quien anota sus km y su combustible— y con el supervisor obligatorio.
+    # Son los que hacen salir en su «Flota» de campo el segundo acordeón,
+    # «Coches multiusuario». Un turismo y una furgoneta, para que no sean
+    # dos fichas iguales.
+    for plate, brand, model, version, vin, vtype, size, segment, use, fuel in (
+        (
+            MULTIUSER_PLATES[0],
+            "Dacia",
+            "Duster",
+            "1.0 TCe 100 Expression",
+            "UU1HSDCV0PL314100",
+            VehicleType.TURISMO,
+            VehicleSize.MEDIUM,
+            MarketSegment.LOWER_MEDIUM,
+            VehUse.PASSENGERS,
+            "Gasolina",
+        ),
+        (
+            MULTIUSER_PLATES[1],
+            "Ford",
+            "Transit Custom",
+            "320 L1H1 TDCi 130",
+            "WF0YXXTTGYPL31420",
+            VehicleType.FURGONETA,
+            VehicleSize.LARGE,
+            MarketSegment.MPV,
+            VehUse.GOODS,
+            "Diésel",
+        ),
+    ):
+        Vehicle.objects.create(
+            plate=plate,
+            brand=brand,
+            model=model,
+            version=version,
+            year=2024,
+            vin=vin,
+            registration_date=date(2024, 2, 19),
+            state=VehicleState.ACTIVE,
+            fuel=fuel,
+            type=vtype,
+            size=size,
+            market_segment=segment,
+            veh_use=use,
+            consumption=7,
+            business_use=UseType.WORKS,
+            property=PropertyType.RENTING,
+            supervisor=alicia,
+            is_multiuser=True,
+            km_start=2000,
+            **common,
+        )
 
     # -- Volumen: BULK_VEHICLES vehículos repartidos entre los grupos de sara
     # y marta (y algunos sin supervisor), con estados/usos/tipos variados.
@@ -1201,18 +1291,26 @@ def seed_assignments(stdout=None) -> None:
         status=AssignmentStatus.REJECTED,
     )
     # Reparto de uso de v1: 60/40 (HU-2.5). El % viaja tanto en el reparto como
-    # en la asignación vigente (el campo existe en las dos tablas).
+    # en la asignación vigente (el campo existe en las dos tablas). Cada uno
+    # con su horario —carlos las mañanas de diario, lucia las tardes—, que es
+    # lo que la cara «Reparto» de la app de campo enseña de cada coche.
     VehicleUsage.objects.create(
         vehicle=v1,
         driver=carlos,
         usage_percent=Decimal("60"),
         start_date=today - timedelta(days=180),
+        weekdays="1,2,3,4,5",
+        time_from=time(8, 0),
+        time_to=time(15, 0),
     )
     VehicleUsage.objects.create(
         vehicle=v1,
         driver=lucia,
         usage_percent=Decimal("40"),
         start_date=today - timedelta(days=180),
+        weekdays="1,2,3,4,5",
+        time_from=time(15, 0),
+        time_to=time(20, 0),
     )
     # Reparto ANTERIOR ya cerrado (`end_date`): histórico del reparto de v1.
     VehicleUsage.objects.create(
@@ -1317,23 +1415,77 @@ def seed_assignments(stdout=None) -> None:
         )
     SupervisorPeriod.objects.bulk_create(periodos, batch_size=500)
 
-    # Reparto de uso 70/30 en el primer vehículo de volumen.
+    # Reparto de uso 70/30 en el primer vehículo de volumen: por DÍAS de la
+    # semana y sin franja (el otro reparto del seed va por horas).
     shared = Vehicle.objects.get(plate=_bulk_plate(0))
     VehicleUsage.objects.create(
         vehicle=shared,
         driver=drivers[0],
         usage_percent=Decimal("70"),
         start_date=today - timedelta(days=90),
+        weekdays="1,2,3",
     )
     VehicleUsage.objects.create(
         vehicle=shared,
         driver=drivers[1],
         usage_percent=Decimal("30"),
         start_date=today - timedelta(days=90),
+        weekdays="4,5",
     )
     Assignment.objects.filter(vehicle=shared, status=AssignmentStatus.ACCEPTED).update(
         usage_percent=Decimal("70")
     )
+    # -- La administradora en REPARTO (la cara «Reparto» de la app de campo):
+    # tres coches y tres maneras de repartir. Su propio coche lo comparte con
+    # carlos los fines de semana (sale con «Tu coche»); el de sara, por DÍAS
+    # alternos y cada una con su franja; y uno de volumen, con su conductor,
+    # por HORAS y con la franja SOLAPADA (14:00–16:00 lo tienen los dos),
+    # que el reparto admite.
+    alicia = User.objects.get(username="admin")
+    desde = today - timedelta(days=45)
+    repartos = [
+        ("8888TRX", alicia, "80", "1,2,3,4,5", None, None),
+        ("8888TRX", carlos, "20", "6,7", None, None),
+        ("7890NPQ", sara, "50", "1,3,5", time(7, 0), time(15, 0)),
+        ("7890NPQ", alicia, "50", "2,4", time(9, 0), time(18, 0)),
+    ]
+    compartido = Vehicle.objects.get(plate=_bulk_plate(ADMIN_SHARED_INDEX))
+    suyo = Assignment.objects.get(
+        vehicle=compartido, status=AssignmentStatus.ACCEPTED, end_date__isnull=True
+    ).driver
+    repartos += [
+        (compartido.plate, suyo, "70", "1,2,3,4,5", time(8, 0), time(16, 0)),
+        (compartido.plate, alicia, "30", "1,2,3,4,5", time(14, 0), time(20, 0)),
+    ]
+    for plate, persona, pct, dias, desde_h, hasta_h in repartos:
+        VehicleUsage.objects.create(
+            vehicle=Vehicle.objects.get(plate=plate),
+            driver=persona,
+            usage_percent=Decimal(pct),
+            start_date=desde,
+            weekdays=dias,
+            time_from=desde_h,
+            time_to=hasta_h,
+        )
+
+    # -- Los coches MULTIUSUARIO no tienen conductor vigente, pero sí
+    # histórico de quién los usó: tramos CERRADOS (lo exige un coche de pool)
+    # y SOLAPADOS entre sí, que es lo que el histórico de un pool admite.
+    pool, furgo = (Vehicle.objects.get(plate=plate) for plate in MULTIUSER_PLATES)
+    for vehicle, persona, empieza, acaba in (
+        (pool, carlos, 60, 30),
+        (pool, lucia, 45, 20),
+        (furgo, drivers[2], 40, 10),
+        (furgo, drivers[3], 25, 2),
+    ):
+        Assignment.objects.create(
+            vehicle=vehicle,
+            driver=persona,
+            start_date=today - timedelta(days=empieza),
+            end_date=today - timedelta(days=acaba),
+            status=AssignmentStatus.FINISHED,
+        )
+
     # Vínculos de sustitución: uno por cada MOTIVO del enumerado (los 6). El estado del
     # principal casa con el motivo (averiado→avería, en ITV→ITV…) y cada
     # sustituto cubre a uno solo (la restricción es un activo por principal).
@@ -1550,6 +1702,9 @@ def seed_operations(stdout=None) -> None:
     Document.objects.create(
         vehicle=v2,
         type=DocumentType.HANDOVER_ACT,
+        # Ajuste por documento: esta acta se baja previa solicitud aunque su
+        # tipo lo permita (la chapa «Ajustado» del listado de gestión).
+        driver_download_override=DriverActionMode.REQUEST,
         incident=incident,
         drive_url="https://drive.example/acta-entrega-5678BCD",
         drive_file_id="drv-file-acta-5678BCD",
@@ -1606,6 +1761,19 @@ def seed_operations(stdout=None) -> None:
         drive_url="https://drive.example/contratos/R-2026-014.pdf",
         drive_file_id="drv-file-contrato-1234KLM",
         uploaded_by=admin,
+        status=DocumentStatus.VALID,
+    )
+    # Y la copia que carlos subió desde el móvil: el contrato se le lista
+    # solo si lo subió él (`own`) y se ve y se baja PREVIA SOLICITUD, así que
+    # este es el documento con el que se prueba en campo pedir la lectura y
+    # la descarga, y en gestión concederlas.
+    Document.objects.create(
+        vehicle=v1,
+        type=DocumentType.CONTRACT,
+        drive_url="https://drive.example/contratos/R-2026-014-copia.pdf",
+        drive_file_id="drv-file-contrato-copia-1234KLM",
+        uploaded_by=carlos,
+        notes="Copia del contrato que me entregaron con el coche",
         status=DocumentStatus.VALID,
     )
     Document.objects.create(
@@ -1956,6 +2124,27 @@ def seed_operations(stdout=None) -> None:
         kind=DocumentRequestKind.CHANGE,
         changes={"expiry_date": (today + timedelta(days=365 * 5)).isoformat()},
         reason="Ya lo renové: la caducidad es la nueva.",
+    )
+
+    # Y dos de ACCESO, la otra familia de la misma bandeja: sara, que
+    # supervisa, pide bajarse esas fotos —la supervisión se descarga siempre
+    # previa solicitud—, sin decidir; y carlos tiene ya CONCEDIDA la descarga
+    # de la póliza vieja de su coche (la póliza se baja con solicitud en este
+    # seed), que es lo que le devuelve el botón de descargar en su app.
+    DocumentDeletionRequest.objects.create(
+        document=fotos_v3,
+        requested_by=sara,
+        kind=DocumentRequestKind.DOWNLOAD,
+        reason="Para el parte de la aseguradora.",
+    )
+    DocumentDeletionRequest.objects.create(
+        document=poliza_vieja,
+        requested_by=carlos,
+        kind=DocumentRequestKind.DOWNLOAD,
+        status=DocumentDeletionStatus.GRANTED,
+        resolved_by=admin,
+        resolved_at=timezone.now() - timedelta(days=2),
+        resolution_note="Concedida: la pide para una reclamación.",
     )
 
     # Y una propuesta de CAMBIO DE CONDUCTOR sin decidir: la manda sara al
@@ -2607,6 +2796,26 @@ def seed_operations(stdout=None) -> None:
 # --- 7) Alertas (motor real sobre lo sembrado) -----------------------------
 
 
+def _dev_email_settings() -> EmailSettings:
+    """La fila de ajustes del correo tal como la deja el seed: la de fábrica
+    (`FLEET_KM_REMIND_*`) con el **recordatorio de combustible encendido** y
+    con el mismo plazo y cadencia que el de km. En producción nace apagado
+    (lo enciende la administración); en dev se enciende para que el motor
+    abra `fuel_reading_pending` en los coches sin consumo anotado y la
+    alerta se pueda probar en campo y en gestión (y el seed cubra el tipo).
+    Idempotente: `alerts` y `comms` la llaman los dos."""
+    cfg = EmailSettings.get_solo()
+    cfg.fuel_remind_enabled = True
+    cfg.fuel_remind_by = cfg.km_remind_by
+    cfg.fuel_remind_days = cfg.km_remind_days
+    cfg.fuel_remind_from_day = cfg.km_remind_from_day
+    cfg.fuel_remind_until_day = cfg.km_remind_until_day
+    cfg.fuel_remind_mode = cfg.km_remind_mode
+    cfg.fuel_remind_emails = cfg.km_remind_emails
+    cfg.save()
+    return cfg
+
+
 def seed_alerts(stdout=None) -> None:
     """Borra las alertas y deja que el MOTOR REAL las regenere.
 
@@ -2634,6 +2843,7 @@ def seed_alerts(stdout=None) -> None:
     forma determinista por `dedup_key`, así que no dejan ningún tipo vacío.
     """
     wipe(Alert, stdout)
+    _dev_email_settings()
     summary = alerts.run_all()
 
     closed = 0
@@ -2902,9 +3112,59 @@ def seed_comms(stdout=None) -> None:
     wipe(EmailOutbox, stdout)
     wipe(PushSubscription, stdout)
     wipe(ReportExport, stdout)
-    # Ajustes del correo: la fila única con sus valores por defecto.
+    # Ajustes del correo: la fila única con sus valores de fábrica y el
+    # recordatorio de combustible encendido (lo que vio el motor en `alerts`).
     EmailSettings.objects.all().delete()
-    EmailSettings.get_solo()
+    _dev_email_settings()
+    # Quién lee cada tipo de documento (Documentos → Ajustes): una fila por
+    # tipo. Los que llevan dinero o datos de la empresa —contrato, póliza,
+    # factura— se cierran al conductor (solo lo que subió él) y el contrato
+    # también a la supervisión; el contrato se ve y se baja previa solicitud
+    # y la póliza se baja previa solicitud; el acta de devolución no se
+    # lista al conductor en absoluto (es papel de la gestión). El resto queda como
+    # de fábrica, para que la pantalla enseñe todas las posiciones y la regla
+    # se pueda probar en campo.
+    wipe(DocumentTypeAccess, stdout)
+    cerrados_al_conductor = {
+        DocumentType.CONTRACT,
+        DocumentType.INSURANCE,
+        DocumentType.WORKSHOP_INVOICE,
+    }
+    DocumentTypeAccess.objects.bulk_create(
+        [
+            DocumentTypeAccess(
+                type=tipo,
+                supervisor_read=tipo != DocumentType.CONTRACT,
+                driver_read=(
+                    DriverDocumentRead.NONE
+                    if tipo == DocumentType.RETURN_ACT
+                    else DriverDocumentRead.OWN
+                    if tipo in cerrados_al_conductor
+                    else DriverDocumentRead.ALL
+                ),
+                driver_view=(
+                    DriverActionMode.REQUEST
+                    if tipo == DocumentType.CONTRACT
+                    else DriverActionMode.ALLOW
+                ),
+                driver_download=(
+                    DriverActionMode.REQUEST
+                    if tipo in {DocumentType.CONTRACT, DocumentType.INSURANCE}
+                    # La factura la lee quien la subió; bajársela, nadie de campo.
+                    else DriverActionMode.DENY
+                    if tipo == DocumentType.WORKSHOP_INVOICE
+                    else DriverActionMode.ALLOW
+                ),
+                # El contrato no lo pide borrar el conductor ni con solicitud.
+                driver_delete=(
+                    DriverActionMode.DENY
+                    if tipo == DocumentType.CONTRACT
+                    else DriverActionMode.REQUEST
+                ),
+            )
+            for tipo in DocumentType.values
+        ]
+    )
     today = _today()
     # Rastro de exportaciones: una descarga del admin, el CSV de la pantalla
     # de Usuarios y el adjunto de un envío programado, que es lo que se lee

@@ -8,6 +8,9 @@ import { useAppLang } from '@flota/ui/i18n'
 
 const es = {
   reminderTab: 'Recordatorio de km',
+  fuelTab: 'Recordatorio de combustible',
+  itvTab: 'Recordatorio de ITV',
+  maintenanceTab: 'Recordatorio de mantenimiento',
   layoutTab: 'Aspecto del correo',
   /** Grupos de la fila de pestañas de Ajustes → Correo. */
   groups: {
@@ -104,6 +107,59 @@ const es = {
     variablesHint:
       'En la plantilla puedes usar {{dias_sin_lectura}}, {{ultima_lectura}}, {{periodo}} y {{enlace_app}} además de {{matricula}} y {{conductor}}.',
   },
+  /** Lo que cambia en el recordatorio de combustible respecto al de km: la
+   * anotación es mensual igual, así que los mandos son los mismos. */
+  fuel: {
+    intro:
+      'Cada mes, el conductor cuyo coche no tenga anotación de consumo recibe la alerta en la app y un correo. Aquí se decide en qué días del mes se reclama y con qué cadencia se le escribe mientras siga sin anotarlo. El aviso dice siempre cuántos días lleva el coche sin anotación.',
+    enabledOn: 'se abren los avisos y salen los correos en las fechas de abajo.',
+    enabledOff: 'no se abrirán avisos ni saldrán correos; los abiertos se cierran solos cuando llega la anotación.',
+    stopHint: 'Quien anote el consumo deja de recibirlos.',
+    variablesHint:
+      'En la plantilla puedes usar {{dias_sin_lectura}} (días sin anotación), {{ultima_lectura}} (la última anotación), {{periodo}} y {{enlace_app}} además de {{matricula}} y {{conductor}}.',
+  },
+  /** Los recordatorios por vencimiento (ITV y mantenimiento): los días antes
+   * y después de la fecha límite en que sale correo. */
+  deadline: {
+    title: 'Cuándo se avisa',
+    intro: {
+      itv: 'La cita de ITV de cada coche abre su aviso en la app. Con este recordatorio, además, sale un correo los días que elijas antes y después de la fecha límite, mientras la ITV siga sin registrarse.',
+      maintenance:
+        'El mantenimiento programado de cada coche abre su aviso en la app cuando se acerca por fecha. Con este recordatorio, además, sale un correo los días que elijas antes y después de la fecha límite, mientras el mantenimiento siga sin registrarse. Un plan solo por kilómetros no tiene fecha límite y no manda correo.',
+    } as Record<string, string>,
+    enabled: 'Recordatorio activo',
+    enabledOn: 'sale un correo cada uno de esos días mientras el aviso siga abierto.',
+    enabledOff: 'no saldrá ningún correo; el aviso de la app sigue abriéndose igual.',
+    daysBefore: 'Días antes del vencimiento',
+    daysBeforeHint:
+      'Separados por comas, de 0 a 365 (0 = el mismo día). Por ejemplo «30, 15, 7, 1»: un correo a 30 días, otro a 15, otro a 7 y otro el día anterior.',
+    daysAfter: 'Días después del vencimiento',
+    daysAfterHint:
+      'Separados por comas, de 1 a 365. Por ejemplo «1, 7, 15»: si se pasa la fecha sin registrarlo, un correo al día siguiente, a la semana y a los quince días.',
+    daysError: 'Solo números de días separados por comas, dentro del rango.',
+    daysNone: 'Escribe algún día antes o después del vencimiento: si no, no hay nada que mandar.',
+    summaryTitle: 'Así quedaría',
+    summaryOff: 'El recordatorio está apagado: no saldrá ningún correo hasta que lo actives y guardes.',
+    summaryBefore: (n: number, days: string) =>
+      n === 0
+        ? 'Antes del vencimiento no sale ningún correo.'
+        : n === 1
+          ? `Antes del vencimiento, 1 correo: ${days}.`
+          : `Antes del vencimiento, ${n} correos: ${days}.`,
+    summaryAfter: (n: number, days: string) =>
+      n === 0
+        ? 'Pasada la fecha no sale ningún correo.'
+        : n === 1
+          ? `Pasada la fecha sin registrarlo, 1 correo: ${days}.`
+          : `Pasada la fecha sin registrarlo, ${n} correos: ${days}.`,
+    dayBefore: (d: number) => (d === 0 ? 'el mismo día' : d === 1 ? '1 día antes' : `${d} días antes`),
+    dayAfter: (d: number) => (d === 1 ? '1 día después' : `${d} días después`),
+    exampleTitle: (due: string) => `Ejemplo con un vencimiento el ${due}`,
+    stopHint: 'Quien registre la ITV o el mantenimiento deja de recibirlos.',
+    templateTitle: 'Correo que se enviará',
+    variablesHint:
+      'En la plantilla puedes usar {{fecha_vencimiento}}, {{mensaje}} (el texto del aviso) y {{enlace_app}} además de {{matricula}} y {{conductor}}.',
+  },
   layout: {
     title: 'La caja corporativa de todos los correos',
     intro:
@@ -135,6 +191,9 @@ const es = {
 
 const en: typeof es = {
   reminderTab: 'Mileage reminder',
+  fuelTab: 'Fuel reminder',
+  itvTab: 'MOT reminder',
+  maintenanceTab: 'Maintenance reminder',
   layoutTab: 'Email look',
   groups: {
     log: 'Log',
@@ -222,6 +281,55 @@ const en: typeof es = {
     customise: 'Customise the email',
     variablesHint:
       'In the template you can use {{dias_sin_lectura}}, {{ultima_lectura}}, {{periodo}} and {{enlace_app}} besides {{matricula}} and {{conductor}}.',
+  },
+  fuel: {
+    intro:
+      'Each month, the driver whose car has no fuel consumption entry gets the alert in the app and an email. Here you decide on which days of the month it is claimed and how often they are written to while they still have not logged it. The alert always says how many days the car has gone without an entry.',
+    enabledOn: 'alerts open and emails go out on the dates below.',
+    enabledOff: 'no alerts will open and no emails will go out; open ones close by themselves when the entry arrives.',
+    stopHint: 'Whoever logs the consumption stops receiving them.',
+    variablesHint:
+      'In the template you can use {{dias_sin_lectura}} (days without an entry), {{ultima_lectura}} (the last entry), {{periodo}} and {{enlace_app}} besides {{matricula}} and {{conductor}}.',
+  },
+  deadline: {
+    title: 'When to notify',
+    intro: {
+      itv: 'Each car’s MOT appointment opens its alert in the app. With this reminder, an email also goes out on the days you choose before and after the deadline, while the MOT remains unlogged.',
+      maintenance:
+        'Each car’s scheduled maintenance opens its alert in the app as the date approaches. With this reminder, an email also goes out on the days you choose before and after the deadline, while the maintenance remains unlogged. A plan by mileage only has no deadline and sends no email.',
+    } as Record<string, string>,
+    enabled: 'Reminder on',
+    enabledOn: 'an email goes out on each of those days while the alert stays open.',
+    enabledOff: 'no email will go out; the app alert still opens as usual.',
+    daysBefore: 'Days before the deadline',
+    daysBeforeHint:
+      'Comma-separated, 0 to 365 (0 = the same day). For example “30, 15, 7, 1”: an email 30 days before, another at 15, another at 7 and one the day before.',
+    daysAfter: 'Days after the deadline',
+    daysAfterHint:
+      'Comma-separated, 1 to 365. For example “1, 7, 15”: if the date passes unlogged, an email the next day, a week later and fifteen days later.',
+    daysError: 'Only numbers of days separated by commas, within the range.',
+    daysNone: 'Enter some day before or after the deadline: otherwise there is nothing to send.',
+    summaryTitle: 'This is how it would go',
+    summaryOff: 'The reminder is off: no email will go out until you turn it on and save.',
+    summaryBefore: (n: number, days: string) =>
+      n === 0
+        ? 'No email goes out before the deadline.'
+        : n === 1
+          ? `Before the deadline, 1 email: ${days}.`
+          : `Before the deadline, ${n} emails: ${days}.`,
+    summaryAfter: (n: number, days: string) =>
+      n === 0
+        ? 'No email goes out once the date has passed.'
+        : n === 1
+          ? `Past the date without logging it, 1 email: ${days}.`
+          : `Past the date without logging it, ${n} emails: ${days}.`,
+    dayBefore: (d: number) => (d === 0 ? 'the same day' : d === 1 ? '1 day before' : `${d} days before`),
+    dayAfter: (d: number) => (d === 1 ? '1 day after' : `${d} days after`),
+    exampleTitle: (due: string) => `Example with a deadline on ${due}`,
+    stopHint: 'Whoever logs the MOT or the maintenance stops receiving them.',
+    templateTitle: 'Email that will be sent',
+    variablesHint:
+      'In the template you can use {{fecha_vencimiento}}, {{mensaje}} (the alert text) and {{enlace_app}} besides {{matricula}} and {{conductor}}.',
   },
   layout: {
     title: 'The corporate frame of every email',

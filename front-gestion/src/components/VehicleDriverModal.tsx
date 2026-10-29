@@ -46,6 +46,10 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
   // Supervisor: NONE (sin supervisor) o el id.
   const initialSupervisor = vehicle.supervisor != null ? String(vehicle.supervisor) : NONE
   const [supervisor, setSupervisor] = useState(initialSupervisor)
+  // Multiusuario (coche de pool): sin conductor asociado y con supervisor
+  // obligatorio. Se decide aquí porque es de lo que depende quién lo lleva.
+  const initialMultiuser = Boolean(vehicle.is_multiuser)
+  const [multiuser, setMultiuser] = useState(initialMultiuser)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -127,8 +131,14 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
 
   const currentDriverValue = currentDriverId != null ? String(currentDriverId) : ''
   // ¿El conductor cambia? NOCHANGE o volver a elegir el vigente = sin cambio.
-  const driverChanged = driverValue !== NOCHANGE && driverValue !== currentDriverValue
+  // Con la marca puesta no hay conductor que cambiar: lo elegido antes de
+  // marcarla no cuenta.
+  const driverChanged =
+    !multiuser && driverValue !== NOCHANGE && driverValue !== currentDriverValue
   const supervisorChanged = supervisor !== initialSupervisor
+  const multiuserChanged = multiuser !== initialMultiuser
+  // Marcarlo con alguien al volante lo retira en el mismo gesto (se avisa).
+  const releasesDriver = multiuser && !initialMultiuser && currentDriverId != null
 
   const hayDriver = currentDriverId != null
   const haySupervisor = vehicle.supervisor != null
@@ -164,8 +174,12 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError('')
-    if (!driverChanged && !supervisorChanged) {
+    if (!driverChanged && !supervisorChanged && !multiuserChanged) {
       setError(t.nothingToDo)
+      return
+    }
+    if (multiuser && supervisor === NONE) {
+      setError(t.multiuserNeedsSupervisor)
       return
     }
     setSaving(true)
@@ -177,9 +191,11 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
       // propuesta huérfana que además daba ámbito al conductor (C1).
       await setVehicleDriver(vehicle.id, {
         ...(driverChanged ? { driver: Number(driverValue), start_date: startDate } : {}),
+        ...(releasesDriver ? { driver: null } : {}),
         ...(supervisorChanged
           ? { supervisor: supervisor === NONE ? null : Number(supervisor) }
           : {}),
+        ...(multiuserChanged ? { is_multiuser: multiuser } : {}),
         expected_updated_at: vehicle.updated_at,
       })
       onDone()
@@ -198,12 +214,30 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
 
   return (
     <form className="ops-modal" onSubmit={submit}>
+      {/* La barra de lo que hay dice también lo que VA a pasar al marcar
+          multiusuario: el conductor tachado (pasa al histórico al guardar) y,
+          si no hay supervisor elegido, su hueco marcado, que es obligatorio. */}
       <div className="ops-info">
         <span>
           {t.currentDriver}:{' '}
-          <strong>{current?.driver_name || vehicle.driver_name || t.none}</strong>
+          {releasesDriver ? (
+            <>
+              <s className="ops-info-struck">{current?.driver_name || vehicle.driver_name}</s>{' '}
+              <span className="ops-info-hint">{t.multiuserDriverStruck}</span>
+            </>
+          ) : (
+            <strong>{current?.driver_name || vehicle.driver_name || t.none}</strong>
+          )}
         </span>
-        <span>{t.supervisor}: <strong>{vehicle.supervisor_name || t.none}</strong></span>
+        <span className={multiuser && supervisor === NONE ? 'ops-info-missing' : undefined}>
+          {t.supervisor}: <strong>{vehicle.supervisor_name || t.none}</strong>
+          {multiuser && supervisor === NONE && (
+            <>
+              {' '}
+              <span className="ops-info-hint">{t.multiuserSupervisorMissing}</span>
+            </>
+          )}
+        </span>
         {/* Quitar a quien está puesto: a la derecha de la barra, separado de
             los campos que cambian a otra persona. */}
         <button
@@ -218,13 +252,33 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
         </button>
       </div>
 
+      {/* La marca de coche de pool, junto a las dos personas: es lo que
+          decide si hay conductor. */}
+      <section className="ops-section">
+        <label className="baja-toggle">
+          <input
+            type="checkbox"
+            checked={multiuser}
+            onChange={(e) => setMultiuser(e.target.checked)}
+          />
+          {t.multiuser}
+        </label>
+        <p className="muted ops-note">{t.multiuserHint}</p>
+        {releasesDriver && (
+          <p className="ops-note tone-warn">
+            {t.multiuserWillRelease(current?.driver_name || vehicle.driver_name || '')}
+          </p>
+        )}
+      </section>
+
       {/* En un multiusuario no hay conductor que cambiar —lo usa un número
           indeterminado de personas— y el back rechaza ponerle uno, así que no
           se ofrece: queda solo el supervisor, que es de quien sí responde. Se
           dice por qué, que un campo que desaparece sin más se lee como un
-          fallo. */}
-      {vehicle.is_multiuser ? (
-        <p className="ops-note">{t.multiuserNoDriver}</p>
+          fallo — solo cuando el coche YA lo es: al marcarlo ahora, la casilla
+          y su aviso (el conductor pasa al histórico) ya lo cuentan. */}
+      {multiuser ? (
+        initialMultiuser && <p className="ops-note">{t.multiuserNoDriver}</p>
       ) : (
         <section className="ops-section">
           <div className="ops-grid">
@@ -253,9 +307,11 @@ export function VehicleDriverModal({ vehicle, onClose, onDone }: Props) {
           label={t.supervisor}
           aria-label={t.supervisor}
           required
+          requiredVisual={multiuser}
           options={supervisorOptions}
           value={supervisor}
           onValueChange={setSupervisor}
+          warningMessage={multiuser && supervisor === NONE ? t.multiuserNeedsSupervisor : undefined}
         />
       </section>
 

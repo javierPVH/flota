@@ -20,6 +20,7 @@ import {
   ChevronsUp,
   ExternalLink,
   Mail,
+  SquarePen,
   Undo2,
   UserRound,
 } from 'lucide-react'
@@ -59,11 +60,9 @@ import { useVehiclesCopy } from '../translations/vehicles.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { CreateSubstituteButton } from '../components/CreateSubstituteButton.tsx'
 import { VehicleAssignmentsPanel } from '../components/VehicleAssignmentsPanel.tsx'
-import { VehicleDriverModal } from '../components/VehicleDriverModal.tsx'
 import { EMAIL_MODAL_SIZE, VehicleEmailModal } from '../components/VehicleEmailModal.tsx'
 import { VehicleForm } from '../components/VehicleForm.tsx'
 import { VehicleInvoicesCard } from '../components/VehicleInvoicesCard.tsx'
-import { VehicleInvoicesModal } from '../components/VehicleInvoicesModal.tsx'
 import { KmFuelModal } from '../components/KmFuelModal.tsx'
 import { ScheduleItvMaintenanceModal } from '../components/ScheduleItvMaintenanceModal.tsx'
 import {
@@ -200,8 +199,6 @@ export function VehicleDetailPage() {
   // `'default'` = el botón de la barra, que no fija plantilla; un `EmailKind`
   // = un atajo que arranca en la suya (hoy, el del vencimiento del seguro).
   const [emailOpen, setEmailOpen] = useState<'default' | EmailKind | null>(null)
-  const [driverOpen, setDriverOpen] = useState(false)
-  const [invoicesOpen, setInvoicesOpen] = useState(false)
   // GAP-7: devolución guiada (lectura final + contrato + asignaciones + baja).
   const [returnOpen, setReturnOpen] = useState(false)
   const [opsError, setOpsError] = useState('')
@@ -1264,11 +1261,21 @@ export function VehicleDetailPage() {
         }
       />
 
+      {/* La fila del estado: a la izquierda dos recuadros que SON el botón
+          —enviar correo y editar la ficha, lo que se abre sin salir de
+          aquí— y, a su derecha, el estado del coche (con quién lo lleva y,
+          si lo hay, el vínculo de sustitución), que se queda el ancho que
+          sobra. Siempre, también con el coche activo. */}
       <div className="detail-top">
-        {/* Callout de estado a todo el ancho, bajo los badges: cuando NO está
-            activo o tiene un vínculo de sustitución. Reúne lo más relevante. */}
-        {(vehicle.state !== 'active' || linkInfo || summary?.blocked_by_link) && (
-          <aside className={`status-callout tone-${vehicleStateTone(vehicle.state)}`} role="status">
+        <button type="button" className="detail-resource" onClick={() => setEmailOpen('default')}>
+          <Mail size={22} aria-hidden />
+          <span>{vt.email.btn}</span>
+        </button>
+        <button type="button" className="detail-resource" onClick={() => setEditOpen(true)}>
+          <SquarePen size={22} aria-hidden />
+          <span>{t.editSheet}</span>
+        </button>
+        <aside className={`status-callout tone-${vehicleStateTone(vehicle.state)}`} role="status">
             <div className="status-callout-head">
               <span className="status-callout-label">{t.statusLabel}</span>
               <Badge tone={vehicleStateTone(vehicle.state)}>{etiqueta.vehicleState(vehicle) || '—'}</Badge>
@@ -1304,43 +1311,13 @@ export function VehicleDetailPage() {
               )}
             </div>
           </aside>
-        )}
       </div>
 
-      {/* Lo que se le HACE al coche, en su propia barra bajo la cabecera. */}
-      {/* Lo que se le HACE al coche, en el orden en que se usa. Los km se
-          registran desde su indicador (abre el mismo modal) y lo demás
-          —sustitución, dar de baja y, si es sustituto, convertirlo en flota—
-          vive en la barra de «Editar», que es esta misma ficha quien se la
-          pasa al formulario. */}
-      <div className="detail-actionbar">
-        <Button variant="secondary" onClick={() => setEmailOpen('default')}>
-          {vt.email.btn}
-        </Button>
-        <Button variant="secondary" onClick={() => setDriverOpen(true)}>
-          {vt.driverModal.btn}
-        </Button>
-        <Button variant="secondary" onClick={() => setInvoicesOpen(true)}>
-          {vt.invoices.btn}
-        </Button>
-        <Button variant="secondary" onClick={() => setEditOpen(true)}>
-          {t.edit}
-        </Button>
-        {!isOutOfFleet(vehicle.state) && (
-          <>
-            <Button variant="secondary" onClick={() => openOps('state')}>
-              {t.changeState}
-            </Button>
-            {/* GAP-7: devolución guiada — la baja «a secas» sigue para
-                los casos sin devolución (siniestro total, venta…), en
-                «Editar». */}
-            <Button variant="warning" onClick={() => setReturnOpen(true)}>
-              {t.returnBtn}
-            </Button>
-          </>
-        )}
-      </div>
-
+      {/* Lo que se le HACE al coche no tiene barra propia aquí: el correo y
+          la edición están en la fila del estado, y conductor/supervisor,
+          estado y devolución van en la barra de «Editar ficha» (la del
+          formulario, que es esta misma ficha quien se la pasa). Los km se
+          registran desde su indicador y las facturas se leen en su tarjeta. */}
       {partialError && (
         <div className="link-banner" role="status">
           ⚠️ {t.partialLoadError}{' '}
@@ -2341,35 +2318,6 @@ export function VehicleDetailPage() {
             onClose={() => setEmailOpen(null)}
             onDone={load}
           />
-        )}
-      </Modal>
-
-      {/* Conductor y supervisor en una sola llamada atómica. */}
-      <Modal
-        open={driverOpen}
-        title={vt.driverModal.title(vehicle.plate)}
-        onClose={() => setDriverOpen(false)}
-        wide
-      >
-        {driverOpen && (
-          <VehicleDriverModal
-            vehicle={vehicle}
-            onClose={() => setDriverOpen(false)}
-            onDone={load}
-          />
-        )}
-      </Modal>
-
-      {/* Facturas del vehículo (la tarjeta de abajo solo las enseña). */}
-      <Modal
-        open={invoicesOpen}
-        title={vt.invoices.title(vehicle.plate)}
-        onClose={() => setInvoicesOpen(false)}
-        xl
-        height="88dvh"
-      >
-        {invoicesOpen && (
-          <VehicleInvoicesModal vehicle={vehicle} onClose={() => setInvoicesOpen(false)} />
         )}
       </Modal>
 

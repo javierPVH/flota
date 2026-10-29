@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Badge, Button, Modal, SelectField, TabButton, TextInputField } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { isOutOfFleet } from '@flota/ui/domain'
+import { isOutOfFleet, timeRangeLabel, weekdaysLabel } from '@flota/ui/domain'
 import { Trash2 } from 'lucide-react'
 
 import { assignmentStatusTone, todayIso } from '../format.ts'
@@ -36,6 +36,16 @@ function initialsOf(name: string): string {
 interface UsageLine {
   driver: string
   percent: string
+  /** Días ISO marcados (1 = lunes); vacío = todos los días. */
+  days: number[]
+  /** Franja `HH:MM`; las dos vacías = a cualquier hora. */
+  from: string
+  to: string
+}
+
+/** Una línea en blanco del editor: sin días ni franja, que es «siempre». */
+function blankLine(driver: string, percent: string): UsageLine {
+  return { driver, percent, days: [], from: '', to: '' }
 }
 
 /** Cuántos colores tiene la rueda del reparto (la persona n-ésima repite). */
@@ -62,7 +72,7 @@ export function VehicleAssignmentsPanel({
   const [modal, setModal] = useState<'change' | 'usage' | 'people' | null>(null)
   const [saving, setSaving] = useState(false)
   const [modalError, setModalError] = useState('')
-  const [usageLines, setUsageLines] = useState<UsageLine[]>([{ driver: '', percent: '100' }])
+  const [usageLines, setUsageLines] = useState<UsageLine[]>([blankLine('', '100')])
   const [usageStart, setUsageStart] = useState(today())
   // Búsqueda en cliente del histórico (barra informativa).
   const [historySearch, setHistorySearch] = useState('')
@@ -194,8 +204,13 @@ export function VehicleAssignmentsPanel({
         ? activeUsages.map((u) => ({
             driver: String(u.driver),
             percent: String(Number(u.usage_percent)),
+            // Lo que ya decía el reparto vigente: guardar sin tocarlo NO
+            // puede borrar los días ni la franja de nadie.
+            days: u.weekdays ?? [],
+            from: u.time_from?.slice(0, 5) ?? '',
+            to: u.time_to?.slice(0, 5) ?? '',
           }))
-        : [{ driver: current ? String(current.driver) : '', percent: '100' }],
+        : [blankLine(current ? String(current.driver) : '', '100')],
     )
     setUsageStart(today())
     setModalError('')
@@ -209,7 +224,31 @@ export function VehicleAssignmentsPanel({
     ? t.needPersonLine
     : new Set(usageLines.map((l) => l.driver)).size !== usageLines.length
       ? t.duplicatePerson
-      : ''
+      : // La franja va entera o no va (la misma regla que el back).
+        usageLines.some((l) => Boolean(l.from) !== Boolean(l.to))
+        ? t.halfRange
+        : usageLines.some((l) => l.from && l.from === l.to)
+          ? t.sameTime
+          : ''
+
+  /** Cambia un campo de UNA línea del editor. */
+  function patchLine(index: number, patch: Partial<UsageLine>) {
+    setUsageLines((lines) => lines.map((l, i) => (i === index ? { ...l, ...patch } : l)))
+  }
+
+  function toggleDay(index: number, day: number) {
+    const days = usageLines[index].days
+    patchLine(index, {
+      days: days.includes(day) ? days.filter((d) => d !== day) : [...days, day].sort((a, b) => a - b),
+    })
+  }
+
+  /** Cuándo, en una línea: «L–V · 08:00–15:00», con lo vacío dicho. */
+  function whenLabel(days: number[], from: string | null, to: string | null) {
+    return `${weekdaysLabel(days, t.weekdayShort) || t.everyDay} · ${
+      timeRangeLabel(from, to) || t.allDay
+    }`
+  }
 
   /** Cada conductor va en UNA línea: las demás dejan de ofrecerlo. */
   function usageOptions(index: number) {
@@ -224,7 +263,7 @@ export function VehicleAssignmentsPanel({
   /** La línea nueva nace con lo que queda por repartir. */
   function addUsageLine() {
     const resto = usageRest
-    setUsageLines((lines) => [...lines, { driver: '', percent: resto > 0 ? String(resto) : '' }])
+    setUsageLines((lines) => [...lines, blankLine('', resto > 0 ? String(resto) : '')])
   }
 
   /** A partes iguales; el pico (100 no siempre divide) va a las primeras. */
@@ -246,7 +285,13 @@ export function VehicleAssignmentsPanel({
         start_date: usageStart,
         items: usageLines
           .filter((l) => l.driver)
-          .map((l) => ({ driver: Number(l.driver), usage_percent: l.percent })),
+          .map((l) => ({
+            driver: Number(l.driver),
+            usage_percent: l.percent,
+            weekdays: l.days,
+            time_from: l.from || null,
+            time_to: l.to || null,
+          })),
       })
       setModal(null)
       load()
@@ -344,9 +389,10 @@ export function VehicleAssignmentsPanel({
                         style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
                       />
                     </div>
-                    {u.start_date && (
-                      <span className="usage-bar-since muted">{t.sinceDate(u.start_date).trim()}</span>
-                    )}
+                    <span className="usage-bar-since muted">
+                      {whenLabel(u.weekdays ?? [], u.time_from, u.time_to)}
+                      {u.start_date ? ` ${t.sinceDate(u.start_date).trim()}` : ''}
+                    </span>
                   </div>
                 )
               })}
@@ -507,7 +553,8 @@ export function VehicleAssignmentsPanel({
               <span />
             </div>
             {usageLines.map((line, index) => (
-              <div className="usage-row" key={index}>
+              <div className="usage-line" key={index}>
+              <div className="usage-row">
                 <span className="usage-dot" data-tone={index % USAGE_TONES} aria-hidden="true" />
                 <SelectField
                   label=""
@@ -515,11 +562,7 @@ export function VehicleAssignmentsPanel({
                   required
                   options={[{ value: '', label: t.choosePlaceholder }, ...usageOptions(index)]}
                   value={line.driver}
-                  onValueChange={(value) =>
-                    setUsageLines((lines) =>
-                      lines.map((l, i) => (i === index ? { ...l, driver: value } : l)),
-                    )
-                  }
+                  onValueChange={(value) => patchLine(index, { driver: value })}
                 />
                 <TextInputField
                   label=""
@@ -529,11 +572,7 @@ export function VehicleAssignmentsPanel({
                   max={100}
                   step={1}
                   value={line.percent}
-                  onChange={(e) =>
-                    setUsageLines((lines) =>
-                      lines.map((l, i) => (i === index ? { ...l, percent: e.target.value } : l)),
-                    )
-                  }
+                  onChange={(e) => patchLine(index, { percent: e.target.value })}
                 />
                 <button
                   type="button"
@@ -546,8 +585,50 @@ export function VehicleAssignmentsPanel({
                   <Trash2 size={15} aria-hidden />
                 </button>
               </div>
+              {/* CUÁNDO: los días como chips que se marcan y la franja con
+                  dos horas. Sin nada marcado, cualquier día y a cualquier
+                  hora, que es lo que era un reparto hasta ahora. */}
+              <div className="usage-when">
+                <div className="usage-days" role="group" aria-label={t.daysOf(index + 1)}>
+                  {t.weekdayShort.map((label, i) => {
+                    const day = i + 1
+                    const on = line.days.includes(day)
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        className={`usage-day${on ? ' is-on' : ''}`}
+                        aria-pressed={on}
+                        aria-label={t.weekdayLong[i]}
+                        title={t.weekdayLong[i]}
+                        onClick={() => toggleDay(index, day)}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+                <span className="usage-time">
+                  {t.timeFrom}
+                  <input
+                    type="time"
+                    aria-label={t.fromOf(index + 1)}
+                    value={line.from}
+                    onChange={(e) => patchLine(index, { from: e.target.value })}
+                  />
+                  {t.timeTo}
+                  <input
+                    type="time"
+                    aria-label={t.toOf(index + 1)}
+                    value={line.to}
+                    onChange={(e) => patchLine(index, { to: e.target.value })}
+                  />
+                </span>
+              </div>
+              </div>
             ))}
           </div>
+          <p className="muted usage-note">{t.whenNote}</p>
 
           <div className="usage-tools">
             <Button type="button" variant="secondary" size="sm" onClick={addUsageLine}>

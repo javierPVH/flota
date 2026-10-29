@@ -213,6 +213,8 @@ class CatalogoTests(TestCase):
                 "km_pending",
                 "km_pending_days",
                 "km_pending_never",
+                "fuel_pending_days",
+                "fuel_pending_never",
                 "no_driver",
                 "km_overage",
                 "maintenance",

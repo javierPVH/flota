@@ -110,6 +110,34 @@ export interface MyVehicleRequest {
   updated_at: string
 }
 
+/** CUÁNDO usa el coche una persona de un reparto: días ISO (1 = lunes …
+ * 7 = domingo; vacía = todos) y franja `HH:MM` (nulas = a cualquier hora). */
+export interface ShareSchedule {
+  weekdays: number[]
+  time_from: string | null
+  time_to: string | null
+}
+
+/** Un coche que uno tiene en reparto de uso (`/vehicle-usages/mine/`): el
+ * coche, la parte propia, cuándo le toca, el periodo, si además lo conduce
+ * y con quién lo reparte (cada uno con sus días y su franja). */
+export interface MyShare extends ShareSchedule {
+  id: number
+  vehicle: {
+    id: number
+    plate: string
+    brand: string
+    model: string
+    state: string
+    state_display: string
+  }
+  usage_percent: number
+  start_date: string | null
+  end_date: string | null
+  is_driver: boolean
+  shared_with: Array<ShareSchedule & { id: number; name: string; usage_percent: number }>
+}
+
 export interface MyRequestInput {
   requested_type?: string
   start_date?: string | null
@@ -253,6 +281,19 @@ export interface FlotaDocument {
   /** Hay pedido su borrado y la gestión aún no lo ha decidido: la fila lo dice
    * y su papelera se apaga (una petición por documento). */
   deletion_pending: boolean
+  /** Lo que QUIEN PIDE puede hacer YA con el archivo —verlo y bajárselo—
+   * según su tipo o su ajuste (Documentos → Ajustes de gestión) y, cuando
+   * no puede, en qué va su petición de acceso ('' = sin pedir, 'pending' o
+   * 'granted'; 'denied' = no se permite y no hay nada que pedir). Pedir el
+   * borrado y una corrección, siempre. El back lo exige igual en su
+   * endpoint; aquí solo se pinta el botón que toca. */
+  can_view: boolean
+  can_download: boolean
+  view_request: '' | 'pending' | 'granted' | 'denied'
+  download_request: '' | 'pending' | 'granted' | 'denied'
+  /** Si puede PEDIR su borrado (la papelera): el tipo o el documento pueden
+   * cerrárselo al conductor. Sin la marca (copia cacheada vieja), sí. */
+  can_request_delete?: boolean
   created_at: string
   updated_at: string
 }
