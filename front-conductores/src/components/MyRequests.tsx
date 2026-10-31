@@ -4,6 +4,7 @@ import { Badge } from '@flota/ui/ui'
 import {
   listDriverChangeRequests,
   listMyDocumentRequests,
+  listMyDocumentSupplyRequests,
   listMyProfileChangeRequests,
   listMyRequests,
 } from '../api.ts'
@@ -28,10 +29,10 @@ interface RequestRow {
 
 /**
  * **Lo que uno tiene pedido**, en UNA tarjeta plegable con **dos pestañas**:
- * pendientes y resueltas. Junta las CUATRO bandejas en las que una persona de
- * campo puede tener algo —su ficha, sus documentos, el coche de sustitución que
- * pidió y el cambio de conductor que propuso—, porque desde aquí no se lee
- * «bandejas»: se lee «lo mío».
+ * pendientes y resueltas. Junta las CINCO bandejas en las que una persona de
+ * campo puede tener algo —su ficha, sus documentos, el papel que pidió porque
+ * le faltaba, el coche de sustitución que pidió y el cambio de conductor que
+ * propuso—, porque desde aquí no se lee «bandejas»: se lee «lo mío».
  *
  * Eran dos tarjetas seguidas, y en un móvil eso es media pantalla de listas que
  * casi siempre están vacías: ahora el **recuento de lo pendiente va en el
@@ -72,7 +73,8 @@ export function MyRequests({
       listMyDocumentRequests(),
       listMyRequests(),
       listDriverChangeRequests(),
-    ]).then(([perfil, documentos, coches, conductores]) => {
+      listMyDocumentSupplyRequests(),
+    ]).then(([perfil, documentos, coches, conductores, pedidos]) => {
       const salida: RequestRow[] = []
       let algunFallo = false
 
@@ -145,6 +147,21 @@ export function MyRequests({
               granted: row.status === 'done',
             })
           })
+      } else algunFallo = true
+
+      if (pedidos.status === 'fulfilled') {
+        pedidos.value.results.forEach((row) => {
+          salida.push({
+            key: `supply-${row.id}`,
+            // El papel que se pidió, y de qué coche (o de uno mismo).
+            kind: `${copy.kindSupply}${row.vehicle_plate ? ` · ${row.vehicle_plate}` : ''}`,
+            detail: `${etiqueta.docType(row)} · ${row.note || copy.noDetail}`,
+            created_at: row.created_at,
+            status_display: etiqueta.requestStatus('supply', row),
+            pending: row.status === 'pending',
+            granted: row.status === 'done',
+          })
+        })
       } else algunFallo = true
 
       // Lo más reciente arriba: una lista de peticiones se lee por lo último.

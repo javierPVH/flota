@@ -893,6 +893,60 @@ class DocumentTypeAccessTests(APITestCase):
         self.assertEqual(self._decide(otra.pk, "reject").data["status"], "rejected")
         self.assertFalse(self._rows(self.mate)[self.poliza.pk]["can_view"])
 
+    def test_management_grants_access_without_a_request_and_lists_as_the_person(self):
+        """La bandeja decide documento a documento: el listado «visto como» esa
+        persona (`access_for`) dice qué lista y qué puede hacer, y `grant` le
+        concede la lectura o la descarga sin que la haya pedido."""
+        DocumentTypeAccess.objects.create(type="insurance", driver_view=DriverActionMode.REQUEST)
+        DocumentTypeAccess.objects.create(type="contract", driver_read=DriverDocumentRead.NONE)
+        self.client.force_authenticate(self.admin)
+        filas = {
+            row["id"]: row
+            for row in self.client.get(
+                self.list_url, {"vehicle": self.car.pk, "access_for": self.driver.pk}
+            ).data["results"]
+        }
+        # La póliza: la lista, pero la ve con solicitud y aún no la ha pedido.
+        self.assertTrue(filas[self.poliza.pk]["subject_lists"])
+        self.assertFalse(filas[self.poliza.pk]["can_view"])
+        self.assertEqual(filas[self.poliza.pk]["view_request"], "")
+        # El contrato: su tipo no se lista al conductor.
+        self.assertFalse(filas[self.contrato.pk]["subject_lists"])
+        # Sin el parámetro, lo de siempre (y sin sujeto, nulo).
+        sin = self.client.get(self.list_url, {"vehicle": self.car.pk}).data["results"][0]
+        self.assertIsNone(sin["subject_lists"])
+
+        # Conceder la lectura de la póliza: la fila concedida es el permiso.
+        url = reverse("document-grant", args=[self.poliza.pk])
+        resp = self.client.post(url, {"user": self.driver.pk, "kind": "view"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["status"], "granted")
+        self.assertEqual(resp.data["kind"], "view")
+        self.assertEqual(resp.data["requested_by"], self.driver.pk)
+        self.assertTrue(self._rows(self.driver)[self.poliza.pk]["can_view"])
+        # Idempotente: la segunda devuelve la misma fila.
+        self.client.force_authenticate(self.admin)
+        otra = self.client.post(url, {"user": self.driver.pk, "kind": "view"}, format="json")
+        self.assertEqual(otra.data["id"], resp.data["id"])
+        # Con una pendiente del compañero, conceder es concederle ESA.
+        pedida = self._ask(self.mate, self.poliza, "view").data["id"]
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(url, {"user": self.mate.pk, "kind": "view"}, format="json")
+        self.assertEqual(resp.data["id"], pedida)
+        self.assertEqual(resp.data["status"], "granted")
+        # A quien ni lista el documento no se le concede: hay que abrírselo antes.
+        resp = self.client.post(
+            reverse("document-grant", args=[self.contrato.pk]),
+            {"user": self.driver.pk, "kind": "view"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("user", resp.data["errors"])
+        # Y solo la administración concede.
+        self.client.force_authenticate(self.supervisor)
+        resp = self.client.post(url, {"user": self.driver.pk, "kind": "view"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_deny_is_neither_seen_nor_asked(self):
         """«No permitir»: el documento se lista, pero su archivo no sale por el
         campo ni pidiéndolo — ni ver, ni bajar, ni abrir una petición."""

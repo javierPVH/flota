@@ -35,6 +35,25 @@ export function documentLinkRequired(type: string): boolean {
   return type === 'damage_photos' || incidentTypeRequiredBy(type) !== null
 }
 
+/** Tipos que se pueden PEDIR (`REQUESTABLE_DOCUMENT_TYPES` del back): el
+ * criterio es que la bandeja tenga salida, o sea que la gestión pueda subirlo
+ * ahí mismo. Por eso quedan fuera los que exigen acompañar a algo (factura,
+ * fotos de daños, informe de ITV, parte de accidente) y el acta de entrega,
+ * que ya hoy no se ofrece al subir. Pedir lo que no se puede atender es una
+ * vía muerta, y el back contesta 400. */
+export const REQUESTABLE_DOCUMENT_TYPES = [
+  'registration_certificate',
+  'technical_datasheet',
+  'insurance',
+  'contract',
+  'return_report',
+  'driving_license',
+  'other',
+] as const
+
+/** Y los que se piden con titular PERSONA: los personales de esa lista. */
+export const REQUESTABLE_PERSONAL_DOCUMENT_TYPES = ['driving_license', 'other'] as const
+
 /** Lo que no tiene incidencia detrás (la póliza, el permiso de circulación)
  * no ofrece ligarse a ninguna. */
 const NO_INCIDENT_DOCUMENT_TYPES: ReadonlySet<string> = new Set([

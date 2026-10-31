@@ -1,5 +1,5 @@
-"""Enumerados de solicitudes: de vehículo (Épica 8), de cambio de conductor y de
-corrección de la ficha personal."""
+"""Enumerados de solicitudes: de vehículo (Épica 8), de cambio de conductor, de
+corrección de la ficha personal y de **documento pedido**."""
 
 from django.db import models
 
@@ -29,6 +29,27 @@ class DriverChangeStatus(models.TextChoices):
     bloqueo optimista; esta fila no mueve asignaciones— o **la rechaza**,
     diciendo por qué. Las dos la sacan de pendiente, que es lo que la quita de
     la bandeja y de la cuenta del aviso.
+    """
+
+    PENDING = "pending", "Pendiente"
+    DONE = "done", "Atendida"
+    REJECTED = "rejected", "Rechazada"
+
+
+class DocumentSupplyStatus(models.TextChoices):
+    """En qué queda la petición de que le FACILITEN un documento al campo.
+
+    Las otras tres peticiones sobre documentos hablan de uno que ya existe y
+    que quien pide ya ve (borrarlo, corregirlo, abrir su archivo); esta es la
+    de antes de todo eso: «necesito la ficha técnica de mi coche y no está» —o
+    está, pero su tipo está cerrado al conductor, así que ni se lista y no hay
+    nada sobre lo que pedir acceso—.
+
+    Dos salidas, como las otras dos peticiones de campo: la administración **la
+    atiende** —subiendo el documento desde la propia bandeja, y entonces la
+    fila se queda con cuál fue (`document`), o diciendo que ya se entregó por
+    otra vía— o **la rechaza**. Las dos la sacan de pendiente, que es lo que la
+    quita de la bandeja y de la cuenta del aviso.
     """
 
     PENDING = "pending", "Pendiente"

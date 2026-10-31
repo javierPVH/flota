@@ -25,6 +25,9 @@ const es = {
       maintenance: 'Mantenimiento',
       fuel: 'Combustible',
       accident: 'Accidente',
+      // El botón hace dos cosas (pedir o subir), pero en el nav no cabe
+      // decirlo: siete pestañas en un móvil estrecho no admiten verbos.
+      document: 'Documento',
     },
     // Switch del supervisor: o estás en tu coche o estás en la flota.
     mode: {
@@ -155,7 +158,6 @@ const es = {
     ownEmpty: 'No conduces ningún vehículo ahora mismo.',
     ownEmptyCta: 'Ver la flota a cargo',
     quickRegister: 'Registrar km',
-    quickUpload: 'Subir documento',
     quickBreakdown: 'Incidencia',
     loadError: 'No se pudieron cargar tus vehículos.',
     // Acordeón de advertencias del inicio: solo sale cuando queda poco.
@@ -229,7 +231,8 @@ const es = {
     nextItv: 'Próxima ITV',
     kmPending: 'Falta la lectura de km de este mes.',
     kmPendingCta: 'Registrarla ahora',
-    quickUpload: 'Subir documento',
+    /** El mismo botón hace las dos cosas: el papel que falta se PIDE. */
+    quickDocument: 'Pedir o subir documento',
     quickItv: 'Registrar ITV',
     scheduledActionUnavailable:
       'Disponible cuando falten 30 días o menos, o cuando la fecha esté vencida.',
@@ -711,6 +714,38 @@ const es = {
   // Vista propia de subida de documentos; los campos reutilizan `vehicle.*`.
   uploadDoc: {
     title: 'Subir documento',
+    /** El mismo botón hace DOS cosas, y el título lo dice: el papel que falta
+     * no se busca por teléfono, se pide. */
+    titleBoth: 'Documento',
+    /** La bifurcación de salida, antes de preguntar nada más. */
+    stepMode: 'Qué quieres',
+    modeLabel: '¿Qué quieres hacer?',
+    modeUpload: 'Subir un documento',
+    modeUploadHint: 'Tienes el papel (o una foto) y lo guardas en la ficha.',
+    modeAsk: 'Pedir un documento',
+    modeAskHint:
+      'No lo tienes: se lo pides a administración, que te lo facilita. '
+      + 'Vale también para los que no ves en la lista.',
+    /** La rama de pedir: un solo paso, porque son tres preguntas. */
+    stepAsk: 'Qué pides',
+    askType: 'Documento que necesitas',
+    askTypeChoose: 'Elige el documento…',
+    askNote: '¿Para qué lo necesitas?',
+    askNoteHint:
+      'Obligatorio: el tipo dice qué papel es, no para qué hace falta — y es '
+      + 'lo que lee quien lo decide.',
+    askOwnerHint:
+      'Los del coche son sus papeles (contrato, seguro, ficha técnica); los '
+      + 'personales son los tuyos, y solo puedes pedir los tuyos.',
+    askSubmit: 'Enviar la petición',
+    askSubmitting: 'Enviando…',
+    askSavedTitle: 'Petición enviada',
+    askSaved:
+      'Administración la verá en su bandeja. No cambia nada por sí sola: '
+      + 'la tienes en «Mi perfil» → Peticiones hasta que la decidan.',
+    askAnother: 'Pedir otro',
+    askNoteRequired: 'Di para qué lo necesitas.',
+    askError: 'No se pudo enviar la petición.',
     /** Los tres pasos: qué se sube, de qué es y qué más hay que decir. */
     stepFile: 'Tipo y documento',
     stepLink: 'Ligado a',
@@ -748,7 +783,10 @@ const es = {
     back: 'Volver',
     vehicle: 'Vehículo',
     choose: 'Elige un vehículo…',
-    type: 'Tipo',
+    /** El «elige» del motivo del cambio de neumáticos: antes reusaba `choose`
+     * y el desplegable del motivo decía «Elige un vehículo…». */
+    chooseReason: 'Elige el motivo…',
+    type:'Tipo',
     // Los mismos nombres que gestión y que el back (`IncidentType`).
     types: {
       general: 'Petición general',
@@ -1080,6 +1118,8 @@ const es = {
       kindDocument: 'Documento',
       kindVehicle: 'Coche',
       kindDriver: 'Cambio de conductor',
+      /** El papel que se pidió porque faltaba. */
+      kindSupply: 'Documento pedido',
       asked: (when: string) => `Pedida el ${when}`,
       noDetail: 'Sin detalle',
     },
@@ -1157,6 +1197,8 @@ const es = {
         closed: 'Cerrada',
       },
       driver: { pending: 'Pendiente', done: 'Atendida', rejected: 'Rechazada' },
+      // El papel que se pidió: lo facilitaron o dijeron que no.
+      supply: { pending: 'Pendiente', done: 'Atendida', rejected: 'Rechazada' },
     },
     docRequestKind: { delete: 'Borrado', change: 'Corrección', view: 'Lectura', download: 'Descarga' },
     /** Los campos que se piden corregir, tal como los nombra su formulario. */
@@ -1239,6 +1281,7 @@ const en: typeof es = {
       maintenance: 'Maintenance',
       fuel: 'Fuel',
       accident: 'Accident',
+      document: 'Document',
     },
     mode: {
       label: 'Switch view',
@@ -1341,7 +1384,6 @@ const en: typeof es = {
     ownEmpty: 'You are not driving any vehicle right now.',
     ownEmptyCta: 'See the fleet in my care',
     quickRegister: 'Log km',
-    quickUpload: 'Upload document',
     quickBreakdown: 'Incident',
     loadError: 'Could not load your vehicles.',
     deadlines: {
@@ -1402,7 +1444,7 @@ const en: typeof es = {
     nextItv: 'Next MOT',
     kmPending: "This month's km reading is missing.",
     kmPendingCta: 'Log it now',
-    quickUpload: 'Upload document',
+    quickDocument: 'Ask for or upload a document',
     quickItv: 'Log MOT',
     scheduledActionUnavailable:
       'Available when 30 days or less remain, or when the due date has passed.',
@@ -1836,6 +1878,34 @@ const en: typeof es = {
   },
   uploadDoc: {
     title: 'Upload document',
+    titleBoth: 'Document',
+    stepMode: 'What you need',
+    modeLabel: 'What do you want to do?',
+    modeUpload: 'Upload a document',
+    modeUploadHint: 'You have the document (or a photo) and file it here.',
+    modeAsk: 'Ask for a document',
+    modeAskHint:
+      "You don't have it: ask the office to provide it. Works for the ones "
+      + "you cannot see in the list either.",
+    stepAsk: 'What you ask for',
+    askType: 'Document you need',
+    askTypeChoose: 'Choose the document…',
+    askNote: 'What do you need it for?',
+    askNoteHint:
+      'Required: the type says which document it is, not what it is needed '
+      + 'for — and that is what whoever decides reads.',
+    askOwnerHint:
+      "Vehicle documents are its papers (contract, insurance, datasheet); "
+      + 'personal ones are yours, and you may only ask for your own.',
+    askSubmit: 'Send the request',
+    askSubmitting: 'Sending…',
+    askSavedTitle: 'Request sent',
+    askSaved:
+      'The office will see it in their inbox. It changes nothing on its own: '
+      + 'you have it in "My profile" → Requests until they decide.',
+    askAnother: 'Ask for another',
+    askNoteRequired: 'Say what you need it for.',
+    askError: 'Could not send the request.',
     stepFile: 'Type and file',
     stepLink: 'Linked to',
     stepNotes: 'Notes',
@@ -1867,7 +1937,8 @@ const en: typeof es = {
     back: 'Back',
     vehicle: 'Vehicle',
     choose: 'Choose a vehicle…',
-    type: 'Type',
+    chooseReason: 'Choose the reason…',
+    type:'Type',
     types: {
       general: 'General request',
       breakdown: 'Breakdown',
@@ -2157,6 +2228,7 @@ const en: typeof es = {
       kindDocument: 'Document',
       kindVehicle: 'Vehicle',
       kindDriver: 'Driver change',
+      kindSupply: 'Document requested',
       asked: (when: string) => `Asked on ${when}`,
       noDetail: 'No detail',
     },
@@ -2211,6 +2283,7 @@ const en: typeof es = {
         closed: 'Closed',
       },
       driver: { pending: 'Pending', done: 'Handled', rejected: 'Rejected' },
+      supply: { pending: 'Pending', done: 'Provided', rejected: 'Rejected' },
     },
     docRequestKind: { delete: 'Deletion', change: 'Correction', view: 'View', download: 'Download' },
     fieldNames: {

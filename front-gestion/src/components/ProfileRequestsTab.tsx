@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { Badge, Button, Chip, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import type { BadgeTone } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
@@ -18,6 +18,8 @@ import { fmtDate, fmtDateTime } from '../format.ts'
 import { useAppLang } from '@flota/ui/i18n'
 import { useRequestsCopy } from '../translations/requests.ts'
 import { useDomainLabels } from '../domainLabels.ts'
+import { isDefaultView, useRequestFilter } from './requestFilter.ts'
+import { RequestsFilterBar } from './RequestsFilterBar.tsx'
 
 /** Estado → tono de la chapa. Pendiente avisa; las dos salidas informan. */
 const TONE: Record<ProfileChangeRequestRow['status'], BadgeTone> = {
@@ -51,7 +53,6 @@ export function ProfileRequestsTab({ onCountsChange }: { onCountsChange?: () => 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [statusFilter, setStatusFilter] = useState('pending')
 
   const [managing, setManaging] = useState<ProfileChangeRequestRow | null>(null)
   const [decision, setDecision] = useState<ProfileChangeDecision>('done')
@@ -78,19 +79,6 @@ export function ProfileRequestsTab({ onCountsChange }: { onCountsChange?: () => 
   }, [])
 
   useEffect(load, [load])
-
-  const statusOptions = useMemo(
-    () => [
-      { value: '', label: t.statusAll },
-      { value: 'pending', label: copy.statusPending },
-      { value: 'done', label: copy.statusDone },
-      { value: 'rejected', label: copy.statusRejected },
-    ],
-    [copy, t.statusAll],
-  )
-  const countOf = (status: string) =>
-    status ? rows.filter((r) => r.status === status).length : rows.length
-  const filtered = statusFilter ? rows.filter((r) => r.status === statusFilter) : rows
 
   /** Lo pedido en una línea por campo: «Teléfono: 600 000 000 → 600 111 222». */
   const changeLines = useCallback(
@@ -217,6 +205,13 @@ export function ProfileRequestsTab({ onCountsChange }: { onCountsChange?: () => 
     [changeLines, copy, lang, etiqueta],
   )
 
+  // El filtro de la bandeja: lo que la tabla enseña y cuántas hay de cada
+  // grupo (pendientes de salida).
+  const { search, setSearch, groups, setGroups, counts, filtered } = useRequestFilter(
+    rows,
+    columns,
+  )
+
   const hint: Record<ProfileChangeDecision, string> = useMemo(
     () => ({ done: copy.optDoneHint, reject: copy.optRejectHint }),
     [copy],
@@ -228,25 +223,26 @@ export function ProfileRequestsTab({ onCountsChange }: { onCountsChange?: () => 
 
   return (
     <div>
-      <div className="chips-row" role="group" aria-label={t.filterAria}>
-        {statusOptions.map((o) => (
-          <Chip
-            key={o.value}
-            active={statusFilter === o.value}
-            count={countOf(o.value)}
-            onClick={() => setStatusFilter(o.value)}
+      {/* La barra de la bandeja: buscador y las tres casillas de estado, con
+          solo «Pendientes» marcada de salida; exportar, a su derecha. */}
+      <RequestsFilterBar
+        count={filtered.length}
+        search={search}
+        onSearchChange={setSearch}
+        groups={groups}
+        onGroupsChange={setGroups}
+        counts={counts}
+        doneLabel={copy.statusDone}
+        actions={
+          <Button
+            variant="secondary"
+            disabled={filtered.length === 0}
+            onClick={() => exportCsv(copy.csvName, columns, filtered)}
           >
-            {o.label}
-          </Chip>
-        ))}
-        <Button
-          variant="secondary"
-          disabled={filtered.length === 0}
-          onClick={() => exportCsv(copy.csvName, columns, filtered)}
-        >
-          <Download size={16} aria-hidden /> {t.exportCsv}
-        </Button>
-      </div>
+            <Download size={16} aria-hidden /> {t.exportCsv}
+          </Button>
+        }
+      />
 
       <p className="muted">
         {copy.help}
@@ -279,7 +275,9 @@ export function ProfileRequestsTab({ onCountsChange }: { onCountsChange?: () => 
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel={copy.empty}
+          // Mirando solo lo pendiente, vacío no es «sin resultados»: es que
+          // no queda nada por decidir.
+          emptyStateLabel={isDefaultView(groups, search) ? t.emptyPending : copy.empty}
         />
       )}
 

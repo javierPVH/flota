@@ -161,6 +161,8 @@ export const es = {
       closed: 'Cerrada',
     },
     driver: { pending: 'Pendiente', done: 'Atendida', rejected: 'Rechazada' },
+    // El papel que se pidió: se facilitó o se dijo que no.
+    supply: { pending: 'Pendiente', done: 'Atendida', rejected: 'Rechazada' },
   } as Record<string, Record<string, string>>,
   docRequestKind: {
     delete: 'Borrado',
@@ -324,6 +326,7 @@ export const en: typeof es = {
       closed: 'Closed',
     },
     driver: { pending: 'Pending', done: 'Handled', rejected: 'Rejected' },
+    supply: { pending: 'Pending', done: 'Served', rejected: 'Rejected' },
   },
   docRequestKind: { delete: 'Deletion', change: 'Correction', view: 'View', download: 'Download' },
   fieldNames: {

@@ -161,6 +161,44 @@ def open_request(
         )
 
 
+def grant_access(
+    document: Document, *, user, kind: str, actor, note: str = ""
+) -> DocumentDeletionRequest:
+    """Concede a `user` la lectura o la descarga de un documento SIN que la
+    haya pedido: la gestión, desde la bandeja, decide dar acceso a una persona
+    a un documento del mismo titular (o al que acaba de subir).
+
+    Es la misma fila que la concesión de una petición —`scoping.has_access_grant`
+    mira filas concedidas, no quién las abrió—, así que el permiso se lee por
+    el mismo camino. Idempotente: con una pendiente de esa persona y clase se
+    concede ESA; con una ya concedida, se devuelve. `reason` queda vacío
+    porque nadie la pidió; lo que explica la fila es la nota de quien decide.
+    """
+    if kind not in ACCESS_REQUEST_KINDS:
+        raise ValueError(f"Clase no concedible: {kind!r}")
+    with transaction.atomic():
+        vivas = DocumentDeletionRequest.objects.select_for_update().filter(
+            document=document,
+            requested_by=user,
+            kind=kind,
+            status__in=(DocumentDeletionStatus.PENDING, DocumentDeletionStatus.GRANTED),
+        )
+        pendiente = vivas.filter(status=DocumentDeletionStatus.PENDING).first()
+        if pendiente is not None:
+            _close(pendiente, status=DocumentDeletionStatus.GRANTED, actor=actor, note=note)
+            return pendiente
+        concedida = vivas.first()
+        if concedida is not None:
+            return concedida
+        fila = DocumentDeletionRequest(document=document, requested_by=user, kind=kind)
+        fila.status = DocumentDeletionStatus.GRANTED
+        fila.resolved_by = actor if getattr(actor, "is_authenticated", False) else None
+        fila.resolved_at = timezone.now()
+        fila.resolution_note = note
+        fila.save()
+        return fila
+
+
 def close_pending_as_deleted(document: Document, *, actor, note: str = "") -> None:
     """Cierra la petición viva de un documento que se acaba de dar de baja.
 

@@ -11,6 +11,7 @@ import { usePanelsCopy } from '../translations/panels.ts'
 import { useDocumentsCopy } from '../translations/documents.ts'
 import { exportCsv } from '../csv.ts'
 import { DocumentAccessModal } from './DocumentAccessModal.tsx'
+import { useAccessParts } from './useAccessParts.ts'
 import { TableInfoBar } from './TableInfoBar.tsx'
 import { VehicleSelect } from './VehicleSelect.tsx'
 import type { FlotaDocument, Vehicle } from '../types.ts'
@@ -241,53 +242,8 @@ export function DocumentsReport({
   // El ajuste de UN documento (el modal de la fila), que pisa lo de su tipo.
   const [accessDoc, setAccessDoc] = useState<FlotaDocument | null>(null)
 
-  /** Los roles que leen el documento y lo que no se puede hacer con él, en
-   * el orden en que se enseñan: lo que vale para ÉL (`effective_access`: su
-   * ajuste o, sin él, su tipo) o, en un documento anterior a eso, la regla
-   * del tipo cargada; sin ninguna de las dos, la de fábrica. */
-  const accessParts = useCallback(
-    (doc: FlotaDocument) => {
-      const rule = accessByType.get(doc.type)
-      const eff = doc.effective_access ?? {
-        supervisor_read: rule?.supervisor_read ?? true,
-        driver_read: rule?.driver_read ?? 'all',
-        driver_view: rule?.driver_view ?? 'allow',
-        driver_download: rule?.driver_download ?? 'allow',
-        driver_delete: rule?.driver_delete ?? 'request',
-      }
-      // Dos columnas, una por rol de campo (la administración lo lee todo y
-      // no ocupa sitio). «Ajustado» va en la columna del mando que se pisó.
-      const supervisor = [eff.supervisor_read ? docsCopy.access.supervisorReads : docsCopy.access.supervisorNo]
-      if (doc.supervisor_read_override != null) supervisor.push(docsCopy.access.adjusted)
-      const driver = [
-        eff.driver_read === 'none'
-          ? docsCopy.access.driverNone
-          : eff.driver_read === 'own'
-            ? docsCopy.access.driverOwn
-            : docsCopy.access.driverAll,
-      ]
-      // Y lo que el conductor tiene que PEDIR o no puede hacer, solo cuando
-      // no es lo de siempre (permitir) — y solo si lo lista: de lo que no
-      // lista no hay nada más que decir.
-      if (eff.driver_read !== 'none') {
-        if (eff.driver_view === 'request') driver.push(docsCopy.access.viewByRequest)
-        if (eff.driver_view === 'deny') driver.push(docsCopy.access.viewDenied)
-        if (eff.driver_download === 'request') driver.push(docsCopy.access.downloadByRequest)
-        if (eff.driver_download === 'deny') driver.push(docsCopy.access.downloadDenied)
-        if (eff.driver_delete === 'deny') driver.push(docsCopy.access.deleteDenied)
-      }
-      if (
-        doc.driver_read_override != null ||
-        doc.driver_view_override != null ||
-        doc.driver_download_override != null ||
-        doc.driver_delete_override != null
-      ) {
-        driver.push(docsCopy.access.adjusted)
-      }
-      return { supervisor, driver }
-    },
-    [accessByType, docsCopy.access],
-  )
+  // Las chapas de quién lee cada documento: la misma copia que la bandeja.
+  const accessParts = useAccessParts(accessByType)
   const accessCell = useCallback(
     (parts: string[]) => (
       <span className="doc-access-cell" title={docsCopy.access.title}>

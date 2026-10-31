@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { Badge, Button, Chip, Modal, SelectField, TextInputField } from '@flota/ui/ui'
+import { Badge, Button, Modal, SelectField, TextInputField } from '@flota/ui/ui'
 import type { BadgeTone } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
@@ -18,6 +18,10 @@ import { fmtDate, fmtDateTime } from '../format.ts'
 import { useAppLang } from '@flota/ui/i18n'
 import { useRequestsCopy } from '../translations/requests.ts'
 import { useDomainLabels } from '../domainLabels.ts'
+import { isDefaultView, useRequestFilter } from './requestFilter.ts'
+import { RequestsFilterBar } from './RequestsFilterBar.tsx'
+import { OwnerDocumentsAccess, type DocumentOwner } from './OwnerDocumentsAccess.tsx'
+import { RequestManageTabs, type ManageTab } from './RequestManageTabs.tsx'
 
 /** Estado de la petición → tono de la chapa. Pendiente avisa; borrada es la
  * salida grave; oculta y rechazada, informativas. */
@@ -62,9 +66,11 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [statusFilter, setStatusFilter] = useState('pending')
 
   const [managing, setManaging] = useState<DocumentDeletionRequestRow | null>(null)
+  // El modal en dos pestañas: la decisión y la documentación del titular.
+  const [tab, setTab] = useState<ManageTab>('decide')
+  const [docsCount, setDocsCount] = useState<number | null>(null)
   const [decision, setDecision] = useState<DeletionDecision>('delete')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
@@ -90,22 +96,6 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
 
   useEffect(load, [load])
 
-  const statusOptions = useMemo(
-    () => [
-      { value: '', label: t.statusAll },
-      { value: 'pending', label: copy.statusPending },
-      { value: 'deleted', label: copy.statusDeleted },
-      { value: 'hidden', label: copy.statusHidden },
-      { value: 'applied', label: copy.statusApplied },
-      { value: 'granted', label: copy.statusGranted },
-      { value: 'rejected', label: copy.statusRejected },
-    ],
-    [copy, t.statusAll],
-  )
-  const countOf = (status: string) =>
-    status ? rows.filter((r) => r.status === status).length : rows.length
-  const filtered = statusFilter ? rows.filter((r) => r.status === statusFilter) : rows
-
   const whatOf = useCallback(
     (row: DocumentDeletionRequestRow) =>
       `${etiqueta.docType({ type: row.document_type, type_display: row.document_type_display })}${
@@ -114,8 +104,14 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
     [etiqueta],
   )
 
+  /** El titular del documento de la fila: el coche o la persona. */
+  const ownerOf = (row: DocumentDeletionRequestRow): DocumentOwner | null =>
+    row.vehicle ? { vehicle: row.vehicle } : row.owner_user ? { user: row.owner_user } : null
+
   function openManage(row: DocumentDeletionRequestRow) {
     setManaging(row)
+    setTab('decide')
+    setDocsCount(null)
     // La primera de las suyas: borrar en una de borrado, aplicar en un cambio.
     setDecision(DECISIONS[row.kind][0])
     setNote('')
@@ -264,6 +260,13 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
     [copy, lang, etiqueta],
   )
 
+  // El filtro de la bandeja: lo que la tabla enseña y cuántas hay de cada
+  // grupo (pendientes de salida).
+  const { search, setSearch, groups, setGroups, counts, filtered } = useRequestFilter(
+    rows,
+    columns,
+  )
+
   const hint = useMemo(
     () => ({
       delete: copy.optDeleteHint,
@@ -287,25 +290,26 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
 
   return (
     <div>
-      <div className="chips-row" role="group" aria-label={t.filterAria}>
-        {statusOptions.map((o) => (
-          <Chip
-            key={o.value}
-            active={statusFilter === o.value}
-            count={countOf(o.value)}
-            onClick={() => setStatusFilter(o.value)}
+      {/* La barra de la bandeja: buscador y las tres casillas de estado, con
+          solo «Pendientes» marcada de salida; exportar, a su derecha. */}
+      <RequestsFilterBar
+        count={filtered.length}
+        search={search}
+        onSearchChange={setSearch}
+        groups={groups}
+        onGroupsChange={setGroups}
+        counts={counts}
+        doneLabel={copy.statusDone}
+        actions={
+          <Button
+            variant="secondary"
+            disabled={filtered.length === 0}
+            onClick={() => exportCsv(copy.csvName, columns, filtered)}
           >
-            {o.label}
-          </Chip>
-        ))}
-        <Button
-          variant="secondary"
-          disabled={filtered.length === 0}
-          onClick={() => exportCsv(copy.csvName, columns, filtered)}
-        >
-          <Download size={16} aria-hidden /> {t.exportCsv}
-        </Button>
-      </div>
+            <Download size={16} aria-hidden /> {t.exportCsv}
+          </Button>
+        }
+      />
 
       <p className="muted">
         {copy.help}
@@ -328,7 +332,9 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          emptyStateLabel={copy.empty}
+          // Mirando solo lo pendiente, vacío no es «sin resultados»: es que
+          // no queda nada por decidir.
+          emptyStateLabel={isDefaultView(groups, search) ? t.emptyPending : copy.empty}
         />
       )}
 
@@ -336,22 +342,47 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
         open={managing !== null}
         title={copy.modalTitle(managing ? whatOf(managing) : '')}
         onClose={() => setManaging(null)}
+        wide
       >
-        <form className="modal-form" onSubmit={submit}>
-          {managing && (
-            <>
-              <p className="muted" style={{ margin: 0 }}>
-                {copy.asked(
-                  managing.requested_by_name || '—',
-                  fmtDate(managing.created_at, lang),
-                )}
-              </p>
-              <p style={{ margin: 0 }}>
+        {managing && (
+          <div className="manage-modal">
+            {/* Lo que se pide, en una caja: quién, de qué documento y de qué
+                titular, y el motivo (y lo que pide corregir, si es un cambio). */}
+            <div className="ops-info request-info">
+              <span>
+                <strong>{copy.columns.requester}:</strong> {managing.requested_by_name || '—'}
+              </span>
+              <span>
+                <strong>{copy.columns.document}:</strong>{' '}
+                {etiqueta.docType({
+                  type: managing.document_type,
+                  type_display: managing.document_type_display,
+                })}
+                {' · '}
+                {fmtDate(managing.created_at, lang)}
+              </span>
+              {managing.owner_name && (
+                <span>
+                  <strong>{copy.columns.owner}:</strong>{' '}
+                  {managing.vehicle ? (
+                    <Link to={`/vehiculos/${managing.vehicle}`} className="cell-link">
+                      {managing.owner_name}
+                    </Link>
+                  ) : managing.owner_user ? (
+                    <Link to={`/conductores/${managing.owner_user}`} className="cell-link">
+                      {managing.owner_name}
+                    </Link>
+                  ) : (
+                    managing.owner_name
+                  )}
+                </span>
+              )}
+              <span className="request-info-note">
                 <strong>{copy.reasonLabel}:</strong>{' '}
                 {managing.reason || <span className="muted">{copy.noReason}</span>}
-              </p>
+              </span>
               {managing.changes_display.length > 0 && (
-                <div>
+                <div className="request-info-note">
                   <strong>{copy.changesLabel}:</strong>
                   <ul className="change-list">
                     {managing.changes_display.map((change) => (
@@ -366,39 +397,82 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
                   </ul>
                 </div>
               )}
-            </>
-          )}
-          <SelectField
-            label={copy.decision}
-            options={DECISIONS[managing?.kind ?? 'delete'].map((value) => ({
-              value,
-              label: label[value],
-            }))}
-            value={decision}
-            onValueChange={(value) => setDecision(value as DeletionDecision)}
-          />
-          {/* Lo que hace cada salida, a la vista: las tres son irreversibles
-              para el conductor y dos de ellas tocan el documento. */}
-          <p className="muted" style={{ margin: 0 }}>{hint[decision]}</p>
-          <TextInputField
-            label={copy.note}
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-          />
-          {modalError && <div role="alert" className="form-error">{modalError}</div>}
-          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
-            <Button type="button" variant="secondary" onClick={() => setManaging(null)}>
-              {t.cancel}
-            </Button>
-            <Button
-              type="submit"
-              variant={decision === 'delete' ? 'danger' : 'primary'}
-              disabled={saving}
+            </div>
+
+            {/* Sin titular que listar (no debería pasar) no hay segunda
+                pestaña: el formulario a secas. */}
+            {ownerOf(managing) && (
+              <RequestManageTabs
+                tab={tab}
+                onChange={setTab}
+                docsCount={docsCount}
+                ariaLabel={t.manage.tabsAria}
+              />
+            )}
+
+            <form
+              className="modal-form manage-pane"
+              onSubmit={submit}
+              hidden={tab === 'docs' && ownerOf(managing) !== null}
             >
-              {saving ? copy.submitting : copy.submit}
-            </Button>
+              <SelectField
+                label={copy.decision}
+                options={DECISIONS[managing.kind].map((value) => ({
+                  value,
+                  label: label[value],
+                }))}
+                value={decision}
+                onValueChange={(value) => setDecision(value as DeletionDecision)}
+              />
+              {/* Lo que hace cada salida, a la vista: las tres son irreversibles
+                  para el conductor y dos de ellas tocan el documento. */}
+              <p className="muted" style={{ margin: 0 }}>{hint[decision]}</p>
+              <TextInputField
+                label={copy.note}
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+              />
+              {modalError && <div role="alert" className="form-error">{modalError}</div>}
+              <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+                <Button type="button" variant="secondary" onClick={() => setManaging(null)}>
+                  {t.cancel}
+                </Button>
+                <Button
+                  type="submit"
+                  variant={decision === 'delete' ? 'danger' : 'primary'}
+                  disabled={saving}
+                >
+                  {saving ? copy.submitting : copy.submit}
+                </Button>
+              </div>
+            </form>
+
+            {/* La documentación que ya hay del titular, para decidir fila a
+                fila a quién se le da acceso a qué; la de esta petición va
+                marcada. Sigue montada (`hidden`) para no volver a pedirla. */}
+            {ownerOf(managing) && (
+              <div className="manage-pane" hidden={tab !== 'docs'}>
+                <OwnerDocumentsAccess
+                  owner={ownerOf(managing) as DocumentOwner}
+                  ownerLabel={managing.owner_name}
+                  requester={
+                    managing.requested_by
+                      ? { id: managing.requested_by, name: managing.requested_by_name }
+                      : null
+                  }
+                  highlight={managing.document}
+                  onLoaded={setDocsCount}
+                  // Una concesión desde la lista puede decidir la petición
+                  // abierta: la bandeja se recarga (la lista se recarga sola).
+                  onChanged={() => {
+                    load()
+                    onCountsChange?.()
+                  }}
+                />
+              </div>
+            )}
           </div>
-        </form>
+        )}
       </Modal>
     </div>
   )

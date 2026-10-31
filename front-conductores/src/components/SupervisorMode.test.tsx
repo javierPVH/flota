@@ -114,7 +114,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
     await waitFor(() => expect(within(nav).getByRole('button', { name: 'Km' })).toBeEnabled())
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Incidencia', 'Accidente', 'Subir documento',
+      'Km', 'Combustible', 'ITV', 'Mantenimiento', 'Incidencia', 'Accidente', 'Documento',
     ])
     expect(within(nav).queryByRole('link', { name: 'Inicio' })).not.toBeInTheDocument()
 
@@ -194,7 +194,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
   })
 
   // --- El tercer tab: «Mi perfil» ----------------------------------------
-  it('el tercer tab abre el perfil y deja el nav en Mis datos + Subir documento', async () => {
+  it('el tercer tab abre el perfil y deja el nav en Mis datos + Documento', async () => {
     renderShell()
     await screen.findByText('7890NPQ')
 
@@ -214,13 +214,13 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
       'Mis datos',
-      'Subir documento',
+      'Documento',
     ])
-    // Y «Subir documento» abre el MISMO modal que en «Mi vehículo», sobre el
+    // Y «Documento» abre el MISMO modal que en «Mi vehículo», sobre el
     // coche propio: subir no saca del perfil.
-    await userEvent.click(within(nav).getByRole('button', { name: 'Subir documento' }))
+    await userEvent.click(within(nav).getByRole('button', { name: 'Documento' }))
     expect(
-      await screen.findByRole('dialog', { name: 'Subir documento · 7890NPQ' }),
+      await screen.findByRole('dialog', { name: 'Documento · 7890NPQ' }),
     ).toBeInTheDocument()
   })
 
@@ -290,7 +290,7 @@ describe('switch del supervisor (Mi vehículo ↔ Flota)', () => {
     // conduce atiende la que haya —ese botón solo podía acabar en «no hay
     // ninguna programada»—. Este coche no tiene (`OWN.next_itv_date: null`).
     expect(Array.from(nav.children).map((item) => item.textContent?.trim())).toEqual([
-      'Km', 'Combustible', 'Mantenimiento', 'Incidencia', 'Accidente', 'Subir documento',
+      'Km', 'Combustible', 'Mantenimiento', 'Incidencia', 'Accidente', 'Documento',
     ])
     await userEvent.click(within(nav).getByRole('button', { name: 'Km' }))
     expect(screen.getByRole('dialog', { name: 'Registrar km · 7890NPQ' })).toBeInTheDocument()

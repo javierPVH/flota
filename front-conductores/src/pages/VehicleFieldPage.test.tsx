@@ -339,7 +339,7 @@ describe('VehicleFieldPage (ficha de campo)', () => {
       'Programar mantenimiento',
       'Incidencia',
       'Accidente',
-      'Subir documento',
+      'Pedir o subir documento',
       'Enviar recordatorio',
     ])
 
@@ -780,16 +780,19 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     expect(screen.queryByRole('button', { name: 'Solucionar' })).not.toBeInTheDocument()
   })
 
-  it('abre Subir documento en un modal con el vehículo fijado', async () => {
+  it('abre el modal de documentos con el vehículo fijado y la rama de subir', async () => {
     renderPage()
     await screen.findByText('1234KLM')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Subir documento' }))
-    const dialog = screen.getByRole('dialog', { name: 'Subir documento · 1234KLM' })
+    await userEvent.click(screen.getByRole('button', { name: 'Pedir o subir documento' }))
+    const dialog = screen.getByRole('dialog', { name: 'Documento · 1234KLM' })
     expect(dialog).toBeInTheDocument()
     expect(screen.getByText(/responsabilidad de registrar los km/)).toBeInTheDocument()
 
-    // Tres pasos: tipo y documento · ligado a · notas. Solo el último sube.
+    // El mismo botón hace dos cosas, así que lo primero es elegir cuál.
+    await userEvent.click(within(dialog).getByRole('button', { name: /Subir un documento/ }))
+    // Y de ahí, los tres pasos de siempre: tipo y documento · ligado a ·
+    // notas. Solo el último sube.
     const file = new File(['parte'], 'parte.pdf', { type: 'application/pdf' })
     await userEvent.upload(within(dialog).getByLabelText(/Foto o PDF/), file)
     await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
@@ -824,7 +827,7 @@ describe('VehicleFieldPage (ficha de campo)', () => {
 
     expect(screen.getByText('🔒 Bloqueado por sustitución')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Registrar km/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Subir documento/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /subir documento/i })).not.toBeInTheDocument()
     // Km, combustible, avería, accidente y documento apagados (5): sin coche
     // operativo no se apunta nada de consumo. La ITV es del coche físico y sigue.
     expect(document.querySelectorAll('.quick-action.is-disabled').length).toBe(5)

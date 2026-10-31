@@ -10,6 +10,7 @@ import {
   grantVehicleRequest,
   listAll,
   listDocumentDeletionRequests,
+  listDocumentSupplyRequests,
   listDriverChangeRequests,
   listProfileChangeRequests,
   listVehicleRequests,
@@ -20,46 +21,58 @@ import { exportCsv } from '../csv.ts'
 import { requestStatusTone } from '../format.ts'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { DocumentRequestsTab } from '../components/DocumentRequestsTab.tsx'
+import { DocumentSupplyTab } from '../components/DocumentSupplyTab.tsx'
 import { DriverRequestsTab } from '../components/DriverRequestsTab.tsx'
 import { ProfileRequestsTab } from '../components/ProfileRequestsTab.tsx'
+import { groupOf, isDefaultView, useRequestFilter } from '../components/requestFilter.ts'
+import { RequestsFilterBar } from '../components/RequestsFilterBar.tsx'
 import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
+import { notifyRequestsChanged } from '../requestsSignal.ts'
 import { useRequestsCopy } from '../translations/requests.ts'
 import type { Vehicle } from '../types.ts'
 import { useDomainLabels } from '../domainLabels.ts'
 
 /**
- * Bandeja de solicitudes (G9, Épica 8 + Fase A2), en DOS pestañas: las de
- * **vehículo** (Jira, portón y coche de sustitución pedido desde el campo) y
- * las de **borrado de documentos**, que abre quien lee el documento en la app
- * de conductores. Son la misma decisión de administración —conceder o no— y
- * el aviso de la cabecera las cuenta juntas, así que se deciden en el mismo
- * sitio y no en dos páginas que nadie recordaría visitar.
+ * Bandeja de solicitudes (G9, Épica 8 + Fase A2), en CINCO pestañas: las de
+ * **vehículo** (Jira, portón y coche de sustitución pedido desde el campo),
+ * las de **documentos** que abre quien lee uno en la app de conductores
+ * (borrarlo, corregirlo, abrir su archivo), las de **documento pedido** —el
+ * papel que al campo le falta—, las propuestas de **cambio de conductor** y
+ * las correcciones de **ficha personal**. Son la misma decisión de
+ * administración —conceder o no— y el aviso de la cabecera las cuenta juntas,
+ * así que se deciden en el mismo sitio y no en cinco páginas que nadie
+ * recordaría visitar.
  */
 /** Los dos flujos que caben en la bandeja de vehículos, más «todos». */
 const ORIGIN_KEYS = ['', 'sustitucion', 'sin-vehiculo'] as const
+
+/** Nacida de un parte: lo que se pide es CUBRIR ese coche. Se reconoce
+ * por su incidencia, el mismo criterio que usa la columna «Origen». */
+const esSustitucion = (r: VehicleRequestRow) => Boolean(r.incident)
 
 export function RequestsPage() {
   const t = useRequestsCopy()
   const etiqueta = useDomainLabels()
   const confirm = useConfirm()
   const [searchParams, setSearchParams] = useSearchParams()
-  // Abre por lo PENDIENTE, como las otras tres bandejas de esta misma
-  // página: aquí se entra a decidir, no a leer el histórico, y con todo
-  // mezclado había que buscar a ojo qué esperaba una respuesta.
-  // `?status=` —presente pero vacío— es «todas»: así el chip puede pedirlas
-  // sin que el defecto vuelva a colarse, y `?status=pending` (el enlace del
-  // aviso de la cabecera) sigue significando lo mismo que antes.
-  const statusFilter = searchParams.has('status') ? (searchParams.get('status') ?? '') : 'pending'
-  // Origen: '' = todos. A diferencia del estado, aquí el defecto SÍ es
-  // «todos», así que su chip puede limitarse a quitar el parámetro.
+  // Abre por lo PENDIENTE, como las otras cuatro bandejas de esta misma
+  // página: aquí se entra a decidir, no a leer el histórico. El estado va
+  // en las casillas de la barra (`RequestsFilterBar`) y no en la URL: el
+  // `?status=pending` con el que enlaza el aviso de la cabecera es lo de
+  // salida y se deja pasar sin leerlo.
+  // Origen: '' = todos, así que su chip puede limitarse a quitar el parámetro.
   const originFilter = searchParams.get('origen') ?? ''
   // La pestaña va en la URL: el aviso de la cabecera puede apuntar a la suya.
   const tabParam = searchParams.get('tab')
   const tab =
-    tabParam === 'documentos' || tabParam === 'conductores' || tabParam === 'fichas'
+    tabParam === 'documentos' ||
+    tabParam === 'pedidos' ||
+    tabParam === 'conductores' ||
+    tabParam === 'fichas'
       ? tabParam
       : 'vehiculos'
   const [pendingDocs, setPendingDocs] = useState(0)
+  const [pendingSupply, setPendingSupply] = useState(0)
   const [pendingDrivers, setPendingDrivers] = useState(0)
   const [pendingProfiles, setPendingProfiles] = useState(0)
 
@@ -74,17 +87,6 @@ export function RequestsPage() {
   const [grantVehicle, setGrantVehicle] = useState('')
   const [grantError, setGrantError] = useState('')
   const [grantSaving, setGrantSaving] = useState(false)
-
-  const statusOptions = useMemo(
-    () => [
-      { value: '', label: t.statusAll },
-      { value: 'pending', label: t.statusPending },
-      { value: 'approved', label: t.statusApproved },
-      { value: 'assigned', label: t.statusAssigned },
-      { value: 'rejected', label: t.statusRejected },
-    ],
-    [t],
-  )
 
   /** Origen de la solicitud: el portón self-service entra `pending` con ticket;
    * la importación de Jira entra ya `approved`. */
@@ -137,6 +139,14 @@ export function RequestsPage() {
   }, [])
   useEffect(loadPendingDocs, [loadPendingDocs])
 
+  /** Ídem para las peticiones del papel que al campo le falta. */
+  const loadPendingSupply = useCallback(() => {
+    listDocumentSupplyRequests({ status: 'pending' })
+      .then((page) => setPendingSupply(page.count))
+      .catch(() => setPendingSupply(0))
+  }, [])
+  useEffect(loadPendingSupply, [loadPendingSupply])
+
   /** Ídem para las propuestas de cambio de conductor. */
   const loadPendingDrivers = useCallback(() => {
     listDriverChangeRequests({ status: 'pending' })
@@ -153,33 +163,24 @@ export function RequestsPage() {
   }, [])
   useEffect(loadPendingProfiles, [loadPendingProfiles])
 
-  const pendingCount = requests.filter((r) => r.status === 'pending').length
+  // Lo que espera decisión, con la de Jira ya aprobada dentro (`groupOf`):
+  // a esa también hay que concederle un coche.
+  const pendingCount = requests.filter((r) => groupOf(r.status) === 'pending').length
+  const pendingTotal =
+    pendingCount + pendingDocs + pendingSupply + pendingDrivers + pendingProfiles
 
-  /** Nacida de un parte: lo que se pide es CUBRIR ese coche. Se reconoce
-   * por su incidencia, el mismo criterio que usa la columna «Origen». */
-  const esSustitucion = (r: VehicleRequestRow) => Boolean(r.incident)
-  const casaOrigen = (r: VehicleRequestRow) =>
-    !originFilter || (originFilter === 'sustitucion' ? esSustitucion(r) : !esSustitucion(r))
-  const casaEstado = (r: VehicleRequestRow) => !statusFilter || r.status === statusFilter
-
-  // Cada barra cuenta sobre lo que deja pasar LA OTRA: si contara sobre
-  // todo, ofrecería chips con números que al pulsarlos dan tabla vacía.
-  const porOrigen = requests.filter(casaOrigen)
-  const porEstado = requests.filter(casaEstado)
-  const countOf = (status: string) =>
-    status ? porOrigen.filter((r) => r.status === status).length : porOrigen.length
-  const countOrigin = (origen: string) =>
-    origen
-      ? porEstado.filter((r) =>
-          origen === 'sustitucion' ? esSustitucion(r) : !esSustitucion(r),
-        ).length
-      : porEstado.length
+  // Memorizado: es la dependencia del filtro de la barra, y recrearlo en
+  // cada render volvería a filtrar la bandeja entera sin que nada cambie.
+  const casaOrigen = useCallback(
+    (r: VehicleRequestRow) =>
+      !originFilter || (originFilter === 'sustitucion' ? esSustitucion(r) : !esSustitucion(r)),
+    [originFilter],
+  )
   const originLabels: Record<string, string> = {
     '': t.originAll,
     sustitucion: t.originSubstitute,
     'sin-vehiculo': t.originNoVehicle,
   }
-  const filtered = requests.filter((r) => casaEstado(r) && casaOrigen(r))
   // O4: Map memoizada — el `find()` por celda era O(filas × vehículos).
   const plateById = useMemo(() => new Map(vehicles.map((v) => [v.id, v.plate])), [vehicles])
   const plateOf = useCallback((id: number) => plateById.get(id) ?? `#${id}`, [plateById])
@@ -207,6 +208,7 @@ export function RequestsPage() {
       setGranting(null)
       setNotice(t.grantOk(plateOf(Number(grantVehicle)), updated.requester_name))
       load()
+      notifyRequestsChanged()
     } catch (err) {
       setGrantError(asErrorMessage(err, t.grantError))
     } finally {
@@ -227,6 +229,7 @@ export function RequestsPage() {
       await rejectVehicleRequest(request.id)
       setNotice(t.rejectOk(request.requester_name || request.jira_key))
       load()
+      notifyRequestsChanged()
     } catch (err) {
       setError(asErrorMessage(err, t.rejectError))
     } finally {
@@ -328,21 +331,34 @@ export function RequestsPage() {
     },
   ], [busyId, handleReject, openGrant, originOf, plateOf, t.columns.actions, t.columns.dates, t.columns.jiraKey, t.columns.origin, t.columns.requester, t.columns.status, t.columns.type, t.columns.vehicle, t.grantAction, t.noRequesterTitle, t.rejectAction, t.typeLabel, etiqueta])
 
+  // El filtro de la barra, sobre lo que deja pasar el origen; y los chips
+  // del origen cuentan sobre lo que dejan pasar las casillas de estado.
+  // Cada barra sobre lo que deja pasar LA OTRA: contando sobre todo,
+  // ofrecerían números que al pulsarlos dan tabla vacía.
+  const { search, setSearch, groups, setGroups, counts, filtered } = useRequestFilter(
+    requests,
+    columns,
+    casaOrigen,
+  )
+  const porEstado = requests.filter((r) => groups[groupOf(r.status)])
+  const countOrigin = (origen: string) =>
+    origen
+      ? porEstado.filter((r) => (origen === 'sustitucion' ? esSustitucion(r) : !esSustitucion(r)))
+          .length
+      : porEstado.length
+
+  /** Al decidir algo en una pestaña: su recuento y el globo de la cabecera. */
+  const alDecidir = (recontar: () => void) => () => {
+    recontar()
+    notifyRequestsChanged()
+  }
+
   return (
     <div>
       <PageHeader
         title={t.title}
         subtitle={t.subtitle}
-        stats={
-          pendingCount + pendingDocs + pendingDrivers + pendingProfiles > 0
-            ? [
-                {
-                  value: pendingCount + pendingDocs + pendingDrivers + pendingProfiles,
-                  label: t.statPending,
-                },
-              ]
-            : undefined
-        }
+        stats={pendingTotal > 0 ? [{ value: pendingTotal, label: t.statPending }] : undefined}
         actions={
           tab === 'vehiculos' ? (
             <Button
@@ -368,40 +384,36 @@ export function RequestsPage() {
         items={[
           { key: 'vehiculos', label: t.tabVehicles, badge: pendingCount || undefined },
           { key: 'documentos', label: t.tabDocuments, badge: pendingDocs || undefined },
+          { key: 'pedidos', label: t.tabSupply, badge: pendingSupply || undefined },
           { key: 'conductores', label: t.tabDrivers, badge: pendingDrivers || undefined },
           { key: 'fichas', label: t.tabProfiles, badge: pendingProfiles || undefined },
         ]}
       />
 
       {tab === 'fichas' ? (
-        <ProfileRequestsTab onCountsChange={loadPendingProfiles} />
+        <ProfileRequestsTab onCountsChange={alDecidir(loadPendingProfiles)} />
+      ) : tab === 'pedidos' ? (
+        <DocumentSupplyTab onCountsChange={alDecidir(loadPendingSupply)} />
       ) : tab === 'conductores' ? (
-        <DriverRequestsTab onCountsChange={loadPendingDrivers} />
+        <DriverRequestsTab onCountsChange={alDecidir(loadPendingDrivers)} />
       ) : tab === 'documentos' ? (
-        <DocumentRequestsTab onCountsChange={loadPendingDocs} />
+        <DocumentRequestsTab onCountsChange={alDecidir(loadPendingDocs)} />
       ) : (
       // Desde aquí hasta el cierre del fragmento, la bandeja de VEHÍCULOS de
       // siempre: chips de estado, ayuda, tabla y el modal de conceder.
       <>
-      {/* Filtro de estado como chips con contador (patrón de la home): un
-          vistazo dice cuánto hay en cada bandeja antes de entrar. */}
-      <div className="chips-row" role="group" aria-label={t.filterAria}>
-        {statusOptions.map((o) => (
-          <Chip
-            key={o.value}
-            active={statusFilter === o.value}
-            count={countOf(o.value)}
-            onClick={() => {
-              const next = new URLSearchParams(searchParams)
-              // También el vacío: quitarlo devolvería al defecto (pendientes).
-              next.set('status', o.value)
-              setSearchParams(next, { replace: true })
-            }}
-          >
-            {o.label}
-          </Chip>
-        ))}
-      </div>
+      {/* La barra de la bandeja: buscador y las tres casillas de estado,
+          con solo «Pendientes» marcada de salida. La de Jira aprobada cuenta
+          como pendiente: espera coche igual. */}
+      <RequestsFilterBar
+        count={filtered.length}
+        search={search}
+        onSearchChange={setSearch}
+        groups={groups}
+        onGroupsChange={setGroups}
+        counts={counts}
+        doneLabel={t.statusAssigned}
+      />
 
       {/* Segunda barra: por ORIGEN. Esta pestaña mezcla dos flujos que se
           conceden igual pero no se leen igual —cubrir un coche parado, que lo
@@ -460,9 +472,9 @@ export function RequestsPage() {
           enablePagination
           defaultPageSize={25}
           pageSizeOptions={[25, 50, 100]}
-          // Con el filtro en «Pendientes», vacío no es «no hay resultados»:
-          // es que no queda nada por decidir, que es una buena noticia.
-          emptyStateLabel={statusFilter === 'pending' ? t.emptyPending : t.empty}
+          // Mirando solo lo pendiente, vacío no es «no hay resultados»: es
+          // que no queda nada por decidir, que es una buena noticia.
+          emptyStateLabel={isDefaultView(groups, search) ? t.emptyPending : t.empty}
         />
       )}
 

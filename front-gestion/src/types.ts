@@ -437,6 +437,9 @@ export interface FlotaDocument {
   protected: boolean
   /** Ajuste POR DOCUMENTO de la regla de su tipo (Documentos → Ajustes):
    * nulo = lo del tipo; con valor, manda solo aquí. Solo lo escribe gestión. */
+  /** Solo con `?access_for=<id>` (admin): si le sale en su lista a esa
+   * persona. Sin sujeto, nulo (y ausente en una copia cacheada vieja). */
+  subject_lists?: boolean | null
   supervisor_read_override: boolean | null
   driver_read_override: 'none' | 'own' | 'all' | null
   driver_view_override: 'allow' | 'request' | 'deny' | null
@@ -446,9 +449,15 @@ export interface FlotaDocument {
   effective_access: DocumentEffectiveAccess
   /** Si tiene algún ajuste puesto (la chapa «Ajustado» del listado). */
   access_adjusted: boolean
-  /** Lo que QUIEN PIDE puede hacer ya con el archivo (en gestión, siempre). */
+  /** Lo que QUIEN PIDE puede hacer ya con el archivo (en gestión, siempre;
+   * con `access_for`, lo que puede ESA persona). */
   can_view: boolean
   can_download: boolean
+  /** En qué va la petición de acceso de quien pide (o del sujeto de
+   * `access_for`): '' sin pedir, `pending`, `granted` o `denied` (no se puede
+   * ni pedir). */
+  view_request: '' | 'pending' | 'granted' | 'denied'
+  download_request: '' | 'pending' | 'granted' | 'denied'
   /** Desde cuándo la comprobación de existencia (`verifyDocuments`) no
    * encuentra el archivo en Drive/disco; null si existe o no se ha podido
    * comprobar. Con marca, la fila ofrece el borrado definitivo. */

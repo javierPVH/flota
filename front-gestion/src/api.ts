@@ -1105,6 +1105,9 @@ export interface DocumentDeletionRequestRow {
   document_created_at: string | null
   vehicle: number | null
   vehicle_plate: string
+  /** El titular persona (un documento personal), para listar el resto de su
+   * documentación como se hace con la del coche. */
+  owner_user: number | null
   /** Titular del documento: la matrícula del coche o el nombre de la persona. */
   owner_name: string
   requested_by: number | null
@@ -1236,6 +1239,55 @@ export const resolveProfileChangeRequest = (
     note,
   })
 
+/** Petición de que le FACILITEN un documento al campo. Al revés que las otras
+ * cuatro peticiones sobre documentos, esta no cuelga de ninguno: cuelga del
+ * titular (el coche o la persona) y de un TIPO, porque el papel puede no
+ * existir todavía —o existir y no salir en la lista de quien lo pide—. */
+export interface DocumentSupplyRequestRow {
+  id: number
+  vehicle: number | null
+  vehicle_plate: string
+  user: number | null
+  user_name: string
+  type: string
+  type_display: string
+  note: string
+  requested_by: number | null
+  requested_by_name: string
+  status: 'pending' | 'done' | 'rejected'
+  status_display: string
+  /** Con qué se atendió, si se subió desde la bandeja. */
+  document: number | null
+  document_name: string
+  resolved_by_name: string
+  resolved_at: string | null
+  resolution_note: string
+  created_at: string
+}
+
+/** Las dos salidas: atendida (con el documento que se subió, o sin él si se
+ * entregó por otra vía) o rechazada. */
+export type DocumentSupplyDecision = 'done' | 'reject'
+
+export const listDocumentSupplyRequests = (
+  filters: { status?: string; vehicle?: number; type?: string } = {},
+) =>
+  getJson<Paginated<DocumentSupplyRequestRow>>(
+    `${API}/document-supply-requests/${listQs({ ...filters })}`,
+  )
+
+export const resolveDocumentSupplyRequest = (
+  id: number,
+  decision: DocumentSupplyDecision,
+  note = '',
+  document?: number | null,
+) =>
+  postJson<DocumentSupplyRequestRow>(`${API}/document-supply-requests/${id}/resolve/`, {
+    decision,
+    note,
+    document: document ?? null,
+  })
+
 // --- G10: facturas y refacturación (Épica 7) --------------------------------
 
 export interface InvoiceRow {
@@ -1304,6 +1356,10 @@ export interface DocumentFilters {
   vehicle?: number
   /** Documentos PERSONALES de un usuario (permiso de conducir…). */
   user?: number
+  /** Solo admin: el listado «visto como» esa persona (`can_view`,
+   * `can_download`, `view_request`, `download_request` y `subject_lists`
+   * hablan de ella). Lo lee la bandeja de solicitudes. */
+  access_for?: number
   type?: string
   status?: string
   incident?: number
@@ -1390,7 +1446,10 @@ export const createDocument = (data: DocumentInput) =>
 
 /** Alta con binario (multipart): queda `pendiente_archivar` y el archivador
  * lo sube a la carpeta de Drive del vehículo (Fase A3). */
-export function uploadDocument(data: DocumentInput, file: File): Promise<FlotaDocument> {
+export function uploadDocument(
+  data: DocumentInput & Partial<DocumentAccessOverrides>,
+  file: File,
+): Promise<FlotaDocument> {
   // DX3/BG10: multipart por el transporte compartido — ApiError con status.
   const form = new FormData()
   form.set('file', file)
@@ -1405,6 +1464,19 @@ export const updateDocument = (
   data: Partial<DocumentInput> & { status?: string } & Partial<DocumentAccessOverrides>,
 ) =>
   patchJson<FlotaDocument>(`${API}/documents/${id}/`, data)
+
+/** Un documento «visto como» otra persona (solo admin): qué puede hacer con
+ * él y si le sale en su lista. Lo mira la bandeja antes de concederle algo. */
+export const fetchDocumentAs = (id: number, userId: number) =>
+  getJson<FlotaDocument>(`${API}/documents/${id}/?access_for=${userId}`)
+
+/** Concede a una persona la lectura o la descarga de ESE documento sin
+ * petición previa (admin): la misma fila concedida que una petición, así que
+ * el permiso se lee por el mismo camino. Idempotente. */
+export const grantDocumentAccess = (
+  id: number,
+  data: { user: number; kind: 'view' | 'download'; note?: string },
+) => postJson<DocumentDeletionRequestRow>(`${API}/documents/${id}/grant/`, data)
 
 export const deleteDocument = (id: number, reason = '') =>
   deleteWithReason(`${API}/documents/${id}/`, reason) // FE-7

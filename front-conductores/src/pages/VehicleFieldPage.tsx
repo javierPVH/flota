@@ -534,11 +534,11 @@ export function VehicleFieldPage() {
 
         {blocked ? (
           <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
-            <Camera size={20} aria-hidden /> {t.vehicle.quickUpload}
+            <Camera size={20} aria-hidden /> {t.vehicle.quickDocument}
           </span>
         ) : (
           <button type="button" className="quick-action" onClick={() => setDocumentOpen(true)}>
-            <Camera size={20} aria-hidden /> {t.vehicle.quickUpload}
+            <Camera size={20} aria-hidden /> {t.vehicle.quickDocument}
           </button>
         )}
 

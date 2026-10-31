@@ -27,6 +27,7 @@ import { Badge, LanguageToggleButton } from '@flota/ui/ui'
 import {
   listAlerts,
   listDocumentDeletionRequests,
+  listDocumentSupplyRequests,
   listDriverChangeRequests,
   listProfileChangeRequests,
   listIncidents,
@@ -38,6 +39,7 @@ import { useLang } from '../i18n.tsx'
 import type { Alert, Incident } from '../types.ts'
 import logoUrl from '../assets/img/gransolar-logo.png'
 import { useDomainLabels } from '../domainLabels.ts'
+import { onRequestsChanged } from '../requestsSignal.ts'
 import { HSE_PATH } from './HseGate.tsx'
 
 // Crítica primero, como en la bandeja de alertas.
@@ -128,19 +130,25 @@ function ManagementHeader() {
   const bellBtnRef = useRef<HTMLButtonElement | null>(null)
   const [bellPos, setBellPos] = useState({ top: 88, right: 20, maxHeight: 480 })
   const bellCount = openAlerts + openIncidents
-  // Solicitudes sin decidir, las CUATRO bandejas de `/solicitudes`: las de
+  // Solicitudes sin decidir, las CINCO bandejas de `/solicitudes`: las de
   // coche (Jira, portón y la sustitución que llega de la app de campo), las de
-  // borrado de documentos, las propuestas de cambio de conductor —que abre el
-  // campo al resolver la alerta de km contratados— y las correcciones de ficha
-  // personal, que se piden desde «Mi perfil». Decidirlas es de administración,
-  // así que el aviso vive en su cabecera; se suman porque el aviso dice
-  // cuántas decisiones esperan, no de qué tipo son.
+  // borrado de documentos, las del papel que al campo le FALTA, las propuestas
+  // de cambio de conductor —que abre el campo al resolver la alerta de km
+  // contratados— y las correcciones de ficha personal, que se piden desde «Mi
+  // perfil». Decidirlas es de administración, así que el aviso vive en su
+  // cabecera; se suman porque el aviso dice cuántas decisiones esperan, no de
+  // qué tipo son.
   const [pendingRequests, setPendingRequests] = useState(0)
   const [pendingDocRequests, setPendingDocRequests] = useState(0)
+  const [pendingSupplyRequests, setPendingSupplyRequests] = useState(0)
   const [pendingDriverRequests, setPendingDriverRequests] = useState(0)
   const [pendingProfileRequests, setPendingProfileRequests] = useState(0)
   const pendingTotal =
-    pendingRequests + pendingDocRequests + pendingDriverRequests + pendingProfileRequests
+    pendingRequests +
+    pendingDocRequests +
+    pendingSupplyRequests +
+    pendingDriverRequests +
+    pendingProfileRequests
 
   // Recuentos "abiertas" para las pestañas y el contador del icono.
   const loadCounts = () => {
@@ -151,6 +159,9 @@ function ManagementHeader() {
       .catch(() => {})
     listDocumentDeletionRequests({ status: 'pending' })
       .then((p) => setPendingDocRequests(p.count))
+      .catch(() => {})
+    listDocumentSupplyRequests({ status: 'pending' })
+      .then((p) => setPendingSupplyRequests(p.count))
       .catch(() => {})
     listDriverChangeRequests({ status: 'pending' })
       .then((p) => setPendingDriverRequests(p.count))
@@ -178,6 +189,9 @@ function ManagementHeader() {
 
   useEffect(() => {
     loadCounts()
+    // Y otra vez cada vez que la bandeja decide algo: el globo de la llave
+    // cuenta lo de ahora, no lo de cuando se montó la cabecera.
+    return onRequestsChanged(loadCounts)
   }, [])
 
   // Al abrir la campana o cambiar de vista, refresca la lista.
@@ -354,12 +368,19 @@ function ManagementHeader() {
 
         {pendingTotal > 0 && (
           <Link
-            // Sin solicitudes de coche sin decidir, el aviso es de documentos:
-            // que abra directamente la pestaña donde hay algo que hacer.
+            // Que abra directamente la primera pestaña donde hay algo que
+            // hacer: sin coches sin decidir, la de documentos; sin esos, la
+            // del papel que falta, y así hasta las fichas.
             to={
               pendingRequests > 0
                 ? '/solicitudes?status=pending'
-                : '/solicitudes?tab=documentos'
+                : pendingDocRequests > 0
+                  ? '/solicitudes?tab=documentos'
+                  : pendingSupplyRequests > 0
+                    ? '/solicitudes?tab=pedidos'
+                    : pendingDriverRequests > 0
+                      ? '/solicitudes?tab=conductores'
+                      : '/solicitudes?tab=fichas'
             }
             className="shell-iconbtn"
             aria-label={t.shell.pendingRequests(pendingTotal)}

@@ -442,6 +442,76 @@ Dos capas que van **siempre juntas**:
   conservan el nombre (`DocumentDeletionRequest`,
   `/document-deletion-requests/`) para no romper el contrato de la API, aunque
   ahora lleven las dos clases.
+- **Y el papel que FALTA también se pide**, que es lo que no tenía camino:
+  las cuatro clases de arriba hablan de un documento que **ya existe y que
+  quien pide ya ve**, así que «necesito el contrato de mi coche y no está»
+  —o está y su tipo está cerrado al conductor (`DriverDocumentRead.NONE`),
+  con lo que ni se lista y no hay nada sobre lo que pedir acceso— salía de la
+  herramienta por teléfono y no dejaba rastro de quién pidió qué. Por eso es
+  un **modelo propio** (`DocumentSupplyRequest`, `fleet/models/request.py` +
+  `services/document_supply.py`, `/document-supply-requests/`) y no un `kind`
+  más: aquella cuelga de un `Document` que aquí **todavía no existe**, su FK
+  no es nulable y sus dos restricciones de unicidad lo dan por hecho. Cuelga
+  del **titular** —el coche o la persona, exactamente uno, como un documento—
+  y de un **tipo**, con la **nota obligatoria** (el tipo dice qué papel es,
+  no para qué hace falta, y es lo que lee quien decide). Lo pedible es
+  `REQUESTABLE_DOCUMENT_TYPES`, y el criterio es que **la bandeja tenga
+  salida**: fuera lo que exige acompañar a algo (factura, fotos de daños,
+  informe de ITV, parte de accidente) y el acta de entrega, que ya no se
+  ofrece al subir — pedir lo que no se puede atender es una vía muerta. El
+  coche ha de estar en el ámbito de **escritura** (`vehicles_for(write=True)`,
+  donde cuenta el reparto de uso) y el titular persona solo puede ser **uno
+  mismo**: quien supervisa pide los papeles de sus coches, no el permiso de
+  conducir de su conductor (RGPD). Es idempotente por (titular, tipo y
+  **persona**): dos conductores del mismo coche pueden necesitar los dos la
+  misma ficha técnica, el mismo reparto que las de acceso. En campo vive en
+  el botón de documentos, que por eso hace **dos cosas** y empieza
+  preguntando cuál (`UploadDocumentModal`, paso `mode`); en gestión es la
+  **tercera pestaña** de `/solicitudes` (`DocumentSupplyTab`) y se decide con
+  **dos salidas**: **atendida** —adjuntando ahí mismo el documento, que sube
+  por el alta de siempre con sus reglas y su archivador, en **dos llamadas**
+  y en ese orden (si la segunda falla, el documento ya está: se dice y no se
+  tumba nada), y la fila se queda con cuál fue; o sin archivo, si se entregó
+  por otra vía— o **rechazada**. **Atenderla no da acceso por sí sola**: lo
+  subido se lee con la regla de su tipo (`DocumentTypeAccess`) y la de cada
+  documento (`readable_documents`), y que atender implicara compartir sería
+  saltarse esa capa por la puerta de atrás.
+  **Las dos bandejas de documentos enseñan la documentación que YA HAY del
+  titular** (`components/OwnerDocumentsAccess.tsx`, en la pestaña
+  **«Documentación»** del modal «Gestionar» —`RequestManageTabs`: la otra es
+  la **decisión**, y arriba de las dos va lo que se pide en una caja; los
+  dos paneles siguen montados al cambiar, así que no se pierde lo escrito ni
+  se vuelve a pedir la lista, y «Atender con este» devuelve a la decisión—,
+  en la de peticiones sobre un documento —con el de la petición
+  marcado— y en la del papel que falta): una fila por documento con **quién
+  lo lee** —las chapas de su tipo o su ajuste (`useAccessParts`, la misma
+  copia que el listado de Documentos): la supervisión y los conductores del
+  coche, que es el grupo— y **cómo le va a quien pide**: si le sale en su
+  lista y si lo ve y se lo baja directo, con solicitud, pedido, concedido o
+  no permitido. Para eso el listado se pide **«visto como» esa persona**
+  (`GET /documents/?access_for=<id>`, solo admin: `can_view`, `can_download`,
+  `view_request`, `download_request` y `subject_lists` hablan de ella y no de
+  quien mira). Desde cada fila se decide: **«Conceder lectura / descarga»** a
+  esa persona lo que le vaya con solicitud (`POST /documents/{id}/grant/`,
+  `document_requests.grant_access`: la misma fila concedida que una petición
+  —`has_access_grant` la lee igual—, idempotente, y con una pendiente de esa
+  persona la concede, lo que decide también la petición abierta; a quien ni
+  lista el documento no se le concede, 400: hay que abrírselo antes) o
+  **«Acceso del grupo»**, el modal «Acceso» de la fila de Documentos
+  (`AccessOverrideRows`, extraído de `DocumentAccessModal`), que abre o cierra
+  ese documento a todo el rol. En la del papel que falta, **atender tiene
+  tres formas** (radios, «sin archivo» es una decisión y no un olvido):
+  **subiendo** el documento —con su acceso elegido al subirlo: «según su
+  tipo», diciendo lo que el tipo hace hoy, o un **ajuste propio** con los
+  mismos cinco mandos, que viajan en el alta (`uploadDocument` admite los
+  `*_override`)—, **con uno que ya existe** («Atender con este» en la lista:
+  se resuelve con su id y no se sube nada; la petición puede venir de que el
+  tipo esté cerrado al conductor) o **sin archivo**. Y una casilla, marcada
+  de salida, **concede ya a quien pidió lo que le quede con solicitud**:
+  tras subir o elegir, se mira el documento como esa persona
+  (`fetchDocumentAs`) y se le concede la lectura y la descarga que no tenga
+  y no estén cerradas; si eso falla, la petición se atiende igual y el
+  acuse dice que el acceso queda por conceder desde la lista.
 - **El exceso de km se arregla cambiando quién lo lleva, y eso también se
   PIDE.** La alerta `km_overage` dice que el coche va camino de pasarse de los
   km del contrato: cerrarla con una observación no cambia nada. Por eso su
@@ -459,9 +529,10 @@ Dos capas que van **siempre juntas**:
   de usuarios ni el directorio de la empresa viajan a una app pública por si
   acaso. Enviarla **no resuelve la alerta**: no ha cambiado nada todavía, y
   quien supervisa no cambia conductores igual que no cambia el estado del
-  coche. La decide la administración en `/solicitudes` —**tercera pestaña**; la
-  cuarta son las correcciones de ficha personal, y el aviso de la cabecera
-  cuenta las cuatro bandejas— con **dos salidas**:
+  coche. La decide la administración en `/solicitudes` —**cuarta pestaña**; la
+  tercera es el papel que el campo PIDE porque le falta y la quinta son las
+  correcciones de ficha personal, y el aviso de la cabecera cuenta las cinco
+  bandejas— con **dos salidas**:
   **atendida** o **rechazada**, y **ninguna mueve la asignación**: el cambio se
   hace en «Cambiar conductor», que es el gesto atómico de siempre con su
   histórico y su bloqueo optimista (de ahí el enlace al coche en el modal de la
@@ -2136,13 +2207,14 @@ Dos capas que van **siempre juntas**:
   inferior sigue siendo el del coche propio. Al volver del perfil se vuelve
   a la vista que se estaba usando, porque el modo no se ha tocado. El **avatar
   del header sigue llevando ahí**: es la puerta de siempre. En el perfil, el
-  **nav inferior se queda en dos** —**«Mis datos»** y **«Subir documento»**—:
+  **nav inferior se queda en dos** —**«Mis datos»** y **«Documento»**—:
   ahí no hay coche del que hablar, así que las siete acciones sobre el vehículo
   no pintan nada. **«Inicio» no está ni ahí ni en «Mi vehículo»** —el
   conmutador de arriba ya devuelve a la home al elegir una vista, y el hueco
   vale más para lo que solo se puede hacer en esa pantalla—; en **«Flota»** sí
   sigue, porque ahí el nav lleva a tres pantallas distintas y hace falta la de
-  vuelta. Y «Subir documento» abre el **mismo modal que en «Mi vehículo»**
+  vuelta. Y «Documento» abre el **mismo modal que en «Mi vehículo»** —el que
+  sube uno o **pide** el que falta—
   (`UploadDocumentModal` sobre el coche propio, montado en el `Layout` porque el
   botón es del nav): antes llevaba a `/documentos/nuevo`, que es la vista suelta
   —vuelve a pedir el coche y deja el perfil atrás—. Sin coche propio se ofrece
@@ -2154,16 +2226,33 @@ Dos capas que van **siempre juntas**:
   siendo de lectura —nadie se edita su ficha, que es lo que sostiene que el
   teléfono o el tipo de permiso de una flota sean un dato fiable—, pero hasta
   ahora solo decía «avisa a gestión»: el aviso salía de la herramienta y no
-  quedaba rastro de quién pidió qué. Ahora es la **cuarta bandeja** de
-  `/solicitudes`, y el aviso de la cabecera cuenta ya las cuatro —y esa
-  página **abre por lo pendiente** en las cuatro: se entra a decidir, no a
-  leer el histórico. La de vehículos era la única que abría con todo
-  mezclado, así que había que buscar a ojo lo que esperaba respuesta; su
-  filtro vive en la **URL** (el aviso de la cabecera enlaza `?status=pending`),
-  y por eso «Todas» escribe `?status=` —presente y vacío— en vez de quitar el
-  parámetro: borrarlo devolvería al defecto y el chip no haría nada. Vacía
-  con ese filtro no dice «sin resultados» sino que **no queda nada por
-  decidir**, que es otra cosa. Qué hace cada botón va en **una caja**
+  quedaba rastro de quién pidió qué. Ahora es la **quinta bandeja** de
+  `/solicitudes`, y el aviso de la cabecera cuenta ya las cinco —y esa
+  página **abre por lo pendiente** en todas: se entra a decidir, no a
+  leer el histórico. **Las cinco llevan la misma barra**
+  (`components/RequestsFilterBar.tsx`, sobre `TableInfoBar`): contador,
+  **buscador** —sobre lo que la tabla enseña, el valor de cada columna
+  buscable, lo mismo que va al CSV— y **tres casillas** de estado en una
+  fila de píldoras (`pill-choices`, las mismas que los radios del modal
+  «Gestionar»), que son la pregunta de quien decide: **Pendientes** (marcada de salida),
+  **lo decidido a favor** —con el nombre que le da cada bandeja: concedidas,
+  atendidas, aplicadas, y en la de documentos «Resueltas», sea borrada,
+  oculta, aplicada o concedida— y **Rechazadas**, cada una con cuántas hay.
+  Eran chips de estado, uno por valor —siete en la de documentos—, y el de
+  **«Aprobadas (Jira)»** se retiró: la solicitud que entra de Jira ya
+  aprobada allí sigue esperando que se le conceda un coche, así que
+  `groupOf` la cuenta **como pendiente** (el globo de la cabecera, que pide
+  `status=pending` al back, no la cuenta: es lo que importa a quien decide y
+  se dejó así a propósito). El estado ya no va en la URL —`?status=pending`,
+  con el que sigue enlazando el aviso de la cabecera, es lo de salida y se
+  deja pasar sin leerlo—; el origen sí (`?origen=`). Mirando solo lo
+  pendiente, vacío no dice «sin resultados» sino que **no queda nada por
+  decidir**, que es otra cosa (`isDefaultView`). Y **el globo de la llave se
+  refresca al decidir**: contaba una vez al montar la cabecera, así que tras
+  conceder algo seguía marcando el número viejo; ahora la bandeja avisa
+  (`requestsSignal.ts`, un evento del `window`: la cabecera y la página no
+  comparten más padre que la app) y la cabecera vuelve a contar las cinco.
+  Su enlace abre la **primera pestaña con algo que hacer**. Qué hace cada botón va en **una caja**
   (`.status-callout`) y no en dos párrafos grises seguidos, que es lo que el
   ojo se salta. Y la de vehículos filtra también por **origen** —todos /
   coche de sustitución / sin vehículo—, porque esa pestaña mezcla **dos
@@ -2225,12 +2314,13 @@ Dos capas que van **siempre juntas**:
   documentos, en **dos pestañas** dentro de esa tarjeta —«Pendientes» y
   «Resueltas», cada una con su recuento; el del título es el de lo pendiente,
   que es lo único que sigue pidiendo algo): **pendientes** y **resueltas**,
-  juntando las CUATRO bandejas en
+  juntando las CINCO bandejas en
   las que una persona de campo puede tener algo —su ficha, sus documentos, el
-  coche de sustitución que pidió y el cambio de conductor que propuso—, porque
+  papel que pidió porque le faltaba, el coche de sustitución que pidió y el
+  cambio de conductor que propuso—, porque
   desde aquí no se leen «bandejas»: se lee «lo mío». Las **rechazadas salen
   igual** (la chapa lo dice): pedir algo y no poder ver que se decidió que no
-  es la mitad de un camino. Las cuatro listas se piden con `allSettled` —una
+  es la mitad de un camino. Las cinco listas se piden con `allSettled` —una
   que falle no puede llevarse la tarjeta entera— y de las propuestas de
   conductor se filtran **las propias**: quien supervisa alcanza también las de
   sus coches, y esta pantalla no es la bandeja.

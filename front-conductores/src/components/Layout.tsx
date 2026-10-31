@@ -193,7 +193,7 @@ export function Layout() {
 
   const { pending, sending, flushNow } = useOfflineQueue(onFlushed)
 
-  // Los dos del nav del perfil («Mis datos» y «Subir documento»): sus modales
+  // Los dos del nav del perfil («Mis datos» y «Documento»): sus modales
   // viven aquí porque los botones son del nav, que está fuera del Outlet.
   const [uploadOpen, setUploadOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -398,12 +398,12 @@ export function Layout() {
                 onClick={() => setUploadOpen(true)}
               >
                 <Camera size={22} strokeWidth={2.4} aria-hidden />
-                <span>{t.vehicle.quickUpload}</span>
+                <span>{t.shell.tabs.document}</span>
               </button>
             ) : (
               <span className="bottom-tab is-disabled" aria-disabled="true" title={t.shell.noVehicle}>
                 <Camera size={22} strokeWidth={2.4} aria-hidden />
-                <span>{t.vehicle.quickUpload}</span>
+                <span>{t.shell.tabs.document}</span>
               </span>
             )}
           </>

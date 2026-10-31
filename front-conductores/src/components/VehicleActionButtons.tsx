@@ -54,7 +54,8 @@ export function VehicleActionButtons({
           maintenance: t.shell.tabs.maintenance,
           breakdown: t.shell.tabs.breakdown,
           accident: t.shell.tabs.accident,
-          document: t.vehicle.quickUpload,
+          // El botón hace dos cosas (pedir o subir); aquí no cabe decirlo.
+          document: t.shell.tabs.document,
         }
       : {
           km: t.common.registerKm,
@@ -63,7 +64,7 @@ export function VehicleActionButtons({
           maintenance: t.carUpdate.maintenanceButton,
           breakdown: t.home.quickBreakdown,
           accident: t.accidentModal.button,
-          document: t.vehicle.quickUpload,
+          document: t.vehicle.quickDocument,
         }
   const itvScheduled = Boolean(summary?.next_itv_date ?? vehicle?.next_itv_date)
   const allActions: Array<{ key: Action; icon: typeof Gauge }> = [

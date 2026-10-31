@@ -33,7 +33,7 @@ const PROFILE_CARDS = ['documents', 'requests'] as const
  * pidió qué.
  *
  * Y debajo de los documentos, **lo que uno tiene pedido** (`MyRequests`):
- * pendiente y resuelto, de las cuatro bandejas a la vez. Pedir algo y no poder
+ * pendiente y resuelto, de las cinco bandejas a la vez. Pedir algo y no poder
  * ver en qué quedó es la mitad de un camino.
  *
  * Esas dos cosas son los **dos acordeones** de la pantalla, cada uno con su

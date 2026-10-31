@@ -27,6 +27,7 @@ from .models import (
     Country,
     Document,
     DocumentDeletionRequest,
+    DocumentSupplyRequest,
     DocumentTypeAccess,
     DriverChangeRequest,
     EmailLog,
@@ -97,11 +98,12 @@ from .scoping import (
     delete_denied,
     download_denied,
     download_needs_grant,
+    readable_documents,
     view_denied,
     view_needs_grant,
 )
 from .selectors import current_contract_map, current_driver_map, latest_reading_map
-from .services import document_requests, profile_requests, vehicle_requests
+from .services import document_requests, document_supply, profile_requests, vehicle_requests
 
 
 class LogEntrySerializer(serializers.ModelSerializer):
@@ -2154,6 +2156,9 @@ class DocumentSerializer(serializers.ModelSerializer):
     # tiene algún ajuste puesto: es lo que pinta la columna «Acceso».
     effective_access = serializers.SerializerMethodField()
     access_adjusted = serializers.BooleanField(read_only=True)
+    # Solo con `?access_for=<id>` (admin): si ese documento le sale en su
+    # lista a esa persona. Sin sujeto, nulo.
+    subject_lists = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
@@ -2203,9 +2208,26 @@ class DocumentSerializer(serializers.ModelSerializer):
             rules = self._access_rules = DocumentTypeAccess.rules()
         return rules.get(obj.type) or DocumentTypeAccess(type=obj.type)
 
+    def _subject(self):
+        """De quién se calcula el acceso: quien pregunta o, con `access_for`
+        (admin), la persona «como» la que se mira el listado."""
+        sujeto = self.context.get("access_subject")
+        return sujeto or getattr(self.context.get("request"), "user", None)
+
     def _requester_is_admin(self) -> bool:
-        user = getattr(self.context.get("request"), "user", None)
-        return bool(getattr(user, "is_admin", False))
+        return bool(getattr(self._subject(), "is_admin", False))
+
+    def get_subject_lists(self, obj) -> bool | None:
+        sujeto = self.context.get("access_subject")
+        if sujeto is None:
+            return None
+        ids = getattr(self, "_subject_readable", None)
+        if ids is None:
+            # Una consulta por respuesta, no una por fila.
+            ids = self._subject_readable = set(
+                readable_documents(sujeto).values_list("id", flat=True)
+            )
+        return obj.pk in ids
 
     def get_effective_access(self, obj) -> dict:
         return obj.effective_access(self._access_rule(obj))
@@ -2216,7 +2238,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         respuesta (son pocas) y no una consulta por fila. Y 'denied' cuando
         no hay nada que pedir («no permitir»): el front no ofrece ni el
         botón de pedirlo."""
-        user = getattr(self.context.get("request"), "user", None)
+        user = self._subject()
         if not getattr(user, "is_authenticated", False):
             return ""
         estados = getattr(self, "_access_requests", None)
@@ -2234,7 +2256,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     def _is_denied(self, obj, kind: str) -> bool:
         if self._requester_is_admin():
             return False
-        user = self.context["request"].user
+        user = self._subject()
         acceso = self.get_effective_access(obj)
         if kind == DocumentRequestKind.VIEW:
             return view_denied(user, acceso)
@@ -2255,7 +2277,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             return True
         if self._is_denied(obj, DocumentRequestKind.VIEW):
             return False
-        user = self.context["request"].user
+        user = self._subject()
         if not view_needs_grant(user, self.get_effective_access(obj)):
             return True
         return self.get_view_request(obj) == DocumentDeletionStatus.GRANTED
@@ -2278,7 +2300,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             return True
         if self._is_denied(obj, DocumentRequestKind.DOWNLOAD):
             return False
-        user = self.context["request"].user
+        user = self._subject()
         if not download_needs_grant(user, self.get_effective_access(obj)):
             return True
         return self.get_download_request(obj) == DocumentDeletionStatus.GRANTED
@@ -2570,6 +2592,9 @@ class DocumentDeletionRequestSerializer(serializers.ModelSerializer):
     vehicle_plate = serializers.CharField(
         source="document.vehicle.plate", read_only=True, default=""
     )
+    #: El titular persona (un documento personal), para que la bandeja pueda
+    #: listar el resto de su documentación como hace con la del coche.
+    owner_user = serializers.IntegerField(source="document.user_id", read_only=True, default=None)
     owner_name = serializers.SerializerMethodField()
 
     class Meta:
@@ -3885,5 +3910,90 @@ class ProfileChangeRequestSerializer(serializers.ModelSerializer):
         if not cambios and not (attrs.get("note") or "").strip():
             raise serializers.ValidationError(
                 {"note": "Di qué hay que corregir o escribe una nota para administración."}
+            )
+        return attrs
+
+
+class DocumentSupplyRequestSerializer(serializers.ModelSerializer):
+    """Petición de que le faciliten un documento al campo, tal como se lee.
+
+    La fila de la bandeja tiene que decir **de qué coche (o de quién) es, qué
+    papel se pide y para qué** sin abrir nada: de ahí la matrícula y el nombre
+    del titular al lado de sus ids.
+
+    De entrada solo se aceptan el titular, el tipo y la nota. El estado, el
+    documento con el que se atendió y el rastro de la resolución los escribe el
+    servidor (`services.document_supply.resolve`), y el solicitante lo pone la
+    sesión: abrir una petición a nombre de otro no es una posibilidad.
+    """
+
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    type_display = serializers.CharField(source="get_type_display", read_only=True)
+    vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True, default="")
+    user_name = serializers.SerializerMethodField()
+    requested_by_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+    #: Con qué se atendió, para que la fila resuelta enlace al documento.
+    document_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DocumentSupplyRequest
+        fields = "__all__"
+        read_only_fields = [
+            "id",
+            "requested_by",
+            "status",
+            "document",
+            "resolved_by",
+            "resolved_at",
+            "resolution_note",
+            "created_at",
+            "updated_at",
+        ]
+
+    @staticmethod
+    def _name(person) -> str:
+        if not person:
+            return ""
+        return person.get_full_name() or person.get_username()
+
+    def get_user_name(self, obj) -> str:
+        return self._name(obj.user)
+
+    def get_requested_by_name(self, obj) -> str:
+        return self._name(obj.requested_by)
+
+    def get_resolved_by_name(self, obj) -> str:
+        return self._name(obj.resolved_by)
+
+    def get_document_name(self, obj) -> str:
+        return str(obj.document) if obj.document_id else ""
+
+    def validate_note(self, value):
+        """Obligatoria: el tipo dice qué papel es, no para qué hace falta."""
+        texto = (value or "").strip()
+        if not texto:
+            raise serializers.ValidationError("Di para qué hace falta ese documento.")
+        return texto
+
+    def validate(self, attrs):
+        """Titular único y tipo pedible, las dos reglas de esta petición.
+
+        El titular es el mismo que el de un documento —o el coche o la persona,
+        nunca los dos ni ninguno—, y el tipo tiene que ser de los que la gestión
+        puede subir desde la bandeja: pedir algo que no se puede atender es una
+        vía muerta, y decirlo aquí es mejor que dejar la fila esperando.
+        """
+        vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
+        user = attrs.get("user", getattr(self.instance, "user", None))
+        if bool(vehicle) == bool(user):
+            raise serializers.ValidationError(
+                {"vehicle": "Indica el vehículo O la persona, exactamente uno."}
+            )
+        doc_type = attrs.get("type", getattr(self.instance, "type", ""))
+        admitidos = document_supply.requestable_types(personal=bool(user))
+        if doc_type not in admitidos:
+            raise serializers.ValidationError(
+                {"type": "Ese tipo de documento no se pide por aquí."}
             )
         return attrs

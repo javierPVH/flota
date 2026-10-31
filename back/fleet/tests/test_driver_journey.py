@@ -559,9 +559,10 @@ class DriverJourneyTests(APITestCase):
             {"decision": "done"},
             status.HTTP_403_FORBIDDEN,
         )
-        # Y «lo mío» del perfil: las cuatro bandejas se leen.
+        # Y «lo mío» del perfil: las cinco bandejas se leen.
         self._get(f"{API}/driver-change-requests/?page_size=500")
         self._get(f"{API}/vehicle-requests/mine/")
+        self._get(f"{API}/document-supply-requests/?page_size=500")
 
     # --- mantenimiento programado: lo que «Te queda poco» y el nav abren ----
 

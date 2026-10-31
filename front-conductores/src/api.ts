@@ -297,6 +297,43 @@ export const listMyProfileChangeRequests = () =>
 export const requestProfileChange = (input: { changes: ProfileChanges; note?: string }) =>
   postJson<ProfileChangeRequestRow>(`${API}/profile-change-requests/`, input)
 
+// --- Pedir un documento que falta -----------------------------------------
+
+/** Petición de que te FACILITEN un documento. Al revés que las otras cuatro
+ * peticiones sobre documentos, esta no cuelga de ninguno: cuelga del titular
+ * (el coche o tú) y de un TIPO, porque el papel puede no existir todavía —o
+ * existir y no salir en tu lista—. */
+export interface DocumentSupplyRequestRow {
+  id: number
+  vehicle: number | null
+  vehicle_plate: string
+  user: number | null
+  user_name: string
+  type: string
+  type_display: string
+  note: string
+  status: 'pending' | 'done' | 'rejected'
+  status_display: string
+  document: number | null
+  document_name: string
+  resolution_note: string
+  created_at: string
+}
+
+/** Pide un documento. **No facilita nada por sí sola**: abre una solicitud
+ * que decide administración en `/solicitudes`, y es idempotente por titular,
+ * tipo y persona (dos envíos devuelven la misma fila). */
+export const requestDocumentSupply = (input: {
+  vehicle?: number
+  user?: number
+  type: string
+  note: string
+}) => postJson<DocumentSupplyRequestRow>(`${API}/document-supply-requests/`, input)
+
+/** Las que ha abierto quien pregunta (el back solo sirve las suyas). */
+export const listMyDocumentSupplyRequests = () =>
+  getJson<Paginated<DocumentSupplyRequestRow>>(`${API}/document-supply-requests/?${PS}`)
+
 // --- Actualización de campo del supervisor (km / mantenimiento / partes) ----
 
 /** Plan de mantenimiento preventivo (GAP-8), tal y como lo lista el back. */

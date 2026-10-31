@@ -1,10 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppHeader } from './AppHeader.tsx'
 import { LanguageProvider } from '../i18n.tsx'
+import { notifyRequestsChanged } from '../requestsSignal.ts'
 import type { FlotaUser } from '../types.ts'
 
 const mocks = vi.hoisted(() => ({
@@ -79,6 +80,17 @@ describe('AppHeader: las solicitudes sin decidir', () => {
 
     const aviso = await screen.findByRole('link', { name: '2 solicitudes sin decidir' })
     expect(aviso).toHaveAttribute('href', '/solicitudes?tab=documentos')
+  })
+
+  it('vuelve a contar cuando la bandeja decide algo', async () => {
+    pintar()
+    await screen.findByRole('link', { name: '5 solicitudes sin decidir' })
+
+    // Se concede una de coche: la bandeja avisa y el globo baja a 4 sin
+    // recargar la página.
+    mocks.listVehicleRequests.mockResolvedValue({ count: 2, results: [] })
+    act(() => notifyRequestsChanged())
+    expect(await screen.findByRole('link', { name: '4 solicitudes sin decidir' })).toBeInTheDocument()
   })
 
   it('sin ninguna pendiente no ocupa sitio en la cabecera', async () => {

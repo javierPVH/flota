@@ -82,6 +82,26 @@ LINK_REQUIRED_DOCUMENT_TYPES = frozenset(
 PERSONAL_DOCUMENT_TYPES = frozenset({DocumentType.DRIVING_LICENSE, DocumentType.OTHER})
 
 
+#: Tipos que el campo puede PEDIR que le faciliten (`DocumentSupplyRequest`).
+#: El criterio es que la bandeja tenga salida: lo que se pide, la gestión tiene
+#: que poder subirlo ahí mismo. Por eso quedan fuera los que EXIGEN acompañar a
+#: algo (`LINK_REQUIRED_DOCUMENT_TYPES`) y el parte de accidente
+#: (`INCIDENT_BOUND_DOCUMENT_TYPES`) —nacen de un hecho del coche y sueltos no
+#: dicen nada— y el **acta de entrega**, que ya hoy no se ofrece al subir.
+#: Pedir algo que no se puede atender es una vía muerta.
+REQUESTABLE_DOCUMENT_TYPES = frozenset(
+    set(DocumentType.values)
+    - set(LINK_REQUIRED_DOCUMENT_TYPES)
+    - set(INCIDENT_BOUND_DOCUMENT_TYPES)
+    - {DocumentType.HANDOVER_ACT}
+)
+
+#: Y los que se piden con titular PERSONA: la intersección con los personales.
+REQUESTABLE_PERSONAL_DOCUMENT_TYPES = frozenset(
+    REQUESTABLE_DOCUMENT_TYPES & PERSONAL_DOCUMENT_TYPES
+)
+
+
 class DriverDocumentRead(models.TextChoices):
     """Qué lee un CONDUCTOR de un tipo de documento (`DocumentTypeAccess`).
 

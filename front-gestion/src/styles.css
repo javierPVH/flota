@@ -1181,6 +1181,57 @@ table.data tbody tr:hover {
 /* La caja de «cómo se decide» de Solicitudes: separada de los chips de estado
    y de la tabla, que si no se pega a los dos. */
 .requests-help { margin: 0.7rem 0 1rem; }
+/* La documentación del titular dentro del modal de la bandeja: una tabla
+   corta bajo el formulario, con las chapas de acceso envolviendo. */
+/* Es un panel de pestaña del modal: sin filete por encima. */
+.owner-docs { margin-top: 0; }
+.owner-docs-title { margin: 0 0 0.25rem; font-size: 1rem; }
+.owner-docs-intro { margin: 0 0 0.75rem; }
+.owner-docs-table td { vertical-align: top; }
+.owner-docs-table .doc-access-cell { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+.owner-docs-actions { justify-content: flex-end; flex-wrap: wrap; }
+.owner-docs-actions-head { text-align: right; }
+/* El rótulo de un grupo de radios/casillas del modal, delante de ellas. */
+.ops-checks-label { font-weight: 600; font-size: 0.88rem; margin-right: 0.4rem; }
+/* Casillas o radios como PÍLDORAS en una fila (el mismo aspecto que los
+   interruptores de la barra del inventario), a la altura de los campos de
+   la barra: las tres casillas de estado de cada bandeja de `/solicitudes` y
+   los radios del modal «Gestionar» (cómo se atiende, con qué acceso). */
+.pill-choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 40px;
+  gap: 0.4rem;
+}
+.pill-choices .baja-toggle {
+  min-height: 40px;
+  padding: 0 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.pill-choices .baja-toggle:hover { border-color: var(--color-border-strong); }
+.pill-choices .baja-toggle:has(input:checked) {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+/* El campo de las casillas no se estira: mide lo que miden sus píldoras
+   (con la clase doble, que `.filter-field` llega después y lo estiraría). */
+.filter-field.filter-field--groups { flex: 0 0 auto; }
+
+/* El modal «Gestionar» de las bandejas de documentos: la caja con lo que se
+   pide arriba, las pestañas y el panel activo. */
+.manage-modal { display: flex; flex-direction: column; gap: 0.9rem; }
+/* La nota de quien pide va a su línea: puede ser larga. */
+.request-info-note { flex: 1 0 100%; }
+/* Un panel de pestaña del modal; el de la decisión es el formulario. */
+.manage-pane { display: flex; flex-direction: column; gap: 0.9rem; }
+/* Con qué documento se atiende: una línea con su chapa y el botón de quitarlo. */
+.manage-picked { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 
 /* Resumen de una tarjeta colapsada (junto al título, en el hueco de acciones). */
 .acc-summary { font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500; }

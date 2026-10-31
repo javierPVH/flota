@@ -431,7 +431,7 @@ export function BreakdownModal({
                     )}
                     <SelectField label={n.changeReason} aria-label={n.changeReason} options={[
                       { value: 'wear', label: n.wear }, { value: 'puncture', label: n.puncture },
-                    ]} value={changeReason} onValueChange={setChangeReason} required requiredVisual includeSelectFlag selectFlagLabel={n.choose} />
+                    ]} value={changeReason} onValueChange={setChangeReason} required requiredVisual includeSelectFlag selectFlagLabel={n.chooseReason} />
                     {changeReason === 'wear' && <>
                       <div className="incident-grid tire-wheel-grid">
                         <SelectField label={n.whichWheels} aria-label={n.whichWheels} options={[

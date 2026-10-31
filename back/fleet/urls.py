@@ -12,6 +12,7 @@ from .views import (
     ContractViewSet,
     CountryViewSet,
     DocumentDeletionRequestViewSet,
+    DocumentSupplyRequestViewSet,
     DocumentTypeAccessViewSet,
     DocumentViewSet,
     DriverChangeRequestViewSet,
@@ -90,6 +91,12 @@ router.register(
     "profile-change-requests",
     ProfileChangeRequestViewSet,
     basename="profilechangerequest",
+)
+# Y el papel que falta se PIDE: la quinta bandeja de la misma página.
+router.register(
+    "document-supply-requests",
+    DocumentSupplyRequestViewSet,
+    basename="documentsupplyrequest",
 )
 # Catálogos
 router.register("countries", CountryViewSet, basename="country")

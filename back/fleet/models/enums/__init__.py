@@ -16,6 +16,8 @@ from .document import (
     LINK_REQUIRED_DOCUMENT_TYPES,
     ONE_PER_DOCUMENT_KINDS,
     PERSONAL_DOCUMENT_TYPES,
+    REQUESTABLE_DOCUMENT_TYPES,
+    REQUESTABLE_PERSONAL_DOCUMENT_TYPES,
     DocumentDeletionStatus,
     DocumentRequestKind,
     DocumentStatus,
@@ -33,7 +35,12 @@ from .incident import (
 )
 from .invoice import AllocationTarget
 from .operations import AssignmentStatus, LinkReason
-from .request import DriverChangeStatus, ProfileChangeStatus, VehicleRequestStatus
+from .request import (
+    DocumentSupplyStatus,
+    DriverChangeStatus,
+    ProfileChangeStatus,
+    VehicleRequestStatus,
+)
 from .vehicle import (
     OUT_OF_FLEET,
     MarketSegment,
@@ -68,6 +75,9 @@ __all__ = [
     "ONE_PER_DOCUMENT_KINDS",
     "DocumentDeletionStatus",
     "DocumentRequestKind",
+    "DocumentSupplyStatus",
+    "REQUESTABLE_DOCUMENT_TYPES",
+    "REQUESTABLE_PERSONAL_DOCUMENT_TYPES",
     "PERSONAL_DOCUMENT_TYPES",
     "ALERT_LINKABLE_DOCUMENT_TYPES",
     "EVENT_LINKABLE_DOCUMENT_TYPES",

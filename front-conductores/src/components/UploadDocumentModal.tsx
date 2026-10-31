@@ -1,11 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { CheckCircle2, Paperclip } from 'lucide-react'
+import { CheckCircle2, FileQuestion, Paperclip, Upload } from 'lucide-react'
 import { Button, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { listIncidents, uploadDocument } from '../api.ts'
+import { listIncidents, requestDocumentSupply, uploadDocument } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import {
+  REQUESTABLE_DOCUMENT_TYPES,
+  REQUESTABLE_PERSONAL_DOCUMENT_TYPES,
   documentExpires,
   documentLinkRequired,
   incidentTypeRequiredBy,
@@ -16,7 +18,12 @@ import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Incident, Vehicle } from '../types.ts'
-import { UPLOAD_STEPS, type UploadStep } from '../uploadSteps.ts'
+import {
+  MODAL_ASK_STEPS,
+  MODAL_UPLOAD_STEPS,
+  type DocumentMode,
+  type DocumentStep,
+} from '../uploadSteps.ts'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
 const DOCUMENT_TYPES = [
@@ -38,14 +45,21 @@ const PERSONAL_TYPES = ['driving_license', 'other']
 type Owner = 'vehicle' | 'driver'
 
 /**
- * Subida de documentos desde la ficha, con el vehículo fijado.
+ * Documentos desde la ficha, con el vehículo fijado. El mismo botón hace
+ * **dos cosas**, y por eso el primer paso es la bifurcación:
  *
- * El primer paso pregunta **de quién es** el documento: los papeles del coche
- * cuelgan de la matrícula (`vehicle`) y pueden ir ligados a una incidencia;
- * el permiso de conducir es de la **persona** (`user`, la carpeta
- * `Usuarios/<correo>` del archivador) y no lleva incidencia, así que con él
- * el paso «Ligado a» desaparece. Antes desde aquí solo se subían los del
- * coche, y el permiso había que ir a buscarlo a «Mi perfil».
+ * - **subir** uno que se tiene (el recorrido de siempre);
+ * - **pedir** el que falta, que es lo que no tenía camino: un conductor solo
+ *   podía hablar de un documento que ya existía Y que ya veía (borrarlo,
+ *   corregirlo, abrir su archivo), así que «necesito el contrato de mi coche
+ *   y no está» —o está y su tipo está cerrado al conductor, con lo que ni se
+ *   lista— salía de la herramienta por teléfono y no dejaba rastro.
+ *
+ * En las dos ramas se pregunta primero **de quién es** el documento: los
+ * papeles del coche cuelgan de la matrícula (`vehicle`) y pueden ir ligados a
+ * una incidencia; el permiso de conducir es de la **persona** (`user`, la
+ * carpeta `Usuarios/<correo>` del archivador) y no lleva incidencia, así que
+ * con él el paso «Ligado a» desaparece.
  */
 export function UploadDocumentModal({
   vehicle,
@@ -76,12 +90,23 @@ export function UploadDocumentModal({
           name: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username,
         }
       : null)
+  // Pedir es SIEMPRE para uno mismo (el back lo exige): el supervisor pide los
+  // papeles del coche, no el permiso de conducir de su conductor.
+  const askTarget =
+    user && user.roles.includes('driver')
+      ? {
+          id: user.id,
+          name: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username,
+        }
+      : null
+  const [mode, setMode] = useState<DocumentMode | null>(null)
   const [owner, setOwner] = useState<Owner>('vehicle')
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [form, setForm] = useState({ type: 'other', expiry_date: '', incident: '', notes: '' })
   const [file, setFile] = useState<File | null>(null)
-  // Tres pasos: qué se sube · de qué es · qué más hay que decir.
-  const [step, setStep] = useState<UploadStep>('file')
+  // Lo que se pide: qué papel y para qué (los dos obligatorios).
+  const [ask, setAsk] = useState({ type: '', note: '' })
+  const [step, setStep] = useState<DocumentStep>('mode')
   const [cameBack, setCameBack] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -120,51 +145,106 @@ export function UploadDocumentModal({
     setForm((current) => ({ ...current, type: 'other', expiry_date: '', incident: '' }))
   }
 
+  /** Lo mismo en la rama de pedir, donde el catálogo también depende del
+   * titular: nadie pide «su» póliza de seguro, que esa es del coche. */
+  function changeAskOwner(value: string) {
+    const next: Owner = value === 'driver' && askTarget ? 'driver' : 'vehicle'
+    setOwner(next)
+    setAsk((current) => ({ ...current, type: '' }))
+  }
+
   function reset() {
     setDone('')
     setError('')
     setFile(null)
+    setMode(null)
     setOwner('vehicle')
     setForm({ type: 'other', expiry_date: '', incident: '', notes: '' })
-    setStep('file')
+    setAsk({ type: '', note: '' })
+    setStep('mode')
   }
 
   const personal = owner === 'driver'
   const types = personal ? PERSONAL_TYPES : DOCUMENT_TYPES
+  const askTypes = personal ? REQUESTABLE_PERSONAL_DOCUMENT_TYPES : REQUESTABLE_DOCUMENT_TYPES
+  const asking = mode === 'ask'
   // Un documento personal no se liga a nada: su recorrido se salta «Ligado a».
-  const steps: readonly UploadStep[] = personal ? ['file', 'notes'] : UPLOAD_STEPS
+  const steps: readonly DocumentStep[] = asking
+    ? MODAL_ASK_STEPS
+    : personal
+      ? ['mode', 'file', 'notes']
+      : MODAL_UPLOAD_STEPS
 
   // Lo que exige cada paso para dejar pasar al siguiente. El vínculo es el
   // único que puede quedarse sin salida: un parte de accidente sin accidente
   // abierto no se puede subir, y ahí lo que hay que hacer es decirlo.
-  const stepValid: Record<UploadStep, boolean> = {
+  const stepValid: Record<DocumentStep, boolean> = {
+    mode: mode !== null,
     file: Boolean(file),
     link: personal || !linkRequired || Boolean(form.incident),
     notes: true,
+    ask: Boolean(ask.type) && ask.note.trim().length > 0,
   }
   const current = steps.indexOf(step)
   const nextStep = steps[current + 1]
   const previousStep = steps[current - 1]
-  const stepLabels: Record<UploadStep, string> = {
+  const stepLabels: Record<DocumentStep, string> = {
+    mode: copy.stepMode,
     file: copy.stepFile,
     link: copy.stepLink,
     notes: copy.stepNotes,
+    ask: copy.stepAsk,
   }
 
-  function goTo(next: UploadStep) {
-    setCameBack(UPLOAD_STEPS.indexOf(next) < current)
+  function goTo(next: DocumentStep) {
+    setCameBack(steps.indexOf(next) < current)
     setStep(next)
     setError('')
   }
 
-  /** Intro: antes del último paso avanza, no sube. */
+  /** Elegir qué se viene a hacer avanza: es una bifurcación, no un campo. */
+  function chooseMode(value: DocumentMode) {
+    setMode(value)
+    setOwner('vehicle')
+    setCameBack(false)
+    setStep(value === 'ask' ? 'ask' : 'file')
+    setError('')
+  }
+
+  /** Intro: antes del último paso avanza, no envía. */
   function onFormSubmit(event: FormEvent) {
     event.preventDefault()
     if (nextStep !== undefined) {
       if (stepValid[step]) goTo(nextStep)
       return
     }
-    void handleSubmit(event)
+    if (asking) void handleAsk(event)
+    else void handleSubmit(event)
+  }
+
+  /** Pedir el documento que falta. No sube nada ni cambia nada: abre la
+   * solicitud que decide administración. */
+  async function handleAsk(event: FormEvent) {
+    event.preventDefault()
+    if (!ask.type) return
+    if (!ask.note.trim()) {
+      setError(copy.askNoteRequired)
+      return
+    }
+    setSaving(true)
+    setError('')
+    const titular = personal && askTarget ? { user: askTarget.id } : { vehicle: vehicle.id }
+    try {
+      await requestDocumentSupply({ ...titular, type: ask.type, note: ask.note.trim() })
+      setDone(copy.askSaved)
+      onSaved?.()
+    } catch (caught) {
+      // A propósito, sin cola offline: una petición no es un registro de campo
+      // que se pierda si no hay cobertura — se vuelve a intentar.
+      setError(asErrorMessage(caught, copy.askError))
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -212,11 +292,13 @@ export function UploadDocumentModal({
   return (
     <SupervisorModal
       open
-      title={`${copy.title} · ${vehicle.plate}`}
+      title={`${copy.titleBoth} · ${vehicle.plate}`}
       onClose={onClose}
       footer={done ? (
         <>
-          <Button type="button" variant="secondary" onClick={reset}>{copy.another}</Button>
+          <Button type="button" variant="secondary" onClick={reset}>
+            {asking ? copy.askAnother : copy.another}
+          </Button>
           <Button type="button" onClick={onClose}>{t.carUpdate.close}</Button>
         </>
       ) : (
@@ -229,10 +311,17 @@ export function UploadDocumentModal({
           {nextStep === undefined ? (
             <Button
               type="button"
-              onClick={(event) => void handleSubmit(event)}
-              disabled={saving || (!personal && Boolean(boundTo) && linkable.length === 0)}
+              onClick={(event) => void (asking ? handleAsk(event) : handleSubmit(event))}
+              disabled={
+                saving ||
+                (asking
+                  ? !stepValid.ask
+                  : !personal && Boolean(boundTo) && linkable.length === 0)
+              }
             >
-              {saving ? doc.uploadSubmitting : copy.submit}
+              {asking
+                ? saving ? copy.askSubmitting : copy.askSubmit
+                : saving ? doc.uploadSubmitting : copy.submit}
             </Button>
           ) : (
             <Button type="button" onClick={() => goTo(nextStep)} disabled={!stepValid[step]}>
@@ -245,7 +334,7 @@ export function UploadDocumentModal({
       {done ? (
         <div className="km-saved">
           <CheckCircle2 size={52} aria-hidden className="km-saved-icon" />
-          <h2>{copy.savedTitle}</h2>
+          <h2>{asking ? copy.askSavedTitle : copy.savedTitle}</h2>
           <p className="km-saved-detail" role="status">{done}</p>
         </div>
       ) : (
@@ -261,6 +350,68 @@ export function UploadDocumentModal({
             ))}
           </div>
           <div key={step} className={`step-pane${cameBack ? ' from-left' : ''}`}>
+          {step === 'mode' && <>
+          {/* La bifurcación: dos cosas distintas que comparten botón, porque
+              quien llega aquí viene a hacer una u otra con el mismo papel. */}
+          <p className="update-hint">{copy.modeLabel}</p>
+          <div className="mode-choice">
+            {([
+              { key: 'upload' as const, icon: Upload, label: copy.modeUpload, hint: copy.modeUploadHint },
+              { key: 'ask' as const, icon: FileQuestion, label: copy.modeAsk, hint: copy.modeAskHint },
+            ]).map(({ key, icon: Icon, label, hint }) => (
+              <button
+                key={key}
+                type="button"
+                className={`mode-option${mode === key ? ' is-active' : ''}`}
+                onClick={() => chooseMode(key)}
+              >
+                <Icon size={24} aria-hidden />
+                <span className="mode-option-label">{label}</span>
+                <span className="mode-option-hint">{hint}</span>
+              </button>
+            ))}
+          </div>
+          </>}
+
+          {step === 'ask' && <>
+          {/* Pedir: de quién es, qué papel hace falta y para qué. Son tres
+              preguntas cortas, así que caben en una pantalla. */}
+          {askTarget && (
+            <>
+              <SelectField
+                label={copy.owner}
+                required
+                options={[
+                  { value: 'vehicle', label: copy.ownerVehicle(vehicle.plate) },
+                  { value: 'driver', label: copy.ownerDriver(askTarget.name) },
+                ]}
+                value={owner}
+                onValueChange={changeAskOwner}
+              />
+              <p className="update-hint">{copy.askOwnerHint}</p>
+            </>
+          )}
+          <SelectField
+            label={copy.askType}
+            required
+            requiredVisual
+            options={[
+              { value: '', label: copy.askTypeChoose },
+              ...askTypes.map((value) => ({ value, label: doc.docTypes[value] ?? value })),
+            ]}
+            value={ask.type}
+            onValueChange={(value) => setAsk((current) => ({ ...current, type: value }))}
+          />
+          <TextInputField
+            label={copy.askNote}
+            required
+            requiredVisual
+            value={ask.note}
+            onChange={(event) => setAsk((current) => ({ ...current, note: event.target.value }))}
+          />
+          <p className="update-hint">{copy.askNoteHint}</p>
+          </>}
+
           {step === 'file' && <>
           {/* De quién es: solo se pregunta si hay una persona a la que
               colgárselo (el conductor del coche, o quien sube si conduce). */}
@@ -274,6 +425,9 @@ export function UploadDocumentModal({
                 ]}
                 value={owner}
                 onValueChange={changeOwner}
+                // Siempre tiene valor: sin `required`, el SelectField del DS
+                // añade la opción «-- Ignorar --», que aquí no significa nada.
+                required
               />
               <p className="update-hint">{copy.ownerHint}</p>
             </>
@@ -283,6 +437,7 @@ export function UploadDocumentModal({
             options={types.map((value) => ({ value, label: doc.docTypes[value] ?? value }))}
             value={form.type}
             onValueChange={changeType}
+            required
           />
           <div className="file-block">
             <span className="file-block-label">

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   listMyDocumentRequests: vi.fn(),
   listMyRequests: vi.fn(),
   listDriverChangeRequests: vi.fn(),
+  listMyDocumentSupplyRequests: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -23,6 +24,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listMyDocumentRequests: mocks.listMyDocumentRequests,
   listMyRequests: mocks.listMyRequests,
   listDriverChangeRequests: mocks.listDriverChangeRequests,
+  listMyDocumentSupplyRequests: mocks.listMyDocumentSupplyRequests,
 }))
 
 vi.mock('../auth.ts', async (importOriginal) => ({
@@ -52,6 +54,7 @@ describe('ProfilePage (la pantalla del avatar)', () => {
     mocks.listMyDocumentRequests.mockResolvedValue({ count: 0, results: [] })
     mocks.listMyRequests.mockResolvedValue([])
     mocks.listDriverChangeRequests.mockResolvedValue({ count: 0, results: [] })
+    mocks.listMyDocumentSupplyRequests.mockResolvedValue({ count: 0, results: [] })
     mocks.listPersonalDocuments.mockResolvedValue({
       count: 1,
       results: [
@@ -118,7 +121,7 @@ describe('ProfilePage (la pantalla del avatar)', () => {
   })
 
   it('debajo de los documentos, lo que uno tiene pedido: pendiente y resuelto', async () => {
-    // Las CUATRO bandejas en las que una persona de campo puede tener algo, en
+    // Las CINCO bandejas en las que una persona de campo puede tener algo, en
     // dos tarjetas: desde aquí no se leen «bandejas», se lee «lo mío».
     mocks.listMyProfileChangeRequests.mockResolvedValue({
       count: 1,
@@ -179,6 +182,28 @@ describe('ProfilePage (la pantalla del avatar)', () => {
         },
       ],
     })
+    // Y el papel que pidió porque le faltaba, la quinta bandeja.
+    mocks.listMyDocumentSupplyRequests.mockResolvedValue({
+      count: 1,
+      results: [
+        {
+          id: 6,
+          vehicle: 2,
+          vehicle_plate: '7890NPQ',
+          user: null,
+          user_name: '',
+          type: 'contract',
+          type_display: 'Contrato',
+          note: 'Me lo piden en la obra.',
+          status: 'pending',
+          status_display: 'Pendiente',
+          document: null,
+          document_name: '',
+          resolution_note: '',
+          created_at: '2026-09-20T10:00:00Z',
+        },
+      ],
+    })
     render(
       <LanguageProvider>
         <ProfilePage />
@@ -189,13 +214,14 @@ describe('ProfilePage (la pantalla del avatar)', () => {
     // Plegada de salida, pero su título ya dice cuántas esperan decisión: eso
     // es lo que se mira sin abrir nada.
     const cabecera = await screen.findByRole('button', { name: /Peticiones/ })
-    expect(within(cabecera).getByText('1')).toBeInTheDocument()
+    expect(within(cabecera).getByText('2')).toBeInTheDocument()
     await user.click(cabecera)
 
     const tarjeta = cabecera.closest('section')!
     // Pestaña de salida: lo pendiente.
     expect(within(tarjeta).getByText('Mi ficha')).toBeInTheDocument()
-    expect(within(tarjeta).getByText('Pendiente')).toBeInTheDocument()
+    expect(within(tarjeta).getByText('Documento pedido · 7890NPQ')).toBeInTheDocument()
+    expect(within(tarjeta).getAllByText('Pendiente')).toHaveLength(2)
     expect(within(tarjeta).queryByText('Rechazada')).not.toBeInTheDocument()
 
     await user.click(within(tarjeta).getByRole('tab', { name: /Resueltas/ }))

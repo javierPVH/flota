@@ -284,7 +284,7 @@ export function NewIncidentPage() {
               : t.newIncident.mileageFromReading(fmtKm(kmCurrent, language))}</p>
           )}
           <SelectField label={t.newIncident.changeReason} options={[
-            { value: '', label: t.newIncident.choose }, { value: 'wear', label: t.newIncident.wear },
+            { value: '', label: t.newIncident.chooseReason }, { value: 'wear', label: t.newIncident.wear },
             { value: 'puncture', label: t.newIncident.puncture },
           ]} value={details.change_reason} onValueChange={(value) => setDetail('change_reason', value)} required requiredVisual />
           {details.change_reason === 'wear' && <>

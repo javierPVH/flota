@@ -2648,3 +2648,34 @@ button.bottom-tab {
 .scheduled-info svg { flex: none; margin-top: 0.1rem; color: var(--color-brand); }
 .scheduled-info p { margin: 0.2rem 0 0; }
 .scheduled-info-open { font-weight: 700; }
+
+/* La bifurcación del modal de documentos: el mismo botón sube un papel o PIDE
+   el que falta, así que lo primero es elegir, y se elige con el dedo —dos
+   cajas grandes, no un desplegable— porque son dos caminos distintos y no dos
+   valores del mismo campo. */
+.mode-choice { display: grid; gap: 0.7rem; }
+.mode-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "icon label" "icon hint";
+  align-items: center;
+  gap: 0.15rem 0.75rem;
+  width: 100%;
+  min-height: 72px;
+  padding: 0.85rem 0.9rem;
+  border: 2px solid var(--color-border);
+  border-radius: 0.8rem;
+  background: var(--color-surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mode-option svg { grid-area: icon; color: var(--color-brand); }
+.mode-option-label { grid-area: label; font-weight: 700; font-size: 0.98rem; }
+.mode-option-hint {
+  grid-area: hint;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+.mode-option.is-active { border-color: var(--color-brand); }

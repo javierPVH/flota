@@ -1,0 +1,2405 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#009491" />
+<title>Tutoriales · App de conductores</title>
+<style>
+/* ──────────────────────────────────────────────────────────────────────────
+   Tutorial de la app de campo (front-conductores).
+   Los tokens son copia de front/src/styles/tokens.css (tema corporativo) y
+   las piezas del móvil (cabecera, conmutador, nav inferior, tarjetas,
+   avisos) reproducen las clases de front-conductores/src/styles.css, para
+   que lo que se ve aquí sea lo que se ve en la app.
+   ────────────────────────────────────────────────────────────────────────── */
+:root {
+  --font-sans: Arial, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --color-brand: #009491;
+  --color-brand-hover: #0b8f8d;
+  --color-brand-soft: #e6f4f4;
+  --color-brand-border: rgba(0, 148, 145, 0.2);
+  --color-primary: #1f63b8;
+  --color-primary-soft: #e9f2ff;
+  --color-ink: #10233a;
+  --color-text: #223a55;
+  --color-text-muted: #5f748c;
+  --color-text-subtle: #8a9bb0;
+  --color-surface: #ffffff;
+  --color-app-bg: #eef3f8;
+  --color-surface-soft: #e4ecf4;
+  --color-surface-muted: #f5f7fa;
+  --color-border: #cfdae6;
+  --color-border-strong: #afc0d2;
+  --color-danger: #c63434;
+  --color-danger-soft: #f5c3c3;
+  --color-danger-bg: #fdf0f0;
+  --color-success: #1f9f67;
+  --color-success-soft: #e7f7ef;
+  --color-success-border: #bfe7d2;
+  --color-warning: #c17a11;
+  --color-warning-soft: #fff4df;
+  --color-warning-border: #f0d4a4;
+  --color-info: #1d5ea8;
+  --color-info-soft: #e9f2ff;
+  --color-info-border: #bfd4f1;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 2px rgba(16, 35, 58, 0.05);
+  --shadow-card-hover: 0 4px 14px rgba(16, 35, 58, 0.12);
+  --shadow-frame: 0 14px 30px rgba(16, 35, 58, 0.22);
+  --shadow-brand: 0 8px 18px rgba(0, 148, 145, 0.24);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-brand) 35%, transparent);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  background: var(--color-app-bg);
+  color: var(--color-text);
+}
+h1, h2, h3 { color: var(--color-ink); line-height: 1.2; margin: 0; }
+a { color: var(--color-primary); }
+button { font: inherit; }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 6px; }
+svg.i { width: 1em; height: 1em; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ── Cabecera de la página (la misma que la app) ───────────────────────── */
+.app-header {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; justify-content: space-between; gap: 0.8rem;
+  min-height: 56px; padding: 0.4rem 1rem;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+.hdr-brand { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+.hdr-logo { height: 24px; width: auto; object-fit: contain; }
+.hdr-sep { width: 1px; height: 20px; background: var(--color-border); }
+.hdr-title { font-size: 0.95rem; font-weight: 800; color: var(--color-ink); white-space: nowrap; }
+.hdr-title .t-short { display: none; }
+.hdr-tools { display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
+
+/* Selector de perfil: conmutador como el de la app */
+.mode-switch {
+  display: flex; gap: 4px; padding: 4px;
+  border: 1px solid var(--color-border); border-radius: 999px;
+  background: var(--color-surface);
+}
+.mode-switch-btn {
+  flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  min-height: 36px; min-width: 0; padding: 0 0.9rem;
+  border: 0; border-radius: 999px; background: transparent;
+  color: var(--color-text-muted); font-weight: 700; font-size: 0.82rem; cursor: pointer;
+  white-space: nowrap;
+}
+.mode-switch-btn.is-active { background: var(--color-primary-soft); color: var(--color-brand); }
+
+/* ── Estructura ────────────────────────────────────────────────────────── */
+.layout {
+  display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 2rem;
+  max-width: 1180px; margin: 0 auto; padding: 1.5rem 1.5rem 4rem;
+}
+.toc {
+  position: sticky; top: 76px; align-self: start;
+  max-height: calc(100vh - 96px); overflow: auto;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: 0.8rem; box-shadow: var(--shadow-card);
+}
+.toc-title { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); padding: 0.2rem 0.5rem 0.5rem; }
+.toc a {
+  display: flex; align-items: center; gap: 0.55rem;
+  padding: 0.45rem 0.55rem; border-radius: 10px;
+  color: var(--color-text); text-decoration: none; font-size: 0.86rem; font-weight: 600;
+}
+.toc a:hover { background: var(--color-surface-muted); }
+.toc a.is-current { background: var(--color-brand-soft); color: var(--color-brand); }
+.toc .num {
+  display: grid; place-items: center; width: 22px; height: 22px; flex: none;
+  border-radius: 999px; background: var(--color-surface-soft); color: var(--color-text-muted);
+  font-size: 0.7rem; font-weight: 800;
+}
+.toc a.is-current .num { background: var(--color-brand); color: #fff; }
+
+/* ── Índice agrupado: común / conductores / solo supervisores ──────────── */
+.toc-legend { display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0 0.4rem 0.7rem; margin-bottom: 0.4rem; border-bottom: 1px solid var(--color-border); }
+.toc-title { display: flex; align-items: center; justify-content: space-between; }
+/* El cierre del índice solo existe cuando el índice es un cajón (móvil). */
+.toc-close { display: none; border: 0; background: none; font-size: 1rem; cursor: pointer; color: var(--color-text-muted); padding: 0.2rem 0.4rem; }
+.toc-backdrop { position: fixed; inset: 0; z-index: 45; background: rgba(16, 35, 58, 0.45); }
+.toc-backdrop[hidden] { display: none; }
+/* Botones flotantes, abajo a la derecha, por encima del contenido. */
+.fab-bar { position: fixed; right: 1rem; bottom: 1rem; z-index: 35; display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem; }
+.fab {
+  display: inline-flex; align-items: center; gap: 0.4rem; min-height: 44px; padding: 0 1rem;
+  border-radius: 999px; border: 1px solid var(--color-brand); background: var(--color-brand); color: #fff;
+  font-weight: 700; font-size: 0.88rem; cursor: pointer; box-shadow: var(--shadow-brand);
+}
+.fab[hidden] { display: none; }
+.fab-top { background: var(--color-surface); color: var(--color-ink); border-color: var(--color-border-strong); box-shadow: var(--shadow-card-hover); }
+.fab-top svg { transform: rotate(180deg); }
+.fab-toc { display: none; }
+.toc-group { margin-top: 0.55rem; }
+.toc-group-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;
+  padding: 0.25rem 0.5rem; font-size: 0.68rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--color-text-muted);
+}
+.toc-group-head .badge { font-size: 0.62rem; padding: 0.05rem 0.45rem; text-transform: none; letter-spacing: 0; }
+.toc-group-links { border-left: 3px solid var(--color-border); margin-left: 0.5rem; padding-left: 0.25rem; }
+.toc-group[data-for="driver"] .toc-group-links { border-left-color: var(--color-brand); }
+.toc-group[data-for="supervisor"] .toc-group-links { border-left-color: var(--color-info); }
+.toc-group[data-for="supervisor"] { background: var(--color-info-soft); border-radius: 10px; padding-bottom: 0.3rem; }
+.toc-group[data-for="supervisor"] a.is-current { background: var(--color-surface); color: var(--color-info); }
+.toc-group[data-for="supervisor"] a.is-current .num { background: var(--color-info); }
+.toc-group.is-off .toc-group-links { display: none; }
+.toc-group.is-off { opacity: 0.75; background: transparent; }
+.toc-off {
+  display: none; margin: 0.1rem 0.5rem 0; font-size: 0.74rem; color: var(--color-text-muted);
+}
+.toc-group.is-off .toc-off { display: block; }
+.toc-off button { border: 0; background: none; padding: 0; color: var(--color-primary); font-weight: 700; font-size: inherit; cursor: pointer; text-decoration: underline; }
+
+/* ── «Conoce la pantalla»: una versión por rol ─────────────────────────── */
+.roles-table-wrap { overflow-x: auto; }
+.roles-table td:first-child { width: 30%; }
+.roles-table small { color: var(--color-text-muted); }
+.roles-table td.yes { color: var(--color-success); font-weight: 700; }
+.roles-table td.no { color: var(--color-danger); font-weight: 700; }
+.roles-table td.maybe { color: var(--color-warning); }
+.view-switch {
+  display: flex; gap: 4px; padding: 4px; margin: 1.4rem 0 1rem; width: fit-content;
+  border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface-muted);
+}
+.view-switch[hidden] { display: none; }
+.view-switch button {
+  display: inline-flex; align-items: center; gap: 0.4rem; min-height: 36px; padding: 0 1rem;
+  border: 0; border-radius: 999px; background: transparent; cursor: pointer;
+  color: var(--color-text-muted); font-weight: 700; font-size: 0.85rem;
+}
+.view-switch button[aria-pressed="true"][data-view-btn="driver"] { background: var(--color-brand); color: #fff; }
+.view-switch button[aria-pressed="true"][data-view-btn="supervisor"] { background: var(--color-info); color: #fff; }
+.view-panel[hidden] { display: none; }
+.view-lead { margin: 0 0 0.8rem; }
+.view-lead .badge { margin-right: 0.4rem; vertical-align: 0.1em; }
+
+/* ── Introducción: vídeo y sus escenas ─────────────────────────────────── */
+.promo { margin: 0 0 1rem; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-frame); border: 1px solid var(--color-border); background: var(--color-surface-muted); }
+.promo video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; }
+.scene-list { list-style: none; margin: 0.4rem 0 0; padding: 0; display: grid; gap: 0.35rem; }
+.scene-list li {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.8rem; align-items: center;
+  padding: 0.55rem 0.7rem; border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.scene-list li.is-playing { border-color: var(--color-brand); background: var(--color-brand-soft); }
+.scene-time {
+  min-width: 52px; min-height: 36px; border: 1px solid var(--color-brand-border); border-radius: 999px;
+  background: var(--color-brand-soft); color: var(--color-brand); font-weight: 800; font-size: 0.82rem;
+  font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.scene-list li.is-playing .scene-time { background: var(--color-brand); color: #fff; }
+.scene-text { display: grid; gap: 0.1rem; }
+.scene-text strong { color: var(--color-ink); font-size: 0.92rem; }
+.scene-text span { color: var(--color-text-muted); font-size: 0.84rem; }
+.scene-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; font-size: 0.82rem; font-weight: 700; white-space: nowrap; }
+@media (max-width: 640px) {
+  .scene-list li { grid-template-columns: auto minmax(0, 1fr); }
+  .scene-meta { grid-column: 2; flex-direction: row; align-items: center; flex-wrap: wrap; }
+}
+
+/* Selector de idioma: el ES | EN de la app (LanguageToggleButton del DS). Cambia de
+   página (tutoriales.html ↔ tutoriales-en.html) llevándose el apartado y el rol. */
+.lang-switch {
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface-muted);
+}
+.lang-opt {
+  display: grid; place-items: center; min-width: 40px; min-height: 36px; padding: 0 0.6rem;
+  border-radius: 999px; font-size: 0.8rem; font-weight: 800; text-decoration: none;
+  color: var(--color-text-muted);
+}
+.lang-opt:hover { color: var(--color-brand); }
+.lang-opt.is-active { background: var(--color-brand); color: #fff; box-shadow: var(--shadow-brand); }
+
+/* ── Portada ───────────────────────────────────────────────────────────── */
+.hero {
+  display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 2rem; align-items: center;
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-brand-soft) 100%);
+  border: 1px solid var(--color-border); border-radius: 20px;
+  padding: 2rem; box-shadow: var(--shadow-card); margin-bottom: 2rem;
+}
+.eyebrow { font-size: 0.75rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-brand); }
+.hero h1 { font-size: 2rem; margin: 0.4rem 0 0.8rem; }
+.hero p { margin: 0 0 0.8rem; max-width: 56ch; }
+.hero-legend { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+.hint { font-size: 0.82rem; color: var(--color-text-muted); }
+
+/* ── Chapas (badge) ────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.12rem 0.55rem; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 700; border: 1px solid transparent; white-space: nowrap;
+}
+.b-brand { background: var(--color-brand-soft); color: var(--color-brand); border-color: var(--color-brand-border); }
+.b-info { background: var(--color-info-soft); color: var(--color-info); border-color: var(--color-info-border); }
+.b-ok { background: var(--color-success-soft); color: var(--color-success); border-color: var(--color-success-border); }
+.b-warn { background: var(--color-warning-soft); color: var(--color-warning); border-color: var(--color-warning-border); }
+.b-danger { background: var(--color-danger-bg); color: var(--color-danger); border-color: var(--color-danger-soft); }
+.b-muted { background: var(--color-surface-muted); color: var(--color-text-muted); border-color: var(--color-border); }
+
+/* ── Capítulos ─────────────────────────────────────────────────────────── */
+.chapter {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: 18px; box-shadow: var(--shadow-card);
+  padding: 1.6rem; margin-bottom: 1.5rem;
+}
+.chapter[hidden] { display: none; }
+.ch-head { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
+.ch-icon {
+  display: grid; place-items: center; width: 46px; height: 46px; flex: none;
+  border-radius: 14px; background: var(--color-brand-soft); color: var(--color-brand); font-size: 24px;
+}
+.ch-head h2 { font-size: 1.35rem; }
+.ch-head .ch-sub { color: var(--color-text-muted); font-size: 0.88rem; margin: 0.15rem 0 0; }
+.ch-head .badge { margin-left: auto; }
+.ch-body { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 2rem; align-items: start; }
+.ch-body.wide { grid-template-columns: minmax(0, 1fr); }
+
+/* Pasos numerados */
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: paso; display: grid; gap: 0.85rem; }
+.steps > li { counter-increment: paso; position: relative; padding-left: 2.6rem; }
+.steps > li::before {
+  content: counter(paso);
+  position: absolute; left: 0; top: -0.1rem;
+  display: grid; place-items: center; width: 1.85rem; height: 1.85rem;
+  border-radius: 999px; background: var(--color-brand); color: #fff;
+  font-weight: 800; font-size: 0.85rem; box-shadow: var(--shadow-brand);
+}
+.steps > li::after {
+  content: ''; position: absolute; left: 0.9rem; top: 1.9rem; bottom: -0.85rem;
+  width: 2px; background: var(--color-brand-border);
+}
+.steps > li:last-child::after { display: none; }
+.steps strong { color: var(--color-ink); }
+
+/* Botón «tal cual» en el texto */
+.ui {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.05rem 0.5rem; border-radius: 7px;
+  background: var(--color-surface-muted); border: 1px solid var(--color-border);
+  font-size: 0.82rem; font-weight: 700; color: var(--color-ink); white-space: nowrap;
+  vertical-align: baseline;
+}
+.ui svg.i { color: var(--color-brand); }
+
+/* Cajas de consejo */
+.callout {
+  display: flex; gap: 0.7rem; align-items: flex-start;
+  margin-top: 1.1rem; padding: 0.75rem 0.95rem;
+  border: 1px solid var(--color-info-border); border-left: 4px solid var(--color-info);
+  border-radius: var(--radius-sm); background: var(--color-info-soft); color: var(--color-text);
+  font-size: 0.88rem;
+}
+.callout svg.i { font-size: 18px; color: var(--color-info); margin-top: 0.1rem; }
+.callout.warn { border-color: var(--color-warning-border); border-left-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.warn svg.i { color: var(--color-warning); }
+.callout.ok { border-color: var(--color-success-border); border-left-color: var(--color-success); background: var(--color-success-soft); }
+.callout.ok svg.i { color: var(--color-success); }
+
+/* ── Capturas reales de la app, dentro de un marco de móvil ───────────── */
+.shot {
+  position: relative; width: 260px; margin: 0 auto;
+  border: 8px solid var(--color-ink); border-radius: 30px;
+  background: var(--color-ink); box-shadow: var(--shadow-frame);
+  overflow: hidden;
+}
+.shot img { display: block; width: 100%; height: auto; border-radius: 22px; }
+.shot.card-only { border-width: 0; border-radius: var(--radius-lg); background: none; box-shadow: var(--shadow-card-hover); }
+.shot.card-only img { border-radius: var(--radius-lg); }
+.caption { text-align: center; color: var(--color-text-muted); font-size: 0.8rem; margin: 0.7rem auto 0; max-width: 260px; }
+.zoom { cursor: zoom-in; }
+
+/* Marcas numeradas sobre una captura */
+.marker {
+  position: absolute; right: 6px; transform: translateY(-50%);
+  display: grid; place-items: center; width: 24px; height: 24px;
+  border-radius: 999px; background: var(--color-brand); color: #fff;
+  font-weight: 800; font-size: 0.78rem; box-shadow: 0 0 0 3px #fff, var(--shadow-brand);
+}
+.marker.left { right: auto; left: 6px; }
+
+/* Zonas pulsables sobre la captura de la portada */
+.hot { position: absolute; border: 0; background: transparent; cursor: pointer; border-radius: 10px; padding: 0; }
+.hot:hover, .hot.is-on { background: color-mix(in srgb, var(--color-brand) 18%, transparent); box-shadow: inset 0 0 0 2px var(--color-brand); }
+.hot.is-on { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .hot.is-on { animation: none; } }
+
+/* Galería de pasos: chips arriba y una captura cada vez */
+.gallery-tabs { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: center; margin-bottom: 0.8rem; }
+.gallery-tabs button {
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  color: var(--color-text-muted); font-weight: 700; font-size: 0.76rem;
+  padding: 0.3rem 0.7rem; border-radius: 999px; cursor: pointer;
+}
+.gallery-tabs button.is-active { background: var(--color-brand); border-color: var(--color-brand); color: #fff; }
+.gallery figure { margin: 0; }
+.gallery figure[hidden] { display: none; }
+
+/* Explorador de la portada */
+.explorer { display: grid; gap: 0.6rem; justify-items: center; }
+.explorer-modes { display: flex; flex-wrap: wrap; gap: 0.3rem; justify-content: center; }
+.explain {
+  width: 100%; min-height: 104px; background: var(--color-surface); border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-brand); border-radius: var(--radius-md);
+  padding: 0.7rem 0.9rem; font-size: 0.86rem;
+}
+.explain b { color: var(--color-ink); display: block; margin-bottom: 0.2rem; }
+.explain a { font-weight: 700; }
+
+/* Visor a pantalla completa */
+.lightbox { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: rgba(16, 35, 58, 0.75); padding: 1rem; cursor: zoom-out; }
+.lightbox[hidden] { display: none; }
+.lightbox img { max-height: 92vh; max-width: 92vw; border-radius: 18px; box-shadow: var(--shadow-frame); background: #fff; }
+
+/* ── Recorrido por pestañas (capítulo de incidencias) ──────────────────── */
+.sub-h { font-size: 1rem; margin: 1.2rem 0 0.6rem; }
+.panel-h { font-size: 1.08rem; margin: 0 0 0.5rem; }
+.routes { display: grid; gap: 0.45rem; margin-bottom: 1.4rem; }
+.route {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem;
+  padding: 0.55rem 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+.route-name { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700; color: var(--color-ink); min-width: 230px; font-size: 0.88rem; }
+.route-name svg.i { color: var(--color-brand); }
+.route-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
+.route-steps b {
+  padding: 0.15rem 0.6rem; border-radius: 8px; font-size: 0.78rem;
+  background: var(--color-success-soft); color: var(--color-success); border: 1px solid var(--color-success-border);
+}
+.route-steps b.hl { background: var(--color-info-soft); color: var(--color-info); border-color: var(--color-info-border); }
+.route-steps i { font-style: normal; color: var(--color-text-subtle); font-weight: 800; }
+
+.walk { border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
+.walk-tabs {
+  display: flex; gap: 0.35rem; overflow-x: auto; padding: 0.6rem;
+  background: var(--color-surface-muted); border-bottom: 1px solid var(--color-border);
+}
+/* Mismo aspecto que las pestañas de la ventana de la app (flow-steps) */
+.walk-tabs button {
+  flex: 1 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;
+  min-height: 38px; padding: 0 0.9rem; border: 0; border-radius: 10px;
+  background: var(--color-surface-soft); color: var(--color-text-muted);
+  font-weight: 700; font-size: 0.82rem; cursor: pointer; white-space: nowrap;
+}
+.walk-tabs button:hover { color: var(--color-ink); }
+.walk-tabs button[aria-selected="true"] { background: var(--color-primary-soft); color: var(--color-brand); box-shadow: inset 0 0 0 2px var(--color-brand-border); }
+.walk-tabs button.is-done { background: var(--color-success-soft); color: var(--color-success); }
+.walk-panel { padding: 1.3rem; }
+.walk-panel[hidden] { display: none; }
+.walk-nav { display: flex; justify-content: space-between; gap: 0.5rem; padding: 0.7rem 1.3rem; border-top: 1px solid var(--color-border); background: var(--color-app-bg); }
+.walk-nav button {
+  min-height: 38px; padding: 0 1.1rem; border-radius: var(--radius-sm); font-weight: 700; cursor: pointer;
+  border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-ink);
+}
+.walk-nav button.pri { background: var(--color-brand); border-color: var(--color-brand); color: #fff; }
+.walk-nav button:disabled { opacity: 0.4; cursor: default; }
+.walk-nav-mid { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; justify-content: center; font-size: 0.8rem; color: var(--color-text-muted); }
+.walk-nav .walk-copy { min-height: 0; padding: 0.15rem 0.5rem; border: 0; background: none; color: var(--color-primary); font-weight: 700; font-size: 0.8rem; text-decoration: underline; }
+.walk-nav .walk-copy.is-done { color: var(--color-success); text-decoration: none; }
+
+table.fields { width: 100%; border-collapse: collapse; font-size: 0.86rem; margin-top: 0.4rem; }
+table.fields th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); padding: 0.4rem 0.6rem; border-bottom: 2px solid var(--color-border); }
+table.fields td { padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--color-surface-soft); vertical-align: top; }
+table.fields td:first-child { width: 38%; color: var(--color-ink); }
+table.fields td .badge { margin-top: 0.2rem; }
+
+.types, .choices { display: grid; gap: 0.45rem; margin-top: 0.5rem; }
+.types > div, .choices > div {
+  display: grid; gap: 0.1rem; padding: 0.55rem 0.8rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border); border-left: 3px solid var(--color-warning); background: var(--color-warning-soft); font-size: 0.85rem;
+}
+.types b { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--color-ink); }
+.types b svg.i { color: var(--color-brand); }
+.choices > div { border-left-color: var(--color-border-strong); background: var(--color-surface); }
+.choices > div.strong { border-color: var(--color-brand); border-left-color: var(--color-brand); background: var(--color-primary-soft); }
+.choices b { color: var(--color-ink); }
+
+.results { display: grid; gap: 0.5rem; }
+.results > div { display: flex; gap: 0.7rem; align-items: flex-start; padding: 0.65rem 0.9rem; border-radius: var(--radius-sm); border: 1px solid; font-size: 0.88rem; }
+.results > div > div { display: grid; gap: 0.1rem; }
+.results svg.i { font-size: 18px; margin-top: 0.1rem; }
+.results .ok { border-color: var(--color-success-border); background: var(--color-success-soft); }
+.results .ok svg.i { color: var(--color-success); }
+.results .warn { border-color: var(--color-warning-border); background: var(--color-warning-soft); }
+.results .warn svg.i { color: var(--color-warning); }
+.results b { color: var(--color-ink); }
+@media (max-width: 760px) {
+  .walk-panel { padding: 1rem; }
+  table.fields td:first-child { width: auto; }
+  .route-name { min-width: 0; }
+}
+
+/* ── Guía rápida, leyendas y tabla de tipos (capítulo de documentos) ─── */
+.quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.55rem; margin-bottom: 1rem; }
+.quick button {
+  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 0.65rem; row-gap: 0.1rem;
+  align-items: start; text-align: left; padding: 0.7rem 0.85rem; cursor: pointer;
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);
+  box-shadow: var(--shadow-card); font: inherit; color: var(--color-text);
+  transition: border-color 120ms, box-shadow 120ms, transform 120ms;
+}
+.quick button:hover { border-color: var(--color-brand); box-shadow: var(--shadow-card-hover); transform: translateY(-1px); }
+.quick button svg.i { grid-row: span 2; font-size: 20px; color: var(--color-brand); background: var(--color-brand-soft); border-radius: 10px; padding: 7px; width: 34px; height: 34px; }
+.quick button b { color: var(--color-ink); font-size: 0.88rem; line-height: 1.3; }
+.quick button span { font-size: 0.76rem; color: var(--color-text-muted); }
+@media (prefers-reduced-motion: reduce) { .quick button { transition: none; } .quick button:hover { transform: none; } }
+.legend-rows { display: grid; gap: 0.4rem; margin-top: 0.5rem; }
+.legend-rows > div { display: grid; grid-template-columns: 175px 1fr; gap: 0.6rem; align-items: center; font-size: 0.86rem; }
+.legend-rows .badge { justify-self: start; }
+.tips { display: grid; gap: 0.4rem; margin-top: 1rem; }
+.tips > div { display: flex; gap: 0.6rem; align-items: center; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); background: var(--color-brand-soft); font-size: 0.86rem; }
+.tips svg.i { color: var(--color-brand); font-size: 18px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.types-table { margin: 0; min-width: 640px; }
+.types-table td:first-child { width: auto; }
+.types-table td.yes { color: var(--color-success); font-weight: 700; }
+.types-table td.no { color: var(--color-text-muted); }
+.types-table td.must { color: var(--color-warning); font-weight: 700; }
+.types-table tbody tr:nth-child(even) { background: var(--color-surface-muted); }
+@media (max-width: 760px) { .legend-rows > div { grid-template-columns: 1fr; gap: 0.2rem; } }
+
+/* ── Lista de comprobación y chuleta (capítulo de accidente) ───────────── */
+.checklist {
+  margin: 0 0 1.4rem; padding: 0.9rem 1rem;
+  border: 1px solid var(--color-border); border-left: 4px solid var(--color-brand);
+  border-radius: var(--radius-md); background: var(--color-surface-muted);
+}
+.checklist-head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
+.checklist-count { font-size: 0.8rem; font-weight: 700; color: var(--color-brand); background: var(--color-brand-soft); border-radius: 999px; padding: 0.15rem 0.6rem; }
+.checklist label {
+  display: flex; gap: 0.65rem; align-items: flex-start; cursor: pointer;
+  padding: 0.5rem 0.4rem; border-radius: var(--radius-sm); font-size: 0.9rem;
+}
+.checklist label:hover { background: var(--color-surface); }
+.checklist input { width: 20px; height: 20px; margin-top: 0.1rem; accent-color: var(--color-brand); flex: none; }
+.checklist input:checked + span { color: var(--color-text-muted); text-decoration: line-through; text-decoration-color: var(--color-border-strong); }
+.cheatsheet {
+  margin-top: 1.2rem; padding: 0.85rem 1rem; border-radius: var(--radius-md);
+  border: 2px dashed var(--color-brand-border); background: var(--color-brand-soft);
+}
+.cheatsheet h4 { margin: 0 0 0.5rem; display: flex; align-items: center; gap: 0.4rem; color: var(--color-ink); font-size: 0.95rem; }
+.cheatsheet h4 svg.i { color: var(--color-brand); }
+.cheatsheet ul { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.3rem 1rem; }
+.cheatsheet li { font-size: 0.88rem; font-weight: 600; color: var(--color-ink); }
+.cheatsheet li::before { content: '☐ '; color: var(--color-brand); }
+.cheatsheet p { margin: 0.6rem 0 0; font-size: 0.82rem; color: var(--color-text-muted); }
+
+/* ── Rejillas de tarjetas ──────────────────────────────────────────────── */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.8rem; margin-top: 1rem; }
+.tile {
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem 0.95rem;
+  background: var(--color-surface-muted);
+}
+.tile h3 { font-size: 0.95rem; display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.3rem; }
+.tile h3 svg.i { color: var(--color-brand); font-size: 18px; }
+.tile p { margin: 0; font-size: 0.86rem; }
+
+/* Semáforo */
+.traffic { display: grid; gap: 0.5rem; margin-top: 1rem; }
+.traffic div { display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); background: var(--color-surface-muted); border: 1px solid var(--color-border); font-size: 0.88rem; }
+.traffic i { width: 14px; height: 14px; border-radius: 999px; flex: none; }
+
+/* FAQ */
+details.faq { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-muted); margin-bottom: 0.6rem; }
+details.faq summary { cursor: pointer; padding: 0.75rem 1rem; font-weight: 700; color: var(--color-ink); list-style: none; display: flex; align-items: center; gap: 0.6rem; }
+details.faq summary::-webkit-details-marker { display: none; }
+details.faq summary svg.i { margin-left: auto; color: var(--color-text-muted); transition: transform 150ms; }
+details.faq[open] summary svg.i { transform: rotate(180deg); }
+details.faq > div { padding: 0 1rem 0.9rem; font-size: 0.9rem; }
+
+footer { text-align: center; color: var(--color-text-muted); font-size: 0.8rem; padding: 1rem 0 2rem; }
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+@media (max-width: 980px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  /* El índice pasa a un cajón lateral que abre el botón flotante «Índice»:
+     a 390 px medía 780 px de alto y era lo primero que se veía. */
+  .toc {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 50;
+    width: min(340px, 90vw); max-height: none; border-radius: 0; border-width: 0 0 0 1px;
+    transform: translateX(105%); transition: transform 0.25s ease;
+  }
+  @media (prefers-reduced-motion: reduce) { .toc { transition: none; } }
+  .toc.is-open { transform: none; }
+  .toc-close { display: inline-block; }
+  .fab-toc { display: inline-flex; }
+}
+@media (max-width: 760px) {
+  .hero, .ch-body { grid-template-columns: minmax(0, 1fr); }
+  .hero { padding: 1.3rem; }
+  .hero h1 { font-size: 1.55rem; }
+  .chapter { padding: 1.1rem; }
+  .layout { padding: 1rem 1rem 3rem; }
+  .hdr-title .t-long { display: none; }
+  .hdr-title .t-short { display: inline; }
+  .mode-switch-btn { padding: 0 0.6rem; }
+}
+/* En un teléfono estrecho el conmutador de rol va solo con iconos (el rótulo
+   queda como nombre accesible) y así cabe al lado del título. */
+@media (max-width: 480px) {
+  .mode-switch-btn .lbl { display: none; }
+  .mode-switch-btn { padding: 0 0.8rem; }
+  .mode-switch-btn svg { width: 1.15em; height: 1.15em; }
+}
+@media print {
+  .app-header, .toc, .fab-bar, .toc-backdrop { display: none; }
+  .layout { grid-template-columns: 1fr; }
+  .chapter { break-inside: avoid; box-shadow: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- Iconos (los mismos dibujos de lucide que usa la app) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+    <symbol id="i-fuel" viewBox="0 0 24 24"><line x1="3" x2="15" y1="22" y2="22"/><line x1="4" x2="14" y1="9" y2="9"/><path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18"/><path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2a2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5"/></symbol>
+    <symbol id="i-itv" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></symbol>
+    <symbol id="i-maint" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+    <symbol id="i-siren" viewBox="0 0 24 24"><path d="M7 18v-6a5 5 0 1 1 10 0v6"/><path d="M5 21a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2z"/><path d="M21 12h1"/><path d="M18.5 4.5 18 5"/><path d="M2 12h1"/><path d="M12 2v1"/><path d="m4.93 4.93.7.7"/><path d="M12 12v6"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></symbol>
+    <symbol id="i-car" viewBox="0 0 24 24"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></symbol>
+    <symbol id="i-split" viewBox="0 0 24 24"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.17-2.87L3 3"/><path d="m15 9 6-6"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+    <symbol id="i-usercog" viewBox="0 0 24 24"><circle cx="18" cy="15" r="3"/><circle cx="9" cy="7" r="4"/><path d="M10 15H6a4 4 0 0 0-4 4v2"/><path d="m21.7 16.4-.9-.3"/><path d="m15.2 13.9-.9-.3"/><path d="m16.6 18.7.3-.9"/><path d="m19.1 12.2.3-.9"/><path d="m19.6 18.7-.4-1"/><path d="m16.8 12.3-.4-1"/><path d="m14.3 16.6 1-.4"/><path d="m20.7 13.8 1-.4"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></symbol>
+    <symbol id="i-cloudoff" viewBox="0 0 24 24"><path d="m2 2 20 20"/><path d="M5.78 5.78A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.31-.19"/><path d="M21.53 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7 7 0 0 0 10 5.07"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></symbol>
+    <symbol id="i-cal" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/></symbol>
+    <symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.17a2 2 0 0 0-.59-1.42L12 12l-4.41 4.41A2 2 0 0 0 7 17.83V22"/><path d="M7 2v4.17a2 2 0 0 0 .59 1.42L12 12l4.41-4.41A2 2 0 0 0 17 6.17V2"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" x2="12" y1="2" y2="15"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+    <symbol id="i-calcog" viewBox="0 0 24 24"><path d="M21 10.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><circle cx="18" cy="18" r="3"/><path d="M18 14v1"/><path d="M18 21v1"/><path d="M22 18h-1"/><path d="M15 18h-1"/></symbol>
+  </defs>
+</svg>
+
+<header class="app-header">
+  <div class="hdr-brand">
+    <img class="hdr-logo" src="../front-conductores/src/assets/img/gransolar-logo.png" alt="Gransolar" />
+    <span class="hdr-sep" aria-hidden="true"></span>
+    <strong class="hdr-title"><span class="t-long">Flota · Tutoriales de la app móvil</span><span class="t-short">Tutoriales</span></strong>
+  </div>
+  <div class="hdr-tools">
+    <nav class="lang-switch" aria-label="Idioma del tutorial"><a class="lang-opt is-active" aria-current="page" href="tutoriales.html" lang="es" hreflang="es" data-lang-link>ES</a><a class="lang-opt" href="tutoriales-en.html" lang="en" hreflang="en" data-lang-link>EN</a></nav>
+    <div class="mode-switch" role="group" aria-label="¿Qué uso le das a la app?">
+      <button class="mode-switch-btn is-active" data-role="all" aria-label="Todo" aria-pressed="true"><svg class="i"><use href="#i-help"/></svg><span class="lbl">Todo</span></button>
+      <button class="mode-switch-btn" data-role="driver" aria-label="Conduzco" aria-pressed="false"><svg class="i"><use href="#i-car"/></svg><span class="lbl">Conduzco</span></button>
+      <button class="mode-switch-btn" data-role="supervisor" aria-label="Superviso" aria-pressed="false"><svg class="i"><use href="#i-users"/></svg><span class="lbl">Superviso</span></button>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="toc" id="toc-panel" aria-label="Índice">
+    <div class="toc-title">Índice <button type="button" class="toc-close" data-toc-close aria-label="Cerrar el índice">✕</button></div>
+    <nav id="toc"></nav>
+  </aside>
+
+  <main>
+    <!-- ══════════════════════ PORTADA ══════════════════════ -->
+    <section class="hero">
+      <div>
+        <span class="eyebrow">Guía rápida</span>
+        <h1>Aprende a usar la app de flota en tu móvil</h1>
+        <p>Desde el móvil anotas los kilómetros y el consumo de tu coche, avisas de una avería o de un accidente, subes documentos y ves lo que tienes pendiente. Si supervisas coches, también llevas tu flota desde aquí.</p>
+        <p>Cada apartado te lo enseña <strong>paso a paso</strong> con <strong>capturas reales de la app</strong>. Arriba a la derecha puedes elegir si <strong>conduces</strong>, si <strong>supervisas</strong> o las dos cosas, y verás solo lo que te toca.</p>
+        <div class="hero-legend">
+          <span class="badge b-muted"><svg class="i"><use href="#i-phone"/></svg>Para todos</span>
+          <span class="badge b-brand"><svg class="i"><use href="#i-car"/></svg>Conductores</span>
+          <span class="badge b-info"><svg class="i"><use href="#i-lock"/></svg>Solo supervisores</span>
+        </div>
+        <p class="hint" style="margin-top:1rem">👉 Prueba el móvil de la derecha: toca los <strong>botones de la barra de abajo</strong> de la captura, o cambia de vista con los botones de encima.</p>
+        <p class="hint">🔍 Toca cualquier captura del tutorial para verla en grande.</p>
+      </div>
+      <div class="explorer">
+        <div class="explorer-modes gallery-tabs" id="ex-modes" role="group" aria-label="Vista de la app"></div>
+        <div class="shot" id="ex-shot">
+          <img id="ex-img" src="img/home.webp" alt="Pantalla de la app"  width="780" height="1688" />
+        </div>
+        <div class="explain" id="ex-explain" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ INTRODUCCIÓN (vídeo) ══════════════════════ -->
+    <section class="chapter" id="intro" data-for="all" data-title="Vídeo de presentación">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-play"/></svg></span>
+        <div><h2>Introducción: la app en un minuto</h2><p class="ch-sub">Un vídeo corto con todo lo que hace la app. Sin sonido: los textos van en pantalla.</p></div>
+      </div>
+      <figure class="promo">
+        <video id="promo-video" controls muted preload="metadata" playsinline poster="video/promo-es.jpg" width="1280" height="720" aria-describedby="promo-scenes">
+          <source src="video/promo-es.webm" type="video/webm" />
+          Tu navegador no puede reproducir este vídeo. Abajo tienes lo que dice, escena a escena.
+        </video>
+      </figure>
+      <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>¿Lo quieres en inglés? Pulsa <span class="ui">EN</span> arriba a la derecha: cambian de idioma el tutorial y el vídeo.</div></div>
+      <h3 class="sub-h">Qué sale en el vídeo</h3>
+      <p class="hint">Toca el minuto para saltar a esa escena, o el nombre del apartado para verlo paso a paso en el tutorial.</p>
+      <ol class="scene-list" id="promo-scenes">
+          <li data-at="0">
+            <button type="button" class="scene-time" data-seek="0" aria-label="Ir al 0:00 del vídeo">0:00</button>
+            <div class="scene-text"><strong>Tu flota, en el bolsillo</strong><span>Anota los kilómetros y el consumo, avisa de una avería o de un accidente, sube documentos y mira lo que tienes pendiente. Si supervisas, también llevas tu flota.</span></div>
+            <div class="scene-meta"></div>
+          </li>
+          <li data-at="5.4">
+            <button type="button" class="scene-time" data-seek="5.4" aria-label="Ir al 0:05 del vídeo">0:05</button>
+            <div class="scene-text"><strong>Entra con tu usuario</strong><span>Tu usuario o email y tu contraseña, en castellano o en inglés.</span></div>
+            <div class="scene-meta"><span class="badge b-muted"><svg class="i"><use href="#i-phone"/></svg>Para todos</span><a href="#entrar">Entrar ›</a></div>
+          </li>
+          <li data-at="9.8">
+            <button type="button" class="scene-time" data-seek="9.8" aria-label="Ir al 0:09 del vídeo">0:09</button>
+            <div class="scene-text"><strong>Tu coche, de un vistazo</strong><span>Lo que te queda poco, tus kilómetros y las próximas citas de ITV y mantenimiento, nada más entrar.</span></div>
+            <div class="scene-meta"><span class="badge b-brand"><svg class="i"><use href="#i-car"/></svg>Conductores</span><a href="#pantalla">Conoce la pantalla ›</a></div>
+          </li>
+          <li data-at="14.2">
+            <button type="button" class="scene-time" data-seek="14.2" aria-label="Ir al 0:14 del vídeo">0:14</button>
+            <div class="scene-text"><strong>Registra los km una vez al mes</strong><span>Lo que marca el cuadro del coche. La app te dice el mejor día para hacerlo.</span></div>
+            <div class="scene-meta"><span class="badge b-brand"><svg class="i"><use href="#i-car"/></svg>Conductores</span><a href="#km">Registrar los km ›</a></div>
+          </li>
+          <li data-at="18.4">
+            <button type="button" class="scene-time" data-seek="18.4" aria-label="Ir al 0:18 del vídeo">0:18</button>
+            <div class="scene-text"><strong>Anota el consumo medio</strong><span>El del último trayecto, según el ordenador de a bordo. Sin litros ni importe.</span></div>
+            <div class="scene-meta"><span class="badge b-brand"><svg class="i"><use href="#i-car"/></svg>Conductores</span><a href="#combustible">Anotar el consumo ›</a></div>
+          </li>
+          <li data-at="22.6">
+            <button type="button" class="scene-time" data-seek="22.6" aria-label="Ir al 0:22 del vídeo">0:22</button>
+            <div class="scene-text"><strong>Registra la ITV y el mantenimiento</strong><span>Cuando ya los has pasado, desde 30 días antes de la cita.</span></div>
+            <div class="scene-meta"><span class="badge b-brand"><svg class="i"><use href="#i-car"/></svg>Conductores</span><a href="#itv">ITV y mantenimiento ›</a></div>
+          </li>
+          <li data-at="26.8">
+            <button type="button" class="scene-time" data-seek="26.8" aria-label="Ir al 0:26 del vídeo">0:26</button>
+            <div class="scene-text"><strong>Comunica una incidencia en pocos pasos</strong><span>Una avería, un cambio de neumáticos, un mantenimiento puntual u otra petición, y pide coche de sustitución si lo necesitas.</span></div>
+            <div class="scene-meta"><span class="badge b-brand"><svg class="i"><use href="#i-car"/></svg>Conductores</span><a href="#incidencia">Comunicar una incidencia ›</a></div>
+          </li>
+          <li data-at="31.4">
+            <button type="button" class="scene-time" data-seek="31.4" aria-label="Ir al 0:31 del vídeo">0:31</button>
+            <div class="scene-text"><strong>¿Un accidente? Primero, tu seguridad.</strong><span>Un parte guiado en cuatro pasos que puedes rellenar más tarde, con calma y en un sitio seguro.</span></div>
+            <div class="scene-meta"><span class="badge b-brand"><svg class="i"><use href="#i-car"/></svg>Conductores</span><a href="#accidente">Parte de accidente ›</a></div>
+          </li>
+          <li data-at="36.0">
+            <button type="button" class="scene-time" data-seek="36.0" aria-label="Ir al 0:36 del vídeo">0:36</button>
+            <div class="scene-text"><strong>Sube y pide documentos</strong><span>Los papeles del coche y los tuyos. Corregir y borrar se pide, y lo decide la gestión de flota.</span></div>
+            <div class="scene-meta"><span class="badge b-muted"><svg class="i"><use href="#i-phone"/></svg>Para todos</span><a href="#documentos">Documentos ›</a></div>
+          </li>
+          <li data-at="40.6">
+            <button type="button" class="scene-time" data-seek="40.6" aria-label="Ir al 0:40 del vídeo">0:40</button>
+            <div class="scene-text"><strong>Sabe siempre qué tienes pendiente</strong><span>Los avisos y las alertas te dicen, por colores, lo que tienes que hacer pronto.</span></div>
+            <div class="scene-meta"><span class="badge b-muted"><svg class="i"><use href="#i-phone"/></svg>Para todos</span><a href="#avisos">Avisos y alertas ›</a></div>
+          </li>
+          <li data-at="44.8">
+            <button type="button" class="scene-time" data-seek="44.8" aria-label="Ir al 0:44 del vídeo">0:44</button>
+            <div class="scene-text"><strong>Toda tu flota de un vistazo</strong><span>Tus coches y conductores, y las alertas, incidencias y accidentes abiertos, resueltos sin salir de la app.</span></div>
+            <div class="scene-meta"><span class="badge b-info"><svg class="i"><use href="#i-lock"/></svg>Solo supervisores</span><a href="#flota">Tu flota ›</a></div>
+          </li>
+          <li data-at="49.4">
+            <button type="button" class="scene-time" data-seek="49.4" aria-label="Ir al 0:49 del vídeo">0:49</button>
+            <div class="scene-text"><strong>Programa la ITV y el mantenimiento</strong><span>Cita la próxima de los coches que supervisas.</span></div>
+            <div class="scene-meta"><span class="badge b-info"><svg class="i"><use href="#i-lock"/></svg>Solo supervisores</span><a href="#flota">Tu flota ›</a></div>
+          </li>
+          <li data-at="53.6">
+            <button type="button" class="scene-time" data-seek="53.6" aria-label="Ir al 0:53 del vídeo">0:53</button>
+            <div class="scene-text"><strong>Los kilómetros, bajo control</strong><span>Mira qué coches van camino de pasarse de los km del contrato y propón otro conductor.</span></div>
+            <div class="scene-meta"><span class="badge b-info"><svg class="i"><use href="#i-lock"/></svg>Solo supervisores</span><a href="#flota">Tu flota ›</a></div>
+          </li>
+          <li data-at="58.2">
+            <button type="button" class="scene-time" data-seek="58.2" aria-label="Ir al 0:58 del vídeo">0:58</button>
+            <div class="scene-text"><strong>Flota · Gransolar</strong><span>Abre el enlace que te ha dado la empresa y entra.</span></div>
+            <div class="scene-meta"></div>
+          </li>
+      </ol>
+    </section>
+
+    <!-- ══════════════════════ 1. ENTRAR ══════════════════════ -->
+    <section class="chapter" id="entrar" data-for="all" data-title="Entrar">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-phone"/></svg></span>
+        <div><h2>Entrar en la app</h2><p class="ch-sub">Con el enlace que te ha dado la empresa, tu usuario y tu contraseña.</p></div>
+      </div>
+      <div class="ch-body">
+        <div>
+          <ol class="steps">
+            <li>Abre en el móvil el <strong>enlace de la app de campo</strong> que te ha dado la empresa. También viene en los correos de recordatorio, en el botón <span class="ui">Abrir la app de campo</span>.</li>
+            <li>Escribe tu <strong>usuario o email</strong> y tu <strong>contraseña</strong> y pulsa <span class="ui">Entrar</span>.</li>
+            <li>Arriba a la derecha puedes cambiar el idioma: <span class="ui">ES</span> / <span class="ui">EN</span>.</li>
+            <li>Si te lo pregunta, <strong>permite las notificaciones</strong>: así te avisará de lo que tengas pendiente.</li>
+          </ol>
+          <div class="callout"><svg class="i"><use href="#i-lock"/></svg><div>Por seguridad la sesión se cierra sola <strong>a las 2 horas</strong>, o antes si no la usas un rato. Y solo puede estar abierta en <strong>un dispositivo a la vez</strong>: si entras desde otro, se cierra en el primero.</div></div>
+          <div class="callout warn"><svg class="i"><use href="#i-alert"/></svg><div>¿Entras y te dice que <strong>no tienes acceso</strong>? Es porque aún no tienes coche asignado o tu usuario no tiene permiso para esta app. Pide acceso desde esa misma pantalla o habla con administración.</div></div>
+        </div>
+        <figure style="margin:0"><div class="shot"><img class="zoom" src="img/login.webp" alt="Pantalla de inicio de sesión"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Pantalla de entrada</p></figure>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ 2. PANTALLA ══════════════════════ -->
+    <section class="chapter" id="pantalla" data-for="all" data-title="Conoce la pantalla">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-home"/></svg></span>
+        <div><h2>Conoce la pantalla</h2><p class="ch-sub">La app no es igual para todos: lo que ves depende de si conduces, de si supervisas o de las dos cosas.</p></div>
+      </div>
+
+      <h3 class="sub-h">¿Qué ve cada uno?</h3>
+      <div class="roles-table-wrap">
+        <table class="fields roles-table">
+          <thead>
+            <tr><th>Botón de arriba</th><th><span class="badge b-brand"><svg class="i"><use href="#i-car"/></svg>Conductor</span></th><th><span class="badge b-info"><svg class="i"><use href="#i-users"/></svg>Supervisor</span></th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="ui"><svg class="i"><use href="#i-car"/></svg>Mi vehículo</span><br><small>El coche que conduces</small></td><td class="yes">✔ Siempre</td><td class="maybe">Solo si además conduces un coche. Si no, te manda a «Flota».</td></tr>
+            <tr><td><span class="ui"><svg class="i"><use href="#i-split"/></svg>Reparto</span><br><small>Coches que compartes</small></td><td class="maybe">Solo si tienes alguno en reparto</td><td class="maybe">Solo si además conduces y tienes alguno</td></tr>
+            <tr><td><span class="ui"><svg class="i"><use href="#i-users"/></svg>Flota</span><br><small>Los coches que supervisas</small></td><td class="no">✖ No lo ves</td><td class="yes">✔ Siempre</td></tr>
+            <tr><td><span class="ui"><svg class="i"><use href="#i-user"/></svg>Mi perfil</span><br><small>Tus datos, documentos y peticiones</small></td><td class="yes">✔ Siempre</td><td class="yes">✔ Siempre</td></tr>
+            <tr><td><strong>Barra de abajo</strong></td><td>Las 7 acciones de tu coche</td><td>En «Flota»: Inicio · Alertas · Proyección</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="hint">Si no ves un botón de los que salen aquí, no es un fallo: tu usuario no tiene ese rol o no tienes nada que enseñar en él.</p>
+
+      <div class="view-switch" data-views role="group" aria-label="Ver la pantalla de">
+        <button type="button" data-view-btn="driver"><svg class="i"><use href="#i-car"/></svg>Si conduces</button>
+        <button type="button" data-view-btn="supervisor"><svg class="i"><use href="#i-users"/></svg>Si supervisas</button>
+      </div>
+
+      <!-- Conductor: vista «Mi vehículo» -->
+      <div class="view-panel" data-view="driver">
+        <div class="ch-body">
+          <div>
+            <p class="view-lead"><span class="badge b-brand"><svg class="i"><use href="#i-car"/></svg>Conductor</span> Lo que ves al entrar, en la vista <strong>«Mi vehículo»</strong>.</p>
+            <ol class="steps">
+              <li><strong>Cabecera.</strong> El idioma (<span class="ui">ES</span> / <span class="ui">EN</span>), tus iniciales (abren <em>Mi perfil</em>) y el botón rojo <span class="ui"><svg class="i" style="color:var(--color-danger)"><use href="#i-logout"/></svg></span> para salir.</li>
+              <li><strong>Vistas.</strong> <span class="ui"><svg class="i"><use href="#i-car"/></svg>Mi vehículo</span>, <span class="ui"><svg class="i"><use href="#i-split"/></svg>Reparto</span> (solo si compartes algún coche) y <span class="ui"><svg class="i"><use href="#i-user"/></svg>Mi perfil</span>. <em>«Flota» no te sale: es de supervisores.</em></li>
+              <li><strong>Te queda poco.</strong> Lo que tienes que hacer pronto. Si no aparece, no tienes nada pendiente.</li>
+              <li><strong>Tu coche.</strong> Matrícula, estado y modelo. <span class="ui">Ver ficha</span> abre la ficha completa.</li>
+              <li><strong>KM actual</strong> y <strong>Próximas citas</strong>: la última lectura, el mejor día para registrar los km del mes y las fechas de ITV y mantenimiento. Más abajo, plegadas: <em>Alertas</em>, <em>Incidencias</em>, <em>Accidentes</em> y <em>Documentación</em>, cada una con su número.</li>
+              <li><strong>Barra de abajo.</strong> Las acciones de tu coche: <span class="ui"><svg class="i"><use href="#i-gauge"/></svg>Km</span> <span class="ui"><svg class="i"><use href="#i-fuel"/></svg>Combustible</span> <span class="ui"><svg class="i"><use href="#i-itv"/></svg>ITV</span> <span class="ui"><svg class="i"><use href="#i-maint"/></svg>Mantenimiento</span> <span class="ui"><svg class="i"><use href="#i-wrench"/></svg>Incidencia</span> <span class="ui"><svg class="i"><use href="#i-siren"/></svg>Accidente</span> <span class="ui"><svg class="i"><use href="#i-camera"/></svg>Documento</span>. La ITV solo sale si tu coche tiene una cita programada.</li>
+            </ol>
+          </div>
+          <figure style="margin:0">
+            <div class="shot">
+              <img class="zoom" src="img/home.webp" alt="Vista Mi vehículo de un conductor"  width="780" height="1688" loading="lazy" decoding="async" />
+              <span class="marker left" style="top:3.4%">1</span>
+              <span class="marker left" style="top:11.4%">2</span>
+              <span class="marker left" style="top:20.5%">3</span>
+              <span class="marker left" style="top:54%">4</span>
+              <span class="marker left" style="top:76%">5</span>
+              <span class="marker left" style="top:96.5%">6</span>
+            </div>
+            <p class="caption">«Mi vehículo» · los números coinciden con los pasos</p>
+          </figure>
+        </div>
+      </div>
+
+      <!-- Supervisor: vista «Flota» -->
+      <div class="view-panel" data-view="supervisor">
+        <div class="ch-body">
+          <div>
+            <p class="view-lead"><span class="badge b-info"><svg class="i"><use href="#i-users"/></svg>Supervisor</span> Lo que ves al pulsar <strong>«Flota»</strong>. La app recuerda la última vista que usaste.</p>
+            <ol class="steps">
+              <li><strong>Cabecera.</strong> La misma que la de los conductores: idioma, tus iniciales (<em>Mi perfil</em>) y salir.</li>
+              <li><strong>Vistas.</strong> Tú tienes además <span class="ui"><svg class="i"><use href="#i-users"/></svg>Flota</span>. Si también conduces un coche, sigues teniendo <span class="ui"><svg class="i"><use href="#i-car"/></svg>Mi vehículo</span> para el tuyo.</li>
+              <li><strong>Flota a cargo.</strong> Cuántos coches ves y cuántas lecturas de km faltan este mes.</li>
+              <li><strong>A tu cargo.</strong> Tus <em>coches</em> y tus <em>conductores</em>. Toca una cifra para ver la lista.</li>
+              <li><strong>Alertas e incidencias.</strong> Lo que hay abierto en tus coches: <em>alertas</em>, <em>incidencias</em> y <em>accidentes</em>. Desde cada lista lo resuelves ahí mismo. Más abajo está la <strong>lista de coches</strong>, con buscador.</li>
+              <li><strong>Barra de abajo.</strong> En «Flota» cambia: <span class="ui"><svg class="i"><use href="#i-home"/></svg>Inicio</span> <span class="ui"><svg class="i"><use href="#i-bell"/></svg>Alertas</span> <span class="ui"><svg class="i"><use href="#i-chart"/></svg>Proyección</span>. Lo que haces con un coche (km, ITV, recordatorio…) va en su <strong>ficha</strong>.</li>
+            </ol>
+            <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>Todo lo de supervisar se explica en el apartado <a href="#flota">Tu flota</a>.</div></div>
+          </div>
+          <figure style="margin:0">
+            <div class="shot">
+              <img class="zoom" src="img/flota.webp" alt="Vista Flota de un supervisor"  width="780" height="1688" loading="lazy" decoding="async" />
+              <span class="marker left" style="top:3.4%">1</span>
+              <span class="marker left" style="top:11.4%">2</span>
+              <span class="marker left" style="top:23.5%">3</span>
+              <span class="marker left" style="top:33%">4</span>
+              <span class="marker left" style="top:60%">5</span>
+              <span class="marker left" style="top:98%">6</span>
+            </div>
+            <p class="caption">«Flota» · los números coinciden con los pasos</p>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ 3. KM ══════════════════════ -->
+    <section class="chapter" id="km" data-for="driver" data-title="Registrar los km">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-gauge"/></svg></span>
+        <div><h2>Registrar los kilómetros</h2><p class="ch-sub">Una vez al mes, lo que marca el cuadro del coche.</p></div>
+        <span class="badge b-brand">Conductor</span>
+      </div>
+      <div class="ch-body">
+        <div>
+          <ol class="steps">
+            <li>Toca <span class="ui"><svg class="i"><use href="#i-gauge"/></svg>Km</span> en la barra de abajo. Se abre <strong>«Registrar km»</strong> con la matrícula de tu coche.</li>
+            <li>Arriba te recuerda la <strong>última lectura</strong> y su fecha: la nueva tiene que ser igual o mayor.</li>
+            <li>La <strong>fecha de la lectura</strong> ya viene con la de hoy.</li>
+            <li>En <strong>Odómetro (km totales del cuadro)</strong> escribe los kilómetros que marca el coche, sin puntos.</li>
+            <li>Pulsa <span class="ui">Guardar lectura</span>.</li>
+          </ol>
+          <div class="callout"><svg class="i"><use href="#i-cal"/></svg><div><strong>¿Cuándo?</strong> En la tarjeta <em>KM actual</em> verás el <strong>mejor día para registrar los km</strong> del mes. Mientras falte la lectura te llegará un correo de recordatorio.</div></div>
+          <div class="callout warn"><svg class="i"><use href="#i-alert"/></svg><div>Revisa bien la cifra antes de guardar: un número de más o de menos cambia los cálculos de kilómetros del contrato del coche.</div></div>
+        </div>
+        <figure style="margin:0"><div class="shot"><img class="zoom" src="img/km.webp" alt="Ventana Registrar km"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Ventana «Registrar km»</p></figure>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ 4. COMBUSTIBLE ══════════════════════ -->
+    <section class="chapter" id="combustible" data-for="driver" data-title="Anotar el consumo">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-fuel"/></svg></span>
+        <div><h2>Anotar el consumo medio</h2><p class="ch-sub">El consumo que te enseña el ordenador de a bordo.</p></div>
+        <span class="badge b-brand">Conductor</span>
+      </div>
+      <div class="ch-body">
+        <div>
+          <ol class="steps">
+            <li>Mira en el <strong>ordenador de a bordo</strong> el consumo medio de tu <strong>último trayecto o ciclo de repostaje</strong> (l/100 km, o kWh/100 km si es eléctrico).</li>
+            <li>Toca <span class="ui"><svg class="i"><use href="#i-fuel"/></svg>Combustible</span>. Se abre <strong>«Consumo medio»</strong>.</li>
+            <li>Escribe la cifra en <strong>Consumo medio real en ese momento</strong> (por ejemplo <strong>6,4</strong>). La fecha ya viene puesta.</li>
+            <li>Pulsa <span class="ui">Guardar consumo</span>. Debajo verás tu <strong>última anotación</strong>.</li>
+          </ol>
+          <div class="callout warn"><svg class="i"><use href="#i-alert"/></svg><div><strong>No anotes el «consumo histórico»</strong> o acumulado total del vehículo: solo el del último trayecto. No hace falta poner litros ni importe.</div></div>
+        </div>
+        <figure style="margin:0"><div class="shot"><img class="zoom" src="img/combustible.webp" alt="Ventana Consumo medio"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Ventana «Consumo medio»</p></figure>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ 5. ITV / MANTENIMIENTO ══════════════════════ -->
+    <section class="chapter" id="itv" data-for="driver" data-title="ITV y mantenimiento">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-itv"/></svg></span>
+        <div><h2>Registrar la ITV y el mantenimiento</h2><p class="ch-sub">Cuando ya has pasado la ITV o la revisión, lo apuntas aquí.</p></div>
+        <span class="badge b-brand">Conductor</span>
+      </div>
+      <div class="ch-body">
+        <div>
+          <h3 style="font-size:1rem;margin-bottom:0.6rem">ITV</h3>
+          <ol class="steps">
+            <li>Toca <span class="ui"><svg class="i"><use href="#i-itv"/></svg>ITV</span>. Arriba verás la <strong>próxima ITV</strong> programada.</li>
+            <li>Pon la <strong>fecha de la ITV</strong> (el botón <span class="ui">Hoy</span> la rellena).</li>
+            <li>Elige el <strong>resultado</strong>: <em>Favorable</em> cierra los avisos de ITV; <em>Desfavorable</em> deja la cita pendiente.</li>
+            <li>Si puedes, añade el <strong>informe de la ITV</strong> (foto o PDF) y pulsa <span class="ui">Registrar ITV</span>.</li>
+          </ol>
+          <h3 style="font-size:1rem;margin:1.3rem 0 0.6rem">Mantenimiento</h3>
+          <ol class="steps">
+            <li>Toca <span class="ui"><svg class="i"><use href="#i-maint"/></svg>Mantenimiento</span>. Verás el plan del coche (por ejemplo <em>Revisión general</em>), cada cuánto toca y cuándo es la próxima.</li>
+            <li>Cuando lo hayas hecho, pulsa <span class="ui">Marcar como realizado</span> y completa la fecha y los km.</li>
+          </ol>
+          <div class="callout"><svg class="i"><use href="#i-hourglass"/></svg><div>Estos botones se pueden usar desde <strong>30 días antes</strong> de la cita. Si todavía no toca, el botón sale apagado: <strong>tócalo igualmente</strong> y te dirá cuándo es la cita y desde qué día podrás registrarla.</div></div>
+          <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>Las citas las programa <strong>administración</strong> o tu supervisor. Si tu coche no tiene ITV programada, el botón de ITV no aparece.</div></div>
+        </div>
+        <div class="gallery">
+          <figure><div class="shot"><img class="zoom" src="img/itv.webp" alt="Ventana Registrar ITV"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">ITV</figcaption></figure>
+          <figure><div class="shot"><img class="zoom" src="img/mantenimiento.webp" alt="Ventana Actualizar mantenimiento"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Mantenimiento</figcaption></figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ 6. INCIDENCIA ══════════════════════ -->
+    <section class="chapter" id="incidencia" data-for="driver" data-title="Comunicar una incidencia">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-wrench"/></svg></span>
+        <div><h2>Comunicar una incidencia</h2><p class="ch-sub">Una avería, un cambio de neumáticos, un mantenimiento puntual o cualquier otra petición a la gestión de flota.</p></div>
+        <span class="badge b-brand">Conductor</span>
+      </div>
+
+      <p style="margin-top:0">Toca <span class="ui"><svg class="i"><use href="#i-wrench"/></svg>Incidencia</span> en la barra de abajo. Se abre la ventana <strong>«Comunicar incidencia · <em>matrícula</em>»</strong>, que va <strong>por pestañas</strong>: arriba ves en cuál estás (en verde las que ya has hecho), pasas a la siguiente con <span class="ui">Continuar</span> y vuelves con <span class="ui">Atrás</span> sin perder lo escrito. Solo la última pestaña envía.</p>
+
+      <!-- Recorrido según el tipo -->
+      <h3 class="sub-h">El recorrido depende del tipo que elijas</h3>
+      <div class="routes">
+        <div class="route">
+          <span class="route-name"><svg class="i"><use href="#i-wrench"/></svg>Avería · Mantenimiento puntual</span>
+          <span class="route-steps"><b>Incidencia</b><i>›</i><b class="hl">Disponibilidad</b><i>›</i><b>Documentos</b><i>›</i><b>Gestión</b></span>
+        </div>
+        <div class="route">
+          <span class="route-name"><svg class="i"><use href="#i-refresh"/></svg>Cambio de neumáticos</span>
+          <span class="route-steps"><b>Incidencia</b><i>›</i><b class="hl">Neumáticos</b><i>›</i><b>Documentos</b><i>›</i><b>Gestión</b></span>
+        </div>
+        <div class="route">
+          <span class="route-name"><svg class="i"><use href="#i-file"/></svg>Petición general</span>
+          <span class="route-steps"><b>Incidencia</b><i>›</i><b>Documentos</b><i>›</i><b>Gestión</b></span>
+        </div>
+      </div>
+
+      <!-- Recorrido pestaña a pestaña -->
+      <div class="walk" data-walk>
+        <div class="walk-tabs" role="tablist" aria-label="Pestañas de «Comunicar incidencia»">
+          <button role="tab" type="button">1 · Incidencia</button>
+          <button role="tab" type="button">2a · Disponibilidad</button>
+          <button role="tab" type="button">2b · Neumáticos</button>
+          <button role="tab" type="button">3 · Documentos</button>
+          <button role="tab" type="button">4 · Gestión</button>
+          <button role="tab" type="button"><svg class="i"><use href="#i-check"/></svg> Al enviar</button>
+        </div>
+
+        <!-- 1 · INCIDENCIA -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Pestaña «Incidencia»: qué pasa</h3>
+              <p>Es la primera y la más importante: aquí dices <strong>qué ocurre</strong> y con qué urgencia.</p>
+              <table class="fields">
+                <thead><tr><th>Campo</th><th>Qué poner</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Tipo</b> <span class="badge b-warn">Obligatorio</span></td><td>Qué clase de incidencia es (ver la tabla de abajo). <strong>Decide las pestañas</strong> que vendrán después.</td></tr>
+                  <tr><td><b>Fecha</b> <span class="badge b-warn">Obligatorio</span></td><td>Cuándo ha pasado. Viene con la de hoy y no admite fechas futuras.</td></tr>
+                  <tr><td><b>Prioridad</b> <span class="badge b-warn">Obligatorio</span></td><td>Lo urgente que es para ti: <em>Crítica, Moderada, Funcional</em> o <em>Informativa</em>. Por defecto, <em>Moderada</em>. La gestión ordena su bandeja por ella.</td></tr>
+                  <tr><td><b>Descripción</b> <span class="badge b-warn">Obligatorio</span></td><td>Cuéntalo con tus palabras: qué notas, desde cuándo, si hay testigos encendidos… En <em>Cambio de neumáticos</em> no sale aquí: va en su propia pestaña y es opcional.</td></tr>
+                </tbody>
+              </table>
+              <p class="hint" style="margin-top:0.6rem">Debajo de la prioridad, un recuadro ámbar te explica el tipo elegido, para que aciertes:</p>
+              <div class="types">
+                <div><b><svg class="i"><use href="#i-wrench"/></svg>Avería</b><span>El vehículo ha fallado: no está en condiciones de circular o no se puede usar con normalidad.</span></div>
+                <div><b><svg class="i"><use href="#i-maint"/></svg>Mantenimiento puntual</b><span>Cosas rotas o cambios necesarios que no impiden conducir; se atienden sin urgencia. El mantenimiento programado va por su plan, no por aquí.</span></div>
+                <div><b><svg class="i"><use href="#i-refresh"/></svg>Cambio de neumáticos</b><span>Por desgaste o pinchazo. El taller y la cita se concretan después, en la gestión.</span></div>
+                <div><b><svg class="i"><use href="#i-file"/></svg>Petición general</b><span>Peticiones que quizá no tienen que ver con el vehículo: documentación, tarjetas, dudas…</span></div>
+              </div>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div><strong>Para continuar:</strong> tipo, fecha, prioridad y descripción rellenos. Si falta algo, <span class="ui">Continuar</span> sale apagado.</div></div>
+              <div class="callout warn"><svg class="i"><use href="#i-siren"/></svg><div>¿Ha sido un <strong>accidente</strong>? No lo comuniques aquí: usa <a href="#accidente">Accidente</a>, que tiene su propio parte.</div></div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/incidencia-1.webp" alt="Pestaña Incidencia con una avería"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Avería</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/incidencia-1-neum.webp" alt="Pestaña Incidencia con cambio de neumáticos"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Neumáticos</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2a · DISPONIBILIDAD -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Pestaña «Disponibilidad»: cómo queda el coche</h3>
+              <p>Solo sale en <strong>Avería</strong> y <strong>Mantenimiento puntual</strong>. Elige una de las tres tarjetas:</p>
+              <div class="choices">
+                <div><b>Sigue en servicio</b><span>Puedo seguir conduciéndolo mientras se atiende. <em>(Es la que viene marcada.)</em></span></div>
+                <div><b>No se puede usar</b><span>El coche se queda parado, pero no hace falta otro.</span></div>
+                <div class="strong"><b>Necesito coche de sustitución</b><span>Se abre una <strong>solicitud de coche</strong> a administración, que decide si lo facilita. Obliga a adjuntar algún documento en la pestaña siguiente.</span></div>
+              </div>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>Lo que elijas aquí <strong>no cambia el estado del vehículo</strong> en la app: lo registra la gestión, que es quien decide si el coche pasa a «Averiado» o «En mantenimiento».</div></div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/incidencia-2.webp" alt="Pestaña Disponibilidad"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Sigue en servicio</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/incidencia-2-sust.webp" alt="Disponibilidad con coche de sustitución"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Con sustitución</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2b · NEUMÁTICOS -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Pestaña «Neumáticos»: el parte de ruedas</h3>
+              <p>Solo sale si el tipo es <strong>Cambio de neumáticos</strong>, y ocupa el sitio de «Disponibilidad». Arriba te recuerda qué es obligatorio.</p>
+              <table class="fields">
+                <thead><tr><th>Campo</th><th>Qué poner</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Kilometraje actual</b> <span class="badge b-warn">Obligatorio</span></td><td>Viene con la última lectura del coche. Si ha rodado desde entonces, corrígelo.</td></tr>
+                  <tr><td><b>Motivo del cambio</b> <span class="badge b-warn">Obligatorio</span></td><td><em>Desgaste</em> o <em>Pinchazo</em>. Según lo que elijas cambian los campos de debajo.</td></tr>
+                  <tr><td><b>¿Qué ruedas?</b> <small>(desgaste)</small></td><td><em>Delanteras</em>, <em>Traseras</em> o <em>Las 4 ruedas</em>, y las <strong>medidas</strong> de cada eje elegido.</td></tr>
+                  <tr><td><b>¿Qué rueda?</b> <small>(pinchazo)</small></td><td>Delantera o trasera, izquierda o derecha, y la <strong>medida</strong> de ese neumático.</td></tr>
+                  <tr><td><b>Comentario</b></td><td>Opcional: cualquier cosa que ayude al taller.</td></tr>
+                </tbody>
+              </table>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>La <strong>medida</strong> viene escrita en el lateral del neumático, con este formato: <strong>205/55 R16</strong>.</div></div>
+            </div>
+            <figure style="margin:0"><div class="shot"><img class="zoom" src="img/incidencia-neumaticos.webp" alt="Pestaña Neumáticos"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Desgaste de las delanteras</p></figure>
+          </div>
+        </div>
+
+        <!-- 3 · DOCUMENTOS -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Pestaña «Documentos»: lo que lo prueba</h3>
+              <p>Adjunta lo que ayude a entenderlo: <strong>fotos del daño</strong>, el <strong>presupuesto del taller</strong>… Se aceptan <strong>fotos y PDF</strong>, y puedes añadir <strong>varios</strong>.</p>
+              <ol class="steps">
+                <li>Toca <span class="ui"><svg class="i"><use href="#i-camera"/></svg>Adjuntar documento o foto</span>: puedes hacer la foto en el momento o elegirla de la galería.</li>
+                <li>Cada archivo sale en una lista con su papelera <span class="ui"><svg class="i"><use href="#i-trash"/></svg></span> por si te equivocas.</li>
+                <li>Normalmente es <strong>opcional</strong>: puedes continuar sin adjuntar nada.</li>
+              </ol>
+              <div class="callout warn"><svg class="i"><use href="#i-alert"/></svg><div><strong>Si pediste coche de sustitución</strong>, adjuntar al menos un documento es <strong>obligatorio</strong>. Y aparece una segunda caja, <em>«Documentación del coche de sustitución»</em>, para subir los papeles del coche que ya te hayan dado (permiso de circulación, ficha técnica, seguro…). Esa sí es opcional: lo normal es no tenerlo todavía.</div></div>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>Las fotos se comprimen solas antes de subirse, para que no gasten muchos datos.</div></div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/incidencia-3.webp" alt="Pestaña Documentos"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Opcional</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/incidencia-3-sust.webp" alt="Pestaña Documentos con coche de sustitución"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Con sustitución</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 · GESTIÓN -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Pestaña «Gestión»: dónde se arregla</h3>
+              <p>La última pestaña. Ayuda a la gestión a buscarte taller.</p>
+              <table class="fields">
+                <thead><tr><th>Campo</th><th>Qué poner</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Código postal de la ubicación preferente</b></td><td>Si lo sabes, el CP desde el que prefieres ir al taller más cercano (5 cifras). Es <strong>opcional</strong>: puedes dejarlo en blanco y se completa al cerrar la incidencia.</td></tr>
+                </tbody>
+              </table>
+              <ol class="steps" style="margin-top:1rem">
+                <li>Repasa con <span class="ui">Atrás</span> si quieres cambiar algo.</li>
+                <li>Pulsa <span class="ui">Comunicar incidencia</span> para enviarla.</li>
+              </ol>
+              <div class="callout warn"><svg class="i"><use href="#i-alert"/></svg><div>Si escribes el código postal, que esté <strong>entero</strong> (5 cifras): a medias no deja enviar.</div></div>
+            </div>
+            <figure style="margin:0"><div class="shot"><img class="zoom" src="img/incidencia-4.webp" alt="Pestaña Gestión"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Último paso: enviar</p></figure>
+          </div>
+        </div>
+
+        <!-- AL ENVIAR -->
+        <div class="walk-panel" role="tabpanel">
+          <h3 class="panel-h">Y después de enviar, ¿qué?</h3>
+          <p>La ventana te confirma lo que ha pasado con uno de estos mensajes:</p>
+          <div class="results">
+            <div class="ok"><svg class="i"><use href="#i-check"/></svg><div><b>«Incidencia comunicada.»</b><span>Ya la tiene la gestión.</span></div></div>
+            <div class="ok"><svg class="i"><use href="#i-car"/></svg><div><b>«… Tu solicitud de coche de sustitución queda pendiente de administración.»</b><span>El coche no llega por comunicarlo: administración decide y te lo dirá.</span></div></div>
+            <div class="warn"><svg class="i"><use href="#i-cloudoff"/></svg><div><b>«Sin conexión: la incidencia quedó guardada en el móvil…»</b><span>Se enviará sola al recuperar la cobertura. No cierres sesión mientras tanto.</span></div></div>
+            <div class="warn"><svg class="i"><use href="#i-alert"/></svg><div><b>«Incidencia comunicada; algún adjunto no se pudo subir.»</b><span>La incidencia está, pero falta un archivo: súbelo desde <a href="#documentos">Documento</a>.</span></div></div>
+          </div>
+          <ol class="steps" style="margin-top:1.2rem">
+            <li>La incidencia aparece en la tarjeta <strong>Incidencias</strong> de tu coche, con su número en el título, hasta que se cierre.</li>
+            <li>La <strong>gestión de flota</strong> la atiende: busca taller, cambia el estado del coche si hace falta y, cuando está resuelta, la <strong>cierra</strong>.</li>
+            <li>Si pediste coche de sustitución, la solicitud aparece también en <a href="#perfil">Mi perfil → Peticiones</a>, donde ves si se ha concedido o rechazado.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ 7. ACCIDENTE ══════════════════════ -->
+    <section class="chapter" id="accidente" data-for="driver" data-title="Parte de accidente">
+      <div class="ch-head">
+        <span class="ch-icon" style="background:var(--color-danger-bg);color:var(--color-danger)"><svg class="i"><use href="#i-siren"/></svg></span>
+        <div><h2>Comunicar un accidente</h2><p class="ch-sub">Un parte guiado en cuatro pasos. Solo son obligatorios los datos del primer paso y la descripción de los daños: lo demás se puede completar después.</p></div>
+        <span class="badge b-brand">Conductor</span>
+      </div>
+
+      <div class="callout warn" style="margin:0 0 1.2rem;border-left-color:var(--color-danger);background:var(--color-danger-bg);border-color:var(--color-danger-soft)"><svg class="i" style="color:var(--color-danger)"><use href="#i-alert"/></svg><div><strong>Primero tu seguridad, después la app.</strong> Si hay heridos, llama al <strong>112</strong>. El parte se puede rellenar más tarde, con calma y en un sitio seguro: la fecha y la hora se escriben a mano.</div></div>
+
+      <!-- Guía rápida por situación -->
+      <h3 class="sub-h" style="margin-top:0">¿Qué ha pasado?</h3>
+      <div class="quick" data-quick>
+        <button type="button" data-go="2"><svg class="i"><use href="#i-car"/></svg><b>Solo mi coche, sin nadie más</b><span>En «Implicados» no añades a nadie</span></button>
+        <button type="button" data-go="2"><svg class="i"><use href="#i-users"/></svg><b>Hay otro vehículo</b><span>Implicados → Terceros</span></button>
+        <button type="button" data-go="2"><svg class="i"><use href="#i-alert"/></svg><b>Hay heridos</b><span>112 · Implicados → Lesionados</span></button>
+        <button type="button" data-go="3"><svg class="i"><use href="#i-file"/></svg><b>Aún no tengo el parte en papel</b><span>Se sube después</span></button>
+        <button type="button" data-go="4"><svg class="i"><use href="#i-cloudoff"/></svg><b>No tengo cobertura</b><span>Se envía solo al volver la red</span></button>
+      </div>
+
+      <!-- Lista para el lugar del accidente -->
+      <div class="checklist" data-checklist>
+        <div class="checklist-head">
+          <h3 class="sub-h" style="margin:0">En el lugar del accidente</h3>
+          <span class="checklist-count" aria-live="polite"></span>
+        </div>
+        <p class="hint" style="margin:0.2rem 0 0.7rem">Márcalo según lo vayas haciendo. Es solo una ayuda: no se guarda en ningún sitio.</p>
+        <label><input type="checkbox" /><span><strong>Ponte a salvo:</strong> chaleco, luces de emergencia y triángulos o baliza.</span></label>
+        <label><input type="checkbox" /><span><strong>¿Hay heridos?</strong> Llama al <strong>112</strong> antes que nada.</span></label>
+        <label><input type="checkbox" /><span><strong>Fotos:</strong> los daños de los dos coches, las matrículas y el lugar (señales, marcas en el suelo…).</span></label>
+        <label><input type="checkbox" /><span><strong>Datos del otro conductor:</strong> nombre, matrícula, aseguradora y nº de póliza (abajo tienes la chuleta).</span></label>
+        <label><input type="checkbox" /><span><strong>Parte amistoso</strong> firmado por los dos, si hay otro coche. Hazle una foto.</span></label>
+        <label><input type="checkbox" /><span><strong>Si viene la policía</strong>, apunta el número del <strong>atestado</strong>.</span></label>
+        <label><input type="checkbox" /><span><strong>Rellena el parte en la app</strong> cuando estés en un sitio seguro.</span></label>
+      </div>
+
+      <!-- Dónde está el botón -->
+      <h3 class="sub-h">Dónde está el botón «Accidente»</h3>
+      <div class="grid" style="margin-top:0">
+        <div class="tile"><h3><svg class="i"><use href="#i-car"/></svg>Mi vehículo</h3><p>En la <strong>barra de abajo</strong>: <span class="ui"><svg class="i"><use href="#i-siren"/></svg>Accidente</span>. Es lo normal: el parte es del coche que conduces.</p></div>
+        <div class="tile"><h3><svg class="i"><use href="#i-file"/></svg>Ficha del coche</h3><p>Entre sus botones, <span class="ui"><svg class="i"><use href="#i-siren"/></svg>Accidente</span>. Sirve también para un coche que tienes en <a href="#reparto">reparto</a>.</p></div>
+        <div class="tile"><h3><svg class="i"><use href="#i-users"/></svg>Flota (supervisores)</h3><p>En la tarjeta de cada coche, <span class="ui"><svg class="i"><use href="#i-siren"/></svg>Accidente</span>, para comunicarlo <strong>en nombre del conductor</strong>. Queda registrado a tu nombre.</p></div>
+      </div>
+
+      <p style="margin-top:1.2rem">Se abre <strong>«Comunicación de accidente · <em>matrícula</em>»</strong>, con cuatro pasos arriba. Avanzas con <span class="ui">Continuar</span> y vuelves con <span class="ui">Atrás</span> sin perder nada:</p>
+      <div class="routes">
+        <div class="route"><span class="route-name"><svg class="i"><use href="#i-siren"/></svg>Parte de accidente</span><span class="route-steps"><b>Dónde y cuándo</b><i>›</i><b>Daños</b><i>›</i><b class="hl">Implicados</b><i>›</i><b>Atestado y archivo</b></span></div>
+      </div>
+
+      <div class="walk" data-walk>
+        <div class="walk-tabs" role="tablist" aria-label="Parte de accidente paso a paso">
+          <button role="tab" type="button">1 · Dónde y cuándo</button>
+          <button role="tab" type="button">2 · Daños</button>
+          <button role="tab" type="button">3 · Implicados</button>
+          <button role="tab" type="button">4 · Atestado y archivo</button>
+          <button role="tab" type="button"><svg class="i"><use href="#i-check"/></svg> Al enviar</button>
+        </div>
+
+        <!-- 1 -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Paso 1 · «Dónde y cuándo»</h3>
+              <p>Al abrirse, los obligatorios salen marcados con su chapa y <span class="ui">Continuar</span> está <strong>apagado</strong>. Se enciende cuando están todos.</p>
+              <table class="fields">
+                <thead><tr><th>Campo</th><th>Qué poner</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Calle</b> <span class="badge b-warn">Obligatorio</span></td><td>Dónde ha sido. En carretera, su nombre y el punto kilométrico.</td></tr>
+                  <tr><td><b>Número</b></td><td>Si lo hay.</td></tr>
+                  <tr><td><b>Código postal</b> <span class="badge b-warn">Obligatorio</span></td><td>5 cifras.</td></tr>
+                  <tr><td><b>Localidad · Provincia</b> <span class="badge b-warn">Obligatorio</span></td><td>Las dos.</td></tr>
+                  <tr><td><b>Fecha y hora</b> <span class="badge b-warn">Obligatorio</span></td><td>Cuándo <strong>ocurrió</strong>, no cuándo lo rellenas. No admite una hora futura.</td></tr>
+                  <tr><td><b>Teléfono</b> <span class="badge b-warn">Obligatorio</span></td><td>Uno en el que te localicen estos días.</td></tr>
+                  <tr><td><b>Prioridad</b> <span class="badge b-warn">Obligatorio</span></td><td><em>Crítica</em> si el coche no puede circular o hay heridos; <em>Moderada</em> (la que viene puesta) para un golpe normal.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/accidente-0.webp" alt="Paso Dónde y cuándo, vacío"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Al abrir</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/accidente-1.webp" alt="Paso Dónde y cuándo, relleno"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Relleno</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2 -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Paso 2 · «Daños»</h3>
+              <table class="fields">
+                <thead><tr><th>Campo</th><th>Qué poner</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Descripción de los daños</b> <span class="badge b-warn">Obligatorio</span></td><td>Qué le ha pasado al coche y cómo ocurrió, en pocas frases.</td></tr>
+                  <tr><td><b>CP del taller (opcional)</b></td><td>Si sabes a qué zona iría el coche a reparar.</td></tr>
+                </tbody>
+              </table>
+              <div class="tips">
+                <div><svg class="i"><use href="#i-pencil"/></svg><span><strong>Qué parte</strong> del coche: «puerta trasera derecha», «paragolpes delantero».</span></div>
+                <div><svg class="i"><use href="#i-wrench"/></svg><span><strong>Qué no funciona:</strong> «el piloto trasero está roto», «no abre la puerta».</span></div>
+                <div><svg class="i"><use href="#i-car"/></svg><span><strong>Cómo fue</strong>, sin culpas: «al salir de una rotonda, el otro coche…».</span></div>
+              </div>
+            </div>
+            <figure style="margin:0"><div class="shot"><img class="zoom" src="img/accidente-2.webp" alt="Paso Daños"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Daños</p></figure>
+          </div>
+        </div>
+
+        <!-- 3 -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Paso 3 · «Implicados»</h3>
+              <p>Otros vehículos y personas heridas, <strong>si los hay</strong>. Es opcional: si solo ha sido tu coche, pulsa <span class="ui">Continuar</span> sin añadir a nadie.</p>
+              <ol class="steps">
+                <li>En <strong>Terceros implicados</strong> (otros vehículos) o en <strong>Lesionados</strong> (personas heridas), pulsa <span class="ui">+ Añadir</span>.</li>
+                <li>Se abre una ventana para esa persona. Rellénala y pulsa <span class="ui">Guardar</span>:
+                  <table class="fields" style="margin-top:0.5rem">
+                    <thead><tr><th>Ventana</th><th>Qué pide</th></tr></thead>
+                    <tbody>
+                      <tr><td><b>Tercero implicado</b></td><td><strong>Nombre y apellidos</strong> y <strong>matrícula</strong> <span class="badge b-warn">Obligatorio</span>; marca, modelo, teléfono, aseguradora, nº de póliza y sus daños.</td></tr>
+                      <tr><td><b>Lesionado</b></td><td><strong>Nombre y apellidos</strong> <span class="badge b-warn">Obligatorio</span>; teléfono, correo, matrícula del coche en el que iba y <strong>plaza ocupada</strong> (<em>Conductor</em> u <em>Ocupante</em>).</td></tr>
+                    </tbody>
+                  </table>
+                </li>
+                <li>Cada persona queda en la lista <strong>en una línea</strong>, con el lápiz <span class="ui"><svg class="i"><use href="#i-pencil"/></svg></span> para corregirla y la papelera <span class="ui"><svg class="i" style="color:var(--color-danger)"><use href="#i-trash"/></svg></span> para quitarla. Añade tantas como haga falta.</li>
+              </ol>
+              <div class="cheatsheet">
+                <h4><svg class="i"><use href="#i-file"/></svg> Chuleta: qué pedirle al otro conductor</h4>
+                <ul>
+                  <li>Nombre y apellidos</li>
+                  <li>Matrícula</li>
+                  <li>Marca y modelo</li>
+                  <li>Teléfono</li>
+                  <li>Aseguradora</li>
+                  <li>Nº de póliza</li>
+                </ul>
+                <p>Son justo los campos de la ventana «Tercero implicado». Casi todos vienen en el <strong>parte amistoso</strong> o en el recibo del seguro del otro.</p>
+              </div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/accidente-tercero.webp" alt="Ventana Tercero implicado"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Tercero</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/accidente-lesionado.webp" alt="Ventana Lesionado"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Lesionado</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/accidente-3.webp" alt="Lista de implicados"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">La lista</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Paso 4 · «Atestado y archivo»</h3>
+              <table class="fields">
+                <thead><tr><th>Campo</th><th>Qué poner</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Referencia del atestado (opcional)</b></td><td>Si ha intervenido la policía, el número que te den.</td></tr>
+                  <tr><td><b>Archivo del parte (opcional)</b></td><td>La foto o el PDF del parte amistoso. Las fotos se comprimen solas.</td></tr>
+                </tbody>
+              </table>
+              <ol class="steps" style="margin-top:1rem">
+                <li>Pulsa <span class="ui">Comunicar accidente</span>.</li>
+              </ol>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>¿Aún no tienes el parte o el atestado? <strong>Envía igual</strong>. Cuando los tengas, súbelos con <a href="#documentos">Documento</a>: tipo <em>Parte de accidente</em> (o <em>Fotos de daños</em>) y, en «Ligado a», <strong>este accidente</strong>.</div></div>
+            </div>
+            <figure style="margin:0"><div class="shot"><img class="zoom" src="img/accidente-4.webp" alt="Paso Atestado y archivo"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Último paso: enviar</p></figure>
+          </div>
+        </div>
+
+        <!-- AL ENVIAR -->
+        <div class="walk-panel" role="tabpanel">
+          <h3 class="panel-h">Y después de enviar, ¿qué?</h3>
+          <div class="results">
+            <div class="ok"><svg class="i"><use href="#i-check"/></svg><div><b>«Accidente comunicado correctamente.»</b><span>Ya lo tiene la gestión de flota.</span></div></div>
+            <div class="warn"><svg class="i"><use href="#i-cloudoff"/></svg><div><b>«Sin conexión: el accidente quedó guardado en el móvil (con su archivo)…»</b><span>Se envía solo al recuperar la cobertura. No cierres sesión mientras tanto.</span></div></div>
+            <div class="warn"><svg class="i"><use href="#i-alert"/></svg><div><b>«Accidente comunicado, pero no se pudo subir el archivo…»</b><span>El parte está; falta el archivo: súbelo desde <a href="#documentos">Documento</a>.</span></div></div>
+          </div>
+          <ol class="steps" style="margin-top:1.2rem">
+            <li>El accidente aparece en la tarjeta <strong>Accidentes</strong> de tu coche, con su número en el título.</li>
+            <li>La gestión de flota lo tramita con el seguro, decide el estado del coche y, cuando está resuelto, lo cierra con el <strong>expediente</strong> del siniestro y quién asume el coste.</li>
+            <li>Si te quedas sin coche para trabajar, díselo a tu supervisor o a la gestión.</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Dudas -->
+      <h3 class="sub-h" style="margin-top:1.6rem">Dudas frecuentes sobre accidentes</h3>
+      <details class="faq"><summary>¿Lo comunico como accidente o como incidencia?<svg class="i"><use href="#i-chev"/></svg></summary><div>Si ha habido un <strong>golpe</strong> (con otro coche, un objeto, un animal…), es un <strong>accidente</strong>. Si el coche falla solo, sin golpe, es una <a href="#incidencia">incidencia</a> de tipo avería.</div></details>
+      <details class="faq"><summary>El otro conductor no quiere firmar el parte amistoso<svg class="i"><use href="#i-chev"/></svg></summary><div>No discutas. Apunta su matrícula, haz fotos y, si hace falta, llama a la policía. En la app rellena lo que tengas: solo son obligatorios su nombre y su matrícula.</div></details>
+      <details class="faq"><summary>Me he equivocado en un dato después de enviar<svg class="i"><use href="#i-chev"/></svg></summary><div>Desde la app no se edita un parte enviado. Avisa a tu supervisor o a la gestión con el dato correcto.</div></details>
+      <details class="faq"><summary>Fue hace unos días y no lo comuniqué<svg class="i"><use href="#i-chev"/></svg></summary><div>Comunícalo igual, con la <strong>fecha y hora en que ocurrió</strong>. Cuanto antes, mejor para el seguro.</div></details>
+    </section>
+
+    <!-- ══════════════════════ 11. REPARTO ══════════════════════ -->
+    <section class="chapter" id="reparto" data-for="driver" data-title="Coches en reparto">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-split"/></svg></span>
+        <div><h2>Coches que compartes (Reparto)</h2><p class="ch-sub">Coches que usas unos días o unas horas, junto con otras personas.</p></div>
+        <span class="badge b-brand">Conductor</span>
+      </div>
+      <div class="ch-body">
+        <div>
+          <ol class="steps">
+            <li>Si tienes algún coche repartido, arriba aparece <span class="ui"><svg class="i"><use href="#i-split"/></svg>Reparto</span>. Si no, esa vista no sale.</li>
+            <li>Cada tarjeta te dice los <strong>días</strong>, el <strong>horario</strong>, <strong>tu parte</strong>, el <strong>periodo</strong> y <strong>con quién lo repartes</strong>. Si además es tu coche, lleva la marca <span class="badge b-info">Tu coche</span>.</li>
+            <li>Toca la tarjeta para abrir la ficha del coche: mientras dure el reparto puedes anotar sus km y su combustible, comunicar incidencias o subir documentos.</li>
+          </ol>
+        </div>
+        <figure style="margin:0"><div class="shot"><img class="zoom" src="img/reparto.webp" alt="Vista Reparto"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Vista «Reparto»</p></figure>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ 8. DOCUMENTOS ══════════════════════ -->
+    <section class="chapter" id="documentos" data-for="all" data-title="Documentos">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-file"/></svg></span>
+        <div><h2>Subir, pedir y consultar documentos</h2><p class="ch-sub">Los papeles del coche (permiso de circulación, seguro…) y los tuyos (permiso de conducir…).</p></div>
+      </div>
+
+      <!-- Guía rápida -->
+      <h3 class="sub-h" style="margin-top:0">¿Qué necesitas hacer?</h3>
+      <div class="quick" data-quick>
+        <button type="button" data-go="0"><svg class="i"><use href="#i-eye"/></svg><b>Ver qué papeles tiene mi coche</b><span>Tarjeta «Documentación»</span></button>
+        <button type="button" data-go="1"><svg class="i"><use href="#i-camera"/></svg><b>Tengo un papel nuevo y quiero guardarlo</b><span>Documento → Subir</span></button>
+        <button type="button" data-go="5"><svg class="i"><use href="#i-help"/></svg><b>Me falta un papel</b><span>Documento → Pedir</span></button>
+        <button type="button" data-go="6"><svg class="i"><use href="#i-download"/></svg><b>Quiero verlo o llevarlo en el móvil</b><span>Ojo · Descargar</span></button>
+        <button type="button" data-go="7"><svg class="i"><use href="#i-pencil"/></svg><b>Un documento tiene un dato mal</b><span>Lápiz → Pedir corrección</span></button>
+        <button type="button" data-go="8"><svg class="i"><use href="#i-trash"/></svg><b>Sobra un documento</b><span>Papelera → Pedir borrado</span></button>
+        <button type="button" data-go="9"><svg class="i"><use href="#i-key"/></svg><b>No me deja verlo</b><span>Llave → Pedir acceso</span></button>
+      </div>
+
+      <div class="callout" style="margin-bottom:1.2rem"><svg class="i"><use href="#i-info"/></svg><div><strong>Desde la app no se cambia ni se borra nada directamente:</strong> subir y ver sí, pero corregir, borrar y ver lo restringido se <strong>pide</strong>, y lo decide la gestión de flota. Así ningún papel de la flota desaparece por error.</div></div>
+
+      <div class="walk" data-walk>
+        <div class="walk-tabs" role="tablist" aria-label="Documentos paso a paso">
+          <button role="tab" type="button">Consultar</button>
+          <button role="tab" type="button">Subir 1 · Qué quieres</button>
+          <button role="tab" type="button">Subir 2 · Tipo y documento</button>
+          <button role="tab" type="button">Subir 3 · Ligado a</button>
+          <button role="tab" type="button">Subir 4 · Notas</button>
+          <button role="tab" type="button">Pedir un documento</button>
+          <button role="tab" type="button">Ver y descargar</button>
+          <button role="tab" type="button">Pedir corrección</button>
+          <button role="tab" type="button">Pedir borrado</button>
+          <button role="tab" type="button">Pedir acceso</button>
+        </div>
+
+        <!-- 0 · CONSULTAR -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">La tarjeta «Documentación»</h3>
+              <p>En la pantalla de <em>Mi vehículo</em>, baja hasta <strong>Documentación</strong> y tócala para desplegarla. El número de al lado es cuántos documentos hay en total.</p>
+              <ol class="steps">
+                <li>Dentro hay <strong>dos pestañas</strong>, cada una con su número:
+                  <ul style="margin:0.4rem 0 0;padding-left:1.1rem">
+                    <li><strong>Documentación del coche:</strong> permiso de circulación, ficha técnica, seguro, contrato… <em>Se quedan con el coche cuando lo devuelves.</em></li>
+                    <li><strong>Documentación del conductor:</strong> tus papeles personales, como el permiso de conducir. <em>Van contigo</em>, y los ven también tu supervisor y la gestión de flota. Abajo tienes <span class="ui">Subir documento personal</span>.</li>
+                  </ul>
+                </li>
+                <li>Cada fila dice el <strong>tipo</strong>, el <strong>día en que se subió</strong> y, si caduca, <strong>cuándo caduca</strong>.</li>
+                <li>La chapa de color dice su estado:
+                  <div class="legend-rows">
+                    <div><span class="badge b-ok">Vigente</span><span>Está en regla.</span></div>
+                    <div><span class="badge b-danger">Caducado</span><span>Ha pasado su fecha: hay que subir el nuevo (o pedirlo).</span></div>
+                    <div><span class="badge b-warn">Pendiente de archivar</span><span>Ya está en la app y se guarda en el archivo de la empresa más tarde, solo.</span></div>
+                    <div><span class="badge b-warn">Pendiente de borrado</span><span>Alguien ha pedido borrarlo y la gestión lo está revisando.</span></div>
+                  </div>
+                </li>
+                <li>Algunos documentos llevan debajo una línea con <strong>cómo está tu acceso</strong>, por ejemplo <em>«Lectura: con solicitud · Descarga: con solicitud · Borrado: no permitido»</em>. Mira <a href="#documentos" data-go-link="9">Pedir acceso</a>.</li>
+              </ol>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>No ves todos los documentos de la flota: solo los de <strong>tu coche</strong> que la gestión ha dejado ver al conductor, los que <strong>has subido tú</strong> y los <strong>tuyos personales</strong>. ¿Te falta alguno? <a href="#documentos" data-go-link="5">Pídelo</a>.</div></div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot card-only"><img class="zoom" src="img/documentos.webp" alt="Tarjeta Documentación, pestaña del coche"  width="684" height="1295" loading="lazy" decoding="async" /></div><figcaption class="caption">Del coche</figcaption></figure>
+              <figure><div class="shot card-only"><img class="zoom" src="img/documentos-personal.webp" alt="Tarjeta Documentación, pestaña del conductor"  width="684" height="701" loading="lazy" decoding="async" /></div><figcaption class="caption">Del conductor</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 1 · QUÉ QUIERES -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Subir · 1 · «Qué quieres»</h3>
+              <p>Toca <span class="ui"><svg class="i"><use href="#i-camera"/></svg>Documento</span> en la barra de abajo. Se abre la ventana <strong>«Documento · <em>matrícula</em>»</strong>, y lo primero que pregunta es qué vienes a hacer:</p>
+              <div class="choices">
+                <div class="strong"><b>Subir un documento</b><span>Tienes el papel (o una foto) y lo guardas en la ficha. Sigue en <em>Tipo y documento</em>.</span></div>
+                <div><b>Pedir un documento</b><span>No lo tienes: se lo pides a administración y te lo facilita. Vale también para los que no ves en la lista. <a href="#documentos" data-go-link="5">Ver cómo</a>.</span></div>
+              </div>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>Con <strong>tocar una de las dos tarjetas</strong> ya pasa a la siguiente pestaña: no hace falta pulsar «Continuar».</div></div>
+              <h3 class="sub-h">Según lo que subas, el camino cambia</h3>
+              <div class="routes" style="margin-bottom:0">
+                <div class="route"><span class="route-name"><svg class="i"><use href="#i-car"/></svg>Del coche</span><span class="route-steps"><b>Qué quieres</b><i>›</i><b>Tipo y documento</b><i>›</i><b class="hl">Ligado a</b><i>›</i><b>Notas</b></span></div>
+                <div class="route"><span class="route-name"><svg class="i"><use href="#i-user"/></svg>Personal (tuyo)</span><span class="route-steps"><b>Qué quieres</b><i>›</i><b>Tipo y documento</b><i>›</i><b>Notas</b></span></div>
+              </div>
+            </div>
+            <figure style="margin:0"><div class="shot"><img class="zoom" src="img/doc-1-modo.webp" alt="Pestaña Qué quieres"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Subir o pedir</p></figure>
+          </div>
+        </div>
+
+        <!-- 2 · TIPO Y DOCUMENTO -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Subir · 2 · «Tipo y documento»</h3>
+              <table class="fields">
+                <thead><tr><th>Campo</th><th>Qué poner</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Documento de</b></td><td><em>El vehículo</em> (sus papeles, que cuelgan de la matrícula) o <em>El conductor · tu nombre</em> (tus papeles personales). Si eliges el conductor, cambian los tipos y se salta <em>Ligado a</em>.</td></tr>
+                  <tr><td><b>Tipo de documento</b></td><td>Del coche: permiso de circulación, ficha técnica, seguro, contrato, acta de devolución, parte de accidente, fotos de daños u <em>Otro</em>. Tuyos: permiso de conducir u <em>Otro</em>.</td></tr>
+                  <tr><td><b>Foto o PDF (cámara / galería)</b> <span class="badge b-warn">Obligatorio</span></td><td>Toca la caja: haz la foto en el momento o elige un archivo del móvil. Cuando lo eliges, sale su nombre en verde. Se admiten fotos (JPG, PNG, HEIC…) y PDF.</td></tr>
+                  <tr><td><b>Caducidad (opcional)</b></td><td>Solo sale en los que caducan: <strong>seguro, contrato y permiso de conducir</strong>. Ponla si la sabes.</td></tr>
+                </tbody>
+              </table>
+              <div class="tips">
+                <div><svg class="i"><use href="#i-camera"/></svg><span>Haz la foto <strong>con buena luz</strong>, de frente y sin reflejos.</span></div>
+                <div><svg class="i"><use href="#i-file"/></svg><span>Si el papel tiene <strong>varias hojas</strong>, mejor un PDF que varias fotos.</span></div>
+                <div><svg class="i"><use href="#i-eye"/></svg><span>Comprueba que <strong>se leen</strong> la matrícula, las fechas y los números.</span></div>
+              </div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/doc-2-archivo.webp" alt="Subir el seguro del coche"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Del coche: el seguro</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/doc-personal.webp" alt="Subir el permiso de conducir"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Tuyo: el permiso de conducir</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3 · LIGADO A -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Subir · 3 · «Ligado a»</h3>
+              <p>Aquí dices a qué <strong>incidencia</strong> del coche acompaña el documento. Si es personal, este paso no sale. Depende del tipo:</p>
+              <table class="fields">
+                <thead><tr><th>Tipo</th><th>¿Hay que ligarlo?</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Fotos de daños</b></td><td><span class="badge b-warn">Obligatorio</span> Elige la incidencia abierta de la que son las fotos.</td></tr>
+                  <tr><td><b>Parte de accidente</b></td><td><span class="badge b-warn">Obligatorio</span> Elige el <strong>accidente abierto</strong>. Si no hay ninguno, no se puede subir y la app te lo dice.</td></tr>
+                  <tr><td><b>Contrato · Ficha técnica · Acta de devolución · Otro</b></td><td>Opcional: elige una incidencia si viene a cuento, o deja <em>Ninguna</em>.</td></tr>
+                  <tr><td><b>Seguro · Permiso de circulación</b></td><td>No se ligan. La pestaña te dice: <em>«Este documento no se liga a ninguna incidencia: sigue al paso siguiente»</em>.</td></tr>
+                </tbody>
+              </table>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>Solo se ofrecen incidencias <strong>sin cerrar</strong>: lo que se adjunta, se adjunta a lo que está en marcha. Las fotos de una avería también puedes subirlas al <a href="#incidencia">comunicar la incidencia</a>, en su pestaña «Documentos».</div></div>
+            </div>
+            <figure style="margin:0"><div class="shot"><img class="zoom" src="img/doc-3-ligado.webp" alt="Pestaña Ligado a"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">El seguro no se liga a nada</p></figure>
+          </div>
+        </div>
+
+        <!-- 4 · NOTAS -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Subir · 4 · «Notas» y subir</h3>
+              <ol class="steps">
+                <li>Escribe en <strong>Notas (opcional)</strong> algo que ayude a reconocerlo después en la lista, por ejemplo <em>«Póliza renovada en junio»</em>.</li>
+                <li>Pulsa <span class="ui">Subir</span>.</li>
+                <li>Verás <strong>«Documento subido»</strong> con uno de estos mensajes:
+                  <div class="results" style="margin-top:0.5rem">
+                    <div class="ok"><svg class="i"><use href="#i-check"/></svg><div><b>«Documento subido y archivado en Drive.»</b><span>Todo listo.</span></div></div>
+                    <div class="ok"><svg class="i"><use href="#i-hourglass"/></svg><div><b>«Documento subido. Queda pendiente de archivar en Drive…»</b><span>Ya está en la app; se archiva solo más tarde.</span></div></div>
+                    <div class="warn"><svg class="i"><use href="#i-cloudoff"/></svg><div><b>«Estás sin conexión: el documento se subirá solo en cuanto vuelva la red.»</b><span>Se queda en el móvil y se envía al recuperar cobertura. No cierres sesión mientras tanto.</span></div></div>
+                  </div>
+                </li>
+                <li>Desde ahí puedes <span class="ui">Subir otro</span> o <span class="ui">Cerrar</span>. El documento ya aparece en la tarjeta <em>Documentación</em>.</li>
+              </ol>
+            </div>
+            <figure style="margin:0"><div class="shot"><img class="zoom" src="img/doc-4-notas.webp" alt="Pestaña Notas"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Último paso: subir</p></figure>
+          </div>
+        </div>
+
+        <!-- 5 · PEDIR -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Pedir un documento que no tienes</h3>
+              <p>En <em>Qué quieres</em> elige <strong>Pedir un documento</strong>. Solo hay una pestaña más, <strong>«Qué pides»</strong>:</p>
+              <table class="fields">
+                <thead><tr><th>Campo</th><th>Qué poner</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Documento de</b></td><td>Del vehículo o tuyo. Solo puedes pedir los tuyos, no los de otra persona.</td></tr>
+                  <tr><td><b>Documento que necesitas</b> <span class="badge b-warn">Obligatorio</span></td><td>Permiso de circulación, ficha técnica, seguro, contrato, acta de devolución, permiso de conducir u <em>Otro</em>.</td></tr>
+                  <tr><td><b>¿Para qué lo necesitas?</b> <span class="badge b-warn">Obligatorio</span></td><td>Explícalo: es lo que lee quien lo decide. Por ejemplo <em>«Me la piden en el taller para el cambio de ruedas»</em>.</td></tr>
+                </tbody>
+              </table>
+              <ol class="steps" style="margin-top:1rem">
+                <li>Pulsa <span class="ui">Enviar la petición</span>. Verás <strong>«Petición enviada»</strong>.</li>
+                <li>Administración la ve en su bandeja y te facilita el documento (o te dice por qué no).</li>
+                <li>Síguela en <a href="#perfil">Mi perfil → Peticiones</a>, donde ves si sigue pendiente o ya se ha decidido.</li>
+              </ol>
+              <div class="callout warn"><svg class="i"><use href="#i-alert"/></svg><div>No se pueden pedir la <strong>factura de taller</strong>, las <strong>fotos de daños</strong>, el <strong>informe de ITV</strong> ni el <strong>parte de accidente</strong>: van siempre unidos a una incidencia o a una ITV concreta.</div></div>
+              <div class="callout"><svg class="i"><use href="#i-cloudoff"/></svg><div>Pedir <strong>necesita conexión</strong>: sin cobertura no se guarda para luego. Vuelve a intentarlo cuando tengas red.</div></div>
+            </div>
+            <figure style="margin:0"><div class="shot"><img class="zoom" src="img/doc-pedir.webp" alt="Pestaña Qué pides"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Pedir la ficha técnica</p></figure>
+          </div>
+        </div>
+
+        <!-- 6 · VER Y DESCARGAR -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Ver y descargar</h3>
+              <p>Cada fila de la tarjeta <em>Documentación</em> lleva sus botones a la derecha. Los dos primeros son para consultar:</p>
+              <div class="grid" style="margin-top:0">
+                <div class="tile"><h3><svg class="i"><use href="#i-eye"/></svg>Ver</h3><p>Lo abre <strong>dentro de la app</strong>, sin salir a otra web ni necesitar cuenta de Google. Al cerrar la ventana, la copia <strong>desaparece del móvil</strong>. Dentro tienes «Descargar» por si quieres guardarlo.</p></div>
+                <div class="tile"><h3><svg class="i"><use href="#i-download"/></svg>Descargar</h3><p>Guarda una copia en tu móvil, con un nombre que dice qué es y de qué coche. Útil para enseñarlo sin cobertura (en un control, en el taller…).</p></div>
+              </div>
+              <h3 class="sub-h">Los botones de una fila, de un vistazo</h3>
+              <table class="fields">
+                <thead><tr><th>Botón</th><th>Qué hace</th></tr></thead>
+                <tbody>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-eye"/></svg></span> Ver</td><td>Lo abre en la app.</td></tr>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-download"/></svg></span> Descargar</td><td>Guarda una copia en el móvil.</td></tr>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-pencil"/></svg></span> Lápiz</td><td><a href="#documentos" data-go-link="7">Pedir que se corrija</a>.</td></tr>
+                  <tr><td><span class="ui"><svg class="i" style="color:var(--color-danger)"><use href="#i-trash"/></svg></span> Papelera</td><td><a href="#documentos" data-go-link="8">Pedir que se borre</a>.</td></tr>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-key"/></svg></span> Llave</td><td>Sale en lugar del ojo o de la descarga: <a href="#documentos" data-go-link="9">hay que pedir acceso</a>.</td></tr>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-hourglass"/></svg></span> Reloj de arena</td><td>Ya lo has pedido y la gestión aún no ha contestado.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <figure style="margin:0"><div class="shot card-only"><img class="zoom" src="img/documentos.webp" alt="Botones de cada documento"  width="684" height="1295" loading="lazy" decoding="async" /></div><p class="caption">Los botones, a la derecha de cada fila</p></figure>
+          </div>
+        </div>
+
+        <!-- 7 · CORREGIR -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Pedir que se corrija un documento</h3>
+              <p>¿Lo subiste con el tipo equivocado, con la caducidad mal o con una nota que no toca? <strong>No hace falta borrarlo y subirlo otra vez</strong>: pide que lo corrijan.</p>
+              <ol class="steps">
+                <li>Toca el <strong>lápiz</strong> <span class="ui"><svg class="i"><use href="#i-pencil"/></svg></span> de la fila. Se abre <strong>«Corregir <em>documento</em>»</strong>.</li>
+                <li>Cambia lo que esté mal: el <strong>tipo de documento</strong>, la <strong>fecha de caducidad</strong> (solo en los que caducan) o la <strong>nota del documento</strong>.</li>
+                <li>En <strong>Por qué hay que corregirlo</strong> explícalo en una frase.</li>
+                <li>Pulsa <span class="ui">Enviar petición</span>. La gestión la <strong>aplica</strong> o la <strong>rechaza</strong>.</li>
+              </ol>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>Esto <strong>no cambia el documento</strong> al momento ni toca el archivo: solo manda la petición. Mientras tanto, el documento sigue como estaba.</div></div>
+              <div class="callout warn"><svg class="i"><use href="#i-alert"/></svg><div>Un documento solo puede tener <strong>una petición a la vez</strong>: si ya pediste corregirlo, no puedes pedir también que se borre hasta que la gestión conteste.</div></div>
+            </div>
+            <figure style="margin:0"><div class="shot"><img class="zoom" src="img/doc-corregir.webp" alt="Ventana Corregir documento"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Corregir el tipo</p></figure>
+          </div>
+        </div>
+
+        <!-- 8 · BORRAR -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Pedir que se borre un documento</h3>
+              <ol class="steps">
+                <li>Toca la <strong>papelera</strong> <span class="ui"><svg class="i" style="color:var(--color-danger)"><use href="#i-trash"/></svg></span> de la fila. Se abre <strong>«Pedir el borrado · <em>documento</em>»</strong>.</li>
+                <li>Si quieres, escribe el <strong>motivo</strong> (opcional): <em>«Está repetido»</em>, <em>«Es de otro coche»</em>…</li>
+                <li>Pulsa <span class="ui">Pedir borrado</span>.</li>
+                <li>El documento <strong>sigue en la lista</strong> con la chapa <span class="badge b-warn">Pendiente de borrado</span> y la papelera apagada, hasta que la gestión decida.</li>
+              </ol>
+              <h3 class="sub-h">Lo que puede decidir la gestión</h3>
+              <div class="legend-rows">
+                <div><span class="badge b-danger">Borrarlo</span><span>Desaparece de la lista (la gestión lo guarda aparte por si hubiera que recuperarlo).</span></div>
+                <div><span class="badge b-info">Ocultarlo</span><span>Se queda en la flota, pero deja de verse en la app de campo.</span></div>
+                <div><span class="badge b-muted">Rechazar</span><span>No se toca: vuelve a salir normal, sin la chapa.</span></div>
+              </div>
+            </div>
+            <figure style="margin:0"><div class="shot"><img class="zoom" src="img/doc-borrar.webp" alt="Ventana Pedir el borrado"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Pedir el borrado</p></figure>
+          </div>
+        </div>
+
+        <!-- 9 · ACCESO -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Pedir acceso a un documento</h3>
+              <p>La gestión decide, por tipo de documento, qué puede hacer el conductor con él. Por eso algunos documentos se ven <strong>«con solicitud»</strong> y otros <strong>«no permitido»</strong>. La línea bajo el nombre te lo dice:</p>
+              <table class="fields">
+                <thead><tr><th>La línea dice…</th><th>Qué significa</th></tr></thead>
+                <tbody>
+                  <tr><td><b>con solicitud</b></td><td>Hay que pedirlo. En vez del ojo o la flecha sale una <strong>llave</strong>.</td></tr>
+                  <tr><td><b>pedida, pendiente de la gestión</b></td><td>Ya lo has pedido: sale un <strong>reloj de arena</strong>.</td></tr>
+                  <tr><td><b>concedida</b></td><td>Te lo han concedido: vuelve el botón normal.</td></tr>
+                  <tr><td><b>no permitida / no permitido</b></td><td>No se puede ni pidiéndolo. El botón sale apagado.</td></tr>
+                </tbody>
+              </table>
+              <ol class="steps" style="margin-top:1rem">
+                <li>Toca la <strong>llave</strong> <span class="ui"><svg class="i"><use href="#i-key"/></svg></span>. Se abre <strong>«Pedir la lectura»</strong> (o <em>la descarga</em>) del documento.</li>
+                <li>Escribe para qué lo necesitas (opcional) y pulsa <span class="ui">Enviar petición</span>.</li>
+                <li>Cuando la gestión te lo <strong>conceda</strong>, verás otra vez el ojo o la flecha.</li>
+              </ol>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>Un botón <strong>apagado no está roto</strong>: tócalo y te explica por qué no se puede, como en la captura de «No permitido». Si de verdad lo necesitas, habla con quien lleva la flota.</div></div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/doc-pedir-acceso.webp" alt="Pedir la lectura del contrato"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Con solicitud</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/doc-no-permitido.webp" alt="Borrado no permitido"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">No permitido</figcaption></figure>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tipos de un vistazo -->
+      <h3 class="sub-h" style="margin-top:1.6rem">Los tipos de documento, de un vistazo</h3>
+      <div class="table-wrap">
+        <table class="fields types-table">
+          <thead><tr><th>Tipo</th><th>De quién</th><th>¿Caduca?</th><th>¿Va ligado a una incidencia?</th><th>¿Se puede pedir?</th></tr></thead>
+          <tbody>
+            <tr><td><b>Permiso de circulación</b></td><td>Coche</td><td class="no">No</td><td class="no">No</td><td class="yes">Sí</td></tr>
+            <tr><td><b>Ficha técnica</b></td><td>Coche</td><td class="no">No</td><td>Opcional</td><td class="yes">Sí</td></tr>
+            <tr><td><b>Seguro</b></td><td>Coche</td><td class="yes">Sí</td><td class="no">No</td><td class="yes">Sí</td></tr>
+            <tr><td><b>Contrato</b></td><td>Coche</td><td class="yes">Sí</td><td>Opcional</td><td class="yes">Sí</td></tr>
+            <tr><td><b>Acta de devolución</b></td><td>Coche</td><td class="no">No</td><td>Opcional</td><td class="yes">Sí</td></tr>
+            <tr><td><b>Fotos de daños</b></td><td>Coche</td><td class="no">No</td><td class="must">Obligatorio</td><td class="no">No</td></tr>
+            <tr><td><b>Parte de accidente</b></td><td>Coche</td><td class="no">No</td><td class="must">Obligatorio (accidente abierto)</td><td class="no">No</td></tr>
+            <tr><td><b>Factura de taller · Informe de ITV</b></td><td>Coche</td><td>—</td><td colspan="2">No se suben desde aquí: se adjuntan al <strong>cerrar la incidencia</strong> o al <a href="#itv">registrar la ITV</a>.</td></tr>
+            <tr><td><b>Permiso de conducir</b></td><td>Tuyo</td><td class="yes">Sí</td><td class="no">No</td><td class="yes">Sí</td></tr>
+            <tr><td><b>Otro</b></td><td>Coche o tuyo</td><td class="no">No</td><td>Opcional</td><td class="yes">Sí</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Dudas -->
+      <h3 class="sub-h" style="margin-top:1.6rem">Dudas frecuentes sobre documentos</h3>
+      <details class="faq"><summary>No encuentro un documento que sé que existe<svg class="i"><use href="#i-chev"/></svg></summary><div>Puede que la gestión no lo haya dejado ver al conductor. <strong>Pídelo</strong> desde <span class="ui"><svg class="i"><use href="#i-camera"/></svg>Documento</span> → <em>Pedir un documento</em>: sirve también para los que no ves en la lista.</div></details>
+      <details class="faq"><summary>Me he equivocado de tipo al subirlo<svg class="i"><use href="#i-chev"/></svg></summary><div>Toca el <strong>lápiz</strong> y pide la corrección. No lo borres y lo vuelvas a subir: perderías el archivo original y su historial.</div></details>
+      <details class="faq"><summary>Pone «Pendiente de archivar» desde hace días<svg class="i"><use href="#i-chev"/></svg></summary><div>El documento ya está guardado y lo puedes ver desde la app. Archivarlo en el Drive de la empresa se reintenta solo; si dura mucho, avisa a la gestión.</div></details>
+      <details class="faq"><summary>Al abrirlo dice «No se pudo abrir el documento»<svg class="i"><use href="#i-chev"/></svg></summary><div>Comprueba la cobertura e inténtalo de nuevo. Si sigue fallando con ese documento, puede que su archivo ya no exista: avisa a la gestión.</div></details>
+      <details class="faq"><summary>¿Quién ve mis documentos personales?<svg class="i"><use href="#i-chev"/></svg></summary><div>Tú, tu supervisor y la gestión de flota. Tus documentos personales <strong>nunca se te ocultan a ti</strong>.</div></details>
+    </section>
+
+    <!-- ══════════════════════ 9. AVISOS ══════════════════════ -->
+    <section class="chapter" id="avisos" data-for="all" data-title="Avisos y alertas">
+      <div class="ch-head">
+        <span class="ch-icon" style="background:var(--color-warning-soft);color:var(--color-warning)"><svg class="i"><use href="#i-bell"/></svg></span>
+        <div><h2>Lo que tienes pendiente</h2><p class="ch-sub">«Te queda poco», las alertas y los colores.</p></div>
+      </div>
+      <div class="ch-body">
+        <div>
+          <ol class="steps">
+            <li>Al entrar verás arriba <strong>«Te queda poco»</strong> si falta algo: la lectura de km del mes, el consumo, una ITV o un mantenimiento cercano. <strong>Toca el aviso</strong> y se abre su formulario ahí mismo.</li>
+            <li>Despliega la tarjeta <strong>Alertas</strong> para ver todo lo abierto del coche, con su nivel (<span class="badge b-danger">Crítica</span> <span class="badge b-warn">Aviso</span>) y su fecha.</li>
+            <li>Pulsa <span class="ui">Solucionar</span> en la alerta: normalmente es hacer lo que pide (registrar la lectura, la ITV, el mantenimiento…). Al guardarlo, la alerta se cierra.</li>
+          </ol>
+          <h3 style="font-size:1rem;margin:1.3rem 0 0.2rem">¿Qué significan los colores?</h3>
+          <div class="traffic">
+            <div><i style="background:var(--color-success)"></i><span><strong>Verde</strong> · todo al día.</span></div>
+            <div><i style="background:var(--color-warning)"></i><span><strong>Ámbar</strong> · se acerca la fecha o hace 15-30 días que no anotas.</span></div>
+            <div><i style="background:var(--color-danger)"></i><span><strong>Rojo</strong> · vencido, a menos de 7 días, o más de 30 días sin anotar.</span></div>
+          </div>
+          <div class="callout ok"><svg class="i"><use href="#i-check"/></svg><div>Si no ves el bloque «Te queda poco», <strong>no tienes nada pendiente</strong>.</div></div>
+        </div>
+        <div class="gallery">
+          <figure><div class="shot"><img class="zoom" src="img/home.webp" alt="Bloque Te queda poco"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">«Te queda poco»</figcaption></figure>
+          <figure><div class="shot card-only"><img class="zoom" src="img/alertas.webp" alt="Tarjeta Alertas desplegada"  width="684" height="940" loading="lazy" decoding="async" /></div><figcaption class="caption">Tarjeta «Alertas»</figcaption></figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ 10. PERFIL ══════════════════════ -->
+    <section class="chapter" id="perfil" data-for="all" data-title="Mi perfil">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-user"/></svg></span>
+        <div><h2>Mi perfil: tus datos y tus peticiones</h2><p class="ch-sub">Tu ficha no se edita directamente: se <strong>pide</strong> el cambio.</p></div>
+      </div>
+      <div class="ch-body">
+        <div>
+          <ol class="steps">
+            <li>Entra en <span class="ui"><svg class="i"><use href="#i-user"/></svg>Mi perfil</span> o toca tus iniciales en la cabecera. Verás tu correo, teléfono, tipo de permiso y si tienes tarjeta de combustible.</li>
+            <li>Abajo, <span class="ui"><svg class="i"><use href="#i-usercog"/></svg>Mis datos</span> abre una ventana en <strong>3 pasos</strong>:
+              <ul style="margin:0.4rem 0 0;padding-left:1.1rem">
+                <li><strong>Tus datos:</strong> corrige solo lo que esté mal.</li>
+                <li><strong>Documentos:</strong> revisa tus documentos personales.</li>
+                <li><strong>Enviar:</strong> repasa lo que cambia, añade una nota y envía.</li>
+              </ul>
+            </li>
+            <li>La gestión de flota revisa la petición y la <strong>aplica</strong> o la <strong>rechaza</strong>.</li>
+            <li>En <strong>Peticiones</strong> ves todo lo que has pedido, pendiente y resuelto (también lo rechazado). En <strong>Mis documentos</strong>, tus papeles personales.</li>
+          </ol>
+          <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>Desde el perfil, el botón <span class="ui"><svg class="i"><use href="#i-camera"/></svg>Documento</span> sirve, por ejemplo, para subir tu <strong>permiso de conducir</strong>.</div></div>
+        </div>
+        <div class="gallery">
+          <figure><div class="shot"><img class="zoom" src="img/perfil.webp" alt="Mi perfil"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Mi perfil</figcaption></figure>
+          <figure><div class="shot"><img class="zoom" src="img/mis-datos.webp" alt="Ventana Mis datos"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Mis datos</figcaption></figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ 12. FLOTA (SUPERVISOR) ══════════════════════ -->
+    <section class="chapter" id="flota" data-for="supervisor" data-title="Tu flota">
+      <div class="ch-head">
+        <span class="ch-icon" style="background:var(--color-info-soft);color:var(--color-info)"><svg class="i"><use href="#i-users"/></svg></span>
+        <div><h2>Llevar tu flota</h2><p class="ch-sub">Si supervisas coches, la vista «Flota» es tu panel: lo que tienes, lo que hay que atender y cómo resolverlo sin salir de la app.</p></div>
+        <span class="badge b-info">Supervisor</span>
+      </div>
+
+      <h3 class="sub-h" style="margin-top:0">¿Qué necesitas hacer?</h3>
+      <div class="quick" data-quick>
+        <button type="button" data-go="0"><svg class="i"><use href="#i-users"/></svg><b>Ver cómo va mi flota</b><span>A tu cargo</span></button>
+        <button type="button" data-go="1"><svg class="i"><use href="#i-car"/></svg><b>Buscar un coche</b><span>Lista de coches</span></button>
+        <button type="button" data-go="2"><svg class="i"><use href="#i-gauge"/></svg><b>Apuntar algo en lugar del conductor</b><span>Ficha del coche</span></button>
+        <button type="button" data-go="3"><svg class="i"><use href="#i-cal"/></svg><b>Dar cita de ITV o mantenimiento</b><span>Programar</span></button>
+        <button type="button" data-go="4"><svg class="i"><use href="#i-mail"/></svg><b>Recordarle algo a un conductor</b><span>Enviar recordatorio</span></button>
+        <button type="button" data-go="5"><svg class="i"><use href="#i-alert"/></svg><b>Atender lo pendiente de todos</b><span>Bandeja de alertas</span></button>
+        <button type="button" data-go="6"><svg class="i"><use href="#i-chart"/></svg><b>Un coche se va a pasar de km</b><span>Proyección km → Resolver</span></button>
+      </div>
+
+      <div class="walk" data-walk>
+        <div class="walk-tabs" role="tablist" aria-label="Flota paso a paso">
+          <button role="tab" type="button">A tu cargo</button>
+          <button role="tab" type="button">Lista de coches</button>
+          <button role="tab" type="button">La ficha y «Actualizar»</button>
+          <button role="tab" type="button">Programar ITV y mantenimiento</button>
+          <button role="tab" type="button">Enviar recordatorio</button>
+          <button role="tab" type="button">Bandeja de alertas</button>
+          <button role="tab" type="button">Proyección km</button>
+        </div>
+
+        <!-- 0 · A TU CARGO -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Entrar en «Flota» y leer «A tu cargo»</h3>
+              <ol class="steps">
+                <li>Pulsa <span class="ui"><svg class="i"><use href="#i-users"/></svg>Flota</span> arriba. La barra de abajo cambia a <span class="ui"><svg class="i"><use href="#i-home"/></svg>Inicio</span> <span class="ui"><svg class="i"><use href="#i-bell"/></svg>Alertas</span> <span class="ui"><svg class="i"><use href="#i-chart"/></svg>Proyección km</span>.</li>
+                <li>Arriba, <strong>Flota a cargo</strong> te dice cuántos <strong>vehículos</strong> ves y cuántas <strong>lecturas</strong> de km faltan este mes.</li>
+                <li>La tarjeta <strong>A tu cargo</strong> tiene dos bloques:
+                  <ul style="margin:0.4rem 0 0;padding-left:1.1rem">
+                    <li><strong>Lo que tienes:</strong> <em>Coches</em> que supervisas y <em>Conductores</em> que los llevan.</li>
+                    <li><strong>Alertas e incidencias:</strong> cuántas <em>Alertas</em>, <em>Incidencias</em> y <em>Accidentes</em> hay abiertos.</li>
+                  </ul>
+                </li>
+                <li><strong>Toca cualquier cifra</strong> y se abre su lista. Las alertas y las incidencias se <strong>resuelven ahí mismo</strong>, con el mismo formulario que en el resto de la app.</li>
+              </ol>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>«Vehículos» de arriba y «Coches» de <em>A tu cargo</em> pueden no coincidir: arriba cuenta también <strong>tu propio coche</strong>; <em>A tu cargo</em> solo los que <strong>supervisas</strong>.</div></div>
+              <div class="callout"><svg class="i"><use href="#i-chev"/></svg><div><em>A tu cargo</em> se puede <strong>plegar</strong> tocando su título, para ir directo a la lista de coches.</div></div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/flota.webp" alt="Vista Flota con A tu cargo"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">A tu cargo</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/acargo-alertas.webp" alt="Lista de alertas abierta desde A tu cargo"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Al tocar «Alertas»</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 1 · LISTA -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">La lista de coches</h3>
+              <ol class="steps">
+                <li>Debajo de <em>A tu cargo</em> están <strong>todos tus coches</strong>, uno por tarjeta: matrícula, estado, quién lo lleva y sus kilómetros.</li>
+                <li>Usa el <strong>buscador</strong> (matrícula, modelo, conductor…) y el <strong>filtro de estado</strong> para acotar.</li>
+                <li>Si supervisas coches <strong>multiusuario</strong>, la lista se parte en dos grupos plegables: <em>Flota general</em> y <em>Coches multiusuario</em>. En los multiusuario no hay conductor: <strong>tú</strong> registras sus km y su combustible.</li>
+                <li>Cada tarjeta lleva sus <strong>atajos</strong> con iconos:
+                  <table class="fields" style="margin-top:0.5rem">
+                    <tbody>
+                      <tr><td><span class="ui"><svg class="i"><use href="#i-wrench"/></svg></span> Incidencia</td><td>Comunicarla en nombre del conductor.</td></tr>
+                      <tr><td><span class="ui"><svg class="i"><use href="#i-siren"/></svg></span> Accidente</td><td>El parte de accidente.</td></tr>
+                      <tr><td><span class="ui"><svg class="i"><use href="#i-maint"/></svg></span> Mantenimiento</td><td>Abre <em>Actualizar</em> por su pestaña de mantenimiento.</td></tr>
+                      <tr><td><span class="ui"><svg class="i"><use href="#i-mail"/></svg></span> Recordatorio</td><td><a href="#flota" data-go-link="4">Enviar recordatorio</a> al conductor.</td></tr>
+                      <tr><td><span class="ui"><svg class="i"><use href="#i-cal"/></svg></span> Programar ITV</td><td><a href="#flota" data-go-link="3">Poner la cita de ITV</a>.</td></tr>
+                      <tr><td><span class="ui"><svg class="i"><use href="#i-calcog"/></svg></span> Programar mantenimiento</td><td><a href="#flota" data-go-link="3">Elegir su programa de mantenimiento</a>.</td></tr>
+                    </tbody>
+                  </table>
+                </li>
+                <li><strong>Toca la tarjeta</strong> para abrir la <strong>ficha del coche</strong>, con todos sus botones. <a href="#flota" data-go-link="2">Ver la ficha</a>.</li>
+              </ol>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/flota-lista.webp" alt="Lista de coches de la flota"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">La lista</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/ficha-campo.webp" alt="Ficha de un coche"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">La ficha</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2 · FICHA Y ACTUALIZAR -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">La ficha del coche</h3>
+              <p>Toca un coche de la lista. Arriba ves sus <strong>km</strong>, sus <strong>próximas citas</strong> y su <strong>proyección</strong>; si falta la lectura del mes, un aviso con <span class="ui">Registrarla ahora</span>. Debajo, sus botones:</p>
+              <table class="fields">
+                <tbody>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-gauge"/></svg>Registrar km</span></td><td>La lectura, <a href="#km">como el conductor</a>.</td></tr>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-fuel"/></svg>Consumo medio</span></td><td><a href="#combustible">El consumo</a>.</td></tr>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-itv"/></svg>Registrar ITV</span></td><td>La ITV ya pasada. Sale si tiene cita.</td></tr>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-maint"/></svg>Actualizar mantenimiento</span></td><td>Abre la ventana <strong>«Actualizar»</strong> (abajo).</td></tr>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-cal"/></svg>Programar ITV</span> · <span class="ui"><svg class="i"><use href="#i-calcog"/></svg>Programar mantenimiento</span></td><td><a href="#flota" data-go-link="3">Dar las citas</a>.</td></tr>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-wrench"/></svg>Incidencia</span> · <span class="ui"><svg class="i"><use href="#i-siren"/></svg>Accidente</span></td><td><a href="#incidencia">Comunicar</a> en nombre del conductor.</td></tr>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-camera"/></svg>Pedir o subir documento</span></td><td><a href="#documentos">Documentos</a> de ese coche.</td></tr>
+                  <tr><td><span class="ui"><svg class="i"><use href="#i-mail"/></svg>Enviar recordatorio</span></td><td><a href="#flota" data-go-link="4">Avisar al conductor</a>.</td></tr>
+                </tbody>
+              </table>
+              <h3 class="sub-h">La ventana «Actualizar»</h3>
+              <p><span class="ui">Actualizar mantenimiento</span> abre <strong>«Actualizar · <em>matrícula</em>»</strong> por la pestaña de mantenimiento, y desde ahí pasas a las demás: <strong>Km</strong>, <strong>Combustible</strong>, <strong>ITV</strong> (si tiene cita), <strong>Mantenimiento</strong> (si tiene plan) e <strong>Incidencias</strong> (las abiertas, con su número, ordenadas por prioridad). Es lo cómodo cuando traes varias cosas del mismo coche: <strong>al guardar no se cierra</strong>, te dice qué guardó y sigues con otra pestaña.</p>
+              <div class="callout"><svg class="i"><use href="#i-hourglass"/></svg><div><span class="ui">Actualizar mantenimiento</span> solo abre la ventana cuando el mantenimiento está a <strong>30 días o menos</strong>. Antes sale apagado: tócalo y te dice cuándo es y desde qué día podrás.</div></div>
+              <div class="callout warn"><svg class="i"><use href="#i-alert"/></svg><div><strong>Aviso de responsabilidad.</strong> Estas ventanas empiezan con un recuadro ámbar: registrar es tarea del conductor, y lo que hagas tú <strong>queda a tu nombre</strong>. Ciérralo con la <strong>X</strong>; deja un icono en la cabecera de la ventana para volver a leerlo y vuelve a salir en la siguiente sesión.</div></div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/ficha-campo.webp" alt="Ficha del coche"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">La ficha</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/ficha-acciones.webp" alt="Botones de la ficha"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Sus botones</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/actualizar.webp" alt="Ventana Actualizar, pestaña Km"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Actualizar · Km</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/actualizar-incidencias.webp" alt="Ventana Actualizar, pestaña Incidencias"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Actualizar · Incidencias</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3 · PROGRAMAR -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Programar la ITV y el mantenimiento</h3>
+              <p>Las citas de <strong>tus</strong> coches las puedes poner tú. Son dos botones distintos en la tarjeta del coche (y en su ficha):</p>
+              <h3 class="sub-h">Programar ITV</h3>
+              <table class="fields">
+                <tbody>
+                  <tr><td><b>Fecha de la ITV</b> <span class="badge b-warn">Obligatorio</span></td><td>La que te haya dado la estación. Se puede corregir después.</td></tr>
+                  <tr><td><b>CP preferente</b></td><td>Opcional: desde dónde buscar estación (la zona, no la estación). 5 cifras.</td></tr>
+                </tbody>
+              </table>
+              <p class="hint">Si ya tenía cita, guardar la <strong>corrige</strong>: la cita es una.</p>
+              <h3 class="sub-h">Programar mantenimiento</h3>
+              <ol class="steps">
+                <li>Elige el <strong>programa</strong> del catálogo común (por ejemplo <em>Revisión general</em>): trae solo cada cuántos km y meses toca.</li>
+                <li>Indica <strong>desde cuándo</strong> cuenta: la fecha, los km o los dos, según el programa. Los km se cargan del coche de un toque.</li>
+                <li>Guarda.</li>
+              </ol>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>Un coche solo tiene <strong>un mantenimiento programado</strong> a la vez. Si ya lo tiene, la ventana te dice cuál en vez del formulario. <strong>Quitar</strong> una cita lo hace administración.</div></div>
+              <div class="callout"><svg class="i"><use href="#i-car"/></svg><div>Se puede programar también en un coche <strong>cubierto por uno de sustitución</strong>: la ITV y el mantenimiento siguen siendo suyos.</div></div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/programar-itv.webp" alt="Programar ITV"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">ITV</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/programar-mantenimiento.webp" alt="Programar mantenimiento"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Mantenimiento</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 · RECORDATORIO -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Enviar un recordatorio al conductor</h3>
+              <p>El icono del <strong>sobre</strong> de la tarjeta (o <span class="ui"><svg class="i"><use href="#i-mail"/></svg>Enviar recordatorio</span> en la ficha) abre <strong>«Recordatorio · <em>matrícula</em>»</strong>, con el nombre del conductor arriba.</p>
+              <table class="fields">
+                <thead><tr><th>Campo</th><th>Qué poner</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Motivo</b></td><td><em>Lectura de km sin registrar</em>, <em>ITV</em> o <em>Mantenimiento</em>. Cada opción enseña su fecha (última lectura, próxima ITV…) para que veas si de verdad toca.</td></tr>
+                  <tr><td><b>Cómo</b></td><td>Casillas <em>Enviar correo</em> y <em>Crear alerta en la app</em> (puedes marcar las dos).</td></tr>
+                  <tr><td><b>Correo</b></td><td><strong>Plantilla de gestión</strong> (el correo oficial de ese motivo; tu mensaje va dentro, y abajo ves lo que saldrá) o <strong>Texto propio</strong> (escribes tú el correo entero).</td></tr>
+                  <tr><td><b>Mensaje adicional</b></td><td>Opcional, con la plantilla.</td></tr>
+                </tbody>
+              </table>
+              <ol class="steps" style="margin-top:1rem">
+                <li>Pulsa <span class="ui">Enviar</span>.</li>
+                <li>La ventana dice qué ha pasado: <em>«Correo enviado.»</em>, <em>«Alerta creada en la app.»</em> o por qué no salió el correo (el conductor no tiene email, el correo está deshabilitado…).</li>
+              </ol>
+              <div class="callout warn"><svg class="i"><use href="#i-alert"/></svg><div>Si el coche <strong>no tiene conductor</strong>, la ventana te avisa: el correo no se podrá entregar.</div></div>
+            </div>
+            <figure style="margin:0"><div class="shot"><img class="zoom" src="img/recordatorio.webp" alt="Ventana Recordatorio"  width="780" height="1688" loading="lazy" decoding="async" /></div><p class="caption">Recordatorio</p></figure>
+          </div>
+        </div>
+
+        <!-- 5 · BANDEJA -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">La bandeja de alertas de toda tu flota</h3>
+              <ol class="steps">
+                <li>Pulsa <span class="ui"><svg class="i"><use href="#i-bell"/></svg>Alertas</span> en la barra de abajo.</li>
+                <li>Hay tres tarjetas plegadas: <strong>Alertas</strong>, <strong>Incidencias</strong> y <strong>Accidentes</strong>, cada una con cuántas hay abiertas.</li>
+                <li>Despliega una: cada fila dice <strong>de qué coche</strong> es. Arriba tienes <strong>buscar</strong> (también por matrícula, sin acentos), <strong>filtrar por tipo</strong> y <strong>ordenar</strong> por prioridad o por fecha.</li>
+                <li>Pulsa <span class="ui">Solucionar</span> en una alerta: se abre lo que pide (registrar km, la ITV, el mantenimiento…). Al guardarlo, la alerta se cierra.</li>
+                <li><span class="ui">Ver cerradas</span> enseña lo que ya está resuelto.</li>
+              </ol>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div>Ordenar por <strong>prioridad</strong> es decidir por dónde empezar. En una alerta la prioridad es su <strong>nivel</strong> (lo calcula la app según lo cerca que esté la fecha); en una incidencia la marca quien la abrió.</div></div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/bandeja.webp" alt="Bandeja de alertas"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Bandeja</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/bandeja-alertas.webp" alt="Bandeja con las alertas desplegadas"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Alertas desplegadas</figcaption></figure>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6 · PROYECCIÓN -->
+        <div class="walk-panel" role="tabpanel">
+          <div class="ch-body">
+            <div>
+              <h3 class="panel-h">Proyección km: quién se va a pasar del contrato</h3>
+              <ol class="steps">
+                <li>Pulsa <span class="ui"><svg class="i"><use href="#i-chart"/></svg>Proyección km</span>. Arriba: cuántos <strong>vehículos</strong>, cuántos <strong>a vigilar</strong> y cuántos <strong>en riesgo</strong>.</li>
+                <li>Filtra con los chips: <em>Todos</em>, <em>Riesgo exceso</em>, <em>Dentro</em>…</li>
+                <li>Cada tarjeta enseña el <strong>%</strong> de km gastado, la barra (la raya marca dónde debería ir según el tiempo de contrato), la <strong>media mensual</strong> frente a la contratada, la <strong>proyección a fin de contrato</strong> y los km <strong>restantes</strong>. Si se va a pasar, sale el <strong>exceso estimado</strong> en km y euros.</li>
+                <li>El botón de la gráfica enseña la evolución de las lecturas.</li>
+                <li>Si el coche tiene la alerta de exceso, pulsa <span class="ui">Resolver</span>.</li>
+              </ol>
+              <h3 class="sub-h">Resolver un exceso: proponer otro conductor</h3>
+              <p>La ventana pregunta <strong>«¿Debería llevarlo otra persona?»</strong>: propón a alguien de tu flota que ruede menos, o elige <em>«Nadie de la lista — lo explico abajo»</em> y escribe la nota. Pulsa <span class="ui">Enviar propuesta</span>.</p>
+              <div class="callout"><svg class="i"><use href="#i-info"/></svg><div><strong>No se cambia nada en ese momento</strong>: la propuesta la decide administración en sus solicitudes, y el cambio de conductor lo hace la gestión. Al conductor no se le enseña esta alerta.</div></div>
+            </div>
+            <div class="gallery">
+              <figure><div class="shot"><img class="zoom" src="img/proyeccion.webp" alt="Proyección de km"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Proyección</figcaption></figure>
+              <figure><div class="shot"><img class="zoom" src="img/exceso-resolver.webp" alt="Proponer otro conductor"  width="780" height="1688" loading="lazy" decoding="async" /></div><figcaption class="caption">Resolver</figcaption></figure>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ 13. SIN COBERTURA ══════════════════════ -->
+    <section class="chapter" id="offline" data-for="all" data-title="Sin cobertura">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-cloudoff"/></svg></span>
+        <div><h2>Sin cobertura</h2><p class="ch-sub">Lo que registres sin red no se pierde.</p></div>
+      </div>
+      <div class="ch-body wide">
+        <div>
+          <ol class="steps">
+            <li>Si guardas algo <strong>sin conexión</strong>, la app lo deja <strong>en cola</strong> y te lo dice con un aviso ámbar bajo la cabecera.</li>
+            <li>El botón de esa acción lleva un <strong>punto ámbar</strong> mientras espera.</li>
+            <li>Cuando vuelve la conexión, se <strong>envía solo</strong> (o toca el aviso para enviarlo ya) y te dice lo que se ha mandado.</li>
+          </ol>
+          <div class="callout warn"><svg class="i"><use href="#i-alert"/></svg><div>No cierres sesión ni borres los datos del navegador mientras haya cosas en cola, o se perderían.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════ 14. FAQ ══════════════════════ -->
+    <section class="chapter" id="faq" data-for="all" data-title="Preguntas frecuentes">
+      <div class="ch-head">
+        <span class="ch-icon"><svg class="i"><use href="#i-help"/></svg></span>
+        <div><h2>Preguntas frecuentes</h2><p class="ch-sub">Las dudas más habituales.</p></div>
+      </div>
+      <div class="ch-body wide">
+        <div>
+          <details class="faq"><summary>Me sigue llegando el correo de los km aunque ya los registré<svg class="i"><use href="#i-chev"/></svg></summary><div>Comprueba que la lectura se guardó y que no está en cola por falta de cobertura. El recordatorio deja de llegar en cuanto la lectura del mes está registrada.</div></details>
+          <details class="faq"><summary>No puedo pulsar el botón de ITV o mantenimiento<svg class="i"><use href="#i-chev"/></svg></summary><div>Solo se activan desde <strong>30 días antes</strong> de la cita. Tócalo igualmente: te dirá la fecha de la cita y desde qué día podrás registrarla.</div></details>
+          <details class="faq"><summary>No veo el botón de ITV<svg class="i"><use href="#i-chev"/></svg></summary><div>Tu coche no tiene ninguna ITV programada. Las citas las pone administración o tu supervisor.</div></details>
+          <details class="faq"><summary>He puesto mal un dato en un documento<svg class="i"><use href="#i-chev"/></svg></summary><div>Toca el lápiz <span class="ui"><svg class="i"><use href="#i-pencil"/></svg></span> del documento y pide la corrección. No hace falta borrarlo y volver a subirlo.</div></details>
+          <details class="faq"><summary>¿Puedo cambiar el estado de mi coche a «averiado»?<svg class="i"><use href="#i-chev"/></svg></summary><div>No directamente. Comunica una <strong>incidencia</strong> y di cómo queda el coche en <em>Disponibilidad</em>; la gestión cambia el estado.</div></details>
+          <details class="faq"><summary>Se me ha cerrado la sesión de repente<svg class="i"><use href="#i-chev"/></svg></summary><div>Pasa a las 2 horas, tras un rato sin usarla o si has entrado con tu usuario en otro dispositivo. Vuelve a entrar.</div></details>
+          <details class="faq"><summary>¿La app está en inglés?<svg class="i"><use href="#i-chev"/></svg></summary><div>Sí: cambia el idioma con <strong>ES / EN</strong> en la cabecera (también en la pantalla de entrada).</div></details>
+        </div>
+      </div>
+    </section>
+
+    <footer>Gransolar Group · Flota — Tutorial de la app de campo · Capturas tomadas con datos de prueba · Uso interno</footer>
+  </main>
+</div>
+
+<div class="lightbox" id="lightbox" hidden><img alt="" /></div>
+<div class="toc-backdrop" data-toc-close hidden></div>
+<!-- Botones flotantes: el índice (solo en pantallas estrechas, donde va en un
+     cajón) y «Arriba» (en cuanto se ha bajado un buen trecho). -->
+<div class="fab-bar">
+  <button type="button" class="fab fab-top" data-top hidden><svg class="i"><use href="#i-chev"/></svg>Arriba</button>
+  <button type="button" class="fab fab-toc" data-toc-open aria-controls="toc-panel" aria-expanded="false"><svg class="i"><use href="#i-file"/></svg>Índice</button>
+</div>
+
+<script>
+(() => {
+  /* Textos que pone el script. La página dice su idioma en <html lang>, así que
+     tutoriales.html y tutoriales-en.html llevan este mismo script tal cual. */
+  const EN = document.documentElement.lang === 'en';
+  const T = EN ? {
+    all: 'For everyone', driver: 'Drivers', supervisor: 'Supervisors only',
+    groups: ['Introduction', 'Getting started', 'Behind the wheel', 'Papers and alerts', 'Supervising', 'If something goes wrong'],
+    hidden: 'Hidden by your choice above.', showIt: 'Show it',
+    back: '‹ Back', next: 'Next ›', copy: 'Copy link', copied: 'Link copied',
+    of: (a, b) => `${a} of ${b}`, allDone: 'All done!', pending: 'Screenshot coming soon',
+    seeTutorial: 'See tutorial →', view: 'View: ',
+  } : {
+    all: 'Para todos', driver: 'Conductores', supervisor: 'Solo supervisores',
+    groups: ['Introducción', 'Primeros pasos', 'Al volante', 'Papeles y avisos', 'Supervisar', 'Si algo falla'],
+    hidden: 'Oculto con tu elección de arriba.', showIt: 'Verlo',
+    back: '‹ Atrás', next: 'Continuar ›', copy: 'Copiar enlace', copied: 'Enlace copiado',
+    of: (a, b) => `${a} de ${b}`, allDone: '¡Todo hecho!', pending: 'Captura pendiente',
+    seeTutorial: 'Ver tutorial →', view: 'Vista ',
+  };
+
+  /* ── Índice + filtro por perfil ───────────────────────────────────── */
+  const chapters = [...document.querySelectorAll('.chapter')];
+  const toc = document.getElementById('toc');
+  /* Grupos del índice. Cada uno es un tramo seguido de capítulos con el
+     mismo público, para que se lea de un vistazo qué es común y qué no. */
+  const AUDIENCE = {
+    all: { cls: 'b-muted', icon: 'i-phone', label: T.all },
+    driver: { cls: 'b-brand', icon: 'i-car', label: T.driver },
+    supervisor: { cls: 'b-info', icon: 'i-lock', label: T.supervisor },
+  };
+  const GROUPS = [
+    { title: T.groups[0], ids: ['intro'] },
+    { title: T.groups[1], ids: ['entrar', 'pantalla'] },
+    { title: T.groups[2], ids: ['km', 'combustible', 'itv', 'incidencia', 'accidente', 'reparto'] },
+    { title: T.groups[3], ids: ['documentos', 'avisos', 'perfil'] },
+    { title: T.groups[4], ids: ['flota'] },
+    { title: T.groups[5], ids: ['offline', 'faq'] },
+  ];
+  const chip = (f) => `<span class="badge ${AUDIENCE[f].cls}"><svg class="i"><use href="#${AUDIENCE[f].icon}"/></svg>${AUDIENCE[f].label}</span>`;
+
+  toc.innerHTML = '<div class="toc-legend">' + ['all', 'driver', 'supervisor'].map(chip).join('') + '</div>';
+  GROUPS.forEach((g) => {
+    const f = document.getElementById(g.ids[0]).dataset.for;
+    const box = document.createElement('div');
+    box.className = 'toc-group';
+    box.dataset.for = f;
+    box.innerHTML = `<div class="toc-group-head"><span>${g.title}</span>${chip(f)}</div><div class="toc-group-links"></div>` +
+      `<p class="toc-off">${T.hidden} <button type="button" data-show-all>${T.showIt}</button></p>`;
+    const list = box.querySelector('.toc-group-links');
+    g.ids.forEach((id) => {
+      const ch = document.getElementById(id);
+      const a = document.createElement('a');
+      a.href = '#' + id;
+      a.dataset.for = ch.dataset.for;
+      a.innerHTML = `<span class="num"></span>${ch.dataset.title}`;
+      list.appendChild(a);
+    });
+    toc.appendChild(box);
+  });
+
+  /* La misma chapa en la cabecera de cada capítulo */
+  chapters.forEach((ch) => {
+    const head = ch.querySelector('.ch-head');
+    head.querySelectorAll(':scope > .badge').forEach((b) => b.remove());
+    head.insertAdjacentHTML('beforeend', chip(ch.dataset.for));
+  });
+
+  /* «Conoce la pantalla»: versión de conductor o de supervisor */
+  const views = document.querySelector('[data-views]');
+  const viewPanels = [...document.querySelectorAll('[data-view]')];
+  function showView(v) {
+    views.querySelectorAll('[data-view-btn]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.viewBtn === v)));
+    viewPanels.forEach((p) => { p.hidden = p.dataset.view !== v; });
+  }
+  views.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-view-btn]');
+    if (b) showView(b.dataset.viewBtn);
+  });
+
+  const roleBtns = document.querySelectorAll('[data-role]');
+  function setRole(role, chosen) {
+    if (chosen) remember(role);
+    roleBtns.forEach((b) => {
+      const on = b.dataset.role === role;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+    const visible = (f) => role === 'all' || f === 'all' || f === role;
+    chapters.forEach((ch) => { ch.hidden = !visible(ch.dataset.for); });
+    let n = 0;
+    toc.querySelectorAll('.toc-group').forEach((g) => {
+      g.classList.toggle('is-off', !visible(g.dataset.for));
+      g.querySelectorAll('a').forEach((a) => {
+        if (visible(a.dataset.for)) a.querySelector('.num').textContent = ++n;
+      });
+    });
+    // Con un rol elegido, la pantalla enseña la suya y sobra el conmutador.
+    views.hidden = role !== 'all';
+    showView(role === 'supervisor' ? 'supervisor' : role === 'driver' ? 'driver' : (views.querySelector('[aria-pressed="true"]')?.dataset.viewBtn ?? 'driver'));
+  }
+  roleBtns.forEach((b) => b.addEventListener('click', () => setRole(b.dataset.role, true)));
+  toc.addEventListener('click', (e) => { if (e.target.closest('[data-show-all]')) setRole('all', true); });
+
+  /* El rol viene por la URL (`?rol=conductor` / `?rol=supervisor` / `?rol=todo`:
+     así gestión manda a cada uno su versión) o, si no, el que se eligió la
+     última vez en este navegador. El almacenamiento puede no estar
+     (navegación privada): se intenta y, si no, se parte de «Todo». */
+  const ROLE_PARAM = { conductor: 'driver', supervisor: 'supervisor', todo: 'all' };
+  function remember(role) { try { localStorage.setItem('tutorial-rol', role); } catch {} }
+  const remembered = () => { try { return localStorage.getItem('tutorial-rol'); } catch { return null; } };
+  const fromUrl = ROLE_PARAM[new URLSearchParams(location.search).get('rol') ?? ''];
+  const initialRole = fromUrl ?? (['driver', 'supervisor', 'all'].includes(remembered()) ? remembered() : 'all');
+  setRole(initialRole);
+  if (fromUrl) remember(fromUrl);
+
+  /* Selector de idioma: la otra página, en el mismo apartado y con el mismo rol. */
+  const ROLE_OUT = { driver: 'conductor', supervisor: 'supervisor', all: 'todo' };
+  document.querySelectorAll('[data-lang-link]').forEach((a) => {
+    a.addEventListener('click', () => {
+      const role = document.querySelector('[data-role][aria-pressed="true"]')?.dataset.role ?? 'all';
+      a.href = a.getAttribute('href').split(/[?#]/)[0] + '?rol=' + ROLE_OUT[role] + location.hash;
+    });
+  });
+
+  /* ── Índice como cajón (móvil) y botón «Arriba» ───────────────────── */
+  const panel = document.getElementById('toc-panel');
+  const backdrop = document.querySelector('.toc-backdrop');
+  const tocOpen = document.querySelector('[data-toc-open]');
+  function toggleToc(open) {
+    panel.classList.toggle('is-open', open);
+    backdrop.hidden = !open;
+    tocOpen.setAttribute('aria-expanded', String(open));
+    if (open) panel.querySelector('a')?.focus({ preventScroll: true }); else tocOpen.focus({ preventScroll: true });
+  }
+  tocOpen.addEventListener('click', () => toggleToc(true));
+  document.querySelectorAll('[data-toc-close]').forEach((el) => el.addEventListener('click', () => toggleToc(false)));
+  // Elegir un capítulo cierra el cajón (si está abierto: en escritorio no hay cajón).
+  toc.addEventListener('click', (e) => { if (e.target.closest('a') && panel.classList.contains('is-open')) toggleToc(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && panel.classList.contains('is-open')) toggleToc(false); });
+
+  const topBtn = document.querySelector('[data-top]');
+  const paintTop = () => { topBtn.hidden = scrollY < 600; };
+  addEventListener('scroll', paintTop, { passive: true });
+  paintTop();
+  topBtn.addEventListener('click', () => scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
+
+  const links = Object.fromEntries([...toc.querySelectorAll('a')].map((a) => [a.hash.slice(1), a]));
+  const spy = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        Object.values(links).forEach((l) => l.classList.remove('is-current'));
+        links[e.target.id]?.classList.add('is-current');
+      }
+    });
+  }, { rootMargin: '-30% 0px -60% 0px' });
+  chapters.forEach((ch) => spy.observe(ch));
+
+  /* Introducción: el minuto de cada escena salta en el vídeo y la escena que
+     se está viendo se marca en la lista. */
+  const promo = document.getElementById('promo-video');
+  if (promo) {
+    const scenes = [...document.querySelectorAll('#promo-scenes li')];
+    document.getElementById('promo-scenes').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-seek]');
+      if (!b) return;
+      promo.currentTime = Number(b.dataset.seek);
+      promo.play().catch(() => {});
+    });
+    promo.addEventListener('timeupdate', () => {
+      let cur = 0;
+      scenes.forEach((li, i) => { if (promo.currentTime >= Number(li.dataset.at) - 0.4) cur = i; });
+      scenes.forEach((li, i) => li.classList.toggle('is-playing', i === cur && !promo.paused));
+    });
+    promo.addEventListener('pause', () => scenes.forEach((li) => li.classList.remove('is-playing')));
+  }
+
+  /* ── Galerías: chips por paso, una captura cada vez ───────────────── */
+  document.querySelectorAll('.gallery').forEach((g) => {
+    const figs = [...g.querySelectorAll(':scope > figure')];
+    if (figs.length < 2) return;
+    const tabs = document.createElement('div');
+    tabs.className = 'gallery-tabs';
+    tabs.setAttribute('role', 'group');
+    figs.forEach((f, i) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = f.querySelector('figcaption').textContent;
+      btn.addEventListener('click', () => show(i));
+      tabs.appendChild(btn);
+    });
+    g.prepend(tabs);
+    function show(i) {
+      figs.forEach((f, j) => { f.hidden = j !== i; });
+      [...tabs.children].forEach((b, j) => { b.classList.toggle('is-active', j === i); b.setAttribute('aria-pressed', String(j === i)); });
+    }
+    show(0);
+  });
+
+  /* Guía rápida y enlaces internos que abren una pestaña concreta del recorrido */
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-go], [data-go-link]');
+    if (!t) return;
+    const walk = t.closest('.chapter')?.querySelector('[data-walk]');
+    if (!walk) return;
+    e.preventDefault();
+    walk.dispatchEvent(new CustomEvent('walk:go', { detail: Number(t.dataset.go ?? t.dataset.goLink) }));
+    walk.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  });
+
+  /* ── Recorrido por pestañas (como la ventana de la app) ───────────── */
+  document.querySelectorAll('[data-walk]').forEach((walk) => {
+    const tabs = [...walk.querySelectorAll('.walk-tabs [role=tab]')];
+    const panels = [...walk.querySelectorAll(':scope > .walk-panel')];
+    const nav = document.createElement('div');
+    nav.className = 'walk-nav';
+    nav.innerHTML = `<button type="button" data-dir="-1">${T.back}</button>` +
+      `<div class="walk-nav-mid"><span class="walk-pos"></span><button type="button" class="walk-copy" data-copy>${T.copy}</button></div>` +
+      `<button type="button" class="pri" data-dir="1">${T.next}</button>`;
+    walk.appendChild(nav);
+    const chapterId = walk.closest('.chapter').id;
+    const pos = nav.querySelector('.walk-pos');
+    const copyBtn = nav.querySelector('[data-copy]');
+    let current = 0;
+    /* El enlace a ESTA pestaña (`#capitulo/N`), para mandarlo a alguien. */
+    const linkTo = (i) => location.href.replace(/#.*$/, '') + '#' + chapterId + '/' + i;
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(linkTo(current));
+        copyBtn.textContent = T.copied;
+        copyBtn.classList.add('is-done');
+      } catch {
+        // Sin portapapeles (http sin https, permisos): se enseña el enlace.
+        copyBtn.textContent = linkTo(current);
+      }
+      setTimeout(() => { copyBtn.textContent = T.copy; copyBtn.classList.remove('is-done'); }, 2500);
+    });
+    function show(i, focus, byUser = true) {
+      current = i;
+      pos.textContent = T.of(i + 1, tabs.length);
+      // La URL dice en qué pestaña se está, sin saltar ni ensuciar el historial.
+      if (byUser) history.replaceState(null, '', '#' + chapterId + '/' + i);
+      tabs.forEach((t, j) => {
+        t.setAttribute('aria-selected', String(j === i));
+        t.tabIndex = j === i ? 0 : -1;
+        t.classList.toggle('is-done', j < i);
+      });
+      panels.forEach((p, j) => { p.hidden = j !== i; });
+      nav.children[0].disabled = i === 0;
+      nav.children[1].disabled = i === tabs.length - 1;
+      if (focus) tabs[i].focus({ preventScroll: true });
+      // Solo se desplaza la fila de pestañas, nunca la página.
+      const strip = tabs[i].parentElement;
+      const dx = tabs[i].getBoundingClientRect().left - strip.getBoundingClientRect().left;
+      if (dx < 0 || dx + tabs[i].offsetWidth > strip.clientWidth) strip.scrollLeft += dx - 12;
+    }
+    walk.addEventListener('walk:go', (e) => show(e.detail));
+    tabs.forEach((t, i) => {
+      t.addEventListener('click', () => show(i));
+      t.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight') show(Math.min(i + 1, tabs.length - 1), true);
+        if (e.key === 'ArrowLeft') show(Math.max(i - 1, 0), true);
+      });
+    });
+    nav.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-dir]');
+      if (!btn) return;
+      show(Math.max(0, Math.min(tabs.length - 1, current + Number(btn.dataset.dir))));
+      walk.scrollIntoView({ block: 'start' });
+    });
+    show(0, false, false);
+  });
+
+  /* Un enlace `#capitulo` o `#capitulo/N` abre ese capítulo (aunque el rol
+     elegido lo tuviera escondido) y, con N, esa pestaña de su recorrido. El
+     navegador no sabe saltar a `#documentos/2` porque no hay un elemento con
+     ese id: se hace a mano, al cargar y al cambiar el hash. */
+  function goHash() {
+    const m = location.hash.match(/^#([\w-]+)(?:\/(\d+))?$/);
+    if (!m) return;
+    const ch = document.getElementById(m[1]);
+    if (!ch || !ch.classList.contains('chapter')) return;
+    if (ch.hidden) setRole('all');
+    const walk = ch.querySelector('[data-walk]');
+    if (m[2] !== undefined && walk) {
+      walk.dispatchEvent(new CustomEvent('walk:go', { detail: Number(m[2]) }));
+      walk.scrollIntoView({ block: 'start' });
+    } else if (m[2] !== undefined) {
+      ch.scrollIntoView({ block: 'start' });
+    }
+  }
+  addEventListener('hashchange', goHash);
+  goHash();
+
+  /* Captura que aún no existe: se dice en vez de enseñar una imagen rota. */
+  document.querySelectorAll('.shot img').forEach((im) => {
+    const missing = () => {
+      const box = im.closest('.shot');
+      box.style.cssText += ';border-style:dashed;border-color:var(--color-border-strong);background:var(--color-surface-muted);box-shadow:none';
+      box.innerHTML = '<p style="padding:3rem 1rem;text-align:center;color:var(--color-text-muted);font-size:.85rem;margin:0">' + T.pending + '</p>';
+    };
+    if (im.complete && im.naturalWidth === 0) missing(); else im.addEventListener('error', missing);
+  });
+
+  /* Lista de comprobación: cuenta lo marcado (no se guarda en ningún sitio) */
+  document.querySelectorAll('[data-checklist]').forEach((list) => {
+    const boxes = [...list.querySelectorAll('input[type=checkbox]')];
+    const count = list.querySelector('.checklist-count');
+    const paint = () => {
+      const done = boxes.filter((b) => b.checked).length;
+      count.textContent = done === boxes.length ? T.allDone : T.of(done, boxes.length);
+    };
+    boxes.forEach((b) => b.addEventListener('change', paint));
+    paint();
+  });
+
+  /* ── Visor a pantalla completa ────────────────────────────────────── */
+  const lb = document.getElementById('lightbox');
+  const lbImg = lb.querySelector('img');
+  document.addEventListener('click', (e) => {
+    const img = e.target.closest('img.zoom');
+    if (img) { lbImg.src = img.src; lbImg.alt = img.alt; lb.hidden = false; }
+  });
+  lb.addEventListener('click', () => { lb.hidden = true; });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') lb.hidden = true; });
+
+  /* ── Móvil interactivo de la portada (capturas reales) ─────────────── */
+  const MODES_ES = {
+    vehicle: {
+      label: 'Mi vehículo', img: 'img/home.webp',
+      intro: 'El coche que conduces. Toca un botón de la barra de abajo de la captura para ver qué hace.',
+      nav: [
+        ['Km', 'km', 'Registra los kilómetros que marca el cuadro del coche, una vez al mes.'],
+        ['Combustible', 'combustible', 'Anota el consumo medio de tu último trayecto según el ordenador de a bordo.'],
+        ['ITV', 'itv', 'Registra la ITV ya pasada, con su resultado y su informe.'],
+        ['Mantenimiento', 'itv', 'Consulta el mantenimiento programado y márcalo como realizado.'],
+        ['Incidencia', 'incidencia', 'Avisa de una avería, un cambio de neumáticos, un mantenimiento puntual u otra petición.'],
+        ['Accidente', 'accidente', 'Rellena el parte de accidente paso a paso.'],
+        ['Documento', 'documentos', 'Sube un documento (foto o PDF) que tengas, o pide a administración uno que no tienes.'],
+      ],
+    },
+    shares: { label: 'Reparto', img: 'img/reparto.webp', link: 'reparto', intro: 'Los coches que compartes con otras personas: qué días y a qué hora te toca cada uno.', nav: 'vehicle' },
+    fleet: {
+      label: 'Flota', img: 'img/flota.webp', link: 'flota',
+      intro: 'Solo supervisores: los coches que supervisas, con «A tu cargo» arriba para ver lo que hay que atender.',
+      nav: [
+        ['Inicio', 'flota', 'Vuelve a la lista de coches de tu flota y al resumen «A tu cargo».'],
+        ['Alertas', 'flota', 'Bandeja con las alertas, incidencias y accidentes abiertos de todos tus coches.'],
+        ['Proyección km', 'flota', 'Qué coches van camino de pasarse de los km del contrato, y cómo resolverlo.'],
+      ],
+    },
+    profile: {
+      label: 'Mi perfil', img: 'img/perfil.webp', link: 'perfil',
+      intro: 'Tus datos, tus documentos personales y lo que has pedido a la gestión.',
+      nav: [
+        ['Mis datos', 'perfil', 'Pide que corrijan tus datos personales (teléfono, correo, permiso…).'],
+        ['Documento', 'documentos', 'Sube un documento personal, por ejemplo tu permiso de conducir.'],
+      ],
+    },
+  };
+
+  const MODES_EN = {
+    vehicle: {
+      label: 'My vehicle', img: 'img/home.webp',
+      intro: 'The car you drive. Tap a button on the bottom bar of the screenshot to see what it does.',
+      nav: [
+        ['Km', 'km', 'Log the kilometres shown on the dashboard, once a month.'],
+        ['Fuel', 'combustible', 'Note the average consumption of your last trip from the on-board computer.'],
+        ['MOT', 'itv', 'Record an MOT you have already passed, with its result and report.'],
+        ['Maintenance', 'itv', 'Check the scheduled maintenance and mark it as done.'],
+        ['Incident', 'incidencia', 'Report a breakdown, a tyre change, one-off maintenance or another request.'],
+        ['Accident', 'accidente', 'Fill in the accident report step by step.'],
+        ['Document', 'documentos', 'Upload a document you have (photo or PDF), or ask administration for one you do not have.'],
+      ],
+    },
+    shares: { label: 'Shared', img: 'img/reparto.webp', link: 'reparto', intro: 'The cars you share with other people: which days and at what time each one is yours.', nav: 'vehicle' },
+    fleet: {
+      label: 'Fleet', img: 'img/flota.webp', link: 'flota',
+      intro: 'Supervisors only: the cars you supervise, with “In your charge” at the top to see what needs attention.',
+      nav: [
+        ['Home', 'flota', 'Back to your fleet’s car list and the “In your charge” summary.'],
+        ['Alerts', 'flota', 'Inbox with the open alerts, incidents and accidents of all your cars.'],
+        ['Km projection', 'flota', 'Which cars are heading over their contract kilometres, and how to fix it.'],
+      ],
+    },
+    profile: {
+      label: 'My profile', img: 'img/perfil.webp', link: 'perfil',
+      intro: 'Your details, your personal documents and what you have asked fleet management for.',
+      nav: [
+        ['My details', 'perfil', 'Ask for your personal details to be corrected (phone, email, licence…).'],
+        ['Document', 'documentos', 'Upload a personal document, for example your driving licence.'],
+      ],
+    },
+  };
+  const MODES = EN ? MODES_EN : MODES_ES;
+
+  const shot = document.getElementById('ex-shot');
+  const img = document.getElementById('ex-img');
+  const explain = document.getElementById('ex-explain');
+  const modes = document.getElementById('ex-modes');
+
+  const say = (title, text, link) => {
+    explain.innerHTML = `<b>${title}</b>${text}` + (link ? ` <a href="#${link}">${T.seeTutorial}</a>` : '');
+  };
+
+  Object.entries(MODES).forEach(([key, m]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.mode = key;
+    b.textContent = m.label;
+    b.addEventListener('click', () => showMode(key));
+    modes.appendChild(b);
+  });
+
+  function showMode(key) {
+    const m = MODES[key];
+    modes.querySelectorAll('button').forEach((b) => {
+      b.classList.toggle('is-active', b.dataset.mode === key);
+      b.setAttribute('aria-pressed', String(b.dataset.mode === key));
+    });
+    img.src = m.img;
+    img.alt = T.view + m.label;
+    shot.querySelectorAll('.hot').forEach((h) => h.remove());
+    const items = typeof m.nav === 'string' ? MODES[m.nav].nav : m.nav;
+    // La barra de abajo ocupa el último ~6 % de la captura y reparte el ancho a partes iguales.
+    items.forEach(([label, link, text], i) => {
+      const h = document.createElement('button');
+      h.type = 'button';
+      h.className = 'hot';
+      h.setAttribute('aria-label', label);
+      h.title = label;
+      Object.assign(h.style, { left: (i * 100 / items.length) + '%', width: (100 / items.length) + '%', top: '94%', height: '6%' });
+      h.addEventListener('click', () => {
+        shot.querySelectorAll('.hot').forEach((x) => x.classList.remove('is-on'));
+        h.classList.add('is-on');
+        say(label, text, link);
+      });
+      shot.appendChild(h);
+    });
+    say(m.label, m.intro, m.link || null);
+  }
+  showMode('vehicle');
+})();
+</script>
+</body>
+</html>

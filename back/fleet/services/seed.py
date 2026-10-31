@@ -41,6 +41,7 @@ from fleet.models import (
     Country,
     Document,
     DocumentDeletionRequest,
+    DocumentSupplyRequest,
     DocumentTypeAccess,
     DriverChangeRequest,
     EmailLog,
@@ -91,6 +92,7 @@ from fleet.models.enums import (
     DocumentDeletionStatus,
     DocumentRequestKind,
     DocumentStatus,
+    DocumentSupplyStatus,
     DocumentType,
     DriverActionMode,
     DriverDocumentRead,
@@ -1625,6 +1627,7 @@ def seed_operations(stdout=None) -> None:
         VehicleRequest,
         DriverChangeRequest,
         ProfileChangeRequest,
+        DocumentSupplyRequest,
         InvoiceAllocation,
         Invoice,
         DocumentDeletionRequest,  # antes que sus documentos
@@ -1747,7 +1750,7 @@ def seed_operations(stdout=None) -> None:
     # Los cuatro tipos de documento que faltaban, cada uno en el vehículo al que
     # le pega: permiso y contrato en el vigente, parte de accidente en el que
     # está en taller y acta de devolución en el que se dio de baja.
-    Document.objects.create(
+    permiso_circ_v1 = Document.objects.create(
         vehicle=v1,
         type=DocumentType.REGISTRATION,
         drive_url="https://drive.example/permiso-1234KLM",
@@ -2160,6 +2163,31 @@ def seed_operations(stdout=None) -> None:
             "Va camino de pasarse de los km del contrato. Carlos hace menos "
             "ruta este trimestre; ¿lo cambiamos?"
         ),
+    )
+
+    # Y dos PETICIONES DE DOCUMENTO, la quinta bandeja: el papel que falta se
+    # pide, no se busca por teléfono. La de 8888TRX es el caso que justifica
+    # todo esto —carlos tiene ese coche en REPARTO (su tercera puerta de
+    # ámbito) y el **contrato** está cerrado al conductor en este seed, así que
+    # ni lo ve listado: no hay documento sobre el que pedir acceso—.
+    DocumentSupplyRequest.objects.create(
+        vehicle=v_admin,
+        type=DocumentType.CONTRACT,
+        requested_by=carlos,
+        note="Me lo piden para el alta del parking de la obra y no lo veo en la app.",
+    )
+    # Y una ya ATENDIDA, con el documento que se subió al resolverla: así la
+    # pestaña abre con las dos caras y la fila resuelta enlaza a su papel.
+    DocumentSupplyRequest.objects.create(
+        vehicle=v1,
+        type=DocumentType.REGISTRATION,
+        requested_by=carlos,
+        note="Me lo pidió la policía local en un control y no lo llevaba en el coche.",
+        status=DocumentSupplyStatus.DONE,
+        document=permiso_circ_v1,
+        resolved_by=admin,
+        resolved_at=timezone.now() - timedelta(days=5),
+        resolution_note="Subido a la ficha del coche.",
     )
 
     # Y una petición de CORRECCIÓN DE FICHA sin decidir: la manda carlos desde

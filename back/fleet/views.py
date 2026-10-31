@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from auditlog.models import LogEntry
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.db import models, transaction
 from django.http import Http404, HttpResponse
@@ -47,6 +48,7 @@ from .models import (
     Country,
     Document,
     DocumentDeletionRequest,
+    DocumentSupplyRequest,
     DocumentTypeAccess,
     DriverChangeRequest,
     EmailLog,
@@ -93,6 +95,7 @@ from .models.enums import (
     DocumentDeletionStatus,
     DocumentRequestKind,
     DocumentStatus,
+    DocumentSupplyStatus,
     DocumentType,
     DriverChangeStatus,
     EventType,
@@ -124,6 +127,7 @@ from .serializers import (
     CountrySerializer,
     DocumentDeletionRequestSerializer,
     DocumentSerializer,
+    DocumentSupplyRequestSerializer,
     DocumentTypeAccessSerializer,
     DriverChangeRequestSerializer,
     EmailLogSerializer,
@@ -164,6 +168,7 @@ from .services import (
     alerts,
     audit_revert,
     document_requests,
+    document_supply,
     driver_requests,
     events,
     importer,
@@ -946,8 +951,6 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     }
                 )
         if driver_id not in (None, "", "null"):
-            from django.contrib.auth import get_user_model
-
             driver = get_user_model().objects.filter(pk=driver_id, is_active=True).first()
             if driver is None:
                 raise ValidationError({"driver": "Conductor no válido."})
@@ -975,8 +978,6 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             if "supervisor" in request.data:
                 supervisor_id = request.data.get("supervisor") or None
                 if supervisor_id is not None:
-                    from django.contrib.auth import get_user_model
-
                     candidate = get_user_model().objects.filter(pk=supervisor_id).first()
                     if candidate is None:
                         raise ValidationError({"supervisor": "Supervisor no válido."})
@@ -1151,7 +1152,6 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             targets.append(("supervisor", sup.email if sup else ""))
         if to_admin:
             # Todos los administradores activos (incluye superusuarios).
-            from django.contrib.auth import get_user_model
             from django.db.models import Q
 
             from accounts.models import Role
@@ -1519,8 +1519,6 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         caso son los mejores candidatos. Solo admin: es la antesala de
         `set-driver`, que también lo es.
         """
-        from django.contrib.auth import get_user_model
-
         from .selectors import current_driver_map
 
         vehicle = self.get_object()
@@ -2373,6 +2371,27 @@ class DocumentViewSet(
     filterset_fields = ["vehicle", "user", "type", "status", "incident", "event", "alert"]
     ordering_fields = ["created_at", "expiry_date"]
 
+    def get_serializer_context(self):
+        """`?access_for=<id>` (solo admin): el listado «visto como» esa persona.
+
+        La bandeja de solicitudes enseña la documentación del titular para
+        decidir a quién se le da acceso a qué, y para eso necesita saber qué
+        LISTA esa persona y qué puede hacer con cada documento (`can_view`,
+        `can_download`, `view_request`…), que el serializer calcula para quien
+        pregunta. Con este parámetro los calcula para el sujeto, y añade
+        `subject_lists`: si ese documento le sale siquiera en su lista.
+        """
+        context = super().get_serializer_context()
+        raw = self.request.query_params.get("access_for") if self.request else None
+        if raw and getattr(self.request.user, "is_admin", False):
+            try:
+                sujeto = get_user_model().objects.filter(pk=int(raw), is_active=True).first()
+            except (TypeError, ValueError):
+                sujeto = None
+            if sujeto is not None:
+                context["access_subject"] = sujeto
+        return context
+
     def scope_queryset(self, qs, user):
         # El ámbito (de qué documentos se puede hablar) y la confidencialidad
         # (cuáles de esos se leen) van juntos y viven los dos en `scoping`:
@@ -2549,6 +2568,48 @@ class DocumentViewSet(
         )
         rows = rows.filter(vehicle_id=vehicle) if vehicle else rows.filter(user_id=user)
         return Response(verify_documents(rows))
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    def grant(self, request, pk=None):
+        """POST /documents/{id}/grant/ — concede a una persona la lectura o la
+        descarga de ESTE documento sin petición previa.
+
+        Cuerpo: `{"user": <id>, "kind": "view" | "download", "note": "…"}`.
+        Es lo que hace la bandeja de solicitudes al decidir, documento a
+        documento, a quién se le da acceso a la documentación del titular (o
+        al que acaba de subir para atender una petición). La fila que deja es
+        la misma que una petición concedida: `has_access_grant` la lee igual.
+        Solo a quien alcance el documento (`readable_documents`): a quien ni lo
+        lista —su tipo cerrado al conductor— hay que abrírselo antes con el
+        ajuste del documento, y conceder sin eso sería un permiso sin puerta.
+        """
+        document = self.get_object()
+        kind = str(request.data.get("kind", "") or "")
+        if kind not in ACCESS_REQUEST_KINDS:
+            raise ValidationError(
+                {"kind": f"Indica qué se concede: {', '.join(ACCESS_REQUEST_KINDS)}."}
+            )
+        try:
+            user_id = int(request.data.get("user"))
+        except (TypeError, ValueError):
+            raise ValidationError({"user": "Indica a quién se le concede."}) from None
+        persona = get_user_model().objects.filter(pk=user_id, is_active=True).first()
+        if persona is None:
+            raise ValidationError({"user": "Esa persona no existe o está desactivada."})
+        if not readable_documents(persona).filter(pk=document.pk).exists():
+            raise ValidationError(
+                {
+                    "user": (
+                        "Esa persona no alcanza este documento: abre antes su acceso "
+                        "(lo que lista) con el ajuste del documento."
+                    )
+                }
+            )
+        note = str(request.data.get("note", "") or "").strip()[:255]
+        fila = document_requests.grant_access(
+            document, user=persona, kind=kind, actor=request.user, note=note
+        )
+        return Response(DocumentDeletionRequestSerializer(fila, context={"request": request}).data)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
     def purge(self, request, pk=None):
@@ -2844,8 +2905,6 @@ class VehicleRequestViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
         if request.method == "GET":
             requests = VehicleRequest.objects.filter(requester=request.user).order_by("-created_at")
             return Response(VehicleRequestMineSerializer(requests, many=True).data)
-        from django.contrib.auth import get_user_model
-
         # R3-10: el «crea o actualiza la abierta» era get→save sin candado —
         # dos POST simultáneos (doble tap, reintento offline) creaban dos
         # solicitudes `pending`. La fila del propio usuario hace de mutex:
@@ -4053,5 +4112,109 @@ class ProfileChangeRequestViewSet(
             # Otra cuenta se ha quedado ese correo: la petición sigue
             # pendiente y se dice qué campo estorba, que es lo accionable.
             raise ValidationError(choque.errors) from choque
+        peticion.refresh_from_db()
+        return Response(self.get_serializer(peticion).data)
+
+
+class DocumentSupplyRequestViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Peticiones de documento: el campo pide el papel que le falta.
+
+    Las otras cuatro peticiones sobre documentos hablan de uno que ya existe y
+    que quien pide ya ve; esta es la de antes —«necesito la ficha técnica de mi
+    coche y no está»—, y espera en `/solicitudes` con las demás.
+
+    No hay `PUT`/`PATCH`/`DELETE`: una petición no se corrige, se resuelve.
+    """
+
+    serializer_class = DocumentSupplyRequestSerializer
+    permission_classes = [ManagementOrDriverReadWrite]
+    # Misma superficie pública que el resto de escrituras de campo (SEC9).
+    throttle_classes = [UserRateThrottle, PublicWriteThrottle]
+    throttle_scope = "public_write"
+    queryset = DocumentSupplyRequest.objects.select_related(
+        "vehicle", "user", "requested_by", "resolved_by", "document"
+    )
+    filterset_fields = ["status", "vehicle", "user", "type"]
+    ordering_fields = ["created_at", "resolved_at"]
+
+    def get_queryset(self):
+        """El admin ve la bandeja entera; cualquier otro, solo las suyas.
+
+        Como las de ficha: lo que uno pidió es suyo, y la bandeja de decisión es
+        de administración. Quien supervisa no necesita leer lo que piden los
+        demás —no la decide él—, y así esta lista dice lo mismo en las dos
+        pantallas que la usan: la bandeja y «lo mío» del perfil de campo.
+        """
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_admin:
+            return qs
+        return qs.filter(requested_by=user)
+
+    def create(self, request, *args, **kwargs):
+        """Pide un documento (o devuelve la petición ya abierta).
+
+        Dos puertas que el serializer no puede mirar porque dependen de quién
+        firma: el **coche** tiene que estar en su ámbito de escritura
+        (`vehicles_for(write=True)`, donde cuenta también el reparto de uso), y
+        el titular **persona** solo puede ser uno mismo — los papeles
+        personales de otro no se piden por aquí, ni siquiera supervisándole.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+        vehicle = datos.get("vehicle")
+        titular = datos.get("user")
+        if vehicle is not None:
+            if not vehicles_for(request.user, write=True).filter(pk=vehicle.pk).exists():
+                raise PermissionDenied("El vehículo está fuera de tu ámbito.")
+        elif titular != request.user:
+            raise ValidationError({"user": "Solo puedes pedir tus propios documentos personales."})
+        peticion = document_supply.open_request(
+            vehicle=vehicle,
+            user=titular,
+            doc_type=datos["type"],
+            actor=request.user,
+            note=datos.get("note", ""),
+        )
+        salida = self.get_serializer(peticion)
+        return Response(salida.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    def resolve(self, request, pk=None):
+        """POST /document-supply-requests/{id}/resolve/ — la decide la gestión.
+
+        Cuerpo: `{"decision": "done" | "reject", "note": "…", "document": <id>}`.
+        El documento es opcional y solo cuenta en una atendida: es el que se
+        acaba de subir desde la bandeja, y queda en la fila para que cuente la
+        historia entera. Si se entregó por otra vía, va sin él.
+
+        **Atenderla no da acceso por sí sola**: lo subido se lee con la regla de
+        su tipo y la de cada documento. Que atender implicara compartir sería
+        saltarse `DocumentTypeAccess` por la puerta de atrás.
+        """
+        peticion = self.get_object()
+        if peticion.status != DocumentSupplyStatus.PENDING:
+            raise ValidationError({"status": "Esa petición ya está resuelta."})
+        decision = str(request.data.get("decision", "") or "")
+        if decision not in document_supply.DECISIONS:
+            raise ValidationError(
+                {"decision": f"Indica una decisión: {', '.join(document_supply.DECISIONS)}."}
+            )
+        documento = None
+        doc_id = request.data.get("document")
+        if doc_id:
+            documento = Document.objects.filter(pk=doc_id).first()
+            if documento is None:
+                raise ValidationError({"document": "Ese documento no existe."})
+        note = str(request.data.get("note", "") or "").strip()[:255]
+        document_supply.resolve(
+            peticion, decision=decision, actor=request.user, note=note, document=documento
+        )
         peticion.refresh_from_db()
         return Response(self.get_serializer(peticion).data)

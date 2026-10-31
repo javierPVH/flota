@@ -78,7 +78,12 @@ from .invoice import Invoice, InvoiceAllocation
 from .maintenance import MaintenancePlan, MaintenanceProgram
 from .notification import NotificationSchedule
 from .report_export import ReportExport
-from .request import DriverChangeRequest, ProfileChangeRequest, VehicleRequest
+from .request import (
+    DocumentSupplyRequest,
+    DriverChangeRequest,
+    ProfileChangeRequest,
+    VehicleRequest,
+)
 from .vehicle import Vehicle
 
 __all__ = [
@@ -147,6 +152,7 @@ __all__ = [
     "AccidentInjured",
     "Document",
     "DocumentDeletionRequest",
+    "DocumentSupplyRequest",
     "DocumentTypeAccess",
     "ACCESS_OVERRIDE_FIELDS",
     "Alert",
