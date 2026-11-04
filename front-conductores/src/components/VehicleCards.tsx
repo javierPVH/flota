@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
+  AlertTriangle,
   CalendarCheck,
   CalendarCog,
   Car,
   ChevronLeft,
   ChevronRight,
-  ClipboardList,
   Gauge,
   Mail,
   Siren,
@@ -446,7 +446,7 @@ function VehicleCard({
                 <Badge
                   tone="warning"
                   variant="solid"
-                  icon={<Wrench size={14} strokeWidth={2.5} />}
+                  icon={<AlertTriangle size={14} strokeWidth={2.5} />}
                   className="open-breakdowns-badge"
                 >
                   {t.shell.tabs.breakdown} {summary?.open_incidents}
@@ -567,7 +567,7 @@ function VehicleCard({
                   onBreakdown?.(vehicle)
                 }}
               >
-                <Wrench size={15} aria-hidden /> {t.shell.tabs.breakdown}
+                <AlertTriangle size={15} aria-hidden /> {t.shell.tabs.breakdown}
               </button>
               {onAccident && (
                 <button
@@ -605,7 +605,7 @@ function VehicleCard({
                     onUpdate(vehicle)
                   }}
                 >
-                  <ClipboardList size={16} aria-hidden />
+                  <Wrench size={16} aria-hidden />
                 </button>
               )}
               {onRemind && (

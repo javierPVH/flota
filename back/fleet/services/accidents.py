@@ -8,11 +8,21 @@ en el admin y exponerlo estructurado en la API. Se dispara por señal al guardar
 la incidencia (`fleet/signals.py`), así cubre todos los caminos de escritura.
 """
 
+import calendar
+from datetime import datetime
+
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from ..models import AccidentInjured, AccidentReport, AccidentThirdParty, Incident
 from ..models.enums import IncidentType
+
+#: RGPD: los datos de los terceros y los lesionados de un accidente son datos
+#: personales de gente ajena a la flota, y no se guardan para siempre. A los
+#: 12 meses la bandeja avisa; a los 18 toca borrarlos (`purge_third_parties`).
+#: Las dos cifras se repiten en el front (`format.ts`) para pintar la fila.
+THIRD_PARTY_WARN_MONTHS = 12
+THIRD_PARTY_RETENTION_MONTHS = 18
 
 
 def _text(value, limit: int) -> str:
@@ -96,3 +106,67 @@ def sync_accident_report(incident: Incident) -> None:
             for row in injured_people
             if isinstance(row, dict)
         )
+
+
+def _add_months(moment: datetime, months: int) -> datetime:
+    """`moment` más `months` meses de calendario, sin desbordar a fin de mes."""
+    year = moment.year + (moment.month - 1 + months) // 12
+    month = (moment.month - 1 + months) % 12 + 1
+    day = min(moment.day, calendar.monthrange(year, month)[1])
+    return moment.replace(year=year, month=month, day=day)
+
+
+def purged_at(incident: Incident):
+    """Cuándo se borraron los terceros de este accidente (ISO), o ``None``."""
+    details = incident.details or {}
+    return details.get("third_parties_purged_at") or None
+
+
+def retention_due(incident: Incident, now: datetime | None = None) -> bool:
+    """Si a este accidente le toca ya borrar los datos de terceros.
+
+    Cuenta desde la CREACIÓN de la incidencia (es lo que mide la bandeja),
+    con `THIRD_PARTY_RETENTION_MONTHS` meses de calendario. Un accidente que
+    no lo es, o ya borrado, nunca «toca».
+    """
+    if incident.type != IncidentType.ACCIDENT or purged_at(incident):
+        return False
+    if incident.created_at is None:
+        return False
+    now = now or timezone.now()
+    return _add_months(incident.created_at, THIRD_PARTY_RETENTION_MONTHS) <= now
+
+
+def purge_third_parties(incident: Incident, *, actor) -> Incident:
+    """Borra los datos de los terceros y de los lesionados de un accidente.
+
+    Es la excepción a N7 que pide el RGPD, como purgar un documento: lo que se
+    retira son datos personales de gente ajena, y no hay nada que restaurar.
+    Se vacían las listas del parte (`details`, el dato canónico) y se deja en
+    él cuándo y quién lo hizo; la señal rematerializa las tablas, que quedan
+    sin filas, y por si el parte no tuviera fecha válida (la señal no actúa)
+    las tablas se vacían también a mano. El resto del parte —dónde, cuándo,
+    atestado, los daños del coche— se queda: es del coche, no de nadie.
+    Solo cuando toca (`retention_due`); antes, ``ValueError``.
+    """
+    if incident.type != IncidentType.ACCIDENT:
+        raise ValueError("Solo un accidente tiene datos de terceros que borrar.")
+    if purged_at(incident):
+        raise ValueError("Los datos de terceros de este accidente ya se borraron.")
+    if not retention_due(incident):
+        raise ValueError(
+            f"Los datos de terceros se borran a los {THIRD_PARTY_RETENTION_MONTHS} meses "
+            "de la creación del accidente."
+        )
+    details = dict(incident.details or {})
+    details["third_parties"] = []
+    details["injured_people"] = []
+    details["third_parties_purged_at"] = timezone.now().isoformat()
+    details["third_parties_purged_by"] = actor.get_username() if actor else ""
+    incident.details = details
+    incident.save(update_fields=["details", "updated_at"])
+    report = AccidentReport.objects.filter(incident=incident).first()
+    if report is not None:
+        report.third_parties.all().delete()
+        report.injured.all().delete()
+    return incident

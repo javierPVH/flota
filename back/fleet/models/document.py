@@ -11,8 +11,8 @@ from django.db import models
 
 from .base import DeactivatableModel, TimeStampedModel
 from .enums import (
-    ACCESS_REQUEST_KINDS,
     ONE_PER_DOCUMENT_KINDS,
+    PER_PERSON_REQUEST_KINDS,
     DocumentDeletionStatus,
     DocumentRequestKind,
     DocumentStatus,
@@ -298,6 +298,16 @@ class DocumentDeletionRequest(TimeStampedModel):
     conductores pueden pedir lo mismo), y no marcan el documento «pendiente»
     en el campo: eso es de las que hablan del documento (`ONE_PER_DOCUMENT_KINDS`).
 
+    Y las tres últimas son la **puerta de excepción**: la **descarga** o el
+    **borrado** cuando el mando está CERRADO («no permitir», que ni admite la
+    petición de siempre) y **otra petición**, libre, con la nota como todo su
+    contenido. Sin ellas, lo que el mando cerraba se pedía por teléfono y sin
+    rastro. Van por persona como las de acceso. La descarga excepcional se
+    **concede** como una de descarga —y abre ese documento «con solicitud»,
+    porque una concesión no vale mientras el mando esté cerrado—, el borrado
+    excepcional se decide como un borrado y la petición libre se **atiende**
+    o se rechaza.
+
     En todos los casos deja de estar pendiente, que es lo que quita la marca de
     la lista del conductor. No es `DeactivatableModel` a propósito: es el
     rastro de una decisión, no un dato que se corrija — se consulta, y la fila
@@ -320,7 +330,7 @@ class DocumentDeletionRequest(TimeStampedModel):
     )
     kind = models.CharField(
         "Qué se pide",
-        max_length=10,
+        max_length=20,
         choices=DocumentRequestKind.choices,
         default=DocumentRequestKind.DELETE,
     )
@@ -366,12 +376,13 @@ class DocumentDeletionRequest(TimeStampedModel):
                 ),
                 name="unique_pending_document_deletion",
             ),
-            # Y una viva por documento Y persona de las de ACCESO: lo que pide
-            # un conductor no cierra la puerta a otro, ni a una de borrado.
+            # Y una viva por documento Y persona de las que son de QUIEN pide
+            # (acceso, excepcionales, libre): lo que pide un conductor no
+            # cierra la puerta a otro, ni a una de borrado.
             models.UniqueConstraint(
                 fields=["document", "requested_by", "kind"],
                 condition=models.Q(
-                    status=DocumentDeletionStatus.PENDING, kind__in=ACCESS_REQUEST_KINDS
+                    status=DocumentDeletionStatus.PENDING, kind__in=PER_PERSON_REQUEST_KINDS
                 ),
                 name="uniq_pending_access_request_per_person",
             ),

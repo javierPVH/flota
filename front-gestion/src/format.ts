@@ -109,6 +109,59 @@ export function daysUntilDate(due: string | null | undefined): number | null {
   return Math.round((target.getTime() - today.getTime()) / 86_400_000)
 }
 
+/** Cuánto hace de una fecha, en meses de calendario ENTEROS y los días que
+ * sobran (de `since` a hoy, o a `until` si se da): «3 meses y 12 días». Es lo
+ * que la bandeja de accidentes enseña de cada siniestro desde que se creó
+ * —un expediente que lleva meses abierto se ve de lejos—. Meses de
+ * calendario y no de 30 días: del 31 de enero al 28 de febrero es un mes, que
+ * es lo que cuenta quien lo lee. Fecha inválida o futura → `null`. */
+export function monthsSince(
+  since: string | null | undefined,
+  until: Date = new Date(),
+): { months: number; days: number } | null {
+  if (!since) return null
+  const from = new Date(since)
+  if (Number.isNaN(from.getTime())) return null
+  from.setHours(0, 0, 0, 0)
+  const to = new Date(until)
+  to.setHours(0, 0, 0, 0)
+  if (to < from) return null
+  // El «aniversario» n meses después, SIN desbordar: el 31 de enero más un
+  // mes es el 28 de febrero (el último día que ese mes tiene), no el 3 de
+  // marzo, que es lo que hace `setMonth` a secas.
+  const plusMonths = (n: number) => {
+    const a = new Date(from.getFullYear(), from.getMonth() + n, 1)
+    const last = new Date(a.getFullYear(), a.getMonth() + 1, 0).getDate()
+    a.setDate(Math.min(from.getDate(), last))
+    return a
+  }
+  let months = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth())
+  // Si en este mes aún no ha llegado el día de la creación, el mes no está
+  // cumplido: se cuenta desde el aniversario anterior.
+  let anchor = plusMonths(months)
+  if (anchor > to) {
+    months -= 1
+    anchor = plusMonths(months)
+  }
+  const days = Math.round((to.getTime() - anchor.getTime()) / 86_400_000)
+  return { months, days }
+}
+
+/** RGPD en la bandeja de accidentes: los datos de los terceros no se guardan
+ * para siempre. Al AÑO la fila avisa (ámbar) y a los 18 MESES toca borrarlos
+ * (rojo, con su nota y su botón). Espejo de `services/accidents.py`
+ * (`THIRD_PARTY_WARN_MONTHS` / `THIRD_PARTY_RETENTION_MONTHS`): el botón lo
+ * enciende el back (`third_parties_purge_due`); el color es solo lectura. */
+export const ACCIDENT_WARN_MONTHS = 12
+export const ACCIDENT_PURGE_MONTHS = 18
+
+export function accidentAgeTone(months: number | null | undefined): '' | 'warn' | 'purge' {
+  if (months == null) return ''
+  if (months >= ACCIDENT_PURGE_MONTHS) return 'purge'
+  if (months >= ACCIDENT_WARN_MONTHS) return 'warn'
+  return ''
+}
+
 /** Tono del badge de una incidencia por tipo: averías y accidentes son las
  * «serias» (rojo); mantenimiento y neumáticos, aviso; ITV y general, informativo.
  * Compartido por el Panel, la bandeja de incidencias y la ficha. */

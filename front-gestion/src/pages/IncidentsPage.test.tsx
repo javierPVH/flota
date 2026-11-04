@@ -1,15 +1,17 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { IncidentsPage } from './IncidentsPage.tsx'
+import { AccidentsPage, IncidentsPage } from './IncidentsPage.tsx'
+import { ConfirmProvider } from '../components/ConfirmDialog.tsx'
 import { LanguageProvider } from '../i18n.tsx'
 
 const mocks = vi.hoisted(() => ({
   listIncidents: vi.fn(),
   listVehicles: vi.fn(),
   resolveIncident: vi.fn(),
+  purgeAccidentThirdParties: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -17,6 +19,7 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listIncidents: mocks.listIncidents,
   listVehicles: mocks.listVehicles,
   resolveIncident: mocks.resolveIncident,
+  purgeAccidentThirdParties: mocks.purgeAccidentThirdParties,
 }))
 
 const page = (rows: unknown[]) => ({ count: rows.length, next: null, previous: null, results: rows })
@@ -65,11 +68,20 @@ const ON_GOING = {
 }
 
 /** Accidente CON parte guiado: es lo que el back materializa y manda. */
+/** Creado hace tres meses justos (a medianoche local, sin fracción de día). */
+function haceMeses(n: number): string {
+  const d = new Date()
+  d.setHours(12, 0, 0, 0)
+  d.setMonth(d.getMonth() - n)
+  return d.toISOString()
+}
+
 const ACCIDENT = {
   ...OPEN,
   id: 7,
   type: 'accident',
   type_display: 'Accidente',
+  created_at: haceMeses(3),
   description: 'Alcance por detrás',
   mileage: 82000,
   workshop_postal_code: '28045',
@@ -156,11 +168,13 @@ const RESOLVED = {
   },
 }
 
-function renderPage() {
+function renderPage(scope: 'incidents' | 'accidents' = 'incidents') {
   return render(
     <MemoryRouter>
       <LanguageProvider>
-        <IncidentsPage />
+        <ConfirmProvider>
+          {scope === 'accidents' ? <AccidentsPage /> : <IncidentsPage />}
+        </ConfirmProvider>
       </LanguageProvider>
     </MemoryRouter>,
   )
@@ -192,8 +206,9 @@ describe('IncidentsPage (bandeja de incidencias)', () => {
     expect(screen.getByText('En el taller')).toBeInTheDocument()
     // «Documentos» es un icono más de la fila, sin texto.
     expect(screen.getAllByRole('button', { name: 'Documentos' })).toHaveLength(2)
-    // Y la otra bandeja, a un clic desde la cabecera.
+    // Y las otras dos bandejas, a un clic desde la cabecera.
     expect(screen.getByRole('button', { name: /Ver alertas/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Ver accidentes/ })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: 'Cerradas' }))
     expect(await screen.findByTitle('Rueda cambiada')).toBeInTheDocument()
@@ -203,12 +218,29 @@ describe('IncidentsPage (bandeja de incidencias)', () => {
   // El parte guiado recoge dónde, cuándo, atestado, terceros y lesionados, y
   // hasta ahora eso solo se leía en el admin de Django: en la bandeja no había
   // ni rastro.
-  it('un accidente despliega su parte; las demás filas no tienen qué desplegar', async () => {
+  // Los accidentes tienen su propia bandeja: aquí ni se listan ni se ofrecen.
+  it('los accidentes no salen en incidencias, ni en la tabla ni en el filtro de tipo', async () => {
     mocks.listIncidents.mockResolvedValue(page([ACCIDENT, OPEN]))
     renderPage()
+    await screen.findByTitle('No arranca en frío')
+    expect(screen.queryByTitle('Alcance por detrás')).toBeNull()
+    expect(screen.queryByRole('columnheader', { name: /Meses desde la creación/ })).toBeNull()
+    const typeFilter = screen.getByRole('combobox', { name: 'Tipo' })
+    expect(within(typeFilter).queryByRole('option', { name: 'Accidente' })).toBeNull()
+  })
+
+  it('un accidente despliega su parte en la bandeja de accidentes', async () => {
+    mocks.listIncidents.mockResolvedValue(page([ACCIDENT, OPEN]))
+    renderPage('accidents')
     await screen.findByTitle('Alcance por detrás')
 
-    // Solo el accidente ofrece la flecha (las demás mantienen el hueco).
+    // Se pide al back ya acotado al tipo, y lo que no es accidente no se pinta.
+    expect(mocks.listIncidents).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'accident' }),
+      expect.anything(),
+    )
+    expect(screen.queryByTitle('No arranca en frío')).toBeNull()
+
     const flechas = screen.getAllByRole('button', { name: 'Desplegar fila' })
     expect(flechas).toHaveLength(1)
 
@@ -299,6 +331,15 @@ describe('IncidentsPage (bandeja de incidencias)', () => {
     expect(screen.getByRole('button', { name: 'Resolver y cerrar' })).toBeInTheDocument()
   })
 
+  it('con cambios propuestos sin decidir, «Resolver» va apagado y dice por qué', async () => {
+    mocks.listIncidents.mockResolvedValue(page([{ ...OPEN, id: 31, change_pending: true }]))
+    renderPage()
+    const boton = await screen.findByRole('button', { name: 'Resolver' })
+    expect(boton).toBeDisabled()
+    expect(boton).toHaveAttribute('title', expect.stringContaining('acepten o rechacen'))
+    expect(screen.getByText('Cambios propuestos desde el campo')).toBeInTheDocument()
+  })
+
   it('el select de estado no ofrece «Cerrada» para una abierta (cerrar es Resolver)', async () => {
     renderPage()
     await screen.findByTitle('No arranca en frío')
@@ -306,6 +347,105 @@ describe('IncidentsPage (bandeja de incidencias)', () => {
     const statusSelect = await screen.findByDisplayValue('Abierta')
     expect(within(statusSelect).queryByRole('option', { name: 'Cerrada' })).toBeNull()
     expect(within(statusSelect).getByRole('option', { name: 'En curso' })).toBeInTheDocument()
+  })
+
+  // La bandeja de accidentes es la misma página: lo que cambia es lo que
+  // enseña y cómo se da de alta —con el parte guiado, no con el formulario—.
+  it('la bandeja de accidentes: sin filtro de tipo, y el alta es el parte guiado', async () => {
+    mocks.listIncidents.mockResolvedValue(page([ACCIDENT]))
+    renderPage('accidents')
+    await screen.findByTitle('Alcance por detrás')
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Accidentes' })).toBeInTheDocument()
+    // Cuánto lleva abierto el expediente, en meses desde que se creó; en la
+    // de incidencias esa columna no existe.
+    expect(screen.getByRole('columnheader', { name: /Meses desde la creación/ })).toBeInTheDocument()
+    expect(screen.getByText(/^3 meses/)).toHaveAttribute('title', expect.stringMatching(/^Creado el /))
+    // Un solo tipo: no hay filtro de tipo; el de vehículo y prioridad siguen.
+    expect(screen.queryByRole('combobox', { name: 'Tipo' })).toBeNull()
+    expect(screen.getByRole('combobox', { name: 'Vehículo' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Ver incidencias/ })).toBeInTheDocument()
+
+    // Comunicar: primero el coche y después su parte, el mismo de la ficha.
+    await userEvent.click(screen.getByRole('button', { name: 'Comunicar accidente' }))
+    const modal = await screen.findByRole('dialog', { name: 'Comunicar accidente' })
+    const continuar = within(modal).getByRole('button', { name: 'Continuar al parte' })
+    expect(continuar).toBeDisabled()
+    await userEvent.selectOptions(within(modal).getByRole('combobox'), '21')
+    await userEvent.click(continuar)
+    expect(
+      await screen.findByRole('dialog', { name: 'Comunicar accidente · 1234KLM' }),
+    ).toBeInTheDocument()
+  })
+
+  // RGPD: pasado el año la fila avisa, a los 18 meses toca borrar los datos
+  // de terceros —fila en rojo, nota debajo de los meses y el botón vivo— y,
+  // borrados, la fila vuelve a su color y lo dice.
+  it('retención de terceros: ámbar al año, rojo y botón vivo a los 18 meses', async () => {
+    const reciente = { ...ACCIDENT, id: 7 }
+    const anual = { ...ACCIDENT, id: 8, description: 'De hace un año', created_at: haceMeses(13) }
+    const viejo = {
+      ...ACCIDENT,
+      id: 9,
+      description: 'De hace año y medio',
+      created_at: haceMeses(20),
+      third_parties_purge_due: true,
+    }
+    const borrado = {
+      ...viejo,
+      id: 10,
+      description: 'Ya borrado',
+      third_parties_purge_due: false,
+      details: { third_parties_purged_at: '2026-10-01T10:00:00Z' },
+    }
+    mocks.listIncidents.mockResolvedValue(page([reciente, anual, viejo, borrado]))
+    mocks.purgeAccidentThirdParties.mockResolvedValue({ ...viejo, third_parties_purge_due: false })
+    renderPage('accidents')
+    const filaDe = async (texto: string) =>
+      (await screen.findByTitle(texto)).closest('tr') as HTMLElement
+
+    expect(await filaDe('Alcance por detrás')).not.toHaveClass('row-age-warn')
+    expect(await filaDe('De hace un año')).toHaveClass('row-age-warn')
+    const roja = await filaDe('De hace año y medio')
+    expect(roja).toHaveClass('row-age-purge')
+    expect(within(roja).getByText('Hay que borrar los datos de los terceros implicados.')).toBeInTheDocument()
+    expect(await filaDe('Ya borrado')).not.toHaveClass('row-age-purge')
+    expect(screen.getByText(/Datos de terceros borrados el/)).toBeInTheDocument()
+
+    // El botón está en todas las filas, pero solo vive en la que toca.
+    const botones = screen.getAllByRole('button', { name: 'Borrar datos de terceros' })
+    expect(botones).toHaveLength(4)
+    expect(within(await filaDe('Alcance por detrás')).getByRole('button', { name: 'Borrar datos de terceros' })).toBeDisabled()
+    expect(within(await filaDe('Ya borrado')).getByRole('button', { name: 'Borrar datos de terceros' })).toBeDisabled()
+    const vivo = within(roja).getByRole('button', { name: 'Borrar datos de terceros' })
+    expect(vivo).toBeEnabled()
+
+    // Confirmación en rojo, y al aceptar se llama al back y se recarga.
+    await userEvent.click(vivo)
+    const dialogo = await screen.findByRole('dialog', { name: 'Borrar datos de terceros · 1234KLM' })
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Borrar datos de terceros' }))
+    await waitFor(() => expect(mocks.purgeAccidentThirdParties).toHaveBeenCalledWith(9))
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Datos de terceros del accidente de 1234KLM borrados.',
+    )
+  })
+
+  // Un accidente se modifica ENTERO: el lápiz abre el mismo parte que lo
+  // comunicó, cargado con lo que tiene (aquí desde las tablas materializadas,
+  // que es lo que trae un accidente sin `details`).
+  it('en accidentes, «Editar» abre el parte entero cargado con el accidente', async () => {
+    mocks.listIncidents.mockResolvedValue(page([ACCIDENT]))
+    renderPage('accidents')
+    await screen.findByTitle('Alcance por detrás')
+    await userEvent.click(screen.getByRole('button', { name: 'Editar' }))
+    const modal = await screen.findByRole('dialog', { name: 'Modificar accidente · 1234KLM' })
+    expect(within(modal).getByLabelText('Calle')).toHaveValue('Calle Mayor')
+    expect(within(modal).getByLabelText('Localidad')).toHaveValue('Madrid')
+    // «Teléfono» se repite en las fichas de implicados (montadas, ocultas):
+    // el primero es el del paso «Dónde y cuándo».
+    expect(within(modal).getAllByLabelText('Teléfono')[0]).toHaveValue('600111222')
+    // El formulario corto no se abre: no hay desplegable de tipo.
+    expect(within(modal).queryByLabelText('Tipo')).toBeNull()
   })
 
   it('el filtro de tipo incluye «Petición general»', async () => {

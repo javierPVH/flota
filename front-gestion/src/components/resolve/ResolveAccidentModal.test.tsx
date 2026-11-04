@@ -65,7 +65,8 @@ describe('ResolveAccidentModal (reparación + datos del siniestro)', () => {
     await userEvent.type(screen.getByLabelText('Nº de expediente'), 'EXP-2026-17')
     // El importe solo aparece cuando asume la franquicia.
     expect(screen.queryByLabelText('Importe de la franquicia (€)')).toBeNull()
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Quién asume el coste' }), 'deductible')
+    // Quién asume el coste son píldoras, no un desplegable.
+    await userEvent.click(screen.getByRole('radio', { name: 'Franquicia' }))
     await userEvent.type(screen.getByLabelText('Importe de la franquicia (€)'), '300')
     await userEvent.click(screen.getByRole('button', { name: 'Resolver y cerrar' }))
 
@@ -101,7 +102,7 @@ describe('ResolveAccidentModal (reparación + datos del siniestro)', () => {
     const { onDone } = renderModal('active')
     await screen.findByLabelText('Nº de expediente')
     expect(screen.queryByRole('checkbox', { name: /Devolver el vehículo a Activo/ })).toBeNull()
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Quién asume el coste' }), 'third_party')
+    await userEvent.click(screen.getByRole('radio', { name: 'Tercero' }))
     expect(screen.queryByLabelText('Importe de la franquicia (€)')).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Resolver y cerrar' }))
     await waitFor(() => expect(onDone).toHaveBeenCalled())

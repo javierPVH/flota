@@ -18,9 +18,8 @@ import {
   Check,
   CheckCircle2,
   Download,
-  FileText,
+  FolderOpen,
   Mail,
-  Wrench,
 } from 'lucide-react'
 
 import { listAlerts, listAll, listVehicles } from '../api.ts'
@@ -546,7 +545,7 @@ export function AlertsPage() {
             disabled={!a.vehicle}
             onClick={() => a.vehicle && navigate(`/vehiculos/${a.vehicle}`)}
           >
-            <FileText size={15} aria-hidden />
+            <FolderOpen size={15} aria-hidden />
           </IconButton>
         </div>
       ),
@@ -562,7 +561,7 @@ export function AlertsPage() {
         actions={
           // Las dos bandejas se repasan seguidas: la otra, a un clic.
           <Button variant="secondary" onClick={() => navigate('/incidencias')}>
-            <Wrench size={16} aria-hidden /> {t.goIncidents}
+            <AlertTriangle size={16} aria-hidden /> {t.goIncidents}
           </Button>
         }
       />

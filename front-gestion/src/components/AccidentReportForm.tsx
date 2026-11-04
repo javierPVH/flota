@@ -3,11 +3,12 @@ import { ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { Button, FileField, SelectField, TextInputField, useUiCopy } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
-import { createIncident, updateVehicleFields, uploadDocument } from '../api.ts'
+import { createIncident, updateIncident, updateVehicleFields, uploadDocument } from '../api.ts'
 import { todayIso } from '../format.ts'
 import { DEFAULT_PRIORITY, priorityOptions } from '../incidentPriority.ts'
+import { useIncidentsCopy } from '../translations/incidents.ts'
 import { useVehiclesCopy } from '../translations/vehicles.ts'
-import type { Vehicle } from '../types.ts'
+import type { Incident, Vehicle } from '../types.ts'
 import { OpsSection, OpsSteps } from './OpsSteps.tsx'
 import { useAsistente, type Paso } from './opsWizard.ts'
 
@@ -50,6 +51,89 @@ const emptyInjuredPerson = (): InjuredPerson => ({
   plate: '',
   seat: 'driver',
 })
+
+const texto = (value: unknown) => (typeof value === 'string' ? value : '')
+/** Un instante ISO (con zona, como lo guarda el back) → el `datetime-local`
+ * del formulario, en la hora del navegador. Lo que ya viene «local» (el
+ * parte de la PWA, sin zona) pasa tal cual. */
+function aDatetimeLocal(raw: unknown): string {
+  const value = texto(raw)
+  if (!value) return ''
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return value
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.slice(0, 16)
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
+  return date.toISOString().slice(0, 16)
+}
+
+/**
+ * Lo que el formulario carga para MODIFICAR un accidente. El dato canónico es
+ * `details` (el parte guiado, `report_version = 1`, con las claves de la
+ * PWA); si la incidencia no lo trae —un accidente antiguo, o abierto desde el
+ * formulario corto— se lee de las tablas materializadas (`accident_report`),
+ * que dicen lo mismo con otros nombres. Al guardar se escribe siempre como
+ * `details`, que es lo que el back vuelve a materializar.
+ */
+function precargar(incident: Incident) {
+  const d = incident.details ?? {}
+  const r = incident.accident_report
+  const guiado = d.report_version === 1
+  const terceros: ThirdParty[] = guiado && Array.isArray(d.third_parties)
+    ? (d.third_parties as Array<Record<string, unknown>>).map((row) => ({
+        full_name: texto(row.full_name) || texto(row.name),
+        plate: texto(row.plate),
+        brand: texto(row.brand),
+        model: texto(row.model),
+        phone: texto(row.phone),
+        insurer: texto(row.insurer) || texto(row.insurance_company),
+        policy_number: texto(row.policy_number),
+        damage_description: texto(row.damage_description),
+      }))
+    : (r?.third_parties ?? []).map((tp) => ({
+        full_name: tp.name,
+        plate: tp.plate,
+        brand: tp.brand,
+        model: tp.model,
+        phone: tp.phone,
+        insurer: tp.insurance_company,
+        policy_number: tp.policy_number,
+        damage_description: tp.damage_description,
+      }))
+  const lesionados: InjuredPerson[] = guiado && Array.isArray(d.injured_people)
+    ? (d.injured_people as Array<Record<string, unknown>>).map((row) => ({
+        full_name: texto(row.full_name) || texto(row.name),
+        phone: texto(row.phone),
+        email: texto(row.email),
+        plate: texto(row.plate),
+        seat: texto(row.seat) || 'driver',
+      }))
+    : (r?.injured ?? []).map((p) => ({
+        full_name: p.name,
+        phone: p.phone,
+        email: p.email,
+        plate: p.plate,
+        seat: p.seat || 'driver',
+      }))
+  return {
+    form: {
+      street: guiado ? texto(d.street) : (r?.street ?? ''),
+      streetNumber: guiado ? texto(d.street_number) : (r?.street_number ?? ''),
+      postalCode: guiado ? texto(d.postal_code) : (r?.postal_code ?? ''),
+      locality: guiado ? texto(d.locality) : (r?.locality ?? ''),
+      province: guiado ? texto(d.province) : (r?.province ?? ''),
+      occurredAt: aDatetimeLocal(guiado ? d.occurred_at : r?.occurred_at),
+      phone: guiado ? texto(d.phone) : (r?.phone ?? ''),
+      workshopCp: incident.workshop_postal_code ?? '',
+      damages: incident.description ?? '',
+      policeRef: guiado ? texto(d.police_report_reference) : (r?.police_report_ref ?? ''),
+      mileage: incident.mileage == null ? '' : String(incident.mileage),
+      cost: incident.cost ?? '',
+      status: incident.status,
+    },
+    terceros,
+    lesionados,
+  }
+}
 
 /** Los pasos del parte, en el orden en que se rellenan. */
 type SectionKey = 'where' | 'damage' | 'people' | 'report'
@@ -113,6 +197,10 @@ function FichaImplicado({
 
 interface Props {
   vehicle: Vehicle
+  /** Modificar ESTE accidente en vez de comunicar uno nuevo: el formulario
+   * arranca con su parte y guarda con un PATCH (sin tocar el estado del
+   * coche ni volver a abrir nada). */
+  incident?: Incident
   onClose: () => void
   onDone: () => void
 }
@@ -125,31 +213,50 @@ interface Props {
  * y, si se deja marcado, pasa el coche a «Accidentado».
  *
  * Es la primera pestaña de `AccidentModal` y también lo que abre el botón
- * «Parte de accidente» de la ficha. */
-export function AccidentReportForm({ vehicle, onClose, onDone }: Props) {
+ * «Parte de accidente» desde la ficha.
+ *
+ * Con `incident` es el MISMO asistente para **modificar** un accidente
+ * (el lápiz de la bandeja de accidentes): arranca con su parte —calle,
+ * hora, teléfono, atestado, terceros y lesionados— más el kilometraje, el
+ * CP, la prioridad, el estado y el coste, y guarda todo con un PATCH; el
+ * back vuelve a materializar las tablas del parte desde `details`. Lo que
+ * no se modifica desde aquí: el archivo ya subido (se gestiona en
+ * Documentos) y el estado del coche (se cambia donde se cambia). */
+export function AccidentReportForm({ vehicle, incident, onClose, onDone }: Props) {
   const copy = useVehiclesCopy()
   const t = copy.accident
+  const it = useIncidentsCopy()
+  const editando = Boolean(incident)
+  const inicial = useMemo(() => (incident ? precargar(incident) : null), [incident])
   // La marca de «Obligatorio» de los campos del DS, para ponérsela también al
   // textarea (que no es un campo del DS y no la trae).
   const requiredBadge = useUiCopy().fieldShell.requiredBadge
 
-  const [form, setForm] = useState({
-    street: '',
-    streetNumber: '',
-    postalCode: '',
-    locality: '',
-    province: '',
-    occurredAt: '',
-    phone: '',
-    workshopCp: '',
-    damages: '',
-    policeRef: '',
-  })
+  const [form, setForm] = useState(
+    () =>
+      inicial?.form ?? {
+        street: '',
+        streetNumber: '',
+        postalCode: '',
+        locality: '',
+        province: '',
+        occurredAt: '',
+        phone: '',
+        workshopCp: '',
+        damages: '',
+        policeRef: '',
+        mileage: '',
+        cost: '',
+        status: 'open',
+      },
+  )
   const setField = (name: keyof typeof form, value: string) =>
     setForm((current) => ({ ...current, [name]: value }))
 
-  const [thirdParties, setThirdParties] = useState<ThirdParty[]>([])
-  const [injuredPeople, setInjuredPeople] = useState<InjuredPerson[]>([])
+  const [thirdParties, setThirdParties] = useState<ThirdParty[]>(() => inicial?.terceros ?? [])
+  const [injuredPeople, setInjuredPeople] = useState<InjuredPerson[]>(
+    () => inicial?.lesionados ?? [],
+  )
   const updateThirdParty = (index: number, patch: Partial<ThirdParty>) =>
     setThirdParties((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
   const updateInjured = (index: number, patch: Partial<InjuredPerson>) =>
@@ -189,7 +296,17 @@ export function AccidentReportForm({ vehicle, onClose, onDone }: Props) {
   const [markState, setMarkState] = useState(!vehicleAlreadyAccident)
 
   // Prioridad de la petición (por defecto moderada, como en el resto de altas).
-  const [priority, setPriority] = useState<string>(DEFAULT_PRIORITY)
+  const [priority, setPriority] = useState<string>(incident?.priority ?? DEFAULT_PRIORITY)
+  // Estado de la petición, solo editando: cerrar va por «Resolver» (el back
+  // rechaza el PATCH a cerrada), así que «Cerrada» solo se ofrece para dejar
+  // así una que ya lo está.
+  const statusChoices = useMemo(
+    () =>
+      (['open', 'on_going', 'closed'] as const)
+        .filter((value) => value !== 'closed' || incident?.status === 'closed')
+        .map((value) => ({ value, label: it.statuses[value] })),
+    [it, incident?.status],
+  )
   const priorityChoices = useMemo(() => priorityOptions(copy.priority), [copy])
 
   const [saving, setSaving] = useState(false)
@@ -262,15 +379,16 @@ export function AccidentReportForm({ vehicle, onClose, onDone }: Props) {
     setError('')
     setSaving(true)
     try {
-      // 1) La petición de accidente con su parte guiado (contrato de la PWA:
-      // el back lo valida y lo materializa en las tablas del parte).
-      const incident = await createIncident({
+      // El parte guiado (contrato de la PWA: el back lo valida y lo
+      // materializa en las tablas del parte), igual al comunicar y al modificar.
+      const cuerpo = {
         vehicle: vehicle.id,
         type: 'accident',
         priority,
         date: form.occurredAt ? form.occurredAt.slice(0, 10) : todayIso(),
         description: form.damages.trim(),
         workshop_postal_code: form.workshopCp,
+        mileage: form.mileage.trim() ? Number(form.mileage) : null,
         details: {
           report_version: 1,
           street: form.street,
@@ -285,7 +403,32 @@ export function AccidentReportForm({ vehicle, onClose, onDone }: Props) {
           third_parties: thirdParties,
           injured_people: injuredPeople,
         },
-      })
+      }
+      if (incident) {
+        // Modificar: un PATCH con todo el parte, el estado y el coste. Ni se
+        // toca el estado del coche ni se vuelve a comunicar nada.
+        await updateIncident(incident.id, {
+          ...cuerpo,
+          status: form.status,
+          cost: form.cost.trim() ? form.cost.trim() : null,
+        })
+        const cambios: string[] = [t.updated]
+        if (reportFile) {
+          try {
+            await uploadDocument(
+              { vehicle: vehicle.id, incident: incident.id, type: 'accident_report' },
+              reportFile,
+            )
+          } catch {
+            cambios.push(t.fileFailed(reportFile.name))
+          }
+        }
+        onDone()
+        setInfo(cambios.join(' '))
+        return
+      }
+      // 1) La petición de accidente con su parte guiado.
+      const creada = await createIncident(cuerpo)
       const parts: string[] = [t.created]
       // 2) El estado del vehículo (opt-out con la casilla).
       if (markState && !vehicleAlreadyAccident) {
@@ -301,7 +444,7 @@ export function AccidentReportForm({ vehicle, onClose, onDone }: Props) {
       if (reportFile) {
         try {
           await uploadDocument(
-            { vehicle: vehicle.id, incident: incident.id, type: 'accident_report' },
+            { vehicle: vehicle.id, incident: creada.id, type: 'accident_report' },
             reportFile,
           )
         } catch {
@@ -311,19 +454,19 @@ export function AccidentReportForm({ vehicle, onClose, onDone }: Props) {
       onDone()
       setInfo(parts.join(' '))
     } catch (err) {
-      setError(asErrorMessage(err, t.errGeneric))
+      setError(asErrorMessage(err, editando ? t.errUpdate : t.errGeneric))
     } finally {
       setSaving(false)
     }
   }
 
-  // Comunicado el parte, no se vuelve al formulario: lo abierto se repasa en
-  // «Gestionar accidentes».
+  // Comunicado (o modificado) el parte, no se vuelve al formulario: lo abierto
+  // se repasa en «Gestionar accidentes».
   if (info) {
     return (
       <div className="ops-modal">
         <div className="ops-success" role="status">{info}</div>
-        <p className="muted ops-note">{t.doneNote}</p>
+        {!editando && <p className="muted ops-note">{t.doneNote}</p>}
         <div className="ops-actions">
           <div className="ops-actions-end">
             <Button type="button" variant="primary" onClick={onClose}>{copy.ops.close}</Button>
@@ -437,6 +580,16 @@ export function AccidentReportForm({ vehicle, onClose, onDone }: Props) {
               maxLength={5}
               value={form.workshopCp}
               onChange={(e) => setField('workshopCp', e.target.value)}
+            />
+            {/* El odómetro en el momento del accidente: lo pide la PWA y lo
+                enseña la ficha, así que aquí también se puede dar y corregir. */}
+            <TextInputField
+              label={t.mileage}
+              aria-label={t.mileage}
+              type="number"
+              min={0}
+              value={form.mileage}
+              onChange={(e) => setField('mileage', e.target.value)}
             />
             {/* Prioridad de la petición que abre el parte. */}
             <SelectField
@@ -565,12 +718,33 @@ export function AccidentReportForm({ vehicle, onClose, onDone }: Props) {
             onChange={(e) => setField('policeRef', e.target.value)}
           />
           <FileField
-            label={t.file}
+            label={editando ? t.fileMore : t.file}
             accept=".jpg,.jpeg,.png,.webp,.pdf"
             value={reportFile}
             onFiles={(files) => setReportFile(files[0] ?? null)}
           />
-          {!vehicleAlreadyAccident && (
+          {editando && (
+            <div className="ops-grid">
+              <SelectField
+                label={t.status}
+                aria-label={t.status}
+                required
+                options={statusChoices}
+                value={form.status}
+                onValueChange={(value) => setField('status', value)}
+              />
+              <TextInputField
+                label={t.cost}
+                aria-label={t.cost}
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.cost}
+                onChange={(e) => setField('cost', e.target.value)}
+              />
+            </div>
+          )}
+          {!editando && !vehicleAlreadyAccident && (
             <label className="baja-toggle">
               <input
                 type="checkbox"
@@ -592,7 +766,7 @@ export function AccidentReportForm({ vehicle, onClose, onDone }: Props) {
             {!pasoSiguiente && (
               <span className="ops-save-in">
                 <Button type="submit" variant="primary" disabled={saving}>
-                  {saving ? t.sending : t.submit}
+                  {saving ? (editando ? t.saving : t.sending) : editando ? t.save : t.submit}
                 </Button>
               </span>
             )}

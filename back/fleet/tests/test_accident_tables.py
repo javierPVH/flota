@@ -5,12 +5,16 @@ una señal lo materializa en `AccidentReport` / `AccidentThirdParty` /
 `AccidentInjured` — ver `services/accidents.py`. Datos de ejemplo únicamente.
 """
 
+from datetime import timedelta
+
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import AccidentReport, Vehicle
+from fleet.models import AccidentReport, Incident, Vehicle
+from fleet.services import accidents
 
 from .helpers import make_user
 
@@ -157,3 +161,84 @@ class AccidentTablesTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
         self.assertEqual(AccidentReport.objects.count(), 0)
         self.assertIsNone(resp.data["accident_report"])
+
+
+class AccidentThirdPartyRetentionTests(APITestCase):
+    """RGPD: los datos de terceros se borran a los 18 meses de la creación."""
+
+    def setUp(self):
+        self.admin = make_user("ret-admin", Role.ADMIN)
+        self.client.force_authenticate(self.admin)
+        self.vehicle = Vehicle.objects.create(plate="RET-0001", brand="Seat", model="León")
+        response = self.client.post(
+            reverse("incident-list"), accident_payload(self.vehicle.id), format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.incident = Incident.objects.get(pk=response.data["id"])
+
+    def _envejecer(self, days: int) -> None:
+        Incident.objects.filter(pk=self.incident.pk).update(
+            created_at=timezone.now() - timedelta(days=days)
+        )
+        self.incident.refresh_from_db()
+
+    def _purge(self):
+        return self.client.post(
+            reverse("incident-purge-third-parties", args=[self.incident.pk]), format="json"
+        )
+
+    def test_recien_creado_no_toca_y_el_borrado_es_400(self):
+        self.assertFalse(accidents.retention_due(self.incident))
+        fila = self.client.get(reverse("incident-detail", args=[self.incident.pk])).data
+        self.assertFalse(fila["third_parties_purge_due"])
+        response = self._purge()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(self.incident.accident_report.third_parties.exists())
+
+    def test_a_los_18_meses_toca_y_el_borrado_vacia_terceros_y_lesionados(self):
+        self._envejecer(days=19 * 31)
+        self.assertTrue(accidents.retention_due(self.incident))
+        fila = self.client.get(reverse("incident-detail", args=[self.incident.pk])).data
+        self.assertTrue(fila["third_parties_purge_due"])
+
+        response = self._purge()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.incident.refresh_from_db()
+        # Las listas del parte, vacías, y la marca de cuándo y quién.
+        self.assertEqual(self.incident.details["third_parties"], [])
+        self.assertEqual(self.incident.details["injured_people"], [])
+        self.assertTrue(self.incident.details["third_parties_purged_at"])
+        self.assertEqual(self.incident.details["third_parties_purged_by"], "ret-admin")
+        # Las tablas materializadas, sin filas; el parte sigue (dónde y cuándo).
+        report = AccidentReport.objects.get(incident=self.incident)
+        self.assertFalse(report.third_parties.exists())
+        self.assertFalse(report.injured.exists())
+        self.assertEqual(report.street, "Calle de Ejemplo")
+        # Ya borrado: ni «toca» ni se puede repetir.
+        self.assertFalse(response.data["third_parties_purge_due"])
+        self.assertEqual(self._purge().status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_un_mes_antes_de_los_18_todavia_no_toca(self):
+        self._envejecer(days=17 * 30)
+        self.assertFalse(accidents.retention_due(self.incident))
+
+    def test_solo_admin_borra(self):
+        self._envejecer(days=19 * 31)
+        supervisor = make_user("ret-sup", Role.SUPERVISOR)
+        self.vehicle.supervisor = supervisor
+        self.vehicle.save(update_fields=["supervisor"])
+        self.client.force_authenticate(supervisor)
+        self.assertEqual(self._purge().status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(self.incident.accident_report.third_parties.exists())
+
+    def test_una_averia_no_tiene_terceros_que_borrar(self):
+        averia = Incident.objects.create(
+            vehicle=self.vehicle, type="breakdown", date="2026-08-20", description="No arranca"
+        )
+        Incident.objects.filter(pk=averia.pk).update(
+            created_at=timezone.now() - timedelta(days=19 * 31)
+        )
+        response = self.client.post(
+            reverse("incident-purge-third-parties", args=[averia.pk]), format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

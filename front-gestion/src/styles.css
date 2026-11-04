@@ -787,52 +787,186 @@ table.data tbody tr:hover {
   gap: 0.9rem;
 }
 
-/* Ficha completa de una incidencia: la petición, el parte y la solución, cada
-   bloque con la misma forma que el parte desplegado de la tabla. */
+/* Ficha completa de una incidencia: la cabecera con el tipo y sus cifras, y
+   debajo la petición, el parte y la solución, cada bloque con la misma caja
+   que el parte desplegado de la tabla. */
 .incident-detail {
   display: flex;
   flex-direction: column;
-  gap: 1.1rem;
+  gap: 0.9rem;
 }
-.incident-detail .report-block {
-  padding-top: 0.9rem;
-  border-top: 1px solid var(--color-border);
+/* La cabecera: el icono del tipo en el color de su gravedad, la matrícula
+   grande y las chapas; a la derecha, las tres cifras que se buscan primero. */
+.detail-hero {
+  --hero-accent: var(--color-info);
+  --hero-soft: var(--color-info-soft);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.9rem 1.1rem;
+  padding: 0.95rem 1.1rem;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--hero-accent);
+  border-radius: var(--radius-card-sm, var(--radius-md));
+  background: var(--color-surface-soft);
 }
-.incident-detail .report-block:first-of-type { border-top: 0; padding-top: 0; }
+.detail-hero.tone-danger { --hero-accent: var(--color-danger); --hero-soft: var(--color-danger-soft); }
+.detail-hero.tone-warning { --hero-accent: var(--color-warning); --hero-soft: var(--color-warning-soft); }
+.detail-hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--radius-md);
+  background: var(--hero-soft);
+  color: var(--hero-accent);
+}
+.detail-hero-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.detail-hero-type {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--hero-accent);
+}
+.detail-hero-plate {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
 .detail-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.detail-stats {
+  display: flex;
+  gap: 0.6rem;
+  margin: 0;
+}
+.detail-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 6.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.detail-stat dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+.detail-stat dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 720px) {
+  .detail-hero { grid-template-columns: auto 1fr; }
+  .detail-stats { grid-column: 1 / -1; flex-wrap: wrap; }
+  .detail-stat { flex: 1 1 6rem; }
+}
 /* Texto libre (descripción del parte, observaciones del cierre): va a párrafo
-   aparte, debajo de los datos, porque puede ser largo. */
+   aparte, porque puede ser largo; como cita, con su filete, para que no se
+   confunda con los datos de al lado. */
 .detail-text {
-  margin: 0.6rem 0 0;
+  margin: 0;
   white-space: pre-wrap;
 }
+.detail-quote {
+  padding: 0.55rem 0.85rem;
+  border-left: 3px solid var(--color-border-strong, var(--color-border));
+  background: var(--color-surface-soft);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+/* La solución que aún no hay: un hueco que lo dice, no un bloque en gris. */
+.detail-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.8rem 0.95rem;
+  border: 1px dashed var(--color-border-strong, var(--color-border));
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+}
 
-/* Parte de accidente desplegado bajo su fila en la bandeja de incidencias. */
+/* Parte de accidente desplegado bajo su fila en la bandeja de incidencias,
+   y los bloques de la ficha: la misma caja, con su cabecera de icono y
+   título. */
 .accident-report {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.75rem;
   padding: 0.9rem 1.1rem 1.1rem;
 }
+.incident-detail .accident-report { padding: 0; }
+.report-block {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card-sm, var(--radius-md));
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.report-block-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-soft);
+}
+.report-block-icon {
+  display: inline-flex;
+  color: var(--color-primary);
+}
+.report-block-aside { margin-left: auto; }
+.report-block-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem 0.9rem;
+}
+.report-block-body > .report-facts:empty { display: none; }
 .report-title {
   display: block;
-  margin-bottom: 0.4rem;
   font-size: 0.86rem;
 }
+.report-none { margin: 0; }
 .report-facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 1.6rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, max-content));
+  gap: 0.6rem 1.8rem;
 }
 .report-fact {
   display: flex;
   flex-direction: column;
+  gap: 0.1rem;
   min-width: 8rem;
 }
 .report-fact-label {
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+.report-fact-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 500;
+}
+.report-fact-icon {
+  display: inline-flex;
   color: var(--color-text-muted);
 }
 /* Las tablas del parte pueden ser anchas (siete columnas): scrollan ellas, no
@@ -845,11 +979,12 @@ table.data tbody tr:hover {
 }
 .report-table th,
 .report-table td {
-  padding: 0.3rem 0.6rem 0.3rem 0;
+  padding: 0.4rem 0.6rem 0.4rem 0;
   text-align: left;
   border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
 }
+.report-table tbody tr:last-child td { border-bottom: 0; }
 .report-table th {
   font-size: 0.74rem;
   text-transform: uppercase;
@@ -1191,6 +1326,50 @@ table.data tbody tr:hover {
 .owner-docs-table .doc-access-cell { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
 .owner-docs-actions { justify-content: flex-end; flex-wrap: wrap; }
 .owner-docs-actions-head { text-align: right; }
+/* La barra de lo marcado, encima de la tabla: «marcar todos», cuántas van,
+   conceder a quien pide y, a la derecha, el selector del grupo con su botón. */
+.owner-docs-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.7rem;
+  margin: 0 0 0.5rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface-soft);
+}
+.owner-docs-bulk-count { font-size: 0.85rem; }
+.owner-docs-bulk-next { margin-left: auto; }
+/* Los filtros de la barra (tipo y quién lo subió), delante de «marcar
+   todos»; en estrecho se quedan con su fila. */
+.owner-docs-bulk-filter { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+/* El segundo paso: los mandos del conductor para los marcados. */
+.owner-docs-step { display: flex; flex-direction: column; gap: 0.8rem; }
+.owner-docs-step-foot { display: flex; justify-content: space-between; gap: 0.6rem; }
+/* La tabla del paso: los mandos como columnas estrechas, el conmutador
+   de iconos en cada celda; la fila «Todos los marcados» destacada, y en las
+   de documento el icono quieto en que se resuelve (en color si pisa el tipo). */
+.owner-docs-step-table .owner-docs-switch { width: 1%; white-space: nowrap; text-align: center; }
+.owner-docs-step-table .owner-docs-switch .seg-switch { vertical-align: middle; }
+.owner-docs-all-row td { background: var(--color-surface-soft); }
+.access-static {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  color: var(--color-text-muted);
+}
+.access-static.is-adjusted { color: var(--color-brand); background: var(--color-brand-soft); }
+/* El resumen del paso: cómo quedará cada documento con lo elegido. */
+.owner-docs-summary { display: flex; flex-direction: column; gap: 0.3rem; }
+.owner-docs-summary-title { margin: 0; font-size: 0.95rem; }
+.owner-docs-summary-note { margin: 0 0 0.3rem; font-size: 0.85rem; }
+.owner-docs-check { width: 1.6rem; text-align: center; }
+.owner-docs-check input { accent-color: var(--color-brand); }
+.owner-docs-table tr.row-checked td { background: var(--color-brand-soft); }
 /* El rótulo de un grupo de radios/casillas del modal, delante de ellas. */
 .ops-checks-label { font-weight: 600; font-size: 0.88rem; margin-right: 0.4rem; }
 /* Casillas o radios como PÍLDORAS en una fila (el mismo aspecto que los
@@ -1226,12 +1405,101 @@ table.data tbody tr:hover {
 /* El modal «Gestionar» de las bandejas de documentos: la caja con lo que se
    pide arriba, las pestañas y el panel activo. */
 .manage-modal { display: flex; flex-direction: column; gap: 0.9rem; }
-/* La nota de quien pide va a su línea: puede ser larga. */
-.request-info-note { flex: 1 0 100%; }
-/* Un panel de pestaña del modal; el de la decisión es el formulario. */
+/* La nota de quien pide va a su línea: puede ser larga, y sin espacios
+   (una referencia, un enlace) partiría la caja del modal con scroll
+   horizontal si no se dejara romper por donde haga falta. */
+.request-info-note { flex: 1 0 100%; overflow-wrap: anywhere; }
+/* El botón de la documentación del titular, a la derecha de la caja. */
+.request-info-docs { margin-left: auto; }
+/* Un panel de pestaña del modal; el de la decisión es el formulario. El
+   `display: flex` de autor pisa el `[hidden]` de la hoja del navegador
+   (como en `.ops-form`): sin esta regla las dos pestañas se veían a la vez. */
 .manage-pane { display: flex; flex-direction: column; gap: 0.9rem; }
+.manage-pane[hidden] { display: none; }
 /* Con qué documento se atiende: una línea con su chapa y el botón de quitarlo. */
 .manage-picked { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+
+/* Qué se hace con la petición: UNA elección en tarjetas, cada una con su
+   icono, su título y la línea de lo que pasa al elegirla. El radio de dentro
+   es el que lleva el teclado y el lector de pantalla; la tarjeta entera es
+   la que se ve y se pulsa. Dos columnas con hueco, una en estrecho. */
+.choice-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.6rem;
+}
+.choice-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.choice-card:hover { border-color: var(--color-border-strong); }
+.choice-card input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.choice-card:has(input:focus-visible) {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+.choice-card:has(input:checked) {
+  border-color: var(--color-brand);
+  background: var(--color-brand-soft, rgba(0, 120, 110, 0.06));
+  box-shadow: inset 0 0 0 1px var(--color-brand);
+}
+.choice-card-icon { flex: 0 0 auto; margin-top: 0.1rem; color: var(--color-text-muted); }
+.choice-card:has(input:checked) .choice-card-icon { color: var(--color-brand); }
+.choice-card--danger:has(input:checked) {
+  border-color: var(--color-danger, #b42318);
+  box-shadow: inset 0 0 0 1px var(--color-danger, #b42318);
+  background: var(--color-danger-soft, rgba(180, 35, 24, 0.06));
+}
+.choice-card--danger:has(input:checked) .choice-card-icon { color: var(--color-danger, #b42318); }
+.choice-card-text { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.9rem; line-height: 1.3; }
+.choice-card-text .muted { font-size: 0.82rem; }
+
+/* Lo que pide la tarjeta elegida, en su caja bajo las tarjetas. */
+.choice-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 0.8rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface-soft);
+}
+/* Tipo y caducidad en la misma fila (una columna en estrecho); la nota de
+   «se pidió X» ocupa la fila entera debajo. */
+.choice-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.4rem 0.8rem;
+  align-items: start;
+}
+.choice-row-note { grid-column: 1 / -1; margin: 0; font-size: 0.85rem; }
+/* Quién podrá leerlo: el rótulo, el conmutador y, al lado, lo que el tipo
+   dice hoy; se parte en líneas si no cabe. */
+.choice-access { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.7rem; }
+.choice-access-says { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+/* La casilla de conceder, con su porqué debajo del rótulo. Con las dos
+   clases: `.baja-toggle` se declara más abajo y, a una sola clase, su
+   `align-items: center` ganaba y la casilla caía entre las dos líneas. */
+.baja-toggle.choice-grant { align-items: flex-start; color: var(--color-text); }
+.baja-toggle.choice-grant input { margin-top: 0.2rem; flex: 0 0 auto; }
+.baja-toggle.choice-grant > span { display: flex; flex-direction: column; gap: 0.1rem; }
+.baja-toggle.choice-grant .muted { font-size: 0.82rem; }
 
 /* Resumen de una tarjeta colapsada (junto al título, en el hueco de acciones). */
 .acc-summary { font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500; }
@@ -4116,6 +4384,40 @@ table.data tbody tr:hover {
   font-size: 0.82rem;
 }
 
+/* «Resolver accidente»: el siniestro total es la decisión que da de baja el
+   coche, así que va en su propia caja y se pone en rojo al marcarla, para que
+   no parezca una casilla más entre las del seguro. */
+.resolve-danger {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.resolve-danger input { accent-color: var(--color-danger); flex: 0 0 auto; }
+.resolve-danger-icon {
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+.resolve-danger-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.resolve-danger-text .muted { font-size: 0.82rem; }
+.resolve-danger.is-on {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.resolve-danger.is-on .resolve-danger-icon,
+.resolve-danger.is-on strong { color: var(--color-danger); }
+/* Dentro de un bloque de la ficha, los campos van con el aire del bloque. */
+.resolve-accident .report-block-body { gap: 0.8rem; }
+
 .chips-row {
   display: flex;
   flex-wrap: wrap;
@@ -5264,6 +5566,13 @@ table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* --- G8: alertas e informes ------------------------------------------------ */
 /* ITV vencida resaltada (HU-5.1) */
 .row-overdue td { background: var(--color-danger-bg); }
+/* Bandeja de accidentes, retención RGPD de los datos de terceros: ámbar
+   pasado el año, rojo a los 18 meses (toca borrarlos), y la nota bajo la
+   cifra de meses en el color de la fila. */
+.row-age-warn td { background: var(--color-warning-soft); }
+.row-age-purge td { background: var(--color-danger-bg); }
+.age-cell { align-items: flex-end; }
+.age-note { color: var(--color-danger); font-weight: 600; }
 
 .reports-grid {
   display: grid;
@@ -5289,6 +5598,8 @@ table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* --- G9: solicitudes de vehículo ------------------------------------------- */
 /* Pendientes sin decidir, resaltadas */
 .row-pending td { background: #fffaf0; }
+/* Incidencia con cambios propuestos desde el campo, sin decidir. */
+.row-change-pending td { background: var(--color-info-soft); }
 
 /* --- G10: facturas y refacturación ----------------------------------------- */
 /* Pista del CECO asociado al proyecto en la línea de reparto (mejora 🔴):

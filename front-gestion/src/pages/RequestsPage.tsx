@@ -12,6 +12,7 @@ import {
   listDocumentDeletionRequests,
   listDocumentSupplyRequests,
   listDriverChangeRequests,
+  listIncidentChangeRequests,
   listProfileChangeRequests,
   listVehicleRequests,
   listVehicles,
@@ -23,6 +24,7 @@ import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { DocumentRequestsTab } from '../components/DocumentRequestsTab.tsx'
 import { DocumentSupplyTab } from '../components/DocumentSupplyTab.tsx'
 import { DriverRequestsTab } from '../components/DriverRequestsTab.tsx'
+import { IncidentChangeTab } from '../components/IncidentChangeTab.tsx'
 import { ProfileRequestsTab } from '../components/ProfileRequestsTab.tsx'
 import { groupOf, isDefaultView, useRequestFilter } from '../components/requestFilter.ts'
 import { RequestsFilterBar } from '../components/RequestsFilterBar.tsx'
@@ -68,13 +70,15 @@ export function RequestsPage() {
     tabParam === 'documentos' ||
     tabParam === 'pedidos' ||
     tabParam === 'conductores' ||
-    tabParam === 'fichas'
+    tabParam === 'fichas' ||
+    tabParam === 'partes'
       ? tabParam
       : 'vehiculos'
   const [pendingDocs, setPendingDocs] = useState(0)
   const [pendingSupply, setPendingSupply] = useState(0)
   const [pendingDrivers, setPendingDrivers] = useState(0)
   const [pendingProfiles, setPendingProfiles] = useState(0)
+  const [pendingPartes, setPendingPartes] = useState(0)
 
   const [requests, setRequests] = useState<VehicleRequestRow[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -163,11 +167,19 @@ export function RequestsPage() {
   }, [])
   useEffect(loadPendingProfiles, [loadPendingProfiles])
 
+  /** Ídem para las propuestas de modificar el parte de una incidencia. */
+  const loadPendingPartes = useCallback(() => {
+    listIncidentChangeRequests({ status: 'pending' })
+      .then((page) => setPendingPartes(page.count))
+      .catch(() => setPendingPartes(0))
+  }, [])
+  useEffect(loadPendingPartes, [loadPendingPartes])
+
   // Lo que espera decisión, con la de Jira ya aprobada dentro (`groupOf`):
   // a esa también hay que concederle un coche.
   const pendingCount = requests.filter((r) => groupOf(r.status) === 'pending').length
   const pendingTotal =
-    pendingCount + pendingDocs + pendingSupply + pendingDrivers + pendingProfiles
+    pendingCount + pendingDocs + pendingSupply + pendingDrivers + pendingProfiles + pendingPartes
 
   // Memorizado: es la dependencia del filtro de la barra, y recrearlo en
   // cada render volvería a filtrar la bandeja entera sin que nada cambie.
@@ -387,10 +399,13 @@ export function RequestsPage() {
           { key: 'pedidos', label: t.tabSupply, badge: pendingSupply || undefined },
           { key: 'conductores', label: t.tabDrivers, badge: pendingDrivers || undefined },
           { key: 'fichas', label: t.tabProfiles, badge: pendingProfiles || undefined },
+          { key: 'partes', label: t.tabIncidents, badge: pendingPartes || undefined },
         ]}
       />
 
-      {tab === 'fichas' ? (
+      {tab === 'partes' ? (
+        <IncidentChangeTab onCountsChange={alDecidir(loadPendingPartes)} />
+      ) : tab === 'fichas' ? (
         <ProfileRequestsTab onCountsChange={alDecidir(loadPendingProfiles)} />
       ) : tab === 'pedidos' ? (
         <DocumentSupplyTab onCountsChange={alDecidir(loadPendingSupply)} />

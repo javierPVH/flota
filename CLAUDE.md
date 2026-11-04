@@ -73,8 +73,10 @@ que puede tener un coche; supervisa además los dos **multiusuario**
 por días y uno de volumen con la franja solapada—), `sara`
 (supervisor+driver), `marta` (segunda supervisora, con plantilla de conductores
 en bloque), `carlos`/`lucia` (driver), `david` (driver sin coche → prueba el
-portón de acceso), `nuevo` (sin rol) y `expedro` (usuario desactivado). Muchos
-seeds resuelven
+portón de acceso), `nuevo` (sin rol), `expedro` (usuario desactivado) y `alba`,
+conductora de volumen con el `2022DXP`, el **escaparate de documentación**: un
+documento de cada tipo subido por ella (parte, fotos y factura colgando de su
+accidente abierto) y su permiso de conducir. Muchos seeds resuelven
 dependencias con `get(username=...)` / `get(plate=...)`: **el orden de
 `SEED_CHAIN` y esos identificadores fijos no se pueden romper**. Detalle y
 checklist para añadir un seed en [back/SEED_DEV.md](back/SEED_DEV.md).
@@ -442,6 +444,31 @@ Dos capas que van **siempre juntas**:
   conservan el nombre (`DocumentDeletionRequest`,
   `/document-deletion-requests/`) para no romper el contrato de la API, aunque
   ahora lleven las dos clases.
+  **Y lo que el mando tiene CERRADO también se pide, por la puerta de
+  excepción.** «No permitir» en la descarga o el borrado rechaza la
+  petición de siempre (400), y quien lleva el coche necesita a veces justo
+  eso: sin camino, se pedía por teléfono y sin rastro. Son **tres clases
+  más** de la misma fila: `allow_download` y `allow_delete` («Descarga /
+  Borrado excepcional», `EXCEPTION_REQUEST_KINDS`), que solo se abren con el
+  mando cerrado —abierto, son 400: lo que va con solicitud sigue su camino—,
+  y `other` («Otra petición», libre). En las tres la **nota es obligatoria**
+  (es lo único que lee quien decide), van **por persona** como las de acceso
+  (`PER_PERSON_REQUEST_KINDS`, la segunda restricción de unicidad) y **no
+  marcan** el documento pendiente. Se deciden con las salidas de su gesto
+  (`decisions_for`): la descarga excepcional se **concede** —y como una
+  concesión no vale mientras el mando esté cerrado, `_open_download_for`
+  pasa ESE documento a «con solicitud» (`driver_download_override`) y deja
+  la concesión de descarga de siempre a quien pidió—, el borrado
+  excepcional se decide como un borrado (y un borrado cierra también lo
+  demás que esperaba lo mismo sobre ese documento) y la libre se **atiende**
+  (`done`, «Atendida») o se rechaza. En la PWA viven en el **lápiz**, que va
+  **el último de la fila** y abre «Peticiones sobre X» en **tres pestañas**
+  (`DocumentList`, `AskTab`): **Corregir** (la de siempre; con una viva lo
+  dice en vez de apagar el lápiz, que las otras no hablan del documento),
+  **Pedir permiso** —solo si en ese documento hay algo cerrado, con lo
+  cerrado a elegir— y **Otra petición**. La bandeja de gestión las decide
+  con el mismo modal (`DECISIONS` por clase; conceder una descarga
+  excepcional lo dice con su propia pista).
 - **Y el papel que FALTA también se pide**, que es lo que no tenía camino:
   las cuatro clases de arriba hablan de un documento que **ya existe y que
   quien pide ya ve**, así que «necesito el contrato de mi coche y no está»
@@ -477,13 +504,17 @@ Dos capas que van **siempre juntas**:
   documento (`readable_documents`), y que atender implicara compartir sería
   saltarse esa capa por la puerta de atrás.
   **Las dos bandejas de documentos enseñan la documentación que YA HAY del
-  titular** (`components/OwnerDocumentsAccess.tsx`, en la pestaña
-  **«Documentación»** del modal «Gestionar» —`RequestManageTabs`: la otra es
-  la **decisión**, y arriba de las dos va lo que se pide en una caja; los
-  dos paneles siguen montados al cambiar, así que no se pierde lo escrito ni
-  se vuelve a pedir la lista, y «Atender con este» devuelve a la decisión—,
-  en la de peticiones sobre un documento —con el de la petición
-  marcado— y en la del papel que falta): una fila por documento con **quién
+  titular** (`components/OwnerDocumentsAccess.tsx`; arriba de todo va lo que
+  se pide en una caja. En la de peticiones sobre un documento vive en la
+  pestaña **«Documentación»** del modal «Gestionar» —`RequestManageTabs`: la
+  otra es la **decisión**; los dos paneles siguen montados al cambiar, así
+  que no se pierde lo escrito ni se vuelve a pedir la lista—, con el de la
+  petición marcado. En la del papel que falta **no hay pestañas**: la
+  decisión va sola y la lista se abre en **su propio modal**, desde «Elegir
+  documento…» de la tarjeta de «uno que ya existe» —«Atender con este» lo
+  pone y cierra— y desde el botón «Documentación del titular» de la caja de
+  la petición, que dice cuántos hay en cuanto la lista se ha abierto una
+  vez; con las pestañas, la decisión no se leía entera): una fila por documento con **quién
   lo lee** —las chapas de su tipo o su ajuste (`useAccessParts`, la misma
   copia que el listado de Documentos): la supervisión y los conductores del
   coche, que es el grupo— y **cómo le va a quien pide**: si le sale en su
@@ -491,20 +522,53 @@ Dos capas que van **siempre juntas**:
   no permitido. Para eso el listado se pide **«visto como» esa persona**
   (`GET /documents/?access_for=<id>`, solo admin: `can_view`, `can_download`,
   `view_request`, `download_request` y `subject_lists` hablan de ella y no de
-  quien mira). Desde cada fila se decide: **«Conceder lectura / descarga»** a
-  esa persona lo que le vaya con solicitud (`POST /documents/{id}/grant/`,
-  `document_requests.grant_access`: la misma fila concedida que una petición
-  —`has_access_grant` la lee igual—, idempotente, y con una pendiente de esa
-  persona la concede, lo que decide también la petición abierta; a quien ni
-  lista el documento no se le concede, 400: hay que abrírselo antes) o
-  **«Acceso del grupo»**, el modal «Acceso» de la fila de Documentos
-  (`AccessOverrideRows`, extraído de `DocumentAccessModal`), que abre o cierra
-  ese documento a todo el rol. En la del papel que falta, **atender tiene
-  tres formas** (radios, «sin archivo» es una decisión y no un olvido):
-  **subiendo** el documento —con su acceso elegido al subirlo: «según su
-  tipo», diciendo lo que el tipo hace hoy, o un **ajuste propio** con los
-  mismos cinco mandos, que viajan en el alta (`uploadDocument` admite los
-  `*_override`)—, **con uno que ya existe** («Atender con este» en la lista:
+  quien mira). Es en **dos pasos** y **solo del conductor** (la supervisión
+  no se toca desde aquí): primero se **marcan** documentos (una casilla por
+  fila, «Marcar todos» —las que se ven— y la barra dice cuántos van; cada
+  fila dice quién lo subió, y la barra lleva **dos filtros** que se suman
+  —el **tipo**, un desplegable con TODOS los del enumerado y cuántos hay de
+  cada uno, también los vacíos, y **quién lo subió**: cualquiera, quien pide
+  u otros; cada uno cuenta sobre lo que deja pasar el otro— que filtran la
+  tabla **sin tocar lo marcado**, para marcar de varios tipos) y «Dar acceso a los
+  marcados» abre el segundo: UNA tabla con los cuatro mandos del conductor
+  **como columnas** (`SegSwitch` solo con iconos, «según el tipo» es el de
+  capas; la leyenda una vez arriba) y una fila por marcado —con cómo lo lee
+  hoy en pequeño— en la que se decide **el mismo para todos** (los mandos
+  van en la fila «Todos los marcados (n)», y cada documento enseña como
+  icono quieto en qué se le resuelve, en color si pisa su tipo —con tipos
+  mezclados el «según el tipo» de esa fila es el de cada documento—) o **uno
+  propio por documento** (los mandos en cada fila, abiertos con lo que ya
+  tiene), que se guardan con un PATCH por documento que lleva **solo esos
+  mandos** (`driverFields`). La última columna dice, recalculada al tocar
+  cualquier mando (`projectedAccess` / `outcomeFor`), qué podrá hacer quien
+  pide —si le saldrá en su lista y si lo verá y se lo bajará directo, con
+  solicitud, o concedido ahora por la casilla—, para no guardar a ciegas (es
+  una estimación: si el listar no cambia vale lo que el back dice hoy). Y
+  una casilla, marcada de salida, **concede a quien
+  pide** lo que, con el acceso que ha quedado, le siga yendo con solicitud
+  en los marcados: se vuelve a pedir la lista «vista como» esa persona y se
+  le concede la lectura y la descarga que le hagan falta (`POST
+  /documents/{id}/grant/`, `document_requests.grant_access`: la misma fila
+  concedida que una petición —`has_access_grant` la lee igual—, idempotente,
+  y con una pendiente de esa persona la concede, lo que decide también la
+  petición abierta; a quien ni lista el documento no se le concede: se
+  salta). En la del papel que falta, la decisión es
+  **UNA elección en cuatro tarjetas** (`.choice-cards`, un radio cada una
+  con su icono, su título y la línea de lo que pasa al elegirla; debajo, en
+  su caja, solo lo que pide la elegida, y el botón del pie dice lo que va a
+  hacer —«Subir y atender», «Atender con el elegido», «Atender sin
+  archivo», «Rechazar»— en vez de un «Resolver» que no decía nada): las
+  tres formas de atender y rechazarla. Era un desplegable (atender /
+  rechazar) y debajo tres radios de «cómo», dos preguntas para una
+  decisión, y «sin archivo» sigue siendo una decisión y no un olvido:
+  **subiendo** el documento —el archivo, su acceso en un conmutador
+  (`seg-switch`): «según su tipo», con lo que el tipo hace hoy al lado, o
+  un **ajuste propio** con los mismos cinco mandos, que viajan en el alta
+  (`uploadDocument` admite los `*_override`); debajo el **tipo** con el que
+  se atiende (`uploadableTypes`: lo que se sube sin acompañar a nada, el
+  pedido de salida y se dice cuál se pidió si se cambia, porque el papel que
+  hace falta no siempre es el que se pidió y el back no ata la resolución al
+  tipo) y, si ese tipo caduca, la caducidad, obligatoria como en la ficha—, **con uno que ya existe** («Atender con este» en la lista:
   se resuelve con su id y no se sube nada; la petición puede venir de que el
   tipo esté cerrado al conductor) o **sin archivo**. Y una casilla, marcada
   de salida, **concede ya a quien pidió lo que le quede con solicitud**:
@@ -530,8 +594,9 @@ Dos capas que van **siempre juntas**:
   acaso. Enviarla **no resuelve la alerta**: no ha cambiado nada todavía, y
   quien supervisa no cambia conductores igual que no cambia el estado del
   coche. La decide la administración en `/solicitudes` —**cuarta pestaña**; la
-  tercera es el papel que el campo PIDE porque le falta y la quinta son las
-  correcciones de ficha personal, y el aviso de la cabecera cuenta las cinco
+  tercera es el papel que el campo PIDE porque le falta, la quinta son las
+  correcciones de ficha personal y la sexta los cambios propuestos al parte
+  de una incidencia, y el aviso de la cabecera cuenta las seis
   bandejas— con **dos salidas**:
   **atendida** o **rechazada**, y **ninguna mueve la asignación**: el cambio se
   hace en «Cambiar conductor», que es el gesto atómico de siempre con su
@@ -1030,6 +1095,50 @@ Dos capas que van **siempre juntas**:
   va en el **mismo snapshot** de «volver a donde estábamos» (`toolsOpen` de
   `VehiclesView`, en `sessionStorage`); un snapshot anterior a esto no trae la
   clave y la barra sale como de salida, plegada.
+- **Los accidentes tienen su propia bandeja** (`/accidentes`, entrada
+  «Accidentes» del grupo Seguimiento, al lado de Incidencias, y atajo
+  «g x»), y es la **misma página** que incidencias con un `scope`
+  (`IncidentsPage` / `AccidentsPage`, `pages/IncidentsPage.tsx`): las mismas
+  pestañas, filtros, tabla, ojo, resolver y editar. Lo que cambia: la de
+  accidentes pide al back `type=accident` y **no tiene filtro de tipo** (un
+  filtro de una opción no filtra), y la de incidencias **ya no lista
+  accidentes** —ni en la tabla ni en el tipo del filtro o del alta—, porque
+  mezclados con averías y peticiones se perdían. El alta en accidentes es
+  **«Comunicar accidente»**: se elige el coche (o se da por elegido si la
+  bandeja ya filtra por uno) y se abre el **parte guiado** de siempre
+  (`AccidentReportForm`), no el formulario corto. Y **«Editar» en un
+  accidente abre ese MISMO parte en modo edición** (`incident` en
+  `AccidentReportForm`: precarga calle, hora, teléfono, atestado,
+  terceros y lesionados desde `details` o, si no lo trae, desde las
+  tablas materializadas, más kilometraje, CP, prioridad, estado y coste,
+  y guarda todo con un PATCH que el back vuelve a materializar por
+  señal); el formulario corto solo llegaba a la fecha, el coste y la
+  descripción. Sin el coche cargado cae en el formulario corto, con el
+  tipo fijo.
+  Cada cabecera lleva un botón a la otra bandeja y a Alertas. Y solo
+  accidentes lleva la columna **«Meses desde la creación»**
+  (`format.monthsSince`: meses de calendario enteros y los días que
+  sobran, sin desbordar a fin de mes; el valor que ordena y va al CSV son
+  los meses, el `title` la fecha de creación): un siniestro se cierra con
+  la aseguradora y el taller, y el que lleva meses abierto es el que hay
+  que mover. Y esa cifra es la **retención RGPD de los datos de terceros**:
+  los terceros y los lesionados de un accidente son datos personales de
+  gente ajena a la flota y no se guardan para siempre. Pasado el **año** la
+  fila va en ámbar; a los **18 meses** va en rojo, dice bajo los meses que
+  hay que borrar los datos de los terceros implicados y se enciende el
+  botón **«Borrar datos de terceros»** de Acciones (siempre a la vista en
+  accidentes, apagado con su porqué hasta que toca o cuando ya se borraron;
+  confirmación en rojo). Lo decide el back (`services/accidents.py`:
+  `THIRD_PARTY_WARN_MONTHS` / `THIRD_PARTY_RETENTION_MONTHS`,
+  `retention_due` → `third_parties_purge_due` en la fila; el front repite
+  las dos cifras en `format.ts` solo para pintar) y lo hace `POST
+  /incidents/{id}/purge-third-parties/` (admin): vacía las dos listas del
+  parte en `details` —el dato canónico, la señal rematerializa las tablas
+  sin filas— y deja `third_parties_purged_at` / `_by`; el resto del parte
+  (dónde, cuándo, atestado, daños) se conserva porque es del coche. Es la
+  excepción a N7 que pide el RGPD, como purgar un documento: no hay nada
+  que restaurar. El seed deja en `5678BCD` dos accidentes cerrados de hace
+  13 y 20 meses para ver las tres caras.
 - **«Resolver» es un único gesto** en gestión: `components/resolve/ResolveDispatcher`
   recibe un `ResolveTarget` (alerta o incidencia) y monta el formulario
   específico del tipo (`resolveFlow.ts` decide: ITV → `RegisterItvForm`,
@@ -2279,6 +2388,35 @@ Dos capas que van **siempre juntas**:
   la gestión ya la corrigió; `reject` no toca nada. Y cada uno ve **solo las
   suyas**: ni quien supervisa lee las de su gente, que son datos personales de
   otro.
+- **El parte de una incidencia se MODIFICA proponiéndolo desde el campo.**
+  Quien comunicó una incidencia no tiene lápiz en la app de campo (el parte
+  se corrige desde gestión), así que cada fila de incidencia —en las tres
+  tarjetas del coche y en la bandeja de campo— lleva **dos iconos** en vez
+  del botón «Solucionar»: la **marca** (resolver, solo gestión, con el
+  mismo despachador) y el **lápiz**, que abre `IncidentChangeModal` con los
+  cinco datos que se dejan pedir —fecha, descripción, kilometraje, CP
+  preferente y prioridad— cargados con lo de hoy y una nota, y manda
+  **solo lo que cambia** (`POST /incident-change-requests/`,
+  `IncidentChangeRequest` + `services/incident_requests.py`: idempotente por
+  incidencia, solo sobre una abierta y del ámbito de escritura; sin cambios
+  la nota es la petición). No se guarda nada: llega a gestión como
+  **propuesta** en la **sexta pestaña** de `/solicitudes`
+  (`IncidentChangeTab`, «Modificar el parte de una incidencia», el globo la
+  cuenta) con dos salidas, **aplicarla** (escribe esos campos en la
+  incidencia, vueltos a comparar con la de ahora; cerrada → 400) o
+  **rechazarla**. Mientras está viva, `Incident.change_pending` (anotado en
+  el queryset) pinta la fila **de otro color** en campo con la chapa
+  «Cambios propuestos» y el lápiz apagado, y en la bandeja de gestión la
+  fila va en azul con el enlace a la pestaña. **Y mientras está viva la
+  incidencia NO se resuelve**: lo que se cierra ha de ser el parte que
+  quede, así que `resolve_incident` contesta 400 con una propuesta sin
+  decidir y los botones de resolver de los dos lados —la bandeja y las
+  tarjetas de gestión (`PendingRow`, `resolveBlocked`), y en campo la
+  marca de las tres tarjetas, la bandeja, «Actualizar» y «A tu cargo»—
+  van apagados con ese porqué; aplicarla o rechazarla los enciende. En
+  «Mi perfil → Peticiones»
+  sale como «Cambios al parte». El seed deja una pendiente, una aplicada y
+  una rechazada en el escaparate `8888TRX`.
 - **«Mis datos» es una ventana POR PASOS y vive en el nav del perfil**, con el
   mismo carrusel que **subir un documento** (`flow-steps` + `step-pane` que
   entra deslizándose + pie de «Atrás / Continuar»): en un móvil, una ventana con
@@ -2314,10 +2452,10 @@ Dos capas que van **siempre juntas**:
   documentos, en **dos pestañas** dentro de esa tarjeta —«Pendientes» y
   «Resueltas», cada una con su recuento; el del título es el de lo pendiente,
   que es lo único que sigue pidiendo algo): **pendientes** y **resueltas**,
-  juntando las CINCO bandejas en
+  juntando las SEIS bandejas en
   las que una persona de campo puede tener algo —su ficha, sus documentos, el
-  papel que pidió porque le faltaba, el coche de sustitución que pidió y el
-  cambio de conductor que propuso—, porque
+  papel que pidió porque le faltaba, el coche de sustitución que pidió, el
+  cambio de conductor que propuso y los cambios que propuso a un parte—, porque
   desde aquí no se leen «bandejas»: se lee «lo mío». Las **rechazadas salen
   igual** (la chapa lo dice): pedir algo y no poder ver que se decidió que no
   es la mitad de un camino. Las cinco listas se piden con `allSettled` —una

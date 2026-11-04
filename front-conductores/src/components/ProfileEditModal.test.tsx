@@ -161,8 +161,8 @@ describe('«Mis datos y mis documentos» (lo que se pide desde el perfil)', () =
     pintar()
     const user = userEvent.setup()
     await avanzar(user, 1)
-    await user.click(screen.getByRole('button', { name: 'Pedir que se corrija Permiso de conducir' }))
-    const dialogo = screen.getByRole('dialog', { name: 'Corregir Permiso de conducir' })
+    await user.click(screen.getByRole('button', { name: 'Peticiones sobre Permiso de conducir' }))
+    const dialogo = screen.getByRole('dialog', { name: 'Peticiones · Permiso de conducir' })
     await user.clear(within(dialogo).getByLabelText('Fecha de caducidad'))
     await user.type(within(dialogo).getByLabelText('Fecha de caducidad'), '2031-05-31')
     await user.type(within(dialogo).getByLabelText('Por qué hay que corregirlo'), 'Lo renové.')
@@ -179,10 +179,17 @@ describe('«Mis datos y mis documentos» (lo que se pide desde el perfil)', () =
 
   it('con una petición viva, el documento no admite otra', async () => {
     pintar([{ ...DOC, deletion_pending: true }])
-    await avanzar(userEvent.setup(), 1)
+    const user = userEvent.setup()
+    await avanzar(user, 1)
     // Una por documento: pedir a la vez que se corrija y que se borre no es
-    // una petición, es un cambio de idea.
-    expect(screen.getByRole('button', { name: /Pedir que se corrija/ })).toBeDisabled()
+    // una petición, es un cambio de idea. La papelera se apaga; el lápiz
+    // sigue vivo —las otras pestañas no hablan del documento— y «Corregir»
+    // lo dice en vez de pintar el formulario.
     expect(screen.getByRole('button', { name: /Pedir el borrado/ })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: /Peticiones sobre/ }))
+    const dialogo = screen.getByRole('dialog', { name: 'Peticiones · Permiso de conducir' })
+    expect(within(dialogo).getByText(/Ya hay una petición sobre este documento/)).toBeInTheDocument()
+    expect(within(dialogo).queryByLabelText('Por qué hay que corregirlo')).not.toBeInTheDocument()
+    expect(within(dialogo).getByRole('button', { name: 'Enviar petición' })).toBeDisabled()
   })
 })

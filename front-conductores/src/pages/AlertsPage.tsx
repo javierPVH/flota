@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
-import { AlertTriangle, BellRing, Wrench } from 'lucide-react'
-import { Badge, Button, PageHeader } from '@flota/ui/ui'
+import { AlertTriangle, BellRing, CheckCircle2, Pencil, Siren } from 'lucide-react'
+import { Badge, Button, IconButton, PageHeader } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { AlertCard } from '../components/AlertCard.tsx'
@@ -19,6 +19,7 @@ import {
 import { FieldDeadlines } from '../components/FieldDeadlines.tsx'
 import { AlertResolveDispatcher } from '../components/AlertResolveDispatcher.tsx'
 import { CollapsibleCard, useAccordion } from '../components/CollapsibleCard.tsx'
+import { IncidentChangeModal } from '../components/IncidentChangeModal.tsx'
 import { IncidentResolveModal } from '../components/IncidentResolveModal.tsx'
 import { ListFilter, matches, typeOptions, type ListOrder } from '../components/ListFilter.tsx'
 import { isManagement, useAuth } from '../auth.ts'
@@ -317,6 +318,8 @@ export function AlertsPage() {
   // lectura; en el resto, observaciones que quedan en la resuelta.
   const [resolveFor, setResolveFor] = useState<Alert | null>(null)
   const [resolveIncident, setResolveIncident] = useState<Incident | null>(null)
+  // La incidencia a la que se le proponen cambios (el lapiz de la fila).
+  const [changeIncident, setChangeIncident] = useState<Incident | null>(null)
   function close(alert: Alert) {
     setNotice('')
     setResolveFor(alert)
@@ -425,7 +428,10 @@ export function AlertsPage() {
           const prioridad = priorityOf(incident)
           const parte = tireReportSummary(incident, t.newIncident)
           return (
-            <li key={incident.id} className={`doc-item pri-row pri-${prioridad}`}>
+            <li
+              key={incident.id}
+              className={`doc-item pri-row pri-${prioridad}${incident.change_pending ? ' is-change-pending' : ''}`}
+            >
               {icon}
               <div className="doc-info">
                 <strong>
@@ -449,11 +455,34 @@ export function AlertsPage() {
               <Badge tone={incidentStatusTone(incident.status)}>
                 {etiqueta.incidentStatus(incident)}
               </Badge>
-              {canManage && (
-                <Button type="button" size="sm" onClick={() => setResolveIncident(incident)}>
-                  {t.alerts.resolve}
-                </Button>
+              {incident.change_pending && (
+                <Badge tone="info" size="sm">
+                  {t.incidentChange.pendingBadge}
+                </Badge>
               )}
+              {/* Los mismos dos iconos que la tarjeta del coche: resolver
+                  (gestión; apagado con cambios propuestos sin decidir) y
+                  proponer cambios al parte (cualquiera). */}
+              <span className="doc-actions">
+                {canManage && (
+                  <IconButton
+                    aria-label={t.alerts.resolve}
+                    title={incident.change_pending ? t.incidentChange.resolveBlocked : t.alerts.resolve}
+                    disabled={Boolean(incident.change_pending)}
+                    onClick={() => setResolveIncident(incident)}
+                  >
+                    <CheckCircle2 size={16} aria-hidden />
+                  </IconButton>
+                )}
+                <IconButton
+                  aria-label={t.incidentChange.propose}
+                  title={t.incidentChange.propose}
+                  disabled={Boolean(incident.change_pending)}
+                  onClick={() => setChangeIncident(incident)}
+                >
+                  <Pencil size={16} aria-hidden />
+                </IconButton>
+              </span>
             </li>
           )
         })}
@@ -577,7 +606,7 @@ export function AlertsPage() {
           {incidentList(
             incidentView.shown,
             others.length,
-            <Wrench size={18} aria-hidden className="doc-icon" />,
+            <AlertTriangle size={18} aria-hidden className="doc-icon" />,
             t.vehicle.incidentsEmpty,
           )}
         </CollapsibleCard>
@@ -592,7 +621,7 @@ export function AlertsPage() {
           {incidentList(
             accidentView.shown,
             accidents.length,
-            <AlertTriangle size={18} aria-hidden className="doc-icon" />,
+            <Siren size={18} aria-hidden className="doc-icon" />,
             t.vehicle.accidentsEmpty,
           )}
         </CollapsibleCard>
@@ -625,6 +654,13 @@ export function AlertsPage() {
 
       {/* Y la petición, con el MISMO despachador por tipo que el tablero y la
           ficha: neumáticos, accidente o reparación. */}
+      {changeIncident && (
+        <IncidentChangeModal
+          incident={changeIncident}
+          onClose={() => setChangeIncident(null)}
+          onSent={load}
+        />
+      )}
       {resolveIncident && (
         <IncidentResolveModal
           incident={resolveIncident}

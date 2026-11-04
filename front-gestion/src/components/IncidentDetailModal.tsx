@@ -1,5 +1,23 @@
+import type { ReactNode } from 'react'
 import { Badge, Button, Modal } from '@flota/ui/ui'
 import { useAppLang } from '@flota/ui/i18n'
+import {
+  AlertTriangle,
+  CalendarDays,
+  CheckCircle2,
+  CircleDot,
+  ClipboardList,
+  Clock,
+  Euro,
+  FileBadge,
+  Gauge,
+  HeartPulse,
+  MapPin,
+  Phone,
+  Siren,
+  Users,
+  Wrench,
+} from 'lucide-react'
 
 import {
   fmtDate,
@@ -7,6 +25,7 @@ import {
   fmtKm,
   incidentPriorityTone,
   incidentStatusTone,
+  incidentTypeTone,
 } from '../format.ts'
 import { useTireSummary } from '../incidentSummary.ts'
 import { useIncidentsCopy } from '../translations/incidents.ts'
@@ -15,14 +34,45 @@ import type { Incident } from '../types.ts'
 import { useDomainLabels } from '../domainLabels.ts'
 
 /** Un dato: se omite ENTERO si no se recogió. Una etiqueta con un guion
- * delante no dice nada que no diga ya su ausencia, y son muchas. */
-function dato(label: string, value: string) {
+ * delante no dice nada que no diga ya su ausencia, y son muchas. El icono es
+ * opcional: lo llevan los que se buscan de un vistazo (el lugar, la hora, el
+ * teléfono), no todos, o dejaría de señalar nada. */
+function dato(label: string, value: string, icon?: ReactNode) {
   return value ? (
     <div className="report-fact">
       <span className="report-fact-label">{label}</span>
-      <span>{value}</span>
+      <span className="report-fact-value">
+        {icon && <span className="report-fact-icon">{icon}</span>}
+        {value}
+      </span>
     </div>
   ) : null
+}
+
+/** Un bloque del parte o de la ficha: cabecera con icono y título, y debajo
+ * lo suyo. Es la misma caja en la fila desplegada, en el modal y en los
+ * formularios de resolver que se parten en bloques («Resolver accidente»). */
+export function ReportBlock({
+  icon,
+  title,
+  aside,
+  children,
+}: {
+  icon: ReactNode
+  title: string
+  aside?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <section className="report-block">
+      <header className="report-block-head">
+        <span className="report-block-icon">{icon}</span>
+        <strong className="report-title">{title}</strong>
+        {aside && <span className="report-block-aside">{aside}</span>}
+      </header>
+      <div className="report-block-body">{children}</div>
+    </section>
+  )
 }
 
 /**
@@ -51,23 +101,30 @@ export function AccidentReportBlock({
   const sitio = [calle, r.postal_code, r.locality, r.province].filter(Boolean).join(' · ')
   return (
     <div className="accident-report">
-      <div className="report-block">
-        <strong className="report-title">{rt.where}</strong>
+      <ReportBlock icon={<MapPin size={15} aria-hidden />} title={rt.where}>
         <div className="report-facts">
-          {dato(rt.place, sitio)}
-          {dato(rt.occurredAt, r.occurred_at ? fmtDateTime(r.occurred_at, language) : '')}
-          {dato(rt.phone, r.phone)}
-          {dato(rt.policeRef, r.police_report_ref)}
+          {dato(rt.place, sitio, <MapPin size={14} aria-hidden />)}
+          {dato(
+            rt.occurredAt,
+            r.occurred_at ? fmtDateTime(r.occurred_at, language) : '',
+            <Clock size={14} aria-hidden />,
+          )}
+          {dato(rt.phone, r.phone, <Phone size={14} aria-hidden />)}
+          {dato(rt.policeRef, r.police_report_ref, <FileBadge size={14} aria-hidden />)}
           {!sinPeticion &&
             dato(rt.mileage, incident.mileage != null ? fmtKm(incident.mileage, language) : '')}
           {!sinPeticion && dato(rt.workshopPostalCode, incident.workshop_postal_code)}
         </div>
-      </div>
+      </ReportBlock>
 
-      <div className="report-block">
-        <strong className="report-title">{rt.thirdParties(r.third_parties.length)}</strong>
+      {/* Terceros y lesionados: el recuento va en el título, que es lo que se
+          lee plegado; sin ninguno, una línea y no una tabla vacía. */}
+      <ReportBlock
+        icon={<Users size={15} aria-hidden />}
+        title={rt.thirdParties(r.third_parties.length)}
+      >
         {r.third_parties.length === 0 ? (
-          <p className="muted">{rt.noThirdParties}</p>
+          <p className="muted report-none">{rt.noThirdParties}</p>
         ) : (
           <div className="report-table-wrap">
             <table className="report-table">
@@ -85,7 +142,7 @@ export function AccidentReportBlock({
               <tbody>
                 {r.third_parties.map((tp) => (
                   <tr key={tp.id}>
-                    <td>{tp.plate || rt.empty}</td>
+                    <td>{tp.plate ? <strong>{tp.plate}</strong> : rt.empty}</td>
                     <td>{[tp.brand, tp.model].filter(Boolean).join(' ') || rt.empty}</td>
                     <td>{tp.name || rt.empty}</td>
                     <td>{tp.phone || rt.empty}</td>
@@ -98,12 +155,11 @@ export function AccidentReportBlock({
             </table>
           </div>
         )}
-      </div>
+      </ReportBlock>
 
-      <div className="report-block">
-        <strong className="report-title">{rt.injured(r.injured.length)}</strong>
+      <ReportBlock icon={<HeartPulse size={15} aria-hidden />} title={rt.injured(r.injured.length)}>
         {r.injured.length === 0 ? (
-          <p className="muted">{rt.noInjured}</p>
+          <p className="muted report-none">{rt.noInjured}</p>
         ) : (
           <div className="report-table-wrap">
             <table className="report-table">
@@ -119,7 +175,7 @@ export function AccidentReportBlock({
               <tbody>
                 {r.injured.map((p) => (
                   <tr key={p.id}>
-                    <td>{p.name || rt.empty}</td>
+                    <td>{p.name ? <strong>{p.name}</strong> : rt.empty}</td>
                     <td>{p.phone || rt.empty}</td>
                     <td>{p.email || rt.empty}</td>
                     <td>{p.plate || rt.empty}</td>
@@ -130,7 +186,7 @@ export function AccidentReportBlock({
             </table>
           </div>
         )}
-      </div>
+      </ReportBlock>
     </div>
   )
 }
@@ -139,6 +195,19 @@ export function AccidentReportBlock({
 const texto = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
 const objeto = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+/** El icono con el que la app nombra cada tipo de incidencia. */
+function iconoDelTipo(type: Incident['type']) {
+  switch (type) {
+    case 'accident':
+      return <Siren size={22} aria-hidden />
+    case 'maintenance':
+    case 'tires':
+      return <Wrench size={22} aria-hidden />
+    default:
+      return <AlertTriangle size={22} aria-hidden />
+  }
+}
 
 /**
  * La incidencia ENTERA, de un vistazo: la petición, el parte con el que se
@@ -150,6 +219,13 @@ const objeto = (value: unknown): Record<string, unknown> =>
  * entre el JSON de `details` y el admin de Django. Es de solo lectura a
  * propósito: lo que se toca se toca donde se toca (editar, resolver), y esto
  * es para mirar.
+ *
+ * Se lee de arriba abajo: una **cabecera** con el tipo (su icono, en el color
+ * de su gravedad), la matrícula y las chapas de estado y prioridad, y a la
+ * derecha las tres cifras que se buscan primero —fecha, kilometraje y coste—;
+ * debajo, tres bloques con la misma caja: la petición (lo que se contó y
+ * desde dónde se busca taller), el parte (neumáticos o accidente) y la
+ * solución, que abierta es un hueco que lo dice y no un bloque en gris.
  */
 export function IncidentDetailModal({
   incident,
@@ -183,6 +259,29 @@ export function IncidentDetailModal({
         .join(' · ')
     : ''
   const parado = typeof resolucion.downtime_days === 'number' ? resolucion.downtime_days : null
+  const tipo = etiqueta.incidentType(incident) || incident.type_display
+
+  // Las tres cifras de la cabecera: lo que se busca antes de leer nada.
+  const cifras = [
+    {
+      key: 'date',
+      icon: <CalendarDays size={15} aria-hidden />,
+      label: t.columns.date,
+      value: incident.date ? fmtDate(incident.date, language) : '—',
+    },
+    {
+      key: 'km',
+      icon: <Gauge size={15} aria-hidden />,
+      label: t.report.mileage,
+      value: incident.mileage != null ? fmtKm(incident.mileage, language) : '—',
+    },
+    {
+      key: 'cost',
+      icon: <Euro size={15} aria-hidden />,
+      label: t.columns.cost,
+      value: incident.cost ? `${incident.cost} €` : '—',
+    },
+  ]
 
   return (
     <Modal
@@ -197,41 +296,68 @@ export function IncidentDetailModal({
       }
     >
       <div className="incident-detail">
-        <div className="detail-chips">
-          <Badge tone={incidentStatusTone(incident.status)}>{etiqueta.incidentStatus(incident)}</Badge>
-          <Badge tone={incidentPriorityTone(incident.priority)}>{etiqueta.incidentPriority(incident)}</Badge>
-        </div>
+        <header className={`detail-hero tone-${incidentTypeTone(incident.type)}`}>
+          <span className="detail-hero-icon">{iconoDelTipo(incident.type)}</span>
+          <div className="detail-hero-main">
+            <span className="detail-hero-type">{tipo}</span>
+            <span className="detail-hero-plate">{plate}</span>
+            <div className="detail-chips">
+              <Badge tone={incidentStatusTone(incident.status)}>
+                {etiqueta.incidentStatus(incident)}
+              </Badge>
+              <Badge tone={incidentPriorityTone(incident.priority)}>
+                {etiqueta.incidentPriority(incident)}
+              </Badge>
+            </div>
+          </div>
+          <dl className="detail-stats">
+            {cifras.map((c) => (
+              <div key={c.key} className="detail-stat">
+                <dt>
+                  {c.icon} {c.label}
+                </dt>
+                <dd>{c.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </header>
 
-        <div className="report-block">
-          <strong className="report-title">{d.request}</strong>
+        <ReportBlock icon={<ClipboardList size={15} aria-hidden />} title={d.request}>
+          {incident.description ? (
+            <p className="detail-text detail-quote">{incident.description}</p>
+          ) : (
+            <p className="muted report-none">{d.noDescription}</p>
+          )}
           <div className="report-facts">
-            {dato(t.columns.vehicle, plate)}
-            {dato(t.columns.type, etiqueta.incidentType(incident))}
-            {dato(t.columns.date, incident.date ? fmtDate(incident.date, language) : '')}
-            {dato(
-              t.report.mileage,
-              incident.mileage != null ? fmtKm(incident.mileage, language) : '',
-            )}
             {dato(t.report.workshopPostalCode, incident.workshop_postal_code)}
             {dato(d.workshop, incident.workshop_name)}
-            {dato(t.columns.cost, incident.cost ? `${incident.cost} €` : '')}
           </div>
-          {incident.description && <p className="detail-text">{incident.description}</p>}
-        </div>
+        </ReportBlock>
 
         {/* El parte guiado, cada uno con su forma. */}
         {resumenNeumaticos(incident) && (
-          <div className="report-block">
-            <strong className="report-title">{d.tires}</strong>
-            <p>{resumenNeumaticos(incident)}</p>
-          </div>
+          <ReportBlock icon={<Wrench size={15} aria-hidden />} title={d.tires}>
+            <p className="detail-text">{resumenNeumaticos(incident)}</p>
+          </ReportBlock>
         )}
         <AccidentReportBlock incident={incident} sinPeticion />
 
-        <div className="report-block">
-          <strong className="report-title">{d.resolution}</strong>
+        <ReportBlock
+          icon={
+            cerrada ? <CheckCircle2 size={15} aria-hidden /> : <CircleDot size={15} aria-hidden />
+          }
+          title={d.resolution}
+          aside={
+            cerrada && incident.resolution_date ? (
+              <Badge tone="success">{fmtDate(incident.resolution_date, language)}</Badge>
+            ) : undefined
+          }
+        >
           {!cerrada ? (
-            <p className="muted">{d.notResolved}</p>
+            <div className="detail-empty">
+              <CircleDot size={18} aria-hidden />
+              <span>{d.notResolved}</span>
+            </div>
           ) : (
             <>
               <div className="report-facts">
@@ -269,11 +395,11 @@ export function IncidentDetailModal({
                 {dato(rc.accident.totalLoss, siniestro.total_loss ? d.yes : '')}
               </div>
               {texto(resolucion.observations) && (
-                <p className="detail-text">{texto(resolucion.observations)}</p>
+                <p className="detail-text detail-quote">{texto(resolucion.observations)}</p>
               )}
             </>
           )}
-        </div>
+        </ReportBlock>
       </div>
     </Modal>
   )

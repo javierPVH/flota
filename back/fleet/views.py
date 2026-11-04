@@ -14,7 +14,12 @@ from django_filters import rest_framework as filters
 from django_filters.widgets import BooleanWidget
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import (
+    APIException,
+    NotFound,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
@@ -61,6 +66,7 @@ from .models import (
     FuelConsumption,
     FuelType,
     Incident,
+    IncidentChangeRequest,
     Invoice,
     InvoiceAllocation,
     KmReading,
@@ -86,6 +92,7 @@ from .models import (
 )
 from .models.enums import (
     ACCESS_REQUEST_KINDS,
+    EXCEPTION_REQUEST_KINDS,
     ONE_PER_DOCUMENT_KINDS,
     OUT_OF_FLEET,
     AlertLevel,
@@ -99,6 +106,7 @@ from .models.enums import (
     DocumentType,
     DriverChangeStatus,
     EventType,
+    IncidentChangeStatus,
     IncidentStatus,
     IncidentType,
     ProfileChangeStatus,
@@ -137,6 +145,7 @@ from .serializers import (
     EventSerializer,
     FuelConsumptionSerializer,
     FuelTypeSerializer,
+    IncidentChangeRequestSerializer,
     IncidentResolutionSerializer,
     IncidentSerializer,
     InvoiceAllocateSerializer,
@@ -165,6 +174,7 @@ from .serializers import (
     sanitize_email_html,
 )
 from .services import (
+    accidents,
     alerts,
     audit_revert,
     document_requests,
@@ -172,6 +182,7 @@ from .services import (
     driver_requests,
     events,
     importer,
+    incident_requests,
     incidents,
     insurance,
     itv,
@@ -2202,9 +2213,19 @@ class IncidentViewSet(
     # documentos — es la misma superficie expuesta a la red abierta.
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
-    queryset = Incident.objects.select_related(
-        "vehicle", "accident_report", "workshop", "resolved_by"
-    ).prefetch_related("accident_report__third_parties", "accident_report__injured")
+    queryset = (
+        Incident.objects.select_related("vehicle", "accident_report", "workshop", "resolved_by")
+        .prefetch_related("accident_report__third_parties", "accident_report__injured")
+        # Hay una petición de modificar el parte sin decidir: el campo pinta
+        # la fila de otro color (`IncidentSerializer.change_pending`).
+        .annotate(
+            change_pending=models.Exists(
+                IncidentChangeRequest.objects.filter(
+                    incident=models.OuterRef("pk"), status=IncidentChangeStatus.PENDING
+                )
+            )
+        )
+    )
     filterset_fields = ["vehicle", "type", "status", "priority"]
     ordering_fields = ["date", "created_at"]
 
@@ -2319,6 +2340,28 @@ class IncidentViewSet(
         # R5-02: si otra petición abierta impidió la vuelta a Activo, se dice cuál.
         data["blocked_by"] = substitution.blocked_payload(result.get("blocked_by"))
         return Response(data)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[IsAdmin],
+        url_path="purge-third-parties",
+    )
+    def purge_third_parties(self, request, pk=None):
+        """POST /api/v1/incidents/{id}/purge-third-parties/ — RGPD.
+
+        Borra los datos de los terceros y de los lesionados de un ACCIDENTE
+        que lleva creado `THIRD_PARTY_RETENTION_MONTHS` meses o más
+        (`third_parties_purge_due` en la fila). Solo admin; antes de tiempo,
+        ya borrado o en otro tipo de incidencia, 400. Devuelve la incidencia.
+        """
+        incident = self.get_object()  # scoping + 404
+        try:
+            accidents.purge_third_parties(incident, actor=request.user)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        incident.refresh_from_db()
+        return Response(self.get_serializer(incident).data)
 
 
 def _document_filename(document, mime: str) -> str:
@@ -2685,9 +2728,11 @@ class DocumentDeletionRequestViewSet(
     def create(self, request, *args, **kwargs):
         """Pide algo sobre un documento (o devuelve la petición ya abierta).
 
-        Dos clases: **borrarlo** (la de siempre) y **corregirlo** (`kind`
-        = `"change"` con `changes`). El documento tiene que estar **en el
-        ámbito de quien pide**: se comprueba con `readable_documents`, la misma
+        Las clases: **borrarlo** (la de siempre), **corregirlo** (`kind`
+        = `"change"` con `changes`), el **acceso** (ver, bajar), las
+        **excepcionales** (la descarga o el borrado cuando el mando está
+        cerrado) y **otra petición** (libre). El documento tiene que estar
+        **en el ámbito de quien pide**: se comprueba con `readable_documents`, la misma
         regla que sirve el listado y el binario — pedir algo sobre lo que no se
         puede ni leer no es una petición, es una sonda.
         """
@@ -2728,6 +2773,22 @@ class DocumentDeletionRequestViewSet(
             )
             if not hace_falta:
                 raise ValidationError({"kind": "No hace falta pedirlo: ya puedes hacerlo."})
+        # Las EXCEPCIONALES piden justo lo que está cerrado: solo se abren si
+        # lo está. Lo que va «con solicitud» sigue su camino de siempre, y lo
+        # directo no se pide.
+        if kind == DocumentRequestKind.ALLOW_DOWNLOAD and not download_denied(request.user, acceso):
+            raise ValidationError(
+                {"kind": "La descarga no está cerrada: pídela por el camino de siempre."}
+            )
+        if kind == DocumentRequestKind.ALLOW_DELETE and not delete_denied(request.user, acceso):
+            raise ValidationError(
+                {"kind": "El borrado no está cerrado: pídelo por el camino de siempre."}
+            )
+        # En estas y en la libre, la nota es todo lo que lee quien decide.
+        if (kind in EXCEPTION_REQUEST_KINDS or kind == DocumentRequestKind.OTHER) and not str(
+            datos.get("reason", "") or ""
+        ).strip():
+            raise ValidationError({"reason": "Di qué pides: es lo único que lee quien decide."})
         if kind == DocumentRequestKind.CHANGE and not document_requests.clean_document_changes(
             cambios, document=document
         ):
@@ -2751,8 +2812,11 @@ class DocumentDeletionRequestViewSet(
         Cuerpo: `{"decision": …, "note": "…"}`. En una de **borrado**, `delete`
         la manda a erratas, `hide` la deja en la flota pero protegida y a
         nombre de quien decide, y `reject` no toca el documento; en una de
-        **corrección**, `apply` escribe los cambios y `reject` no. Todas la
-        sacan de pendiente, que es lo que quita la marca en el campo.
+        **corrección**, `apply` escribe los cambios y `reject` no; en una de
+        **acceso** (y en la descarga excepcional), `grant` o `reject`; en un
+        borrado excepcional, las del borrado; y en **otra petición**, `done`
+        o `reject`. Todas la sacan de pendiente, que es lo que quita la marca
+        en el campo.
         """
         peticion = self.get_object()
         if peticion.status != DocumentDeletionStatus.PENDING:
@@ -4112,6 +4176,90 @@ class ProfileChangeRequestViewSet(
             # Otra cuenta se ha quedado ese correo: la petición sigue
             # pendiente y se dice qué campo estorba, que es lo accionable.
             raise ValidationError(choque.errors) from choque
+        peticion.refresh_from_db()
+        return Response(self.get_serializer(peticion).data)
+
+
+class IncidentChangeRequestViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Peticiones de MODIFICAR el parte de una incidencia: el campo propone.
+
+    Quien comunicó una incidencia no tiene lápiz en la app de campo: propone
+    desde la fila de la incidencia y la propuesta espera en `/solicitudes`
+    (sexta bandeja). Se pide sobre una incidencia **del ámbito de escritura**
+    (`vehicles_for(write=True)`, donde cuenta el reparto de uso) y que siga
+    abierta. No hay `PUT`/`PATCH`/`DELETE`: una petición se resuelve.
+    """
+
+    serializer_class = IncidentChangeRequestSerializer
+    permission_classes = [ManagementOrDriverReadWrite]
+    throttle_classes = [UserRateThrottle, PublicWriteThrottle]
+    throttle_scope = "public_write"
+    queryset = IncidentChangeRequest.objects.select_related(
+        "incident", "incident__vehicle", "requested_by", "resolved_by"
+    )
+    filterset_fields = ["status", "incident"]
+    ordering_fields = ["created_at", "resolved_at"]
+
+    def get_queryset(self):
+        """La gestión ve las de su ámbito (admin, toda la flota; supervisor,
+        su grupo); quien conduce, solo las que abrió él."""
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_management:
+            return qs.filter(incident__vehicle__in=vehicles_for(user).values("id"))
+        return qs.filter(requested_by=user)
+
+    def create(self, request, *args, **kwargs):
+        """Propone cambios al parte (o devuelve la petición ya abierta)."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+        incident = datos["incident"]
+        # Como el alta de una incidencia: el coche tiene que estar en el ámbito
+        # de ESCRITURA de quien pide; fuera de él, ni existe.
+        if not vehicles_for(request.user, write=True).filter(pk=incident.vehicle_id).exists():
+            raise NotFound()
+        try:
+            peticion = incident_requests.open_request(
+                incident,
+                actor=request.user,
+                changes=datos.get("changes") or {},
+                note=datos.get("note", ""),
+            )
+        except incident_requests.IncidentClosed:
+            raise ValidationError(
+                {"incident": "La incidencia ya está cerrada: no hay parte que modificar."}
+            ) from None
+        salida = self.get_serializer(peticion)
+        return Response(salida.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsManagement])
+    def resolve(self, request, pk=None):
+        """POST /incident-change-requests/{id}/resolve/ — la decide la gestión.
+
+        Cuerpo: `{"decision": "done" | "reject", "note": "…"}`. `done`
+        **aplica** lo pedido sobre la incidencia; `reject` no toca nada.
+        """
+        peticion = self.get_object()
+        if peticion.status != IncidentChangeStatus.PENDING:
+            raise ValidationError({"status": "Esa petición ya está resuelta."})
+        decision = str(request.data.get("decision", "") or "")
+        if decision not in incident_requests.DECISIONS:
+            raise ValidationError(
+                {"decision": f"Indica una decisión: {', '.join(incident_requests.DECISIONS)}."}
+            )
+        note = str(request.data.get("note", "") or "").strip()[:255]
+        try:
+            incident_requests.resolve(peticion, decision=decision, actor=request.user, note=note)
+        except incident_requests.IncidentClosed:
+            raise ValidationError(
+                {"incident": "La incidencia ya está cerrada: rechaza la petición."}
+            ) from None
         peticion.refresh_from_db()
         return Response(self.get_serializer(peticion).data)
 

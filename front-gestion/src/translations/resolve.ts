@@ -123,6 +123,12 @@ const es = {
     liabilityThirdParty: 'Tercero',
     liabilityDeductible: 'Franquicia',
     deductibleAmount: 'Importe de la franquicia (€)',
+    // Los tres bloques del formulario: qué se hizo, quién lo paga, qué queda
+    // escrito.
+    sectionRepair: 'La reparación',
+    sectionClaim: 'El siniestro',
+    sectionNotes: 'Observaciones y factura',
+    claimRefHint: 'El que da la aseguradora',
     totalLoss: 'Siniestro total',
     totalLossHint: 'El vehículo no vuelve al servicio: al resolver se abre su baja.',
     confirm: 'Resolver y cerrar',
@@ -176,6 +182,10 @@ const es = {
     resolvedTag: 'Resuelta',
     resolvedBy: (name: string) => `Resuelta por ${name}`,
     resolve: 'Resolver',
+    // El campo ha propuesto cambios al parte: la chapa y el ✓ apagado.
+    changePending: 'Cambios propuestos',
+    resolveBlocked:
+      'No se puede resolver hasta que se acepten o rechacen los cambios propuestos (Solicitudes).',
     // Sobre de la fila: abre el aviso por correo al responsable del coche.
     email: 'Avisar por correo',
     newIncident: 'Nueva incidencia',
@@ -299,6 +309,10 @@ const en: typeof es = {
     liabilityThirdParty: 'Third party',
     liabilityDeductible: 'Deductible',
     deductibleAmount: 'Deductible amount (€)',
+    sectionRepair: 'The repair',
+    sectionClaim: 'The claim',
+    sectionNotes: 'Notes and invoice',
+    claimRefHint: 'The one the insurer gives',
     totalLoss: 'Total loss',
     totalLossHint: 'The vehicle does not return to service: resolving opens its retirement.',
     confirm: 'Resolve & close',
@@ -344,6 +358,9 @@ const en: typeof es = {
     resolvedTag: 'Resolved',
     resolvedBy: (name) => `Resolved by ${name}`,
     resolve: 'Resolve',
+    changePending: 'Changes proposed',
+    resolveBlocked:
+      'It cannot be resolved until the proposed changes are accepted or rejected (Requests).',
     email: 'Notify by email',
     newIncident: 'New incident',
     accidentReport: 'Report an accident',

@@ -8,6 +8,7 @@ import { LanguageProvider } from '../i18n.tsx'
 import type { DocumentDeletionRequestRow } from '../api.ts'
 
 const mocks = vi.hoisted(() => ({
+  updateDocument: vi.fn(),
   listDocumentDeletionRequests: vi.fn(),
   resolveDocumentDeletionRequest: vi.fn(),
   listDocuments: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
+  updateDocument: mocks.updateDocument,
   listDocumentDeletionRequests: mocks.listDocumentDeletionRequests,
   resolveDocumentDeletionRequest: mocks.resolveDocumentDeletionRequest,
   listDocuments: mocks.listDocuments,
@@ -121,6 +123,7 @@ describe('Bandeja de peticiones de borrado de documentos', () => {
     })
     mocks.listDocumentTypeAccess.mockResolvedValue([])
     mocks.grantDocumentAccess.mockResolvedValue({})
+    mocks.updateDocument.mockResolvedValue({})
   })
 
   it('«Gestionar» enseña la documentación del titular, marca la de la petición y concede fila a fila', async () => {
@@ -140,10 +143,13 @@ describe('Bandeja de peticiones de borrado de documentos', () => {
     expect(within(lista).getByText('Lectura pedida')).toBeInTheDocument()
     expect(within(lista).getByText('Ficha técnica')).toBeInTheDocument()
     expect(within(lista).getByText('Lo ve')).toBeInTheDocument()
-    // La póliza: se le concede la lectura desde la fila; la ficha técnica no
-    // ofrece nada que conceder (ya lo ve todo). Y «Acceso del grupo» en todas.
-    expect(within(lista).getAllByRole('button', { name: /Acceso del grupo/ })).toHaveLength(2)
-    await user.click(within(lista).getByRole('button', { name: 'Conceder lectura' }))
+    // Nada se concede fila a fila: se marca la póliza, se deja su acceso
+    // como está y, al guardar, se le concede a Carlos la lectura que tenía
+    // pedida, que es lo que decide la petición abierta.
+    await user.click(within(lista).getByRole('checkbox', { name: 'Marcar Seguro' }))
+    await user.click(within(lista).getByRole('button', { name: 'Dar acceso a los marcados (1)' }))
+    await user.click(within(lista).getByRole('button', { name: 'Guardar en 1' }))
+    await waitFor(() => expect(mocks.updateDocument).toHaveBeenCalledWith(12, expect.anything()))
     await waitFor(() =>
       expect(mocks.grantDocumentAccess).toHaveBeenCalledWith(12, { user: 9, kind: 'view' }),
     )

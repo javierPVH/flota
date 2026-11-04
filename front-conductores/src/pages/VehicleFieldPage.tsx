@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
 import {
+  AlertTriangle,
   ArrowLeft,
   CalendarCheck,
   CalendarCog,
-  Camera,
   ChevronDown,
   ClipboardCheck,
-  ClipboardList,
+  FilePlus,
   Fuel,
   Gauge,
   Mail,
@@ -476,7 +476,7 @@ export function VehicleFieldPage() {
               maintenanceAvailable ? setUpdateOpen(true) : setScheduledInfo('maintenance')
             }
           >
-            <ClipboardList size={20} aria-hidden /> {t.carUpdate.maintenanceButton}
+            <Wrench size={20} aria-hidden /> {t.carUpdate.maintenanceButton}
           </button>
         )}
 
@@ -510,11 +510,11 @@ export function VehicleFieldPage() {
 
         {blocked ? (
           <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
-            <Wrench size={20} aria-hidden /> {t.home.quickBreakdown}
+            <AlertTriangle size={20} aria-hidden /> {t.home.quickBreakdown}
           </span>
         ) : (
           <button type="button" className="quick-action" onClick={() => setBreakdownOpen(true)}>
-            <Wrench size={20} aria-hidden /> {t.home.quickBreakdown}
+            <AlertTriangle size={20} aria-hidden /> {t.home.quickBreakdown}
           </button>
         )}
 
@@ -534,11 +534,11 @@ export function VehicleFieldPage() {
 
         {blocked ? (
           <span className="quick-action is-disabled" aria-disabled="true" title={t.vehicle.blockedActions}>
-            <Camera size={20} aria-hidden /> {t.vehicle.quickDocument}
+            <FilePlus size={20} aria-hidden /> {t.vehicle.quickDocument}
           </span>
         ) : (
           <button type="button" className="quick-action" onClick={() => setDocumentOpen(true)}>
-            <Camera size={20} aria-hidden /> {t.vehicle.quickDocument}
+            <FilePlus size={20} aria-hidden /> {t.vehicle.quickDocument}
           </button>
         )}
 
@@ -599,7 +599,7 @@ export function VehicleFieldPage() {
           // desplegable dentro de la ficha (pantalla pequeña, un paso cada vez).
           <Link to={`/documentos/nuevo?vehiculo=${vehicleId}`}>
             <Button size="sm">
-              <Camera size={16} aria-hidden /> {t.vehicle.upload}
+              <FilePlus size={16} aria-hidden /> {t.vehicle.upload}
             </Button>
           </Link>
         }

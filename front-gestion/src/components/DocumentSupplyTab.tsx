@@ -4,7 +4,7 @@ import { Badge, Button, FileField, Modal, SelectField, TextInputField } from '@f
 import type { BadgeTone } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { Download } from 'lucide-react'
+import { Ban, Check, Download, FileCheck2, FolderOpen, Handshake, Upload } from 'lucide-react'
 
 import {
   type DocumentSupplyDecision,
@@ -20,7 +20,13 @@ import {
 } from '../api.ts'
 import type { FlotaDocument } from '../types.ts'
 import { exportCsv } from '../csv.ts'
-import { documentExpires } from '../documentRules.ts'
+import {
+  PERSONAL_DOCUMENT_TYPES,
+  VEHICLE_DOCUMENT_TYPES,
+  documentExpires,
+  documentLinkRequired,
+  incidentTypeRequiredBy,
+} from '../documentRules.ts'
 import { fmtDate, fmtDateTime } from '../format.ts'
 import { useAppLang } from '@flota/ui/i18n'
 import { useRequestsCopy } from '../translations/requests.ts'
@@ -29,8 +35,7 @@ import { isDefaultView, useRequestFilter } from './requestFilter.ts'
 import { RequestsFilterBar } from './RequestsFilterBar.tsx'
 import { EMPTY_PICK, overridesFromPick } from './accessPick.ts'
 import { AccessOverrideRows } from './AccessOverrideRows.tsx'
-import { OwnerDocumentsAccess, type DocumentOwner } from './OwnerDocumentsAccess.tsx'
-import { RequestManageTabs, type ManageTab } from './RequestManageTabs.tsx'
+import { OwnerDocumentsAccess, RequesterAccess, type DocumentOwner } from './OwnerDocumentsAccess.tsx'
 import { useAccessParts } from './useAccessParts.ts'
 
 /** Estado → tono de la chapa. Pendiente avisa; las dos salidas informan. */
@@ -40,12 +45,29 @@ const TONE: Record<DocumentSupplyRequestRow['status'], BadgeTone> = {
   rejected: 'neutral',
 }
 
-const DECISIONS: DocumentSupplyDecision[] = ['done', 'reject']
+/** Lo que se hace con la petición, en UNA elección: las tres maneras de
+ * atenderla —subir el documento, elegir uno que ya existe o nada, que se
+ * entregó por otra vía— y rechazarla. Antes eran un desplegable (atender /
+ * rechazar) y, debajo, tres radios de «cómo»: dos preguntas para una decisión. */
+type Choice = 'upload' | 'existing' | 'none' | 'reject'
+const CHOICES: Choice[] = ['upload', 'existing', 'none', 'reject']
+/** Con qué TIPO se puede atender subiendo: los que se dan de alta sin
+ * acompañar a nada (una factura o unas fotos de daños necesitan su
+ * incidencia, y aquí no hay dónde elegirla), según sea el titular. El de
+ * salida es el pedido; se cambia cuando lo que hace falta es otro papel. */
+function uploadableTypes(personal: boolean): readonly string[] {
+  if (personal) return PERSONAL_DOCUMENT_TYPES
+  return VEHICLE_DOCUMENT_TYPES.filter(
+    (type) => !documentLinkRequired(type) && incidentTypeRequiredBy(type) === null,
+  )
+}
 
-/** Las tres maneras de ATENDER: subir el documento, elegir uno que ya existe
- * o nada (se entregó por otra vía). */
-type How = 'upload' | 'existing' | 'none'
-const HOWS: How[] = ['upload', 'existing', 'none']
+const CHOICE_ICON: Record<Choice, typeof Upload> = {
+  upload: Upload,
+  existing: FileCheck2,
+  none: Handshake,
+  reject: Ban,
+}
 
 /**
  * Concede a quien pidió lo que, con el acceso que ha quedado, vaya con
@@ -92,12 +114,20 @@ export function DocumentSupplyTab({ onCountsChange }: { onCountsChange?: () => v
   const [notice, setNotice] = useState('')
 
   const [managing, setManaging] = useState<DocumentSupplyRequestRow | null>(null)
-  // El modal en dos pestañas: la decisión y la documentación del titular.
-  const [tab, setTab] = useState<ManageTab>('decide')
+  // La documentación del titular va en SU modal, encima de la decisión: se
+  // abre para elegir con qué documento se atiende y para dar acceso a lo
+  // que ya hay. Fue una pestaña, y la decisión no se leía entera.
+  const [docsOpen, setDocsOpen] = useState(false)
   const [docsCount, setDocsCount] = useState<number | null>(null)
-  const [decision, setDecision] = useState<DocumentSupplyDecision>('done')
-  const [how, setHow] = useState<How>('upload')
+  // El acuse de lo guardado en esa lista, que se cierra al guardar, y los
+  // documentos que se marcaron en ella, con su acceso para quien pide: son
+  // los «elegidos» entre los que se atiende con uno que ya existe.
+  const [docsNotice, setDocsNotice] = useState('')
+  const [chosenDocs, setChosenDocs] = useState<FlotaDocument[]>([])
+  const [choice, setChoice] = useState<Choice>('upload')
   const [file, setFile] = useState<File | null>(null)
+  // El tipo del documento que se sube: el pedido, salvo que se cambie.
+  const [docType, setDocType] = useState('')
   const [expiry, setExpiry] = useState('')
   // El acceso del documento que se sube: según su tipo o un ajuste propio.
   const [accessMode, setAccessMode] = useState<'type' | 'own'>('type')
@@ -146,11 +176,13 @@ export function DocumentSupplyTab({ onCountsChange }: { onCountsChange?: () => v
 
   function openManage(row: DocumentSupplyRequestRow) {
     setManaging(row)
-    setTab('decide')
+    setDocsOpen(false)
     setDocsCount(null)
-    setDecision('done')
-    setHow('upload')
+    setDocsNotice('')
+    setChosenDocs([])
+    setChoice('upload')
     setFile(null)
+    setDocType(row.type)
     setExpiry('')
     setAccessMode('type')
     setPick(EMPTY_PICK)
@@ -164,11 +196,11 @@ export function DocumentSupplyTab({ onCountsChange }: { onCountsChange?: () => v
   const ownerOf = (row: DocumentSupplyRequestRow): DocumentOwner =>
     row.vehicle ? { vehicle: row.vehicle } : { user: row.user as number }
 
-  /** Lo que el tipo pedido dice hoy de quién lo lee (chapas). */
-  const typeSays = (row: DocumentSupplyRequestRow) => {
-    const rule = accessByType.get(row.type as FlotaDocument['type'])
+  /** Lo que un tipo dice hoy de quién lo lee (chapas). */
+  const typeSays = (type: string) => {
+    const rule = accessByType.get(type as FlotaDocument['type'])
     const falso = {
-      type: row.type,
+      type,
       supervisor_read_override: null,
       driver_read_override: null,
       driver_view_override: null,
@@ -195,31 +227,31 @@ export function DocumentSupplyTab({ onCountsChange }: { onCountsChange?: () => v
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (!managing) return
-    const atiende = decision === 'done'
-    const sube = atiende && how === 'upload'
+    const decision: DocumentSupplyDecision = choice === 'reject' ? 'reject' : 'done'
+    const sube = choice === 'upload'
     if (sube && !file) {
       setModalError(copy.fileRequired)
       return
     }
-    if (sube && documentExpires(managing.type) && !expiry) {
+    if (sube && documentExpires(docType) && !expiry) {
       setModalError(copy.expiryRequired)
       return
     }
-    if (atiende && how === 'existing' && !picked) {
+    if (choice === 'existing' && !picked) {
       setModalError(copy.pickRequired)
       return
     }
     setSaving(true)
     setModalError('')
     const quien = ownerLabel(managing)
-    let documento: number | null = atiende && how === 'existing' ? (picked?.id ?? null) : null
+    let documento: number | null = choice === 'existing' ? (picked?.id ?? null) : null
     try {
       if (sube) {
         const creado = await uploadDocument(
           {
             ...ownerOf(managing),
-            type: managing.type,
-            expiry_date: expiry || null,
+            type: docType,
+            expiry_date: documentExpires(docType) ? expiry || null : null,
             // El acceso con el que nace: lo de su tipo (nada que mandar) o el
             // ajuste propio, que pisa lo del tipo solo en este documento.
             ...(accessMode === 'own' ? overridesFromPick(pick) : {}),
@@ -362,12 +394,24 @@ export function DocumentSupplyTab({ onCountsChange }: { onCountsChange?: () => v
     columns,
   )
 
-  const hint: Record<DocumentSupplyDecision, string> = useMemo(
-    () => ({ done: copy.optDoneHint, reject: copy.optRejectHint }),
-    [copy],
+  /** Cada tarjeta: su título y la línea que dice qué pasa al elegirla. */
+  const choiceCopy: Record<Choice, { label: string; hint: string }> = useMemo(
+    () => ({
+      upload: { label: copy.choiceUpload, hint: copy.choiceUploadHint },
+      existing: { label: copy.choiceExisting, hint: copy.choiceExistingHint(docsCount) },
+      none: { label: copy.choiceNone, hint: copy.choiceNoneHint },
+      reject: { label: copy.choiceReject, hint: copy.choiceRejectHint },
+    }),
+    [copy, docsCount],
   )
-  const label: Record<DocumentSupplyDecision, string> = useMemo(
-    () => ({ done: copy.optDone, reject: copy.optReject }),
+  /** El botón del pie dice lo que va a pasar, no «Resolver». */
+  const submitLabel: Record<Choice, string> = useMemo(
+    () => ({
+      upload: copy.submitUpload,
+      existing: copy.submitExisting,
+      none: copy.submitNone,
+      reject: copy.submitReject,
+    }),
     [copy],
   )
 
@@ -472,153 +516,246 @@ export function DocumentSupplyTab({ onCountsChange }: { onCountsChange?: () => v
                 <strong>{copy.noteLabel}:</strong>{' '}
                 {managing.note || <span className="muted">{copy.noNote}</span>}
               </span>
+              {/* Lo que el titular YA tiene, a un clic: para dar acceso a lo
+                  que hay o para atender con uno de ellos. */}
+              <span className="request-info-docs">
+                <Button size="sm" variant="secondary" onClick={() => setDocsOpen(true)}>
+                  <FolderOpen size={14} aria-hidden />{' '}
+                  {docsCount === null ? copy.docsButton : copy.docsButtonCount(docsCount)}
+                </Button>
+              </span>
             </div>
 
-            <RequestManageTabs
-              tab={tab}
-              onChange={setTab}
-              docsCount={docsCount}
-              ariaLabel={t.manage.tabsAria}
-            />
+            {docsNotice && (
+              <div role="status" className="notice-ok">
+                {docsNotice}
+              </div>
+            )}
 
-            {/* Las dos pestañas siguen montadas (`hidden`): lo escrito en la
-                decisión no se pierde al mirar la documentación, y la lista
-                no se vuelve a pedir al volver. */}
-            <form className="modal-form manage-pane" onSubmit={submit} hidden={tab !== 'decide'}>
-              <SelectField
-                label={copy.decision}
-                options={DECISIONS.map((value) => ({ value, label: label[value] }))}
-                value={decision}
-                onValueChange={(value) => setDecision(value as DocumentSupplyDecision)}
-              />
-              <p className="muted" style={{ margin: 0 }}>
-                {hint[decision]}
-              </p>
-              {decision === 'done' && (
-                <>
-                  {/* Cómo se atiende: subiendo, con uno que ya existe o sin
-                      archivo. Tres radios y no un archivo opcional, para que
-                      «sin archivo» sea una decisión y no un olvido. */}
-                  <div className="pill-choices" role="radiogroup" aria-label={copy.howLabel}>
-                    <span className="ops-checks-label">{copy.howLabel}</span>
-                    {HOWS.map((option) => (
-                      <label key={option} className="baja-toggle">
-                        <input
-                          type="radio"
-                          name="supply-how"
-                          checked={how === option}
-                          onChange={() => setHow(option)}
-                        />
-                        {option === 'upload'
-                          ? copy.howUpload
-                          : option === 'existing'
-                            ? copy.howExisting
-                            : copy.howNone}
-                      </label>
-                    ))}
-                  </div>
-                  {how === 'upload' && (
-                    <>
-                      <FileField
-                        label={copy.file}
-                        accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
-                        value={file}
-                        onFiles={(files) => setFile(files[0] ?? null)}
+            <form className="modal-form manage-pane" onSubmit={submit}>
+              {/* UNA elección en cuatro tarjetas, cada una con lo que pasa al
+                  elegirla: era un desplegable (atender / rechazar) más tres
+                  radios de «cómo» que se partían en dos líneas. */}
+              <div className="choice-cards" role="radiogroup" aria-label={copy.choiceLabel}>
+                {CHOICES.map((option) => {
+                  const Icon = CHOICE_ICON[option]
+                  return (
+                    <label
+                      key={option}
+                      className={`choice-card${option === 'reject' ? ' choice-card--danger' : ''}`}
+                    >
+                      <input
+                        type="radio"
+                        name="supply-choice"
+                        value={option}
+                        checked={choice === option}
+                        onChange={() => setChoice(option)}
                       />
-                      {/* La caducidad solo a lo que caduca, y obligatoria en
-                          gestión: las mismas reglas que el alta de la ficha. */}
-                      {file && documentExpires(managing.type) && (
-                        <TextInputField
-                          label={copy.expiry}
-                          type="date"
-                          // Sin `required` nativo a propósito: la validación
-                          // propia dice POR QUÉ hace falta (ese tipo caduca), y
-                          // el aviso del navegador se la comería antes del envío.
-                          requiredVisual
-                          value={expiry}
-                          onChange={(event) => setExpiry(event.target.value)}
-                        />
-                      )}
-                      {/* Con qué acceso nace: lo de su tipo (y se dice qué es
-                          hoy) o un ajuste propio, con los mismos mandos que el
-                          modal «Acceso» de la fila. */}
-                      <div className="pill-choices" role="radiogroup" aria-label={copy.accessLabel}>
-                        <span className="ops-checks-label">{copy.accessLabel}</span>
-                        <label className="baja-toggle">
-                          <input
-                            type="radio"
-                            name="supply-access"
-                            checked={accessMode === 'type'}
-                            onChange={() => setAccessMode('type')}
-                          />
-                          {copy.accessByType}
-                        </label>
-                        <label className="baja-toggle">
-                          <input
-                            type="radio"
-                            name="supply-access"
-                            checked={accessMode === 'own'}
-                            onChange={() => setAccessMode('own')}
-                          />
-                          {copy.accessOwn}
-                        </label>
-                      </div>
-                      {accessMode === 'type' ? (
-                        <p className="muted doc-access-cell" style={{ margin: 0 }}>
-                          {copy.accessTypeSays}{' '}
-                          {typeSays(managing).map((part) => (
-                            <Badge key={part} tone="neutral" size="sm">
-                              {part}
-                            </Badge>
-                          ))}
-                        </p>
-                      ) : (
-                        <AccessOverrideRows
-                          pick={pick}
-                          onChange={setPick}
-                          rule={accessByType.get(managing.type as FlotaDocument['type'])}
-                        />
-                      )}
-                    </>
-                  )}
-                  {how === 'existing' && (
-                    <div className="manage-picked">
-                      {picked ? (
-                        <>
-                          <Badge tone="brand">{copy.picked(etiqueta.docType(picked))}</Badge>
-                          <Button size="sm" variant="secondary" onClick={() => setPicked(null)}>
-                            {copy.unpick}
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <span className="muted">{copy.pickRequired}</span>
-                          <Button size="sm" variant="secondary" onClick={() => setTab('docs')}>
-                            {t.manage.tabDocs}
-                          </Button>
-                        </>
-                      )}
+                      <Icon size={20} aria-hidden className="choice-card-icon" />
+                      <span className="choice-card-text">
+                        <strong>{choiceCopy[option].label}</strong>
+                        <span className="muted">{choiceCopy[option].hint}</span>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+
+              {/* Lo que pide la tarjeta elegida, en su caja. */}
+              {choice === 'upload' && (
+                <div className="choice-detail">
+                  <FileField
+                    label={copy.file}
+                    accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
+                    value={file}
+                    onFiles={(files) => setFile(files[0] ?? null)}
+                  />
+                  {/* Con qué acceso nace: lo de su tipo (y se dice qué es
+                      hoy, al lado) o un ajuste propio, con los mismos mandos
+                      que el modal «Acceso» de la fila. Un conmutador y no dos
+                      radios: es una posición u otra. */}
+                  <div className="choice-access">
+                    <span className="ops-checks-label">{copy.accessLabel}</span>
+                    <div className="seg-switch" role="radiogroup" aria-label={copy.accessLabel}>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={accessMode === 'type'}
+                        className={accessMode === 'type' ? 'is-active' : ''}
+                        onClick={() => setAccessMode('type')}
+                      >
+                        {copy.accessByType}
+                      </button>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={accessMode === 'own'}
+                        className={accessMode === 'own' ? 'is-active' : ''}
+                        onClick={() => setAccessMode('own')}
+                      >
+                        {copy.accessOwn}
+                      </button>
                     </div>
-                  )}
-                  {how !== 'none' && managing.requested_by && (
-                    <div>
-                      <label className="baja-toggle">
-                        <input
-                          type="checkbox"
-                          checked={grantToo}
-                          onChange={(event) => setGrantToo(event.target.checked)}
-                        />
-                        {copy.grantToo(managing.requested_by_name)}
-                      </label>
-                      <p className="muted" style={{ margin: '0.25rem 0 0' }}>
-                        {copy.grantTooHint}
+                    {accessMode === 'type' && (
+                      <span className="muted doc-access-cell choice-access-says">
+                        {copy.accessTypeSays}{' '}
+                        {typeSays(docType).map((part) => (
+                          <Badge key={part} tone="neutral" size="sm">
+                            {part}
+                          </Badge>
+                        ))}
+                      </span>
+                    )}
+                  </div>
+                  {/* El TIPO con el que se atiende y, en la misma fila, su
+                      caducidad: el pedido de salida, y se cambia cuando lo
+                      que hace falta es otro papel (se dice cuál se pidió).
+                      Va después del conmutador porque el acceso «según su
+                      tipo» habla de ESTE tipo, y antes de los mandos del
+                      ajuste propio, que se leen después de saber qué se sube. */}
+                  <div className="choice-row">
+                    <SelectField
+                      label={copy.typeLabel}
+                      options={uploadableTypes(!managing.vehicle).map((value) => ({
+                        value,
+                        label: etiqueta.docType({ type: value, type_display: value }),
+                      }))}
+                      value={docType}
+                      onValueChange={(value) => {
+                        setDocType(value)
+                        if (!documentExpires(value)) setExpiry('')
+                      }}
+                    />
+                    {/* La caducidad solo a lo que caduca, y obligatoria en
+                        gestión: las mismas reglas que el alta de la ficha. */}
+                    {documentExpires(docType) && (
+                      <TextInputField
+                        label={copy.expiry}
+                        type="date"
+                        // Sin `required` nativo a propósito: la validación
+                        // propia dice POR QUÉ hace falta (ese tipo caduca), y
+                        // el aviso del navegador se la comería antes del envío.
+                        requiredVisual
+                        value={expiry}
+                        onChange={(event) => setExpiry(event.target.value)}
+                      />
+                    )}
+                    {docType !== managing.type && (
+                      <p className="muted choice-row-note">
+                        {copy.typeRequested(etiqueta.docType(managing))}
                       </p>
-                    </div>
+                    )}
+                  </div>
+                  {accessMode === 'own' && (
+                    <AccessOverrideRows
+                      pick={pick}
+                      onChange={setPick}
+                      rule={accessByType.get(docType as FlotaDocument['type'])}
+                    />
                   )}
-                </>
+                </div>
+              )}
+              {choice === 'existing' && (
+                <div className="choice-detail">
+                  {/* Lo elegido en la ventana (y el marcado para atender, si
+                      vino de «Atender con este»), con el acceso de cada uno
+                      para quien pide; de aquí se marca con cuál se atiende. */}
+                  {(() => {
+                    const elegidos =
+                      picked && !chosenDocs.some((d) => d.id === picked.id)
+                        ? [picked, ...chosenDocs]
+                        : chosenDocs
+                    if (elegidos.length === 0) {
+                      return (
+                        <div className="manage-picked">
+                          <span className="muted">{copy.pickRequired}</span>
+                          <Button size="sm" variant="primary" onClick={() => setDocsOpen(true)}>
+                            <FolderOpen size={14} aria-hidden /> {copy.pickFromDocs}
+                          </Button>
+                        </div>
+                      )
+                    }
+                    return (
+                      <>
+                        <p className="muted" style={{ margin: 0 }}>
+                          {copy.pickedIntro}
+                        </p>
+                        <table className="data owner-docs-table">
+                          <thead>
+                            <tr>
+                              <th>{t.ownerDocs.columns.document}</th>
+                              {managing.requested_by && (
+                                <th>{t.ownerDocs.columns.forPerson(managing.requested_by_name)}</th>
+                              )}
+                              <th className="owner-docs-actions-head">{t.ownerDocs.columns.actions}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {elegidos.map((doc) => {
+                              const esElegido = picked?.id === doc.id
+                              return (
+                                <tr key={doc.id} className={esElegido ? 'row-checked' : ''}>
+                                  <td>
+                                    <strong>{etiqueta.docType(doc)}</strong>
+                                    <div className="muted">
+                                      {fmtDate(doc.created_at, lang)}
+                                      {doc.uploaded_by_name && ` · ${doc.uploaded_by_name}`}
+                                    </div>
+                                  </td>
+                                  {managing.requested_by && (
+                                    <td>
+                                      <RequesterAccess doc={doc} />
+                                    </td>
+                                  )}
+                                  <td>
+                                    <div className="row-actions owner-docs-actions">
+                                      {esElegido ? (
+                                        <>
+                                          <Badge tone="brand">{copy.pickedRow}</Badge>
+                                          <Button size="sm" variant="secondary" onClick={() => setPicked(null)}>
+                                            {copy.unpick}
+                                          </Button>
+                                        </>
+                                      ) : (
+                                        <Button size="sm" variant="secondary" onClick={() => setPicked(doc)}>
+                                          <Check size={14} aria-hidden /> {t.ownerDocs.pick}
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                        <div className="manage-picked">
+                          {!picked && <span className="muted">{copy.pickRequired}</span>}
+                          <Button size="sm" variant="secondary" onClick={() => setDocsOpen(true)}>
+                            <FolderOpen size={14} aria-hidden /> {copy.pickMore}
+                          </Button>
+                        </div>
+                      </>
+                    )
+                  })()}
+                </div>
+              )}
+              {/* Concederle ya a quien pidió lo que le vaya con solicitud:
+                  solo cuando hay un documento con el que atender. */}
+              {(choice === 'upload' || choice === 'existing') && managing.requested_by && (
+                <label className="baja-toggle choice-grant">
+                  <input
+                    type="checkbox"
+                    checked={grantToo}
+                    onChange={(event) => setGrantToo(event.target.checked)}
+                  />
+                  <span>
+                    {copy.grantToo(managing.requested_by_name)}
+                    <span className="muted">{copy.grantTooHint}</span>
+                  </span>
+                </label>
               )}
               <TextInputField
-                label={copy.note}
+                label={choice === 'reject' ? copy.noteReject : copy.note}
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
               />
@@ -631,33 +768,43 @@ export function DocumentSupplyTab({ onCountsChange }: { onCountsChange?: () => v
                 <Button type="button" variant="secondary" onClick={() => setManaging(null)}>
                   {t.cancel}
                 </Button>
-                <Button type="submit" disabled={saving}>
-                  {saving ? copy.submitting : copy.submit}
+                <Button
+                  type="submit"
+                  variant={choice === 'reject' ? 'danger' : 'primary'}
+                  disabled={saving}
+                >
+                  {saving ? copy.submitting : submitLabel[choice]}
                 </Button>
               </div>
             </form>
 
-            {/* La documentación que ya hay del titular: a quién se le da
-                acceso a qué, y de dónde se elige el documento con el que se
-                atiende (que devuelve a la decisión con él puesto). */}
-            <div className="manage-pane" hidden={tab !== 'docs'}>
-              <OwnerDocumentsAccess
-                owner={ownerOf(managing)}
-                ownerLabel={ownerLabel(managing)}
-                requester={
-                  managing.requested_by
-                    ? { id: managing.requested_by, name: managing.requested_by_name }
-                    : null
-                }
-                onLoaded={setDocsCount}
-                onPick={(doc) => {
-                  setPicked(doc)
-                  setDecision('done')
-                  setHow('existing')
-                  setTab('decide')
-                }}
-              />
-            </div>
+            {/* La documentación que ya hay del titular, en su modal: a quién
+                se le da acceso a qué, y de dónde se elige el documento con el
+                que se atiende («Atender con este» lo pone y cierra). */}
+            {docsOpen && (
+              <Modal open xl title={copy.docsModalTitle} onClose={() => setDocsOpen(false)}>
+                <OwnerDocumentsAccess
+                  owner={ownerOf(managing)}
+                  ownerLabel={ownerLabel(managing)}
+                  requester={
+                    managing.requested_by
+                      ? { id: managing.requested_by, name: managing.requested_by_name }
+                      : null
+                  }
+                  onLoaded={setDocsCount}
+                  onDone={(acuse, docs) => {
+                    setDocsNotice(acuse)
+                    setChosenDocs(docs)
+                    setDocsOpen(false)
+                  }}
+                  onPick={(doc) => {
+                    setPicked(doc)
+                    setChoice('existing')
+                    setDocsOpen(false)
+                  }}
+                />
+              </Modal>
+            )}
           </div>
         )}
       </Modal>

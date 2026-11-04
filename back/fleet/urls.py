@@ -24,6 +24,7 @@ from .views import (
     FleetSummaryView,
     FuelConsumptionViewSet,
     FuelTypeViewSet,
+    IncidentChangeRequestViewSet,
     IncidentViewSet,
     InvoiceAllocationViewSet,
     InvoiceViewSet,
@@ -91,6 +92,12 @@ router.register(
     "profile-change-requests",
     ProfileChangeRequestViewSet,
     basename="profilechangerequest",
+)
+# Y el parte de una incidencia se MODIFICA pidiéndolo: la sexta bandeja.
+router.register(
+    "incident-change-requests",
+    IncidentChangeRequestViewSet,
+    basename="incidentchangerequest",
 )
 # Y el papel que falta se PIDE: la quinta bandeja de la misma página.
 router.register(

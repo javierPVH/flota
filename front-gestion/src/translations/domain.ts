@@ -145,12 +145,15 @@ export const es = {
    * «Atendida» en una propuesta de conductor. */
   requestStatus: {
     profile: { pending: 'Pendiente', done: 'Aplicada', rejected: 'Rechazada' },
+    // La propuesta de modificar el parte de una incidencia.
+    incident: { pending: 'Pendiente', done: 'Aplicada', rejected: 'Rechazada' },
     document: {
       pending: 'Pendiente',
       deleted: 'Borrado (en erratas)',
       hidden: 'Oculto para el conductor',
       applied: 'Corrección aplicada',
       granted: 'Concedida',
+      done: 'Atendida',
       rejected: 'Rechazada',
     },
     vehicle: {
@@ -169,6 +172,10 @@ export const es = {
     change: 'Corrección',
     view: 'Lectura',
     download: 'Descarga',
+    // La puerta de excepción (el mando cerrado) y la petición libre.
+    allow_download: 'Descarga excepcional',
+    allow_delete: 'Borrado excepcional',
+    other: 'Otra petición',
   } as Record<string, string>,
   /** Los campos que se piden corregir, como los nombra su formulario. */
   fieldNames: {
@@ -181,6 +188,12 @@ export const es = {
     type: 'Tipo de documento',
     expiry_date: 'Fecha de caducidad',
     notes: 'Nota del documento',
+    // Los del parte de una incidencia que se proponen cambiar.
+    date: 'Fecha',
+    description: 'Descripción',
+    mileage: 'Kilometraje',
+    workshop_postal_code: 'CP preferente',
+    priority: 'Prioridad',
   } as Record<string, string>,
   seat: { driver: 'Conductor', passenger: 'Pasajero' } as Record<string, string>,
   emailStatus: {
@@ -310,12 +323,14 @@ export const en: typeof es = {
   },
   requestStatus: {
     profile: { pending: 'Pending', done: 'Applied', rejected: 'Rejected' },
+    incident: { pending: 'Pending', done: 'Applied', rejected: 'Rejected' },
     document: {
       pending: 'Pending',
       deleted: 'Deleted (in corrections)',
       hidden: 'Hidden from the driver',
       applied: 'Correction applied',
       granted: 'Granted',
+      done: 'Handled',
       rejected: 'Rejected',
     },
     vehicle: {
@@ -328,7 +343,15 @@ export const en: typeof es = {
     driver: { pending: 'Pending', done: 'Handled', rejected: 'Rejected' },
     supply: { pending: 'Pending', done: 'Served', rejected: 'Rejected' },
   },
-  docRequestKind: { delete: 'Deletion', change: 'Correction', view: 'View', download: 'Download' },
+  docRequestKind: {
+    delete: 'Deletion',
+    change: 'Correction',
+    view: 'View',
+    download: 'Download',
+    allow_download: 'Exceptional download',
+    allow_delete: 'Exceptional deletion',
+    other: 'Other request',
+  },
   fieldNames: {
     first_name: 'First name',
     last_name: 'Surname',
@@ -339,6 +362,11 @@ export const en: typeof es = {
     type: 'Document type',
     expiry_date: 'Expiry date',
     notes: 'Document note',
+    date: 'Date',
+    description: 'Description',
+    mileage: 'Mileage',
+    workshop_postal_code: 'Preferred postal code',
+    priority: 'Priority',
   },
   seat: { driver: 'Driver', passenger: 'Passenger' },
   emailStatus: {

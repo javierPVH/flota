@@ -4,10 +4,12 @@ import { Badge, Button, Modal, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import {
+  type DocumentPleaKind,
   fetchDocumentFile,
   requestDocumentAccess,
   requestDocumentChange,
   requestDocumentDeletion,
+  requestDocumentPlea,
 } from '../api.ts'
 import { documentExpires } from '../documentRules.ts'
 import { useDomainLabels } from '../domainLabels.ts'
@@ -43,11 +45,18 @@ type AskKind = 'delete' | 'view' | 'download'
  * que concederlo) o NO SE PERMITE (no hay nada que pedir). */
 type AccessInfo = { doc: FlotaDocument; kind: AskKind; state: 'pending' | 'denied' }
 
+/** Las tres pestañas del lápiz: corregir el documento, pedir como EXCEPCIÓN
+ * lo que el mando tiene cerrado (la descarga, el borrado) y cualquier otra
+ * petición. La segunda solo sale si en ese documento hay algo cerrado. */
+type AskTab = 'fix' | 'permission' | 'other'
+const ASK_TABS: AskTab[] = ['fix', 'permission', 'other']
+
 /**
  * Lista de documentos: tipo, fecha, caducidad, estado y lo que se puede hacer
- * con cada uno — **verlo** dentro de la app, **descargarlo**, **pedir que se
- * corrija** y **pedir su borrado**. La usan la ficha del coche, el tablero de
- * la home y «Mi perfil» — el mismo `<li>` estaba copiado en los tres.
+ * con cada uno — **verlo** dentro de la app, **descargarlo**, **pedir su
+ * borrado** y, en el lápiz, las **peticiones** sobre él. La usan la ficha del
+ * coche, el tablero de la home y «Mi perfil» — el mismo `<li>` estaba copiado
+ * en los tres.
  *
  * Aquí no se va a Drive ni para abrir ni para bajar: esta app es de quien
  * conduce, y un conductor no tiene cuenta en esa carpeta — tanto el enlace de
@@ -59,8 +68,9 @@ type AccessInfo = { doc: FlotaDocument; kind: AskKind; state: 'pending' | 'denie
  * Ni la papelera borra ni el lápiz corrige: los dos abren una **petición** para
  * la gestión (el conductor no da de baja ni reescribe documentación de la
  * flota, igual que no cambia el estado del coche). Hasta que se decida, la fila
- * lo dice y las dos acciones se apagan: un documento tiene **una petición
- * viva**, y pedir a la vez que se corrija y que se borre no es una petición.
+ * lo dice y la papelera y «Corregir» se apagan: un documento tiene **una
+ * petición viva** de las que hablan de él, y pedir a la vez que se corrija y
+ * que se borre no es una petición.
  *
  * Y ver o descargar pueden ir **con solicitud** (lo decide la gestión por tipo
  * de documento o por documento; a quien supervisa, la descarga siempre): el
@@ -73,8 +83,14 @@ type AccessInfo = { doc: FlotaDocument; kind: AskKind; state: 'pending' | 'denie
  * vivos** (`.is-waiting`): el toque abre el porqué, como el botón de la ITV
  * que aún no toca. Un `disabled` con `title` en un móvil es un botón muerto.
  *
- * Corregir existe para no tener que borrar y volver a subir: así el archivo y
- * su rastro se quedan donde están.
+ * El **lápiz va el último de la fila** y abre las PETICIONES sobre ese
+ * documento en tres pestañas: **Corregir** (existe para no tener que borrar
+ * y volver a subir: así el archivo y su rastro se quedan donde están),
+ * **Pedir permiso** —lo que el mando tiene CERRADO («no permitir», que ni
+ * admite la petición de siempre) se pide como excepción: la descarga o el
+ * borrado; solo sale si hay algo cerrado— y **Otra petición**, libre. En las
+ * dos últimas la nota es obligatoria: es lo único que lee quien decide. Sin
+ * esa puerta, lo que el mando cerraba se pedía por teléfono y sin rastro.
  */
 export function DocumentList({
   documents,
@@ -95,18 +111,23 @@ export function DocumentList({
   const [asking, setAsking] = useState<{ doc: FlotaDocument; kind: AskKind } | null>(null)
   // El porqué de un botón apagado, al tocarlo.
   const [info, setInfo] = useState<AccessInfo | null>(null)
-  // El de corregir es OTRO modal: pregunta qué debería decir el documento.
+  // El del lápiz es OTRO modal, en pestañas: corregir, pedir la excepción
+  // de lo que está cerrado u otra petición.
   const [fixing, setFixing] = useState<FlotaDocument | null>(null)
+  const [askTab, setAskTab] = useState<AskTab>('fix')
   const [fix, setFix] = useState({ type: '', expiry_date: '', notes: '' })
+  const [plea, setPlea] = useState<DocumentPleaKind>('allow_download')
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   // Lo pedido en esta pantalla, para marcar la fila sin esperar a la recarga
   // (la lista puede venir de un padre que no recarga): el borrado o la
-  // corrección por documento, y el acceso por documento y clase.
+  // corrección por documento, y el acceso —y las excepciones— por documento
+  // y clase.
   const [asked, setAsked] = useState<number[]>([])
   const [askedAccess, setAskedAccess] = useState<string[]>([])
+  const [askedPleas, setAskedPleas] = useState<string[]>([])
   // Id del que se está bajando: la descarga pasa por el back (trae el binario
   // de Drive), así que puede tardar y el botón tiene que decirlo.
   const [downloading, setDownloading] = useState(0)
@@ -157,11 +178,31 @@ export function DocumentList({
     }
   }
 
-  function openFix(doc: FlotaDocument) {
+  /** En qué va la petición de ver o bajar ESTE documento, contando también lo
+   * pedido en esta pantalla sin esperar a la recarga. */
+  function requestState(doc: FlotaDocument, kind: 'view' | 'download') {
+    const state = kind === 'view' ? doc.view_request : doc.download_request
+    if (state === 'denied' || state === 'granted') return state
+    if (state === 'pending' || askedAccess.includes(`${doc.id}:${kind}`)) return 'pending'
+    return ''
+  }
+
+  /** Lo que el mando tiene CERRADO en ese documento —la descarga, el borrado—
+   * y por eso se pide por la puerta de excepción. */
+  function pleasFor(doc: FlotaDocument): DocumentPleaKind[] {
+    const cerrado: DocumentPleaKind[] = []
+    if (requestState(doc, 'download') === 'denied') cerrado.push('allow_download')
+    if (doc.can_request_delete === false) cerrado.push('allow_delete')
+    return cerrado
+  }
+
+  function openRequests(doc: FlotaDocument) {
     setFixing(doc)
+    setAskTab('fix')
     // Se abre con lo que el documento dice HOY: se corrige lo que esté mal y
     // el back descarta lo que venga igual.
     setFix({ type: doc.type, expiry_date: doc.expiry_date ?? '', notes: doc.notes ?? '' })
+    setPlea(pleasFor(doc)[0] ?? 'allow_download')
     setReason('')
     setError('')
     setNotice('')
@@ -194,13 +235,32 @@ export function DocumentList({
     }
   }
 
-  /** En qué va la petición de ver o bajar ESTE documento, contando también lo
-   * pedido en esta pantalla sin esperar a la recarga. */
-  function requestState(doc: FlotaDocument, kind: 'view' | 'download') {
-    const state = kind === 'view' ? doc.view_request : doc.download_request
-    if (state === 'denied' || state === 'granted') return state
-    if (state === 'pending' || askedAccess.includes(`${doc.id}:${kind}`)) return 'pending'
-    return ''
+  /** Las otras dos pestañas: la excepción (descarga o borrado cerrados) y la
+   * petición libre. Las dos viajan con la nota como todo su contenido, así
+   * que sin nota no se manda nada. */
+  async function submitPlea() {
+    if (!fixing) return
+    const kind: DocumentPleaKind = askTab === 'permission' ? plea : 'other'
+    const texto = reason.trim()
+    if (!texto) {
+      setError(copy.reasonRequired)
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      await requestDocumentPlea(fixing.id, kind, texto)
+      setAskedPleas((current) => [...current, `${fixing.id}:${kind}`])
+      setNotice(askTab === 'permission' ? copy.permissionOk : copy.otherOk)
+      setFixing(null)
+      onChanged?.()
+    } catch (caught) {
+      setError(
+        asErrorMessage(caught, askTab === 'permission' ? copy.permissionError : copy.otherError),
+      )
+    } finally {
+      setSaving(false)
+    }
   }
 
   /** El botón de una acción que no se hace directamente: pedirla si va CON
@@ -265,6 +325,19 @@ export function DocumentList({
     return <p className="empty-note">{emptyNote ?? t.vehicle.noDocuments}</p>
   }
   const askWhat = asking ? whatOf(asking.kind, asking.doc) : ''
+
+  // Lo del modal del lápiz, calculado una vez: qué pestañas tiene ese
+  // documento (la de permiso solo con algo cerrado), si la corrección está
+  // ya pedida y si la excepción elegida también.
+  const fixingPending = fixing ? fixing.deletion_pending || asked.includes(fixing.id) : false
+  const pleas = fixing ? pleasFor(fixing) : []
+  const askTabs = ASK_TABS.filter((tab) => tab !== 'permission' || pleas.length > 0)
+  const pleaAsked = fixing ? askedPleas.includes(`${fixing.id}:${plea}`) : false
+  const canSubmitAsk =
+    !saving && (askTab === 'fix' ? !fixingPending : askTab === 'permission' ? !pleaAsked : true)
+  const askSubmitLabel =
+    askTab === 'fix' ? copy.fixSubmit : askTab === 'permission' ? copy.permissionSubmit : copy.otherSubmit
+
   return (
     <>
       {notice && <p className="reminder-done" role="status">{notice}</p>}
@@ -322,21 +395,11 @@ export function DocumentList({
                 ) : (
                   askButton(doc, 'download', copy.askDownloadDoc(name))
                 )}
-                {/* Pedida ya, no se vuelve a pedir: una por documento —y eso
-                    vale para las dos, corregir y borrar. */}
-                <button
-                  type="button"
-                  className="doc-open"
-                  disabled={pending}
-                  aria-label={copy.fixDoc(name)}
-                  title={pending ? copy.deletePendingNote : undefined}
-                  onClick={() => openFix(doc)}
-                >
-                  <PencilLine size={18} aria-hidden />
-                </button>
-                {/* Y la papelera puede estar cerrada del todo («no permitir»
+                {/* La papelera puede estar cerrada del todo («no permitir»
                     en el tipo o en el documento): apagada pero viva, el
-                    toque dice por qué. */}
+                    toque dice por qué (y el lápiz tiene la puerta de
+                    excepción). Pedida ya, no se vuelve a pedir: una por
+                    documento, y eso vale también para corregir. */}
                 {doc.can_request_delete === false ? (
                   <button
                     type="button"
@@ -358,6 +421,17 @@ export function DocumentList({
                     <Trash2 size={18} aria-hidden />
                   </button>
                 )}
+                {/* El lápiz, el último: las peticiones sobre el documento.
+                    Siempre vivo —con una corrección pedida, «Corregir» lo
+                    dice y las otras pestañas siguen abiertas—. */}
+                <button
+                  type="button"
+                  className="doc-open"
+                  aria-label={copy.requestDoc(name)}
+                  onClick={() => openRequests(doc)}
+                >
+                  <PencilLine size={18} aria-hidden />
+                </button>
               </div>
             </li>
           )
@@ -400,68 +474,147 @@ export function DocumentList({
       {fixing && (
         <SupervisorModal
           open
-          title={copy.fixTitle(etiqueta.docType(fixing))}
+          title={copy.requestTitle(etiqueta.docType(fixing))}
           onClose={() => setFixing(null)}
           footer={
             <>
               <Button type="button" variant="secondary" onClick={() => setFixing(null)}>
                 {t.common.cancel}
               </Button>
-              <Button type="button" disabled={saving} onClick={submitFix}>
-                {saving ? copy.fixSubmitting : copy.fixSubmit}
+              <Button
+                type="button"
+                disabled={!canSubmitAsk}
+                onClick={() => void (askTab === 'fix' ? submitFix() : submitPlea())}
+              >
+                {saving ? copy.fixSubmitting : askSubmitLabel}
               </Button>
             </>
           }
         >
           <div className="modal-form">
-            <p className="update-hint">{copy.fixHint}</p>
-            <label className="reminder-check">
-              {copy.fixType}
-              <select
-                className="update-input"
-                value={fix.type}
-                onChange={(event) =>
-                  setFix((current) => ({ ...current, type: event.target.value }))
-                }
-              >
-                {(fixing.vehicle ? VEHICLE_TYPES : PERSONAL_TYPES).map((value) => (
-                  <option key={value} value={value}>
-                    {t.vehicle.docTypes[value] ?? value}
-                  </option>
+            <div className="doc-tabs" role="tablist" aria-label={copy.requestTabsAria}>
+              {askTabs.map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  id={`ask-tab-${tab}`}
+                  aria-selected={askTab === tab}
+                  aria-controls={`ask-panel-${tab}`}
+                  className={`doc-tab${askTab === tab ? ' is-active' : ''}`}
+                  onClick={() => {
+                    setAskTab(tab)
+                    setError('')
+                  }}
+                >
+                  {copy.requestTabs[tab]}
+                </button>
+              ))}
+            </div>
+            <div
+              role="tabpanel"
+              id={`ask-panel-${askTab}`}
+              aria-labelledby={`ask-tab-${askTab}`}
+              className="modal-form"
+            >
+              {askTab === 'fix' &&
+                (fixingPending ? (
+                  // Una por documento: con una viva no se abre otra, y se
+                  // dice en vez de esconder el lápiz.
+                  <p className="update-hint">{copy.deletePendingNote}</p>
+                ) : (
+                  <>
+                    <p className="update-hint">{copy.fixHint}</p>
+                    <label className="reminder-check">
+                      {copy.fixType}
+                      <select
+                        className="update-input"
+                        value={fix.type}
+                        onChange={(event) =>
+                          setFix((current) => ({ ...current, type: event.target.value }))
+                        }
+                      >
+                        {(fixing.vehicle ? VEHICLE_TYPES : PERSONAL_TYPES).map((value) => (
+                          <option key={value} value={value}>
+                            {t.vehicle.docTypes[value] ?? value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {/* La caducidad solo a lo que caduca, como en el alta. */}
+                    {documentExpires(fix.type) && (
+                      <label className="reminder-check">
+                        {copy.fixExpiry}
+                        <input
+                          type="date"
+                          className="update-input"
+                          value={fix.expiry_date}
+                          onChange={(event) =>
+                            setFix((current) => ({ ...current, expiry_date: event.target.value }))
+                          }
+                        />
+                      </label>
+                    )}
+                    <label className="reminder-check">
+                      {copy.fixNotes}
+                      <input
+                        type="text"
+                        className="update-input"
+                        value={fix.notes}
+                        onChange={(event) =>
+                          setFix((current) => ({ ...current, notes: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <TextInputField
+                      label={copy.fixReason}
+                      value={reason}
+                      onChange={(event) => setReason(event.target.value)}
+                    />
+                  </>
                 ))}
-              </select>
-            </label>
-            {/* La caducidad solo a lo que caduca, como en el alta. */}
-            {documentExpires(fix.type) && (
-              <label className="reminder-check">
-                {copy.fixExpiry}
-                <input
-                  type="date"
-                  className="update-input"
-                  value={fix.expiry_date}
-                  onChange={(event) =>
-                    setFix((current) => ({ ...current, expiry_date: event.target.value }))
-                  }
-                />
-              </label>
-            )}
-            <label className="reminder-check">
-              {copy.fixNotes}
-              <input
-                type="text"
-                className="update-input"
-                value={fix.notes}
-                onChange={(event) =>
-                  setFix((current) => ({ ...current, notes: event.target.value }))
-                }
-              />
-            </label>
-            <TextInputField
-              label={copy.fixReason}
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
-            {error && <div role="alert" className="form-error">{error}</div>}
+              {askTab === 'permission' && (
+                <>
+                  <p className="update-hint">{copy.permissionHint}</p>
+                  {/* Lo que está cerrado en ESTE documento, a elegir. */}
+                  <fieldset className="ask-choices">
+                    <legend>{copy.permissionWhat}</legend>
+                    {pleas.map((kind) => (
+                      <label key={kind} className="reminder-check">
+                        <input
+                          type="radio"
+                          name="plea"
+                          value={kind}
+                          checked={plea === kind}
+                          onChange={() => setPlea(kind)}
+                        />
+                        {kind === 'allow_download' ? copy.permissionDownload : copy.permissionDelete}
+                      </label>
+                    ))}
+                  </fieldset>
+                  {pleaAsked ? (
+                    <p className="doc-sub">{copy.permissionAsked}</p>
+                  ) : (
+                    <TextInputField
+                      label={copy.permissionReason}
+                      value={reason}
+                      onChange={(event) => setReason(event.target.value)}
+                    />
+                  )}
+                </>
+              )}
+              {askTab === 'other' && (
+                <>
+                  <p className="update-hint">{copy.otherHint}</p>
+                  <TextInputField
+                    label={copy.otherReason}
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
+                  />
+                </>
+              )}
+              {error && <div role="alert" className="form-error">{error}</div>}
+            </div>
           </div>
         </SupervisorModal>
       )}

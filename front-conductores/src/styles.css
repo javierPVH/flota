@@ -1457,6 +1457,21 @@ button.bottom-tab {
   color: var(--color-brand);
 }
 
+/* Las opciones de «Pedir permiso» (lo que el mando tiene cerrado en ese
+   documento), como un grupo sin el marco del fieldset. */
+.ask-choices {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.ask-choices legend {
+  padding: 0;
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
 /* --- Mi perfil (pantalla del avatar) ------------------------------------- */
 .profile-head {
   display: flex;
@@ -1976,6 +1991,17 @@ button.bottom-tab {
 /* Las alertas van en la MISMA fila que las incidencias (`.doc-item`); lo único
    que añaden es la franja izquierda con el color del nivel, que es lo que
    distingue la crítica del aviso de un vistazo, como en la bandeja. */
+/* Incidencia con cambios propuestos al parte sin decidir: la fila cambia
+   de color (y lo dice con su chapa) hasta que gestión decide. Los dos
+   iconos de la fila —resolver y proponer— van juntos a la derecha. */
+.doc-item.is-change-pending {
+  background: var(--color-info-soft);
+  border-radius: var(--radius-sm);
+  padding-left: 0.5rem;
+  padding-right: 0.3rem;
+}
+.doc-actions { display: inline-flex; gap: 0.3rem; margin-left: auto; }
+.incident-change-hint { display: flex; align-items: flex-start; gap: 0.4rem; }
 .alert-row { border-left: 3px solid var(--color-border); padding-left: 0.6rem; }
 .alert-row.level-critical { border-left-color: var(--color-danger); }
 .alert-row.level-warning { border-left-color: var(--color-warning); }

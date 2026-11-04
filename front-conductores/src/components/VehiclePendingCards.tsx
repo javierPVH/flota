@@ -4,13 +4,16 @@ import {
   Bell,
   CalendarCheck,
   CalendarClock,
+  CheckCircle2,
   Fuel,
   Gauge,
+  Pencil,
   ShieldAlert,
+  Siren,
   UserX,
   Wrench,
 } from 'lucide-react'
-import { Badge, Button } from '@flota/ui/ui'
+import { Badge, IconButton } from '@flota/ui/ui'
 
 import type { KmWindow } from '../api.ts'
 import { useDomainLabels } from '../domainLabels.ts'
@@ -28,6 +31,7 @@ import type { Alert, Incident, Vehicle, VehicleSummary } from '../types.ts'
 import { DeadlineModal, useFieldDeadlines, type Deadline } from './FieldDeadlines.tsx'
 import { AlertResolveModal } from './AlertResolveModal.tsx'
 import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
+import { IncidentChangeModal } from './IncidentChangeModal.tsx'
 import { IncidentResolveModal } from './IncidentResolveModal.tsx'
 import { typeOptions } from './ListFilter.tsx'
 import { MaintenanceUpdateModal } from './MaintenanceUpdateModal.tsx'
@@ -167,6 +171,8 @@ export function VehiclePendingCards({
   const [maintenanceOpen, setMaintenanceOpen] = useState(false)
   const [resolveAlert, setResolveAlert] = useState<Alert | null>(null)
   const [resolveIncident, setResolveIncident] = useState<Incident | null>(null)
+  // La incidencia a la que se le proponen cambios (el lápiz de la fila).
+  const [changeIncident, setChangeIncident] = useState<Incident | null>(null)
   // El aviso de vencimiento que se está atendiendo (abre SU formulario).
   const [resolveDeadline, setResolveDeadline] = useState<Deadline | null>(null)
   // Filtros por tipo de cada tarjeta ('' = todos). Los accidentes no llevan:
@@ -264,14 +270,13 @@ export function VehiclePendingCards({
               </div>
               <Badge tone={alertLevelTone(alert.level)}>{etiqueta.alertLevel(alert)}</Badge>
               {canAct && (
-                <Button
-                  type="button"
-                  size="sm"
+                <IconButton
                   aria-label={`${resolveLabel}: ${name}`}
+                  title={resolveLabel}
                   onClick={() => resolveAlertByType(alert)}
                 >
-                  {resolveLabel}
-                </Button>
+                  <CheckCircle2 size={16} aria-hidden />
+                </IconButton>
               )}
             </li>
           )
@@ -294,14 +299,13 @@ export function VehiclePendingCards({
                   </span>
                 </div>
                 <Badge tone={alertLevelTone(level)}>{etiqueta.alertLevel({ level })}</Badge>
-                <Button
-                  type="button"
-                  size="sm"
+                <IconButton
                   aria-label={`${resolveLabel}: ${notice.label}`}
+                  title={resolveLabel}
                   onClick={() => setResolveDeadline(notice)}
                 >
-                  {resolveLabel}
-                </Button>
+                  <CheckCircle2 size={16} aria-hidden />
+                </IconButton>
               </li>
             )
           })}
@@ -309,11 +313,22 @@ export function VehiclePendingCards({
     )
   }
 
+  /**
+   * Cada fila lleva dos ICONOS a la derecha: resolverla (✓, solo gestión:
+   * la cierra con su formulario) y proponer cambios al parte (lápiz, para
+   * cualquiera que la ve: en campo no hay lápiz que edite, se PROPONE y lo
+   * decide gestión). Con una propuesta viva la fila va de otro color y lo
+   * dice con su chapa; el lápiz y la marca de resolver se apagan hasta que
+   * se decida: lo que se cierra ha de ser el parte que quede.
+   */
   function incidentList(rows: Incident[], icon: ReactNode) {
     return (
       <ul className="doc-list vehicle-incidents-list">
         {rows.map((incident) => (
-          <li key={incident.id} className="doc-item">
+          <li
+            key={incident.id}
+            className={`doc-item${incident.change_pending ? ' is-change-pending' : ''}`}
+          >
             {icon}
             <div className="doc-info">
               <strong>{etiqueta.incidentType(incident)}</strong>
@@ -328,11 +343,31 @@ export function VehiclePendingCards({
               </span>
             </div>
             <Badge tone={incidentStatusTone(incident.status)}>{etiqueta.incidentStatus(incident)}</Badge>
-            {canManage && (
-              <Button type="button" size="sm" onClick={() => setResolveIncident(incident)}>
-                {t.carUpdate.actionResolve}
-              </Button>
+            {incident.change_pending && (
+              <Badge tone="info" size="sm">
+                {t.incidentChange.pendingBadge}
+              </Badge>
             )}
+            <span className="doc-actions">
+              {canManage && (
+                <IconButton
+                  aria-label={t.carUpdate.actionResolve}
+                  title={incident.change_pending ? t.incidentChange.resolveBlocked : t.carUpdate.actionResolve}
+                  disabled={Boolean(incident.change_pending)}
+                  onClick={() => setResolveIncident(incident)}
+                >
+                  <CheckCircle2 size={16} aria-hidden />
+                </IconButton>
+              )}
+              <IconButton
+                aria-label={t.incidentChange.propose}
+                title={t.incidentChange.propose}
+                disabled={Boolean(incident.change_pending)}
+                onClick={() => setChangeIncident(incident)}
+              >
+                <Pencil size={16} aria-hidden />
+              </IconButton>
+            </span>
           </li>
         ))}
       </ul>
@@ -391,7 +426,7 @@ export function VehiclePendingCards({
             <p>{t.vehicle.incidentsEmpty}</p>
           </div>
         ) : (
-          incidentList(shownIncidents, <Wrench size={18} aria-hidden className="doc-icon" />)
+          incidentList(shownIncidents, <AlertTriangle size={18} aria-hidden className="doc-icon" />)
         )}
       </CollapsibleCard>
 
@@ -407,7 +442,7 @@ export function VehiclePendingCards({
             <p>{t.vehicle.accidentsEmpty}</p>
           </div>
         ) : (
-          incidentList(accidents, <AlertTriangle size={18} aria-hidden className="doc-icon" />)
+          incidentList(accidents, <Siren size={18} aria-hidden className="doc-icon" />)
         )}
       </CollapsibleCard>
 
@@ -471,6 +506,13 @@ export function VehiclePendingCards({
             setResolveIncident(null)
             onChanged()
           }}
+        />
+      )}
+      {changeIncident && (
+        <IncidentChangeModal
+          incident={changeIncident}
+          onClose={() => setChangeIncident(null)}
+          onSent={onChanged}
         />
       )}
     </>

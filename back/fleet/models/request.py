@@ -16,6 +16,7 @@ from .enums import (
     DocumentSupplyStatus,
     DocumentType,
     DriverChangeStatus,
+    IncidentChangeStatus,
     ProfileChangeStatus,
     VehicleRequestStatus,
     VehicleType,
@@ -415,3 +416,84 @@ class ProfileChangeRequest(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.user} - {self.get_status_display()}"
+
+
+class IncidentChangeRequest(TimeStampedModel):
+    """Petición de MODIFICAR el parte de una incidencia: el campo propone, gestión decide.
+
+    Quien comunicó una incidencia desde la app de campo no tiene lápiz: el
+    parte se corrige desde gestión, y hasta ahora una fecha mal o un
+    kilometraje equivocado se arreglaban por teléfono y sin rastro. Esto es
+    la propuesta dentro de la herramienta, en la MISMA bandeja de
+    `/solicitudes` que la ficha personal, los documentos, el coche de
+    sustitución y el cambio de conductor. Mientras está viva, la incidencia
+    se pinta en campo de otro color (`Incident.change_pending`).
+
+    `changes` es `{campo: valor propuesto}` con **solo lo que cambia** y solo
+    de los campos que se dejan pedir (`services.incident_requests.EDITABLE_FIELDS`):
+    fecha, descripción, kilometraje, CP preferente y prioridad. Al aplicarla,
+    el servicio **escribe esos campos en la incidencia**, con el diff en el
+    `auditlog`.
+
+    Una petición viva por incidencia. No es `DeactivatableModel`: es el rastro
+    de una petición y su decisión.
+    """
+
+    incident = models.ForeignKey(
+        "fleet.Incident",
+        on_delete=models.CASCADE,
+        related_name="change_requests",
+        verbose_name="Incidencia",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="Solicitante",
+    )
+    changes = models.JSONField(
+        "Cambios propuestos",
+        default=dict,
+        blank=True,
+        help_text="Solo lo que cambia: {campo: valor propuesto}.",
+    )
+    note = models.TextField(
+        "Nota",
+        blank=True,
+        help_text="Lo que quien la abre le cuenta a gestión.",
+    )
+    status = models.CharField(
+        "Estado",
+        max_length=15,
+        choices=IncidentChangeStatus.choices,
+        default=IncidentChangeStatus.PENDING,
+    )
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="Resuelta por",
+    )
+    resolved_at = models.DateTimeField("Resuelta el", null=True, blank=True)
+    resolution_note = models.TextField("Observaciones de la resolución", blank=True)
+
+    class Meta:
+        verbose_name = "petición de modificar un parte"
+        verbose_name_plural = "peticiones de modificar un parte"
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            # Una petición viva por incidencia: dos envíos seguidos no llenan
+            # la bandeja, igual que las otras de campo.
+            models.UniqueConstraint(
+                fields=["incident"],
+                condition=models.Q(status=IncidentChangeStatus.PENDING),
+                name="unique_pending_incident_change",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.incident} - {self.get_status_display()}"

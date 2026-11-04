@@ -41,6 +41,7 @@ from .models import (
     FuelConsumption,
     FuelType,
     Incident,
+    IncidentChangeRequest,
     Invoice,
     InvoiceAllocation,
     KmReading,
@@ -88,6 +89,7 @@ from .models.enums import (
     DocumentType,
     EventType,
     IncidentLiability,
+    IncidentPriority,
     IncidentStatus,
     IncidentType,
     ItvResult,
@@ -103,7 +105,13 @@ from .scoping import (
     view_needs_grant,
 )
 from .selectors import current_contract_map, current_driver_map, latest_reading_map
-from .services import document_requests, document_supply, profile_requests, vehicle_requests
+from .services import (
+    document_requests,
+    document_supply,
+    incident_requests,
+    profile_requests,
+    vehicle_requests,
+)
 
 
 class LogEntrySerializer(serializers.ModelSerializer):
@@ -1754,6 +1762,13 @@ class IncidentSerializer(serializers.ModelSerializer):
     vehicle_state = serializers.CharField(source="vehicle.state", read_only=True)
     workshop_name = serializers.SerializerMethodField()
     resolved_by_name = serializers.SerializerMethodField()
+    # RGPD: si a este accidente le toca ya borrar los datos de terceros (la
+    # regla vive en `services/accidents.py`; la bandeja enciende su botón con
+    # esto y no con una cuenta propia).
+    third_parties_purge_due = serializers.SerializerMethodField()
+    # Hay una petición de MODIFICAR el parte sin decidir (anotada en el
+    # queryset de la vista): el campo pinta la fila de otro color.
+    change_pending = serializers.SerializerMethodField()
 
     class Meta:
         model = Incident
@@ -1776,7 +1791,15 @@ class IncidentSerializer(serializers.ModelSerializer):
     def get_workshop_name(self, obj: Incident) -> str:
         return str(obj.workshop) if obj.workshop_id else ""
 
-    def get_resolved_by_name(self, obj: Incident) -> str:
+    def get_third_parties_purge_due(self, obj) -> bool:
+        from .services import accidents
+
+        return accidents.retention_due(obj)
+
+    def get_change_pending(self, obj) -> bool:
+        return bool(getattr(obj, "change_pending", False))
+
+    def get_resolved_by_name(self, obj):
         person = obj.resolved_by
         return (person.get_full_name() or person.get_username()) if person else ""
 
@@ -3910,6 +3933,103 @@ class ProfileChangeRequestSerializer(serializers.ModelSerializer):
         if not cambios and not (attrs.get("note") or "").strip():
             raise serializers.ValidationError(
                 {"note": "Di qué hay que corregir o escribe una nota para administración."}
+            )
+        return attrs
+
+
+class IncidentChangeRequestSerializer(serializers.ModelSerializer):
+    """Petición de modificar el parte de una incidencia, tal como la lee la bandeja.
+
+    La fila dice **de qué incidencia es y qué se pide** sin abrir nada:
+    `changes_display` trae lo pedido ya legible —campo, lo que hay hoy y lo
+    que se propone—. De entrada solo viajan la incidencia, los cambios y la
+    nota; el estado y el rastro de la resolución los escribe el servidor.
+    """
+
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    vehicle = serializers.IntegerField(source="incident.vehicle_id", read_only=True)
+    vehicle_plate = serializers.CharField(source="incident.vehicle.plate", read_only=True)
+    incident_type = serializers.CharField(source="incident.type", read_only=True)
+    incident_type_display = serializers.CharField(
+        source="incident.get_type_display", read_only=True
+    )
+    incident_description = serializers.CharField(source="incident.description", read_only=True)
+    requested_by_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+    changes_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = IncidentChangeRequest
+        fields = "__all__"
+        read_only_fields = [
+            "id",
+            "requested_by",
+            "status",
+            "resolved_by",
+            "resolved_at",
+            "resolution_note",
+            "created_at",
+            "updated_at",
+        ]
+
+    @staticmethod
+    def _name(person) -> str:
+        if not person:
+            return ""
+        return person.get_full_name() or person.get_username()
+
+    def get_requested_by_name(self, obj) -> str:
+        return self._name(obj.requested_by)
+
+    def get_resolved_by_name(self, obj) -> str:
+        return self._name(obj.resolved_by)
+
+    @staticmethod
+    def _legible(valor) -> str:
+        return "" if valor is None else str(valor)
+
+    def get_changes_display(self, obj) -> list[dict]:
+        incident = obj.incident
+        etiquetas = {
+            campo: incident._meta.get_field(campo).verbose_name
+            for campo in incident_requests.EDITABLE_FIELDS
+        }
+        salida = []
+        for campo, valor in (obj.changes or {}).items():
+            if campo not in incident_requests.EDITABLE_FIELDS:
+                continue
+            actual = getattr(incident, campo, "")
+            # La prioridad se lee por su etiqueta, no por su código.
+            if campo == "priority":
+                actual = incident.get_priority_display()
+                valor = dict(IncidentPriority.choices).get(valor, valor)
+            salida.append(
+                {
+                    "field": campo,
+                    "label": str(etiquetas[campo]),
+                    "current": self._legible(actual),
+                    "proposed": self._legible(valor),
+                }
+            )
+        return salida
+
+    def validate_changes(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Se esperaba un objeto {campo: valor}.")
+        sobra = set(value) - set(incident_requests.EDITABLE_FIELDS)
+        if sobra:
+            raise serializers.ValidationError(
+                f"No se puede pedir cambiar: {', '.join(sorted(sobra))}."
+            )
+        limit_json_payload(value, field="changes")
+        return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        # Sin ningún cambio, la nota ES la petición.
+        if not attrs.get("changes") and not str(attrs.get("note", "") or "").strip():
+            raise serializers.ValidationError(
+                {"note": "Escribe qué hay que cambiar o propón algún cambio."}
             )
         return attrs
 

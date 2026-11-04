@@ -1,13 +1,51 @@
 import { useAppLang } from '@flota/ui/i18n'
 
 const es = {
-  title: 'Incidencias',
-  // Sin ITV: la ITV es una alerta (su cita la lleva «ITV programada»).
-  subtitle: 'Averías, mantenimientos puntuales, accidentes y peticiones de la flota.',
+  /** Las dos caras de la bandeja (`IncidentsPage` con su `scope`): lo que
+   * cambia de rótulo entre incidencias y accidentes. */
+  incidents: {
+    title: 'Incidencias',
+    // Sin ITV (es una alerta, su cita la lleva «ITV programada») y sin
+    // accidentes, que tienen su propia bandeja.
+    subtitle: 'Averías, mantenimientos puntuales y peticiones de la flota.',
+    newLabel: 'Nueva incidencia',
+    empty: 'No hay incidencias con estos filtros.',
+    itemTitle: (id: number) => `Incidencia #${id}`,
+  },
+  accidents: {
+    title: 'Accidentes',
+    subtitle: 'Los accidentes de la flota: su parte, los implicados y cómo se cerró el siniestro.',
+    // Un accidente se COMUNICA con su parte guiado, no con el formulario corto.
+    newLabel: 'Comunicar accidente',
+    empty: 'No hay accidentes con estos filtros.',
+    itemTitle: (id: number) => `Accidente #${id}`,
+    pickHint: 'Elige el coche accidentado: el siguiente paso es su parte.',
+    pickContinue: 'Continuar al parte',
+    // Cuánto lleva el expediente desde que se creó: meses enteros y los días
+    // que sobran; por debajo del mes, solo días.
+    ageColumn: 'Meses desde la creación',
+    age: (months: number, days: number) => {
+      const m = months === 1 ? '1 mes' : `${months} meses`
+      const d = days === 1 ? '1 día' : `${days} días`
+      if (months === 0) return d
+      return days === 0 ? m : `${m} y ${d}`
+    },
+    ageTitle: (created: string) => `Creado el ${created}`,
+    // RGPD: los datos de los terceros no se guardan para siempre. Al año la
+    // fila avisa; a los 18 meses toca borrarlos, con su nota y su botón.
+    warnNote: 'Más de un año: los datos de terceros se borran a los 18 meses.',
+    purgeNote: 'Hay que borrar los datos de los terceros implicados.',
+    purgedNote: (when: string) => `Datos de terceros borrados el ${when}.`,
+    purge: 'Borrar datos de terceros',
+    purgeNotYet: 'Los datos de terceros se borran a los 18 meses de la creación.',
+    purgeTitle: (plate: string) => `Borrar datos de terceros · ${plate}`,
+    purgeConfirm:
+      'Se borran los datos de los terceros implicados y de los lesionados de este accidente (nombres, matrículas, teléfonos, aseguradoras). El resto del parte —dónde, cuándo, atestado y daños— se conserva. No se puede deshacer.',
+    purged: (plate: string) => `Datos de terceros del accidente de ${plate} borrados.`,
+    purgeError: 'No se pudieron borrar los datos de terceros.',
+  },
   exportCsv: 'Exportar CSV',
-  newIncident: 'Nueva incidencia',
   loading: 'Cargando…',
-  empty: 'No hay incidencias con estos filtros.',
   loadError: 'No se pudieron cargar las incidencias.',
   saveError: 'No se pudo guardar la incidencia.',
   chooseVehicle: 'Elige el vehículo.',
@@ -33,8 +71,15 @@ const es = {
     on_going: 'En curso',
     closed: 'Cerrada',
   },
-  // Las dos bandejas se recorren juntas: de una se salta a la otra.
+  // Las tres bandejas se recorren juntas: de una se salta a las otras.
   goAlerts: 'Ver alertas',
+  goAccidents: 'Ver accidentes',
+  goIncidents: 'Ver incidencias',
+  // El campo ha propuesto cambios al parte (fila en azul; se decide en Solicitudes).
+  changePending: 'Cambios propuestos desde el campo',
+  // El botón de resolver, apagado mientras la propuesta siga sin decidir.
+  resolveBlocked:
+    'No se puede resolver hasta que se acepten o rechacen los cambios propuestos (Solicitudes).',
   // Solo dos pestañas: o está pendiente (abierta o en curso) o está cerrada.
   tabOpen: 'Abiertas',
   tabClosed: 'Cerradas',
@@ -59,6 +104,7 @@ const es = {
     tires: 'Parte de neumáticos',
     resolution: 'La solución',
     notResolved: 'Sigue abierta: todavía no tiene solución registrada.',
+    noDescription: 'Sin descripción.',
     workshop: 'Taller',
     downtimeLabel: 'Días parado',
     downtime: (n: number) => `${n} ${n === 1 ? 'día' : 'días'}`,
@@ -107,7 +153,6 @@ const es = {
   searchLabel: 'Buscar',
   searchPlaceholder: 'Matrícula, tipo o descripción…',
   viewDescription: 'Ver descripción',
-  incidentTitle: (id: number) => `Incidencia #${id}`,
   form: {
     vehicle: 'Vehículo',
     choosePlaceholder: '— Elegir —',
@@ -126,12 +171,42 @@ const es = {
 }
 
 const en: typeof es = {
-  title: 'Incidents',
-  subtitle: 'Breakdowns, one-off maintenance, accidents and requests across the fleet.',
+  incidents: {
+    title: 'Incidents',
+    subtitle: 'Breakdowns, one-off maintenance and requests across the fleet.',
+    newLabel: 'New incident',
+    empty: 'No incidents match these filters.',
+    itemTitle: (id) => `Incident #${id}`,
+  },
+  accidents: {
+    title: 'Accidents',
+    subtitle: 'The fleet accidents: the report, who was involved and how the claim was closed.',
+    newLabel: 'Report accident',
+    empty: 'No accidents match these filters.',
+    itemTitle: (id) => `Accident #${id}`,
+    pickHint: 'Choose the car involved: the next step is its report.',
+    pickContinue: 'Continue to the report',
+    ageColumn: 'Months since created',
+    age: (months, days) => {
+      const m = months === 1 ? '1 month' : `${months} months`
+      const d = days === 1 ? '1 day' : `${days} days`
+      if (months === 0) return d
+      return days === 0 ? m : `${m} and ${d}`
+    },
+    ageTitle: (created) => `Created on ${created}`,
+    warnNote: 'Over a year old: third-party data is deleted at 18 months.',
+    purgeNote: 'The third parties’ data must be deleted.',
+    purgedNote: (when) => `Third-party data deleted on ${when}.`,
+    purge: 'Delete third-party data',
+    purgeNotYet: 'Third-party data is deleted 18 months after creation.',
+    purgeTitle: (plate) => `Delete third-party data · ${plate}`,
+    purgeConfirm:
+      'The data of the third parties and injured people in this accident (names, plates, phones, insurers) will be deleted. The rest of the report —where, when, police report and damage— is kept. This cannot be undone.',
+    purged: (plate) => `Third-party data of the ${plate} accident deleted.`,
+    purgeError: 'The third-party data could not be deleted.',
+  },
   exportCsv: 'Export CSV',
-  newIncident: 'New incident',
   loading: 'Loading…',
-  empty: 'No incidents match these filters.',
   loadError: 'Could not load incidents.',
   saveError: 'Could not save the incident.',
   chooseVehicle: 'Choose a vehicle.',
@@ -154,6 +229,11 @@ const en: typeof es = {
     closed: 'Closed',
   },
   goAlerts: 'View alerts',
+  goAccidents: 'View accidents',
+  goIncidents: 'View incidents',
+  changePending: 'Changes proposed from the field',
+  resolveBlocked:
+    'It cannot be resolved until the proposed changes are accepted or rejected (Requests).',
   tabOpen: 'Open',
   tabClosed: 'Closed',
   columns: {
@@ -175,6 +255,7 @@ const en: typeof es = {
     tires: 'Tyre report',
     resolution: 'The resolution',
     notResolved: 'Still open: no resolution recorded yet.',
+    noDescription: 'No description.',
     workshop: 'Workshop',
     downtimeLabel: 'Days off road',
     downtime: (n: number) => `${n} ${n === 1 ? 'day' : 'days'}`,
@@ -222,7 +303,6 @@ const en: typeof es = {
   searchLabel: 'Search',
   searchPlaceholder: 'Plate, type or description…',
   viewDescription: 'View description',
-  incidentTitle: (id) => `Incident #${id}`,
   form: {
     vehicle: 'Vehicle',
     choosePlaceholder: '— Choose —',

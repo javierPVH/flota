@@ -81,7 +81,7 @@ function etiquetas(d: ReturnType<typeof useDomainCopy>) {
       pick(d.eventType, { code: event.event_type, fallback: event.event_type_display }),
     /** En qué quedó una petición, por bandeja. */
     requestStatus: (
-      bandeja: 'profile' | 'document' | 'vehicle' | 'driver' | 'supply',
+      bandeja: 'profile' | 'document' | 'vehicle' | 'driver' | 'supply' | 'incident',
       row: { status?: string | null; status_display?: string | null },
     ): string =>
       pick(d.requestStatus[bandeja] ?? {}, { code: row.status, fallback: row.status_display }),

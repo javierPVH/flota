@@ -507,6 +507,25 @@ describe('AlertsPage (M5)', () => {
     expect(screen.getByRole('dialog', { name: /7890NPQ/ })).toBeInTheDocument()
   })
 
+  it('con cambios propuestos sin decidir, «Resolver» va apagado y dice por qué', async () => {
+    mocks.roles = ['driver', 'supervisor']
+    mocks.listIncidents.mockResolvedValue({
+      count: 1,
+      results: [{ ...AVERIA, change_pending: true }],
+    })
+    renderPage()
+    await screen.findByRole('button', { name: /^Incidencias/ })
+    await abrir(/^Incidencias/)
+    const fila = screen.getByText(/No arranca en frío/).closest('.doc-item') as HTMLElement
+    expect(fila).toHaveClass('is-change-pending')
+    expect(within(fila).getByText('Cambios propuestos')).toBeInTheDocument()
+    const resolver = within(fila).getByRole('button', { name: 'Resolver' })
+    expect(resolver).toBeDisabled()
+    expect(resolver).toHaveAttribute('title', expect.stringContaining('acepte o rechace'))
+    // Y el lápiz tampoco: ya hay una propuesta viva.
+    expect(within(fila).getByRole('button', { name: 'Proponer cambios al parte' })).toBeDisabled()
+  })
+
   // --- «Te queda poco» también aquí ---------------------------------------
   // Lo que vence (la lectura de km, el combustible, la ITV, el mantenimiento)
   // se leía solo en la home. Es lo que hay que HACER, así que encabeza también

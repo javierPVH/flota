@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Layers } from 'lucide-react'
 
 import type {
   DocumentTypeAccess,
@@ -70,11 +71,23 @@ export function AccessOverrideRows({
   pick,
   onChange,
   rule,
+  only,
+  mixed = false,
+  legend = true,
 }: {
   pick: AccessPick
   onChange: (next: AccessPick) => void
   /** La regla del tipo, para decir qué vale «según el tipo». */
   rule: DocumentTypeAccess | undefined
+  /** Solo los mandos de UN grupo: el de la supervisión o los cuatro del
+   * conductor (el ajuste en bloque de varios documentos va por grupo). */
+  only?: 'supervisor' | 'driver'
+  /** Varios documentos de tipos distintos a la vez: «según el tipo» no
+   * puede decir qué es hoy, porque es distinto en cada uno. */
+  mixed?: boolean
+  /** Sin la leyenda de los iconos: quien pinta varios bloques seguidos la
+   * pone una vez arriba. */
+  legend?: boolean
 }) {
   const t = useDocumentsCopy()
   const copy = t.access.modal
@@ -88,11 +101,20 @@ export function AccessOverrideRows({
     download: find(options.action, rule?.driver_download ?? 'allow'),
     remove: find(options.remove, rule?.driver_delete ?? 'request'),
   }
-  const inheritedOf = (opt: AccessOption<string>) => ({
-    inherited: copy.inherit(opt.label),
-    inheritedText: copy.inheritShort,
-    inheritedIcon: opt.icon,
-  })
+  const inheritedOf = (opt: AccessOption<string>) =>
+    mixed
+      ? {
+          inherited: copy.inheritMixed,
+          inheritedText: copy.inheritShort,
+          inheritedIcon: <Layers size={14} aria-hidden />,
+        }
+      : {
+          inherited: copy.inherit(opt.label),
+          inheritedText: copy.inheritShort,
+          inheritedIcon: opt.icon,
+        }
+  const showSupervisor = only !== 'driver'
+  const showDriver = only !== 'supervisor'
   // Lo que vale para ÉL en «listar»: su ajuste o, sin él, lo del tipo. Si
   // no se lista, lectura, descarga y borrado no aplican y van apagados.
   const notListed = (pick.list || typeSays.list.value) === 'none'
@@ -101,15 +123,18 @@ export function AccessOverrideRows({
     onChange({ ...pick, [key]: value })
   return (
     <>
-      <AccessLegend title={t.settings.legend} options={options.legend} />
+      {legend && <AccessLegend title={t.settings.legend} options={options.legend} />}
       <div className="doc-access-rows">
-        <AccessSwitch<Pick3>
-          label={copy.supervisor}
-          {...inheritedOf(typeSays.supervisor)}
-          value={pick.supervisor}
-          options={options.yesNo}
-          onChange={(v) => set('supervisor', v)}
-        />
+        {showSupervisor && (
+          <AccessSwitch<Pick3>
+            label={copy.supervisor}
+            {...inheritedOf(typeSays.supervisor)}
+            value={pick.supervisor}
+            options={options.yesNo}
+            onChange={(v) => set('supervisor', v)}
+          />
+        )}
+        {showDriver && (
         <AccessSwitch<DriverDocumentRead>
           label={copy.list}
           {...inheritedOf(typeSays.list)}
@@ -117,6 +142,8 @@ export function AccessOverrideRows({
           options={options.list}
           onChange={(v) => set('list', v)}
         />
+        )}
+        {showDriver && (
         <AccessSwitch<DriverActionMode>
           label={copy.view}
           {...inheritedOf(typeSays.view)}
@@ -125,6 +152,8 @@ export function AccessOverrideRows({
           options={options.action}
           onChange={(v) => set('view', v)}
         />
+        )}
+        {showDriver && (
         <AccessSwitch<DriverActionMode>
           label={copy.download}
           {...inheritedOf(typeSays.download)}
@@ -133,6 +162,8 @@ export function AccessOverrideRows({
           options={options.action}
           onChange={(v) => set('download', v)}
         />
+        )}
+        {showDriver && (
         <AccessSwitch<DriverDeleteMode>
           label={copy.remove}
           {...inheritedOf(typeSays.remove)}
@@ -141,6 +172,7 @@ export function AccessOverrideRows({
           options={options.remove}
           onChange={(v) => set('remove', v)}
         />
+        )}
       </div>
     </>
   )

@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from 'react'
-import { Button, SelectField, TextInputField } from '@flota/ui/ui'
+import { Button, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
+import { AlertOctagon, FileBadge, NotebookPen, Wrench } from 'lucide-react'
 
 import { resolveIncident, type IncidentResolveInput } from '../../api.ts'
 import { todayIso } from '../../format.ts'
 import { useResolveCopy } from '../../translations/resolve.ts'
 import type { Incident, VehicleState } from '../../types.ts'
+import { ReportBlock } from '../IncidentDetailModal.tsx'
 import { uploadProof } from './proof.ts'
 import { ResolutionCommonFields } from './ResolutionCommonFields.tsx'
 import { useResolutionCommon } from './useResolutionCommon.ts'
@@ -25,10 +27,15 @@ interface Props {
   onRetire?: () => void
 }
 
-/** Centinela «sin determinar» del selector (`required` evita la fila
- * «-- Ignorar --» del DS pero exige un value no vacío). */
+/** Centinela «sin determinar»: la opción que no manda nada al back. */
 const LIABILITY_NONE = 'none'
 type Liability = NonNullable<NonNullable<IncidentResolveInput['accident']>['liability']>
+const LIABILITIES: Array<Liability | typeof LIABILITY_NONE> = [
+  LIABILITY_NONE,
+  'own',
+  'third_party',
+  'deductible',
+]
 
 /**
  * Resolver un ACCIDENTE: la reparación (lo común: fecha, taller, km, coste,
@@ -36,6 +43,15 @@ type Liability = NonNullable<NonNullable<IncidentResolveInput['accident']>['liab
  * expediente, quién asume el coste, franquicia). Con «siniestro total» el coche
  * no vuelve al servicio: el primario pasa a «Resolver y dar de baja» y, tras
  * cerrar, se abre la baja. Contenido del modal.
+ *
+ * Va en **tres bloques** con la misma caja que la ficha de la incidencia —la
+ * reparación, el siniestro y las notas con la factura—, porque son tres
+ * preguntas distintas (qué se hizo, quién lo paga, qué queda escrito) y en
+ * una sola columna de campos se rellenaban a ciegas. «Quién asume el coste»
+ * son cuatro píldoras y no un desplegable: se ve de un vistazo cuál está
+ * elegida, y la franquicia abre su importe al lado. Y el siniestro total es
+ * una caja propia, en rojo cuando se marca: es la decisión que da de baja el
+ * coche y no puede parecer una casilla más.
  */
 export function ResolveAccidentModal({
   incident,
@@ -63,6 +79,12 @@ export function ResolveAccidentModal({
   const [error, setError] = useState('')
 
   const isDeductible = liability === 'deductible'
+  const liabilityLabel: Record<string, string> = {
+    [LIABILITY_NONE]: a.liabilityNone,
+    own: a.liabilityOwn,
+    third_party: a.liabilityThirdParty,
+    deductible: a.liabilityDeductible,
+  }
 
   function accidentPayload(): IncidentResolveInput['accident'] | undefined {
     const block: NonNullable<IncidentResolveInput['accident']> = {}
@@ -105,59 +127,95 @@ export function ResolveAccidentModal({
   }
 
   return (
-    <form className="ops-modal" onSubmit={submit}>
+    <form className="ops-modal resolve-accident" onSubmit={submit}>
       <p className="muted ops-note">{a.intro}</p>
-      <ResolutionCommonFields
-        common={common}
-        show={{ returnToActive: !totalLoss }}
-        minDate={incident.date}
-        maxDate={todayIso()}
-        proofType="workshop_invoice"
-        idPrefix={`resolve-accident-${incident.id}`}
-      />
 
-      <div className="ops-grid">
-        <TextInputField
-          label={a.claimRef}
-          aria-label={a.claimRef}
-          value={claimRef}
-          onChange={(e) => setClaimRef(e.target.value)}
+      {/* 1 · La reparación: cuándo, con qué lectura, cuánto y desde dónde. */}
+      <ReportBlock icon={<Wrench size={15} aria-hidden />} title={a.sectionRepair}>
+        <ResolutionCommonFields
+          common={common}
+          show={{ observations: false, proof: false, returnToActive: !totalLoss }}
+          minDate={incident.date}
+          maxDate={todayIso()}
+          proofType="workshop_invoice"
+          idPrefix={`resolve-accident-${incident.id}`}
         />
-        <SelectField
-          label={a.liability}
-          aria-label={a.liability}
-          required
-          options={[
-            { value: LIABILITY_NONE, label: a.liabilityNone },
-            { value: 'own', label: a.liabilityOwn },
-            { value: 'third_party', label: a.liabilityThirdParty },
-            { value: 'deductible', label: a.liabilityDeductible },
-          ]}
-          value={liability}
-          onValueChange={setLiability}
-        />
-        {isDeductible && (
+      </ReportBlock>
+
+      {/* 2 · El siniestro: lo que el seguro va a preguntar. */}
+      <ReportBlock icon={<FileBadge size={15} aria-hidden />} title={a.sectionClaim}>
+        <div className="ops-grid">
           <TextInputField
-            label={a.deductibleAmount}
-            aria-label={a.deductibleAmount}
-            type="number"
-            min={0}
-            step="0.01"
-            value={deductible}
-            onChange={(e) => setDeductible(e.target.value)}
-            required
+            label={a.claimRef}
+            aria-label={a.claimRef}
+            placeholder={a.claimRefHint}
+            value={claimRef}
+            onChange={(e) => setClaimRef(e.target.value)}
           />
+        </div>
+        <fieldset className="ops-fieldset">
+          <legend className="ops-field-label">{a.liability}</legend>
+          <div className="pill-choices" role="radiogroup" aria-label={a.liability}>
+            {LIABILITIES.map((value) => (
+              <label key={value} className="baja-toggle">
+                <input
+                  type="radio"
+                  name={`resolve-accident-${incident.id}-liability`}
+                  value={value}
+                  checked={liability === value}
+                  onChange={() => setLiability(value)}
+                />
+                {liabilityLabel[value]}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        {isDeductible && (
+          <div className="ops-grid">
+            <TextInputField
+              label={a.deductibleAmount}
+              aria-label={a.deductibleAmount}
+              type="number"
+              min={0}
+              step="0.01"
+              value={deductible}
+              onChange={(e) => setDeductible(e.target.value)}
+              required
+            />
+          </div>
         )}
-      </div>
-      <label className="baja-toggle">
-        <input
-          type="checkbox"
-          checked={totalLoss}
-          onChange={(e) => setTotalLoss(e.target.checked)}
+        {/* Siniestro total: la decisión que da de baja el coche, en su caja. */}
+        <label className={`baja-toggle resolve-danger${totalLoss ? ' is-on' : ''}`}>
+          <input
+            type="checkbox"
+            checked={totalLoss}
+            onChange={(e) => setTotalLoss(e.target.checked)}
+          />
+          <span className="resolve-danger-icon">
+            <AlertOctagon size={16} aria-hidden />
+          </span>
+          <span className="resolve-danger-text">
+            <strong>{a.totalLoss}</strong>
+            <span className="muted">{a.totalLossHint}</span>
+          </span>
+        </label>
+      </ReportBlock>
+
+      {/* 3 · Lo que queda escrito: las observaciones y la factura. */}
+      <ReportBlock icon={<NotebookPen size={15} aria-hidden />} title={a.sectionNotes}>
+        <ResolutionCommonFields
+          common={common}
+          show={{
+            date: false,
+            km: false,
+            cost: false,
+            postalCode: false,
+            returnToActive: false,
+          }}
+          proofType="workshop_invoice"
+          idPrefix={`resolve-accident-${incident.id}`}
         />
-        {a.totalLoss}
-        <span className="muted"> · {a.totalLossHint}</span>
-      </label>
+      </ReportBlock>
 
       {error && (
         <div role="alert" className="form-error">

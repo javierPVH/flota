@@ -161,14 +161,40 @@ class DocumentRequestKind(models.TextChoices):
     # permiso de esa persona sobre ese documento.
     VIEW = "view", "Lectura"
     DOWNLOAD = "download", "Descarga"
+    # Las EXCEPCIONALES: la descarga o el borrado cuando están CERRADOS al
+    # conductor («no permitir», que ni admite la petición de siempre). El
+    # mando cerrado dice que no hay nada que pedir, pero quien lleva el coche
+    # necesita a veces justo eso, y sin un camino se pedía por teléfono y sin
+    # rastro. Son otra clase a propósito: la de siempre se rechaza con el
+    # mando cerrado, y en la bandeja se lee que vienen por la puerta de
+    # excepción.
+    ALLOW_DOWNLOAD = "allow_download", "Descarga excepcional"
+    ALLOW_DELETE = "allow_delete", "Borrado excepcional"
+    # Y lo que no es ninguna de las anteriores: una petición libre sobre ese
+    # documento, con la nota como todo su contenido. La gestión la atiende
+    # a mano (o la rechaza); aquí no se escribe nada en el documento.
+    OTHER = "other", "Otra petición"
 
 
 #: Las clases que hablan del DOCUMENTO (borrarlo, corregirlo): una viva por
 #: documento, y son las que lo marcan «pendiente» en el campo.
 ONE_PER_DOCUMENT_KINDS = frozenset({DocumentRequestKind.DELETE, DocumentRequestKind.CHANGE})
+
+#: Las excepcionales: piden lo que el mando tiene cerrado.
+EXCEPTION_REQUEST_KINDS = frozenset(
+    {DocumentRequestKind.ALLOW_DOWNLOAD, DocumentRequestKind.ALLOW_DELETE}
+)
 #: Las clases de ACCESO (lectura, descarga): una viva por documento Y persona,
 #: porque dos conductores pueden pedir lo mismo.
 ACCESS_REQUEST_KINDS = frozenset({DocumentRequestKind.VIEW, DocumentRequestKind.DOWNLOAD})
+
+#: Las que son de QUIEN pide y no del documento —una viva por documento Y
+#: persona—: las de acceso, las excepcionales y la petición libre. Es el
+#: complemento de `ONE_PER_DOCUMENT_KINDS`, y lo que mira la segunda
+#: restricción de unicidad.
+PER_PERSON_REQUEST_KINDS = frozenset(
+    ACCESS_REQUEST_KINDS | EXCEPTION_REQUEST_KINDS | {DocumentRequestKind.OTHER}
+)
 
 
 class DocumentDeletionStatus(models.TextChoices):
@@ -187,4 +213,6 @@ class DocumentDeletionStatus(models.TextChoices):
     APPLIED = "applied", "Corrección aplicada"
     # La salida buena de una de ACCESO: la fila concedida es el permiso.
     GRANTED = "granted", "Concedida"
+    # La de «otra petición»: la gestión hizo lo que fuera, fuera de aquí.
+    DONE = "done", "Atendida"
     REJECTED = "rejected", "Rechazada"

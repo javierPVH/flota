@@ -317,6 +317,41 @@ class SeedCoverageTests(APITestCase):
         self.assertTrue(Vehicle.objects.filter(state=VehicleState.BAJA).exists())
         self.assertTrue(User.objects.filter(is_active=False).exists())
 
+    def test_2022dxp_lleva_un_documento_de_cada_tipo_subido_por_alba(self):
+        # El escaparate de documentación de campo: el coche de alba con un
+        # documento de CADA tipo de vehículo subido por ella (y su permiso de
+        # conducir como titular), para probar «solo los suyos», las peticiones
+        # de acceso y los ajustes por documento sobre una carpeta entera.
+        alba = User.objects.get(username="alba")
+        coche = Vehicle.objects.get(plate="2022DXP")
+        self.assertTrue(
+            Assignment.objects.filter(vehicle=coche, driver=alba, end_date__isnull=True).exists()
+        )
+        tipos = set(
+            Document.objects.filter(vehicle=coche, uploaded_by=alba, is_active=True).values_list(
+                "type", flat=True
+            )
+        )
+        self.assertEqual(tipos, set(DocumentType.values) - {DocumentType.DRIVING_LICENSE})
+        self.assertTrue(
+            Document.objects.filter(
+                user=alba, type=DocumentType.DRIVING_LICENSE, uploaded_by=alba
+            ).exists()
+        )
+        # Lo que exige acompañar a algo, acompaña: el parte, las fotos y la
+        # factura cuelgan de su accidente abierto.
+        accidente = Incident.objects.get(vehicle=coche, type=IncidentType.ACCIDENT, is_active=True)
+        self.assertEqual(accidente.status, IncidentStatus.IN_PROGRESS)
+        for tipo in (
+            DocumentType.ACCIDENT_REPORT,
+            DocumentType.DAMAGE_PHOTOS,
+            DocumentType.WORKSHOP_INVOICE,
+        ):
+            self.assertEqual(
+                Document.objects.get(vehicle=coche, type=tipo, uploaded_by=alba).incident_id,
+                accidente.id,
+            )
+
     def test_reference_layer_invariants_hold(self):
         """Los datos de referencia que documenta SEED_DEV.md siguen en pie."""
         today = timezone.localdate()

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Bell, Camera, Car, CloudOff, Home, LineChart, LogOut, Split, User, UserCog, Users } from 'lucide-react'
+import { Bell, Car, CloudOff, FilePlus, Home, LineChart, LogOut, Split, User, UserCog, Users } from 'lucide-react'
 import { LanguageToggleButton } from '@flota/ui/ui'
 
 import { fetchVehicleSummariesCached, listMyShares, listVehiclesCached } from '../api.ts'
@@ -397,12 +397,12 @@ export function Layout() {
                 className="bottom-tab"
                 onClick={() => setUploadOpen(true)}
               >
-                <Camera size={22} strokeWidth={2.4} aria-hidden />
+                <FilePlus size={22} strokeWidth={2.4} aria-hidden />
                 <span>{t.shell.tabs.document}</span>
               </button>
             ) : (
               <span className="bottom-tab is-disabled" aria-disabled="true" title={t.shell.noVehicle}>
-                <Camera size={22} strokeWidth={2.4} aria-hidden />
+                <FilePlus size={22} strokeWidth={2.4} aria-hidden />
                 <span>{t.shell.tabs.document}</span>
               </span>
             )}

@@ -125,6 +125,7 @@ renombras rompes la cadena. Contraseña de prueba de TODOS: **`flota-dev-2026`**
 | `nuevo` | *(sin rol)* | Simula el auto-alta por Google → prueba el portón desde cero |
 | `hse` | hse | **Solo lectura** de toda la flota en gestión (`HseReadOnly`): ve coches, incidencias, alertas, documentos de vehículo, histórico, informes; no escribe, no ve usuarios ni Ajustes ni bandejas, y no entra en la PWA |
 | `ana_hse` | admin + hse | Administradora con el rol HSE sumado: prueba que el rol no le quita nada a `admin` |
+| `alba` | driver (de volumen) | Conduce `2022DXP` (en mantenimiento): el **escaparate de documentación** — un documento de **cada tipo** de vehículo subido por ella (el parte, las fotos y la factura colgando de su accidente abierto) más su permiso de conducir; para probar «solo los suyos», las peticiones de acceso y los ajustes por documento sobre una carpeta entera |
 
 El séptimo tipo de alerta, **«ITV sin cita»** (`itv_unscheduled`), lo da el
 coche de volumen **nº 3** (`_bulk_plate(3)`): su última ITV es favorable, de

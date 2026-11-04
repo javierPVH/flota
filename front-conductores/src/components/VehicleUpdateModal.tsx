@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { ClipboardCheck, ClipboardList, Fuel, Gauge, Wrench } from 'lucide-react'
+import { AlertTriangle, ClipboardCheck, Fuel, Gauge, Wrench } from 'lucide-react'
 import { Badge, Button } from '@flota/ui/ui'
 
 import { listIncidents, listMaintenancePlans, type MaintenancePlanRow } from '../api.ts'
@@ -29,8 +29,8 @@ const TAB_ICON: Record<UpdateTab, typeof Gauge> = {
   km: Gauge,
   fuel: Fuel,
   itv: ClipboardCheck,
-  maintenance: ClipboardList,
-  incidents: Wrench,
+  maintenance: Wrench,
+  incidents: AlertTriangle,
 }
 
 /**
@@ -285,7 +285,10 @@ export function VehicleUpdateModal({
                   {incidenciasVistas.map((incident) => {
                     const prioridad = priorityOf(incident)
                     return (
-                      <li key={incident.id} className={`doc-item pri-row pri-${prioridad}`}>
+                      <li
+                        key={incident.id}
+                        className={`doc-item pri-row pri-${prioridad}${incident.change_pending ? ' is-change-pending' : ''}`}
+                      >
                         <div className="doc-info">
                           <strong>
                             {etiqueta.incidentType(incident)}{' '}
@@ -303,7 +306,20 @@ export function VehicleUpdateModal({
                             {incident.description ? ` · ${incident.description}` : ''}
                           </span>
                         </div>
-                        <Button type="button" size="sm" onClick={() => setResolving(incident)}>
+                        {incident.change_pending && (
+                          <Badge tone="info" size="sm">
+                            {t.incidentChange.pendingBadge}
+                          </Badge>
+                        )}
+                        {/* Con cambios propuestos sin decidir no se cierra:
+                            primero se decide el parte (el back lo rechaza igual). */}
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={Boolean(incident.change_pending)}
+                          title={incident.change_pending ? t.incidentChange.resolveBlocked : undefined}
+                          onClick={() => setResolving(incident)}
+                        >
                           {copy.actionResolve}
                         </Button>
                       </li>

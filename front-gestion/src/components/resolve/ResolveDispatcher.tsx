@@ -164,7 +164,16 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
           onSaved={() => onDone(t.notices.itvScheduled(plate))}
         />
       )}
-      <Modal open={target !== null && !isSchedule} title={title} onClose={handleClose}>
+      {/* Con 460px los cierres iban a una columna y se rellenaban a ciegas:
+          ancho para todos y extra ancho para el accidente, que va en tres
+          bloques con sus campos en fila. */}
+      <Modal
+        open={target !== null && !isSchedule}
+        title={title}
+        onClose={handleClose}
+        wide={flow !== 'accident'}
+        xl={flow === 'accident'}
+      >
         {target && stopped && (
           <div className="resolve-back">
             <p className="resolve-back-title">

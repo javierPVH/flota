@@ -17,8 +17,8 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from fleet.models import Incident, MaintenancePlan, Vehicle, Workshop
-from fleet.models.enums import IncidentStatus, IncidentType, VehicleState
+from fleet.models import Incident, IncidentChangeRequest, MaintenancePlan, Vehicle, Workshop
+from fleet.models.enums import IncidentChangeStatus, IncidentStatus, IncidentType, VehicleState
 from fleet.services import events
 
 #: Estados del vehículo que «libera» cada tipo de incidencia al resolverse: solo
@@ -70,6 +70,20 @@ def resolve_incident(
 
         if incident.status == IncidentStatus.CLOSED:
             raise ValidationError({"status": "La incidencia ya está cerrada."})
+        # Con una propuesta de modificar el parte sin decidir no se cierra: lo
+        # que se resuelve ha de ser el parte que quede, aplicada o rechazada.
+        # Los dos fronts apagan su botón con este mismo porqué; aquí manda.
+        if IncidentChangeRequest.objects.filter(
+            incident=incident, status=IncidentChangeStatus.PENDING
+        ).exists():
+            raise ValidationError(
+                {
+                    "status": (
+                        "Hay una propuesta de cambios al parte sin decidir: "
+                        "acéptala o recházala antes de resolver la incidencia."
+                    )
+                }
+            )
         if resolution_date > today:
             raise ValidationError({"resolution_date": "La fecha de solución no puede ser futura."})
         if incident.date and resolution_date < incident.date:

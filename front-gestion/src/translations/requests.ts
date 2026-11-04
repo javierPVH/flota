@@ -3,17 +3,21 @@ import { useAppLang } from '@flota/ui/i18n'
 const es = {
   title: 'Solicitudes',
   subtitle:
-    'Lo que espera una decisión: coches de sustitución, documentos (los que están y el que falta), cambios de conductor y fichas personales.',
+    'Lo que espera una decisión: un coche para quien lo pide, lo que se pide sobre un documento que ya está, el documento que falta, otro conductor para un coche, la corrección de una ficha personal y los cambios propuestos al parte de una incidencia.',
   /** CINCO bandejas en una página: se decide lo mismo —conceder o no— y el
-   * aviso de la cabecera las cuenta juntas. El subtítulo las nombra: decía
-   * «coches y borrado de documentos» cuando ya eran cuatro, así que la
-   * página prometia menos de lo que hace. */
-  tabVehicles: 'Vehículos',
-  tabDocuments: 'Documentos',
+   * aviso de la cabecera las cuenta juntas. Cada pestaña dice QUÉ se pide
+   * en ella, no de qué va: «Documentos» y «Documentos pedidos» eran dos
+   * bandejas con el mismo nombre a medias, y había que abrirlas para saber
+   * que una habla de un documento que ya está (borrarlo, corregirlo, su
+   * acceso) y la otra del que falta. */
+  tabVehicles: 'Coche pedido',
+  tabDocuments: 'Sobre un documento que ya está',
   /** El papel que al campo le FALTA: la quinta bandeja. */
-  tabSupply: 'Documentos pedidos',
-  tabDrivers: 'Cambio de conductor',
-  tabProfiles: 'Fichas personales',
+  tabSupply: 'Documento que falta',
+  tabDrivers: 'Otro conductor propuesto',
+  tabProfiles: 'Corregir una ficha personal',
+  /** La sexta: el parte de una incidencia que el campo propone cambiar. */
+  tabIncidents: 'Modificar el parte de una incidencia',
   helpTitle: 'Cómo se decide',
   // Sin el nombre del job: quién decide aquí no sabe (ni tiene por qué)
   // cómo se llama el proceso que lo sincroniza.
@@ -108,7 +112,7 @@ const es = {
    * app de campo, y aquí se deciden. La papelera de allí no borra. */
   docs: {
     help:
-      'Las abre quien lee el documento en la app de conductores —para borrarlo, para corregirlo o para que se le conceda verlo o descargarlo cuando su tipo va con solicitud—. Hasta que se deciden, el ',
+      'Las abre quien lee el documento en la app de conductores —para borrarlo, para corregirlo, para que se le conceda verlo o descargarlo cuando su tipo va con solicitud, o por la puerta de excepción: la descarga o el borrado que el mando tiene cerrado, y cualquier otra petición—. Hasta que se deciden, el ',
     helpStrong: 'documento sigue como estaba',
     helpRest: ', marcado en su lista.',
     statusPending: 'Pendientes',
@@ -150,6 +154,14 @@ const es = {
     optGrant: 'Conceder el acceso',
     optGrantHint:
       'Quien lo pidió podrá hacer eso —ver el documento o descargarlo— desde su app. La concesión es solo suya y solo para este documento.',
+    /** La descarga EXCEPCIONAL: el mando está cerrado y una concesión no
+     * vale mientras lo esté, así que conceder abre ESE documento «con
+     * solicitud» además de concedérsela a quien la pidió. */
+    optGrantOpenHint:
+      'Este documento tiene la descarga cerrada a quien conduce. Conceder la excepción lo pasa a «con solicitud» —los demás conductores la seguirán pidiendo— y se la concede a quien la pidió, que podrá descargarlo desde su app.',
+    optDone: 'Darla por atendida',
+    optDoneHint:
+      'Lo que pedía se ha hecho (o contestado) fuera de aquí. No se toca el documento: la fila solo deja escrito que se atendió, con tus observaciones.',
     optReject: 'Rechazar la petición',
     optRejectHint: 'No se toca el documento: vuelve a verse como hasta ahora.',
     note: 'Observaciones (opcional)',
@@ -159,6 +171,7 @@ const es = {
     okHide: (what: string) => `${what} oculto para el campo: protegido y a tu nombre.`,
     okApply: (what: string) => `${what} corregido con lo que se pedía.`,
     okGrant: (what: string) => `Acceso concedido a ${what} para quien lo pidió.`,
+    okDone: (what: string) => `Petición sobre ${what} atendida.`,
     okReject: (what: string) => `Petición rechazada: ${what} se sigue viendo como hasta ahora.`,
     error: 'No se pudo resolver la petición.',
   },
@@ -255,14 +268,23 @@ const es = {
   ownerDocs: {
     title: (owner: string) => `Documentación de ${owner}`,
     intro:
-      'Lo que ya hay del titular y quién lo lee (la supervisión y los conductores del coche: el grupo). Aquí se decide documento a documento: concederle a quien pide lo que va con solicitud, o «Acceso del grupo» para abrirlo o cerrarlo a todos con el ajuste del documento.',
+      'Lo que ya tiene el titular y cómo lo leen hoy los conductores del coche. Marca documentos y decide su acceso: el mismo para todos o uno propio por documento; de paso se le concede a quien pide lo que le vaya con solicitud.',
     loadError: 'No se pudo cargar la documentación del titular.',
     empty: 'El titular no tiene ningún documento todavía.',
     columns: {
       document: 'Documento',
-      access: 'Quién lo lee',
+      access: 'Cómo lo leen los conductores',
       forPerson: (who: string) => `Para ${who}`,
-      actions: 'Acciones',
+      actions: 'Atender',
+    },
+    /** Los dos filtros de la tabla: el tipo (todos los del enumerado, con
+     * cuántos hay) y quién lo subió (quien pide u otros). */
+    typeFilter: { label: 'Tipo de documento', all: 'Todos' },
+    uploader: {
+      label: 'Subido por',
+      all: 'Cualquiera',
+      requester: (who: string) => who,
+      others: 'Otros',
     },
     thisOne: 'Esta petición',
     notListed: 'No le sale en su lista',
@@ -276,19 +298,98 @@ const es = {
     downloadPending: 'Descarga pedida',
     downloadOnRequest: 'Descarga con solicitud',
     downloadDenied: 'Descarga no permitida',
-    grantView: 'Conceder lectura',
-    grantDownload: 'Conceder descarga',
-    viewWord: 'Lectura',
-    downloadWord: 'Descarga',
-    granted: (what: string, doc: string, who: string) => `${what} de ${doc} concedida a ${who}.`,
-    grantError: 'No se pudo conceder el acceso.',
-    groupAccess: 'Acceso del grupo',
-    groupAccessHint:
-      'Quién lee este documento y qué puede hacer con él: la supervisión y los conductores del coche, pisando lo de su tipo solo aquí.',
+    grantError: 'No se pudo conceder el acceso a quien pide.',
     pick: 'Atender con este',
+    /** Los dos pasos: marcar y decidir el acceso de los conductores. */
+    bulk: {
+      label: 'Acciones sobre los documentos marcados',
+      selectAll: 'Marcar todos',
+      selectAllOf: 'Marcar todos los que se ven',
+      selectOne: (doc: string) => `Marcar ${doc}`,
+      count: (n: number) => (n === 1 ? '1 documento marcado' : `${n} documentos marcados`),
+      none: 'Marca documentos para decidir cómo los leen los conductores.',
+      next: (n: number) => `Dar acceso a los marcados (${n})`,
+      stepTitle: (n: number) => `Acceso de los conductores a ${n} documento(s)`,
+      stepIntro:
+        'Solo los mandos del conductor; lo que cada documento tenga para la supervisión se queda como está. «Según el tipo» devuelve el mando a lo que diga el tipo de ese documento (Documentos → Ajustes).',
+      modeLabel: 'Cómo se decide',
+      modeSame: 'El mismo acceso para todos',
+      modeEach: 'Uno propio por documento',
+      grantToo: (who: string) => `Concederle a ${who} lo que le siga yendo con solicitud`,
+      grantTooHint:
+        'Con el acceso que quede, la lectura y la descarga que a esta persona le vayan con solicitud en los marcados se le conceden ya.',
+      back: 'Atrás',
+      save: (n: number) => `Guardar en ${n}`,
+      saving: 'Guardando…',
+      saved: (n: number) => `Acceso de los conductores guardado en ${n} documento(s).`,
+      saveError: (n: number) => `No se pudo guardar en ${n} documento(s).`,
+      granted: (n: number, who: string) =>
+        `A ${who} se le han concedido ${n} acceso(s) que le iban con solicitud.`,
+      /** El resumen del paso: cómo quedará cada marcado con lo elegido. */
+      summary: {
+        title: 'Cómo quedará cada documento',
+        note: 'Cada mando pisa lo del tipo solo en ese documento; «según el tipo» (capas) deja mandar al tipo. Quien decide al final es el back.',
+        allRow: (n: number) => `Todos los marcados (${n})`,
+        columns: { list: 'Lista', view: 'Ve', download: 'Baja', remove: 'Borrado' },
+        forPerson: (who: string) => `${who} después`,
+        notListed: 'No le saldrá en su lista',
+        view: 'Lo verá',
+        viewGranted: 'Lo verá (se le concede ahora)',
+        viewRequest: 'Lectura con solicitud',
+        viewDenied: 'No lo verá',
+        download: 'Se lo bajará',
+        downloadGranted: 'Se lo bajará (se le concede ahora)',
+        downloadRequest: 'Descarga con solicitud',
+        downloadDenied: 'No se lo bajará',
+      },
+    },
   },
   /** La quinta bandeja: el papel que falta. Las otras cuatro peticiones sobre
    * documentos hablan de uno que ya existe y que quien pide ya ve. */
+  partes: {
+    help: 'Las abre quien comunicó la incidencia desde la app de campo, donde no hay lápiz: propone cambiar la fecha, la descripción, el kilometraje, el CP o la prioridad. Aplicarla ',
+    helpStrong: 'escribe esos campos en la incidencia',
+    helpRest: '; mientras espera, la incidencia se ve de otro color en campo.',
+    statusPending: 'Pendientes',
+    statusDone: 'Aplicadas',
+    statusRejected: 'Rechazadas',
+    empty: 'Sin propuestas de cambio con estos filtros.',
+    loadError: 'No se pudieron cargar las propuestas.',
+    csvName: 'propuestas-parte',
+    columns: {
+      vehicle: 'Vehículo',
+      incident: 'Incidencia',
+      changes: 'Qué propone',
+      requested: 'Propuesta',
+      note: 'Nota',
+      status: 'Estado',
+      resolved: 'Resuelta',
+      actions: 'Acciones',
+    },
+    change: (label: string, current: string, proposed: string) =>
+      `${label}: ${current || '—'} → ${proposed || '—'}`,
+    noChanges: 'Solo la nota',
+    noNote: 'Sin nota',
+    manage: 'Gestionar…',
+    modalTitle: (plate: string) => `Modificar el parte · ${plate}`,
+    asked: (who: string, when: string) => `Propuesta por ${who} el ${when}.`,
+    incidentLabel: 'Incidencia',
+    changesLabel: 'Qué propone cambiar',
+    noteLabel: 'Nota para gestión',
+    decision: 'Qué se hace con la propuesta',
+    optDone: 'Aplicarla',
+    optDoneHint:
+      'Se escriben esos campos en la incidencia, con su rastro en la auditoría. Lo que ya esté igual no se vuelve a escribir.',
+    optReject: 'Rechazarla',
+    optRejectHint: 'La incidencia se queda como está. La nota explica por qué.',
+    goToVehicle: 'Abrir la ficha del coche',
+    note: 'Observaciones (opcional)',
+    submit: 'Aplicar',
+    submitting: 'Aplicando…',
+    okDone: (plate: string) => `Parte de ${plate} modificado.`,
+    okReject: (plate: string) => `Propuesta sobre ${plate} rechazada.`,
+    error: 'No se pudo resolver la propuesta.',
+  },
   supply: {
     help: 'Las abre el campo desde «Documento» cuando el papel no está —o está y no lo ve, porque su tipo está cerrado al conductor—. Atenderla ',
     helpStrong: 'no da acceso por sí sola',
@@ -314,38 +415,57 @@ const es = {
     manage: 'Gestionar…',
     modalTitle: (what: string) => `Petición de documento · ${what}`,
     noteLabel: 'Para qué lo necesita',
-    decision: 'Qué se hace con la petición',
-    optDone: 'Atenderla',
-    optDoneHint:
-      'Subiendo el documento a la ficha del titular, con uno que ya exista (elígelo en la ' +
-      'pestaña «Documentación») o sin archivo, si ya se lo entregaste por otra vía.',
-    optReject: 'Rechazarla',
-    optRejectHint: 'No se facilita nada. La nota explica por qué.',
-    howLabel: 'Cómo se atiende',
-    howUpload: 'Subiendo el documento',
-    howExisting: 'Con uno que ya existe',
-    howNone: 'Sin archivo: se entregó por otra vía',
+    /** El único paso: qué se hace, en cuatro tarjetas. */
+    choiceLabel: 'Qué se hace con la petición',
+    choiceUpload: 'Subir el documento',
+    choiceUploadHint: 'Se sube a la ficha del titular y la petición queda atendida con él.',
+    choiceExisting: 'Usar uno que ya existe',
+    choiceExistingHint: (n: number | null) =>
+      n === null
+        ? 'Se elige de la documentación que ya tiene el titular; no se sube nada.'
+        : n === 0
+          ? 'El titular no tiene ningún documento todavía.'
+          : `Se elige entre los ${n} que ya tiene el titular; no se sube nada.`,
+    choiceNone: 'Ya se entregó por otra vía',
+    choiceNoneHint: 'Se atiende sin archivo: en mano, por correo…',
+    choiceReject: 'Rechazar la petición',
+    choiceRejectHint: 'No se facilita nada. Explica por qué en las observaciones.',
     file: 'Documento que se le facilita',
     fileRequired: 'Adjunta el documento, o elige otra forma de atenderla.',
     picked: (what: string) => `Se atenderá con: ${what}`,
+    pickedRow: 'Se atenderá con este',
     unpick: 'Quitar',
-    pickRequired: 'Elige en la pestaña «Documentación» con qué documento se atiende.',
+    pickRequired: 'Elige con qué documento se atiende.',
+    pickedIntro:
+      'Lo elegido en la ventana, con el acceso que tiene cada uno para quien pide. Marca con cuál se atiende la petición.',
+    pickFromDocs: 'Elegir documento…',
+    pickMore: 'Elegir otros…',
+    docsButton: 'Documentación del titular',
+    docsButtonCount: (n: number) => `Documentación del titular (${n})`,
+    docsModalTitle: 'Documentación del titular',
     expiry: 'Caducidad',
     expiryRequired: 'Ese tipo de documento caduca: pon su fecha.',
-    accessLabel: 'Acceso del documento que se sube',
+    typeLabel: 'Tipo del documento que se sube',
+    typeRequested: (what: string) =>
+      `Se pidió ${what}. Se atiende con otro tipo si es lo que de verdad hace falta.`,
+    accessLabel: 'Quién podrá leerlo',
     accessByType: 'Según su tipo',
-    accessOwn: 'Ajuste propio para este documento',
-    accessTypeSays: 'Lo que dice hoy el tipo:',
-    grantToo: (who: string) =>
-      `Concederle a ${who} la lectura y la descarga que vayan con solicitud`,
+    accessOwn: 'Ajuste propio',
+    accessTypeSays: 'Hoy el tipo dice:',
+    grantToo: (who: string) => `Concederle ya a ${who} lo que le vaya con solicitud`,
     grantTooHint:
-      'Con el acceso según el tipo (o el ajuste), lo que quede «con solicitud» se le concede ya a quien lo pidió, sin que tenga que volver a pedirlo.',
+      'Si la lectura o la descarga le van con solicitud, se le conceden al atender y no tiene que volver a pedirlas.',
     grantFailed:
       'La petición quedó atendida, pero no se pudo conceder el acceso a quien la pidió: concédelo desde la lista de documentación.',
     goToVehicle: 'Abrir la ficha del coche',
     goToUser: 'Abrir la ficha de la persona',
     note: 'Observaciones (opcional)',
-    submit: 'Resolver',
+    noteReject: 'Por qué se rechaza (opcional)',
+    /** El botón dice lo que va a pasar, según la tarjeta elegida. */
+    submitUpload: 'Subir y atender',
+    submitExisting: 'Atender con el elegido',
+    submitNone: 'Atender sin archivo',
+    submitReject: 'Rechazar',
     submitting: 'Resolviendo…',
     uploadError: 'No se pudo subir el documento: la petición sigue pendiente.',
     resolveAfterUpload:
@@ -359,12 +479,13 @@ const es = {
 const en: typeof es = {
   title: 'Requests',
   subtitle:
-    'What is waiting for a decision: replacement cars, documents (the ones there and the missing one), driver changes and personal details.',
-  tabVehicles: 'Vehicles',
-  tabDrivers: 'Driver change',
-  tabProfiles: 'Personal records',
-  tabDocuments: 'Documents',
-  tabSupply: 'Requested documents',
+    'What is waiting for a decision: a car for whoever asks for one, what is asked about a document already there, the missing document, another driver for a car, the correction of a personal record and the changes proposed to an incident report.',
+  tabVehicles: 'Car requested',
+  tabDrivers: 'Another driver proposed',
+  tabProfiles: 'Fix a personal record',
+  tabIncidents: 'Change an incident report',
+  tabDocuments: 'About a document already there',
+  tabSupply: 'Missing document',
   helpTitle: 'How it is decided',
   jiraNote: 'The Jira ticket status syncs on its own. If Jira does not confirm, decide here.',
   statPending: 'Undecided',
@@ -441,7 +562,7 @@ const en: typeof es = {
   grantSubmit: 'Grant',
   grantSubmitting: 'Granting…',
   docs: {
-    help: 'Opened by whoever reads the document in the drivers app —to delete it, to fix it, or to be granted viewing or downloading it when its type is on request—. Until they are decided, the ',
+    help: 'Opened by whoever reads the document in the drivers app —to delete it, to fix it, to be granted viewing or downloading it when its type is on request, or through the exception door: the download or deletion the setting closes, and any other request—. Until they are decided, the ',
     helpStrong: 'document stays as it was',
     helpRest: ', marked in their list.',
     statusPending: 'Pending',
@@ -481,6 +602,11 @@ const en: typeof es = {
     optGrant: 'Grant access',
     optGrantHint:
       'Whoever asked will be able to do that —view the document or download it— from their app. The grant is theirs only and for this document only.',
+    optGrantOpenHint:
+      'This document has downloading closed to drivers. Granting the exception sets it to «on request» —other drivers will still have to ask— and grants it to whoever asked, who will be able to download it from their app.',
+    optDone: 'Mark it as handled',
+    optDoneHint:
+      'What was asked has been done (or answered) outside this screen. The document is not touched: the row only records that it was handled, with your notes.',
     optReject: 'Reject the request',
     optRejectHint: 'The document is not touched: it is visible just as before.',
     note: 'Notes (optional)',
@@ -490,6 +616,7 @@ const en: typeof es = {
     okHide: (what: string) => `${what} hidden from the field: protected and under your name.`,
     okApply: (what: string) => `${what} fixed as requested.`,
     okGrant: (what: string) => `Access to ${what} granted to whoever asked.`,
+    okDone: (what: string) => `Request about ${what} handled.`,
     okReject: (what: string) => `Request rejected: ${what} is still visible as before.`,
     error: 'Could not resolve the request.',
   },
@@ -580,14 +707,21 @@ const en: typeof es = {
   ownerDocs: {
     title: (owner) => `Documents of ${owner}`,
     intro:
-      "What the owner already has and who reads it (supervision and the vehicle's drivers: the group). Decide document by document: grant the requester what goes on request, or «Group access» to open or close it to everyone with the document's own setting.",
+      "What the owner already has and how the vehicle's drivers read it today. Check documents and decide their access: the same for all or one of its own per document; along the way, the requester is granted whatever goes on request.",
     loadError: "Could not load the owner's documents.",
     empty: 'The owner has no documents yet.',
     columns: {
       document: 'Document',
-      access: 'Who reads it',
+      access: 'How drivers read it',
       forPerson: (who) => `For ${who}`,
-      actions: 'Actions',
+      actions: 'Serve',
+    },
+    typeFilter: { label: 'Document type', all: 'All' },
+    uploader: {
+      label: 'Uploaded by',
+      all: 'Anyone',
+      requester: (who) => who,
+      others: 'Others',
     },
     thisOne: 'This request',
     notListed: 'Not in their list',
@@ -601,16 +735,91 @@ const en: typeof es = {
     downloadPending: 'Download requested',
     downloadOnRequest: 'Download on request',
     downloadDenied: 'No download',
-    grantView: 'Grant view',
-    grantDownload: 'Grant download',
-    viewWord: 'View',
-    downloadWord: 'Download',
-    granted: (what, doc, who) => `${what} of ${doc} granted to ${who}.`,
-    grantError: 'Could not grant access.',
-    groupAccess: 'Group access',
-    groupAccessHint:
-      "Who reads this document and what they can do with it: supervision and the vehicle's drivers, overriding its type here only.",
+    grantError: 'Could not grant access to the requester.',
     pick: 'Serve with this one',
+    bulk: {
+      label: 'Actions on the checked documents',
+      selectAll: 'Check all',
+      selectAllOf: 'Check all shown',
+      selectOne: (doc) => `Check ${doc}`,
+      count: (n) => (n === 1 ? '1 document checked' : `${n} documents checked`),
+      none: 'Check documents to decide how drivers read them.',
+      next: (n) => `Give access to checked (${n})`,
+      stepTitle: (n) => `Driver access to ${n} document(s)`,
+      stepIntro:
+        "Driver controls only; whatever each document has for supervision stays as it is. “As the type” hands the control back to that document's type (Documents → Settings).",
+      modeLabel: 'How to decide',
+      modeSame: 'The same access for all',
+      modeEach: 'One of its own per document',
+      grantToo: (who) => `Grant ${who} whatever still goes on request`,
+      grantTooHint:
+        'With the resulting access, the viewing and download that go on request for this person on the checked documents are granted right away.',
+      back: 'Back',
+      save: (n) => `Save on ${n}`,
+      saving: 'Saving…',
+      saved: (n) => `Driver access saved on ${n} document(s).`,
+      saveError: (n) => `Could not save on ${n} document(s).`,
+      granted: (n, who) => `${who} was granted ${n} access(es) that went on request.`,
+      summary: {
+        title: 'How each document will end up',
+        note: 'Each control overrides the type in that document only; “as the type” (layers) lets the type decide. The back has the final say.',
+        allRow: (n) => `All checked (${n})`,
+        columns: { list: 'Lists', view: 'Views', download: 'Downloads', remove: 'Deletion' },
+        forPerson: (who) => `${who} afterwards`,
+        notListed: 'Will not be in their list',
+        view: 'Will view it',
+        viewGranted: 'Will view it (granted now)',
+        viewRequest: 'View on request',
+        viewDenied: 'Will not view it',
+        download: 'Will download it',
+        downloadGranted: 'Will download it (granted now)',
+        downloadRequest: 'Download on request',
+        downloadDenied: 'Will not download it',
+      },
+    },
+  },
+  partes: {
+    help: 'Opened by whoever reported the incident from the field app, which has no pencil: they propose changing the date, description, mileage, postal code or priority. Applying it ',
+    helpStrong: 'writes those fields on the incident',
+    helpRest: '; while it waits, the incident shows in another colour in the field.',
+    statusPending: 'Pending',
+    statusDone: 'Applied',
+    statusRejected: 'Rejected',
+    empty: 'No change proposals match these filters.',
+    loadError: 'Could not load the proposals.',
+    csvName: 'report-change-proposals',
+    columns: {
+      vehicle: 'Vehicle',
+      incident: 'Incident',
+      changes: 'What is proposed',
+      requested: 'Proposed',
+      note: 'Note',
+      status: 'Status',
+      resolved: 'Resolved',
+      actions: 'Actions',
+    },
+    change: (label, current, proposed) => `${label}: ${current || '—'} → ${proposed || '—'}`,
+    noChanges: 'Only the note',
+    noNote: 'No note',
+    manage: 'Manage…',
+    modalTitle: (plate) => `Change the report · ${plate}`,
+    asked: (who, when) => `Proposed by ${who} on ${when}.`,
+    incidentLabel: 'Incident',
+    changesLabel: 'What they propose to change',
+    noteLabel: 'Note for management',
+    decision: 'What to do with the proposal',
+    optDone: 'Apply it',
+    optDoneHint:
+      'Those fields are written on the incident, with their audit trail. Whatever is already the same is not written again.',
+    optReject: 'Reject it',
+    optRejectHint: 'The incident stays as it is. The note explains why.',
+    goToVehicle: 'Open the vehicle record',
+    note: 'Notes (optional)',
+    submit: 'Apply',
+    submitting: 'Applying…',
+    okDone: (plate) => `Report of ${plate} changed.`,
+    okReject: (plate) => `Proposal about ${plate} rejected.`,
+    error: 'Could not resolve the proposal.',
   },
   supply: {
     help: 'Opened from the field app when the document is missing — or is there and they cannot see it, because its type is closed to drivers. Serving it ',
@@ -637,37 +846,55 @@ const en: typeof es = {
     manage: 'Handle…',
     modalTitle: (what) => `Document request · ${what}`,
     noteLabel: 'What they need it for',
-    decision: 'What to do with the request',
-    optDone: 'Serve it',
-    optDoneHint:
-      'By uploading the document to the owner, with one that already exists (pick it in the ' +
-      '«Documents» tab) or with no file, if you already handed it over another way.',
-    optReject: 'Reject it',
-    optRejectHint: 'Nothing is provided. The note explains why.',
-    howLabel: 'How it is served',
-    howUpload: 'Uploading the document',
-    howExisting: 'With one that already exists',
-    howNone: 'No file: handed over another way',
+    choiceLabel: 'What to do with the request',
+    choiceUpload: 'Upload the document',
+    choiceUploadHint: 'It goes to the owner record and the request is served with it.',
+    choiceExisting: 'Use one that already exists',
+    choiceExistingHint: (n) =>
+      n === null
+        ? "Pick it from the owner's existing documents; nothing is uploaded."
+        : n === 0
+          ? 'The owner has no documents yet.'
+          : `Pick among the ${n} the owner already has; nothing is uploaded.`,
+    choiceNone: 'Already handed over another way',
+    choiceNoneHint: 'Served with no file: in person, by email…',
+    choiceReject: 'Reject the request',
+    choiceRejectHint: 'Nothing is provided. Say why in the notes.',
     file: 'Document provided',
     fileRequired: 'Attach the document, or choose another way to serve it.',
     picked: (what) => `Will be served with: ${what}`,
+    pickedRow: 'Will serve with this one',
     unpick: 'Remove',
-    pickRequired: 'Pick in the «Documents» tab which document serves it.',
+    pickRequired: 'Pick which document serves it.',
+    pickedIntro:
+      'What was chosen in the window, with the access each one gives the requester. Mark which one serves the request.',
+    pickFromDocs: 'Pick a document…',
+    pickMore: 'Pick others…',
+    docsButton: "Owner's documents",
+    docsButtonCount: (n) => `Owner's documents (${n})`,
+    docsModalTitle: "Owner's documents",
     expiry: 'Expiry',
     expiryRequired: 'That document type expires: set its date.',
-    accessLabel: 'Access of the uploaded document',
+    typeLabel: 'Type of the uploaded document',
+    typeRequested: (what) =>
+      `${what} was requested. Serve it with another type if that is what is really needed.`,
+    accessLabel: 'Who will be able to read it',
     accessByType: 'As its type says',
-    accessOwn: 'Own setting for this document',
-    accessTypeSays: 'What the type says today:',
-    grantToo: (who) => `Also grant ${who} the viewing and download that go on request`,
+    accessOwn: 'Own setting',
+    accessTypeSays: 'Today the type says:',
+    grantToo: (who) => `Grant ${who} right away whatever goes on request`,
     grantTooHint:
-      'With access as the type (or the setting) says, whatever stays «on request» is granted right away to whoever asked, with no need to ask again.',
+      'If viewing or downloading go on request, they are granted when serving and there is no need to ask again.',
     grantFailed:
       'The request was served, but access could not be granted to the requester: grant it from the documents list.',
     goToVehicle: 'Open the vehicle record',
     goToUser: 'Open the person record',
     note: 'Notes (optional)',
-    submit: 'Resolve',
+    noteReject: 'Why it is rejected (optional)',
+    submitUpload: 'Upload and serve',
+    submitExisting: 'Serve with the chosen one',
+    submitNone: 'Serve with no file',
+    submitReject: 'Reject',
     submitting: 'Resolving…',
     uploadError: 'Could not upload the document: the request is still pending.',
     resolveAfterUpload:

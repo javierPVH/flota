@@ -63,6 +63,7 @@ from fleet.models import (
     FuelConsumption,
     FuelType,
     Incident,
+    IncidentChangeRequest,
     Invoice,
     InvoiceAllocation,
     KmReading,
@@ -97,6 +98,7 @@ from fleet.models.enums import (
     DriverActionMode,
     DriverDocumentRead,
     EventType,
+    IncidentChangeStatus,
     IncidentPriority,
     IncidentStatus,
     IncidentType,
@@ -1626,6 +1628,7 @@ def seed_operations(stdout=None) -> None:
     for model in (
         VehicleRequest,
         DriverChangeRequest,
+        IncidentChangeRequest,
         ProfileChangeRequest,
         DocumentSupplyRequest,
         InvoiceAllocation,
@@ -1956,6 +1959,40 @@ def seed_operations(stdout=None) -> None:
     # seed enseñaba algo que la API no deja subir.
     fotos_v3.incident = accidente_v3
     fotos_v3.save(update_fields=["incident", "updated_at"])
+    # Dos accidentes VIEJOS y cerrados en v2, para la retención RGPD de la
+    # bandeja de accidentes: uno de hace 13 meses (fila en ámbar: lleva más de
+    # un año) y otro de hace 20 (fila en rojo: toca borrar los datos de sus
+    # terceros, y el botón de borrarlos se enciende). `created_at` es
+    # auto_now_add, así que se retrasa a posteriori con un `update`.
+    for meses, descripcion, tercero in (
+        (13, "Rayón en el paragolpes trasero en un aparcamiento.", "Conductora de ejemplo"),
+        (20, "Golpe en la puerta del acompañante en una rotonda.", "Conductor de ejemplo"),
+    ):
+        hace = timezone.now() - timedelta(days=meses * 30 + 15)
+        viejo = Incident.objects.create(
+            vehicle=v2,
+            type=IncidentType.ACCIDENT,
+            date=hace.date(),
+            resolution_date=(hace + timedelta(days=20)).date(),
+            description=descripcion,
+            status=IncidentStatus.CLOSED,
+            mileage=41000 - meses * 400,
+            details={
+                "report_version": 1,
+                "street": "Avenida de Ejemplo",
+                "street_number": "3",
+                "postal_code": "28020",
+                "locality": "Madrid",
+                "province": "Madrid",
+                "occurred_at": hace.isoformat(),
+                # Datos de EJEMPLO (nunca personales reales) — política GRS.
+                "phone": "600 000 003",
+                "damage_description": descripcion,
+                "third_parties": [{"name": tercero, "plate": "0000WWW"}],
+                "injured_people": [],
+            },
+        )
+        Incident.objects.filter(pk=viejo.pk).update(created_at=hace, updated_at=hace)
     # -- El coche de la administradora (8888TRX): su póliza, su ficha y TODO
     # lo que se le puede abrir. Es el escaparate de la cuenta con los cuatro
     # roles: desde la app de campo se ven sus cinco avisos y sus cinco
@@ -2199,6 +2236,48 @@ def seed_operations(stdout=None) -> None:
         changes={"phone": "600 111 222", "license_type": "C"},
         note="Me saqué el C el mes pasado y el móvil de la ficha es el antiguo.",
     )
+    # Y las peticiones de MODIFICAR EL PARTE de una incidencia (sexta
+    # bandeja), en el escaparate de la administradora (8888TRX, que es el
+    # coche con todas las peticiones): una pendiente sobre una incidencia
+    # abierta —la fila se pinta de otro color en campo—, y una aplicada y
+    # una rechazada sobre otras, para que la bandeja tenga las tres caras.
+    abiertas_v1 = list(
+        Incident.objects.filter(vehicle=v_admin, is_active=True)
+        .exclude(status=IncidentStatus.CLOSED)
+        .exclude(type=IncidentType.ITV)
+        .order_by("pk")[:3]
+    )
+    if abiertas_v1:
+        IncidentChangeRequest.objects.create(
+            incident=abiertas_v1[0],
+            requested_by=admin,
+            changes={"mileage": (abiertas_v1[0].mileage or 40000) + 120},
+            note="El kilometraje que puse era el de la semana pasada.",
+        )
+    for indice, (estado, nota) in enumerate(
+        (
+            (IncidentChangeStatus.DONE, "Fecha corregida."),
+            (IncidentChangeStatus.REJECTED, "La descripción ya es la de la petición."),
+        ),
+        start=1,
+    ):
+        objetivo = (
+            abiertas_v1[indice]
+            if len(abiertas_v1) > indice
+            else (abiertas_v1[0] if abiertas_v1 else None)
+        )
+        if objetivo is None:
+            break
+        IncidentChangeRequest.objects.create(
+            incident=objetivo,
+            requested_by=admin,
+            changes={"description": f"{objetivo.description} (ampliada)"},
+            note="Me faltó contar un detalle.",
+            status=estado,
+            resolved_by=admin,
+            resolved_at=timezone.now() - timedelta(days=2),
+            resolution_note=nota,
+        )
 
     # Facturas de v1: mes actual y anterior (tendencia del dashboard) + reparto.
     invoice_now = Invoice.objects.create(
@@ -2712,6 +2791,98 @@ def seed_operations(stdout=None) -> None:
                 status=DocumentStatus.VALID,
                 notes="Factura de la reparación en taller.",
             )
+
+    # -- Escaparate de DOCUMENTACIÓN: el 2022DXP, que lleva `alba`, con UN
+    # documento de CADA tipo de vehículo subido por ella (y su permiso de
+    # conducir, que es personal y va con ella como titular). Es la carpeta
+    # entera de un coche vista desde su conductora: para probar en campo lo
+    # que un conductor lista de lo suyo (`DriverDocumentRead.OWN`), las
+    # peticiones de lectura y descarga, y en gestión los ajustes por documento
+    # y la bandeja de peticiones de documento sobre varios a la vez. Lo que
+    # EXIGE acompañar a algo (`LINK_REQUIRED_DOCUMENT_TYPES`) cuelga de un
+    # accidente ABIERTO suyo —el parte, las fotos y la factura— y el informe de
+    # ITV, de su última inspección si la tiene.
+    alba = User.objects.get(username="alba")
+    escaparate = Vehicle.objects.get(plate=_bulk_plate(22))  # 2022DXP
+    accidente_alba = Incident.objects.create(
+        vehicle=escaparate,
+        type=IncidentType.ACCIDENT,
+        date=today - timedelta(days=3),
+        description="Golpe en el lateral izquierdo al maniobrar en el aparcamiento de la obra.",
+        status=IncidentStatus.IN_PROGRESS,
+    )
+    itv_alba = (
+        Event.objects.filter(vehicle=escaparate, event_type=EventType.ITV)
+        .order_by("-event_date")
+        .first()
+    )
+    # Fechas de caducidad: la póliza con la MISMA que ya tiene el coche (la
+    # señal denormaliza la del documento al vehículo y una distinta movería
+    # su aviso de seguro); el contrato y el informe de ITV, lejos.
+    documentos_alba = [
+        (DocumentType.REGISTRATION, "permiso", {}, "Permiso de circulación escaneado."),
+        (DocumentType.TECHNICAL_SHEET, "ficha", {}, "Ficha técnica con la última reforma."),
+        (
+            DocumentType.INSURANCE,
+            "seguro",
+            {"expiry_date": escaparate.insurance_expiry_date or today + timedelta(days=200)},
+            "Póliza en vigor.",
+        ),
+        (
+            DocumentType.CONTRACT,
+            "contrato",
+            {"expiry_date": today + timedelta(days=500)},
+            "Contrato de renting.",
+        ),
+        (DocumentType.HANDOVER_ACT, "acta-entrega", {}, "Acta de entrega firmada."),
+        (DocumentType.RETURN_ACT, "acta-devolucion", {}, "Acta de devolución del coche anterior."),
+        (
+            DocumentType.ACCIDENT_REPORT,
+            "parte",
+            {"incident": accidente_alba},
+            "Parte amistoso del golpe en el aparcamiento.",
+        ),
+        (
+            DocumentType.DAMAGE_PHOTOS,
+            "danos",
+            {"incident": accidente_alba},
+            "Fotos del lateral izquierdo.",
+        ),
+        (
+            DocumentType.ITV_REPORT,
+            "itv",
+            {"expiry_date": today + timedelta(days=300), "event": itv_alba},
+            "Informe de la inspección técnica.",
+        ),
+        (
+            DocumentType.WORKSHOP_INVOICE,
+            "factura",
+            {"incident": accidente_alba},
+            "Presupuesto y factura del chapista.",
+        ),
+        (DocumentType.OTHER, "varios", {}, "Tarjeta de combustible y distintivo ambiental."),
+    ]
+    for tipo, slug, extra, nota in documentos_alba:
+        Document.objects.create(
+            vehicle=escaparate,
+            type=tipo,
+            drive_url=f"https://drive.example/{slug}-{escaparate.plate}-alba",
+            drive_file_id=f"drv-file-{slug}-{escaparate.plate}-alba",
+            uploaded_by=alba,
+            status=DocumentStatus.VALID,
+            notes=nota,
+            **extra,
+        )
+    Document.objects.create(
+        user=alba,
+        type=DocumentType.DRIVING_LICENSE,
+        drive_url="https://drive.example/permiso-conducir-alba",
+        drive_file_id="drv-file-permiso-alba",
+        uploaded_by=alba,
+        expiry_date=today + timedelta(days=700),
+        status=DocumentStatus.VALID,
+        notes="Permiso B.",
+    )
 
     # Facturas: 3 meses por vehículo de renting con reparto proyecto/CECO
     # (misma cuota que su contrato, con una pequeña deriva mensual).

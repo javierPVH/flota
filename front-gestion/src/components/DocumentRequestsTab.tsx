@@ -31,17 +31,24 @@ const TONE: Record<DocumentDeletionRequestRow['status'], BadgeTone> = {
   hidden: 'info',
   applied: 'success',
   granted: 'success',
+  done: 'success',
   rejected: 'neutral',
 }
 
 /** Cada clase de petición tiene SUS salidas: un cambio no se manda a erratas,
  * un borrado no se «aplica» y una lectura o una descarga se conceden o no.
- * El desplegable ofrece las de la fila abierta. */
+ * Las de la puerta de excepción van con las de su gesto —la descarga
+ * excepcional se concede (y el back abre ese documento «con solicitud»), el
+ * borrado excepcional se decide como un borrado— y «otra petición» se
+ * atiende o no. El desplegable ofrece las de la fila abierta. */
 const DECISIONS: Record<DocumentDeletionRequestRow['kind'], DeletionDecision[]> = {
   delete: ['delete', 'hide', 'reject'],
   change: ['apply', 'reject'],
   view: ['grant', 'reject'],
   download: ['grant', 'reject'],
+  allow_download: ['grant', 'reject'],
+  allow_delete: ['delete', 'hide', 'reject'],
+  other: ['done', 'reject'],
 }
 
 /**
@@ -135,7 +142,9 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
               ? copy.okApply(what)
               : decision === 'grant'
                 ? copy.okGrant(what)
-                : copy.okReject(what),
+                : decision === 'done'
+                  ? copy.okDone(what)
+                  : copy.okReject(what),
       )
       setManaging(null)
       load()
@@ -273,6 +282,7 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
       hide: copy.optHideHint,
       apply: copy.optApplyHint,
       grant: copy.optGrantHint,
+      done: copy.optDoneHint,
       reject: copy.optRejectHint,
     }),
     [copy],
@@ -283,6 +293,7 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
       hide: copy.optHide,
       apply: copy.optApply,
       grant: copy.optGrant,
+      done: copy.optDone,
       reject: copy.optReject,
     }),
     [copy],
@@ -425,8 +436,14 @@ export function DocumentRequestsTab({ onCountsChange }: { onCountsChange?: () =>
                 onValueChange={(value) => setDecision(value as DeletionDecision)}
               />
               {/* Lo que hace cada salida, a la vista: las tres son irreversibles
-                  para el conductor y dos de ellas tocan el documento. */}
-              <p className="muted" style={{ margin: 0 }}>{hint[decision]}</p>
+                  para el conductor y dos de ellas tocan el documento. Conceder
+                  una descarga EXCEPCIONAL hace más que conceder: abre ese
+                  documento «con solicitud», y se dice. */}
+              <p className="muted" style={{ margin: 0 }}>
+                {decision === 'grant' && managing.kind === 'allow_download'
+                  ? copy.optGrantOpenHint
+                  : hint[decision]}
+              </p>
               <TextInputField
                 label={copy.note}
                 value={note}

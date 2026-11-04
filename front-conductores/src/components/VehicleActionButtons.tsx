@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Camera, ClipboardCheck, ClipboardList, Fuel, Gauge, Siren, Wrench } from 'lucide-react'
+import { AlertTriangle, ClipboardCheck, FilePlus, Fuel, Gauge, Siren, Wrench } from 'lucide-react'
 
 import { isManagement, useAuth } from '../auth.ts'
 import { scheduledActionAvailable } from '../format.ts'
@@ -73,12 +73,12 @@ export function VehicleActionButtons({
     // vuelta de la ruta y los dos son mensuales).
     { key: 'fuel', icon: Fuel },
     { key: 'itv', icon: ClipboardCheck },
-    { key: 'maintenance', icon: ClipboardList },
-    { key: 'breakdown', icon: Wrench },
+    { key: 'maintenance', icon: Wrench },
+    { key: 'breakdown', icon: AlertTriangle },
     // El accidente va junto a la avería: son las dos comunicaciones urgentes
     // desde el arcén, y el parte guiado es el mismo que usa Gestión.
     { key: 'accident', icon: Siren },
-    { key: 'document', icon: Camera },
+    { key: 'document', icon: FilePlus },
   ]
   const actions = allActions.filter(
     ({ key }) => key !== 'itv' || itvScheduled || canManage,

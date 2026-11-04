@@ -11,9 +11,15 @@ documento están mal, quien lo lee lo pide (`kind="change"`, con `changes`) y la
 gestión lo aplica o no. Sin esto, la única salida era pedir que se borrara y
 volver a subirlo, que es peor: pierde el archivo y su rastro.
 
-Aquí viven las operaciones —abrir la petición, de las dos clases, y sus salidas—
-para que el resultado sea el mismo se llame desde donde se llame, y para que la
-vista solo tenga que despachar.
+Y hay una **puerta de excepción**: pedir la descarga o el borrado cuando el
+mando está cerrado («no permitir», que ni admite la petición de siempre), y
+una petición **libre** sobre el documento. La gestión las decide como a las
+demás —la descarga se concede, el borrado se borra u oculta, la libre se
+atiende— o las rechaza.
+
+Aquí viven las operaciones —abrir la petición, de todas las clases, y sus
+salidas— para que el resultado sea el mismo se llame desde donde se llame, y
+para que la vista solo tenga que despachar.
 """
 
 from __future__ import annotations
@@ -32,26 +38,39 @@ from fleet.models.enums import (
     DocumentDeletionStatus,
     DocumentRequestKind,
     DocumentType,
+    DriverActionMode,
 )
 
 #: Lo que puede decidir la gestión sobre una petición pendiente. Las tres
-#: primeras son del borrado; `apply` es la de la corrección; `grant` la de
-#: las de acceso (lectura y descarga), y `reject` vale para todas.
+#: primeras son del borrado (también del excepcional); `apply` es la de la
+#: corrección; `grant` la de las de acceso (lectura y descarga, y la descarga
+#: excepcional); `done` la de «otra petición», y `reject` vale para todas.
 DECISION_DELETE = "delete"
 DECISION_HIDE = "hide"
 DECISION_APPLY = "apply"
 DECISION_GRANT = "grant"
+DECISION_DONE = "done"
 DECISION_REJECT = "reject"
-DECISIONS = (DECISION_DELETE, DECISION_HIDE, DECISION_APPLY, DECISION_GRANT, DECISION_REJECT)
+DECISIONS = (
+    DECISION_DELETE,
+    DECISION_HIDE,
+    DECISION_APPLY,
+    DECISION_GRANT,
+    DECISION_DONE,
+    DECISION_REJECT,
+)
 
 
 def decisions_for(kind: str) -> tuple[str, ...]:
-    """Las salidas de cada clase: un cambio no se manda a erratas y una
-    lectura no se «aplica»."""
+    """Las salidas de cada clase: un cambio no se manda a erratas, una
+    lectura no se «aplica» y una petición libre solo se atiende o no."""
     if kind == DocumentRequestKind.CHANGE:
         return (DECISION_APPLY, DECISION_REJECT)
-    if kind in ACCESS_REQUEST_KINDS:
+    if kind in ACCESS_REQUEST_KINDS or kind == DocumentRequestKind.ALLOW_DOWNLOAD:
         return (DECISION_GRANT, DECISION_REJECT)
+    if kind == DocumentRequestKind.OTHER:
+        return (DECISION_DONE, DECISION_REJECT)
+    # El borrado, de siempre o excepcional: lo que se decide es el documento.
     return (DECISION_DELETE, DECISION_HIDE, DECISION_REJECT)
 
 
@@ -143,12 +162,14 @@ def open_request(
         vivas = DocumentDeletionRequest.objects.select_for_update().filter(
             document=document, status=DocumentDeletionStatus.PENDING
         )
-        # Las de acceso son de quien las pide: la de otro conductor, o la
-        # papelera pendiente, no son «la que ya hay».
-        if kind in ACCESS_REQUEST_KINDS:
-            vivas = vivas.filter(kind=kind, requested_by=actor)
-        else:
+        # Las que hablan del documento (borrarlo, corregirlo) son una por
+        # documento; el resto —acceso, excepcionales, libre— son de quien las
+        # pide: la de otro conductor, o la papelera pendiente, no son «la que
+        # ya hay».
+        if kind in ONE_PER_DOCUMENT_KINDS:
             vivas = vivas.filter(kind__in=ONE_PER_DOCUMENT_KINDS)
+        else:
+            vivas = vivas.filter(kind=kind, requested_by=actor)
         existing = vivas.first()
         if existing is not None:
             return existing
@@ -210,6 +231,33 @@ def close_pending_as_deleted(document: Document, *, actor, note: str = "") -> No
     pendiente = pending_for(document)
     if pendiente is not None:
         _close(pendiente, status=DocumentDeletionStatus.DELETED, actor=actor, note=note)
+    # Y los borrados excepcionales que esperaban lo mismo, que van por persona.
+    for plea in document.deletion_requests.filter(
+        status=DocumentDeletionStatus.PENDING, kind=DocumentRequestKind.ALLOW_DELETE
+    ):
+        _close(plea, status=DocumentDeletionStatus.DELETED, actor=actor, note=note)
+
+
+def _open_download_for(request: DocumentDeletionRequest, *, actor, note: str) -> None:
+    """Concede una descarga EXCEPCIONAL: el documento tenía la descarga cerrada
+    al conductor («no permitir»), y una concesión no vale mientras lo esté
+    (`scoping.download_denied` va por delante del permiso). Así que se abre
+    ESE documento «con solicitud» —el ajuste mínimo: los demás conductores
+    la seguirán pidiendo— y se le concede a quien la pidió con la misma fila
+    que una petición de descarga de las de siempre (`has_access_grant` la lee
+    igual)."""
+    document = request.document
+    if document.effective_access()["driver_download"] == DriverActionMode.DENY:
+        document.driver_download_override = DriverActionMode.REQUEST
+        document.save(update_fields=["driver_download_override", "updated_at"])
+    if request.requested_by_id:
+        grant_access(
+            document,
+            user=request.requested_by,
+            kind=DocumentRequestKind.DOWNLOAD,
+            actor=actor,
+            note=note,
+        )
 
 
 def _close(request: DocumentDeletionRequest, *, status: str, actor, note: str) -> None:
@@ -237,8 +285,16 @@ def resolve(
       se pidió y se decide, la gestión ha podido corregirlo por su cuenta.
     - `grant` (solo en una de **acceso**): la fila pasa a concedida, y desde
       ese momento es el permiso de quien la pidió para ver o bajarse ESE
-      documento (`scoping.has_access_grant`).
+      documento (`scoping.has_access_grant`). En una **descarga
+      excepcional**, además, se abre el documento «con solicitud» y se crea
+      la concesión de descarga de siempre (`_open_download_for`).
+    - `done` (solo en **otra petición**): se atendió fuera de aquí; la fila
+      lo deja escrito y nada más.
     - `reject`: no se toca el documento; solo deja de estar pendiente.
+
+    Un borrado (de siempre o excepcional) cierra también lo demás que
+    esperaba lo mismo sobre ese documento, como cuando se borra desde la
+    ficha (`close_pending_as_deleted`).
 
     Todo en una transacción: la fila y el efecto sobre el documento van juntos.
     """
@@ -251,6 +307,7 @@ def resolve(
             razon = note.strip() or motivo or "Borrado pedido desde la app de conductores."
             document.deactivate(by=actor, reason=razon)
             _close(request, status=DocumentDeletionStatus.DELETED, actor=actor, note=note)
+            close_pending_as_deleted(document, actor=actor, note=note)
         elif decision == DECISION_HIDE:
             document.responsible = actor if getattr(actor, "is_authenticated", False) else None
             document.protected = True
@@ -275,7 +332,11 @@ def resolve(
                 )
             _close(request, status=DocumentDeletionStatus.APPLIED, actor=actor, note=note)
         elif decision == DECISION_GRANT:
+            if request.kind == DocumentRequestKind.ALLOW_DOWNLOAD:
+                _open_download_for(request, actor=actor, note=note)
             _close(request, status=DocumentDeletionStatus.GRANTED, actor=actor, note=note)
+        elif decision == DECISION_DONE:
+            _close(request, status=DocumentDeletionStatus.DONE, actor=actor, note=note)
         else:
             _close(request, status=DocumentDeletionStatus.REJECTED, actor=actor, note=note)
     return request

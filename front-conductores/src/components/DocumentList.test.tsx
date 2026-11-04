@@ -87,7 +87,7 @@ describe('DocumentList: descargar y pedir el borrado', () => {
     // Ni ver ni bajar directamente; corregir y la papelera, siempre.
     expect(screen.queryByRole('button', { name: 'Ver Seguro' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Descargar Seguro' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Pedir que se corrija Seguro' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Peticiones sobre Seguro' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Pedir el borrado de Seguro' })).toBeInTheDocument()
     // La fila dice cómo va cada cosa.
     expect(screen.getByText('Lectura: con solicitud · Descarga: pedida, pendiente de la gestión')).toBeInTheDocument()
@@ -256,6 +256,6 @@ describe('DocumentList: descargar y pedir el borrado', () => {
     expect(screen.getByText('Insurance')).toBeInTheDocument()
     expect(screen.getByText('Valid')).toBeInTheDocument()
     expect(screen.queryByText('Seguro')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Ask for Insurance to be fixed' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Requests about Insurance' })).toBeInTheDocument()
   })
 })

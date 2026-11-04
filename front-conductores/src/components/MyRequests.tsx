@@ -4,6 +4,7 @@ import { Badge } from '@flota/ui/ui'
 import {
   listDriverChangeRequests,
   listMyDocumentRequests,
+  listMyIncidentChangeRequests,
   listMyDocumentSupplyRequests,
   listMyProfileChangeRequests,
   listMyRequests,
@@ -74,7 +75,8 @@ export function MyRequests({
       listMyRequests(),
       listDriverChangeRequests(),
       listMyDocumentSupplyRequests(),
-    ]).then(([perfil, documentos, coches, conductores, pedidos]) => {
+      listMyIncidentChangeRequests(),
+    ]).then(([perfil, documentos, coches, conductores, pedidos, partes]) => {
       const salida: RequestRow[] = []
       let algunFallo = false
 
@@ -114,7 +116,9 @@ export function MyRequests({
             created_at: row.created_at,
             status_display: etiqueta.requestStatus('document', row),
             pending: row.status === 'pending',
-            granted: row.status === 'applied',
+            // Lo decidido a favor, sea cual sea la salida: aplicada,
+            // concedida o atendida.
+            granted: ['applied', 'granted', 'done'].includes(row.status),
           })
         })
       } else algunFallo = true
@@ -158,6 +162,24 @@ export function MyRequests({
             detail: `${etiqueta.docType(row)} · ${row.note || copy.noDetail}`,
             created_at: row.created_at,
             status_display: etiqueta.requestStatus('supply', row),
+            pending: row.status === 'pending',
+            granted: row.status === 'done',
+          })
+        })
+      } else algunFallo = true
+
+      if (partes.status === 'fulfilled') {
+        partes.value.results.forEach((row) => {
+          salida.push({
+            key: `incident-${row.id}`,
+            // Los cambios propuestos al parte, y de qué coche.
+            kind: `${copy.kindIncident} · ${row.vehicle_plate}`,
+            detail:
+              row.changes_display.map((change) => etiqueta.fieldName(change)).join(' · ') ||
+              row.note ||
+              copy.noDetail,
+            created_at: row.created_at,
+            status_display: etiqueta.requestStatus('incident', row),
             pending: row.status === 'pending',
             granted: row.status === 'done',
           })

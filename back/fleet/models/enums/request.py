@@ -70,3 +70,18 @@ class ProfileChangeStatus(models.TextChoices):
     PENDING = "pending", "Pendiente"
     DONE = "done", "Aplicada"
     REJECTED = "rejected", "Rechazada"
+
+
+class IncidentChangeStatus(models.TextChoices):
+    """En qué queda la petición de modificar el parte de una incidencia.
+
+    Las mismas dos salidas que la ficha personal: la gestión **la aplica**
+    —son escalares de la incidencia (fecha, descripción, kilometraje, CP,
+    prioridad), y reescribirlos a mano invita a aplicarlos a medias— o **la
+    rechaza**, diciendo por qué. Las dos la sacan de pendiente, que es lo que
+    la quita de la bandeja, del aviso y del color de la fila en campo.
+    """
+
+    PENDING = "pending", "Pendiente"
+    DONE = "done", "Aplicada"
+    REJECTED = "rejected", "Rechazada"

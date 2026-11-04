@@ -535,6 +535,10 @@ export interface Incident {
   details: Record<string, unknown>
   /** Solo accidentes con parte guiado; null en el resto. */
   accident_report: AccidentReport | null
+  /** RGPD: si ya toca borrar los datos de terceros (lo decide el back). */
+  third_parties_purge_due?: boolean
+  /** Hay una propuesta de modificar el parte sin decidir (sexta bandeja). */
+  change_pending?: boolean
   status: IncidentStatus
   status_display: string
   /** Coste de la reparación/servicio; lo fija la resolución. */

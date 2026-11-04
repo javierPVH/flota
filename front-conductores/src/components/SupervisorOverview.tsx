@@ -383,7 +383,19 @@ export function SupervisorOverview() {
                       </span>
                     </div>
                     <Badge tone={incidentStatusTone(incident.status)}>{etiqueta.incidentStatus(incident)}</Badge>
-                    <Button type="button" size="sm" onClick={() => setResolveIncident(incident)}>
+                    {incident.change_pending && (
+                      <Badge tone="info" size="sm">
+                        {t.incidentChange.pendingBadge}
+                      </Badge>
+                    )}
+                    {/* Con cambios propuestos sin decidir no se cierra. */}
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={Boolean(incident.change_pending)}
+                      title={incident.change_pending ? t.incidentChange.resolveBlocked : undefined}
+                      onClick={() => setResolveIncident(incident)}
+                    >
                       {copy.resolve}
                     </Button>
                   </li>

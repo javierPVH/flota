@@ -85,6 +85,8 @@ interface FilaData {
   description: string
   badges?: ReactNode
   onResolve?: () => void
+  /** Por qué el ✓ va apagado aunque siga abierta (cambios al parte sin decidir). */
+  resolveBlocked?: string
   onEmail?: () => void
   closedLabel: string
 }
@@ -370,19 +372,25 @@ export function usePending({
             date: abierta ? inc.date : (inc.resolution_date ?? inc.date),
             description: inc.description,
             badges: (
-              <Badge
-                tone={
-                  abierta
-                    ? inc.status === 'on_going'
-                      ? 'info'
-                      : 'warning'
-                    : incidentTypeTone(inc.type)
-                }
-              >
-                {etiqueta.incidentStatus(inc)}
-              </Badge>
+              <>
+                <Badge
+                  tone={
+                    abierta
+                      ? inc.status === 'on_going'
+                        ? 'info'
+                        : 'warning'
+                      : incidentTypeTone(inc.type)
+                  }
+                >
+                  {etiqueta.incidentStatus(inc)}
+                </Badge>
+                {/* Una propuesta de cambios al parte sin decidir: se ve y
+                    apaga el ✓ hasta que gestión la aplique o la rechace. */}
+                {abierta && inc.change_pending && <Badge tone="info">{t.changePending}</Badge>}
+              </>
             ),
             onResolve: abierta ? () => setResolving(incidentTarget(inc)) : undefined,
+            resolveBlocked: abierta && inc.change_pending ? t.resolveBlocked : undefined,
             onEmail:
               abierta && coche
                 ? () =>
@@ -570,6 +578,7 @@ export function usePending({
             description={fila.description}
             badges={fila.badges}
             onResolve={fila.onResolve}
+            resolveBlocked={fila.resolveBlocked}
             onEmail={fila.onEmail}
             resolveLabel={t.resolve}
             closedLabel={fila.closedLabel}

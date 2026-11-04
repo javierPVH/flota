@@ -26,6 +26,7 @@ export function PendingRow({
   description,
   badges,
   onResolve,
+  resolveBlocked,
   onEmail,
   resolveLabel,
   closedLabel,
@@ -41,6 +42,8 @@ export function PendingRow({
   description: string
   badges?: ReactNode
   onResolve?: () => void
+  /** Con texto, el ✓ se pinta pero apagado y ese texto es su porqué. */
+  resolveBlocked?: string
   onEmail?: () => void
   resolveLabel: string
   closedLabel: string
@@ -57,7 +60,8 @@ export function PendingRow({
           type="button"
           className="mng-alert-resolve"
           onClick={onResolve}
-          title={resolveLabel}
+          disabled={Boolean(resolveBlocked)}
+          title={resolveBlocked ?? resolveLabel}
           aria-label={`${resolveLabel} · ${dequien}`}
         >
           <CheckCircle2 size={18} aria-hidden />

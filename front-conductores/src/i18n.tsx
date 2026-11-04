@@ -80,6 +80,26 @@ const es = {
   /** Prioridad de la petición (la elige quien la abre; una alerta, en cambio,
    * saca su urgencia de la fecha). De más a menos urgente. La comparten los
    * tres formularios que abren peticiones: avería/incidencia y accidente. */
+  /** Proponer cambios al parte de una incidencia (el lápiz de la fila):
+   * se PIDE, y gestión lo aplica o lo rechaza. */
+  incidentChange: {
+    title: 'Proponer cambios al parte',
+    propose: 'Proponer cambios al parte',
+    hint: 'Desde aquí se propone, no se guarda: gestión aplicará los cambios o los rechazará. Hasta entonces la incidencia se ve marcada.',
+    date: 'Fecha',
+    description: 'Descripción',
+    mileage: 'Kilometraje',
+    postalCode: 'CP preferente del taller',
+    note: 'Por qué (opcional si cambias algo)',
+    nothing: 'No has cambiado nada: escribe qué hay que cambiar.',
+    submit: 'Enviar propuesta',
+    sending: 'Enviando…',
+    ok: 'Propuesta enviada. Gestión la aplicará o la rechazará; la incidencia queda marcada mientras tanto.',
+    error: 'No se pudo enviar la propuesta.',
+    pendingBadge: 'Cambios propuestos',
+    // El botón de solucionar, apagado mientras la propuesta siga sin decidir.
+    resolveBlocked: 'No se puede solucionar hasta que gestión acepte o rechace los cambios propuestos.',
+  },
   priority: {
     label: 'Prioridad',
     hint: 'Marca la urgencia con la que hay que atenderla.',
@@ -963,9 +983,18 @@ const es = {
     deleteError: 'No se pudo pedir el borrado. Inténtalo de nuevo.',
     deletePending: 'Pendiente de borrado por parte del administrador',
     deletePendingNote: 'Ya hay una petición sobre este documento: la gestión la está revisando.',
-    /** Corregir tampoco lo hace el campo: lo pide, como el borrado. */
-    fixDoc: (what: string) => `Pedir que se corrija ${what}`,
-    fixTitle: (what: string) => `Corregir ${what}`,
+    /** El lápiz de la fila abre las PETICIONES sobre ese documento, en tres
+     * pestañas: corregirlo, pedir como excepción lo que el mando tiene
+     * cerrado (la descarga, el borrado) y cualquier otra cosa. Corregir
+     * tampoco lo hace el campo: lo pide, como el borrado. */
+    requestDoc: (what: string) => `Peticiones sobre ${what}`,
+    requestTitle: (what: string) => `Peticiones · ${what}`,
+    requestTabsAria: 'Qué pedir sobre el documento',
+    requestTabs: {
+      fix: 'Corregir',
+      permission: 'Pedir permiso',
+      other: 'Otra petición',
+    } as Record<'fix' | 'permission' | 'other', string>,
     fixHint:
       'Esto no cambia el documento: manda una petición a la gestión, que la aplica o la rechaza. El archivo se queda donde está.',
     fixType: 'Tipo de documento',
@@ -976,6 +1005,28 @@ const es = {
     fixSubmitting: 'Enviando…',
     fixOk: 'Petición enviada. La gestión decidirá si se corrige.',
     fixError: 'No se pudo pedir la corrección. Inténtalo de nuevo.',
+    /** Pedir permiso: lo que el mando tiene CERRADO («no permitir», que ni
+     * admite la petición de siempre) se pide como excepción. La gestión
+     * decide; hasta entonces no cambia nada. */
+    permissionHint:
+      'Esto está cerrado para quien conduce y no se puede pedir por el camino de siempre. Desde aquí se pide como excepción: la gestión decide, y hasta entonces no cambia nada.',
+    permissionWhat: 'Qué necesitas',
+    permissionDownload: 'Poder descargarlo',
+    permissionDelete: 'Que se borre',
+    permissionAsked: 'Ya lo has pedido: la gestión lo está revisando.',
+    permissionReason: 'Por qué lo necesitas',
+    permissionSubmit: 'Pedir la excepción',
+    permissionOk: 'Petición enviada. La gestión decidirá si hace la excepción.',
+    permissionError: 'No se pudo enviar la petición. Inténtalo de nuevo.',
+    /** Y lo que no es ninguna de las anteriores: una petición libre. */
+    otherHint:
+      'Cualquier otra cosa sobre este documento: una duda, un dato que falta, algo que no encaja en las otras pestañas. La gestión la lee y te responde.',
+    otherReason: 'Qué pides',
+    otherSubmit: 'Enviar petición',
+    otherOk: 'Petición enviada. La gestión la atenderá.',
+    otherError: 'No se pudo enviar la petición. Inténtalo de nuevo.',
+    /** En esas dos la nota es todo lo que viaja: sin ella no se manda. */
+    reasonRequired: 'Escribe qué pides: es lo único que lee quien decide.',
     /** Ver y descargar pueden ir CON SOLICITUD (lo decide la gestión por tipo
      * o por documento): se pide y, concedida, el botón vuelve. */
     askViewDoc: (name: string) => `Pedir la lectura de ${name}`,
@@ -1120,6 +1171,8 @@ const es = {
       kindDriver: 'Cambio de conductor',
       /** El papel que se pidió porque faltaba. */
       kindSupply: 'Documento pedido',
+      /** Los cambios propuestos al parte de una incidencia. */
+      kindIncident: 'Cambios al parte',
       asked: (when: string) => `Pedida el ${when}`,
       noDetail: 'Sin detalle',
     },
@@ -1187,6 +1240,7 @@ const es = {
         hidden: 'Oculto para el conductor',
         applied: 'Corrección aplicada',
         granted: 'Concedida',
+        done: 'Atendida',
         rejected: 'Rechazada',
       },
       vehicle: {
@@ -1199,8 +1253,19 @@ const es = {
       driver: { pending: 'Pendiente', done: 'Atendida', rejected: 'Rechazada' },
       // El papel que se pidió: lo facilitaron o dijeron que no.
       supply: { pending: 'Pendiente', done: 'Atendida', rejected: 'Rechazada' },
+      // Los cambios propuestos al parte: aplicados o no.
+      incident: { pending: 'Pendiente', done: 'Aplicada', rejected: 'Rechazada' },
     },
-    docRequestKind: { delete: 'Borrado', change: 'Corrección', view: 'Lectura', download: 'Descarga' },
+    docRequestKind: {
+      delete: 'Borrado',
+      change: 'Corrección',
+      view: 'Lectura',
+      download: 'Descarga',
+      // La puerta de excepción (el mando cerrado) y la petición libre.
+      allow_download: 'Descarga excepcional',
+      allow_delete: 'Borrado excepcional',
+      other: 'Otra petición',
+    },
     /** Los campos que se piden corregir, tal como los nombra su formulario. */
     fieldNames: {
       first_name: 'Nombre',
@@ -1212,6 +1277,11 @@ const es = {
       type: 'Tipo de documento',
       expiry_date: 'Fecha de caducidad',
       notes: 'Nota del documento',
+      date: 'Fecha',
+      description: 'Descripción',
+      mileage: 'Kilometraje',
+      workshop_postal_code: 'CP preferente',
+      priority: 'Prioridad',
     },
     alertLevel: { info: 'Informativa', warning: 'Aviso', critical: 'Crítica' },
     alertStatus: { open: 'Abierta', resolved: 'Resuelta' },
@@ -1317,6 +1387,23 @@ const en: typeof es = {
     sortRecent: 'Most recent',
     truncated: (shown: number, total: number) =>
       `List truncated: showing ${shown} of ${total} records.`,
+  },
+  incidentChange: {
+    title: 'Propose changes to the report',
+    propose: 'Propose changes to the report',
+    hint: 'This proposes, it does not save: management will apply or reject the changes. Until then the incident shows as marked.',
+    date: 'Date',
+    description: 'Description',
+    mileage: 'Mileage',
+    postalCode: 'Preferred workshop postal code',
+    note: 'Why (optional if you changed something)',
+    nothing: 'You changed nothing: write what has to change.',
+    submit: 'Send proposal',
+    sending: 'Sending…',
+    ok: 'Proposal sent. Management will apply or reject it; the incident stays marked meanwhile.',
+    error: 'The proposal could not be sent.',
+    pendingBadge: 'Changes proposed',
+    resolveBlocked: 'It cannot be resolved until management accepts or rejects the proposed changes.',
   },
   priority: {
     label: 'Priority',
@@ -2094,8 +2181,14 @@ const en: typeof es = {
     deleteError: 'The deletion request could not be sent. Try again.',
     deletePending: 'Deletion pending administrator approval',
     deletePendingNote: 'There is already a request on this document: fleet management is reviewing it.',
-    fixDoc: (what: string) => `Ask for ${what} to be fixed`,
-    fixTitle: (what: string) => `Fix ${what}`,
+    requestDoc: (what: string) => `Requests about ${what}`,
+    requestTitle: (what: string) => `Requests · ${what}`,
+    requestTabsAria: 'What to ask about the document',
+    requestTabs: {
+      fix: 'Fix',
+      permission: 'Ask for an exception',
+      other: 'Other request',
+    },
     fixHint:
       'This does not change the document: it sends a request to fleet management, who apply or reject it. The file stays where it is.',
     fixType: 'Document type',
@@ -2106,6 +2199,23 @@ const en: typeof es = {
     fixSubmitting: 'Sending…',
     fixOk: 'Request sent. Fleet management will decide whether to apply it.',
     fixError: 'The correction request could not be sent. Try again.',
+    permissionHint:
+      'This is closed to drivers and cannot be requested the usual way. From here you ask for an exception: management decides, and nothing changes until then.',
+    permissionWhat: 'What you need',
+    permissionDownload: 'To be able to download it',
+    permissionDelete: 'To have it deleted',
+    permissionAsked: 'You already asked: management is reviewing it.',
+    permissionReason: 'Why you need it',
+    permissionSubmit: 'Ask for the exception',
+    permissionOk: 'Request sent. Management will decide whether to make the exception.',
+    permissionError: 'The request could not be sent. Try again.',
+    otherHint:
+      'Anything else about this document: a question, missing information, something that does not fit the other tabs. Management reads it and gets back to you.',
+    otherReason: 'What you ask',
+    otherSubmit: 'Send request',
+    otherOk: 'Request sent. Management will handle it.',
+    otherError: 'The request could not be sent. Try again.',
+    reasonRequired: 'Write what you ask: it is all the decider reads.',
     askViewDoc: (name) => `Request to view ${name}`,
     askDownloadDoc: (name) => `Request to download ${name}`,
     accessPending: 'Requested: management has to grant it.',
@@ -2229,6 +2339,7 @@ const en: typeof es = {
       kindVehicle: 'Vehicle',
       kindDriver: 'Driver change',
       kindSupply: 'Document requested',
+      kindIncident: 'Report changes',
       asked: (when: string) => `Asked on ${when}`,
       noDetail: 'No detail',
     },
@@ -2273,6 +2384,7 @@ const en: typeof es = {
         hidden: 'Hidden from the driver',
         applied: 'Correction applied',
         granted: 'Granted',
+        done: 'Handled',
         rejected: 'Rejected',
       },
       vehicle: {
@@ -2284,8 +2396,17 @@ const en: typeof es = {
       },
       driver: { pending: 'Pending', done: 'Handled', rejected: 'Rejected' },
       supply: { pending: 'Pending', done: 'Provided', rejected: 'Rejected' },
+      incident: { pending: 'Pending', done: 'Applied', rejected: 'Rejected' },
     },
-    docRequestKind: { delete: 'Deletion', change: 'Correction', view: 'View', download: 'Download' },
+    docRequestKind: {
+      delete: 'Deletion',
+      change: 'Correction',
+      view: 'View',
+      download: 'Download',
+      allow_download: 'Exceptional download',
+      allow_delete: 'Exceptional deletion',
+      other: 'Other request',
+    },
     fieldNames: {
       first_name: 'First name',
       last_name: 'Surname',
@@ -2296,6 +2417,11 @@ const en: typeof es = {
       type: 'Document type',
       expiry_date: 'Expiry date',
       notes: 'Document note',
+      date: 'Date',
+      description: 'Description',
+      mileage: 'Mileage',
+      workshop_postal_code: 'Preferred postal code',
+      priority: 'Priority',
     },
     alertLevel: { info: 'Informative', warning: 'Warning', critical: 'Critical' },
     alertStatus: { open: 'Open', resolved: 'Resolved' },

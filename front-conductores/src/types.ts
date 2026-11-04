@@ -316,6 +316,8 @@ export interface Incident {
   status: string
   status_display: string
   cost: string | null
+  /** Hay una propuesta de modificar el parte sin decidir: la fila cambia de color. */
+  change_pending?: boolean
 }
 
 /** Prioridad de una petición, de más a menos urgente: la elige quien la abre

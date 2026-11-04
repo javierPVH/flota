@@ -24,6 +24,8 @@ const VehiclesPage = page(() => import('./pages/VehiclesPage.tsx'), 'VehiclesPag
 const VehicleDetailPage = page(() => import('./pages/VehicleDetailPage.tsx'), 'VehicleDetailPage')
 const VehicleFormPage = page(() => import('./pages/VehicleFormPage.tsx'), 'VehicleFormPage')
 const IncidentsPage = page(() => import('./pages/IncidentsPage.tsx'), 'IncidentsPage')
+// La bandeja de accidentes es la misma página acotada: comparte chunk.
+const AccidentsPage = page(() => import('./pages/IncidentsPage.tsx'), 'AccidentsPage')
 const MileagePage = page(() => import('./pages/MileagePage.tsx'), 'MileagePage')
 const AlertsPage = page(() => import('./pages/AlertsPage.tsx'), 'AlertsPage')
 const ReportsPage = page(() => import('./pages/ReportsPage.tsx'), 'ReportsPage')
@@ -88,6 +90,7 @@ export default function App() {
           <Route path="/vehiculos/:id" element={<VehicleDetailPage />} />
           <Route path="/vehiculos/:id/editar" element={<VehicleFormPage />} />
           <Route path="/incidencias" element={<IncidentsPage />} />
+          <Route path="/accidentes" element={<AccidentsPage />} />
           <Route path="/kilometraje" element={<MileagePage />} />
           <Route path="/alertas" element={<AlertsPage />} />
           <Route path="/solicitudes" element={<RequestsPage />} />

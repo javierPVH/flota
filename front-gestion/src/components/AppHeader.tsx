@@ -9,9 +9,10 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
   Bell,
+  BellRing,
   Car,
   FileText,
-  Files,
+  FolderOpen,
   Gauge,
   HardHat,
   Home,
@@ -19,8 +20,8 @@ import {
   LogOut,
   Menu,
   Settings,
+  Siren,
   Users,
-  Wrench,
 } from 'lucide-react'
 import { Badge, LanguageToggleButton } from '@flota/ui/ui'
 
@@ -29,6 +30,7 @@ import {
   listDocumentDeletionRequests,
   listDocumentSupplyRequests,
   listDriverChangeRequests,
+  listIncidentChangeRequests,
   listProfileChangeRequests,
   listIncidents,
   listVehicleRequests,
@@ -143,12 +145,14 @@ function ManagementHeader() {
   const [pendingSupplyRequests, setPendingSupplyRequests] = useState(0)
   const [pendingDriverRequests, setPendingDriverRequests] = useState(0)
   const [pendingProfileRequests, setPendingProfileRequests] = useState(0)
+  const [pendingIncidentChanges, setPendingIncidentChanges] = useState(0)
   const pendingTotal =
     pendingRequests +
     pendingDocRequests +
     pendingSupplyRequests +
     pendingDriverRequests +
-    pendingProfileRequests
+    pendingProfileRequests +
+    pendingIncidentChanges
 
   // Recuentos "abiertas" para las pestañas y el contador del icono.
   const loadCounts = () => {
@@ -168,6 +172,9 @@ function ManagementHeader() {
       .catch(() => {})
     listProfileChangeRequests({ status: 'pending' })
       .then((p) => setPendingProfileRequests(p.count))
+      .catch(() => {})
+    listIncidentChangeRequests({ status: 'pending' })
+      .then((p) => setPendingIncidentChanges(p.count))
       .catch(() => {})
   }
 
@@ -315,8 +322,10 @@ function ManagementHeader() {
     {
       title: groups.tracking,
       items: [
-        { to: '/incidencias', label: nav.incidents, icon: <Wrench size={16} /> },
-        { to: '/alertas', label: nav.alerts, icon: <AlertTriangle size={16} /> },
+        { to: '/incidencias', label: nav.incidents, icon: <AlertTriangle size={16} /> },
+        // Los accidentes van aparte: misma bandeja, otra cara.
+        { to: '/accidentes', label: nav.accidents, icon: <Siren size={16} /> },
+        { to: '/alertas', label: nav.alerts, icon: <BellRing size={16} /> },
         { to: '/solicitudes', label: nav.requests, icon: <KeyRound size={16} /> },
       ],
     },
@@ -326,7 +335,7 @@ function ManagementHeader() {
         { to: '/ajustes', label: nav.settings, icon: <Settings size={16} /> },
         { to: '/informes', label: nav.reports, icon: <FileText size={16} /> },
         // Documentos sale de Informes y se queda a su lado: es administración.
-        { to: '/documentos', label: nav.documents, icon: <Files size={16} /> },
+        { to: '/documentos', label: nav.documents, icon: <FolderOpen size={16} /> },
       ],
     },
   ]
@@ -380,7 +389,9 @@ function ManagementHeader() {
                     ? '/solicitudes?tab=pedidos'
                     : pendingDriverRequests > 0
                       ? '/solicitudes?tab=conductores'
-                      : '/solicitudes?tab=fichas'
+                      : pendingProfileRequests > 0
+                        ? '/solicitudes?tab=fichas'
+                        : '/solicitudes?tab=partes'
             }
             className="shell-iconbtn"
             aria-label={t.shell.pendingRequests(pendingTotal)}

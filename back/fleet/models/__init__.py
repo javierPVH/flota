@@ -81,6 +81,7 @@ from .report_export import ReportExport
 from .request import (
     DocumentSupplyRequest,
     DriverChangeRequest,
+    IncidentChangeRequest,
     ProfileChangeRequest,
     VehicleRequest,
 )
@@ -158,6 +159,7 @@ __all__ = [
     "Alert",
     "VehicleRequest",
     "DriverChangeRequest",
+    "IncidentChangeRequest",
     "ProfileChangeRequest",
     "NotificationSchedule",
 ]

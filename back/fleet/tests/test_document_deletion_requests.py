@@ -14,8 +14,14 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Assignment, Document, DocumentDeletionRequest, Vehicle
-from fleet.models.enums import AssignmentStatus, DocumentDeletionStatus
+from fleet.models import (
+    Assignment,
+    Document,
+    DocumentDeletionRequest,
+    DocumentTypeAccess,
+    Vehicle,
+)
+from fleet.models.enums import AssignmentStatus, DocumentDeletionStatus, DriverActionMode
 
 from .helpers import make_user
 
@@ -346,3 +352,189 @@ class DocumentChangeRequestTests(APITestCase):
                 },
             ],
         )
+
+
+class DocumentExceptionRequestTests(APITestCase):
+    """La puerta de excepción: pedir la descarga o el borrado cuando el mando
+    está CERRADO («no permitir», que ni admite la petición de siempre) y una
+    petición libre sobre el documento.
+
+    Lo que se prueba: que solo se abren cuando el mando está cerrado (lo que
+    va con solicitud sigue su camino), que la nota es obligatoria, que son
+    una viva por documento y persona, y que cada una se decide con SUS
+    salidas —la descarga concedida abre el documento con solicitud y deja la
+    concesión de siempre; el borrado se borra; la libre se atiende—.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        self.admin = make_user("admin", Role.ADMIN)
+        self.driver = make_user("driver", Role.DRIVER)
+        self.other = make_user("otro", Role.DRIVER)
+        self.vehicle = Vehicle.objects.create(plate="1234ABC", brand="a", model="b")
+        self.assignment = Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=self.driver,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        # El tipo cierra la descarga y el borrado al conductor.
+        DocumentTypeAccess.objects.create(
+            type="insurance",
+            driver_download=DriverActionMode.DENY,
+            driver_delete=DriverActionMode.DENY,
+        )
+        self.document = Document.objects.create(
+            vehicle=self.vehicle,
+            type="insurance",
+            drive_url="https://drive/x",
+            responsible=self.driver,
+            shared_read=True,
+        )
+        self.list_url = reverse("documentdeletionrequest-list")
+        self.documents_url = reverse("document-list")
+
+    def _pedir(self, kind, reason="Me lo pide el taller.", user=None, document=None):
+        self.client.force_authenticate(user or self.driver)
+        return self.client.post(
+            self.list_url,
+            {"document": (document or self.document).pk, "kind": kind, "reason": reason},
+            format="json",
+        )
+
+    def _decidir(self, peticion_id, decision, note=""):
+        self.client.force_authenticate(self.admin)
+        return self.client.post(
+            reverse("documentdeletionrequest-resolve", args=[peticion_id]),
+            {"decision": decision, "note": note},
+            format="json",
+        )
+
+    def _fila(self):
+        self.client.force_authenticate(self.driver)
+        resp = self.client.get(self.documents_url, {"vehicle": self.vehicle.pk})
+        return next(row for row in resp.data["results"] if row["id"] == self.document.pk)
+
+    # --- Abrirlas -----------------------------------------------------------
+
+    def test_the_exceptional_ones_open_only_what_is_closed(self):
+        fila = self._fila()
+        self.assertFalse(fila["can_download"])
+        self.assertEqual(fila["download_request"], "denied")
+        self.assertFalse(fila["can_request_delete"])
+        # Con el mando cerrado, la de siempre no; la excepcional sí.
+        self.assertEqual(self._pedir("download").status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._pedir("delete").status_code, status.HTTP_400_BAD_REQUEST)
+        resp = self._pedir("allow_download")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data["kind_display"], "Descarga excepcional")
+        resp = self._pedir("allow_delete")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        # Y con el mando abierto, al revés: la excepcional no tiene sentido.
+        DocumentTypeAccess.objects.filter(type="insurance").update(
+            driver_download=DriverActionMode.REQUEST, driver_delete=DriverActionMode.REQUEST
+        )
+        otro = Document.objects.create(
+            vehicle=self.vehicle, type="insurance", drive_url="https://drive/y", shared_read=True
+        )
+        resp = self._pedir("allow_download", document=otro)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("kind", resp.data["errors"])
+        self.assertEqual(
+            self._pedir("allow_delete", document=otro).status_code, status.HTTP_400_BAD_REQUEST
+        )
+        self.assertEqual(self._pedir("download", document=otro).status_code, 201)
+
+    def test_the_note_is_what_the_decider_reads_so_it_is_required(self):
+        for kind in ("allow_download", "allow_delete", "other"):
+            resp = self._pedir(kind, reason="  ")
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, kind)
+            self.assertIn("reason", resp.data["errors"])
+        resp = self._pedir("other", reason="Quiero saber de qué compañía es la póliza.")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data["kind_display"], "Otra petición")
+
+    def test_one_live_per_document_and_person_and_they_do_not_mark_the_document(self):
+        primera = self._pedir("other", reason="Una cosa.")
+        segunda = self._pedir("other", reason="Otra cosa.")
+        self.assertEqual(primera.data["id"], segunda.data["id"])
+        self.assertEqual(segunda.data["reason"], "Una cosa.")
+        self.assertFalse(self._fila()["deletion_pending"])
+        # Otro conductor del coche (el relevo) abre la suya; y el documento
+        # no queda marcado: estas no hablan del documento.
+        self.assignment.end_date = date(2026, 6, 30)
+        self.assignment.save()
+        Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=self.other,
+            start_date=date(2026, 7, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
+        resp = self._pedir("other", reason="La mía.", user=self.other)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertNotEqual(resp.data["id"], primera.data["id"])
+        self.assertEqual(DocumentDeletionRequest.objects.filter(kind="other").count(), 2)
+
+    # --- Decidirlas ---------------------------------------------------------
+
+    def test_an_exceptional_download_is_granted_by_opening_the_document(self):
+        peticion = self._pedir("allow_download").data
+        # Sus salidas son las de una descarga: conceder o rechazar.
+        resp = self._decidir(peticion["id"], "delete")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        resp = self._decidir(peticion["id"], "grant", note="Vale por esta vez.")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["status"], DocumentDeletionStatus.GRANTED)
+        # El documento pasa a «con solicitud» (el tipo sigue cerrado) y quien
+        # pidió tiene la concesión de descarga de siempre: ya se la baja.
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.driver_download_override, DriverActionMode.REQUEST)
+        self.assertEqual(self.document.effective_access()["driver_download"], "request")
+        self.assertTrue(
+            DocumentDeletionRequest.objects.filter(
+                document=self.document,
+                requested_by=self.driver,
+                kind="download",
+                status=DocumentDeletionStatus.GRANTED,
+            ).exists()
+        )
+        fila = self._fila()
+        self.assertTrue(fila["can_download"])
+        self.assertEqual(fila["download_request"], "granted")
+
+    def test_an_exceptional_deletion_is_decided_as_a_deletion(self):
+        peticion = self._pedir("allow_delete", reason="Es de otro coche.").data
+        self.assertEqual(self._decidir(peticion["id"], "grant").status_code, 400)
+        self.assertEqual(self._decidir(peticion["id"], "done").status_code, 400)
+        resp = self._decidir(peticion["id"], "delete")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["status"], DocumentDeletionStatus.DELETED)
+        self.document.refresh_from_db()
+        self.assertFalse(self.document.is_active)
+        self.assertEqual(self.document.deactivation_reason, "Es de otro coche.")
+
+    def test_a_free_request_is_attended_or_rejected_and_touches_nothing(self):
+        peticion = self._pedir("other", reason="¿De qué compañía es?").data
+        self.assertEqual(self._decidir(peticion["id"], "apply").status_code, 400)
+        resp = self._decidir(peticion["id"], "done", note="Mapfre; te lo mando por correo.")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["status"], DocumentDeletionStatus.DONE)
+        self.assertEqual(resp.data["status_display"], "Atendida")
+        self.assertEqual(resp.data["resolution_note"], "Mapfre; te lo mando por correo.")
+        self.document.refresh_from_db()
+        self.assertTrue(self.document.is_active)
+        self.assertIsNone(self.document.driver_download_override)
+        otra = self._pedir("other", reason="Y otra cosa.").data
+        self.assertNotEqual(otra["id"], peticion["id"])
+        resp = self._decidir(otra["id"], "reject")
+        self.assertEqual(resp.data["status"], DocumentDeletionStatus.REJECTED)
+
+    def test_deleting_the_document_elsewhere_closes_the_exceptional_deletion_too(self):
+        peticion = self._pedir("allow_delete", reason="Sobra.").data
+        self.client.force_authenticate(self.admin)
+        resp = self.client.delete(reverse("document-detail", args=[self.document.pk]))
+        self.assertIn(resp.status_code, (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT))
+        fila = DocumentDeletionRequest.objects.get(pk=peticion["id"])
+        self.assertEqual(fila.status, DocumentDeletionStatus.DELETED)

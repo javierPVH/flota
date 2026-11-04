@@ -1114,15 +1114,17 @@ export interface DocumentDeletionRequestRow {
   requested_by_name: string
   reason: string
   /** Qué se pide: borrarlo (la papelera del campo) o corregirlo. */
-  /** Qué se pide: borrarlo, corregirlo, o el ACCESO (verlo, bajárselo)
-   * cuando el tipo o el documento lo ponen «con solicitud». */
-  kind: 'delete' | 'change' | 'view' | 'download'
+  /** Qué se pide: borrarlo, corregirlo, el ACCESO (verlo, bajárselo)
+   * cuando el tipo o el documento lo ponen «con solicitud», la puerta de
+   * EXCEPCIÓN (la descarga o el borrado que el mando tiene cerrado) u otra
+   * petición libre. */
+  kind: 'delete' | 'change' | 'view' | 'download' | 'allow_download' | 'allow_delete' | 'other'
   kind_display: string
   /** Solo en una corrección: {campo: valor propuesto}. */
   changes: Record<string, string>
   /** Lo mismo ya legible: etiqueta, lo que hay hoy y lo que se propone. */
   changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
-  status: 'pending' | 'deleted' | 'hidden' | 'applied' | 'granted' | 'rejected'
+  status: 'pending' | 'deleted' | 'hidden' | 'applied' | 'granted' | 'done' | 'rejected'
   status_display: string
   resolved_by_name: string
   resolved_at: string | null
@@ -1131,9 +1133,11 @@ export interface DocumentDeletionRequestRow {
 }
 
 /** Las salidas del modal de gestión (las mismas del back): las tres primeras
- * son de un BORRADO y `apply` es la de una corrección; `reject` vale para las
- * dos. */
-export type DeletionDecision = 'delete' | 'hide' | 'apply' | 'grant' | 'reject'
+ * son de un BORRADO (de siempre o excepcional), `apply` la de una corrección,
+ * `grant` la de las de acceso (y la descarga excepcional, que además abre el
+ * documento «con solicitud»), `done` la de otra petición; `reject` vale para
+ * todas. */
+export type DeletionDecision = 'delete' | 'hide' | 'apply' | 'grant' | 'done' | 'reject'
 
 export const listDocumentDeletionRequests = (filters: { status?: string } = {}) =>
   getJson<Paginated<DocumentDeletionRequestRow>>(
@@ -1223,6 +1227,51 @@ export interface ProfileChangeRequestRow {
 
 /** Las dos salidas: aplicarla sobre la ficha o rechazarla. */
 export type ProfileChangeDecision = 'done' | 'reject'
+
+/** Propuesta de MODIFICAR el parte de una incidencia: la abre quien la
+ * comunicó desde la app de campo y la decide la gestión (sexta bandeja). */
+export interface IncidentChangeRequestRow {
+  id: number
+  incident: number
+  vehicle: number
+  vehicle_plate: string
+  incident_type: string
+  incident_type_display: string
+  incident_description: string
+  requested_by: number | null
+  requested_by_name: string
+  /** Lo pedido, en crudo: {campo: valor propuesto}. */
+  changes: Record<string, string | number>
+  /** Lo mismo ya legible: etiqueta, lo que hay hoy y lo que se propone. */
+  changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
+  note: string
+  status: 'pending' | 'done' | 'rejected'
+  status_display: string
+  resolved_by_name: string
+  resolved_at: string | null
+  resolution_note: string
+  created_at: string
+}
+
+/** Las dos salidas: aplicarla sobre la incidencia o rechazarla. */
+export type IncidentChangeDecision = 'done' | 'reject'
+
+export const listIncidentChangeRequests = (
+  filters: { status?: string; incident?: number } = {},
+) =>
+  getJson<Paginated<IncidentChangeRequestRow>>(
+    `${API}/incident-change-requests/${listQs({ ...filters })}`,
+  )
+
+export const resolveIncidentChangeRequest = (
+  id: number,
+  decision: IncidentChangeDecision,
+  note = '',
+) =>
+  postJson<IncidentChangeRequestRow>(`${API}/incident-change-requests/${id}/resolve/`, {
+    decision,
+    note,
+  })
 
 export const listProfileChangeRequests = (filters: { status?: string; user?: number } = {}) =>
   getJson<Paginated<ProfileChangeRequestRow>>(
@@ -1545,6 +1594,11 @@ export const createIncident = (data: IncidentInput) =>
 
 export const updateIncident = (id: number, data: Partial<IncidentInput>) =>
   patchJson<Incident>(`${API}/incidents/${id}/`, data)
+
+/** RGPD: borra los datos de terceros y lesionados de un accidente que ya
+ * cumplió la retención (`third_parties_purge_due`). Solo admin. */
+export const purgeAccidentThirdParties = (id: number) =>
+  postJson<Incident>(`${API}/incidents/${id}/purge-third-parties/`, {})
 
 /** Fase 2: ubicación preferente para buscar el taller más cercano → EN CURSO.
  * Opcionalmente el taller del catálogo ya decidido. */

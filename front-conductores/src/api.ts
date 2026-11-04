@@ -297,6 +297,47 @@ export const listMyProfileChangeRequests = () =>
 export const requestProfileChange = (input: { changes: ProfileChanges; note?: string }) =>
   postJson<ProfileChangeRequestRow>(`${API}/profile-change-requests/`, input)
 
+// --- Proponer cambios al parte de una incidencia ---------------------------
+
+/** Lo que se puede proponer cambiar del parte: solo lo que cambia. */
+export interface IncidentChanges {
+  date?: string
+  description?: string
+  mileage?: number
+  workshop_postal_code?: string
+  priority?: string
+}
+
+export interface IncidentChangeRequestRow {
+  id: number
+  incident: number
+  vehicle: number
+  vehicle_plate: string
+  incident_type: string
+  incident_type_display: string
+  incident_description: string
+  changes: IncidentChanges
+  changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
+  note: string
+  status: 'pending' | 'done' | 'rejected'
+  status_display: string
+  resolution_note: string
+  created_at: string
+}
+
+/** Las propuestas que uno ha abierto (el back solo sirve las propias). */
+export const listMyIncidentChangeRequests = () =>
+  getJson<Paginated<IncidentChangeRequestRow>>(`${API}/incident-change-requests/?${PS}`)
+
+/** Propone cambios al parte de una incidencia abierta. **No cambia nada**:
+ * llega a gestión como propuesta (`/solicitudes`) y, hasta que se decide, la
+ * incidencia se pinta de otro color. Sin cambios, la nota es la petición. */
+export const requestIncidentChange = (input: {
+  incident: number
+  changes: IncidentChanges
+  note?: string
+}) => postJson<IncidentChangeRequestRow>(`${API}/incident-change-requests/`, input)
+
 // --- Pedir un documento que falta -----------------------------------------
 
 /** Petición de que te FACILITEN un documento. Al revés que las otras cuatro
@@ -622,13 +663,15 @@ export async function fetchDocumentFile(
 export interface DocumentDeletionRequestRow {
   id: number
   document: number
-  /** Qué se pide: borrarlo, corregirlo, o el ACCESO (verlo, bajárselo)
-   * cuando el tipo o el documento lo ponen «con solicitud». */
-  kind: 'delete' | 'change' | 'view' | 'download'
+  /** Qué se pide: borrarlo, corregirlo, el ACCESO (verlo, bajárselo)
+   * cuando el tipo o el documento lo ponen «con solicitud», la puerta de
+   * EXCEPCIÓN (la descarga o el borrado que el mando tiene cerrado) u otra
+   * petición libre. */
+  kind: 'delete' | 'change' | 'view' | 'download' | DocumentPleaKind
   kind_display: string
   changes: Record<string, string>
   changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
-  status: 'pending' | 'deleted' | 'hidden' | 'applied' | 'granted' | 'rejected'
+  status: 'pending' | 'deleted' | 'hidden' | 'applied' | 'granted' | 'done' | 'rejected'
   status_display: string
   reason: string
   created_at: string
@@ -665,6 +708,18 @@ export const requestDocumentChange = (
     `${API}/document-deletion-requests/`,
     { document, kind: 'change', changes, reason },
   )
+
+/** La puerta de EXCEPCIÓN y la petición libre: la descarga o el borrado
+ * cuando el mando está cerrado («no permitir», que ni admite la petición de
+ * siempre: el back la rechaza) y «otra petición» sobre ese documento. La
+ * nota es obligatoria —es lo único que lee quien decide— y el back la exige. */
+export type DocumentPleaKind = 'allow_download' | 'allow_delete' | 'other'
+export const requestDocumentPlea = (document: number, kind: DocumentPleaKind, reason: string) =>
+  postJson<DocumentDeletionRequestRow>(`${API}/document-deletion-requests/`, {
+    document,
+    kind,
+    reason,
+  })
 
 /** Las peticiones sobre documentos que ha abierto quien pregunta (el back solo
  * sirve las suyas y las de lo que puede leer). */
