@@ -42,6 +42,7 @@ import {
 import { useAppLang } from '@flota/ui/i18n'
 
 import { fmtDate } from '../format.ts'
+import { IncidentEmailSettingsPanel } from '../components/IncidentEmailSettingsPanel.tsx'
 import { EmailSettingsPanel, type SettingsSection } from '../components/EmailSettingsPanel.tsx'
 import { SettingsSubtabs } from '../components/SettingsSubtabs.tsx'
 import { TableInfoBar } from '../components/TableInfoBar.tsx'
@@ -60,7 +61,7 @@ const FUEL_TAB = 'combustible'
 const ITV_TAB = 'itv'
 const MAINTENANCE_TAB = 'mantenimiento'
 const LAYOUT_TAB = 'aspecto'
-const SETTINGS_TABS = new Set([REMINDER_TAB, FUEL_TAB, ITV_TAB, MAINTENANCE_TAB, LAYOUT_TAB])
+const SETTINGS_TABS = new Set([REMINDER_TAB, FUEL_TAB, ITV_TAB, MAINTENANCE_TAB, 'incidencias', 'accidentes', LAYOUT_TAB])
 const SECTION_OF: Record<string, SettingsSection> = {
   [REMINDER_TAB]: 'reminder',
   [FUEL_TAB]: 'fuel',
@@ -88,6 +89,8 @@ const TEMPLATE_KEYS = [
   'km_reading_pending',
   'fuel_reading_pending',
   'maintenance_due',
+  'incident_notice',
+  'accident_notice',
   'generic',
 ]
 
@@ -487,6 +490,8 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
       { key: FUEL_TAB, label: ts.fuelTab },
       { key: ITV_TAB, label: ts.itvTab },
       { key: MAINTENANCE_TAB, label: ts.maintenanceTab },
+      { key: 'incidencias', label: lang === 'en' ? 'Incident notices' : 'Aviso por incidencias' },
+      { key: 'accidentes', label: lang === 'en' ? 'Accident notices' : 'Aviso por accidentes' },
       { key: LAYOUT_TAB, label: ts.layoutTab },
     ],
     templates: TEMPLATE_KEYS.map((key) => ({
@@ -739,7 +744,9 @@ export function EmailTemplatesPage({ embedded = false }: { embedded?: boolean } 
       )}
 
       {isSettings ? (
-        <EmailSettingsPanel
+        activeTab === 'incidencias' || activeTab === 'accidentes' ? (
+          <IncidentEmailSettingsPanel key={activeTab} kind={activeTab === 'incidencias' ? 'incident' : 'accident'} onEditTemplate={switchTab} />
+        ) : <EmailSettingsPanel
           section={SECTION_OF[activeTab] ?? 'layout'}
           templates={templates}
           defaults={defaults}

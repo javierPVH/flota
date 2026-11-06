@@ -54,6 +54,20 @@ class MineRequestTests(APITestCase):
         self.assertEqual(request.jira_key, "FLT-42")
         self.assertEqual(request.requested_type, "car")  # lo previo se conserva
 
+    def test_mine_ignores_a_deactivated_request(self):
+        """Una solicitud mandada a erratas (N7) ni se lista ni se «resucita»
+        con el POST de `mine/`: se abre una nueva."""
+        self.client.force_authenticate(self.newcomer)
+        self.client.post(self.url, {"requested_type": "car"})
+        vieja = VehicleRequest.objects.get()
+        vieja.deactivate(reason="duplicada")
+        self.assertEqual(self.client.get(self.url).data, [])
+        resp = self.client.post(self.url, {"requested_type": "van"})
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(VehicleRequest.objects.count(), 2)
+        vieja.refresh_from_db()
+        self.assertEqual(vieja.requested_type, "car")
+
     def test_jira_key_cannot_belong_to_another_request(self):
         VehicleRequest.objects.create(requester=self.other, jira_key="FLT-1")
         self.client.force_authenticate(self.newcomer)

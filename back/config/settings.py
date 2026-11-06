@@ -326,8 +326,21 @@ SAML_IDP_METADATA_FILE = env_str(
 # Corralito de dominio: solo correos de estos dominios (vacío = sin filtro).
 SAML_ALLOWED_DOMAINS = env_list("SAML_ALLOWED_DOMAINS", ["gransolar.com"])
 # AUTH-2: dominios a los que puede mandar informes quien NO es administrador
-# (destinatarios extra de los envíos programados). Por defecto, los del SSO.
-FLEET_EMAIL_ALLOWED_DOMAINS = env_list("FLEET_EMAIL_ALLOWED_DOMAINS", SAML_ALLOWED_DOMAINS)
+# (destinatarios extra de los envíos programados y avisos configurables).
+# Los dominios de correo son independientes de los dominios de acceso SSO.
+FLEET_EMAIL_ALLOWED_DOMAINS = env_list(
+    "FLEET_EMAIL_ALLOWED_DOMAINS",
+    [
+        "camarlagu.com",
+        "deeptrack.es",
+        "ggc.energy",
+        "gransolar.com",
+        "ingenia-se.com",
+        "pvhardware.com",
+        "ggciberica.com",
+        "pvhardware.es",
+    ],
+)
 # A dónde vuelve el navegador cuando el ACS rechaza la entrada (la PWA lee
 # `?saml=<motivo>` y enseña el modal). Relativa: ACS y PWA son el mismo origen.
 SAML_FAILURE_REDIRECT = env_str("SAML_FAILURE_REDIRECT", "/login")

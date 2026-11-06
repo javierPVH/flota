@@ -601,11 +601,17 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
     // conductor / supervisor» de la barra), que al terminar recarga la ficha
     // y con ella la marca de `updated_at` del bloqueo optimista.
     try {
-      await updateVehicleFields(vehicleId, {
+      const guardado = await updateVehicleFields(vehicleId, {
         ...changedPayload(),
         // Bloqueo optimista: si la ficha cambió entre medias, el back devuelve 409.
         expected_updated_at: vehicle.updated_at,
       })
+      // La ficha ya está guardada: el formulario pasa a tener su marca de
+      // ahora y lo que entró deja de contar como cambio. Si el contrato de
+      // abajo falla y se corrige, el segundo «Guardar» no choca con el
+      // bloqueo optimista (409 falso) ni vuelve a mandar lo ya guardado.
+      setVehicle(guardado)
+      setInitial((f) => ({ ...f, ...fromVehicle(guardado) }))
       // El contrato es otro recurso: se guarda tras el vehículo (su validación
       // de fechas puede rechazar y el error se muestra en el mismo formulario).
       await saveContractChanges()

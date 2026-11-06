@@ -26,6 +26,8 @@ class EmailTemplateKey(models.TextChoices):
     KM_READING_PENDING = "km_reading_pending", "Lectura de km pendiente (al conductor)"
     FUEL_READING_PENDING = "fuel_reading_pending", "Consumo de combustible pendiente (al conductor)"
     MAINTENANCE_DUE = "maintenance_due", "Mantenimiento próximo / vencido (recordatorio)"
+    INCIDENT_NOTICE = "incident_notice", "Aviso por incidencias"
+    ACCIDENT_NOTICE = "accident_notice", "Aviso por accidentes"
     GENERIC = "generic", "Genérica (resto de avisos)"
 
 

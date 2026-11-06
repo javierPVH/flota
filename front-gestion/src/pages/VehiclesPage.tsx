@@ -11,7 +11,7 @@ import {
 } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
-import { isOutOfFleet } from '@flota/ui/domain'
+import { isLinkActive, isOutOfFleet } from '@flota/ui/domain'
 import { Download, Upload } from 'lucide-react'
 
 import {
@@ -405,7 +405,7 @@ export function VehiclesPage() {
   // Ids de vehículos de flota con sustituto vigente (para el filtro y la celda).
   const subMainIds = useMemo(() => {
     const s = new Set<number>()
-    for (const l of links) if (l.end_date === null) s.add(l.main_vehicle)
+    for (const l of links) if (isLinkActive(l)) s.add(l.main_vehicle)
     return s
   }, [links])
 
@@ -582,17 +582,18 @@ export function VehiclesPage() {
     ],
   )
 
-  // Índice por id + vínculos activos (end_date === null) en ambos sentidos.
+  // Índice por id + vínculos vigentes (`isLinkActive`: sin fin o con cierre
+  // programado aún por llegar, como el back) en ambos sentidos.
   const byId = useMemo(() => new Map(vehicles.map((v) => [v.id, v])), [vehicles])
   /** El vínculo entero (hace falta su fecha en la fila desplegable). */
   const activeLinkOfMain = useMemo(() => {
     const m = new Map<number, VehicleLinkRow>()
-    for (const l of links) if (l.end_date === null) m.set(l.main_vehicle, l)
+    for (const l of links) if (isLinkActive(l)) m.set(l.main_vehicle, l)
     return m
   }, [links])
   const activeMainOfSub = useMemo(() => {
     const m = new Map<number, number>()
-    for (const l of links) if (l.end_date === null) m.set(l.substitute_vehicle, l.main_vehicle)
+    for (const l of links) if (isLinkActive(l)) m.set(l.substitute_vehicle, l.main_vehicle)
     return m
   }, [links])
 

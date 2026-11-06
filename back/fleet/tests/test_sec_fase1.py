@@ -271,6 +271,22 @@ class Auth9SplitScopeTests(APITestCase):
     def test_auth9_own_driver_is_fine(self):
         self.assertEqual(self._split(self.mine).status_code, status.HTTP_201_CREATED)
 
+    def test_auth9_applies_to_the_plain_crud_too(self):
+        """El POST y el PATCH sueltos de `/vehicle-usages/` exigen lo mismo que
+        `set/`: la persona del reparto, de su ámbito."""
+        url = reverse("vehicleusage-list")
+        cuerpo = {"vehicle": self.vehicle.pk, "start_date": "2026-08-01", "usage_percent": "10"}
+        ajeno = self.client.post(url, {**cuerpo, "driver": self.other.pk}, format="json")
+        self.assertEqual(ajeno.status_code, status.HTTP_403_FORBIDDEN)
+        propio = self.client.post(url, {**cuerpo, "driver": self.mine.pk}, format="json")
+        self.assertEqual(propio.status_code, status.HTTP_201_CREATED, propio.data)
+        cambio = self.client.patch(
+            reverse("vehicleusage-detail", args=[propio.data["id"]]),
+            {"driver": self.other.pk},
+            format="json",
+        )
+        self.assertEqual(cambio.status_code, status.HTTP_403_FORBIDDEN)
+
 
 class Auth11NotifyTests(APITestCase):
     """AUTH-11: asunto, cuerpo y destinatarios privilegiados, solo administración."""

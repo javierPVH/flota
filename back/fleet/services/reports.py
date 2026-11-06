@@ -45,6 +45,7 @@ from fleet.models import (
 from fleet.models.enums import (
     OUT_OF_FLEET,
     AlertStatus,
+    AlertType,
     EventType,
     IncidentStatus,
     VehicleState,
@@ -256,7 +257,9 @@ def _hse_vehicles_table(user, filters: dict | None = None) -> Table:
     HSE (ver `HseReadOnly`). Las fechas de servicio salen del contrato vigente,
     y un coche propio no tiene, así que van vacías.
     """
-    vehicles = list(vehicles_for(user).filter(state=VehicleState.ACTIVE).order_by("plate"))
+    vehicles = list(
+        vehicles_for(user, hse=True).filter(state=VehicleState.ACTIVE).order_by("plate")
+    )
     ids = [v.id for v in vehicles]
     # Los tres mapas en bloque, como el listado: nada por fila.
     from .metrics import fuel_latest_map
@@ -367,7 +370,8 @@ def _hse_report(user, filters: dict | None = None) -> list[Table]:
     porque el coche se haya parado esta semana sería contar otra cosa.
     """
     vehiculos = _hse_vehicles_table(user, filters)
-    lecturas = _km_table(user, filters)
+    # El ámbito ampliado de HSE (`hse=True`) solo vale en SU informe.
+    lecturas = _km_table(user, filters, vehicle_ids=vehicles_for(user, hse=True).values("id"))
     return [_hse_summary_table(vehiculos, lecturas), vehiculos, lecturas]
 
 
@@ -434,6 +438,11 @@ def _alerts_table(user, filters: dict | None = None, vehicle_ids=None) -> Table:
         .select_related("vehicle", "user", "resolved_by")
         .order_by("-created_at")
     )
+    # X1: el seguro es de administración (y HSE lo lee). La bandeja ya se lo
+    # quita a la supervisión (`AlertViewSet.get_queryset`); el informe
+    # —que un supervisor descarga— lo seguía enseñando.
+    if not user.is_admin:
+        alerts = alerts.exclude(type=AlertType.INSURANCE_DUE)
     # Sin filtro salen todas, como en la pantalla de Informes. Antes este
     # informe forzaba `status=open`, así que no coincidía con la descarga.
     estado = _pick(filters, "status")

@@ -83,6 +83,16 @@ def on_insurance_document_saved(sender, instance: Document, **kwargs):
     # Un documento personal (de usuario) no tiene vehículo que denormalizar.
     if instance.vehicle_id is None:
         return
+    # X1: el seguro es de gestión. Solo la póliza que sube (o corrige) la
+    # gestión —admin o supervisor, desde la VPN— renueva el vencimiento del
+    # coche. Un conductor, desde la app pública, puede subir la póliza que
+    # lleva en la guantera, pero con una caducidad cualquiera cerraba el
+    # aviso del seguro a su nombre y dejaba `renew-insurance` contestando 400
+    # («no puede adelantar»). Sin autor (seed, importación, señales internas)
+    # se aplica como siempre.
+    autor = instance.uploaded_by
+    if autor is not None and not autor.is_management:
+        return
     insurance.apply_new_expiry(
         instance.vehicle,
         instance.expiry_date,
@@ -132,3 +142,10 @@ def on_fuel_reading_registered(sender, instance: FuelConsumption, **kwargs):
         return
     period = f"{instance.reading_date.year:04d}-{instance.reading_date.month:02d}"
     alerts.resolve_satisfied_fuel_alerts({instance.vehicle_id: period})
+
+
+@receiver(post_save, sender=Incident, dispatch_uid="fleet_incident_email_notice")
+def on_incident_created_email(sender, instance: Incident, created=False, raw=False, **kwargs):
+    if created and not raw and instance.is_active:
+        from .services.incident_mail import queue_notice
+        queue_notice(instance)

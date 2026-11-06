@@ -490,6 +490,12 @@ def _recipients_for(alert: Alert) -> list[tuple[str, str]]:
         cfg = EmailSettings.get_solo()
         kind, mensual = ajuste
         mandos = cfg.monthly_reminder(kind) if mensual else cfg.deadline_reminder(kind)
+        from .corporate_email import delivery_recipients
+
+        destinos.extend(
+            (RecipientRole.OTHER, address)
+            for address in delivery_recipients(getattr(cfg, f"{kind}_remind_extra_recipients"))
+        )
         driver, supervisor = _driver_and_supervisor(alert)
         if mandos.to_driver:
             if driver is not None and driver.email:

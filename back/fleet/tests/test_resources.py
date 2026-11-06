@@ -91,12 +91,26 @@ class ResourceScopeTests(APITestCase):
 
     # --- Reparto de uso: admin o supervisor de su grupo (HU-2.5) ------
     def test_supervisor_can_set_usage_in_group(self):
+        # AUTH-9 también en el CRUD: la persona del reparto ha de ser de su
+        # ámbito (`users_for`), y `self.driver` lleva un coche sin supervisor.
+        del_grupo = make_user("driver-grupo", Role.DRIVER)
+        Assignment.objects.create(
+            vehicle=self.group_vehicle,
+            driver=del_grupo,
+            start_date=date(2026, 1, 1),
+            status=AssignmentStatus.ACCEPTED,
+        )
         self.client.force_authenticate(self.supervisor)
         resp = self.client.post(
             reverse("vehicleusage-list"),
+            {"vehicle": self.group_vehicle.pk, "driver": del_grupo.pk, "usage_percent": "50.00"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        ajeno = self.client.post(
+            reverse("vehicleusage-list"),
             {"vehicle": self.group_vehicle.pk, "driver": self.driver.pk, "usage_percent": "50.00"},
         )
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(ajeno.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_supervisor_cannot_set_usage_outside_group(self):
         self.client.force_authenticate(self.supervisor)

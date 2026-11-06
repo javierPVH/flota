@@ -256,6 +256,23 @@ class EmailSettings(TimeStampedModel):
         "Administradores avisados", default=list, blank=True
     )
 
+    incident_notice_enabled = models.BooleanField(default=False)
+    incident_notice_to_driver = models.BooleanField(default=False)
+    incident_notice_to_supervisor = models.BooleanField(default=True)
+    incident_notice_admin_ids = models.JSONField(default=list, blank=True)
+
+    accident_notice_enabled = models.BooleanField(default=False)
+    accident_notice_to_driver = models.BooleanField(default=False)
+    accident_notice_to_supervisor = models.BooleanField(default=True)
+    accident_notice_admin_ids = models.JSONField(default=list, blank=True)
+
+    km_remind_extra_recipients = models.TextField(blank=True, default="")
+    fuel_remind_extra_recipients = models.TextField(blank=True, default="")
+    itv_remind_extra_recipients = models.TextField(blank=True, default="")
+    maintenance_remind_extra_recipients = models.TextField(blank=True, default="")
+    incident_notice_extra_recipients = models.TextField(blank=True, default="")
+    accident_notice_extra_recipients = models.TextField(blank=True, default="")
+
     # --- Aspecto corporativo --------------------------------------------------
     layout_enabled = models.BooleanField("Maquetación corporativa", default=True)
     brand_name = models.CharField("Nombre de marca", max_length=80, default=DEFAULT_BRAND_NAME)

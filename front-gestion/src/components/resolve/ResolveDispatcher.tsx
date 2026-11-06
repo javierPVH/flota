@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Modal } from '@flota/ui/ui'
-import { isOutOfFleet } from '@flota/ui/domain'
+import { isLinkActive, isOutOfFleet } from '@flota/ui/domain'
 
 import { listVehicleLinks, releaseSubstitute } from '../../api.ts'
 import { useAlertsPageCopy } from '../../translations/alertsPage.ts'
@@ -85,7 +85,7 @@ export function ResolveDispatcher({ target, vehicles, onClose, onDone, onEmailRe
     const ctrl = new AbortController()
     listVehicleLinks({ main_vehicle: vehicleId }, { signal: ctrl.signal })
       .then((page) => {
-        const open = page.results.find((row) => row.end_date === null)
+        const open = page.results.find((row) => isLinkActive(row))
         setCover({ vehicleId, plate: open?.substitute_vehicle_plate ?? '' })
       })
       .catch(() => {})

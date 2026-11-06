@@ -1766,6 +1766,7 @@ export type DeadlineReminderKind = 'itv' | 'maintenance'
 
 /** Los mandos de un recordatorio mensual (km o combustible). */
 export interface MonthlyReminderFields {
+  extra_recipients?: string
   /** Apagado, no se abren avisos de anotación pendiente ni salen sus correos. */
   enabled: boolean
   by: KmRemindByValue
@@ -1790,6 +1791,7 @@ export interface MonthlyReminderFields {
  * los días antes y después de la fecha límite en que sale correo, como se
  * guardan («30, 15, 7, 1» / «1, 7, 15»; en «antes», 0 = el mismo día). */
 export interface DeadlineReminderFields {
+  extra_recipients?: string
   enabled: boolean
   days_before: string
   days_after: string
@@ -1807,6 +1809,7 @@ export interface EmailSettingsRow
     Prefixed<'maintenance', DeadlineReminderFields> {
   /** Día en que se abre el registro de km de campo (0 = sin ventana): antes
    * de él, el conductor no puede dar la lectura que se le reclama. */
+  corporate_email_domains?: string[]
   km_window_start: number
   /** Entre quiénes se puede elegir: administradores activos con correo. */
   admin_options: Array<{ id: number; name: string; email: string }>
@@ -2124,3 +2127,6 @@ export const runNotificationSchedule = (id: number) =>
     `${API}/notification-schedules/${id}/run/`,
     {},
   )
+
+export const updateIncidentEmailSettings = (data: Record<string, unknown>) =>
+  postJson<EmailSettingsRow>(`${API}/email-settings/`, data)

@@ -21,7 +21,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.conf import settings
-from django.db.models import Count, Sum
+from django.db.models import Count, F, OuterRef, Subquery, Sum
 from django.utils import timezone
 
 from fleet.models import (
@@ -187,17 +187,24 @@ def fuel_latest_map(ids: list[int]) -> dict[int, dict]:
     es la más reciente. El «primero por vehículo» se resuelve en Python sobre
     un orden estable (la doctrina de `selectors.py`: nada por fila).
     """
+    # Solo la fila más reciente de cada coche viaja (subconsulta correlada,
+    # como `latest_reading_map` desde R3-11): antes se traía el histórico
+    # ENTERO de consumo de los coches de la página para quedarse con uno.
+    ultima = (
+        FuelConsumption.objects.filter(vehicle_id=OuterRef("vehicle_id"), is_active=True)
+        .order_by("-reading_date", "-pk")
+        .values("pk")[:1]
+    )
     rows = (
         FuelConsumption.objects.filter(vehicle_id__in=ids, is_active=True)
-        .order_by("vehicle_id", "-reading_date", "-pk")
+        .annotate(ultima_pk=Subquery(ultima))
+        .filter(pk=F("ultima_pk"))
         .values_list("vehicle_id", "avg_consumption", "reading_date")
     )
-    latest: dict[int, dict] = {}
-    for vehicle_id, avg_consumption, reading_date in rows:
-        latest.setdefault(
-            vehicle_id, {"avg_consumption": avg_consumption, "reading_date": reading_date}
-        )
-    return latest
+    return {
+        vehicle_id: {"avg_consumption": avg_consumption, "reading_date": reading_date}
+        for vehicle_id, avg_consumption, reading_date in rows
+    }
 
 
 def vehicle_summary(vehicle: Vehicle, today: date | None = None) -> dict:

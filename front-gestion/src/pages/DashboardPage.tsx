@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Chip, IconButton, MiniToolsButtons, Modal, PageHeader, SelectField, StatCard } from '@flota/ui/ui'
 import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage, isAbortError } from '@flota/ui/http'
-import { isOutOfFleet } from '@flota/ui/domain'
+import { isLinkActive, isOutOfFleet } from '@flota/ui/domain'
 import { ChevronDown, Pencil, Plus } from 'lucide-react'
 
 import {
@@ -582,7 +582,7 @@ export function DashboardPage() {
   // Sustitutos que están cubriendo a un vehículo (no se pueden convertir).
   const activeMainOfSub = useMemo(() => {
     const map = new Map<number, number>()
-    for (const l of links) if (l.end_date === null) map.set(l.substitute_vehicle, l.main_vehicle)
+    for (const l of links) if (isLinkActive(l)) map.set(l.substitute_vehicle, l.main_vehicle)
     return map
   }, [links])
 
@@ -590,7 +590,7 @@ export function DashboardPage() {
   // cuelga de su fila en la tabla (con la fecha desde la que lo cubre).
   const activeLinkOfMain = useMemo(() => {
     const map = new Map<number, VehicleLinkRow>()
-    for (const l of links) if (l.end_date === null) map.set(l.main_vehicle, l)
+    for (const l of links) if (isLinkActive(l)) map.set(l.main_vehicle, l)
     return map
   }, [links])
 

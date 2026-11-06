@@ -50,10 +50,17 @@ export function ItvPane({
   const [error, setError] = useState('')
   // R5-50: una referencia por captura, no por pulsación (el reintento manual
   // tras un 502 no debe crear un segundo documento).
-  const [reportRef] = useState(newClientRef)
+  const [reportRef, setReportRef] = useState(newClientRef)
   // Y la del propio registro: generada en `submit()` cambiaba en cada pulsacion,
   // asi que el reintento manual tras un 502 podia crear DOS eventos de ITV.
-  const [itvRef] = useState(newClientRef)
+  const [itvRef, setItvRef] = useState(newClientRef)
+  // Guardada una, las dos se renuevan: en «Actualizar» el formulario sigue
+  // montado y la siguiente ITV (una desfavorable y su repetición) salía con
+  // la misma referencia, que el back toma por un reenvío de la primera.
+  const renovarRefs = () => {
+    setReportRef(newClientRef())
+    setItvRef(newClientRef())
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -104,10 +111,12 @@ export function ItvPane({
           message = `${message} ${queued ? t.vehicle.itvReportQueued : t.vehicle.itvReportFailed}`
         }
       }
+      renovarRefs()
       onSaved?.(message)
     } catch (caught) {
       // Sin cobertura se encolan los dos: el informe espera al id del registro.
       if (isNetworkError(caught) && (await enqueueItvWithReport(payload, report))) {
+        renovarRefs()
         onSaved?.(t.vehicle.itvOffline)
       } else {
         setError(asErrorMessage(caught, t.vehicle.itvError))

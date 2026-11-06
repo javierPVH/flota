@@ -60,6 +60,39 @@ class InsuranceDocumentSignalTests(TestCase):
             Alert.objects.filter(status=AlertStatus.OPEN, type=AlertType.INSURANCE_DUE).count(), 0
         )
 
+    def test_policy_uploaded_by_a_driver_does_not_renew(self):
+        """X1: el seguro es de gestión. La póliza que sube un conductor (app
+        pública) no mueve el vencimiento ni cierra el aviso; la de la gestión,
+        sí (el supervisor lo cubre `test_insurance_renewal`)."""
+        from accounts.models import Role
+
+        from .helpers import make_user
+
+        vehicle = _vehicle(insurance_expiry_date=TODAY + timedelta(days=5))
+        alerts.check_insurance(today=TODAY)
+        conductor = make_user("n2-driver", Role.DRIVER)
+        Document.objects.create(
+            vehicle=vehicle,
+            type=DocumentType.INSURANCE,
+            expiry_date=TODAY + timedelta(days=9999),
+            uploaded_by=conductor,
+        )
+        vehicle.refresh_from_db()
+        self.assertEqual(vehicle.insurance_expiry_date, TODAY + timedelta(days=5))
+        self.assertEqual(
+            Alert.objects.filter(status=AlertStatus.OPEN, type=AlertType.INSURANCE_DUE).count(), 1
+        )
+        admin = make_user("n2-admin", Role.ADMIN)
+        renewed = TODAY + timedelta(days=370)
+        Document.objects.create(
+            vehicle=vehicle, type=DocumentType.INSURANCE, expiry_date=renewed, uploaded_by=admin
+        )
+        vehicle.refresh_from_db()
+        self.assertEqual(vehicle.insurance_expiry_date, renewed)
+        self.assertEqual(
+            Alert.objects.filter(status=AlertStatus.OPEN, type=AlertType.INSURANCE_DUE).count(), 0
+        )
+
     def test_older_policy_does_not_downgrade(self):
         vehicle = _vehicle(insurance_expiry_date=TODAY + timedelta(days=200))
         Document.objects.create(

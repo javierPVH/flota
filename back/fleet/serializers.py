@@ -3281,12 +3281,14 @@ _MONTHLY_REMIND_FIELDS = (
     "emails",
     "max_emails",
     "dates",
+    "extra_recipients",
     "to_driver",
     "to_supervisor",
     "admin_ids",
     "admins",
 )
 _DEADLINE_REMIND_FIELDS = (
+    "extra_recipients",
     "enabled",
     "days_before",
     "days_after",
@@ -3373,18 +3375,31 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
         required=False, allow_blank=True, write_only=True
     )
     #: Entre quiénes se puede elegir: administradores activos con correo.
+    incident_notice_admin_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), required=False
+    )
+    accident_notice_admin_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), required=False
+    )
+    corporate_email_domains = serializers.SerializerMethodField()
     admin_options = serializers.SerializerMethodField()
 
     class Meta:
         model = EmailSettings
         fields = (
             [f"km_remind_{f}" for f in _MONTHLY_REMIND_FIELDS]
+            + [
+                f"{k}_notice_{f}"
+                for k in ("incident", "accident")
+                for f in ("enabled", "to_driver", "to_supervisor", "admin_ids", "extra_recipients")
+            ]
             + ["km_window_start"]
             + [f"fuel_remind_{f}" for f in _MONTHLY_REMIND_FIELDS]
             + [f"itv_remind_{f}" for f in _DEADLINE_REMIND_FIELDS]
             + [f"maintenance_remind_{f}" for f in _DEADLINE_REMIND_FIELDS]
             + [
                 "admin_options",
+                "corporate_email_domains",
                 "layout_enabled",
                 "brand_name",
                 "brand_color",
@@ -3395,6 +3410,11 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
             ]
         )
         read_only_fields = ["updated_at"]
+
+    def get_corporate_email_domains(self, obj):
+        from .services.corporate_email import allowed_domains
+
+        return allowed_domains()
 
     # --- Validación por campo, la misma para cada prefijo ------------------
 
@@ -3531,8 +3551,42 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
         supervisor o algún administrador."""
         from .models import DEADLINE_REMINDERS, MONTHLY_REMINDERS, KmRemindBy
         from .services import email_layout
+        from .services.corporate_email import normalize_recipients
 
+        for prefix in (
+            "km_remind",
+            "fuel_remind",
+            "itv_remind",
+            "maintenance_remind",
+            "incident_notice",
+            "accident_notice",
+        ):
+            field = prefix + "_extra_recipients"
+            if field in attrs:
+                try:
+                    attrs[field] = normalize_recipients(attrs[field])
+                except DjangoValidationError as exc:
+                    raise serializers.ValidationError({field: exc.messages}) from exc
         actual = self.instance
+        for kind in ("incident", "accident"):
+            prefix = f"{kind}_notice_"
+            if prefix + "admin_ids" in attrs:
+                attrs[prefix + "admin_ids"] = self._admins(
+                    ",".join(str(i) for i in attrs[prefix + "admin_ids"])
+                )
+
+            def value(field, default, prefix=prefix):
+                return attrs.get(prefix + field, getattr(actual, prefix + field, default))
+
+            if value("enabled", False) and not (
+                value("to_driver", False)
+                or value("to_supervisor", True)
+                or value("admin_ids", [])
+                or value("extra_recipients", "")
+            ):
+                raise serializers.ValidationError(
+                    {prefix + "to_supervisor": "Elige al menos un destinatario."}
+                )
         for kind in MONTHLY_REMINDERS + DEADLINE_REMINDERS:
             if f"{kind}_remind_admins" in attrs:
                 attrs[f"{kind}_remind_admin_ids"] = attrs.pop(f"{kind}_remind_admins")
@@ -3546,6 +3600,7 @@ class EmailSettingsSerializer(serializers.ModelSerializer):
                 queda(p + "to_driver", True)
                 or queda(p + "to_supervisor", False)
                 or queda(p + "admin_ids", [])
+                or queda(p + "extra_recipients", "")
             ):
                 raise serializers.ValidationError(
                     {p + "to_driver": "Elige al menos un destinatario del recordatorio."}

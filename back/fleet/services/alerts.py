@@ -166,6 +166,37 @@ def _refresh_open_alert(
         )
 
 
+def _monthly_key(vehicle_id: int, alert_type: str, prefix: str, fresh: str) -> str:
+    """La clave del aviso MENSUAL: la del que siga abierto, o la del mes.
+
+    `no_driver` y `km_overage` llevan el mes en la clave para que, resuelto a
+    mano, el mes siguiente vuelva a avisar. Pero mientras seguía ABIERTO, cada
+    cambio de mes abría OTRO —con su push y, en el exceso de km, su correo— y
+    nada cerraba el anterior: dos (y tres) avisos del mismo coche en la
+    bandeja y un correo repetido al mes. Si hay uno abierto del mismo coche
+    (y, en el exceso, del mismo contrato), es ESE el que se refresca; la
+    clave del mes solo se estrena cuando no queda ninguno abierto.
+    """
+    cache = _alert_cache.get()
+    if cache is not None:
+        for key, alert in cache.items():
+            if alert is not None and key.startswith(prefix):
+                return key
+        return fresh
+    abierta = (
+        Alert.objects.filter(
+            vehicle_id=vehicle_id,
+            type=alert_type,
+            status=AlertStatus.OPEN,
+            dedup_key__startswith=prefix,
+        )
+        .order_by("-created_at")
+        .values_list("dedup_key", flat=True)
+        .first()
+    )
+    return abierta or fresh
+
+
 def upsert_alert(
     *,
     dedup_key: str,
@@ -974,8 +1005,14 @@ def check_no_driver(today: date | None = None) -> int:
                 # Clave MENSUAL: resolver a mano silencia el mes; si el coche sigue
                 # sin conductor, el mes siguiente vuelve a avisar. Con la clave fija
                 # (`no_driver:{pk}`) una resolución lo silenciaba para siempre,
-                # porque `upsert_alert` nunca reabre una resuelta.
-                dedup_key=f"no_driver:{vehicle.pk}:{today:%Y-%m}",
+                # porque `upsert_alert` nunca reabre una resuelta. Y mientras siga
+                # abierto se refresca el que hay (`_monthly_key`), no se abre otro.
+                dedup_key=_monthly_key(
+                    vehicle.pk,
+                    AlertType.NO_DRIVER,
+                    f"no_driver:{vehicle.pk}:",
+                    f"no_driver:{vehicle.pk}:{today:%Y-%m}",
+                ),
                 type=AlertType.NO_DRIVER,
                 level=AlertLevel.WARNING,
                 **compose("no_driver", days=grace_days),
@@ -1056,7 +1093,13 @@ def check_km_overage(today: date | None = None) -> int:
                 else AlertLevel.WARNING
             )
             created += upsert_alert(
-                dedup_key=f"km_overage:{vehicle.pk}:{contract.pk}:{period}",
+                # Mensual, como `no_driver`: el abierto se refresca, no se duplica.
+                dedup_key=_monthly_key(
+                    vehicle.pk,
+                    AlertType.KM_OVERAGE,
+                    f"km_overage:{vehicle.pk}:{contract.pk}:",
+                    f"km_overage:{vehicle.pk}:{contract.pk}:{period}",
+                ),
                 type=AlertType.KM_OVERAGE,
                 level=level,
                 **compose(

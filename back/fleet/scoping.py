@@ -35,7 +35,7 @@ from .models.enums import DocumentDeletionStatus, DriverActionMode, DriverDocume
 from .selectors import current_assignment_q, current_driver_map, current_usage_q
 
 
-def vehicles_for(user, *, write: bool = False):
+def vehicles_for(user, *, write: bool = False, hse: bool = False):
     """Queryset de vehículos que `user` puede ver, según sus roles (unidos) y
     sus repartos de uso vigentes.
 
@@ -43,11 +43,20 @@ def vehicles_for(user, *, write: bool = False):
     HSE, que es solo lectura (ver la cabecera del módulo). El reparto sí entra
     en los dos, lectura y escritura: es un coche que esa persona conduce parte
     del tiempo.
+
+    `hse=True` lo piden SOLO los cuatro endpoints de la pantalla de HSE
+    (vehículos, lecturas de km, consumo y su informe: `hse_reads` del
+    mixin): ahí quien tiene el rol lee la flota entera. En cualquier otra
+    lectura el rol HSE no añade nada, así que un supervisor+hse o un
+    conductor+hse ven en contratos, facturas, incidencias, documentos o
+    alertas lo suyo y nada más. Antes el ámbito ampliado valía para TODOS
+    los GET acotados, y por ahí un supervisor con HSE leía los costes y los
+    documentos de coches que no supervisa.
     """
     qs = Vehicle.objects.all()
     if user.is_admin:
         return qs
-    if user.is_hse and not write:
+    if user.is_hse and hse and not write:
         return qs
     scope = Q()
     if user.is_supervisor:

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Badge, Button, FileField, SelectField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
+import { isLinkActive } from '@flota/ui/domain'
 
 import {
   closeVehicleLink,
@@ -323,7 +324,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
 
   // Vínculo de sustitución vigente (como principal).
   const activeLink = useMemo(
-    () => links.find((l) => l.main_vehicle === vehicle.id && l.end_date === null) ?? null,
+    () => links.find((l) => l.main_vehicle === vehicle.id && isLinkActive(l)) ?? null,
     [links, vehicle.id],
   )
   // Sustitutos dados de alta aquí mismo: el prop `allVehicles` llegó con el
@@ -335,7 +336,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
   )
   const byId = useMemo(() => new Map(allVehicles.map((v) => [v.id, v])), [allVehicles])
   const busySubIds = useMemo(
-    () => new Set(links.filter((l) => l.end_date === null).map((l) => l.substitute_vehicle)),
+    () => new Set(links.filter((l) => isLinkActive(l)).map((l) => l.substitute_vehicle)),
     [links],
   )
 

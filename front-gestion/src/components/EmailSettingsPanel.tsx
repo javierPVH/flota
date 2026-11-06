@@ -28,6 +28,8 @@
  * (`document_html`, con el logotipo embebido) pintado en un iframe: es lo que
  * verá quien lo reciba, no una aproximación del navegador.
  */
+import { CorporateEmailField } from './CorporateEmailField.tsx'
+import { customEmailList, invalidCorporateEmails } from '../corporateEmail.ts'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Badge, Button, Panel, SelectField, TextAreaField, TextInputField } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
@@ -152,6 +154,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const [toDriver, setToDriver] = useState(true)
   const [toSupervisor, setToSupervisor] = useState(false)
   const [adminIds, setAdminIds] = useState<number[]>([])
+  const [extraRecipients, setExtraRecipients] = useState('')
   // Por vencimiento: los días antes y después, como texto.
   const [beforeText, setBeforeText] = useState('')
   const [afterText, setAfterText] = useState('')
@@ -207,6 +210,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const applyReminder = useCallback((data: EmailSettingsRow, sec: Section) => {
     const rem = sec === 'layout' ? null : REMINDERS[sec as ReminderSection]
     if (!rem) return
+    setExtraRecipients((data as unknown as Record<string, string>)[`${rem.kind}_remind_extra_recipients`] ?? '')
     if (rem.monthly) {
       const m = monthlyReminderOf(data, rem.kind)
       setRemEnabled(m.enabled)
@@ -351,7 +355,8 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   )
   const tope = maxEmails(liveCfg.fromDay, liveCfg.untilDay)
   const tooMany = by === 'window' && mode === 'count' && liveCfg.emails > tope
-  const nobody = !toDriver && !toSupervisor && adminIds.length === 0
+  const nobody = !toDriver && !toSupervisor && adminIds.length === 0 && customEmailList(extraRecipients).length === 0
+  const customEmailsInvalid = invalidCorporateEmails(extraRecipients, row?.corporate_email_domains ?? [])
   // Por vencimiento: las dos listas leídas a cada tecla.
   const beforeDays = useMemo(() => parseOffsetDays(beforeText, true), [beforeText])
   const afterDays = useMemo(() => parseOffsetDays(afterText, false), [afterText])
@@ -359,8 +364,8 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const offsetsNone =
     !offsetsError && remEnabled && (beforeDays?.length ?? 0) === 0 && (afterDays?.length ?? 0) === 0
   const cannotSave = isDeadline
-    ? offsetsError || offsetsNone || nobody
-    : tooMany || Boolean(daysError) || nobody
+    ? offsetsError || offsetsNone || nobody || customEmailsInvalid
+    : tooMany || Boolean(daysError) || nobody || customEmailsInvalid
   const today = useMemo(() => todayDay(), [])
   // Para el ejemplo del recordatorio por vencimiento: una fecha límite a 30 días.
   const exampleDue = useMemo<Day>(() => {
@@ -414,6 +419,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
     try {
       const form = new FormData()
       const p = `${kind}_remind_`
+      if (isMonthly || isDeadline) form.set(`${p}extra_recipients`, extraRecipients)
       if (isMonthly) {
         form.set(`${p}enabled`, remEnabled ? 'true' : 'false')
         form.set(`${p}by`, by)
@@ -523,6 +529,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
           ))}
         </div>
       )}
+      <CorporateEmailField value={extraRecipients} onChange={setExtraRecipients} domains={row.corporate_email_domains ?? []} />
       {nobody && <p className="form-error">{t.reminder.nobody}</p>}
     </fieldset>
   )

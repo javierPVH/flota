@@ -95,6 +95,7 @@ export function FleetPage() {
     // summaries y el ámbito personal completo (`listVehiclesCached`) comparten
     // la caché del arranque. El refresco tras guardar llega fresco (la escritura
     // invalidó la caché).
+    setError('')
     Promise.all([
       listVehicles({ supervisor: supervisorId }),
       fetchVehicleSummariesCached().catch(() => [] as VehicleSummary[]),

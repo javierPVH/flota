@@ -131,9 +131,13 @@ export function RequestsPage() {
   }, [])
 
   useEffect(load, [load])
-  useEffect(() => {
+  // Se vuelve a pedir tras conceder: el coche recién concedido ya tiene
+  // conductor y no puede seguir ofreciéndose «libre» a la siguiente
+  // solicitud (el back concede igual y deja sin coche al anterior).
+  const loadVehicles = useCallback(() => {
     listAll(listVehicles()).then(setVehicles).catch(() => setVehicles([]))
   }, [])
+  useEffect(loadVehicles, [loadVehicles])
 
   /** Solo el RECUENTO: la lista entera la trae su pestaña cuando se abre. */
   const loadPendingDocs = useCallback(() => {
@@ -220,6 +224,7 @@ export function RequestsPage() {
       setGranting(null)
       setNotice(t.grantOk(plateOf(Number(grantVehicle)), updated.requester_name))
       load()
+      loadVehicles()
       notifyRequestsChanged()
     } catch (err) {
       setGrantError(asErrorMessage(err, t.grantError))

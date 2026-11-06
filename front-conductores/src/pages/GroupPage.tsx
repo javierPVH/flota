@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { LineChart } from 'lucide-react'
 import { Badge, Button, PageHeader } from '@flota/ui/ui'
@@ -87,9 +87,13 @@ export function GroupPage() {
   // es su grupo.
   const supervisorId = user?.id ?? null
 
+  const loadedOnce = useRef(false)
   const load = useCallback(() => {
     if (supervisorId === null) return
-    setLoading(true)
+    // El portón de carga solo la PRIMERA vez: la recarga tras resolver
+    // refresca por debajo (si no, la pantalla se iba a «Cargando» y lo que
+    // hubiera abierto —la lista de un recuadro, el acuse— se desmontaba).
+    if (!loadedOnce.current) setLoading(true)
     // Summaries en UNA petición (O2): antes era un GET por vehículo del grupo.
     // R3-28: los del ámbito completo, compartidos con el arranque del shell.
     Promise.all([
@@ -115,7 +119,10 @@ export function GroupPage() {
         )
       })
       .catch((err) => setError(err))
-      .finally(() => setLoading(false))
+      .finally(() => {
+        loadedOnce.current = true
+        setLoading(false)
+      })
   }, [supervisorId])
 
   useEffect(() => {

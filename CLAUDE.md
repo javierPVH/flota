@@ -50,6 +50,25 @@ origen: en dev el proxy de Vite (`/api`, `/media`, `/admin` —apagado salvo
 `VITE_PROXY_TARGET`, default `127.0.0.1:8000`) lo resuelve y el cliente HTTP usa
 rutas relativas. No apuntes el front al back por URL absoluta en dev.
 
+### E2E (Playwright, `e2e/`)
+
+Suite de navegador contra las dos apps con el seed: un back propio en `:8001`
+sobre `back/e2e.sqlite3` y los dos Vite en `:5183`/`:5185`, que Playwright
+arranca y para solo (no toca `:8000`/`:5173`/`:5175` ni la BD de dev). Entra
+por `dev-login`, resiembra en los ficheros que escriben y usa el Chrome del
+sistema (sin `playwright install`). Tres proyectos: **api** (la matriz
+rol × endpoint de TODOS los GET, la sesión y los flujos de escritura campo →
+gestión), **gestion** (todas las rutas con su `h1`, bandejas, ajustes, HSE)
+y **conductores** (todas las pantallas de la PWA, registros, perfil y cola
+offline). Guía completa y selectores reales en `docs/E2E_PLAYWRIGHT.md`.
+
+```bash
+npm run build:ui                                                           # antes, si front/ cambió
+node node_modules/@playwright/test/cli.js test --config e2e/playwright.config.ts            # todo (167 pruebas, ~9 min)
+node node_modules/@playwright/test/cli.js test --config e2e/playwright.config.ts --project api   # solo API (~2 min)
+node node_modules/@playwright/test/cli.js test --config e2e/playwright.config.ts --ui       # paso a paso
+```
+
 ### Otros
 
 ```bash
@@ -125,7 +144,13 @@ vigente** (`contract_start_date`/`contract_end_date`, por `current_contract_map`
 como el resto de mapas por respuesta), que son columna de su tabla — y así no
 necesita `/contracts/`, donde está la cuota. Nada de usuarios, Ajustes,
 solicitudes ni escrituras. Todo esto **solo afecta al HSE puro**: quien además
-es gestión o conductor pasa por el otro lado del `|` y conserva lo suyo. En
+es gestión o conductor pasa por el otro lado del `|` y conserva lo suyo. Y el
+**ámbito ampliado** (toda la flota) **solo lo dan esos cuatro endpoints**:
+`vehicles_for(user, hse=True)` lo piden `VehicleViewSet`, `KmReadingViewSet`
+y `FuelConsumptionViewSet` por el atributo `hse_reads` del mixin, y el
+informe `kind=hse`; en cualquier otro GET el rol HSE no añade nada, así que
+un supervisor+hse o un conductor+hse ven en contratos, facturas, incidencias,
+documentos o alertas lo suyo y nada más (antes se colaba en todos). En
 gestión tiene su pantalla `/hse`; un HSE puro no sale de ahí, y un admin+hse
 llega desde el botón «HSE» de la cabecera, a la izquierda de «Solicitudes».
 **Leer no es actuar**: `vehicles_for` y `readable_documents` llevan

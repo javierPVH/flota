@@ -241,6 +241,28 @@ export const OUT_OF_FLEET_STATES = ['returned', 'retired'] as const
 export const isOutOfFleet = (state: string | null | undefined): boolean =>
   state === 'returned' || state === 'retired'
 
+const todayLocalIso = (): string => {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/**
+ * ¿Este vínculo de sustitución sigue VIGENTE? Sin fecha de fin, o con un
+ * cierre PROGRAMADO que todavía no ha llegado: el sustituto cubre hasta ese
+ * día y el principal sigue bloqueado. Es el espejo de `selectors.active_link_q`
+ * del back (un cierre de hoy o anterior ya no cubre), y vive aquí por lo
+ * mismo que `isOutOfFleet`: la regla no puede decir dos cosas distintas —
+ * gestión miraba `end_date === null` en cuatro pantallas y en la ficha el
+ * criterio bueno, así que un cierre programado dejaba el coche «sin
+ * sustituto» en el inventario y el panel, y «Nuevo estado» chocaba con un
+ * 400 al vincular otro. `today` es la fecha local `YYYY-MM-DD`.
+ */
+export const isLinkActive = (
+  link: { end_date: string | null | undefined },
+  today: string = todayLocalIso(),
+): boolean => !link.end_date || link.end_date > today
+
 const ALERT_TONE: Record<string, BadgeTone> = {
   critical: 'danger',
   warning: 'warning',

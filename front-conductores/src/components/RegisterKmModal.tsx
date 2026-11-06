@@ -39,6 +39,10 @@ export function KmPane({
   const [error, setError] = useState('')
   const value = km === '' ? null : Number(km)
   const goesBack = value !== null && summary?.km_current != null && value < summary.km_current
+  // R5-50: UNA referencia por captura, no por pulsación (el reintento manual
+  // tras un 502 no crea una segunda lectura), renovada al guardar porque en
+  // «Actualizar» el formulario sigue montado.
+  const [clientRef, setClientRef] = useState(newClientRef)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -46,9 +50,10 @@ export function KmPane({
     setSaving(true)
     setError('')
     // R3-34: misma referencia en el intento directo y en el reenvío offline.
-    const payload = { vehicle: vehicle.id, km_reading: value, reading_date: date, client_ref: newClientRef() }
+    const payload = { vehicle: vehicle.id, km_reading: value, reading_date: date, client_ref: clientRef }
     const hecho = () => {
       setKm('')
+      setClientRef(newClientRef())
       onSaved(t.carUpdate.kmSaved(fmtKm(value, language)))
     }
     try {

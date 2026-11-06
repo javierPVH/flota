@@ -206,10 +206,18 @@ class HseScopingTests(HseFixtureMixin, APITestCase):
 
     def test_vehicles_for_reads_all_and_writes_nothing(self):
         todos = set(Vehicle.objects.values_list("id", flat=True))
-        self.assertEqual(set(vehicles_for(self.hse).values_list("id", flat=True)), todos)
+        # El ámbito ampliado solo lo dan los endpoints de HSE (`hse=True`).
+        self.assertEqual(set(vehicles_for(self.hse, hse=True).values_list("id", flat=True)), todos)
+        self.assertEqual(vehicles_for(self.hse).count(), 0)
         self.assertEqual(vehicles_for(self.hse, write=True).count(), 0)
-        # Sumado a otro rol: lee todo y escribe lo suyo.
-        self.assertEqual(set(vehicles_for(self.driver_hse).values_list("id", flat=True)), todos)
+        # Sumado a otro rol: en SU pantalla lee todo; fuera de ella y al
+        # escribir, lo suyo.
+        self.assertEqual(
+            set(vehicles_for(self.driver_hse, hse=True).values_list("id", flat=True)), todos
+        )
+        self.assertEqual(
+            list(vehicles_for(self.driver_hse).values_list("id", flat=True)), [self.v3.pk]
+        )
         self.assertEqual(
             list(vehicles_for(self.driver_hse, write=True).values_list("id", flat=True)),
             [self.v3.pk],
@@ -616,10 +624,39 @@ class HseCombinedRolesTests(HseFixtureMixin, APITestCase):
         self.assertIn(propio.pk, docs)
         self.assertNotIn(self.doc_personal.pk, docs)
 
-    def test_supervisor_plus_hse_reads_the_fleet_but_resolves_only_its_group(self):
+    def test_supervisor_plus_hse_cannot_decide_change_requests_outside_its_group(self):
+        """La propuesta de cambios al parte de un coche de OTRO grupo ni se
+        lee (fuera de su pantalla, HSE no añade nada) ni se decide: aplicarla
+        escribiría en la incidencia ajena."""
+        from fleet.models import IncidentChangeRequest
+
+        propuesta = IncidentChangeRequest.objects.create(
+            incident=self.accident, requested_by=self.admin, changes={"description": "z"}
+        )
         self.client.force_authenticate(self.sup_hse)
+        visibles = self.ids(self.client.get(f"{API}/incident-change-requests/"))
+        self.assertNotIn(propuesta.pk, visibles)
+        resp = self.client.post(
+            f"{API}/incident-change-requests/{propuesta.pk}/resolve/",
+            {"decision": "done"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+        self.accident.refresh_from_db()
+        self.assertNotEqual(self.accident.description, "z")
+
+    def test_supervisor_plus_hse_reads_the_fleet_only_in_its_screen(self):
+        """Fuera de los cuatro endpoints de HSE, el rol no añade nada: en
+        alertas, incidencias o contratos un supervisor+hse ve su grupo, y el
+        seguro sigue siendo del admin (X1)."""
+        self.client.force_authenticate(self.sup_hse)
+        self.assertEqual(
+            self.ids(self.client.get(f"{API}/vehicles/")),
+            {self.v1.pk, self.v2.pk, self.v3.pk, self.v4.pk},
+        )
         alertas = self.ids(self.client.get(f"{API}/alerts/"))
-        self.assertEqual(alertas, {self.alert_v1.pk, self.alert_v2_insurance.pk, self.alert_v3.pk})
+        self.assertEqual(alertas, {self.alert_v3.pk})
+        self.assertNotIn(self.accident.pk, self.ids(self.client.get(f"{API}/incidents/")))
         fuera = self.client.post(f"{API}/alerts/{self.alert_v1.pk}/resolve/", {}, format="json")
         self.assertEqual(fuera.status_code, status.HTTP_404_NOT_FOUND)
         dentro = self.client.post(f"{API}/alerts/{self.alert_v3.pk}/resolve/", {}, format="json")

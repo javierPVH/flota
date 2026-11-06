@@ -132,6 +132,13 @@ export function AlertsPage() {
   const [showClosed, setShowClosed] = useState(false)
   const [lastReadings, setLastReadings] = useState<Record<number, VehicleSummary>>({})
   const [loading, setLoading] = useState(true)
+  // El portón de carga solo se enseña la PRIMERA vez: una recarga tras
+  // resolver o proponer algo refresca las listas por debajo, como la home
+  // y la ficha de campo. Si sustituyera la página entera, desmontaría el
+  // modal que acaba de guardar y su acuse no llegaría a verse (el de
+  // «Proponer cambios al parte» volvía a montarse con el formulario en
+  // blanco, como si no se hubiera enviado nada).
+  const loadedOnce = useRef(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -232,7 +239,10 @@ export function AlertsPage() {
   })
 
   const load = useCallback(() => {
-    setLoading(true)
+    if (!loadedOnce.current) setLoading(true)
+    // Un fallo de una recarga anterior no tapa la página para siempre: la
+    // que sale bien lo quita.
+    setError('')
     // En modo Flota, los coches de los que se habla: su grupo (`supervisor=<yo>`,
     // el mismo corte que «A tu cargo») más el que conduce (el conductor
     // vigente del resumen, como la home). Los dos listados sin filtro son los
@@ -307,7 +317,10 @@ export function AlertsPage() {
         }
       })
       .catch((err) => setError(asErrorMessage(err, tRef.current.alerts.loadError)))
-      .finally(() => setLoading(false))
+      .finally(() => {
+        loadedOnce.current = true
+        setLoading(false)
+      })
   }, [showClosed, isSupervisor, ownIds, fleetScopeOf, miVehiculo])
 
   // `dataVersion`: registrar desde el nav cierra alertas — hay que releerlas.

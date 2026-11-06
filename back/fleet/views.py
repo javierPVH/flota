@@ -241,6 +241,10 @@ class ScopedByVehicleMixin:
     """
 
     vehicle_lookup = "vehicle"
+    #: Solo los cuatro endpoints de la pantalla de HSE (vehículos, km, consumo
+    #: y su informe) piden a `vehicles_for` el ámbito ampliado del rol: en el
+    #: resto, HSE no añade nada a la lectura (ver `scoping.vehicles_for`).
+    hse_reads = False
 
     def acting(self) -> bool:
         """True si la petición escribe (cualquier método no seguro, acciones POST
@@ -257,7 +261,9 @@ class ScopedByVehicleMixin:
     def scope_queryset(self, qs, user):
         """Filtro de ámbito del NO-admin. Sobrescríbelo si el recurso puede
         colgar de algo más que de un vehículo (p. ej. documentos personales)."""
-        vehicle_ids = vehicles_for(user, write=self.acting()).values_list("id", flat=True)
+        vehicle_ids = vehicles_for(user, write=self.acting(), hse=self.hse_reads).values_list(
+            "id", flat=True
+        )
         lookup = "id__in" if self.vehicle_lookup == "" else f"{self.vehicle_lookup}__in"
         return qs.filter(**{lookup: vehicle_ids})
 
@@ -374,6 +380,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
     serializer_class = VehicleSerializer
     permission_classes = [AdminWriteManagementOrDriverRead | HseReadOnly]
+    hse_reads = True
     vehicle_lookup = ""
     queryset = Vehicle.objects.all()
     filterset_class = VehicleFilter
@@ -1611,6 +1618,7 @@ class KmReadingViewSet(
 
     serializer_class = KmReadingSerializer
     permission_classes = [ManagementOrDriverReadWrite | HseReadOnly]
+    hse_reads = True
     # Front público (internet): acota las escrituras del conductor.
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
@@ -1879,6 +1887,27 @@ class VehicleUsageViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewse
     permission_classes = [ManagementReadWrite]
     queryset = VehicleUsage.objects.select_related("vehicle", "driver")
     filterset_fields = ["vehicle", "driver"]
+
+    def _assert_driver_reachable(self, serializer) -> None:
+        """AUTH-9 también en el CRUD: `set/` ya exigía que las personas del
+        reparto fueran del ámbito de quien reparte, pero un `POST` o un
+        `PATCH {"driver": X}` sueltos solo miraban el coche. Como el reparto
+        vigente da ámbito de lectura Y escritura sin mirar el rol, un
+        supervisor metía en un coche suyo a cualquier persona de la empresa."""
+        user = self.request.user
+        driver = serializer.validated_data.get("driver")
+        if user.is_admin or driver is None:
+            return
+        if not users_for(user).filter(pk=driver.pk).exists():
+            raise PermissionDenied("La persona del reparto está fuera de tu ámbito.")
+
+    def perform_create(self, serializer):
+        self._assert_driver_reachable(serializer)
+        super().perform_create(serializer)
+
+    def perform_update(self, serializer):
+        self._assert_driver_reachable(serializer)
+        super().perform_update(serializer)
 
     @action(
         detail=False,
@@ -2399,7 +2428,7 @@ class DocumentViewSet(
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
     queryset = Document.objects.select_related(
-        "vehicle", "user", "incident", "event", "alert", "uploaded_by"
+        "vehicle", "user", "incident", "event", "alert", "uploaded_by", "responsible"
     ).annotate(
         # Si hay pedido su borrado y nadie lo ha decidido todavía. Va anotado y
         # no resuelto por fila: la lista de la ficha son decenas de documentos.
@@ -2873,20 +2902,20 @@ class AlertViewSet(ScopedByVehicleMixin, viewsets.ReadOnlyModelViewSet):
         `insurance_due` se emite sobre el VEHÍCULO (no sobre un usuario), y el
         scoping del mixin es por vehículo: sin este filtro, el conductor y el
         supervisor veían en su bandeja el vencimiento del seguro de su coche.
-        El admin la sigue viendo entera (su front y su flujo con el renting), y
-        HSE también al LEER: no es campo, es quien revisa que la flota esté al
-        día, y el seguro es parte de eso.
+        El admin la sigue viendo entera (su front y su flujo con el renting);
+        nadie más, tampoco quien sume HSE a otro rol: el ámbito ampliado de
+        HSE es solo de los cuatro endpoints de su pantalla, y las alertas no
+        están entre ellos.
         """
         qs = super().get_queryset()
         user = self.request.user
-        hse_reading = user.is_hse and not self.acting()
-        if not user.is_admin and not hse_reading:
+        if not user.is_admin:
             qs = qs.exclude(type=AlertType.INSURANCE_DUE)
         # El exceso de km PROYECTADO es de gestión (supervisor y admin): se
         # arregla cambiando quién lleva el coche, y eso no lo decide quien
         # conduce. Al conductor no se le enseña (ni la alerta ni, en los
         # resúmenes, la proyección de la que sale).
-        if not user.is_management and not hse_reading:
+        if not user.is_management:
             # Y «ITV sin cita» también: la cita la pone la gestión, y a quien
             # conduce solo se le enseña lo que puede atender.
             qs = qs.exclude(type__in=[AlertType.KM_OVERAGE, AlertType.ITV_UNSCHEDULED])
@@ -2919,7 +2948,42 @@ class VehicleRequestViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
 
     serializer_class = VehicleRequestSerializer
     permission_classes = [ManagementReadWrite]
-    queryset = VehicleRequest.objects.select_related("requester", "vehicle")
+    queryset = VehicleRequest.objects.select_related(
+        "requester", "vehicle", "incident", "incident__vehicle"
+    )
+
+    def _assert_fields_in_scope(self, serializer) -> None:
+        """Lo que un supervisor ESCRIBE en una solicitud también va acotado:
+        el queryset ya lo estaba (A10), pero `vehicle`, `requester` e
+        `incident` admitían cualquier fila del modelo, así que podía apuntar
+        una solicitud suya a un coche de otro grupo, a una persona ajena o
+        a la incidencia de otro coche (y leerla por `incident_plate`)."""
+        user = self.request.user
+        if user.is_admin:
+            return
+        data = serializer.validated_data
+        scope = vehicles_for(user, write=True)
+        vehicle = data.get("vehicle")
+        if vehicle is not None and not scope.filter(pk=vehicle.pk).exists():
+            raise PermissionDenied("El vehículo está fuera de tu ámbito.")
+        incident = data.get("incident")
+        if incident is not None and not scope.filter(pk=incident.vehicle_id).exists():
+            raise PermissionDenied("La incidencia es de un vehículo fuera de tu ámbito.")
+        requester = data.get("requester")
+        if (
+            requester is not None
+            and requester.pk != user.pk
+            and not users_for(user).filter(pk=requester.pk).exists()
+        ):
+            raise PermissionDenied("El solicitante está fuera de tu ámbito.")
+
+    def perform_create(self, serializer):
+        self._assert_fields_in_scope(serializer)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        self._assert_fields_in_scope(serializer)
+        serializer.save()
 
     def get_queryset(self):
         """A10: el supervisor ve las solicitudes de SU ámbito, no las de todos.
@@ -2967,7 +3031,11 @@ class VehicleRequestViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
         """
         open_statuses = [VehicleRequestStatus.PENDING, VehicleRequestStatus.APPROVED]
         if request.method == "GET":
-            requests = VehicleRequest.objects.filter(requester=request.user).order_by("-created_at")
+            # Sin las desactivadas: una solicitud que la administración mandó
+            # a erratas no sigue «pendiente» en el portón de la PWA.
+            requests = VehicleRequest.objects.filter(
+                requester=request.user, is_active=True
+            ).order_by("-created_at")
             return Response(VehicleRequestMineSerializer(requests, many=True).data)
         # R3-10: el «crea o actualiza la abierta» era get→save sin candado —
         # dos POST simultáneos (doble tap, reintento offline) creaban dos
@@ -2976,7 +3044,9 @@ class VehicleRequestViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             get_user_model().objects.select_for_update().get(pk=request.user.pk)
             existing = (
-                VehicleRequest.objects.filter(requester=request.user, status__in=open_statuses)
+                VehicleRequest.objects.filter(
+                    requester=request.user, status__in=open_statuses, is_active=True
+                )
                 .order_by("-created_at")
                 .first()
             )
@@ -3325,6 +3395,7 @@ class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
 
     serializer_class = FuelConsumptionSerializer
     permission_classes = [ManagementOrDriverReadWrite | HseReadOnly]
+    hse_reads = True
     # Front público (internet): acota las escrituras del conductor, igual que
     # en las lecturas de km.
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
@@ -4246,6 +4317,16 @@ class IncidentChangeRequestViewSet(
         **aplica** lo pedido sobre la incidencia; `reject` no toca nada.
         """
         peticion = self.get_object()
+        # Bandeja de decisión: el ámbito de ACTUACIÓN, no el de lectura. El
+        # listado va con `vehicles_for(user)` (un supervisor+hse lee la flota),
+        # pero aplicar o rechazar la propuesta de un coche que no supervisa
+        # escribe en la incidencia de otro grupo.
+        user = request.user
+        if (
+            not user.is_admin
+            and not vehicles_for(user, write=True).filter(pk=peticion.incident.vehicle_id).exists()
+        ):
+            raise NotFound()
         if peticion.status != IncidentChangeStatus.PENDING:
             raise ValidationError({"status": "Esa petición ya está resuelta."})
         decision = str(request.data.get("decision", "") or "")

@@ -51,6 +51,17 @@ export function UploadDocumentPage() {
   // supervisor-admin vería toda la flota, y un conductor con HSE también).
   const ctx = useOutletContext<LayoutContext | null>()
   const ownIds = ctx && !ctx.fleetMode ? (ctx.ownPair?.ids ?? null) : null
+  // El coche que trae la URL se respeta aunque no sea de la pareja propia:
+  // un REPARTO de uso también da ámbito (la ficha de campo enlaza aquí
+  // desde un coche repartido). Si el back no lo manda, no sale en la lista
+  // y no hay a dónde subir. Antes el recorte lo vaciaba y, con una sola
+  // opción, el documento se subía al coche propio sin que nada lo dijera.
+  const vehiculoUrl = params.get('vehiculo')
+  const allowedIds = useMemo(() => {
+    if (!ownIds) return null
+    const id = Number(vehiculoUrl)
+    return vehiculoUrl && Number.isFinite(id) && !ownIds.includes(id) ? [...ownIds, id] : ownIds
+  }, [ownIds, vehiculoUrl])
   const supervisedBy = ctx?.fleetMode ? user?.id ?? null : null
   // Las etiquetas de los campos ya viven en `t.vehicle` (la ficha las usaba):
   // aquí solo se añade lo propio de la vista (título, vuelta, confirmación).
@@ -68,6 +79,10 @@ export function UploadDocumentPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
+  // R5-50: UNA referencia por captura, no por pulsación: si el POST entró
+  // pero la respuesta se perdió (502/504/429), el reintento manual manda la
+  // misma y el back no crea un segundo documento. Se renueva al entrar.
+  const [clientRef, setClientRef] = useState(newClientRef)
 
   useEffect(() => {
     let alive = true
@@ -87,16 +102,16 @@ export function UploadDocumentPage() {
   }, [params, supervisedBy])
 
   const selectable = useMemo(
-    () => (ownIds ? vehicles.filter((v) => ownIds.includes(v.id)) : vehicles),
-    [vehicles, ownIds],
+    () => (allowedIds ? vehicles.filter((v) => allowedIds.includes(v.id)) : vehicles),
+    [vehicles, allowedIds],
   )
   // El recorte puede dejar UNA opción (se elige sola) o invalidar la elegida
   // (un `?vehiculo=` de un coche que no es suyo). Mismo gesto que registrar km.
   useEffect(() => {
-    if (!ownIds) return
-    if (vehicleId && !ownIds.includes(Number(vehicleId))) setVehicleId('')
+    if (!allowedIds) return
+    if (vehicleId && !allowedIds.includes(Number(vehicleId))) setVehicleId('')
     else if (!vehicleId && selectable.length === 1) setVehicleId(String(selectable[0].id))
-  }, [ownIds, selectable, vehicleId])
+  }, [allowedIds, selectable, vehicleId])
 
   // Incidencias del vehículo elegido: permiten ligar la foto a un parte. El
   // efecto SOLO carga; limpiar la selección al cambiar de coche se hace en el
@@ -183,16 +198,18 @@ export function UploadDocumentPage() {
       incident: form.incident ? Number(form.incident) : null,
       notes: form.notes,
       // R3-34: misma referencia en el intento directo y en el reenvío offline.
-      client_ref: newClientRef(),
+      client_ref: clientRef,
     }
     try {
       const created = await uploadDocument(payload, file)
+      setClientRef(newClientRef())
       setDone(created.status === 'pending_archive' ? doc.uploadOkPending : doc.uploadOkArchived)
     } catch (err) {
       if (
         isNetworkError(err) &&
         (await safeEnqueue({ kind: 'document', payload, file, fileName: file.name, fileType: file.type }))
       ) {
+        setClientRef(newClientRef())
         setDone(doc.uploadOffline)
       } else {
         setError(asErrorMessage(err, doc.uploadError))

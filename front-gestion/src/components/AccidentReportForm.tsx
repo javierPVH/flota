@@ -316,6 +316,10 @@ export function AccidentReportForm({ vehicle, incident, onClose, onDone }: Props
   // El asistente: los cuatro pasos del parte, todos vivos (nada aquí depende
   // de lo elegido antes) y recorridos solo con los botones del pie.
   const formRef = useRef<HTMLFormElement>(null)
+  // La petición ya comunicada en un intento anterior: si el PATCH del estado
+  // (bloqueo optimista, 409 con una ficha desfasada) o el archivo fallan y
+  // se vuelve a pulsar, no se crea un segundo accidente.
+  const creadaRef = useRef<{ id: number } | null>(null)
   const pasos: Array<Paso<SectionKey>> = [
     { key: 'where', label: t.stepWhere, off: false },
     { key: 'damage', label: t.stepDamage, off: false },
@@ -427,8 +431,9 @@ export function AccidentReportForm({ vehicle, incident, onClose, onDone }: Props
         setInfo(cambios.join(' '))
         return
       }
-      // 1) La petición de accidente con su parte guiado.
-      const creada = await createIncident(cuerpo)
+      // 1) La petición de accidente con su parte guiado (una sola vez).
+      const creada = creadaRef.current ?? (await createIncident(cuerpo))
+      creadaRef.current = creada
       const parts: string[] = [t.created]
       // 2) El estado del vehículo (opt-out con la casilla).
       if (markState && !vehicleAlreadyAccident) {

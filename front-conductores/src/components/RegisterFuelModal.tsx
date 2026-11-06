@@ -85,8 +85,11 @@ export function FuelPane({
   const [error, setError] = useState('')
   // R5-50: UNA referencia por captura, no por pulsación. Si el POST llegó pero
   // la respuesta se perdió (502/504/429), el reintento manual manda la misma y
-  // el back no crea otra anotación. El modal se remonta al cerrarse.
-  const [clientRef] = useState(newClientRef)
+  // el back no crea otra anotación. Y se RENUEVA al guardar: en «Actualizar»
+  // el formulario sigue montado y la segunda anotación del mismo coche salía
+  // con la misma referencia, así que el back devolvía la primera sin crear
+  // nada mientras la pantalla decía «guardado».
+  const [clientRef, setClientRef] = useState(newClientRef)
 
   const value = asNumber(consumption)
   const valueOk = value !== null && !Number.isNaN(value) && value > 0
@@ -110,6 +113,7 @@ export function FuelPane({
     }
     const hecho = () => {
       setConsumption('')
+      setClientRef(newClientRef())
       onSaved(t.fuel.saved)
     }
     try {

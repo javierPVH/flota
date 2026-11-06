@@ -42,6 +42,15 @@ class NoDriverAlertTests(TestCase):
         self.assertEqual(alerts.check_no_driver(date(2026, 10, 3)), 1)
         self.assertEqual(self._open().get().dedup_key, f"no_driver:{self.vehicle.pk}:2026-10")
 
+    def test_la_abierta_se_refresca_sin_abrir_otra_al_cambiar_de_mes(self):
+        """Sin resolver, el cambio de mes NO abre un segundo aviso (ni manda
+        otro push): el que sigue abierto es el que vale."""
+        self.assertEqual(alerts.check_no_driver(self.today), 1)
+        self.assertEqual(alerts.check_no_driver(date(2026, 10, 3)), 0)
+        self.assertEqual(alerts.check_no_driver(date(2026, 11, 2)), 0)
+        self.assertEqual(self._open().count(), 1)
+        self.assertEqual(self._open().get().dedup_key, f"no_driver:{self.vehicle.pk}:2026-09")
+
     def test_asignar_conductor_cierra_la_abierta_en_la_siguiente_pasada(self):
         alerts.check_no_driver(self.today)
         self.assertTrue(self._open().exists())

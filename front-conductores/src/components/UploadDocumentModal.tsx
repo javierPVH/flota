@@ -109,6 +109,9 @@ export function UploadDocumentModal({
   const [step, setStep] = useState<DocumentStep>('mode')
   const [cameBack, setCameBack] = useState(false)
   const [saving, setSaving] = useState(false)
+  // R5-50: UNA referencia por captura, no por pulsación (el reintento manual
+  // tras un 502 no sube un segundo documento), renovada al guardar.
+  const [clientRef, setClientRef] = useState(newClientRef)
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
 
@@ -226,6 +229,10 @@ export function UploadDocumentModal({
    * solicitud que decide administración. */
   async function handleAsk(event: FormEvent) {
     event.preventDefault()
+    // El pie va fuera del <form>: Intro en el único campo del paso hace un
+    // envío implícito, y dos «Ir» seguidos mientras sube por 4G abrían dos
+    // peticiones (o subían dos documentos).
+    if (saving) return
     if (!ask.type) return
     if (!ask.note.trim()) {
       setError(copy.askNoteRequired)
@@ -249,6 +256,7 @@ export function UploadDocumentModal({
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
+    if (saving) return
     if (!file) {
       setError(doc.chooseFile)
       return
@@ -268,10 +276,11 @@ export function UploadDocumentModal({
       incident: !personal && form.incident ? Number(form.incident) : null,
       notes: form.notes,
       // R3-34: misma referencia en el intento directo y en el reenvío offline.
-      client_ref: newClientRef(),
+      client_ref: clientRef,
     }
     try {
       const created = await uploadDocument(payload, file)
+      setClientRef(newClientRef())
       setDone(created.status === 'pending_archive' ? doc.uploadOkPending : doc.uploadOkArchived)
       onSaved?.()
     } catch (caught) {
@@ -279,6 +288,7 @@ export function UploadDocumentModal({
         isNetworkError(caught) &&
         (await safeEnqueue({ kind: 'document', payload, file, fileName: file.name, fileType: file.type }))
       ) {
+        setClientRef(newClientRef())
         setDone(doc.uploadOffline)
         onSaved?.()
       } else {

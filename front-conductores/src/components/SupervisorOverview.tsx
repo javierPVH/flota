@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, Bell, Car, Users, Wrench } from 'lucide-react'
 import { Badge, Button, Modal, StatCard } from '@flota/ui/ui'
@@ -83,9 +83,13 @@ export function SupervisorOverview() {
   const [typePick, setTypePick] = useState('')
 
   const supervisorId = user?.id ?? 0
+  const loadedOnce = useRef(false)
   const load = useCallback(() => {
     if (!supervisorId) return
-    setLoading(true)
+    // El portón de carga solo la PRIMERA vez: la recarga tras resolver
+    // refresca por debajo (si no, la pantalla se iba a «Cargando» y lo que
+    // hubiera abierto —la lista de un recuadro, el acuse— se desmontaba).
+    if (!loadedOnce.current) setLoading(true)
     Promise.all([
       listVehicles({ supervisor: supervisorId }),
       // Cacheado: el shell ya los pidió para el tablero.
@@ -102,7 +106,10 @@ export function SupervisorOverview() {
         setError('')
       })
       .catch((err) => setError(asErrorMessage(err, copy.loadError)))
-      .finally(() => setLoading(false))
+      .finally(() => {
+        loadedOnce.current = true
+        setLoading(false)
+      })
     // `copy` solo alimenta el texto del error: con él en las dependencias, el
     // botón es/en volvería a pedirlo todo (R3-30).
     // eslint-disable-next-line react-hooks/exhaustive-deps

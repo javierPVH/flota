@@ -13,7 +13,7 @@ import {
 } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 import { useAppLang } from '@flota/ui/i18n'
-import { isOutOfFleet } from '@flota/ui/domain'
+import { isLinkActive, isOutOfFleet } from '@flota/ui/domain'
 import {
   ChevronDown,
   ChevronsDown,
@@ -376,10 +376,9 @@ export function VehicleDetailPage() {
           ),
         )
         // Vigente = sin fin, o con un cierre PROGRAMADO que aún no ha llegado
-        // (mismo criterio que `selectors.active_link_q` en el back).
-        const isActive = (l: VehicleLinkRow) => !l.end_date || l.end_date > today()
-        const activeMain = asMain.results.find(isActive)
-        const activeSub = asSubstitute.results.find(isActive)
+        // (`isLinkActive` del DS, espejo de `selectors.active_link_q`).
+        const activeMain = asMain.results.find((l) => isLinkActive(l))
+        const activeSub = asSubstitute.results.find((l) => isLinkActive(l))
         const link = activeMain ?? activeSub ?? null
         setActiveLink(link)
         if (!link) {
@@ -596,7 +595,7 @@ export function VehicleDetailPage() {
           setBusySubIds(
             new Set(
               links
-                .filter((l) => !l.end_date || l.end_date > today())
+                .filter((l) => isLinkActive(l))
                 .map((l) => l.substitute_vehicle),
             ),
           )
@@ -2122,7 +2121,7 @@ export function VehicleDetailPage() {
             </summary>
             <div className="mng-rows link-history-rows">
               {allLinks.map((l) => {
-                const stillActive = !l.end_date || l.end_date > today()
+                const stillActive = isLinkActive(l)
                 return (
                   <div className="mng-row is-static" key={l.id}>
                     <span className="link-history-pair">

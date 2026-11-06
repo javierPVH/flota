@@ -268,6 +268,22 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             + _SIGN
         ),
     },
+    EmailTemplateKey.INCIDENT_NOTICE: {
+        "subject": "Nuevo aviso de incidencia · {{matricula}}",
+        "body_html": "<p>Se ha registrado un aviso de incidencia del vehículo "
+        "<strong>{{matricula}}</strong>.</p><p>{{mensaje}}</p>" + _FIRMA,
+        "subject_en": "New incident notice · {{matricula}}",
+        "body_html_en": "<p>A new incident has been reported for "
+        "<strong>{{matricula}}</strong>.</p><p>{{mensaje}}</p>" + _SIGN,
+    },
+    EmailTemplateKey.ACCIDENT_NOTICE: {
+        "subject": "Nuevo aviso de accidente · {{matricula}}",
+        "body_html": "<p>Se ha registrado un aviso de accidente del vehículo "
+        "<strong>{{matricula}}</strong>.</p><p>{{mensaje}}</p>" + _FIRMA,
+        "subject_en": "New accident notice · {{matricula}}",
+        "body_html_en": "<p>A new accident has been reported for "
+        "<strong>{{matricula}}</strong>.</p><p>{{mensaje}}</p>" + _SIGN,
+    },
     EmailTemplateKey.GENERIC: {
         "subject": "Aviso de la flota · {{matricula}}",
         "body_html": (
