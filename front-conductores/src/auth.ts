@@ -1,7 +1,7 @@
 import { createAuth } from '@flota/ui/auth'
 
 import type { FlotaUser, Role } from './types'
-import { ensureCsrf, fetchMe, logout } from './api'
+import { ensureCsrf, fetchMe, invalidateFleetCache, logout } from './api'
 import { clearQueue, isNetworkError, setQueueOwner } from './offline/queue.ts'
 
 // BG6: último /me conocido — fallback de LECTURA al arrancar sin cobertura.
@@ -189,6 +189,10 @@ export function onLogout(reason: 'manual' | 'expired' = 'manual'): void {
   // móvil ni la identidad de quien la tuvo: en cuanto haya red se vuelve a
   // pedir /me, que es lo que manda.
   forgetCachedMe()
+  // Y la caché de arranque de vehículos y resúmenes (R3-28): al caducar la
+  // sesión no se recarga la página, y quien entrara en esos segundos veía
+  // la flota de quien acababa de salir.
+  invalidateFleetCache()
   // FE-2: sin sesión no hay dueño de la cola; `flush` no reenviará nada hasta
   // que alguien entre, y entonces descartará lo que no sea suyo.
   setQueueOwner(null)

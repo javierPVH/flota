@@ -67,9 +67,22 @@ self.addEventListener('push', (event) => {
   )
 })
 
+// A dónde lleva un aviso: SIEMPRE una ruta de esta app. La URL viene en el
+// payload del push; aunque solo el back lo firma, no se navega a otro origen
+// por lo que diga un mensaje.
+function sameOriginPath(raw) {
+  try {
+    const target = new URL(raw || '/alertas', self.location.origin)
+    if (target.origin !== self.location.origin) return '/alertas'
+    return target.pathname + target.search + target.hash
+  } catch {
+    return '/alertas'
+  }
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = (event.notification.data && event.notification.data.url) || '/alertas'
+  const url = sameOriginPath(event.notification.data && event.notification.data.url)
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
       for (const win of wins) {

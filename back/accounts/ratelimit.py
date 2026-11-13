@@ -104,8 +104,15 @@ def is_blocked(request, identifier: str) -> tuple[bool, int]:
 
 
 def _bump(fail_key: str, block_key: str, threshold: int) -> None:
-    attempts = int(cache.get(fail_key) or 0) + 1
-    cache.set(fail_key, attempts, timeout=settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS)
+    # `add` + `incr` y no `get` + `set`: una ráfaga en paralelo leía el mismo
+    # valor y contaba de menos, con lo que cabían más intentos que el umbral.
+    window = settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    cache.add(fail_key, 0, timeout=window)
+    try:
+        attempts = cache.incr(fail_key)
+    except ValueError:  # caducó entre el `add` y el `incr`
+        cache.set(fail_key, 1, timeout=window)
+        attempts = 1
     if attempts >= threshold:
         blocked_until = int(time.time()) + settings.LOGIN_RATE_LIMIT_BLOCK_SECONDS
         cache.set(block_key, blocked_until, timeout=settings.LOGIN_RATE_LIMIT_BLOCK_SECONDS)

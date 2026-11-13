@@ -112,7 +112,7 @@ class DriverJourneyTests(APITestCase):
         self.assertEqual(set(me["roles"]), {"driver"})
         self.assertIn("enabled", self._get(f"{API}/push/config/").data)
         sub = {
-            "endpoint": "https://push.example.com/abc",
+            "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
             "keys": {"p256dh": "clave", "auth": "auth"},
         }
         self._post(f"{API}/push/subscriptions/", sub)
@@ -304,8 +304,11 @@ class DriverJourneyTests(APITestCase):
         }
         created = self._post(f"{API}/events/", body).data
         self.assertIn("alerts_resolved", created)
+        # La próxima cita la programa la gestión: la que mande el conductor
+        # (una petición fabricada; su app envía null) se descarta en silencio.
         self.mine.refresh_from_db()
-        self.assertEqual(str(self.mine.next_itv_date), body["itv"]["next_due"])
+        self.assertIsNone(self.mine.next_itv_date)
+        self.assertIsNone(created["details"]["next_due"])
         again = self.client.post(f"{API}/events/", body, format="json")
         self.assertEqual(again.data["id"], created["id"])
         # Cuota o ubicación son de gestión.

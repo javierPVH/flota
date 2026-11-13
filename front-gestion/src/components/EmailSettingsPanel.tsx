@@ -163,6 +163,14 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
   const [brandColor, setBrandColor] = useState('#009491')
   const [footer, setFooter] = useState('')
   const [logoFile, setLogoFile] = useState<File | null>(null)
+  // La vista previa del logotipo recién elegido: UNA URL por archivo, que se
+  // suelta al cambiarlo o al salir. Creada dentro del render salía una nueva
+  // en cada pintado y ninguna se revocaba.
+  const logoPreviewUrl = useMemo(() => (logoFile ? URL.createObjectURL(logoFile) : null), [logoFile])
+  useEffect(() => {
+    if (!logoPreviewUrl) return
+    return () => URL.revokeObjectURL(logoPreviewUrl)
+  }, [logoPreviewUrl])
   const [logoClear, setLogoClear] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -994,7 +1002,7 @@ export function EmailSettingsPanel({ section, templates, defaults, onEditTemplat
               <legend>{t.layout.sectionLogo}</legend>
               <div className="es-logo">
                 <img
-                  src={logoFile ? URL.createObjectURL(logoFile) : row.logo_data_url}
+                  src={logoPreviewUrl ?? row.logo_data_url}
                   alt={t.layout.logo}
                   className={logoClear ? 'is-cleared' : undefined}
                 />

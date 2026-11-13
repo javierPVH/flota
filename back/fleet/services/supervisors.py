@@ -108,3 +108,39 @@ def sync_vehicle_supervisor(vehicle, *, on=None):
     vehicle.save(update_fields=["supervisor", "updated_at"])
     events.emit_supervisor_change(vehicle, anterior, nuevo)
     return True
+
+
+def sync_scheduled_periods(*, on=None) -> int:
+    """Hace efectivos los relevos PROGRAMADOS cuyo día ha llegado.
+
+    `sync_vehicle_supervisor` solo corría al escribir un periodo, así que un
+    relevo registrado con fecha de mañana no entraba nunca en vigor: llegado
+    el día, el periodo decía una persona y `Vehicle.supervisor` —lo que acotan
+    los permisos— seguía siendo la anterior, que conservaba el ámbito mientras
+    la nueva no lo tenía. Lo llama `run_fleet_jobs` en cada pasada.
+
+    Solo actúa donde HAY un periodo que cubre hoy y dice otra persona. Un
+    coche sin periodo vigente no se toca: su supervisor pudo fijarse sin
+    periodos (alta directa, importación) y vaciarlo desde aquí lo dejaría sin
+    nadie que responda de él. Devuelve cuántos vehículos cambió.
+    """
+    from django.db.models import F, Q
+
+    from ..models.enums import OUT_OF_FLEET
+
+    dia = on or timezone.localdate()
+    desfasados = (
+        SupervisorPeriod.objects.filter(
+            Q(end_date__isnull=True) | Q(end_date__gt=dia),
+            is_active=True,
+            start_date__lte=dia,
+        )
+        .exclude(vehicle__state__in=OUT_OF_FLEET)
+        .exclude(vehicle__supervisor_id=F("supervisor_id"))
+        .select_related("vehicle")
+    )
+    cambiados = 0
+    for vehicle in {periodo.vehicle for periodo in desfasados}:
+        if sync_vehicle_supervisor(vehicle, on=dia):
+            cambiados += 1
+    return cambiados

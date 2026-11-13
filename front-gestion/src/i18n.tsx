@@ -29,6 +29,8 @@ const es = {
       settings: 'Ajustes',
     },
     logout: 'Salir',
+    logoutFailed:
+      'No se pudo cerrar la sesión en el servidor (sin conexión). Sigues dentro: inténtalo de nuevo antes de dejar el puesto.',
     roles: { admin: 'Administración', supervisor: 'Supervisión', driver: 'Conductor' } as Record<
       string,
       string
@@ -375,6 +377,8 @@ const en: typeof es = {
       settings: 'Settings',
     },
     logout: 'Log out',
+    logoutFailed:
+      'Could not sign out on the server (no connection). You are still signed in: try again before leaving this computer.',
     roles: { admin: 'Admin', supervisor: 'Supervisor', driver: 'Driver' },
     shortcutsHint: 'Shortcuts: "/" search · "n" new vehicle · "?" help',
     menu: 'Menu',

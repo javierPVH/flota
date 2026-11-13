@@ -10,6 +10,7 @@ error en la propia fila y no tumba a los demás ni al job que los recorre.
 
 from __future__ import annotations
 
+import html
 import logging
 from datetime import date, datetime, time, timedelta
 
@@ -188,10 +189,14 @@ def composed_name(schedule: NotificationSchedule, now: datetime) -> str:
 
 
 def _report_body_html(schedule: NotificationSchedule, filename: str) -> str:
+    # El nombre del envío es texto libre de quien lo programa y este cuerpo no
+    # pasa por nh3 (va directo a la cola y de ahí a la caja corporativa): sin
+    # escapar, un `<a href=…>` en el nombre salía como enlace en un correo con
+    # el remitente de la casa.
     return (
         f"<p>Adjunto va el <strong>{schedule.get_content_display().lower()}</strong> "
-        f"({filename}).</p>"
-        f"<p style='color:#666;font-size:12px'>Envío programado «{schedule.name}» "
+        f"({html.escape(filename)}).</p>"
+        f"<p style='color:#666;font-size:12px'>Envío programado «{html.escape(schedule.name)}» "
         f"({schedule.get_frequency_display().lower()}, {schedule.send_at:%H:%M}). "
         f"Puedes cambiarlo o desactivarlo en Ajustes → Notificaciones.</p>"
     )
@@ -208,7 +213,10 @@ def run_schedule(schedule: NotificationSchedule, now: datetime | None = None) ->
         "drive_url": None,
         "error": "",
         # R3-15: pk de la fila encolada — «enviar ahora» entrega SOLO esa.
+        # `outbox_ids` son todas las de la tanda (una lista larga de
+        # destinatarios se reparte en varias filas); `outbox_id`, la primera.
         "outbox_id": None,
+        "outbox_ids": [],
     }
     try:
         nombre = composed_name(schedule, now)
@@ -253,20 +261,28 @@ def run_schedule(schedule: NotificationSchedule, now: datetime | None = None) ->
                 # El formulario ya lo exige; esto cubre las filas creadas por
                 # el admin de Django o por un seed.
                 raise ValueError("El envío no tiene ninguna dirección de correo.")
-            entrada = EmailOutbox(
-                recipient=", ".join(destinos),
-                recipient_role=RecipientRole.SCHEDULED,
-                batch=mailer.new_batch(),
-                subject=asunto[:200],
-                body_html=cuerpo,
-                status=EmailOutbox.Status.PENDING,
-            )
-            if adjunto:
-                entrada.attachment_name = adjunto[0]
-                entrada.attachment.save(adjunto[0], ContentFile(adjunto[1]), save=False)
-            entrada.save()
+            # Una fila por GRUPO de direcciones que quepa en la columna (254):
+            # con una sola, una lista larga —el campo admite 500 caracteres—
+            # daba «value too long» en Postgres y el envío fallaba en cada
+            # turno. Todas llevan la misma tanda, que es como las lee Trazas.
+            tanda = mailer.new_batch()
+            for grupo in _pack_recipients(destinos):
+                entrada = EmailOutbox(
+                    recipient=grupo,
+                    recipient_role=RecipientRole.SCHEDULED,
+                    batch=tanda,
+                    subject=asunto[:200],
+                    body_html=cuerpo,
+                    status=EmailOutbox.Status.PENDING,
+                )
+                if adjunto:
+                    entrada.attachment_name = adjunto[0]
+                    entrada.attachment.save(adjunto[0], ContentFile(adjunto[1]), save=False)
+                entrada.save()
+                resultado["outbox_ids"].append(entrada.pk)
+                if resultado["outbox_id"] is None:
+                    resultado["outbox_id"] = entrada.pk
             resultado["queued"] = True
-            resultado["outbox_id"] = entrada.pk
 
         schedule.last_run_at = now
         schedule.last_status = NotificationSchedule.Status.OK
@@ -283,6 +299,26 @@ def run_schedule(schedule: NotificationSchedule, now: datetime | None = None) ->
     return resultado
 
 
+#: Ancho de `EmailOutbox.recipient` / `EmailLog.recipient`.
+RECIPIENT_MAX = 254
+
+
+def _pack_recipients(destinos: list[str]) -> list[str]:
+    """Agrupa las direcciones en cadenas «a, b, c» que quepan en la columna."""
+    grupos: list[str] = []
+    actual = ""
+    for direccion in destinos:
+        candidato = f"{actual}, {direccion}" if actual else direccion
+        if actual and len(candidato) > RECIPIENT_MAX:
+            grupos.append(actual)
+            actual = direccion
+        else:
+            actual = candidato
+    if actual:
+        grupos.append(actual)
+    return grupos
+
+
 def dispatch(now: datetime | None = None) -> dict[str, int]:
     """Despacha los envíos vencidos. Nunca lanza.
 
@@ -290,7 +326,12 @@ def dispatch(now: datetime | None = None) -> dict[str, int]:
     """
     now = now or timezone.now()
     total = {"run": 0, "queued": 0, "drive": 0, "failed": 0}
-    pendientes = NotificationSchedule.objects.filter(enabled=True).select_related("user")
+    # Solo de gente en activo: el informe sale con el ÁMBITO de quien lo
+    # programó, y el de alguien dado de baja seguía saliendo —con costes y
+    # personas— a la dirección que dejó puesta.
+    pendientes = NotificationSchedule.objects.filter(
+        enabled=True, user__is_active=True
+    ).select_related("user")
     for schedule in pendientes:
         if not is_due(schedule, now):
             continue

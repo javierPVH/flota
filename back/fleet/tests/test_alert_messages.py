@@ -180,9 +180,11 @@ class AlertasLlevanSuCodigoTests(TestCase):
         alert = Alert.objects.get(type=AlertType.KM_OVERAGE)
         self.assertEqual(alert.message_code, "km_overage")
         self.assertEqual(alert.message_args["contracted"], 20000)
+        # Sale de los datos, y es el EXCESO (proyectado menos contratado): la
+        # plantilla dice «X km de exceso», no los km totales proyectados.
         self.assertEqual(
             mailer._context_for(alert)["km_exceso"],
-            str(alert.message_args["projected"]),
+            str(alert.message_args["projected"] - alert.message_args["contracted"]),
         )
 
     def test_refrescar_una_abierta_mueve_tambien_sus_datos(self):

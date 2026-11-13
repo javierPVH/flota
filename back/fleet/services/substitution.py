@@ -92,7 +92,8 @@ def release_substitute(
     substitute_plate = ""
     if link is not None:
         # Fila a fila (R3-24): así el diff queda en auditlog y mueve `updated_at`.
-        link.end_date = day
+        # Nunca antes de su inicio: una fecha anterior dejaba `fin < inicio`.
+        link.end_date = max(day, link.start_date) if link.start_date else day
         link.save(update_fields=["end_date", "updated_at"])
         substitute_plate = link.substitute_vehicle.plate
 

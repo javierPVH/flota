@@ -80,8 +80,11 @@ class ManualEventTests(APITestCase):
         self.assertTrue(EventItv.objects.filter(event__vehicle=self.vehicle).exists())
         alert.refresh_from_db()
         self.assertEqual(alert.status, AlertStatus.RESOLVED)  # HU-5.1: auto-cierre
+        # Auditoría 2026-11-12: la próxima cita la programa la gestión; la que
+        # mande el conductor se descarta (su app envía null) y el coche queda
+        # sin cita, que es lo que avisa `itv_unscheduled`.
         self.vehicle.refresh_from_db()
-        self.assertEqual(self.vehicle.next_itv_date, date(2027, 7, 1))
+        self.assertIsNone(self.vehicle.next_itv_date)
 
     def test_itv_requires_result(self):
         # Sin `itv.result` no hay registro; la fecha en cambio es opcional
@@ -451,7 +454,10 @@ class SummaryTests(APITestCase):
         resp = self.client.get(reverse("vehicle-summary", args=[self.vehicle.pk]))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["km_current"], 30000)
-        self.assertEqual(resp.data["contract"]["month_fee"], Decimal("540.00"))
+        # Del contrato lee los km y las fechas; la cuota, la penalización y el
+        # enlace de Drive son de gestión (auditoría 2026-11-12).
+        self.assertEqual(resp.data["contract"]["contract_km"], 50000)
+        self.assertIsNone(resp.data["contract"]["month_fee"])
         self.assertIsNone(resp.data["projection"])
         # Y en el listado de resúmenes, lo mismo.
         resp = self.client.get(reverse("vehicle-summaries"))

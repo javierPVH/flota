@@ -104,7 +104,11 @@ const es = {
     },
     mensaje: {
       label: 'Mensaje',
-      help: 'El texto que se escribe al mandar el aviso desde la ficha o el panel.',
+      help: 'El texto del aviso: en un correo automático, la frase de la alerta; en uno enviado a mano, lo que se escriba.',
+    },
+    nota: {
+      label: 'Nota escrita',
+      help: 'Solo lo que escribe una persona al mandar el aviso (el mensaje adicional, la nota del recordatorio de campo). Vacía en los correos automáticos.',
     },
   },
   bodyLabel: 'Cuerpo del correo',
@@ -270,7 +274,11 @@ const en: typeof es = {
     },
     mensaje: {
       label: 'Message',
-      help: 'The text written when sending the notice from the vehicle page or the dashboard.',
+      help: 'The text of the notice: the alert sentence in an automatic email; whatever is typed in one sent by hand.',
+    },
+    nota: {
+      label: 'Written note',
+      help: 'Only what a person types when sending the notice (the additional message, the note of the field reminder). Empty in automatic emails.',
     },
   },
   bodyLabel: 'Email body',

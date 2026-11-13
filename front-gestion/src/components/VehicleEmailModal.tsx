@@ -560,29 +560,30 @@ export function VehicleEmailModal({
     setQuickSending('all')
     const total: NotifyResult = { sent: [], skipped: [] }
     let hechos = 0
+    // Un aviso que el back rechaza (al coche le falta el dato de esa
+    // plantilla) no corta los demás: se sigue, y se dice el primer porqué.
+    let fallo = ''
     try {
       for (const alerta of alertsByUrgency) {
         const alertKind = ALERT_EMAIL_KIND[alerta.type] ?? 'state_notice'
-        const res = await notifyVehicle(vehicle.id, {
-          template_key: alertKind,
-          lang: noticeLang,
-          ...defaultRecipients(alertKind),
-          alert: alerta.id,
-        })
-        total.sent.push(...res.sent)
-        total.skipped.push(...res.skipped)
-        hechos += 1
+        try {
+          const res = await notifyVehicle(vehicle.id, {
+            template_key: alertKind,
+            lang: noticeLang,
+            ...defaultRecipients(alertKind),
+            alert: alerta.id,
+          })
+          total.sent.push(...res.sent)
+          total.skipped.push(...res.skipped)
+          hechos += 1
+        } catch (err) {
+          fallo ||= asErrorMessage(err, t.errGeneric)
+        }
       }
-      onDone()
-      setResult(total)
-    } catch (err) {
-      // Si falla a medias, lo que ya salió salió: se enseña el acuse de esos
-      // con el aviso de cuántos faltaron, no solo el error.
-      setError(
-        hechos > 0
-          ? t.sendAllPartial(hechos, alertsByUrgency.length, asErrorMessage(err, t.errGeneric))
-          : asErrorMessage(err, t.errGeneric),
-      )
+      // Lo que ya salió salió: se enseña el acuse de esos con el aviso de
+      // cuántos faltaron, no solo el error.
+      if (fallo)
+        setError(hechos > 0 ? t.sendAllPartial(hechos, alertsByUrgency.length, fallo) : fallo)
       if (hechos > 0) {
         onDone()
         setResult(total)

@@ -45,8 +45,10 @@ export const DRIVER_EMAIL_KINDS: readonly EmailKind[] = [
  * directo en ella; el coche sin conductor cae en el comunicado de estado. */
 export const ALERT_EMAIL_KIND: Record<AlertType, EmailKind> = {
   itv_due: 'itv_due',
-  // Sin cita también se habla de la ITV: es la plantilla que la nombra.
-  itv_unscheduled: 'itv_due',
+  // Sin cita NO hay fecha que avisar: la plantilla de ITV diría «vence el .»
+  // y «acude a la cita programada». Va por el comunicado, con la frase del
+  // aviso como mensaje (la pone el back cuando no se escribe nada).
+  itv_unscheduled: 'state_notice',
   insurance_due: 'insurance_due',
   km_reading_pending: 'km_reading_pending',
   fuel_reading_pending: 'fuel_reading_pending',

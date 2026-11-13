@@ -662,6 +662,27 @@ def seed_catalogs(stdout=None) -> None:
         ),
         signature=firma_direccion,
     )
+    # Los avisos de incidencia y de accidente (`services/incident_mail.py`):
+    # personalizados en dev para que la bandeja de Plantillas los enseñe como
+    # «personalizada» y el seed cubra todas las claves del enumerado.
+    EmailTemplate.objects.create(
+        key=EmailTemplateKey.INCIDENT_NOTICE,
+        subject="Nueva incidencia · {{matricula}}",
+        body_html=(
+            "<p>Se ha comunicado una incidencia del vehículo "
+            "<strong>{{matricula}}</strong>.</p><p>{{mensaje}}</p>"
+        ),
+        signature=firma,
+    )
+    EmailTemplate.objects.create(
+        key=EmailTemplateKey.ACCIDENT_NOTICE,
+        subject="Nuevo accidente · {{matricula}}",
+        body_html=(
+            "<p>Se ha comunicado un accidente del vehículo "
+            "<strong>{{matricula}}</strong>.</p><p>{{mensaje}}</p>"
+        ),
+        signature=firma_direccion,
+    )
     EmailTemplate.objects.create(
         key=EmailTemplateKey.GENERIC,
         subject="[Flota] Aviso · {{matricula}}",
@@ -3015,6 +3036,40 @@ def _dev_email_settings() -> EmailSettings:
     return cfg
 
 
+def _ensure_monthly_reading_alerts() -> int:
+    """Que el seed deje SIEMPRE los avisos de lectura de km y de consumo.
+
+    El motor solo los abre cuando el recordatorio «reclama» un mes
+    (`email_layout.km_remind_period`): del día de apertura a fin de mes, y
+    del 1 al día de cierre el mes anterior. Entre medias (con el plazo de
+    fábrica, del 6 al 19 de cada mes) no reclama nada, y el seed se quedaba
+    sin `km_reading_pending` ni `fuel_reading_pending`: el escaparate del
+    8888TRX y el 7890NPQ perdían esas dos alertas según el día en que se
+    sembrara, y `test_seed` fallaba por el calendario.
+
+    En ese hueco se pasa el MISMO chequeo del motor fechado el día en que
+    abre la ventana de este mes, así que el aviso es el que el motor abrirá
+    ese día (mismo mes reclamado y misma clave: la pasada real lo refresca
+    en vez de duplicarlo). Dentro de la ventana no hace nada: ya los abrió
+    `run_all` con la fecha de hoy. Devuelve cuántos ha abierto.
+    """
+    from fleet.services import email_layout
+
+    hoy = timezone.localdate()
+    cfg = EmailSettings.get_solo()
+    abiertos = 0
+    for kind, check in (
+        ("km", alerts.check_km_readings),
+        ("fuel", alerts.check_fuel_readings),
+    ):
+        reminder = cfg.monthly_reminder(kind)
+        if not reminder.enabled or email_layout.km_remind_period(hoy, reminder) is not None:
+            continue
+        apertura = email_layout.km_remind_window(hoy.replace(day=1), reminder)[0]
+        abiertos += check(today=apertura)
+    return abiertos
+
+
 def seed_alerts(stdout=None) -> None:
     """Borra las alertas y deja que el MOTOR REAL las regenere.
 
@@ -3044,6 +3099,9 @@ def seed_alerts(stdout=None) -> None:
     wipe(Alert, stdout)
     _dev_email_settings()
     summary = alerts.run_all()
+    # Fuera de la ventana del recordatorio, los avisos de lectura se abren
+    # con la fecha en que abre (ver `_ensure_monthly_reading_alerts`).
+    _ensure_monthly_reading_alerts()
 
     closed = 0
     # 1) Cerrada por el responsable del vehículo → coincide (verde).

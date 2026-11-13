@@ -13,7 +13,7 @@ from fleet.services import alerts
 from fleet.tests.helpers import make_user
 
 SUB = {
-    "endpoint": "https://push.example.com/sub/abc123",
+    "endpoint": "https://fcm.googleapis.com/fcm/send/sub/abc123",
     "keys": {"p256dh": "clave-p256dh", "auth": "clave-auth"},
 }
 
@@ -104,7 +104,10 @@ class SendToUserTests(APITestCase):
     @override_settings(**VAPID)
     def test_sends_to_each_device(self):
         PushSubscription.objects.create(
-            user=self.driver, endpoint="https://push.example.com/sub/dev2", p256dh="x", auth="y"
+            user=self.driver,
+            endpoint="https://fcm.googleapis.com/fcm/send/sub/dev2",
+            p256dh="x",
+            auth="y",
         )
         with patch("pywebpush.webpush") as mock_webpush:
             sent = webpush.send_to_user(self.driver, title="t", body="b")

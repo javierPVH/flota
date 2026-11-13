@@ -220,7 +220,20 @@ HSE_HIDDEN_VEHICLE_FIELDS = (
     "next_itv_date",
     "next_itv_manual",
     "itv_postal_code",
+    # Tampoco la organización interna ni lo que es de gestión: su tabla no
+    # los pinta, y el permiso tiene que decir lo mismo que la pantalla.
+    "fuel_card",
+    "project",
+    "cost_center",
+    "business_unit",
+    "drive_folder_url",
+    "drive_folder_id",
 )
+
+#: X1: el seguro es de la ADMINISTRACIÓN. Sus alertas ya se le ocultaban al
+#: resto, pero la fecha de vencimiento viajaba en la ficha del vehículo a
+#: conductor, supervisor y HSE (la app de campo no la pinta: ver `types.ts`).
+ADMIN_ONLY_VEHICLE_FIELDS = ("insurance_expiry_date",)
 
 
 class VehicleSerializer(serializers.ModelSerializer):
@@ -487,6 +500,9 @@ class VehicleSerializer(serializers.ModelSerializer):
         ):
             for name in HSE_HIDDEN_VEHICLE_FIELDS:
                 fields.pop(name, None)
+        if user and getattr(user, "is_authenticated", False) and not user.is_admin:
+            for name in ADMIN_ONLY_VEHICLE_FIELDS:
+                fields.pop(name, None)
         return fields
 
     def validate(self, attrs):
@@ -718,19 +734,37 @@ class KmReadingSerializer(serializers.ModelSerializer):
             and not km_window.field_window_open()
         ):
             raise serializers.ValidationError({"reading_date": km_window.field_window_message()})
-        # HU-3.1: el odómetro no puede retroceder (valida contra la última lectura).
+        # HU-3.1: el odómetro no puede retroceder. Se compara con las lecturas
+        # VECINAS por fecha —la anterior no puede marcar más y la siguiente no
+        # puede marcar menos— y no solo con la última: con esa única cota, una
+        # lectura retrofechada de 900.000 km entraba sin más (y las legítimas
+        # posteriores dejaban de caber), y una retrofechada correcta, con
+        # menos km que la última, se rechazaba.
         vehicle = attrs.get("vehicle", getattr(self.instance, "vehicle", None))
         km = attrs.get("km_reading", getattr(self.instance, "km_reading", None))
+        when = attrs.get("reading_date", getattr(self.instance, "reading_date", None))
         if vehicle is not None and km is not None:
             qs = KmReading.objects.filter(vehicle=vehicle, km_reading__isnull=False, is_active=True)
             if self.instance is not None:
                 qs = qs.exclude(pk=self.instance.pk)
-            previous = qs.order_by("-reading_date", "-id").first()
+            when = when or timezone.localdate()
+            previous = qs.filter(reading_date__lte=when).order_by("-reading_date", "-id").first()
             if previous and km < previous.km_reading:
                 raise serializers.ValidationError(
                     {
                         "km_reading": (
                             f"El odómetro no puede retroceder (última: {previous.km_reading} km)."
+                        )
+                    }
+                )
+            following = qs.filter(reading_date__gt=when).order_by("reading_date", "id").first()
+            if following and km > following.km_reading:
+                raise serializers.ValidationError(
+                    {
+                        "km_reading": (
+                            "Hay una lectura posterior con menos kilómetros "
+                            f"({following.km_reading} km el {following.reading_date}): "
+                            "esta no puede marcar más."
                         )
                     }
                 )
@@ -1473,6 +1507,14 @@ class EventSerializer(serializers.ModelSerializer):
                 {"event_type": "El conductor solo puede registrar ITV."}
             )
         if event_type == EventType.ITV:
+            # La próxima ITV la programa la gestión (`schedule-itv`): el campo
+            # cuenta lo que pasó, y su app manda siempre `next_due: null`. Lo
+            # que llegue de otro modo es una petición fabricada, y con ella un
+            # conductor fijaba la próxima cita de su coche a años vista. En
+            # silencio y no con un 400, como el resto de campos de solo
+            # gestión: la cola offline reintenta y un 400 la atascaría.
+            if user is not None and not user.is_management and isinstance(attrs.get("itv"), dict):
+                attrs["itv"]["next_due"] = None
             self._validate_itv(attrs)
         return attrs
 
@@ -1497,6 +1539,15 @@ class EventSerializer(serializers.ModelSerializer):
         result = itv.get("result") or ""
         next_due = itv.get("next_due")
         event_date = attrs.get("event_date") or timezone.localdate()
+
+        # Una inspección es un hecho: no se registra la de mañana. Sin esta
+        # cota, el horizonte de `next_due` (que se mide desde aquí) no acotaba
+        # nada — una ITV fechada en 2090 admitía una próxima en 2091 — y ese
+        # registro ganaba para siempre como «última favorable».
+        if event_date > timezone.localdate():
+            raise serializers.ValidationError(
+                {"event_date": "La inspección no puede tener una fecha futura."}
+            )
 
         # El resultado es obligatorio al registrar: es lo que decide si la ITV
         # exime (y refresca la próxima fecha) o no.
@@ -1849,6 +1900,21 @@ class IncidentSerializer(serializers.ModelSerializer):
         # INP-2: el JSON libre del parte tiene techo (tamaño, listas y textos):
         # viaja entero en los listados de gestión y se guarda tal cual.
         limit_json_payload(details, field="details")
+        # RGPD: la marca de «terceros ya borrados» vive en `details`, pero la
+        # escribe SOLO el servidor (`accidents.purge_third_parties`). Llegada
+        # del cliente, dejaba el accidente «ya purgado» para siempre con los
+        # datos de los terceros intactos; y un PATCH que no la trajera la
+        # quitaba. Se descarta lo que venga y se conserva lo que hubiera.
+        if "details" in attrs:
+            from .services import accidents
+
+            previous = getattr(self.instance, "details", None) or {}
+            details = dict(details)
+            for key in accidents.SERVER_ONLY_DETAIL_KEYS:
+                details.pop(key, None)
+                if key in previous:
+                    details[key] = previous[key]
+            attrs["details"] = details
         guided_report = details.get("report_version") == 1
         if postal_code and (not postal_code.isdigit() or len(postal_code) != 5):
             raise serializers.ValidationError(
@@ -2221,7 +2287,30 @@ class DocumentSerializer(serializers.ModelSerializer):
         if not getattr(user, "is_management", False):
             for name in MANAGEMENT_ONLY_DOCUMENT_FIELDS + MANAGEMENT_ONLY_DOCUMENT_STATE_FIELDS:
                 fields[name].read_only = True
+        # El ajuste por documento pisa la política de su TIPO, que solo decide
+        # la administración (`document-type-access`, IsAdmin). Abierto a toda
+        # la gestión, un supervisor se abría a sí mismo —o a sus conductores—
+        # una descarga que el tipo tiene cerrada, documento a documento.
+        if not getattr(user, "is_admin", False):
+            for name in ACCESS_OVERRIDE_FIELDS:
+                fields[name].read_only = True
         return fields
+
+    def to_representation(self, instance):
+        """El enlace y el id de Drive no viajan a quien no es gestión.
+
+        La app de campo ve y baja el archivo por `preview/` y `download/`, que
+        aplican el mando de lectura y de descarga; con el `webViewLink` en la
+        respuesta, un documento en «no permitir» llegaba con su enlace directo
+        al lado (que abre o no según cómo esté compartida la unidad, y eso no
+        se decide aquí).
+        """
+        data = super().to_representation(instance)
+        user = getattr(self.context.get("request"), "user", None)
+        if user is not None and not getattr(user, "is_management", False):
+            data["drive_url"] = ""
+            data["drive_file_id"] = ""
+        return data
 
     def _access_rule(self, obj) -> DocumentTypeAccess:
         """La regla del tipo del documento, cargada UNA vez por respuesta (el

@@ -163,6 +163,16 @@ else:
             "NAME": env_str("DJANGO_SQLITE_PATH", str(BASE_DIR / "db.sqlite3")),
         }
     }
+    # Las SQLite anteriores a la 3.37 (la 3.35.5 que trae Python 3.10 en
+    # Windows) corrompen la base de pruebas EN MEMORIA cuando se siembra el
+    # seed completo varias veces en el mismo proceso: `test_seed` (tres
+    # siembras seguidas) acababa en «database disk image is malformed» en
+    # las pruebas de después. En fichero no pasa. Solo afecta a esas
+    # versiones: la CI (Python 3.13) sigue en memoria, que es más rápido.
+    import sqlite3 as _sqlite3
+
+    if _sqlite3.sqlite_version_info < (3, 37):
+        DATABASES["default"]["TEST"] = {"NAME": str(BASE_DIR / "test_db.sqlite3")}
 
 # Modelo de usuario propio desde el día 1: permite añadir campos más adelante
 # sin la migración de reemplazo de usuario (que Django no soporta bien).
@@ -450,6 +460,19 @@ WEBPUSH_VAPID_PUBLIC_KEY = env_str("WEBPUSH_VAPID_PUBLIC_KEY", "")
 WEBPUSH_VAPID_PRIVATE_KEY = env_str("WEBPUSH_VAPID_PRIVATE_KEY", "")
 # Contacto que exige el protocolo VAPID (los push services pueden avisar ahí).
 WEBPUSH_CONTACT = env_str("WEBPUSH_CONTACT", "mailto:admin@example.com")
+# Hosts de los servicios de push a los que el back acepta enviar (sufijos). El
+# endpoint lo manda el navegador al suscribirse; sin esta lista valía cualquier
+# URL https, y el back acababa haciendo POST a donde dijera un conductor (SSRF
+# ciego, y un endpoint lento paraba el motor de alertas 10 s por aviso).
+WEBPUSH_ALLOWED_HOSTS = env_list(
+    "WEBPUSH_ALLOWED_HOSTS",
+    [
+        "fcm.googleapis.com",
+        "push.services.mozilla.com",
+        "push.apple.com",
+        "notify.windows.com",
+    ],
+)
 
 # Validaciones de coherencia (solo estrictas en producción para no estorbar en dev).
 if not DEBUG:
@@ -521,6 +544,12 @@ REST_FRAMEWORK = {
     # Solo JSON fuera de dev: sin esto DRF monta la «API navegable» (HTML con
     # formularios y, en la raíz, el índice de rutas) para cualquier sesión que
     # abra una URL de la API en el navegador. En dev sigue, que ahí ayuda.
+    # JSON solo como OBJETO (ver `core.parsers`), más los dos de formulario.
+    "DEFAULT_PARSER_CLASSES": [
+        "core.parsers.ObjectJSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser",
+    ],
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
         *(["rest_framework.renderers.BrowsableAPIRenderer"] if DEBUG else []),

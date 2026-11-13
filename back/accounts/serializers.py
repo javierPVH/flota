@@ -103,7 +103,19 @@ class ManagedUserSerializer(serializers.ModelSerializer):
 
     def validate_password(self, value):
         if value:
-            validate_password(value)
+            # Con la persona delante: sin ella, el validador de parecido con
+            # el usuario, el nombre o el correo no actúa (y «admin2026» valía
+            # para `admin`).
+            persona = self.instance
+            if persona is None:
+                datos = self.initial_data if hasattr(self.initial_data, "get") else {}
+                persona = User(
+                    username=str(datos.get("username") or ""),
+                    email=str(datos.get("email") or ""),
+                    first_name=str(datos.get("first_name") or ""),
+                    last_name=str(datos.get("last_name") or ""),
+                )
+            validate_password(value, user=persona)
         return value
 
     def validate_email(self, value):

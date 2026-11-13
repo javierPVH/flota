@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 
 import { RequireAuth } from './auth.ts'
 import { AccessGate } from './components/AccessGate.tsx'
@@ -36,6 +36,18 @@ const SinFlotaPage = lazy(() =>
 const UploadDocumentPage = lazy(() =>
   import('./pages/UploadDocumentPage.tsx').then((m) => ({ default: m.UploadDocumentPage })),
 )
+
+/**
+ * La ficha de campo, REMONTADA al cambiar de coche. De `/vehiculos/A` a
+ * `/vehiculos/B` (el enlace principal ↔ sustituto) React Router reusaba el
+ * mismo componente: una respuesta tardía de A pisaba los documentos o las
+ * incidencias de B, y la gráfica de B pintaba las lecturas de A. Con el id
+ * como `key`, cada coche tiene su propia instancia y su propio estado.
+ */
+function KeyedVehicleFieldPage() {
+  const { id } = useParams()
+  return <VehicleFieldPage key={id} />
+}
 
 const fallback = <p className="gate-checking">Cargando…</p>
 
@@ -77,7 +89,7 @@ export default function App() {
           }
         >
           <Route path="/" element={<HomePage />} />
-          <Route path="/vehiculos/:id" element={<VehicleFieldPage />} />
+          <Route path="/vehiculos/:id" element={<KeyedVehicleFieldPage />} />
           <Route path="/registrar" element={<RegisterKmPage />} />
           <Route path="/alertas" element={<AlertsPage />} />
           {/* Subir documento y comunicar avería/incidencia son VISTAS propias,

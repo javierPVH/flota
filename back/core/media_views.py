@@ -106,4 +106,8 @@ class ProtectedMediaView(APIView):
         # fijaría a text/html para todo.
         del response["Content-Type"]
         response["X-Accel-Redirect"] = INTERNAL_PREFIX + quote(path)
+        # Documentos con datos personales detrás de sesión: ni el borde (un
+        # jpg o un pdf son extensiones que una CDN cachea por defecto) ni el
+        # navegador de un puesto compartido pueden quedarse copia.
+        response["Cache-Control"] = "private, no-store"
         return response

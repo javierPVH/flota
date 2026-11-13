@@ -15,6 +15,7 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError, Q
 from django.db.models.deletion import Collector
+from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -51,10 +52,15 @@ from .models import (
     VehicleRequest,
     VehicleUsage,
     Workshop,
+    assignment_overlap_message,
     driver_assignment_clash,
     driver_clash_message,
+    supervisor_overlap_message,
+    supervisor_period_overlap,
+    vehicle_assignment_overlap,
 )
 from .models.enums import OUT_OF_FLEET, AssignmentStatus, VehicleState
+from .selectors import active_link_q, current_usage_q
 
 
 @dataclass(frozen=True)
@@ -301,8 +307,14 @@ class ErratasItemsView(APIView):
 
 
 def _resolve(request):
-    kind = request.data.get("type")
-    pk = request.data.get("id")
+    data = request.data if isinstance(request.data, dict) else {}
+    kind = data.get("type")
+    pk = data.get("id")
+    # Un id que no es un entero es un 400, no un 500 al filtrar por `pk`.
+    try:
+        pk = int(pk)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError({"id": "Identificador no válido."}) from exc
     if kind in DEACTIVATABLE:
         model = DEACTIVATABLE[kind].model
         obj = model.objects.filter(pk=pk, is_active=False).first()
@@ -317,6 +329,76 @@ def _resolve(request):
     if obj is None:
         raise ValidationError({"id": "No hay ninguna errata de ese tipo con ese id."})
     return kind, obj
+
+
+def _restore_conflict(obj) -> str | None:
+    """Por qué NO se puede restaurar `obj` tal cual, o ``None`` si se puede.
+
+    Restaurar es volver a dar de alta, así que valen las reglas del alta: lo
+    que esas reglas impiden crear tampoco puede volver por erratas. Antes solo
+    se miraba la asignación aceptada SIN fecha de fin; una con fin programado,
+    un periodo de supervisor, un segundo plan de mantenimiento, un vínculo o
+    un reparto volvían sin comprobar nada, y dejaban dos vigentes a la vez.
+    """
+    hoy = timezone.localdate()
+    vigente = getattr(obj, "end_date", None) is None or obj.end_date > hoy
+
+    if isinstance(obj, Assignment):
+        if obj.status in (AssignmentStatus.ACCEPTED, AssignmentStatus.FINISHED):
+            otro = vehicle_assignment_overlap(
+                obj.vehicle_id,
+                start_date=obj.start_date,
+                end_date=obj.end_date,
+                exclude_pk=obj.pk,
+            )
+            if otro is not None:
+                return assignment_overlap_message(otro)
+        # Un coche por conductor a la vez: revivir una asignación aceptada
+        # que sigue en curso no puede darle un segundo coche al conductor.
+        if obj.status == AssignmentStatus.ACCEPTED and vigente and not obj.vehicle.is_multiuser:
+            clash = driver_assignment_clash(
+                obj.driver_id,
+                is_substitute=obj.vehicle.is_substitute,
+                start_date=obj.start_date,
+                end_date=obj.end_date,
+                exclude_pk=obj.pk,
+            )
+            if clash:
+                return driver_clash_message(clash)
+    elif isinstance(obj, SupervisorPeriod):
+        otro = supervisor_period_overlap(
+            obj.vehicle_id, start_date=obj.start_date, end_date=obj.end_date, exclude_pk=obj.pk
+        )
+        if otro is not None:
+            return supervisor_overlap_message(otro)
+    elif isinstance(obj, MaintenancePlan):
+        if MaintenancePlan.objects.filter(vehicle_id=obj.vehicle_id, is_active=True).exists():
+            return (
+                "El vehículo ya tiene un mantenimiento programado activo: "
+                "retíralo antes de restaurar este."
+            )
+    elif isinstance(obj, VehicleLink) and vigente:
+        ocupado = VehicleLink.objects.filter(
+            active_link_q(),
+            Q(main_vehicle_id=obj.main_vehicle_id)
+            | Q(substitute_vehicle_id=obj.substitute_vehicle_id),
+        ).exists()
+        if ocupado:
+            return (
+                "Uno de los dos vehículos ya tiene un vínculo de sustitución vigente: "
+                "ciérralo antes de restaurar este."
+            )
+    elif isinstance(obj, VehicleUsage) and vigente:
+        repartido = sum(
+            VehicleUsage.objects.filter(
+                current_usage_q(), vehicle_id=obj.vehicle_id, is_active=True
+            ).values_list("usage_percent", flat=True)
+        )
+        if repartido + obj.usage_percent > 100:
+            return (
+                f"El reparto vigente del vehículo ya suma {repartido} %: con este pasaría de 100."
+            )
+    return None
 
 
 class ErratasRestoreView(APIView):
@@ -360,24 +442,17 @@ class ErratasRestoreView(APIView):
                     obj.is_active = True
                     obj.save(update_fields=["is_active"])
                 else:
-                    # Un coche por conductor a la vez: revivir una asignación
-                    # aceptada EN CURSO no puede darle un segundo coche al
-                    # conductor. (El lado del vehículo ya lo protege la unique
-                    # parcial de la BD.)
-                    if (
-                        isinstance(obj, Assignment)
-                        and obj.status == AssignmentStatus.ACCEPTED
-                        and obj.end_date is None
-                    ):
-                        clash = driver_assignment_clash(
-                            obj.driver_id,
-                            is_substitute=obj.vehicle.is_substitute,
-                            start_date=obj.start_date,
-                            exclude_pk=obj.pk,
-                        )
-                        if clash:
-                            raise ValidationError({"detail": driver_clash_message(clash)})
+                    conflicto = _restore_conflict(obj)
+                    if conflicto:
+                        raise ValidationError({"detail": conflicto})
                     obj.restore()
+                    if isinstance(obj, SupervisorPeriod):
+                        # El vigente del coche sigue a sus periodos: restaurar
+                        # el que cubre hoy sin sincronizar dejaba el vehículo
+                        # con el supervisor anterior.
+                        from .services import supervisors
+
+                        supervisors.sync_vehicle_supervisor(obj.vehicle)
         except IntegrityError as exc:
             raise ValidationError(
                 {

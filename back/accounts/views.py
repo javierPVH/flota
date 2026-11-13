@@ -31,7 +31,7 @@ from rest_framework.views import APIView
 
 from .authentication import CsrfOnlyAuthentication
 from .google import GoogleAuthError, verify_google_id_token
-from .models import Role
+from .models import PushSubscription, Role
 from .permissions import IsAdmin, IsManagement
 from .ratelimit import client_ip, digest, is_blocked, register_failure, reset_failures
 from .serializers import (
@@ -236,6 +236,13 @@ class RegisterView(APIView):
                 {"detail": "El registro de usuarios está deshabilitado."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Donde no se entra con contraseña (el host público) tampoco se crea
+        # una cuenta con contraseña: `auth/config/` ya lo decía, la vista no.
+        if not password_login_allowed(request):
+            return Response(
+                {"detail": "El registro con contraseña no está disponible aquí."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -371,6 +378,9 @@ class UserViewSet(viewsets.ModelViewSet):
                 # R3-05: sus asignaciones vigentes se cierran con la persona —
                 # si no, el coche seguía «asignado» a alguien que ya no está.
                 finished = finish_assignments_for(user)
+                # Y sus dispositivos dejan de recibir avisos (el envío ya
+                # salta a los inactivos; esto además no deja la fila viva).
+                PushSubscription.objects.filter(user=user).delete()
             security_logger.info(
                 "usuario desactivado user=%s por=%s asignaciones_cerradas=%s",
                 user.pk,

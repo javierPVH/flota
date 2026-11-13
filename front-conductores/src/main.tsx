@@ -11,6 +11,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { AuthProvider, bootstrap, onLogout } from './auth.ts'
 import { LanguageProvider } from './i18n.tsx'
 import { requestPersistentStorage } from './offline/queue.ts'
+import { listenForPushResubscribe } from './push.ts'
 import { registerServiceWorker } from './sw-update.ts'
 
 // BG4: pide almacenamiento persistente — protege la cola offline (IndexedDB)
@@ -38,4 +39,6 @@ createRoot(document.getElementById('root')!).render(
 // BG5: el registro detecta versiones nuevas y la UI ofrece recargar.
 if (import.meta.env.PROD) {
   registerServiceWorker()
+  // R5-51: el SW pide a una pestaña que re-suscriba cuando él no puede.
+  listenForPushResubscribe()
 }

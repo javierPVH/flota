@@ -35,7 +35,7 @@ import {
   listIncidents,
   listVehicleRequests,
 } from '../api.ts'
-import { isHse, isHseOnly, useAuth } from '../auth.ts'
+import { closeServerSession, isHse, isHseOnly, useAuth } from '../auth.ts'
 import { incidentStatusTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, Incident } from '../types.ts'
@@ -59,21 +59,44 @@ export function AppHeader() {
   return isHseOnly(user) ? <HseHeader /> : <ManagementHeader />
 }
 
-function HseHeader() {
-  const { user, logout } = useAuth()
-  const { language, setLanguage, t } = useLang()
+/**
+ * «Salir», para las dos cabeceras: la sesión se cierra PRIMERO en el servidor
+ * y se espera la respuesta. Si no se confirma no se finge la salida —la cookie
+ * seguiría viva en un puesto que puede ser compartido—: se dice y se sigue
+ * dentro, para volver a intentarlo.
+ */
+function useLogout(): () => Promise<void> {
+  const { logout } = useAuth()
+  const { t } = useLang()
   const navigate = useNavigate()
+  const busy = useRef(false)
+
+  return useCallback(async () => {
+    if (busy.current) return
+    busy.current = true
+    try {
+      if (!(await closeServerSession())) {
+        window.alert(t.shell.logoutFailed)
+        return
+      }
+      logout()
+      navigate('/login', { replace: true })
+    } finally {
+      busy.current = false
+    }
+  }, [logout, navigate, t])
+}
+
+function HseHeader() {
+  const { user } = useAuth()
+  const { language, setLanguage, t } = useLang()
+  const handleLogout = useLogout()
 
   const name =
     [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username || ''
   const initials = (
     (user?.first_name?.[0] ?? user?.username?.[0] ?? '?') + (user?.last_name?.[0] ?? '')
   ).toUpperCase()
-
-  function handleLogout() {
-    logout()
-    navigate('/login', { replace: true })
-  }
 
   return (
     <div className="shell-headerbar">
@@ -109,10 +132,9 @@ function HseHeader() {
 }
 
 function ManagementHeader() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const { language, setLanguage, t } = useLang()
   const etiqueta = useDomainLabels()
-  const navigate = useNavigate()
   const location = useLocation()
   const [navOpen, setNavOpen] = useState(false)
   const menuBtnRef = useRef<HTMLButtonElement | null>(null)
@@ -282,10 +304,7 @@ function ManagementHeader() {
     setNavOpen((open) => !open)
   }
 
-  function handleLogout() {
-    logout()
-    navigate('/login', { replace: true })
-  }
+  const handleLogout = useLogout()
 
   const name =
     [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username || ''

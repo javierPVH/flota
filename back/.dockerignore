@@ -15,9 +15,15 @@ htmlcov/
 # Datos locales (se persisten en volumen, no en la imagen)
 db.sqlite3
 db.sqlite3-journal
+*.sqlite3
 staticfiles/
 media/
 archive/
+e2e_archive/
+# `data/` lleva `data/secrets` (token de Gmail, cliente OAuth, cuenta de
+# servicio) y `data/saml`: en ejecución entra por bind mount, y con el
+# `COPY . .` del Dockerfile se quedaba además en una capa de la imagen.
+data/
 
 # Docker / VCS
 Dockerfile

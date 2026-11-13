@@ -705,10 +705,28 @@ class _MonthlyKind:
             ).values_list("vehicle_id", flat=True)
         )
 
-    def vehicles(self) -> list[Vehicle]:
+    def vehicles(self, today: date | None = None) -> list[Vehicle]:
+        """A qué coches se les reclama la anotación.
+
+        Fuera queda el PRINCIPAL cubierto por un sustituto (N9): está
+        bloqueado —el back rechaza lecturas sobre él y manda registrarlas en
+        el sustituto—, así que a su conductor le llegaba «mientras no la
+        registres, seguirás recibiendo este correo» de un coche en el que no
+        puede registrar nada. Lo que se reclama es lo del sustituto, que
+        entra aquí como cualquier otro coche.
+        """
+        from fleet.models import VehicleLink
+        from fleet.selectors import active_link_q
+
+        cubiertos = set(
+            VehicleLink.objects.filter(active_link_q(today)).values_list(
+                "main_vehicle_id", flat=True
+            )
+        )
+        activos = [v for v in _active_vehicles() if v.id not in cubiertos]
         if self.kind == "km":
-            return [v for v in _active_vehicles() if not v.unlimited_km]
-        return list(_active_vehicles())
+            return [v for v in activos if not v.unlimited_km]
+        return activos
 
 
 _KM_MONTHLY = _MonthlyKind(
@@ -746,7 +764,7 @@ def _check_monthly_readings(kind: _MonthlyKind, today: date | None = None) -> in
     today = _today(today)
     cfg = EmailSettings.get_solo().monthly_reminder(kind.kind)
     period_month = email_layout.km_remind_period(today, cfg) if cfg.enabled else None
-    vehicles = kind.vehicles()
+    vehicles = kind.vehicles(today)
     ids = [v.id for v in vehicles]
     if period_month is None:
         # Fuera de la ventana —o con el recordatorio apagado en Ajustes— no se

@@ -19,7 +19,15 @@ from django.db.models import Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from fleet.models import Alert, Assignment, Contract, KmReading, Vehicle, VehicleLink
+from fleet.models import (
+    Alert,
+    Assignment,
+    Contract,
+    KmReading,
+    Vehicle,
+    VehicleLink,
+    VehicleUsage,
+)
 from fleet.models.enums import OUT_OF_FLEET, AlertStatus, AssignmentStatus, VehicleState
 from fleet.selectors import active_link_q, current_assignment_q
 from fleet.services import events
@@ -58,6 +66,17 @@ def close_vehicle_relations(
             events.emit_driver_change(vehicle, old_driver=old_driver, new_driver=None)
         finished += 1
 
+    # El reparto de uso da ÁMBITO (lee y escribe): si sobrevive a la baja,
+    # quien lo tenía sigue registrando km, consumo e incidencias sobre un
+    # coche que ya no es de la flota.
+    usages_closed = 0
+    for usage in VehicleUsage.objects.filter(
+        Q(end_date__isnull=True) | Q(end_date__gt=end_date), vehicle=vehicle, is_active=True
+    ):
+        usage.end_date = max(end_date, usage.start_date) if usage.start_date else end_date
+        usage.save(update_fields=["end_date", "updated_at"])
+        usages_closed += 1
+
     links_closed = 0
     for link in VehicleLink.objects.filter(
         active_link_q(), Q(main_vehicle=vehicle) | Q(substitute_vehicle=vehicle)
@@ -86,6 +105,7 @@ def close_vehicle_relations(
     return {
         "assignments_finished": finished,
         "links_closed": links_closed,
+        "usages_closed": usages_closed,
         "alerts_resolved": alerts_resolved,
         "contract": contract,
     }

@@ -221,7 +221,10 @@ class ErratasSpaceTests(APITestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
-        self.assertIn("ocupado", str(resp.data["detail"]))
+        # Auditoría 2026-11-12: la regla del alta se comprueba ANTES de tocar
+        # la BD, así que el 400 ya dice quién ocupa esas fechas (el genérico
+        # «el hueco ya está ocupado» queda de red para otras constraints).
+        self.assertIn("un coche tiene un conductor a la vez", str(resp.data["detail"]))
         original.refresh_from_db()
         self.assertFalse(original.is_active)  # nada a medias
 

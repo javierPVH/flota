@@ -24,6 +24,8 @@ La **nota** explica el porqué, y es obligatoria cuando no se cambia ningún cam
 
 from __future__ import annotations
 
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import transaction
 from django.utils import timezone
 
@@ -116,7 +118,17 @@ def conflicts(changes: dict, *, user) -> dict[str, str]:
     from accounts.models import User
 
     salida: dict[str, str] = {}
+    # El correo es identidad (login, Google, avisos): tiene que SER un correo.
+    # Sin esto, «no es un correo» se aceptaba y, al aplicar, quedaba escrito.
+    correo = str(changes.get("email") or "").strip()
+    if correo:
+        try:
+            validate_email(correo)
+        except ValidationError:
+            salida["email"] = "No es una dirección de correo válida."
     for campo in UNIQUE_FIELDS:
+        if campo in salida:
+            continue
         valor = str(changes.get(campo) or "").strip()
         if not valor:
             continue

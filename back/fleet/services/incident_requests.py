@@ -67,14 +67,21 @@ def _current(incident: Incident, campo: str):
     return valor or ""
 
 
+#: Techo del kilometraje que se deja pedir: por encima no es un odómetro, y
+#: un entero enorme desbordaba la columna al aplicar la petición.
+MAX_MILEAGE = 2_000_000
+
+
 def _parse(campo: str, crudo):
     """El valor pedido, en el tipo del campo; ``None`` si no vale."""
     clase, largo = EDITABLE_FIELDS[campo]
     if clase == "date":
         try:
-            return date.fromisoformat(str(crudo or "").strip()[:10]).isoformat()
+            dia = date.fromisoformat(str(crudo or "").strip()[:10])
         except ValueError:
             return None
+        # Una incidencia no ocurre mañana (al aplicar se escribía tal cual).
+        return dia.isoformat() if dia <= timezone.localdate() else None
     if clase == "int":
         if crudo in (None, ""):
             return None
@@ -82,7 +89,7 @@ def _parse(campo: str, crudo):
             valor = int(crudo)
         except (TypeError, ValueError):
             return None
-        return valor if valor >= 0 else None
+        return valor if 0 <= valor <= MAX_MILEAGE else None
     valor = str(crudo if crudo is not None else "").strip()[:largo]
     if clase == "postal" and valor and (not valor.isdigit() or len(valor) != 5):
         return None

@@ -74,7 +74,21 @@ ALLOWED_VARIABLES = (
     # «Abrir la app de campo» de los correos al conductor.
     "enlace_app",
     "mensaje",
+    # Lo que ESCRIBE una persona al mandar el aviso (el «mensaje adicional» de
+    # gestión, la nota del recordatorio de campo). `mensaje` no sirve para
+    # eso en todas las plantillas: en el correo automático es la frase de la
+    # alerta, y las de km y consumo ya la dicen con sus propias variables —por
+    # eso no lo llevaban, y la nota escrita a mano se perdía—. Vacía en los
+    # correos automáticos.
+    "nota",
 )
+
+#: Variables sin las que la frase que las usa queda rota («vence el .», «es
+#: de  km de exceso», «Estimado equipo de :»). Un envío A MANO cuya plantilla
+#: use una de ellas sin valor se rechaza diciendo por qué
+#: (`RenderedNotice.missing` + `missing_reason`); los automáticos no llegan a
+#: ese caso, porque su alerta solo existe cuando el dato existe.
+ESSENTIAL_VARIABLES = ("fecha_vencimiento", "km_exceso", "empresa")
 
 #: Un enlace cuya URL quedó vacía (la app de campo sin configurar) se queda en
 #: su texto: un `<a href="">` lleva al propio correo, que confunde más que no
@@ -82,6 +96,8 @@ ALLOWED_VARIABLES = (
 _EMPTY_LINK_RE = re.compile(r'<a\s+href=""[^>]*>(.*?)</a>', re.S)
 
 _VAR_RE = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}")
+#: Un `href` cuyo destino no empieza por un esquema seguro (ni es un ancla).
+_UNSAFE_HREF_RE = re.compile(r"""href\s*=\s*(["'])\s*(?!https?://|mailto:|tel:|#)[^"']*\1""", re.I)
 
 
 class CorporateMessage(EmailMultiAlternatives):
@@ -209,11 +225,16 @@ def send_notice_now(
     return True, ""
 
 
-def render(text: str, context: dict[str, object]) -> str:
+def render(text: str, context: dict[str, object], *, escape: bool = True) -> str:
     """Interpola `{{variable}}` con allowlist; los valores van escapados.
 
     Una variable desconocida o sin valor se sustituye por cadena vacía (no se
     filtra el placeholder al correo final).
+
+    `escape=False` es para el ASUNTO, que es texto y no HTML: escapado,
+    «O'Neil» o «Arval & Co» salían en la cabecera como `O&#x27;Neil` y
+    `Arval &amp; Co`. Se le quitan los saltos de línea, que en una cabecera
+    no caben.
     """
 
     def _sub(match: re.Match) -> str:
@@ -221,28 +242,155 @@ def render(text: str, context: dict[str, object]) -> str:
         if key not in ALLOWED_VARIABLES:
             return ""
         value = context.get(key)
-        return html.escape(str(value)) if value not in (None, "") else ""
+        if value in (None, ""):
+            return ""
+        return html.escape(str(value)) if escape else " ".join(str(value).split())
 
-    return _EMPTY_LINK_RE.sub(r"\1", _VAR_RE.sub(_sub, text))
+    rendered = _VAR_RE.sub(_sub, text)
+    if not escape:
+        return rendered
+    # El saneado (nh3) pasa ANTES de interpolar, así que no ve lo que una
+    # variable mete dentro de un `href`: con `<a href="{{nota}}">` en una
+    # plantilla, la nota de quien envía decidía el enlace —`javascript:`
+    # incluido—. Un enlace que no vaya a http(s), mailto o tel se vacía, y un
+    # enlace vacío se queda en su texto.
+    rendered = _UNSAFE_HREF_RE.sub('href=""', rendered)
+    return _EMPTY_LINK_RE.sub(r"\1", rendered)
 
 
-def vehicle_notice_context(vehicle, message: str = "", template_key: str = "") -> dict[str, object]:
-    """Contexto de variables `{{...}}` para un aviso de vehículo (ITV / seguro /
-    comunicado). `fecha_vencimiento` se elige según el tipo de plantilla, y
-    las del recordatorio de km (`dias_sin_lectura`, `ultima_lectura`,
-    `periodo`) salen de la ÚLTIMA lectura del coche y del mes que hoy se
-    reclama: aquí no hay alerta de la que leerlas, y sin ellas el correo del
-    recordatorio enviado a mano salía con huecos («Lleva  días sin lectura»).
+def _display_name(user) -> str:
+    return (user.get_full_name() or user.get_username()) if user is not None else ""
+
+
+def _greeting_name(driver, supervisor) -> str:
+    """A quien nombra `{{conductor}}`: el conductor vigente y, sin él, el
+    supervisor. Es el mismo relevo que hace el destinatario (un multiusuario
+    no tiene conductor y su correo cae en quien responde del coche): con la
+    variable vacía, ese correo le llegaba al supervisor saludando «Hola :».
+    """
+    return _display_name(driver) or _display_name(supervisor)
+
+
+def renting_for(vehicle):
+    """La renting a la que se escribe por un coche: la del contrato vigente
+    y, sin ninguno abierto, la del último. Una sola regla para el
+    DESTINATARIO y para `{{empresa}}`: el envío a mano tomaba la dirección del
+    último contrato pero el nombre solo del abierto, y el correo llegaba a la
+    renting saludando «Estimado equipo de :».
+    """
+    contratos = vehicle.contracts.filter(is_active=True).select_related("renting")
+    contract = (
+        contratos.filter(end_date__isnull=True).order_by("-start_date").first()
+        or contratos.order_by("-start_date").first()
+    )
+    return contract.renting if contract is not None else None
+
+
+def uses_variable(text: str, name: str) -> bool:
+    return name in _VAR_RE.findall(text or "")
+
+
+def copy_note(name: str, plate: str, lang: str = "es") -> str:
+    """La línea que encabeza el correo de quien lo recibe EN COPIA.
+
+    Un aviso se redacta para quien responde del coche («Hola Carlos: falta tu
+    lectura…») y, según Ajustes, llega también a su supervisor, a los
+    administradores elegidos y a direcciones sueltas: todos leían un correo
+    que saludaba a otra persona y les hablaba de «tu» coche. El cuerpo no se
+    reescribe (es la plantilla de la administración); se dice arriba de
+    quién es.
+    """
+    quien, coche = html.escape(name), html.escape(plate)
+    frases = {
+        "es": f"Recibes una copia de este aviso, dirigido a {quien} como "
+        f"responsable del vehículo {coche}.",
+        "en": f"You are receiving a copy of this notice, addressed to {quien} as the "
+        f"person responsible for vehicle {coche}.",
+    }
+    idiomas = ("es", "en") if lang == "both" else (lang if lang in frases else "es",)
+    return "".join(
+        f'<p style="color:#666;font-size:13px"><em>{frases[one]}</em></p>' for one in idiomas
+    )
+
+
+def body_for_recipient(
+    body: str, *, email: str, role: str, addressee, plate: str, greets: bool, lang: str = "es"
+) -> str:
+    """El cuerpo que recibe ESA dirección: tal cual si es a quien nombra el
+    saludo (o si la plantilla no saluda a nadie: la de seguro, que va a la
+    renting, tiene su propio encabezado) y con `copy_note` delante para los
+    demás. `role` no decide: un comunicado que saluda al conductor y se manda
+    a la renting es tan copia como el que recibe un administrador."""
+    if not greets or addressee is None or not email:
+        return body
+    if (addressee.email or "").strip().lower() == email.strip().lower():
+        return body
+    return copy_note(_display_name(addressee), plate, lang) + body
+
+
+_MISSING_REASONS = {
+    ("fecha_vencimiento", EmailTemplateKey.ITV_DUE): (
+        "Este vehículo no tiene ITV programada: el correo saldría sin fecha."
+    ),
+    ("fecha_vencimiento", EmailTemplateKey.INSURANCE_DUE): (
+        "Este vehículo no tiene fecha de vencimiento del seguro: el correo saldría sin fecha."
+    ),
+    ("fecha_vencimiento", EmailTemplateKey.MAINTENANCE_DUE): (
+        "Este vehículo no tiene un mantenimiento con fecha límite: el correo saldría sin fecha."
+    ),
+    ("km_exceso", ""): "Este vehículo no proyecta exceso de km: el correo saldría sin cifra.",
+    ("empresa", ""): (
+        "Este vehículo no tiene renting en ningún contrato: el correo saldría sin su nombre."
+    ),
+    ("fecha_vencimiento", ""): (
+        "La plantilla usa la fecha de vencimiento y este tipo de correo no la trae."
+    ),
+}
+
+
+def missing_reason(template_key: str, missing) -> str:
+    """Por qué no se manda un aviso a mano: qué dato le falta al coche."""
+    partes = [
+        _MISSING_REASONS.get((name, template_key)) or _MISSING_REASONS[(name, "")]
+        for name in missing
+    ]
+    return " ".join(partes)
+
+
+def _overage_now(vehicle) -> str:
+    """Los km de EXCESO que proyecta hoy el coche (la `overage_km` de la
+    ficha); vacío sin contrato, sin lecturas o sin exceso que contar."""
+    from fleet.services.metrics import vehicle_summary
+
+    proyeccion = vehicle_summary(vehicle).get("projection")
+    if proyeccion and proyeccion.get("overage_km"):
+        return str(proyeccion["overage_km"])
+    return ""
+
+
+#: Lo que se pone en `{{ultima_lectura}}` cuando el coche no tiene NINGUNA
+#: anotación: la frase de las plantillas («la última que consta es del …»)
+#: no puede quedarse en «del .».
+_SIN_LECTURA = "—"
+
+
+def reading_context(vehicle, template_key: str = "", today=None) -> dict[str, str]:
+    """Las tres variables del recordatorio mensual, leídas del COCHE ahora:
+    `dias_sin_lectura`, `ultima_lectura` y `periodo`.
+
+    Para la plantilla de consumo (`fuel_reading_pending`) la «lectura» es la
+    anotación de consumo y el mes el que reclama SU recordatorio; para el
+    resto, la lectura de km. Sin ninguna anotación, los días se cuentan desde
+    que el coche entró en la aplicación (es desde cuándo se le puede reclamar)
+    y la última se deja en `_SIN_LECTURA`: antes el correo decía «Lleva  días
+    sin lectura; la última que consta es del .».
     """
     from fleet.models import EmailSettings
     from fleet.services import email_layout
 
-    driver = current_driver_map([vehicle.id]).get(vehicle.id)
-    today = timezone.localdate()
+    today = today or timezone.localdate()
     ajustes = EmailSettings.get_solo()
     if template_key == EmailTemplateKey.FUEL_READING_PENDING:
-        # Las variables de la «lectura» son aquí las del consumo: su última
-        # anotación y el mes que reclama SU recordatorio.
         from fleet.models import FuelConsumption
 
         reading = (
@@ -255,13 +403,32 @@ def vehicle_notice_context(vehicle, message: str = "", template_key: str = "") -
         reading = latest_reading_map([vehicle.id]).get(vehicle.id)
         mandos = ajustes.monthly_reminder("km")
     periodo = email_layout.km_remind_period(today, mandos) or today.replace(day=1)
-    contract = (
-        vehicle.contracts.filter(end_date__isnull=True, is_active=True)
-        .select_related("renting")
-        .order_by("-start_date")
-        .first()
-    )
-    renting = contract.renting if contract is not None else None
+    if reading is not None:
+        dias = (today - reading.reading_date).days
+        ultima = reading.reading_date.isoformat()
+    else:
+        alta = getattr(vehicle, "created_at", None)
+        dias = (today - timezone.localtime(alta).date()).days if alta else 0
+        ultima = _SIN_LECTURA
+    return {
+        "dias_sin_lectura": str(max(dias, 0)),
+        "ultima_lectura": ultima,
+        "periodo": f"{periodo.year:04d}-{periodo.month:02d}",
+    }
+
+
+def vehicle_notice_context(
+    vehicle, message: str = "", template_key: str = "", note: str | None = None
+) -> dict[str, object]:
+    """Contexto de variables `{{...}}` para un aviso de vehículo (ITV / seguro /
+    comunicado). `fecha_vencimiento` se elige según el tipo de plantilla, y
+    las del recordatorio de km (`dias_sin_lectura`, `ultima_lectura`,
+    `periodo`) salen de la ÚLTIMA lectura del coche y del mes que hoy se
+    reclama (`reading_context`): aquí no hay alerta de la que leerlas, y sin
+    ellas el correo del recordatorio enviado a mano salía con huecos.
+    """
+    driver = current_driver_map([vehicle.id]).get(vehicle.id)
+    renting = renting_for(vehicle)
     if template_key == EmailTemplateKey.ITV_DUE:
         due = vehicle.next_itv_date
     elif template_key == EmailTemplateKey.MAINTENANCE_DUE:
@@ -274,26 +441,23 @@ def vehicle_notice_context(vehicle, message: str = "", template_key: str = "") -
     else:
         due = None
     # El exceso de km enviado a mano no tiene alerta de la que leer la cifra:
-    # sale de la proyección del coche (la misma que pinta la ficha), como la
-    # alerta la saca de la suya; sin contrato ni lecturas queda vacía.
-    overage = ""
-    if template_key == EmailTemplateKey.KM_OVERAGE:
-        from fleet.services.metrics import vehicle_summary
-
-        proyeccion = vehicle_summary(vehicle).get("projection")
-        if proyeccion and proyeccion.get("projected_end") is not None:
-            overage = str(proyeccion["projected_end"])
+    # sale de la proyección del coche (la misma que pinta la ficha); sin
+    # contrato ni lecturas queda vacía. Es el EXCESO (`overage_km`), no los km
+    # proyectados: la plantilla dice «X km de exceso», y con `projected_end`
+    # un coche que se iba a pasar 5.000 km recibía «125.000 km de exceso».
+    overage = _overage_now(vehicle) if template_key == EmailTemplateKey.KM_OVERAGE else ""
     return {
         "matricula": vehicle.plate,
-        "conductor": (driver.get_full_name() or driver.get_username()) if driver else "",
+        "conductor": _greeting_name(driver, vehicle.supervisor),
         "empresa": renting.name if renting else "",
         "fecha_vencimiento": due.isoformat() if due else "",
         "km_exceso": overage,
-        "dias_sin_lectura": str((today - reading.reading_date).days) if reading else "",
-        "ultima_lectura": reading.reading_date.isoformat() if reading else "",
-        "periodo": f"{periodo.year:04d}-{periodo.month:02d}",
+        **reading_context(vehicle, template_key),
         "enlace_app": settings.FLEET_DRIVERS_APP_URL,
         "mensaje": message,
+        # Lo escrito a mano: el propio mensaje, salvo que quien llama lo traiga
+        # aparte (el recordatorio de campo compone `mensaje` con su frase).
+        "nota": message if note is None else note,
     }
 
 
@@ -313,10 +477,21 @@ class RenderedNotice(NamedTuple):
     used_key: str
     #: Si la plantilla tiene versión inglesa propia (para avisar en la UI).
     has_en: bool
+    #: Si el texto nombra a alguien (`{{conductor}}`): entonces quien lo
+    #: reciba sin ser esa persona lleva `copy_note` delante.
+    greets: bool = False
+    #: Variables de `ESSENTIAL_VARIABLES` que el texto usa y el coche no
+    #: tiene: la frase saldría con el hueco. Quien envía decide (rechazar).
+    missing: tuple[str, ...] = ()
 
 
 def render_vehicle_notice(
-    vehicle, template_key: str, message: str = "", lang: str = "es", body: str = ""
+    vehicle,
+    template_key: str,
+    message: str = "",
+    lang: str = "es",
+    body: str = "",
+    note: str | None = None,
 ) -> RenderedNotice:
     """Asunto y cuerpo de un aviso de vehículo con la plantilla `template_key`
     en el idioma pedido; sin plantilla personalizada sale la **versión
@@ -332,7 +507,7 @@ def render_vehicle_notice(
     """
     if lang not in NOTICE_LANGS:
         lang = "es"
-    context = vehicle_notice_context(vehicle, message, template_key)
+    context = vehicle_notice_context(vehicle, message, template_key, note)
     template = (
         EmailTemplate.objects.filter(key=template_key, is_active=True)
         .select_related("signature")
@@ -347,11 +522,13 @@ def render_vehicle_notice(
         template = email_defaults.template_for(template_key)
 
     langs = ("es", "en") if lang == "both" else (lang,)
-    subjects, bodies = [], []
+    subjects, bodies, crudo = [], [], []
     for one in langs:
         raw_subject, raw_body = template.parts(one)
-        subjects.append(render(raw_subject, context))
+        subjects.append(render(raw_subject, context, escape=False))
         bodies.append(render(raw_body, context))
+        crudo += [raw_subject, body or raw_body]
+    usado = " ".join(crudo)
     if body:
         # Cuerpo retocado a mano: uno solo, y es el que va (los asuntos siguen
         # saliendo de la plantilla, que ahí no se ha tocado nada).
@@ -369,6 +546,12 @@ def render_vehicle_notice(
         body_html=body,
         used_key=template.key if personalizada else "",
         has_en=template.has_en,
+        greets=uses_variable(usado, "conductor"),
+        missing=tuple(
+            name
+            for name in ESSENTIAL_VARIABLES
+            if uses_variable(usado, name) and not context.get(name)
+        ),
     )
 
 
@@ -390,12 +573,20 @@ def _template_for(alert_type: str) -> EmailTemplate:
 
 
 def _context_for(alert: Alert) -> dict[str, object]:
+    """Las variables del correo de una alerta.
+
+    El **conductor** es el VIGENTE del coche, no el que la alerta guardó al
+    nacer (`alert.user`): la clave del recordatorio mensual es una por mes, y
+    con el conductor cambiado a mitad de mes el correo seguía saludando —y
+    yendo— al anterior. `alert.user` solo manda sin vehículo. Y las tres
+    variables del recordatorio salen de los datos de la alerta cuando los
+    trae (`km_pending_days`) y, si no —una alerta anterior al mensaje
+    estructurado, un recordatorio manual, un coche sin ninguna lectura—, del
+    coche ahora mismo (`reading_context`): antes quedaban en blanco y el
+    correo decía «la lectura de kilómetros de  del vehículo … Lleva  días».
+    """
     vehicle = alert.vehicle
-    driver = None
-    if alert.user_id:
-        driver = alert.user
-    elif vehicle is not None:
-        driver = current_driver_map([vehicle.id]).get(vehicle.id)
+    driver, supervisor = _driver_and_supervisor(alert)
     contract = (
         vehicle.contracts.filter(end_date__isnull=True, is_active=True)
         .select_related("renting")
@@ -407,27 +598,42 @@ def _context_for(alert: Alert) -> dict[str, object]:
     renting = contract.renting if contract is not None else None
     overage = ""
     if alert.type == AlertType.KM_OVERAGE:
-        # Los km salen de los DATOS del mensaje. Se sacaban de la frase con una
-        # expresión regular, que ataba el contenido del correo a cómo estuviera
-        # redactada: cambiarle una palabra al aviso dejaba el correo sin cifra.
-        proyectado = (alert.message_args or {}).get("projected")
-        if proyectado is not None:
-            overage = str(proyectado)
-        else:  # alertas anteriores al mensaje estructurado: solo queda la frase
-            match = re.search(r"\d[\d.]*(?=\s*km)", alert.message or "")
-            overage = match.group(0) if match else ""
+        # Los km salen de los DATOS del mensaje, no de la frase. Y son el
+        # EXCESO —proyectado menos contratado—, que es lo que dice la plantilla
+        # («X km de exceso»): se ponía `projected` a secas y el correo contaba
+        # como exceso los km totales proyectados (200.000 en vez de 100.000).
+        args = alert.message_args or {}
+        proyectado, contratado = args.get("projected"), args.get("contracted")
+        if proyectado is not None and contratado is not None:
+            overage = str(max(0, int(proyectado) - int(contratado)))
+        elif vehicle is not None:
+            # Alertas anteriores al mensaje estructurado: la cifra de hoy.
+            overage = _overage_now(vehicle)
     datos = alert.message_args or {}
+    if datos.get("days") is not None and datos.get("last") and datos.get("period"):
+        lectura = {
+            "dias_sin_lectura": str(datos["days"]),
+            "ultima_lectura": str(datos["last"]),
+            "periodo": str(datos["period"]),
+        }
+    elif vehicle is not None:
+        lectura = reading_context(vehicle, alert.type)
+        # El mes que reclama la alerta manda sobre el de hoy si lo trae.
+        if datos.get("period"):
+            lectura["periodo"] = str(datos["period"])
+    else:
+        lectura = {"dias_sin_lectura": "", "ultima_lectura": "", "periodo": ""}
     return {
         "matricula": vehicle.plate if vehicle else "",
-        "conductor": (driver.get_full_name() or driver.get_username()) if driver else "",
+        "conductor": _greeting_name(driver, supervisor),
         "empresa": renting.name if renting else "",
         "fecha_vencimiento": alert.due_date.isoformat() if alert.due_date else "",
         "km_exceso": overage,
-        "dias_sin_lectura": str(datos["days"]) if datos.get("days") is not None else "",
-        "ultima_lectura": str(datos.get("last") or ""),
-        "periodo": str(datos.get("period") or ""),
+        **lectura,
         "enlace_app": settings.FLEET_DRIVERS_APP_URL,
         "mensaje": alert.message,
+        # Solo el recordatorio manual trae algo escrito por una persona.
+        "nota": str(datos.get("note") or ""),
     }
 
 
@@ -459,11 +665,19 @@ _MAILED_ON_CREATE = (
 
 
 def _driver_and_supervisor(alert: Alert):
-    """(conductor, supervisor) del coche de la alerta; el conductor es el de
-    la alerta si lo lleva y, si no, el vigente del coche."""
-    driver = alert.user if alert.user_id else None
-    if driver is None and alert.vehicle_id:
+    """(conductor, supervisor) del coche de la alerta.
+
+    El conductor es el **vigente del coche** y solo sin coche vale el de la
+    alerta (`alert.user`). Ese campo es una foto de cuando nació el aviso, y
+    el aviso mensual vive un mes entero: cambiado el conductor el día 10, el
+    correo del 20 y del 28 seguían yendo —y saludando— al anterior, que ya no
+    tenía el coche ni podía registrar nada.
+    """
+    driver = None
+    if alert.vehicle_id:
         driver = current_driver_map([alert.vehicle_id]).get(alert.vehicle_id)
+    if driver is None and alert.user_id and not alert.vehicle_id:
+        driver = alert.user
     supervisor = alert.vehicle.supervisor if alert.vehicle_id else None
     return driver, supervisor
 
@@ -549,13 +763,33 @@ def _recipient_for(alert: Alert) -> str:
 
 def _rendered_for(alert: Alert) -> tuple[str, str, str]:
     """(asunto, cuerpo, clave de plantilla) del aviso de una alerta."""
+    subject, body, key, _greets = _rendered_with_greeting(alert)
+    return subject, body, key
+
+
+def _rendered_with_greeting(alert: Alert) -> tuple[str, str, str, bool]:
+    """Lo de `_rendered_for` más si la plantilla nombra a alguien."""
     template = _template_for(alert.type)
     context = _context_for(alert)
-    subject = render(template.subject, context)
+    subject = render(template.subject, context, escape=False)
     body = render(template.body_html, context)
     if template.signature is not None and template.signature.is_active:
         body += template.signature.body_html
-    return subject, body, template.key
+    greets = uses_variable(f"{template.subject} {template.body_html}", "conductor")
+    return subject, body, template.key, greets
+
+
+def _body_for(alert: Alert, body: str, greets: bool, papel: str, email: str) -> str:
+    """El cuerpo de ESE destinatario: quien lo recibe en copia lo lee dicho."""
+    driver, supervisor = _driver_and_supervisor(alert)
+    return body_for_recipient(
+        body,
+        email=email,
+        role=papel,
+        addressee=driver or supervisor,
+        plate=alert.vehicle.plate if alert.vehicle_id else "",
+        greets=greets,
+    )
 
 
 def queue_for_alert(alert: Alert, *, scheduled: bool = False) -> bool:
@@ -574,7 +808,7 @@ def queue_for_alert(alert: Alert, *, scheduled: bool = False) -> bool:
         if not scheduled and alert.type not in _MAILED_ON_CREATE:
             return False
         destinos = _recipients_for(alert)
-        subject, body, template_key = _rendered_for(alert)
+        subject, body, template_key, greets = _rendered_with_greeting(alert)
         tanda = new_batch()
 
         if not destinos:
@@ -600,7 +834,7 @@ def queue_for_alert(alert: Alert, *, scheduled: bool = False) -> bool:
                     recipient_role=papel,
                     batch=tanda,
                     subject=subject[:200],
-                    body_html=body,
+                    body_html=_body_for(alert, body, greets, papel, email),
                     status=EmailLog.Status.SKIPPED,
                     error="Correo saliente no configurado (EMAIL_HOST o GMAIL_OAUTH_ENABLED).",
                 )
@@ -615,7 +849,7 @@ def queue_for_alert(alert: Alert, *, scheduled: bool = False) -> bool:
                 recipient_role=papel,
                 batch=tanda,
                 subject=subject[:200],
-                body_html=body,
+                body_html=_body_for(alert, body, greets, papel, email),
             )
         return True
     except Exception as exc:  # noqa: BLE001 — best-effort por diseño
@@ -701,8 +935,60 @@ def send_outbox(
     return result
 
 
+def _refresh_alert_entry(entry: EmailOutbox) -> str:
+    """Pone al día el correo de una ALERTA justo antes de entregarlo.
+
+    El cuerpo se rinde al encolar y la entrega puede llegar después —la cola
+    reintenta, y con el SMTP caído, días después—. Para entonces el aviso
+    puede estar cerrado (la lectura llegó) o el coche haber cambiado de
+    conductor: se mandaba igual, con los datos de entonces y a quien ya no
+    lo lleva. Devuelve el motivo por el que NO debe salir (vacío = sale), y
+    deja en la fila el asunto y el cuerpo de ahora.
+    """
+    from fleet.models.enums import AlertStatus
+
+    alert = Alert.objects.select_related("vehicle", "user").filter(pk=entry.alert_id).first()
+    if alert is None:
+        return ""
+    if alert.status != AlertStatus.OPEN:
+        return "El aviso ya estaba cerrado al entregar el correo."
+    if entry.recipient_role == RecipientRole.DRIVER:
+        driver, _supervisor = _driver_and_supervisor(alert)
+        actual = (driver.email if driver is not None else "") or ""
+        if actual.strip().lower() != entry.recipient.strip().lower():
+            return "El conductor del vehículo ya no es el destinatario de este correo."
+    subject, comun, _key, greets = _rendered_with_greeting(alert)
+    entry.subject = subject[:200]
+    entry.body_html = _body_for(alert, comun, greets, entry.recipient_role, entry.recipient)
+    return ""
+
+
 def _send_one(entry: EmailOutbox, connection, max_attempts: int, result: dict[str, int]) -> None:
     """Entrega UNA fila ya reclamada y anota el resultado (nunca lanza)."""
+    if entry.alert_id and not entry.attachment:
+        try:
+            motivo = _refresh_alert_entry(entry)
+        except Exception as exc:  # noqa: BLE001 — refrescar es best-effort
+            logger.warning("No se pudo refrescar el correo en cola %s: %s", entry.pk, exc)
+            motivo = ""
+        if motivo:
+            # No sale y no se reintenta: la fila queda cerrada con su porqué.
+            entry.status = EmailOutbox.Status.FAILED
+            entry.last_error = motivo
+            entry.save(update_fields=["status", "last_error", "updated_at"])
+            EmailLog.objects.create(
+                alert_id=entry.alert_id,
+                vehicle_id=entry.vehicle_id,
+                template_key=entry.template_key,
+                recipient=entry.recipient,
+                recipient_role=entry.recipient_role,
+                batch=entry.batch,
+                subject=entry.subject,
+                body_html=entry.body_html,
+                status=EmailLog.Status.SKIPPED,
+                error=motivo,
+            )
+            return
     entry.attempts += 1
     try:
         _deliver(entry, connection=connection)
@@ -739,7 +1025,7 @@ def _send_one(entry: EmailOutbox, connection, max_attempts: int, result: dict[st
     entry.status = EmailOutbox.Status.SENT
     entry.sent_at = timezone.now()
     entry.last_error = ""
-    campos = ["attempts", "status", "sent_at", "last_error", "updated_at"]
+    campos = ["attempts", "status", "sent_at", "last_error", "subject", "body_html", "updated_at"]
     if entry.attachment:
         # Entregado: el fichero ya no hace falta y la cola es histórico, no
         # almacén. Se borra del disco pero se conserva el nombre, que es lo

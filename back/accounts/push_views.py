@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from core.throttling import PublicWriteThrottle
 
 from .models import PushSubscription
-from .push import push_enabled
+from .push import endpoint_allowed, push_enabled, trim_subscriptions
 
 
 class PushConfigView(APIView):
@@ -47,11 +47,16 @@ class PushSubscriptionView(APIView):
     throttle_scope = "public_write"
 
     def post(self, request):
-        endpoint = str(request.data.get("endpoint", "")).strip()
-        keys = request.data.get("keys") or {}
+        # Un cuerpo que no es un objeto (o unas `keys` que no lo son) es una
+        # suscripción inválida, no un 500.
+        data = request.data if isinstance(request.data, dict) else {}
+        endpoint = str(data.get("endpoint", "")).strip()
+        keys = data.get("keys")
+        if not isinstance(keys, dict):
+            keys = {}
         p256dh = str(keys.get("p256dh", "")).strip()
         auth = str(keys.get("auth", "")).strip()
-        if not (endpoint.startswith("https://") and p256dh and auth):
+        if not (endpoint_allowed(endpoint) and p256dh and auth):
             return Response(
                 {"detail": "Suscripción inválida: faltan endpoint o claves."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -71,6 +76,7 @@ class PushSubscriptionView(APIView):
                 "user_agent": request.headers.get("User-Agent", "")[:255],
             },
         )
+        trim_subscriptions(request.user)
         return Response({"subscribed": True}, status=status.HTTP_201_CREATED)
 
     def delete(self, request):

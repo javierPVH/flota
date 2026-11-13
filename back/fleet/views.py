@@ -8,7 +8,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models, transaction
 from django.http import Http404, HttpResponse
 from django.utils import timezone
-from django.utils.dateparse import parse_date, parse_datetime
+from django.utils.dateparse import parse_date as _django_parse_date
+from django.utils.dateparse import parse_datetime as _django_parse_datetime
 from django.utils.text import slugify
 from django_filters import rest_framework as filters
 from django_filters.widgets import BooleanWidget
@@ -20,7 +21,7 @@ from rest_framework.exceptions import (
     PermissionDenied,
     ValidationError,
 )
-from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -40,6 +41,7 @@ from accounts.permissions import (
     ManagementReadWrite,
     ManagementWriteDriverRead,
 )
+from core.parsers import ObjectJSONParser as JSONParser
 from core.throttling import PublicWriteThrottle
 
 from .idempotency import IdempotentCreateMixin, run_idempotent
@@ -208,6 +210,69 @@ from .services.archiver import (
 )
 
 
+def parse_date(value):
+    """`parse_date` de Django, con la fecha IMPOSIBLE como 400.
+
+    El de Django devuelve ``None`` si el texto no tiene forma de fecha, pero
+    LANZA `ValueError` si la tiene y no existe («2026-02-30»). Las acciones
+    de este módulo leen fechas del cuerpo a mano, y esa excepción era un 500
+    al alcance de cualquiera —también del conductor, en consumo y `done/`—.
+    """
+    try:
+        return _django_parse_date(value)
+    except ValueError as exc:
+        raise ValidationError({"detail": "Fecha no válida."}) from exc
+
+
+#: Largo máximo de la nota de un recordatorio de campo (`vehicles/{id}/remind/`).
+REMIND_MESSAGE_MAX = 2000
+
+#: Cuánto puede adelantarse a la última lectura conocida el km que el CAMPO da
+#: al marcar un mantenimiento hecho (`maintenance-plans/{id}/done/`).
+DONE_KM_FIELD_MARGIN = 50_000
+
+
+def _assert_not_insurance(user, template_key: str) -> None:
+    """X1: la plantilla del seguro es de la administración.
+
+    Sus avisos ya se le ocultaban a la supervisión, pero podía previsualizar
+    la plantilla —que rinde el vencimiento del seguro del coche— o mandársela
+    al conductor."""
+    if template_key == EmailTemplateKey.INSURANCE_DUE and not getattr(user, "is_admin", False):
+        raise ValidationError({"template_key": "Esa plantilla es de administración."})
+
+
+def _lock_row(obj):
+    """La misma fila, releída BAJO CANDADO (dentro de una transacción).
+
+    Las bandejas leían el estado de una petición y decidían después, sin
+    candado: dos administradores a la vez podían dejar, por ejemplo, un
+    documento borrado con su petición «rechazada». Con la fila bloqueada, la
+    segunda decisión espera a la primera y se encuentra la petición ya
+    decidida — que es el 400 de siempre.
+    """
+    return type(obj).objects.select_for_update().get(pk=obj.pk)
+
+
+def _is_pure_hse(user) -> bool:
+    """HSE sin gestión ni conducción: el que solo lee cómo se usa la flota."""
+    return bool(
+        getattr(user, "is_authenticated", False)
+        and user.is_hse
+        and not user.is_management
+        and not user.is_driver
+    )
+
+
+def parse_datetime(value):
+    """Lo mismo para `parse_datetime` (el `expected_updated_at` del bloqueo
+    optimista)."""
+    try:
+        return _django_parse_datetime(value)
+    except ValueError as exc:
+        raise ValidationError({"detail": "Fecha y hora no válidas."}) from exc
+
+
 class Conflict(APIException):
     """409: el registro cambió desde que se cargó (bloqueo optimista)."""
 
@@ -283,22 +348,40 @@ class ScopedByVehicleMixin:
         user = self.request.user
         if user.is_admin or not self.vehicle_lookup:
             return
-        data = serializer.validated_data
-        # Primer salto del path (`vehicle`, `main_vehicle`, `invoice`…).
-        first = self.vehicle_lookup.split("__")[0]
-        target = data.get(first)
+        target = self._target_vehicle(serializer)
         if target is None:
             return
-        # Si el path tiene más saltos, se recorre hasta el vehículo.
-        for step in self.vehicle_lookup.split("__")[1:]:
-            target = getattr(target, step, None)
-            if target is None:
-                return
         if not vehicles_for(user, write=True).filter(pk=target.pk).exists():
             raise PermissionDenied("El vehículo está fuera de tu ámbito.")
 
+    def _target_vehicle(self, serializer):
+        """El vehículo sobre el que escribe la petición, o ``None``."""
+        if not self.vehicle_lookup:
+            return None
+        # Primer salto del path (`vehicle`, `main_vehicle`, `invoice`…).
+        first = self.vehicle_lookup.split("__")[0]
+        target = serializer.validated_data.get(first)
+        # Si el path tiene más saltos, se recorre hasta el vehículo.
+        for step in self.vehicle_lookup.split("__")[1:]:
+            if target is None:
+                return None
+            target = getattr(target, step, None)
+        return target
+
+    def _assert_in_fleet(self, serializer) -> None:
+        """Sobre un coche que ya salió de la flota no se da de alta nada desde
+        el campo: quien lo supervisaba (o lo tenía repartido) seguía creando
+        lecturas, consumo, incidencias y documentos sobre un coche devuelto.
+        La administración sí, que es quien corrige su histórico."""
+        if self.request.user.is_admin:
+            return
+        target = self._target_vehicle(serializer)
+        if isinstance(target, Vehicle) and target.state in OUT_OF_FLEET:
+            raise ValidationError({"vehicle": "Ese vehículo ya no está en la flota."})
+
     def perform_create(self, serializer):
         self._assert_in_scope(serializer)
+        self._assert_in_fleet(serializer)
         serializer.save(**self.extra_create_kwargs())
 
     def perform_update(self, serializer):
@@ -353,6 +436,14 @@ class VehicleFilter(filters.FilterSet):
         model = Vehicle
         fields = ["state", "business_use", "is_substitute", "supervisor", "type", "property"]
 
+    def filter_queryset(self, queryset):
+        # Al HSE puro la ficha no le dice quién lleva ni quién supervisa el
+        # coche; con estos dos filtros lo deducía igual, coche a coche.
+        if _is_pure_hse(getattr(self.request, "user", None)):
+            for name in ("supervisor", "assigned"):
+                self.form.cleaned_data.pop(name, None)
+        return super().filter_queryset(queryset)
+
     def filter_assigned(self, queryset, name, value):
         # Vehículos con asignación ACEPTADA vigente (BG12: contar cualquier
         # asignación incluía PROPUESTAS — un coche salía "asignado" y sin
@@ -384,14 +475,22 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
     vehicle_lookup = ""
     queryset = Vehicle.objects.all()
     filterset_class = VehicleFilter
-    search_fields = [
-        "plate",
-        "brand",
-        "model",
+    _vehicle_search = ["plate", "brand", "model"]
+    _driver_search = [
         "assignments__driver__first_name",
         "assignments__driver__last_name",
         "assignments__driver__username",
     ]
+
+    @property
+    def search_fields(self):
+        """Por matrícula, marca y modelo; y por conductor salvo el HSE puro,
+        que buscando un nombre (histórico incluido) sabía qué coche llevó."""
+        request = getattr(self, "request", None)
+        if request is not None and _is_pure_hse(request.user):
+            return self._vehicle_search
+        return self._vehicle_search + self._driver_search
+
     # C7: `next_itv_date` e `insurance_expiry_date` FALTABAN, y el panel las
     # pedía para sus modales de vencimientos: `OrderingFilter` descarta en
     # silencio lo que no está en la lista y cae al orden por defecto, así que la
@@ -608,7 +707,12 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["post"],
         url_path="release-substitute",
-        permission_classes=[IsManagement],
+        # Devuelve el coche a Activo y cierra un vínculo: las dos cosas son de
+        # la administración (el `PATCH` de estado y `vehicle-links` ya lo
+        # eran). Abierto a la supervisión, reactivaba cualquier coche parado
+        # de su grupo —también uno pendiente de devolución— sin incidencia
+        # que resolver, por la puerta de al lado.
+        permission_classes=[IsAdmin],
     )
     def release_substitute(self, request, pk=None):
         """POST /api/v1/vehicles/{id}/release-substitute/ — vuelta al servicio.
@@ -623,6 +727,10 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         vehicle = self.get_object()
         data = request.data if isinstance(request.data, dict) else {}
         day = parse_date(str(data.get("date", "") or "")) or None
+        # La vuelta al servicio es un hecho: no se fecha en el futuro (el
+        # vínculo seguiría vigente y el evento quedaría con fecha de mañana).
+        if day is not None and day > timezone.localdate():
+            raise ValidationError({"date": "La fecha no puede ser futura."})
         result = substitution.release_substitute(vehicle, actor=request.user, when=day)
         result["blocked_by"] = substitution.blocked_payload(result.get("blocked_by"))
         return Response(result)
@@ -739,6 +847,13 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         las de su tabla. Cada entrada incluye el modelo de origen (`model`).
         """
         vehicle = self.get_object()
+        # La auditoría de un documento lleva su tipo, sus notas, su enlace de
+        # Drive y su responsable: quien no es admin lee solo la de los que
+        # PUEDE leer (`readable_documents`), o el histórico le enseñaba los
+        # protegidos y los de un tipo cerrado a la supervisión.
+        documentos = Document.objects.filter(vehicle=vehicle)
+        if not request.user.is_admin:
+            documentos = readable_documents(request.user, documentos)
         # Cambios en la propia ficha + en todo lo colgado del vehículo.
         related_querysets = (
             Contract.objects.filter(vehicle=vehicle),
@@ -747,7 +862,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             VehicleUsage.objects.filter(vehicle=vehicle),
             Invoice.objects.filter(vehicle=vehicle),
             Incident.objects.filter(vehicle=vehicle),
-            Document.objects.filter(vehicle=vehicle),
+            documentos,
             VehicleLink.objects.filter(
                 models.Q(main_vehicle=vehicle) | models.Q(substitute_vehicle=vehicle)
             ),
@@ -843,9 +958,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         La proyección solo viaja a gestión (`metrics.projection_visible`).
         """
         data = metrics.vehicle_summary(self.get_object())
-        if not metrics.projection_visible(request.user):
-            data["projection"] = None
-        return Response(data)
+        return Response(metrics.redact_for(request.user, data))
 
     @action(
         detail=True, methods=["post"], url_path="convert-to-fleet", permission_classes=[IsAdmin]
@@ -1106,6 +1219,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         template_key = (request.data.get("template_key") or "").strip()
         if not template_key and not message and not body_override:
             raise ValidationError({"message": "El comunicado no puede estar vacío."})
+        _assert_not_insurance(request.user, template_key)
         # `lang`: es | en | both. Con `both` van las dos versiones en un mismo
         # correo. Solo afecta a la plantilla; el texto libre va tal cual.
         lang = (request.data.get("lang") or "es").strip()
@@ -1115,6 +1229,10 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         # botón rápido de la ficha). La traza queda ligada a él, y así la
         # actividad de correo del coche dice que ese aviso ya se mandó.
         alerta = None
+        # Si `{{mensaje}}` lo pone la frase del aviso y no quien envía: esa
+        # frase no es una nota escrita a mano y no va a `{{nota}}` (la de km
+        # repetiría lo que su plantilla ya dice con sus variables).
+        frase_del_aviso = False
         if request.data.get("alert"):
             try:
                 alerta = Alert.objects.get(
@@ -1124,6 +1242,16 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 raise ValidationError(
                     {"alert": "Ese aviso no está abierto en este vehículo."}
                 ) from exc
+            # X1: el aviso del seguro no existe para quien no es admin.
+            if alerta.type == AlertType.INSURANCE_DUE and not request.user.is_admin:
+                raise ValidationError({"alert": "Ese aviso no está abierto en este vehículo."})
+            # El botón rápido del aviso manda su plantilla sin texto: el
+            # `{{mensaje}}` es entonces la frase del propio aviso, como en su
+            # correo automático. Sin esto, el comunicado de «sin conductor»
+            # salía con el párrafo del mensaje vacío.
+            if template_key and not message and not body_override:
+                message = alerta.message
+                frase_del_aviso = True
         to_driver = bool(request.data.get("to_driver"))
         to_supervisor = bool(request.data.get("to_supervisor"))
         to_admin = bool(request.data.get("to_admin"))
@@ -1187,13 +1315,8 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             else:
                 targets.append(("admin", ""))
         if to_renting:
-            contract = (
-                vehicle.contracts.filter(end_date__isnull=True, is_active=True)
-                .order_by("-start_date")
-                .first()
-                or vehicle.contracts.filter(is_active=True).order_by("-start_date").first()
-            )
-            renting = contract.renting if contract else None
+            # La misma renting que nombra `{{empresa}}` (`mailer.renting_for`).
+            renting = mailer.renting_for(vehicle)
             targets.append(("renting", renting.email if renting else ""))
         if extra_email:
             targets.append(("otro", extra_email))
@@ -1201,15 +1324,28 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         if template_key:
             # Asunto/cuerpo desde la plantilla (o texto por defecto si no existe).
             notice = mailer.render_vehicle_notice(
-                vehicle, template_key, message, lang, body_override
+                vehicle,
+                template_key,
+                message,
+                lang,
+                body_override,
+                note="" if frase_del_aviso else None,
             )
+            if notice.missing:
+                # La frase saldría con el hueco («vence el .»): se dice qué le
+                # falta al coche en vez de mandar el correo roto.
+                raise ValidationError(
+                    {"detail": mailer.missing_reason(template_key, notice.missing)}
+                )
             subject, body_html, log_key = notice.subject, notice.body_html, notice.used_key
+            greets = notice.greets
             override = (request.data.get("subject") or "").strip()
             if override:
                 subject = override
             subject = subject[:200]
         else:
             log_key = "comunicado"
+            greets = False
             subject = (
                 request.data.get("subject") or f"[Flota] {vehicle.plate} · Comunicado"
             ).strip()[:200]
@@ -1225,12 +1361,25 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         # Una TANDA por comunicado: en la traza, sus filas se leen juntas.
         tanda = mailer.new_batch()
         papel_de = {"otro": "other"}
+        # A quién nombra el saludo de la plantilla: quien reciba el correo sin
+        # ser esa persona lo lleva dicho arriba (`mailer.copy_note`).
+        nombrado = current_driver_map([vehicle.id]).get(vehicle.id) or vehicle.supervisor
+        comun = body_html
         # R3-13: una conexión SMTP para todo el comunicado (un envío a 5
         # destinatarios abría y cerraba 5 conexiones: handshake + TLS + auth
         # por correo). El error por destinatario se sigue tratando por fila.
         connection = get_connection()
         try:
             for role, email in targets:
+                body_html = mailer.body_for_recipient(
+                    comun,
+                    email=email,
+                    role=papel_de.get(role, role),
+                    addressee=nombrado,
+                    plate=vehicle.plate,
+                    greets=greets,
+                    lang=lang,
+                )
                 traza = {
                     "template_key": log_key,
                     "recipient_role": papel_de.get(role, role),
@@ -1309,6 +1458,12 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             # X1: el seguro es de administración, como en la bandeja: ni sus
             # avisos ni sus correos (a la renting) se enseñan a la supervisión.
             del_coche &= ~models.Q(template_key=EmailTemplateKey.INSURANCE_DUE)
+            # Y solo lo que fue al conductor o a la supervisión: los
+            # comunicados que la administración mandó a administradores, a la
+            # renting o a un correo libre (destinatario y asunto) no son suyos.
+            del_coche &= models.Q(
+                recipient_role__in=(RecipientRole.DRIVER, RecipientRole.SUPERVISOR)
+            )
         etiqueta = dict(EmailTemplateKey.choices)
         papeles = dict(RecipientRole.choices)
 
@@ -1412,8 +1567,14 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         create_alert = bool(request.data.get("create_alert"))
         if not send_email and not create_alert:
             raise ValidationError({"detail": "Elige al menos un canal (correo o alerta)."})
-        message = (request.data.get("message") or "").strip()
-        body_mode = (request.data.get("body_mode") or "template").strip()
+        message = str(request.data.get("message") or "").strip()
+        # La nota va a la alerta y al correo: con techo. Sin él, una larga
+        # desbordaba la columna del mensaje del aviso (un 500 en Postgres).
+        if len(message) > REMIND_MESSAGE_MAX:
+            raise ValidationError(
+                {"message": f"El mensaje no puede pasar de {REMIND_MESSAGE_MAX} caracteres."}
+            )
+        body_mode = str(request.data.get("body_mode") or "template").strip()
         if body_mode not in ("template", "plain"):
             raise ValidationError({"body_mode": "Modo de correo no válido."})
         if send_email and body_mode == "plain" and not message:
@@ -1439,6 +1600,22 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
         driver = current_driver_map([vehicle.id]).get(vehicle.id)
 
+        # El correo se compone ANTES de abrir la alerta: si la plantilla saldría
+        # con un hueco se rechaza todo, y con la alerta ya creada la respuesta
+        # decía que no se había hecho nada con el aviso puesto en la app.
+        notice = None
+        if send_email and body_mode != "plain":
+            # Asunto/cuerpo de la plantilla del tipo si existe (10b); si no,
+            # la genérica con el mensaje compuesto. Va al conductor.
+            notice = mailer.render_vehicle_notice(vehicle, kind, text, "es", note=message)
+            if notice.missing:
+                raise ValidationError(
+                    {
+                        "detail": mailer.missing_reason(kind, notice.missing)
+                        + " Escribe un texto propio para mandarlo igualmente."
+                    }
+                )
+
         alert_created = False
         if create_alert:
             alert_created = alerts_service.upsert_alert(
@@ -1462,9 +1639,6 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 body_html = "<p>" + html.escape(message).replace("\n", "<br>") + "</p>"
                 template_key = kind
             else:
-                # Asunto/cuerpo de la plantilla del tipo si existe (10b); si
-                # no, la genérica con el mensaje compuesto. Va al conductor.
-                notice = mailer.render_vehicle_notice(vehicle, kind, text, "es")
                 subject, body_html = notice.subject, notice.body_html
                 template_key = notice.used_key or kind
             email_sent, email_skipped = mailer.send_notice_now(
@@ -1501,6 +1675,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
 
         vehicle = self.get_object()
         template_key = (request.data.get("template_key") or "").strip()
+        _assert_not_insurance(request.user, template_key)
         message = (request.data.get("message") or "").strip()
         lang = (request.data.get("lang") or "es").strip()
         body_override = (request.data.get("body") or "").strip()
@@ -1514,6 +1689,9 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 "body_html": notice.body_html,
                 "document_html": document_html,
                 "has_template": bool(notice.used_key),
+                # Lo que le falta al coche para ese correo (vacío = nada): el
+                # envío lo rechazaría con este mismo motivo.
+                "missing": mailer.missing_reason(template_key, notice.missing),
                 # Para avisar en la UI de que la versión inglesa no existe y se
                 # está enseñando la castellana.
                 "has_en": notice.has_en,
@@ -1735,6 +1913,13 @@ class AssignmentViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets
     queryset = Assignment.objects.select_related("vehicle", "driver")
     filterset_fields = ["vehicle", "driver", "status"]
     ordering_fields = ["start_date", "created_at"]
+
+    def scope_queryset(self, qs, user):
+        """El conductor lee LAS SUYAS, no las del coche: por el vehículo le
+        llegaba el histórico entero de quién lo llevó antes, con nombres."""
+        if not user.is_management:
+            return qs.filter(driver=user)
+        return super().scope_queryset(qs, user)
 
     def perform_create(self, serializer):
         # Nueva asignación, atómico. El evento de cambio de conductor solo se
@@ -2019,8 +2204,19 @@ class VehicleUsageViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewse
         with transaction.atomic():
             # R3-24: cierre fila a fila (no `queryset.update()`) — VehicleUsage
             # está auditado y el diff del cierre debe quedar, con su updated_at.
+            # Candado sobre el coche: dos `set/` a la vez duplicaban el reparto.
+            Vehicle.objects.select_for_update().filter(pk=vehicle.pk).first()
+            inicio = data["start_date"]
+            # Se cierra TODO lo que siga vigente al empezar el nuevo: también
+            # las filas con fin programado (antes solo las de fin vacío, y el
+            # reparto quedaba al 200 % con esa persona conservando el ámbito).
+            # Las que empiezan después no se tocan: cerrarlas en `inicio`
+            # dejaría su fin por delante de su principio.
             for usage in VehicleUsage.objects.filter(
-                vehicle=vehicle, end_date__isnull=True, is_active=True
+                models.Q(end_date__isnull=True) | models.Q(end_date__gt=inicio),
+                models.Q(start_date__isnull=True) | models.Q(start_date__lte=inicio),
+                vehicle=vehicle,
+                is_active=True,
             ):
                 usage.end_date = data["start_date"]
                 usage.save(update_fields=["end_date", "updated_at"])
@@ -2132,6 +2328,28 @@ class EventViewSet(
     filterset_fields = ["vehicle", "event_type"]
     ordering_fields = ["event_date"]
 
+    #: Lo que el histórico le cuenta a quien CONDUCE: lo que le pasa al coche
+    #: y él mismo registra. El resto es de gestión.
+    DRIVER_EVENT_TYPES = (
+        EventType.ITV,
+        EventType.KM_READING,
+        EventType.MAINTENANCE,
+        EventType.BREAKDOWN,
+    )
+
+    def scope_queryset(self, qs, user):
+        """El ámbito es por coche, pero el histórico no es todo del conductor.
+
+        Sin este recorte, por tener el coche leía los cambios de cuota (la
+        anterior y la nueva), las sanciones con su importe, las renovaciones
+        del seguro (X1) y los relevos de conductor y supervisor con sus
+        nombres — justo lo que `/contracts/` y el resto le niegan.
+        """
+        qs = super().scope_queryset(qs, user)
+        if not user.is_management:
+            qs = qs.filter(event_type__in=self.DRIVER_EVENT_TYPES)
+        return qs
+
     def perform_create(self, serializer):
         # Evento + subtipo + efectos de la ITV (alertas, incidencia «En ITV»,
         # vuelta a Activo) en UNA transacción: o queda todo o no queda nada.
@@ -2207,11 +2425,16 @@ class InvoiceAllocationViewSet(
 
 
 class DocumentPermission(BasePermission):
-    """Lee/crea gestión o conductor; edita/borra solo gestión.
+    """Lee/crea gestión o conductor; edita la gestión; borra solo el admin.
 
     El conductor sube documentos de su vehículo (HU-4.1) y los suyos personales
     (permiso de conducir); la gestión los administra (HU-4.4). El scoping por
     vehículo/usuario lo aplica el queryset.
+
+    El borrado directo es de la administración: la supervisión —como el
+    conductor— PIDE el borrado (`document-deletion-requests`) y lo decide el
+    admin. Con el `DELETE` abierto a toda la gestión, esa bandeja se saltaba
+    con una sola llamada.
     """
 
     message = "No tienes permiso para esta operación sobre documentos."
@@ -2222,7 +2445,9 @@ class DocumentPermission(BasePermission):
             return False
         if request.method in SAFE_METHODS or request.method == "POST":
             return user.is_management or user.is_driver
-        return user.is_management  # PUT / PATCH / DELETE
+        if request.method == "DELETE":
+            return user.is_admin
+        return user.is_management  # PUT / PATCH
 
 
 class IncidentViewSet(
@@ -2748,6 +2973,11 @@ class DocumentDeletionRequestViewSet(
         user = self.request.user
         if user.is_admin:
             return qs
+        # Al conductor, solo las suyas: leer un documento compartido no es
+        # leer lo que OTRO pidió sobre él (quién y con qué motivo). La marca
+        # «pendiente» del documento va anotada en su listado, no sale de aquí.
+        if not user.is_management:
+            return qs.filter(requested_by=user)
         # Es una bandeja de decisión: lo que HSE solo lee no abre peticiones.
         legibles = readable_documents(user, write=True).values("id")
         return qs.filter(
@@ -2835,6 +3065,7 @@ class DocumentDeletionRequestViewSet(
         return Response(salida.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    @transaction.atomic
     def resolve(self, request, pk=None):
         """POST /document-deletion-requests/{id}/resolve/ — la decide la gestión.
 
@@ -2847,7 +3078,7 @@ class DocumentDeletionRequestViewSet(
         o `reject`. Todas la sacan de pendiente, que es lo que quita la marca
         en el campo.
         """
-        peticion = self.get_object()
+        peticion = _lock_row(self.get_object())
         if peticion.status != DocumentDeletionStatus.PENDING:
             raise ValidationError({"status": "Esa petición ya está resuelta."})
         decision = str(request.data.get("decision", "") or "")
@@ -3255,6 +3486,14 @@ class ReportsView(APIView):
         # `fields` es el selector de secciones del documento completo (columnas
         # del súper registro + hojas de detalle). Solo en la descarga a mano:
         # los envíos programados van SIEMPRE completos (no está en REPORT_FILTERS).
+        # Un filtro con un valor imposible es un 400, no un 500 al construir
+        # el informe (`?vehicle=abc`, `?status=zzz`).
+        vehiculo = str(filters.get("vehicle") or "").strip()
+        if vehiculo and not vehiculo.isdigit():
+            raise ValidationError({"vehicle": "Vehículo no válido."})
+        estado = str(filters.get("status") or "").strip()
+        if kind == "alerts" and estado and estado not in AlertStatus.values:
+            raise ValidationError({"status": "Estado no válido."})
         if kind == "vehicles":
             filters["fields"] = request.query_params.get("fields", "")
         if fmt == "json":
@@ -3450,6 +3689,9 @@ class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
             if Vehicle.objects.filter(pk=vehicle_id).exists():
                 raise PermissionDenied("El vehículo está fuera de tu ámbito.")
             raise ValidationError({"vehicle": "Vehículo no válido."})
+        # Sobre un coche que ya salió de la flota no se anota desde el campo.
+        if vehicle.state in OUT_OF_FLEET and not request.user.is_admin:
+            raise ValidationError({"vehicle": "Ese vehículo ya no está en la flota."})
         today = timezone.localdate()
         raw_date = str(request.data.get("reading_date") or "")
         reading_date = parse_date(raw_date) if raw_date else today
@@ -3473,6 +3715,9 @@ class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
             avg_consumption = Decimal(str(raw))
         except ArithmeticError as exc:
             raise ValidationError({"avg_consumption": "Valor no válido."}) from exc
+        # `NaN` e `Infinity` se construyen sin error y revientan después.
+        if not avg_consumption.is_finite():
+            raise ValidationError({"avg_consumption": "Valor no válido."})
         if avg_consumption < 0:
             raise ValidationError({"avg_consumption": "No puede ser negativo."})
         row = FuelConsumption.objects.create(
@@ -3574,6 +3819,10 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
                 cost = Decimal(str(raw_cost))
             except ArithmeticError as exc:
                 raise ValidationError({"cost": "Coste no válido."}) from exc
+            # `Decimal("NaN")` e `Infinity` se construyen sin error y revientan
+            # al compararlos o al guardarlos.
+            if not cost.is_finite():
+                raise ValidationError({"cost": "Coste no válido."})
             if cost < 0:
                 raise ValidationError({"cost": "El coste no puede ser negativo."})
         done_date = parse_date(str(request.data.get("date") or "")) or None
@@ -3586,6 +3835,29 @@ class MaintenancePlanViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
                 raise ValidationError({"km": "Kilometraje no válido."}) from exc
             if km < 0:
                 raise ValidationError({"km": "Kilometraje no válido."})
+            # El km dado REANCLA el ciclo (`last_done_km`): desde el campo no
+            # puede ser cualquiera. Con 9.999.999 el ciclo por km quedaba
+            # apagado para siempre. Se acota a la última lectura del coche más
+            # un margen holgado (lo que se rueda entre una lectura y el taller).
+            if not request.user.is_management:
+                ultima = (
+                    KmReading.objects.filter(
+                        vehicle=plan.vehicle, km_reading__isnull=False, is_active=True
+                    )
+                    .order_by("-reading_date", "-id")
+                    .values_list("km_reading", flat=True)
+                    .first()
+                )
+                base = max(ultima or 0, plan.last_done_km or 0)
+                if km > base + DONE_KM_FIELD_MARGIN:
+                    raise ValidationError(
+                        {
+                            "km": (
+                                "El kilometraje no cuadra con la última lectura del "
+                                f"vehículo ({base} km): revísalo o pide a gestión que lo anote."
+                            )
+                        }
+                    )
         workshop = None
         workshop_id = request.data.get("workshop")
         if workshop_id not in (None, ""):
@@ -3714,7 +3986,7 @@ class NotificationScheduleViewSet(viewsets.ModelViewSet):
             # R3-15: entrega SOLO lo recién encolado — sin el filtro, la prueba
             # de UN envío se ponía a repartir hasta 200 correos pendientes de
             # otros dentro del request (con el timeout de gunicorn en contra).
-            mailer.send_outbox(entry_ids=[resultado["outbox_id"]])
+            mailer.send_outbox(entry_ids=resultado["outbox_ids"])
         schedule.refresh_from_db()
         return Response(
             {
@@ -3755,6 +4027,7 @@ class EmailTemplateViewSet(DeactivateOnDestroyMixin, viewsets.ModelViewSet):
         "periodo": "2026-08",
         "enlace_app": "https://app-de-campo.example",
         "mensaje": "Seguro en 15 día(s) (vence el 2026-08-15).",
+        "nota": "Pásate por la oficina con la documentación.",
     }
 
     @staticmethod
@@ -4094,6 +4367,11 @@ class DriverChangeRequestViewSet(
         user = self.request.user
         if user.is_admin:
             return qs
+        # Al conductor, SOLO las que él abrió: la propuesta de cambiarle el
+        # coche —con su nota y su candidato— no se le enseña (su coche está en
+        # su ámbito de escritura, así que por el vehículo le llegaba entera).
+        if not user.is_management:
+            return qs.filter(requested_by=user)
         # Bandeja de decisión: el ámbito de actuación, sin lo que HSE solo lee.
         return qs.filter(
             models.Q(requested_by=user) | models.Q(vehicle__in=vehicles_for(user, write=True))
@@ -4119,6 +4397,13 @@ class DriverChangeRequestViewSet(
         alerta = datos.get("alert")
         if alerta is not None and alerta.vehicle_id != vehicle.pk:
             raise ValidationError({"alert": "La alerta es de otro vehículo."})
+        # Solo el exceso de km: es la única alerta que se arregla cambiando de
+        # conductor, y la respuesta trae su `alert_message` — citando otra, un
+        # supervisor leía la frase del seguro (X1) que `/alerts/` le oculta.
+        if alerta is not None and (
+            alerta.type != AlertType.KM_OVERAGE or not request.user.is_management
+        ):
+            raise ValidationError({"alert": "Esa alerta no admite una propuesta de conductor."})
         peticion = driver_requests.open_request(
             vehicle,
             actor=request.user,
@@ -4143,13 +4428,14 @@ class DriverChangeRequestViewSet(
         return Response(driver_requests.candidates_for(request.user))
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    @transaction.atomic
     def resolve(self, request, pk=None):
         """POST /driver-change-requests/{id}/resolve/ — la decide la gestión.
 
         Cuerpo: `{"decision": "done" | "reject", "note": "…"}`. Las dos salidas
         la sacan de pendiente; ninguna toca la asignación.
         """
-        peticion = self.get_object()
+        peticion = _lock_row(self.get_object())
         if peticion.status != DriverChangeStatus.PENDING:
             raise ValidationError({"status": "Esa propuesta ya está resuelta."})
         decision = str(request.data.get("decision", "") or "")
@@ -4225,6 +4511,7 @@ class ProfileChangeRequestViewSet(
         return Response(salida.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    @transaction.atomic
     def resolve(self, request, pk=None):
         """POST /profile-change-requests/{id}/resolve/ — la decide la gestión.
 
@@ -4232,7 +4519,7 @@ class ProfileChangeRequestViewSet(
         lo pedido sobre la ficha (`services.profile_requests.resolve` dice por
         qué); `reject` no toca nada. Las dos la sacan de pendiente.
         """
-        peticion = self.get_object()
+        peticion = _lock_row(self.get_object())
         if peticion.status != ProfileChangeStatus.PENDING:
             raise ValidationError({"status": "Esa petición ya está resuelta."})
         decision = str(request.data.get("decision", "") or "")
@@ -4310,13 +4597,14 @@ class IncidentChangeRequestViewSet(
         return Response(salida.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], permission_classes=[IsManagement])
+    @transaction.atomic
     def resolve(self, request, pk=None):
         """POST /incident-change-requests/{id}/resolve/ — la decide la gestión.
 
         Cuerpo: `{"decision": "done" | "reject", "note": "…"}`. `done`
         **aplica** lo pedido sobre la incidencia; `reject` no toca nada.
         """
-        peticion = self.get_object()
+        peticion = _lock_row(self.get_object())
         # Bandeja de decisión: el ámbito de ACTUACIÓN, no el de lectura. El
         # listado va con `vehicles_for(user)` (un supervisor+hse lee la flota),
         # pero aplicar o rechazar la propuesta de un coche que no supervisa
@@ -4415,6 +4703,7 @@ class DocumentSupplyRequestViewSet(
         return Response(salida.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    @transaction.atomic
     def resolve(self, request, pk=None):
         """POST /document-supply-requests/{id}/resolve/ — la decide la gestión.
 
@@ -4427,7 +4716,7 @@ class DocumentSupplyRequestViewSet(
         su tipo y la de cada documento. Que atender implicara compartir sería
         saltarse `DocumentTypeAccess` por la puerta de atrás.
         """
-        peticion = self.get_object()
+        peticion = _lock_row(self.get_object())
         if peticion.status != DocumentSupplyStatus.PENDING:
             raise ValidationError({"status": "Esa petición ya está resuelta."})
         decision = str(request.data.get("decision", "") or "")
@@ -4438,9 +4727,18 @@ class DocumentSupplyRequestViewSet(
         documento = None
         doc_id = request.data.get("document")
         if doc_id:
-            documento = Document.objects.filter(pk=doc_id).first()
+            try:
+                documento = Document.objects.filter(pk=int(doc_id)).first()
+            except (TypeError, ValueError):
+                documento = None
             if documento is None:
                 raise ValidationError({"document": "Ese documento no existe."})
+            # Con un documento del MISMO titular: atender la petición de un
+            # coche con el papel de otro (o de otra persona) no la atiende.
+            if documento.vehicle_id != peticion.vehicle_id or documento.user_id != peticion.user_id:
+                raise ValidationError(
+                    {"document": "Ese documento no es del titular de la petición."}
+                )
         note = str(request.data.get("note", "") or "").strip()[:255]
         document_supply.resolve(
             peticion, decision=decision, actor=request.user, note=note, document=documento

@@ -20,6 +20,7 @@ from importlib import import_module
 
 from django.conf import settings
 from django.contrib.auth.signals import user_logged_in, user_logged_out
+from django.db import transaction
 from django.dispatch import receiver
 
 from .models import UserSession
@@ -67,14 +68,18 @@ def enforce_single_session(sender, request, user, **kwargs):
     key = session.session_key
     if not key:
         return
-    closed = close_other_sessions(user, key)
-    UserSession.objects.update_or_create(
-        session_key=key,
-        defaults={
-            "user": user,
-            "user_agent": str(request.META.get("HTTP_USER_AGENT", ""))[:255],
-        },
-    )
+    # Bajo candado sobre la persona: dos logins a la vez de la misma cuenta
+    # no se veían entre sí y quedaban las dos sesiones vivas.
+    with transaction.atomic():
+        type(user).objects.select_for_update().filter(pk=user.pk).first()
+        closed = close_other_sessions(user, key)
+        UserSession.objects.update_or_create(
+            session_key=key,
+            defaults={
+                "user": user,
+                "user_agent": str(request.META.get("HTTP_USER_AGENT", ""))[:255],
+            },
+        )
     if closed:
         security_logger.info(
             "inicio de sesión user=%s: cerradas %d sesión(es) anteriores", user.pk, closed

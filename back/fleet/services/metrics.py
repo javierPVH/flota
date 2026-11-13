@@ -34,7 +34,7 @@ from fleet.models import (
     MaintenancePlan,
     Vehicle,
 )
-from fleet.models.enums import OUT_OF_FLEET, AlertStatus, IncidentStatus
+from fleet.models.enums import OUT_OF_FLEET, AlertStatus, AlertType, IncidentStatus
 from fleet.scoping import vehicles_for
 from fleet.selectors import (
     active_link_blocking,
@@ -237,6 +237,31 @@ def projection_visible(user) -> bool:
     return bool(getattr(user, "is_management", False) or getattr(user, "is_hse", False))
 
 
+#: Lo que el resumen lleva del contrato y es de GESTIÓN: la cuota, la
+#: penalización por km y el enlace a su carpeta de Drive. `/contracts/` ya le
+#: contesta 403 al conductor; por el resumen le llegaban igual.
+MANAGEMENT_ONLY_CONTRACT_FIELDS = ("month_fee", "penalty_per_km", "drive_url")
+
+
+def redact_for(user, summary: dict) -> dict:
+    """Recorta de un resumen lo que `user` no debe leer (en el sitio).
+
+    La proyección, a quien no la ve (`projection_visible`); y del contrato,
+    los costes y su enlace a quien no es gestión — los km contratados y las
+    fechas se quedan, que es lo que pinta la app de campo.
+    """
+    if not projection_visible(user):
+        summary["projection"] = None
+    # X1: el seguro es de la administración (la clave se queda, a nulo).
+    if not getattr(user, "is_admin", False) and "insurance_expiry_date" in summary:
+        summary["insurance_expiry_date"] = None
+    contract = summary.get("contract")
+    if contract and not getattr(user, "is_management", False):
+        for campo in MANAGEMENT_ONLY_CONTRACT_FIELDS:
+            contract[campo] = None
+    return summary
+
+
 def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
     """Summaries de TODOS los vehículos visibles por `user` (O2 de
     OPTIMIZACION_Y_ERRORES.md): la app de campo hacía un GET por coche.
@@ -291,9 +316,8 @@ def vehicle_summaries(user, ids: list[int] | None = None) -> list[dict]:
         )
         for v in vehicles
     ]
-    if not projection_visible(user):
-        for summary in summaries:
-            summary["projection"] = None
+    for summary in summaries:
+        redact_for(user, summary)
     return summaries
 
 
@@ -525,6 +549,13 @@ def fleet_summary(user, today: date | None = None) -> dict:
     maintenance_next_30d = sum(
         1 for d in next_due.values() if today <= d <= today + timedelta(days=30)
     )
+
+    # X1: el seguro es de la administración. A la supervisión no le viajan ni
+    # sus dos indicadores ni el recuento de sus avisos (que `/alerts/` ya le
+    # oculta): las claves se quedan, vacías, para no romper a quien las lee.
+    if not user.is_admin:
+        insurance_next_30d = insurance_overdue = None
+        open_alerts.pop(AlertType.INSURANCE_DUE, None)
 
     return {
         "total": active.count(),

@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   listIncidents: vi.fn(),
   listVehicleRequests: vi.fn(),
   listDocumentDeletionRequests: vi.fn(),
+  closeServerSession: vi.fn(),
+  logout: vi.fn(),
 }))
 
 vi.mock('../api.ts', async (importOriginal) => ({
@@ -30,9 +32,10 @@ const session = vi.hoisted(() => ({
 
 vi.mock('../auth.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../auth.ts')>()),
+  closeServerSession: mocks.closeServerSession,
   useAuth: () => ({
     user: session.user,
-    logout: vi.fn(),
+    logout: mocks.logout,
   }),
 }))
 
@@ -172,5 +175,33 @@ describe('AppHeader: el rol HSE', () => {
     // Tampoco pide lo que el back le negaría (solicitudes, recuentos de la campana).
     await waitFor(() => expect(mocks.listVehicleRequests).not.toHaveBeenCalled())
     expect(mocks.listAlerts).not.toHaveBeenCalled()
+  })
+})
+
+describe('AppHeader: salir', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    conRoles(['hse'])
+  })
+
+  it('sale cuando el servidor confirma el cierre', async () => {
+    mocks.closeServerSession.mockResolvedValue(true)
+    pintar()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Salir' }))
+
+    await waitFor(() => expect(mocks.logout).toHaveBeenCalledTimes(1))
+  })
+
+  it('si el cierre no se confirma, lo dice y NO finge la salida', async () => {
+    mocks.closeServerSession.mockResolvedValue(false)
+    const aviso = vi.spyOn(window, 'alert').mockImplementation(() => {})
+    pintar()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Salir' }))
+
+    await waitFor(() => expect(aviso).toHaveBeenCalledTimes(1))
+    expect(mocks.logout).not.toHaveBeenCalled()
+    aviso.mockRestore()
   })
 })

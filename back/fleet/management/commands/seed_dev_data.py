@@ -21,8 +21,9 @@ de conductores es pública.
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
-from django.db import connection, transaction
+from django.db import transaction
 
+from fleet.management.seed_guard import check_demo
 from fleet.services import seed
 
 
@@ -47,8 +48,10 @@ class Command(BaseCommand):
         if not settings.DEBUG and not demo:
             self.stdout.write(self.style.ERROR("Seeding bloqueado: DEBUG=False (¿producción?)."))
             return
-        if demo and not settings.DEBUG:
-            self._check_demo()
+        if demo:
+            # También con DEBUG: una demo pública con DEBUG encendido por error
+            # se sembraba con la contraseña del repositorio.
+            check_demo()
         elif not settings.FLEET_SEED_DATA and not options["force"] and not options["if_empty"]:
             self.stdout.write(
                 self.style.WARNING(
@@ -86,22 +89,3 @@ class Command(BaseCommand):
                 )
             )
         )
-
-    def _check_demo(self) -> None:
-        """Candados del modo DEMO (sin DEBUG): la BD activa es la demo y la
-        contraseña no es la del repositorio. Cualquier fallo PARA el comando
-        (CommandError), no se traga: aquí no hay `runserver` que lo recoja."""
-        active = connection.settings_dict.get("NAME", "")
-        expected = getattr(settings, "FLEET_DEMO_DB_NAME", "")
-        if not expected or active != expected:
-            raise CommandError(
-                "Seeding bloqueado: FLEET_DEMO=True pero la base de datos activa "
-                f"({active!r}) no es la demo ({expected!r}). Nunca se siembra otra."
-            )
-        password = getattr(settings, "FLEET_SEED_PASSWORD", "")
-        if not password or password == "flota-dev-2026":
-            raise CommandError(
-                "Seeding bloqueado: el modo demo exige FLEET_SEED_PASSWORD (distinta de la "
-                "de desarrollo): la app de conductores es pública y esa contraseña está "
-                "en el repositorio."
-            )

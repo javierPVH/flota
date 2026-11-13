@@ -49,3 +49,6 @@ e2e/playwright-report/
 e2e/.auth/
 back/e2e.sqlite3
 back/e2e_archive/
+
+# Base de pruebas en fichero (solo con SQLite < 3.37, ver settings.py)
+back/test_db.sqlite3

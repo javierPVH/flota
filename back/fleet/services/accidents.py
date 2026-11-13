@@ -11,6 +11,7 @@ la incidencia (`fleet/signals.py`), así cubre todos los caminos de escritura.
 import calendar
 from datetime import datetime
 
+from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -24,6 +25,15 @@ from ..models.enums import IncidentType
 THIRD_PARTY_WARN_MONTHS = 12
 THIRD_PARTY_RETENTION_MONTHS = 18
 
+#: Claves de `Incident.details` que escribe SOLO el servidor: la marca de que
+#: los terceros ya se borraron. El serializer descarta las que lleguen del
+#: cliente y conserva las que hubiera — fabricada en el alta, dejaba el
+#: accidente «ya purgado» para siempre con los datos intactos.
+SERVER_ONLY_DETAIL_KEYS = ("third_parties_purged_at", "third_parties_purged_by")
+
+#: Lo que queda en la auditoría en el sitio del parte, una vez borrado.
+AUDIT_REDACTED = "[datos de terceros borrados — RGPD]"
+
 
 def _text(value, limit: int) -> str:
     """Texto plano recortado al ancho de la columna (el JSON no garantiza nada)."""
@@ -32,7 +42,10 @@ def _text(value, limit: int) -> str:
 
 def _parse_occurred_at(raw):
     """`datetime-local` del parte ('YYYY-MM-DDTHH:MM') → datetime consciente."""
-    parsed = parse_datetime(str(raw or ""))
+    try:
+        parsed = parse_datetime(str(raw or ""))
+    except ValueError:  # con forma de fecha pero imposible («2026-02-30T10:00»)
+        parsed = None
     if parsed is None:
         return None
     if timezone.is_naive(parsed):
@@ -164,9 +177,37 @@ def purge_third_parties(incident: Incident, *, actor) -> Incident:
     details["third_parties_purged_at"] = timezone.now().isoformat()
     details["third_parties_purged_by"] = actor.get_username() if actor else ""
     incident.details = details
-    incident.save(update_fields=["details", "updated_at"])
+    with transaction.atomic():
+        incident.save(update_fields=["details", "updated_at"])
+        _clear_tables_and_audit(incident)
+    return incident
+
+
+def _clear_tables_and_audit(incident: Incident) -> None:
     report = AccidentReport.objects.filter(incident=incident).first()
     if report is not None:
         report.third_parties.all().delete()
         report.injured.all().delete()
-    return incident
+    _redact_audit_trail(incident)
+
+
+def _redact_audit_trail(incident: Incident) -> None:
+    """Quita el parte de la AUDITORÍA de la incidencia (RGPD).
+
+    `Incident` se audita entero, así que el alta, cada edición y el propio
+    diff del borrado guardan `details` con los terceros dentro: vaciar el
+    parte y dejarlos en `LogEntry` no era borrarlos — el histórico del
+    vehículo los seguía sirviendo. Se sustituye el valor de `details` en cada
+    entrada (antes y después: auditlog lo guarda como texto, y de un texto no
+    se saca media lista con garantías); la entrada sigue ahí, con su actor y
+    su momento, que es lo que la auditoría tiene que conservar.
+    """
+    from auditlog.models import LogEntry
+
+    for entry in LogEntry.objects.get_for_object(incident):
+        changes = entry.changes
+        if not isinstance(changes, dict) or "details" not in changes:
+            continue
+        changes["details"] = [AUDIT_REDACTED, AUDIT_REDACTED]
+        entry.changes = changes
+        entry.save(update_fields=["changes"])

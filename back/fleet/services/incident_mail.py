@@ -1,10 +1,37 @@
 """Creation notices use the regular outbox and delivery traces."""
 
+import logging
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from fleet.models import EmailLog, EmailOutbox, EmailSettings
 from fleet.models.enums import IncidentType
 from fleet.services import mailer
+
+logger = logging.getLogger("flota")
+
+#: Cuántos avisos por coche y plantilla caben en la ventana. El alta de
+#: incidencias es pública (la app de campo) y cada una encolaba un correo por
+#: destinatario: sin tope, un conductor mandaba decenas de correos por minuto
+#: a administración desde el buzón corporativo. Las incidencias se crean
+#: igual; lo que se corta es el correo, y queda en el log.
+NOTICE_BURST = 3
+NOTICE_WINDOW = timedelta(minutes=10)
+
+
+def _burst(vehicle_id, key: str) -> bool:
+    """Ya han salido `NOTICE_BURST` avisos de ese coche en la ventana."""
+    desde = timezone.now() - NOTICE_WINDOW
+    tandas = set()
+    for model in (EmailOutbox, EmailLog):
+        tandas.update(
+            model.objects.filter(vehicle_id=vehicle_id, template_key=key, created_at__gte=desde)
+            .exclude(batch="")
+            .values_list("batch", flat=True)
+        )
+    return len(tandas) >= NOTICE_BURST
 
 
 def queue_notice(incident):
@@ -35,6 +62,13 @@ def queue_notice(incident):
     )
     recipients.extend(("admin", person.email) for person in admins)
     key = f"{kind}_notice"
+    if _burst(incident.vehicle_id, key):
+        logger.warning(
+            "aviso de incidencia: tope alcanzado vehicle=%s plantilla=%s (no se encola)",
+            incident.vehicle_id,
+            key,
+        )
+        return
     message = (
         f"{incident.get_type_display()} | {incident.date or ''} | "
         f"{incident.get_priority_display()}\n{incident.description}"

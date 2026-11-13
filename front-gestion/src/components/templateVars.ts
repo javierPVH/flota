@@ -10,6 +10,7 @@ export const TEMPLATE_VARIABLES = [
   'periodo',
   'enlace_app',
   'mensaje',
+  'nota',
 ] as const
 
 export type TemplateVariable = (typeof TEMPLATE_VARIABLES)[number]

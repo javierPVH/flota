@@ -33,6 +33,8 @@ from fleet.models import Document, DocumentDeletionRequest
 from fleet.models.enums import (
     ACCESS_REQUEST_KINDS,
     EXPIRING_DOCUMENT_TYPES,
+    INCIDENT_BOUND_DOCUMENT_TYPES,
+    LINK_REQUIRED_DOCUMENT_TYPES,
     ONE_PER_DOCUMENT_KINDS,
     PERSONAL_DOCUMENT_TYPES,
     DocumentDeletionStatus,
@@ -100,6 +102,26 @@ def _iso_or_blank(valor) -> str:
         return ""
 
 
+def _type_fits(tipo: str, document: Document) -> bool:
+    """¿Puede este documento PASAR a ser de ese tipo, con lo que ya cuelga?
+
+    Las reglas del alta que una corrección se saltaba: un parte de accidente
+    va ligado a un accidente, y la factura, las fotos de daños y el informe
+    de ITV acompañan siempre a algo. La corrección solo cambia tipo, caducidad
+    y nota —no liga nada—, así que el tipo nuevo vale si el documento YA
+    cumple lo que ese tipo exige; si no, quedaba un parte sin accidente.
+    """
+    if tipo == document.type:
+        return True
+    ligado_a = INCIDENT_BOUND_DOCUMENT_TYPES.get(tipo)
+    if ligado_a is not None:
+        incidencia = document.incident
+        return incidencia is not None and incidencia.type == ligado_a
+    if tipo in LINK_REQUIRED_DOCUMENT_TYPES:
+        return bool(document.incident_id or document.event_id or document.alert_id)
+    return True
+
+
 def clean_document_changes(raw: dict, *, document: Document) -> dict:
     """Deja `raw` en lo que de verdad se pide del documento, ya normalizado.
 
@@ -114,9 +136,16 @@ def clean_document_changes(raw: dict, *, document: Document) -> dict:
       puesto no es pedir nada.
     """
     limpio: dict = {}
+    # `changes` es un JSON libre: una cadena o una lista no son una corrección
+    # (y reventaban aquí con un 500 al alcance de cualquier conductor). Se
+    # trata como «no cambia nada», que es lo que el alta ya sabe rechazar.
+    if not isinstance(raw, dict):
+        raw = {}
     tipo = str(raw.get("type") or "").strip()
     if tipo and tipo in DocumentType.values:
-        if not (document.user_id and tipo not in PERSONAL_DOCUMENT_TYPES):
+        if not (document.user_id and tipo not in PERSONAL_DOCUMENT_TYPES) and _type_fits(
+            tipo, document
+        ):
             limpio["type"] = tipo
     tipo_final = limpio.get("type", document.type)
 
@@ -327,6 +356,14 @@ def resolve(
                     )
                 if "notes" in aplicar:
                     document.notes = aplicar["notes"]
+                # X1: una corrección pedida desde el campo no renueva el
+                # seguro del COCHE. La señal de la póliza mira quién subió el
+                # documento, no quién pidió el cambio: con un documento de
+                # gestión, «tipo: póliza, caduca en 2031» movía el vencimiento
+                # del coche y cerraba sus avisos. La renovación tiene su gesto.
+                pide = request.requested_by
+                if pide is None or not pide.is_management:
+                    document._skip_insurance_sync = True
                 document.save(
                     update_fields=[*(campo for campo in aplicar), "updated_at"],
                 )

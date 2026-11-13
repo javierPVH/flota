@@ -7,6 +7,8 @@ una lectura de km se cierra el aviso mensual de lectura pendiente de ese periodo
 (HU-3.2: "el aviso desaparece al registrar"). Se conecta en `FleetConfig.ready()`.
 """
 
+import logging
+
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -93,6 +95,11 @@ def on_insurance_document_saved(sender, instance: Document, **kwargs):
     autor = instance.uploaded_by
     if autor is not None and not autor.is_management:
         return
+    # Lo mismo cuando el guardado aplica una corrección PEDIDA desde el campo
+    # (`document_requests.resolve` lo marca): el documento puede ser de
+    # gestión, pero la fecha la escribió quien pidió el cambio.
+    if getattr(instance, "_skip_insurance_sync", False):
+        return
     insurance.apply_new_expiry(
         instance.vehicle,
         instance.expiry_date,
@@ -148,4 +155,13 @@ def on_fuel_reading_registered(sender, instance: FuelConsumption, **kwargs):
 def on_incident_created_email(sender, instance: Incident, created=False, raw=False, **kwargs):
     if created and not raw and instance.is_active:
         from .services.incident_mail import queue_notice
-        queue_notice(instance)
+
+        # El aviso es best-effort, como todo el correo: un fallo al componerlo
+        # no puede tumbar el alta de la incidencia (corre dentro de su
+        # `post_save`, y sin esto la petición acababa en un 500).
+        try:
+            queue_notice(instance)
+        except Exception:
+            logging.getLogger("flota").exception(
+                "aviso de incidencia: no se pudo encolar incident=%s", instance.pk
+            )

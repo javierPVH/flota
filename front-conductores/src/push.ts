@@ -67,6 +67,23 @@ export async function enablePush(): Promise<void> {
   await savePushSubscription(subscription.toJSON())
 }
 
+/**
+ * R5-51: el plan B de la re-suscripción. Cuando el navegador rota la
+ * suscripción y el service worker no puede registrarla él (sin `cookieStore`
+ * no lee el CSRF: Firefox, Safari), le manda `PUSH_RESUBSCRIBE` a las pestañas
+ * abiertas. Ese mensaje no lo escuchaba nadie, así que los avisos morían en
+ * silencio. Solo se re-suscribe con el permiso YA concedido: un mensaje del
+ * SW no puede abrir el diálogo de permisos.
+ */
+export function listenForPushResubscribe(): void {
+  if (!pushSupported()) return
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if ((event.data as { type?: string } | null)?.type !== 'PUSH_RESUBSCRIBE') return
+    if (Notification.permission !== 'granted') return
+    void enablePush().catch(() => {})
+  })
+}
+
 /** Baja local + en el back de la suscripción de ese registro, si la hay. */
 async function unsubscribeFrom(registration: ServiceWorkerRegistration): Promise<void> {
   const subscription = await registration.pushManager.getSubscription()

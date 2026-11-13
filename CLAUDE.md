@@ -836,6 +836,22 @@ Dos capas que van **siempre juntas**:
   nueva que apunta a la original (`resent_from`, chapa «reenvío»). El botón
   va apagado con su porqué en una fila sin cuerpo (anterior a la 0082), sin
   destinatario o con adjunto (`attachment_name`: el fichero no se conserva).
+  Ojo: reenvía el cuerpo **tal como se rindió entonces** —los días sin
+  lectura, la fecha y el saludo son los de aquel día—; para un recordatorio
+  con los datos de hoy se manda otra vez desde «Enviar correo» del coche.
+  **Las variables del correo de una alerta se leen del coche de AHORA**
+  (`mailer._context_for`): el `{{conductor}}` y el destinatario son el
+  conductor **vigente** (`_driver_and_supervisor`; `alert.user` es la foto de
+  cuando nació el aviso mensual y, cambiado el conductor a mitad de mes, el
+  correo seguía yendo y saludando al anterior), y `{{dias_sin_lectura}}`,
+  `{{ultima_lectura}}` y `{{periodo}}` salen de `message_args` cuando la
+  alerta los trae (`km_pending_days`) y, si no —una alerta anterior al
+  mensaje estructurado, un recordatorio manual, un coche sin lectura—, de
+  `mailer.reading_context`, el mismo que usa el envío a mano: antes quedaban
+  en blanco y el correo decía «la lectura de kilómetros de  del vehículo …
+  Lleva  días sin lectura; la última que consta es del .». Sin ninguna
+  anotación, los días se cuentan desde el alta del coche en la app y la
+  última es «—».
 - **Trabajos programados**: `management/commands/` (`refresh_next_itv`,
   `check_itv`, `check_insurance`, `check_no_driver`, `remind_km_readings`,
   `check_km_overage`, `check_maintenance`, `archive_pending_documents`,

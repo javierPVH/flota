@@ -10,6 +10,7 @@
 
 import json
 import logging
+import re
 import uuid
 from contextvars import ContextVar
 
@@ -18,6 +19,9 @@ _request_id: ContextVar[str] = ContextVar("request_id", default="-")
 
 def get_request_id() -> str:
     return _request_id.get()
+
+
+_SAFE_REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 
 
 class RequestIDMiddleware:
@@ -29,7 +33,12 @@ class RequestIDMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        rid = (request.META.get(self.HEADER) or uuid.uuid4().hex[:16]).strip()[:64]
+        # El del cliente se acepta solo si es un identificador limpio: tal
+        # cual iba a los logs, y con un `]` y un salto dentro se falsificaba
+        # una línea entera («login ok user=1»).
+        rid = str(request.META.get(self.HEADER) or "").strip()
+        if not _SAFE_REQUEST_ID.fullmatch(rid):
+            rid = uuid.uuid4().hex[:16]
         token = _request_id.set(rid)
         request.request_id = rid
         try:

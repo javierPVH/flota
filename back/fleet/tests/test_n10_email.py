@@ -114,6 +114,97 @@ class InsuranceRoutingTests(APITestCase):
         self.assertFalse(EmailOutbox.objects.exists())
 
     @EMAIL_ON
+    def test_km_pending_mail_carries_days_last_reading_and_period(self):
+        """La genérica del recordatorio lleva las tres variables rellenas: el
+        correo decía «la lectura de kilómetros de  del vehículo… Lleva  días
+        sin lectura; la última que consta es del .»."""
+        from fleet.models import KmReading
+
+        dia = TODAY.replace(day=20)
+        # La última lectura es del mes ANTERIOR: la de este mes falta.
+        ultima = dia - timedelta(days=40)
+        KmReading.objects.create(vehicle=self.vehicle, reading_date=ultima, km_reading=1000)
+        self.assertEqual(alerts.check_km_readings(today=dia), 1)
+        mailer.send_outbox()
+        cuerpo = mail.outbox[0].alternatives[0][0]
+        self.assertIn("de <strong>2026-07</strong> del vehículo", cuerpo)
+        self.assertIn("<strong>40 días</strong> sin lectura", cuerpo)
+        self.assertIn(f"consta es del {ultima.isoformat()}.", cuerpo)
+        self.assertIn("Falta tu lectura de km de 2026-07", mail.outbox[0].subject)
+
+    def test_an_alert_without_structured_data_reads_the_vehicle(self):
+        """Una alerta anterior al mensaje estructurado (o un recordatorio
+        manual) no trae días ni última lectura: salen del coche, ahora."""
+        from fleet.models import Alert, KmReading
+        from fleet.models.enums import AlertLevel, AlertStatus, AlertType
+
+        hoy = timezone.localdate()
+        KmReading.objects.create(
+            vehicle=self.vehicle, reading_date=hoy - timedelta(days=9), km_reading=1000
+        )
+        alerta = Alert.objects.create(
+            vehicle=self.vehicle,
+            user=self.driver,
+            type=AlertType.KM_READING_PENDING,
+            level=AlertLevel.WARNING,
+            status=AlertStatus.OPEN,
+            message="Falta la lectura de km de 2026-06.",
+            message_code="km_pending",
+            message_args={"period": "2026-06"},
+            dedup_key="km_pending:old",
+        )
+        contexto = mailer._context_for(alerta)
+        self.assertEqual(contexto["dias_sin_lectura"], "9")
+        self.assertEqual(contexto["ultima_lectura"], (hoy - timedelta(days=9)).isoformat())
+        # El mes que reclama la alerta manda sobre el de hoy.
+        self.assertEqual(contexto["periodo"], "2026-06")
+
+    def test_a_vehicle_with_no_reading_at_all_does_not_leave_holes(self):
+        from fleet.models import Alert
+        from fleet.models.enums import AlertLevel, AlertStatus, AlertType
+
+        alerta = Alert.objects.create(
+            vehicle=self.vehicle,
+            type=AlertType.KM_READING_PENDING,
+            level=AlertLevel.WARNING,
+            status=AlertStatus.OPEN,
+            message="x",
+            dedup_key="km_pending:never",
+        )
+        contexto = mailer._context_for(alerta)
+        self.assertEqual(contexto["ultima_lectura"], "—")
+        self.assertTrue(contexto["dias_sin_lectura"].isdigit())
+        self.assertRegex(contexto["periodo"], r"^\d{4}-\d{2}$")
+
+    def test_the_mail_follows_the_current_driver_not_the_one_the_alert_kept(self):
+        """La alerta mensual guarda al conductor de cuando nació; cambiado a
+        mitad de mes, el correo seguía saludando —y yendo— al anterior."""
+        from fleet.models import Alert
+        from fleet.models.enums import AlertLevel, AlertStatus, AlertType
+
+        alerta = Alert.objects.create(
+            vehicle=self.vehicle,
+            user=self.driver,
+            type=AlertType.KM_READING_PENDING,
+            level=AlertLevel.WARNING,
+            status=AlertStatus.OPEN,
+            message="x",
+            dedup_key="km_pending:relevo",
+        )
+        eva = make_user("eva", Role.DRIVER)
+        eva.first_name, eva.last_name, eva.email = "Eva", "Ruiz", "eva@flota.dev"
+        eva.save()
+        Assignment.objects.filter(vehicle=self.vehicle).update(end_date=TODAY - timedelta(days=1))
+        Assignment.objects.create(
+            vehicle=self.vehicle,
+            driver=eva,
+            start_date=TODAY,
+            status=AssignmentStatus.ACCEPTED,
+        )
+        self.assertEqual(mailer._context_for(alerta)["conductor"], "Eva Ruiz")
+        self.assertEqual(mailer._recipient_for(alerta), "eva@flota.dev")
+
+    @EMAIL_ON
     def test_itv_alert_sends_no_email(self):
         self.vehicle.next_itv_date = TODAY + timedelta(days=5)
         self.vehicle.save(update_fields=["next_itv_date"])
@@ -318,6 +409,9 @@ class NoticeLanguageTests(APITestCase):
         seguro.delete()
 
         # El botón rápido: un comunicado ligado al aviso, que queda a mano y del coche.
+        # (Con su cita: sin fecha, la plantilla de ITV se rechaza por ir con hueco.)
+        self.vehicle.next_itv_date = timezone.localdate() + timedelta(days=10)
+        self.vehicle.save(update_fields=["next_itv_date"])
         resp = self.client.post(
             reverse("vehicle-notify", args=[self.vehicle.pk]),
             {"template_key": EmailTemplateKey.ITV_DUE, "to_admin": True, "alert": itv.pk},
