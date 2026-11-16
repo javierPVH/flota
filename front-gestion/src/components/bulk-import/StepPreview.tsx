@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Badge, Button, Chip } from '@flota/ui/ui'
 
-import type { ImportEntity, ImportPreviewResult } from '../../api.ts'
+import type { ImportEntity, ImportKmMode, ImportPreviewResult } from '../../api.ts'
 import type { useBulkImportCopy } from '../../translations/bulkImport.ts'
 import type { ImportField } from './types.ts'
 
@@ -15,6 +15,10 @@ export function StepPreview({
   fields,
   mapping,
   preview,
+  kmMode,
+  kmConfirmed,
+  onKmMode,
+  onKmConfirmed,
   onBack,
   onImport,
   onDownloadErrors,
@@ -24,6 +28,10 @@ export function StepPreview({
   fields: ImportField[]
   mapping: Record<string, number | null>
   preview: ImportPreviewResult
+  kmMode: ImportKmMode
+  kmConfirmed: boolean
+  onKmMode: (mode: ImportKmMode) => void
+  onKmConfirmed: (confirmed: boolean) => void
   onBack: () => void
   onImport: () => void
   onDownloadErrors: () => void
@@ -36,6 +44,17 @@ export function StepPreview({
   const newRows = preview.records.slice(0, 50)
   const errorRows = preview.warnings.data_errors.slice(0, 50)
   const errorCount = preview.warnings.data_errors.length
+  const hasKind = preview.warnings.data_errors.some((e) => e.kind)
+  const kmChanges = preview.km_changes ?? []
+  const needsKmConfirm = kmChanges.length > 0 && !kmConfirmed
+  const kmOptions: Array<{ mode: ImportKmMode; label: string; hint: string }> = [
+    { mode: 'keep', label: t.kmKeep, hint: t.kmKeepHint },
+    { mode: 'edit_last', label: t.kmEditLast, hint: t.kmEditLastHint },
+    { mode: 'add_new', label: t.kmAddNew, hint: t.kmAddNewHint },
+    // Sin tocar el Km inicial de la ficha: el km del fichero solo va a la lectura.
+    { mode: 'only_add_new', label: t.kmOnlyAddNew, hint: t.kmOnlyAddNewHint },
+    { mode: 'only_edit_last', label: t.kmOnlyEditLast, hint: t.kmOnlyEditLastHint },
+  ]
 
   return (
     <div className="imp-step">
@@ -45,6 +64,71 @@ export function StepPreview({
             .map((e) => `${labels[e.field] ?? e.field}: ${e.message}`)
             .join(' · ')}
         </div>
+      )}
+
+      {kmChanges.length > 0 && (
+        <section role="alert" className="imp-warning imp-km-warning">
+          <strong>{t.kmTitle(kmChanges.length)}</strong>
+          <p>{t.kmIntro}</p>
+          <div className="imp-table-wrap">
+            <table className="imp-table">
+              <thead>
+                <tr>
+                  <th>{t.colRow}</th>
+                  <th>{t.colKey[entity] ?? ''}</th>
+                  <th>{t.kmColStart}</th>
+                  <th>{t.kmColLast}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {kmChanges.slice(0, 50).map((c) => (
+                  <tr key={c.row}>
+                    <td className="muted">{c.row}</td>
+                    <td>{c.plate}</td>
+                    <td>
+                      {c.old_km_start ?? '—'} → <strong>{c.new_km_start}</strong>
+                    </td>
+                    <td>
+                      {c.last_reading_km == null
+                        ? t.kmNoReading
+                        : `${c.last_reading_km} km (${c.last_reading_date ?? '—'})`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {kmChanges.length > 50 && (
+              <div className="muted imp-table-note">{t.previewOf(50, kmChanges.length)}</div>
+            )}
+          </div>
+          <fieldset className="imp-km-options">
+            <legend>{t.kmChoose}</legend>
+            {kmOptions.map((o) => (
+              <label key={o.mode} className="imp-km-option">
+                <input
+                  type="radio"
+                  name="km-mode"
+                  checked={kmMode === o.mode}
+                  onChange={() => onKmMode(o.mode)}
+                />
+                <span>
+                  <strong>{o.label}</strong>
+                  <span className="muted"> — {o.hint}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+          <label className="imp-km-option">
+            <input
+              type="checkbox"
+              checked={kmConfirmed}
+              onChange={(e) => onKmConfirmed(e.target.checked)}
+            />
+            <span>
+              <strong>{t.kmConfirm(kmChanges.length)}</strong>
+            </span>
+          </label>
+        </section>
       )}
 
       <div className="chips-row">
@@ -61,6 +145,12 @@ export function StepPreview({
         )}
       </div>
 
+      {(preview.update_count ?? 0) > 0 && (
+        <p className="muted imp-table-note">
+          {t.previewSplit(preview.create_count ?? 0, preview.update_count ?? 0)}
+        </p>
+      )}
+
       {tab === 'new' && (
         <div className="imp-table-wrap">
           <table className="imp-table">
@@ -75,7 +165,10 @@ export function StepPreview({
             <tbody>
               {newRows.map((record) => (
                 <tr key={String(record._row)}>
-                  <td className="muted">{String(record._row)}</td>
+                  <td className="muted">
+                    {String(record._row)}{' '}
+                    {record._exists ? <Badge tone="warning">{t.badgeUpdate}</Badge> : null}
+                  </td>
                   {previewFields.map((f) => (
                     <td key={f.key}>{record[f.key] == null ? '—' : String(record[f.key])}</td>
                   ))}
@@ -94,6 +187,8 @@ export function StepPreview({
             <thead>
               <tr>
                 <th>{t.colRow}</th>
+                <th>{t.colKey[entity] ?? ''}</th>
+                {hasKind && <th>{t.colKind}</th>}
                 <th>{t.colField}</th>
                 <th>{t.colReason}</th>
               </tr>
@@ -102,6 +197,16 @@ export function StepPreview({
               {errorRows.map((e, i) => (
                 <tr key={`${e.row}-${e.field}-${i}`}>
                   <td className="muted">{e.row}</td>
+                  <td>{e.key || '—'}</td>
+                  {hasKind && (
+                    <td>
+                      {e.kind && (
+                        <Badge tone={e.kind === 'update' ? 'warning' : 'info'}>
+                          {e.kind === 'update' ? t.kindUpdate : t.kindNew}
+                        </Badge>
+                      )}
+                    </td>
+                  )}
                   <td>
                     <Badge tone="danger">{labels[e.field] ?? e.field}</Badge>
                   </td>
@@ -120,7 +225,11 @@ export function StepPreview({
         <Button variant="secondary" onClick={onBack}>
           {t.back}
         </Button>
-        <Button variant="primary" disabled={preview.ready_count === 0} onClick={onImport}>
+        <Button
+          variant="primary"
+          disabled={preview.ready_count === 0 || needsKmConfirm}
+          onClick={onImport}
+        >
           {t.importN(preview.ready_count)}
         </Button>
       </div>

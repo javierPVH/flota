@@ -43,6 +43,9 @@ const AjustesPage = page(() => import('./pages/AjustesPage.tsx'), 'AjustesPage')
 // accidentes y alertas— en pestañas. Quien es HSE sin ser admin solo puede
 // estar aquí (`HseOnlyRedirect`); un admin sin el rol no entra (`RequireHse`).
 const HsePage = page(() => import('./pages/HsePage.tsx'), 'HsePage')
+// Ayuda: el tutorial de la app de gestión (contenido estático, chunk propio).
+// Plan: tutoriales/administradores/PLAN_VISTA_TUTORIAL.md
+const TutorialPage = page(() => import('./pages/TutorialPage.tsx'), 'TutorialPage')
 // PF2: el ui-kit era una ruta PÚBLICA en producción — ahora solo existe en dev
 // (el import dinámico condicionado deja el chunk fuera del build de prod).
 const UiKitPage = import.meta.env.DEV
@@ -108,6 +111,8 @@ export default function App() {
           <Route path="/plantillas" element={<Navigate to="/ajustes/plantillas" replace />} />
           <Route path="/conductores" element={<UsersPage />} />
           <Route path="/conductores/:id" element={<UserDetailPage />} />
+          <Route path="/ayuda" element={<TutorialPage />} />
+          <Route path="/ayuda/:capitulo" element={<TutorialPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

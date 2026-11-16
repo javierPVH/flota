@@ -21,6 +21,8 @@ const GO_KEYS = [
   { key: 'm', path: '/informes', nav: 'reports' },
   { key: 'j', path: '/ajustes', nav: 'settings' },
   { key: 't', path: '/ajustes/catalogos', nav: 'catalogs' },
+  // La «y» de aYuda (la «h» ya es del panel).
+  { key: 'y', path: '/ayuda', nav: 'help' },
 ] as const
 
 export function Layout() {

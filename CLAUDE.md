@@ -913,6 +913,14 @@ Dos capas que van **siempre juntas**:
 
 ### Patrones transversales del front
 
+- **Ayuda de gestión** (`/ayuda`, `/ayuda/:capitulo`, atajo `g y`): el tutorial
+  de administración es una vista más (`pages/TutorialPage.tsx` + `src/tutorial/`).
+  La estructura (capítulos, recorridos, rutas) va en `tutorial/chapters.ts`; la
+  prosa, en `translations/tutorial.ts` (es/en). Los rótulos de botones que cita se
+  toman de la copia de su pantalla (`ui.vehicles.exportCsv`), no se reescriben:
+  si cambias un rótulo, el tutorial cambia solo. Las capturas van en
+  `src/assets/tutorial/{es,en}/*.webp`. Plan y pendiente:
+  `tutoriales/administradores/PLAN_VISTA_TUTORIAL.md`.
 - Importa el DS **por subpath** (`@flota/ui/ui`, `@flota/ui/http`,
   `@flota/ui/i18n`…): el barrel raíz arrastra la librería entera al grafo eager.
 - Una capa `src/api.ts` por app envuelve todos los endpoints con los helpers de

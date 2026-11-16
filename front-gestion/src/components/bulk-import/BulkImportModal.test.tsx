@@ -101,6 +101,111 @@ describe('BulkImportModal (importación masiva por pasos)', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('avisa de que se actualiza lo existente y, al terminar, resume campos modificados y no', async () => {
+    mocks.previewImport.mockResolvedValue({
+      ...PREVIEW,
+      records: [{ ...PREVIEW.records[0], _exists: true }, PREVIEW.records[1]],
+      create_count: 1,
+      update_count: 1,
+    })
+    mocks.bulkCreateImport.mockResolvedValue({
+      created: 1,
+      ids: [9],
+      errors: [],
+      updated: 1,
+      unchanged: 0,
+      updates: [
+        {
+          row_number: 2,
+          plate: '1234KLM',
+          changed: [{ field: 'brand', old: 'Seat', new: 'Ford' }],
+          unchanged: ['year'],
+          ignored: [],
+        },
+      ],
+    })
+    const { onClose, onDone } = renderModal()
+    await subirFichero()
+    // Aviso en el mapeo: para solo actualizar, mapear solo lo necesario.
+    expect(screen.getByRole('note')).toHaveTextContent(/mapea únicamente los campos que necesitas actualizar/)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Validar fichero' }))
+    expect(await screen.findByText('1 se crearán · 1 ya existen y se actualizarán')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Importar 2 registros' }))
+
+    // No se cierra solo: tabla de resultados con lo modificado y lo que no.
+    expect(await screen.findByText('Actualizado')).toBeInTheDocument()
+    expect(screen.getByText('Creado')).toBeInTheDocument()
+    expect(screen.getByRole('listitem')).toHaveTextContent('Marca: Seat → Ford')
+    expect(screen.getByText(/Sin cambios en: Año/)).toBeInTheDocument() // ya coincidía
+    expect(onClose).not.toHaveBeenCalled()
+    const cerrar = screen.getAllByRole('button', { name: 'Cerrar' })
+    await userEvent.click(cerrar[cerrar.length - 1])
+    expect(onDone).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('si una actualización cambia el Km inicial, avisa y exige confirmar y elegir qué hacer con las lecturas', async () => {
+    mocks.previewImport.mockResolvedValue({
+      ...PREVIEW,
+      records: [{ ...PREVIEW.records[0], _exists: true, km_start: 6000 }],
+      ready_count: 1,
+      create_count: 0,
+      update_count: 1,
+      km_changes: [
+        {
+          row: 2,
+          plate: '1234KLM',
+          old_km_start: 1000,
+          new_km_start: 6000,
+          last_reading_km: 5000,
+          last_reading_date: '2026-06-10',
+        },
+      ],
+    })
+    mocks.bulkCreateImport.mockResolvedValue({
+      created: 0,
+      ids: [],
+      errors: [],
+      updated: 1,
+      unchanged: 0,
+      updates: [
+        {
+          row_number: 2,
+          plate: '1234KLM',
+          changed: [{ field: 'km_start', old: '1000', new: '6000' }],
+          unchanged: [],
+          ignored: [],
+          km_action: 'add_new',
+        },
+      ],
+    })
+    renderModal()
+    await subirFichero()
+    await userEvent.click(screen.getByRole('button', { name: 'Validar fichero' }))
+
+    // Aviso con el vehículo afectado y su última lectura; no se puede importar sin confirmar.
+    expect(await screen.findByText(/trae un Km inicial distinto para 1 vehículos/)).toBeInTheDocument()
+    // Y las dos opciones que NO tocan el Km inicial de la ficha.
+    expect(screen.getByRole('radio', { name: /No cambiar el Km inicial: solo añadir una lectura nueva/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /No cambiar el Km inicial: solo modificar la última lectura/ })).toBeInTheDocument()
+    expect(screen.getByText('5000 km (2026-06-10)')).toBeInTheDocument()
+    const importar = screen.getByRole('button', { name: 'Importar 1 registros' })
+    expect(importar).toBeDisabled()
+
+    await userEvent.click(screen.getByRole('radio', { name: /Cambiar el Km inicial y añadir una lectura nueva/ }))
+    await userEvent.click(screen.getByRole('checkbox', { name: /Confirmo la opción elegida/ }))
+    expect(importar).toBeEnabled()
+    await userEvent.click(importar)
+
+    await waitFor(() =>
+      expect(mocks.bulkCreateImport).toHaveBeenCalledWith('vehicles', expect.any(Array), {
+        km_mode: 'add_new',
+      }),
+    )
+    expect(await screen.findByText('Km inicial cambiado; lectura nueva añadida')).toBeInTheDocument()
+  })
+
   it('sin la matrícula mapeada no se puede validar; «Cambiar fichero» vuelve al paso 1', async () => {
     mocks.detectImportColumns.mockResolvedValue({ ...DETECT, auto_mapping: { brand: 1 } })
     renderModal()

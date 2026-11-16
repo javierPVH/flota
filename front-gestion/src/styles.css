@@ -6229,6 +6229,79 @@ kbd {
   margin: 0;
   font-weight: 600;
 }
+/* Aviso del mapeo (actualizar matrículas existentes). */
+.imp-warning {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--color-warning-border);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+  font-size: 0.84rem;
+}
+/* Aviso de cambio de Km inicial: tabla acotada + opciones de lecturas. */
+.imp-km-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.imp-km-warning p {
+  margin: 0;
+}
+.imp-km-warning .imp-table-wrap {
+  max-height: 14rem;
+  overflow-y: auto;
+  background: var(--color-surface);
+}
+.imp-km-options {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.imp-km-options legend {
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+.imp-km-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+.imp-km-option input {
+  margin-top: 0.2rem;
+}
+/* Resumen final: un bloque por vehículo con sus campos cambiados / iguales. */
+.imp-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-height: 55dvh;
+  overflow-y: auto;
+}
+.imp-summary-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.8rem;
+  font-size: 0.84rem;
+}
+.imp-summary-item h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.9rem;
+}
+.imp-summary-item ul {
+  margin: 0.15rem 0 0.4rem;
+  padding-left: 1.1rem;
+}
+.imp-summary-label {
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
 
 /* M5: paginación EN SERVIDOR del espacio de erratas (la tabla solo tiene una
    página, así que los controles viven fuera de ella). */

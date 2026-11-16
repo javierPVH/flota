@@ -366,6 +366,12 @@ class VehicleRowNormalizer:
     required = VEHICLE_REQUIRED
     aliases = VEHICLE_ALIASES
     unique_label = "matrícula"
+    # Una matrícula que ya existe NO es un error: se compara con lo que hay y se
+    # actualiza solo lo que difiere (ver `diff_vehicle_update`).
+    supports_update = True
+    # Para CREAR un vehículo el serializer exige marca y modelo (para actualizar,
+    # no: la ficha ya los tiene). La preview lo avisa en las filas nuevas.
+    create_required = ("brand", "model")
 
     def __init__(self):
         User = get_user_model()
@@ -445,7 +451,9 @@ class VehicleRowNormalizer:
             raise ValueError(f"{label} '{text}' no existe")
         return resolved
 
-    def normalize(self, raw: dict[str, object]) -> tuple[dict, list[str]]:
+    def normalize(
+        self, raw: dict[str, object], updating: bool = False
+    ) -> tuple[dict, list[str]]:
         data: dict[str, object] = {}
         errors: list[str] = []
 
@@ -513,9 +521,86 @@ class VehicleRowNormalizer:
         # HU-1.3 adelantada a la preview: uso 'Proyecto' exige proyecto (el
         # serializer la volvería a aplicar en bulk-create, pero mejor avisarla
         # antes de importar).
-        if data.get("business_use") == UseType.ON_PROJECT and not data.get("project"):
+        # (al actualizar, el proyecto puede estar ya en la ficha: lo comprueba
+        # el serializer con la instancia delante.)
+        if (
+            not updating
+            and data.get("business_use") == UseType.ON_PROJECT
+            and not data.get("project")
+        ):
             errors.append("project: obligatorio cuando el uso es 'Proyecto'")
         return data, errors
+
+
+# --- Actualización de vehículos existentes --------------------------------------
+
+# Referencias que se derivan del texto (marca/modelo/combustible): se aplican,
+# pero en el informe solo aparece el campo que el usuario reconoce.
+_DERIVED_REFS = {"brand_ref", "model_ref", "fuel_ref"}
+# El conductor no se edita en la ficha del vehículo (va por «Cambiar conductor»).
+_NOT_UPDATABLE = {"driver"}
+
+
+def _describe_value(field, value) -> str:
+    """Valor legible para el informe (etiqueta del choice, nombre del FK…)."""
+    if value is None or value == "":
+        return ""
+    if field.is_relation:
+        obj = field.related_model._default_manager.filter(pk=value).first()
+        return str(obj) if obj is not None else str(value)
+    if field.choices:
+        return str(dict(field.flatchoices).get(value, value))
+    if isinstance(value, bool):
+        return "Sí" if value else "No"
+    if isinstance(value, date | datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def diff_vehicle_update(instance, data: dict) -> tuple[dict, list[dict], list[str], list[str]]:
+    """Compara lo que llega con la ficha: (payload, cambiados, iguales, ignorados).
+
+    `payload` solo trae lo que DIFIERE; `cambiados` = [{field, old, new}] con
+    valores legibles; `iguales` = campos que ya coincidían; `ignorados` = campos
+    que no se actualizan por esta vía (el conductor).
+    """
+    from django.core.exceptions import FieldDoesNotExist
+
+    payload: dict = {}
+    changed: list[dict] = []
+    unchanged: list[str] = []
+    ignored: list[str] = []
+    for name, value in data.items():
+        if name == "plate":
+            continue  # es la clave con la que se ha encontrado
+        try:
+            field = Vehicle._meta.get_field(name)
+        except FieldDoesNotExist:
+            field = None
+        if name in _NOT_UPDATABLE or field is None:
+            ignored.append(name)
+            continue
+        # Las filas viajan por JSON: las fechas llegan como texto ISO. Se
+        # llevan al tipo del campo para comparar fecha con fecha.
+        try:
+            value = field.to_python(value)
+        except Exception:  # noqa: BLE001 — si no casa, que lo diga el serializer
+            pass
+        old = getattr(instance, field.attname)
+        if old == value or (old in (None, "") and value in (None, "")):
+            if name not in _DERIVED_REFS:
+                unchanged.append(name)
+            continue
+        payload[name] = value
+        if name not in _DERIVED_REFS:
+            changed.append(
+                {
+                    "field": name,
+                    "old": _describe_value(field, old),
+                    "new": _describe_value(field, value),
+                }
+            )
+    return payload, changed, unchanged, ignored
 
 
 # --- Normalizador de USUARIOS --------------------------------------------------
@@ -693,70 +778,126 @@ def build_preview(parsed: dict, mapping: dict[str, int | None], defaults: dict, 
         }
 
     # 1ª pasada: normalizar y recolectar claves únicas para UNA query a BD.
-    normalized: list[tuple[int, dict, list[str]]] = []
+    can_update = getattr(normalizer, "supports_update", False)
+    normalized: list[tuple[int, dict, list[str], dict]] = []
     keys: set[str] = set()
     for i, row in enumerate(rows):
-        raw = {
+        mapped_raw = {
             field: row[idx]
             for field, idx in mapping.items()
             if idx is not None and 0 <= idx < len(row)
         }
+        raw = dict(mapped_raw)
         for field, value in defaults.items():
             raw.setdefault(field, value)
         data, errors = normalizer.normalize(raw)
-        normalized.append((i, data, errors))
+        normalized.append((i, data, errors, mapped_raw))
         key = normalizer.unique_key(data)
         if key:
             keys.add(key)
     existing = normalizer.existing_keys(keys)
 
     seen: set[str] = set()
-    for i, data, errors in normalized:
+    update_count = 0
+    for i, data, errors, mapped_raw in normalized:
         row_number = i + 2  # 1-based con cabecera en la fila 1
         key = normalizer.unique_key(data)
+        exists = False
         if not errors and key:
             if key in seen:
                 errors = errors + [f"{normalizer.unique_label}: duplicado dentro del fichero"]
             elif key in existing:
-                errors = errors + [f"{normalizer.unique_label}: ya existe"]
+                if can_update:
+                    # Se ACTUALIZA: solo con las columnas mapeadas. Los valores
+                    # por defecto (p. ej. «sustitución» según la pestaña) rellenan
+                    # altas, no deben pisar una ficha que ya existe.
+                    data, errors = normalizer.normalize(mapped_raw, updating=True)
+                    exists = not errors
+                else:
+                    errors = errors + [f"{normalizer.unique_label}: ya existe"]
+            else:
+                # Alta: lo que el serializer exige para CREAR (en las
+                # actualizaciones no aplica: la ficha ya lo tiene), avisado aquí
+                # y no al importar.
+                for need in getattr(normalizer, "create_required", ()):
+                    if not data.get(need):
+                        errors = errors + [
+                            f"{need}: obligatorio para crear un vehículo nuevo: la "
+                            f"{normalizer.unique_label} no está en la base de datos, así que "
+                            "se trata como un alta (si querías actualizar, revisa que "
+                            "coincida con la de la ficha)"
+                        ]
         if errors:
+            # Qué detectó la preview de esta fila: actualización (la clave ya
+            # existe) o alta, y con qué clave — para que el aviso se explique solo.
+            extra = {"key": str(data.get(normalizer.required[0]) or "")}
+            if can_update and key:
+                extra["kind"] = "update" if key in existing else "new"
             for message in errors:
                 field, _, msg = message.partition(": ")
-                data_errors.append({"row": row_number, "field": field, "message": msg or message})
+                data_errors.append(
+                    {"row": row_number, "field": field, "message": msg or message, **extra}
+                )
         else:
             if key:
                 seen.add(key)
-            records.append({"_row": row_number, **data})
+            if exists:
+                update_count += 1
+                records.append({"_row": row_number, "_exists": True, **data})
+            else:
+                records.append({"_row": row_number, **data})
 
     return {
         "records": records,
         "warnings": {"mapping_errors": mapping_errors, "data_errors": data_errors},
         "ready_count": len(records),
+        "create_count": len(records) - update_count,
+        "update_count": update_count,
         "total_rows": len(rows),
     }
 
 
-def run_bulk_create(rows, serializer_factory, on_created=None) -> dict:
+def run_bulk_create(
+    rows, serializer_factory, on_created=None, find_existing=None, update_row=None
+) -> dict:
     """Crea una tanda con savepoint POR FILA: una mala no tumba las demás.
 
     `serializer_factory(data)` debe devolver un serializer DRF listo para
     `is_valid()+save()` (normalmente `viewset.get_serializer(data=data)`).
     `on_created(instance)` corre dentro del savepoint de la fila (p. ej. el
     evento de negocio del alta de vehículo, como en `perform_create`).
+
+    Con `find_existing(data) -> instancia|None` y `update_row(instancia, data)
+    -> {changed, unchanged, ignored, ...}` la fila cuya clave ya existe se
+    ACTUALIZA (solo lo que difiere) en vez de crearse; el resultado añade
+    `updated`, `unchanged` y `updates` (un informe por fila).
     """
     if not isinstance(rows, list):
         raise ValidationError({"rows": "Se espera una lista de filas."})
     if len(rows) > MAX_BULK_ROWS:
         raise ValidationError({"rows": f"Máximo {MAX_BULK_ROWS} filas por tanda."})
     created, ids, errors = 0, [], []
+    updated, unchanged, updates = 0, 0, []
     for i, raw in enumerate(rows):
         if not isinstance(raw, dict):
             errors.append({"index": i, "row_number": None, "error": "Fila inválida."})
             continue
         data = dict(raw)
         row_number = data.pop("_row", None)
-        serializer = serializer_factory(data)
+        data.pop("_exists", None)  # marca de la preview; la verdad la dice la BD
         try:
+            existing = find_existing(data) if find_existing is not None else None
+            if existing is not None:
+                with transaction.atomic():
+                    report = update_row(existing, data)
+                report["row_number"] = row_number
+                updates.append(report)
+                if report["changed"]:
+                    updated += 1
+                else:
+                    unchanged += 1
+                continue
+            serializer = serializer_factory(data)
             with transaction.atomic():
                 serializer.is_valid(raise_exception=True)
                 instance = serializer.save()
@@ -766,4 +907,7 @@ def run_bulk_create(rows, serializer_factory, on_created=None) -> dict:
                 ids.append(instance.pk)
         except Exception as exc:  # noqa: BLE001 — se reporta por fila, no se propaga
             errors.append({"index": i, "row_number": row_number, "error": flatten_error(exc)})
-    return {"created": created, "ids": ids, "errors": errors}
+    result = {"created": created, "ids": ids, "errors": errors}
+    if find_existing is not None:
+        result.update({"updated": updated, "unchanged": unchanged, "updates": updates})
+    return result

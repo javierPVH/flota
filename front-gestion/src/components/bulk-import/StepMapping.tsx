@@ -60,6 +60,11 @@ export function StepMapping({
       </div>
 
       <p className="muted imp-intro">{t.mapIntro}</p>
+      {entity === 'vehicles' && (
+        <div role="note" className="imp-warning">
+          {t.mapUpdateWarning}
+        </div>
+      )}
 
       {/* Barra de coincidencia (patrón sap_budget). */}
       <div className="imp-matchbar" aria-hidden="true">

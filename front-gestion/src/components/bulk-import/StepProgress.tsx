@@ -1,7 +1,8 @@
 import { Button } from '@flota/ui/ui'
 
-import type { BulkCreateResult } from '../../api.ts'
+import type { BulkCreateResult, ImportEntity } from '../../api.ts'
 import type { useBulkImportCopy } from '../../translations/bulkImport.ts'
+import { ResultsTable, type ImportResultRow } from './ResultsTable.tsx'
 
 type Copy = ReturnType<typeof useBulkImportCopy>
 
@@ -9,6 +10,11 @@ export interface ImportProgress {
   done: number
   total: number
   created: number
+  /** Matrículas existentes con algún campo cambiado / sin ningún cambio. */
+  updated: number
+  unchanged: number
+  /** Una fila por registro procesado (se rellena al terminar). */
+  rows: ImportResultRow[]
   errors: BulkCreateResult['errors']
 }
 
@@ -21,20 +27,24 @@ export interface ImportProgress {
  * Detener corta entre tandas — lo ya creado se queda creado, y se dice. */
 export function StepProgress({
   t,
+  entity,
   progress,
   finished,
   cancelled = false,
   error,
   onDownloadErrors,
+  onDownloadResults,
   onClose,
   onStop,
 }: {
   t: Copy
+  entity: ImportEntity
   progress: ImportProgress
   finished: boolean
   cancelled?: boolean
   error: string
   onDownloadErrors: () => void
+  onDownloadResults?: () => void
   onClose: () => void
   onStop?: () => void
 }) {
@@ -54,6 +64,12 @@ export function StepProgress({
       <div className="imp-stats">
         <span>{t.progressCount(progress.done, progress.total)}</span>
         <span className="imp-stat-ok">{t.progressCreated(progress.created)}</span>
+        {progress.updated + progress.unchanged > 0 && (
+          <>
+            <span className="imp-stat-ok">{t.progressUpdated(progress.updated)}</span>
+            <span>{t.progressUnchanged(progress.unchanged)}</span>
+          </>
+        )}
         {progress.errors.length > 0 && (
           <span className="imp-stat-bad">{t.progressErrors(progress.errors.length)}</span>
         )}
@@ -75,7 +91,13 @@ export function StepProgress({
                 ? t.doneOk(progress.created)
                 : t.doneWithErrors(progress.created, progress.errors.length)}
           </p>
+          {progress.rows.length > 0 && <ResultsTable t={t} entity={entity} rows={progress.rows} />}
           <div className="imp-actions">
+            {onDownloadResults && progress.rows.length > 0 && (
+              <Button variant="secondary" onClick={onDownloadResults}>
+                {t.downloadResults}
+              </Button>
+            )}
             {progress.errors.length > 0 && (
               <Button variant="secondary" onClick={onDownloadErrors}>
                 {t.downloadErrors}

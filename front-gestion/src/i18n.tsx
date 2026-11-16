@@ -27,6 +27,7 @@ const es = {
       accidents: 'Accidentes',
       reports: 'Informes',
       settings: 'Ajustes',
+      help: 'Ayuda',
     },
     logout: 'Salir',
     logoutFailed:
@@ -35,7 +36,7 @@ const es = {
       string,
       string
     >,
-    shortcutsHint: 'Atajos: "/" busca · "n" nuevo vehículo · "?" ayuda',
+    shortcutsHint: 'Atajos: "/" busca · "n" nuevo vehículo · "?" atajos · "g y" ayuda',
     menu: 'Menú',
     notifications: 'Notificaciones',
     /** Aviso de la cabecera: solicitudes esperando decisión — de coche y de
@@ -108,7 +109,7 @@ const es = {
     title: 'Atajos de teclado',
     search: 'Buscar en la página',
     newVehicle: 'Nuevo vehículo',
-    help: 'Abrir o cerrar esta ayuda',
+    help: 'Abrir o cerrar esta lista de atajos',
     goPrefix: 'Ir a… (pulsa "g" y luego la letra)',
   },
   login: {
@@ -375,12 +376,13 @@ const en: typeof es = {
       accidents: 'Accidents',
       reports: 'Reports',
       settings: 'Settings',
+      help: 'Help',
     },
     logout: 'Log out',
     logoutFailed:
       'Could not sign out on the server (no connection). You are still signed in: try again before leaving this computer.',
     roles: { admin: 'Admin', supervisor: 'Supervisor', driver: 'Driver' },
-    shortcutsHint: 'Shortcuts: "/" search · "n" new vehicle · "?" help',
+    shortcutsHint: 'Shortcuts: "/" search · "n" new vehicle · "?" shortcuts · "g y" help',
     menu: 'Menu',
     notifications: 'Notifications',
     pendingRequests: (n: number) =>
@@ -449,7 +451,7 @@ const en: typeof es = {
     title: 'Keyboard shortcuts',
     search: 'Search within the page',
     newVehicle: 'New vehicle',
-    help: 'Open or close this help',
+    help: 'Open or close this shortcut list',
     goPrefix: 'Go to… (press "g", then the letter)',
   },
   login: {

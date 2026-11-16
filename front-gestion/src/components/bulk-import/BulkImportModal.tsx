@@ -8,9 +8,11 @@ import {
   computeBatchSize,
   detectImportColumns,
   previewImport,
+  type BulkCreateResult,
   type DetectColumnsResult,
   type ImportDataError,
   type ImportEntity,
+  type ImportKmMode,
   type ImportPreviewResult,
 } from '../../api.ts'
 import { exportCsv } from '../../csv.ts'
@@ -20,8 +22,41 @@ import { StepFile } from './StepFile.tsx'
 import { StepMapping } from './StepMapping.tsx'
 import { StepPreview } from './StepPreview.tsx'
 import { StepProgress, type ImportProgress } from './StepProgress.tsx'
+import type { ImportResultRow } from './ResultsTable.tsx'
 
 type Step = 'file' | 'map' | 'preview' | 'run'
+
+/** Una fila por registro procesado: creado, actualizado, sin cambios o error. */
+function buildResultRows(
+  records: Record<string, unknown>[],
+  processed: number,
+  keyField: string,
+  updates: NonNullable<BulkCreateResult['updates']>,
+  errors: BulkCreateResult['errors'],
+): ImportResultRow[] {
+  const byRow = new Map(updates.map((u) => [u.row_number, u]))
+  const errorByIndex = new Map(errors.map((e) => [e.index, e.error]))
+  return records.slice(0, processed).map((record, index) => {
+    const row = typeof record._row === 'number' ? record._row : null
+    const key = String(record[keyField] ?? '')
+    const base = { row, key, changed: [], unchanged: [], ignored: [] }
+    if (errorByIndex.has(index)) {
+      return { ...base, status: 'error' as const, error: errorByIndex.get(index) }
+    }
+    const report = byRow.get(row)
+    if (report) {
+      return {
+        ...base,
+        status: report.changed.length > 0 ? ('updated' as const) : ('unchanged' as const),
+        changed: report.changed,
+        unchanged: report.unchanged,
+        ignored: report.ignored,
+        kmAction: report.km_action ?? null,
+      }
+    }
+    return { ...base, status: 'created' as const }
+  })
+}
 
 /**
  * Asistente de importación masiva (IMPORTACION_MASIVA.md): un único Modal con
@@ -52,6 +87,10 @@ export function BulkImportModal({
   const [detect, setDetect] = useState<DetectColumnsResult | null>(null)
   const [mapping, setMapping] = useState<Record<string, number | null>>({})
   const [preview, setPreview] = useState<ImportPreviewResult | null>(null)
+  // Cambio de Km inicial en actualizaciones: qué hacer con las lecturas y si el
+  // usuario ha confirmado que lo quiere (obligatorio para importar).
+  const [kmMode, setKmMode] = useState<ImportKmMode>('keep')
+  const [kmConfirmed, setKmConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [progress, setProgress] = useState<ImportProgress | null>(null)
@@ -70,6 +109,8 @@ export function BulkImportModal({
     setDetect(null)
     setMapping({})
     setPreview(null)
+    setKmMode('keep')
+    setKmConfirmed(false)
     setBusy(false)
     setError('')
     setProgress(null)
@@ -108,6 +149,8 @@ export function BulkImportModal({
     setBusy(true)
     try {
       setPreview(await previewImport(entity, file, mapping, defaults))
+      setKmMode('keep')
+      setKmConfirmed(false)
       setStep('preview') // validado → fase de previsualización (con «Importar»)
     } catch (err) {
       setError(asErrorMessage(err, t.genericError))
@@ -118,6 +161,8 @@ export function BulkImportModal({
 
   async function runImport() {
     if (!preview || preview.ready_count === 0 || runningRef.current) return
+    const hasKmChanges = (preview.km_changes?.length ?? 0) > 0
+    if (hasKmChanges && !kmConfirmed) return
     runningRef.current = true
     cancelRef.current = false
     setCancelled(false)
@@ -127,8 +172,12 @@ export function BulkImportModal({
     const records = preview.records
     const batchSize = computeBatchSize(records.length)
     let created = 0
+    let updated = 0
+    let unchanged = 0
+    let processed = 0
+    const updates: NonNullable<BulkCreateResult['updates']> = []
     const errors: ImportProgress['errors'] = []
-    setProgress({ done: 0, total: records.length, created: 0, errors: [] })
+    setProgress({ done: 0, total: records.length, created: 0, updated: 0, unchanged: 0, rows: [], errors: [] })
     let requestFailed = false
     let stopped = false
     try {
@@ -139,13 +188,23 @@ export function BulkImportModal({
           stopped = true
           break
         }
-        const result = await bulkCreateImport(entity, records.slice(i, i + batchSize))
+        const batch = records.slice(i, i + batchSize)
+        const result = hasKmChanges
+          ? await bulkCreateImport(entity, batch, { km_mode: kmMode })
+          : await bulkCreateImport(entity, batch)
         created += result.created
+        updated += result.updated ?? 0
+        unchanged += result.unchanged ?? 0
+        updates.push(...(result.updates ?? []))
         errors.push(...result.errors.map((e) => ({ ...e, index: e.index + i })))
+        processed = Math.min(i + batchSize, records.length)
         setProgress({
-          done: Math.min(i + batchSize, records.length),
+          done: processed,
           total: records.length,
           created,
+          updated,
+          unchanged,
+          rows: [],
           errors: [...errors],
         })
       }
@@ -156,18 +215,24 @@ export function BulkImportModal({
     runningRef.current = false
     setCancelled(stopped)
     setFinished(true)
-    if (!requestFailed && !stopped && errors.length === 0) {
-      // Todo bien: cierra todos los modales y recarga el listado (§4 paso 3).
+    if (!requestFailed && !stopped && errors.length === 0 && updates.length === 0) {
+      // Todo bien y solo altas: cierra todos los modales y recarga el listado
+      // (§4 paso 3). Con actualizaciones o errores se queda abierto para
+      // enseñar la tabla de resultados.
       onDone()
       onClose()
+      return
     }
+    // Tabla de resultados: una fila por registro, con su detalle.
+    const rows = buildResultRows(records, processed, fields[0].key, updates, errors)
+    setProgress((current) => (current ? { ...current, rows } : current))
   }
 
   function handleClose() {
     // Bloqueado durante la importación: para salir hay que detenerla (B3).
     if (runningRef.current) return
-    // Si ya se importó algo (con errores), recarga igualmente al cerrar.
-    if (finished && progress && progress.created > 0) onDone()
+    // Si ya se importó o actualizó algo (con errores), recarga igualmente al cerrar.
+    if (finished && progress && progress.created + progress.updated > 0) onDone()
     onClose()
   }
 
@@ -176,6 +241,12 @@ export function BulkImportModal({
     const labels = t.fields[entity]
     const columns: Array<TableWithPanelColumn<ImportDataError>> = [
       { key: 'row', label: t.colRow, getValue: (e) => e.row },
+      { key: 'key', label: t.colKey[entity] ?? '', getValue: (e) => e.key ?? '' },
+      {
+        key: 'kind',
+        label: t.colKind,
+        getValue: (e) => (e.kind === 'update' ? t.kindUpdate : e.kind === 'new' ? t.kindNew : ''),
+      },
       { key: 'field', label: t.colField, getValue: (e) => labels[e.field] ?? e.field },
       { key: 'message', label: t.colReason, getValue: (e) => e.message },
     ]
@@ -191,6 +262,27 @@ export function BulkImportModal({
     exportCsv('errores-importacion', columns, progress.errors)
   }
 
+  function downloadResults() {
+    if (!progress) return
+    const labels = t.fields[entity]
+    const columns: Array<TableWithPanelColumn<ImportResultRow>> = [
+      { key: 'row', label: t.colRow, getValue: (r) => r.row ?? '' },
+      { key: 'key', label: t.colKey[entity] ?? '', getValue: (r) => r.key },
+      { key: 'status', label: t.colResult, getValue: (r) => t.status[r.status] },
+      {
+        key: 'detail',
+        label: t.colDetail,
+        getValue: (r) =>
+          r.status === 'error'
+            ? (r.error ?? '')
+            : r.changed
+                .map((c) => `${labels[c.field] ?? c.field}: ${c.old} → ${c.new}`)
+                .join(' | '),
+      },
+    ]
+    exportCsv('resultado-importacion', columns, progress.rows)
+  }
+
   return (
     <Modal
       open={open}
@@ -198,7 +290,11 @@ export function BulkImportModal({
       onClose={handleClose}
       wide={step !== 'preview'}
       xl={step === 'preview'}
-      height={step === 'map' || step === 'preview' ? '88dvh' : undefined}
+      height={
+        step === 'map' || step === 'preview' || (step === 'run' && finished && progress && progress.rows.length > 0)
+          ? '88dvh'
+          : undefined
+      }
     >
       {step === 'file' && <StepFile t={t} busy={busy} error={error} onPick={pickFile} />}
       {step === 'map' && detect && file && (
@@ -227,6 +323,10 @@ export function BulkImportModal({
           fields={fields}
           mapping={mapping}
           preview={preview}
+          kmMode={kmMode}
+          kmConfirmed={kmConfirmed}
+          onKmMode={setKmMode}
+          onKmConfirmed={setKmConfirmed}
           onBack={() => {
             setStep('map')
             setError('')
@@ -238,6 +338,8 @@ export function BulkImportModal({
       {step === 'run' && progress && (
         <StepProgress
           t={t}
+          entity={entity}
+          onDownloadResults={downloadResults}
           progress={progress}
           finished={finished}
           cancelled={cancelled}

@@ -31,6 +31,8 @@ const PANTALLAS: Array<[string, string]> = [
   ['/ajustes/plantillas', 'Ajustes'],
   ['/conductores', 'Usuarios'],
   ['/hse', 'HSE'],
+  ['/ayuda', 'Ayuda'],
+  ['/ayuda/vehiculos', 'Ayuda'],
 ]
 
 for (const [ruta, titulo] of PANTALLAS) {
@@ -92,6 +94,21 @@ test('el menú de la cabecera navega entre pantallas', async ({ page }) => {
   await page.getByRole('button', { name: 'Menú' }).click()
   await page.getByRole('link', { name: 'Solicitudes', exact: true }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Solicitudes' })).toBeVisible(HEAD)
+})
+
+test('la Ayuda se abre desde el menú y con el atajo «g y»', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Vista general' })).toBeVisible(HEAD)
+  await page.getByRole('button', { name: 'Menú' }).click()
+  await page.getByRole('link', { name: 'Ayuda', exact: true }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Ayuda' })).toBeVisible(HEAD)
+  await expect(page).toHaveURL(/\/ayuda$/)
+
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Vista general' })).toBeVisible(HEAD)
+  await page.keyboard.press('g')
+  await page.keyboard.press('y')
+  await expect(page).toHaveURL(/\/ayuda$/, HEAD)
 })
 
 test('«Salir» cierra la sesión y vuelve al login', async ({ page }) => {

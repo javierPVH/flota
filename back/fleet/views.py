@@ -655,7 +655,50 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             request.data.get("mapping"), set(importer.VEHICLE_ALIASES)
         )
         defaults = importer.parse_client_defaults(request.data.get("defaults"))
-        return Response(importer.build_preview(parsed, mapping, defaults, normalizer))
+        result = importer.build_preview(parsed, mapping, defaults, normalizer)
+        result["km_changes"] = self._import_km_changes(result["records"])
+        return Response(result)
+
+    @staticmethod
+    def _import_km_changes(records):
+        """Filas que ACTUALIZAN un vehículo y cambian su Km inicial.
+
+        Cambiar `km_start` mueve los km recorridos, las alertas y el exceso de
+        km (se calculan contra él) pero no toca las lecturas: el front avisa de
+        esto antes de importar y deja elegir qué hacer con ellas.
+        """
+        from django.db.models.functions import Upper
+
+        from .selectors import latest_reading_map
+
+        candidates = [r for r in records if r.get("_exists") and r.get("km_start") is not None]
+        if not candidates:
+            return []
+        plates = {str(r["plate"]).upper() for r in candidates}
+        vehicles = {
+            v.plate.upper(): v
+            for v in Vehicle.objects.annotate(_plate_up=Upper("plate")).filter(_plate_up__in=plates)
+        }
+        last = latest_reading_map([v.id for v in vehicles.values()])
+        changes = []
+        for r in candidates:
+            vehicle = vehicles.get(str(r["plate"]).upper())
+            if vehicle is None or vehicle.km_start == r["km_start"]:
+                continue
+            reading = last.get(vehicle.id)
+            changes.append(
+                {
+                    "row": r["_row"],
+                    "plate": vehicle.plate,
+                    "old_km_start": vehicle.km_start,
+                    "new_km_start": r["km_start"],
+                    "last_reading_km": reading.km_reading if reading else None,
+                    "last_reading_date": (
+                        reading.reading_date.isoformat() if reading and reading.reading_date else None
+                    ),
+                }
+            )
+        return changes
 
     @action(
         detail=False,
@@ -664,13 +707,107 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         permission_classes=[IsAdmin],
     )
     def bulk_create(self, request):
-        """POST {rows} (≤1000) → crea con savepoint por fila + evento de alta."""
+        """POST {rows} (≤1000) → crea con savepoint por fila + evento de alta.
+
+        Si la matrícula YA existe no se rechaza: se compara lo que llega con la
+        ficha y se actualiza solo lo que difiere (con los mismos efectos que
+        editarla: eventos de sede/supervisor/estado…). La respuesta trae el
+        informe por vehículo (`updates`: campos cambiados e iguales).
+        """
+        # Qué hacer con las lecturas de km cuando una actualización cambia el
+        # Km inicial: `keep` (solo la ficha), `edit_last` (además, la última
+        # lectura pasa a valer ese km) o `add_new` (además, una lectura nueva).
+        # `only_edit_last` / `only_add_new`: lo mismo SIN cambiar el Km inicial.
+        km_mode = request.data.get("km_mode") or "keep"
+        if km_mode not in ("keep", "edit_last", "add_new", "only_edit_last", "only_add_new"):
+            raise ValidationError({"km_mode": "Valor no válido."})
         result = importer.run_bulk_create(
             request.data.get("rows"),
             lambda data: self.get_serializer(data=data),
             on_created=events.emit_vehicle_created,
+            find_existing=self._import_find_existing,
+            update_row=lambda instance, data: self._import_update_row(instance, data, km_mode),
         )
         return Response(result)
+
+    @staticmethod
+    def _import_find_existing(data):
+        plate = data.get("plate")
+        return Vehicle.objects.filter(plate__iexact=plate).first() if plate else None
+
+    def _import_update_row(self, instance, data, km_mode="keep"):
+        # Modos `only_*`: el km del fichero NO toca el Km inicial de la ficha,
+        # solo alimenta una lectura (como en el aviso, solo si difiere del que
+        # tiene la ficha). El resto de campos se actualiza igual.
+        only_reading = km_mode in ("only_edit_last", "only_add_new")
+        km_value = None
+        if only_reading and "km_start" in data:
+            data = dict(data)
+            value = data.pop("km_start")
+            if value != instance.km_start:
+                km_value = value
+        payload, changed, unchanged, ignored = importer.diff_vehicle_update(instance, data)
+        km_action = None
+        if payload:
+            serializer = self.get_serializer(instance, data=payload, partial=True)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            if "km_start" in payload:
+                km_action, _ = self._import_apply_km_mode(instance, payload["km_start"], km_mode)
+        if km_value is not None:
+            action, previous = self._import_apply_km_mode(
+                instance, km_value, "edit_last" if km_mode == "only_edit_last" else "add_new"
+            )
+            km_action = f"only_{action}"
+            changed.append(
+                {
+                    "field": "km_reading",
+                    "old": "" if previous is None else str(previous),
+                    "new": str(km_value),
+                }
+            )
+        return {
+            "plate": instance.plate,
+            "changed": changed,
+            "unchanged": unchanged,
+            "ignored": ignored,
+            "km_action": km_action,
+        }
+
+    def _import_apply_km_mode(self, vehicle, km, km_mode):
+        """Lecturas de km tras cambiar el Km inicial. Pasa por el serializer de
+        lecturas, así que valen sus reglas (el odómetro no retrocede…): si no
+        cuadra, la fila entera falla y no se cambia nada. Devuelve la acción
+        hecha y los km de la lectura que había (None si no se tocó ninguna)."""
+        if km_mode == "keep":
+            return "keep", None
+        context = self.get_serializer_context()
+        last = (
+            KmReading.objects.filter(vehicle=vehicle, is_active=True, km_reading__isnull=False)
+            .order_by("-reading_date", "-id")
+            .first()
+        )
+        if km_mode == "edit_last" and last is not None:
+            serializer = KmReadingSerializer(
+                last, data={"km_reading": km}, partial=True, context=context
+            )
+            serializer.is_valid(raise_exception=True)
+            previous = last.km_reading
+            serializer.save()
+            return "edit_last", previous
+        # `add_new` — y `edit_last` sin ninguna lectura previa que modificar.
+        serializer = KmReadingSerializer(
+            data={
+                "vehicle": vehicle.pk,
+                "reading_date": timezone.localdate().isoformat(),
+                "km_reading": km,
+            },
+            context=context,
+        )
+        serializer.is_valid(raise_exception=True)
+        reading = serializer.save()
+        events.emit_km_reading(reading)
+        return "add_new", None
 
     @action(detail=True, methods=["post"], url_path="return", permission_classes=[IsAdmin])
     def return_vehicle(self, request, pk=None):

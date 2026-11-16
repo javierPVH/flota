@@ -2011,6 +2011,10 @@ export interface ImportDataError {
   row: number
   field: string
   message: string
+  /** Matrícula (o email) de la fila. */
+  key?: string
+  /** Vehículos: lo que detectó la validación — la matrícula existe (`update`) o no (`new`). */
+  kind?: 'update' | 'new'
 }
 
 export interface ImportPreviewResult {
@@ -2018,13 +2022,45 @@ export interface ImportPreviewResult {
   records: Record<string, unknown>[]
   warnings: { mapping_errors: ImportMappingError[]; data_errors: ImportDataError[] }
   ready_count: number
+  /** Vehículos: cuántas filas crean y cuántas ACTUALIZAN una matrícula existente. */
+  create_count?: number
+  update_count?: number
+  /** Vehículos: actualizaciones que cambian el Km inicial (hay que avisar antes de importar). */
+  km_changes?: ImportKmChange[]
   total_rows: number
+}
+
+export interface ImportKmChange {
+  row: number
+  plate: string
+  old_km_start: number | null
+  new_km_start: number
+  last_reading_km: number | null
+  last_reading_date: string | null
+}
+
+/** Qué hacer con las lecturas de km cuando una actualización cambia el Km inicial. */
+export type ImportKmMode = 'keep' | 'edit_last' | 'add_new' | 'only_edit_last' | 'only_add_new'
+
+/** Informe de una fila que actualizó (o dejó igual) un registro existente. */
+export interface ImportUpdateReport {
+  row_number: number | null
+  plate: string
+  changed: { field: string; old: string; new: string }[]
+  unchanged: string[]
+  ignored: string[]
+  /** Si cambió el Km inicial: qué se hizo con las lecturas. */
+  km_action?: ImportKmMode | null
 }
 
 export interface BulkCreateResult {
   created: number
   ids: number[]
   errors: { index: number; row_number: number | null; error: string }[]
+  /** Solo vehículos: filas cuya matrícula ya existía. */
+  updated?: number
+  unchanged?: number
+  updates?: ImportUpdateReport[]
 }
 
 export const detectImportColumns = (entity: ImportEntity, file: File) => {
@@ -2046,8 +2082,11 @@ export const previewImport = (
   return postForm<ImportPreviewResult>(`${IMPORT_BASE[entity]}/preview-import/`, form)
 }
 
-export const bulkCreateImport = (entity: ImportEntity, rows: Record<string, unknown>[]) =>
-  postJson<BulkCreateResult>(`${IMPORT_BASE[entity]}/bulk-create/`, { rows })
+export const bulkCreateImport = (
+  entity: ImportEntity,
+  rows: Record<string, unknown>[],
+  options?: { km_mode?: ImportKmMode },
+) => postJson<BulkCreateResult>(`${IMPORT_BASE[entity]}/bulk-create/`, { rows, ...options })
 
 /** Tramos de tanda de sap_budget: pocas filas → una tanda; muchas → lotes grandes. */
 export function computeBatchSize(total: number): number {

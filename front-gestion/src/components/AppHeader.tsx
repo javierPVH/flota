@@ -17,6 +17,7 @@ import {
   HardHat,
   Home,
   KeyRound,
+  LifeBuoy,
   LogOut,
   Menu,
   Settings,
@@ -329,7 +330,14 @@ function ManagementHeader() {
     title: string
     items: Array<{ to: string; label: string; icon: ReactNode; end?: boolean }>
   }> = [
-    { title: groups.general, items: [{ to: '/', end: true, label: nav.panel, icon: <Home size={16} /> }] },
+    {
+      title: groups.general,
+      items: [
+        { to: '/', end: true, label: nav.panel, icon: <Home size={16} /> },
+        // Ayuda: el tutorial de la app de gestión, capítulo a capítulo.
+        { to: '/ayuda', label: nav.help, icon: <LifeBuoy size={16} /> },
+      ],
+    },
     {
       title: groups.fleet,
       items: [
