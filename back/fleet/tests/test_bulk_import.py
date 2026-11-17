@@ -668,3 +668,27 @@ class VehicleBulkImportTests(APITestCase):
         self.client.force_authenticate(self.supervisor)
         resp = self.client.post(reverse("vehicle-bulk-create"), {"rows": []}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class ConsumptionDecimalTests(APITestCase):
+    """El consumo nominal admite decimales: en la ficha y en la importacion."""
+
+    def test_importer_reads_decimals(self):
+        from fleet.services.importer import coerce_decimal
+
+        self.assertEqual(coerce_decimal("6,5"), 6.5)
+        self.assertEqual(coerce_decimal("6.5"), 6.5)
+        self.assertEqual(coerce_decimal(7), 7.0)
+        self.assertIsNone(coerce_decimal(""))
+        with self.assertRaises(ValueError):
+            coerce_decimal("-1")
+
+    def test_vehicle_api_accepts_decimal_consumption(self):
+        admin = make_user("admin-consumo", Role.ADMIN)
+        self.client.force_authenticate(admin)
+        vehicle = Vehicle.objects.create(plate="6500DEC", brand="a", model="b")
+        resp = self.client.patch(
+            reverse("vehicle-detail", args=[vehicle.pk]), {"consumption": "6.5"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["consumption"], "6.50")

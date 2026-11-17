@@ -239,6 +239,31 @@ def coerce_int(value: object) -> int | None:
         raise ValueError(f"'{value}' no es un número") from exc
 
 
+def coerce_decimal(value: object) -> float | None:
+    """Un número CON decimales (el consumo nominal: «6,5»).
+
+    Al revés que `coerce_int`, aquí el punto no es separador de miles: con
+    coma, la coma es el decimal y los puntos sobran («1.234,5»); sin coma, el
+    punto es el decimal («6.5»), que es como lo escribe un Excel en inglés.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if isinstance(value, bool):
+        raise ValueError("no es un número")
+    if isinstance(value, int | float):
+        return round(float(value), 2)
+    text = str(value).strip().replace(" ", "")
+    if "," in text:
+        text = text.replace(".", "").replace(",", ".")
+    try:
+        number = float(text)
+    except ValueError as exc:
+        raise ValueError(f"'{value}' no es un número") from exc
+    if number < 0:
+        raise ValueError(f"'{value}' no puede ser negativo")
+    return round(number, 2)
+
+
 def coerce_date(value: object) -> str | None:
     if value is None or (isinstance(value, str) and not value.strip()):
         return None
@@ -522,7 +547,7 @@ class VehicleRowNormalizer:
         put("model", coerce_text)
         put("version", coerce_text)
         put("year", coerce_int)
-        put("consumption", coerce_int)
+        put("consumption", coerce_decimal)
         put("vin", coerce_text)
         put("km_start", coerce_int)
         put("registration_date", coerce_date)

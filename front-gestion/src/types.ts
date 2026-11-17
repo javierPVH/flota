@@ -111,7 +111,8 @@ export interface Vehicle {
   veh_use: string
   property: string
   business_use: string
-  consumption: number | null
+  /** Decimal del back: llega como cadena («6.50»). */
+  consumption: string | null
   km_start: number | null
   km_end: number | null
   /** N5: marca/modelo por catálogo (el texto brand/model queda denormalizado). */

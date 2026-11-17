@@ -2,7 +2,7 @@
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import RegexValidator
+from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models
 
 from .base import TimeStampedModel
@@ -141,7 +141,16 @@ class Vehicle(TimeStampedModel):
         "Uso (pasajeros/mercancía)", max_length=20, choices=VehUse.choices, blank=True
     )
     version = models.CharField("Versión", max_length=100, blank=True)
-    consumption = models.PositiveIntegerField("Consumo", null=True, blank=True)
+    #: Consumo nominal (l/100 km o kWh/100 km). Con decimales: era un entero
+    #: y un «6,5» de ficha técnica no se podía guardar.
+    consumption = models.DecimalField(
+        "Consumo",
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+    )
     km_start = models.PositiveIntegerField("Km inicial", null=True, blank=True)
     km_end = models.PositiveIntegerField("Km final", null=True, blank=True)
     property = models.CharField(

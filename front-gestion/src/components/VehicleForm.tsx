@@ -156,7 +156,8 @@ function fromVehicle(v: Vehicle): FormState {
     size: v.size,
     market_segment: v.market_segment,
     veh_use: v.veh_use,
-    consumption: v.consumption != null ? String(v.consumption) : '',
+    // `Number` quita los ceros de cola del decimal («6.50» → «6.5»).
+    consumption: v.consumption != null ? String(Number(v.consumption)) : '',
     km_start: v.km_start != null ? String(v.km_start) : '',
     business_use: v.business_use || 'personal',
     project: v.project != null ? String(v.project) : '',
@@ -210,7 +211,7 @@ function vehiclePayload(form: FormState): Record<string, unknown> {
     size: form.size,
     market_segment: form.market_segment,
     veh_use: form.veh_use,
-    consumption: form.consumption ? Number(form.consumption) : null,
+    consumption: form.consumption ? form.consumption.replace(',', '.') : null,
     business_use: form.business_use,
     project: form.project ? Number(form.project) : null,
     business_unit: form.business_unit ? Number(form.business_unit) : null,
@@ -978,6 +979,9 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
             <TextInputField
               label={t.consumption}
               type="number"
+              min={0}
+              step="0.01"
+              inputMode="decimal"
               value={form.consumption}
               onChange={setInput('consumption')}
             />

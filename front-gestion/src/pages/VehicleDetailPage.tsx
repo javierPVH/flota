@@ -1507,7 +1507,11 @@ export function VehicleDetailPage() {
             <dt>{t.type}</dt>
             <dd>{label(t.typeLabel, vehicle.type)}</dd>
             <dt>{t.consumption}</dt>
-            <dd>{vehicle.consumption != null ? `${vehicle.consumption} l/100km` : '—'}</dd>
+            <dd>
+              {vehicle.consumption != null
+                ? `${Number(vehicle.consumption).toLocaleString(lang === 'en' ? 'en-GB' : 'es-ES', { maximumFractionDigits: 2 })} l/100km`
+                : '—'}
+            </dd>
             <dt>{t.fuelCardRow}</dt>
             <dd>{vehicle.fuel_card ? t.yes : t.no}</dd>
             {/* GAP-4: «obra/sede» — en obra se enseña el proyecto; si no, la sede. */}
