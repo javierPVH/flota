@@ -11,6 +11,7 @@ import {
   Bell,
   BellRing,
   Car,
+  CircleHelp,
   FileText,
   FolderOpen,
   Gauge,
@@ -37,6 +38,7 @@ import {
   listVehicleRequests,
 } from '../api.ts'
 import { closeServerSession, isHse, isHseOnly, useAuth } from '../auth.ts'
+import { chapterForPath } from '../tutorial/chapters.ts'
 import { incidentStatusTone } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import type { Alert, Incident } from '../types.ts'
@@ -315,6 +317,7 @@ function ManagementHeader() {
 
   const nav = t.shell.nav
   const groups = t.shell.navGroups
+  const helpChapter = chapterForPath(location.pathname)
   const bell = t.shell.bell
   // Solo dos estados: abierta o resuelta.
   const alertSubs = [
@@ -430,6 +433,18 @@ function ManagementHeader() {
             </span>
           </Link>
         )}
+
+        {/* Ayuda de la pantalla en la que estás: abre su capítulo (o el
+            índice si no tiene) y deja volver con «← Volver». */}
+        <Link
+          to={helpChapter ? `/ayuda/${helpChapter}` : '/ayuda'}
+          state={{ from: location.pathname + location.search }}
+          className={`shell-iconbtn${location.pathname.startsWith('/ayuda') ? ' is-active' : ''}`}
+          aria-label={t.shell.helpHere}
+          title={t.shell.helpHere}
+        >
+          <CircleHelp size={18} />
+        </Link>
 
         <button
           ref={bellBtnRef}

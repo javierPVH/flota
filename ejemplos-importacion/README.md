@@ -1,16 +1,17 @@
 # Ejemplos de importación masiva
 
 Ficheros de ejemplo para el asistente **Importar** (botón en *Vehículos* y en
-*Conductores*, junto a *Exportar CSV*). Datos **ficticios** (sin datos personales
+*Usuarios*, junto a *Exportar CSV*). Datos **ficticios** (sin datos personales
 reales — RGPD).
 
 | Fichero | Entidad | Filas |
 |---|---|---|
 | `vehiculos.csv` | Vehículos (pestaña Flota) | 8 |
+| `vehiculos-actualizacion.csv` | Vehículos que ya existen: solo matrícula, estado, seguro, km y combustible | 5 |
 | `conductores.csv` | Personas (conductores/supervisores) | 6 |
 
 ## Cómo usarlos
-1. Vehículos (o Conductores) → **Importar** → arrastra el CSV.
+1. Vehículos (o Usuarios) → **Importar** → arrastra el CSV.
 2. El auto-mapeo asigna todas las columnas solo (las cabeceras usan los alias
    estándar); revisa y pulsa **Validar fichero**.
 3. **Importar N registros** → barra de progreso → al acabar sin errores se
@@ -31,8 +32,15 @@ existe, esa fila sale en el informe de errores. En los ejemplos van vacías para
 que importen limpio en cualquier entorno; rellénalas con valores reales de tu BD
 si quieres probar la resolución.
 
-Si un fichero se reimporta, las filas ya existentes (matrícula / email-usuario)
-se marcan como «ya existe» y no se duplican.
+Si la matrícula (o el email/usuario) **ya existe**, la fila no se duplica: se
+actualizan sus datos con los del fichero, solo los que cambian. Para cambiar un
+dato de muchos coches, asigna solo la matrícula y ese campo:
+`vehiculos-actualizacion.csv` es el ejemplo.
+
+Estos ficheros se descargan también desde la Ayuda de gestión (capítulo
+«Importar en bloque»): la copia servida está en
+`front-gestion/public/tutorial/ejemplos/` y una prueba (`chapters.test.ts`)
+falla si deja de ser igual que esta. Al cambiar un CSV, cópialo allí.
 
 > El **DNI ya no se guarda** (se retiró por minimización). Una hoja que aún
 > traiga esa columna importa igual —se ignora—, pero una que identifique al

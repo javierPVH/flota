@@ -38,6 +38,8 @@ const es = {
     >,
     shortcutsHint: 'Atajos: "/" busca · "n" nuevo vehículo · "?" atajos · "g y" ayuda',
     menu: 'Menú',
+    /** Botón «?» de la cabecera: el capítulo de la Ayuda de la pantalla abierta. */
+    helpHere: 'Ayuda de esta pantalla',
     notifications: 'Notificaciones',
     /** Aviso de la cabecera: solicitudes esperando decisión — de coche y de
      * borrado de documentos, que se deciden en la misma bandeja. */
@@ -384,6 +386,7 @@ const en: typeof es = {
     roles: { admin: 'Admin', supervisor: 'Supervisor', driver: 'Driver' },
     shortcutsHint: 'Shortcuts: "/" search · "n" new vehicle · "?" shortcuts · "g y" help',
     menu: 'Menu',
+    helpHere: 'Help for this screen',
     notifications: 'Notifications',
     pendingRequests: (n: number) =>
       n === 1 ? '1 request awaiting a decision' : `${n} requests awaiting a decision`,

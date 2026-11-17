@@ -20,6 +20,7 @@ import {
   HardHat,
   Home,
   KeyRound,
+  CirclePlay,
   LogIn,
   Mail,
   RefreshCw,
@@ -32,6 +33,7 @@ import {
 } from 'lucide-react'
 
 export const CHAPTER_IDS = [
+  'video',
   'entrar',
   'panel',
   'vehiculos',
@@ -56,7 +58,7 @@ export const CHAPTER_IDS = [
 ] as const
 export type ChapterId = (typeof CHAPTER_IDS)[number]
 
-export const GROUP_IDS = ['start', 'fleet', 'events', 'papers', 'admin', 'other'] as const
+export const GROUP_IDS = ['intro', 'start', 'fleet', 'events', 'papers', 'admin', 'other'] as const
 export type GroupId = (typeof GROUP_IDS)[number]
 
 export interface Chapter {
@@ -70,34 +72,45 @@ export interface Chapter {
   /** Nº de pestañas del recorrido; la copia trae una por pestaña. */
   walk?: number
   audience?: 'superuser' | 'hse'
+  /** El capítulo es el vídeo de presentación (`IntroVideo`), no pasos. */
+  video?: boolean
 }
 
 /** En el orden del índice (el de `CHAPTER_IDS`). */
 export const CHAPTERS: Chapter[] = [
-  { id: 'entrar', group: 'start', icon: LogIn },
-  { id: 'panel', group: 'start', icon: Home, route: '/', routes: [/^\/$/] },
-  { id: 'vehiculos', group: 'fleet', icon: Car, route: '/vehiculos', routes: [/^\/vehiculos$/], walk: 4 },
-  { id: 'ficha', group: 'fleet', icon: CarFront, route: '/vehiculos', routes: [/^\/vehiculos\/\d+$/] },
+  { id: 'video', group: 'intro', icon: CirclePlay, video: true },
+  { id: 'entrar', group: 'start', icon: LogIn, walk: 3 },
+  { id: 'panel', group: 'start', icon: Home, route: '/', routes: [/^\/$/], walk: 4 },
+  { id: 'vehiculos', group: 'fleet', icon: Car, route: '/vehiculos', routes: [/^\/vehiculos$/], walk: 6 },
+  { id: 'ficha', group: 'fleet', icon: CarFront, route: '/vehiculos', routes: [/^\/vehiculos\/\d+$/], walk: 5 },
   {
     id: 'alta',
     group: 'fleet',
     icon: FilePen,
     route: '/vehiculos/nuevo',
     routes: [/^\/vehiculos\/nuevo$/, /^\/vehiculos\/\d+\/editar$/],
+    walk: 6,
   },
-  { id: 'importar', group: 'fleet', icon: Upload },
-  { id: 'estado', group: 'fleet', icon: RefreshCw },
-  { id: 'itv-mantenimiento', group: 'fleet', icon: CalendarClock },
-  { id: 'kilometraje', group: 'fleet', icon: Gauge, route: '/kilometraje', routes: [/^\/kilometraje$/] },
-  { id: 'incidencias', group: 'events', icon: AlertTriangle, route: '/incidencias', routes: [/^\/incidencias$/] },
-  { id: 'resolver', group: 'events', icon: Wrench },
-  { id: 'accidentes', group: 'events', icon: Siren, route: '/accidentes', routes: [/^\/accidentes$/] },
+  { id: 'importar', group: 'fleet', icon: Upload, walk: 4 },
+  { id: 'estado', group: 'fleet', icon: RefreshCw, walk: 6 },
+  { id: 'itv-mantenimiento', group: 'fleet', icon: CalendarClock, walk: 2 },
+  { id: 'kilometraje', group: 'fleet', icon: Gauge, route: '/kilometraje', routes: [/^\/kilometraje$/], walk: 4 },
+  {
+    id: 'incidencias',
+    group: 'events',
+    icon: AlertTriangle,
+    route: '/incidencias',
+    routes: [/^\/incidencias$/],
+    walk: 5,
+  },
+  { id: 'resolver', group: 'events', icon: Wrench, walk: 5 },
+  { id: 'accidentes', group: 'events', icon: Siren, route: '/accidentes', routes: [/^\/accidentes$/], walk: 5 },
   { id: 'alertas', group: 'events', icon: BellRing, route: '/alertas', routes: [/^\/alertas$/] },
   { id: 'solicitudes', group: 'events', icon: KeyRound, route: '/solicitudes', routes: [/^\/solicitudes$/] },
-  { id: 'documentos', group: 'papers', icon: FolderOpen, route: '/documentos', routes: [/^\/documentos$/] },
+  { id: 'documentos', group: 'papers', icon: FolderOpen, route: '/documentos', routes: [/^\/documentos$/], walk: 3 },
   { id: 'usuarios', group: 'papers', icon: Users, route: '/conductores', routes: [/^\/conductores(\/\d+)?$/] },
-  { id: 'correo', group: 'papers', icon: Mail },
-  { id: 'informes', group: 'admin', icon: FileText, route: '/informes', routes: [/^\/informes$/] },
+  { id: 'correo', group: 'papers', icon: Mail, walk: 4 },
+  { id: 'informes', group: 'admin', icon: FileText, route: '/informes', routes: [/^\/informes$/], walk: 2 },
   {
     id: 'ajustes',
     group: 'admin',

@@ -323,14 +323,20 @@ VEHICLE_ALIASES: dict[str, tuple[str, ...]] = {
     "plate": ("matricula", "matrícula", "placa", "plate"),
     "brand": ("marca", "brand"),
     "model": ("modelo", "model"),
+    "version": ("version", "versión", "acabado"),
     "year": ("año", "ano", "year"),
     "vin": ("vin", "bastidor", "bastidor (vin)", "chasis"),
     "state": ("estado", "state"),
     "business_use": ("uso empresarial", "uso", "business use"),
     "project": ("proyecto", "project", "obra"),
     "company": ("sociedad", "empresa", "company"),
+    "business_unit": ("unidad de negocio", "unidad negocio", "business unit", "bu"),
+    "country": ("pais", "país", "country"),
     "cost_center": ("ceco", "centro de coste", "pep", "cost center", "ceco de imputacion"),
     "fuel": ("combustible", "fuel", "tipo de combustible"),
+    # El consumo NOMINAL de la ficha (entero), no la anotación del ordenador
+    # de a bordo, que es una lectura y va por su propio alta.
+    "consumption": ("consumo", "consumo nominal", "consumption"),
     # GAP-3/GAP-4: tarjeta y sede, columnas del levantamiento HSE.
     "fuel_card": ("tarjeta combustible", "tarjeta de combustible", "fuel card"),
     "site": ("sede", "oficina", "ubicacion", "ubicación", "proyecto obra/sede"),
@@ -347,6 +353,30 @@ VEHICLE_ALIASES: dict[str, tuple[str, ...]] = {
         "vencimiento del seguro",
     ),
     "registration_date": ("fecha matriculacion", "f matriculacion", "fecha de matriculacion"),
+    # La CITA de la próxima ITV. No es un campo del serializer (es de solo
+    # lectura: la escribe `services.itv.schedule_itv`), así que la vista la
+    # aparta del payload y la programa con ese gesto (ver `ITV_FIELD`).
+    "next_itv_date": (
+        "proxima itv",
+        "próxima itv",
+        "fecha itv",
+        "fecha de itv",
+        "itv",
+        "vencimiento itv",
+        "vto itv",
+        "next itv",
+    ),
+    # El CP desde el que se busca estación de ITV. Como la cita, es de solo
+    # lectura en el serializer: la vista lo escribe junto a ella.
+    "itv_postal_code": (
+        "cp itv",
+        "cp de la itv",
+        "cp preferente itv",
+        "cp preferente para la itv",
+        "codigo postal itv",
+        "código postal itv",
+        "itv postal code",
+    ),
     "km_start": ("km inicial", "km inicio", "km start", "km"),
     "is_substitute": ("sustitucion", "vehiculo de sustitucion", "es sustituto", "sustituto"),
     "supervisor": ("supervisor", "responsable"),
@@ -354,6 +384,28 @@ VEHICLE_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 VEHICLE_REQUIRED = ("plate",)
+
+#: Campo del fichero que NO viaja por el `VehicleSerializer` (donde es de solo
+#: lectura) sino por `services.itv.schedule_itv`, como el botón «Programar
+#: ITV»: deja la cita con su candado manual y cierra los avisos de la anterior.
+ITV_FIELD = "next_itv_date"
+#: El CP preferente de la ITV va con la cita (mismo gesto, misma salida del
+#: serializer); sin cita en el fichero se escribe suelto en la ficha.
+ITV_CP_FIELD = "itv_postal_code"
+
+
+def coerce_postal_code(value: object) -> str | None:
+    """CP de 5 cifras. Excel se come el cero inicial («08001» → 8001): se
+    repone si llega con cuatro."""
+    text = coerce_text(value)
+    if text is None:
+        return None
+    text = text.replace(" ", "")
+    if text.isdigit() and len(text) == 4:
+        text = text.zfill(5)
+    if not text.isdigit() or len(text) != 5:
+        raise ValueError(f"'{value}' no es un código postal de 5 cifras")
+    return text
 
 
 class VehicleRowNormalizer:
@@ -451,9 +503,7 @@ class VehicleRowNormalizer:
             raise ValueError(f"{label} '{text}' no existe")
         return resolved
 
-    def normalize(
-        self, raw: dict[str, object], updating: bool = False
-    ) -> tuple[dict, list[str]]:
+    def normalize(self, raw: dict[str, object], updating: bool = False) -> tuple[dict, list[str]]:
         data: dict[str, object] = {}
         errors: list[str] = []
 
@@ -470,11 +520,15 @@ class VehicleRowNormalizer:
         put("plate", lambda v: (coerce_text(v) or "").upper().replace(" ", "") or None)
         put("brand", coerce_text)
         put("model", coerce_text)
+        put("version", coerce_text)
         put("year", coerce_int)
+        put("consumption", coerce_int)
         put("vin", coerce_text)
         put("km_start", coerce_int)
         put("registration_date", coerce_date)
         put("insurance_expiry_date", coerce_date)
+        put(ITV_FIELD, coerce_date)
+        put(ITV_CP_FIELD, coerce_postal_code)
         put("unlimited_km", coerce_bool)
         put("is_substitute", coerce_bool)
         put("fuel", coerce_text)
@@ -497,6 +551,11 @@ class VehicleRowNormalizer:
         put("project", lambda v: self._fk(self._projects, v, "El proyecto"))
         put("site", lambda v: self._fk(self._sites, v, "La sede"))
         put("company", lambda v: self._fk(self._companies, v, "La sociedad"))
+        put(
+            "business_unit",
+            lambda v: self._fk(self._business_units, v, "La unidad de negocio"),
+        )
+        put("country", lambda v: self._fk(self._countries, v, "El país"))
         put("cost_center", lambda v: self._fk(self._peps, v, "El CECO"))
         put("supervisor", lambda v: self._fk(self._users_by_key, v, "El supervisor"))
         put("driver", lambda v: self._fk(self._users_by_key, v, "El conductor"))

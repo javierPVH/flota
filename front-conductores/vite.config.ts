@@ -42,6 +42,9 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
+    // Caché de dependencias propia para el e2e (`VITE_CACHE_DIR`): si comparte
+    // la de dev con el servidor de desarrollo encendido, se la reescribe.
+    cacheDir: env.VITE_CACHE_DIR || 'node_modules/.vite',
     // Compilador de React (mismo montaje que el DS en front/vite.config.ts).
     plugins: [
       react(),

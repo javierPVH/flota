@@ -26,7 +26,14 @@ const py = `"${PYTHON}" manage.py`
 
 // Las apps hablan con el back por el proxy de Vite (cookies de sesión + CSRF
 // exigen mismo origen), igual que en dev.
-const viteEnv = { ...process.env, VITE_PROXY_TARGET: BACK_URL } as Record<string, string>
+// Caché de dependencias aparte (`cacheDir` de cada vite.config): con la de dev
+// compartida, lanzar el e2e con el servidor de desarrollo encendido le
+// reescribía la caché y las dos apps acababan con un React duplicado.
+const viteEnv = {
+  ...process.env,
+  VITE_PROXY_TARGET: BACK_URL,
+  VITE_CACHE_DIR: 'node_modules/.vite-e2e',
+} as Record<string, string>
 
 export default defineConfig({
   testDir: './tests',

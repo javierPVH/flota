@@ -2,7 +2,7 @@ import { useAppLang } from '@flota/ui/i18n'
 
 const es = {
   title: 'Ajustes',
-  subtitle: 'Catálogos, borrado definitivo, plantillas de correo y facturas',
+  subtitle: 'Catálogos, borrado definitivo y plantillas de correo',
   tabs: {
     catalogs: 'Catálogos',
     deletions: 'Borrado definitivo',
@@ -14,7 +14,7 @@ const es = {
 
 const en: typeof es = {
   title: 'Settings',
-  subtitle: 'Catalogs, permanent deletion, email templates and invoices',
+  subtitle: 'Catalogs, permanent deletion and email templates',
   tabs: {
     catalogs: 'Catalogs',
     deletions: 'Permanent deletion',

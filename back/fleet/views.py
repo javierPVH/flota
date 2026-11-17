@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 from auditlog.models import LogEntry
@@ -694,7 +694,9 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     "new_km_start": r["km_start"],
                     "last_reading_km": reading.km_reading if reading else None,
                     "last_reading_date": (
-                        reading.reading_date.isoformat() if reading and reading.reading_date else None
+                        reading.reading_date.isoformat()
+                        if reading and reading.reading_date
+                        else None
                     ),
                 }
             )
@@ -723,12 +725,91 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             raise ValidationError({"km_mode": "Valor no válido."})
         result = importer.run_bulk_create(
             request.data.get("rows"),
-            lambda data: self.get_serializer(data=data),
-            on_created=events.emit_vehicle_created,
+            self._import_create_serializer,
+            on_created=self._import_on_created,
             find_existing=self._import_find_existing,
             update_row=lambda instance, data: self._import_update_row(instance, data, km_mode),
         )
         return Response(result)
+
+    # La cita de ITV del fichero no va por el serializer (ahí es de solo
+    # lectura: la mantiene el job o el gesto de programar). Se aparta en el
+    # alta y se programa después con `itv.schedule_itv`, que es lo que hace
+    # el botón «Programar ITV»: candado manual y cierre de los avisos de la
+    # cita anterior. Va en el mismo savepoint de la fila: si no cuadra, la
+    # fila entera falla.
+    # El CP preferente de la ITV va por el mismo camino: con cita, dentro de
+    # `schedule_itv`; sin ella, suelto en la ficha.
+    #
+    # Lo apartado viaja de `_import_create_serializer` a `_import_on_created`
+    # en un atributo de ESTA petición y de ESTA fila (`run_bulk_create` llama
+    # a los dos seguidos por fila): un diccionario de clase se compartiría
+    # entre peticiones y, si la fila fallara antes de crearse, dejaría la cita
+    # esperando a la siguiente importación de esa matrícula.
+    _import_row_itv: tuple[date | None, str] | None = None
+
+    @staticmethod
+    def _import_itv(data) -> tuple[date | None, str]:
+        value = data.pop(importer.ITV_FIELD, None)
+        try:
+            iso = importer.coerce_date(value)
+        except ValueError as exc:
+            raise ValidationError({importer.ITV_FIELD: str(exc)}) from exc
+        try:
+            postal_code = importer.coerce_postal_code(data.pop(importer.ITV_CP_FIELD, None))
+        except ValueError as exc:
+            raise ValidationError({importer.ITV_CP_FIELD: str(exc)}) from exc
+        return (date.fromisoformat(iso) if iso else None, postal_code or "")
+
+    def _import_apply_itv(self, instance, due, postal_code, changed=None, unchanged=None):
+        """Escribe la cita y/o el CP; con las listas del informe, anota qué cambió."""
+        # La misma guarda que el botón: a un coche fuera de la flota no se le
+        # cita ITV (una fila que lo da de baja y lo cita a la vez es un error).
+        if due is not None and instance.state in OUT_OF_FLEET:
+            raise ValidationError(
+                {importer.ITV_FIELD: "El vehículo ya no está en la flota: no se cita ITV."}
+            )
+        previous_due = instance.next_itv_date
+        previous_cp = instance.itv_postal_code
+        if due is not None and due != previous_due:
+            itv.schedule_itv(instance, due, actor=self.request.user, postal_code=postal_code)
+        elif postal_code and postal_code != previous_cp:
+            instance.itv_postal_code = postal_code
+            instance.save(update_fields=["itv_postal_code", "updated_at"])
+        if changed is None:
+            return
+        if due is not None:
+            if due == previous_due:
+                unchanged.append(importer.ITV_FIELD)
+            else:
+                changed.append(
+                    {
+                        "field": importer.ITV_FIELD,
+                        "old": previous_due.isoformat() if previous_due else "",
+                        "new": due.isoformat(),
+                    }
+                )
+        if postal_code:
+            if postal_code == previous_cp:
+                unchanged.append(importer.ITV_CP_FIELD)
+            else:
+                changed.append(
+                    {"field": importer.ITV_CP_FIELD, "old": previous_cp, "new": postal_code}
+                )
+
+    def _import_create_serializer(self, data):
+        # Se vacía ANTES de leer la fila: si esta falla, la siguiente no hereda nada.
+        self._import_row_itv = None
+        due, postal_code = self._import_itv(data)
+        if due is not None or postal_code:
+            self._import_row_itv = (due, postal_code)
+        return self.get_serializer(data=data)
+
+    def _import_on_created(self, instance):
+        events.emit_vehicle_created(instance)
+        pending, self._import_row_itv = self._import_row_itv, None
+        if pending is not None:
+            self._import_apply_itv(instance, *pending)
 
     @staticmethod
     def _import_find_existing(data):
@@ -746,6 +827,8 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
             value = data.pop("km_start")
             if value != instance.km_start:
                 km_value = value
+        data = dict(data)
+        due, postal_code = self._import_itv(data)
         payload, changed, unchanged, ignored = importer.diff_vehicle_update(instance, data)
         km_action = None
         if payload:
@@ -766,6 +849,9 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                     "new": str(km_value),
                 }
             )
+        # La cita de ITV y su CP: solo lo que difiere de la ficha, y por el
+        # mismo gesto que «Programar ITV» (ver `_import_apply_itv`).
+        self._import_apply_itv(instance, due, postal_code, changed, unchanged)
         return {
             "plate": instance.plate,
             "changed": changed,

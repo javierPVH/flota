@@ -2,6 +2,8 @@
  * Integridad del contenido de la Ayuda (plan §9.2): la estructura de
  * `chapters.ts` y la copia es/en cuentan lo mismo.
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { createElement, type ReactNode } from 'react'
 import { renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -10,6 +12,7 @@ import { LanguageProvider } from '../i18n.tsx'
 import { useTutorialCopy, type TutorialCopy } from '../translations/tutorial.ts'
 import { CHAPTER_IDS, CHAPTERS, chapterForPath } from './chapters.ts'
 import { SHOT_KEYS } from './shots.ts'
+import scenes from './video-scenes.json'
 
 const wrapper = ({ children }: { children: ReactNode }) => createElement(LanguageProvider, null, children)
 
@@ -57,6 +60,38 @@ describe('copia es/en', () => {
       expect(b.quick?.map((q) => q.step), id).toEqual(a.quick?.map((q) => q.step))
       expect(Object.keys(b.shots ?? {}).sort(), id).toEqual(Object.keys(a.shots ?? {}).sort())
       expect(b.faq?.length, id).toEqual(a.faq?.length)
+      expect(b.downloads?.map((d) => d.file), id).toEqual(a.downloads?.map((d) => d.file))
+    }
+  })
+
+  it('los ficheros de ejemplo que se descargan son los de ejemplos-importacion/', () => {
+    // La copia servida (public/) no puede quedarse atrás del original.
+    const files = CHAPTER_IDS.flatMap((id) => copyIn('es').chapters[id].downloads ?? []).map((d) => d.file)
+    expect(files.length).toBeGreaterThan(0)
+    for (const file of files) {
+      const served = readFileSync(resolve(process.cwd(), 'public/tutorial/ejemplos', file), 'utf8')
+      const original = readFileSync(resolve(process.cwd(), '../ejemplos-importacion', file), 'utf8')
+      expect(served, `${file}: vuelve a copiarlo a public/tutorial/ejemplos/`).toBe(original)
+    }
+  })
+
+  it('el vídeo de presentación: escenas de capítulos que existen, y sus ficheros', () => {
+    // Las chapas del vídeo salen de `groups` del JSON: tienen que ser las del índice.
+    for (const lang of ['es', 'en'] as const) {
+      const groups = copyIn(lang).groups
+      for (const [id, label] of Object.entries(scenes.groups)) {
+        expect(label[lang], `grupo ${id} (${lang})`).toBe(groups[id as keyof typeof groups])
+      }
+    }
+    for (const scene of scenes.scenes) {
+      if (scene.chapter) expect(CHAPTER_IDS as readonly string[], scene.chapter).toContain(scene.chapter)
+      expect(scene.es.title && scene.es.text && scene.en.title && scene.en.text).toBeTruthy()
+    }
+    for (const lang of ['es', 'en']) {
+      for (const ext of ['webm', 'jpg']) {
+        const file = `public/tutorial/video/presentacion-${lang}.${ext}`
+        expect(existsSync(resolve(process.cwd(), file)), `falta ${file}`).toBe(true)
+      }
     }
   })
 

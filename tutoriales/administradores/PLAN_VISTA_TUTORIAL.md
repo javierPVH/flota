@@ -32,10 +32,91 @@ más de la SPA, con sus rutas, su menú, su i18n y sus pruebas.
 
 | Ficha | |
 |---|---|
-| Estado | **Fases 1 y 2 hechas** (16-11-2026): vista, ruta, menú, atajo `g y`, índice, buscador, recorrido, capturas con «pendiente», pruebas. Capítulos con contenido: `entrar`, `panel`, `vehiculos`; el resto, título y resumen. Falta: fase 3 (script de capturas) y fase 4 (contenido). |
+| Estado | **Fases 1 a 5 hechas** (16-11-2026): los 21 capítulos tienen texto en es/en y capturas en los dos idiomas. Queda la revisión por administración y la fase 6, que es opcional. Detalle en «Estado real», justo debajo. |
 | Código afectado | solo `front-gestion` (y `e2e/` y `docs/tutoriales-capturas/`) |
 | Riesgo para producción | bajo: una ruta nueva, una entrada de menú y un atajo |
 | Depende de | gestión y back en dev con el seed (`seed_dev_data`) para las capturas |
+
+## Estado real (16-11-2026)
+
+**Hecho**
+
+- Los 21 capítulos, en castellano e inglés, con los rótulos por clave (§4.3). El último en
+  escribirse fue «Enviar correo».
+- Capturas de todos los capítulos en `es/` y `en/`, con `docs/tutoriales-capturas/capture-gestion.mjs`.
+- Aspecto: el del tutorial de conductores (`tutoriales/conductores/tutoriales.html`) llevado a
+  escritorio. Cada capítulo es una tarjeta; la guía rápida, tarjetas con icono; el recorrido,
+  una caja con pestañas rellenas («1 · Buscar», las pasadas en verde) y pie con «‹ Atrás /
+  Continuar ›»; pasos con círculo sólido y línea; avisos con icono; dudas en cajas plegables;
+  índice numerado. Las capturas van sin marco de móvil y se amplían al pulsarlas.
+- Portada: un bloque por grupo y, en cada capítulo, sus tareas (la guía rápida); «Seguir
+  donde lo dejaste» y cuántos capítulos se han abierto.
+- Buscador: cada resultado lleva a su sección o a su duda (`#ancla`) y la abre; busca
+  también por las tareas de la guía rápida; Esc lo vacía.
+- Recorrido: en el último paso, en vez de «Continuar», el enlace al capítulo siguiente.
+- «Preguntas frecuentes» junta además las dudas de todos los capítulos.
+- «Importar en bloque» explica el formato del fichero y deja descargar los ejemplos
+  (`front-gestion/public/tutorial/ejemplos/`, copia de `ejemplos-importacion/`; una prueba
+  falla si dejan de ser iguales).
+- Ayuda en contexto (fase 5): se hizo con el botón «?» de la cabecera, que abre el capítulo
+  de la pantalla abierta y deja volver, en vez de un `HelpLink` en cada `PageHeader`.
+- `CLAUDE.md`, el e2e (`navegacion.spec.ts`) y el README de los ejemplos, al día. El
+  subtítulo de Ajustes ya no habla de facturas (anexo B).
+
+**Lo que se hizo distinto de este plan**
+
+- No hay `QuickGuide.tsx` ni `HelpLink.tsx`: la guía rápida vive en `ChapterView` y la
+  ayuda en contexto, en `AppHeader`. Hay dos ficheros que el plan no preveía:
+  `RichText.tsx` (rótulos como botones y enlaces `[[id]]`) y `progress.ts` (leídos y último).
+- Las marcas numeradas sobre las capturas (§7.6) no se hicieron: las capturas van en
+  miniatura y se amplían al pulsarlas.
+- No hay `check-gestion.mjs` ni `webp.mjs` parametrizado: el propio script de capturas
+  escribe el WebP y tiene una tarea de revisión (`revision-ayuda`).
+- Las capturas se hacen como `ana_hse`, no como `admin` (una sesión por usuario).
+
+**Secciones que se quedan sin captura, y por qué**
+
+Fotografiarlas obligaría a guardar algo de verdad, y el script nunca guarda:
+
+- La ficha · «Deshacer un cambio» (hace falta un cambio reversible en el histórico).
+- Importar · «Mientras se importa» (habría que importar).
+- Accidentes · los pasos 2 a 4 del parte (hay que rellenarlo) y el borrado de terceros (el
+  botón solo se enciende a los 18 meses).
+
+**Trampas del script de capturas** (añadir a §7.4)
+
+- Todas las tandas comparten el puerto 9333 y el usuario `ana_hse`: **una tanda cada vez**.
+  Una segunda se engancha al navegador de la primera y le cierra la sesión.
+- Dos límites del back: 2.000 peticiones/hora por usuario (una tanda completa gasta
+  buena parte) y 100/hora anónimas (cada carga del login cuenta). Si se agotan, el script
+  lo dice y hay que esperar; no reintentar en bucle.
+- El e2e y el servidor de desarrollo compartían la caché de dependencias de Vite: lanzar
+  el e2e con dev encendido la reescribía con un React duplicado y las dos apps salían con
+  «Algo ha fallado». El e2e usa ya la suya (`VITE_CACHE_DIR`, `node_modules/.vite-e2e`).
+- Un recorte de alto negativo dejaba la captura colgada para siempre (pasaba en
+  `ficha-historico`). Ya da error en vez de colgarse.
+
+**Pendiente**
+
+- [ ] Revisión del contenido por alguien de administración (§16), y sus preguntas
+  frecuentes reales.
+- [x] Fase 6, el vídeo (16-11): capítulo «Vídeo de presentación» (`/ayuda/video`, grupo
+  nuevo «Presentación», el primero del índice), en castellano y en inglés, sin audio.
+  - Guion: `front-gestion/src/tutorial/video-scenes.json` (20 escenas, ~89 s). Lo leen el
+    generador y la página (`IntroVideo.tsx`), así que el vídeo y la lista de escenas dicen
+    lo mismo. Si cambian textos o duraciones hay que regenerar los dos vídeos.
+  - Rehacerlo (unos 10 min por idioma lanzando los dos a la vez):
+    `python docs/tutoriales-capturas/video_gestion.py <es|en>` y después
+    `node docs/tutoriales-capturas/video_reencode.mjs <es|en> 1000 gestion`.
+    Con `--stills <carpeta>` saca una foto por escena sin grabar, para revisar.
+  - Salen en `front-gestion/public/tutorial/video/presentacion-<idioma>.webm` y `.jpg`.
+- [ ] Fase 6, lo que queda: el enlace desde la cabecera HSE.
+- [x] `Gestión de flotas Visuales Administrador.pdf` (anexo E), leído el 16-11-2026: son siete
+  maquetas (vista general, creación, detalle, proyección de km, edición y refacturación de
+  vehículos) sin texto. No trae recorrido ni vocabulario que contradiga la Ayuda.
+
+---
+
 
 ## Índice
 
@@ -1128,14 +1209,14 @@ Un capítulo detrás de otro, en el orden del índice. Por cada uno:
 
 ## 13. Antes de dar por terminado
 
-- [ ] Ningún literal en el JSX; todo en `translations/tutorial.ts` (es/en).
-- [ ] Los rótulos de la app vienen de la copia de su pantalla (§4.3), no reescritos.
+- [x] Ningún literal en el JSX; todo en `translations/tutorial.ts` (es/en).
+- [x] Los rótulos de la app vienen de la copia de su pantalla (§4.3), no reescritos.
 - [ ] Capturas reales y actuales; ninguna con datos personales que no sean del seed, ni
   con correos o teléfonos reales.
-- [ ] El script de capturas no lleva credenciales: entra por el bloque de desarrollo.
-- [ ] Las 21 entradas del inventario tienen capítulo, y no se explica nada oculto
+- [x] El script de capturas no lleva credenciales: entra por el bloque de desarrollo.
+- [x] Las 21 entradas del inventario tienen capítulo, y no se explica nada oculto
   (Notificaciones, `/ui-kit`).
-- [ ] `chapters.test.ts`, `TutorialPage.test.tsx` y el e2e en verde.
+- [x] `chapters.test.ts`, `TutorialPage.test.tsx` y el e2e en verde.
 - [ ] Revisado en castellano e inglés, y por alguien de administración.
 - [ ] `CLAUDE.md` actualizado (§11) y este plan enlazado desde `docs/PLAN_TUTORIALES.md`.
 

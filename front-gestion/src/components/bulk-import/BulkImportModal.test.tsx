@@ -83,7 +83,7 @@ describe('BulkImportModal (importación masiva por pasos)', () => {
     expect(screen.getByText(/2 filas detectadas · 1 filas vacías omitidas/)).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Matrícula' })).toHaveValue('0')
     expect(screen.getByRole('combobox', { name: 'Marca' })).toHaveValue('1')
-    expect(screen.getByText('2 de 23 campos asignados')).toBeInTheDocument()
+    expect(screen.getByText('2 de 31 campos asignados')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Validar fichero' }))
     await waitFor(() =>

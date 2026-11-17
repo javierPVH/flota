@@ -1,0 +1,152 @@
+{
+  "groups": {
+    "start": { "es": "Primeros pasos", "en": "First steps" },
+    "fleet": { "es": "La flota", "en": "The fleet" },
+    "events": { "es": "Lo que pasa", "en": "What happens" },
+    "papers": { "es": "Papeles y personas", "en": "Papers and people" },
+    "admin": { "es": "Administración", "en": "Administration" },
+    "other": { "es": "Otros", "en": "Other" }
+  },
+  "scenes": [
+    {
+      "shot": "panel",
+      "chapter": null,
+      "seconds": 5.0,
+      "es": { "title": "La flota, bajo control", "text": "Vehículos, vencimientos, incidencias, accidentes, documentos y personas: toda la gestión de la flota en una sola app." },
+      "en": { "title": "The fleet, under control", "text": "Vehicles, due dates, incidents, accidents, documents and people: all fleet management in one app." }
+    },
+    {
+      "shot": "login",
+      "chapter": "entrar",
+      "seconds": 4.4,
+      "es": { "title": "Entra y muévete por la app", "text": "Con tu usuario y tu contraseña. En la cabecera tienes siempre la campana, las solicitudes y el menú." },
+      "en": { "title": "Sign in and find your way", "text": "With your username and password. The header always holds the bell, the requests and the menu." }
+    },
+    {
+      "shot": "panel",
+      "chapter": "panel",
+      "seconds": 4.4,
+      "es": { "title": "Vista general", "text": "El resumen de la flota: las cifras, lo que vence pronto y lo que está pendiente." },
+      "en": { "title": "Overview", "text": "The fleet at a glance: the figures, what is about to expire and what is pending." }
+    },
+    {
+      "shot": "vehiculos",
+      "chapter": "vehiculos",
+      "seconds": 4.4,
+      "es": { "title": "Vehículos", "text": "El inventario de la flota: encuentra un coche, saca listados y actúa sobre él sin abrir su ficha." },
+      "en": { "title": "Vehicles", "text": "The fleet inventory: find a car, export lists and act on it without opening its page." }
+    },
+    {
+      "shot": "ficha-tarjetas",
+      "chapter": "ficha",
+      "seconds": 4.4,
+      "es": { "title": "La ficha del vehículo", "text": "Todo sobre un coche en una página: indicadores, contrato, facturas, documentos y su histórico de cambios." },
+      "en": { "title": "The vehicle page", "text": "Everything about a car on one page: indicators, contract, invoices, documents and its change history." }
+    },
+    {
+      "shot": "alta-2",
+      "chapter": "alta",
+      "seconds": 4.4,
+      "es": { "title": "Alta y edición de un vehículo", "text": "Da de alta un coche de flota o de sustitución. Los datos sensibles se cambian con candado." },
+      "en": { "title": "Adding and editing a vehicle", "text": "Add a fleet or replacement car. Sensitive fields are changed behind a lock." }
+    },
+    {
+      "shot": "importar-3",
+      "chapter": "importar",
+      "seconds": 4.4,
+      "es": { "title": "Importar en bloque", "text": "Da de alta o actualiza muchos vehículos o personas de una vez, desde un Excel o un CSV." },
+      "en": { "title": "Bulk import", "text": "Add or update many vehicles or people at once, from an Excel or CSV file." }
+    },
+    {
+      "shot": "estado-1",
+      "chapter": "estado",
+      "seconds": 4.4,
+      "es": { "title": "Estado y coche de sustitución", "text": "Para un coche por avería, mantenimiento o neumáticos, y dale un coche de sustitución mientras tanto." },
+      "en": { "title": "Status and replacement car", "text": "Take a car off the road for a breakdown, maintenance or tyres, and give it a replacement meanwhile." }
+    },
+    {
+      "shot": "itv-1",
+      "chapter": "itv-mantenimiento",
+      "seconds": 4.4,
+      "es": { "title": "ITV y mantenimiento", "text": "La cita de la ITV y el programa de mantenimiento de cada coche." },
+      "en": { "title": "Inspection and maintenance", "text": "The inspection appointment and the maintenance programme of each car." }
+    },
+    {
+      "shot": "km-proyeccion",
+      "chapter": "kilometraje",
+      "seconds": 4.4,
+      "es": { "title": "Kilometraje", "text": "Las lecturas de kilómetros, las que faltan este mes y la proyección a fin de contrato o de año." },
+      "en": { "title": "Mileage", "text": "Mileage readings, the ones missing this month and the projection to the end of the contract or year." }
+    },
+    {
+      "shot": "incidencias",
+      "chapter": "incidencias",
+      "seconds": 4.4,
+      "es": { "title": "Incidencias", "text": "Averías, mantenimientos puntuales y peticiones de la flota: ábrelas, síguelas y ciérralas." },
+      "en": { "title": "Incidents", "text": "Breakdowns, one-off maintenance and requests across the fleet: open them, follow them and close them." }
+    },
+    {
+      "shot": "accidentes",
+      "chapter": "accidentes",
+      "seconds": 4.4,
+      "es": { "title": "Accidentes", "text": "El parte guiado, el seguimiento hasta el cierre y el borrado a tiempo de los datos de terceros." },
+      "en": { "title": "Accidents", "text": "The guided report, the follow-up until it is closed and the timely deletion of third-party data." }
+    },
+    {
+      "shot": "alertas",
+      "chapter": "alertas",
+      "seconds": 4.4,
+      "es": { "title": "Alertas", "text": "Los vencimientos y avisos de la flota: agrúpalos, ordénalos y resuélvelos." },
+      "en": { "title": "Alerts", "text": "The fleet due dates and warnings: group them, sort them and resolve them." }
+    },
+    {
+      "shot": "solicitudes",
+      "chapter": "solicitudes",
+      "seconds": 4.4,
+      "es": { "title": "Solicitudes", "text": "Lo que piden conductores y supervisores, en seis bandejas, para concederlo o rechazarlo." },
+      "en": { "title": "Requests", "text": "What drivers and supervisors ask for, in six trays, to grant or reject it." }
+    },
+    {
+      "shot": "documentos-lista",
+      "chapter": "documentos",
+      "seconds": 4.4,
+      "es": { "title": "Documentos", "text": "Quién puede leer cada tipo de documento, y el listado de los papeles de la flota y de las personas." },
+      "en": { "title": "Documents", "text": "Who can read each document type, and the list of fleet and personal papers." }
+    },
+    {
+      "shot": "usuarios",
+      "chapter": "usuarios",
+      "seconds": 4.4,
+      "es": { "title": "Usuarios", "text": "Las personas de la app: sus roles, los coches que han tenido y sus documentos personales." },
+      "en": { "title": "Users", "text": "The people in the app: their roles, the cars they have had and their personal documents." }
+    },
+    {
+      "shot": "correo-4",
+      "chapter": "correo",
+      "seconds": 4.4,
+      "es": { "title": "Enviar correo", "text": "Un asistente para mandar un correo sobre un coche: tipo, contenido, destinatarios y vista previa." },
+      "en": { "title": "Sending email", "text": "A wizard to send an email about a car: type, content, recipients and preview." }
+    },
+    {
+      "shot": "informes-facturas",
+      "chapter": "informes",
+      "seconds": 4.4,
+      "es": { "title": "Informes y facturas", "text": "Descarga los datos de vehículos y personas, y lleva las facturas." },
+      "en": { "title": "Reports and invoices", "text": "Download vehicle and people data, and keep track of invoices." }
+    },
+    {
+      "shot": "hse",
+      "chapter": "hse",
+      "seconds": 4.4,
+      "es": { "title": "Vista HSE", "text": "La vista de solo lectura para prevención: los coches, sus lecturas y su informe." },
+      "en": { "title": "HSE view", "text": "The read-only view for health and safety: the cars, their readings and their report." }
+    },
+    {
+      "shot": null,
+      "chapter": null,
+      "seconds": 4.6,
+      "es": { "title": "Flota · Gestión", "text": "¿Dudas en una pantalla? El botón «?» de la cabecera abre su capítulo de la ayuda." },
+      "en": { "title": "Fleet · Management", "text": "Stuck on a screen? The “?” button in the header opens its help chapter." }
+    }
+  ]
+}

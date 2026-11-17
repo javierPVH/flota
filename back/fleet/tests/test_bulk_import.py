@@ -15,7 +15,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role
-from fleet.models import Company, Project, Vehicle
+from fleet.models import BusinessUnit, Company, Country, Project, Vehicle
 
 from .helpers import make_user
 
@@ -422,6 +422,231 @@ class VehicleBulkImportTests(APITestCase):
         self.assertEqual(vehicle.year, 2022)
         self.assertEqual(vehicle.model, "León")  # lo no mapeado no se toca
         self.assertEqual(Vehicle.objects.count(), 1)
+
+    def test_bulk_create_schedules_itv_on_create_and_update(self):
+        """La «Próxima ITV» del fichero se programa como el botón: candado
+        manual, cierre del aviso de la cita anterior, y en la actualización
+        solo si difiere."""
+        from fleet.models import Alert
+        from fleet.models.enums import AlertStatus, AlertType
+
+        resp = self.client.post(
+            reverse("vehicle-bulk-create"),
+            {
+                "rows": [
+                    {
+                        "_row": 2,
+                        "plate": "1111ITV",
+                        "brand": "Seat",
+                        "model": "León",
+                        "next_itv_date": "2027-03-15",
+                        "itv_postal_code": "28045",
+                    }
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["errors"], [])
+        nuevo = Vehicle.objects.get(plate="1111ITV")
+        self.assertEqual(nuevo.next_itv_date, date(2027, 3, 15))
+        self.assertTrue(nuevo.next_itv_manual)
+        self.assertEqual(nuevo.itv_postal_code, "28045")
+
+        # Actualizar: la misma fecha no cambia nada; otra, la mueve y cierra
+        # el aviso de la cita anterior.
+        aviso = Alert.objects.create(
+            vehicle=nuevo,
+            type=AlertType.ITV_DUE,
+            dedup_key="itv:test:2027-03-15:30",
+        )
+        resp = self.client.post(
+            reverse("vehicle-bulk-create"),
+            {
+                "rows": [
+                    {"_row": 2, "plate": "1111ITV", "next_itv_date": "2027-03-15"},
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(resp.data["unchanged"], 1, resp.data)
+        self.assertIn("next_itv_date", resp.data["updates"][0]["unchanged"])
+        resp = self.client.post(
+            reverse("vehicle-bulk-create"),
+            {
+                "rows": [
+                    {"_row": 2, "plate": "1111ITV", "next_itv_date": "15/04/2027"},
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(resp.data["updated"], 1, resp.data)
+        self.assertEqual(
+            resp.data["updates"][0]["changed"],
+            [{"field": "next_itv_date", "old": "2027-03-15", "new": "2027-04-15"}],
+        )
+        nuevo.refresh_from_db()
+        self.assertEqual(nuevo.next_itv_date, date(2027, 4, 15))
+        aviso.refresh_from_db()
+        self.assertEqual(aviso.status, AlertStatus.RESOLVED)
+
+    def test_bulk_create_itv_postal_code_alone_updates_the_record(self):
+        """Sin cita en el fichero, el CP se escribe suelto; igual → sin cambios;
+        mal formado → la fila falla."""
+        Vehicle.objects.create(plate="3333ITV", brand="Seat", model="León")
+        url = reverse("vehicle-bulk-create")
+        resp = self.client.post(
+            url,
+            {"rows": [{"_row": 2, "plate": "3333ITV", "itv_postal_code": "08001"}]},
+            format="json",
+        )
+        self.assertEqual(resp.data["updated"], 1, resp.data)
+        self.assertEqual(
+            resp.data["updates"][0]["changed"],
+            [{"field": "itv_postal_code", "old": "", "new": "08001"}],
+        )
+        self.assertEqual(Vehicle.objects.get(plate="3333ITV").itv_postal_code, "08001")
+        resp = self.client.post(
+            url,
+            {"rows": [{"_row": 2, "plate": "3333ITV", "itv_postal_code": "08001"}]},
+            format="json",
+        )
+        self.assertEqual(resp.data["unchanged"], 1, resp.data)
+        resp = self.client.post(
+            url,
+            {"rows": [{"_row": 2, "plate": "3333ITV", "itv_postal_code": "801"}]},
+            format="json",
+        )
+        self.assertEqual(len(resp.data["errors"]), 1, resp.data)
+        self.assertIn("5 cifras", resp.data["errors"][0]["error"])
+
+    def test_preview_resolves_business_unit_and_country_and_pads_the_postal_code(self):
+        """Unidad de negocio (por nombre o código) y país por nombre; versión y
+        consumo tal cual; el CP de la ITV recupera el cero que Excel se come."""
+        BusinessUnit.objects.create(code="FV", name="Fotovoltaica")
+        Country.objects.create(name="España")
+        file = xlsx_file(
+            [
+                [
+                    "Matrícula",
+                    "Marca",
+                    "Modelo",
+                    "Versión",
+                    "Unidad de negocio",
+                    "País",
+                    "Consumo",
+                    "CP ITV",
+                ],
+                ["4444ITV", "Seat", "León", "1.5 TSI FR", "fv", "españa", 6, 8001],
+                ["5555ITV", "Seat", "León", "", "Eólica", "Francia", "", ""],
+            ]
+        )
+        resp = self.client.post(
+            reverse("vehicle-detect-columns"), {"file": file}, format="multipart"
+        )
+        auto = resp.data["auto_mapping"]
+        self.assertEqual(auto["version"], 3)
+        self.assertEqual(auto["business_unit"], 4)
+        self.assertEqual(auto["country"], 5)
+        self.assertEqual(auto["consumption"], 6)
+        self.assertEqual(auto["itv_postal_code"], 7)
+        mapping = {
+            "plate": 0,
+            "brand": 1,
+            "model": 2,
+            "version": 3,
+            "business_unit": 4,
+            "country": 5,
+            "consumption": 6,
+            "itv_postal_code": 7,
+        }
+        file = xlsx_file(
+            [
+                [
+                    "Matrícula",
+                    "Marca",
+                    "Modelo",
+                    "Versión",
+                    "Unidad de negocio",
+                    "País",
+                    "Consumo",
+                    "CP ITV",
+                ],
+                ["4444ITV", "Seat", "León", "1.5 TSI FR", "fv", "españa", 6, 8001],
+                ["5555ITV", "Seat", "León", "", "Eólica", "Francia", "", ""],
+            ]
+        )
+        resp = self._preview(file, mapping)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        record = resp.data["records"][0]
+        self.assertEqual(record["version"], "1.5 TSI FR")
+        self.assertEqual(record["business_unit"], BusinessUnit.objects.get().id)
+        self.assertEqual(record["country"], Country.objects.get().id)
+        self.assertEqual(record["consumption"], 6)
+        self.assertEqual(record["itv_postal_code"], "08001")
+        # La segunda fila nombra una unidad y un país que no existen: no está
+        # lista, y el aviso dice cuál.
+        self.assertEqual(resp.data["ready_count"], 1)
+        errores = json.dumps(resp.data, ensure_ascii=False)
+        self.assertIn("La unidad de negocio 'Eólica' no existe", errores)
+        self.assertIn("El país 'Francia' no existe", errores)
+        # Y al crear, los cinco llegan a la ficha.
+        resp = self.client.post(reverse("vehicle-bulk-create"), {"rows": [record]}, format="json")
+        self.assertEqual(resp.data["created"], 1, resp.data)
+        creado = Vehicle.objects.get(plate="4444ITV")
+        self.assertEqual(creado.version, "1.5 TSI FR")
+        self.assertEqual(creado.business_unit, BusinessUnit.objects.get())
+        self.assertEqual(creado.country, Country.objects.get())
+        self.assertEqual(creado.consumption, 6)
+        self.assertEqual(creado.itv_postal_code, "08001")
+        self.assertIsNone(creado.next_itv_date)
+
+    def test_bulk_create_itv_of_a_failed_row_does_not_leak_into_the_next(self):
+        """La cita apartada de una fila que falla no se cuela en la siguiente
+        fila de la misma matrícula (el estado es por fila, no por petición)."""
+        resp = self.client.post(
+            reverse("vehicle-bulk-create"),
+            {
+                "rows": [
+                    # Falla en el serializer: sin marca ni modelo.
+                    {"_row": 2, "plate": "6666ITV", "next_itv_date": "2027-03-15"},
+                    {"_row": 3, "plate": "6666ITV", "brand": "Seat", "model": "León"},
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(resp.data["created"], 1, resp.data)
+        self.assertEqual(len(resp.data["errors"]), 1)
+        self.assertIsNone(Vehicle.objects.get(plate="6666ITV").next_itv_date)
+
+    def test_bulk_create_does_not_schedule_itv_out_of_fleet(self):
+        Vehicle.objects.create(plate="7777ITV", brand="Seat", model="León", state="retired")
+        resp = self.client.post(
+            reverse("vehicle-bulk-create"),
+            {"rows": [{"_row": 2, "plate": "7777ITV", "next_itv_date": "2027-03-15"}]},
+            format="json",
+        )
+        self.assertEqual(resp.data["updated"], 0, resp.data)
+        self.assertIn("no se cita itv", resp.data["errors"][0]["error"].lower())
+        self.assertIsNone(Vehicle.objects.get(plate="7777ITV").next_itv_date)
+
+    def test_preview_maps_next_itv_by_alias_and_coerces_the_date(self):
+        file = csv_file("matricula;marca;modelo;proxima itv\n2222ITV;Seat;León;01/06/2027\n")
+        resp = self.client.post(
+            reverse("vehicle-detect-columns"), {"file": file}, format="multipart"
+        )
+        self.assertEqual(resp.data["auto_mapping"]["next_itv_date"], 3, resp.data)
+        file = csv_file("matricula;marca;modelo;proxima itv\n2222ITV;Seat;León;01/06/2027\n")
+        resp = self.client.post(
+            reverse("vehicle-preview-import"),
+            {
+                "file": file,
+                "mapping": json.dumps({"plate": 0, "brand": 1, "model": 2, "next_itv_date": 3}),
+            },
+            format="multipart",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["records"][0]["next_itv_date"], "2027-06-01")
 
     def test_bulk_create_update_with_invalid_value_reports_error(self):
         Vehicle.objects.create(plate="9999ZZZ", brand="Seat", model="León")
