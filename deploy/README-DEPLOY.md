@@ -230,6 +230,7 @@ configurar, salvo las variables del `.env` que se indican:
 | CFG-4 | Los nginx montan solo `data/media` y `data/staticfiles` (no `data/secrets`, `data/saml`) | `docker-compose.yml` |
 | CFG-5 | Redis con `requirepass` (`REDIS_PASSWORD`, obligatoria) y redes `frontend`/`backend` | `docker-compose.yml`, `.env` |
 | CFG-6 | Backups cifrados con `age` si `BACKUP_AGE_RECIPIENT` está definida | `deploy/backup.sh`, `.env` |
+| OPS2b | Copia de los backups fuera del servidor (Cloud Storage) si `BACKUP_GCS_BUCKET` está definida; solo cifrada (§6.3) | `deploy/backup.sh`, `.env` |
 | CFG-8 | `cap_drop: [ALL]` en back, jobs, redis y los dos nginx (+ las mínimas de vuelta) | `docker-compose.yml` |
 | CFG-10/SRV-5 | `server_tokens off`; HSTS solo desde el nginx de conductores (`SECURE_HSTS_SECONDS=0`); sin cabeceras duplicadas en `/api` | `nginx.conf` × 2, `back/.env.prod` |
 | CFG-12 | El access-log de gunicorn no registra la query string (`?code=`, `?SAMLResponse=`) | `back/entrypoint.sh` |
@@ -283,6 +284,60 @@ age-keygen -o flota-backup.key
   login de Google se quedan en blanco, la consola del navegador dice qué
   directiva los corta: se amplía en las tres `add_header` del snippet.
 - **Cookies `Secure`** (A15): cerrada. Con gestión por https, `SESSION_COOKIE_SECURE=True` y `CSRF_COOKIE_SECURE=True` en el `.env.prod` del servidor; el ejemplo las deja a `False` para un arranque por http.
+
+### 6.3 Copia fuera del servidor (Cloud Storage)
+
+Con `BACKUP_GCS_BUCKET` definida, `backup.sh` sube el dump y el tar de cada
+pasada al bucket después de la copia local. En srvgcptd el bucket es
+`gransolar-flota-backups` (proyecto `transformacion-digital-grs`,
+`EUROPE-WEST1`, acceso uniforme, sin acceso público, **retención de 90 días** y
+regla de ciclo de vida que borra a los 90 días).
+
+- **Sin claves en el servidor**: el token se pide al servidor de metadatos de
+  la VM. La cuenta de servicio de la máquina solo tiene
+  `roles/storage.objectCreator` en el bucket: puede crear objetos, pero no
+  leerlos, listarlos, sobrescribirlos ni borrarlos. Un servidor comprometido no
+  puede destruir las copias.
+- **Solo cifrado**: sin `BACKUP_AGE_RECIPIENT` la subida falla (la copia local
+  se hace igual). Un dump en claro en un bucket con retención no se podría
+  borrar en 90 días.
+- **Healthcheck**: `.last-backup-ok` solo se escribe si la subida ha ido bien.
+  Un `backup` en rojo con la copia local presente es un fallo de subida; el
+  motivo está en `docker compose logs backup`.
+- Solo se suben los ficheros de la pasada en curso; los anteriores a activar la
+  variable (o los de una noche con la subida caída) no se suben solos.
+
+Requisitos, una sola vez:
+
+```bash
+# 1. En el servidor: qué cuenta usa la VM y con qué scopes.
+M=http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default
+curl -s -H "Metadata-Flavor: Google" $M/email; echo
+curl -s -H "Metadata-Flavor: Google" $M/scopes
+#    scopes debe incluir devstorage.read_write o cloud-platform. Con
+#    devstorage.read_only (el valor por defecto) la subida da 403 aunque el IAM
+#    esté bien; cambiarlo exige PARAR la VM (coordinar con Sistemas):
+#      gcloud compute instances set-service-account <vm> --zone=<zona> \
+#        --service-account=<email> --scopes=cloud-platform
+
+# 2. En Cloud Shell: permiso de la cuenta de la VM en el bucket.
+gcloud storage buckets add-iam-policy-binding gs://gransolar-flota-backups \
+  --member="serviceAccount:<email>" --role="roles/storage.objectCreator"
+
+# 3. En el .env del servidor (con BACKUP_AGE_RECIPIENT ya definida, §6.1):
+#      BACKUP_GCS_BUCKET=gransolar-flota-backups
+docker compose up -d backup
+docker compose logs -f backup     # "[backup] subido -> gs://gransolar-flota-backups/db-..."
+```
+
+Comprobar y restaurar se hace desde Cloud Shell (o un equipo con rol en el
+proyecto), no desde el servidor, que no puede leer el bucket:
+
+```bash
+gcloud storage ls -l gs://gransolar-flota-backups/
+gcloud storage cp gs://gransolar-flota-backups/db-<fecha>.dump.age .
+# y después, descifrar y restaurar como en §5.
+```
 
 ## 7. Gestión por HTTPS (certificado de la CA corporativa)
 
@@ -550,10 +605,12 @@ docker compose exec db psql -U flota -d postgres -c 'DROP DATABASE flota_demo;'
   trabajo: `pg_dump` en formato custom a `.part`, verificación con
   `pg_restore --list` y tamaño mínimo, tar de la media, marcador
   `.last-backup-ok` y retención (`BACKUP_KEEP_DAYS`, 30 días), cifrado con
-  `age` si hay `BACKUP_AGE_RECIPIENT` (§6.1). El healthcheck
-  del servicio se pone en rojo si no hay un backup verificado en 26 h. Variables
+  `age` si hay `BACKUP_AGE_RECIPIENT` (§6.1) y copia fuera del servidor a
+  Cloud Storage si hay `BACKUP_GCS_BUCKET` (§6.3). El healthcheck
+  del servicio se pone en rojo si no hay un backup verificado (y subido, si hay
+  bucket) en 26 h. Variables
   en `.env` (`BACKUP_HOST_DIR`, `BACKUP_KEEP_DAYS`, `BACKUP_CRON`,
-  `BACKUP_AGE_RECIPIENT`). Hasta el
+  `BACKUP_AGE_RECIPIENT`, `BACKUP_GCS_BUCKET`). Hasta el
   15-sep-2026 no había ninguna copia: el script era un cron del host que nunca
   se instaló (auditoría srvgcptd). Prueba la restauración al configurarlo.
 - **RGPD (conductores es público)**: resuelto (SEC3) — `/media` ya NO se sirve

@@ -36,6 +36,14 @@ if [ -n "${BACKUP_AGE_RECIPIENT:-}" ] && ! command -v age > /dev/null 2>&1; then
         || echo "[backup] AVISO: no se pudo instalar age; los backups FALLARAN hasta que haya salida a internet o se quite BACKUP_AGE_RECIPIENT" >&2
 fi
 
+# --- OPS2b: `curl` para subir los backups al bucket (BACKUP_GCS_BUCKET). Mismo
+#     criterio que con `age`: solo si se ha pedido, y sin tumbar el arranque.
+if [ -n "${BACKUP_GCS_BUCKET:-}" ] && ! command -v curl > /dev/null 2>&1; then
+    echo "[backup] instalando curl (subida de backups a gs://${BACKUP_GCS_BUCKET})..."
+    apk add --no-cache curl > /dev/null 2>&1 \
+        || echo "[backup] AVISO: no se pudo instalar curl; la subida al bucket FALLARA hasta que haya salida a internet o se quite BACKUP_GCS_BUCKET" >&2
+fi
+
 # --- Volcado sourceable de PG* / BACKUP_* (sin BACKUP_CRON, que solo es el horario).
 #     Cada valor entre comillas simples con las internas escapadas ( ' -> '\'' ).
 : > "$ENVFILE"

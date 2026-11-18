@@ -248,6 +248,10 @@ services:
       # CFG-6: clave PÚBLICA de `age` para cifrar el dump y el tar. Vacía =
       # backup en claro (backup.sh lo avisa en cada pasada). Ver README-DEPLOY.
       BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+      # OPS2b: bucket de Cloud Storage para la copia FUERA del servidor (solo el
+      # nombre, sin gs://). Vacía = no se sube. Exige BACKUP_AGE_RECIPIENT: no
+      # se sube nada en claro. Sin claves: usa la cuenta de servicio de la VM.
+      BACKUP_GCS_BUCKET: ${BACKUP_GCS_BUCKET:-}
     volumes:
       # Destino. En el servidor apunta a OTRO disco (/mnt/data): ver .env.example.
       - ${BACKUP_HOST_DIR:-./backups}:/backups
@@ -262,7 +266,8 @@ services:
     command: ["sh", "/deploy/backup-entrypoint.sh"]
     healthcheck:
       # Sano = crond sigue siendo PID 1 Y hay un .last-backup-ok de menos de 26 h
-      # (solo lo escribe backup.sh tras verificar el dump). Se lee /proc/1/comm y
+      # (solo lo escribe backup.sh tras verificar el dump y, si hay
+      # BACKUP_GCS_BUCKET, tras subirlo al bucket). Se lee /proc/1/comm y
       # no pgrep: la imagen no trae procps, y con pgrep el healthcheck de list
       # llevaba semanas en rojo sobre un backup que iba bien.
       test: ["CMD-SHELL", "[ \"$$(cat /proc/1/comm)\" = crond ] && [ -n \"$$(find /backups/.last-backup-ok -mmin -1560 2>/dev/null)\" ]"]
