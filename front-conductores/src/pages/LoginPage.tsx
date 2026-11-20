@@ -6,6 +6,7 @@ import { asErrorMessage } from '@flota/ui/http'
 
 import { useAuth } from '../auth.ts'
 import { devLogin, fetchAuthConfig, listDevUsers, login } from '../api.ts'
+import { LoginHelpLink } from '../components/HelpLinks.tsx'
 import { useLang } from '../i18n.tsx'
 import type { AuthConfig, DevUser } from '../types.ts'
 
@@ -158,6 +159,7 @@ export function LoginPage() {
         <p className="login-security">
           <ShieldCheck size={14} /> {L.security}
         </p>
+        <LoginHelpLink />
       </div>
     </div>
   )

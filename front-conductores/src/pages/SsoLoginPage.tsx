@@ -4,6 +4,7 @@ import { Car, ShieldCheck } from 'lucide-react'
 import { Button, LanguageToggleButton, Modal } from '@flota/ui/ui'
 
 import { startSamlLogin } from '../api.ts'
+import { LoginHelpLink } from '../components/HelpLinks.tsx'
 import { useLang } from '../i18n.tsx'
 import { parseDeniedReason, useSsoCopy } from '../translations/sso.ts'
 import type { AuthConfig } from '../types.ts'
@@ -96,6 +97,7 @@ export function SsoLoginPage({ config }: { config: AuthConfig }) {
           <ShieldCheck size={14} /> {S.security}
         </p>
         <p className="login-security">{S.noSlo}</p>
+        <LoginHelpLink />
       </div>
 
       {denied && (

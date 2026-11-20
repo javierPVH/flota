@@ -1,0 +1,538 @@
+<title>Manual de Flota</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap">
+<style>
+/* Layout: guía de dos columnas — texto a la izquierda, móvil simulado y explorable a la derecha; índice fijo arriba */
+:root{
+  /* Paleta en tonos blancos, fija (también con el sistema en modo oscuro) */
+  --bg:#ffffff; --surface:#ffffff; --surface-2:#f8f9fb; --fg:#1f2a37; --muted:#6b7684; --line:#eceff3;
+  --orange:#ef7d14; --orange-soft:#fff6ee; --teal:#0e8c86; --teal-soft:#f0f9f8; --navy:#3b4a5e;
+  --red:#c2362d; --red-soft:#fdf3f2; --amber:#a86a00; --amber-soft:#fffaee; --blue:#2463c4; --blue-soft:#f2f6fd;
+  --phone:#ffffff; --shadow:0 8px 28px rgba(31,42,55,.07);
+  --f-display:"Manrope",system-ui,sans-serif; --f-body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.6;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;line-height:1.2;margin:0}
+a{color:var(--teal)}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.wrap{max-width:1160px;margin:0 auto}
+
+/* cabecera */
+.top{padding-block:28px 8px;display:grid;gap:18px}
+.brand{display:flex;align-items:center;gap:12px}
+.logo{width:42px;height:42px;border-radius:12px;background:var(--orange);display:grid;place-items:center;color:#fff}
+.brand small{display:block;color:var(--muted);font-size:13px;letter-spacing:.04em;text-transform:uppercase}
+.brand h1{font-size:clamp(26px,4vw,36px)}
+.lead{max-width:68ch;color:var(--muted);margin:0}
+
+/* buscador de tareas */
+.finder{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;display:grid;gap:12px;box-shadow:var(--shadow)}
+.finder label{font-weight:600}
+.finder input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--fg);font:inherit}
+.tasks{display:flex;flex-wrap:wrap;gap:8px}
+.task{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 14px;font-size:14px;text-decoration:none;display:inline-flex;gap:6px;align-items:center}
+.task:hover{border-color:var(--orange);background:var(--orange-soft)}
+.noresult{color:var(--muted);font-size:14px}
+
+/* índice */
+.toc{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;margin-top:10px;border-bottom:1px solid var(--line);overflow-x:auto;white-space:nowrap}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.toc a{display:inline-block;padding:6px 12px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:14px;font-weight:500}
+.toc a.on{background:var(--navy);color:var(--bg)}
+
+/* secciones */
+section{padding-block:44px;border-bottom:1px solid var(--line);scroll-margin-top:60px}
+.sec{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:36px;align-items:start}
+@media (max-width:860px){.sec{grid-template-columns:minmax(0,1fr)}.phone-col{justify-self:center}}
+.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--orange);font-weight:700;margin-bottom:6px}
+section h2{font-size:clamp(22px,3vw,28px);margin-bottom:10px}
+section p{max-width:66ch}
+.text{min-width:0;display:grid;gap:14px;align-content:start}
+.text p{margin:0}
+
+/* lista de puntos numerados vinculados al móvil */
+.points{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+.points li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;padding:10px 12px;border-radius:12px;border:1px solid transparent;cursor:pointer;transition:background .15s}
+.points li:hover,.points li.on{background:var(--surface);border-color:var(--line)}
+.num{width:26px;height:26px;border-radius:50%;background:var(--navy);color:var(--bg);font-size:13px;font-weight:700;display:grid;place-items:center;font-variant-numeric:tabular-nums}
+.points li.on .num{background:var(--orange);color:#fff}
+.points b{display:block}
+
+.note{border-radius:12px;padding:12px 14px;font-size:14px;display:grid;grid-template-columns:22px minmax(0,1fr);gap:8px}
+.note.info{background:var(--blue-soft);color:var(--fg)}
+.note.warn{background:var(--amber-soft)}
+.note.tip{background:var(--teal-soft)}
+.note svg{margin-top:2px}
+
+table.ref{width:100%;border-collapse:collapse;font-size:14px}
+.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table.ref th,table.ref td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+table.ref th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface-2)}
+table.ref tr:last-child td{border-bottom:0}
+.pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+.p-crit{background:var(--red-soft);color:var(--red)}
+.p-mod{background:var(--amber-soft);color:var(--amber)}
+.p-fun{background:var(--blue-soft);color:var(--blue)}
+.p-inf{background:var(--surface-2);color:var(--muted)}
+
+.steps{display:flex;flex-wrap:wrap;gap:6px}
+.step{font-size:13px;padding:4px 10px;border-radius:8px;background:var(--surface);border:1px solid var(--line)}
+
+/* ================= móvil simulado ================= */
+.phone-col{position:sticky;top:70px}
+.phone{width:320px;max-width:100%;border-radius:38px;background:var(--phone);padding:12px;box-shadow:var(--shadow);border:1px solid #e3e7ec}
+.screen{border-radius:28px;overflow:hidden;background:#f9fafb;border:1px solid #eef1f4;color:#14233a;height:600px;display:flex;flex-direction:column;position:relative;font-size:12px;line-height:1.35;font-family:var(--f-body)}
+.caption{text-align:center;font-size:12px;color:var(--muted);margin-top:8px}
+/* el interior del móvil imita la app (tema claro fijo, como la propia app) */
+.s-bar{background:#fff;display:flex;align-items:center;gap:6px;padding:12px 12px 8px;border-bottom:1px solid #e3e8ee}
+.s-logo{font-weight:800;font-size:10px;color:#1d3a63;letter-spacing:-.02em}
+.s-title{font-weight:700;font-size:13px;margin-right:auto;border-left:1px solid #ccd5df;padding-left:6px}
+.s-lang{display:flex;background:#e7ecf2;border-radius:999px;font-size:9px;font-weight:700}
+.s-lang span{padding:3px 7px;border-radius:999px;color:#5b6b80}.s-lang span.on{background:#0e8c86;color:#fff}
+.s-av{width:22px;height:22px;border-radius:50%;background:#e6eefb;color:#2463c4;font-weight:700;font-size:9px;display:grid;place-items:center}
+.s-out{width:22px;height:22px;border-radius:6px;border:1px solid #e3b8b4;color:#c2362d;display:grid;place-items:center;font-size:11px}
+.s-views{display:flex;margin:8px 10px;background:#fff;border-radius:999px;padding:3px;border:1px solid #e3e8ee}
+.s-views span{flex:1;text-align:center;padding:5px 0;border-radius:999px;font-weight:600;color:#5b6b80;font-size:11px}
+.s-views span.on{background:#e2f4f2;color:#0e8c86}
+.s-body{flex:1;overflow:auto;padding:0 10px 10px;display:grid;gap:8px;align-content:start}
+.card{background:#fff;border-radius:12px;border:1px solid #e3e8ee;padding:10px}
+.card.warn{border-left:3px solid #c2362d}
+.card.km{border-left:3px solid #0e8c86}
+.plate{font-family:var(--f-display);font-weight:800;font-size:20px;letter-spacing:.02em}
+.lbl{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#5b6b80;font-weight:700}
+.big{font-weight:800;font-size:18px}
+.lnk{color:#2463c4;font-weight:600}
+.row{display:flex;align-items:center;gap:6px}
+.badge{background:#2463c4;color:#fff;border-radius:999px;font-size:9px;font-weight:700;padding:1px 6px}
+.chip{font-size:9px;font-weight:700;border-radius:999px;padding:1px 6px}
+.c-crit{background:#fdecea;color:#c2362d}.c-open{background:#fff4d6;color:#a86a00}
+.alert-in{background:#fdecea;border-radius:8px;padding:6px 8px;margin-top:6px;color:#c2362d;font-weight:700}
+.alert-in small{display:block;color:#5b6b80;font-weight:400}
+.s-nav{background:#fff;border-top:1px solid #e3e8ee;display:grid;grid-template-columns:repeat(7,1fr);padding:6px 2px 10px}
+.s-nav.n3{grid-template-columns:repeat(3,1fr)}.s-nav.n2{grid-template-columns:repeat(2,1fr)}
+.s-nav span{display:grid;justify-items:center;gap:2px;font-size:8px;font-weight:600;color:#14233a}
+.s-nav span.off{color:#a8b3c0}
+.s-nav span.on{color:#0e8c86}
+.s-nav i{font-style:normal;font-size:14px;line-height:1}
+.ic-btn{width:20px;height:20px;border-radius:6px;border:1px solid #ccd5df;display:grid;place-items:center;font-size:10px;color:#1d3a63}
+.li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;padding:6px 0;border-top:1px solid #eef2f6}
+.li:first-of-type{border-top:0}
+.li small{display:block;color:#5b6b80}
+.sel{border:1px solid #ccd5df;border-radius:6px;padding:4px 6px;background:#fff;font-size:10px}
+
+/* modal dentro del móvil */
+.dim{position:absolute;inset:0;background:rgba(20,35,58,.45);display:grid;place-items:center;padding:10px}
+.modal{background:#fff;border-radius:14px;width:100%;max-height:96%;overflow:auto;display:grid;gap:8px;padding:12px}
+.m-h{display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:13px}
+.m-x{width:20px;height:20px;border-radius:6px;background:#eef2f6;display:grid;place-items:center}
+.m-info{background:#e6eefb;border:1px solid #c9d9f3;border-radius:8px;padding:7px;font-size:10.5px}
+.fld{display:grid;gap:3px}
+.fld>span{font-weight:700;font-size:10.5px}
+.req{font-size:8px;background:#fff1e3;color:#a86a00;border:1px solid #f2c48d;border-radius:999px;padding:0 5px;margin-left:4px;font-weight:600}
+.inp{border:1px solid #ccd5df;border-radius:7px;padding:6px 8px;background:#fff;color:#14233a;font-size:11px;width:100%;font-family:inherit}
+.inp.big-in{font-size:20px;text-align:center;border:2px solid #0e8c86;color:#9aa6b4;font-weight:700}
+.m-foot{display:flex;justify-content:flex-end;gap:6px;padding-top:4px}
+.btn{border-radius:7px;padding:6px 10px;font-weight:700;font-size:11px;border:1px solid #ccd5df;background:#fff;color:#14233a}
+.btn.pri{background:#ef7d14;color:#fff;border-color:#ef7d14}
+.btn.dis{color:#a8b3c0;background:#f6f8fa}
+.wtabs{display:flex;gap:3px;flex-wrap:wrap}
+.wtabs span{font-size:9.5px;font-weight:700;padding:3px 6px;border-radius:6px;background:#eef2f6;color:#5b6b80}
+.wtabs span.on{background:#e2f4f2;color:#0e8c86}
+.wtabs span.done{background:#e6eefb;color:#2463c4}
+.hint{background:#fff4d6;border:1px solid #f2d48d;color:#8a5600;border-radius:8px;padding:7px;font-size:10.5px;font-weight:600}
+.opt{border:1px solid #ccd5df;border-radius:8px;padding:7px;display:grid;grid-template-columns:14px minmax(0,1fr);gap:6px;font-size:10.5px;cursor:pointer;background:#fff;text-align:left;color:#14233a}
+.opt.on{border-color:#0e8c86;background:#e2f4f2}
+.opt i{width:12px;height:12px;border-radius:50%;border:2px solid #9aa6b4;margin-top:1px}
+.opt.on i{border-color:#0e8c86;background:radial-gradient(#0e8c86 40%,transparent 45%)}
+.opt small{display:block;color:#5b6b80;font-weight:400}
+.drop{border:1.5px dashed #ccd5df;border-radius:8px;padding:12px;text-align:center;color:#5b6b80;font-size:10.5px}
+.toast{position:absolute;left:10px;right:10px;bottom:70px;background:#14233a;color:#fff;border-radius:10px;padding:9px 11px;font-size:11px;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+
+/* login */
+.login{flex:1;display:grid;place-items:center;padding:14px;background:linear-gradient(180deg,#f4f6f9,#ffffff)}
+.lcard{background:#fff;border-radius:14px;padding:14px;display:grid;gap:8px;border:1px solid #eceff3;border-top:4px solid #ef7d14;width:100%}
+
+/* puntos sobre el móvil */
+[data-hs]{position:relative}
+[data-hs]::after{content:attr(data-hs);position:absolute;top:-7px;right:-7px;width:17px;height:17px;border-radius:50%;background:#1d3a63;color:#fff;font-size:9.5px;font-weight:700;display:grid;place-items:center;z-index:3;font-family:var(--f-body);box-shadow:0 0 0 2px #fff;cursor:pointer}
+[data-hs].on{outline:2.5px solid #ef7d14;outline-offset:2px;border-radius:8px}
+[data-hs].on::after{background:#ef7d14}
+@media (prefers-reduced-motion:no-preference){[data-hs].on{animation:pulse 1.2s ease-out 1}}
+@keyframes pulse{0%{outline-offset:8px}100%{outline-offset:2px}}
+
+.demo-tag{display:inline-block;font-size:11px;font-weight:600;color:var(--muted);border:1px dashed var(--line);border-radius:6px;padding:2px 8px}
+details{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+details+details{margin-top:8px}
+summary{font-weight:600;cursor:pointer}
+details p{margin:8px 0 0}
+footer{padding-block:30px 50px;color:var(--muted);font-size:13px}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-6h11l3 6"/><rect x="2" y="13" width="19" height="5" rx="1.5"/><circle cx="6.5" cy="18.5" r="1.5"/><circle cx="16.5" cy="18.5" r="1.5"/></svg></div>
+      <div><small>Gransolar · Guía para conductores</small><h1>Manual de Flota</h1></div>
+    </div>
+    <p class="lead">Cómo usar la app de flota desde el móvil: anotar kilómetros y consumo, comunicar incidencias y accidentes, y gestionar la documentación de tu coche. Toca los números del móvil de cada sección para ver qué hace cada elemento.</p>
+    <div class="finder">
+      <label for="q">¿Qué necesitas hacer?</label>
+      <input id="q" type="search" placeholder="Ej.: pinchazo, kilómetros, seguro, accidente…" autocomplete="off">
+      <div class="tasks" id="tasks"></div>
+      <div class="noresult" id="noresult" hidden>No hay coincidencias. Prueba con otra palabra o revisa las preguntas frecuentes al final.</div>
+    </div>
+  </header>
+
+  <nav class="toc" id="toc" aria-label="Secciones del manual"></nav>
+
+  <main id="main"></main>
+
+  <footer>
+    Las pantallas de este manual son simulaciones con datos de ejemplo (matrícula 1234ABC, conductora «Ana Ejemplo»). Nada de lo que pulses aquí se envía a la app real. Textos y opciones según la app <a href="https://fleetdrivers.gransolar-app.com/" target="_blank" rel="noopener">fleetdrivers.gransolar-app.com</a> a 19/11/2026.
+  </footer>
+</div>
+
+<script>
+const I = {
+  info:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>',
+  warn:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  tip:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7V17h8v-2.3A7 7 0 0012 2z"/></svg>'
+};
+const note = (k,t)=>`<div class="note ${k}">${I[k]}<div>${t}</div></div>`;
+
+/* ---------- piezas comunes del móvil ---------- */
+const bar = (hs)=>`<div class="s-bar"><span class="s-logo">GRANSOLAR</span><span class="s-title">Flota</span><span class="s-lang" ${hs?'data-hs="'+hs[0]+'"':''}><span class="on">ES</span><span>EN</span></span><span class="s-av" ${hs?'data-hs="'+hs[1]+'"':''}>AE</span><span class="s-out" ${hs?'data-hs="'+hs[2]+'"':''}>⇥</span></div>`;
+const views = (on,hs)=>`<div class="s-views" ${hs?'data-hs="'+hs+'"':''}>${['🚗 Mi vehículo','👥 Flota','👤 Mi perfil'].map((v,i)=>`<span class="${i===on?'on':''}">${v}</span>`).join('')}</div>`;
+const navCar = (hs)=>`<div class="s-nav" ${hs?'data-hs="'+hs+'"':''}>
+  <span><i>⏱</i>Km</span><span><i>⛽</i>Comb.</span><span class="off"><i>📋</i>ITV</span><span class="off"><i>🔧</i>Mant.</span><span><i>⚠</i>Incid.</span><span><i>🚨</i>Accid.</span><span><i>📄</i>Doc.</span></div>`;
+const homeBody = (hs={})=>`
+  <div class="card warn" ${hs.warn?'data-hs="'+hs.warn+'"':''}><div class="row"><b style="font-size:13px">Te queda poco</b><span style="margin-left:auto;color:#5b6b80">1 aviso</span></div>
+    <div class="alert-in">Combustible de 1234ABC: sin ninguna anotación<small>se anota en cada viaje</small></div></div>
+  <div class="card" ${hs.car?'data-hs="'+hs.car+'"':''}><div class="plate">1234ABC</div><div style="color:#5b6b80">OPEL ASTRA</div><div class="lnk" style="margin-top:6px">Ver ficha</div></div>
+  <div class="card km" ${hs.km?'data-hs="'+hs.km+'"':''}><div class="lbl">Km actual</div><div class="big">1200 km</div><small style="color:#5b6b80">Lectura del 18/11/2026</small></div>
+  <div class="card" ${hs.lists?'data-hs="'+hs.lists+'"':''}>
+    <div class="li"><b>› Alertas</b><span class="badge">1</span></div>
+    <div class="li"><b>› Incidencias</b><span class="badge">2</span></div>
+    <div class="li"><b>› Accidentes</b><span class="badge">1</span></div>
+    <div class="li"><b>› Documentación</b><span class="badge" style="background:#9aa6b4">0</span></div>
+  </div>`;
+const homeScreen = (hs={}, extra='')=>`${bar(hs.bar)}${views(0,hs.views)}<div class="s-body">${homeBody(hs)}</div>${navCar(hs.nav)}${extra}`;
+const modal = (title, inner)=>`<div class="dim"><div class="modal"><div class="m-h">${title}<span class="m-x">✕</span></div>${inner}</div></div>`;
+const fld = (label,req,input,hs)=>`<label class="fld" ${hs?'data-hs="'+hs+'"':''}><span>${label}${req?'<em class="req">Obligatorio</em>':''}</span>${input}</label>`;
+
+/* ---------- asistente interactivo de incidencias ---------- */
+const INC = {
+  tipos:{
+    'Mantenimiento puntual':{hint:'Cosas rotas o cambios necesarios que no impiden conducir; se atienden sin urgencia. El mantenimiento programado va por su plan, no por aquí.',s2:'Disponibilidad'},
+    'Cambio de neumáticos':{hint:'Cambio de neumáticos por desgaste o pinchazo. El taller y la cita se concretan después, en la gestión.',s2:'Neumáticos'},
+    'Avería':{hint:'El vehículo ha fallado: no está en condiciones de circular o no se puede usar con normalidad.',s2:'Disponibilidad'},
+    'Petición general':{hint:'Solicitudes que quizá no tienen que ver con el vehículo (documentación, tarjetas, dudas…).',s2:'Disponibilidad'}
+  },
+  state:{step:0,tipo:'Avería',disp:0,motivo:'Desgaste'}
+};
+function incScreen(){
+  const s=INC.state, t=INC.tipos[s.tipo];
+  const tabs=['Incidencia',t.s2,'Documentos','Gestión'].map((n,i)=>`<span class="${i===s.step?'on':i<s.step?'done':''}">${n}</span>`).join('');
+  let body='';
+  if(s.step===0){
+    body=`<div class="row" style="gap:6px;align-items:end">
+      ${fld('Tipo',1,`<select class="inp" id="incTipo">${Object.keys(INC.tipos).map(k=>`<option ${k===s.tipo?'selected':''}>${k}</option>`).join('')}</select>`,'1')}
+      ${fld('Fecha',1,'<div class="inp">19/11/2026</div>')}</div>
+      ${fld('Prioridad',1,'<div class="inp">Moderada ▾</div>','2')}
+      <div class="hint" data-hs="3">${t.hint}</div>
+      ${s.tipo==='Cambio de neumáticos'?'':fld('Descripción',1,'<div class="inp" style="height:46px;color:#9aa6b4">Explica qué ocurre…</div>','4')}`;
+  } else if(s.step===1 && s.tipo==='Cambio de neumáticos'){
+    body=`<div class="m-info">Obligatorios: kilometraje y motivo. En desgaste: qué ruedas y las medidas de los ejes elegidos.</div>
+      ${fld('Kilometraje actual',1,'<div class="inp">1300</div><small style="color:#5b6b80">Última lectura conocida: 1200 km</small>','5')}
+      ${fld('Motivo del cambio',1,`<select class="inp" id="incMotivo"><option ${s.motivo==='Desgaste'?'selected':''}>Desgaste</option><option ${s.motivo==='Pinchazo'?'selected':''}>Pinchazo</option></select>`,'6')}
+      ${s.motivo==='Desgaste'?fld('¿Qué ruedas?',1,'<div class="inp">Delanteras ▾ (Traseras · Las 4 ruedas)</div>')+fld('Medidas delanteras',1,'<div class="inp">205/55 R16</div>'):''}
+      ${fld('Comentario',0,'<div class="inp" style="height:30px"></div>')}`;
+  } else if(s.step===1){
+    const ops=[['Sigue en servicio','Puedo seguir conduciéndolo mientras se atiende.'],['No se puede usar','El coche se queda parado, pero no hace falta otro.'],['Necesito coche de sustitución','Se abre una solicitud de coche a administración, que decide si lo facilita. Hay que adjuntar algún documento.']];
+    body=`<div class="m-info">Esto no cambia el estado del vehículo: lo registra la gestión, que es quien decide.</div><b style="font-size:11px">¿Cómo queda el coche?</b>
+      <div style="display:grid;gap:5px" data-hs="5">${ops.map((o,i)=>`<button type="button" class="opt ${s.disp===i?'on':''}" data-disp="${i}"><i></i><span><b>${o[0]}</b><small>${o[1]}</small></span></button>`).join('')}</div>`;
+  } else if(s.step===2){
+    body=`<div class="m-info">Adjunta lo que ayude a entenderlo: fotos del daño, el presupuesto del taller… Puedes añadir varios y no es obligatorio${s.disp===2&&s.tipo!=='Cambio de neumáticos'?', <b>salvo si pides coche de sustitución</b>':''}.</div>
+      <div class="drop" data-hs="7">📎 Adjuntar documento o foto (opcional)<br><small>JPG, PNG, WEBP, HEIC o PDF</small></div>`;
+  } else {
+    body=`<div class="m-info">Si lo sabes, indica el código postal desde el que prefieres acudir al taller más cercano. Es opcional: puedes completarlo al cerrar la incidencia.</div>
+      ${fld('Código postal de la ubicación preferente',0,'<div class="inp">28001</div>','8')}`;
+  }
+  const foot = s.step===0?`<button class="btn" type="button" data-inc="close">Cerrar</button><button class="btn pri" type="button" data-inc="next">Continuar</button>`
+    : s.step<3?`<button class="btn" type="button" data-inc="back">Atrás</button><button class="btn pri" type="button" data-inc="next">Continuar</button>`
+    : `<button class="btn" type="button" data-inc="back">Atrás</button><button class="btn pri" type="button" data-inc="send" data-hs="9">Comunicar incidencia</button>`;
+  return `${bar()}${views(0)}<div class="s-body">${homeBody()}</div>${navCar()}
+    <div class="dim"><div class="modal"><div class="m-h">Comunicar incidencia · 1234ABC<span class="m-x">✕</span></div><div class="wtabs">${tabs}</div>${body}<div class="m-foot">${foot}</div></div></div>`;
+}
+
+/* ---------- documento interactivo ---------- */
+const DOC={mode:'subir',de:'veh'};
+function docScreen(){
+  const vehTypes=['Permiso de circulación','Ficha técnica','Seguro','Contrato','Acta de devolución','Parte de accidente','Fotos de daños','Otro'];
+  const condTypes=['Permiso de conducir','Otro'];
+  const types = DOC.mode==='pedir' ? ['Permiso de circulación','Ficha técnica','Seguro','Contrato','Acta de devolución','Permiso de conducir','Otro'] : (DOC.de==='veh'?vehTypes:condTypes);
+  const opts=[['subir','Subir un documento','Tienes el papel (o una foto) y lo guardas en la ficha.'],['pedir','Pedir un documento','No lo tienes: se lo pides a administración. Vale también para los que no ves en la lista.']];
+  return `${bar()}${views(0)}<div class="s-body">${homeBody()}</div>${navCar()}
+  <div class="dim"><div class="modal"><div class="m-h">Documento · 1234ABC<span class="m-x">✕</span></div>
+    <div class="wtabs"><span class="done">Qué quieres</span><span class="on">${DOC.mode==='pedir'?'Qué pides':'Tipo y documento'}</span>${DOC.mode==='subir'?(DOC.de==='veh'?'<span>Ligado a</span>':'')+'<span>Notas</span>':''}</div>
+    <div style="display:grid;gap:5px" data-hs="1">${opts.map(o=>`<button type="button" class="opt ${DOC.mode===o[0]?'on':''}" data-doc-mode="${o[0]}"><i></i><span><b>${o[1]}</b><small>${o[2]}</small></span></button>`).join('')}</div>
+    ${fld('Documento de',0,`<select class="inp" id="docDe"><option value="veh" ${DOC.de==='veh'?'selected':''}>El vehículo · 1234ABC</option><option value="cond" ${DOC.de==='cond'?'selected':''}>El conductor · Ana Ejemplo</option></select>`,'2')}
+    ${fld(DOC.mode==='pedir'?'Documento que necesitas':'Tipo de documento',DOC.mode==='pedir',`<select class="inp">${types.map(t=>`<option>${t}</option>`).join('')}</select>`,'3')}
+    ${DOC.mode==='pedir'?fld('¿Para qué lo necesitas?',1,'<div class="inp" style="height:34px"></div>','4'):'<div class="drop" data-hs="4">📷 Foto o PDF (cámara / galería) <em class="req">Obligatorio</em></div>'}
+    <div class="m-foot"><button class="btn" type="button">Atrás</button><button class="btn pri" type="button" data-doc-send>${DOC.mode==='pedir'?'Enviar la petición':'Continuar'}</button></div>
+  </div></div>`;
+}
+
+/* ---------- secciones ---------- */
+const S = [
+ {id:'acceso', eb:'Primeros pasos', t:'Entrar en la app', tags:'login acceso sesión google cuenta entrar salir idioma',
+  screen:()=>`<div class="login"><div class="lcard">
+     <div class="row"><b style="font-size:14px">🚐 Flota</b><span class="s-lang" style="margin-left:auto" data-hs="1"><span class="on">ES</span><span>EN</span></span></div>
+     <b style="font-size:15px">Inicia sesión</b><small style="color:#5b6b80">Entra con tu cuenta corporativa de Gransolar.</small>
+     <div class="hint" style="font-weight:400" data-hs="2">Tu sesión ha caducado. Vuelve a iniciar sesión.</div>
+     <div class="btn pri" style="text-align:center;padding:9px" data-hs="3">Entrar con mi cuenta corporativa</div>
+     <small style="color:#5b6b80">Google te pedirá elegir con qué cuenta entras: usa la corporativa.</small></div></div>`,
+  body:`<p>La app se abre en el navegador del móvil o del ordenador. No tiene contraseña propia: entras con tu cuenta corporativa de Google.</p>`,
+  points:[['Idioma','Cambia entre español (ES) e inglés (EN). Está también en la cabecera una vez dentro.'],['Aviso de sesión','Si llevas tiempo sin usarla, la sesión caduca y verás este aviso. Solo tienes que volver a entrar.'],['Entrar con mi cuenta corporativa','Google te pide elegir cuenta: usa siempre la de Gransolar. Tu identidad la comprueba Google; la app no guarda ninguna contraseña.']],
+  after:note('warn','Al pulsar <b>Salir</b> (⇥, arriba a la derecha) se cierra la app, pero <b>no</b> tu sesión de Google. Si usas un móvil compartido, cierra también la sesión de Google.')+note('tip','Añade la web a la pantalla de inicio del móvil (menú del navegador → «Añadir a pantalla de inicio») para abrirla como una app.')},
+
+ {id:'inicio', eb:'Pantalla principal', t:'Mi vehículo', tags:'inicio principal mi vehículo coche alertas incidencias accidentes documentación ficha resumen',
+  screen:()=>homeScreen({bar:[1,2,3],views:4,warn:5,car:6,km:7,lists:8,nav:9}),
+  body:`<p>Es lo primero que ves al entrar. Resume el estado del coche que tienes asignado y te deja hacer todas las anotaciones desde la barra inferior.</p>`,
+  points:[['Idioma','ES / EN.'],['Mi perfil','Tus iniciales: abre tus datos personales.'],['Salir','Cierra la app (no tu sesión de Google).'],['Selector de vista','Mi vehículo, Flota y Mi perfil. La vista Flota solo tiene contenido si tienes vehículos o conductores a cargo.'],['«Te queda poco»','Avisos urgentes de tu coche: algo que falta anotar o una fecha que vence. Toca el aviso para resolverlo.'],['Tu coche','Matrícula y modelo. «Ver ficha» abre todos sus datos.'],['Km actual','Última lectura del cuentakilómetros y su fecha.'],['Listas desplegables','Alertas, Incidencias, Accidentes y Documentación del coche. Toca el título para desplegar; el número indica cuántas hay abiertas.'],['Barra de acciones','Desde aquí se anota todo: Km, Combustible, ITV, Mantenimiento, Incidencia, Accidente y Documento. Los botones en gris aún no están disponibles.']]},
+
+ {id:'listas', eb:'Pantalla principal', t:'Alertas, incidencias y accidentes', tags:'alertas incidencias accidentes solucionar proponer cambios parte abierta filtrar estado documentación',
+  screen:()=>`${bar()}${views(0)}<div class="s-body">
+    <div class="card"><div class="row"><b>⌄ Alertas</b><span class="badge">1</span></div>
+      <div class="li" style="border-left:3px solid #c2362d;padding-left:6px;margin-top:6px"><div><b>Combustible de 1234ABC</b><small><span style="color:#c2362d;font-weight:700">sin ninguna anotación</span> · se anota en cada viaje</small></div><div class="row"><span class="chip c-crit" data-hs="1">Crítica</span><span class="ic-btn" data-hs="2">✓</span></div></div></div>
+    <div class="card"><div class="row"><b>⌄ Incidencias</b><span class="badge">2</span><span class="sel" style="margin-left:auto" data-hs="3">Todos los tipos ▾</span></div>
+      <div class="li"><div><b>Cambio de neumáticos</b><small>Desgaste · Delanteras · 205</small><small>18/11/2026 · revisión anual</small></div><div class="row"><span class="chip c-open" data-hs="4">Abierta</span><span class="ic-btn">✓</span><span class="ic-btn" data-hs="5">✎</span></div></div>
+      <div class="li"><div><b>Mantenimiento puntual</b><small>18/11/2026 · luz de freno fundida</small></div><div class="row"><span class="chip c-open">Abierta</span><span class="ic-btn">✓</span><span class="ic-btn">✎</span></div></div></div>
+    <div class="card"><div class="row"><b>⌄ Accidentes</b><span class="badge">1</span></div>
+      <div class="li"><div><b>Accidente</b><small>17/11/2026 · golpe en aparcamiento</small></div><div class="row"><span class="chip c-open">Abierta</span><span class="ic-btn">✓</span><span class="ic-btn">✎</span></div></div></div>
+    <div class="card" data-hs="6"><b>Documentación</b><div class="row" style="margin-top:6px"><span class="sel" style="background:#e2f4f2;color:#0e8c86;font-weight:700">Del coche</span><span class="sel">Del conductor</span></div><small style="color:#5b6b80">Sin documentos.</small></div>
+    </div>${navCar()}`,
+  body:`<p>Al desplegar cada lista ves los elementos abiertos de tu coche. Cada fila muestra el tipo, la fecha, un resumen y su estado, y tiene botones para actuar sobre ella.</p>`,
+  points:[['Prioridad','Crítica, Moderada, Funcional o Informativa (ver tabla de prioridades).'],['Solucionar (✓)','Marca que lo has resuelto. En una alerta te lleva a hacer lo que falta (por ejemplo, anotar el combustible).'],['Filtro por tipo','En Incidencias puedes ver solo un tipo: cambio de neumáticos, mantenimiento puntual, etc.'],['Estado','«Abierta» mientras la gestión de flota la tenga en curso.'],['Proponer cambios al parte (✎)','Si te equivocaste o hay datos nuevos, propones el cambio. Lo revisa la gestión de flota antes de aplicarlo.'],['Documentación','Dos pestañas: papeles del coche (permiso de circulación, ficha técnica, seguro…, que se quedan con el coche si cambia de conductor) y tus documentos personales.']]},
+
+ {id:'km', eb:'Barra de acciones', t:'Anotar kilómetros', tags:'km kilómetros odómetro cuentakilómetros lectura',
+  screen:()=>homeScreen({}, modal('Registrar km · 1234ABC',`
+     <div class="m-info" data-hs="1">ⓘ Última lectura: <b>1200 km</b> (18/11/2026)</div>
+     ${fld('Fecha de la lectura',1,'<div class="inp">19/11/2026 📅</div>','2')}
+     ${fld('Odómetro (km totales del cuadro)',1,'<div class="inp big-in">1200</div>','3')}
+     <div class="m-foot"><span class="btn">Cancelar</span><span class="btn dis" data-hs="4">Guardar lectura</span></div>`)),
+  body:`<p>Pulsa <b>Km</b> en la barra inferior. Sirve para que la gestión de flota sepa cuánto se usa cada coche y anticipe revisiones y cambios.</p>`,
+  points:[['Última lectura','Referencia de lo último anotado. El valor nuevo debe ser igual o mayor.'],['Fecha','Por defecto, hoy. Cámbiala si anotas una lectura de otro día.'],['Odómetro','Escribe los <b>km totales</b> que marca el cuadro, no los del viaje ni los parciales (trip).'],['Guardar lectura','Se activa cuando los campos obligatorios están completos.']],
+  after:note('tip','Anota los km con regularidad (por ejemplo, cada semana o al repostar). La vista <b>Flota → Proyección km</b> usa estas lecturas para avisar de los coches que van a pasarse del kilometraje previsto.')},
+
+ {id:'combustible', eb:'Barra de acciones', t:'Anotar el consumo', tags:'combustible consumo gasolina diésel eléctrico kwh repostar litros ordenador de a bordo',
+  screen:()=>homeScreen({}, modal('Consumo medio · 1234ABC',`
+     <div class="m-info" data-hs="1">⛽ Anota el consumo medio que marca el ordenador de a bordo para tu último trayecto o ciclo de repostaje.<br><b>NO anotes el «consumo histórico» o acumulado total.</b></div>
+     ${fld('Consumo medio real en ese momento (l/100km o kWh/100km)',1,'<div class="inp big-in">6,80</div>','2')}
+     ${fld('Fecha',1,'<div class="inp">19/11/2026 📅</div>','3')}
+     <small style="color:#5b6b80" data-hs="4">Sin anotaciones de consumo todavía.</small>
+     <div class="m-foot"><span class="btn">Cancelar</span><span class="btn dis">Guardar consumo</span></div>`)),
+  body:`<p>Pulsa <b>Combustible</b>. Se anota <b>en cada viaje</b> o ciclo de repostaje; si no hay ninguna anotación, la app muestra una alerta crítica en la pantalla principal.</p>`,
+  points:[['Qué dato anotar','El consumo medio del último trayecto que indica el ordenador de a bordo, no el acumulado de toda la vida del coche.'],['Consumo','En l/100 km (combustión) o kWh/100 km (eléctrico). Usa coma decimal: 6,80.'],['Fecha','Día al que corresponde el dato.'],['Historial','Aquí aparecen tus anotaciones anteriores.']]},
+
+ {id:'itv', eb:'Barra de acciones', t:'ITV y mantenimiento programado', tags:'itv inspección mantenimiento programado revisión cita gris bloqueado',
+  screen:()=>homeScreen({}, modal('ITV programada · 1234ABC',`
+     <p style="margin:0" data-hs="1">La ITV está citada para el <b>30/1/2027</b>.</p>
+     <p style="margin:0;font-size:16px;font-weight:800" data-hs="2">Faltan 72 días.</p>
+     <div class="m-info" data-hs="3">Podrás registrarla a partir del 31/12/2026. Se abre 30 días antes de la cita: así no se registra por error una que todavía no toca.</div>
+     <div class="m-foot"><span class="btn pri">Entendido</span></div>`)),
+  body:`<p>Los botones <b>ITV</b> y <b>Mantenimiento</b> aparecen en gris hasta que toca. Se activan cuando faltan <b>30 días o menos</b> para la fecha, o si la fecha ya ha vencido. Si los pulsas antes, solo te informan.</p>`,
+  points:[['Fecha de la cita','La que tiene registrada la gestión de flota.'],['Cuenta atrás','Días que faltan.'],['Cuándo se abre','Fecha a partir de la cual podrás registrar que la has pasado.']],
+  after:note('info','El <b>mantenimiento programado</b> lo planifica la gestión de flota. Si el coche no tiene ninguno, verás «Este coche no tiene ningún mantenimiento programado»; el botón se abre solo cuando haya uno. Las reparaciones que surjan por el camino se comunican como <a href="#incidencia">incidencia</a>.')},
+
+ {id:'incidencia', eb:'Barra de acciones', t:'Comunicar una incidencia', interactive:true, tags:'incidencia avería pinchazo neumáticos rueda mantenimiento puntual roto petición general sustitución coche de sustitución taller',
+  screen:incScreen,
+  body:`<p>Pulsa <b>Incidencia</b>. Es un asistente de cuatro pasos. <span class="demo-tag">Prueba el móvil: cambia el tipo y pulsa Continuar</span></p>
+  <div class="steps"><span class="step">1 · Incidencia</span><span class="step">2 · Disponibilidad o Neumáticos</span><span class="step">3 · Documentos</span><span class="step">4 · Gestión</span></div>
+  <div class="tablebox"><table class="ref"><thead><tr><th>Tipo</th><th>Cuándo usarlo</th></tr></thead><tbody>
+  <tr><td><b>Avería</b></td><td>El coche ha fallado: no puede circular o no se puede usar con normalidad.</td></tr>
+  <tr><td><b>Mantenimiento puntual</b></td><td>Algo roto o que hay que cambiar, pero se puede conducir (una luz fundida, un retrovisor…). Se atiende sin urgencia.</td></tr>
+  <tr><td><b>Cambio de neumáticos</b></td><td>Desgaste o pinchazo. El taller y la cita se concretan después.</td></tr>
+  <tr><td><b>Petición general</b></td><td>Cualquier otra solicitud, aunque no sea del coche: tarjetas, documentación, dudas.</td></tr></tbody></table></div>`,
+  points:[['Tipo','Elige el que mejor encaje (ver tabla). Cambia el paso 2 y la ayuda.'],['Prioridad','Lo urgente que es para ti. Ver la <a href="#prioridades">tabla de prioridades</a>.'],['Ayuda del tipo','Explica cuándo usar el tipo elegido.'],['Descripción','Obligatoria (salvo neumáticos). Cuenta qué pasa, dónde y desde cuándo.'],['Disponibilidad','Cómo queda el coche: sigue en servicio, no se puede usar, o necesitas coche de sustitución (abre una solicitud a administración y obliga a adjuntar algún documento).'],['Kilometraje (neumáticos)','En neumáticos, el paso 2 pide km actuales y motivo. Si es desgaste, también qué ruedas y sus medidas (están en el flanco del neumático, p. ej. 205/55 R16).'],['Documentos','Fotos del daño, presupuesto del taller… Opcional; puedes añadir varios.'],['Código postal','Opcional: zona desde la que prefieres ir al taller.'],['Comunicar incidencia','Envía la incidencia. Aparecerá en la lista de Incidencias como «Abierta».']],
+  after:note('warn','Elegir la disponibilidad <b>no cambia</b> el estado del coche por sí solo: lo registra la gestión de flota, que es quien decide.')},
+
+ {id:'accidente', eb:'Barra de acciones', t:'Comunicar un accidente', tags:'accidente choque golpe siniestro parte atestado policía implicados daños seguro',
+  screen:()=>homeScreen({}, modal('Comunicación de accidente · 1234ABC',`
+     <div class="wtabs" data-hs="1"><span class="on">Dónde y cuándo</span><span>Daños</span><span>Implicados</span><span>Atestado y archivo</span></div>
+     <b style="font-size:11px">Datos del accidente</b>
+     <div class="row" style="gap:6px" data-hs="2">${fld('Calle',1,'<div class="inp">&nbsp;</div>')}<div style="width:60px">${fld('Número',0,'<div class="inp">&nbsp;</div>')}</div></div>
+     <div class="row" style="gap:6px">${fld('Código postal',1,'<div class="inp">&nbsp;</div>')}${fld('Localidad',1,'<div class="inp">&nbsp;</div>')}</div>
+     ${fld('Provincia',1,'<div class="inp">&nbsp;</div>')}
+     <div class="row" style="gap:6px" data-hs="3">${fld('Fecha y hora',1,'<div class="inp">dd/mm/aaaa --:--</div>')}${fld('Teléfono',1,'<div class="inp">&nbsp;</div>')}</div>
+     ${fld('Prioridad',1,'<div class="inp">Crítica ▾</div>','4')}
+     <div class="m-foot"><span class="btn">Cancelar</span><span class="btn pri">Continuar</span></div>`)),
+  body:`<p>Pulsa <b>Accidente</b>. Comunícalo cuanto antes, aunque los daños parezcan pequeños. El asistente tiene cuatro pasos:</p>
+  <div class="tablebox"><table class="ref"><thead><tr><th>Paso</th><th>Qué se pide</th></tr></thead><tbody>
+  <tr><td><b>Dónde y cuándo</b></td><td>Dirección (calle, número, código postal, localidad, provincia), fecha y hora, un teléfono de contacto y la prioridad.</td></tr>
+  <tr><td><b>Daños</b></td><td>Qué se ha dañado en el vehículo y cómo ha quedado.</td></tr>
+  <tr><td><b>Implicados</b></td><td>Otros vehículos o personas que intervinieron.</td></tr>
+  <tr><td><b>Atestado y archivo</b></td><td>Si hubo atestado policial y los archivos: parte amistoso, fotos…</td></tr></tbody></table></div>`,
+  points:[['Pasos','Avanzas con Continuar; puedes volver atrás sin perder lo escrito.'],['Dirección','Lo más exacta posible. Obligatorios: calle, código postal, localidad y provincia.'],['Fecha, hora y teléfono','Un teléfono en el que te puedan localizar para gestionar el siniestro.'],['Prioridad','Si hay heridos o el coche no puede circular, elige Crítica.']],
+  after:note('warn','En caso de heridos llama primero al <b>112</b>. Rellena la app cuando estés a salvo.')+note('tip','Haz fotos del lugar, los daños y la documentación del otro vehículo antes de moverlo, y súbelas en el paso «Atestado y archivo» o después como <a href="#documento">documento</a> de tipo «Parte de accidente» o «Fotos de daños».')},
+
+ {id:'documento', eb:'Barra de acciones', t:'Subir o pedir un documento', interactive:true, tags:'documento papel seguro ficha técnica permiso circulación conducir contrato acta devolución subir pedir foto pdf',
+  screen:docScreen,
+  body:`<p>Pulsa <b>Documento</b> y elige si quieres <b>subir</b> un papel que tienes o <b>pedir</b> uno que te falta. <span class="demo-tag">Prueba el móvil: cambia entre subir y pedir, y entre vehículo y conductor</span></p>
+  <div class="tablebox"><table class="ref"><thead><tr><th>Documento de</th><th>Tipos al subir</th><th>Se guarda en</th></tr></thead><tbody>
+  <tr><td><b>El vehículo</b></td><td>Permiso de circulación, ficha técnica, seguro, contrato, acta de devolución, parte de accidente, fotos de daños, otro</td><td>La ficha del coche (se queda con él si cambia de conductor). Puede ligarse a una incidencia.</td></tr>
+  <tr><td><b>El conductor</b></td><td>Permiso de conducir, otro</td><td>Tu perfil. No se liga a incidencias.</td></tr></tbody></table></div>`,
+  points:[['Subir o pedir','Subir: lo guardas en la ficha. Pedir: administración te lo facilita (vale también para documentos que no aparecen en la lista).'],['Documento de','Del vehículo o tuyo. Solo puedes pedir tus propios documentos personales.'],['Tipo','Qué papel es (no para qué lo quieres).'],['Archivo o motivo','Al subir: foto o PDF desde la cámara o la galería (obligatorio). Al pedir: para qué lo necesitas (obligatorio; es lo que lee quien decide).']]},
+
+ {id:'ficha', eb:'Consulta', t:'Ficha del vehículo', tags:'ficha vehículo situación estado sustitución conductor uso documentos ver ficha',
+  screen:()=>`${bar()}${views(0)}<div class="s-body">
+    <span class="lnk" data-hs="1">← Volver</span>
+    <div><div class="plate">1234ABC</div><div style="color:#5b6b80">OPEL ASTRA</div></div>
+    <div class="card km"><div class="lbl">Km actual</div><div class="big">1200 km</div><small style="color:#5b6b80">Lectura del 18/11/2026</small></div>
+    <div class="row" style="justify-content:flex-end;gap:10px;color:#5b6b80;font-weight:600" data-hs="2"><span>⌄ Desplegar todo</span><span>⌃ Plegar todo</span></div>
+    <div class="card" data-hs="3"><b>⌄ Situación</b>
+      <div style="display:grid;grid-template-columns:70px 1fr;gap:3px;margin-top:6px"><span>Estado</span><span>—</span><span>Sustitución</span><span>Vehículo principal</span><span>Conductor</span><span>Ana Ejemplo</span><span>Uso</span><span>personal</span></div></div>
+    <div class="card"><div class="li"><b>› Alertas</b><span class="badge">1</span></div><div class="li"><b>› Incidencias</b><span class="badge">2</span></div><div class="li"><b>› Accidentes</b><span class="badge">1</span></div></div>
+    <div class="card" data-hs="4"><div class="row"><b>Documentos</b><span class="btn" style="margin-left:auto;padding:3px 8px">Subir</span></div><small style="color:#5b6b80">Sin documentos.</small></div>
+    </div>${navCar()}`,
+  body:`<p>Desde <b>Ver ficha</b> en la pantalla principal (o tocando un coche en la vista Flota) llegas a todos los datos del vehículo.</p>`,
+  points:[['Volver','Regresa a la pantalla anterior.'],['Desplegar / plegar todo','Abre o cierra todas las secciones de golpe.'],['Situación','Estado, si es un coche principal o de sustitución, conductor asignado y tipo de uso.'],['Documentos','Papeles del coche. «Subir» abre el asistente de documento ya ligado a este vehículo.']]},
+
+ {id:'flota', eb:'Para responsables', t:'Vista Flota', tags:'flota responsable supervisor a cargo vehículos conductores lecturas pendientes buscar matrícula avisos proyección km riesgo vigilar',
+  screen:()=>`${bar()}${views(1)}<div class="s-body">
+    <div class="row" style="gap:12px" data-hs="1"><b style="font-size:14px">Flota a cargo</b><span><b class="big" style="font-size:14px">1</b> <small>Vehículos</small></span><span><b class="big" style="font-size:14px">0</b> <small>Lecturas pendientes</small></span></div>
+    <div class="card" data-hs="2"><b>⌄ A tu cargo</b>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px"><div class="card km"><div class="lbl">Coches</div><div class="big">0</div></div><div class="card km"><div class="lbl">Conductores</div><div class="big">0</div></div></div>
+      <b style="display:block;margin-top:8px">Alertas e incidencias</b>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px"><div class="card km"><div class="lbl">Alertas</div><div class="big">0</div><small>abiertas</small></div><div class="card km"><div class="lbl">Incidencias</div><div class="big">0</div><small>abiertas</small></div></div></div>
+    <div class="row" data-hs="3"><span class="inp" style="color:#9aa6b4">Buscar por matrícula…</span><span class="sel">Todos (1) ▾</span></div>
+    <div class="card" data-hs="4"><div class="row"><span class="plate" style="font-size:16px">1234ABC</span><span class="chip" style="background:#e6eefb;color:#2463c4">Tu coche</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-top:6px"><small>Km: <b>1200 km</b></small><small>Próx. ITV: <b>30/1/2027</b></small><small>Conductor: <b>Ana Ejemplo</b></small><small>Últ. lectura: <b>18/11/2026</b></small></div></div>
+    </div><div class="s-nav n3" data-hs="5"><span class="on"><i>⌂</i>Inicio</span><span><i>🔔</i>Alertas</span><span><i>📈</i>Proyección km</span></div>`,
+  body:`<p>Pensada para supervisores y responsables de equipo. Muestra los coches y conductores que tienes a cargo. Si no tienes ninguno, solo verás tu propio coche.</p>`,
+  points:[['Resumen','Vehículos a tu cargo y lecturas de km pendientes.'],['A tu cargo','Contadores de coches, conductores, alertas, incidencias y accidentes abiertos. Toca una cifra para ver la lista.'],['Buscar y filtrar','Por matrícula, o por estado: todos, no activos, con coche de sustitución…'],['Tarjeta de coche','Km, próxima ITV, conductor y última lectura. Desde aquí también puedes comunicar una incidencia o accidente de ese coche.'],['Barra de Flota','<b>Inicio</b>; <b>Alertas</b> (alertas, incidencias y accidentes de tu flota, con opción «Ver cerradas»); <b>Proyección km</b> (coches «a vigilar» o «en riesgo» de superar el kilometraje previsto).']]},
+
+ {id:'perfil', eb:'Tus datos', t:'Mi perfil', tags:'perfil datos personales correo teléfono permiso tarjeta combustible roles mis documentos peticiones corregir',
+  screen:()=>`${bar()}${views(2)}<div class="s-body">
+    <div class="card row" style="gap:10px" data-hs="1"><span class="s-av" style="width:40px;height:40px;font-size:13px">AE</span><div><b style="font-size:13px">Ana Ejemplo</b><div class="row" style="flex-wrap:wrap;gap:3px;margin-top:3px"><span class="chip" style="background:#e6eefb;color:#2463c4">Conductor</span><span class="chip" style="background:#e6eefb;color:#2463c4">Supervisor</span></div></div></div>
+    <div class="card" data-hs="2"><b>Mis datos</b>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:5px;margin-top:6px"><span>Correo</span><b>ana.ejemplo@…</b><span>Teléfono</span><b>Sin datos</b><span>Tipo de permiso</span><b>Sin datos</b><span>Tarjeta de combustible</span><b>No</b></div>
+      <small style="color:#5b6b80;display:block;margin-top:6px">Aquí solo se consultan: corregirlos lo decide la gestión de flota, y se le pide desde aquí.</small></div>
+    <div class="card" data-hs="3"><div class="li"><b>› Mis documentos</b><span class="badge" style="background:#9aa6b4">0</span></div><div class="li"><b>› Peticiones</b><span class="badge" style="background:#9aa6b4">0</span></div></div>
+    </div><div class="s-nav n2" data-hs="4"><span class="on"><i>👤</i>Mis datos</span><span><i>📄</i>Documento</span></div>`,
+  body:`<p>Tus datos como conductor, tus documentos personales y el seguimiento de lo que has pedido.</p>`,
+  points:[['Tú y tus roles','Conductor, Supervisor, Administración, HSE… Los roles deciden qué vistas tienes.'],['Mis datos','Correo, teléfono, tipo de permiso y si tienes tarjeta de combustible. Solo se consultan.'],['Mis documentos y Peticiones','Tus documentos personales (p. ej. permiso de conducir) y el estado de lo que has pedido a administración.'],['Barra del perfil','<b>Mis datos</b> para pedir que se corrija algún dato; <b>Documento</b> para subir o pedir un documento personal.']]},
+];
+
+/* ---------- prioridades y FAQ (estáticas) ---------- */
+const EXTRA = `
+<section id="prioridades"><div class="text">
+  <div class="eyebrow">Referencia</div><h2>Prioridades</h2>
+  <p>Se usan en alertas, incidencias y accidentes. Elige la que describa el efecto real sobre tu trabajo.</p>
+  <div class="tablebox"><table class="ref"><thead><tr><th>Prioridad</th><th>Significa</th><th>Ejemplo</th></tr></thead><tbody>
+  <tr><td><span class="pill p-crit">Crítica</span></td><td>El coche no puede circular o hay un riesgo para la seguridad.</td><td>No arranca, accidente con daños importantes, frenos.</td></tr>
+  <tr><td><span class="pill p-mod">Moderada</span></td><td>Se puede usar, pero hay que atenderlo pronto.</td><td>Testigo de avería encendido, neumático muy gastado.</td></tr>
+  <tr><td><span class="pill p-fun">Funcional</span></td><td>Afecta a la comodidad o a un elemento no esencial.</td><td>Aire acondicionado, elevalunas, retrovisor flojo.</td></tr>
+  <tr><td><span class="pill p-inf">Informativa</span></td><td>Solo para dejar constancia.</td><td>Un pequeño arañazo ya existente.</td></tr></tbody></table></div>
+  ${note('info','Los ejemplos son orientativos. Ante la duda, elige la prioridad más alta y explícalo en la descripción.')}
+</div></section>
+<section id="faq"><div class="text">
+  <div class="eyebrow">Dudas</div><h2>Preguntas frecuentes</h2>
+  <div>
+  <details><summary>Me aparece «Te queda poco» con una alerta crítica de combustible.</summary><p>Significa que el coche no tiene ninguna anotación de consumo. Pulsa <b>Combustible</b> y anota el consumo medio de tu último trayecto. La alerta desaparece al guardarlo.</p></details>
+  <details><summary>El botón de ITV o Mantenimiento está en gris.</summary><p>Todavía no toca: se activa 30 días antes de la fecha o cuando la fecha ha vencido. Púlsalo igualmente para ver cuándo se abre.</p></details>
+  <details><summary>Me equivoqué al anotar los km o una incidencia.</summary><p>En incidencias y accidentes usa el lápiz (✎ «Proponer cambios al parte»). La gestión de flota revisa y aplica el cambio. Para una lectura de km errónea, comunícalo con una incidencia de tipo <b>Petición general</b>.</p></details>
+  <details><summary>He pinchado. ¿Avería o cambio de neumáticos?</summary><p><b>Cambio de neumáticos</b>, motivo «Pinchazo». Si el coche no puede circular, ponlo con prioridad Crítica y, si lo necesitas, pide coche de sustitución.</p></details>
+  <details><summary>Necesito un coche mientras reparan el mío.</summary><p>Al comunicar la incidencia, en el paso <b>Disponibilidad</b> elige «Necesito coche de sustitución» y adjunta algún documento (por ejemplo, el presupuesto o una foto). Administración decide si lo facilita.</p></details>
+  <details><summary>No encuentro el documento que necesito en la lista.</summary><p>Usa <b>Documento → Pedir un documento</b> con el tipo «Otro» y explica para qué lo necesitas.</p></details>
+  <details><summary>Mis datos personales están mal.</summary><p>Ve a <b>Mi perfil → Mis datos</b> (barra inferior) y pide la corrección. Los cambios los aplica la gestión de flota.</p></details>
+  <details><summary>¿Puedo usar la app en inglés?</summary><p>Sí, con el selector ES / EN de la cabecera.</p></details>
+  </div>
+</div></section>`;
+
+/* ---------- render ---------- */
+const main=document.getElementById('main');
+main.innerHTML = S.map(s=>`
+<section id="${s.id}"><div class="sec">
+  <div class="text">
+    <div><div class="eyebrow">${s.eb}</div><h2>${s.t}</h2></div>
+    ${s.body}
+    <ol class="points" data-for="${s.id}">${s.points.map((p,i)=>`<li data-n="${i+1}" tabindex="0"><span class="num">${i+1}</span><span><b>${p[0]}</b>${p[1]}</span></li>`).join('')}</ol>
+    ${s.after||''}
+  </div>
+  <div class="phone-col"><div class="phone"><div class="screen" id="scr-${s.id}">${s.screen()}</div></div><div class="caption">${s.interactive?'Simulación interactiva · datos de ejemplo':'Toca un número para ver qué es'}</div></div>
+</div></section>`).join('') + EXTRA;
+
+/* índice */
+const allSecs=[...S.map(s=>[s.id,s.t]),['prioridades','Prioridades'],['faq','Preguntas']];
+const toc=document.getElementById('toc');
+toc.innerHTML=allSecs.map(([id,t])=>`<a href="#${id}" data-id="${id}">${t}</a>`).join('');
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){toc.querySelectorAll('a').forEach(a=>a.classList.toggle('on',a.dataset.id===e.target.id));const a=toc.querySelector(`[data-id="${e.target.id}"]`);a&&a.scrollIntoView({block:'nearest',inline:'nearest'});}})},{rootMargin:'-40% 0px -55% 0px'});
+document.querySelectorAll('section').forEach(s=>io.observe(s));
+
+/* puntos ↔ móvil */
+function highlight(secId,n){
+  const scr=document.getElementById('scr-'+secId), list=document.querySelector(`.points[data-for="${secId}"]`);
+  if(!scr||!list) return;
+  scr.querySelectorAll('[data-hs]').forEach(e=>e.classList.toggle('on',e.dataset.hs==n));
+  list.querySelectorAll('li').forEach(li=>li.classList.toggle('on',li.dataset.n==n));
+  const el=scr.querySelector(`[data-hs="${n}"]`); if(el){const box=el.closest('.s-body,.modal'); if(box){const r=el.getBoundingClientRect(),b=box.getBoundingClientRect(); if(r.top<b.top||r.bottom>b.bottom) box.scrollTop+= r.top-b.top-30;}}
+}
+document.addEventListener('mouseover',e=>{const li=e.target.closest('.points li'); if(li) highlight(li.parentElement.dataset.for,li.dataset.n);});
+document.addEventListener('focusin',e=>{const li=e.target.closest('.points li'); if(li) highlight(li.parentElement.dataset.for,li.dataset.n);});
+document.addEventListener('click',e=>{
+  const li=e.target.closest('.points li'); if(li){highlight(li.parentElement.dataset.for,li.dataset.n);return;}
+  const hs=e.target.closest('[data-hs]'); const scr=e.target.closest('.screen');
+  if(hs&&scr&&!e.target.closest('button,select')){ const id=scr.id.slice(4); highlight(id,hs.dataset.hs); const li2=document.querySelector(`.points[data-for="${id}"] li[data-n="${hs.dataset.hs}"]`); if(li2&&window.innerWidth<860) li2.scrollIntoView({block:'center',behavior:'smooth'}); }
+});
+
+/* asistente de incidencias */
+function rerender(id,fn){document.getElementById('scr-'+id).innerHTML=fn();}
+function toast(id,msg){const scr=document.getElementById('scr-'+id); const t=document.createElement('div'); t.className='toast'; t.textContent=msg; scr.appendChild(t); setTimeout(()=>t.remove(),3200);}
+document.getElementById('scr-incidencia').addEventListener('click',e=>{
+  const b=e.target.closest('[data-inc],[data-disp]'); if(!b) return; const s=INC.state;
+  if(b.dataset.disp!==undefined){s.disp=+b.dataset.disp;}
+  else if(b.dataset.inc==='next') s.step=Math.min(3,s.step+1);
+  else if(b.dataset.inc==='back') s.step=Math.max(0,s.step-1);
+  else if(b.dataset.inc==='close'){toast('incidencia','En la app, «Cerrar» sale sin guardar nada.');return;}
+  else if(b.dataset.inc==='send'){rerender('incidencia',incScreen);toast('incidencia','Simulación: en la app real la incidencia se enviaría y aparecería como «Abierta».');s.step=0;setTimeout(()=>rerender('incidencia',incScreen),3200);return;}
+  rerender('incidencia',incScreen);
+});
+document.getElementById('scr-incidencia').addEventListener('change',e=>{
+  if(e.target.id==='incTipo'){INC.state.tipo=e.target.value;}
+  if(e.target.id==='incMotivo'){INC.state.motivo=e.target.value;}
+  rerender('incidencia',incScreen);
+});
+/* asistente de documentos */
+document.getElementById('scr-documento').addEventListener('click',e=>{
+  const m=e.target.closest('[data-doc-mode]'); if(m){DOC.mode=m.dataset.docMode; if(DOC.mode==='pedir') DOC.de=DOC.de; rerender('documento',docScreen);return;}
+  if(e.target.closest('[data-doc-send]')) toast('documento','Simulación: en la app real continuarías al siguiente paso.');
+});
+document.getElementById('scr-documento').addEventListener('change',e=>{if(e.target.id==='docDe'){DOC.de=e.target.value;rerender('documento',docScreen);}});
+
+/* buscador de tareas */
+const TASKS=[
+ ['⏱','Anotar los kilómetros','km'],['⛽','Anotar el consumo','combustible'],['🛞','Pinchazo o neumáticos gastados','incidencia'],
+ ['🔧','El coche tiene una avería','incidencia'],['🚗','Pedir coche de sustitución','incidencia'],['🚨','He tenido un accidente','accidente'],
+ ['📄','Subir el seguro u otro papel','documento'],['📨','Pedir un documento','documento'],['📋','Pasar la ITV','itv'],
+ ['✎','Corregir un parte','listas'],['👥','Ver los coches de mi equipo','flota'],['👤','Corregir mis datos','perfil'],['🔑','No puedo entrar','acceso']
+];
+const tagOf=id=>{const s=S.find(x=>x.id===id); return s?(s.t+' '+s.tags):''};
+const norm=t=>t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+function renderTasks(q=''){
+  const n=norm(q.trim());
+  const list=TASKS.filter(t=>!n||norm(t[1]+' '+tagOf(t[2])).split(/\s+/).some(w=>w.startsWith(n))||norm(t[1]+' '+tagOf(t[2])).includes(n));
+  document.getElementById('tasks').innerHTML=list.map(t=>`<a class="task" href="#${t[2]}"><span aria-hidden="true">${t[0]}</span>${t[1]}</a>`).join('');
+  document.getElementById('noresult').hidden=list.length>0;
+}
+document.getElementById('q').addEventListener('input',e=>renderTasks(e.target.value));
+renderTasks();
+
+/* primer punto de cada sección resaltado */
+S.forEach(s=>highlight(s.id,1));
+</script>

@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Bell, Car, CloudOff, FilePlus, Home, LineChart, LogOut, Split, User, UserCog, Users } from 'lucide-react'
+import {
+  Bell,
+  Car,
+  CircleHelp,
+  CloudOff,
+  FilePlus,
+  Home,
+  LineChart,
+  LogOut,
+  Split,
+  User,
+  UserCog,
+  Users,
+} from 'lucide-react'
 import { LanguageToggleButton } from '@flota/ui/ui'
 
 import { fetchVehicleSummariesCached, listMyShares, listVehiclesCached } from '../api.ts'
@@ -15,6 +28,7 @@ import { VehicleActionButtons } from './VehicleActionButtons.tsx'
 import { useOfflineQueue } from '../offline/useOfflineQueue.ts'
 import { setQueueOwner, type FlushResult } from '../offline/queue.ts'
 import { disablePushOnLogout } from '../push.ts'
+import { chapterForPath } from '../tutorial/chapters.ts'
 import logoUrl from '../assets/img/gransolar-logo.png'
 
 /** La pareja del supervisor en modo "Mi vehículo": su(s) coche(s) y, si hay
@@ -65,7 +79,9 @@ export function Layout() {
   const ruta = useLocation().pathname
   const enPerfil = ruta === '/perfil'
   const enReparto = ruta === '/reparto'
-  const enRuta = enPerfil || enReparto
+  // En la Ayuda ninguna vista está marcada: elegir una sale de ella.
+  const enAyuda = ruta === '/ayuda' || ruta.startsWith('/ayuda/')
+  const enRuta = enPerfil || enReparto || enAyuda
   const [queueNotice, setQueueNotice] = useState('')
 
   const isSupervisor = user?.roles.includes('supervisor') ?? false
@@ -247,6 +263,9 @@ export function Layout() {
     (user?.first_name?.[0] ?? user?.username?.[0] ?? '?') + (user?.last_name?.[0] ?? '')
   ).toUpperCase()
 
+  // El capítulo de la Ayuda que explica esta pantalla (el «?» de la cabecera).
+  const helpChapter = chapterForPath(ruta, fleetMode)
+
   return (
     // El modo va por contexto propio: también lo leen los modales del nav
     // inferior, que viven fuera del Outlet (p. ej. para callar el aviso de
@@ -262,6 +281,24 @@ export function Layout() {
           <strong className="hdr-title">{t.shell.brand}</strong>
         </div>
         <div className="hdr-tools">
+          {/* La Ayuda, abierta por el capítulo de la pantalla en la que se
+              está; «Volver» de la Ayuda regresa aquí (`state.from`). */}
+          {/* Ya en la Ayuda, el mismo botón es una casa: vuelve al inicio. */}
+          {enAyuda ? (
+            <Link to="/" className="hdr-iconbtn" aria-label={t.shell.tabs.home} title={t.shell.tabs.home}>
+              <Home size={18} aria-hidden="true" />
+            </Link>
+          ) : (
+            <Link
+              to={helpChapter ? `/ayuda/${helpChapter}` : '/ayuda'}
+              state={{ from: ruta }}
+              className="hdr-iconbtn"
+              aria-label={t.shell.help}
+              title={t.shell.help}
+            >
+              <CircleHelp size={18} aria-hidden="true" />
+            </Link>
+          )}
           <LanguageToggleButton activeLanguage={language} onChange={setLanguage} />
           {/* El avatar es la puerta a «Mi perfil» (mis datos y mis documentos),
               así que es un enlace de verdad y no un adorno `aria-hidden`. */}
@@ -319,6 +356,8 @@ export function Layout() {
           (cambian a la vez la home y los iconos del nav); los otros dos son
           rutas, así que al elegir modo estando en una hay que salir de ella —
           si no, el tab cambiaría sin que cambiase la pantalla. */}
+      {/* En la Ayuda no: arriba va la isla de los tutoriales. */}
+      {!enAyuda && (
       <div className="mode-switch" role="group" aria-label={t.shell.mode.label}>
         <button
           type="button"
@@ -366,7 +405,8 @@ export function Layout() {
           <User size={16} aria-hidden /> {t.shell.mode.profile}
         </button>
       </div>
-      <main className="app-main">
+      )}
+      <main className={`app-main${enAyuda ? ' is-help' : ''}`}>
         <Outlet context={{ fleetMode, setFleetMode, ownPair, dataVersion } satisfies LayoutContext} />
       </main>
       <nav className="bottom-nav" aria-label={t.shell.navLabel}>

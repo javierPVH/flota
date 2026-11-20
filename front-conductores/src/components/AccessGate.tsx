@@ -24,7 +24,7 @@ const LAST_COUNT_KEY = 'flota:last-vehicle-count'
  * - supervisor con el grupo vacío → aviso "sin flota";
  * - con vehículo(s) → entra a la app.
  */
-export function AccessGate({ children }: { children: ReactNode }) {
+export function AccessGate({ children, fallback }: { children: ReactNode; fallback?: ReactNode }) {
   const { user } = useAuth()
   const { t } = useLang()
   const [state, setState] = useState<GateState>('checking')
@@ -82,6 +82,11 @@ export function AccessGate({ children }: { children: ReactNode }) {
       return <p role="status" className="gate-checking">{t.gate.checking}</p>
     case 'ok':
       return <>{children}</>
+  }
+  // La Ayuda pasa `fallback`: quien no entra a la app la ve igual, en su
+  // shell propio, en vez de rebotar al portón.
+  if (fallback !== undefined) return <>{fallback}</>
+  switch (state) {
     case 'no-vehicle':
       return <Navigate to="/solicitar" replace />
     case 'no-fleet':

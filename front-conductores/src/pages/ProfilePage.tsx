@@ -3,6 +3,7 @@ import { Badge } from '@flota/ui/ui'
 
 import { useAuth } from '../auth.ts'
 import { CollapsibleCard, useAccordion } from '../components/CollapsibleCard.tsx'
+import { ProfileHelpLink } from '../components/HelpLinks.tsx'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { MyRequests } from '../components/MyRequests.tsx'
 import { PersonalDocumentsPanel, usePersonalDocuments } from '../components/PersonalDocuments.tsx'
@@ -120,6 +121,9 @@ export function ProfilePage() {
       {/* Lo que uno tiene pedido, debajo de sus documentos: las cuatro
           bandejas juntas, en dos pestañas (pendientes y resueltas). */}
       <MyRequests key={dataVersion} accordion={accordion} />
+
+      {/* La Ayuda, al final: es a donde se va cuando no se sabe algo. */}
+      <ProfileHelpLink />
     </div>
   )
 }

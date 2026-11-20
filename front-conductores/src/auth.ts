@@ -1,4 +1,5 @@
 import { createAuth } from '@flota/ui/auth'
+import { setAuthExpirationHandler } from '@flota/ui/http'
 
 import type { FlotaUser, Role } from './types'
 import { ensureCsrf, fetchMe, invalidateFleetCache, logout } from './api'
@@ -110,6 +111,16 @@ export const hasWideReadScope = (user: FlotaUser | null): boolean =>
  * si el supervisor no tiene flota). La autoridad real es el backend.
  */
 export async function bootstrap(): Promise<FlotaUser | null> {
+  // Sin sesión, el 401 de /me lleva al login (navegación dura del cliente
+  // HTTP)… salvo en la Ayuda, que es pública: abrirla sin sesión (un enlace,
+  // recargar) la enseña en su shell propio en vez de echarte al login. Se
+  // queda puesto (en desarrollo el arranque corre dos veces): con sesión,
+  // `AuthProvider` lo sustituye por el suyo.
+  setAuthExpirationHandler(() => {
+    const path = window.location.pathname
+    if (path === '/ayuda' || path.startsWith('/ayuda/') || path.startsWith('/login')) return
+    window.location.assign('/login?auth=required')
+  })
   try {
     await ensureCsrf()
     const me = await fetchMe()

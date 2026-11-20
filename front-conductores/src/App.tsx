@@ -1,7 +1,7 @@
 import { Suspense, lazy } from 'react'
-import { Navigate, Route, Routes, useParams } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom'
 
-import { RequireAuth } from './auth.ts'
+import { RequireAuth, useAuth } from './auth.ts'
 import { AccessGate } from './components/AccessGate.tsx'
 import { Layout } from './components/Layout.tsx'
 import { LoginSwitch } from './components/LoginSwitch.tsx'
@@ -36,6 +36,9 @@ const SinFlotaPage = lazy(() =>
 const UploadDocumentPage = lazy(() =>
   import('./pages/UploadDocumentPage.tsx').then((m) => ({ default: m.UploadDocumentPage })),
 )
+const TutorialPage = lazy(() =>
+  import('./pages/TutorialPage.tsx').then((m) => ({ default: m.TutorialPage })),
+)
 
 /**
  * La ficha de campo, REMONTADA al cambiar de coche. De `/vehiculos/A` a
@@ -51,6 +54,19 @@ function KeyedVehicleFieldPage() {
 
 const fallback = <p className="gate-checking">Cargando…</p>
 
+/** La Ayuda: con sesión, dentro del shell de la app (si no puede entrar a la
+ * app, en el suyo); sin sesión, en el suyo. */
+function HelpRoute() {
+  const { user, status } = useAuth()
+  if (status === 'loading') return fallback
+  if (!user) return <Outlet />
+  return (
+    <AccessGate fallback={<Outlet />}>
+      <Layout />
+    </AccessGate>
+  )
+}
+
 export default function App() {
   return (
     <Suspense fallback={fallback}>
@@ -61,6 +77,13 @@ export default function App() {
         {/* Qué login se pinta lo dice el back: SSO corporativo (SAML) en
             producción; usuario/clave o Google en los demás casos. */}
         <Route path="/login" element={<LoginSwitch />} />
+        {/* La Ayuda es PÚBLICA: se abre también desde el login, sin sesión,
+            y entonces lleva su propio shell ligero. Con sesión y acceso a la
+            app va DENTRO del shell: la misma cabecera y la misma barra. */}
+        <Route path="/ayuda" element={<HelpRoute />}>
+          <Route index element={<TutorialPage />} />
+          <Route path=":capitulo" element={<TutorialPage />} />
+        </Route>
         {/* Pantallas del portón: requieren sesión pero NO tener vehículo. */}
         <Route
           path="/solicitar"

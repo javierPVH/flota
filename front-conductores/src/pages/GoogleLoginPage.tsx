@@ -6,6 +6,7 @@ import { asErrorMessage } from '@flota/ui/http'
 
 import { useAuth } from '../auth.ts'
 import { fetchAuthConfig, googleLogin } from '../api.ts'
+import { LoginHelpLink } from '../components/HelpLinks.tsx'
 import { useLang } from '../i18n.tsx'
 import type { AuthConfig } from '../types.ts'
 
@@ -154,6 +155,7 @@ export function GoogleLoginPage() {
         <p className="login-security">
           <ShieldCheck size={14} /> {L.googleSecurity}
         </p>
+        <LoginHelpLink />
       </div>
     </div>
   )

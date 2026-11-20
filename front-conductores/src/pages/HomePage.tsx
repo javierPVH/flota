@@ -1,6 +1,8 @@
 import { lazy, Suspense } from 'react'
 import { useOutletContext } from 'react-router-dom'
 
+import { useAuth } from '../auth.ts'
+import { HelpWelcome } from '../components/HelpLinks.tsx'
 import type { LayoutContext } from '../components/Layout.tsx'
 import { useLang } from '../i18n.tsx'
 import { MyVehiclesPage } from './MyVehiclesPage.tsx'
@@ -19,12 +21,24 @@ const FleetPage = lazy(() => import('./FleetPage.tsx').then((m) => ({ default: m
 export function HomePage() {
   const ctx = useOutletContext<LayoutContext | null>()
   const { t } = useLang()
+  const { user } = useAuth()
+  // La primera vez, una tarjeta pequeña con el vídeo y la ayuda (no tapa nada:
+  // se cierra con «Ahora no» y no vuelve a salir en este dispositivo).
+  const welcome = user ? <HelpWelcome userId={user.id} /> : null
   if (ctx?.fleetMode) {
     return (
-      <Suspense fallback={<p role="status" className="gate-checking">{t.common.loading}</p>}>
-        <FleetPage />
-      </Suspense>
+      <>
+        {welcome}
+        <Suspense fallback={<p role="status" className="gate-checking">{t.common.loading}</p>}>
+          <FleetPage />
+        </Suspense>
+      </>
     )
   }
-  return <MyVehiclesPage onGoFleet={ctx ? () => ctx.setFleetMode(true) : undefined} />
+  return (
+    <>
+      {welcome}
+      <MyVehiclesPage onGoFleet={ctx ? () => ctx.setFleetMode(true) : undefined} />
+    </>
+  )
 }

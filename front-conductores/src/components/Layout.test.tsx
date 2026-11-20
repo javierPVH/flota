@@ -242,6 +242,23 @@ describe('avatar del header', () => {
     // Las iniciales siguen siendo la pista visual de quién está dentro.
     expect(avatar).toHaveTextContent('AP')
   })
+
+  it('en la Ayuda, el «?» es una casa que vuelve al inicio, y la barra de abajo sigue', async () => {
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/ayuda/km']}>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/ayuda/:capitulo" element={<p>ayuda</p>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    )
+    expect(await screen.findByRole('link', { name: 'Inicio' })).toHaveAttribute('href', '/')
+    expect(screen.queryByRole('link', { name: 'Ayuda' })).toBeNull()
+    expect(screen.getByRole('navigation', { name: /./ })).toBeInTheDocument()
+  })
 })
 
 describe('la pareja «mía» del nav: de todo el ámbito, lo que se CONDUCE', () => {

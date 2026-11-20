@@ -40,6 +40,8 @@ const es = {
     /** Modo "Mi vehículo" sin coche propio: las acciones van desactivadas. */
     noVehicle: 'Sin vehículo asignado',
     logout: 'Salir',
+    /** Botón «?» de la cabecera: abre la Ayuda por esta pantalla. */
+    help: 'Ayuda',
     navLabel: 'Navegación principal',
     offlinePending: (n: number) =>
       `${n} registro${n === 1 ? '' : 's'} sin enviar — toca para reintentar`,
@@ -107,6 +109,17 @@ const es = {
     moderate: 'Moderada',
     functional: 'Funcional',
     informative: 'Informativa',
+  },
+  /** Accesos a la Ayuda fuera de la propia Ayuda (login, perfil, bienvenida). */
+  help: {
+    loginLink: '¿Problemas para entrar? Ver la ayuda',
+    profileLink: 'Ayuda y tutorial',
+    profileHint: 'Cómo se registran los km, se comunica una incidencia o se suben documentos, paso a paso.',
+    welcomeTitle: '¿Primera vez en la app?',
+    welcomeText: 'Mira el vídeo de menos de 3 minutos o abre la ayuda cuando quieras con el botón ? de arriba.',
+    welcomeVideo: 'Ver el vídeo',
+    welcomeHelp: 'Abrir la ayuda',
+    welcomeDismiss: 'Ahora no',
   },
   login: {
     brand: 'Flota',
@@ -1362,6 +1375,7 @@ const en: typeof es = {
     },
     noVehicle: 'No vehicle assigned',
     logout: 'Log out',
+    help: 'Help',
     navLabel: 'Main navigation',
     offlinePending: (n) => `${n} unsent record${n === 1 ? '' : 's'} — tap to retry`,
     offlineSending: 'Sending pending…',
@@ -1412,6 +1426,16 @@ const en: typeof es = {
     moderate: 'Moderate',
     functional: 'Functional',
     informative: 'Informative',
+  },
+  help: {
+    loginLink: 'Trouble signing in? See the help',
+    profileLink: 'Help and tutorial',
+    profileHint: 'How to log km, report an incident or upload documents, step by step.',
+    welcomeTitle: 'First time in the app?',
+    welcomeText: 'Watch the video (under 3 minutes) or open the help any time with the ? button at the top.',
+    welcomeVideo: 'Watch the video',
+    welcomeHelp: 'Open the help',
+    welcomeDismiss: 'Not now',
   },
   login: {
     brand: 'Fleet',

@@ -1,0 +1,1228 @@
+/*
+ * Ayuda de la app de campo (móvil primero), con la maqueta del «Manual de
+ * Flota» (tutoriales/conductores/Manual de Flota_Conductores.html): fondo
+ * blanco, antetítulos naranjas, puntos numerados en azul marino (el activo,
+ * naranja), notas de color sin borde y el móvil blanco al lado del texto.
+ *
+ * Sin fuentes externas (la app es una PWA y funciona sin conexión): los
+ * títulos usan la del sistema, en negrita fuerte.
+ */
+
+.tut-shell {
+  --tut-bg: #ffffff;
+  --tut-surface-2: #f8f9fb;
+  --tut-fg: #1f2a37;
+  --tut-muted: #6b7684;
+  --tut-line: #eceff3;
+  --tut-orange: #ef7d14;
+  --tut-orange-soft: #fff6ee;
+  --tut-teal: var(--color-brand);
+  --tut-teal-soft: #f0f9f8;
+  --tut-navy: #3b4a5e;
+  --tut-blue: #2463c4;
+  --tut-blue-soft: #f2f6fd;
+  --tut-amber: #a86a00;
+  --tut-amber-soft: #fffaee;
+  --tut-shadow: 0 8px 28px rgba(31, 42, 55, 0.07);
+
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--tut-bg);
+  color: var(--tut-fg);
+  font-size: 15px;
+  line-height: 1.6;
+}
+/* Dentro del shell de la app: la cabecera y la barra de abajo son las suyas. */
+.app-main.is-help {
+  max-width: 1160px;
+  padding: 0;
+  background: #fff;
+}
+.tut-shell.is-embedded {
+  min-height: 0;
+}
+.tut-shell :focus-visible {
+  outline: 3px solid var(--tut-orange);
+  outline-offset: 2px;
+}
+.tut-shell h1,
+.tut-shell h2,
+.tut-shell h3 {
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  color: var(--tut-fg);
+}
+
+/* ── Cabecera e índice fijo ───────────────────────────────── */
+.tut-bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-index-header);
+  background: var(--tut-bg);
+}
+.tut-header {
+  justify-content: flex-start;
+  border-bottom-color: var(--tut-line);
+}
+.tut-header .hdr-brand {
+  flex: 1;
+  min-width: 0;
+}
+/* La isla de los tutoriales: «‹  Tutoriales: capítulo ▾  ›» (como el
+   conmutador de vistas de la app) y su desplegable. */
+.tut-island-wrap {
+  position: relative;
+  width: calc(100% - 2rem);
+  max-width: 720px;
+  margin: 0.8rem auto 0.2rem;
+}
+.tut-island {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  box-shadow: var(--tut-shadow);
+}
+.tut-island-arrow {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  color: var(--tut-fg);
+}
+.tut-island-arrow:hover {
+  background: var(--tut-surface-2);
+}
+.tut-island-arrow.is-off {
+  color: var(--tut-line);
+}
+.tut-island-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--tut-fg);
+  font: inherit;
+  cursor: pointer;
+}
+.tut-island-name:hover,
+.tut-island-name[aria-expanded='true'] {
+  background: var(--tut-surface-2);
+}
+.tut-island-label {
+  flex: 0 0 auto;
+  color: var(--tut-muted);
+  font-weight: 600;
+}
+.tut-island-name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tut-island-caret {
+  flex: 0 0 auto;
+  color: var(--tut-muted);
+  transition: transform 0.15s ease;
+}
+.tut-island-name[aria-expanded='true'] .tut-island-caret {
+  transform: rotate(180deg);
+}
+.tut-island-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--tut-line);
+  border-radius: 16px;
+  background: var(--tut-bg);
+  box-shadow: 0 16px 40px rgba(31, 42, 55, 0.18);
+}
+.tut-island-search {
+  position: sticky;
+  top: -8px;
+  z-index: 1;
+  margin: -8px -8px 6px;
+  border-width: 0 0 1px;
+  border-radius: 16px 16px 0 0;
+  background: var(--tut-bg);
+}
+.tut-island-empty {
+  margin: 12px 10px;
+  color: var(--tut-muted);
+}
+.tut-island-group-h {
+  margin: 10px 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tut-orange);
+}
+.tut-island-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--tut-fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+.tut-island-item > span {
+  flex: 1;
+}
+.tut-island-item > svg:first-child {
+  color: var(--tut-navy);
+}
+.tut-island-item:hover {
+  background: var(--tut-surface-2);
+}
+.tut-island-item.is-current {
+  background: var(--tut-orange-soft);
+}
+.tut-island-item.is-current > svg:last-child {
+  color: var(--tut-orange);
+}
+.tut-island-item.is-cover {
+  border-bottom: 1px solid var(--tut-line);
+  border-radius: 10px 10px 0 0;
+}
+
+.tut-page {
+  width: 100%;
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 1rem 1rem calc(2rem + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.tut-shell .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Buscador ─────────────────────────────────────────────── */
+.tut-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 0 0.75rem;
+  border: 1px solid var(--tut-line);
+  border-radius: 10px;
+  background: var(--tut-surface-2);
+  color: var(--tut-muted);
+}
+.tut-search:focus-within {
+  border-color: var(--tut-orange);
+}
+.tut-search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  box-shadow: none;
+  appearance: none;
+  background: transparent;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--tut-fg);
+}
+.tut-search input:focus,
+.tut-search input:focus-visible {
+  outline: 0;
+  border: 0;
+  box-shadow: none;
+}
+/* El ✕ nativo del campo de búsqueda: ya hay uno propio. */
+.tut-search input::-webkit-search-cancel-button,
+.tut-search input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+.tut-search button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--tut-line);
+  color: var(--tut-muted);
+}
+
+/* ── Portada (la cabecera del manual) ─────────────────────── */
+.tut-top {
+  display: grid;
+  gap: 18px;
+  padding-top: 0.75rem;
+}
+.tut-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tut-logo {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--tut-orange);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.tut-brand small {
+  display: block;
+  color: var(--tut-muted);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.tut-brand h1 {
+  margin: 0;
+  font-size: clamp(26px, 6vw, 36px);
+}
+.tut-lead {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--tut-muted);
+}
+.tut-finder {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--tut-line);
+  border-radius: 16px;
+  background: var(--tut-bg);
+  box-shadow: var(--tut-shadow);
+}
+.tut-finder-label {
+  font-weight: 600;
+}
+.tut-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tut-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 7px 14px;
+  border: 1px solid var(--tut-line);
+  border-radius: 999px;
+  background: var(--tut-bg);
+  color: var(--tut-fg);
+  font: inherit;
+  font-size: 14px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.tut-chip svg {
+  flex: 0 0 auto;
+  color: var(--tut-orange);
+}
+.tut-chip:hover,
+.tut-chip.is-active {
+  border-color: var(--tut-orange);
+  background: var(--tut-orange-soft);
+}
+
+.tut-cover-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.tut-start,
+.tut-resume {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 48px;
+  padding: 0.6rem 1rem;
+  border-radius: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.tut-start {
+  background: var(--tut-orange);
+  color: #fff;
+}
+.tut-resume {
+  border: 1px solid var(--tut-line);
+  background: var(--tut-bg);
+  color: var(--tut-fg);
+}
+.tut-resume small {
+  display: block;
+  font-weight: 500;
+  color: var(--tut-muted);
+}
+.tut-hint {
+  margin: -0.5rem 0 0;
+  font-size: 13px;
+  color: var(--tut-muted);
+}
+
+.tut-index {
+  display: grid;
+  gap: 1.25rem;
+}
+.tut-index ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--tut-line);
+  border-radius: 12px;
+  background: var(--tut-bg);
+  overflow: hidden;
+}
+.tut-index li + li {
+  border-top: 1px solid var(--tut-line);
+}
+.tut-index-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 52px;
+  padding: 0.5rem 1rem;
+  color: var(--tut-fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+.tut-index-link:hover {
+  background: var(--tut-surface-2);
+}
+.tut-index-link > svg:first-child {
+  color: var(--tut-navy);
+}
+.tut-index-link > span {
+  flex: 1;
+}
+.tut-index-seen {
+  color: var(--tut-teal);
+}
+.tut-index-go {
+  color: var(--tut-muted);
+}
+.tut-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+  font-size: 14px;
+  color: var(--tut-muted);
+}
+.tut-toggle input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--tut-orange);
+}
+
+/* ── Resultados ───────────────────────────────────────────── */
+.tut-results ul {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.tut-results a {
+  display: flex;
+  gap: 0.75rem;
+  padding: 10px 12px;
+  border: 1px solid var(--tut-line);
+  border-radius: 12px;
+  background: var(--tut-bg);
+  color: var(--tut-fg);
+  text-decoration: none;
+}
+.tut-results a:hover {
+  border-color: var(--tut-orange);
+}
+.tut-results a > svg {
+  flex: 0 0 auto;
+  margin-top: 0.2rem;
+  color: var(--tut-orange);
+}
+.tut-results strong {
+  display: block;
+}
+.tut-results span span {
+  font-size: 14px;
+  color: var(--tut-muted);
+}
+
+/* ── Capítulo ─────────────────────────────────────────────── */
+.tut-chapter {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.tut-ch-head h2 {
+  margin: 0 0 10px;
+  font-size: clamp(22px, 5vw, 28px);
+}
+.tut-eyebrow,
+.tut-shell h2.tut-eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tut-orange);
+}
+.tut-badge {
+  padding: 1px 8px;
+  border: 1px dashed var(--tut-line);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--tut-muted);
+}
+
+/* Una sección: texto, y el móvil a la derecha si hay sitio. */
+.tut-sec {
+  display: grid;
+  gap: 20px;
+  padding-top: 28px;
+  border-top: 1px solid var(--tut-line);
+  scroll-margin-top: 120px;
+}
+.tut-sec-text {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+.tut-sec-text > * {
+  max-width: 66ch;
+}
+.tut-phone-col {
+  justify-self: center;
+  min-width: 0;
+}
+.tut-sub-h {
+  margin: 0;
+  font-size: clamp(19px, 4.5vw, 22px);
+}
+
+/* Pasos numerados (círculo azul marino, como los puntos del manual). */
+.tut-steps {
+  counter-reset: tut-step;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+.tut-steps li {
+  counter-increment: tut-step;
+  position: relative;
+  padding-left: 38px;
+  min-height: 26px;
+}
+.tut-steps li::before {
+  content: counter(tut-step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--tut-navy);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  font-variant-numeric: tabular-nums;
+}
+.tut-steps.is-single li {
+  padding-left: 0;
+}
+.tut-steps.is-single li::before {
+  content: none;
+}
+
+/* Tabla de referencia del manual. */
+.tut-tablebox {
+  overflow-x: auto;
+  border: 1px solid var(--tut-line);
+  border-radius: 12px;
+  background: var(--tut-bg);
+}
+.tut-ref {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.tut-ref th,
+.tut-ref td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--tut-line);
+  text-align: left;
+  vertical-align: top;
+}
+.tut-ref tr:last-child th,
+.tut-ref tr:last-child td {
+  border-bottom: 0;
+}
+.tut-ref th {
+  width: 34%;
+  font-weight: 700;
+  background: var(--tut-surface-2);
+}
+@media (max-width: 520px) {
+  .tut-ref th,
+  .tut-ref td {
+    display: block;
+    width: auto;
+  }
+  .tut-ref th {
+    border-bottom: 0;
+    padding-bottom: 2px;
+  }
+  .tut-ref td {
+    padding-top: 2px;
+  }
+}
+
+/* Notas de color, sin borde. */
+.tut-note {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  background: var(--tut-blue-soft);
+}
+.tut-note > svg {
+  margin-top: 3px;
+  color: var(--tut-blue);
+}
+.tut-note.is-warn {
+  background: var(--tut-amber-soft);
+}
+.tut-note.is-warn > svg {
+  color: var(--tut-amber);
+}
+
+/* Rótulos de la app (botones a buscar) y enlaces entre capítulos. */
+.tut-ui {
+  display: inline-block;
+  padding: 0 8px;
+  border: 1px solid var(--tut-line);
+  border-radius: 8px;
+  background: var(--tut-surface-2);
+  font-weight: 600;
+  font-size: 0.92em;
+  white-space: nowrap;
+}
+.tut-xref {
+  font-weight: 600;
+  color: var(--tut-teal);
+}
+
+/* ── El móvil (las capturas) ──────────────────────────────── */
+.tut-shot {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.tut-shot-frame {
+  width: 320px;
+  max-width: 100%;
+  padding: 12px;
+  border: 1px solid #e3e7ec;
+  border-radius: 38px;
+  background: #fff;
+  box-shadow: var(--tut-shadow);
+  cursor: zoom-in;
+}
+.tut-shot-frame img {
+  display: block;
+  width: 100%;
+  max-height: 600px;
+  object-fit: cover;
+  object-position: top;
+  border: 1px solid #eef1f4;
+  border-radius: 28px;
+  background: #f9fafb;
+}
+.tut-shot figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+  max-width: 320px;
+  font-size: 12px;
+  color: var(--tut-muted);
+  text-align: center;
+}
+.tut-shot-zoomhint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--tut-teal);
+}
+.tut-shot-zoom {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: pinch-zoom;
+}
+.tut-shot--pending {
+  flex-direction: row;
+  justify-content: center;
+  width: 320px;
+  max-width: 100%;
+  padding: 1.5rem 1rem;
+  border: 1px dashed var(--tut-line);
+  border-radius: 28px;
+  color: var(--tut-muted);
+}
+.tut-gallery {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.tut-gallery-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+.tut-gallery-tabs button {
+  min-height: 34px;
+  padding: 4px 12px;
+  border: 1px solid var(--tut-line);
+  border-radius: 8px;
+  background: var(--tut-bg);
+  color: var(--tut-fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+.tut-gallery-tabs button.is-active {
+  border-color: var(--tut-orange);
+  background: var(--tut-orange-soft);
+}
+
+/* ── Guía rápida y recorrido por pestañas ──────────────────── */
+.tut-quick-box {
+  display: grid;
+  gap: 12px;
+}
+.tut-quick {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tut-quick-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--tut-line);
+  border-radius: 12px;
+  background: var(--tut-bg);
+  color: var(--tut-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tut-quick-item strong {
+  font-size: 14px;
+}
+.tut-quick-item small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--tut-muted);
+}
+.tut-quick-item:hover,
+.tut-quick-item.is-active {
+  border-color: var(--tut-orange);
+  background: var(--tut-orange-soft);
+}
+.tut-walk {
+  display: grid;
+  gap: 12px;
+  padding-top: 28px;
+  border-top: 1px solid var(--tut-line);
+  scroll-margin-top: 120px;
+}
+/* La tira de pestañas (también la de Conductores / Supervisores). */
+.tut-tabs {
+  position: relative; /* referencia del offsetLeft de las pestañas */
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border: 1px solid var(--tut-line);
+  border-radius: 14px;
+  background: var(--tut-surface-2);
+}
+.tut-tabs::-webkit-scrollbar {
+  display: none;
+}
+.tut-tabs > button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 6px 14px 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--tut-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tut-audience .tut-tabs > button {
+  flex: 1 1 0;
+  justify-content: center;
+  padding-inline: 14px;
+}
+.tut-tabs > button:hover {
+  color: var(--tut-fg);
+}
+.tut-tabs > button[aria-selected='true'] {
+  background: var(--tut-bg);
+  color: var(--tut-fg);
+  box-shadow: 0 1px 3px rgba(31, 42, 55, 0.12);
+}
+.tut-tab-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--tut-line);
+  color: var(--tut-navy);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.tut-tabs > button.is-done .tut-tab-num {
+  background: var(--tut-teal);
+  color: #fff;
+}
+.tut-tabs > button[aria-selected='true'] .tut-tab-num {
+  background: var(--tut-orange);
+  color: #fff;
+}
+
+/* La tarjeta del paso: texto | móvil, y el pie abajo. */
+.tut-tabpanel {
+  display: grid;
+  gap: 20px;
+  padding: 18px;
+  border: 1px solid var(--tut-line);
+  border-radius: 16px;
+  background: var(--tut-bg);
+  box-shadow: var(--tut-shadow);
+  scroll-margin-top: 120px;
+}
+.tut-tabpanel-text {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+.tut-tabpanel-text > * {
+  max-width: 66ch;
+}
+.tut-tabpanel-phone {
+  justify-self: center;
+  min-width: 0;
+}
+.tut-panel-h {
+  margin: 0;
+  font-size: clamp(18px, 4.2vw, 21px);
+}
+.tut-substeps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tut-substeps button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px 12px 4px 5px;
+  border: 1px solid var(--tut-line);
+  border-radius: 999px;
+  background: var(--tut-bg);
+  color: var(--tut-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tut-substeps button > span {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--tut-line);
+  color: var(--tut-navy);
+  font-size: 12px;
+}
+.tut-substeps button.is-done > span {
+  background: var(--tut-teal);
+  color: #fff;
+}
+.tut-substeps button[aria-pressed='true'] {
+  border-color: var(--tut-orange);
+  background: var(--tut-orange-soft);
+  color: var(--tut-fg);
+}
+.tut-substeps button[aria-pressed='true'] > span {
+  background: var(--tut-orange);
+  color: #fff;
+}
+.tut-walk-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 14px;
+  border-top: 1px solid var(--tut-line);
+}
+.tut-walk-nav button,
+.tut-walk-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 42px;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--tut-line);
+  border-radius: 10px;
+  background: var(--tut-bg);
+  color: var(--tut-fg);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.tut-walk-nav button:disabled {
+  opacity: 0.45;
+}
+.tut-walk-nav button.is-primary,
+.tut-walk-end {
+  border-color: var(--tut-orange);
+  background: var(--tut-orange);
+  color: #fff;
+}
+.tut-walk-end span {
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tut-walk-mid {
+  font-size: 12px;
+  color: var(--tut-muted);
+  text-align: center;
+}
+
+/* Conductores / Supervisores. */
+.tut-audience {
+  gap: 0;
+}
+.tut-audience > [role='tabpanel'] {
+  min-width: 0;
+}
+.tut-sec.is-bare {
+  padding-top: 20px;
+  border-top: 0;
+}
+
+/* «Incidencia › Disponibilidad › …»: el recorrido de pestañas de cada tipo. */
+.tut-flows {
+  display: grid;
+  gap: 10px;
+}
+.tut-flow {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--tut-line);
+  border-radius: 12px;
+  background: var(--tut-bg);
+}
+.tut-flow ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tut-flow li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+/* La flecha va con el paso que sigue: al partir la línea no queda sola. */
+.tut-flow li + li::before {
+  content: '›';
+  margin-right: 2px;
+  color: var(--tut-muted);
+  font-weight: 700;
+}
+.tut-flow-n {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--tut-navy);
+  color: #fff;
+  font-size: 11px;
+}
+
+/* ── Dudas y paginación ───────────────────────────────────── */
+.tut-faqs {
+  display: grid;
+  gap: 8px;
+  padding-top: 28px;
+  border-top: 1px solid var(--tut-line);
+}
+.tut-faqs > .tut-sub-h {
+  margin-bottom: 6px;
+}
+.tut-faq {
+  border: 1px solid var(--tut-line);
+  border-radius: 12px;
+  background: var(--tut-bg);
+  scroll-margin-top: 120px;
+}
+.tut-faq summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 12px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.tut-faq summary::-webkit-details-marker {
+  display: none;
+}
+.tut-faq summary svg {
+  flex: 0 0 auto;
+  color: var(--tut-muted);
+  transition: transform 0.15s ease;
+}
+.tut-faq[open] summary svg {
+  transform: rotate(180deg);
+}
+.tut-faq > div {
+  padding: 0 14px 12px;
+}
+.tut-faq-group {
+  display: grid;
+  gap: 8px;
+}
+.tut-faq-group h4 {
+  margin: 0.75rem 0 0;
+}
+.tut-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 20px;
+  border-top: 1px solid var(--tut-line);
+}
+.tut-pager-link {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 52px;
+  max-width: 48%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--tut-line);
+  border-radius: 12px;
+  background: var(--tut-bg);
+  color: var(--tut-fg);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+}
+.tut-pager-link:hover {
+  border-color: var(--tut-orange);
+}
+.tut-pager-link small {
+  display: block;
+  font-weight: 500;
+  color: var(--tut-muted);
+}
+.tut-pager-next {
+  margin-left: auto;
+  text-align: right;
+}
+.tut-footer {
+  padding: 10px 0 20px;
+  font-size: 13px;
+  color: var(--tut-muted);
+}
+
+/* ── Vídeo ────────────────────────────────────────────────── */
+.tut-video {
+  margin: 0;
+}
+.tut-video video {
+  display: block;
+  width: 100%;
+  max-width: 900px;
+  height: auto;
+  border-radius: 16px;
+  background: #14233a;
+}
+.tut-scenes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.tut-scenes li {
+  display: flex;
+  gap: 0.75rem;
+  padding: 10px 12px;
+  border: 1px solid var(--tut-line);
+  border-radius: 12px;
+  background: var(--tut-bg);
+}
+.tut-scenes li.is-playing {
+  border-color: var(--tut-orange);
+  background: var(--tut-orange-soft);
+}
+.tut-scene-time {
+  flex: 0 0 auto;
+  min-width: 52px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--tut-navy);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.tut-scene-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.tut-scene-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-weight: 600;
+  color: var(--tut-teal);
+}
+
+/* ── Pantalla ancha: dos columnas, texto | móvil (como el manual) ── */
+@media (min-width: 640px) {
+  .tut-cover-actions {
+    flex-direction: row;
+  }
+}
+@media (min-width: 900px) {
+  .tut-page {
+    padding-inline: 24px;
+  }
+  .tut-sec.has-phone {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 36px;
+    align-items: start;
+  }
+  .tut-sec.has-phone .tut-phone-col {
+    position: sticky;
+    top: 120px;
+  }
+  .tut-tabpanel.has-phone {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 20px 36px;
+    padding: 24px;
+  }
+  .tut-tabpanel.has-phone .tut-walk-nav {
+    grid-column: 1 / -1;
+  }
+}

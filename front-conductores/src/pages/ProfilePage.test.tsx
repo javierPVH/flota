@@ -76,7 +76,10 @@ describe('ProfilePage (la pantalla del avatar)', () => {
   it('enseña mis datos y MI documentación personal', async () => {
     render(
       <LanguageProvider>
-        <ProfilePage />
+        {/* La fila de la Ayuda es un enlace: necesita router. */}
+        <MemoryRouter>
+          <ProfilePage />
+        </MemoryRouter>
       </LanguageProvider>,
     )
 
@@ -113,7 +116,10 @@ describe('ProfilePage (la pantalla del avatar)', () => {
     // tiene ya nada que enmascarar: lo que se fija es que no vuelva a asomar.
     render(
       <LanguageProvider>
-        <ProfilePage />
+        {/* La fila de la Ayuda es un enlace: necesita router. */}
+        <MemoryRouter>
+          <ProfilePage />
+        </MemoryRouter>
       </LanguageProvider>,
     )
     await screen.findByText('Permiso de conducir')
@@ -206,7 +212,10 @@ describe('ProfilePage (la pantalla del avatar)', () => {
     })
     render(
       <LanguageProvider>
-        <ProfilePage />
+        {/* La fila de la Ayuda es un enlace: necesita router. */}
+        <MemoryRouter>
+          <ProfilePage />
+        </MemoryRouter>
       </LanguageProvider>,
     )
 
@@ -251,7 +260,10 @@ describe('ProfilePage (la pantalla del avatar)', () => {
     })
     render(
       <LanguageProvider>
-        <ProfilePage />
+        {/* La fila de la Ayuda es un enlace: necesita router. */}
+        <MemoryRouter>
+          <ProfilePage />
+        </MemoryRouter>
       </LanguageProvider>,
     )
     expect(await screen.findByText('No tienes nada pendiente de decisión.')).toBeInTheDocument()

@@ -2705,3 +2705,103 @@ button.bottom-tab {
   color: var(--color-text-muted);
 }
 .mode-option.is-active { border-color: var(--color-brand); }
+
+/* ── Accesos a la Ayuda (plan docs/PLAN_TUTORIAL_APP_CONDUCTORES.md §6) ── */
+.login-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px; /* objetivo táctil */
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-brand);
+  text-decoration: none;
+}
+.help-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-height: 64px;
+  color: var(--color-text);
+  text-decoration: none;
+}
+.help-row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
+}
+.help-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+.help-row-text strong {
+  color: var(--color-ink);
+}
+.help-row > svg:last-child {
+  color: var(--color-text-subtle);
+}
+.help-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  border-color: var(--color-brand-border);
+  background: linear-gradient(135deg, var(--color-surface), var(--color-brand-soft));
+}
+.help-welcome p {
+  margin: 0;
+}
+.help-welcome-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-brand);
+}
+.help-welcome-head strong {
+  flex: 1;
+  color: var(--color-ink);
+}
+.help-welcome-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+.help-welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.help-welcome-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.help-welcome-btn.is-primary {
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+  color: #fff;
+}
