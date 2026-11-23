@@ -439,11 +439,12 @@ function ManagementHeader() {
         <Link
           to={helpChapter ? `/ayuda/${helpChapter}` : '/ayuda'}
           state={{ from: location.pathname + location.search }}
-          className={`shell-iconbtn${location.pathname.startsWith('/ayuda') ? ' is-active' : ''}`}
+          className={`shell-iconbtn shell-help${location.pathname.startsWith('/ayuda') ? ' is-active' : ''}`}
           aria-label={t.shell.helpHere}
           title={t.shell.helpHere}
         >
-          <CircleHelp size={18} />
+          <CircleHelp size={18} aria-hidden="true" />
+          <span className="shell-help-label">{nav.help}</span>
         </Link>
 
         <button

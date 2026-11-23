@@ -104,6 +104,34 @@ a {
   transform: translateY(1px);
 }
 
+/* «Ayuda» de la cabecera: icono y rótulo en fila en escritorio HD; en móvil
+   (≤767px) el rótulo va en pequeño debajo del icono. */
+.hdr-help {
+  width: auto;
+  padding: 0 0.75rem;
+  gap: 0.4rem;
+  text-decoration: none;
+  color: var(--color-danger);
+}
+.hdr-help-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+@media (max-width: 767px) {
+  .hdr-help {
+    flex-direction: column;
+    height: auto;
+    min-width: 44px;
+    padding: 4px 6px;
+    gap: 2px;
+  }
+  .hdr-help-label {
+    font-size: 0.62rem;
+    line-height: 1;
+  }
+}
+
 .app-main {
   flex: 1;
   padding: 1.5rem;

@@ -292,11 +292,12 @@ export function Layout() {
             <Link
               to={helpChapter ? `/ayuda/${helpChapter}` : '/ayuda'}
               state={{ from: ruta }}
-              className="hdr-iconbtn"
+              className="hdr-iconbtn hdr-help"
               aria-label={t.shell.help}
               title={t.shell.help}
             >
               <CircleHelp size={18} aria-hidden="true" />
+              <span className="hdr-help-label">{t.shell.help}</span>
             </Link>
           )}
           <LanguageToggleButton activeLanguage={language} onChange={setLanguage} />
