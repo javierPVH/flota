@@ -491,7 +491,7 @@ a {
   place-items: center;
   padding: 1.5rem;
   background: linear-gradient(rgba(244, 248, 252, 0.82), rgba(244, 248, 252, 0.82)),
-    url('./assets/img/wallpaper.png') center / cover no-repeat fixed;
+    url('./assets/img/wallpaper.jpg') center / cover no-repeat fixed;
 }
 .login-panel {
   width: min(1040px, 94vw);
