@@ -429,6 +429,33 @@ export const es = {
     close: 'Cerrar',
     cancel: 'Cancelar',
     errGeneric: 'No se pudo guardar.',
+    // Modificar la ÚLTIMA anotación (lectura o consumo): aviso antes de guardar.
+    editLast: 'Modificar',
+    editKmTitle: 'Modificar la última lectura',
+    editFuelTitle: 'Modificar la última anotación de consumo',
+    editHint:
+      'Se corrige el registro que ya existe; no se crea uno nuevo. El cambio queda en el histórico de la ficha, desde donde se puede revertir.',
+    editSave: 'Guardar cambio',
+    editNothing: 'No has cambiado nada.',
+    editWarnTitle: 'Vas a modificar un registro',
+    editWarn: (what: string, before: string, after: string) =>
+      `Vas a modificar ${what}: ${before} → ${after}. El cambio quedará registrado en el histórico del vehículo, a tu nombre, y desde allí se puede revertir.`,
+    editWhatKm: 'la última lectura de km',
+    editWhatFuel: 'la última anotación de consumo',
+    editNext: 'Siguiente',
+    // Registrar una anotación nueva con una corrección de campo esperando.
+    supersedeTitle: 'Hay una corrección pendiente',
+    supersedeKm:
+      'La última lectura tiene una corrección pedida desde campo sin decidir. Si registras una lectura nueva, esa corrección se anula y deja de esperar en Solicitudes.',
+    supersedeFuel:
+      'La última anotación de consumo tiene una corrección pedida desde campo sin decidir. Si anotas un consumo nuevo, esa corrección se anula y deja de esperar en Solicitudes.',
+    supersedeContinue: 'Registrar y anular la corrección',
+    // Con una corrección de campo sin decidir no se modifica a mano: al
+    // aprobarla después pisaría lo que se acabara de escribir.
+    editPending:
+      'Hay una corrección pedida desde campo sin decidir: resuélvela en Solicitudes antes de modificarla.',
+    editKmSaved: 'Lectura modificada. Queda registrado en el histórico.',
+    editFuelSaved: 'Consumo modificado. Queda registrado en el histórico.',
   },
   // Accidente (botón de Acciones): dos pestañas — el parte guiado (el mismo
   // de la PWA, que abre una petición con sus tablas de terceros y lesionados)
@@ -949,6 +976,29 @@ export const en: typeof es = {
     close: 'Close',
     cancel: 'Cancel',
     errGeneric: 'It could not be saved.',
+    editLast: 'Edit',
+    editKmTitle: 'Edit the last reading',
+    editFuelTitle: 'Edit the last consumption entry',
+    editHint:
+      'The existing record is corrected; no new one is created. The change stays in the vehicle history, from where it can be reverted.',
+    editSave: 'Save change',
+    editNothing: 'You changed nothing.',
+    editWarnTitle: 'You are about to edit a record',
+    editWarn: (what, before, after) =>
+      `You are about to edit ${what}: ${before} → ${after}. The change will be recorded in the vehicle history, under your name, and can be reverted from there.`,
+    editWhatKm: 'the last mileage reading',
+    editWhatFuel: 'the last consumption entry',
+    editNext: 'Next',
+    supersedeTitle: 'There is a pending correction',
+    supersedeKm:
+      'The last reading has an undecided correction requested from the field. If you register a new reading, that correction is cancelled and stops waiting in Requests.',
+    supersedeFuel:
+      'The last consumption entry has an undecided correction requested from the field. If you note a new consumption, that correction is cancelled and stops waiting in Requests.',
+    supersedeContinue: 'Register and cancel the correction',
+    editPending:
+      'There is an undecided correction requested from the field: resolve it in Requests before editing.',
+    editKmSaved: 'Reading edited. It is recorded in the history.',
+    editFuelSaved: 'Consumption edited. It is recorded in the history.',
   },
   accident: {
     btn: 'Accident',

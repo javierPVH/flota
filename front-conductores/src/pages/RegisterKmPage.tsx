@@ -1,3 +1,4 @@
+import { useSupersedeWarning } from '../components/SupersedeWarning.tsx'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import { CheckCircle2, Gauge } from 'lucide-react'
@@ -15,7 +16,7 @@ import {
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import type { LayoutContext } from '../components/Layout.tsx'
-import { fmtDate, fmtKm, pendingThisMonth, todayIso } from '../format.ts'
+import { fmtDate, fmtKm, groupThousands, pendingThisMonth, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { KmReading, Vehicle, VehicleSummary } from '../types.ts'
@@ -35,7 +36,9 @@ interface SavedReading {
  * recorridos en el periodo. El no-retroceso lo valida también el servidor.
  */
 export function RegisterKmPage() {
-  const { t } = useLang()
+  const { t, language } = useLang()
+  // Registrar con una corrección esperando la anula: se avisa antes.
+  const supersede = useSupersedeWarning('km')
   // R3-30: la carga inicial lee `t` por ref — con `t` en sus deps, el botón
   // es/en re-descargaba el selector de vehículos.
   const tRef = useRef(t)
@@ -155,6 +158,7 @@ export function RegisterKmPage() {
     event.preventDefault()
     if (windowClosed) return
     if (!vehicle || kmValue === null || Number.isNaN(kmValue)) return
+    if (!(await supersede.check(vehicle.id))) return
     setSaving(true)
     setError('')
     // R3-34: misma referencia en el intento directo y en el reenvío offline.
@@ -228,6 +232,7 @@ export function RegisterKmPage() {
   return (
     <div className="field-page">
       <PageHeader title={t.km.title} />
+      {supersede.dialog}
 
       {windowClosed && window_ && (
         <Panel tone="warning">
@@ -295,9 +300,13 @@ export function RegisterKmPage() {
               className="km-input"
               type="text"
               inputMode="numeric"
-              pattern="[0-9]*"
-              placeholder={summary?.km_current != null ? String(summary.km_current) : '0'}
-              value={km}
+              placeholder={
+                summary?.km_current != null
+                  ? groupThousands(String(summary.km_current), language)
+                  : '0'
+              }
+              // El estado guarda solo las cifras; la caja las enseña con sus miles.
+              value={groupThousands(km, language)}
               onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))}
               autoFocus
               required

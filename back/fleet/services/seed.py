@@ -73,6 +73,7 @@ from fleet.models import (
     Pep,
     ProfileChangeRequest,
     Project,
+    ReadingChangeRequest,
     Renting,
     ReportExport,
     Site,
@@ -105,6 +106,8 @@ from fleet.models.enums import (
     LinkReason,
     MarketSegment,
     PropertyType,
+    ReadingChangeKind,
+    ReadingChangeStatus,
     UseType,
     VehicleRequestStatus,
     VehicleSize,
@@ -1650,6 +1653,7 @@ def seed_operations(stdout=None) -> None:
         VehicleRequest,
         DriverChangeRequest,
         IncidentChangeRequest,
+        ReadingChangeRequest,
         ProfileChangeRequest,
         DocumentSupplyRequest,
         InvoiceAllocation,
@@ -2299,6 +2303,55 @@ def seed_operations(stdout=None) -> None:
             resolved_at=timezone.now() - timedelta(days=2),
             resolution_note=nota,
         )
+
+    # Y las peticiones de CORREGIR LA ÚLTIMA LECTURA de km (séptima bandeja):
+    # una pendiente de carlos sobre su coche —su formulario de km enseña las
+    # dos cifras, la original y la pendiente de cambio— y, en el escaparate
+    # de la administradora, una aprobada y una denegada para que la bandeja
+    # tenga las tres caras. Ninguna toca la lectura: la aprobada es rastro.
+    def _ultima_lectura(vehiculo):
+        return (
+            KmReading.objects.filter(vehicle=vehiculo, is_active=True, km_reading__isnull=False)
+            .order_by("-reading_date", "-pk")
+            .first()
+        )
+
+    def _foto(lectura):
+        return {
+            "reading_date": lectura.reading_date.isoformat() if lectura.reading_date else "",
+            "km_reading": lectura.km_reading,
+        }
+
+    lectura_v1 = _ultima_lectura(v1)
+    if lectura_v1 is not None:
+        ReadingChangeRequest.objects.create(
+            kind=ReadingChangeKind.KM,
+            vehicle=v1,
+            km_reading=lectura_v1,
+            requested_by=carlos,
+            changes={"km_reading": lectura_v1.km_reading + 90},
+            original=_foto(lectura_v1),
+            note="Bailé dos cifras al teclear el odómetro.",
+        )
+    lectura_admin = _ultima_lectura(v_admin)
+    if lectura_admin is not None:
+        for estado, nota in (
+            (ReadingChangeStatus.DONE, "Corregida."),
+            (ReadingChangeStatus.REJECTED, "La lectura era la del cuadro: se queda."),
+        ):
+            ReadingChangeRequest.objects.create(
+                kind=ReadingChangeKind.KM,
+                vehicle=v_admin,
+                km_reading=lectura_admin,
+                requested_by=admin,
+                changes={"km_reading": lectura_admin.km_reading + 40},
+                original=_foto(lectura_admin),
+                note="Me equivoqué de coche al anotarla.",
+                status=estado,
+                resolved_by=admin,
+                resolved_at=timezone.now() - timedelta(days=3),
+                resolution_note=nota,
+            )
 
     # Facturas de v1: mes actual y anterior (tendencia del dashboard) + reparto.
     invoice_now = Invoice.objects.create(

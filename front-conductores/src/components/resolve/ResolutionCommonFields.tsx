@@ -1,6 +1,6 @@
 import { Camera } from 'lucide-react'
 
-import { fmtKm, todayIso } from '../../format.ts'
+import { fmtKm, groupThousands, todayIso } from '../../format.ts'
 import { useLang } from '../../i18n.tsx'
 import { compressImage } from '../../offline/images.ts'
 import { useResolveCopy } from '../../translations/resolve.ts'
@@ -62,9 +62,8 @@ export function ResolutionCommonFields({
               <input
                 type="text"
                 inputMode="numeric"
-                pattern="[0-9]*"
                 className="update-input"
-                value={values.km}
+                value={groupThousands(values.km, language)}
                 onChange={(event) => set({ km: event.target.value.replace(/\D/g, '') })}
               />
             </label>

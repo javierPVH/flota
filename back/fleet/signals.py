@@ -139,6 +139,12 @@ def on_km_reading_registered(sender, instance: KmReading, **kwargs):
         return
     period = f"{instance.reading_date.year:04d}-{instance.reading_date.month:02d}"
     alerts.resolve_satisfied_km_reading_alerts({instance.vehicle_id: period})
+    if kwargs.get("created"):
+        # Una lectura nueva deja sin sentido la corrección que esperaba sobre
+        # la anterior: se anula sola (import tardío, el servicio importa modelos).
+        from .services import reading_requests
+
+        reading_requests.cancel_superseded("km", instance.vehicle_id)
 
 
 @receiver(post_save, sender=FuelConsumption, dispatch_uid="fleet_fuel_reading_registered")
@@ -149,6 +155,10 @@ def on_fuel_reading_registered(sender, instance: FuelConsumption, **kwargs):
         return
     period = f"{instance.reading_date.year:04d}-{instance.reading_date.month:02d}"
     alerts.resolve_satisfied_fuel_alerts({instance.vehicle_id: period})
+    if kwargs.get("created"):
+        from .services import reading_requests
+
+        reading_requests.cancel_superseded("fuel", instance.vehicle_id)
 
 
 @receiver(post_save, sender=Incident, dispatch_uid="fleet_incident_email_notice")

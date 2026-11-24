@@ -98,6 +98,7 @@ const SOURCE_TONE: Record<string, 'info' | 'success' | 'warning' | 'danger' | 'n
   vehicleusage: 'info',
   vehiclelink: 'warning',
   kmreading: 'info',
+  fuelconsumption: 'info',
   invoice: 'info',
   incident: 'danger',
   document: 'neutral',

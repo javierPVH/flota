@@ -72,6 +72,33 @@ class ProfileChangeStatus(models.TextChoices):
     REJECTED = "rejected", "Rechazada"
 
 
+class ReadingChangeKind(models.TextChoices):
+    """Sobre qué anotación de campo se pide la corrección."""
+
+    KM = "km", "Lectura de km"
+    FUEL = "fuel", "Consumo"
+
+
+class ReadingChangeStatus(models.TextChoices):
+    """En qué queda la petición de corregir una lectura de km o un consumo.
+
+    Para quien conduce esas anotaciones son append-only (SEC4): una cifra mal
+    tecleada no la puede tocar. La corrección se PIDE y la administración
+    **la aprueba** —se escribe en la anotación— o **la deniega**. Las dos la
+    sacan de pendiente, que es lo que deja de enseñar las dos cifras en campo.
+
+    Y hay una tercera salida que no decide nadie: **anulada**. Si se registra
+    una anotación nueva mientras la corrección espera, la anotación que se
+    quería corregir deja de ser la última y la petición ya no tiene sentido:
+    se anula sola (el campo avisa antes de registrar) y no llega a la bandeja.
+    """
+
+    PENDING = "pending", "Pendiente"
+    DONE = "done", "Aprobada"
+    REJECTED = "rejected", "Denegada"
+    CANCELLED = "cancelled", "Anulada"
+
+
 class IncidentChangeStatus(models.TextChoices):
     """En qué queda la petición de modificar el parte de una incidencia.
 

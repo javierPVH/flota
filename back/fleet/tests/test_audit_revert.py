@@ -190,3 +190,105 @@ class AuditRevertTests(APITestCase):
         )
         entry.content_type = LogEntry.objects.get_for_object(self.vehicle).first().content_type
         self.assertEqual(audit_revert.revert_payload(entry), {"brand": "Renault", "site": None})
+
+
+class ReadingRevertTests(APITestCase):
+    """La administración corrige la ÚLTIMA lectura de km o el ÚLTIMO consumo
+    con un PATCH; el cambio se lee en el histórico del coche y se revierte
+    desde allí, con las mismas reglas que la edición."""
+
+    def setUp(self):
+        self.admin = make_user("admin", Role.ADMIN)
+        self.vehicle = Vehicle.objects.create(plate="1234ABC", brand="Renault", model="Kangoo")
+        self.other = Vehicle.objects.create(plate="9999ZZZ", brand="Seat", model="Leon")
+        from fleet.models import FuelConsumption, KmReading
+
+        self.previa = KmReading.objects.create(
+            vehicle=self.vehicle, reading_date=date(2026, 9, 25), km_reading=40000
+        )
+        self.lectura = KmReading.objects.create(
+            vehicle=self.vehicle, reading_date=date(2026, 10, 25), km_reading=49000
+        )
+        self.consumo = FuelConsumption.objects.create(
+            vehicle=self.vehicle, reading_date=date(2026, 10, 25), avg_consumption=Decimal("65.00")
+        )
+        self.history_url = reverse("vehicle-history", args=[self.vehicle.pk])
+        self.revert_url = reverse("vehicle-revert-change", args=[self.vehicle.pk])
+        self.client.force_login(self.admin)
+
+    def _entry(self, obj) -> LogEntry:
+        return (
+            LogEntry.objects.get_for_object(obj)
+            .filter(action=LogEntry.Action.UPDATE)
+            .order_by("-timestamp", "-pk")
+            .first()
+        )
+
+    def _history(self) -> dict:
+        resp = self.client.get(self.history_url)
+        filas = resp.data["results"] if isinstance(resp.data, dict) else resp.data
+        return {fila["id"]: fila for fila in filas}
+
+    def test_km_fix_shows_in_history_and_reverts(self):
+        url = reverse("kmreading-detail", args=[self.lectura.pk])
+        resp = self.client.patch(url, {"km_reading": 41900}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        entry = self._entry(self.lectura)
+        self.assertEqual(changes_of(entry)["km_reading"], ["49000", "41900"])
+        fila = self._history()[entry.pk]
+        self.assertEqual(fila["model"], "kmreading")
+        self.assertTrue(fila["revertible"])
+
+        resp = self.client.post(self.revert_url, {"entry": entry.pk}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.lectura.refresh_from_db()
+        self.assertEqual(self.lectura.km_reading, 49000)
+        self.assertEqual(resp.data["entry"]["reverts"], entry.pk)
+
+    def test_fuel_fix_shows_in_history_and_reverts(self):
+        url = reverse("fuelconsumption-detail", args=[self.consumo.pk])
+        resp = self.client.patch(
+            url, {"avg_consumption": "6.50", "reading_date": "2026-10-24"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        entry = self._entry(self.consumo)
+        fila = self._history()[entry.pk]
+        self.assertEqual(fila["model"], "fuelconsumption")
+        self.assertTrue(fila["revertible"])
+
+        resp = self.client.post(self.revert_url, {"entry": entry.pk}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.consumo.refresh_from_db()
+        self.assertEqual(self.consumo.avg_consumption, Decimal("65.00"))
+        self.assertEqual(self.consumo.reading_date, date(2026, 10, 25))
+
+    def test_reverting_a_reading_keeps_the_odometer_rule(self):
+        from fleet.models import KmReading
+
+        url = reverse("kmreading-detail", args=[self.lectura.pk])
+        self.client.patch(url, {"km_reading": 41900}, format="json")
+        entry = self._entry(self.lectura)
+        # Después entra una lectura posterior con menos km que el valor viejo.
+        KmReading.objects.create(
+            vehicle=self.vehicle, reading_date=date(2026, 11, 10), km_reading=42500
+        )
+        resp = self.client.post(self.revert_url, {"entry": entry.pk}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.lectura.refresh_from_db()
+        self.assertEqual(self.lectura.km_reading, 41900)
+
+    def test_a_reading_of_another_vehicle_is_not_reverted_from_here(self):
+        url = reverse("kmreading-detail", args=[self.lectura.pk])
+        self.client.patch(url, {"km_reading": 41900}, format="json")
+        entry = self._entry(self.lectura)
+        ajena = reverse("vehicle-revert-change", args=[self.other.pk])
+        resp = self.client.post(ajena, {"entry": entry.pk}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_a_deactivated_reading_is_not_reverted(self):
+        url = reverse("kmreading-detail", args=[self.lectura.pk])
+        self.client.patch(url, {"km_reading": 41900}, format="json")
+        entry = self._entry(self.lectura)
+        self.client.delete(url)
+        resp = self.client.post(self.revert_url, {"entry": entry.pk}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)

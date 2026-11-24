@@ -35,6 +35,7 @@ from .views import (
     PepViewSet,
     ProfileChangeRequestViewSet,
     ProjectViewSet,
+    ReadingChangeRequestViewSet,
     RentingViewSet,
     ReportExportViewSet,
     ReportsView,
@@ -98,6 +99,12 @@ router.register(
     "incident-change-requests",
     IncidentChangeRequestViewSet,
     basename="incidentchangerequest",
+)
+# Y la última lectura de km o consumo se CORRIGE pidiéndolo: la séptima.
+router.register(
+    "reading-change-requests",
+    ReadingChangeRequestViewSet,
+    basename="readingchangerequest",
 )
 # Y el papel que falta se PIDE: la quinta bandeja de la misma página.
 router.register(

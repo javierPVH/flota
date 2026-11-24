@@ -371,6 +371,8 @@ export interface FuelConsumption {
   vehicle_plate: string
   reading_date: string
   avg_consumption: string
+  /** La corrección pedida desde campo que la administración aún no ha decidido. */
+  pending_change?: { id: number; changes: Record<string, string | number> } | null
   created_at: string
   updated_at: string
 }
@@ -666,13 +668,21 @@ export const listKmReadingsAll = (
       vehicle: filters.vehicle,
       reading_date__gte: filters.from,
       reading_date__lte: filters.to,
-      ordering: '-reading_date',
+      ordering: '-reading_date,-id',
     })}`,
     req,
   )
 
 export const createKmReading = (data: { vehicle: number; km_reading: number; reading_date: string }) =>
   postJson<KmReading>(`${API}/km-readings/`, data)
+
+/** Corrige una lectura ya registrada (la administración, sobre la última
+ * del coche). El cambio queda en el histórico de la ficha, de donde se
+ * revierte. */
+export const updateKmReading = (
+  id: number,
+  data: { km_reading?: number; reading_date?: string },
+) => patchJson<KmReading>(`${API}/km-readings/${id}/`, data)
 
 // --- N8b: completar km faltantes (admin, días 1-10) -------------------------
 
@@ -1269,6 +1279,51 @@ export const resolveIncidentChangeRequest = (
   note = '',
 ) =>
   postJson<IncidentChangeRequestRow>(`${API}/incident-change-requests/${id}/resolve/`, {
+    decision,
+    note,
+  })
+
+/** Petición de CORREGIR la última lectura de km o el último consumo: la abre
+ * el campo, donde esas anotaciones no se editan, y la decide la
+ * administración (séptima bandeja). */
+export interface ReadingChangeRequestRow {
+  id: number
+  kind: 'km' | 'fuel'
+  kind_display: string
+  vehicle: number
+  vehicle_plate: string
+  requested_by: number | null
+  requested_by_name: string
+  /** Lo pedido, en crudo: {campo: valor propuesto}. */
+  changes: Record<string, string | number>
+  /** Lo mismo ya legible: lo que decía la anotación al pedirlo y lo propuesto. */
+  changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
+  note: string
+  /** `cancelled`: se anuló sola al registrarse una anotación posterior. */
+  status: 'pending' | 'done' | 'rejected' | 'cancelled'
+  status_display: string
+  resolved_by_name: string
+  resolved_at: string | null
+  resolution_note: string
+  created_at: string
+}
+
+/** Las dos salidas: aprobarla (se escribe en la anotación) o denegarla. */
+export type ReadingChangeDecision = 'done' | 'reject'
+
+export const listReadingChangeRequests = (
+  filters: { status?: string; kind?: string; vehicle?: number } = {},
+) =>
+  getJson<Paginated<ReadingChangeRequestRow>>(
+    `${API}/reading-change-requests/${listQs({ ...filters })}`,
+  )
+
+export const resolveReadingChangeRequest = (
+  id: number,
+  decision: ReadingChangeDecision,
+  note = '',
+) =>
+  postJson<ReadingChangeRequestRow>(`${API}/reading-change-requests/${id}/resolve/`, {
     decision,
     note,
   })

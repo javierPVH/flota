@@ -4,10 +4,12 @@ import { Button, Panel } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
 
 import { createKmReading } from '../api.ts'
-import { fmtDate, fmtKm, pendingThisMonth, todayIso } from '../format.ts'
+import { fmtDate, fmtKm, groupThousands, pendingThisMonth, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Vehicle, VehicleSummary } from '../types.ts'
+import { ReadingCorrection } from './ReadingCorrection.tsx'
+import { useSupersedeWarning } from './SupersedeWarning.tsx'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
 /**
@@ -43,10 +45,15 @@ export function KmPane({
   // tras un 502 no crea una segunda lectura), renovada al guardar porque en
   // «Actualizar» el formulario sigue montado.
   const [clientRef, setClientRef] = useState(newClientRef)
+  // Cada guardado cambia cuál es la última lectura: la corrección la relee.
+  const [savedCount, setSavedCount] = useState(0)
+  // Registrar con una corrección esperando la anula: se avisa antes.
+  const supersede = useSupersedeWarning('km')
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (value === null || Number.isNaN(value) || goesBack) return
+    if (!(await supersede.check(vehicle.id))) return
     setSaving(true)
     setError('')
     // R3-34: misma referencia en el intento directo y en el reenvío offline.
@@ -54,6 +61,7 @@ export function KmPane({
     const hecho = () => {
       setKm('')
       setClientRef(newClientRef())
+      setSavedCount((n) => n + 1)
       onSaved(t.carUpdate.kmSaved(fmtKm(value, language)))
     }
     try {
@@ -88,6 +96,9 @@ export function KmPane({
           {summary.km_estimated && <p className="doc-sub">{t.km.estimatedNote}</p>}
         </Panel>
       )}
+      {/* La última lectura no se edita desde campo: su corrección se PIDE, y
+          mientras espera se leen las dos, la original y la pendiente. */}
+      <ReadingCorrection kind="km" vehicleId={vehicle.id} refreshKey={savedCount} />
       <label className="file-field">
         <span>
           {t.km.date} <span className="req-badge" aria-hidden>{t.common.required}</span>
@@ -102,9 +113,11 @@ export function KmPane({
           className="km-input"
           type="text"
           inputMode="numeric"
-          pattern="[0-9]*"
-          placeholder={summary?.km_current != null ? String(summary.km_current) : '0'}
-          value={km}
+          placeholder={
+            summary?.km_current != null ? groupThousands(String(summary.km_current), language) : '0'
+          }
+          // El estado guarda solo las cifras; la caja las enseña con sus miles.
+          value={groupThousands(km, language)}
           onChange={(event) => setKm(event.target.value.replace(/\D/g, ''))}
           autoFocus
           required
@@ -112,6 +125,7 @@ export function KmPane({
       </label>
       {goesBack && <div role="alert" className="form-error">{t.km.noGoBack(fmtKm(summary?.km_current, language))}</div>}
       {error && <div role="alert" className="form-error">{error}</div>}
+      {supersede.dialog}
       <div className="form-actions">
         {onCancel && (
           <Button type="button" variant="secondary" onClick={onCancel}>{t.common.cancel}</Button>

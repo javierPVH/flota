@@ -7,12 +7,14 @@ import {
   listMyIncidentChangeRequests,
   listMyDocumentSupplyRequests,
   listMyProfileChangeRequests,
+  listMyReadingChangeRequests,
   listMyRequests,
 } from '../api.ts'
 import { useAuth } from '../auth.ts'
 import { fmtDate } from '../format.ts'
 import { useDomainLabels } from '../domainLabels.ts'
 import { useLang } from '../i18n.tsx'
+import { useReadingChangeCopy } from '../translations/readingChange.ts'
 import { CollapsibleCard, type AccordionState } from './CollapsibleCard.tsx'
 
 /** Una petición cualquiera, ya normalizada: de dónde viene deja de importar en
@@ -59,6 +61,7 @@ export function MyRequests({
   const { user } = useAuth()
   const copy = t.profile.requests
   const etiqueta = useDomainLabels()
+  const lecturas = useReadingChangeCopy()
   const [rows, setRows] = useState<RequestRow[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [tab, setTab] = useState<'pending' | 'done'>('pending')
@@ -76,7 +79,8 @@ export function MyRequests({
       listDriverChangeRequests(),
       listMyDocumentSupplyRequests(),
       listMyIncidentChangeRequests(),
-    ]).then(([perfil, documentos, coches, conductores, pedidos, partes]) => {
+      listMyReadingChangeRequests(),
+    ]).then(([perfil, documentos, coches, conductores, pedidos, partes, correcciones]) => {
       const salida: RequestRow[] = []
       let algunFallo = false
 
@@ -186,12 +190,39 @@ export function MyRequests({
         })
       } else algunFallo = true
 
+      if (correcciones.status === 'fulfilled') {
+        correcciones.value.results
+          // Quien supervisa alcanza también las de su grupo: aquí, las suyas.
+          .filter((row) => row.requested_by == null || row.requested_by === userId)
+          .forEach((row) => {
+            salida.push({
+              key: `reading-${row.id}`,
+              kind: `${row.kind === 'km' ? lecturas.kindKm : lecturas.kindFuel} · ${row.vehicle_plate}`,
+              // Lo que había y lo que se pidió: «Odómetro: 49000 → 41900».
+              detail:
+                row.changes_display
+                  .map(
+                    (change) =>
+                      `${lecturas.fields[change.field as keyof typeof lecturas.fields] ?? change.label}: ${change.current} → ${change.proposed}`,
+                  )
+                  .join(' · ') ||
+                row.note ||
+                copy.noDetail,
+              created_at: row.created_at,
+              // `cancelled` (se anuló sola) cae en resueltas y sin verde.
+              status_display: lecturas.status[row.status] ?? row.status_display,
+              pending: row.status === 'pending',
+              granted: row.status === 'done',
+            })
+          })
+      } else algunFallo = true
+
       // Lo más reciente arriba: una lista de peticiones se lee por lo último.
       salida.sort((a, b) => b.created_at.localeCompare(a.created_at))
       setRows(salida)
       setFailed(algunFallo)
     })
-  }, [copy, etiqueta, userId])
+  }, [copy, etiqueta, lecturas, userId])
 
   useEffect(load, [load])
 

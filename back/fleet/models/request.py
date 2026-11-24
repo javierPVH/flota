@@ -18,6 +18,8 @@ from .enums import (
     DriverChangeStatus,
     IncidentChangeStatus,
     ProfileChangeStatus,
+    ReadingChangeKind,
+    ReadingChangeStatus,
     VehicleRequestStatus,
     VehicleType,
 )
@@ -497,3 +499,127 @@ class IncidentChangeRequest(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.incident} - {self.get_status_display()}"
+
+
+class ReadingChangeRequest(TimeStampedModel):
+    """Petición de CORREGIR una lectura de km o un consumo: el campo pide, admin decide.
+
+    Para quien conduce, las lecturas de km y las anotaciónes de consumo son
+    append-only (SEC4): una cifra mal tecleada no la puede editar ni borrar, y
+    hasta ahora se arreglaba por teléfono. Esto es la corrección dentro de la
+    herramienta: se pide sobre la ÚLTIMA anotación del coche, espera en
+    `/solicitudes` y la administración la aprueba (se escribe en la anotación)
+    o la deniega. Mientras está viva, la app de campo enseña las dos cifras:
+    la original y la pendiente de cambio.
+
+    Cuelga de UNA anotación: `km_reading` o `fuel_consumption`, según `kind`.
+    `vehicle` va repetido para acotar por ámbito sin pasar por dos FKs.
+    `changes` es `{campo: valor propuesto}` con solo lo que cambia y
+    `original` la foto de lo que la anotación decía al pedirlo, que es lo que
+    permite leer la petición después de aplicada.
+
+    Una petición viva por anotación. No es `DeactivatableModel`: es el rastro
+    de una petición y su decisión.
+    """
+
+    kind = models.CharField("Clase", max_length=10, choices=ReadingChangeKind.choices)
+    vehicle = models.ForeignKey(
+        "fleet.Vehicle",
+        on_delete=models.CASCADE,
+        related_name="reading_change_requests",
+        verbose_name="Vehículo",
+    )
+    km_reading = models.ForeignKey(
+        "fleet.KmReading",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="change_requests",
+        verbose_name="Lectura de km",
+    )
+    fuel_consumption = models.ForeignKey(
+        "fleet.FuelConsumption",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="change_requests",
+        verbose_name="Consumo",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="Solicitante",
+    )
+    changes = models.JSONField(
+        "Cambios propuestos",
+        default=dict,
+        blank=True,
+        help_text="Solo lo que cambia: {campo: valor propuesto}.",
+    )
+    original = models.JSONField(
+        "Valores originales",
+        default=dict,
+        blank=True,
+        help_text="Lo que la anotación decía al pedirse la corrección.",
+    )
+    note = models.TextField("Nota", blank=True)
+    status = models.CharField(
+        "Estado",
+        max_length=15,
+        choices=ReadingChangeStatus.choices,
+        default=ReadingChangeStatus.PENDING,
+    )
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="Resuelta por",
+    )
+    resolved_at = models.DateTimeField("Resuelta el", null=True, blank=True)
+    resolution_note = models.TextField("Observaciones de la resolución", blank=True)
+
+    class Meta:
+        verbose_name = "petición de corregir una lectura"
+        verbose_name_plural = "peticiónes de corregir una lectura"
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["km_reading"],
+                condition=models.Q(status=ReadingChangeStatus.PENDING),
+                name="unique_pending_km_reading_change",
+            ),
+            models.UniqueConstraint(
+                fields=["fuel_consumption"],
+                condition=models.Q(status=ReadingChangeStatus.PENDING),
+                name="unique_pending_fuel_reading_change",
+            ),
+            # Exactamente una anotación, y la de su clase.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        kind=ReadingChangeKind.KM,
+                        km_reading__isnull=False,
+                        fuel_consumption__isnull=True,
+                    )
+                    | models.Q(
+                        kind=ReadingChangeKind.FUEL,
+                        km_reading__isnull=True,
+                        fuel_consumption__isnull=False,
+                    )
+                ),
+                name="reading_change_one_target",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_kind_display()} {self.vehicle_id} - {self.get_status_display()}"
+
+    @property
+    def target(self):
+        """La anotación sobre la que se pide (lectura de km o consumo)."""
+        return self.km_reading if self.kind == ReadingChangeKind.KM else self.fuel_consumption

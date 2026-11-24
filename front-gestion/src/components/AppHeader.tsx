@@ -33,6 +33,7 @@ import {
   listDocumentSupplyRequests,
   listDriverChangeRequests,
   listIncidentChangeRequests,
+  listReadingChangeRequests,
   listProfileChangeRequests,
   listIncidents,
   listVehicleRequests,
@@ -171,13 +172,15 @@ function ManagementHeader() {
   const [pendingDriverRequests, setPendingDriverRequests] = useState(0)
   const [pendingProfileRequests, setPendingProfileRequests] = useState(0)
   const [pendingIncidentChanges, setPendingIncidentChanges] = useState(0)
+  const [pendingReadingChanges, setPendingReadingChanges] = useState(0)
   const pendingTotal =
     pendingRequests +
     pendingDocRequests +
     pendingSupplyRequests +
     pendingDriverRequests +
     pendingProfileRequests +
-    pendingIncidentChanges
+    pendingIncidentChanges +
+    pendingReadingChanges
 
   // Recuentos "abiertas" para las pestañas y el contador del icono.
   const loadCounts = () => {
@@ -200,6 +203,9 @@ function ManagementHeader() {
       .catch(() => {})
     listIncidentChangeRequests({ status: 'pending' })
       .then((p) => setPendingIncidentChanges(p.count))
+      .catch(() => {})
+    listReadingChangeRequests({ status: 'pending' })
+      .then((p) => setPendingReadingChanges(p.count))
       .catch(() => {})
   }
 
@@ -421,7 +427,9 @@ function ManagementHeader() {
                       ? '/solicitudes?tab=conductores'
                       : pendingProfileRequests > 0
                         ? '/solicitudes?tab=fichas'
-                        : '/solicitudes?tab=partes'
+                        : pendingIncidentChanges > 0
+                          ? '/solicitudes?tab=partes'
+                          : '/solicitudes?tab=lecturas'
             }
             className="shell-iconbtn"
             aria-label={t.shell.pendingRequests(pendingTotal)}

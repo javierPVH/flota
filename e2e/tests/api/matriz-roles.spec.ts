@@ -84,6 +84,7 @@ const MATRIX: Array<[string, Expected]> = [
   ['/api/v1/driver-change-requests/candidates/', P.managementDriver],
   ['/api/v1/profile-change-requests/', P.managementDriver],
   ['/api/v1/incident-change-requests/', P.managementDriver],
+  ['/api/v1/reading-change-requests/', P.managementDriver],
   // --- catálogos ---------------------------------------------------------
   ['/api/v1/catalogs/', P.management],
   ['/api/v1/countries/', P.management],

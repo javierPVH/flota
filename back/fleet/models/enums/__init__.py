@@ -42,6 +42,8 @@ from .request import (
     DriverChangeStatus,
     IncidentChangeStatus,
     ProfileChangeStatus,
+    ReadingChangeKind,
+    ReadingChangeStatus,
     VehicleRequestStatus,
 )
 from .vehicle import (
@@ -101,4 +103,6 @@ __all__ = [
     "DriverChangeStatus",
     "IncidentChangeStatus",
     "ProfileChangeStatus",
+    "ReadingChangeKind",
+    "ReadingChangeStatus",
 ]

@@ -83,6 +83,7 @@ from .request import (
     DriverChangeRequest,
     IncidentChangeRequest,
     ProfileChangeRequest,
+    ReadingChangeRequest,
     VehicleRequest,
 )
 from .vehicle import Vehicle
@@ -161,5 +162,6 @@ __all__ = [
     "DriverChangeRequest",
     "IncidentChangeRequest",
     "ProfileChangeRequest",
+    "ReadingChangeRequest",
     "NotificationSchedule",
 ]

@@ -871,9 +871,21 @@ Dos capas que van **siempre juntas**:
   los valores ANTERIORES de esa entrada sobre la ficha de ahora, por el
   mismo serializer y —en el vehículo— por el mismo `perform_update` que un
   PATCH (eventos de estado, relevo de supervisor…), y la entrada que deja la
-  auditoría se marca con `additional_data["reverts"]`. Solo **ficha y
-  contrato**: lo demás del histórico (asignaciones, reparto, sustituciones,
-  documentos) tiene reglas entre filas que «poner el valor viejo» no respeta.
+  auditoría se marca con `additional_data["reverts"]`. Solo **ficha,
+  contrato y anotaciones** —lecturas de km y consumos, cada una por su
+  serializer: una lectura revertida tampoco hace retroceder el odómetro
+  frente a sus vecinas, y una dada de baja no se revierte—: lo demás del
+  histórico (asignaciones, reparto, sustituciones, documentos) tiene reglas
+  entre filas que «poner el valor viejo» no respeta. Las anotaciones entran
+  ahí porque **la administración puede MODIFICAR la última lectura de km y
+  el último consumo** de cada coche desde «Kilómetros y combustible»
+  (`KmFuelModal`: el lápiz de la primera fila cambia el formulario de
+  registrar por el de corregir, y «Guardar cambio» NO escribe: abre un
+  **aviso** con el antes y el después que solo con «Siguiente» hace el
+  `PATCH`, con lo que cambia y nada más). No crea un registro nuevo, y el
+  cambio se lee en el histórico de la ficha («Kilómetros · Modificación»,
+  «Consumo · Modificación» —`FuelConsumption` está en `AUDITED_MODELS` y en
+  el `history` del vehículo para eso—) con su «Revertir».
   Nunca se revierte la baja lógica (eso es erratas), el tipo del coche (N9),
   el vehículo de un contrato ni un estado a «Devuelto (baja)» (eso es
   «Devolver»), y si la ficha ya tiene esos valores contesta 400 en vez de
@@ -2437,6 +2449,46 @@ Dos capas que van **siempre juntas**:
   la gestión ya la corrigió; `reject` no toca nada. Y cada uno ve **solo las
   suyas**: ni quien supervisa lee las de su gente, que son datos personales de
   otro.
+- **La última lectura de km y el último consumo se CORRIGEN pidiéndolo.**
+  Para quien conduce esas anotaciones son append-only (SEC4), así que una
+  cifra mal tecleada solo se arreglaba por teléfono. Los dos formularios de
+  campo (`KmPane`, `FuelPane`) llevan `ReadingCorrection`: el botón
+  «Corregir la última lectura / anotación» abre un modal cargado con la
+  ÚLTIMA anotación activa del coche y manda **solo lo que cambia** (fecha y
+  cifra) a `POST /reading-change-requests/` (`ReadingChangeRequest` +
+  `services/reading_requests.py`: una viva por anotación, solo sobre la
+  última, del ámbito de escritura). Lo pedido pasa por el MISMO serializer
+  con el que se edita la anotación —fecha no futura, odómetro que no
+  retrocede frente a sus vecinas— al pedirlo y otra vez al aprobarlo. No se
+  guarda nada: mientras está viva, la anotación la lleva en `pending_change`
+  (precargada en los dos listados) y el formulario enseña **las dos cifras**,
+  la original y la pendiente de cambio, sin dejar pedir otra. La decide el
+  **admin** (no la supervisión, que es campo y también pide) en la **séptima
+  pestaña** de `/solicitudes` (`ReadingChangeTab`, `?tab=lecturas`, el globo
+  la cuenta): **aprobarla** escribe la anotación (una lectura estimada
+  corregida por una persona deja de serlo; si ya no cabe, 400 y no toca
+  nada) o **denegarla**. `original` guarda la foto de lo que decía la
+  anotación al pedirlo, que es lo que se lee después. **Y hay una tercera
+  salida que no decide nadie: «Anulada»** (`cancelled`). Registrar una
+  anotación nueva deja a la anterior sin ser la última, así que su
+  corrección pendiente ya no tiene sentido y nadie la vería en campo: la
+  señal `post_save` de `KmReading` / `FuelConsumption` llama a
+  `reading_requests.cancel_superseded`, que anula las vivas cuya anotación
+  ya no es la última (una retrofechada no anula nada) con su porqué y sin
+  actor — vale igual para el alta directa, la cola offline, el cálculo de
+  km faltantes y la importación. **Antes de registrar se avisa**: en campo,
+  `useSupersedeWarning` (`SupersedeWarning.tsx`) lo usan los cuatro
+  formularios que registran —`KmPane`, `FuelPane`, `RegisterKmPage` y el
+  cierre de la alerta de km—, mira en el momento si la última tiene
+  corrección viva y, si la tiene, abre el aviso; solo «Registrar y anular
+  la corrección» sigue (sin cobertura, o si la consulta tarda más de 3 s,
+  deja pasar: el back anulará al llegar). En gestión, `KmFuelModal` avisa
+  igual al registrar. La anulada sale en la bandeja entre las rechazadas
+  (`groupOf`) y en «Mi perfil → Peticiones» entre las resueltas. En «Mi perfil →
+  Peticiones» sale como «Corrección de km / de consumo». El modal va en un
+  portal, pero su envío hace `stopPropagation`: los eventos de React suben
+  por el árbol y, sin eso, llegaban al formulario de registrar que lo
+  contiene y guardaban una lectura nueva.
 - **El parte de una incidencia se MODIFICA proponiéndolo desde el campo.**
   Quien comunicó una incidencia no tiene lápiz en la app de campo (el parte
   se corrige desde gestión), así que cada fila de incidencia —en las tres

@@ -7,9 +7,12 @@ se añade una entrada nueva (la propia auditoría la crea al guardar) marcada
 con `additional_data["reverts"] = <id de la entrada deshecha>`, para que el
 histórico pueda decir «Reversión del cambio de las 09:55».
 
-Solo se revierten la **ficha del vehículo** y su **contrato** (`REVERTIBLE`):
-son lo que edita el formulario de la ficha, y su vuelta atrás pasa por el
-MISMO serializer —con sus validaciones— y, en el vehículo, por el mismo
+Solo se revierten la **ficha del vehículo**, su **contrato** y sus
+**anotaciones** —lecturas de km y consumos— (`REVERTIBLE`): son lo que edita
+el formulario de la ficha y lo que la administración corrige desde
+«Kilómetros y combustible», y su vuelta atrás pasa por el MISMO serializer
+—con sus validaciones: una lectura revertida tampoco puede hacer retroceder
+el odómetro frente a sus vecinas— y, en el vehículo, por el mismo
 `perform_update` que un PATCH (eventos de estado, relevo de supervisor,
 alertas de seguro). El resto de modelos del histórico (asignaciones, reparto
 de uso, sustituciones, documentos…) tienen reglas cruzadas entre filas que un
@@ -25,7 +28,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import JSONField
 from rest_framework.exceptions import ValidationError
 
-from ..models import Contract, Vehicle
+from ..models import Contract, FuelConsumption, KmReading, Vehicle
 from ..models.enums import OUT_OF_FLEET
 
 # Campos que nunca se revierten desde aquí, aunque salgan en el diff:
@@ -48,6 +51,10 @@ _SKIP_ALWAYS = frozenset(
 _SKIP_BY_MODEL: dict[type, frozenset[str]] = {
     Vehicle: frozenset({"is_substitute"}),
     Contract: frozenset({"vehicle"}),
+    # Una anotación no cambia de coche, y «estimada» no es un dato que se
+    # corrija: lo pone el cálculo de km faltantes.
+    KmReading: frozenset({"vehicle", "estimated"}),
+    FuelConsumption: frozenset({"vehicle"}),
 }
 
 
@@ -55,10 +62,23 @@ def _serializer_for(model):
     # Import tardío: serializers importa modelos y servicios; evitar el ciclo.
     from .. import serializers as s
 
-    return {Vehicle: s.VehicleSerializer, Contract: s.ContractSerializer}[model]
+    return {
+        Vehicle: s.VehicleSerializer,
+        Contract: s.ContractSerializer,
+        KmReading: s.KmReadingSerializer,
+        FuelConsumption: s.FuelConsumptionSerializer,
+    }[model]
 
 
-REVERTIBLE: tuple[type, ...] = (Vehicle, Contract)
+def serializer_for(instance):
+    """El serializer con el que se reescribe ese objeto al revertirlo."""
+    return _serializer_for(type(instance))
+
+
+REVERTIBLE: tuple[type, ...] = (Vehicle, Contract, KmReading, FuelConsumption)
+
+#: Los revertibles que CUELGAN del vehículo (todos menos la propia ficha).
+_CHILDREN: tuple[type, ...] = (Contract, KmReading, FuelConsumption)
 
 
 @cache
@@ -122,8 +142,9 @@ def is_revertible(entry: LogEntry) -> bool:
 
 
 def entry_for_vehicle(vehicle: Vehicle, entry_id) -> LogEntry:
-    """La entrada `entry_id` si pertenece al histórico de ESTE vehículo (ficha
-    o uno de sus contratos); si no, `LogEntry.DoesNotExist`."""
+    """La entrada `entry_id` si pertenece al histórico de ESTE vehículo (ficha,
+    uno de sus contratos o una de sus anotaciones); si no,
+    `LogEntry.DoesNotExist`."""
     try:
         pk = int(entry_id)
     except (TypeError, ValueError):
@@ -132,17 +153,25 @@ def entry_for_vehicle(vehicle: Vehicle, entry_id) -> LogEntry:
     model = _model_of(entry)
     if model is Vehicle and str(entry.object_pk) == str(vehicle.pk):
         return entry
-    if model is Contract and Contract.objects.filter(pk=entry.object_id, vehicle=vehicle).exists():
+    if model in _CHILDREN and model.objects.filter(pk=entry.object_id, vehicle=vehicle).exists():
         return entry
     raise LogEntry.DoesNotExist
 
 
 def target_of(entry: LogEntry, vehicle: Vehicle):
-    """El objeto sobre el que se escribe: el propio vehículo o su contrato."""
+    """El objeto sobre el que se escribe: el propio vehículo, su contrato o
+    una de sus anotaciones (lectura de km, consumo)."""
     model = _model_of(entry)
     if model is Vehicle:
         return vehicle
-    return Contract.objects.get(pk=entry.object_id, vehicle=vehicle)
+    target = model.objects.get(pk=entry.object_id, vehicle=vehicle)
+    # Una anotación dada de baja (N7) no se corrige desde el histórico:
+    # primero se restaura en erratas.
+    if getattr(target, "is_active", True) is False:
+        raise ValidationError(
+            {"entry": "Ese registro está dado de baja: restáuralo desde erratas antes de revertir."}
+        )
+    return target
 
 
 def guard(entry: LogEntry, payload: dict, vehicle: Vehicle) -> None:

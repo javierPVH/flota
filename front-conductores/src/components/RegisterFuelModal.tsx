@@ -8,6 +8,8 @@ import { fmtConsumption, fmtDate, todayIso } from '../format.ts'
 import { useLang } from '../i18n.tsx'
 import { isNetworkError, newClientRef, safeEnqueue } from '../offline/queue.ts'
 import type { Vehicle, VehicleSummary } from '../types.ts'
+import { ReadingCorrection } from './ReadingCorrection.tsx'
+import { useSupersedeWarning } from './SupersedeWarning.tsx'
 import { SupervisorModal } from './SupervisorModal.tsx'
 
 /** Coma o punto: el teclado numérico del móvil da lo que da. */
@@ -90,6 +92,10 @@ export function FuelPane({
   // con la misma referencia, así que el back devolvía la primera sin crear
   // nada mientras la pantalla decía «guardado».
   const [clientRef, setClientRef] = useState(newClientRef)
+  // Cada guardado cambia cuál es la última anotación: la corrección la relee.
+  const [savedCount, setSavedCount] = useState(0)
+  // Anotar con una corrección esperando la anula: se avisa antes.
+  const supersede = useSupersedeWarning('fuel')
 
   const value = asNumber(consumption)
   const valueOk = value !== null && !Number.isNaN(value) && value > 0
@@ -98,6 +104,7 @@ export function FuelPane({
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (!valueOk || !dateOk) return
+    if (!(await supersede.check(vehicle.id))) return
     setSaving(true)
     setError('')
     const payload = {
@@ -114,6 +121,7 @@ export function FuelPane({
     const hecho = () => {
       setConsumption('')
       setClientRef(newClientRef())
+      setSavedCount((n) => n + 1)
       onSaved(t.fuel.saved)
     }
     try {
@@ -178,7 +186,11 @@ export function FuelPane({
           )}
         </p>
       )}
+      {/* La última anotación no se edita desde campo: su corrección se PIDE,
+          y mientras espera se leen las dos, la original y la pendiente. */}
+      <ReadingCorrection kind="fuel" vehicleId={vehicle.id} refreshKey={savedCount} />
       {error && <div role="alert" className="form-error">{error}</div>}
+      {supersede.dialog}
       <div className="form-actions">
         {onCancel && (
           <Button type="button" variant="secondary" onClick={onCancel}>{t.common.cancel}</Button>

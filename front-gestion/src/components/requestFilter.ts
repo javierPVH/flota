@@ -24,7 +24,9 @@ export const DEFAULT_GROUPS: RequestGroups = { pending: true, done: false, rejec
  */
 export function groupOf(status: string): RequestGroup {
   if (status === 'pending' || status === 'approved') return 'pending'
-  if (status === 'rejected') return 'rejected'
+  // `cancelled`: la corrección de una lectura que se anuló sola. No se
+  // decidió a favor, así que se lee con las que no salieron adelante.
+  if (status === 'rejected' || status === 'cancelled') return 'rejected'
   return 'done'
 }
 

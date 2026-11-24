@@ -78,6 +78,7 @@ from .models import (
     Pep,
     ProfileChangeRequest,
     Project,
+    ReadingChangeRequest,
     RecipientRole,
     Renting,
     ReportExport,
@@ -112,6 +113,8 @@ from .models.enums import (
     IncidentStatus,
     IncidentType,
     ProfileChangeStatus,
+    ReadingChangeKind,
+    ReadingChangeStatus,
     VehicleRequestStatus,
 )
 from .scoping import (
@@ -161,6 +164,7 @@ from .serializers import (
     PepSerializer,
     ProfileChangeRequestSerializer,
     ProjectSerializer,
+    ReadingChangeRequestSerializer,
     RentingSerializer,
     ReportExportSerializer,
     SiteSerializer,
@@ -193,6 +197,7 @@ from .services import (
     metrics,
     notifications,
     profile_requests,
+    reading_requests,
     reports,
     returns,
     substitution,
@@ -1081,6 +1086,7 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         related_querysets = (
             Contract.objects.filter(vehicle=vehicle),
             KmReading.objects.filter(vehicle=vehicle),
+            FuelConsumption.objects.filter(vehicle=vehicle),
             Assignment.objects.filter(vehicle=vehicle),
             VehicleUsage.objects.filter(vehicle=vehicle),
             Invoice.objects.filter(vehicle=vehicle),
@@ -1135,7 +1141,8 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
         """POST /api/vehicles/{id}/revert-change/ {entry} — deshace un paquete
         de cambios del histórico escribiendo los valores ANTERIORES como una
         modificación nueva (el histórico no se toca; la entrada que nace lleva
-        `reverts`). Solo la ficha y su contrato (`services.audit_revert`); la
+        `reverts`). Solo la ficha, su contrato y sus anotaciones de km y de
+        consumo (`services.audit_revert`); la
         ficha pasa por el mismo `perform_update` que un PATCH, así que un
         estado o un supervisor deshechos dejan su evento como cualquier cambio.
         """
@@ -1154,7 +1161,9 @@ class VehicleViewSet(ScopedByVehicleMixin, viewsets.ModelViewSet):
                 audit_revert.ensure_changes_something(target, serializer.validated_data)
                 self.perform_update(serializer)
             else:
-                serializer = ContractSerializer(
+                # El contrato y las anotaciones (lectura de km, consumo): cada
+                # uno por SU serializer, con sus reglas.
+                serializer = audit_revert.serializer_for(target)(
                     target, data=payload, partial=True, context=self.get_serializer_context()
                 )
                 serializer.is_valid(raise_exception=True)
@@ -2008,6 +2017,16 @@ class ContractViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.M
     ordering_fields = ["start_date", "planned_end_date"]
 
 
+def _pending_change_prefetch():
+    """La corrección pendiente de cada lectura/consumo, en UNA consulta por
+    respuesta (`pending_changes`, que lee `pending_reading_change`)."""
+    return models.Prefetch(
+        "change_requests",
+        queryset=ReadingChangeRequest.objects.filter(status=ReadingChangeStatus.PENDING),
+        to_attr="pending_changes",
+    )
+
+
 class KmReadingViewSet(
     IdempotentCreateMixin, DeactivateOnDestroyMixin, ScopedByVehicleMixin, viewsets.ModelViewSet
 ):
@@ -2023,12 +2042,16 @@ class KmReadingViewSet(
     # Front público (internet): acota las escrituras del conductor.
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
-    queryset = KmReading.objects.select_related("vehicle")
+    queryset = KmReading.objects.select_related("vehicle").prefetch_related(
+        _pending_change_prefetch()
+    )
     # M10: la pantalla de Kilometraje trabaja MES A MES pero se traía todas las
     # lecturas de la flota (histórico completo, ~36 páginas encadenadas en una
     # flota de 500). Con el rango por fecha pide solo la ventana que pinta.
     filterset_fields = {"vehicle": ["exact"], "reading_date": ["exact", "gte", "lte"]}
-    ordering_fields = ["reading_date", "km_reading"]
+    # `id` para desempatar dos lecturas del mismo día (`-reading_date,-id`):
+    # sin él, cuál es «la última» lo decidía la base de datos.
+    ordering_fields = ["reading_date", "km_reading", "id"]
 
     def perform_create(self, serializer):
         # Lectura + evento de negocio (HU-3.1) en una transacción.
@@ -3862,9 +3885,11 @@ class FuelConsumptionViewSet(DeactivateOnDestroyMixin, ScopedByVehicleMixin, vie
     # en las lecturas de km.
     throttle_classes = [UserRateThrottle, PublicWriteThrottle]
     throttle_scope = "public_write"
-    queryset = FuelConsumption.objects.select_related("vehicle")
+    queryset = FuelConsumption.objects.select_related("vehicle").prefetch_related(
+        _pending_change_prefetch()
+    )
     filterset_fields = {"vehicle": ["exact"], "reading_date": ["exact", "gte", "lte"]}
-    ordering_fields = ["reading_date", "avg_consumption"]
+    ordering_fields = ["reading_date", "avg_consumption", "id"]
     ordering = ["-reading_date", "-pk"]
 
     def _require_management(self):
@@ -4852,6 +4877,94 @@ class IncidentChangeRequestViewSet(
             raise ValidationError(
                 {"incident": "La incidencia ya está cerrada: rechaza la petición."}
             ) from None
+        peticion.refresh_from_db()
+        return Response(self.get_serializer(peticion).data)
+
+
+class ReadingChangeRequestViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Peticiones de CORREGIR una lectura de km o un consumo: el campo pide.
+
+    Para quien conduce esas anotaciones son append-only (SEC4); la corrección
+    de la ÚLTIMA se pide desde su formulario y espera en `/solicitudes`
+    (séptima bandeja). Se pide sobre un coche **del ámbito de escritura**
+    (`vehicles_for(write=True)`, donde cuenta el reparto de uso). La decide la
+    **administración**: quien supervisa es personal de campo y también pide.
+    No hay `PUT`/`PATCH`/`DELETE`: una petición se resuelve.
+    """
+
+    serializer_class = ReadingChangeRequestSerializer
+    permission_classes = [ManagementOrDriverReadWrite]
+    throttle_classes = [UserRateThrottle, PublicWriteThrottle]
+    throttle_scope = "public_write"
+    queryset = ReadingChangeRequest.objects.select_related(
+        "vehicle", "km_reading", "fuel_consumption", "requested_by", "resolved_by"
+    )
+    filterset_fields = ["status", "kind", "vehicle"]
+    ordering_fields = ["created_at", "resolved_at"]
+
+    def get_queryset(self):
+        """El admin, todas; quien supervisa, las de su grupo y las suyas;
+        quien conduce, solo las que abrió él."""
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_admin:
+            return qs
+        if user.is_management:
+            return qs.filter(
+                models.Q(vehicle__in=vehicles_for(user).values("id")) | models.Q(requested_by=user)
+            )
+        return qs.filter(requested_by=user)
+
+    def create(self, request, *args, **kwargs):
+        """Pide la corrección (o devuelve la petición ya abierta)."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+        kind = datos["kind"]
+        target = datos["km_reading"] if kind == ReadingChangeKind.KM else datos["fuel_consumption"]
+        # El coche tiene que estar en el ámbito de ESCRITURA de quien pide;
+        # fuera de él, la anotación ni existe.
+        if not vehicles_for(request.user, write=True).filter(pk=target.vehicle_id).exists():
+            raise NotFound()
+        try:
+            peticion = reading_requests.open_request(
+                kind,
+                target,
+                actor=request.user,
+                changes=datos.get("changes") or {},
+                note=datos.get("note", ""),
+            )
+        except reading_requests.ReadingRequestError as exc:
+            raise ValidationError(exc.messages) from None
+        salida = self.get_serializer(peticion)
+        return Response(salida.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    @transaction.atomic
+    def resolve(self, request, pk=None):
+        """POST /reading-change-requests/{id}/resolve/ — la decide el admin.
+
+        Cuerpo: `{"decision": "done" | "reject", "note": "…"}`. `done`
+        **escribe** lo pedido en la anotación; `reject` no toca nada.
+        """
+        peticion = _lock_row(self.get_object())
+        if peticion.status != ReadingChangeStatus.PENDING:
+            raise ValidationError({"status": "Esa petición ya está resuelta."})
+        decision = str(request.data.get("decision", "") or "")
+        if decision not in reading_requests.DECISIONS:
+            raise ValidationError(
+                {"decision": f"Indica una decisión: {', '.join(reading_requests.DECISIONS)}."}
+            )
+        note = str(request.data.get("note", "") or "").strip()[:255]
+        try:
+            reading_requests.resolve(peticion, decision=decision, actor=request.user, note=note)
+        except reading_requests.ReadingRequestError as exc:
+            raise ValidationError(exc.messages) from None
         peticion.refresh_from_db()
         return Response(self.get_serializer(peticion).data)
 

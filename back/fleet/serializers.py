@@ -51,6 +51,7 @@ from .models import (
     Pep,
     ProfileChangeRequest,
     Project,
+    ReadingChangeRequest,
     Renting,
     ReportExport,
     Site,
@@ -93,6 +94,7 @@ from .models.enums import (
     IncidentStatus,
     IncidentType,
     ItvResult,
+    ReadingChangeKind,
     UseType,
     VehicleState,
 )
@@ -110,6 +112,7 @@ from .services import (
     document_supply,
     incident_requests,
     profile_requests,
+    reading_requests,
     vehicle_requests,
 )
 
@@ -676,7 +679,35 @@ class ContractSerializer(serializers.ModelSerializer):
         return _validate_contract_dates(attrs, self.instance)
 
 
+def pending_reading_change(obj) -> dict | None:
+    """La corrección PENDIENTE de una lectura de km o de un consumo, si la hay.
+
+    Solo se lee de lo que el viewset trajo precargado (`pending_changes`): sin
+    ello no se consulta fila a fila (un alta recién creada no tiene ninguna).
+
+    Solo lo que hace falta para enseñar las dos cifras. La NOTA no viaja aquí:
+    la anotación la leen HSE, la supervisión y quien comparta el coche, y lo
+    que alguien le escribió a la administración se lee en la petición.
+    """
+    pendientes = getattr(obj, "pending_changes", None)
+    if not pendientes:
+        return None
+    peticion = pendientes[0]
+    return {
+        "id": peticion.id,
+        "changes": peticion.changes,
+        "created_at": peticion.created_at,
+    }
+
+
 class KmReadingSerializer(serializers.ModelSerializer):
+    #: La corrección que el campo ha pedido y la administración aún no ha
+    #: decidido: la app de campo enseña las dos cifras hasta entonces.
+    pending_change = serializers.SerializerMethodField()
+
+    def get_pending_change(self, obj) -> dict | None:
+        return pending_reading_change(obj)
+
     class Meta:
         model = KmReading
         fields = "__all__"
@@ -775,6 +806,10 @@ class FuelConsumptionSerializer(serializers.ModelSerializer):
     """GAP-2: anotación del consumo medio del ordenador de a bordo en una fecha."""
 
     vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True)
+    pending_change = serializers.SerializerMethodField()
+
+    def get_pending_change(self, obj) -> dict | None:
+        return pending_reading_change(obj)
 
     class Meta:
         model = FuelConsumption
@@ -784,6 +819,7 @@ class FuelConsumptionSerializer(serializers.ModelSerializer):
             "vehicle_plate",
             "reading_date",
             "avg_consumption",
+            "pending_change",
             "created_at",
             "updated_at",
         ]
@@ -4174,6 +4210,100 @@ class IncidentChangeRequestSerializer(serializers.ModelSerializer):
         if not attrs.get("changes") and not str(attrs.get("note", "") or "").strip():
             raise serializers.ValidationError(
                 {"note": "Escribe qué hay que cambiar o propón algún cambio."}
+            )
+        return attrs
+
+
+class ReadingChangeRequestSerializer(serializers.ModelSerializer):
+    """Petición de corregir una lectura de km o un consumo, tal como se lee.
+
+    De entrada viajan la clase, la anotación (`km_reading` o
+    `fuel_consumption`), los cambios y la nota; el vehículo, la foto del
+    original, el estado y el rastro de la resolución los escribe el servidor.
+    `changes_display` trae lo pedido ya legible: campo, lo que decía la
+    anotación AL PEDIRLO y lo que se propone.
+    """
+
+    LABELS = {
+        "reading_date": "Fecha",
+        "km_reading": "Odómetro (km)",
+        "avg_consumption": "Consumo medio",
+    }
+
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True)
+    requested_by_name = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+    changes_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ReadingChangeRequest
+        fields = "__all__"
+        read_only_fields = [
+            "id",
+            "vehicle",
+            "requested_by",
+            "original",
+            "status",
+            "resolved_by",
+            "resolved_at",
+            "resolution_note",
+            "created_at",
+            "updated_at",
+        ]
+
+    @staticmethod
+    def _name(person) -> str:
+        if not person:
+            return ""
+        return person.get_full_name() or person.get_username()
+
+    def get_requested_by_name(self, obj) -> str:
+        return self._name(obj.requested_by)
+
+    def get_resolved_by_name(self, obj) -> str:
+        return self._name(obj.resolved_by)
+
+    def get_changes_display(self, obj) -> list[dict]:
+        campos = reading_requests.EDITABLE_FIELDS.get(obj.kind, {})
+        original = obj.original or {}
+        salida = []
+        for campo, valor in (obj.changes or {}).items():
+            if campo not in campos:
+                continue
+            actual = original.get(campo)
+            salida.append(
+                {
+                    "field": campo,
+                    "label": self.LABELS.get(campo, campo),
+                    "current": "" if actual is None else str(actual),
+                    "proposed": "" if valor is None else str(valor),
+                }
+            )
+        return salida
+
+    def validate_changes(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Se esperaba un objeto {campo: valor}.")
+        limit_json_payload(value, field="changes")
+        return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        kind = attrs.get("kind")
+        km = attrs.get("km_reading")
+        fuel = attrs.get("fuel_consumption")
+        if kind == ReadingChangeKind.KM and (km is None or fuel is not None):
+            raise serializers.ValidationError({"km_reading": "Indica la lectura de km a corregir."})
+        if kind == ReadingChangeKind.FUEL and (fuel is None or km is not None):
+            raise serializers.ValidationError(
+                {"fuel_consumption": "Indica la anotación de consumo a corregir."}
+            )
+        sobra = set(attrs.get("changes") or {}) - set(reading_requests.EDITABLE_FIELDS[kind])
+        if sobra:
+            raise serializers.ValidationError(
+                {"changes": f"No se puede pedir cambiar: {', '.join(sorted(sobra))}."}
             )
         return attrs
 

@@ -16,6 +16,7 @@ from .models import (
     Contract,
     Document,
     DocumentTypeAccess,
+    FuelConsumption,
     Incident,
     Invoice,
     InvoiceAllocation,
@@ -31,6 +32,9 @@ AUDITED_MODELS = (
     Vehicle,
     Contract,
     KmReading,
+    # El consumo medio anotado: la administración puede corregir la última
+    # anotación, y esa corrección se lee —y se revierte— en el histórico.
+    FuelConsumption,
     # El mantenimiento programado del coche: su alta, sus cambios y su
     # retirada se leen en el histórico de la ficha (antes retirarlo no dejaba
     # rastro en ningún sitio que mirara la gestión).
@@ -45,6 +49,7 @@ AUDITED_MODELS = (
     # Quién lee cada tipo de documento: cambiarlo abre o cierra lectura a
     # roles enteros, así que queda quién y cuándo.
     DocumentTypeAccess,
+    FuelConsumption,
     VehicleRequest,
 )
 

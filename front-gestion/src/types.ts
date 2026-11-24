@@ -274,6 +274,8 @@ export interface KmReading {
   km_reading: number | null
   /** N8b: creada por "completar km faltantes" (media de N meses). */
   estimated?: boolean
+  /** La corrección pedida desde campo que la administración aún no ha decidido. */
+  pending_change?: { id: number; changes: Record<string, string | number> } | null
 }
 
 export interface FlotaEvent {

@@ -338,6 +338,92 @@ export const requestIncidentChange = (input: {
   note?: string
 }) => postJson<IncidentChangeRequestRow>(`${API}/incident-change-requests/`, input)
 
+// --- Corregir la última lectura de km o el último consumo ------------------
+
+export type ReadingChangeKind = 'km' | 'fuel'
+
+/** Lo que se puede pedir cambiar: la fecha y la cifra, solo lo que cambia. */
+export interface ReadingChanges {
+  reading_date?: string
+  km_reading?: number
+  avg_consumption?: string
+}
+
+/** La corrección viva de una anotación, tal como viaja en su fila. */
+export interface PendingReadingChange {
+  id: number
+  changes: ReadingChanges
+  created_at: string
+}
+
+/** La última anotación del coche, con su corrección pendiente si la hay. */
+export interface LatestReading {
+  id: number
+  reading_date: string | null
+  km_reading?: number | null
+  avg_consumption?: string | null
+  pending_change: PendingReadingChange | null
+  /** La anotación ANTERIOR a esta (la penúltima), o null si es la primera:
+   * es la referencia al corregir — un odómetro no puede quedar por debajo. */
+  previous?: { reading_date: string | null; km_reading?: number | null; avg_consumption?: string | null } | null
+}
+
+export interface ReadingChangeRequestRow {
+  id: number
+  kind: ReadingChangeKind
+  kind_display: string
+  vehicle: number
+  vehicle_plate: string
+  requested_by: number | null
+  changes: ReadingChanges
+  changes_display: Array<{ field: string; label: string; current: string; proposed: string }>
+  note: string
+  /** `cancelled`: se anuló sola al registrarse una anotación posterior. */
+  status: 'pending' | 'done' | 'rejected' | 'cancelled'
+  status_display: string
+  resolution_note: string
+  created_at: string
+}
+
+/** La ÚLTIMA anotación válida del coche, con el criterio del back: la más
+ * reciente por fecha y, el mismo día, la de id mayor; sin fecha o sin cifra no
+ * cuenta (y sin fecha saldría la primera en un orden descendente). Se piden
+ * unas pocas por si las primeras son de esas. `null` si no hay ninguna. */
+export const latestReading = async (
+  kind: ReadingChangeKind,
+  vehicle: number,
+): Promise<LatestReading | null> => {
+  const recurso = kind === 'km' ? 'km-readings' : 'fuel-consumptions'
+  const page = await getJson<Paginated<LatestReading>>(
+    `${API}/${recurso}/?vehicle=${vehicle}&ordering=-reading_date,-id&page_size=5`,
+  )
+  const validas = page.results.filter(
+    (row) => row.reading_date != null && (row.km_reading ?? row.avg_consumption) != null,
+  )
+  if (validas.length === 0) return null
+  return { ...validas[0], previous: validas[1] ?? null }
+}
+
+/** Las correcciones que uno ha pedido (el back solo sirve las propias). */
+export const listMyReadingChangeRequests = () =>
+  getJson<Paginated<ReadingChangeRequestRow>>(`${API}/reading-change-requests/?${PS}`)
+
+/** Pide corregir la última lectura de km o el último consumo. **No cambia
+ * nada**: llega a administración (`/solicitudes`), que la aprueba o la
+ * deniega; hasta entonces la anotación lleva su `pending_change`. */
+export const requestReadingChange = (input: {
+  kind: ReadingChangeKind
+  reading: number
+  changes: ReadingChanges
+  note?: string
+}) =>
+  postJson<ReadingChangeRequestRow>(`${API}/reading-change-requests/`, {
+    kind: input.kind,
+    [input.kind === 'km' ? 'km_reading' : 'fuel_consumption']: input.reading,
+    changes: input.changes,
+    note: input.note ?? '',
+  })
+
 // --- Pedir un documento que falta -----------------------------------------
 
 /** Petición de que te FACILITEN un documento. Al revés que las otras cuatro

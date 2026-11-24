@@ -756,8 +756,9 @@ describe('VehicleFieldPage (ficha de campo)', () => {
     const dialog = screen.getByRole('dialog', { name: 'Solucionar avería · 1234KLM' })
     await userEvent.click(within(dialog).getByRole('button', { name: 'Continuar' }))
     await userEvent.click(within(dialog).getByRole('button', { name: /Cargar los del coche/ }))
-    // La última lectura del resumen (4679 km), sin teclear cinco dígitos.
-    expect(within(dialog).getByLabelText('Kilometraje')).toHaveValue('4679')
+    // La última lectura del resumen (4679 km), sin teclear cinco dígitos; en
+    // la caja, con su punto de miles (lo que viaja sigue siendo el número).
+    expect(within(dialog).getByLabelText('Kilometraje')).toHaveValue('4.679')
 
     await continuar(dialog, 3)
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cerrar incidencia' }))

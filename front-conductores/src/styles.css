@@ -2030,6 +2030,22 @@ button.bottom-tab {
 }
 .doc-actions { display: inline-flex; gap: 0.3rem; margin-left: auto; }
 .incident-change-hint { display: flex; align-items: flex-start; gap: 0.4rem; }
+
+/* Corregir la última lectura de km / consumo: el botón y, con la corrección
+   pendiente, las dos cifras (la original y la propuesta). */
+.reading-correction { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; }
+.reading-correction-pair {
+  display: flex; flex-direction: column; gap: 0.4rem; width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-warning);
+  border-radius: 10px;
+}
+.reading-correction-current { border-color: var(--color-border); }
+.reading-correction-pair dl { margin: 0; display: grid; gap: 0.25rem; }
+.reading-correction-pair dl > div { display: flex; justify-content: space-between; gap: 0.75rem; }
+.reading-correction-pair dt { color: var(--color-text-muted, inherit); }
+.reading-correction-pair dd { margin: 0; text-align: right; }
+.reading-correction-pair .is-pending dd { color: var(--color-warning); }
 .alert-row { border-left: 3px solid var(--color-border); padding-left: 0.6rem; }
 .alert-row.level-critical { border-left-color: var(--color-danger); }
 .alert-row.level-warning { border-left-color: var(--color-warning); }

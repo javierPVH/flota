@@ -1,3 +1,4 @@
+import { useSupersedeWarning } from './SupersedeWarning.tsx'
 import { useEffect, useState } from 'react'
 import { Button, Modal } from '@flota/ui/ui'
 import { asErrorMessage } from '@flota/ui/http'
@@ -41,6 +42,8 @@ export function AlertResolveModal({
   const { t, language } = useLang()
   const etiqueta = useDomainLabels()
   const isKm = alert.type === 'km_reading_pending' && alert.vehicle !== null
+  // Registrar con una corrección esperando la anula: se avisa antes.
+  const supersede = useSupersedeWarning('km')
   // Los km contratados NO se arreglan con una observación: el coche rueda más
   // de lo que se contrató, y lo que lo cambia es que lo lleve otra persona.
   const isOverage = alert.type === 'km_overage' && alert.vehicle !== null
@@ -98,6 +101,7 @@ export function AlertResolveModal({
   }
 
   async function handleResolve() {
+    if (isKm && !(await supersede.check(alert.vehicle as number))) return
     setSaving(true)
     setError('')
     try {
@@ -248,6 +252,7 @@ export function AlertResolveModal({
             {error}
           </div>
         )}
+        {supersede.dialog}
       </div>
     </Marco>
   )

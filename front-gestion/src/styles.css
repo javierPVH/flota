@@ -2659,7 +2659,12 @@ table.data tbody tr:hover {
 }
 .kmfuel-months li {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* La tercera columna (el lápiz de la última fila) mide lo mismo en
+     todas: cada fila es su propia rejilla, y con `auto` la primera se
+     desalineaba de las demás. */
+  grid-template-columns: 1fr 1fr 7.5rem;
+  align-items: center;
+  justify-items: start;
   gap: 0.6rem;
   padding: 0.35rem 0.6rem;
   border: 1px solid var(--color-border);

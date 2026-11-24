@@ -53,6 +53,18 @@ export function fmtKm(value: number | null | undefined, lang: AppLanguage = 'es'
   return `${value.toLocaleString(LOCALE[lang])} km`
 }
 
+/**
+ * Las cifras de un odómetro A MEDIO TECLEAR, con su separador de miles
+ * («14000» → «14.000»; en inglés, «14,000»). El estado del formulario guarda
+ * solo las cifras; esto es lo que se pinta en la caja mientras se escribe. A
+ * mano y no con `toLocaleString`: en castellano ese no separa los números de
+ * cuatro cifras («9000»), y un odómetro que estrena el punto al llegar a
+ * 10.000 se lee como un fallo.
+ */
+export function groupThousands(digits: string, lang: AppLanguage = 'es'): string {
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, lang === 'en' ? ',' : '.')
+}
+
 /** Decimales que llegan del back como CADENA ("55.50"): litros e importes.
  * `Number` sobre la cadena y dos decimales — nunca `parseFloat` a medias, que
  * con "55.50" y locale español acaba pintando «55.5». */

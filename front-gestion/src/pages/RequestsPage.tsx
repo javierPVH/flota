@@ -13,6 +13,7 @@ import {
   listDocumentSupplyRequests,
   listDriverChangeRequests,
   listIncidentChangeRequests,
+  listReadingChangeRequests,
   listProfileChangeRequests,
   listVehicleRequests,
   listVehicles,
@@ -25,6 +26,8 @@ import { DocumentRequestsTab } from '../components/DocumentRequestsTab.tsx'
 import { DocumentSupplyTab } from '../components/DocumentSupplyTab.tsx'
 import { DriverRequestsTab } from '../components/DriverRequestsTab.tsx'
 import { IncidentChangeTab } from '../components/IncidentChangeTab.tsx'
+import { ReadingChangeTab } from '../components/ReadingChangeTab.tsx'
+import { useReadingRequestsCopy } from '../translations/readingRequests.ts'
 import { ProfileRequestsTab } from '../components/ProfileRequestsTab.tsx'
 import { groupOf, isDefaultView, useRequestFilter } from '../components/requestFilter.ts'
 import { RequestsFilterBar } from '../components/RequestsFilterBar.tsx'
@@ -71,7 +74,8 @@ export function RequestsPage() {
     tabParam === 'pedidos' ||
     tabParam === 'conductores' ||
     tabParam === 'fichas' ||
-    tabParam === 'partes'
+    tabParam === 'partes' ||
+    tabParam === 'lecturas'
       ? tabParam
       : 'vehiculos'
   const [pendingDocs, setPendingDocs] = useState(0)
@@ -79,6 +83,8 @@ export function RequestsPage() {
   const [pendingDrivers, setPendingDrivers] = useState(0)
   const [pendingProfiles, setPendingProfiles] = useState(0)
   const [pendingPartes, setPendingPartes] = useState(0)
+  const [pendingLecturas, setPendingLecturas] = useState(0)
+  const lecturasCopy = useReadingRequestsCopy()
 
   const [requests, setRequests] = useState<VehicleRequestRow[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -179,11 +185,25 @@ export function RequestsPage() {
   }, [])
   useEffect(loadPendingPartes, [loadPendingPartes])
 
+  /** Ídem para las correcciones de la última lectura de km o consumo. */
+  const loadPendingLecturas = useCallback(() => {
+    listReadingChangeRequests({ status: 'pending' })
+      .then((page) => setPendingLecturas(page.count))
+      .catch(() => setPendingLecturas(0))
+  }, [])
+  useEffect(loadPendingLecturas, [loadPendingLecturas])
+
   // Lo que espera decisión, con la de Jira ya aprobada dentro (`groupOf`):
   // a esa también hay que concederle un coche.
   const pendingCount = requests.filter((r) => groupOf(r.status) === 'pending').length
   const pendingTotal =
-    pendingCount + pendingDocs + pendingSupply + pendingDrivers + pendingProfiles + pendingPartes
+    pendingCount +
+    pendingDocs +
+    pendingSupply +
+    pendingDrivers +
+    pendingProfiles +
+    pendingPartes +
+    pendingLecturas
 
   // Memorizado: es la dependencia del filtro de la barra, y recrearlo en
   // cada render volvería a filtrar la bandeja entera sin que nada cambie.
@@ -405,10 +425,13 @@ export function RequestsPage() {
           { key: 'conductores', label: t.tabDrivers, badge: pendingDrivers || undefined },
           { key: 'fichas', label: t.tabProfiles, badge: pendingProfiles || undefined },
           { key: 'partes', label: t.tabIncidents, badge: pendingPartes || undefined },
+          { key: 'lecturas', label: lecturasCopy.tab, badge: pendingLecturas || undefined },
         ]}
       />
 
-      {tab === 'partes' ? (
+      {tab === 'lecturas' ? (
+        <ReadingChangeTab onCountsChange={alDecidir(loadPendingLecturas)} />
+      ) : tab === 'partes' ? (
         <IncidentChangeTab onCountsChange={alDecidir(loadPendingPartes)} />
       ) : tab === 'fichas' ? (
         <ProfileRequestsTab onCountsChange={alDecidir(loadPendingProfiles)} />
