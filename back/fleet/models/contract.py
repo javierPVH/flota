@@ -31,12 +31,15 @@ class Contract(DeactivatableModel, TimeStampedModel):
     )
     penalty_per_km = models.DecimalField(
         "Penalización por km (€)",
-        max_digits=6,
-        decimal_places=3,
+        # Cinco decimales: los contratos de renting traen el precio del km de
+        # exceso así («0,07250 €/km») y con tres se redondeaba al guardarlo.
+        max_digits=8,
+        decimal_places=5,
         null=True,
         blank=True,
-        help_text="€ por km de exceso sobre los contratados; alimenta la "
-        "penalización estimada de la proyección (HU-3.4).",
+        help_text="€ por km de exceso sobre los contratados, con los cinco "
+        "decimales del contrato; alimenta la penalización estimada de la "
+        "proyección (HU-3.4).",
     )
     # Enlace al contrato archivado en Google Drive (carpeta o fichero).
     drive_url = models.CharField(

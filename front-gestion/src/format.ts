@@ -50,6 +50,16 @@ export function fmtEurCents(value: string | number | null, lang: AppLanguage = '
   })
 }
 
+/** Precio del km de exceso, con los CINCO decimales del contrato
+ * («0,07250 €/km»): es una tarifa, y redondeada no coincide con el papel. */
+export function fmtPenaltyPerKm(value: string | number, lang: AppLanguage = 'es'): string {
+  const rate = Number(value).toLocaleString(LOCALE[lang], {
+    minimumFractionDigits: 5,
+    maximumFractionDigits: 5,
+  })
+  return `${rate} €/km`
+}
+
 /** GAP-2: litros ("55,50 l"). El back los manda como cadena decimal. */
 export function fmtLiters(value: string | number | null, lang: AppLanguage = 'es'): string {
   if (value === null || value === '') return '—'

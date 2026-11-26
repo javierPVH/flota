@@ -26,6 +26,7 @@ import {
   fmtConsumption,
   fmtDate,
   fmtEur,
+  fmtEurCents,
   fmtKm,
   itvClass,
   todayIso,
@@ -1291,7 +1292,7 @@ export function DashboardPage() {
           <button type="button" className="kpi-btn" title={t.home.manageHint} onClick={() => setManage('cost')}>
             <StatCard
               label={t.home.kpiCost}
-              value={eur(summary.monthly_cost)}
+              value={fmtEurCents(summary.monthly_cost, language)}
               sub={
                 trend === null
                   ? t.home.kpiCostSub(eur(summary.invoiced_this_month))
@@ -1817,7 +1818,7 @@ export function DashboardPage() {
             <div className="mng-rows">
               <div className="mng-row is-static">
                 <span>{m.monthlyCost}</span>
-                <strong>{eur(summary.monthly_cost)}</strong>
+                <strong>{fmtEurCents(summary.monthly_cost, language)}</strong>
               </div>
               <div className="mng-row is-static">
                 <span>{m.invoicedThis}</span>

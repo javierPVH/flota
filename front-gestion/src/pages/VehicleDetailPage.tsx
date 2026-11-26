@@ -46,6 +46,8 @@ import {
   fmtConsumption,
   fmtDate,
   fmtEur,
+  fmtEurCents,
+  fmtPenaltyPerKm,
   fmtKm,
   kmLevelTone,
   todayIso,
@@ -518,6 +520,9 @@ export function VehicleDetailPage() {
 
   // Formateadores y etiquetas conscientes de idioma (UX1).
   const eur = (value: string | number) => fmtEur(value, lang)
+  // La cuota del contrato, al céntimo: es el importe del alquiler tal como
+  // viene en el contrato, y redondeado a euros no coincidía con el papel.
+  const eurCents = (value: string | number) => fmtEurCents(value, lang)
   const km = (value: number) => fmtKm(value, lang)
   // GAP-2: consumo medio del ordenador de a bordo (dos decimales, sin unidad).
   const consumption = (value: string | null) => fmtConsumption(value, lang)
@@ -857,14 +862,14 @@ export function VehicleDetailPage() {
       return (
         <>
           <dt>{t.monthlyFee}</dt>
-          <dd>{contract?.month_fee ? eur(contract.month_fee) : '—'}</dd>
+          <dd>{contract?.month_fee ? eurCents(contract.month_fee) : '—'}</dd>
           <dt>{t.penalty}</dt>
-          <dd>{contract?.penalty_per_km ? `${contract.penalty_per_km} €/km` : '—'}</dd>
+          <dd>{contract?.penalty_per_km ? fmtPenaltyPerKm(contract.penalty_per_km, lang) : '—'}</dd>
           <dt>{t.duration}</dt>
           <dd>{contract?.contract_time ? t.months(contract.contract_time) : '—'}</dd>
           <dt>{t.kpiCostTotal}</dt>
           <dd>
-            {total != null ? `${eur(total)} · ${t.kpiCostTotalSub}` : '—'}
+            {total != null ? `${eurCents(total)} · ${t.kpiCostTotalSub}` : '—'}
           </dd>
           <dt>{t.kpiCostPenalty}</dt>
           <dd>{projection?.estimated_penalty ? eur(projection.estimated_penalty) : '—'}</dd>
@@ -926,7 +931,7 @@ export function VehicleDetailPage() {
         <dt>{t.contractedKm}</dt>
         <dd>{contract?.contract_km ? km(contract.contract_km) : '—'}</dd>
         <dt>{t.monthlyFee}</dt>
-        <dd>{contract?.month_fee ? eur(contract.month_fee) : '—'}</dd>
+        <dd>{contract?.month_fee ? eurCents(contract.month_fee) : '—'}</dd>
         <dt>{t.contractDrive}</dt>
         <dd>
           {contract && safeHref(contract.drive_url) ? (
@@ -1232,9 +1237,9 @@ export function VehicleDetailPage() {
             >
               <StatCard
                 label={t.monthlyCost}
-                value={contract?.month_fee ? eur(contract.month_fee) : '—'}
+                value={contract?.month_fee ? eurCents(contract.month_fee) : '—'}
                 sub={
-                  contract?.penalty_per_km ? t.penaltySub(contract.penalty_per_km) : t.contractFeeSub
+                  contract?.penalty_per_km ? t.penaltySub(fmtPenaltyPerKm(contract.penalty_per_km, lang)) : t.contractFeeSub
                 }
                 accent="navy"
               />
@@ -1532,7 +1537,7 @@ export function VehicleDetailPage() {
             !accordion.isOpen('contract') && (
               <span className="acc-summary">
                 {label(t.propertyLabel, vehicle.property)}
-                {contract?.month_fee ? ` · ${eur(contract.month_fee)}` : ''}
+                {contract?.month_fee ? ` · ${eurCents(contract.month_fee)}` : ''}
                 {contract?.planned_end_date ? ` · ${contract.planned_end_date}` : ''}
               </span>
             )
@@ -1543,7 +1548,7 @@ export function VehicleDetailPage() {
               <dt>{t.ownership}</dt>
               <dd>{label(t.propertyLabel, vehicle.property)}</dd>
               <dt>{t.monthlyFee}</dt>
-              <dd>{contract.month_fee ? eur(contract.month_fee) : '—'}</dd>
+              <dd>{contract.month_fee ? eurCents(contract.month_fee) : '—'}</dd>
               <dt>{t.start}</dt>
               <dd>{contract.start_date}</dd>
               <dt>{t.plannedEnd}</dt>
@@ -1558,7 +1563,7 @@ export function VehicleDetailPage() {
                   : ''}
               </dd>
               <dt>{t.penalty}</dt>
-              <dd>{contract.penalty_per_km ? `${contract.penalty_per_km} €/km` : '—'}</dd>
+              <dd>{contract.penalty_per_km ? fmtPenaltyPerKm(contract.penalty_per_km, lang) : '—'}</dd>
               <dt>{t.contractDrive}</dt>
               <dd className="contract-drive-cell">
                 {safeHref(contract.drive_url) ? (

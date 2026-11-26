@@ -264,7 +264,9 @@ class CatalogsBundleTests(APITestCase):
             ],
         )
         for clave in resp.data:
-            self.assertEqual(len(resp.data[clave]), 1, clave)
+            # El de combustibles trae además el PHEV que da de alta la 0102.
+            esperados = 2 if clave == "fuel-types" else 1
+            self.assertEqual(len(resp.data[clave]), esperados, clave)
 
     def test_bundle_keeps_the_fields_the_selects_use(self):
         """Mismos objetos que los endpoints sueltos: el alta usa `cost_center`."""

@@ -90,7 +90,11 @@ class FuelCatalogTests(APITestCase):
         Site.objects.create(name="Oficina Almería")
         resp = self.client.get(reverse("catalogs-bundle"))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual([f["name"] for f in resp.data["fuel-types"]], ["GLP"])
+        # El PHEV lo da de alta la migración 0102 en todos los despliegues.
+        self.assertEqual(
+            sorted(f["name"] for f in resp.data["fuel-types"]),
+            ["GLP", "Gasolina - Híbrido enchufable (PHEV)"],
+        )
         self.assertEqual([x["name"] for x in resp.data["sites"]], ["Oficina Almería"])
 
 

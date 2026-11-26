@@ -1227,12 +1227,18 @@ export function VehicleForm({ mode, vehicleId = null, defaultSubstitute = false,
                 <TextInputField
                   label={t.monthFee}
                   type="number"
+                  // Sin `step`, el navegador solo da por buenos los enteros.
+                  step="0.01"
+                  min="0"
                   value={form.month_fee}
                   onChange={setInput('month_fee')}
                 />
                 <TextInputField
                   label={t.penaltyPerKm}
                   type="number"
+                  // Cinco decimales, como viene en el contrato de renting.
+                  step="0.00001"
+                  min="0"
                   value={form.penalty_per_km}
                   onChange={setInput('penalty_per_km')}
                 />

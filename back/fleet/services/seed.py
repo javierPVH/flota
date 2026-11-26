@@ -719,6 +719,8 @@ def seed_vehicles(stdout=None) -> None:
         ("Gas natural licuado", "2.7500"),
         ("Híbrido", "2.0000"),
         ("Vehículo Híbrido Enchufable", "1.2000"),
+        # El mismo que da de alta la migración 0102 en los despliegues.
+        ("Gasolina - Híbrido enchufable (PHEV)", None),
         ("Vehículo Eléctrico de Batería", None),
         ("Otro", None),
     ):

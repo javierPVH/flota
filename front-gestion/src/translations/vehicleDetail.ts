@@ -43,7 +43,8 @@ export const es = {
 
   // --- KPIs ------------------------------------------------------------------
   monthlyCost: 'Coste mensual',
-  penaltySub: (rate: string | number) => `Penalización ${rate} €/km`,
+  /** `rate` llega ya formateado, con sus cinco decimales y la unidad. */
+  penaltySub: (rate: string) => `Penalización ${rate}`,
   contractFeeSub: 'Cuota del contrato',
   mileage: 'Kilometraje',
   manageMileage: 'Gestionar kilometraje',
@@ -540,7 +541,7 @@ export const en: typeof es = {
 
   // --- KPIs ------------------------------------------------------------------
   monthlyCost: 'Monthly cost',
-  penaltySub: (rate) => `Penalty ${rate} €/km`,
+  penaltySub: (rate) => `Penalty ${rate}`,
   contractFeeSub: 'Contract fee',
   mileage: 'Mileage',
   manageMileage: 'Manage mileage',

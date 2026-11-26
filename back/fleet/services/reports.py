@@ -1474,6 +1474,10 @@ def _xlsx_cell(ws, value, *, header: bool = False):
         cell.number_format = XLSX_DATE_FORMAT
     elif isinstance(value, int):
         cell.number_format = XLSX_INT_FORMAT
+    elif isinstance(value, Decimal) and -value.as_tuple().exponent > 2:
+        # Lo que trae más de dos decimales los enseña todos: el precio del km
+        # de exceso va con cinco, y con «0,00» el Excel lo pintaba redondeado.
+        cell.number_format = "#,##0." + "0" * -value.as_tuple().exponent
     elif isinstance(value, float | Decimal):
         cell.number_format = XLSX_DECIMAL_FORMAT
     if header:
