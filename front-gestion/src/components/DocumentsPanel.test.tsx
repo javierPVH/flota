@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
   listAlerts: vi.fn(),
   fetchPickerConfig: vi.fn(),
   updateDocument: vi.fn(),
-  createDocument: vi.fn(),
+  uploadDocument: vi.fn(),
   verifyDocuments: vi.fn(),
   purgeDocument: vi.fn(),
 }))
@@ -32,10 +32,13 @@ vi.mock('../api.ts', async (importOriginal) => ({
   listAlerts: mocks.listAlerts,
   fetchPickerConfig: mocks.fetchPickerConfig,
   updateDocument: mocks.updateDocument,
-  createDocument: mocks.createDocument,
+  uploadDocument: mocks.uploadDocument,
   verifyDocuments: mocks.verifyDocuments,
   purgeDocument: mocks.purgeDocument,
 }))
+
+// Solo se adjunta subiendo el archivo: ni URL ni fichero elegido de Drive.
+const ARCHIVO = new File(['%PDF'], 'documento.pdf', { type: 'application/pdf' })
 
 const incidente = (id: number, type: Incident['type'], status: Incident['status']) =>
   ({
@@ -191,7 +194,7 @@ describe('DocumentsPanel (tabla de documentos)', () => {
     )
     mocks.fetchPickerConfig.mockReset().mockResolvedValue({ enabled: false })
     mocks.updateDocument.mockReset().mockResolvedValue(undefined)
-    mocks.createDocument.mockReset().mockResolvedValue(doc({ id: 9 }))
+    mocks.uploadDocument.mockReset().mockResolvedValue(doc({ id: 9 }))
     // Drive dice que el contrato (#2) ya no está; el seguro sí; el tercero no
     // se pudo comprobar (pendiente, sin id de Drive).
     mocks.verifyDocuments.mockReset().mockResolvedValue({ checked: [1, 2], missing: [2] })
@@ -270,11 +273,12 @@ describe('DocumentsPanel (tabla de documentos)', () => {
       '#8 · Accidente · En curso (2026-09-10)',
     ])
     await userEvent.selectOptions(accidente, 'incident:8')
-    await userEvent.type(within(dialog).getByLabelText(/URL del documento/), 'https://drive/parte')
+    await userEvent.upload(within(dialog).getByLabelText(/Foto o PDF/), ARCHIVO)
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }))
     await waitFor(() =>
-      expect(mocks.createDocument).toHaveBeenCalledWith(
+      expect(mocks.uploadDocument).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'accident_report', incident: 8, event: null, expiry_date: null }),
+        ARCHIVO,
       ),
     )
   })
@@ -306,12 +310,13 @@ describe('DocumentsPanel (tabla de documentos)', () => {
       'Mantenimiento · 2026-06-01',
     ])
     // Ligada a la ITV: viaja `event`, sin incidencia.
-    await userEvent.type(within(dialog).getByLabelText(/URL del documento/), 'https://drive/factura')
+    await userEvent.upload(within(dialog).getByLabelText(/Foto o PDF/), ARCHIVO)
     await userEvent.selectOptions(ligado, 'event:31')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }))
     await waitFor(() =>
-      expect(mocks.createDocument).toHaveBeenCalledWith(
+      expect(mocks.uploadDocument).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'workshop_invoice', event: 31, incident: null }),
+        ARCHIVO,
       ),
     )
   })
@@ -331,11 +336,12 @@ describe('DocumentsPanel (tabla de documentos)', () => {
     )
     expect(within(dialog).getByRole('combobox', { name: /Ligado a incidencia abierta/ })).toHaveValue('none')
     await userEvent.type(within(dialog).getByLabelText(/Fecha de caducidad/), '2028-01-01')
-    await userEvent.type(within(dialog).getByLabelText(/URL del documento/), 'https://drive/contrato')
+    await userEvent.upload(within(dialog).getByLabelText(/Foto o PDF/), ARCHIVO)
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }))
     await waitFor(() =>
-      expect(mocks.createDocument).toHaveBeenCalledWith(
+      expect(mocks.uploadDocument).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'contract', incident: null, event: null, alert: null }),
+        ARCHIVO,
       ),
     )
   })
@@ -363,11 +369,12 @@ describe('DocumentsPanel (tabla de documentos)', () => {
     ])
     await userEvent.selectOptions(itv, 'alert:41')
     await userEvent.type(within(dialog).getByLabelText(/Fecha de caducidad/), '2028-03-01')
-    await userEvent.type(within(dialog).getByLabelText(/URL del documento/), 'https://drive/informe')
+    await userEvent.upload(within(dialog).getByLabelText(/Foto o PDF/), ARCHIVO)
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }))
     await waitFor(() =>
-      expect(mocks.createDocument).toHaveBeenCalledWith(
+      expect(mocks.uploadDocument).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'itv_report', alert: 41, event: null, incident: null }),
+        ARCHIVO,
       ),
     )
   })
@@ -509,14 +516,15 @@ describe('DocumentsPanel (tabla de documentos)', () => {
     expect(within(dialog).queryByRole('combobox', { name: /incidencia|acompaña/i })).toBeNull()
 
     await userEvent.type(within(dialog).getByLabelText(/Fecha de caducidad/), '2031-03-01')
-    await userEvent.type(within(dialog).getByLabelText(/URL del documento/), 'https://drive/permiso')
+    await userEvent.upload(within(dialog).getByLabelText(/Foto o PDF/), ARCHIVO)
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }))
     await waitFor(() =>
-      expect(mocks.createDocument).toHaveBeenCalledWith(
+      expect(mocks.uploadDocument).toHaveBeenCalledWith(
         expect.objectContaining({ user: 5, type: 'driving_license', expiry_date: '2031-03-01' }),
+        ARCHIVO,
       ),
     )
-    expect(mocks.createDocument.mock.calls[0][0]).not.toHaveProperty('vehicle')
+    expect(mocks.uploadDocument.mock.calls[0][0]).not.toHaveProperty('vehicle')
   })
 
   // Quién lee el documento: hasta ahora, cualquier conductor del coche veía
@@ -534,12 +542,13 @@ describe('DocumentsPanel (tabla de documentos)', () => {
 
     await userEvent.click(interruptor)
     await userEvent.type(within(dialog).getByLabelText(/Fecha de caducidad/), '2027-03-01')
-    await userEvent.type(within(dialog).getByLabelText(/URL del documento/), 'https://drive/x')
+    await userEvent.upload(within(dialog).getByLabelText(/Foto o PDF/), ARCHIVO)
     await userEvent.click(within(dialog).getByRole('button', { name: 'Guardar' }))
 
     await waitFor(() =>
-      expect(mocks.createDocument).toHaveBeenCalledWith(
+      expect(mocks.uploadDocument).toHaveBeenCalledWith(
         expect.objectContaining({ shared_read: true, protected: false }),
+        ARCHIVO,
       ),
     )
   })

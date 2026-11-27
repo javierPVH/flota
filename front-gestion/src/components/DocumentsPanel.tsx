@@ -37,7 +37,6 @@ import { TableInfoBar } from './TableInfoBar.tsx'
 
 import {
   connectGoogleUrl,
-  createDocument,
   deleteDocument,
   fetchFolderFiles,
   fetchPickerConfig,
@@ -52,7 +51,6 @@ import {
   verifyDocuments,
   type DocumentInput,
 } from '../api.ts'
-import { openDrivePicker, type PickedFile } from '../services/google-picker.ts'
 import { useDomainLabels } from '../domainLabels.ts'
 import type {
   Alert,
@@ -146,14 +144,6 @@ function VisibilityFields({
   )
 }
 
-interface AttachState {
-  picked: PickedFile | null
-  file: File | null
-  manualUrl: string
-}
-
-const EMPTY_ATTACH: AttachState = { picked: null, file: null, manualUrl: '' }
-
 interface FormState {
   type: string
   expiry_date: string
@@ -239,7 +229,7 @@ export function DocumentsPanel({
   const [modalOpen, setModalOpen] = useState(false)
   const [replacing, setReplacing] = useState<FlotaDocument | null>(null)
   const [form, setForm] = useState<FormState>(() => emptyForm(defaultType))
-  const [attach, setAttach] = useState<AttachState>(EMPTY_ATTACH)
+  const [file, setFile] = useState<File | null>(null)
   const [incidents, setIncidents] = useState<Incident[]>([])
   // Los registros del coche a los que puede acompañar un documento (ITV,
   // mantenimientos, renovaciones de seguro), cargados al abrir el alta.
@@ -308,7 +298,7 @@ export function DocumentsPanel({
           }
         : emptyForm(defaultType),
     )
-    setAttach(EMPTY_ATTACH)
+    setFile(null)
     setFormError('')
     setModalOpen(true)
     // Las incidencias y los registros son del coche: un documento personal no
@@ -436,26 +426,9 @@ export function DocumentsPanel({
     }))
   }
 
-  async function pickFromDrive(mode: 'file' | 'upload') {
-    if (!picker?.access_token || !picker.api_key) return
-    setFormError('')
-    try {
-      const result = await openDrivePicker({
-        accessToken: picker.access_token,
-        apiKey: picker.api_key,
-        appId: picker.app_id,
-        mode,
-      })
-      if (result) setAttach({ picked: result, file: null, manualUrl: '' })
-    } catch (err) {
-      setFormError(asErrorMessage(err, t.pickerError))
-    }
-  }
-
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    const { picked, file, manualUrl } = attach
-    if (!picked && !file && !manualUrl) {
+    if (!file) {
       setFormError(t.attachRequired)
       return
     }
@@ -481,15 +454,7 @@ export function DocumentsPanel({
       protected: form.protected,
     }
     try {
-      if (file) {
-        await uploadDocument(base, file)
-      } else {
-        await createDocument({
-          ...base,
-          drive_url: picked?.url ?? manualUrl,
-          drive_file_id: picked?.id || undefined,
-        })
-      }
+      await uploadDocument(base, file)
       // Sustituir conserva el anterior (`replaces`) y lo marca caducado (HU-4.4).
       if (replacing && replacing.status !== 'expired') {
         await updateDocument(replacing.id, { status: 'expired' })
@@ -933,42 +898,16 @@ export function DocumentsPanel({
 
           <div className="doc-attach">
             <span className="doc-attach-label">{t.fileLabel}</span>
-            {pickerReady && (
-              <div className="doc-attach-drive">
-                <Button type="button" variant="secondary" onClick={() => pickFromDrive('upload')}>
-                  {t.uploadToDrive}
-                </Button>
-                <Button type="button" variant="secondary" onClick={() => pickFromDrive('file')}>
-                  {t.pickFromDrive}
-                </Button>
-              </div>
-            )}
-            {attach.picked ? (
-              <p className="doc-attach-picked">
-                📄 {attach.picked.name}{' '}
-                <Button type="button" variant="secondary" size="sm" onClick={() => setAttach(EMPTY_ATTACH)}>
-                  {t.removeAttachment}
-                </Button>
-              </p>
-            ) : (
-              <>
-                <FileField
-                  label={t.filePickLabel}
-                  accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
-                  value={attach.file}
-                  onFiles={(files) =>
-                    setAttach({ picked: null, file: files[0] ?? null, manualUrl: '' })
-                  }
-                />
-                <TextInputField
-                  label={t.urlLabel}
-                  value={attach.manualUrl}
-                  onChange={(e) => setAttach({ picked: null, file: null, manualUrl: e.target.value })}
-                  placeholder="https://drive.google.com/…"
-                  disabled={Boolean(attach.file)}
-                />
-              </>
-            )}
+            {/* Solo se sube el archivo: un enlace o un fichero elegido del Drive
+                de quien adjunta se quedaba en SU unidad, con sus permisos, y el
+                resto recibía el «solicitar acceso» de Google. El archivo subido
+                lo lleva el archivador a la carpeta de la flota. */}
+            <FileField
+              label={t.filePickLabel}
+              accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
+              value={file}
+              onFiles={(files) => setFile(files[0] ?? null)}
+            />
           </div>
 
           {formError && <div role="alert" className="form-error">{formError}</div>}

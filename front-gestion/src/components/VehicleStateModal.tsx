@@ -5,7 +5,6 @@ import { isLinkActive } from '@flota/ui/domain'
 
 import {
   closeVehicleLink,
-  createDocument,
   createIncident,
   createVehicleLink,
   listAll,
@@ -222,7 +221,6 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
   const docCopy = usePanelsCopy().documents
   const [docType, setDocType] = useState<string>(STATE_DOC_TYPE[vehicle.state || ''] ?? 'other')
   const [docFiles, setDocFiles] = useState<File[]>([])
-  const [docUrl, setDocUrl] = useState('')
   const docTypeOptions = useMemo(
     () => DOC_TYPES.map((value) => ({ value, label: docCopy.typeOptions[value] })),
     [docCopy],
@@ -644,7 +642,7 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
     // El cuerpo lo pone la plantilla: basta con elegir destinatario. El texto
     // escrito es un añadido opcional ({{mensaje}}), no el comunicado entero.
     const wantCom = canExtras && (toDriver || toSupervisor)
-    const wantDocs = canExtras && (docFiles.length > 0 || docUrl.trim() !== '')
+    const wantDocs = canExtras && docFiles.length > 0
     const wantManage = gestionaTaller && /^[0-9]{5}$/.test(managePostalCode)
     if (!opensPetition && !wantState && !wantLink && !wantCom && !wantDocs) {
       setError(t.ops.nothingToDo)
@@ -747,10 +745,6 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
           await uploadDocument({ vehicle: vehicle.id, type: docType }, file)
           docsCount += 1
         }
-        if (docUrl.trim()) {
-          await createDocument({ vehicle: vehicle.id, type: docType, drive_url: docUrl.trim() })
-          docsCount += 1
-        }
       }
       // 3) Comunicado por email (best-effort; devuelve enviados / omitidos).
       let comInfo = ''
@@ -850,7 +844,6 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
     setManagePostalCode('')
     setPriority(DEFAULT_PRIORITY)
     setDocFiles([])
-    setDocUrl('')
     setMessage('')
     setToDriver(false)
     setToSupervisor(false)
@@ -1237,12 +1230,6 @@ export function VehicleStateModal({ vehicle, allVehicles, links, onClose, onDone
               accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
               value={docFiles}
               onFiles={setDocFiles}
-            />
-            <TextInputField
-              label={t.ops.docUrl}
-              value={docUrl}
-              placeholder={t.ops.docUrlPlaceholder}
-              onChange={(e) => setDocUrl(e.target.value)}
             />
             <p className="muted ops-note">{t.ops.docNote}</p>
           </fieldset>

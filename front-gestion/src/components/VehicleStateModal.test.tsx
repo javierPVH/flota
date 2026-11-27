@@ -283,7 +283,8 @@ describe('VehicleStateModal (Estado · matrícula)', () => {
     expect(screen.getByLabelText('Código postal de la ubicación')).toBeEnabled()
     expect(screen.getByLabelText('Mensaje adicional (opcional)')).toBeEnabled()
     expect(screen.getByText('Archivos del estado')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('https://drive.google.com/…')).toBeEnabled()
+    // Solo archivos: el enlace de Drive ya no se ofrece.
+    expect(screen.queryByPlaceholderText('https://drive.google.com/…')).toBeNull()
   })
 
   it('un estado con parte abre su petición y guarda su ubicación', async () => {

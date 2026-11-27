@@ -4,7 +4,7 @@ import { TableWithPanel, type TableWithPanelColumn } from '@flota/ui/table'
 import { asErrorMessage } from '@flota/ui/http'
 import { ExternalLink, ShieldCheck } from 'lucide-react'
 
-import { createDocument, uploadDocument, type DocumentTypeAccess } from '../api.ts'
+import { uploadDocument, type DocumentTypeAccess } from '../api.ts'
 import { documentExpires, incidentTypeRequiredBy } from '../documentRules.ts'
 import { documentStatusTone } from '../format.ts'
 import { usePanelsCopy } from '../translations/panels.ts'
@@ -140,10 +140,7 @@ export function DocumentsReport({
     expiry_date: '',
     notes: '',
   })
-  const [attach, setAttach] = useState<{ file: File | null; manualUrl: string }>({
-    file: null,
-    manualUrl: '',
-  })
+  const [file, setFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const closeModal = useCallback(() => setModalOpen(false), [])
@@ -166,7 +163,7 @@ export function DocumentsReport({
     // conducir (titular usuario).
     const initial = type && !incidentTypeRequiredBy(type) ? type : 'driving_license'
     setForm({ type: initial, vehicle: '', user: '', expiry_date: '', notes: '' })
-    setAttach({ file: null, manualUrl: '' })
+    setFile(null)
     setFormError('')
     setModalOpen(true)
   }
@@ -177,7 +174,7 @@ export function DocumentsReport({
       setFormError(docsCopy.ownerRequired)
       return
     }
-    if (!attach.file && !attach.manualUrl) {
+    if (!file) {
       setFormError(t.attachRequired)
       return
     }
@@ -195,8 +192,7 @@ export function DocumentsReport({
       notes: form.notes || undefined,
     }
     try {
-      if (attach.file) await uploadDocument(base, attach.file)
-      else await createDocument({ ...base, drive_url: attach.manualUrl })
+      await uploadDocument(base, file)
       setModalOpen(false)
       onCreated()
     } catch (err) {
@@ -658,15 +654,8 @@ export function DocumentsReport({
             <FileField
               label={t.filePickLabel}
               accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
-              value={attach.file}
-              onFiles={(files) => setAttach({ file: files[0] ?? null, manualUrl: '' })}
-            />
-            <TextInputField
-              label={t.urlLabel}
-              value={attach.manualUrl}
-              onChange={(e) => setAttach({ file: null, manualUrl: e.target.value })}
-              placeholder="https://drive.google.com/…"
-              disabled={Boolean(attach.file)}
+              value={file}
+              onFiles={(files) => setFile(files[0] ?? null)}
             />
           </div>
           {formError && <div role="alert" className="form-error">{formError}</div>}
